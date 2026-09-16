@@ -970,8 +970,16 @@ class TestFillPrioritySocTickSnapshot:
         if end < 0:
             end = len(src)
         slice_ = src[idx:end]
-        assert "fill_priority_soc_tick = int(self._fill_priority_soc)" in slice_, (
-            "B-M3: tick-snapshot assignment missing"
+        # v4.7.6 B-M3 required a snapshot line. EC-SOC-LADDER-XVALIDATE-1
+        # D2 STRENGTHENED that snapshot to read through
+        # safely_ordered_ladder() (Bug Class #53 seal). Accept EITHER the
+        # historical literal OR the accessor-routed variant.
+        assert (
+            "fill_priority_soc_tick = int(self._fill_priority_soc)" in slice_
+            or "fill_priority_soc_tick = (\n" in slice_
+            and "safely_ordered_ladder()" in slice_
+        ), (
+            "B-M3 / EC-SOC-LADDER-XVALIDATE-1: tick-snapshot assignment missing"
         )
         # Both EV and plug fill_priority call sites must pass the snapshot.
         assert slice_.count("soc_threshold=fill_priority_soc_tick") >= 2, (

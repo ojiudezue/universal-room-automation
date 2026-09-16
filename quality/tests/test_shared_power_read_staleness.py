@@ -500,6 +500,12 @@ class TestD4DCallSiteWireInBehavioral:
             _now_plug=_now_plug,
             force_charge_active=force_charge_active,
             list=list,
+            # EC-SOC-LADDER-XVALIDATE-1 D2: extracted call sites now read
+            # ev_battery_drain_soc_tick (the accessor-routed snapshot from
+            # the actuation block). Inject a concrete tick value so exec
+            # can resolve the name — the value itself is not under test
+            # here (this test checks battery_power_unknown wiring).
+            ev_battery_drain_soc_tick=20,
         )
         exec(compile(block, "<call-site>", "exec"), local_ns)
         return captured

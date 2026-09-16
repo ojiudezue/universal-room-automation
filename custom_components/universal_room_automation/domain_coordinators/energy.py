@@ -3930,11 +3930,15 @@ class EnergyCoordinator(BaseCoordinator):
             env = self.soc_envelope()
         except Exception:  # noqa: BLE001
             env = None
+        # EC-SOC-LADDER-XVALIDATE-1 D2: route through the safe accessor
+        # so a live Number inversion cannot push the drain target below
+        # reserve_soc for the blind-window liveness-release decision.
         drain_target = None
         try:
-            drain_target = int(
-                getattr(self, "_ev_battery_drain_soc", None) or 0
-            ) or None
+            _v = self.safely_ordered_ladder().get("ev_battery_drain_soc")
+            if _v is None:
+                _v = getattr(self, "_ev_battery_drain_soc", None)
+            drain_target = int(_v or 0) or None
         except Exception:  # noqa: BLE001
             drain_target = None
 
@@ -6022,8 +6026,28 @@ class EnergyCoordinator(BaseCoordinator):
             # that ExcessSolarSOCNumber.async_set_native_value can land
             # between the excess-solar branch read at line ~2192 and any
             # downstream readers. Mirrors the B-M3 fix exactly.
-            fill_priority_soc_tick = int(self._fill_priority_soc)
-            excess_solar_soc_tick = int(self._excess_solar_soc)
+            # EC-SOC-LADDER-XVALIDATE-1 D2: read the tick snapshot through
+            # the safe-ordered accessor so a live Number inversion cannot
+            # flip a band polarity mid-tick. `_ladder_tick` is authored
+            # ONCE within the actuation block and threaded through every
+            # downstream reader in this tick (drain gate, fill-priority
+            # gate, plug drain gate, NM trip message). Sub-branches read
+            # the tick-local names (fill_priority_soc_tick / etc.), never
+            # re-call the accessor mid-tick — that would re-introduce the
+            # B-M3 mid-tick race the snapshot fixes.
+            _ladder_tick = self.safely_ordered_ladder()
+            _fp = _ladder_tick.get("fill_priority_soc")
+            _es = _ladder_tick.get("excess_solar_soc")
+            _evd = _ladder_tick.get("ev_battery_drain_soc")
+            fill_priority_soc_tick = (
+                int(_fp) if _fp is not None else int(self._fill_priority_soc)
+            )
+            excess_solar_soc_tick = (
+                int(_es) if _es is not None else int(self._excess_solar_soc)
+            )
+            ev_battery_drain_soc_tick = (
+                int(_evd) if _evd is not None else int(self._ev_battery_drain_soc)
+            )
 
             # Execute actions (skipped in observation mode)
             if not self._observation_mode:
@@ -6175,7 +6199,8 @@ class EnergyCoordinator(BaseCoordinator):
                 # decision input); mirrors the EV-side controller's
                 # own recompute inside determine_battery_drain_actions.
                 try:
-                    _soc_thr = int(self._ev_battery_drain_soc)
+                    # EC-SOC-LADDER-XVALIDATE-1 D2: read tick snapshot.
+                    _soc_thr = int(ev_battery_drain_soc_tick)
                     self._last_soc_recovered = bool(
                         solar_replenishing
                         and self._battery.battery_soc is not None
@@ -6195,7 +6220,8 @@ class EnergyCoordinator(BaseCoordinator):
                 drain_actions = self._ev.determine_battery_drain_actions(
                     battery_power_w=_bp,
                     battery_soc=self._battery.battery_soc,
-                    soc_threshold=self._ev_battery_drain_soc,
+                    # EC-SOC-LADDER-XVALIDATE-1 D2: read tick snapshot.
+                    soc_threshold=ev_battery_drain_soc_tick,
                     reserve_soc=_release_floor,
                     solar_replenishing=solar_replenishing,
                     is_offpeak=_is_offpeak,
@@ -6358,7 +6384,8 @@ class EnergyCoordinator(BaseCoordinator):
                 plug_drain_actions = self._smart_plugs.determine_battery_drain_actions(
                     battery_power_w=_bp_plug,
                     battery_soc=self._battery.battery_soc,
-                    soc_threshold=self._ev_battery_drain_soc,
+                    # EC-SOC-LADDER-XVALIDATE-1 D2: read tick snapshot.
+                    soc_threshold=ev_battery_drain_soc_tick,
                     reserve_soc=_release_floor,
                     force_charge_active=force_charge_active,
                     solar_replenishing=solar_replenishing,
@@ -9262,34 +9289,46 @@ class EnergyCoordinator(BaseCoordinator):
             _LOGGER.debug("ladder anomaly emit failed (swallowed)", exc_info=True)
 
     def safely_ordered_ladder(self) -> dict[str, int | None]:
-        """Return a partial safe-ordered view of the SOC ladder.
+        """Return a safe-ordered view of the CONSUMED cross-field pairs.
 
-        SCOPE (A-MED-3/B3 fix-up): this accessor clamps ONLY the two
-        cross-field pairs listed below. It does NOT enforce the drain
-        ladder monotonic invariant, the peak_buffer_target > top-drain
-        invariant, or the inclement-partial-hold floor invariant. There
-        is currently NO consumer of this method; it exists as scaffolding
-        for a future "read the ladder pre-clamped" pattern. When adopting
-        it, ensure the missing invariants are added here first (Bug Class
-        #53 — "computed but not consumed" is only OK while there IS no
-        consumer).
+        SCOPE (EC-SOC-LADDER-XVALIDATE-1 D1 — reviewer-corrected): this
+        accessor clamps ONLY the two cross-field pairs that have LIVE
+        CONSUMERS today. It does NOT enforce:
+          * Invariant #1 (drain_targets monotonic non-decreasing)
+          * Invariant #2 (peak_buffer_target > top-drain)
+          * Invariant #6 (inclement_partial_hold_reserve_floor >= reserve)
+        Those three invariants remain detect-only via
+        :meth:`_check_threshold_ladder` (anomaly emit) + config-flow
+        save-time reject; adding clamps here without consumer wiring
+        would be dead coverage (Bug Class #53 — clamping something no
+        one reads). Full wiring of #1/#2/#6 is tracked as a separate
+        cycle.
 
         Clamps applied:
-          * ``ev_battery_drain_soc`` raised UP to ``reserve_soc`` when below
-          * ``fill_priority_soc`` clamped DOWN to ``excess_solar_soc`` when
-            above (so the fill band still ends where excess-solar begins)
+          * Invariant #4: ``fill_priority_soc`` clamped DOWN to
+            ``excess_solar_soc`` when above (so the fill band still ends
+            where excess-solar begins).
+          * Invariant #5: ``ev_battery_drain_soc`` raised UP to
+            ``reserve_soc`` when below (EV drain-pause floor cannot go
+            below the safety reserve).
 
-        Bare, unclamped attrs remain the source of truth for display.
+        Display surfaces (``ev_status`` / ``get_energy_summary`` /
+        NM-trip message) route through this accessor too, so a rendered
+        target-SOC never disagrees with the actuation-tick decision.
+        Truly raw (unclamped) attrs remain accessible via the property
+        getters for callers that intentionally want the operator-set
+        value (e.g. options-flow round-trip, validator input).
         """
         reserve = int(getattr(self._battery, "reserve_soc", 0) or 0)
         fill_priority = getattr(self, "_fill_priority_soc", None)
         excess_solar = getattr(self, "_excess_solar_soc", None)
         ev_drain = getattr(self, "_ev_battery_drain_soc", None)
-        # ev_drain cannot go below reserve.
+        # Invariant #5: ev_drain cannot go below reserve.
         if ev_drain is not None and int(ev_drain) < reserve:
             ev_drain = reserve
-        # fill_priority cannot exceed excess_solar (clamp fill_priority
-        # DOWN so the fill band still ends where excess-solar begins).
+        # Invariant #4: fill_priority cannot exceed excess_solar (clamp
+        # fill_priority DOWN so the fill band still ends where excess-
+        # solar begins).
         if (
             fill_priority is not None
             and excess_solar is not None
@@ -9701,11 +9740,29 @@ class EnergyCoordinator(BaseCoordinator):
         try:
             # v4.7.6 fix-up B-M3: prefer tick-snapshot threshold for the
             # message body. Falls back to live attr if caller didn't pass.
-            target_soc_for_msg = (
-                int(fill_priority_soc_tick)
-                if fill_priority_soc_tick is not None
-                else int(self._fill_priority_soc)
-            )
+            # EC-SOC-LADDER-XVALIDATE-1 D2: caller-supplied tick snapshot
+            # is preferred (already routed through the safe accessor at
+            # the top of the actuation block). Fallback path also reads
+            # through the accessor so a message emitted outside a tick
+            # cannot leak an inverted raw attr.
+            if fill_priority_soc_tick is not None:
+                target_soc_for_msg = int(fill_priority_soc_tick)
+            else:
+                # LOW fix (B-LOW): guard the display-surface accessor
+                # call — a malformed ladder must not take down the NM
+                # message. Fall back to the raw attr if the accessor
+                # raises for any reason.
+                try:
+                    _fp_safe = (
+                        self.safely_ordered_ladder().get("fill_priority_soc")
+                    )
+                except Exception:  # noqa: BLE001
+                    _fp_safe = None
+                target_soc_for_msg = (
+                    int(_fp_safe)
+                    if _fp_safe is not None
+                    else int(self._fill_priority_soc)
+                )
             await self._send_nm_alert(
                 title="EVSE Paused for Battery Fill",
                 message=(
@@ -9784,17 +9841,29 @@ class EnergyCoordinator(BaseCoordinator):
         and bridges in the SmartPlugController status so L1 plugs appear
         as peer entries with the same 6-key shape as EVSEs.
         """
+        # EC-SOC-LADDER-XVALIDATE-1 D2: read fill-priority through the safe
+        # accessor once per call so status surfaces cannot render an
+        # inverted band. Fall back to the raw attr if the accessor
+        # returned None OR raised (LOW fix B-LOW: display-surface must
+        # not depend on a healthy ladder).
+        try:
+            _fp_safe = self.safely_ordered_ladder().get("fill_priority_soc")
+        except Exception:  # noqa: BLE001
+            _fp_safe = None
+        _fp_status = (
+            int(_fp_safe) if _fp_safe is not None else self._fill_priority_soc
+        )
         try:
             # v4.7.6 fix-up C-H1 / A-L3: thread the configured target SOC
             # into the plug surface so its `pause_reason_human` renders the
             # peer-shaped target string (matches EV format).
             plug_status = self._smart_plugs.get_status(
-                fill_priority_target_soc=self._fill_priority_soc,
+                fill_priority_target_soc=_fp_status,
             )
         except Exception:  # pragma: no cover — defensive
             plug_status = {}
         status = self._ev.get_status(
-            fill_priority_target_soc=self._fill_priority_soc,
+            fill_priority_target_soc=_fp_status,
             plug_status=plug_status,
         )
         # SolarFollowController D1 §6 — merge modulation attrs (read-only,
@@ -10575,16 +10644,27 @@ class EnergyCoordinator(BaseCoordinator):
         """Return comprehensive energy state for diagnostics."""
         tou_info = self._tou.get_period_info()
         battery_status = self._battery.get_status()
+        # v4.7.6 fix-up C-H1: thread target SOC for consistent rendering.
+        # EC-SOC-LADDER-XVALIDATE-1 D2: read fill-priority through the safe
+        # accessor once so this diagnostics snapshot cannot render an
+        # inverted band. LOW fix (B-LOW): guard the accessor — a
+        # malformed ladder must not take down get_energy_summary.
+        try:
+            _fp_safe = self.safely_ordered_ladder().get("fill_priority_soc")
+        except Exception:  # noqa: BLE001
+            _fp_safe = None
+        _fp_summary = (
+            int(_fp_safe) if _fp_safe is not None else self._fill_priority_soc
+        )
         return {
             "tou": tou_info,
             "battery": battery_status,
             "pool": self._pool.get_status(),
-            # v4.7.6 fix-up C-H1: thread target SOC for consistent rendering.
             "ev": self._ev.get_status(
-                fill_priority_target_soc=self._fill_priority_soc,
+                fill_priority_target_soc=_fp_summary,
             ),
             "smart_plugs": self._smart_plugs.get_status(
-                fill_priority_target_soc=self._fill_priority_soc,
+                fill_priority_target_soc=_fp_summary,
             ),
             "circuits": self._circuits.get_status(),
             "generator": self._generator.get_status(),

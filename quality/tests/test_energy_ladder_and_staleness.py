@@ -29,6 +29,7 @@ bootstrap_energy_imports()
 # tzinfo is None. `_state_age_s` refuses to compute age on naive stamps
 # (returns None → gate passes), which would silently make our staleness
 # tests non-discriminating when run in the same pytest process.
+import os
 import sys as _sys
 from datetime import datetime as _dt, timezone as _tz
 _dtmod = _sys.modules.get("homeassistant.util.dt")
@@ -233,8 +234,6 @@ class TestSafelyOrderedLadder:
         c._fill_priority_soc = 30
         c._excess_solar_soc = 80
         c._ev_battery_drain_soc = 25
-        # Bind the real bound-method to this SimpleNamespace so we
-        # exercise production code, not a copy.
         from custom_components.universal_room_automation.domain_coordinators.energy import (
             EnergyCoordinator,
         )
@@ -258,6 +257,22 @@ class TestSafelyOrderedLadder:
         c._fill_priority_soc = 90  # above excess_solar=80
         out = c.safely_ordered_ladder()
         assert out["fill_priority_soc"] == 80  # clamped down
+
+    def test_accessor_scope_only_consumed_pairs(self):
+        # Reviewer-corrected scope: accessor exposes ONLY the two pairs
+        # with LIVE consumers today (#4 fill_priority / #5 ev_drain).
+        # Invariants #1/#2/#6 stay detect-only (validator + anomaly);
+        # clamping them here without consumer wiring would be dead
+        # coverage (Bug Class #53 inverse) and would surface real bugs
+        # (peak_buffer > 100, dropped "unknown" drain quality, etc.).
+        c = self._make_coord()
+        out = c.safely_ordered_ladder()
+        assert set(out.keys()) == {
+            "reserve_soc",
+            "fill_priority_soc",
+            "excess_solar_soc",
+            "ev_battery_drain_soc",
+        }
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -728,3 +743,314 @@ class TestConfigFlowLadderSaveTimeGate:
         errors = result.get("errors") or {}
         assert errors.get("base") == "inclement_partial_hold_below_reserve"
         assert CONF_INCLEMENT_PARTIAL_HOLD_RESERVE_FLOOR not in errors, errors
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# D2 — wire-in anchors for switched consumers
+# ──────────────────────────────────────────────────────────────────────────
+#
+# Each anchor is a behavioural test that FAILS if the enclosing site reads
+# the raw attr instead of routing through safely_ordered_ladder(). The
+# mutation drill for the whole cohort is a one-line neuter of the accessor
+# itself: rebind safely_ordered_ladder to return the raw attrs (identity)
+# and rerun — every anchor below flips to the raw value and fails.
+
+
+def _bind_ladder(c, method):
+    """Bind the real `safely_ordered_ladder` bound-method onto a
+    SimpleNamespace so we exercise production code, not a copy."""
+    from custom_components.universal_room_automation.domain_coordinators.energy import (
+        EnergyCoordinator,
+    )
+    c.safely_ordered_ladder = EnergyCoordinator.safely_ordered_ladder.__get__(c)
+
+
+class TestFillPriorityStatusRoutesThroughAccessor:
+    """energy.py:9792/9797 (ev_status) + 10695 (get_energy_summary) — fill-
+    priority target SOC threaded into downstream controllers MUST be the
+    accessor's clamped value, not the raw attr."""
+
+    def _make_coord(self, fp_raw=90, es=80):
+        import types
+        c = types.SimpleNamespace()
+        battery = types.SimpleNamespace(
+            reserve_soc=20,
+            _drain_targets={"excellent": 20, "good": 25, "moderate": 30,
+                            "poor": 35, "very_poor": 40},
+            _peak_buffer_target=80,
+        )
+        battery._inclement_config = lambda: {"partial_hold_reserve_floor": 30}
+        c._battery = battery
+        c._fill_priority_soc = fp_raw
+        c._excess_solar_soc = es
+        c._ev_battery_drain_soc = 25
+        # Spies: record the target-SOC threaded through.
+        c._observed = {}
+        def _spy_ev(**kw):
+            c._observed["ev"] = kw.get("fill_priority_target_soc")
+            return {}
+        def _spy_plug(**kw):
+            c._observed["plug"] = kw.get("fill_priority_target_soc")
+            return {}
+        c._ev = types.SimpleNamespace(get_status=_spy_ev)
+        c._smart_plugs = types.SimpleNamespace(get_status=_spy_plug)
+        # Unused-but-referenced tail bits for get_energy_summary + ev_status.
+        c._solar_follow = None
+        c._tou = types.SimpleNamespace(
+            get_period_info=lambda: {},
+            get_current_period=lambda: "off_peak",
+        )
+        c._pool = types.SimpleNamespace(get_status=lambda: {})
+        c._circuits = types.SimpleNamespace(get_status=lambda: {})
+        c._generator = types.SimpleNamespace(get_status=lambda: {})
+        c._billing = types.SimpleNamespace(get_status=lambda: {})
+        c._predictor = types.SimpleNamespace(_get_current_prediction=lambda: {})
+        c._accuracy = types.SimpleNamespace(get_status=lambda: {})
+        c._last_battery_decision = {}
+        c._energy_situation = "normal"
+        c.load_shedding_active = False
+        c._decision_interval = 5
+        c._tou_transition_count = 0
+        c.hvac_constraint = None
+        # RAW inverted: raw fill_priority=90, excess_solar=80 → safe=80.
+        battery.get_status = lambda: {}
+        battery.envoy_available = True
+        _bind_ladder(c, "safely_ordered_ladder")
+        return c
+
+    def test_ev_status_reads_clamped_fill_priority(self):
+        # Bind the real ev_status property from EnergyCoordinator.
+        from custom_components.universal_room_automation.domain_coordinators.energy import (
+            EnergyCoordinator,
+        )
+        c = self._make_coord(fp_raw=90, es=80)
+        # Invoke the property's fget so we exercise production code.
+        EnergyCoordinator.ev_status.fget(c)
+        # Both spies should have observed the CLAMPED value (80), not 90.
+        assert c._observed["ev"] == 80, (
+            f"ev.get_status received raw fill_priority; "
+            f"expected clamp to 80, got {c._observed['ev']!r} — "
+            f"site energy.py:~9797 regressed to raw attr"
+        )
+        assert c._observed["plug"] == 80, (
+            f"smart_plugs.get_status received raw fill_priority; "
+            f"expected clamp to 80, got {c._observed['plug']!r} — "
+            f"site energy.py:~9792 regressed to raw attr"
+        )
+
+    def test_get_energy_summary_reads_clamped_fill_priority(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy import (
+            EnergyCoordinator,
+        )
+        c = self._make_coord(fp_raw=95, es=70)
+        # Fill remaining tail attrs read by get_energy_summary.
+        c._envoy_unavailable_count = 0
+        c._envoy_last_available = None
+        c._observation_mode = False
+        c._occupancy_weighted = False
+        import types as _t
+        c._power_profiles = _t.SimpleNamespace(get_status=lambda: {})
+        c._evse_battery_hold_active = False
+        try:
+            EnergyCoordinator.get_energy_summary(c)
+        except AttributeError:
+            # If a further tail attr is missing, we still captured the
+            # spy value at the point that matters.
+            pass
+        assert c._observed["ev"] == 70, (
+            f"get_energy_summary ev.get_status raw regression: "
+            f"expected 70, got {c._observed['ev']!r} (energy.py:~10583)"
+        )
+        assert c._observed["plug"] == 70, (
+            f"get_energy_summary plug.get_status raw regression: "
+            f"expected 70, got {c._observed['plug']!r} (energy.py:~10587)"
+        )
+
+
+class TestLivenessReleaseUsesClampedDrain:
+    """energy.py:3936 — _check_liveness_release_and_persist's drain_target
+    MUST come from the accessor so a live Number below reserve cannot
+    lower the safety floor used in envelope-vs-drain arithmetic."""
+
+    def test_drain_target_clamped_up_to_reserve(self):
+        import types
+        from custom_components.universal_room_automation.domain_coordinators.energy import (
+            EnergyCoordinator,
+        )
+        c = types.SimpleNamespace()
+        battery = types.SimpleNamespace(
+            reserve_soc=30,
+            _drain_targets={"excellent": 30, "good": 35, "moderate": 40,
+                            "poor": 45, "very_poor": 50},
+            _peak_buffer_target=80,
+        )
+        battery._inclement_config = lambda: {"partial_hold_reserve_floor": 30}
+        c._battery = battery
+        # Raw drain is 10 — below reserve=30. Safe accessor raises to 30.
+        c._ev_battery_drain_soc = 10
+        c._fill_priority_soc = 30
+        c._excess_solar_soc = 80
+        # soc_envelope: lower=25 (below reserve). With raw=10, envelope
+        # (25) > drain (10) → envelope_low_below_drain=False → RELEASE.
+        # With clamped=30, envelope (25) < drain (30) → hold (no
+        # pressure) → REFUSE.
+        c.soc_envelope = lambda: (25.0, 90.0)
+        c._ev = types.SimpleNamespace(_blind_window_epoch_started_at=None)
+        c.hass = types.SimpleNamespace(async_create_task=lambda t: None)
+        _bind_ladder(c, "safely_ordered_ladder")
+        # Read the sole read-only decision output of the helper: we need
+        # a minimal harness. Call the internal method and inspect the
+        # returned release flag by patching only the persistence tail.
+        # We invoke the method with `has_pressure=False`.
+        method = EnergyCoordinator.blind_window_liveness_release
+        release = method(c, evse_id="fake", reason="max_defer",
+                         has_pressure=False)
+        assert release is False, (
+            f"liveness-release regressed to raw drain_target: safe "
+            f"accessor should raise drain 10->30, making envelope 25 < "
+            f"drain 30 -> hold; got release=True. "
+            f"Site energy.py:~3936 must route through safely_ordered_ladder."
+        )
+
+
+# ------------------------------------------------------------------------
+# Real behavioural anchors — DRIVE the production source (not mirror it).
+# ------------------------------------------------------------------------
+# Rationale (B-HIGH-1 / C4-C5 fix-up): earlier "mirror-the-readout" tests
+# copied the production three-line readout into the test body and asserted
+# on the copy. Reverting the production line to raw left them GREEN. The
+# real anchor pattern extracts the actual production LINES by comment
+# marker and exec()s them against a fixture; reverting the production
+# text makes each anchor RED.
+
+def _extract_source_block(
+    path: str, marker: str, n_after: int, skip: int = 0,
+) -> str:
+    """Return `n_after` lines starting at `skip` lines after the marker,
+    dedented so the block execs at module scope."""
+    import textwrap
+    with open(path) as f:
+        lines = f.readlines()
+    for i, ln in enumerate(lines):
+        if marker in ln:
+            start = i + 1 + skip
+            block = lines[start : start + n_after]
+            return textwrap.dedent("".join(block))
+    raise AssertionError(f"marker not found: {marker}")
+
+
+class TestPoolDrainTargetUsesAccessor:
+    """energy_pool.py:1334 + :1839 — extract the actual production readout
+    block by marker and exec it. Reverting either site to raw makes this
+    test RED (M2 mutation drill target)."""
+
+    _POOL_PATH = os.path.join(
+        os.path.dirname(__file__), "..", "..",
+        "custom_components", "universal_room_automation",
+        "domain_coordinators", "energy_pool.py",
+    )
+
+    def _mk_coord(self, ev_raw=10, reserve=30):
+        import types
+        from custom_components.universal_room_automation.domain_coordinators.energy import (
+            EnergyCoordinator,
+        )
+        c = types.SimpleNamespace()
+        battery = types.SimpleNamespace(reserve_soc=reserve)
+        c._battery = battery
+        c._fill_priority_soc = 30
+        c._excess_solar_soc = 80
+        c._ev_battery_drain_soc = ev_raw
+        c.safely_ordered_ladder = EnergyCoordinator.safely_ordered_ladder.__get__(c)
+        return c
+
+    def test_fail_safe_ride_site_uses_accessor(self):
+        # M2 anchor: energy_pool.py:~1334 (marker in the fail-safe leg).
+        block = _extract_source_block(
+            self._POOL_PATH,
+            "safe accessor so a live Number inversion cannot",
+            n_after=12, skip=2,
+        )
+        coord = self._mk_coord(ev_raw=10, reserve=30)
+        ns = {"coord": coord, "getattr": getattr, "int": int,
+              "callable": callable}
+        exec(compile(block, "<pool-fail-safe>", "exec"), ns)
+        assert ns["drain_target"] == 30, (
+            f"pool fail-safe drain readout regressed to raw: expected "
+            f"30 (clamped up from 10), got {ns['drain_target']!r}. "
+            f"Site energy_pool.py:~1334 must route through "
+            f"safely_ordered_ladder()."
+        )
+
+    def test_continue_permission_ride_site_uses_accessor(self):
+        # M2 anchor: energy_pool.py:~1839 (second occurrence — the
+        # CONTINUE-permission leg's own accessor read).
+        block = _extract_source_block(
+            self._POOL_PATH,
+            "safe-accessor read; same",
+            n_after=12, skip=1,
+        )
+        coord = self._mk_coord(ev_raw=10, reserve=30)
+        ns = {"coord": coord, "getattr": getattr, "int": int,
+              "callable": callable}
+        exec(compile(block, "<pool-continue>", "exec"), ns)
+        assert ns["drain_target_for_ride"] == 30, (
+            f"pool CONTINUE-permission drain readout regressed to raw: "
+            f"expected 30, got {ns['drain_target_for_ride']!r}. Site "
+            f"energy_pool.py:~1839 must route through the accessor."
+        )
+
+
+class TestTickSnapshotUsesAccessor:
+    """energy.py:6037-6040 — the actuation-tick snapshot triple. Extract
+    the actual production readout block by marker and exec it against a
+    fixture. Reverting any of _fp/_es/_evd to raw (M4/M5/M1) makes this
+    RED per member."""
+
+    _ENERGY_PATH = os.path.join(
+        os.path.dirname(__file__), "..", "..",
+        "custom_components", "universal_room_automation",
+        "domain_coordinators", "energy.py",
+    )
+
+    def _mk_self(self):
+        import types
+        from custom_components.universal_room_automation.domain_coordinators.energy import (
+            EnergyCoordinator,
+        )
+        s = types.SimpleNamespace()
+        battery = types.SimpleNamespace(reserve_soc=30)
+        s._battery = battery
+        s._fill_priority_soc = 90     # > excess=80 → clamp DOWN to 80
+        s._excess_solar_soc = 80
+        s._ev_battery_drain_soc = 10  # < reserve=30 → clamp UP to 30
+        s.safely_ordered_ladder = EnergyCoordinator.safely_ordered_ladder.__get__(s)
+        return s
+
+    def test_snapshot_triple_drives_from_production_source(self):
+        # Extract 13 lines below the marker — the four assignments plus
+        # the three ternary snapshots. Executing these production lines
+        # is the anchor: reverting any of _fp/_es/_evd or any ternary
+        # to `int(self._X)` fails this test per member.
+        block = _extract_source_block(
+            self._ENERGY_PATH,
+            "EC-SOC-LADDER-XVALIDATE-1 D2: read the tick snapshot through",
+            n_after=13, skip=8,
+        )
+        # The extracted lines reference `self.safely_ordered_ladder()`
+        # and `self._*` — provide `self` in the exec namespace.
+        s = self._mk_self()
+        ns = {"self": s, "int": int}
+        exec(compile(block, "<tick-snapshot>", "exec"), ns)
+        assert ns["fill_priority_soc_tick"] == 80, (
+            f"M4 anchor — energy.py:~6038 (_fp) reverted to raw; "
+            f"expected 80, got {ns['fill_priority_soc_tick']}."
+        )
+        assert ns["excess_solar_soc_tick"] == 80, (
+            f"M5 anchor — energy.py:~6039 (_es) reverted to raw; "
+            f"expected 80, got {ns['excess_solar_soc_tick']}."
+        )
+        assert ns["ev_battery_drain_soc_tick"] == 30, (
+            f"M1 anchor — energy.py:~6040 (_evd) reverted to raw; "
+            f"expected 30, got {ns['ev_battery_drain_soc_tick']}."
+        )
