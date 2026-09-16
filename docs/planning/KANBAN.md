@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T17:59:45-05:00_ - _Data commit: `ca046fc9d94e`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T18:08:46-05:00_ - _Data commit: `656cd0c0bada`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -15,7 +15,7 @@ _Generated: 2026-09-16T17:59:45-05:00_ - _Data commit: `ca046fc9d94e`_ - _last_r
 | 📝 Planned | 10 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| ⏸️ Waiting on operator | 25 |
+| ⏸️ Waiting on operator | 26 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 27 |
 | 🅿️ Parked | 57 |
@@ -349,7 +349,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (20):**
+- **Forensic keys (21):**
+  - `NIGHT_MEASUREMENT_2026_09_16`: Option-B safety gate measured (7 nights). VERDICT: SAFE now + 2-6am leniency REQUIRED (upgraded P2-3 -> P1 by the data). Findings: (1) NO resident/guest bedroom is PIR-only — all mmWave/occupancy-backed. (2) The FUSED binary_sensor.<room...
   - `CRIT2_DECIDED_B_2026_09_16`: Operator picked OPTION B (night-trust in scope) — zone 3 overnight is "a money pit", empty zones must retreat FAST at night. Design priority order (operator words): P0 = ROOM OCCUPANCY REQUIRED — night retreat is driven by actual room oc...
   - `PLAN_REVISED_2026_09_16`: Plan revised, all mechanical findings fixed. CRIT-1: reversed to SIBLING field RoomCondition.hvac_occupied + zone.any_room_hvac_occupied, consumed ONLY by the preset flip (hvac.py:1794) + co-timestamps + D6 stale branch; RoomCondition.oc...
   - `PLAN_REVIEW_2026_09_16`: Adversarial plan review = FIX-REQUIRED-IN-PLAN, 2 CRIT — caught BEFORE build (the EC-SOC lesson applied, and it paid off big). CRIT-1: swapping RoomCondition.occupied is NOT transparent — that field also drives _execute_vacancy_sweep (hv...
@@ -425,7 +426,7 @@ _created 2026-08-24 16:45 · updated 2026-09-12 10:30 · initial_
   - `operator_refine_2026_09_09`: Operator: VALIDATE NEEDS AN ACTION — detection alone is useless; if the ladder does not make sense, then WHAT? Proposed (to confirm in plan): reject at the SOURCE — a config-flow/options validation error at save time that names the speci...
   - `build_2026_09_09`: BUILT on feature/energy-validate-staleness (e68a0af66). Save-time ladder validation in async_step_coordinator_energy + runtime guard (_check_threshold_ladder -> rate-limited threshold_ladder_violation anomaly) + safely_ordered_ladder() a...
 
-## ⏸️ Waiting on operator (25)
+## ⏸️ Waiting on operator (26)
 _needs a human call — groomed first_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Every exterior person-detector stopped firing on 2026-09-15 while the cameras kept seeing motion — the whole outdoor person-detection layer is effectively blind and has been for ~36h — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
@@ -740,7 +741,17 @@ _created 2026-09-13 01:30 · updated 2026-09-15 03:20 · initial_
   - `measured_2026_09_15`: OVERNIGHT PASS — THE MEASUREMENT THIS CARD ASKED FOR IS DONE (one-shot read-only query against the live HA recorder, /config/home-assistant_v2.db, 24h window). It confirms the bug class, REFUTES the card own ranking, and reframes the val...
   - `gate_2026_09_15`: FOUR-STEP GATE -> ESCALATE (value collapsed under measurement; not mine to close). (1) VALIDITY: STILL-REAL, five sites confirmed in source and above the tick floor. (2) PRIOR-ART: REUSE — identical fix shape to the shipped parent RECORD...
 
-### `AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1` - AggregationEntity.async_added_to_hass off-loop async_create_task (house-wide, HA 2027 deprecation) — _#22 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ZIRI-PRESENCE-SENSOR-DEAD-1` - Ziri Bedroom presence redundancy degraded — ziri_3_presence mmWave is dead (never fired 7 nights), leaving one live mmWave with 360+min overnight OFF stretches — _#22 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **waiting_operator**
+_created 2026-09-16_
+- **Problem / Solution:**
+  - Problem: the overnight occupancy-retention probe (for HVAC Option B) found binary_sensor... Ziri raw presence source `ziri_3_presence` has NOT fired on any of the last 7 nights — it is dead/offline. Ziri Bedroom is now covered by a singl...
+- **Why:** Surfaced by the HVAC-B night measurement. Matters beyond hygiene: HVAC Option B's night-retreat safety rests on fused-sensor redundancy; a bedroom degraded to single-mmWave (like Ziri today) would drop 100+min mid-sleep and, absent the 2...
+- **Next:** DO: check ziri_3_presence device (offline / battery / unpaired?) and restore or confirm-retired. Also verify no other resident bedroom has a silently-dead redundant sensor (Master has 3+bed, Jaya has 2). Feeds HVAC-ZONE-CONDITIONING-DEMA...
+- **Tags:** presence, hardware, found-during-measurement
+- **Parsimony:** [BUILD] a redundant presence sensor died silently; coverage degraded to single-sensor without any alert
+
+### `AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1` - AggregationEntity.async_added_to_hass off-loop async_create_task (house-wide, HA 2027 deprecation) — _#23 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **waiting_operator** - approval: **implied**
 _created 2026-09-15 · updated 2026-09-16 02:35 · initial_
 - **Problem / Solution:**
@@ -754,7 +765,7 @@ _created 2026-09-15 · updated 2026-09-16 02:35 · initial_
   - `INVESTIGATED_2026_09_15`: PREMISE FALSIFIED by static read (do NOT build blind). AggregationEntity.async_added_to_hass (aggregation.py:980) creates NO task: super() chain hits empty Entity.async_added_to_hass; RestoreEntity uses unguarded async_create_task_intern...
   - `OPERATOR_WINDOW_2026_09_15`: Operator set the restart window at 20:00 local (earlier only on explicit approval). Reason: mid-peak TOU at ask time + restart-risk aversion (see RESTART-SAFETY-DOCTRINE-1). At 20:00, restart HA and grep the core log IMMEDIATELY post-boo...
 
-### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase — _#23 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase — _#24 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
 _created 2026-08-21 18:00 · updated 2026-09-16 03:05 · initial_
 - **Next:** DO, then PICK the next rung — the measurement side is finished and the card's own pre-agreed decision rule has fired, so there is nothing left for me to measure here. DO: revert the nine kitchen still thresholds to the BEFORE values 39, ...
@@ -772,7 +783,7 @@ _created 2026-08-21 18:00 · updated 2026-09-16 03:05 · initial_
   - `REMEASURED_2026_09_16`: Re-ran the measurement this card has been waiting on since 2026-08-23 — it was three weeks overdue and it was MY debt, not the operator's, which is itself the finding about where this card was sitting. Read from the HA recorder over the ...
   - `CARD_WAS_WRONG_2026_09_16_ESCALATION_DIRECTION`: Correcting this card against itself, because as written it points the next step the wrong way. ACCEPTANCE_AND_NEXT_STEPS says the escalation after thresholds is to "narrow max_move/max_still distance gates from 7/6". That contradicts THE...
 
-### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#24 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#25 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **quality** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Problem / Solution:**
@@ -786,7 +797,7 @@ _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, LOW exposure (12-cam house list, months apart): _cameras_by_area built once at discover (__init__.py:2316), consumed live (coordinator.py:3670); census invalidate ...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#25 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#26 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-12 20:40 · refined_
 - **Problem / Solution:**

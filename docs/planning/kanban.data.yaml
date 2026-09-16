@@ -177,6 +177,37 @@ meta:
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated, headline: "PERIMETER-ALERT-VOLUME-FATIGUE-1 \u2014 MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working \u2014 so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).", acknowledged: false}
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
+- id: ZIRI-PRESENCE-SENSOR-DEAD-1
+  title: Ziri Bedroom presence redundancy degraded — ziri_3_presence mmWave is dead (never fired 7 nights),
+    leaving one live mmWave with 360+min overnight OFF stretches
+  status: waiting_operator
+  thread: presence
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  tags: [presence, hardware, found-during-measurement]
+  problem_solution:
+  - 'Problem: the overnight occupancy-retention probe (for HVAC Option B) found binary_sensor... Ziri raw
+    presence source `ziri_3_presence` has NOT fired on any of the last 7 nights — it is dead/offline. Ziri
+    Bedroom is now covered by a single live mmWave (`mmwave_zigbee_ziribedroom`) whose natural OFF stretches
+    reach 360-416 min. Ziri''s fused occupancy redundancy is already degraded to single-sensor. Solution:
+    operator checks/replaces/re-pairs the dead sensor (hardware or config), OR confirms Ziri is intentionally
+    single-sensor now.'
+  why: 'Surfaced by the HVAC-B night measurement. Matters beyond hygiene: HVAC Option B''s night-retreat
+    safety rests on fused-sensor redundancy; a bedroom degraded to single-mmWave (like Ziri today) would
+    drop 100+min mid-sleep and, absent the 2-6am leniency, wrongly retreat to away. Ziri is the live proof
+    of the degradation mode the leniency defends against.'
+  next: 'DO: check ziri_3_presence device (offline / battery / unpaired?) and restore or confirm-retired.
+    Also verify no other resident bedroom has a silently-dead redundant sensor (Master has 3+bed, Jaya has 2).
+    Feeds HVAC-ZONE-CONDITIONING-DEMAND-1 B (the leniency sizing assumes degradation happens).'
+  parsimony:
+    problem: a redundant presence sensor died silently; coverage degraded to single-sensor without any alert
+    verdict: BUILD
+    note: likely a quick hardware/config fix; the deeper gap (no alert on a silently-dead redundant sensor)
+      is adjacent to the stuck-sensor watchdog work — note but do not scope here.
+  links:
+    related: [HVAC-ZONE-CONDITIONING-DEMAND-1]
+    context: 'Found by the HVAC-B overnight occupancy-retention probe. Ziri is the concrete instance of the
+      redundancy-degradation failure mode that makes the 2-6am leniency required (P1) in Option B.'
 - id: EC-SOC-LADDER-FULL-WIRING-1
   title: Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto
     the safe accessor across ~25 consumer sites
@@ -10506,6 +10537,18 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  NIGHT_MEASUREMENT_2026_09_16: 'Option-B safety gate measured (7 nights). VERDICT: SAFE now + 2-6am
+    leniency REQUIRED (upgraded P2-3 -> P1 by the data). Findings: (1) NO resident/guest bedroom is
+    PIR-only — all mmWave/occupancy-backed. (2) The FUSED binary_sensor.<room>_occupied holds
+    CONTINUOUS through 2-6am (worst gap 2.4min << grace) — so B is safe IF it reads the FUSED sensor,
+    NEVER a raw mmWave (raw drops 100-186min). PRECONDITION on the build. (3) The margin rests on
+    multi-sensor redundancy that degrades silently: Ziri already down to 1 live mmWave (ziri_3_presence
+    DEAD) w/ 360+min OFF stretches. (4) So the 2-6am post-continuous-hold leniency is REQUIRED
+    defense-in-depth, size ~180-200min: once a room held continuously occupied into the night, suppress
+    away-retreat during 02:00-06:00 regardless of transient unoccupied reads. Master bed sensor anchors
+    tightest (<=1.5min). Edge outliers (Master 30min @07:37, Jaya 24min @21:00) are real exits/entries
+    OUTSIDE 2-6am, not dropouts. NEXT: finalize B/Tier-3 plan w/ these baked in -> 2 plan reviews
+    (Tier 3) -> operator pre-deploy checkpoint -> build.'
   CRIT2_DECIDED_B_2026_09_16: 'Operator picked OPTION B (night-trust in scope) — zone 3 overnight is
     "a money pit", empty zones must retreat FAST at night. Design priority order (operator words):
     P0 = ROOM OCCUPANCY REQUIRED — night retreat is driven by actual room occupancy (any_room_hvac_
