@@ -15557,7 +15557,7 @@ cards:
     Promoted inbox -> pre_planning; linked plan; next rewritten.'
 - id: UNLOAD-SYMMETRY-TASK-HYGIENE-1
   title: Setup/unload symmetry + tracked background tasks (tech-debt hardening)
-  status: planned
+  status: in_progress
   AUDIT_2026_09_15: 'AUDIT DONE — and it DE-SCOPES this card by ~96%. Built a reusable AST audit,
     quality/tools/audit_listener_cleanup.py (REUSE of the audit_shadow_imports.py walker skeleton
     shipped 2026-09-12; read-only, standalone, not gated on the broken suite).
