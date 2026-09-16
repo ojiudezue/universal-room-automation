@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T21:55:20-05:00_ - _Data commit: `ec9a2e05e0f6`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T21:56:59-05:00_ - _Data commit: `1a680b9186d2`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
@@ -11,7 +11,7 @@ _Generated: 2026-09-15T21:55:20-05:00_ - _Data commit: `ec9a2e05e0f6`_ - _last_r
 |---|---:|
 | 📥 Inbox | 2 |
 | 🔬 Investigating | 3 |
-| 🧭 Pre-planning | 9 |
+| 🧭 Pre-planning | 10 |
 | 📝 Planned | 8 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 0 |
@@ -120,7 +120,7 @@ _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
   - `problem`: The test strategy grew organically to ~9000 tests and has NEVER been examined as a whole. Three costs surfaced repeatedly this session: (1) 4+ MINUTE full-suite runs; (2) PARALLEL COLLISIONS — tests overwrite shared sys.modules / entity_...
   - `pytest_restore_hook_2026_08_19`: CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates coordinator.py during a normal pytest run without guaranteed restore -> the batch run leaves an uncommitted mutation (a test that edits production source is a...
 
-## 🧭 Pre-planning (9)
+## 🧭 Pre-planning (10)
 _idea being decomposed_
 
 ### `NIGHT-LIGHT-ACTION-SELECTOR-1` - Night lights have no actuation policy of their own — they ride on the regular lights' entry action, so "none" silently means two different things — _#1 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
@@ -249,7 +249,21 @@ _created 2026-08-26 03:10 · updated 2026-09-12 11:15 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: energy_battery.py:2695-2703 offset<=0 + today-unknown + no cache returns (classify_tomorrow_solar(),0); callers do classify_solar_day_n(0+1)=tomorrow again -> self...
 
-### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#9 · WSJF 1.8 · v8 tc4 u2 /e8_
+### `TEST-LEAK-DETECTOR-WRONG-LOOP-1` - The harness's task-leak detector watches the wrong event loop, so it has never caught a leaked task — and a green suite has been over-trusted because of it — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **quality** - status: **pre_planning** - approval: **implied**
+_created 2026-09-15 · initial_
+- **Problem / Solution:**
+  - Problem: the test harness is supposed to fail a test that walks away leaving background work running — that is the safety net for the exact bug URA keeps hitting (timers and tasks that outlive a reload). It watches the wrong thing. Each ...
+- **Origin:** 2026-09-15 - Found while implementing option A on TEST-HARNESS-REAL-HA-DEFAULT-1 — the mutation drill that was meant to confirm preserved detection instead proved detection never worked.
+- **Why:** This is a HOLLOW ANCHOR at harness scale. Every "suite is green" statement in this repo has implicitly claimed no task leaks, and that claim was never backed. It also explains why reload-leak defects keep reaching production despite a la...
+- **Next:** Implement the task/timer check as an autouse ASYNC fixture (proven to see the correct loop) while keeping the existing sync thread check. TWO acceptance gates, both mandatory: (1) MUTATION DRILL — the deliberate-leak test must FAIL, and ...
+- **Tags:** tier-2, hollow-test-anchors, no-fabrication-verify
+- **Parsimony:** [BUILD] The leak detector inspects a different event loop than the one under test, so it cannot observe leaked tasks and always passes.
+- **Refs:** quality/tests/conftest.py (verify_cleanup override + its HONEST SCOPE docstring); .venv-ha/.../pytest_homeassistant_custom_component/plugins.py:351 (upstream, same blind spot)
+- **Forensic keys (1):**
+  - `MEASURED_2026_09_15`: Proven by drill, not inferred. (1) A test that creates a never-finishing task via `asyncio.get_running_loop().create_task(asyncio.sleep(3600))` PASSES under the current fixture. (2) Instrumented the loop identity at each phase: fixture s...
+
+### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#10 · WSJF 1.8 · v8 tc4 u2 /e8_
 thread: **optimization** - status: **pre_planning**
 _created 2026-09-14 02:20 · initial_
 - **Problem / Solution:**

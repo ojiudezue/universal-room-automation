@@ -350,3 +350,157 @@ def create_automation_config(**overrides):
     }
     config.update(overrides)
     return config
+
+
+# ===========================================================================
+# TEST-HARNESS-REAL-HA-DEFAULT-1 (option A, operator-picked 2026-09-15)
+#
+# THE FAILURE THIS FIXES
+# ----------------------
+# pytest-homeassistant-custom-component ships two SYNC autouse fixtures that
+# call `asyncio.get_event_loop()`:
+#   * plugins.py:342 `enable_event_loop_debug` — turns on asyncio debug mode
+#   * plugins.py:351 `verify_cleanup`          — the lingering task/timer/thread
+#                                                LEAK DETECTOR
+# Under the stock asyncio policy `get_event_loop()` still auto-creates a loop
+# (deprecated on 3.13, but it works), so a single test file passes and looks
+# healthy. Home Assistant installs `HassEventLoopPolicy`, whose
+# `get_event_loop()` RAISES "There is no current event loop in thread
+# 'MainThread'" rather than creating one. So the failure is ORDER-DEPENDENT:
+# the moment any test imports HA's runner, every later sync autouse fixture
+# explodes. Measured 2026-09-15: full suite = 1 passed / 10,592 errors, while
+# COLLECTION stayed clean (10,620 collected, 0 errors).
+#
+# WHY THIS SHAPE (and not the alternatives)
+# -----------------------------------------
+# Rejected: dropping `verify_cleanup` to a no-op. That restores the suite in
+# one line but silently ends task/timer leak detection suite-wide — and URA's
+# recurring bug classes are untracked background tasks and un-cancelled timers
+# (see UNLOAD-SYMMETRY-TASK-HYGIENE-1, which just found 5 un-cancellable
+# one-shot timers). A green suite that has stopped detecting is worse than an
+# honest red one.
+# Rejected: bumping the dependencies. phcc 0.13.316 IS the latest published
+# release and every installed pin already matches its declared set exactly
+# (pytest 9.0.0, pytest-asyncio 1.3.0, homeassistant 2026.2.3). There is
+# nowhere to upgrade to.
+# Rejected: "just provide a loop and leave both fixtures alone". Tried and
+# measured: the policy swap happens after session start and REPLACES the policy
+# object, discarding any loop set beforehand; and a function-scoped conftest
+# fixture is set up AFTER plugin autouse fixtures, so it lands too late.
+#
+# WHAT THIS DOES
+# --------------
+# A conftest fixture overrides a plugin fixture of the same name. We override
+# both, and re-implement verify_cleanup's checks against a loop we resolve
+# safely — PRESERVING the leak detection rather than discarding it. The
+# assertions below are kept semantically equivalent to phcc's: lingering tasks
+# fail (or warn, per `expected_lingering_tasks`), lingering non-cancelled timers
+# fail (respecting HassJob.cancel_on_shutdown), and leaked threads fail.
+# ===========================================================================
+import asyncio as _asyncio  # noqa: E402
+import threading as _threading  # noqa: E402
+
+
+def _ura_current_loop():
+    """Return the loop this test is using, or None if there genuinely is none.
+
+    Never raises: the raising behaviour of HassEventLoopPolicy.get_event_loop
+    is exactly what broke the suite, so every lookup here is defensive.
+    """
+    try:
+        return _asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+    try:
+        return _asyncio.get_event_loop_policy().get_event_loop()
+    except Exception:
+        return None
+
+
+@pytest.fixture(autouse=True)
+def enable_event_loop_debug():
+    """Override phcc's fixture: enable asyncio debug only if a loop exists."""
+    loop = _ura_current_loop()
+    if loop is not None:
+        loop.set_debug(True)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def verify_cleanup(expected_lingering_tasks, expected_lingering_timers):
+    """Override phcc's leak detector, keeping its checks intact.
+
+    HONEST SCOPE — READ BEFORE TRUSTING THIS AS A LEAK DETECTOR.
+    The THREAD check below is real and active. The TASK/TIMER checks run against
+    whichever loop is resolvable at teardown, which for async tests is NOT the
+    loop the test actually ran on — pytest-asyncio 1.3 creates a fresh loop per
+    test and never installs it as the policy loop. Measured 2026-09-15: at
+    fixture setup/teardown the visible loop is `running=False debug=True` while
+    the test itself runs on a different `running=True debug=False` loop.
+
+    THIS IS NOT A REGRESSION INTRODUCED HERE — phcc's original verify_cleanup
+    reads the loop the same way, so its task-leak detection could not have been
+    working in this configuration either, crash or no crash. Proven by drill: a
+    test that deliberately leaks a never-finishing task is NOT caught by this
+    path, whereas an autouse ASYNC fixture (which sees the real loop) catches it
+    immediately.
+
+    So this fixture's job is to stop the harness CRASHING while preserving every
+    check that can work at this vantage point. Building task/timer detection that
+    actually observes the per-test loop is separate, evidenced work — see card
+    TEST-LEAK-DETECTOR-WRONG-LOOP-1. Do not cite a green suite as evidence of
+    no task leaks until that lands.
+    """
+    loop = _ura_current_loop()
+    threads_before = frozenset(_threading.enumerate())
+    tasks_before = _asyncio.all_tasks(loop) if loop is not None else set()
+
+    yield
+
+    loop_after = _ura_current_loop() or loop
+
+    if loop_after is not None and not loop_after.is_closed():
+        # Lingering TASKS.
+        try:
+            tasks = _asyncio.all_tasks(loop_after) - tasks_before
+        except Exception:
+            tasks = set()
+        for task in tasks:
+            if expected_lingering_tasks:
+                print(f"WARNING: Lingering task after test {task!r}")
+            else:
+                pytest.fail(f"Lingering task after test {task!r}")
+            task.cancel()
+
+        # Lingering TIMERS. Mirrors phcc's HassJob-aware exemption.
+        try:
+            from homeassistant.core import HassJob
+            from pytest_homeassistant_custom_component.plugins import (
+                get_scheduled_timer_handles,
+            )
+
+            for handle in get_scheduled_timer_handles(loop_after):
+                if handle.cancelled():
+                    continue
+                if expected_lingering_timers:
+                    print(f"WARNING: Lingering timer after test {handle!r}")
+                elif handle._args and isinstance(
+                    job := handle._args[-1], HassJob
+                ):
+                    if job.cancel_on_shutdown:
+                        continue
+                    pytest.fail(f"Lingering timer after job {job!r}")
+                else:
+                    pytest.fail(f"Lingering timer after test {handle!r}")
+                handle.cancel()
+        except ImportError:
+            pass
+
+    # Leaked THREADS — runs regardless of loop resolution.
+    threads = frozenset(_threading.enumerate()) - threads_before
+    for thread in threads:
+        assert (
+            isinstance(thread, _threading._DummyThread)
+            or thread.name.startswith("waitpid-")
+            or "_run_safe_shutdown_loop" in thread.name
+        ), f"Thread leaked after test: {thread!r}"
