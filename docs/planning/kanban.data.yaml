@@ -9,6 +9,15 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - {fid: 'TEST-HARNESS-REAL-HA-DEFAULT-1@2026-09-15T21:40', at: '2026-09-15T21:40:00', outcome: investigated,
+     headline: 'THE TEST SUITE IS DEAD AND I NOW KNOW EXACTLY WHY — ONE WORD FROM YOU RESTORES IT. Reproduced it myself: 1 test passes, 10,592 error. Cause: a Home Assistant policy makes a routine asyncio call RAISE instead of quietly working, so the moment any test loads HA, every later test dies in setup. That is why one file looks green and the whole suite is a graveyard. I tried twice to fix it WITHOUT touching the leak detector and proved it impossible — patch the first fixture and the same error just moves to the second. I also killed option C: we are already on the newest library and every pin matches exactly, so no upgrade exists. Backed my attempt out cleanly, tree untouched. It is A or B now and I recommend A (keep leak detection, reimplement it) — B gives a green suite that has quietly stopped catching leaks, which is worse than honest red. Also worth knowing: the harness tests against HA 2026.2.3 while your house runs 2026.9.2.',
+     acknowledged: false}
+  - {fid: 'UNLOAD-SYMMETRY-TASK-HYGIENE-1@2026-09-15T21:20', at: '2026-09-15T21:20:00', outcome: investigated,
+     headline: 'A SCARY-LOOKING PROBLEM SHRANK BY 96%. This card suspected URA leaks event listeners on every reload, and a quick text search seemed to agree — 294 subscriptions against 163 cleanups, implying ~131 leaks. That number was an illusion: the cleanup wrapper usually sits on a different line than the call it wraps, so text search cannot see it. I wrote a proper syntax-aware audit instead: the real count is 5, and ZERO of them are the dangerous recurring kind. All 5 are one-shot timers where we simply cannot cancel a pending callback — a genuine tidy-up, not a leak. Card re-scoped from an open-ended audit to a bounded fix of 5 named lines, and the audit tool is committed so the number cannot creep back up.',
+     acknowledged: false}
+  - {fid: 'HVAC-HOT-ENTRY-LATENCY-1@2026-09-15T21:00', at: '2026-09-15T21:00:00', outcome: investigated,
+     headline: 'SPLIT THE 80F-ROOM CARD, AND FOUND WHY WE COULD NEVER ANSWER IT. Confirmed the responsiveness problem is still real in code — entry dwell is a flat 5 minutes with no notion of how hot the room is, which is how Jaya beat URA to the thermostat by 3 minutes. That fix needs your scope call (A: react fast when the room is at its away ceiling / B: leave it until the flap work lands). The card also carried an unanswerable question — did the arrester notice that override? — and I found the reason it is unanswerable: the arrester records its decisions ONLY as INFO log lines, and our log keeps WARNING and above, so every arrest is erased as it happens. The fan code already writes to a durable ledger; the arrester never does. Carded separately.',
+     acknowledged: false}
   - {fid: 'EXTERIOR-GUEST-FACE-FASTFOLLOW-1@2026-09-15T21:05', at: '2026-09-15T21:05:00', outcome: done,
      headline: 'CLOSED — and you were right, so IGNORE my earlier ask to walk past the camera. You remembered we dropped the UniFi face path because only two cameras would benefit; our own probe from 18 Aug says exactly that: Protect face fires on just Family Room and the G6 entry, every other camera zero — and worse, it only puts a NAME to people once they are already inside the family room, not as they cross the door. On top of that, Home Assistant cannot read Protect names at all, and the webhook workaround was already abandoned on 28 Aug because Protect posts an empty body from a UI we can no longer reach. That is why the 5 empty payloads I found today were expected, not a mystery. My mistake was measuring before searching our own history. The Frigate half already shipped (v5.81.0); the only surviving Protect path is the poll-based add-on card, which is parked waiting on you to create one local Protect user.',
      acknowledged: false}
@@ -14878,6 +14887,58 @@ cards:
     (sensor.ROOM_fan_recheck_state reaching ARMED+vacate). Pre-deploy last eval_count=1 and never vacated
     per README. Awaiting organic fan-ghost episode. H1 PENDING.'
 - id: TEST-HARNESS-REAL-HA-DEFAULT-1
+  HARNESS_VS_PRODUCTION_DRIFT_2026_09_15: 'ADJACENT FINDING, surfaced while eliminating option C —
+    flagging rather than acting. The test harness validates URA against homeassistant 2026.2.3
+    (pinned by phcc 0.13.316, which is the latest published phcc), while the LIVE house runs
+    core-2026.9.2 — about seven minor versions ahead. So even once the suite is restored, a green
+    run proves URA works against a materially OLDER Home Assistant than the one in production.
+    That is exactly the gap that let the AggregationEntity thread-safety behaviour differ between
+    suite and house (see AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1, where the guard RAISES on
+    core-2026.9.2). NOT carding it yet: it is an inherent property of pinning to phcc rather than a
+    defect, the workaround space is unclear, and it should be decided together with the A/B call
+    above rather than as a separate thread.'
+  ROOT_CAUSE_PROVEN_2026_09_15_PM: 'REPRODUCED + ROOT-CAUSED + one candidate fix TRIED AND BACKED
+    OUT. This replaces guesswork with a mechanism, and it CONFIRMS the card was right to escalate
+    rather than let an agent pick.
+
+    REPRODUCTION (independent re-run this session, not trusting the overnight number): full suite
+    in .venv-ha = 1 passed / 10,592 errors / 244s. Collection is CLEAN (10,620 collected, 0 errors)
+    — so this is purely a runtime SETUP failure, never a collection problem. Every single one of
+    the 10,592 errors names ONE fixture: phcc enable_event_loop_debug.
+
+    MECHANISM (the part nobody had): phcc plugins.py:342 `enable_event_loop_debug` is a SYNC autouse
+    fixture whose entire body is `asyncio.get_event_loop().set_debug(True)`. Under the STOCK asyncio
+    policy, get_event_loop() still auto-creates a loop on 3.13 (deprecated, but it works) — which is
+    exactly why a single test file passes and looks healthy. Home Assistant installs
+    `HassEventLoopPolicy`, whose get_event_loop() RAISES "There is no current event loop in thread
+    MainThread" instead of creating one. So the failure is ORDER-DEPENDENT: the moment any test
+    imports HA''s runner and the policy is swapped, every subsequent sync autouse fixture explodes.
+    That single fact explains BOTH observations that looked contradictory — per-file green, whole
+    suite dead — and it means the trigger is the POLICY SWAP, not "phcc ships broken fixtures" as
+    the card''s options assumed.
+
+    THE THIRD OPTION I HOPED FOR DOES NOT EXIST — this is the decision-relevant finding. I tried to
+    avoid touching the leak detector at all, two ways, both measured: (1) supply a current event
+    loop from our own conftest fixture — FAILS, because at session start the stock policy still
+    auto-creates (so the fixture sees no error and sets nothing), and the policy object is then
+    REPLACED, discarding anything set beforehand; a function-scoped version lands too late because
+    plugin autouse fixtures are set up BEFORE conftest ones at the same scope. (2) Override ONLY
+    `enable_event_loop_debug` (harmless — it just enables asyncio debug) and leave `verify_cleanup`
+    untouched — this DOES work for that fixture, and then phcc verify_cleanup (plugins.py:351)
+    fails NEXT with the identical RuntimeError, because it also calls asyncio.get_event_loop() and
+    additionally needs a real loop for run_until_complete at teardown. So the suite CANNOT be
+    unblocked without a decision about verify_cleanup — which is the harness''s lingering-task /
+    lingering-timer leak detector. That is precisely the trade this card exists to put in front of
+    the operator.
+
+    BACKED OUT CLEANLY: conftest.py restored from a pre-edit copy, `git diff` on it is empty, and
+    the per-file baseline re-verified green (test_aggregation.py 27 passed). No harness change is
+    in the tree.
+
+    WHY I DID NOT JUST PICK OPTION A: reimplementing verify_cleanup''s task/timer checks is ~40
+    lines of harness logic, and getting it subtly wrong yields a GREEN suite that has stopped
+    detecting leaks — strictly worse than the current red, because red is honest. Per
+    "a green suite on the wrong base reads as evidence", that is an operator call.'
   measured_2026_09_15_suite_is_unrunnable: 'OVERNIGHT PASS — I RAN THE SUITE, AND THE HEADLINE IS BIGGER
     THAN THIS CARD ASSUMED: in .venv-ha (the only environment where the suite is installed) the full run
     produced 10,560 ERRORS out of 10,588 collected — a 99.7pct setup-error rate — in 249s. The suite is
@@ -14963,8 +15024,18 @@ cards:
     there is NO pytest config in the repo — no pytest.ini, setup.cfg, tox.ini, or [tool.pytest]. So plugins
     autoload uncontrolled and asyncio_mode is unset. That is why the two environments diverge at all:
     under 3.9 phcc is not installed, so its autouse fixture never runs.'
-  next: 'PICK the loop strategy, then I build it (test-only, one file, ~20 LoC, fully reversible — I
-    have the diagnosis, I want your call on which way to route it): (A) OVERRIDE BOTH phcc fixtures in
+  next: 'PICK A or B — option C is now ELIMINATED BY MEASUREMENT (2026-09-15), so this is a
+    two-way call, and I recommend (A). Every dependency already matches phcc''s own declared pins
+    EXACTLY — phcc 0.13.316 (the LATEST published version), pytest 9.0.0, pytest-asyncio 1.3.0,
+    homeassistant 2026.2.3 — so there is no newer/compatible combination to move to and no
+    dependency bump can fix this. I also tried the "touch neither fixture" route twice and proved
+    it impossible (see ROOT_CAUSE_PROVEN_2026_09_15_PM): fixing enable_event_loop_debug alone just
+    moves the identical RuntimeError to verify_cleanup. So the suite cannot be restored without
+    deciding what happens to the leak detector. I recommend (A) — keep the detection, reimplement
+    it — because (B) yields a GREEN suite that silently stops catching task/timer leaks, and a
+    dishonest green is worse than the current honest red. Say "A" and I build it (test-only, one
+    file, fully reversible) and re-run the full suite to report the real failure set underneath.
+    Original options: (A) OVERRIDE BOTH phcc fixtures in
     quality/tests/conftest.py, reimplementing verify_cleanup''s lingering-task/timer checks against the
     loop this harness actually provides — preserves the leak detection, most code; (B) OVERRIDE BOTH,
     with verify_cleanup reduced to a no-op — smallest change, restores the suite tonight, but SILENTLY

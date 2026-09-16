@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T20:51:42-05:00_ - _Data commit: `3cd36fbf8394`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T20:53:53-05:00_ - _Data commit: `04e08e5dee21`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
@@ -468,9 +468,11 @@ thread: **quality** - status: **waiting_operator** - approval: **explicit**
 _created 2026-08-23 18:20 · initial_
 - **Problem / Solution:**
   - Problem: the test suite runs on Apple system Python 3.9.6 with no Home Assistant installed, so 230 of 429 test files hand-build fake HA modules. That scaffolding is the direct cause of most of the suite's recurring breakage. A working en...
-- **Next:** PICK the loop strategy, then I build it (test-only, one file, ~20 LoC, fully reversible — I have the diagnosis, I want your call on which way to route it): (A) OVERRIDE BOTH phcc fixtures in quality/tests/conftest.py, reimplementing veri...
+- **Next:** PICK A or B — option C is now ELIMINATED BY MEASUREMENT (2026-09-15), so this is a two-way call, and I recommend (A). Every dependency already matches phcc's own declared pins EXACTLY — phcc 0.13.316 (the LATEST published version), pytes...
 - **Tags:** measure-before-build, institutional-context
-- **Forensic keys (5):**
+- **Forensic keys (7):**
+  - `HARNESS_VS_PRODUCTION_DRIFT_2026_09_15`: ADJACENT FINDING, surfaced while eliminating option C — flagging rather than acting. The test harness validates URA against homeassistant 2026.2.3 (pinned by phcc 0.13.316, which is the latest published phcc), while the LIVE house runs c...
+  - `ROOT_CAUSE_PROVEN_2026_09_15_PM`: REPRODUCED + ROOT-CAUSED + one candidate fix TRIED AND BACKED OUT. This replaces guesswork with a mechanism, and it CONFIRMS the card was right to escalate rather than let an agent pick.
   - `measured_2026_09_15_suite_is_unrunnable`: OVERNIGHT PASS — I RAN THE SUITE, AND THE HEADLINE IS BIGGER THAN THIS CARD ASSUMED: in .venv-ha (the only environment where the suite is installed) the full run produced 10,560 ERRORS out of 10,588 collected — a 99.7pct setup-error rate...
   - `TRUE_COST_MEASURED_2026_08_23`: THE REAL NUMBER, replacing the misleading 9,733. Full suite under .venv-ha with the blocker disabled (`-p no:homeassistant`): stub run (Python 3.9.6)   76 failing IDs   3:41 real-HA run (3.13.14)    273 failing IDs   7:01 fail ONLY under...
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: .venv-ha exists but no pytest.ini/pyproject points the suite at it; _HA_REAL still a skip-when-absent gate. Nothing of the migration landed.
