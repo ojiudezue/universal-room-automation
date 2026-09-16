@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "126",
+  "author": "ojiudezue",
+  "session_id": "claude_20260916_061115_ship_v5_103_2",
+  "timestamp": "2026-09-16T06:11:15Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.2 shipped: v5.103.2: Preset writes that stick (resume-then-pin)",
+  "summary": "v5.103.2: Preset writes that stick (resume-then-pin)",
+  "why": "Two framing-disjoint plan reviews CHANGED what got built: the plan's proposed chokepoint did not exist (11 setpoint-writing functions, 0 referencing borrow, return_excursion emits no writes), and the plan conflated 'make writes land' with 'make excursions restore' \u2014 which are disjoint, since D2a only helps sites that call the chokepoint and the non-restoring sites never reach it. An adversarial build review then found an I3 violation IN THE FIX: resume succeeds, pin raises, exception escapes a bare await, zone left cleared with no hold on the vendor schedule indefinitely \u2014 the repair would have caused the exact harm it exists to prevent. Closed with a wrapped pin, an obligatory retry after a clear, and an ERROR rather than silence. Three hollow anchors were self-caught by the mutation drill, all string-based source assertions, one of which let the I3 retry be deleted with the suite green.",
+  "implications": "Shipped HVAC-MANUAL-PRESET-CONTRACT-1 at v5.103.2; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.2.md (Live criteria).",
+  "revisit_trigger": "zone_1 manual occupancy over 24h falls from the 69.6%/7d baseline toward zone_3's ~6% AND the multi-hour tail (max 1073min) disappears; discriminating negative = zone_3 does NOT regress into new short manual/unnamed episodes; zero 'resume-then-pin: CLEARED ... could not pin' ERROR lines",
+  "refs": {
+    "cards": [
+      "HVAC-MANUAL-PRESET-CONTRACT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.2.md"
+    ],
+    "release_notes": "Step 1 of HVAC-SUPPLE-SEQUENCE-1. Tier 3. Changes HOW URA writes presets, not WHICH preset any decider chooses.\n\nMECHANISM (measured live): a Bryant/Carrier zone in an ANONYMOUS hold (hold_activity==\"manual\", which any raw setpoint write leaves behind) will not accept a named activity hold written over it \u2014 the cloud keeps the setpoints and discards the NAME. Direct pins reverted in 44s and 68s; resume-then-pin held 8 minutes across 9 cloud-confirmed refreshes. While a zone reads manual, should_change_preset returns False for everything, so vacancy grace and entry dwell sit downstream of a closed gate: zone_1 measured 69.6% manual over 7 days with a 17.9-hour worst-case stranding.\n\nD1 per-kind suppression TTL: preset-kind 120s (spans resume->pin->refresh->verify, above the measured 42-79s refresh window); temp-kind STAYS 5s because it is the only path that swallows a genuine human manual flip.\n\nD2a resume-then-pin inside emit_set_preset_mode, the chokepoint that already existed. Conditional on an anonymous hold so named holds still pin directly, plus a capability gate on the entity's own preset_modes so non-Carrier thermostats fall through to today's behaviour.\n\nD2b the two excursion RETURN paths (solar-banking release, pre-heat return) now restore the preset from the snapshot their token already carried. hvac_predict.py previously contained zero preset emissions."
+  }
+}

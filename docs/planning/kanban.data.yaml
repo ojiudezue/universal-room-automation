@@ -17546,7 +17546,8 @@ cards:
   title: Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is
     zones sitting in manual for hours; do the sanctioned excursions return?
   thread: hvac
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.2
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL — IMPORTANT: the naive fix (add preset-restore write at each restore site) is ALREADY in code (hvac_override.py:4348 _restore_after_nudge unconditional emit_set_preset_mode, commit 0415d9b2d) and was LIVE-MEASURED INEFFECTIVE 2026-08-23 (0/10 real-preset restores took). Carrier pins back to manual (set_preset pins hold vs ''resume'' clears schedule). Remaining = one-night-one-zone CANARY (restore via preset only, skip set_temperature) + operator pin-hold-vs-resume decision. Do NOT re-attempt the naive write.'
   PRECONDITION_AND_SEVERITY_2026_08_20: 'OPERATOR AGREED this is a PRECONDITION for the calming work,
