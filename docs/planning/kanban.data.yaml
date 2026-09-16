@@ -15575,6 +15575,17 @@ cards:
   - 'GROOM 2026-09-11: VERDICT REAL feature, framing STALE (unaware of its own v3 plan + BACKLOG B5).
     Promoted inbox -> pre_planning; linked plan; next rewritten.'
 - id: UNLOAD-SYMMETRY-TASK-HYGIENE-1
+  REVIEW_A_2026_09_16: 'Framing A (cancel-safety) = FIX-REQUIRED. Strong catch: the hygiene fix
+    INTRODUCED a leak. MUST-FIX (1): per-EVENT sites (coordinator_diagnostics.py:381 schedule_check
+    per-command; transit_validator.py:1075,1119 per-detection) append unsubs to a list that never
+    prunes -> unbounded growth (fired TimerHandle pins hass+closure; CM shared ComplianceTracker
+    never recreated). Fix = self-discard-on-fire, not accumulate-then-drain. MUST-FIX (2):
+    coordinator_diagnostics.py:380 async_teardown cancels pending compliance checks (DB row +
+    anomaly, 120s) with NO discharge -> on a CM reload (5x/night) an override row never lands.
+    Adjudicate: accept-with-comment+README, or discharge. SHOULD-FIX: real behavioral test for
+    site 5 (currently hollow substring anchor, Bug Class #62); drop dead except __init__.py:1626.
+    CLEARED (PASS): __init__.py:1618 (once-per-setup), hvac.py:1210 (per-instance re-armed),
+    owner routing disjoint, teardown idempotent. Awaiting Review B before a consolidated fix-up.'
   title: Setup/unload symmetry + tracked background tasks (tech-debt hardening)
   status: review
   AUDIT_2026_09_15: 'AUDIT DONE — and it DE-SCOPES this card by ~96%. Built a reusable AST audit,
