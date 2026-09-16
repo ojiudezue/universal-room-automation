@@ -7706,13 +7706,99 @@ cards:
     earlier attempt to label the actual camera sensor and picking the wrong row. It validates (camera_presence
     is not in _NON_CORROBORATOR_KINDS so the D-MEDIUM-1 rule does not fire) but it is very likely wrong,
     and it changes how that sensor is trusted. Confirm intent before clearing it.'
+- id: ARRESTER-LEDGER-INVISIBLE-1
+  title: The HVAC override arrester keeps its ledger in INFO log lines, on a log that only records
+    WARNING and above — so every arrest it makes is invisible after the fact
+  thread: hvac
+  status: inbox
+  created: '2026-09-15'
+  updated: '2026-09-15'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [no-fabrication-verify, observability]
+  problem_solution:
+  - 'Problem: when someone yanks a thermostat, URA''s "arrester" is supposed to notice and act. It
+    does notice — but it records that fact only by writing an INFO line to the log, and URA''s log
+    keeps WARNING and above. So the line is thrown away as it is written. The result is that
+    nobody can answer "did URA see that override?" after the moment has passed: there is no row in
+    the activity ledger, no notification, and no counter that survives a restart. A whole class of
+    HVAC behaviour is unauditable, which means real defects in it cannot be confirmed OR ruled out
+    — we hit exactly that wall on 2026-08-20 and could not settle whether a live override was
+    detected. Solution: write the arrester''s decisions to the same durable activity ledger the fan
+    logic already uses, so an arrest leaves a record that outlives the log and the process.'
+  origin:
+    date: '2026-09-15'
+    gist: Surfaced while disposing HVAC-HOT-ENTRY-LATENCY-1, whose open question was unanswerable
+      for exactly this reason
+  why: Not a cosmetic logging gap — it is what makes arrester defects undiagnosable. It already
+    blocked one investigation dead, and it will block the next one identically.
+  VERIFIED_2026_09_15: 'Ground truth, read in source this session (not inferred). (1)
+    hvac_override.py contains ZERO activity_logger / log_activity calls — grep returns nothing.
+    (2) Its self-described "ledger" is log-only: hvac_override.py:600 is literally commented
+    "Structured ledger row for a suppressed shave (INFO)", and the detection site at
+    hvac_override.py:2848 emits "Override detected on %s..." also at INFO. (3) By contrast
+    hvac_fans.py DOES use the durable ledger (activity_logger.log at :1058-1060 and :1716-1720),
+    so the mechanism exists and is already proven in the same subsystem — this is a REUSE, not a
+    new capability. (4) The 2026-08-20 investigation on HVAC-HOT-ENTRY-LATENCY-1 independently
+    confirmed the consequence from the data side: the HVAC coordinator''s entire action vocabulary
+    in ura_activity_log is {fan_off, fan_on, pre_arrival, preset_change, preset_change_suppressed}
+    — no override/arrest/shave action exists at all, and the URA log carries no INFO lines
+    whatsoever, so absence of an "Override detected" line is NOT evidence of non-detection.'
+  parsimony:
+    problem: The arrester''s decisions are written only to a log level that is discarded, so no
+      arrest can be audited after the fact.
+    verdict: BUILD
+  next: 'Scope as additive observability (Tier 1-2, no behaviour change): emit an activity_logger
+    row at the arrester decision sites, REUSING the hvac_fans.py:1058 pattern, with an action
+    vocabulary that distinguishes detected / reverted / suppressed / immune-held. Acceptance must
+    DISCRIMINATE: a real arrest writes a row AND a no-arrest tick writes none — do not accept "a
+    row appeared" alone. Note the build is currently gated on the test suite being runnable.'
+  links:
+    related: [HVAC-HOT-ENTRY-LATENCY-1, ARRESTER-BOOT-BLIND-1, ARRESTER-CLOUDFLAP-FALSEPOS-1, OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1]
+    context: 'HVAC-HOT-ENTRY-LATENCY-1 is the investigation this was extracted from — its
+      open question (did the arrester detect the 20:20 override?) is unanswerable until this
+      lands, so this card unblocks that one. ARRESTER-BOOT-BLIND-1 and
+      ARRESTER-CLOUDFLAP-FALSEPOS-1 are both arrester-behaviour defects whose evidence would be
+      far cheaper to gather once arrests are logged durably. OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1
+      touches the adjacent override_count_today counter.'
+  ADJACENCY_SWEEP_2026_09_15: 'NEW (not duplicate). Swept all four surfaces. (1) Board: the four
+    arrester cards are each a distinct BEHAVIOUR defect (boot-window blindness, cloud-flap false
+    positive, sunset-on-away, comfort delay) — none is about the decisions being unrecorded.
+    OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1 is a missing TEST anchor on a counter, not a ledger
+    gap. (2) docs/BACKLOG.md activity_log hits are all presence/census anomaly-persistence items
+    (v4.6.3.x), unrelated to HVAC override. (3) Parked planning deliverables:
+    PLANNING_arrester_comfort_delay.md does define ledger rows, but for the COMFORT-DELAY feature
+    (comfort_delay_started/expired/deferred_write) — and per (2) above those are INFO-level too;
+    it never proposed logging override DETECTION durably. (4) No catalog/audit covers it.'
+  refs:
+  - hvac_override.py:600 (INFO "ledger" comment), :2848 (INFO "Override detected")
+  - hvac_fans.py:1058-1060, :1716-1720 (the durable activity_logger pattern to reuse)
+  - docs/planning/PLANNING_arrester_comfort_delay.md
 - id: HVAC-HOT-ENTRY-LATENCY-1
   title: Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry dwell does
     not care how hot the room is
   thread: hvac
-  status: pre_planning
+  status: waiting_operator
+  DISPOSITION_2026_09_15: 'Verified STILL-REAL and split, because the card was carrying two
+    different problems and neither could move while they were fused.
+    PIECE 1 — the responsiveness defect (a flat 5-minute entry dwell that ignores how hot the room
+    is) is REAL and unfixed: re-read hvac.py this session, zone entry dwell is still the flat
+    _zone_entry_dwell with no temperature term. Its FIX belongs on HVAC-PRESET-FLAP-1, which owns
+    the temperature-conditional-dwell design axis and is PARKED on named preconditions
+    (HVAC-MANUAL-PRESET-CONTRACT-1 landing + the operator-owned Garage Hallway sensor swap). So
+    this card is the dated, fully-reconstructed EVIDENCE for that design axis, not a separate
+    build — linked accordingly.
+    PIECE 2 — the open question ("did the arrester detect the 20:20 override?") is NOT answerable
+    and never will be as things stand, which is itself the finding. Extracted to its own card
+    ARRESTER-LEDGER-INVISIBLE-1 with source proof (hvac_override.py writes its ledger at INFO
+    while the log keeps WARNING+; hvac_fans.py already uses the durable activity_logger). That
+    card now BLOCKS answering this one.
+    WHY THIS IS NOT BEING DRIVEN AUTONOMOUSLY: piece 1 changes live comfort behaviour on a
+    shared HVAC path (regression-prone, Tier-2-DB by standing policy) and the card carries
+    approval: needs_operator. It needs an operator scope call, not an agent guess. Moved to
+    waiting_operator with an operator-verb next.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py:2047 zone entry dwell is flat _zone_entry_dwell, no temperature term (0 hot_entry hits). Needs operator approval to scope temp-aware bypass.'
-  updated: 2026-08-20 22:45
+  updated: '2026-09-15'
   approval: needs_operator
   tags:
   - measure-before-build
@@ -7791,12 +7877,23 @@ cards:
     the next occurrence. NOTE the DB was NOT reachable this session — no ura-sqlite MCP connected, and
     sqlite cannot open the live DB read-only over the Samba mount because it is in WAL mode. Copy it locally
     or reconnect the MCP.'
-  next: 'Two separable pieces of work; do NOT bundle them until the open question is settled. (1) The
-    responsiveness fix (temperature-conditional dwell) belongs with HVAC-PRESET-FLAP-1 and is now evidence-backed
-    rather than speculative. (2) The arrester question is a triage step, not a cycle — answer it first,
-    because if (a) is true it is a suppression-window defect that would also explain other missed overrides,
-    and if (b) is true there is nothing to fix and the card closes. ALSO NOTE FOR THE RECORD: the zone
-    recovered without intervention at 22:15. Whatever else is true, this was not a stuck state.'
+  next: 'APPROVE or PICK the responsiveness scope -> then I build it under HVAC-PRESET-FLAP-1 (whose
+    other preconditions still gate it). The choice: (A) TEMPERATURE-CONDITIONAL DWELL — collapse the
+    5-minute entry dwell toward ~1 tick when the zone is sitting at or near its away ceiling and
+    someone walks in, keeping the full dwell when the room is already comfortable (this is the axis
+    you already ruled in on HVAC-PRESET-FLAP-1); or (B) LEAVE AS IS until the flap work lands,
+    accepting that walking into an 80F room can mean ~5 minutes before URA reacts. Evidence for (A)
+    is on this card: 2026-08-20, Jaya entered an 80F zone at ~20:18 and reached the thermostat at
+    20:20:39 — roughly 3 minutes before URA could have acted. The SECOND piece (did the arrester
+    detect that override?) is no longer waiting on you — it moved to ARRESTER-LEDGER-INVISIBLE-1,
+    because it cannot be answered until arrests are recorded durably.'
+  links:
+    related: [HVAC-PRESET-FLAP-1, ARRESTER-LEDGER-INVISIBLE-1, HVAC-MANUAL-PRESET-CONTRACT-1]
+    context: 'HVAC-PRESET-FLAP-1 owns the temperature-conditional-dwell design axis — the fix for
+      this card''s responsiveness half lives THERE, and this card is its dated live evidence.
+      ARRESTER-LEDGER-INVISIBLE-1 was extracted from this card and must land before this card''s
+      old arrester open-question can be answered at all. HVAC-MANUAL-PRESET-CONTRACT-1 is one of
+      the named preconditions gating HVAC-PRESET-FLAP-1.'
 - id: CARRIER-STALE-POLL-REFRESH-1
   title: ha_carrier goes stale for up to 1.8h and only a RELOAD clears it — operator asked for a periodic
     refresh; CUT from the pipeline-hardening cycle, carded so the request is not dropped
