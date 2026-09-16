@@ -616,6 +616,10 @@ class _CoordStub:
         self._short_cycles_today = {}
         self._short_cycles_today_date = ""
         self._short_cycle_on_since = {}
+        # B4 fix-up: periodic zone-state-save counter (production sets
+        # this to 4 on a genuine rollover so the durable snapshot lands
+        # in the same decision cycle).
+        self._zone_state_save_counter = 0
         self.anomaly_detector = _AnomalyDetectorRecorderStub()
         self.hass = MagicMock()
         # for async_create_task path in the handler defensive rollover
@@ -1166,4 +1170,137 @@ def test_short_cycle_save_baselines_failure_does_not_block_rollover(hvac_ns):
     )
     assert stub._short_cycles_today_date == "2026-08-24", (
         "save_baselines failure blocked the date stamp"
+    )
+
+
+# ===========================================================================
+# B4 fix-up round — ordering, durability nudge, and the real-class contract
+# ===========================================================================
+
+def test_short_cycle_rollover_resets_and_stamps_before_saving(hvac_ns):
+    """Fix 1 (Review B LOW-2): the counter reset and the date stamp must
+    both happen BEFORE the awaited save.
+
+    `CancelledError` is a `BaseException` and escapes the `except
+    Exception` around the save, so a save-first ordering can strand
+    {date: prev_date, counts: non-zero} for teardown to persist and the
+    next boot re-records the same day. The stub records the coordinator
+    state observed at save time, so moving the save back above the
+    reset/stamp turns this red.
+    """
+    stub = _CoordStub(
+        ["zone_1", "zone_2"], _make_hvac_stub_with_bound_methods._now,
+    )
+    stub._short_cycles_today = {"zone_1": 6, "zone_2": 2}
+    stub._short_cycles_today_date = "2026-08-23"
+
+    observed = {}
+
+    async def _save_observing():
+        stub.anomaly_detector.save_calls += 1
+        stub.anomaly_detector.order.append(("save", None))
+        observed["counts"] = dict(stub._short_cycles_today)
+        observed["date"] = stub._short_cycles_today_date
+
+    stub.anomaly_detector.save_baselines = _save_observing
+    emit = _bind(hvac_ns, "_emit_and_reset_short_cycles", stub)
+
+    import asyncio
+    asyncio.run(emit("2026-08-24"))
+
+    assert stub.anomaly_detector.save_calls == 1
+    assert observed["date"] == "2026-08-24", (
+        "date stamp must be advanced BEFORE the awaited save; a "
+        "cancellation inside the save would otherwise strand prev_date "
+        f"and cause a duplicate observation next boot (saw {observed})"
+    )
+    assert observed["counts"] == {"zone_1": 0, "zone_2": 0}, (
+        "counter reset must happen BEFORE the awaited save; saw "
+        f"{observed}"
+    )
+    # The recorded observations still precede the save (unchanged
+    # contract pinned by test_short_cycle_rollover_persists_baselines_
+    # after_recording).
+    kinds = [k for k, _ in stub.anomaly_detector.order]
+    assert kinds == ["record", "record", "save"]
+
+
+def test_short_cycle_rollover_nudges_zone_state_save_counter(hvac_ns):
+    """Fix 2 (Review A MEDIUM-1): a genuine rollover sets
+    `_zone_state_save_counter = 4` so the `+= 1` in
+    `_run_decision_cycle` reaches the >= 5 gate and the durable
+    `.storage` snapshot (which carries the persisted date) is written
+    later in the SAME tick instead of up to ~25 min later."""
+    stub = _CoordStub(["zone_1"], _make_hvac_stub_with_bound_methods._now)
+    stub._short_cycles_today = {"zone_1": 3}
+    stub._short_cycles_today_date = "2026-08-23"
+    stub._zone_state_save_counter = 0
+    emit = _bind(hvac_ns, "_emit_and_reset_short_cycles", stub)
+
+    import asyncio
+    asyncio.run(emit("2026-08-24"))
+
+    assert stub._zone_state_save_counter == 4, (
+        "genuine rollover must nudge the periodic-save counter to 4 so "
+        "the durable snapshot lands in the same decision cycle"
+    )
+
+
+@pytest.mark.parametrize("setup", ["midday", "first_boot", "multi_day"])
+def test_short_cycle_non_rollover_paths_do_not_nudge_save_counter(
+    hvac_ns, setup,
+):
+    """NEGATIVE for Fix 2: the early-return paths must NOT nudge the
+    counter — forcing a snapshot write on every boot would defeat the
+    ~25-min periodic cadence."""
+    stub = _CoordStub(["zone_1"], _make_hvac_stub_with_bound_methods._now)
+    stub._zone_state_save_counter = 0
+    if setup == "midday":
+        stub._short_cycles_today = {"zone_1": 2}
+        stub._short_cycles_today_date = "2026-08-24"
+    elif setup == "first_boot":
+        stub._short_cycles_today_date = ""
+    else:
+        stub._short_cycles_today = {"zone_1": 7}
+        stub._short_cycles_today_date = "2026-08-20"
+    emit = _bind(hvac_ns, "_emit_and_reset_short_cycles", stub)
+
+    import asyncio
+    asyncio.run(emit("2026-08-24"))
+
+    assert stub._zone_state_save_counter == 0
+
+
+def test_short_cycle_detector_none_does_not_nudge_save_counter(hvac_ns):
+    """NEGATIVE for Fix 2: the detector-None path leaves the rollover
+    pending (no date advance), so it must not nudge either."""
+    stub = _CoordStub(["zone_1"], _make_hvac_stub_with_bound_methods._now)
+    stub._short_cycles_today = {"zone_1": 12}
+    stub._short_cycles_today_date = "2026-08-23"
+    stub._zone_state_save_counter = 0
+    stub.anomaly_detector = None
+    emit = _bind(hvac_ns, "_emit_and_reset_short_cycles", stub)
+
+    import asyncio
+    asyncio.run(emit("2026-08-24"))
+
+    assert stub._zone_state_save_counter == 0
+
+
+def test_real_anomaly_detector_exposes_async_save_baselines():
+    """Fix 4 (Review B LOW-1): the six B4 tests above drive a hand-written
+    stub, so they cannot see a rename or de-async of the REAL method —
+    and the production `except Exception` would swallow the resulting
+    `AttributeError`, leaving the feature silently inert. Assert the
+    contract against the real class."""
+    import inspect
+
+    mod = _load_anomaly_detector()
+    assert hasattr(mod.AnomalyDetector, "save_baselines"), (
+        "AnomalyDetector.save_baselines is gone/renamed — the rollover "
+        "persist call in hvac.py is now a swallowed AttributeError"
+    )
+    assert inspect.iscoroutinefunction(mod.AnomalyDetector.save_baselines), (
+        "AnomalyDetector.save_baselines must stay a coroutine — the "
+        "rollover site awaits it"
     )

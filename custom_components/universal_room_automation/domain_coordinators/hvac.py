@@ -4141,8 +4141,42 @@ class HVACCoordinator(BaseCoordinator):
         # path would fire on every boot.
         #
         # Isolated so a DB failure can never prevent the load-bearing
-        # counter reset / date stamp below (same defensive style as
-        # store_event and clear_active_anomalies_filtered above).
+        # counter reset / date stamp (same defensive style as store_event
+        # and clear_active_anomalies_filtered above).
+        #
+        # ORDERING (fix-up round, Review B LOW-2): the counter reset and
+        # the date stamp run BEFORE the await, not after. `CancelledError`
+        # is a `BaseException`, so it escapes the `except Exception` below
+        # — if a shutdown cancels this tick inside the awaited save, a
+        # reset-after-save ordering would never reach the date stamp;
+        # teardown would then persist {date: prev_date, counts: non-zero}
+        # and the NEXT boot's rollover would re-record the same day, a
+        # duplicate observation into a 14-sample gate. Reordering is free:
+        # every observation is already recorded in memory above, so what
+        # gets persisted is unchanged.
+        # Reset counter keyed on the new day.
+        self._short_cycles_today = {
+            zid: 0 for zid in self._zone_manager.zones
+        }
+        self._short_cycles_today_date = today
+        # DURABILITY NUDGE (fix-up round, Review A MEDIUM-1): the stamp
+        # above is RAM-only. The durable copy lives in the zone-state
+        # `.storage` snapshot, written at clean teardown or by the
+        # periodic block below (gated on `_zone_state_save_counter >= 5`,
+        # ~25 min). Setting the counter to 4 here makes the increment in
+        # `_run_decision_cycle` reach 5 and write the durable snapshot
+        # later in the SAME decision cycle (this method is awaited from
+        # that function, and there is no `return` between the two sites).
+        #
+        # HONEST SCOPE: this SHRINKS the double-count window from up to
+        # ~25 minutes to the remainder of one decision cycle. It does NOT
+        # close it — an unclean kill between this baseline save and the
+        # snapshot write later in the tick can still double-count the
+        # day. Full closure needs the durable snapshot written BEFORE the
+        # baseline save, i.e. a shared snapshot-construction helper used
+        # by all three sites (rollover, periodic, teardown). Deliberately
+        # out of scope for an unattended overnight change; carded.
+        self._zone_state_save_counter = 4
         try:
             await self.anomaly_detector.save_baselines()
             _LOGGER.info(
@@ -4150,16 +4184,14 @@ class HVACCoordinator(BaseCoordinator):
                 "(prev=%s today=%s)", prev_date, today,
             )
         except Exception as e:
-            _LOGGER.warning(
+            # `save_baselines` already swallows DB errors one level down,
+            # so anything reaching here is a programming error — error,
+            # not warning (fix-up round, Review A LOW-2).
+            _LOGGER.error(
                 "HVAC short-cycle: save_baselines failed after rollover "
-                "(prev=%s today=%s): %s — continuing with counter reset",
+                "(prev=%s today=%s): %s — counter already reset",
                 prev_date, today, e,
             )
-        # Reset counter keyed on the new day.
-        self._short_cycles_today = {
-            zid: 0 for zid in self._zone_manager.zones
-        }
-        self._short_cycles_today_date = today
 
     async def _record_anomaly_observations(self) -> None:
         """Record observations for anomaly detection and persist anomalies to anomaly_log.
