@@ -7888,7 +7888,23 @@ cards:
   title: The HVAC override arrester keeps its ledger in INFO log lines, on a log that only records
     WARNING and above — so every arrest it makes is invisible after the fact
   thread: hvac
-  status: planned
+  status: review
+  BUILT_2026_09_16: 'BUILT (step 2 of HVAC-SUPPLE-SEQUENCE-1), no behaviour change.
+    _arrest_ledger helper reuses the hvac_fans.py:1058 durable-ledger pattern — broad except, no
+    await, hands off via async_create_task, because recording an arrest must never be able to
+    PREVENT one. Wired at BOTH detection sites with details.mode = governed vs passive so a reader
+    can distinguish a real arrest from a detection-without-revert, and the row carries
+    zone_id/entity_id/old+new preset+setpoints — exactly the attribution the 2026-09-16
+    investigations needed and could not get. The call sits AFTER the `if not is_override: return`
+    guard so ordinary state changes write nothing.
+    EVIDENCE: 6 AST-based tests; mutation drill deletes the governed call -> 3 failed, deletes the
+    passive call -> 2 failed, restored -> 6 passed, tree clean.
+    SELF-CAUGHT HOLLOW ANCHOR, recorded because it is the failure class this suite exists to
+    prevent: v1 of the tests used string search, so deleting the GOVERNED call left them GREEN —
+    the passive call still matched both `_arrest_ledger` and `override_detected`. The mutation
+    drill exposed it and the tests were rewritten to pin each site via AST.
+    NOT VERIFIED YET: that a real override actually produces a row on the live system. That is the
+    post-deploy criterion and it is what discriminates a working instrument from a plausible one.'
   relane_2026_09_15: 'inbox -> planned. It is STEP 2 of an operator-approved sequence and is the arc''s measurement instrument, so it is no longer raw capture. Tier 1-2, additive observability, no behaviour change — drivable without a further operator gate.'
   created: '2026-09-15'
   updated: '2026-09-15'
@@ -7927,11 +7943,7 @@ cards:
     problem: The arrester''s decisions are written only to a log level that is discarded, so no
       arrest can be audited after the fact.
     verdict: BUILD
-  next: 'Scope as additive observability (Tier 1-2, no behaviour change): emit an activity_logger
-    row at the arrester decision sites, REUSING the hvac_fans.py:1058 pattern, with an action
-    vocabulary that distinguishes detected / reverted / suppressed / immune-held. Acceptance must
-    DISCRIMINATE: a real arrest writes a row AND a no-arrest tick writes none — do not accept "a
-    row appeared" alone. Note the build is currently gated on the test suite being runnable.'
+  next: 'DEPLOY, then verify on the live system: (a) a genuine override produces an override_detected row in ura_activity_log with mode populated, queried directly; (b) ordinary preset changes produce NO such rows. Until (a) runs the instrument is plausible, not proven.'
   links:
     related: [HVAC-HOT-ENTRY-LATENCY-1, ARRESTER-BOOT-BLIND-1, ARRESTER-CLOUDFLAP-FALSEPOS-1, OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1]
     context: 'HVAC-HOT-ENTRY-LATENCY-1 is the investigation this was extracted from — its
