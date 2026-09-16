@@ -7884,6 +7884,67 @@ cards:
   refs:
   - activity_logger.py:114-117 (unvalidated entity_id onto the ura_action bus event)
   - 'live ERROR 2026-09-16 boot: recorder core.py:304 -> split_entity_id ValueError garage_a'
+- id: HVAC-PRESET-WRITE-STRATEGY-1
+  title: How to write a preset successfully is vendor-specific, and that knowledge is hardcoded in
+    a shared chokepoint every thermostat write passes through
+  thread: hvac
+  status: pre_planning
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-16 ("Can we abstract the writer per kind of AC so another house
+    with a diff AC or integration can specify how to write presets successfully? How hard is that?")'
+  tags: [platform-enabler, institutional-context]
+  problem_solution:
+  - 'Problem: getting a thermostat to actually accept a named setting turns out to depend on the
+    brand. On this house''s Bryant system a named setting will not stick while the thermostat is
+    sitting on a hand-set temperature — you have to clear that first with a special "resume"
+    command. That knowledge is now written directly into the single place every thermostat
+    instruction passes through, using words ("resume", "manual") that mean this brand and no other.
+    A different thermostat may mean something else by them, or have no such command at all.
+    Solution: move the per-brand knowledge into a small named strategy that a house can select,
+    and have the shared path ask the strategy rather than assume one vendor.'
+  origin:
+    date: '2026-09-16'
+    gist: Operator asked the abstraction question while D2a was being built — and the question
+      exposed that the just-written code hardcodes Carrier semantics in a shared chokepoint
+  why: 'The chokepoint (emit_set_preset_mode) is used by EVERY URA climate preset write. Vendor
+    semantics sitting there is a correctness hazard for any non-Carrier thermostat, and it blocks
+    URA being usable in a house with different equipment — which is what "Universal" in the name
+    is claiming.'
+  MITIGATED_NOT_SOLVED_2026_09_16: 'A capability gate shipped WITH D2a as the cheap half: the
+    resume-then-pin path now fires only when the entity itself advertises `resume` among its
+    preset_modes, so a non-Carrier thermostat falls through to the pre-existing direct-pin
+    behaviour instead of receiving a guaranteed-failing service call on every write. That removes
+    the immediate hazard. It does NOT provide the abstraction — the SEMANTICS are still hardcoded
+    (that "manual" names an anonymous hold, that "resume" clears it).'
+  parsimony:
+    problem: Vendor-specific write semantics live in a shared chokepoint, so a different thermostat
+      is either mishandled or silently unsupported.
+    verdict: SIMPLIFY
+  next: 'Smallest useful version, and it is genuinely small — roughly 40-60 lines. Define a
+    PresetWriteStrategy with two questions: "is this zone in a hold that will swallow a named
+    pin?" and "how do I clear it?". Provide TWO implementations: DirectPin (the default — just
+    write the preset; correct for most integrations) and ClearThenPin (parameterised with the
+    clear-command and the anonymous-hold marker; Carrier/Bryant supplies "resume"/"manual").
+    Resolve per entity from the climate platform via the entity registry, defaulting to DirectPin
+    so an unknown thermostat behaves exactly as it does today. Then move PRESET_RESUME and
+    ANONYMOUS_HOLD out of hvac_setpoint.py into the Carrier strategy.
+    DO NOT build a config-flow surface for this yet — per the knob ladder this is per-deployment
+    structure, but with one house and one vendor there is nothing to choose between. Ship the
+    strategy seam first; add selection when a second vendor actually exists.
+    ACCEPTANCE must DISCRIMINATE: a Carrier zone still gets clear-then-pin, and a stubbed
+    other-vendor zone gets a direct pin with NO clear command attempted.'
+  links:
+    related: [HVAC-MANUAL-PRESET-CONTRACT-1]
+    context: 'HVAC-MANUAL-PRESET-CONTRACT-1 D2a is where the Carrier semantics were introduced and
+      where the capability gate now mitigates them; this card generalises that seam. It should be
+      done AFTER D2a''s numeric prediction is validated — abstracting a mechanism we have not yet
+      confirmed works in production would be abstracting a guess.'
+  refs:
+  - hvac_setpoint.py PRESET_RESUME / ANONYMOUS_HOLD / _needs_resume_first (the hardcoded seam)
+  - ha_carrier/climate.py:405-409 (resume_schedule), :418-430 (set_config_hold)
 - id: ARRESTER-LEDGER-INVISIBLE-1
   seq_2026_09_15: 'STEP 2 of HVAC-SUPPLE-SEQUENCE-1 — and it was PROMOTED: this is the MEASUREMENT INSTRUMENT for the arc, not side-hygiene. A human correcting the thermostat after an away flip is the only INDEPENDENT witness of a spurious away (the guest/person route is circular — it derives from the very occupancy signal under audit). GATE: a real override writes a durable row; a no-override tick writes none.'
   title: The HVAC override arrester keeps its ledger in INFO log lines, on a log that only records
