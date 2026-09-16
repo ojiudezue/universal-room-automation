@@ -183,13 +183,23 @@ the transit corridor produced *longer* clustered sessions (max 25.8 min) than th
 bedroom (max 4.5). Repeated crossings defeat any duration threshold. So the HVAC
 sensor's **input** cannot be "the fused signal held longer/shorter":
 
-- **Input** = kind-aware presence — mmWave *stillness* where available (continuous
-  `device_class: occupancy` = settled body; transit barely touches it — see §6),
-  known-occupier BLE anchor, or the fused signal elsewhere. **Never raw sensors**
-  (the H1/H2 lesson).
+- **Input** = kind-aware presence, applied **on top of the room's already-grace-held
+  `STATE_OCCUPIED`** — NOT raw `substrate.is_kind_active` (audit finding #7: a raw
+  read bypasses `grace_hold` at `coordinator.py:3581` and drops occupancy on a sensor
+  blip, reintroducing the H1 sparse-dropout failure). So: mmWave *stillness* where
+  available, known-occupier BLE anchor, else the fused signal — all filtered over the
+  grace-held occupied, never the raw substrate.
 - **Hold** = the per-room HVAC decay duration (the `fan_vacancy_hold` pattern) —
   governs adopt-dwell and retreat *persistence*. NOT reaction cadence (that's the
   loop, § Stage D).
+
+**Wire it by SWAPPING THE INPUT, not adding a parallel field** (audit finding #4):
+`RoomCondition.occupied` is fed from the lighting-fused `coordinator.data["occupied"]`
+at `hvac_zones.py:546`, and 12+ HVAC-path sites already read `RoomCondition.occupied`.
+Change *what feeds it* (a room-level HVAC-occupancy view) rather than adding a parallel
+`RoomCondition.hvac_occupied` that all 12 consumers must be taught to read. That single
+mutation point (`hvac_zones.py:546`) IS the whole ripple. (Full audit:
+`AUDIT_hvac_conditioning_demand_supersession_and_reuse_2026_09_16.md`.)
 
 The hold is the per-room flexibility; the kind-aware input is what lets it separate
 transit from dwell where duration can't. Reuses `room.occupied`'s fused, machined
@@ -372,6 +382,13 @@ cycle), after Stage 0 confirms.
 
 - `vacancy_grace` = **10 min** (constrained 5 during energy coast/shed);
   `zone_entry_dwell` = **5 min**; energy tick = **5 min**.
+  *(Audit #5 reconciliation: these are the LIVE `.storage` values and are load-bearing
+  operator overrides; the source DEFAULTS differ — `hvac_const.py:374,377` ship 15 and
+  3. The live values govern; the plan tunes against 10/5. Also: `zone_entry_dwell`
+  must default to 0 the same cycle per-room dwell ships, or the two stack — audit
+  footgun S1; keep the field one release for observability, delete later. And the new
+  hold default goes at the root `const.py` home, not a third copy — `DEFAULT_FAN_VACANCY_HOLD`
+  is already duplicated at `const.py:1153` + `hvac_const.py:821`.)*
 - `occupancy_timeout`: mostly 300s; 360 Garage Hallway; 480–540 Kitchen / Study A /
   Game / Breakfast / Ziri; 900 bathrooms / Exercise / Master Bath.
 - **Retreat-from-empty today:** ~15–20 min standard rooms, up to 25–30 min for
