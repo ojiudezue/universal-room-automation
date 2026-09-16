@@ -1615,7 +1615,23 @@ async def _check_and_notify_room_name_desync(
                     )
 
             try:
-                async_call_later(hass, 60, _retry)
+                # UNLOAD-SYMMETRY-TASK-HYGIENE-1: retain the one-shot
+                # ``async_call_later`` unsub via ``entry.async_on_unload``
+                # so an entry reload inside the 60s retry window cancels
+                # the pending callback (which otherwise fires against
+                # a torn-down NM machinery). ``async_on_unload`` is safe
+                # to call from a background task spawned via
+                # ``entry.async_create_background_task``.
+                _retry_unsub = async_call_later(hass, 60, _retry)
+                try:
+                    entry.async_on_unload(_retry_unsub)
+                except Exception:  # noqa: BLE001
+                    # Entry may already be unloading — cancel the callback
+                    # inline so it never fires against a torn-down entry.
+                    try:
+                        _retry_unsub()
+                    except Exception:  # noqa: BLE001
+                        pass
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "room_name_desync retry schedule failed (swallowed) "

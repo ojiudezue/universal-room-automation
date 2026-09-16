@@ -1069,7 +1069,12 @@ class EgressDirectionTracker:
         async def _delayed_resolve(now):
             await self._resolve_direction(entity_id, timestamp)
 
-        async_call_later(self.hass, self.ENTRY_WINDOW_SECONDS, _delayed_resolve)
+        # UNLOAD-SYMMETRY-TASK-HYGIENE-1: retain the one-shot unsub on
+        # ``self._unsub`` so ``async_teardown`` can cancel a pending
+        # resolve if the entry is unloaded inside the window.
+        self._unsub.append(
+            async_call_later(self.hass, self.ENTRY_WINDOW_SECONDS, _delayed_resolve)
+        )
 
     @callback
     def _on_egress_count_change(self, event: Event) -> None:
@@ -1108,7 +1113,12 @@ class EgressDirectionTracker:
         async def _delayed_resolve(now):
             await self._resolve_direction(entity_id, timestamp)
 
-        async_call_later(self.hass, self.ENTRY_WINDOW_SECONDS, _delayed_resolve)
+        # UNLOAD-SYMMETRY-TASK-HYGIENE-1: retain the one-shot unsub on
+        # ``self._unsub`` so ``async_teardown`` can cancel a pending
+        # resolve if the entry is unloaded inside the window.
+        self._unsub.append(
+            async_call_later(self.hass, self.ENTRY_WINDOW_SECONDS, _delayed_resolve)
+        )
 
     @callback
     def _on_interior_state_change(self, event: Event) -> None:

@@ -1202,7 +1202,14 @@ class HVACCoordinator(BaseCoordinator):
                         exc_info=True,
                     )
 
-            async_call_later(self.hass, 60, _release_egress_gate)
+            # UNLOAD-SYMMETRY-TASK-HYGIENE-1: retain the one-shot unsub on
+            # ``self._unsub_listeners`` (drained by ``_cancel_listeners`` in
+            # ``async_teardown``) so a reload inside the 60s window cancels
+            # the pending callback instead of firing against a torn-down
+            # ``_egress_manager``.
+            self._unsub_listeners.append(
+                async_call_later(self.hass, 60, _release_egress_gate)
+            )
         except Exception:
             _LOGGER.debug(
                 "HVAC: scheduling egress gate release failed (non-fatal)",
@@ -4320,6 +4327,19 @@ class HVACCoordinator(BaseCoordinator):
         self._cover_controller.teardown()
 
         self._cancel_listeners()
+
+        # UNLOAD-SYMMETRY-TASK-HYGIENE-1: cancel any pending ComplianceTracker
+        # ``schedule_check`` callbacks so they cannot fire against a
+        # torn-down coordinator after unload/reload.
+        try:
+            _compliance = getattr(self, "_compliance", None)
+            if _compliance is not None and hasattr(_compliance, "async_teardown"):
+                _compliance.async_teardown()
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.debug(
+                "HVAC: ComplianceTracker teardown raised (non-fatal)",
+                exc_info=True,
+            )
 
         # v3.18.2: Save zone state on shutdown
         try:

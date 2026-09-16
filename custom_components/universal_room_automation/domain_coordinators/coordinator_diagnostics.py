@@ -345,6 +345,11 @@ class ComplianceTracker:
         # switch.ura_compliance_consensus_defer_gate for rollback without
         # restart. Default ON.
         self._compliance_defer_gate_enabled: bool = True
+        # UNLOAD-SYMMETRY-TASK-HYGIENE-1: retained one-shot ``async_call_later``
+        # unsubs from ``schedule_check`` so an entry unload can cancel any
+        # pending compliance verifications before they fire against a
+        # torn-down coordinator.
+        self._pending_check_unsubs: list = []
 
     @property
     def _database(self) -> Any:
@@ -366,11 +371,30 @@ class ComplianceTracker:
                 decision_id, scope, device_type, device_id, commanded_state
             )
 
-        async_call_later(
+        # UNLOAD-SYMMETRY-TASK-HYGIENE-1: retain the one-shot unsub so
+        # ``async_teardown`` can cancel any pending check that would
+        # otherwise fire against a torn-down coordinator.
+        _unsub = async_call_later(
             self.hass,
             self.COMPLIANCE_CHECK_DELAY,
             _delayed_check,
         )
+        self._pending_check_unsubs.append(_unsub)
+
+    def async_teardown(self) -> None:
+        """Cancel any pending scheduled compliance checks.
+
+        UNLOAD-SYMMETRY-TASK-HYGIENE-1: called from HVACCoordinator
+        ``async_teardown`` and CoordinatorManager ``async_stop`` so
+        deferred ``_delayed_check`` callbacks cannot fire against a
+        torn-down coordinator after an entry unload/reload.
+        """
+        for _unsub in list(self._pending_check_unsubs):
+            try:
+                _unsub()
+            except Exception:  # noqa: BLE001 — defensive; unsub may already have fired
+                pass
+        self._pending_check_unsubs.clear()
 
     async def _check_compliance(
         self,
