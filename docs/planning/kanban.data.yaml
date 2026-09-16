@@ -9398,6 +9398,41 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  TAP_POINT_RESOLVED_2026_09_15: 'OPERATOR: "Does it re-use stuck sensor machinery correctly? We
+    really want to avoid those if we are driving HVAC." The right question — a careless "tap
+    earlier" would bypass the stuck/chatter exclusion and let a stuck-ON sensor drive the
+    compressor indefinitely. VERIFIED IN SOURCE: it reuses it correctly, PROVIDED the tap is one
+    specific variable.
+
+    PIPELINE ORDER (coordinator.py, read this session):
+      1. EXCLUSION FIRST — `_fusion_filter_active()` (:2247) strips stuck/chatter-excluded sensors.
+         Its docstring: "The 6 fusion sites in _async_update_data all delegate to this filter",
+         with a source-mutation drill built to prove every fusion leg routes through it.
+      2. FUSION — `any_sensor_active = motion_detected or presence_detected or occupancy_detected`
+         (:3290). Tier-1 BODY signals only.
+      3. FURTHER GATES CLEAR IT — mmWave-sole suppression (:3363) and the fan-transition phantom
+         gate (:3449) both set any_sensor_active = False.
+      4. ONLY THEN the lighting hold (:3586-3617) — any_sensor_active stamps _last_motion_time, and
+         occupancy stays True until _occupancy_timeout elapses.
+
+    CONCLUSION: every protective mechanism sits UPSTREAM of the hold. `any_sensor_active` at its
+    point of use is already post-exclusion, post-mmWave-sole-suppression, post-fan-phantom-gate.
+    THE TAP IS THAT VARIABLE — it inherits all of them and drops ONLY the lighting timeout, which
+    is precisely the intent. Tapping raw sensor states instead would bypass exclusion and is the
+    wrong answer.
+
+    TWO CONSEQUENCES TO PIN BEFORE BUILD:
+    (a) BLE DOES NOT FEED IT, and that is the correct default — any_sensor_active is Tier-1 body
+        signals only, so the tap cannot be driven by a phone bleeding through a wall (the operator
+        flagged intra-floor BLE leakage; see BLE-BLEED-EXTEND-SLEEP-1). Record as an EXPLICIT
+        NON-GOAL so a later cycle does not "helpfully" add BLE to this path.
+    (b) ONE PROTECTION WOULD BE LOST BY A NAIVE TAP AND MUST NOT BE — `grace_hold` (:3581) holds
+        the previous occupancy state while sensors are UNAVAILABLE, which is a DISTINCT protection
+        from stuck-sensor exclusion. A bare read of any_sensor_active returns False during an
+        outage, so a sensor dropout would look like vacancy and eventually retreat the zone to
+        away — a fail-OPEN. The published field must therefore be
+        `grace_hold ? held_value : any_sensor_active`, preserving exclusion AND unavailability
+        grace while dropping only the idle timeout. Still one field, still one rollup site.'
   SIMPLIFIED_2026_09_15: 'OPERATOR: "The decoupling has to be simple and elegant. Not complicate
     machinery." CORRECT, and my DESIGN_2026_09_15 five-part proposal is WITHDRAWN as over-built —
     it added five moving parts (new signal type, sensor-kind weighting, event path, soft-away,
