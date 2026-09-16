@@ -18386,7 +18386,7 @@ cards:
     and egress_pause_frequency are both event-driven accumulators over rare events, which per RESTART-SAFETY-DOCTRINE-1
     is the hazard class that stays structurally inert; wire them only with an explicit statement of expected
     samples-per-day, or leave them declared-and-suppressed.'
-  status: planned
+  status: in_progress
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: short_cycle_rate now wired (hvac.py:4077). NARROW to the 2 still-unproduced metrics: comfort_deviation_hours (no call site, :4160) + egress_pause_frequency (0 hits). 4/5 wired.'
   relane_2026_09_10: Not a soak -> PRE-PLANNING. Plan the short-cycle producer carrying measured distributions
     as acceptance fixture; decide rolling-24h-per-tick vs per-completed-cycle-log.
