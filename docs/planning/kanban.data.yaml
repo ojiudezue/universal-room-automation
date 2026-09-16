@@ -6182,12 +6182,20 @@ cards:
     provisioning one local Protect user), and the Frigate real-time name path is
     FRIGATE-SUBLABEL-FACE-BRIDGE-1 (done).
 
-    RESIDUAL HYGIENE (not blocking, deliberately not auto-actioned): automation
-    ura_kp_face_webhook_probe is still armed and still receiving real POSTs. Its own description
-    says "Remove after probe concludes" — the probe has now concluded. It is harmless (zero URA
-    consumers, writes only an event + a log line), so it is left running rather than deleted
-    without the operator: removing an automation is an outward-facing change to their HA config.
-    Its content_type channel is also dead (trigger.headers undefined on this HA version).'
+    RESIDUAL HYGIENE — RESOLVED 2026-09-15 (operator: "Remove it"). The probe automation
+    ura_kp_face_webhook_probe has been DELETED from Home Assistant. Its own description carried the
+    instruction "Remove after probe concludes"; the probe concluded with this card. Pre-delete the
+    verbatim config was captured to docs/planning/retired/automation_ura_kp_face_webhook_probe.yaml
+    (restorable: re-add the block to /config/automations.yaml keeping id 1786827208839, reload
+    automations). Safety checks before deleting: zero URA code consumers of the webhook or the
+    ura_kp_face_probe_received event (grep of custom_components/ = no hits, matching the
+    2026-08-18 consultation finding), and it only ever wrote an event + a log line — no actuation.
+    Post-delete VERIFIED: entity gone (ENTITY_NOT_FOUND) and 0 occurrences of ura_kp_face_probe
+    remain in /config/automations.yaml. The webhook id ura_kp_face_probe is now unbound, so any
+    further Protect POSTs to it will 404 — harmless and expected, since the path is dead. Note the
+    5 historical empty events stay in the recorder until normal purge; that is fine, they are
+    evidence. Also noting the probe had a latent defect never worth fixing: its content_type
+    channel always rendered "no-headers" because trigger.headers is undefined on this HA version.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: D1 Frigate leg shipped v5.81.0 (fa5b57c52). Only D2 (Protect Alarm Manager webhook) remains open, gated on the consultation in next. No alarm_manager/protect_face code exists yet.'
   relane_2026_09_10: Not a soak -> WAITING_ME. Duplicate-vs-complementary consultation running; I owe
     the operator the report, then operator go, then build.
