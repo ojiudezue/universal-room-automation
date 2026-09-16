@@ -1657,6 +1657,8 @@ cards:
   rank: {value: 6, time_criticality: 3, effort: 2}
   tags: [no-fabrication-verify, audit-first]
   links:
+    blocks: [PERIMETER-TOLERANCE-AND-SECTIONS-1]
+    mirror_note_2026_09_15: 'blocks back-ref added during the 2026-09-15 hygiene sweep — PERIMETER-TOLERANCE-AND-SECTIONS-1 declared blocked_by this card but the dependency was one-sided, so it was invisible from this side and ranking could pick the blocked card up.'
     related: [CIRCLING-SEVERITY-1]
     context: CIRCLING-SEVERITY-1 depends on this graph — circling requires 3 distinct adjacent cameras, so a missing seam suppresses circling classification outright.
   refs:
@@ -4346,6 +4348,8 @@ cards:
     availability trip-wire is worth building as URA code regardless of the physical restore, unpark.'
   live_broken: false
 - id: EGRESS-IDENTITY-JOIN-GAP-1
+  blocks_2026_09_15: [SECURITY-ENTRY-VERDICT-NAME-1]
+  mirror_note_2026_09_15: 'blocks back-ref added during the 2026-09-15 hygiene sweep — SECURITY-ENTRY-VERDICT-NAME-1 declared blocked_by this card but the dependency was one-sided, so it was invisible from this side.'
   consumer_link_note_2026_09_03: 'RE-POINTED 2026-09-03: the 8 consumers no longer depend on the PARKED
     Protect bridge (D1-PROTECT-FACE-BRIDGE-ADDON-1). Real gate = FRIGATE-SUBLABEL-FACE-BRIDGE-1 (Frigate
     0.17 sub_label -> URA-joinable entity) feeding THIS producer. Live verify 2026-09-03: producer built+wired+enabled
@@ -4463,6 +4467,8 @@ cards:
     — not a geometry ceiling, a live fault. This card now inherits both the geometry re-key + asymmetric-signed-lag
     window PLUS the pre-existing face-rec-recovery watch.'
   links:
+    blocks: [SECURITY-ENTRY-VERDICT-NAME-1]
+    mirror_note_2026_09_15: 'blocks back-ref added during the 2026-09-15 hygiene sweep — SECURITY-ENTRY-VERDICT-NAME-1 declared blocked_by this card but the dependency was one-sided, so it was invisible from this side and ranking could pick the blocked card up.'
     blocks:
     - PERIMETER-ALERT-NAME-PERSON-1
     - GUEST-GATE-DOOR-IDENTITY-1
@@ -6012,6 +6018,8 @@ cards:
   - ZIRI-COLLEGE-PERSISTENT-AWAY-1
   refinement_status: refined
   links:
+    blocks: [ROUTINE-CARE-DASHBOARD-1]
+    mirror_note_2026_09_15: 'blocks back-ref added during the 2026-09-15 hygiene sweep — ROUTINE-CARE-DASHBOARD-1 declared blocked_by this card but the dependency was one-sided, so it was invisible from this side and ranking could pick the blocked card up.'
     related:
     - ROUTINE-CARE-DASHBOARD-1
     context: ROUTINE-CARE-DASHBOARD-1 is blocked_by this — its color is only meaningful once the routine
@@ -7813,7 +7821,8 @@ cards:
   title: The HVAC override arrester keeps its ledger in INFO log lines, on a log that only records
     WARNING and above — so every arrest it makes is invisible after the fact
   thread: hvac
-  status: inbox
+  status: planned
+  relane_2026_09_15: 'inbox -> planned. It is STEP 2 of an operator-approved sequence and is the arc''s measurement instrument, so it is no longer raw capture. Tier 1-2, additive observability, no behaviour change — drivable without a further operator gate.'
   created: '2026-09-15'
   updated: '2026-09-15'
   refinement_status: initial
@@ -7882,7 +7891,8 @@ cards:
   title: Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry dwell does
     not care how hot the room is
   thread: hvac
-  status: waiting_operator
+  status: planned
+  relane_2026_09_15: 'waiting_operator -> planned, and its A/B PICK is WITHDRAWN from the operator queue. The sequence answers it: the responsiveness decision is deferred to STEP 5, after the step-4 re-measure, so asking now would be asking the operator to choose on speculation. It also stops squatting in the decision queue, which should only hold things actually waiting on a human.'
   DISPOSITION_2026_09_15: 'Verified STILL-REAL and split, because the card was carrying two
     different problems and neither could move while they were fused.
     PIECE 1 — the responsiveness defect (a flat 5-minute entry dwell that ignores how hot the room
@@ -7992,6 +8002,8 @@ cards:
     detect that override?) is no longer waiting on you — it moved to ARRESTER-LEDGER-INVISIBLE-1,
     because it cannot be answered until arrests are recorded durably.'
   links:
+    blocked_by: [HVAC-ZONE-CONDITIONING-DEMAND-1]
+    seq_note_2026_09_15: 'STEP 5 (conditional). Blocked on the step-4 tap landing and being re-measured — building it earlier would be building on speculation, which is exactly what the sequence exists to prevent.'
     related: [HVAC-PRESET-FLAP-1, ARRESTER-LEDGER-INVISIBLE-1, HVAC-MANUAL-PRESET-CONTRACT-1]
     context: 'HVAC-PRESET-FLAP-1 owns the temperature-conditional-dwell design axis — the fix for
       this card''s responsiveness half lives THERE, and this card is its dated live evidence.
@@ -9400,6 +9412,7 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-SUPPLE-SEQUENCE-1
+  seq_2026_09_15: 'THIS CARD IS THE ORDER. Steps 1-3 change no behaviour (attribution, instrument, baseline); step 4 is the live change; steps 5-6 dispose and close.'
   title: The ordered plan for making HVAC supple — six steps, each with a gate, run to completion
     rather than cherry-picked
   thread: hvac
@@ -9494,6 +9507,8 @@ cards:
       (the independent witness). HVAC-PRESET-FLAP-1 remains the evidence ledger to read before
       starting. HVAC-ANOMALY-BLIND-1 and S14-CEILING-NEEDS-AN-ENDING-1 run in parallel.'
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  blocks_step5_2026_09_15: [HVAC-GUEST-AS-ZONE-PERSON-1, HVAC-HOT-ENTRY-LATENCY-1]
+  seq_2026_09_15: 'STEP 4 of HVAC-SUPPLE-SEQUENCE-1 — the ONLY behaviour change in the arc, and the operator checkpoint. Blocked until the attribution foundation (step 1) and the witness (step 2) exist, because without them its success criteria cannot be evaluated. PRE-GATE that can kill it: raw-signal gaps during DWELLING episodes must be shorter than vacancy_grace.'
   TAP_POINT_RESOLVED_2026_09_15: 'OPERATOR: "Does it re-use stuck sensor machinery correctly? We
     really want to avoid those if we are driving HVAC." The right question — a careless "tap
     earlier" would bypass the stuck/chatter exclusion and let a stuck-ON sensor drive the
@@ -14604,6 +14619,8 @@ cards:
     pattern so no test file does import-time sys.modules surgery at all. The second is the real fix and
     belongs to [[TEST-STRATEGY-REARCH-1]].'
   links:
+    blocks: [PYTEST-SUITE-CONST-STUB-ISOLATION-1]
+    mirror_note_2026_09_15: 'blocks back-ref added during the 2026-09-15 hygiene sweep — PYTEST-SUITE-CONST-STUB-ISOLATION-1 declared blocked_by this card but the dependency was one-sided, so it was invisible from this side and ranking could pick the blocked card up.'
     related:
     - HVAC-GOVERNED-EXCURSION-1
     - SUITE-HYGIENE-1
@@ -15995,6 +16012,9 @@ cards:
   - hvac.py:1788-1795
   - aggregation.py:4017-4019, 4152-4154
   - memory feedback_suppression_needs_discharge
+  links:
+    blocked_by: [HVAC-ZONE-CONDITIONING-DEMAND-1]
+    context: 'STEP 5 (conditional) of HVAC-SUPPLE-SEQUENCE-1 — gated on the step-4 re-measure.'
 - id: AC-RAMP-SAVINGS-OVERSTATED-1
   title: AC-ramp kWh-avoided TECH_DEBT entry states the wrong bias direction — one-line doc correction
     (magnitude is NOT a defect; the figure is explicitly not billing-grade)
@@ -17174,6 +17194,9 @@ cards:
     zone no owner holds''. Recommend scoping them as ONE excursion-restore cycle, not three. Remaining
     detail (not gating): the full per-site table (pre-cool, S10, S14) — enumerate during the build''s
     institutional-context.'
+  links:
+    blocks: [HVAC-ZONE-CONDITIONING-DEMAND-1]
+    context: 'blocks back-ref added during the 2026-09-15 hygiene sweep — HVAC-ZONE-CONDITIONING-DEMAND-1 declared blocked_by this card but the dependency was one-sided.'
 - id: HVAC-ANOMALY-BLIND-1
   title: The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics — including the
     one that would have caught the zone-3 flap
