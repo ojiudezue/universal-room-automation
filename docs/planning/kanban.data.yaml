@@ -16893,6 +16893,66 @@ cards:
     restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
     the borrow primitive, not folded into it.'
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  DURABILITY_CONFIRMED_2026_09_16: 'resume-then-pin HELD for 8 MINUTES across 9 cloud-confirmed
+    updates, zero reverts: pin 23:32:35, then 23:32:51, 23:33:31, 23:33:47, 23:34:39, 23:35:53,
+    23:38:29, 23:39:56, 23:40:28 — all sleep|sleep 70/75. Direct preset writes on the same zone the
+    same night died at 36s and 29s. Measured from the RECORDER (every state change, no sampling
+    gaps) rather than by polling, per the operator''s point about not measuring too fast or too
+    slow — the intermediate rows ARE the cloud reporting back, and each one is a refresh that could
+    have reverted it and did not. NOT yet proven: survival across an AC-nudge or overnight.'
+  DERIVED_WRITE_SEQUENCE_2026_09_16: 'THE WRITE URA SHOULD MAKE, derived from tonight''s evidence
+    plus a prior-art scan the operator prompted ("do not overlook the Bryant cloud delay/mismatch
+    machinery we have built and the use of refreshes").
+
+        emit_set_preset_mode(zone, target):
+          1. READ  hold_activity
+          2. NO-OP if hold_activity == target          (do not spend a cloud call)
+          3. IF hold_activity is anonymous ("manual"):
+                 preset "resume"                        (clear it — CONDITIONAL)
+          4. preset target                              (pin the named activity; ADJACENT to 3)
+          5. FORCE a targeted coordinator REFRESH       (collapse the optimistic window)
+          6. VERIFY hold_activity == target; retry once; on persistent failure
+             write a ledger row + NM
+
+    (3) IS CONDITIONAL, NOT UNCONDITIONAL. zone_3 sits on a NAMED `away` hold and URA''s writes to
+    it work today, so resume is only needed to escape an ANONYMOUS hold. Conditional keeps the
+    schedule-exposure window as rare as possible.
+    (3)->(4) MUST BE ADJACENT, no awaitable failure point between them. After resume the zone
+    follows the Bryant schedule until the pin lands; tonight that was harmless BY LUCK (the
+    schedule''s current activity was itself sleep 70/75). A resume at a different hour exposes
+    whatever the schedule says, and a failure between the two calls STRANDS the zone on the
+    schedule — which is the one outcome the operator ruled out.
+    (5) IS A REAL GAP, NOT A NICETY: grep finds NO async_request_refresh anywhere in the hvac
+    files. URA never forces a post-write poll, so its own view stays optimistic for the measured
+    42-79s and it CANNOT distinguish a landed write from a lost one inside that window. That is
+    exactly why tonight''s reverts read as successes at first and why I mis-called the result
+    twice.
+    (6) REUSES EXISTING PRIOR ART: _verify_restore (hvac_override.py:3916) already does
+    verification with retry (max 2 at 30s), tracked in self._verify_tasks and cancelled on unload.
+    Same shape, applied to presets — do not invent a second verifier.'
+  CARRIER_MACHINERY_REUSE_AND_THE_TRAP_2026_09_16: 'WE DO HAVE THE MACHINERY — operator was right.
+    CARRIER-STALE-POLL-REFRESH-1 shipped it at hvac.py:4489+: D1 per-tick freshness detection, D2
+    BOUNDED RELOAD of the ha_carrier entry (_reload_ha_carrier_entry), D3 trip-wire, with a daily
+    reload cap (_carrier_reloads_today), a suppress flag, a lock, SPAN-kW blind corroboration to
+    reject false staleness (unit-refusal fix-up A2), and an explicit rule never to reload the URA
+    PARENT entry. Diagnostics surface at sensor.py:12288+.
+
+    THE TRAP, AND IT MUST BE WRITTEN DOWN BEFORE ANYONE BUILDS STEP 5: that machinery is a
+    STALENESS remedy, NOT a write-confirmation tool, and the two must not be conflated. It exists
+    because ha_carrier can stop updating for up to 1.8h and only a reload clears it. If post-write
+    confirmation reached for the RELOAD, every routine preset write would burn the daily reload
+    budget — and reload storms are an OPEN live problem (URA-CONFIG-ENTRY-RELOAD-STORM-1, ~5x/night,
+    still unattributed). RULE: REFRESH for confirmation, RELOAD only for staleness. A refresh is a
+    cheap poll; a reload tears down and rebuilds the entry.'
+  SUPPRESS_TTL_COUPLING_2026_09_16: 'BLOCKER TO RESOLVE IN THE SAME CYCLE. SUPPRESS_TTL_SECONDS = 5
+    (hvac_override.py:129), but resume -> pin -> refresh -> verify spans well past 5 seconds. So
+    URA would book its OWN second write as a human override, manufacturing phantom overrides — the
+    same _suppress_kind TTL problem this card already flagged from the other direction (provenance
+    known for ~5s while manual persists for hours). The suppression window must cover the WHOLE
+    sequence including verify, or the fix creates the defect it is meant to remove.
+    NOW MEASURABLE: the step-2 ledger (built 2026-09-16) records override_detected with
+    mode=governed|passive plus zone/entity/old->new preset and setpoints, so a misfire will name
+    its writer — the attribution that blocked three separate conclusions tonight.'
   RESUME_THEN_PIN_WORKS_2026_09_16: 'THE MECHANISM IS FOUND, AND SO IS THE FIX — operator approved
     a live spot-check, and testing the CANDIDATE FIX (rather than just diagnosing further) resolved
     the card''s central question in three minutes.
