@@ -16893,6 +16893,44 @@ cards:
     restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
     the borrow primitive, not folded into it.'
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  SUPPRESS_TTL_ANSWER_2026_09_16: 'OPERATOR: "I assume we could extend this to a larger value as
+    long as we understand the impact?" YES — and after reading the mechanism the impact is NARROWER
+    than my blocker note implied, but it is NOT uniform, so the answer is EXTEND PER-KIND, NOT
+    GLOBALLY. My earlier framing (a flat blindness window) was imprecise; corrected here.
+
+    WHAT THE WINDOW ACTUALLY DOES. _is_genuine_manual (hvac_override.py:2345-2380) implements a
+    MID-WINDOW PASSTHROUGH, not blanket suppression. Inside the TTL, a fresh preset transition INTO
+    "manual" from non-manual is STILL treated as genuine ("URA never writes manual") — so a human
+    grabbing the dial mid-window is still caught. The ONE exception is _suppress_kind == "temp",
+    which classifies the induced manual as a side effect of URA''s own setpoint write and returns
+    not-genuine.
+
+    THEREFORE:
+    * kind="preset" CAN SAFELY CARRY A LONG TTL. The resume->pin->refresh->verify sequence is a
+      preset write, so it tags "preset", and a genuine human manual flip during that window still
+      comes through the passthrough. Nothing is lost by covering the full ~90-120s the sequence
+      needs. The other in-window suppressions cost nothing either: a human moving home->away on the
+      dial is NOT an override by the arrester''s own definition (is_override requires
+      new_preset=="manual" AND old_preset!="manual"), so suppressing preset->preset discards nothing.
+    * kind="temp" IS WHERE A LONGER TTL HAS REAL COST — it is the only path where a GENUINE human
+      manual flip is swallowed. At 5s that is negligible; at 90s it is a real window in which
+      someone correcting the thermostat right after a URA setpoint write is misread as URA''s own
+      side effect.
+    AND THAT COST IS WORSE HERE THAN IT LOOKS: a human correcting the thermostat is the INDEPENDENT
+    WITNESS this sequence relies on for the spurious-away metric (see HVAC-SUPPLE-SEQUENCE-1
+    WITNESS_CORRECTION). Blinding it globally would damage the very measurement step 3 depends on.
+
+    RECOMMENDATION — SPLIT THE CONSTANT, DO NOT RAISE IT:
+      SUPPRESS_TTL_SECONDS (temp)  -> STAYS 5
+      <new> preset-write TTL       -> ~120s, sized from the MEASURED 42-79s refresh window + headroom
+    Both stay MODULE CONSTANTS per the knob ladder (safety-adjacent; changing them should require
+    code review, not be live-tunable).
+
+    CARRY INTO THE BUILD: ARRESTER-CLOUDFLAP-FALSEPOS-1''s reconnect guard deliberately runs BEFORE
+    _is_genuine_manual (hvac_override.py:2783-2795) because a Carrier fault+reconnect landing inside
+    the suppression window used to book a phantom override (Bug Class #53, one missed path). A
+    longer preset window increases how often a reconnect lands inside it — that guard must stay
+    ahead of the check, and this is a regression risk to test explicitly rather than assume.'
   DURABILITY_CONFIRMED_2026_09_16: 'resume-then-pin HELD for 8 MINUTES across 9 cloud-confirmed
     updates, zero reverts: pin 23:32:35, then 23:32:51, 23:33:31, 23:33:47, 23:34:39, 23:35:53,
     23:38:29, 23:39:56, 23:40:28 — all sleep|sleep 70/75. Direct preset writes on the same zone the

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T23:34:08-05:00_ - _Data commit: `bfc31585252f`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T23:42:43-05:00_ - _Data commit: `f771be0facda`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
@@ -419,7 +419,8 @@ _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_
 - **Sibling of:** BORROW-BANKING-LEASE-NOT-RELEASED-1, S14-CEILING-NEEDS-AN-ENDING-1
 - **Parsimony:** [BUILD] URA writes raw setpoints at volume and can strand a zone off-preset, against an explicit operator design contract
 - **Refs:** hvac_preset.py:212-217; hvac_override.py:186-195, 3070-3097; HVAC-PRESET-RESTORE-MISS-1; HVAC-PRESET-FLAP-1
-- **Forensic keys (38):**
+- **Forensic keys (39):**
+  - `SUPPRESS_TTL_ANSWER_2026_09_16`: OPERATOR: "I assume we could extend this to a larger value as long as we understand the impact?" YES — and after reading the mechanism the impact is NARROWER than my blocker note implied, but it is NOT uniform, so the answer is EXTEND PE...
   - `DURABILITY_CONFIRMED_2026_09_16`: resume-then-pin HELD for 8 MINUTES across 9 cloud-confirmed updates, zero reverts: pin 23:32:35, then 23:32:51, 23:33:31, 23:33:47, 23:34:39, 23:35:53, 23:38:29, 23:39:56, 23:40:28 — all sleep|sleep 70/75. Direct preset writes on the sam...
   - `DERIVED_WRITE_SEQUENCE_2026_09_16`: THE WRITE URA SHOULD MAKE, derived from tonight's evidence plus a prior-art scan the operator prompted ("do not overlook the Bryant cloud delay/mismatch machinery we have built and the use of refreshes").
   - `CARRIER_MACHINERY_REUSE_AND_THE_TRAP_2026_09_16`: WE DO HAVE THE MACHINERY — operator was right. CARRIER-STALE-POLL-REFRESH-1 shipped it at hvac.py:4489+: D1 per-tick freshness detection, D2 BOUNDED RELOAD of the ha_carrier entry (_reload_ha_carrier_entry), D3 trip-wire, with a daily re...
