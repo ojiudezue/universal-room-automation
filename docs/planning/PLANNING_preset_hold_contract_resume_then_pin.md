@@ -150,7 +150,83 @@ safety-adjacent, changing them should require review.
 
 ---
 
-## D2 — Resume-then-pin, through one chokepoint
+## PLAN REVIEW findings (2026-09-16, two framing-disjoint passes, run solo)
+
+### R1 — Completeness (independent re-enumeration, plan's list NOT trusted)
+
+**R1-CRITICAL-1 — the proposed chokepoint does not exist.** The plan said to route
+the sequence through the borrow / `return_excursion` primitive. Measured:
+
+| | count |
+|---|---|
+| functions emitting `emit_set_temperature` | **11** |
+| of those, referencing `borrow` | **0** |
+| referencing `return_excursion` | 5 |
+| writes emitted *by* `return_excursion` itself | **0** (bookkeeping only) |
+
+Building to that design yields a half-applied fix across 11 sites — Bug Class
+#53, the exact shape that makes this Tier 3. **Premise removed.**
+
+**R1-HIGH-1 — the sites that matter most restore nothing.** Only
+`_restore_after_nudge` and `cancel_nudge` emit a preset in the same function as
+their setpoint write. The other nine do not, including the **return paths** of
+the sanctioned excursions:
+
+```
+_release_banked_zones      temp=1 preset=0   solar banking RELEASE
+_return_preheat            temp=1 preset=0   pre-heat RETURN
+_execute_zone_pre_cool     temp=1 preset=0
+_execute_pre_heat          temp=1 preset=0
+_apply_duty_off_phase      temp=1 preset=0   (S14)
+_async_apply_preset_overrides temp=1 preset=0 (DPM)
+_apply_compromise          temp=1 preset=0
+_perform_soft_nudge        temp=1 preset=0
+async_startup_ramp_audit   temp=1 preset=0   BOOT-PATH setpoint write
+```
+
+This sharpens the operator's founding question: solar banking's release and
+pre-heat's return **do not even attempt** a preset restore.
+
+**R1-MEDIUM-1 — `async_startup_ramp_audit` is a boot-path setpoint write** that
+leaves manual behind. Not previously considered; interacts with boot-settle and
+RestoreEntity. Must be in scope or explicitly excluded with a reason.
+
+### R2 — Adversarial build-prediction ("what will the builder get wrong?")
+
+**R2-CRITICAL-1 — the real chokepoint already exists and the plan didn't name
+it.** `emit_set_preset_mode` (`hvac_setpoint.py:180`) is *already* the
+preset-write funnel; its docstring says so, and it already carries
+`gate`/`site`/`zone_id`/`reason`. Put resume-then-pin **there**.
+
+**R2-CRITICAL-2 — the plan conflates two different fixes.** Split them:
+* **D2a — make URA's preset writes LAND.** resume-then-pin inside
+  `emit_set_preset_mode`. One place, every caller benefits.
+* **D2b — make sanctioned excursions RESTORE.** Per-site work at the nine
+  functions above. This is the Bug-Class-#53 half.
+
+**R2-HIGH-1 — `hold_activity` has no URA reader today**, and a read taken right
+after a write returns the integration's **optimistic local value**, not cloud
+truth (measured: optimism decays at the 42–79s refresh). So both the step-2 no-op
+check and the step-3 anonymous-hold check can be made **against a lie**. The
+builder must define which read is authoritative, or the no-op check will skip
+writes that were never real.
+
+**R2-MEDIUM-1 — `emit_set_preset_mode` does not call `suppress()` today.** If the
+sequence adds a second write without extending suppression, I2 breaks at the
+chokepoint itself.
+
+### Consequence — build D2a first, and let the prediction decide D2b
+
+The two sites that *do* restore (`_restore_after_nudge`, `cancel_nudge`) are
+zone 1's AC-nudge path — the most frequent restore in the house — and they
+currently fail to **land**. So **D2a alone may account for most of zone 1's
+69.6%**. Build D2a, measure against the numeric prediction above, and only then
+decide whether D2b's nine-site surgery is warranted. That ordering avoids
+touching nine live comfort paths on speculation.
+
+---
+
+## D2a — Resume-then-pin inside `emit_set_preset_mode` (revised)
 
 **The sequence:**
 
