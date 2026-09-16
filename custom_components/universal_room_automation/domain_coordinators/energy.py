@@ -6029,11 +6029,12 @@ class EnergyCoordinator(BaseCoordinator):
             # EC-SOC-LADDER-XVALIDATE-1 D2: read the tick snapshot through
             # the safe-ordered accessor so a live Number inversion cannot
             # flip a band polarity mid-tick. `_ladder_tick` is authored
-            # ONCE at the top of the actuation block and threaded through
-            # every downstream reader in this tick (drain gate, fill-
-            # priority gate, plug drain gate, NM trip message) — DO NOT
-            # re-call the accessor inside sub-branches (would re-introduce
-            # the B-M3 mid-tick race the snapshot fixes).
+            # ONCE within the actuation block and threaded through every
+            # downstream reader in this tick (drain gate, fill-priority
+            # gate, plug drain gate, NM trip message). Sub-branches read
+            # the tick-local names (fill_priority_soc_tick / etc.), never
+            # re-call the accessor mid-tick — that would re-introduce the
+            # B-M3 mid-tick race the snapshot fixes.
             _ladder_tick = self.safely_ordered_ladder()
             _fp = _ladder_tick.get("fill_priority_soc")
             _es = _ladder_tick.get("excess_solar_soc")
@@ -9287,118 +9288,58 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             _LOGGER.debug("ladder anomaly emit failed (swallowed)", exc_info=True)
 
-    def safely_ordered_ladder(self) -> dict[str, Any]:
-        """Return a safe-ordered view of the entire SOC ladder.
+    def safely_ordered_ladder(self) -> dict[str, int | None]:
+        """Return a safe-ordered view of the CONSUMED cross-field pairs.
 
-        EC-SOC-LADDER-XVALIDATE-1 D1: coverage extended to ALL SIX canonical
-        invariants (see :data:`CANONICAL_SOC_LADDER_DOC`). Consumers reading
-        SOC-ladder members through this accessor CANNOT observe a
-        cross-field inversion even when independent Number entities land
-        legal-but-inverted writes between ticks.
+        SCOPE (EC-SOC-LADDER-XVALIDATE-1 D1 — reviewer-corrected): this
+        accessor clamps ONLY the two cross-field pairs that have LIVE
+        CONSUMERS today. It does NOT enforce:
+          * Invariant #1 (drain_targets monotonic non-decreasing)
+          * Invariant #2 (peak_buffer_target > top-drain)
+          * Invariant #6 (inclement_partial_hold_reserve_floor >= reserve)
+        Those three invariants remain detect-only via
+        :meth:`_check_threshold_ladder` (anomaly emit) + config-flow
+        save-time reject; adding clamps here without consumer wiring
+        would be dead coverage (Bug Class #53 — clamping something no
+        one reads). Full wiring of #1/#2/#6 is tracked as a separate
+        cycle.
 
-        Clamps applied (return-only; live attrs are unchanged — the
-        anomaly emitter (`_check_threshold_ladder`) remains the sole
-        detect-and-warn path for operator visibility):
-          * Invariant #1: drain_targets monotonised non-decreasing from
-            reserve floor upward (excellent→…→very_poor). Below-reserve
-            entries are raised UP to reserve_soc; each subsequent quality
-            is raised UP to the running cumulative max. Values already
-            equal (the coincidental very_poor==poor default) survive
-            unchanged — the accessor does NOT collapse a genuine concept
-            split.
-          * Invariant #2: peak_buffer_target raised UP to
-            ``max(drain_poor, drain_very_poor) + 1`` when it would sit at
-            or below the top-drain (raise the ceiling, never lower a
-            drain; the drain floor is the safety-authoritative signal).
-          * Invariant #4: fill_priority_soc clamped DOWN to
-            excess_solar_soc when above (fill band ends where excess-solar
-            begins).
-          * Invariant #5: ev_battery_drain_soc raised UP to reserve_soc
-            when below.
-          * Invariant #6: inclement_partial_hold_reserve_floor raised UP
-            to reserve_soc when below.
+        Clamps applied:
+          * Invariant #4: ``fill_priority_soc`` clamped DOWN to
+            ``excess_solar_soc`` when above (so the fill band still ends
+            where excess-solar begins).
+          * Invariant #5: ``ev_battery_drain_soc`` raised UP to
+            ``reserve_soc`` when below (EV drain-pause floor cannot go
+            below the safety reserve).
 
-        Invariant #3 (``arbitrage_trigger``) is intentionally NOT clamped
-        here: the runtime passes ``arbitrage_trigger=None`` to the
-        validator (see :meth:`_check_threshold_ladder`) because the v4.5.0
-        SOC-trigger gate was removed. It stays detect-only; if a live
-        consumer for arbitrage_trigger returns, extend this accessor
-        first (Bug Class #53).
-
-        Bare, unclamped attrs remain the source of truth for display.
+        Display surfaces (``ev_status`` / ``get_energy_summary`` /
+        NM-trip message) route through this accessor too, so a rendered
+        target-SOC never disagrees with the actuation-tick decision.
+        Truly raw (unclamped) attrs remain accessible via the property
+        getters for callers that intentionally want the operator-set
+        value (e.g. options-flow round-trip, validator input).
         """
         reserve = int(getattr(self._battery, "reserve_soc", 0) or 0)
         fill_priority = getattr(self, "_fill_priority_soc", None)
         excess_solar = getattr(self, "_excess_solar_soc", None)
         ev_drain = getattr(self, "_ev_battery_drain_soc", None)
-
         # Invariant #5: ev_drain cannot go below reserve.
         if ev_drain is not None and int(ev_drain) < reserve:
             ev_drain = reserve
-        # Invariant #4: fill_priority cannot exceed excess_solar.
+        # Invariant #4: fill_priority cannot exceed excess_solar (clamp
+        # fill_priority DOWN so the fill band still ends where excess-
+        # solar begins).
         if (
             fill_priority is not None
             and excess_solar is not None
             and int(fill_priority) > int(excess_solar)
         ):
             fill_priority = int(excess_solar)
-
-        # Invariant #1: monotone-nondecreasing drain ladder anchored at
-        # reserve_soc. Raise each entry UP to the running cumulative max
-        # starting from reserve. Preserve coincidental equality (concept
-        # split may legitimately keep very_poor == poor).
-        raw_drains = getattr(self._battery, "_drain_targets", {}) or {}
-        _order = ("excellent", "good", "moderate", "poor", "very_poor")
-        safe_drains: dict[str, int] = {}
-        running_max = reserve
-        for _q in _order:
-            if _q not in raw_drains:
-                continue
-            try:
-                _v = int(raw_drains.get(_q))
-            except (TypeError, ValueError):
-                # If the raw value is unusable, fall back to running_max
-                # (safest: stay at least at the current cumulative floor).
-                _v = running_max
-            if _v < running_max:
-                _v = running_max
-            safe_drains[_q] = _v
-            running_max = _v
-
-        # Invariant #2: peak_buffer_target > max(drain_poor, drain_very_poor).
-        raw_peak = getattr(self._battery, "_peak_buffer_target", None)
-        peak_buffer: int | None
-        try:
-            peak_buffer = int(raw_peak) if raw_peak is not None else None
-        except (TypeError, ValueError):
-            peak_buffer = None
-        _top_drain = max(
-            [v for k, v in safe_drains.items() if k in ("poor", "very_poor")]
-            or [reserve]
-        )
-        if peak_buffer is not None and peak_buffer <= _top_drain:
-            peak_buffer = _top_drain + 1
-
-        # Invariant #6: inclement partial-hold floor >= reserve.
-        inclement_floor: int | None = None
-        try:
-            _inc = self._battery._inclement_config()  # noqa: SLF001
-            _raw_floor = _inc.get("partial_hold_reserve_floor")
-            if _raw_floor is not None:
-                inclement_floor = int(_raw_floor)
-                if inclement_floor < reserve:
-                    inclement_floor = reserve
-        except Exception:  # noqa: BLE001
-            inclement_floor = None
-
         return {
             "reserve_soc": reserve,
             "fill_priority_soc": fill_priority,
             "excess_solar_soc": excess_solar,
             "ev_battery_drain_soc": ev_drain,
-            "drain_targets": safe_drains,
-            "peak_buffer_target": peak_buffer,
-            "inclement_partial_hold_reserve_floor": inclement_floor,
         }
 
     def set_offpeak_drain(self, quality: str, value: int) -> None:
@@ -9807,7 +9748,16 @@ class EnergyCoordinator(BaseCoordinator):
             if fill_priority_soc_tick is not None:
                 target_soc_for_msg = int(fill_priority_soc_tick)
             else:
-                _fp_safe = self.safely_ordered_ladder().get("fill_priority_soc")
+                # LOW fix (B-LOW): guard the display-surface accessor
+                # call — a malformed ladder must not take down the NM
+                # message. Fall back to the raw attr if the accessor
+                # raises for any reason.
+                try:
+                    _fp_safe = (
+                        self.safely_ordered_ladder().get("fill_priority_soc")
+                    )
+                except Exception:  # noqa: BLE001
+                    _fp_safe = None
                 target_soc_for_msg = (
                     int(_fp_safe)
                     if _fp_safe is not None
@@ -9894,8 +9844,12 @@ class EnergyCoordinator(BaseCoordinator):
         # EC-SOC-LADDER-XVALIDATE-1 D2: read fill-priority through the safe
         # accessor once per call so status surfaces cannot render an
         # inverted band. Fall back to the raw attr if the accessor
-        # returned None (only possible when the attr itself is None).
-        _fp_safe = self.safely_ordered_ladder().get("fill_priority_soc")
+        # returned None OR raised (LOW fix B-LOW: display-surface must
+        # not depend on a healthy ladder).
+        try:
+            _fp_safe = self.safely_ordered_ladder().get("fill_priority_soc")
+        except Exception:  # noqa: BLE001
+            _fp_safe = None
         _fp_status = (
             int(_fp_safe) if _fp_safe is not None else self._fill_priority_soc
         )
@@ -10693,8 +10647,12 @@ class EnergyCoordinator(BaseCoordinator):
         # v4.7.6 fix-up C-H1: thread target SOC for consistent rendering.
         # EC-SOC-LADDER-XVALIDATE-1 D2: read fill-priority through the safe
         # accessor once so this diagnostics snapshot cannot render an
-        # inverted band.
-        _fp_safe = self.safely_ordered_ladder().get("fill_priority_soc")
+        # inverted band. LOW fix (B-LOW): guard the accessor — a
+        # malformed ladder must not take down get_energy_summary.
+        try:
+            _fp_safe = self.safely_ordered_ladder().get("fill_priority_soc")
+        except Exception:  # noqa: BLE001
+            _fp_safe = None
         _fp_summary = (
             int(_fp_safe) if _fp_safe is not None else self._fill_priority_soc
         )

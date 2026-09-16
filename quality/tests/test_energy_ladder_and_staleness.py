@@ -29,6 +29,7 @@ bootstrap_energy_imports()
 # tzinfo is None. `_state_age_s` refuses to compute age on naive stamps
 # (returns None → gate passes), which would silently make our staleness
 # tests non-discriminating when run in the same pytest process.
+import os
 import sys as _sys
 from datetime import datetime as _dt, timezone as _tz
 _dtmod = _sys.modules.get("homeassistant.util.dt")
@@ -228,22 +229,11 @@ class TestSafelyOrderedLadder:
         the accessor logic is pure and self-contained."""
         import types
         c = types.SimpleNamespace()
-        battery = types.SimpleNamespace(
-            reserve_soc=20,
-            _drain_targets={
-                "excellent": 20, "good": 25, "moderate": 30,
-                "poor": 35, "very_poor": 40,
-            },
-            _peak_buffer_target=80,
-        )
-        # EC-SOC-LADDER-XVALIDATE-1 D1: accessor now reads inclement config.
-        battery._inclement_config = lambda: {"partial_hold_reserve_floor": 30}
+        battery = types.SimpleNamespace(reserve_soc=20)
         c._battery = battery
         c._fill_priority_soc = 30
         c._excess_solar_soc = 80
         c._ev_battery_drain_soc = 25
-        # Bind the real bound-method to this SimpleNamespace so we
-        # exercise production code, not a copy.
         from custom_components.universal_room_automation.domain_coordinators.energy import (
             EnergyCoordinator,
         )
@@ -268,68 +258,21 @@ class TestSafelyOrderedLadder:
         out = c.safely_ordered_ladder()
         assert out["fill_priority_soc"] == 80  # clamped down
 
-    # EC-SOC-LADDER-XVALIDATE-1 D1 — extended accessor coverage.
-    def test_clamps_drain_ladder_monotone_from_reserve(self):
+    def test_accessor_scope_only_consumed_pairs(self):
+        # Reviewer-corrected scope: accessor exposes ONLY the two pairs
+        # with LIVE consumers today (#4 fill_priority / #5 ev_drain).
+        # Invariants #1/#2/#6 stay detect-only (validator + anomaly);
+        # clamping them here without consumer wiring would be dead
+        # coverage (Bug Class #53 inverse) and would surface real bugs
+        # (peak_buffer > 100, dropped "unknown" drain quality, etc.).
         c = self._make_coord()
-        c._battery._drain_targets = {
-            "excellent": 5,     # below reserve=20 → raised to 20
-            "good": 15,         # < running_max 20 → raised to 20
-            "moderate": 30,     # ok, running=30
-            "poor": 25,         # < 30 → raised to 30
-            "very_poor": 22,    # < 30 → raised to 30
+        out = c.safely_ordered_ladder()
+        assert set(out.keys()) == {
+            "reserve_soc",
+            "fill_priority_soc",
+            "excess_solar_soc",
+            "ev_battery_drain_soc",
         }
-        out = c.safely_ordered_ladder()
-        assert out["drain_targets"] == {
-            "excellent": 20, "good": 20, "moderate": 30,
-            "poor": 30, "very_poor": 30,
-        }
-
-    def test_drain_ladder_valid_survives_unchanged(self):
-        c = self._make_coord()
-        out = c.safely_ordered_ladder()
-        assert out["drain_targets"] == {
-            "excellent": 20, "good": 25, "moderate": 30,
-            "poor": 35, "very_poor": 40,
-        }
-
-    def test_coincidental_very_poor_equals_poor_preserved(self):
-        # very_poor==poor is the coincidental default; MUST survive
-        # unchanged (Bug Class #63 — concept split not silently collapsed).
-        c = self._make_coord()
-        c._battery._drain_targets = {
-            "excellent": 20, "good": 25, "moderate": 30,
-            "poor": 30, "very_poor": 30,
-        }
-        out = c.safely_ordered_ladder()
-        assert out["drain_targets"]["poor"] == 30
-        assert out["drain_targets"]["very_poor"] == 30
-
-    def test_peak_buffer_raised_above_top_drain(self):
-        c = self._make_coord()
-        c._battery._peak_buffer_target = 30  # below top-drain 40
-        out = c.safely_ordered_ladder()
-        assert out["peak_buffer_target"] == 41  # top_drain(40) + 1
-
-    def test_peak_buffer_ok_survives_unchanged(self):
-        c = self._make_coord()
-        out = c.safely_ordered_ladder()
-        assert out["peak_buffer_target"] == 80
-
-    def test_inclement_floor_raised_up_to_reserve(self):
-        c = self._make_coord()
-        c._battery._inclement_config = lambda: {
-            "partial_hold_reserve_floor": 15,  # below reserve=20
-        }
-        out = c.safely_ordered_ladder()
-        assert out["inclement_partial_hold_reserve_floor"] == 20
-
-    def test_inclement_floor_ok_survives_unchanged(self):
-        c = self._make_coord()
-        c._battery._inclement_config = lambda: {
-            "partial_hold_reserve_floor": 25,
-        }
-        out = c.safely_ordered_ladder()
-        assert out["inclement_partial_hold_reserve_floor"] == 25
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -970,99 +913,144 @@ class TestLivenessReleaseUsesClampedDrain:
         )
 
 
+# ------------------------------------------------------------------------
+# Real behavioural anchors — DRIVE the production source (not mirror it).
+# ------------------------------------------------------------------------
+# Rationale (B-HIGH-1 / C4-C5 fix-up): earlier "mirror-the-readout" tests
+# copied the production three-line readout into the test body and asserted
+# on the copy. Reverting the production line to raw left them GREEN. The
+# real anchor pattern extracts the actual production LINES by comment
+# marker and exec()s them against a fixture; reverting the production
+# text makes each anchor RED.
+
+def _extract_source_block(
+    path: str, marker: str, n_after: int, skip: int = 0,
+) -> str:
+    """Return `n_after` lines starting at `skip` lines after the marker,
+    dedented so the block execs at module scope."""
+    import textwrap
+    with open(path) as f:
+        lines = f.readlines()
+    for i, ln in enumerate(lines):
+        if marker in ln:
+            start = i + 1 + skip
+            block = lines[start : start + n_after]
+            return textwrap.dedent("".join(block))
+    raise AssertionError(f"marker not found: {marker}")
+
+
 class TestPoolDrainTargetUsesAccessor:
-    """energy_pool.py:1327/1823 — pool-side reads of `_ev_battery_drain_soc`
-    MUST route through the accessor when it exists on the coordinator."""
+    """energy_pool.py:1334 + :1839 — extract the actual production readout
+    block by marker and exec it. Reverting either site to raw makes this
+    test RED (M2 mutation drill target)."""
 
-    def test_blind_window_envelope_permits_ride_uses_accessor(self):
-        # We call the ride-permits helper directly; the sites at
-        # energy_pool.py:1327 and :1823 build `drain_target` via the
-        # accessor and pass it in. Prove that a live raw-inverted
-        # `_ev_battery_drain_soc` never reaches the helper as the raw
-        # value: verify by simulating the caller's readout logic
-        # (source of truth: the same three lines shipped in build).
-        import types
-        from custom_components.universal_room_automation.domain_coordinators.energy import (
-            EnergyCoordinator,
-        )
-        coord = types.SimpleNamespace()
-        battery = types.SimpleNamespace(
-            reserve_soc=30,
-            _drain_targets={"excellent": 30, "good": 35, "moderate": 40,
-                            "poor": 45, "very_poor": 50},
-            _peak_buffer_target=80,
-        )
-        battery._inclement_config = lambda: {"partial_hold_reserve_floor": 30}
-        coord._battery = battery
-        coord._fill_priority_soc = 30
-        coord._excess_solar_soc = 80
-        coord._ev_battery_drain_soc = 10  # raw INVERTED below reserve.
-        coord.safely_ordered_ladder = EnergyCoordinator.safely_ordered_ladder.__get__(coord)
-        # Mirror the exact readout at energy_pool.py:1327-1339.
-        _l_getter = getattr(coord, "safely_ordered_ladder", None)
-        _l = _l_getter() if callable(_l_getter) else {}
-        _v = _l.get("ev_battery_drain_soc")
-        if _v is None:
-            _v = getattr(coord, "_ev_battery_drain_soc", None)
-        drain_target = int(_v or 0) or None
-        assert drain_target == 30, (
-            f"pool-side drain readout should route through accessor "
-            f"and read clamped 30, got {drain_target!r}. "
-            f"Sites energy_pool.py:~1327 and ~1839 must call "
-            f"safely_ordered_ladder."
-        )
+    _POOL_PATH = os.path.join(
+        os.path.dirname(__file__), "..", "..",
+        "custom_components", "universal_room_automation",
+        "domain_coordinators", "energy_pool.py",
+    )
 
-
-class TestTickSnapshotUsesAccessor:
-    """energy.py:6025 — the actuation-tick snapshot triple is the load-
-    bearing anchor for the downstream sites at 6178/6198/6361. If this
-    snapshot reverts to raw, all downstream sites revert with it."""
-
-    def test_snapshot_triple_matches_accessor(self):
-        # We invoke the accessor directly with the exact fixture shape
-        # the snapshot line builds (fill=90, excess=80, ev_drain=10,
-        # reserve=30) and confirm all three ladder members clamp.
+    def _mk_coord(self, ev_raw=10, reserve=30):
         import types
         from custom_components.universal_room_automation.domain_coordinators.energy import (
             EnergyCoordinator,
         )
         c = types.SimpleNamespace()
-        battery = types.SimpleNamespace(
-            reserve_soc=30,
-            _drain_targets={"excellent": 30, "good": 35, "moderate": 40,
-                            "poor": 45, "very_poor": 50},
-            _peak_buffer_target=80,
-        )
-        battery._inclement_config = lambda: {"partial_hold_reserve_floor": 30}
+        battery = types.SimpleNamespace(reserve_soc=reserve)
         c._battery = battery
-        c._fill_priority_soc = 90    # > excess=80 → clamp 80
+        c._fill_priority_soc = 30
         c._excess_solar_soc = 80
-        c._ev_battery_drain_soc = 10  # < reserve=30 → clamp 30
+        c._ev_battery_drain_soc = ev_raw
         c.safely_ordered_ladder = EnergyCoordinator.safely_ordered_ladder.__get__(c)
-        _l = c.safely_ordered_ladder()
-        # Mirror the snapshot line's fallback logic.
-        fill_priority_soc_tick = (
-            int(_l["fill_priority_soc"])
-            if _l.get("fill_priority_soc") is not None
-            else int(c._fill_priority_soc)
+        return c
+
+    def test_fail_safe_ride_site_uses_accessor(self):
+        # M2 anchor: energy_pool.py:~1334 (marker in the fail-safe leg).
+        block = _extract_source_block(
+            self._POOL_PATH,
+            "safe accessor so a live Number inversion cannot",
+            n_after=12, skip=2,
         )
-        excess_solar_soc_tick = (
-            int(_l["excess_solar_soc"])
-            if _l.get("excess_solar_soc") is not None
-            else int(c._excess_solar_soc)
+        coord = self._mk_coord(ev_raw=10, reserve=30)
+        ns = {"coord": coord, "getattr": getattr, "int": int,
+              "callable": callable}
+        exec(compile(block, "<pool-fail-safe>", "exec"), ns)
+        assert ns["drain_target"] == 30, (
+            f"pool fail-safe drain readout regressed to raw: expected "
+            f"30 (clamped up from 10), got {ns['drain_target']!r}. "
+            f"Site energy_pool.py:~1334 must route through "
+            f"safely_ordered_ladder()."
         )
-        ev_battery_drain_soc_tick = (
-            int(_l["ev_battery_drain_soc"])
-            if _l.get("ev_battery_drain_soc") is not None
-            else int(c._ev_battery_drain_soc)
+
+    def test_continue_permission_ride_site_uses_accessor(self):
+        # M2 anchor: energy_pool.py:~1839 (second occurrence — the
+        # CONTINUE-permission leg's own accessor read).
+        block = _extract_source_block(
+            self._POOL_PATH,
+            "safe-accessor read; same",
+            n_after=12, skip=1,
         )
-        assert fill_priority_soc_tick == 80, (
-            f"tick snapshot regressed to raw fill_priority; expected "
-            f"80, got {fill_priority_soc_tick}. Site energy.py:~6025."
+        coord = self._mk_coord(ev_raw=10, reserve=30)
+        ns = {"coord": coord, "getattr": getattr, "int": int,
+              "callable": callable}
+        exec(compile(block, "<pool-continue>", "exec"), ns)
+        assert ns["drain_target_for_ride"] == 30, (
+            f"pool CONTINUE-permission drain readout regressed to raw: "
+            f"expected 30, got {ns['drain_target_for_ride']!r}. Site "
+            f"energy_pool.py:~1839 must route through the accessor."
         )
-        assert excess_solar_soc_tick == 80
-        assert ev_battery_drain_soc_tick == 30, (
-            f"tick snapshot regressed to raw ev_drain; expected 30, "
-            f"got {ev_battery_drain_soc_tick}. Sites energy.py:6178/"
-            f"6198/6361 all read this snapshot."
+
+
+class TestTickSnapshotUsesAccessor:
+    """energy.py:6037-6040 — the actuation-tick snapshot triple. Extract
+    the actual production readout block by marker and exec it against a
+    fixture. Reverting any of _fp/_es/_evd to raw (M4/M5/M1) makes this
+    RED per member."""
+
+    _ENERGY_PATH = os.path.join(
+        os.path.dirname(__file__), "..", "..",
+        "custom_components", "universal_room_automation",
+        "domain_coordinators", "energy.py",
+    )
+
+    def _mk_self(self):
+        import types
+        from custom_components.universal_room_automation.domain_coordinators.energy import (
+            EnergyCoordinator,
+        )
+        s = types.SimpleNamespace()
+        battery = types.SimpleNamespace(reserve_soc=30)
+        s._battery = battery
+        s._fill_priority_soc = 90     # > excess=80 → clamp DOWN to 80
+        s._excess_solar_soc = 80
+        s._ev_battery_drain_soc = 10  # < reserve=30 → clamp UP to 30
+        s.safely_ordered_ladder = EnergyCoordinator.safely_ordered_ladder.__get__(s)
+        return s
+
+    def test_snapshot_triple_drives_from_production_source(self):
+        # Extract 13 lines below the marker — the four assignments plus
+        # the three ternary snapshots. Executing these production lines
+        # is the anchor: reverting any of _fp/_es/_evd or any ternary
+        # to `int(self._X)` fails this test per member.
+        block = _extract_source_block(
+            self._ENERGY_PATH,
+            "EC-SOC-LADDER-XVALIDATE-1 D2: read the tick snapshot through",
+            n_after=13, skip=8,
+        )
+        # The extracted lines reference `self.safely_ordered_ladder()`
+        # and `self._*` — provide `self` in the exec namespace.
+        s = self._mk_self()
+        ns = {"self": s, "int": int}
+        exec(compile(block, "<tick-snapshot>", "exec"), ns)
+        assert ns["fill_priority_soc_tick"] == 80, (
+            f"M4 anchor — energy.py:~6038 (_fp) reverted to raw; "
+            f"expected 80, got {ns['fill_priority_soc_tick']}."
+        )
+        assert ns["excess_solar_soc_tick"] == 80, (
+            f"M5 anchor — energy.py:~6039 (_es) reverted to raw; "
+            f"expected 80, got {ns['excess_solar_soc_tick']}."
+        )
+        assert ns["ev_battery_drain_soc_tick"] == 30, (
+            f"M1 anchor — energy.py:~6040 (_evd) reverted to raw; "
+            f"expected 30, got {ns['ev_battery_drain_soc_tick']}."
         )
