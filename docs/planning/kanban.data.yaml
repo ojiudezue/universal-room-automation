@@ -9946,6 +9946,68 @@ cards:
       HVAC-MANUAL-PRESET-CONTRACT-1 is step 1 (attribution), ARRESTER-LEDGER-INVISIBLE-1 is step 2
       (the independent witness). HVAC-PRESET-FLAP-1 remains the evidence ledger to read before
       starting. HVAC-ANOMALY-BLIND-1 and S14-CEILING-NEEDS-AN-ENDING-1 run in parallel.'
+- id: HVAC-PRESET-LOCKOUT-ESCAPE-1
+  title: URA refuses to write a preset to a zone in `manual` — including when URA itself caused the
+    manual, so nothing ever rescues it
+  thread: hvac
+  status: planned
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  refinement_status: initial
+  approval: implied
+  tags: [tier-2db, no-fabrication-verify, found-during-validation]
+  problem_solution:
+  - 'Problem: when a zone''s thermostat is sitting on a hand-set temperature, URA deliberately does
+    not overwrite it — the reasoning being that a person set it, so a different part of the system
+    should handle putting it back. But URA''s own energy features also leave the thermostat in that
+    hand-set state, and URA cannot tell its own handiwork from a person''s. When that happens
+    nobody puts it back: the part meant to handle human changes deliberately ignores URA''s own.
+    The zone then sits outside normal control until it happens to empty out. Solution: let URA
+    recognise the hand-set states IT caused and correct those, while still leaving a real person''s
+    adjustment alone.'
+  origin:
+    date: '2026-09-16'
+    gist: Operator asked "is that continue a bug?" while reviewing the lockout telemetry site
+  why: 'THIS IS PROBABLY THE BIGGER HALF OF THE DEFECT, and it explains the v5.103.2 measurement.
+    resume-then-pin fixes "URA writes a preset and the cloud discards the name". The lockout is a
+    DIFFERENT failure: URA never attempts the write at all, so there is nothing for resume-then-pin
+    to rescue. The paths that DO still write all bypass should_change_preset explicitly — the
+    vacancy bypass, the D2b excursion returns, the 4a boot restore — while the ROUTINE house-state
+    preset path stays blocked. That plausibly explains why zone_1 moved 69.6%% -> 46.0%% rather than
+    toward 6%%: the explicit paths were fixed and the routine path was not. It also reframes why
+    zone_3 looks healthy — not because it is fixed, but because vacancy (the one guard-bypassing
+    path) rescues it constantly.'
+  THE_MECHANISM_2026_09_16: 'should_change_preset (hvac_preset.py:202-217) returns False when
+    current_preset == "manual", with the rationale "Don''t fight manual — that''s the arrester''s
+    job". The `continue` at the call site is CORRECT for the already-at-target case and WRONG for
+    the manual case — a missing-discrimination bug, not a wrong-branch one, because the guard''s
+    PREMISE is false: manual does NOT imply a human. URA''s own raw setpoint writes create it.
+    AND THE ASSUMED HANDOFF DOES NOT HAPPEN: the arrester reverts HUMAN overrides and SUPPRESSES
+    itself on URA''s own writes. So for URA-induced manual, neither side acts. That is the
+    self-lockout, stated precisely.'
+  parsimony:
+    problem: URA refuses to re-preset a zone in manual even when URA itself caused the manual, and
+      the component expected to handle it deliberately ignores URA-caused cases.
+    verdict: BUILD
+  next: 'GATED ON TELEMETRY, deliberately — do not build on the hypothesis. The lockout telemetry
+    shipped alongside this card records every refusal with what URA wanted. FIRST question it
+    answers: are lockouts frequent on zone_1? If yes the diagnosis is confirmed and this is the
+    next fix; if they are rare then the residual is elsewhere and this card is wrong. THEN build:
+    extend the provenance tag (_suppress_kind, hvac_override.py:185 — exists today but carries a
+    ~5s TTL and is consulted only by a counter) so should_change_preset can escape a manual hold
+    URA itself induced. Operator has already ruled that reverting deliberate HUMAN adjustments is
+    intended, so the policy question is settled; only the provenance lifetime is open.
+    ACCEPTANCE must DISCRIMINATE: a URA-induced manual is escaped, a HUMAN-induced manual is still
+    left alone. A test that only proves the first would pass with the guard removed entirely.'
+  links:
+    related: [HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-SUPPLE-SEQUENCE-1]
+    context: 'HVAC-MANUAL-PRESET-CONTRACT-1 (v5.103.2) fixed the write-does-not-land half; this is
+      the write-never-attempted half. They are disjoint, which is why the numeric prediction only
+      partially moved. Its plan already parked this as "provenance-aware escape" with the revival
+      trigger "if zone_1 manual%% does not fall below ~20%%" — that trigger has effectively fired.'
+  refs:
+  - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
+  - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
   SIMULATION_FALSIFIED_THE_DESIGN_2026_09_16: 'OPERATOR ASKED for a simulation before building
     ("assume an optimistic result and model it"). It FALSIFIED the design — and the optimistic
