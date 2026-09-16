@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "128",
+  "author": "ojiudezue",
+  "session_id": "claude_20260916_144534_ship_v5_103_4",
+  "timestamp": "2026-09-16T14:45:34Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.4 shipped: Measure the harm not the proxy: preset-lockout telemetry + short-cycle rollover persistence",
+  "summary": "Measure the harm not the proxy: preset-lockout telemetry + short-cycle rollover persistence",
+  "why": "Two built-not-shipped instruments that gate the rest of HVAC-SUPPLE-SEQUENCE-1. Lockout telemetry forks the arc: non-zero zone_1 lockout count confirms HVAC-PRESET-LOCKOUT-ESCAPE-1 (write never attempted) as the residual-46% cause; near-zero refutes it. Shipped with short-cycle rollover persistence because that is step 4's cycle-count guard and must be live before the conditioning tap is judged. Both instruments, zero behaviour change, build-implies-ship, operator go. Gate: 98/98 both surfaces under .venv-ha; full-suite name-diff byte-identical to v5.103.3.",
+  "implications": "Shipped HVAC-PRESET-LOCKOUT-TELEMETRY-1, HVAC-ANOMALY-BLIND-1 at v5.103.4; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.4.md (Live criteria).",
+  "revisit_trigger": "activity ledger has >=1 preset_change_locked_out row AND the daily lockout counter is non-zero for a real zone within ~24h; AND a metric_baselines read shows a short_cycle_rate sample surviving a restart. Read the DB, not the info log.",
+  "refs": {
+    "cards": [
+      "HVAC-PRESET-LOCKOUT-TELEMETRY-1",
+      "HVAC-ANOMALY-BLIND-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.4.md"
+    ],
+    "release_notes": "- HVAC-PRESET-LOCKOUT-TELEMETRY-1: instrument the should_change_preset refusal site (edge-triggered activity row + daily counter), discriminating lockout (manual, refused) from benign no-op (already at target)\n- HVAC-ANOMALY-BLIND-1 residual B4: persist daily short_cycle_rate at the rollover, not only at clean teardown (step 4 cycle-count guard)\n- No behaviour change; both are instruments. 98/98 tests green; full-suite name-diff vs v5.103.3 identical (zero new failures)"
+  }
+}
