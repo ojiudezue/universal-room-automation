@@ -9398,6 +9398,97 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  SIMPLIFIED_2026_09_15: 'OPERATOR: "The decoupling has to be simple and elegant. Not complicate
+    machinery." CORRECT, and my DESIGN_2026_09_15 five-part proposal is WITHDRAWN as over-built —
+    it added five moving parts (new signal type, sensor-kind weighting, event path, soft-away,
+    guest person) to a shared HVAC primitive. That is exactly the marginal-benefit trap: an
+    elaborate spec that is fun to write and expensive for everyone downstream. Replaced with ONE
+    change.
+
+    THE SIMPLE VERSION — TAP THE SIGNAL EARLIER, CHANGE NOTHING ELSE.
+    Today: the room coordinator fuses its sensors, applies a CLEARANCE TIMEOUT sized for lighting
+    (~6-8 min hold so a light never blinks off on someone still), publishes data["occupied"], and
+    hvac_zones.py:546 copies that into RoomCondition.occupied, which
+    hvac_zones.py:146-148 ORs into any_room_occupied. So HVAC inherits a hold built for lamps.
+    Change: HVAC consumes the room''s occupancy BEFORE the lighting hold is applied — one extra
+    field on the room payload, read at the one existing rollup site. Nothing else moves.
+
+    WHY THIS IS SUFFICIENT, AND WHY IT IS NOT RECKLESS: HVAC ALREADY HAS ITS OWN HOLD. vacancy_grace
+    (live 10 min) is the slow-out timer, and zone_entry_dwell (5 min) is the fast-in guard. The room
+    clearance timeout is a SECOND, REDUNDANT hold stacked underneath them — that is the actual
+    defect. Remove the redundant one and each timer does the job it was designed for: a 20-second
+    transit blip stays a 20-second signal and dies long before the 5-minute dwell (no pointless
+    home flip), while a real occupant holds occupancy continuously and satisfies dwell (conditioned,
+    as intended). Transit filtered, dwelling passes — with NO new machinery, NO kind weighting, and
+    NO new state.
+    IT ALSO DOES NOT REBUILD FUSION. The room layer''s sensor fusion is reused exactly as-is; we
+    only tap it one step earlier. This is a plumbing change, not a new subsystem.
+
+    THE ONE REAL RISK, STATED PLAINLY: the raw signal is gappier than the held one — a person
+    sitting still with only a PIR could drop out between triggers. Two existing mitigations, both
+    already in the system: (a) vacancy_grace absorbs any gap shorter than 10 minutes, so short
+    dropouts cannot cause an away; (b) mmWave holds on stationary bodies, and the rooms that matter
+    now carry mmWave (the operator''s Garage Hallway swap). The measurement in step 1 must confirm
+    (a) empirically — specifically that raw-signal gaps in DWELLING episodes are shorter than
+    vacancy_grace. If they are not, this simple version is wrong and we stop, rather than bolting
+    on machinery to rescue it.'
+  PRIOR_ART_TO_REUSE_2026_09_15: 'OPERATOR: "I do not want to redo fusion or any strong primitive we
+    have already." Agreed, and it is now a hard precondition on step 1 rather than a hope. Verified
+    to EXIST this session (grep, file:line) — every one of these is REUSE, and the plan may not
+    propose a replacement for any of them without an explicit REUSE-or-BUILD verdict:
+    - domain_coordinators/occupancy_substrate.py — the raw occupancy substrate layer. If it already
+      exposes a pre-hold view, the "extra field" above may be a READ, not a build. CHECK THIS FIRST.
+    - domain_coordinators/presence.py:2057 `check_zone_occupancy_confidence(zone) -> tuple[int,int]`
+      — a ZONE-LEVEL occupancy confidence function ALREADY EXISTS. Do not invent a parallel
+      confidence notion; read this one and extend if needed.
+    - const.py:1505-1510 CENSUS_CONFIDENCE_HIGH / CENSUS_AGREEMENT_BOTH etc — the agreement +
+      confidence vocabulary the egress-identity work already reused. Reuse again rather than
+      minting new levels.
+    - const.py:254 CONFIDENCE_HIGH (scanner-agreement) and the BLE room-resolution path in
+      person_coordinator.py — the presence fusion the operator does not want redone.
+    - hvac.py:530 pre-arrival machinery (sources geofence/ble/camera_face, switch + status sensor +
+      person->zone routing) — already built; the guest/person work extends it.
+    - The room layer''s mmWave-specific machinery (fan demotion, corroboration rules) — modality
+      handling already exists there.
+    - The per-zone config precedent: CONF_ZONE_DYNAMIC_PRESET_* family (energy_const.py:628) shows
+      how per-zone HVAC config is done here if any is ever needed.
+    A plan that proposes building any of the above again must be sent back.'
+  SUCCESS_DEFINED_UP_FRONT_2026_09_15: 'OPERATOR: "We need to define success early so we know we
+    solved it. That should be about fitting like a glove with evidence and saving net $. A supple
+    HVAC should save $ over months and years." Success is therefore TWO metrics that must move
+    TOGETHER, plus a baseline captured BEFORE any build.
+
+    THE PAIRING IS THE WHOLE POINT — EITHER METRIC ALONE IS GAMEABLE. Making the zone stickier
+    toward away saves money and wrecks comfort; making it stickier toward home does the reverse.
+    So neither number is a result on its own, and a change that improves one while degrading the
+    other is a FAILURE, not a trade to be argued. Report them as a pair, always.
+
+    (A) FITS LIKE A GLOVE — comfort, evidence-based:
+      A1 SPURIOUS-AWAY COUNT: away transitions that occur while a person is demonstrably still in
+         the zone -> target ZERO. (Note: today this is UNFALSIFIABLE in zone_3 because it has no
+         independent presence witness — see the parent card. Establishing this metric may itself
+         require the guest/person work, and that dependency must be stated, not skirted.)
+      A2 TIME-TO-CONDITION on entry into an out-of-band zone: today the floor is the 5-minute tick;
+         the founding incident had the occupant at the thermostat in ~2.5 min. Target: p90 below
+         the point where a human intervenes.
+      A3 POINTLESS CONDITIONING EPISODES: home episodes that end within ~grace with no dwelling —
+         measured TODAY at 15/day in zone_3 with a median of exactly 10.0 min. Target: a large
+         reduction, and this is the cleanest single number we have.
+    (B) SAVES NET $ — energy, honestly measured:
+      B1 COMPRESSOR RUNTIME PER COOLING-DEGREE-DAY, per zone. RAW kWh OR RUNTIME IS NOT ACCEPTABLE
+         EVIDENCE — it is dominated by weather, so an ordinary September would "prove" a saving
+         that a hot August would "refute". Normalising by degree-days is what makes a months-to-
+         years claim meaningful, which is exactly the operator''s framing.
+      B2 The same figure expressed in $ against the TOU rate actually in force, so the number is in
+         the units the operator cares about.
+      B3 NO INCREASE in compressor cycle COUNT (short-cycling is an equipment-life cost that a
+         runtime-only metric hides).
+
+    BASELINE FIRST, AND IT IS CHEAP: all of the above are computable from data that ALREADY EXISTS
+    (ura_activity_log preset episodes, the HA recorder for hvac_action/runtime, the span panel AC
+    power sensors, and the existing degree-day inputs). Capture the pre-change baseline as part of
+    step 1, BEFORE any build — per measure-before-build and the Tier-2-DB pre-deploy snapshot rule.
+    Without it the post-ship comparison is impossible and the whole cycle becomes unfalsifiable.'
   title: HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC
     its own dwell-vs-transit derivation instead of tuning a knob that cannot win
   thread: hvac

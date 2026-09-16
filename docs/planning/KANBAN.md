@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T22:30:49-05:00_ - _Data commit: `82620357adac`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T22:32:15-05:00_ - _Data commit: `27202ffbb8bc`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
@@ -275,7 +275,10 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (4):**
+- **Forensic keys (7):**
+  - `SIMPLIFIED_2026_09_15`: OPERATOR: "The decoupling has to be simple and elegant. Not complicate machinery." CORRECT, and my DESIGN_2026_09_15 five-part proposal is WITHDRAWN as over-built — it added five moving parts (new signal type, sensor-kind weighting, even...
+  - `PRIOR_ART_TO_REUSE_2026_09_15`: OPERATOR: "I do not want to redo fusion or any strong primitive we have already." Agreed, and it is now a hard precondition on step 1 rather than a hope. Verified to EXIST this session (grep, file:line) — every one of these is REUSE, and...
+  - `SUCCESS_DEFINED_UP_FRONT_2026_09_15`: OPERATOR: "We need to define success early so we know we solved it. That should be about fitting like a glove with evidence and saving net $. A supple HVAC should save $ over months and years." Success is therefore TWO metrics that must ...
   - `MECHANISM_VERIFIED_2026_09_15`: Read from source this session, not inherited. - zone_entry_dwell gate hvac.py:2049-2059 requires zone.any_room_occupied AND current_session_start older than dwell_minutes, else `continue` (keep current preset). It carries `effective_pres...
   - `THE_BINDING_CONSTRAINT`: NAMED HERE FOR THE FIRST TIME, and it reframes the whole problem: the 5-minute decision tick is a HARD FLOOR on "react quickly to someone being there if its hot". Even at dwell=0 the worst-case latency to act is a full tick. The founding...
   - `DESIGN_2026_09_15`: Five parts, ordered by blast radius. (1) HVAC-OWNED DERIVATION — add a zone-level "conditioning demand" signal; HVAC consumes it INSTEAD of any_room_occupied. Room automation keeps reading the existing signal untouched, so lights carry n...
