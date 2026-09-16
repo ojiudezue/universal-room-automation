@@ -394,6 +394,57 @@ cycle), after Stage 0 confirms.
 
 ---
 
+## 10a. MANDATORY before build — code supersession + prior-art sweep (operator, 2026-09-16)
+
+Operator: *"find areas to simplify… not have code stacked on top of code that is now
+unnecessary, because this is what we should have built in the first place… absolutely
+no new machinery where we don't need it… prior art, context-wide audits, so we don't
+rework things we've already done."* And the clarification: **this is a sweep of the
+SOURCE — HVAC code + presence/dwell/hold code — not a card sweep.**
+
+This is a **fundamental re-architecture**, so the plan must carry two code audits
+*before* any build, over the **HVAC + presence/dwell/occupancy-timing domain, read
+end-to-end** (not the diff, not the cards):
+
+### (i) Supersession sweep — what comes OFF
+
+Under the three-bucket triage (DELETE / KEEP+WIRE / KEEP+DOCUMENT; "dead ≠ delete").
+Candidates already spotted this session (starting list, not exhaustive — the sweep
+must read the code to complete it):
+
+- **`zone_entry_dwell` (zone-level 5 min)** — subsumed by per-room dwell-to-enter
+  (decision A′-2). Retire, or the dwells stack and defeat fast-in.
+- **HVAC's inheritance of the lighting-held `room.occupied`** via
+  `RoomCondition.occupied` (`hvac_zones.py`) — replaced by the HVAC-occupancy signal.
+  The old read path may become dead once HVAC stops consuming it.
+- **The redundant second hold** — `SIMPLIFIED_2026_09_15` identified the room
+  clearance timeout as a *second, redundant* hold stacked under HVAC's own
+  `vacancy_grace`/`zone_entry_dwell`. Under the new signal, confirm which holds are
+  now doing nothing for HVAC and remove them rather than leaving them inert.
+- **mmWave-sole suppression / fan-phantom gate interplay** (`coordinator.py:3363,
+  3449`) — check whether the kind-aware HVAC signal subsumes any of this for the HVAC
+  path, so we don't run two mechanisms for one job.
+- Any dead HVAC-occupancy-adjacent code left from prior cycles (S14 was already
+  removed; verify no siblings linger).
+
+### (ii) Prior-art reuse — no new machinery where it exists
+
+Every proposed new mechanism carries a **REUSE-or-BUILD verdict with file:line**.
+Known reuse targets (must not be rebuilt):
+
+- `occupancy_substrate.is_kind_active` / `get_room_kinds` — kind-aware presence.
+- `ZonePresenceTracker.provenance_for` — per-kind at the zone boundary.
+- `CONF_FAN_VACANCY_HOLD` pattern — per-room, per-consumer hold.
+- `check_zone_occupancy_confidence` — zone occupancy confidence (extend, don't invent).
+- `grace_hold` (`coordinator.py:3581`) — unavailability fail-open (must be preserved).
+- pre-arrival machinery (`hvac.py:530`) — Stage C extends it.
+- `energy._solar_follow` — the fast sub-loop pattern (Stage D).
+- `ROOM_TYPE_TIMEOUTS` / the room_type tables — the defaults-by-type pattern.
+
+**Rule:** the plan is incomplete until both audits are in it. A proposed mechanism
+without a REUSE-or-BUILD verdict, or a superseded mechanism left un-triaged, sends the
+plan back (mirrors the Tier-2+ prior-art-scan doctrine, applied to a re-architecture).
+
 ## 10. Immediate next step
 
 **Run Stage 0** — the recorder query attributing zone_3's pointless episodes to
