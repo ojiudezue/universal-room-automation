@@ -9,6 +9,26 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1@2026-09-16T04:20:00
+    at: '2026-09-16T04:20:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'MEASURED A TEST-SUITE FAULT TO THE POINT WHERE THE FIX IS OBVIOUS — AND THEN DID NOT
+      BUILD IT, ON PURPOSE. Our tests pass in the order they normally run, and break if you shuffle
+      them: three shuffles gave 1, 1 and 4 import failures, where the normal order gives zero. That
+      "normal order is clean" part is the trap — every routine run looks perfectly healthy. I tracked
+      down what is actually breaking, which nobody had pinned before: a few test files install
+      stripped-down fake copies of two real modules and leave them in place, so whichever test
+      happens to run next gets the fake and cannot find what it needs. We have already fixed exactly
+      this once for a different module and that fix has held, so extending it is a small, known,
+      low-risk change rather than new invention. I stopped anyway, and here is why: the WIDE version
+      of this same fix was shipped once before and had to be reverted, because putting the real
+      modules back revealed roughly 87 other tests that only passed because of the fakes. The only
+      way to know whether that happens again is to run the suite and compare — and the suite runner
+      is itself broken right now (a separate card, waiting on a decision from you). Shipping a fix
+      whose one known failure mode I cannot check is the thing an unattended overnight pass should
+      not do. So it is sitting ready, fully diagnosed, for the moment the runner is fixed — which
+      makes that decision on your queue worth a bit more than it looked.'
   - fid: HVAC-ANOMALY-BLIND-1@2026-09-16T04:05:00
     at: '2026-09-16T04:05:00'
     outcome: built-to-review
@@ -1779,7 +1799,7 @@ cards:
   thread: infra
   status: done
   created: '2026-09-13 21:10'
-  updated: '2026-09-13 21:15'
+  updated: '2026-09-16 04:30'
   refinement_status: initial
   problem_solution:
   - 'Problem: 94 agent worktrees have piled up under .claude/worktrees. Most are finished work
@@ -1854,6 +1874,18 @@ cards:
     related: [EVSE-CHARGE-ONSET-NOT-HELD-1]
     context: evse-onset-reload is one of the unmerged worktrees and is part of the held v5.101.1 deploy bundle.
   refs: [.claude/worktrees/]
+  MEASURED_2026_09_16: 'Fresh numbers, captured while cleaning up after tonight''s build rather than
+    as a separate errand (DUPLICATE of this card, so recorded here instead of minting a second one):
+    48 worktrees still registered under .claude/worktrees, totalling 2.9 GB. Many hold real feature
+    branches (feature/ble-crossing-tracker-allowlist, build/fan-layer-2, feature/step-chatter,
+    feature/perimeter-alert-name and so on), which is exactly why this must NOT be swept
+    indiscriminately — an unreviewed branch living only in a worktree is work, not litter. Tonight''s
+    own worktree (hvac-baseline-persist-b4) WAS removed after its branch merged to develop, which is
+    the right discipline and suggests the durable fix: remove a worktree at the point its branch
+    merges, rather than accumulating them and facing a risky bulk prune later. Not acted on beyond my
+    own: deleting another agent''s worktree is irreversible and not something an unattended pass
+    should do.'
+
 - id: OPTIMIZER-PAGING-PRIMITIVE-1
   title: Optimizer paging reads primitive — alerts are Tier-1 template strings, not the LLM tier's reasoning
   thread: optimizer
@@ -21319,7 +21351,7 @@ cards:
   status: planned
   verified_survivor_2026_09_13: 'KEEP — verified REAL + the survivor for the whole remaining order-pollution surface. Reverse-order reproduces its exact class: production-module partial stubs (occupancy_substrate) + remaining .signals poisoners (SIGNAL_EGRESS_EXIT_BACKFILLED) + homeassistant.helpers.storage never-popped = 10 collection errors reverse / 0 default. ABSORBED SUITE-ORDER-POLLUTION-1 (storage-never-pops instance + forensics). Fix: extend _ura_const_support into a complete-module helper for signals + prod modules; acceptance = shuffle-seed collection matrix. inbox->planned.'
   created: 2026-09-12 17:10
-  updated: 2026-09-12 17:10
+  updated: '2026-09-16 04:20'
   refinement_status: initial
   approval: unreviewed
   sibling_of:
@@ -21335,6 +21367,42 @@ cards:
   parsimony:
     problem: 'suite not order-independent; production-module partial stubs shadow on shuffle'
     verdict: BUILD
+  MEASURED_2026_09_16: 'STILL-REAL, re-measured by RUNNING it (not trusting the recorded numbers),
+    and the fix surface is now NAMED — but the gate stopped short of building it, for a reason worth
+    reading before anyone picks this up.
+    THE MEASUREMENT. Default (alphabetical) collection order is CLEAN: 10,672 tests collected, ZERO
+    errors. Shuffled file order over the same 470 test files: seed 11 -> 1 error, seed 22 -> 1 error,
+    seed 33 -> 4 errors (and collection ABORTS, so the run collects 10,552-10,576 instead of 10,672).
+    That the default order is clean is exactly why this stays invisible — every normal run looks
+    healthy, which is the same looks-fine trap as a silent sensor.
+    THE FIX SURFACE, named for the first time. All the failures are one signature:
+    "ImportError: cannot import name X from custom_components.universal_room_automation.domain_coordinators.signals
+    (unknown location)" — SIGNAL_OPTIMIZER_INTENT (test_r7_attain_raw_consumption.py,
+    test_dp_reason_null_1.py) and SIGNAL_HOUSE_STATE_CHANGED (test_house_state_rung2a.py) — plus
+    "IndexError: list index out of range" on `_ura.__path__[0]`
+    (test_evse_drain_precedence_session_b2b_iii.py). "unknown location" and an EMPTY `__path__` are
+    the fingerprint of a PARTIAL STUB MODULE sitting in sys.modules shadowing the real one. So the
+    card''s hypothesis is confirmed, and the shadowed namespaces are specifically
+    `domain_coordinators.signals` AND the package root `custom_components.universal_room_automation`
+    — NOT `const`, which is the namespace the already-shipped fix covers.
+    THE FIX IS THEREFORE A REUSE, NOT A BUILD. The conftest snapshot restore-if-replaced mechanism
+    (SUITE-HYGIENE-1, conftest.py:28-29) already does exactly this job for the const namespace — that
+    child shipped in v5.101.0 and has HELD (collection has been clean in default order ever since).
+    Extending the same snapshot to cover the signals namespace and the package root is the shaped fix.
+    WHY I DID NOT BUILD IT TONIGHT — the gate failed on step 4, deliberately. This card sits on a
+    landmine with history: the BROAD version of this fix was already shipped once and REVERTED,
+    because restoring the real modules UNMASKED ~87 order-dependent RUNTIME failures that the stubs
+    had been hiding. The narrow const version was safe; a wider one might not be. Verifying that
+    requires running the suite and comparing the runtime failure set — and the runtime harness is
+    currently broken (two phcc autouse fixtures calling a bare asyncio.get_event_loop() on Python
+    3.13 error out ~10,560 of the tests, see TEST-HARNESS-REAL-HA-DEFAULT-1). So the one check that
+    would tell me whether this fix re-detonates the 2026-09-12 revert is unavailable, and shipping a
+    fix whose known failure mode cannot be measured is precisely what an unattended pass should not
+    do. The work is ready the moment the harness child lands.'
+  links_note_2026_09_16: 'Effectively blocked on TEST-HARNESS-REAL-HA-DEFAULT-1 for the same reason
+    its parent TEST-STRATEGY-REARCH-1 is: not because the fix is unclear, but because the regression
+    check that makes it safe needs a working runtime harness.'
+
 - id: BLE-HOLD-CAP-SUITE-POLLUTION-1
   title: test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution
     (passes alone/in pairs)

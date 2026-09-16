@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T02:23:43-05:00_ - _Data commit: `9e9a8f5904f8`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T02:30:17-05:00_ - _Data commit: `f6a1f02b986a`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -295,19 +295,7 @@ _created 2026-08-19 13:40 · updated 2026-09-12 17:00_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **quality** - status: **planned** - approval: **unreviewed**
-_created 2026-09-12 17:10 · initial_
-- **Problem / Solution:**
-  - Problem: BLE-HOLD-CAP fixed the const-shadow class and restored DEFAULT-order collection, but Review B shuffles (seeds 1-5 + reverse) show the suite is NOT order-independent — 4-29 collection errors per shuffle from a LARGER class this c...
-- **Why:** Review B (2026-09-12) proved default-order collection clean but order-DEPENDENT; the baseline-diff review discipline is only as trustworthy as collection stability. Same bug class as BLE-HOLD-CAP, broader surface (production modules, not...
-- **Next:** PLAN: extend _ura_const_support complete-module helper to signals + production modules; migrate remaining poisoners; add a shuffle-seed collection matrix as the acceptance gate. Tier-2 test-only. Queue behind BLE-HOLD-CAP merge.
-- **Sibling of:** BLE-HOLD-CAP-SUITE-POLLUTION-1
-- **Parsimony:** [BUILD] suite not order-independent; production-module partial stubs shadow on shuffle
-- **Forensic keys (1):**
-  - `verified_survivor_2026_09_13`: KEEP — verified REAL + the survivor for the whole remaining order-pollution surface. Reverse-order reproduces its exact class: production-module partial stubs (occupancy_substrate) + remaining .signals poisoners (SIGNAL_EGRESS_EXIT_BACKF...
-
-### `HVAC-HOT-ENTRY-LATENCY-1` - Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry dwell does not care how hot the room is — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-HOT-ENTRY-LATENCY-1` - Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry dwell does not care how hot the room is — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **planned** - approval: **needs_operator**
 _updated 2026-09-15_
 - **Origin:** 2026-08-20 - Operator asked why zone 2 was not being arrested. I gave two wrong answers — that the equipment was idle and that URA had written the manual itself. Operator refuted both ("The equipment is not idle", "I think a human did th...
@@ -324,7 +312,7 @@ _updated 2026-09-15_
   - `root_cause`: A RESPONSIVENESS failure, not an arrester failure. The zone was legitimately `away` with the away ceiling at 80F. Jaya arrived at ~20:18 into an 80F room. zone_entry_dwell is 5.0 minutes = exactly one decision tick, so the EARLIEST URA c...
   - `open_question`: DID THE ARRESTER DETECT THE OVERRIDE? UNRESOLVED — do not let the next session assume either way. The 20:20:39 away->manual transition is the arrester's documented trigger (hvac_override.py:2069-2071), yet the Upstairs zone still reports...
 
-### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-31 19:05 · updated 2026-09-15 · initial_
 - **Problem / Solution:**
@@ -339,7 +327,7 @@ _created 2026-08-31 19:05 · updated 2026-09-15 · initial_
   - `VERIFIED_2026_09_15`: STILL-REAL, re-confirmed by direct source read this session (not by trusting the 09-12 sweep). automation.py:974 returns early when the entry light action is NONE, and the sleep/night-light branch does not run until :991 — so the canonic...
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: automation.py:970 early-returns on action==NONE before sleep branch; reconciler sleep branch keys only on (sleep and night_lights). Sibling NIGHT-LIGHT-NO-OFF-PATH...
 
-### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Setup/unload symmetry + tracked background tasks (tech-debt hardening) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Setup/unload symmetry + tracked background tasks (tech-debt hardening) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **planned**
 _created 2026-08-18 02:30 · updated 2026-09-15 · refined_
 - **Next:** Tier 2 production hardening: audit async_on_unload coverage + track background tasks (reload-safety + task-leak). Independent of the test cluster.
@@ -348,7 +336,7 @@ _created 2026-08-18 02:30 · updated 2026-09-15 · refined_
   - `problem`: untracked background tasks — matches a known URA bug class (task leak). One hardening cycle. (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified 19 async_on_unload sites. The real, large ...
   - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-15 02:50_
 - **Problem / Solution:**
@@ -363,6 +351,20 @@ _updated 2026-09-15 02:50_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, blocker CLEARED: EXTERIOR-GUEST-EGRESS-1 D1 shipped v5.81.0. No 'reinforce' code exists. Run the measure-before-build gap probe (fraction of egress crossings NOT r...
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
+
+### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **quality** - status: **planned** - approval: **unreviewed**
+_created 2026-09-12 17:10 · updated 2026-09-16 04:20 · initial_
+- **Problem / Solution:**
+  - Problem: BLE-HOLD-CAP fixed the const-shadow class and restored DEFAULT-order collection, but Review B shuffles (seeds 1-5 + reverse) show the suite is NOT order-independent — 4-29 collection errors per shuffle from a LARGER class this c...
+- **Why:** Review B (2026-09-12) proved default-order collection clean but order-DEPENDENT; the baseline-diff review discipline is only as trustworthy as collection stability. Same bug class as BLE-HOLD-CAP, broader surface (production modules, not...
+- **Next:** PLAN: extend _ura_const_support complete-module helper to signals + production modules; migrate remaining poisoners; add a shuffle-seed collection matrix as the acceptance gate. Tier-2 test-only. Queue behind BLE-HOLD-CAP merge.
+- **Sibling of:** BLE-HOLD-CAP-SUITE-POLLUTION-1
+- **Parsimony:** [BUILD] suite not order-independent; production-module partial stubs shadow on shuffle
+- **Forensic keys (3):**
+  - `verified_survivor_2026_09_13`: KEEP — verified REAL + the survivor for the whole remaining order-pollution surface. Reverse-order reproduces its exact class: production-module partial stubs (occupancy_substrate) + remaining .signals poisoners (SIGNAL_EGRESS_EXIT_BACKF...
+  - `MEASURED_2026_09_16`: STILL-REAL, re-measured by RUNNING it (not trusting the recorded numbers), and the fix surface is now NAMED — but the gate stopped short of building it, for a reason worth reading before anyone picks this up. THE MEASUREMENT. Default (al...
+  - `links_note_2026_09_16`: Effectively blocked on TEST-HARNESS-REAL-HA-DEFAULT-1 for the same reason its parent TEST-STRATEGY-REARCH-1 is: not because the fix is unclear, but because the regression check that makes it safe needs a working runtime harness.
 
 ## 🔨 In progress (0)
 _being built_
@@ -2062,6 +2064,22 @@ _created 2026-09-05 17:35 · initial_
 ## ✅ Done (170)
 _closed, evidence in refs_
 
+### `WORKTREE-BACKLOG-PRUNE-1` - 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work — _WSJF 4.5 · v4 tc3 u2 /e2_
+thread: **infra** - status: **done**
+_created 2026-09-13 21:10 · updated 2026-09-16 04:30 · initial_
+- **Problem / Solution:**
+  - Problem: 94 agent worktrees have piled up under .claude/worktrees. Most are finished work safe to delete, but roughly 40 still hold either uncommitted edits or commits that never reached the main branch — so a blanket cleanup would silen...
+- **Origin:** 2026-09-13 - operator — "check the develop tree and any work trees to see work we need to clean or continue"
+- **Next:** DONE — both halves complete (51 worktrees pruned earlier, 355 branches now).
+- **Parsimony:** [SIMPLIFY] 94 worktrees make it impossible to see which branches still hold unfinished work.
+- **Refs:** .claude/worktrees/
+- **Forensic keys (5):**
+  - `findings_2026_09_13`: AUDITED all 94. ~54 clean AND fully merged into develop = safe prune. ~40 interesting: DIRTY-and-likely-abandoned — build-fan-layer-2 (42 uncommitted files), reviewer-B-fan-layer-1 (10, detached), build/arrester-comfort-delay (8), step-c...
+  - `executed_2026_09_13`: DONE — operator approved ("Prune worktrees but don't delete what is important. Recheck for recent work that's useful"). Re-classified at delete time (not trusting the earlier audit): 51 worktrees were BOTH clean AND fully merged into dev...
+  - `operator_instruction_2026_09_14`: "Do it safely" — operator authorised the deferred half: deleting the fully-merged local branches. REOPENED for that work. SAFETY BAR, informed by what this session already got wrong: my earlier classification used COMMIT ANCESTRY (`rev-l...
+  - `branch_cleanup_done_2026_09_14`: DONE. 355 branches deleted, 413 -> 58. Used `git branch -d` (which REFUSES anything not fully merged) on top of the three-check bar, so the tool itself was the final guard rather than my classification. ONE REFUSED: feature/household-rou...
+  - `MEASURED_2026_09_16`: Fresh numbers, captured while cleaning up after tonight's build rather than as a separate errand (DUPLICATE of this card, so recorded here instead of minting a second one): 48 worktrees still registered under .claude/worktrees, totalling...
+
 ### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **done** - approval: **explicit**
 _created 2026-09-05 16:40 · updated 2026-09-15 02:30 · refined_
@@ -2346,21 +2364,6 @@ _created 2026-09-13 20:45 · updated 2026-09-13 21:15 · initial_
 - **Refs:** docs/planning/kanban.data.yaml
 - **Forensic keys (1):**
   - `findings_2026_09_13`: 14 commits on local develop unpushed (the whole CONFIG-FLOW-SLOW investigation chain plus the v5.101.1 bundle readiness notes). All board commits — no code was lost, the crash only orphaned board state. Pushed 8cd4af2ef..42eb0f130; devel...
-
-### `WORKTREE-BACKLOG-PRUNE-1` - 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work — _WSJF 4.5 · v4 tc3 u2 /e2_
-thread: **infra** - status: **done**
-_created 2026-09-13 21:10 · updated 2026-09-13 21:15 · initial_
-- **Problem / Solution:**
-  - Problem: 94 agent worktrees have piled up under .claude/worktrees. Most are finished work safe to delete, but roughly 40 still hold either uncommitted edits or commits that never reached the main branch — so a blanket cleanup would silen...
-- **Origin:** 2026-09-13 - operator — "check the develop tree and any work trees to see work we need to clean or continue"
-- **Next:** DONE — both halves complete (51 worktrees pruned earlier, 355 branches now).
-- **Parsimony:** [SIMPLIFY] 94 worktrees make it impossible to see which branches still hold unfinished work.
-- **Refs:** .claude/worktrees/
-- **Forensic keys (4):**
-  - `findings_2026_09_13`: AUDITED all 94. ~54 clean AND fully merged into develop = safe prune. ~40 interesting: DIRTY-and-likely-abandoned — build-fan-layer-2 (42 uncommitted files), reviewer-B-fan-layer-1 (10, detached), build/arrester-comfort-delay (8), step-c...
-  - `executed_2026_09_13`: DONE — operator approved ("Prune worktrees but don't delete what is important. Recheck for recent work that's useful"). Re-classified at delete time (not trusting the earlier audit): 51 worktrees were BOTH clean AND fully merged into dev...
-  - `operator_instruction_2026_09_14`: "Do it safely" — operator authorised the deferred half: deleting the fully-merged local branches. REOPENED for that work. SAFETY BAR, informed by what this session already got wrong: my earlier classification used COMMIT ANCESTRY (`rev-l...
-  - `branch_cleanup_done_2026_09_14`: DONE. 355 branches deleted, 413 -> 58. Used `git branch -d` (which REFUSES anything not fully merged) on top of the three-check bar, so the tool itself was the final guard rather than my classification. ONE REFUSED: feature/household-rou...
 
 ### `CENSUS-FACE-MISS-WATCH-1` - Census face-lookup misses ~12/tick on an empty house — investigate on occupancy — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **done** - approval: **unreviewed**
