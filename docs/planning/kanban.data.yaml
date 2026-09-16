@@ -17325,7 +17325,8 @@ cards:
   title: S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose
     option (a) 2026-08-21), preferably by making it a borrow kind
   thread: hvac
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.3
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py _apply_duty_off_phase writes a RAW setpoint via emit_set_temperature, zero begin/return_excursion — no lease-expiry ending. Operator-chosen fix (make S14 a borrow kind w/ off-phase-remaining duration) unbuilt. Tier 2-DB.'
   created: 2026-08-21 10:20
@@ -17481,7 +17482,8 @@ cards:
   title: The startup ramp audit writes setpoints and restores no preset, so every restart drops
     zones into an anonymous hold
   thread: hvac
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.3
   created: '2026-09-16'
   updated: '2026-09-16'
   refinement_status: initial
