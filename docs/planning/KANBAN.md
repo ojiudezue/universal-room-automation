@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T16:30:55-05:00_ - _Data commit: `309b29a9dd7a`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T16:35:21-05:00_ - _Data commit: `849d2365116f`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -11,11 +11,11 @@ _Generated: 2026-09-16T16:30:55-05:00_ - _Data commit: `309b29a9dd7a`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 1 |
-| 🧭 Pre-planning | 12 |
+| 🧭 Pre-planning | 11 |
 | 📝 Planned | 9 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
-| ⏸️ Waiting on operator | 25 |
+| ⏸️ Waiting on operator | 26 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 26 |
 | 🅿️ Parked | 57 |
@@ -44,7 +44,7 @@ _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
   - `pytest_restore_hook_2026_08_19`: CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates coordinator.py during a normal pytest run without guaranteed restore -> the batch run leaves an uncommitted mutation (a test that edits production source is a...
   - `BLOCKED_LINK_2026_09_16`: Recorded the dependency as a real blocked_by link instead of leaving it as prose in measured_2026_09_15. This parent asks for a re-arch scoped to ~87 order-dependent RUNTIME failures, and those failures are currently unmeasurable because...
 
-## 🧭 Pre-planning (12)
+## 🧭 Pre-planning (11)
 _idea being decomposed_
 
 ### `HVAC-PRESET-WRITE-STRATEGY-1` - How to write a preset successfully is vendor-specific, and that knowledge is hardcoded in a shared chokepoint every thermostat write passes through — _#1 · WSJF 2.8 · v5 tc3 u6 /e5 ⚠_
@@ -188,34 +188,7 @@ _created 2026-09-15 · initial_
 - **Forensic keys (1):**
   - `MEASURED_2026_09_15`: Proven by drill, not inferred. (1) A test that creates a never-finishing task via `asyncio.get_running_loop().create_task(asyncio.sleep(3600))` PASSES under the current fixture. (2) Instrumented the loop identity at each phase: fixture s...
 
-### `HVAC-ZONE-CONDITIONING-DEMAND-1` - HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC its own dwell-vs-transit derivation instead of tuning a knob that cannot win — _#10 · WSJF 1.8 · v5 tc3 u6 /e8 ⚠_
-thread: **hvac** - status: **pre_planning** - approval: **explicit**
-_created 2026-09-15 · initial_
-- **Problem / Solution:**
-  - Problem: the signal HVAC uses to decide whether a zone is occupied was designed for a different job — switching lights on and off. That job needs a generous hold so a light never blinks off on someone standing still, so the room layer ke...
-- **Origin:** 2026-09-15 - Operator challenged the dwell explanation, then asked for a deep recommendation on room-to-zone coupling for HVAC rather than another knob turn
-- **Why:** Every previous attempt on this problem has been a knob turn, and the measured ceiling on knob turns is a 64% cut that still is not calm and costs comfort in all three zones. The reason is structural, not parametric: a 1-tick guard sits d...
-- **Next:** RE-MEASURE FIRST (measure-before-build, and the parent card demanded exactly this after the sensor swap): the operator's Garage Hallway swap has LANDED — the Frigate person cam is gone from the room config, replaced by a Zigbee PIR + mmW...
-- **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
-- **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
-- **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (14):**
-  - `PLANNING_DOC_2026_09_16`: The readable proposal + full digest lives at docs/planning/PROPOSAL_hvac_conditioning_demand_2026_09_16.md (operator: "cards are not a substitute" for planning hygiene). That doc is the SOURCE for this cycle — hypothesis history (H1 fals...
-  - `MODALITY_SCAN_RESULT_2026_09_16`: THE PIVOTAL SCAN IS DONE (operator: "run that scan now"). RESULT: mmWave stillness kind IS readable end-to-end -> this is a COMPOSE job, not a plumbing build. The infrastructure the card feared might be missing exists in THREE places, al...
-  - `OPERATOR_DESIGN_THESIS_RECOVERED_2026_09_16`: Recovered from the pre-compaction transcript after the operator flagged compaction was dropping detail. These are LOAD-BEARING design constraints stated across several turns; capturing verbatim-close so they survive. Compaction has alrea...
-  - `SIMULATION_FALSIFIED_THE_DESIGN_2026_09_16`: OPERATOR ASKED for a simulation before building ("assume an optimistic result and model it"). It FALSIFIED the design — and the optimistic framing is what made it decisive, because even the upper bound fails.
-  - `blocks_step5_2026_09_15`: HVAC-GUEST-AS-ZONE-PERSON-1
-  - `seq_2026_09_15`: STEP 4 of HVAC-SUPPLE-SEQUENCE-1 — the ONLY behaviour change in the arc, and the operator checkpoint. Blocked until the attribution foundation (step 1) and the witness (step 2) exist, because without them its success criteria cannot be e...
-  - `TAP_POINT_RESOLVED_2026_09_15`: OPERATOR: "Does it re-use stuck sensor machinery correctly? We really want to avoid those if we are driving HVAC." The right question — a careless "tap earlier" would bypass the stuck/chatter exclusion and let a stuck-ON sensor drive the...
-  - `SIMPLIFIED_2026_09_15`: OPERATOR: "The decoupling has to be simple and elegant. Not complicate machinery." CORRECT, and my DESIGN_2026_09_15 five-part proposal is WITHDRAWN as over-built — it added five moving parts (new signal type, sensor-kind weighting, even...
-  - `PRIOR_ART_TO_REUSE_2026_09_15`: OPERATOR: "I do not want to redo fusion or any strong primitive we have already." Agreed, and it is now a hard precondition on step 1 rather than a hope. Verified to EXIST this session (grep, file:line) — every one of these is REUSE, and...
-  - `SUCCESS_DEFINED_UP_FRONT_2026_09_15`: OPERATOR: "We need to define success early so we know we solved it. That should be about fitting like a glove with evidence and saving net $. A supple HVAC should save $ over months and years." Success is therefore TWO metrics that must ...
-  - `MECHANISM_VERIFIED_2026_09_15`: Read from source this session, not inherited. - zone_entry_dwell gate hvac.py:2049-2059 requires zone.any_room_occupied AND current_session_start older than dwell_minutes, else `continue` (keep current preset). It carries `effective_pres...
-  - `THE_BINDING_CONSTRAINT`: NAMED HERE FOR THE FIRST TIME, and it reframes the whole problem: the 5-minute decision tick is a HARD FLOOR on "react quickly to someone being there if its hot". Even at dwell=0 the worst-case latency to act is a full tick. The founding...
-  - `DESIGN_2026_09_15`: Five parts, ordered by blast radius. (1) HVAC-OWNED DERIVATION — add a zone-level "conditioning demand" signal; HVAC consumes it INSTEAD of any_room_occupied. Room automation keeps reading the existing signal untouched, so lights carry n...
-  - `DUMMY_PERSON_REJECTED_2026_09_15`: OPERATOR ASKED: "Zone 3 has no zone persons because its a guest wing. Should we stub a dummy?" RECOMMENDATION: NO. The three gates (night-trust away-suppression hvac.py:1788-1795, sleep veto aggregation.py:4017-4019, non-sleep person-hom...
-
-### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#11 · WSJF 1.8 · v8 tc4 u2 /e8_
+### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#10 · WSJF 1.8 · v8 tc4 u2 /e8_
 thread: **optimization** - status: **pre_planning**
 _created 2026-09-14 02:20 · initial_
 - **Problem / Solution:**
@@ -230,7 +203,7 @@ _created 2026-09-14 02:20 · initial_
   - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
   - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
 
-### `HVAC-THERMOSTAT-ABSTRACTION-1` - We unified the call sites but never built an abstraction — three write verbs, two funnels, and vendor knowledge loose inside a shared path — _#12 · WSJF 1.1 · v5 tc3 u6 /e13 ⚠_
+### `HVAC-THERMOSTAT-ABSTRACTION-1` - We unified the call sites but never built an abstraction — three write verbs, two funnels, and vendor knowledge loose inside a shared path — _#11 · WSJF 1.1 · v5 tc3 u6 /e13 ⚠_
 thread: **hvac** - status: **pre_planning** - approval: **explicit**
 _created 2026-09-16 · initial_
 - **Problem / Solution:**
@@ -415,7 +388,7 @@ _under review_
 
 _(none)_
 
-## ⏸️ Waiting on operator (25)
+## ⏸️ Waiting on operator (26)
 _needs a human call — groomed first_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Every exterior person-detector stopped firing on 2026-09-15 while the cameras kept seeing motion — the whole outdoor person-detection layer is effectively blind and has been for ~36h — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
@@ -762,7 +735,35 @@ _created 2026-08-21 18:00 · updated 2026-09-16 03:05 · initial_
   - `REMEASURED_2026_09_16`: Re-ran the measurement this card has been waiting on since 2026-08-23 — it was three weeks overdue and it was MY debt, not the operator's, which is itself the finding about where this card was sitting. Read from the HA recorder over the ...
   - `CARD_WAS_WRONG_2026_09_16_ESCALATION_DIRECTION`: Correcting this card against itself, because as written it points the next step the wrong way. ACCEPTANCE_AND_NEXT_STEPS says the escalation after thresholds is to "narrow max_move/max_still distance gates from 7/6". That contradicts THE...
 
-### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#24 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-ZONE-CONDITIONING-DEMAND-1` - HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC its own dwell-vs-transit derivation instead of tuning a knob that cannot win — _#24 · WSJF 1.8 · v5 tc3 u6 /e8 ⚠_
+thread: **hvac** - status: **waiting_operator** - approval: **explicit**
+_created 2026-09-15 · initial_
+- **Problem / Solution:**
+  - Problem: the signal HVAC uses to decide whether a zone is occupied was designed for a different job — switching lights on and off. That job needs a generous hold so a light never blinks off on someone standing still, so the room layer ke...
+- **Origin:** 2026-09-15 - Operator challenged the dwell explanation, then asked for a deep recommendation on room-to-zone coupling for HVAC rather than another knob turn
+- **Why:** Every previous attempt on this problem has been a knob turn, and the measured ceiling on knob turns is a 64% cut that still is not calm and costs comfort in all three zones. The reason is structural, not parametric: a 1-tick guard sits d...
+- **Next:** RE-MEASURE FIRST (measure-before-build, and the parent card demanded exactly this after the sensor swap): the operator's Garage Hallway swap has LANDED — the Frigate person cam is gone from the room config, replaced by a Zigbee PIR + mmW...
+- **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
+- **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
+- **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
+- **Forensic keys (15):**
+  - `STAGE0_CONFIRMED_2026_09_16`: GATE GREEN. H3 CONFIRMED by read-only measurement: of 51 pointless zone_3 conditioning episodes (7d, retreat off home within <=11min), 42 were CORRIDOR-only and ZERO were dwelling-only (kitchen_hallway_garage 37, garage_hallway 22, kitch...
+  - `PLANNING_DOC_2026_09_16`: The readable proposal + full digest lives at docs/planning/PROPOSAL_hvac_conditioning_demand_2026_09_16.md (operator: "cards are not a substitute" for planning hygiene). That doc is the SOURCE for this cycle — hypothesis history (H1 fals...
+  - `MODALITY_SCAN_RESULT_2026_09_16`: THE PIVOTAL SCAN IS DONE (operator: "run that scan now"). RESULT: mmWave stillness kind IS readable end-to-end -> this is a COMPOSE job, not a plumbing build. The infrastructure the card feared might be missing exists in THREE places, al...
+  - `OPERATOR_DESIGN_THESIS_RECOVERED_2026_09_16`: Recovered from the pre-compaction transcript after the operator flagged compaction was dropping detail. These are LOAD-BEARING design constraints stated across several turns; capturing verbatim-close so they survive. Compaction has alrea...
+  - `SIMULATION_FALSIFIED_THE_DESIGN_2026_09_16`: OPERATOR ASKED for a simulation before building ("assume an optimistic result and model it"). It FALSIFIED the design — and the optimistic framing is what made it decisive, because even the upper bound fails.
+  - `blocks_step5_2026_09_15`: HVAC-GUEST-AS-ZONE-PERSON-1
+  - `seq_2026_09_15`: STEP 4 of HVAC-SUPPLE-SEQUENCE-1 — the ONLY behaviour change in the arc, and the operator checkpoint. Blocked until the attribution foundation (step 1) and the witness (step 2) exist, because without them its success criteria cannot be e...
+  - `TAP_POINT_RESOLVED_2026_09_15`: OPERATOR: "Does it re-use stuck sensor machinery correctly? We really want to avoid those if we are driving HVAC." The right question — a careless "tap earlier" would bypass the stuck/chatter exclusion and let a stuck-ON sensor drive the...
+  - `SIMPLIFIED_2026_09_15`: OPERATOR: "The decoupling has to be simple and elegant. Not complicate machinery." CORRECT, and my DESIGN_2026_09_15 five-part proposal is WITHDRAWN as over-built — it added five moving parts (new signal type, sensor-kind weighting, even...
+  - `PRIOR_ART_TO_REUSE_2026_09_15`: OPERATOR: "I do not want to redo fusion or any strong primitive we have already." Agreed, and it is now a hard precondition on step 1 rather than a hope. Verified to EXIST this session (grep, file:line) — every one of these is REUSE, and...
+  - `SUCCESS_DEFINED_UP_FRONT_2026_09_15`: OPERATOR: "We need to define success early so we know we solved it. That should be about fitting like a glove with evidence and saving net $. A supple HVAC should save $ over months and years." Success is therefore TWO metrics that must ...
+  - `MECHANISM_VERIFIED_2026_09_15`: Read from source this session, not inherited. - zone_entry_dwell gate hvac.py:2049-2059 requires zone.any_room_occupied AND current_session_start older than dwell_minutes, else `continue` (keep current preset). It carries `effective_pres...
+  - `THE_BINDING_CONSTRAINT`: NAMED HERE FOR THE FIRST TIME, and it reframes the whole problem: the 5-minute decision tick is a HARD FLOOR on "react quickly to someone being there if its hot". Even at dwell=0 the worst-case latency to act is a full tick. The founding...
+  - `DESIGN_2026_09_15`: Five parts, ordered by blast radius. (1) HVAC-OWNED DERIVATION — add a zone-level "conditioning demand" signal; HVAC consumes it INSTEAD of any_room_occupied. Room automation keeps reading the existing signal untouched, so lights carry n...
+  - `DUMMY_PERSON_REJECTED_2026_09_15`: OPERATOR ASKED: "Zone 3 has no zone persons because its a guest wing. Should we stub a dummy?" RECOMMENDATION: NO. The three gates (night-trust away-suppression hvac.py:1788-1795, sleep veto aggregation.py:4017-4019, non-sleep person-hom...
+
+### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#25 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **quality** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Problem / Solution:**
@@ -776,7 +777,7 @@ _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, LOW exposure (12-cam house list, months apart): _cameras_by_area built once at discover (__init__.py:2316), consumed live (coordinator.py:3670); census invalidate ...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#25 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#26 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-12 20:40 · refined_
 - **Problem / Solution:**

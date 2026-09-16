@@ -10467,6 +10467,25 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  STAGE0_CONFIRMED_2026_09_16: 'GATE GREEN. H3 CONFIRMED by read-only measurement: of 51 pointless
+    zone_3 conditioning episodes (7d, retreat off home within <=11min), 42 were CORRIDOR-only and
+    ZERO were dwelling-only (kitchen_hallway_garage 37, garage_hallway 22, kitchen_hallway 19 vs
+    guest_bedroom_1 2, never alone). Corridor crossings flip any_room_occupied (hvac_zones.py:148)
+    and condition the whole zone. Corrected fact: zone_3 = Back Hallway HVAC zone (14 rooms incl
+    kitchen/dining/hallways), NOT a pure guest wing — which is why corridor traffic dominates it.
+    Circulation-aware demand warranted; cycle PROCEEDS. Design finalized (code-sweep: swap the
+    RoomCondition.occupied input at hvac_zones.py:546, kind-aware ON TOP of grace-held occupancy,
+    zero-DELETE, zone_entry_dwell->0 same cycle). SIDE-FINDING to card/fold: every -> home is
+    labeled reason=house_state_transition even mid-home_day (producer-labeling quirk; reason field
+    is not a reliable trigger discriminator). Full doc: PROPOSAL_hvac_conditioning_demand_2026_09_16.md
+    + AUDIT_hvac_conditioning_demand_supersession_and_reuse_2026_09_16.md.'
+  next: 'PICK the aggression posture + APPROVE two live-timer changes, then I build (Tier 2-DB,
+    3 framing-disjoint). DECISIONS: (1) aggregation = OR over HVAC-relevant rooms [rec]; (2) RETIRE
+    zone_entry_dwell -> per-room dwell (live-timer change, footgun if stacked) [rec]; (3) retreat =
+    one zone vacancy_grace, per-room holds short [rec]; (4) fast-in 60s HVAC sub-loop now vs later;
+    (5) add hallway to room_type enum + reclassify the ~6 hallways; (6) expose per-room HVAC-occupancy
+    entity [operator already said yes]. The genuinely operator call = the aggression posture
+    (absolute circulation-exclusion vs soft) since it is a live comfort/spend change.'
   PLANNING_DOC_2026_09_16: 'The readable proposal + full digest lives at docs/planning/PROPOSAL_hvac_conditioning_demand_2026_09_16.md (operator: "cards are not a substitute" for planning hygiene). That doc is the SOURCE for this cycle — hypothesis history (H1 falsified / H2 flaky / H3 survivor), the room_type skeptical catch, the staged proposal, success metrics, live numbers, and the operator checkpoint. The card keys are working notes; read the doc for the coherent version. Keep the doc updated as the plan firms — not just the card.'
   MODALITY_SCAN_RESULT_2026_09_16: 'THE PIVOTAL SCAN IS DONE (operator: "run that scan now"). RESULT:
     mmWave stillness kind IS readable end-to-end -> this is a COMPOSE job, not a plumbing build. The
@@ -10736,7 +10755,7 @@ cards:
   title: HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC
     its own dwell-vs-transit derivation instead of tuning a knob that cannot win
   thread: hvac
-  status: pre_planning
+  status: waiting_operator
   created: '2026-09-15'
   updated: '2026-09-15'
   refinement_status: initial
