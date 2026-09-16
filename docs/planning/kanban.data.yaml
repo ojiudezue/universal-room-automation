@@ -16893,6 +16893,61 @@ cards:
     restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
     the borrow primitive, not folded into it.'
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  CANARY_FULL_SEQUENCE_2026_09_16: 'OPERATOR ASKED: "Check to see if it was just a cloud delay."
+    IT WAS NOT — and pulling the full recorder sequence (rather than point reads) both answers that
+    and splits the two reverts into DIFFERENT mechanisms. This supersedes the two entries below;
+    read this one.
+
+    NOT A DELAY: zone_1 has been stable manual/manual 70/75 from 23:22:12 through 23:25:52 — over
+    three minutes, several full cloud-refresh cycles past the measured 42-79s window. It SETTLED on
+    manual. A delay would have resolved to sleep; it resolved to manual.
+
+    THE SEQUENCE (recorder, preset_mode | hold_activity | low | high):
+      23:18:43  manual manual  68 75   <- before
+      23:18:59  sleep  sleep   70 75   <- write #1
+      23:19:08  sleep  sleep   70 75
+      23:19:35  manual manual  70 76   <- revert #1 (36s) AND CEILING +1
+      23:20:14  manual manual  70 76
+      23:20:14  manual SLEEP   70 76   <- activity briefly reads sleep while preset reads manual
+      23:20:14  manual manual  70 76   <- drops back within the SAME SECOND
+      23:21:04  sleep  sleep   70 75   <- write #2
+      23:21:33  sleep  sleep   70 75   <- held 29s
+      23:21:34  manual manual  70 75   <- revert #2, NUMBERS UNCHANGED
+      23:22:12 .. 23:25:52  manual manual 70 75  <- stable
+
+    THE TWO REVERTS ARE NOT THE SAME EVENT, and conflating them is what made my earlier readings
+    wrong twice:
+    * REVERT #1 CHANGED THE NUMBERS: ceiling 75 -> 76 while MY low (70) survived. That is NOT a
+      revert-to-previous (which would be 68/75) — it is a NEW combination, and +1F on the cooling
+      ceiling is the AC-ramp nudge signature. This one looks like a URA RAW-SETPOINT WRITE
+      clobbering the named hold.
+    * REVERT #2 CHANGED NOTHING: 70/75 before and after; only the NAME dropped. That looks like
+      THE CLOUD NOT RETAINING THE ACTIVITY.
+    Possibly both mechanisms are real and independent. The 23:20:14 triple is the tell for the
+    second: within ONE SECOND the cloud reported hold_activity=sleep alongside preset_mode=manual
+    and then dropped back — the activity association exists momentarily and does not stick.
+
+    CORRECTION TO MY PRIOR ENTRY: I concluded "the write likely never lands at the Carrier cloud".
+    WRONG, and the operator''s vendor-app screenshot is what refuted it — zone_1 shows 70-75 in the
+    Bryant app, i.e. MY low (68->70) persisted through many refreshes at the CLOUD. The write lands.
+    What fails to persist is the ACTIVITY NAME, not the write.
+
+    THE CONTROL THAT MAKES THIS DIAGNOSABLE: zone_3 currently holds preset_mode=away,
+    hold_activity=away, hold_until=null — a NAMED, INDEFINITE hold that persists, confirmed in both
+    HA and the vendor app ("Holding Away"). So named indefinite holds DO work on this system and
+    infinite_holds=True is NOT the blocker. Zones 1 and 2 are anonymous; zone 3 is not.
+
+    STILL UNATTRIBUTABLE, FOR THE THIRD TIME TONIGHT: ura_activity_log contains ZERO hvac rows in
+    the entire canary window while the ceiling demonstrably moved 75->76. The nudge/arrester path
+    records nothing. Every remaining question here — was revert #1 really a nudge? did an API call
+    error? — needs ARRESTER-LEDGER-INVISIBLE-1 first. Do not run another canary before it.
+
+    THE ONE-WRITE TEST THAT SPLITS (c) FROM (d), FOR A CIVILISED HOUR: write `away` to zone_1 (or
+    to zone_2, also stuck manual and NOT a bedroom — preferable). If it pins as a NAMED hold, the
+    defect is activity-specific (d: `sleep` may not be configured on that zone the way `away` is on
+    zone_3). If it lands manual, the defect is the PRE-EXISTING MANUAL HOLD blocking a named pin
+    (c: resume-then-pin becomes a prerequisite step, not the rejected alternative).
+    DO NOT run `away` on zone_1 at night: away is 66-80 and zone_1 is the master suite.'
   CANARY_RESULT_CORRECTED_2026_09_16: 'CORRECTION TO THE ENTRY BELOW, AND IT CHANGES THE VERDICT
     FROM INCONCLUSIVE TO A CLEAN NEGATIVE. I reported that the repeat write "HELD". IT DID NOT — I
     sampled it ~40s after writing, BEFORE the next cloud poll. With more elapsed time it reverted
