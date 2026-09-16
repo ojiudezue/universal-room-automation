@@ -10006,11 +10006,93 @@ cards:
   - automation.py:991/1021/1037/1133/3319; actuator_reconciler.py:793-805 (:795 A-HIGH-1 comment)
   - 'Live: switch.sonoff_1002197ef7_1 ON 08-28 06:27->08-29 06:46, 08-29 08:12->08-30 13:32, 08-30 20:26->08-31
     16:19'
+- id: NIGHT-LIGHT-ACTION-SELECTOR-1
+  title: Night lights have no actuation policy of their own — they ride on the regular lights' entry
+    action, so "none" silently means two different things
+  thread: lights
+  status: pre_planning
+  created: '2026-09-15'
+  updated: '2026-09-15'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-15 ("Honestly best thing is another selector to show how we should
+    actuate night light. We may be overloading it. Its more space but it removes all doubt.")'
+  tags: [institutional-context, numbers-get-knobs, concept-split]
+  problem_solution:
+  - 'Problem: a room has one setting that says what its lights should do when you walk in — on,
+    on-if-dark, off, leave alone, or nothing. Night lights have no such setting of their own; they
+    quietly inherit that one. So picking "nothing" for a bedroom''s main lights also, invisibly,
+    decides what happens to its night light — two unrelated intentions collapsed into one control.
+    Nobody reading the room''s settings can tell which behaviour they are choosing, and today the
+    two pieces of code that act on it disagree about the answer. Solution: give night lights their
+    own explicit selector, so the main-light choice and the night-light choice are stated
+    separately and neither has to be inferred.'
+  origin:
+    date: '2026-09-15'
+    gist: Offered the operator a binary A/B on the entry=none + sleep divergence; they rejected
+      both and named the real fix — the control is overloaded, split it.
+  why: 'Removes the ambiguity at its source rather than arbitrating it. The A/B decision I offered
+    would have picked a winner for an overloaded field and left the overloading in place — so the
+    next person to set a room to "none" would face the same invisible coupling. A selector costs
+    config space and buys certainty, which is the trade the operator explicitly accepted.'
+  INSTITUTIONAL_CONTEXT_2026_09_15: 'Prior-art scan run before proposing (CLAUDE.md
+    Institutional-Context-First). NEW — nothing equivalent exists.
+    - const.py:876-886 holds FIVE night-light constants (CONF_NIGHT_LIGHTS,
+      CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS/_COLOR, CONF_NIGHT_LIGHT_DAY_BRIGHTNESS/_COLOR) — all of
+      them describe HOW a night light should look (brightness, colour temperature), and NOT ONE
+      describes WHEN it should actuate. That asymmetry is the concept gap.
+    - const.py:894-906: the overloaded field is CONF_ENTRY_LIGHT_ACTION, whose vocabulary
+      (LIGHT_ACTION_NONE / TURN_ON / TURN_ON_IF_DARK / TURN_OFF / LEAVE_ON) is written for regular
+      lights. REUSE this vocabulary for the new selector where it fits rather than inventing a
+      parallel one.
+    - Board sweep: NIGHT-LIGHT-NO-OFF-PATH-1 (done) fixed the missing OFF path for night-only
+      rooms; KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1 (parked) is a wrong-entity config error. Neither
+      proposes a policy selector.
+    - PARKED PLANNING DELIVERABLE FOUND: PLANNING_night_light_off_path.md:110 explicitly DEFERRED
+      the canonical-vs-reconciler entry=none+sleep divergence to a later cycle, and its
+      "Non-goals" (:544) fence off _control_lights_entry. So this is that deferred cycle arriving —
+      READY, not novel.'
+  parsimony:
+    problem: One field encodes two independent intentions (regular-light entry behaviour and
+      night-light behaviour), so "none" is ambiguous and the two controllers resolve it differently.
+    verdict: BUILD
+  next: 'Scope the selector (Tier 2 — config surface + both light controllers + migration).
+    Decisions to settle IN THE PLAN, not the build: (1) the option vocabulary — REUSE the
+    LIGHT_ACTION_* values where they map, plus an explicit "follow the main light action" value so
+    existing rooms keep today''s behaviour; (2) the DEFAULT, which must preserve current observed
+    behaviour for all ~40 rooms so no bedroom changes overnight without the operator asking; (3)
+    whether it lives per-room in the config flow (likely) or as a Number/Select entity — per the
+    knob ladder this is per-deployment structure, so config flow; (4) make BOTH the canonical path
+    (automation.py:974) and the reconciler read the SAME resolved value, which is what closes
+    LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1. Acceptance must DISCRIMINATE: a room set to night-lights-on
+    behaves differently from one set to night-lights-off under identical sleep+entry conditions,
+    and both controllers agree in each case.'
+  links:
+    related: [LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1, NIGHT-LIGHT-NO-OFF-PATH-1, KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1]
+    blocks: [LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1]
+    context: 'This card SUPERSEDES the binary A-or-B question on
+      LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1: the operator rejected both options because the field is
+      overloaded, so the divergence gets resolved by making the intent explicit rather than by
+      picking a winner. That card stays open as the specific defect this one must close.
+      NIGHT-LIGHT-NO-OFF-PATH-1 (done) is the shipped precedent in the same two files.'
+  refs:
+  - const.py:876-886 (night-light HOW constants, no WHEN), :894-906 (the overloaded action field)
+  - automation.py:974 (canonical early-return on NONE), :991 (sleep/night-light branch)
+  - docs/planning/PLANNING_night_light_off_path.md:110 (the deferred deliverable this resumes)
 - id: LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1
   title: Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing
     parity break)
   thread: presence
-  status: waiting_operator
+  status: planned
+  SUPERSEDED_QUESTION_2026_09_15: 'The A-or-B PICK on this card is WITHDRAWN. The operator rejected
+    both options and diagnosed the real problem: the entry-light action field is OVERLOADED — it
+    encodes both "what should the main lights do" and, by accident, "what should the night light
+    do". Picking A or B would have arbitrated an ambiguous field and left the ambiguity in place.
+    Resolution moves to NIGHT-LIGHT-ACTION-SELECTOR-1 (give night lights their own explicit
+    selector); this card stays OPEN as the specific canonical-vs-reconciler defect that the
+    selector work must close, and is now blocked_by it. Operator quote: "another selector to show
+    how we should actuate night light. We may be overloading it. Its more space but it removes all
+    doubt."'
   VERIFIED_2026_09_15: 'STILL-REAL, re-confirmed by direct source read this session (not by
     trusting the 09-12 sweep). automation.py:974 returns early when the entry light action is
     NONE, and the sleep/night-light branch does not run until :991 — so the canonical path can
@@ -10043,19 +10125,20 @@ cards:
   why: AUDIT_room_light_automation.md F2 (MED) + F3 (MED). Predates the night-light off-path cycle; must
     be resolved as part of, or before, the NIGHT-LIGHT-NO-OFF-PATH-1 build so the fix does not entrench
     the split.
-  next: 'PICK the intended behaviour for rooms whose entry-light action is "none" (Master Bedroom,
-    Patio, Game Room) during sleep hours -> then I make BOTH light controllers honour it and add
-    parity tests. (A) NIGHT LIGHTS SHOULD COME ON: "none" means "do not do the normal entry
-    lighting", not "no lighting ever" — so I move the sleep/night-light branch ahead of the
-    entry-action check in the canonical path, and night-light-only rooms start being managed there
-    too. (B) NIGHT LIGHTS SHOULD STAY OFF: "none" means hands off entirely — so I gate the
-    reconciler to respect entry-action NONE and it stops turning them on. Practical difference:
-    under (A) walking into the Master Bedroom at 3am gets you a night light; under (B) it stays
-    dark unless you hit a switch. Whichever you pick, both controllers end up agreeing — today
-    they do not, which is why behaviour can differ depending on which one acts first.'
+  next: 'BLOCKED BY NIGHT-LIGHT-ACTION-SELECTOR-1 — no operator input needed here any more. When
+    the selector lands, both the canonical path (automation.py:974) and the reconciler must read
+    the SAME resolved night-light policy, and this divergence closes with a parity test that
+    DISCRIMINATES: identical sleep+entry conditions, two rooms with opposite selector values,
+    each controller agreeing per room.'
   refs:
   - docs/planning/AUDIT_room_light_automation.md F2/F3
   - automation.py:973/980; actuator_reconciler.py:746
+  links:
+    blocked_by: [NIGHT-LIGHT-ACTION-SELECTOR-1]
+    related: [NIGHT-LIGHT-NO-OFF-PATH-1]
+    context: 'NIGHT-LIGHT-ACTION-SELECTOR-1 removes the overloaded field that causes this
+      divergence; this card cannot be correctly fixed before it, because any fix now would be
+      picking a meaning for an ambiguous setting.'
 - id: KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1
   title: Kitchen night light is configured as the RANGE light (switch_tapo_wifi_kitchenrange) — likely
     a config mistake
