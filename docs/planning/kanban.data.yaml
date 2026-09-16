@@ -17211,6 +17211,29 @@ cards:
     restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
     the borrow primitive, not folded into it.'
 - id: HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1
+  BUILT_2026_09_16: 'BUILT, in review on develop, NOT deployed.
+    A CORRECTION TO MY OWN SCOPING FIRST: I described this as "same fix shape as D2b". Close, but
+    not identical, and the difference IS the bug. D2b read an IN-MEMORY excursion token. The boot
+    path cannot: `_restore_after_nudge` restores its preset from self._nudge_pre_preset, which is
+    RAM-ONLY and therefore EMPTY after a restart. So the boot path had nothing to restore TO —
+    that is precisely WHY it only ever restored the numbers.
+    THE SNAPSHOT DOES SURVIVE, we just never read it: hvac_excursion_state.pre_preset is a
+    PERSISTED column, and database.py already exposes get_all_excursion_rows(). No schema
+    migration needed — I checked for one (ac_reset_state has in_flight_nudge_original_target but
+    no preset column) and would otherwise have been facing a Tier-2-DB migration at 01:40.
+    THE FIX: load the persisted excursion rows once at the top of the audit, and after each
+    setpoint restore put the snapshot preset back via emit_set_preset_mode (kind="preset" so the
+    v5.103.2 TTL covers it). Same unfiltered-snapshot semantic as the other excursion returns:
+    restore exactly what was there, skip when there is nothing. The row load is wrapped so an
+    unavailable table can never break the SETPOINT restore, which is the load-bearing half.
+    EVIDENCE: 21 tests. Mutations: point the restore at the RAM map (a SILENT NO-OP at boot, the
+    subtle trap) -> red on the persisted-snapshot test; delete the preset restore -> red on the
+    puts-it-back test. Restore clean. Regression: adjacent selection identical with and without
+    (22 failed / 1825 passed both ways).
+    ONE TEST I HAD TO FIX: my first version asserted the string "_nudge_pre_preset" was absent,
+    which failed against my own COMMENT explaining why the RAM map is not used. Rewritten via AST
+    to forbid the ATTRIBUTE ACCESS rather than the word — a test that bans naming a bug forbids
+    documenting it.'
   seq_2026_09_16: 'STEP 4a of HVAC-SUPPLE-SEQUENCE-1 — completes step 1''s surface, and goes
     BEFORE the step-1 acceptance measurement. Reason: the boot path manufactures an anonymous hold
     on EVERY restart (~2.9/day measured), so zone_1''s 24h manual%% would carry boot-induced manual
@@ -17228,7 +17251,7 @@ cards:
   title: The startup ramp audit writes setpoints and restores no preset, so every restart drops
     zones into an anonymous hold
   thread: hvac
-  status: planned
+  status: review
   created: '2026-09-16'
   updated: '2026-09-16'
   refinement_status: initial
@@ -17255,11 +17278,7 @@ cards:
   parsimony:
     problem: A boot-time setpoint write leaves every zone in an anonymous hold on every restart.
     verdict: BUILD
-  next: 'Tier 2. Mirror what D2b did for the excursion return paths: capture the pre-existing
-    preset and restore it after the ramp audit''s setpoint write, or route the audit through the
-    excursion borrow so it inherits the restore. Acceptance must DISCRIMINATE: after a restart a
-    zone that was on a NAMED hold is on that SAME named hold once boot settles — and a zone that
-    was genuinely in manual before the restart still is (we are not inventing a preset it never had).'
+  next: 'DEPLOY with the next release, then verify on the FIRST restart after it: a zone that was on a NAMED hold before the restart is on that SAME named hold once boot settles (zone_3 went away|away -> manual|manual at 01:17:04 on the 2026-09-16 restart — that is the before-picture). Discriminating negative: a zone genuinely in manual before the restart must still be — we are not inventing a preset it never had.'
   refs:
   - hvac_override.py async_startup_ramp_audit (temp=1, preset=0)
   - docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md (R1-MEDIUM-1)

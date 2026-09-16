@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T01:27:23-05:00_ - _Data commit: `ed0a4edbe232`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T01:27:59-05:00_ - _Data commit: `913141ad8c7e`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -12,9 +12,9 @@ _Generated: 2026-09-16T01:27:23-05:00_ - _Data commit: `ed0a4edbe232`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 3 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 10 |
+| 📝 Planned | 9 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 0 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 23 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 22 |
@@ -292,25 +292,10 @@ _created 2026-09-14 02:20 · initial_
   - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
   - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
 
-## 📝 Planned (10)
+## 📝 Planned (9)
 _has plan / acceptance_
 
-### `HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1` - The startup ramp audit writes setpoints and restores no preset, so every restart drops zones into an anonymous hold — _#1 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
-thread: **hvac** - status: **planned** - approval: **implied**
-_created 2026-09-16 · initial_
-- **Problem / Solution:**
-  - Problem: when Home Assistant restarts, a startup check writes temperatures directly to the thermostats. Writing a raw temperature is what puts a Bryant zone into a hand-set hold, and the startup check never puts the named setting back — ...
-- **Origin:** 2026-09-16 - Watched it happen live to zone_3 seconds after the v5.103.2 restart; first flagged as plan-review finding R1-MEDIUM-1
-- **Why:** Measured restart cadence is ~2.9/day, so this manufactures an anonymous hold several times a day on every zone. Before v5.103.2 only the vacancy bypass could recover it, which is why an OCCUPIED zone could stay stranded for up to 17.9h w...
-- **Next:** Tier 2. Mirror what D2b did for the excursion return paths: capture the pre-existing preset and restore it after the ramp audit's setpoint write, or route the audit through the excursion borrow so it inherits the restore. Acceptance must...
-- **Tags:** tier-2, found-during-validation, no-fabrication-verify
-- **Parsimony:** [BUILD] A boot-time setpoint write leaves every zone in an anonymous hold on every restart.
-- **Refs:** hvac_override.py async_startup_ramp_audit (temp=1, preset=0); docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md (R1-MEDIUM-1)
-- **Forensic keys (2):**
-  - `seq_2026_09_16`: STEP 4a of HVAC-SUPPLE-SEQUENCE-1 — completes step 1's surface, and goes BEFORE the step-1 acceptance measurement. Reason: the boot path manufactures an anonymous hold on EVERY restart (~2.9/day measured), so zone_1's 24h manual%% would ...
-  - `VERIFIED_2026_09_16`: Static: async_startup_ramp_audit (hvac_override.py) has temp=1, preset=0 — one setpoint emission, no preset restore. Live: zone_3 went away|away -> manual|manual at 01:17:04, seconds after the 01:12 restart, on the zone that is 93.7% nam...
-
-### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#2 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
+### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#1 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **explicit**
 _created 2026-09-15 · initial_
 - **Problem / Solution:**
@@ -328,7 +313,7 @@ _created 2026-09-15 · initial_
   - `WITNESS_CORRECTION_2026_09_15`: I told the operator the spurious-away metric might need the guest/person work first. THAT WAS WRONG and the correction reorders the sequence. HVAC-GUEST-AS-ZONE-PERSON-1 derives a zone person FROM ROOM OCCUPANCY — the very signal we are ...
   - `SEQUENCE_2026_09_15`: Six steps. Each names its exit GATE; do not start step N+1 until step N's gate is met. Steps 1-3 change no HVAC behaviour, which is deliberate — they make the rest provable.
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-08-21 10:05_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -345,7 +330,7 @@ _updated 2026-08-21 10:05_
   - `DENOMINATOR_MEASURED_2026_08_21`: THE NUMBER THE AUDIT COULD NOT GET (no shell from that environment) — I ran it from the HA recorder: homeassistant_start events, last 14 days. 20 RESTARTS IN 6.9 DAYS = 2.9/day. Interval stats over 19 gaps: min 0.18h, p25 1.52h, MEDIAN 5...
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-12 17:00_
 - **Problem / Solution:**
@@ -358,7 +343,7 @@ _created 2026-08-19 13:40 · updated 2026-09-12 17:00_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **quality** - status: **planned** - approval: **unreviewed**
 _created 2026-09-12 17:10 · initial_
 - **Problem / Solution:**
@@ -370,7 +355,7 @@ _created 2026-09-12 17:10 · initial_
 - **Forensic keys (1):**
   - `verified_survivor_2026_09_13`: KEEP — verified REAL + the survivor for the whole remaining order-pollution surface. Reverse-order reproduces its exact class: production-module partial stubs (occupancy_substrate) + remaining .signals poisoners (SIGNAL_EGRESS_EXIT_BACKF...
 
-### `HVAC-HOT-ENTRY-LATENCY-1` - Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry dwell does not care how hot the room is — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-HOT-ENTRY-LATENCY-1` - Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry dwell does not care how hot the room is — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **planned** - approval: **needs_operator**
 _updated 2026-09-15_
 - **Origin:** 2026-08-20 - Operator asked why zone 2 was not being arrested. I gave two wrong answers — that the equipment was idle and that URA had written the manual itself. Operator refuted both ("The equipment is not idle", "I think a human did th...
@@ -387,7 +372,7 @@ _updated 2026-09-15_
   - `root_cause`: A RESPONSIVENESS failure, not an arrester failure. The zone was legitimately `away` with the away ceiling at 80F. Jaya arrived at ~20:18 into an 80F room. zone_entry_dwell is 5.0 minutes = exactly one decision tick, so the EARLIEST URA c...
   - `open_question`: DID THE ARRESTER DETECT THE OVERRIDE? UNRESOLVED — do not let the next session assume either way. The 20:20:39 away->manual transition is the arrester's documented trigger (hvac_override.py:2069-2071), yet the Upstairs zone still reports...
 
-### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-31 19:05 · updated 2026-09-15 · initial_
 - **Problem / Solution:**
@@ -402,7 +387,7 @@ _created 2026-08-31 19:05 · updated 2026-09-15 · initial_
   - `VERIFIED_2026_09_15`: STILL-REAL, re-confirmed by direct source read this session (not by trusting the 09-12 sweep). automation.py:974 returns early when the entry light action is NONE, and the sleep/night-light branch does not run until :991 — so the canonic...
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: automation.py:970 early-returns on action==NONE before sleep branch; reconciler sleep branch keys only on (sleep and night_lights). Sibling NIGHT-LIGHT-NO-OFF-PATH...
 
-### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Setup/unload symmetry + tracked background tasks (tech-debt hardening) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Setup/unload symmetry + tracked background tasks (tech-debt hardening) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **planned**
 _created 2026-08-18 02:30 · updated 2026-09-15 · refined_
 - **Next:** Tier 2 production hardening: audit async_on_unload coverage + track background tasks (reload-safety + task-leak). Independent of the test cluster.
@@ -411,7 +396,7 @@ _created 2026-08-18 02:30 · updated 2026-09-15 · refined_
   - `problem`: untracked background tasks — matches a known URA bug class (task leak). One hardening cycle. (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified 19 async_on_unload sites. The real, large ...
   - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-15 02:50_
 - **Problem / Solution:**
@@ -427,7 +412,7 @@ _updated 2026-09-15 02:50_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#10 · WSJF 1.5 · v5 tc3 u4 /e8 ⚠_
+### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#9 · WSJF 1.5 · v5 tc3 u4 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **operator_decided**
 _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
 - **Next:** Scope S14 as a borrow kind: bounded-timer ending, one-shot-per-off-phase (discriminating acceptance), Number duration knob, restart behaviour; INVERT test_ceiling_held_until_next_preset_transition. Gate cleared 2026-08-25.
@@ -451,10 +436,24 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (0)
+## 🔍 Review (1)
 _under review_
 
-_(none)_
+### `HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1` - The startup ramp audit writes setpoints and restores no preset, so every restart drops zones into an anonymous hold — _#1 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+thread: **hvac** - status: **review** - approval: **implied**
+_created 2026-09-16 · initial_
+- **Problem / Solution:**
+  - Problem: when Home Assistant restarts, a startup check writes temperatures directly to the thermostats. Writing a raw temperature is what puts a Bryant zone into a hand-set hold, and the startup check never puts the named setting back — ...
+- **Origin:** 2026-09-16 - Watched it happen live to zone_3 seconds after the v5.103.2 restart; first flagged as plan-review finding R1-MEDIUM-1
+- **Why:** Measured restart cadence is ~2.9/day, so this manufactures an anonymous hold several times a day on every zone. Before v5.103.2 only the vacancy bypass could recover it, which is why an OCCUPIED zone could stay stranded for up to 17.9h w...
+- **Next:** DEPLOY with the next release, then verify on the FIRST restart after it: a zone that was on a NAMED hold before the restart is on that SAME named hold once boot settles (zone_3 went away|away -> manual|manual at 01:17:04 on the 2026-09-1...
+- **Tags:** tier-2, found-during-validation, no-fabrication-verify
+- **Parsimony:** [BUILD] A boot-time setpoint write leaves every zone in an anonymous hold on every restart.
+- **Refs:** hvac_override.py async_startup_ramp_audit (temp=1, preset=0); docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md (R1-MEDIUM-1)
+- **Forensic keys (3):**
+  - `BUILT_2026_09_16`: BUILT, in review on develop, NOT deployed. A CORRECTION TO MY OWN SCOPING FIRST: I described this as "same fix shape as D2b". Close, but not identical, and the difference IS the bug. D2b read an IN-MEMORY excursion token. The boot path c...
+  - `seq_2026_09_16`: STEP 4a of HVAC-SUPPLE-SEQUENCE-1 — completes step 1's surface, and goes BEFORE the step-1 acceptance measurement. Reason: the boot path manufactures an anonymous hold on EVERY restart (~2.9/day measured), so zone_1's 24h manual%% would ...
+  - `VERIFIED_2026_09_16`: Static: async_startup_ramp_audit (hvac_override.py) has temp=1, preset=0 — one setpoint emission, no preset restore. Live: zone_3 went away|away -> manual|manual at 01:17:04, seconds after the 01:12 restart, on the zone that is 93.7% nam...
 
 ## ⏸️ Waiting on operator (23)
 _needs a human call — groomed first_

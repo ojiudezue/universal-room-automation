@@ -6010,6 +6010,37 @@ class OverrideArrester:
         rows = await self._db.get_zones_with_in_flight_nudge()
         if not rows:
             return
+        # HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1 — load the PERSISTED excursion
+        # rows so the boot restore can put the PRESET back too, not just the
+        # setpoint.
+        #
+        # WHY THIS IS NEEDED AT ALL. `_restore_after_nudge` restores a preset
+        # from `self._nudge_pre_preset`, but that map is RAM-ONLY — after a
+        # restart it is empty. So the boot path had nothing to restore TO and
+        # historically restored only the numbers, leaving the zone in an
+        # ANONYMOUS hold. Observed live 2026-09-16: zone_3 went away|away ->
+        # manual|manual at 01:17:04, seconds after a restart, on the healthiest
+        # zone in the house. At the measured ~2.9 restarts/day that is a
+        # recurring insult, and before v5.103.2 only the vacancy bypass could
+        # undo it — which is why an OCCUPIED zone could stay stranded for hours
+        # while a transit corridor escaped in minutes.
+        #
+        # The snapshot DOES survive: hvac_excursion_state.pre_preset is
+        # persisted. We just never read it here.
+        _pre_presets: dict[str, str] = {}
+        try:
+            for _ex in (await self._db.get_all_excursion_rows()) or []:
+                _zid = _ex.get("zone_id")
+                _pp = _ex.get("pre_preset")
+                if _zid and _pp:
+                    _pre_presets[str(_zid)] = str(_pp)
+        except Exception:  # noqa: BLE001
+            # Never let the preset half break the setpoint restore, which is
+            # the load-bearing part of this audit.
+            _LOGGER.debug(
+                "startup ramp audit: excursion rows unavailable; "
+                "restoring setpoints without presets", exc_info=True,
+            )
         now = dt_util.now()
         for row in rows:
             zone_id = row["zone_id"]
@@ -6123,6 +6154,28 @@ class OverrideArrester:
                         "Startup nudge restore failed for %s: %s",
                         zone.climate_entity, e,
                     )
+                # Put the PRESET back, from the persisted snapshot. Same
+                # unfiltered-snapshot semantic as the other excursion returns:
+                # restore exactly what was there, skip when we have nothing.
+                # Only meaningful now that v5.103.2 makes a preset write LAND.
+                _pp = _pre_presets.get(zone_id, "")
+                if _pp:
+                    try:
+                        self.suppress(zone.climate_entity, kind="preset")
+                        await emit_set_preset_mode(
+                            self.hass,
+                            zone.climate_entity,
+                            _pp,
+                            blocking=False,
+                            site="S9_startup_ramp_audit_restore_preset",
+                            zone_id=zone_id,
+                            reason="startup_ramp_audit_restore",
+                        )
+                    except Exception as _pe:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "startup ramp audit: preset restore failed for "
+                            "%s: %s", zone.climate_entity, _pe,
+                        )
                 await self._db.clear_ac_in_flight_nudge(zone_id)
                 await self._db.log_ac_ramp_event(
                     zone_id=zone_id,
