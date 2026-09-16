@@ -16964,6 +16964,42 @@ cards:
     restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
     the borrow primitive, not folded into it.'
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  BUILT_D1_D2a_2026_09_16: 'BUILT (Tier 3, AFTER the two plan reviews — which changed what got
+    built). In review on develop, NOT deployed.
+
+    WHAT THE PLAN REVIEW CHANGED: the plan said to route the sequence through the borrow /
+    return_excursion primitive. Independent enumeration measured that premise FALSE — 11 functions
+    emit setpoints, ZERO reference `borrow`, and return_excursion emits no writes at all. Building
+    to it would have produced a half-applied fix across 11 sites (Bug Class #53). The real
+    chokepoint ALREADY EXISTS: emit_set_preset_mode (hvac_setpoint.py:180), whose own docstring
+    says every URA preset write should route through it. That is where D2a landed.
+
+    D2a — resume-then-pin inside emit_set_preset_mode. CONDITIONAL on the zone holding an
+    ANONYMOUS hold, so a named hold still pins directly (zone_3 does this continuously; a blanket
+    resume would open a needless Bryant-schedule window in the ONE zone that works — invariant I3).
+    resume and pin are adjacent with no awaitable failure point between them; a failed resume
+    fails FORWARD to the pin, so the worst case is the pre-existing behaviour and never a zone
+    stranded on the schedule.
+    D1 — per-kind suppression TTL. SUPPRESS_TTL_SECONDS stays 5 for temp (the only kind that
+    swallows a genuine human manual flip — the independent witness the spurious-away metric needs);
+    new SUPPRESS_TTL_SECONDS_PRESET=120, sized ABOVE the measured 42-79s refresh window so URA
+    cannot book its own second write as a human override (invariant I2).
+
+    EVIDENCE: 8 tests. Mutation drill with FOUR distinct mutations, each turning a DIFFERENT test
+    red: blanket-resume -> named-hold test; never-resume -> anonymous-hold test; TTL collapsed to 5
+    -> refresh-window test; TTL split defined-but-unread -> wiring test. Restore clean, tree clean.
+    REGRESSION: the adjacent selection (hvac/setpoint/override/preset/arrester/excursion) is
+    IDENTICAL with and without the change — 14 failed / 1424 passed both ways. A first comparison
+    appeared to show a NEW reentrancy failure; that was an artifact of my own harness (the new test
+    reads source at import, so stashing the change made it raise at collection). Re-run with the
+    file ignored showed the failure is pre-existing order-pollution that passes in isolation.
+
+    NOT BUILT, DELIBERATELY — D2b: the nine functions that write setpoints and restore NO preset
+    (incl. solar-banking release _release_banked_zones and pre-heat return _return_preheat, which
+    do not even attempt it, plus the boot-path async_startup_ramp_audit). Parsimony: the two sites
+    that DO restore are zone_1''s AC-nudge path, the most frequent in the house, and they currently
+    fail to LAND — so D2a alone may account for most of zone_1''s 69.6% manual. Measure against the
+    numeric prediction before touching nine live comfort paths.'
   WHY_ZONE3_IS_CLEAN_2026_09_16: 'ANSWERED, and it sharpens the whole cycle. Chasing "what is
     different about zone_3?" produced the mechanism behind the zone-by-zone distribution.
 
@@ -17410,7 +17446,7 @@ cards:
   title: Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is
     zones sitting in manual for hours; do the sanctioned excursions return?
   thread: hvac
-  status: planned
+  status: review
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL — IMPORTANT: the naive fix (add preset-restore write at each restore site) is ALREADY in code (hvac_override.py:4348 _restore_after_nudge unconditional emit_set_preset_mode, commit 0415d9b2d) and was LIVE-MEASURED INEFFECTIVE 2026-08-23 (0/10 real-preset restores took). Carrier pins back to manual (set_preset pins hold vs ''resume'' clears schedule). Remaining = one-night-one-zone CANARY (restore via preset only, skip set_temperature) + operator pin-hold-vs-resume decision. Do NOT re-attempt the naive write.'
   PRECONDITION_AND_SEVERITY_2026_08_20: 'OPERATOR AGREED this is a PRECONDITION for the calming work,
@@ -17683,7 +17719,7 @@ cards:
     verdict: BUILD
     note: gate on the audit — if every excursion already restores, this reduces to a guard + a test rather
       than a redesign
-  next: 'PLAN REVIEW x2 (framing-disjoint) on PLANNING_preset_hold_contract_resume_then_pin.md before any build: (1) completeness — independently re-enumerate every setpoint/preset emission site rather than trusting the plan''s S1-S14 list; (2) adversarial build-prediction — what will the builder get wrong, especially the resume->pin adjacency (I3) and the CLOUDFLAP ordering. Then build 1a (TTL split) -> 1b (resume-then-pin). Operator checkpoint at pre-deploy per Tier 3.'
+  next: 'OPERATOR PRE-DEPLOY CHECKPOINT (Tier 3). D1+D2a built + mutation-anchored on develop. On deploy, the acceptance test is the NUMERIC PREDICTION: zone_1 manual occupancy must fall from 69.6% toward zone_3''s ~6% and the multi-hour tail (max 1073min) must disappear. If manual%% stays high the mechanism is wrong and the cycle STOPS rather than being patched. Then decide D2b (9 non-restoring setpoint sites) on the measured residual, not on speculation.'
   refs:
   - hvac_preset.py:212-217
   - hvac_override.py:186-195, 3070-3097
