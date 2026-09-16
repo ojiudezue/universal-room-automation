@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T17:57:39-05:00_ - _Data commit: `bcb3369716e4`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T17:59:45-05:00_ - _Data commit: `ca046fc9d94e`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -349,7 +349,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (19):**
+- **Forensic keys (20):**
+  - `CRIT2_DECIDED_B_2026_09_16`: Operator picked OPTION B (night-trust in scope) — zone 3 overnight is "a money pit", empty zones must retreat FAST at night. Design priority order (operator words): P0 = ROOM OCCUPANCY REQUIRED — night retreat is driven by actual room oc...
   - `PLAN_REVISED_2026_09_16`: Plan revised, all mechanical findings fixed. CRIT-1: reversed to SIBLING field RoomCondition.hvac_occupied + zone.any_room_hvac_occupied, consumed ONLY by the preset flip (hvac.py:1794) + co-timestamps + D6 stale branch; RoomCondition.oc...
   - `PLAN_REVIEW_2026_09_16`: Adversarial plan review = FIX-REQUIRED-IN-PLAN, 2 CRIT — caught BEFORE build (the EC-SOC lesson applied, and it paid off big). CRIT-1: swapping RoomCondition.occupied is NOT transparent — that field also drives _execute_vacancy_sweep (hv...
   - `PLAN_FINALIZED_2026_09_16`: Final buildable plan written: docs/planning/PLANNING_hvac_zone_conditioning_demand.md. Falsifiable invariant: a zone whose only occupied rooms are hallway-typed is NEVER conditioned; a zone with any dwelling room HVAC-occupied (kind-awar...
@@ -414,7 +415,8 @@ _created 2026-08-24 16:45 · updated 2026-09-12 10:30 · initial_
 - **Tags:** institutional-context, numbers-get-knobs
 - **Parsimony:** [BUILD] Independent SOC sliders can be set to inverted values that flip an EV gate polarity, with no guard.
 - **Refs:** docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md:521-525; docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:822; energy_const.py:980
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `FIXUP_DONE_2026_09_16`: Revert-scope fix-up complete (commit 20938f934). Accessor back to #4/#5 only; A-MED-1/A-MED-2/B-MED-2/B-MED-1/C1/C2 all evaporated. Honest docstring restored. Real behavioral anchors: per-site neuter drill 4 RED (energy.py:6039/6041, ene...
   - `REVIEW_B_2026_09_16`: Review B (consumer-switch/tick-snapshot) = FIX-REQUIRED, CONFIRMS A+C and ran the mutation drill via a fixture shim (executed, not just read): B-HIGH-1 = 4 of 5 switched sites survive neuter GREEN (energy.py:6038-6040 tick triple + energ...
   - `REVIEWS_AC_2026_09_16`: EC-SOC reviews A+C in (B pending). A (clamp arithmetic) = SHIP + 2 MED: peak_buffer clamp can emit >100 (energy.py:9362; fix min(100,...)); drain_targets accessor drops the reachable "unknown" class (shape divergence, Bug Class #53). C (...
   - `PLAN_2026_09_16`: Plan written: docs/planning/PLANNING_ec_soc_ladder_xvalidate.md. Prior-art scan found MOST already shipped ON DEVELOP (verified in source, not just the branch name): validate_threshold_ladder cross-field kwargs (energy_const.py:1156), CA...

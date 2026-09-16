@@ -10506,6 +10506,19 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  CRIT2_DECIDED_B_2026_09_16: 'Operator picked OPTION B (night-trust in scope) — zone 3 overnight is
+    "a money pit", empty zones must retreat FAST at night. Design priority order (operator words):
+    P0 = ROOM OCCUPANCY REQUIRED — night retreat is driven by actual room occupancy (any_room_hvac_
+    occupied==false), NOT the phone-home trust. CARE: occupied rooms lose occupancy a lot at night
+    (mmWave dropout during sleep); operator rooms likely OK (mmWave added most rooms) but MUST verify.
+    P2-3 (nice, not v1-required unless the measurement says so): between 2-6am, be LENIENT on blip-
+    on/off AFTER a continuous hold (post-continuous-hold night grace). => Step 4 = Option B, TIER 3.
+    MEASURE-FIRST GATE (safety, before build): overnight occupancy-retention probe — do occupied
+    bedrooms (esp. resident bedrooms w/ mmWave) hold hvac_occupied continuously 2-6am, or drop out? If
+    they hold -> B safe w/ occupancy-required retreat; if they drop -> the 2-6am leniency becomes P0
+    (required mitigation), not optional. B reverses project_zone_away_when_occupied_home_night_gap
+    (2026-06-05 flap) so the Tier-3 adversarial pass MUST prove: no sleeping resident bedroom falls to
+    away overnight. NEXT: night-retention measurement -> revise plan to B/Tier3 -> plan re-review -> build.'
   PLAN_REVISED_2026_09_16: 'Plan revised, all mechanical findings fixed. CRIT-1: reversed to SIBLING
     field RoomCondition.hvac_occupied + zone.any_room_hvac_occupied, consumed ONLY by the preset flip
     (hvac.py:1794) + co-timestamps + D6 stale branch; RoomCondition.occupied UNTOUCHED so vacancy
@@ -20622,6 +20635,14 @@ cards:
   - energy.py:8647
   - feature/dp-verypoor-drain-validator @ 87e047ac
 - id: EC-SOC-LADDER-XVALIDATE-1
+  FIXUP_DONE_2026_09_16: 'Revert-scope fix-up complete (commit 20938f934). Accessor back to #4/#5
+    only; A-MED-1/A-MED-2/B-MED-2/B-MED-1/C1/C2 all evaporated. Honest docstring restored. Real
+    behavioral anchors: per-site neuter drill 4 RED (energy.py:6039/6041, energy_pool.py:1334/1837);
+    M5 (excess_solar tick) GREEN but HONESTLY non-discriminating — #4 clamp lowers fill_priority, never
+    touches excess_solar, so raw==safe by construction (accepted, not a hollow anchor). LOWs folded
+    (try/except on 3 display-surface accessor calls; 2 contradictory comments reworded). Name-diff
+    byte-identical (NEW=GONE=empty). NEXT: focused re-review of the revert + anchors + M5 acceptability
+    + orchestrator neuter re-run under .venv-ha, then ship.'
   REVIEW_B_2026_09_16: 'Review B (consumer-switch/tick-snapshot) = FIX-REQUIRED, CONFIRMS A+C and
     ran the mutation drill via a fixture shim (executed, not just read): B-HIGH-1 = 4 of 5 switched
     sites survive neuter GREEN (energy.py:6038-6040 tick triple + energy_pool.py:1334/1839) — the
