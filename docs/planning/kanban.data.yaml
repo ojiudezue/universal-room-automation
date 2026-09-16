@@ -10467,6 +10467,23 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  CHECKPOINT_CLEARED_2026_09_16: 'Operator step-4 checkpoint RESOLVED. Decisions: (6) AGGRESSION =
+    ABSOLUTE (hallway-only occupancy never conditions the zone) — the launch posture, justified by
+    Stage 0 42:0. (1) aggregation = OR over HVAC-relevant rooms. (2) RETIRE zone_entry_dwell ->
+    per-room dwell, CONFIRMED pending final plan. (3) retreat = one zone vacancy_grace, per-room
+    holds short. (4) hallway room_type enum = YES. (5) expose per-room HVAC-occupancy entity = YES.
+    (7) fast-in = LATER (separate increment; orthogonal loop change, no rework).
+    TUNING MODEL (operator asked how to tune absolute): NOT a global absolute/soft dial — two
+    per-room levers. (a) CLASSIFICATION: which rooms are circulation (dont vote), reclassify via
+    hallway room_type (options-flow edit, no code) — a lingering hallway gets reclassified to a
+    dwelling type and votes again. (b) PER-ROOM HOLD: voting rooms have tunable persistence
+    (ROOM_TYPE_HVAC_HOLD defaults + per-room override; longer=gentler, shorter=snappier). A whole-
+    zone SOFT posture is an additive per-zone knob PARKED with trigger = absolute shows real comfort
+    complaints in validation. Knob placement: classification->options flow; hold->config field w/
+    type defaults; live Number only if tuned often.
+    NEXT: finalize the plan (fold decisions + Stage 0 + the supersession/reuse audit into a
+    PLANNING doc w/ acceptance criteria), ONE adversarial plan review (Tier 2+ rule), then the
+    Tier-2-DB build queues behind UNLOAD ship + EC-SOC reviews for the suite slot.'
   STAGE0_CONFIRMED_2026_09_16: 'GATE GREEN. H3 CONFIRMED by read-only measurement: of 51 pointless
     zone_3 conditioning episodes (7d, retreat off home within <=11min), 42 were CORRIDOR-only and
     ZERO were dwelling-only (kitchen_hallway_garage 37, garage_hallway 22, kitchen_hallway 19 vs
@@ -10755,7 +10772,7 @@ cards:
   title: HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC
     its own dwell-vs-transit derivation instead of tuning a knob that cannot win
   thread: hvac
-  status: waiting_operator
+  status: planned
   created: '2026-09-15'
   updated: '2026-09-15'
   refinement_status: initial
