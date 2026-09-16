@@ -305,6 +305,7 @@ async def emit_set_preset_mode(
     # use. Nothing awaitable and failure-prone may sit between them, and
     # the resume is NOT issued unless we are about to pin.
     # ==================================================================
+    _resumed = False
     if _needs_resume_first(hass, entity_id, preset_mode):
         try:
             await hass.services.async_call(
@@ -313,19 +314,54 @@ async def emit_set_preset_mode(
                 {"entity_id": entity_id, "preset_mode": PRESET_RESUME},
                 blocking=True,
             )
+            _resumed = True
         except Exception:  # noqa: BLE001
-            # Fail-forward: if the clear fails we still attempt the pin.
-            # Worst case is the pre-existing behaviour (name discarded),
-            # never a zone left on the schedule with no hold (I3).
+            # Fail-forward: if the CLEAR fails we still attempt the pin.
+            # Worst case is the pre-existing behaviour (name discarded).
             _LOGGER.debug(
                 "resume-then-pin: resume failed for %s; pinning anyway",
                 entity_id, exc_info=True,
             )
 
-    await hass.services.async_call(
-        "climate",
-        "set_preset_mode",
-        {"entity_id": entity_id, "preset_mode": preset_mode},
-        blocking=blocking,
-    )
+    try:
+        await hass.services.async_call(
+            "climate",
+            "set_preset_mode",
+            {"entity_id": entity_id, "preset_mode": preset_mode},
+            blocking=blocking,
+        )
+    except Exception:
+        # INVARIANT I3 — "the zone is never left following the vendor
+        # schedule". Found by the adversarial build review, and it is the
+        # one way this fix could CAUSE the harm it exists to prevent:
+        # if the clear succeeded and the pin then fails (a cloud 504, a
+        # momentarily unavailable entity, any service error — all observed
+        # on this integration), the zone sits on the Bryant schedule with
+        # NO hold, indefinitely, because nothing else re-pins it.
+        #
+        # Having cleared the hold we OWE the zone a pin. Retry once, then
+        # surface at ERROR: a zone released to a schedule the operator does
+        # not use is not a debug-level event, and the ledger/log is the only
+        # way anyone would ever find out.
+        if _resumed:
+            try:
+                await hass.services.async_call(
+                    "climate",
+                    "set_preset_mode",
+                    {"entity_id": entity_id, "preset_mode": preset_mode},
+                    blocking=True,
+                )
+                _LOGGER.warning(
+                    "resume-then-pin: pin retry succeeded for %s (%s)",
+                    entity_id, preset_mode,
+                )
+                return True
+            except Exception:  # noqa: BLE001
+                _LOGGER.error(
+                    "resume-then-pin: CLEARED the hold on %s but could not "
+                    "pin %s after a retry — zone is following the thermostat "
+                    "schedule with no hold until the next write",
+                    entity_id, preset_mode, exc_info=True,
+                )
+        raise
     return True

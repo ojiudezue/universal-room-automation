@@ -253,3 +253,103 @@ def test_banking_release_does_not_preset_when_the_setpoint_restore_failed():
         "banking preset restore must be gated on the setpoint restore having "
         "succeeded"
     )
+
+
+# --------------------------------------------------------------------------
+# I3 — "the zone is never left following the vendor schedule"
+# Found by the adversarial build review: the fix could CAUSE the harm it
+# exists to prevent.
+# --------------------------------------------------------------------------
+
+def _emit_preset_src():
+    src = SETPOINT.read_text()
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and node.name == "emit_set_preset_mode":
+            return ast.get_source_segment(src, node) or ""
+    raise AssertionError("emit_set_preset_mode not found")
+
+
+def test_pin_failure_after_a_clear_is_not_swallowed_silently():
+    """If we cleared the hold, a failed pin must retry and then shout.
+
+    THE REPRO: resume succeeds, pin raises (cloud 504 / entity briefly
+    unavailable — both observed on this integration). The zone then sits on
+    the thermostat's own schedule with NO hold, indefinitely, because nothing
+    else re-pins it. A bedroom drifting to a vendor schedule the operator does
+    not use is exactly the harm this cycle exists to prevent.
+    """
+    src = _emit_preset_src()
+    assert "_resumed" in src, (
+        "the function must track whether it cleared the hold — without that it "
+        "cannot know it owes the zone a pin"
+    )
+    assert "_LOGGER.error" in src, (
+        "a zone left on the vendor schedule must surface at ERROR; debug-level "
+        "means nobody ever finds out"
+    )
+
+
+def test_the_pin_is_wrapped_so_a_failure_can_be_handled():
+    """A bare `await` on the pin is the I3 hole — the exception escapes and the
+    zone stays cleared."""
+    src = _emit_preset_src()
+    pin_idx = src.rindex("set_preset_mode")
+    head = src[:pin_idx]
+    assert head.count("try:") >= 2, (
+        "the pin must sit inside its own try/except, not just the resume — "
+        "otherwise a pin failure after a successful clear escapes and strands "
+        "the zone on the schedule"
+    )
+
+
+def _emit_preset_fn():
+    src = SETPOINT.read_text()
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and node.name == "emit_set_preset_mode":
+            return node
+    raise AssertionError("emit_set_preset_mode not found")
+
+
+def test_the_retry_after_a_clear_is_real_and_conditional():
+    """MUTATION-ANCHORED: dropping the retry must fail this test.
+
+    An earlier version asserted `"_resumed" in src`, which a mutation to
+    `if False:` satisfied trivially — the retry could be deleted while the
+    tests stayed green. That is the hollow-anchor shape, and the drill caught
+    it. This walks the syntax tree instead:
+
+      * somewhere in the function there is an `if` whose test is the _resumed
+        NAME — a constant test (`if False` / `if True`) fails, because the
+        retry would then be dead or unconditional, and both violate I3;
+      * and that branch actually re-attempts a set_preset_mode call.
+    """
+    fn = _emit_preset_fn()
+    guarded = [
+        n for n in ast.walk(fn)
+        if isinstance(n, ast.If)
+        and isinstance(n.test, ast.Name)
+        and n.test.id == "_resumed"
+    ]
+    assert guarded, (
+        "the retry must be guarded by the _resumed NAME. A constant test "
+        "means the retry is dead or unconditional — both violate I3."
+    )
+    body_src = "".join(ast.dump(stmt) for stmt in guarded[0].body)
+    assert "set_preset_mode" in body_src, (
+        "the _resumed branch must actually re-attempt the pin; having cleared "
+        "the hold we owe the zone one"
+    )
+
+
+def test_the_pin_itself_is_wrapped():
+    """A bare `await` on the pin is the I3 hole — the exception escapes and
+    the zone stays cleared with no hold."""
+    fn = _emit_preset_fn()
+    assert [n for n in ast.walk(fn) if isinstance(n, ast.Try)], (
+        "the pin must sit inside a try/except so a failure after a successful "
+        "clear can be handled rather than stranding the zone"
+    )
