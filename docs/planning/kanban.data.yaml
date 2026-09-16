@@ -17258,6 +17258,24 @@ cards:
   - '2026-08-23 watch-pass: friendly_name = "URA: HVAC Coordinator Temporary Thermostat Changes" confirmed
     live; validation table PASS 2026-08-22 in README_v5.88.1. H1 confirmed.'
 - id: S14-CEILING-NEEDS-AN-ENDING-1
+  REMOVED_2026_09_16: 'REMOVED (operator picked option A after the costing). Built, in review.
+    Deleted: _apply_duty_off_phase (194 lines), its call-site limb — which now falls through to
+    the preset=away path that the kill switch was already producing — its kill-switch entity, and
+    its offset Number. Inert controls are footguns: an operator could toggle a switch that governs
+    nothing and reasonably expect an effect. The zone sensor no longer advertises the dead flag.
+    THE DELIBERATE TRADE WAS OVERTURNED VISIBLY, per this card''s own requirement. The shipped
+    test test_ceiling_held_until_next_preset_transition encoded the defect AS A GUARANTEE, and
+    after removal it would have kept PASSING — vacuously, because with nothing writing a ceiling
+    there is trivially no follow-on restore. A test that passes for the opposite reason is worse
+    than one that fails, so it is INVERTED in the replacement suite rather than dropped. The
+    original anti-flap rationale is preserved there for anyone who revisits: a release write is
+    itself a preset transition, so any re-introduction must fire ONCE PER OFF-PHASE, not per tick.
+    Two superseded S14 suites removed (in git history). One source-sliced the deleted method and
+    failed at COLLECTION — which is why it broke an entire test selection rather than just itself,
+    a removal hazard worth remembering.
+    EVIDENCE: 5 removal-regression tests; mutation (re-add an S14-style writer) goes red on the
+    inverted guarantee. NAME-DIFF regression across the HVAC surface: ZERO new failures (counts
+    alone were not trusted).'
   COSTED_2026_09_16: 'FIX-vs-REMOVE costed autonomously, and the decisive input is that S14 IS
     CURRENTLY OFF. Tonight''s boot log, authoritative for the coordinator flag:
       "hvac_offphase_honesty_enabled=False — duty off-phase in occupied zones will fall through to
@@ -17307,7 +17325,7 @@ cards:
   title: S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose
     option (a) 2026-08-21), preferably by making it a borrow kind
   thread: hvac
-  status: waiting_operator
+  status: review
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py _apply_duty_off_phase writes a RAW setpoint via emit_set_temperature, zero begin/return_excursion — no lease-expiry ending. Operator-chosen fix (make S14 a borrow kind w/ off-phase-remaining duration) unbuilt. Tier 2-DB.'
   created: 2026-08-21 10:20
