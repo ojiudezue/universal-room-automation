@@ -9390,6 +9390,41 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-PRESET-FLAP-1
+  DWELL_VS_BLIP_CLARIFIED_2026_09_15: 'OPERATOR CHALLENGE: "a single ~20-second blip in any of 12 —
+    I thought we had an entry dwell wait timer?" They are RIGHT, and my paraphrase was sloppy in a
+    way that misrepresented the design. Corrected here from a fresh source read so it is not
+    repeated.
+
+    THE DWELL DOES EXIST AND DOES WORK. hvac.py:2049-2059: the gate requires
+    `zone.any_room_occupied` AND `current_session_start` to be younger than dwell_minutes, in which
+    case it `continue`s and KEEPS the current preset. hvac_zones.py:562-566 sets
+    current_session_start on the first refresh where the room OR is True and RESETS IT TO None the
+    instant that OR goes False. Consequence: a bare 20-second sensor blip CANNOT flip the zone
+    home. It is sampled only at 5-minute tick boundaries and would almost certainly never be seen
+    at all. A dwell timer is present and behaving.
+
+    WHAT I GOT WRONG, AND THE REAL MECHANISM: the blip does not act directly — it is AMPLIFIED one
+    layer down. The ROOM layer has its own clearance timeout, and this card''s own
+    ROOM_SESSION_FLOOR_2026_08_20 measured it: garage_hallway room occupancy sessions have a ~6
+    minute FLOOR (n=26, min 6.2, median 8.1, p90 20.2). So a 20-second sensor blip becomes a 6-8
+    minute ROOM session, which spans one or two ticks. zone_entry_dwell is live at 5 minutes =
+    EXACTLY ONE TICK. So the stretched session comfortably outlasts the dwell and the zone goes
+    home. The dwell is not missing or broken — it is a ~1-tick guard against a ~6-8 minute
+    artifact, and it cannot win that race.
+
+    WHY "JUST RAISE THE DWELL" IS NOT THE FIX (already established on this card, restated so the
+    two findings are linked): clearing the MEDIAN corridor transit needs >8 min and p90 needs >20
+    min, against a 15-minute slider cap — and raising dwell directly violates the operator''s
+    "react quickly to someone being there if its hot" requirement (LIVABILITY_REFRAME: fast in,
+    slow out). The levers are INPUT QUALITY (the room-layer clearance timeout that stretches blips,
+    plus the operator''s sensor swap) and PERSON FUSION (the empty zone_persons gap), not the dwell
+    knob.
+
+    ALSO SEPARATE THE TWO DIRECTIONS — I merged them and should not have. The
+    DEBOUNCE_INVENTORY_2026_08_20 line "a single ~20s camera blip restarts the 10-min grace clock"
+    is about the AWAY direction (it resets last_occupied_time, DELAYING the flip to away). The
+    dwell governs the opposite direction (away->home). A blip therefore delays away; it does not
+    cause home.'
   REMEASURED_2026_09_15_MY_CLAIM_WITHDRAWN: 'I told the operator "the flap is still live" on the
     strength of a RAW TRANSITION COUNT. That was wrong twice over and is WITHDRAWN.
 
