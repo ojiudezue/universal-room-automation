@@ -7982,6 +7982,7 @@ cards:
   - activity_logger.py:114-117 (unvalidated entity_id onto the ura_action bus event)
   - 'live ERROR 2026-09-16 boot: recorder core.py:304 -> split_entity_id ValueError garage_a'
 - id: HVAC-THERMOSTAT-ABSTRACTION-1
+  seq_2026_09_16: 'STEP 8 of HVAC-SUPPLE-SEQUENCE-1 — LAST. Fixes duplication, not a live defect: every bug this arc surfaced is already patched at its site. Earlier would mean a large Tier-3 refactor of every thermostat write in an occupied house, competing with fixes that move real numbers. Subsumes HVAC-PRESET-WRITE-STRATEGY-1.'
   title: We unified the call sites but never built an abstraction — three write verbs, two funnels,
     and vendor knowledge loose inside a shared path
   thread: hvac
@@ -8021,12 +8022,23 @@ cards:
       Carrier-specific where every thermostat passes.
     * The borrow holds the snapshot but CANNOT perform a restore, because it has no handle to act
       through. Its own docstring says so: "Callers still emit the actual wire writes."'
-  DESIGN_SHAPE_2026_09_16: 'One handle per zone, owning all three verbs plus the vendor strategy:
-      ZoneThermostat(zone)
-        .read()                -> current hold: named / anonymous / none
-        .set_preset(name)      -> strategy decides clear-then-pin vs direct pin
-        .set_setpoints(lo, hi) -> knows this INDUCES an anonymous hold
-        .set_mode(mode)        -> the verb that currently escapes
+  PER_ZONE_CORRECTED_2026_09_16: 'OPERATOR: "If we did this, why per zone? It should be the same
+    function, no?" CORRECT, and my sketch was wrong. Ask what per-zone STATE a handle would hold:
+    entity_id is a PARAMETER; the vendor is DERIVED from the entity''s platform (memoizable by
+    entity_id); the current hold is READ from HA, never held; the suppression TTL lives in the
+    arrester and the excursion token lives in the borrow. Nothing is left. A per-zone object would
+    be STATE-FREE — which means it should not be an object per zone at all.
+    The right shape is what emit_set_temperature ALREADY is — stateless functions parameterised by
+    entity_id — merely COMPLETED. That makes this migration SMALLER than the original sketch:
+    extend a module, do not introduce an object graph. Recorded because "make it an object" was a
+    reflex, not a derivation.'
+  DESIGN_SHAPE_2026_09_16: 'Stateless, entity-parameterised, all three verbs plus vendor dispatch:
+      read_hold(hass, entity_id)              -> named / anonymous / none
+      set_preset(hass, entity_id, name, ...)  -> strategy decides clear-then-pin vs direct pin
+      set_setpoints(hass, entity_id, lo, hi)  -> knows this INDUCES an anonymous hold
+      set_mode(hass, entity_id, mode, ...)    -> the verb that currently escapes
+      _strategy_for(hass, entity_id)          -> memoized per entity, NOT per-zone state
+    Same call-signature style as today''s emit_* helpers, so migration is additive.
     THE BORROW IS THE RIGHT CLIENT (operator''s instinct, and it is correct). The borrow already
     models the LIFECYCLE — take the zone, snapshot pre_preset/pre_target_low/high (already
     PERSISTED in hvac_excursion_state), hand it back. That is exactly the shape a restore needs;
@@ -9806,6 +9818,75 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-SUPPLE-SEQUENCE-1
+  ARC_STATE_2026_09_16: 'COMPLETE PICTURE — what shipped, what it is validated to, and what remains.
+    Supersedes the earlier step lists on this card. Operator asked for the abstraction to be placed
+    "in the right spot" with "all of it including what shipped and the validation state".
+
+    ===== SHIPPED =====
+    1  HVAC-MANUAL-PRESET-CONTRACT-1        v5.103.2  resume-then-pin (D1 TTL split, D2a chokepoint,
+                                                      D2b excursion returns)
+       VALIDATION: PARTIAL, NOT ACCEPTED. Mechanism PROVEN live (zone_3 rescued 01:19:06, held 8min
+       across 9 cloud refreshes; the old name-drop visible a minute earlier at 01:17:21). But the
+       NUMERIC PREDICTION has not been met: zone_1 69.6%% -> 46.0%% over a 6.9h OVERNIGHT window
+       (target ~6%%), tail 1073min -> 111min. zone_2 moved the WRONG way (+4.4, 186min tail).
+       zone_3 flat at ~6.8%% (already healthy). Treat as directionally right, not validated.
+    2  ARRESTER-LEDGER-INVISIBLE-1          v5.103.1  durable arrest ledger
+       VALIDATION: PROVED ITSELF within the hour — captured the exact preset_change that rescued
+       zone_3. The co-shipped ura_action entity_id guard is STILL UNEXERCISED (the EVSE onset
+       producer has not fired since deploy), so its "no ValueError" is not yet discriminating.
+    3  baseline capture                     done      7d comfort + energy, committed on this card
+       VALIDATION: N/A (a measurement). zone_3 is the VALID step-4 baseline; zone_1/zone_2 rows are
+       CONTRAST ONLY — captured with their preset gate closed, they measure an outage.
+    4a HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1 v5.103.3 boot restores the preset from the PERSISTED
+                                                      snapshot
+       VALIDATION: NOT YET EXERCISED. The 08:28 restart had no in-flight nudge, so the path did not
+       run. Needs a restart that actually has one.
+    4b S14-CEILING-NEEDS-AN-ENDING-1        v5.103.3  REMOVED (code, control, observability,
+                                                      registry orphans)
+       VALIDATION: PASS on the part that matters — the integration LOADED CLEANLY after the removal
+       (28 URA entities live post-restart), no dashboard/automation referenced the deleted entities,
+       and the 2 orphaned registry rows were cleared. Behaviour-neutral by construction.
+
+    ===== BUILT, NOT DEPLOYED =====
+    -  HVAC-PRESET-LOCKOUT-TELEMETRY-1      instruments the refusal site
+       This is the NEXT RELEASE and the gate on everything below. It answers the question the
+       proxy metric cannot: how often is URA REFUSED a preset write, and what did it want?
+
+    ===== REMAINING, IN ORDER =====
+    5  HVAC-PRESET-LOCKOUT-ESCAPE-1     gated on the telemetry. Probably the BIGGER half of the
+                                        original defect: resume-then-pin fixes "the write does not
+                                        land"; this is "the write is never attempted". Disjoint.
+                                        If lockouts dominate zone_1, this is the fix; if they are
+                                        rare, this card is WRONG and the residual is elsewhere.
+    6  HVAC-ZONE-CONDITIONING-DEMAND-1  the conditioning tap. ITS DESIGN WAS FALSIFIED by the
+                                        2026-09-16 simulation (neither transit NOR dwelling rooms
+                                        sustain the 5-min dwell on raw signal, so the tap would
+                                        have stranded the guest bedroom). Needs a NEW design —
+                                        current best candidate is room-CLASSIFICATION weighting
+                                        (corridors do not vote for conditioning), which keeps all
+                                        existing machinery and uses the shipped v5.103.0
+                                        classification read-model. GATE before building: of
+                                        zone_3''s 82 home episodes, how many were driven ONLY by
+                                        corridor rooms? Read-only, computable today.
+    7  HVAC-GUEST-AS-ZONE-PERSON-1 + HVAC-HOT-ENTRY-LATENCY-1   conditional, gated on 6.
+    8  HVAC-THERMOSTAT-ABSTRACTION-1    LAST, and deliberately so (operator: "maybe it is the last
+                                        thing in the sequence"). It is the architecture the whole
+                                        arc kept bumping into — 22 sites funnelled but 7 raw
+                                        set_hvac_mode calls escaping, callers expressing mechanics
+                                        not intent, vendor knowledge loose in a shared path, and a
+                                        borrow that holds the snapshot but cannot restore. It
+                                        SUBSUMES HVAC-PRESET-WRITE-STRATEGY-1. Placed last because
+                                        it fixes DUPLICATION, not any live defect: every bug this
+                                        arc found is already patched at its site. Doing it earlier
+                                        would be a large Tier-3 refactor of every thermostat write
+                                        in an occupied house, competing with fixes that move real
+                                        numbers.
+    9  close the arc                    README write-back + dispose HVAC-PRESET-FLAP-1 (the
+                                        evidence ledger, superseded by 6).
+
+    THE ARC IS NOT DONE until 5-9 are disposed — shipped, or parked with an explicit revival
+    trigger. And step 1 is NOT closed until its numeric prediction is met or explicitly abandoned
+    with a reason; "directionally right" is not acceptance.'
   ARC_MEMBERSHIP_CLOSED_2026_09_16: 'FINISH-THE-JOB LINK PASS (operator: "We MUST finish them all
     to complete the thread and not leave stragglers. Link them now."). The arc''s membership is now
     CLOSED and wired in the DATA, not just in prose — every dependency is mirrored on both sides,
