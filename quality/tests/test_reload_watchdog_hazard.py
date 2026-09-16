@@ -187,6 +187,11 @@ def _load_ns(*, kill_switch: bool = True,
         "CONF_PERIMETER_ENRICHMENT_MAX_TOKENS": "perimeter_enrichment_max_tokens",
         "CONF_PERIMETER_ENRICHMENT_PROVIDER_ID": "perimeter_enrichment_provider_id",
         "CONF_EXTERIOR_SNAPSHOT_OFFSET_S": "exterior_snapshot_offset_s",
+        # APPLIANCE-MGMT-REFINE-1 (v5.103.0): the appliance records key joined
+        # the fresh-read allowlist (__init__.py:6120/6637), so the sliced code
+        # now loads this Name and the exec namespace must define it. Mirrors
+        # const.py:2459 exactly.
+        "CONF_APPLIANCE_RECORDS": "appliance_records",
         # Deliberately NOT promoted (UNSAFE — structural listener reg at
         # __init__.py:2364); used by the fall-through test below.
         "CONF_ENHANCED_CENSUS": "enhanced_census",
