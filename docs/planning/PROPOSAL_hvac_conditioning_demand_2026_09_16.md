@@ -196,11 +196,25 @@ transit from dwell where duration can't. Reuses `room.occupied`'s fused, machine
 signal (exclusion / chatter / grace-hold / mmWave-demotion all intact); consumed at
 the one existing zone rollup site; lights untouched.
 
-**Two knob-placement decisions for the operator** (Numbers-Get-Knobs / parsimony):
-- **(a) Exposure:** a real per-room HVAC-occupancy *entity* in all 43 rooms
-  (observability, but entity clutter) vs. an internal signal with opt-in diagnostic.
-  Recommend **internal + opt-in diagnostic**.
-- **(b) Timer home:** per-room config field mirroring `CONF_FAN_VACANCY_HOLD`.
+**Knob placement (operator-decided 2026-09-16):**
+- **(a) Exposure: EXPOSE the per-room HVAC-occupancy entity** (operator: "it has to
+  be observable"). It is a trust input; it must be visible. (Overrides the earlier
+  internal-only lean.)
+- **(b) Defaults per room type:** add a `ROOM_TYPE_HVAC_HOLD` table keyed by
+  `room_type`, exactly like `ROOM_TYPE_TIMEOUTS` (`const.py:1171`), so bedroom /
+  kitchen / hallway get sane defaults out of the box; a per-room config field
+  (mirroring `CONF_FAN_VACANCY_HOLD`) overrides only exceptions.
+- **(c) Add `hallway` to the room_type enum.** Verified safe: every `ROOM_TYPE_*`
+  table reads via `.get(type, DEFAULT)` (`coordinator.py:695,3814`,
+  `presence_fan_recheck.py:1102`), so a new value cannot KeyError; the selector is a
+  hand-built list (`config_flow.py:1387`). Cost = one const + one selector line +
+  hallway-specific entries only where it should differ (HVAC-occupancy off/minimal,
+  short `occupancy_timeout`). Fixes the root data problem: the 6 hallways currently
+  mis-typed as `common_area` get separated from Living Room / Dining / Kitchen.
+  **Migration note:** the enum change does not auto-retype existing rooms — the
+  operator reclassifies the 6 hallways by hand (a config edit). Extends the shipped
+  `ROOM-CLASSIFICATION-CONSISTENCY-1` work; check that card for a parked
+  missing-types deliverable before building.
 
 ### Stage B — Within-room stillness (refinement, only if needed, measurement-gated)
 
@@ -227,16 +241,40 @@ occupant at the thermostat in ~2.5 min. **No hold and no demand-signal fixes thi
 duration (see the hold-vs-loop precision note in Stage A). Fast-in needs a faster
 loop or an event path.
 
-**Prior art (operator): a subsystem can run a dedicated faster loop.** The
-solar-follow / EVSE logic runs a **60 s tick** (`energy_const.py:1007,1016`) while
-the optimizer and energy system run at 5 min (`SCAN_INTERVAL_OPTIMIZATION`,
-`SCAN_INTERVAL_ENERGY`). So the lower-risk option is a **dedicated ~60 s HVAC
-reaction sub-tick for the hot-and-occupied case**, leaving the 5-min decision tick
-for everything else — a proven, bounded pattern rather than a from-scratch
-event-driven rebuild. A 60 s loop tightens *both* fast-in (adopt when hot+occupied)
-*and* retreat latency (a hold that expired is noticed within ~60 s, not up to 5
-min). Event-driven is the tighter-but-heavier alternative if 60 s proves
-insufficient.
+**Prior art (operator): a subsystem already runs a dedicated faster sub-loop.**
+Energy runs a 5-min decision loop **plus a separate 60 s `_solar_follow` sub-loop**
+(`energy.py:1382`, `SOLAR_FOLLOW_TICK_S`; `energy_const.py:1007,1016`). "One
+coordinator, two cadences" is a proven in-repo pattern.
+
+**Three options considered — recommendation is the middle one:**
+
+1. **Reduce the whole HVAC loop to 60 s.** Rejected. 5× evaluations/hour → 5×
+   activity-log + anomaly-detection DB volume, 5× compute, 5× *opportunities* to
+   write Carrier cloud (change-gated, so not 5× writes, but more chances — and there
+   is a reload-storm / write-sensitivity history). Reading faster than Carrier's own
+   42–79 s refresh gains nothing. Only the hot-and-occupied case needs 60 s; ~95% of
+   decisions are fine at 5 min. 5× cost for a narrow benefit.
+2. **Dedicated 60 s HVAC fast sub-loop (RECOMMENDED)** — mirror `_solar_follow`. It
+   evaluates *only* the hot-and-occupied fast-in decision (cheap, targeted), leaving
+   the 5-min full cycle intact. Tightens both fast-in and retreat-latency (an expired
+   hold is noticed within ~60 s, not up to 5 min). Proven pattern, bounded blast
+   radius, no herd risk.
+3. **Central URA loop / tick-multiplier abstraction.** Parked, not rejected — an
+   appealing north star. Downsides now: it is a **Tier-3 shared-primitive refactor**
+   touching every coordinator's timing, and it **fights the deliberate jitter**
+   (`coordinator.py:630`: `30 + jitter`) that prevents a thundering herd —
+   synchronizing all coordinators onto one base tick risks the event-loop stalls that
+   trip the watchdog into a ~5-min outage (parent-reload-watchdog hazard; optimizer
+   write-flood incident both live here). Marginal benefit today = one fast-in need.
+   **Revival trigger:** a 3rd/4th fast sub-loop need appears → extract a shared
+   scheduler *then*, with stagger/jitter built in by design.
+
+Note on loop inventory (corrects a common mental model — it is not just HVAC + EC +
+SC): ~10+ periodic loops exist at intentionally heterogeneous, jittered cadences —
+room coordinator 30 s+jitter, census 30 s, `_solar_follow` 60 s, safety 60 s,
+HVAC/energy/optimization 5 min, predictions 15 min, plus aggregation retry/decay,
+sensor refreshers, perimeter/exterior sweeps. The heterogeneity is a feature, and it
+is the argument against a single central loop.
 
 ---
 
