@@ -53,6 +53,71 @@ is false — including in **pre-existing** code, not just the diff.
 
 ---
 
+## Where the defect actually lives (measured 2026-09-16, 7 days)
+
+This was re-measured after the operator challenged a 4-week-old figure, and it
+**relocates the problem**.
+
+| zone | manual | entries→manual | exits to | median stuck | max stuck |
+|---|---|---|---|---|---|
+| **zone_1** Office B (master suite) | **69.6%** | 81 | away 36, home 35, sleep 10 | 10 min | **1073 min (17.9 h)** |
+| **zone_2** Up Hallway | 46.4% | 51 | away 37, home 12, sleep 2 | 15 min | 846 min (14.1 h) |
+| **zone_3** Back Hallway | **6.3%** | 66 | **away 62/66 (94%)** | **2 min** | 99 min |
+
+**Zone 3 is not immune — it is rescued.** It enters `manual` just as often as the
+others (66 times, every one coinciding with a setpoint change). The difference is
+**escape**: zone 3 is a transit corridor that empties constantly, so the
+**vacancy bypass** — the one documented exception to `should_change_preset`'s
+manual lockout — fires almost immediately, 94% of exits going to `away` at a
+median of 2 minutes.
+
+Zone 1 is *occupied*, so vacancy rarely fires, and the tail reaches **17.9
+hours**. That explains the whole 69.6 / 46.4 / 6.3 distribution without anything
+thermostat-specific.
+
+**Consequence for this cycle:** the value of resume-then-pin is concentrated in
+**occupied zones** — precisely where comfort matters and where the operator felt
+the problem. Zone 3 was never the patient.
+
+**A framing correction carried from the card:** `SELF_LOCKOUT_CONFIRMED` says
+"no self-recovery path". That overstates it — zone 1 exits to `home` 35 times and
+`sleep` 10 times in 7 days. Escape is **unreliable and slow in occupied zones**,
+not impossible. Reviewers should not treat total lockout as given.
+
+### Primary acceptance criterion — a numeric prediction, stated before the experiment
+
+> If resume-then-pin works, **zone 1's manual occupancy collapses from 69.6%
+> toward zone 3's ~6%, and the multi-hour tail (max 1073 min) disappears.**
+>
+> If manual% stays high after the fix, **the mechanism is not what we now claim
+> and the cycle stops** rather than being patched.
+
+This discriminates far better than "a preset restore took", which a single lucky
+observation can satisfy — as it nearly did on 2026-09-16, when a write appeared
+to hold and had in fact already reverted.
+
+---
+
+## Parked alternative — provenance-aware escape (not this cycle)
+
+The complementary fix is to make `should_change_preset` able to escape a manual
+hold **that URA itself induced**, using the `_suppress_kind` provenance tag
+(`hvac_override.py:185`). Today that tag has a ~5s TTL and is consulted at one
+site (a counter), so the decider never sees it.
+
+**Why resume-then-pin is preferred first:** it *prevents* the anonymous hold
+rather than *recovering* from it, and prevention leaves less state to reason
+about. The two are not exclusive — provenance-aware escape would recover any
+holds that slip through, and the operator has already ruled that reverting
+deliberate human adjustments is intended behaviour, so it is not blocked on a
+policy question.
+
+**Revival trigger:** if, after resume-then-pin ships, zone 1's manual occupancy
+does not fall below ~20%, the residual is holds we failed to prevent — and
+recovery becomes the next lever.
+
+---
+
 ## D1 — Per-kind suppression TTL (prerequisite)
 
 **Problem.** `SUPPRESS_TTL_SECONDS = 5` (`hvac_override.py:129`) cannot span
