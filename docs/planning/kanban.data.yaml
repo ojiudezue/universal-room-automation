@@ -177,6 +177,53 @@ meta:
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated, headline: "PERIMETER-ALERT-VOLUME-FATIGUE-1 \u2014 MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working \u2014 so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).", acknowledged: false}
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
+- id: URA-CENTRAL-TICK-WHEEL-1
+  title: One URA clock with per-consumer divisors (tick-wheel) — replace the pile of independent
+    periodic loops with a single base tick + divisors + phase offsets
+  status: parked
+  thread: architecture
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  approval: explicit
+  approved_by: operator 2026-09-16 ("write a short memo on it that will serve as a record... make a
+    card that is parked for it")
+  tags: [architecture, re-architecture, parked-with-trigger, prior-art-verified]
+  problem_solution:
+  - 'Problem: URA has ~10+ independent periodic loops at heterogeneous, individually-jittered cadences,
+    each its own async_track_time_interval. Adding a new cadence (e.g. HVAC fast-in) means adding
+    another bespoke timer. Solution: ONE base clock; each consumer registers at a DIVISOR
+    (1x/30x/60x/300x) + a PHASE OFFSET, so a fast base tick does not mean everything runs fast, and
+    the thundering herd is handled centrally by staggering offsets. Full record + history:
+    docs/planning/MEMO_ura_central_tick_wheel_2026_09_16.md.'
+  why: 'Surfaced designing HVAC fast-in (THE_BINDING_CONSTRAINT). Parked deliberately: marginal
+    benefit today is one fast-in need, captured by a targeted 60s HVAC sub-loop instead. The
+    tick-wheel deserves a deliberate re-architecture, not a bolt-on. NOTE: the thundering-herd
+    objection to a central loop was raised AND STRUCK (divisors+offsets solve it); the real reason to
+    defer is marginal benefit, not risk. The watchdog-stall history (RELOAD-WATCHDOG-HAZARD) is a
+    design CONSTRAINT the tick-wheel must respect (no synchronous fan-out), not an objection to it.'
+  MEMO_2026_09_16: 'Idea of record written to docs/planning/MEMO_ura_central_tick_wheel_2026_09_16.md
+    — carries the idea, in-repo prior art (energy._solar_follow 60s sub-loop; energy_pool._tick
+    reentrancy guard; coordinator.py:630 jitter->phase-offset; HVAC-TICK-LITERAL-1), the three routes
+    considered (blanket-60s struck; central-loop-on-herd-grounds struck; targeted sub-loop chosen),
+    and the revival trigger.'
+  next: 'REVIVE IF either: (a) a 3rd/4th dedicated fast sub-loop need appears (energy._solar_follow +
+    the HVAC fast sub-loop are two; a third is the evidence to generalize), OR (b) a deliberate
+    re-architecture pass opens for coordinator timing / the loop layer. Then build as its own Tier-3
+    cycle (shared primitive; every current loop is a caller): one base clock, migrate each loop to a
+    (divisor, phase-offset) registration, carry the per-consumer reentrancy guard, delete the bespoke
+    timers. Do NOT schedule on its own before the trigger fires.'
+  parsimony:
+    problem: adding each new cadence means another bespoke timer; the timing layer is a pile, not a
+      system
+    verdict: PARK
+    note: real benefit is a cleaner timing layer, not a feature; one fast-in need does not pay for a
+      system-wide refactor. Captured now by the targeted HVAC sub-loop; generalize on the trigger.
+  links:
+    related: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-TICK-LITERAL-1, RELOAD-WATCHDOG-HAZARD]
+    sibling_of: [HVAC-TICK-LITERAL-1]
+    context: 'Surfaced by HVAC-ZONE-CONDITIONING-DEMAND-1 (its fast-in leg is the first concrete
+      need). HVAC-TICK-LITERAL-1 named the 5-min quantum a tick-wheel would assign as HVAC''s normal
+      divisor. RELOAD-WATCHDOG-HAZARD is the design constraint (no synchronous fan-out), not a blocker.'
 - id: MEDIA-ROOM-BLINDS-OPENING-INVESTIGATE-1
   title: Media room blinds open on their own (new, unnerving) — audit the actor; operator worried recent
     device/reload work moved room-code behavior
