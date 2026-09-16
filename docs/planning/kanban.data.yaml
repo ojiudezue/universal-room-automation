@@ -16893,6 +16893,45 @@ cards:
     restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
     the borrow primitive, not folded into it.'
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  CANARY_RESULT_CORRECTED_2026_09_16: 'CORRECTION TO THE ENTRY BELOW, AND IT CHANGES THE VERDICT
+    FROM INCONCLUSIVE TO A CLEAN NEGATIVE. I reported that the repeat write "HELD". IT DID NOT — I
+    sampled it ~40s after writing, BEFORE the next cloud poll. With more elapsed time it reverted
+    too. Both arms reverted:
+      write 1  23:18:59 -> reverted 23:19:43  (44s)
+      write 2  23:21:04 -> reverted 23:22:12  (68s)
+    So preset-only writes revert to `manual` 2 OF 2, in 44-68 seconds.
+
+    THE COLLISION HYPOTHESIS IS NOW DECISIVELY REFUTED. Neither write carried a set_temperature
+    call, and both still reverted. The fix is therefore NOT "delete the setpoint write" — that was
+    this card''s leading candidate and it is now dead. Do not re-attempt it.
+
+    THE SURVIVING MECHANISM, AND IT FITS EVERY OBSERVATION: both revert times (44s, 68s) fall
+    inside the MEASURED ha_carrier coordinator refresh window (42-79s median, recorded on this card
+    2026-08-23). That is the signature of hypothesis (3) in CARRIER_MECHANISM_HYPOTHESIS: the
+    integration writes LOCAL STATE OPTIMISTICALLY (climate.py:430-437 sets _config_zone.hold,
+    hold_activity, and the status setpoints, then _write_local_state), and the next real refresh
+    OVERWRITES IT WITH CLOUD TRUTH. So what we have been watching is local optimism decaying at the
+    next poll — meaning URA''s preset writes are very likely NOT LANDING AT THE CARRIER CLOUD AT
+    ALL, or are being rejected there.
+    SUPPORTING DETAIL: after both reverts the SETPOINTS retained sleep''s values (70/75) while the
+    preset read `manual`. The activity''s numbers landed; the named-activity hold did not. That is
+    a hold-rejection signature, not a race and not a URA re-write.
+    THIS ALSO RETIRES my earlier "+1F ceiling means another URA writer" reading: the 75->76 seen at
+    23:19:43 was more likely cloud truth reasserting a pre-existing manual hold than a fresh nudge.
+
+    WHAT THIS DOES NOT SETTLE: WHY the cloud rejects or drops the hold. Candidates now worth
+    testing, in order of cost: (a) the write genuinely errors at the API and the failure is
+    swallowed — checkable by watching for a carrier API error at the moment of write, which needs
+    the ledger (step 2) plus debug logging on ha_carrier; (b) set_config_hold with hold_until=None
+    (infinite_holds=True) is rejected by this firmware while a finite hold would be accepted —
+    testable by flipping infinite_holds OFF for one write; (c) an existing manual hold must be
+    cleared (`resume`) before a named activity hold can be pinned — which would make the operator''s
+    rejected option B a PREREQUISITE STEP rather than an alternative, i.e. resume-then-pin.
+    (c) is the most interesting because it would reconcile the operator''s decision with the
+    mechanism: still always land on a NAMED preset, but clear the anonymous hold first.
+
+    ZONE LEFT SAFE: final state manual 70/75, room 75, idle — same cooling ceiling as found (75),
+    floor 68->70. Not worse on the cooling side.'
   CANARY_RUN_2026_09_16_INCONCLUSIVE_BUT_INFORMATIVE: 'CANARY RUN on zone_1 (operator-approved,
     bounded — explicitly NOT left running all night). It did NOT confirm the collision hypothesis,
     and the honest verdict is INCONCLUSIVE with N=1 in each arm. Recording it precisely so nobody
