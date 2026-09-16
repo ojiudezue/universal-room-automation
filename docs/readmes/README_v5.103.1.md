@@ -90,22 +90,44 @@ ordinary state changes write nothing.
 
 ---
 
-## Live validation (to be completed after restart)
+## Live validation — Validated 2026-09-16 00:05 CDT (post-restart)
 
-- [ ] **D1:** a boot log scan shows **no** `ValueError: Invalid entity ID garage_a`.
-      This is the criterion that discriminates a real fix from a plausible one —
-      the error appeared on the 2026-09-16 boot scan.
-- [ ] **D1 negative:** activity rows that *do* carry a well-formed `entity_id`
-      still ride the event (the guard must not be a blanket drop).
-- [ ] **D2:** the next genuine thermostat override produces an
-      `override_detected` row in `ura_activity_log` with `mode` populated —
-      queried directly, not inferred.
-- [ ] **D2 negative:** ordinary preset changes produce **no**
-      `override_detected` rows (a ledger that fires every tick would drown the
-      signal it exists to provide).
-- [ ] No new URA ERROR in the boot scan.
+Deployed v5.103.1, HACS-installed, HA restarted ~23:58 CDT. Version on the host
+confirmed `v5.103.1`; guard present (2 refs) and ledger present (3 refs) in the
+**installed** files, not merely in the PR.
 
----
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | No new URA ERROR after restart | **PASS** | ERROR-level scan filtered to `universal_room_automation`: 0 entries |
+| 2 | No `ValueError: Invalid entity ID garage_a` | **PASS (but see note)** | ERROR scan for `Invalid entity ID`: 0 entries |
+| 3 | D1 guard exercised on a real event | **NOT YET EXERCISED** | the producing event has not fired since deploy — see below |
+| 4 | D1 negative: well-formed `entity_id` still rides the event | **NOT YET OBSERVED** | 9 `ura_action` events fired post-restart; none carried an `entity_id` field |
+| 5 | D2: a genuine override writes an `override_detected` row | **PENDING** | requires a real thermostat override; cannot be forced honestly |
+| 6 | D2 negative: ordinary preset changes write no such row | **PENDING** | same |
+
+### Criterion 2 is NOT yet a discriminating pass — stated plainly
+
+The error is absent, but **the guard has not been tested**, because the thing
+that produces it has not happened since the deploy. The EVSE onset telemetry is
+**edge-triggered** (one row per state transition per bay/leg), and the most
+recent bare-slug row is `2026-09-16T03:59:33Z` = **22:59 CDT, an hour before the
+restart**. Correct epoch-based query over the last 60 minutes returns **0**.
+
+So absence-of-error currently proves only that nothing tried to emit one. It
+will become a real pass at the next onset hold/release, which is when the DB
+should gain a bare-slug row **while the log stays clean** — that pairing is the
+discriminator, not the silence alone.
+
+### A measurement error worth recording
+
+An earlier check of this used
+`timestamp >= datetime('now','-20 minutes')` and returned `2`, which read as
+"the guard is letting slugs through". That query was **wrong**: the column holds
+ISO strings (`2026-09-16T03:59:33...+00:00`) and `datetime()` returns
+space-separated (`2026-09-16 04:42:00`); in a string comparison `'T' > ' '`, so
+it matched *every* row dated today regardless of time. Same format-mismatch
+class as the TZ skew that produced false egress figures. The corrected query
+uses epoch conversion and returns 0.
 
 ## Context
 

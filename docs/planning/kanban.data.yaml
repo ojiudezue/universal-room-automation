@@ -7884,6 +7884,106 @@ cards:
   refs:
   - activity_logger.py:114-117 (unvalidated entity_id onto the ura_action bus event)
   - 'live ERROR 2026-09-16 boot: recorder core.py:304 -> split_entity_id ValueError garage_a'
+- id: HVAC-PRESET-WRITE-STRATEGY-1
+  DESIGN_DETECT_VS_SPECIFY_2026_09_16: 'OPERATOR: "Give thought to how an operator might specify
+    their integration''s mechanism or we can detect it." The question splits, and the two halves
+    have DIFFERENT answers — that split is the whole design.
+
+    WHETHER A CLEAR IS NEEDED -> DETECTABLE, no vendor knowledge required. URA can measure whether
+    its own preset writes LAND: write, force a refresh, compare hold_activity against what was
+    asked. That is exactly the measurement done by hand on 2026-09-16, and the arrester ledger
+    (shipped v5.103.1) makes it durable. A zone whose named writes do not stick is self-identifying.
+
+    HOW TO CLEAR -> NOT detectable in general; it needs vendor knowledge. But the common SHAPES are
+    discoverable at runtime:
+      * PRESET-BASED clear — visible in the entity''s own `preset_modes`. Verified live 2026-09-16:
+        both Carrier zones advertise ["away","home","manual","sleep","wake","vacation","resume"].
+        This is what the capability gate already reads.
+      * SERVICE-BASED clear — visible in the service registry (a resume-program-shaped service
+        under the platform''s domain). Readable via hass.services.
+      * NEITHER -> only the operator can say.
+
+    THE SAFETY ASYMMETRY THAT SHAPES THE DESIGN: clearing RELEASES the zone to the vendor''s own
+    schedule. On Carrier that is harmless because the operator does not use the Bryant schedule. On
+    unfamiliar equipment we would have NO IDEA what that schedule does. So auto-DIAGNOSING is safe;
+    auto-ARMING a clear on unknown hardware is not. Detection may diagnose; a human arms the remedy.
+
+    RECOMMENDED SHAPE, cheapest first:
+      1. DEFAULT DirectPin — today''s behaviour, correct for most integrations, zero risk.
+      2. SEED TABLE for known platforms (ha_carrier -> ClearThenPin with resume/manual), so a known
+         vendor is correct immediately with no learning cost. Learning-by-failing is bad UX for a
+         comfort system: every lesson is a stranded zone for up to hours.
+      3. EMPIRICAL DETECTOR — "preset writes are not landing on this entity" surfaces as a
+         diagnostic + NM page, NOT an automatic behaviour change.
+      4. OPERATOR ARMS THE REMEDY for an unknown vendor, and URA PROPOSES it when a capability or
+         service probe finds an obvious candidate ("this thermostat advertises a `resume` preset;
+         use it as the clear step?"). One field, not a config surface.
+
+    WHY NOT A FULL CONFIG SURFACE YET (knob ladder + parsimony): one house, one vendor — there is
+    nothing to choose between. Ship the strategy SEAM; add selection when a second vendor exists.
+    ACCEPTANCE MUST DISCRIMINATE: a Carrier zone still gets clear-then-pin AND a stubbed
+    other-vendor zone gets a direct pin with NO clear attempted. A test that only proves the Carrier
+    path still works would pass with the abstraction absent.'
+  title: How to write a preset successfully is vendor-specific, and that knowledge is hardcoded in
+    a shared chokepoint every thermostat write passes through
+  thread: hvac
+  status: pre_planning
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-16 ("Can we abstract the writer per kind of AC so another house
+    with a diff AC or integration can specify how to write presets successfully? How hard is that?")'
+  tags: [platform-enabler, institutional-context]
+  problem_solution:
+  - 'Problem: getting a thermostat to actually accept a named setting turns out to depend on the
+    brand. On this house''s Bryant system a named setting will not stick while the thermostat is
+    sitting on a hand-set temperature — you have to clear that first with a special "resume"
+    command. That knowledge is now written directly into the single place every thermostat
+    instruction passes through, using words ("resume", "manual") that mean this brand and no other.
+    A different thermostat may mean something else by them, or have no such command at all.
+    Solution: move the per-brand knowledge into a small named strategy that a house can select,
+    and have the shared path ask the strategy rather than assume one vendor.'
+  origin:
+    date: '2026-09-16'
+    gist: Operator asked the abstraction question while D2a was being built — and the question
+      exposed that the just-written code hardcodes Carrier semantics in a shared chokepoint
+  why: 'The chokepoint (emit_set_preset_mode) is used by EVERY URA climate preset write. Vendor
+    semantics sitting there is a correctness hazard for any non-Carrier thermostat, and it blocks
+    URA being usable in a house with different equipment — which is what "Universal" in the name
+    is claiming.'
+  MITIGATED_NOT_SOLVED_2026_09_16: 'A capability gate shipped WITH D2a as the cheap half: the
+    resume-then-pin path now fires only when the entity itself advertises `resume` among its
+    preset_modes, so a non-Carrier thermostat falls through to the pre-existing direct-pin
+    behaviour instead of receiving a guaranteed-failing service call on every write. That removes
+    the immediate hazard. It does NOT provide the abstraction — the SEMANTICS are still hardcoded
+    (that "manual" names an anonymous hold, that "resume" clears it).'
+  parsimony:
+    problem: Vendor-specific write semantics live in a shared chokepoint, so a different thermostat
+      is either mishandled or silently unsupported.
+    verdict: SIMPLIFY
+  next: 'Smallest useful version, and it is genuinely small — roughly 40-60 lines. Define a
+    PresetWriteStrategy with two questions: "is this zone in a hold that will swallow a named
+    pin?" and "how do I clear it?". Provide TWO implementations: DirectPin (the default — just
+    write the preset; correct for most integrations) and ClearThenPin (parameterised with the
+    clear-command and the anonymous-hold marker; Carrier/Bryant supplies "resume"/"manual").
+    Resolve per entity from the climate platform via the entity registry, defaulting to DirectPin
+    so an unknown thermostat behaves exactly as it does today. Then move PRESET_RESUME and
+    ANONYMOUS_HOLD out of hvac_setpoint.py into the Carrier strategy.
+    DO NOT build a config-flow surface for this yet — per the knob ladder this is per-deployment
+    structure, but with one house and one vendor there is nothing to choose between. Ship the
+    strategy seam first; add selection when a second vendor actually exists.
+    ACCEPTANCE must DISCRIMINATE: a Carrier zone still gets clear-then-pin, and a stubbed
+    other-vendor zone gets a direct pin with NO clear command attempted.'
+  links:
+    related: [HVAC-MANUAL-PRESET-CONTRACT-1]
+    context: 'HVAC-MANUAL-PRESET-CONTRACT-1 D2a is where the Carrier semantics were introduced and
+      where the capability gate now mitigates them; this card generalises that seam. It should be
+      done AFTER D2a''s numeric prediction is validated — abstracting a mechanism we have not yet
+      confirmed works in production would be abstracting a guess.'
+  refs:
+  - hvac_setpoint.py PRESET_RESUME / ANONYMOUS_HOLD / _needs_resume_first (the hardcoded seam)
+  - ha_carrier/climate.py:405-409 (resume_schedule), :418-430 (set_config_hold)
 - id: ARRESTER-LEDGER-INVISIBLE-1
   seq_2026_09_15: 'STEP 2 of HVAC-SUPPLE-SEQUENCE-1 — and it was PROMOTED: this is the MEASUREMENT INSTRUMENT for the arc, not side-hygiene. A human correcting the thermostat after an away flip is the only INDEPENDENT witness of a spurious away (the guest/person route is circular — it derives from the very occupancy signal under audit). GATE: a real override writes a durable row; a no-override tick writes none.'
   title: The HVAC override arrester keeps its ledger in INFO log lines, on a log that only records
@@ -9493,6 +9593,63 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-SUPPLE-SEQUENCE-1
+  TUNABILITY_REMEASURED_2026_09_16: 'OPERATOR CHALLENGED the "zone 1 tunable ~9 of 24 hours" figure
+    I had been repeating: "We have to verify if this is right and a legit blocker or not." It was a
+    2026-08-20 number, ~4 weeks old, and I had never re-verified it. RE-MEASURED over the last 7
+    days from the recorder (duration-weighted preset_mode occupancy, unavailable states excluded):
+
+      zone      span_h   manual_h   manual%   tunable%   top presets
+      zone_1     168.0      116.9     69.6%      30.4%   manual 116.9h, home 25.8h, away 17.7h, sleep 7.5h
+      zone_2     167.8       77.8     46.4%      53.6%   manual 77.8h, away 65.4h, home 17.4h, sleep 7.2h
+      zone_3     167.9       10.6      6.3%      93.7%   away 132.6h, home 21.1h, manual 10.6h, sleep 3.6h
+
+    VERDICT 1 — THE CLAIM IS VERIFIED, AND UNDERSTATED. zone_1 is tunable ~7.3 of 24 hours now, not
+    9. Step 1 is a live defect, not a stale card.
+
+    VERDICT 2 — BUT IT IS NOT A UNIFORM BLOCKER, AND MY SEQUENCING CLAIM WAS WRONG. I wrote that
+    step 3 (baseline) "genuinely cannot precede 1b", generalising a zone_1 measurement to the whole
+    house. zone_3 is 93.7% ON NAMED PRESETS — its preset gate is open almost all the time. And
+    zone_3 is precisely the SUBJECT of step 4: it is the zone with ~15 pointless conditioning
+    episodes/day at a median of exactly vacancy_grace. A baseline captured there measures
+    BEHAVIOUR, not an outage.
+
+    CONSEQUENCE FOR THE SEQUENCE: steps 3 and 4 can proceed ON ZONE_3 IN PARALLEL with step 1
+    fixing zones 1 and 2. The strict serial ordering was over-constrained. Conditions on doing so:
+    (a) scope the baseline to zone_3 and SAY SO — a house-wide baseline would still be contaminated
+    by zone_1/zone_2; (b) exclude zone_3''s residual 6.3% manual windows from the baseline rather
+    than averaging through them; (c) do NOT generalise a zone_3 result to zones 1/2 afterwards —
+    that is the same error in the other direction.
+
+    WHY ZONE_3 IS THE CLEAN ONE IS ALSO INFORMATIVE: it holds `away` 132.6h of 168 and is the zone
+    observed all night holding a NAMED indefinite hold. It is the control that proved named holds
+    work on this system at all. zone_1 (69.6% manual) and zone_2 (46.4%) are where the anonymous-
+    hold defect actually lives.'
+  RESUME_PLACEMENT_2026_09_16: 'OPERATOR ASKED: "Where does resume fall in this sequence?"
+    ANSWER: resume-then-pin IS STEP 1''S BUILD — not a new step. Step 1 was always "make preset
+    restores actually take"; as of 2026-09-16 we know WHY they do not (a named hold cannot be
+    pinned over an anonymous manual hold) and HOW to fix it (clear, then pin). Step 1 therefore
+    splits into:
+      1a PER-KIND SUPPRESSION TTL SPLIT — prerequisite. Without it URA books its OWN second write
+         as a human override (SUPPRESS_TTL_SECONDS=5 cannot span resume->pin->refresh->verify).
+         preset-kind ~120s; temp-kind STAYS 5s. See SUPPRESS_TTL_ANSWER on the card.
+      1b RESUME-THEN-PIN at the restore sites, routed through ONE chokepoint, plus the targeted
+         coordinator REFRESH (never a reload) and verify+retry reusing _verify_restore.
+    STEP 2 IS ALREADY SHIPPED (v5.103.1) AND THAT ORDERING WAS FORTUNATE: the arrester ledger is
+    exactly the instrument that PROVES 1b. If resume-then-pin books URA''s own writes as overrides,
+    we will now see override_detected rows with mode=governed where there should be none. Without
+    the ledger, 1b''s live validation would be blind in the same way the 2026-09-16 canary was.
+    STEP 3 STILL CANNOT PRECEDE 1b: while a zone sits in `manual`, should_change_preset returns
+    False for everything (hvac_preset.py:202-217), so vacancy_grace and zone_entry_dwell are
+    downstream of a CLOSED GATE. zone_1 was measured tunable for roughly 9 of 24 hours. A baseline
+    captured before 1b would measure an OUTAGE, not a behaviour — the exact non-discriminating
+    observation this sequence exists to prevent.
+    UPDATED ORDER: 1a -> 1b -> [2 DONE] -> 3 baseline -> 4 tap (operator checkpoint) -> 5 conditional
+    -> 6 close.
+    TIER: step 1 is TIER 3, operator-confirmed (OPERATOR_RULINGS_2026_08_20 item 3). So it needs a
+    PLAN with a falsifiable invariant + TWO framing-disjoint plan reviews BEFORE build, four
+    framing-disjoint build reviews, orchestrator independent verification, and an operator
+    checkpoint at pre-deploy. Writing Tier-3 thermostat code without the plan review would be a
+    process violation; the plan is the correct next artifact.'
   seq_2026_09_15: 'THIS CARD IS THE ORDER. Steps 1-3 change no behaviour (attribution, instrument, baseline); step 4 is the live change; steps 5-6 dispose and close.'
   title: The ordered plan for making HVAC supple — six steps, each with a gate, run to completion
     rather than cherry-picked
@@ -16907,6 +17064,100 @@ cards:
     restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
     the borrow primitive, not folded into it.'
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  BUILT_D1_D2a_2026_09_16: 'BUILT (Tier 3, AFTER the two plan reviews — which changed what got
+    built). In review on develop, NOT deployed.
+
+    WHAT THE PLAN REVIEW CHANGED: the plan said to route the sequence through the borrow /
+    return_excursion primitive. Independent enumeration measured that premise FALSE — 11 functions
+    emit setpoints, ZERO reference `borrow`, and return_excursion emits no writes at all. Building
+    to it would have produced a half-applied fix across 11 sites (Bug Class #53). The real
+    chokepoint ALREADY EXISTS: emit_set_preset_mode (hvac_setpoint.py:180), whose own docstring
+    says every URA preset write should route through it. That is where D2a landed.
+
+    D2a — resume-then-pin inside emit_set_preset_mode. CONDITIONAL on the zone holding an
+    ANONYMOUS hold, so a named hold still pins directly (zone_3 does this continuously; a blanket
+    resume would open a needless Bryant-schedule window in the ONE zone that works — invariant I3).
+    resume and pin are adjacent with no awaitable failure point between them; a failed resume
+    fails FORWARD to the pin, so the worst case is the pre-existing behaviour and never a zone
+    stranded on the schedule.
+    D1 — per-kind suppression TTL. SUPPRESS_TTL_SECONDS stays 5 for temp (the only kind that
+    swallows a genuine human manual flip — the independent witness the spurious-away metric needs);
+    new SUPPRESS_TTL_SECONDS_PRESET=120, sized ABOVE the measured 42-79s refresh window so URA
+    cannot book its own second write as a human override (invariant I2).
+
+    EVIDENCE: 8 tests. Mutation drill with FOUR distinct mutations, each turning a DIFFERENT test
+    red: blanket-resume -> named-hold test; never-resume -> anonymous-hold test; TTL collapsed to 5
+    -> refresh-window test; TTL split defined-but-unread -> wiring test. Restore clean, tree clean.
+    REGRESSION: the adjacent selection (hvac/setpoint/override/preset/arrester/excursion) is
+    IDENTICAL with and without the change — 14 failed / 1424 passed both ways. A first comparison
+    appeared to show a NEW reentrancy failure; that was an artifact of my own harness (the new test
+    reads source at import, so stashing the change made it raise at collection). Re-run with the
+    file ignored showed the failure is pre-existing order-pollution that passes in isolation.
+
+    NOT BUILT, DELIBERATELY — D2b: the nine functions that write setpoints and restore NO preset
+    (incl. solar-banking release _release_banked_zones and pre-heat return _return_preheat, which
+    do not even attempt it, plus the boot-path async_startup_ramp_audit). Parsimony: the two sites
+    that DO restore are zone_1''s AC-nudge path, the most frequent in the house, and they currently
+    fail to LAND — so D2a alone may account for most of zone_1''s 69.6% manual. Measure against the
+    numeric prediction before touching nine live comfort paths.'
+  WHY_ZONE3_IS_CLEAN_2026_09_16: 'ANSWERED, and it sharpens the whole cycle. Chasing "what is
+    different about zone_3?" produced the mechanism behind the zone-by-zone distribution.
+
+    FIRST HYPOTHESIS REFUTED: I assumed zone_3 receives fewer raw-setpoint writes (being a transit
+    corridor with no comfort features aimed at it). WRONG. Transitions INTO manual over 7d:
+    zone_1 81 (66 with a setpoint change), zone_2 51 (50), zone_3 66 (66/66). zone_3 enters manual
+    just as often as the others, and EVERY entry coincides with a setpoint change. Entering manual
+    is not the differentiator.
+
+    THE REAL DIFFERENTIATOR IS ESCAPE, NOT ENTRY. Manual-episode exits over 7d:
+      zone_3  exits_to {away:62, home:4}                episodes 66  median  2m  max   99m
+      zone_2  exits_to {away:37, home:12, sleep:2}      episodes 50  median 15m  max  846m (14.1h)
+      zone_1  exits_to {away:36, home:35, sleep:10}     episodes 80  median 10m  max 1073m (17.9h)
+
+    MECHANISM: the documented exception to should_change_preset''s manual lockout is the VACANCY
+    bypass. zone_3 is a transit corridor that empties constantly, so vacancy fires almost
+    immediately and rescues it — 94% of its exits are to `away`, median 2 minutes. zone_1 is the
+    master suite: OCCUPIED most of the day, so vacancy rarely fires and there is a 17.9-HOUR
+    stranding in the tail (consistent with the 14h35m originally observed on 2026-08-20). zone_2 is
+    intermediate. That fully explains 69.6% / 46.4% / 6.3% manual occupancy without appealing to
+    anything zone-specific about the thermostats.
+
+    HONESTY CORRECTION TO THIS CARD''S OWN FRAMING: SELF_LOCKOUT_CONFIRMED describes a "genuine
+    self-lockout with no self-recovery path". That OVERSTATES it. zone_1 exits manual to `home` 35
+    times and `sleep` 10 times in 7 days, so escapes other than vacancy do occur. The accurate
+    statement is that escape is UNRELIABLE AND SLOW IN OCCUPIED ZONES, with a multi-hour tail — not
+    that it is impossible. Do not cite "no self-recovery path" as fact.
+
+    WHY THIS MATTERS FOR THE FIX: it predicts WHERE resume-then-pin pays. The value is concentrated
+    in OCCUPIED zones (1 and 2) — which is exactly where comfort matters most and where the
+    operator felt the problem. zone_3 was never the patient.
+
+    NUMERIC PREDICTION, STATED BEFORE THE EXPERIMENT (evidence-bar requirement): if resume-then-pin
+    works, zone_1''s manual occupancy should collapse from 69.6% toward zone_3''s ~6%, and the
+    multi-hour tail (max 1073m) should disappear. If manual% stays high after the fix, the
+    mechanism is NOT what this card now claims and the cycle must stop rather than be patched.
+    This is a better acceptance criterion than "a preset restore took", because it discriminates
+    the fix from a lucky single observation.'
+  PLAN_WRITTEN_2026_09_16: 'PLAN drafted: docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md.
+    Carries the Tier-3 falsifiable invariant in three parts — I1 after any URA write the zone holds
+    a NAMED activity on EVERY reachable path; I2 URA never books its own write as a human override
+    (zero mode=governed ledger rows from a resume+pin); I3 the zone is never left following the
+    Bryant schedule. D1 = per-kind TTL split (prerequisite), D2 = resume-then-pin through ONE
+    chokepoint (the borrow/return_excursion primitive, which is bookkeeping-only today) + targeted
+    REFRESH + verify reusing _verify_restore.
+    NOT BUILD-READY. Tier 3 requires TWO framing-disjoint PLAN reviews before any build dispatch,
+    then four framing-disjoint build reviews, orchestrator independent verification, and an
+    operator checkpoint at pre-deploy. Writing the code first would be the process violation.
+    THREE OPEN QUESTIONS carried into plan review rather than guessed: (a) ledger row on every
+    resume+pin or only on verify failure (row rate unmeasured); (b) does any consumer read
+    preset_mode=="manual" as a SIGNAL rather than a fault — a producer/consumer check NOT yet run,
+    and making manual rare would change that consumer; (c) if resume succeeds and the pin fails AT
+    THE CLOUD, the zone sits on the schedule with no hold — does verify+retry recover it or is an
+    explicit rollback needed? (c) is the I3 hazard.
+    ALSO STILL OUTSTANDING (cheap): whether a zone''s `sleep` activity is configured the way
+    zone_3''s `away` is. If some activities are unconfigured per zone, pinning them may fail even
+    after resume. Test by pinning `away` on zone_3 — operator cleared zone_3, ruled zone_2
+    OFF-LIMITS.'
   SUPPRESS_TTL_ANSWER_2026_09_16: 'OPERATOR: "I assume we could extend this to a larger value as
     long as we understand the impact?" YES — and after reading the mechanism the impact is NARROWER
     than my blocker note implied, but it is NOT uniform, so the answer is EXTEND PER-KIND, NOT
@@ -17295,7 +17546,8 @@ cards:
   title: Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is
     zones sitting in manual for hours; do the sanctioned excursions return?
   thread: hvac
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.2
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL — IMPORTANT: the naive fix (add preset-restore write at each restore site) is ALREADY in code (hvac_override.py:4348 _restore_after_nudge unconditional emit_set_preset_mode, commit 0415d9b2d) and was LIVE-MEASURED INEFFECTIVE 2026-08-23 (0/10 real-preset restores took). Carrier pins back to manual (set_preset pins hold vs ''resume'' clears schedule). Remaining = one-night-one-zone CANARY (restore via preset only, skip set_temperature) + operator pin-hold-vs-resume decision. Do NOT re-attempt the naive write.'
   PRECONDITION_AND_SEVERITY_2026_08_20: 'OPERATOR AGREED this is a PRECONDITION for the calming work,
@@ -17568,8 +17820,7 @@ cards:
     verdict: BUILD
     note: gate on the audit — if every excursion already restores, this reduces to a guard + a test rather
       than a redesign
-  next: 'Scope as one excursion-restore cycle with BORROW + S14: restore-path for every raw-setpoint excursion
-    + fix/guard the should_change_preset manual self-lockout. Buildable; audit done 2026-08-25.'
+  next: 'OPERATOR PRE-DEPLOY CHECKPOINT (Tier 3). D1+D2a built + mutation-anchored on develop. On deploy, the acceptance test is the NUMERIC PREDICTION: zone_1 manual occupancy must fall from 69.6% toward zone_3''s ~6% and the multi-hour tail (max 1073min) must disappear. If manual%% stays high the mechanism is wrong and the cycle STOPS rather than being patched. Then decide D2b (9 non-restoring setpoint sites) on the measured residual, not on speculation.'
   refs:
   - hvac_preset.py:212-217
   - hvac_override.py:186-195, 3070-3097
