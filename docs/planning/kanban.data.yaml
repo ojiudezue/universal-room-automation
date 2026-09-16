@@ -15658,6 +15658,10 @@ cards:
   - 'GROOM 2026-09-11: VERDICT REAL feature, framing STALE (unaware of its own v3 plan + BACKLOG B5).
     Promoted inbox -> pre_planning; linked plan; next rewritten.'
 - id: UNLOAD-SYMMETRY-TASK-HYGIENE-1
+  SHIPPED_5103_5_2026_09_16: 'Shipped v5.103.5, live-validated: clean load, zero ERROR, name-diff
+    byte-identical (305==305). Behavior-neutral. shipped_organic; discriminator = at next reload no
+    async_call_later exceptions + bounded ComplianceTracker retention (one-shot check, dispose next
+    session).'
   FIXUP_DONE_2026_09_16: 'Consolidated fix-up complete (commit 9aba9ce21). All 4: (1) self-removal-
     on-fire at the 3 per-event sites, append-drain kept at the 2 once-per-instance; (2) __init__
     entry-state LOADED gate + _retry re-check + dead except removed; (3) compliance drop documented

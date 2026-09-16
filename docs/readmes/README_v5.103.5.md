@@ -54,8 +54,17 @@ be strictly worse. Recorded here rather than left as a silent side effect.
 
 ## Live validation
 
-- [ ] No new URA ERROR after restart; integration loads clean at v5.103.5.
-- [ ] No functional change expected anywhere (hygiene only) — rooms/zones/energy
-      behave exactly as v5.103.4.
-- [ ] Discriminating negative: a normal config-entry reload produces no
-      `async_call_later`-related exceptions in the log (the pre-fix failure mode).
+### Validated 2026-09-16 (post-restart)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Integration loads clean at v5.103.5 | **PASS** | HACS `installed_version: v5.103.5`, `pending_update: false` |
+| No new URA ERROR after restart | **PASS** | `source=system`, level=ERROR, search=universal_room_automation → 0 entries |
+| No functional change (hygiene only) | **PASS (by construction)** | name-diff byte-identical to develop; behavior-neutral |
+
+### Pending — the soak-exit discriminator (one-shot check at next reload, not a watch)
+
+- [ ] After the next config-entry reload: no `async_call_later`-related exceptions
+      in the URA log, and `ComplianceTracker` retention lists stay bounded (no
+      monotonic growth over uptime) — the pre-fix failure mode. Disposed at next
+      session via a one-shot log/state check.
