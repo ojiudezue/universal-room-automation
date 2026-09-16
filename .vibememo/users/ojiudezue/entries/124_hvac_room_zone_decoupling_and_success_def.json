@@ -1,0 +1,29 @@
+{
+ "format_version": "2.1",
+ "entry_id": "124",
+ "author": "ojiudezue",
+ "session_id": "claude_20260915_2100_hvac_decoupling",
+ "timestamp": "2026-09-15T22:10:00Z",
+ "type": "decision",
+ "weight": "critical",
+ "title": "HVAC room\u2192zone coupling: tap room occupancy before the lighting hold, and define success as paired comfort + degree-day-normalised $",
+ "summary": "HVAC consumes room.occupied, which carries a ~6-8 min clearance timeout sized for lighting. So a 20s transit becomes a multi-minute room session that outlasts the 5-min (1-tick) zone_entry_dwell, and zone_3 conditions a hallway ~15x/day for people who already left. Decision: HVAC taps the room signal BEFORE the lighting hold \u2014 one field, one rollup site \u2014 rather than building a new occupancy subsystem.",
+ "why": "Operator rejected a five-part design ('the decoupling has to be simple and elegant, not complicate machinery') and rejected rebuilding fusion ('I do not want to redo fusion or any strong primitive we have already'). The simple tap is sufficient because HVAC ALREADY owns its holds \u2014 vacancy_grace (10 min) is slow-out, zone_entry_dwell (5 min) is fast-in \u2014 so the room clearance timeout is a redundant SECOND hold stacked underneath, and that redundancy is the actual defect. Prior attempts were knob turns, whose measured ceiling was a 64% cut that still was not calm: the problem is structural, not parametric. Separately REJECTED stubbing a dummy zone_person for the guest wing \u2014 the three gates it would satisfy ask 'is an assigned resident present?', so a stub substitutes fiction for an honest unknown on a TRUST input (pinned home it conditions an empty wing 24/7); the principled version is the operator's own HVAC-GUEST-AS-ZONE-PERSON-1, deriving a dynamic guest person from an occupied guest room with a decay contract.",
+ "implications": "Success is defined UP FRONT as two metrics that must move TOGETHER, because either alone is gameable (stickier-toward-away saves money and wrecks comfort; the reverse too): (A) comfort \u2014 spurious-away count, time-to-condition, and pointless conditioning episodes (measured today: 15/day in zone_3, median exactly 10.0 min = vacancy_grace); (B) net $ \u2014 compressor runtime per COOLING-DEGREE-DAY, since raw kWh is weather-dominated and would let an ordinary September 'prove' a saving a hot August would refute, plus no increase in cycle count. Baseline must be captured BEFORE any build. Also named the binding constraint for the first time: HVAC_DECISION_TICK is 5 minutes (hvac_const.py:13), a hard floor on 'react quickly if it's hot' \u2014 no dwell value can ever satisfy fast-in, so any plan promising it without addressing the tick is promising the impossible.",
+ "revisit_trigger": "Step 1 must prove raw-signal gaps during DWELLING episodes are shorter than vacancy_grace (10 min). If they are not, the simple tap is wrong and we STOP rather than adding machinery to rescue it. Blocked meanwhile on HVAC-MANUAL-PRESET-CONTRACT-1: with 0/10 preset restores taking, URA-induced manual cannot be told from a human yank, which would corrupt every measurement above.",
+ "refs": {
+  "cards": [
+   "HVAC-ZONE-CONDITIONING-DEMAND-1",
+   "HVAC-PRESET-FLAP-1",
+   "HVAC-MANUAL-PRESET-CONTRACT-1",
+   "HVAC-GUEST-AS-ZONE-PERSON-1",
+   "HVAC-HOT-ENTRY-LATENCY-1"
+  ],
+  "docs": [
+   "hvac_zones.py:146-148",
+   "hvac.py:2049-2059",
+   "hvac_const.py:13"
+  ],
+  "release_notes": "Design decision; no code shipped yet."
+ }
+}

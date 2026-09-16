@@ -34,6 +34,20 @@ _DEDUP_WINDOWS: dict[str, float] = {
 _MAX_DETAILS_SIZE = 2048
 
 
+def _is_entity_id_shaped(value: str) -> bool:
+    """Return True when ``value`` has Home Assistant's ``domain.object_id`` shape.
+
+    Deliberately a SHAPE check, not an existence check: the entity may legitimately
+    not exist yet (boot ordering), but it must still be splittable, because that is
+    all the recorder's global listener requires. Mirrors the split HA itself performs
+    (`homeassistant.core.split_entity_id`): exactly one dot, non-empty on both sides.
+    """
+    if not value:
+        return False
+    parts = value.split(".")
+    return len(parts) == 2 and all(parts)
+
+
 class ActivityLogger:
     """Lightweight activity logging for URA coordinators.
 
@@ -111,8 +125,34 @@ class ActivityLogger:
                 event_data["room"] = room
             if zone is not None:
                 event_data["zone"] = zone
+            # ACTIVITY-LOG-BARE-SLUG-ENTITY-ID-1: only a WELL-FORMED entity_id
+            # may ride the bus event.
+            #
+            # WHY THIS GUARD EXISTS. Home Assistant's recorder subscribes to
+            # EVERY event on the bus and calls `split_entity_id()` on any
+            # `entity_id` it finds. A value without a `domain.object_id` shape
+            # raises `ValueError: Invalid entity ID <x>` INSIDE the recorder's
+            # listener job — so a URA-internal naming slip becomes an ERROR in
+            # somebody else's code path. Observed live 2026-09-16: the EVSE
+            # charge-onset telemetry passes a BAY SLUG ("garage_a"), producing
+            # exactly that ERROR on the running system.
+            #
+            # The slug is deliberately still written to the DB column above —
+            # there it is useful bay identity, and it has no consumer that
+            # requires entity-id shape. It is ONLY the bus event that must
+            # honour HA's contract. Dropping the field is the safe failure:
+            # the logbook link is lost for that row, nothing else changes.
             if entity_id is not None:
-                event_data["entity_id"] = entity_id
+                if isinstance(entity_id, str) and _is_entity_id_shaped(entity_id):
+                    event_data["entity_id"] = entity_id
+                else:
+                    _LOGGER.debug(
+                        "Activity log: dropping malformed entity_id %r from "
+                        "the ura_action event (coordinator=%s action=%s) — "
+                        "HA's recorder would raise on it; the value is still "
+                        "stored in the DB row",
+                        entity_id, coordinator, action,
+                    )
 
             self.hass.bus.async_fire("ura_action", event_data)
 

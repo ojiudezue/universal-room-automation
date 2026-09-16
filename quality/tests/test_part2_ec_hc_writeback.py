@@ -197,6 +197,11 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     "chatter_burst_k",
     "chatter_t_floor_s",
     "chatter_mode",
+    # APPLIANCE-MGMT-REFINE-1 (v5.103.0) -> 96. The coordinator re-reads
+    # entry.options[CONF_APPLIANCE_RECORDS] fresh (__init__.py:6629), which is
+    # the definition of a fresh-read key, so it belongs on the suppress list.
+    # This guard caught the omission when the suite became runnable again.
+    "appliance_records",
 }
 
 
@@ -339,7 +344,7 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +2 evse-charge-onset Rev 6 (2026-08-30): CHARGE_ONSET_TIME +
     #    CHARGE_ONSET_ENABLED (both push live via _EC_SETTER_DISPATCH;
     #    B-CRIT-2) -> 95
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 95
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 96
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +549,11 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_SAFETY_DISCOVERY_BLOCKLIST":         "nm_a5_safety_discovery_blocklist",
         "_CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS": "nm_a2_optimizer_high_allowlist_dimensions",
         # NM Cycle B fix-up (2026-07-20, B-B1) — dry-run + token-bucket keys.
+        # APPLIANCE-MGMT-REFINE-1 (v5.103.0): the appliance records key joined
+        # the fresh-read allowlist (__init__.py:6120/6637), so the sliced code
+        # now loads this Name and the exec namespace must define it. Mirrors
+        # const.py:2459 exactly.
+        "CONF_APPLIANCE_RECORDS":                      "appliance_records",
         "_CONF_NM_DRY_RUN":                            "nm_dry_run",
         "_CONF_NM_BUCKET_CAPACITY":                    "nm_bucket_capacity",
         "_CONF_NM_BUCKET_REFILL_PER_MIN":              "nm_bucket_refill_per_min",

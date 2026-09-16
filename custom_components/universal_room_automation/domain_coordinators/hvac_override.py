@@ -533,6 +533,53 @@ class OverrideArrester:
         except (ValueError, TypeError, AttributeError):
             return None
 
+
+    def _arrest_ledger(
+        self,
+        action: str,
+        description: str,
+        zone_id: str | None = None,
+        entity_id: str | None = None,
+        details: dict | None = None,
+    ) -> None:
+        """ARRESTER-LEDGER-INVISIBLE-1 — record an arrester decision DURABLY.
+
+        WHY THIS EXISTS. Before this, the arrester recorded its decisions ONLY
+        as ``_LOGGER.info`` lines, and URA's log keeps WARNING and above — so
+        every arrest was erased as it was written. The consequence was not
+        cosmetic: on 2026-08-20 a live override could not be confirmed or ruled
+        out after the fact, and on 2026-09-16 three separate investigations
+        stalled in one night because a thermostat write that demonstrably
+        happened could not be attributed to anything.
+
+        The activity ledger is the durable surface that survives the log and
+        the process, and ``hvac_fans.py`` already writes to it — this is a
+        REUSE of that pattern (fire-and-forget, never raises, never blocks a
+        decision path).
+
+        Fail-open by construction: if the logger is missing or the write
+        raises, the arrester's behaviour is completely unchanged. Recording an
+        arrest must never be able to prevent one.
+        """
+        try:
+            from ..const import DOMAIN as _DOMAIN
+            activity_logger = self.hass.data.get(_DOMAIN, {}).get(
+                "activity_logger"
+            )
+            if activity_logger is None:
+                return
+            self.hass.async_create_task(activity_logger.log(
+                coordinator="hvac",
+                action=action,
+                description=description,
+                importance="info",
+                zone=zone_id,
+                entity_id=entity_id,
+                details=details,
+            ))
+        except Exception:  # noqa: BLE001 — observability must never actuate
+            _LOGGER.debug("arrest ledger write failed", exc_info=True)
+
     def _resolve_context_user_to_person(
         self, user_id: str | None,
     ) -> tuple[str | None, str | None]:
@@ -2849,6 +2896,26 @@ class OverrideArrester:
             zone.zone_name, entity_id, old_preset, new_preset,
             old_high, new_high,
         )
+        # ARRESTER-LEDGER-INVISIBLE-1: the INFO line above is discarded by the
+        # log level, so mirror the detection into the durable ledger.
+        self._arrest_ledger(
+            action="override_detected",
+            description=(
+                f"{zone.zone_name} override detected: preset "
+                f"{old_preset}->{new_preset}, temp_high {old_high}->{new_high}"
+            ),
+            zone_id=getattr(zone, "zone_id", None),
+            entity_id=entity_id,
+            details={
+                "old_preset": old_preset,
+                "new_preset": new_preset,
+                "old_high": old_high,
+                "new_high": new_high,
+                "old_low": old_low,
+                "new_low": new_low,
+                "mode": "governed",
+            },
+        )
 
         # ================================================================
         # Arrester Operator-Immunity — DETECTION-TIME STAMP.
@@ -2976,6 +3043,19 @@ class OverrideArrester:
         # Passive mode: track override but don't revert
         if not self._enabled:
             zone.override_count_today += 1
+            # ARRESTER-LEDGER-INVISIBLE-1: passive mode still DETECTS; record
+            # it durably too, and mark mode=passive so a reader can tell a
+            # detection-without-revert from a real arrest.
+            self._arrest_ledger(
+                action="override_detected",
+                description=(
+                    f"{zone.zone_name} override detected (passive mode, "
+                    f"no revert)"
+                ),
+                zone_id=getattr(zone, "zone_id", None),
+                entity_id=entity_id,
+                details={"mode": "passive"},
+            )
             _LOGGER.info(
                 "Override detected on %s (passive mode, no revert): delta from old setpoints",
                 zone.zone_name,

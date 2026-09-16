@@ -217,3 +217,32 @@ subscriber already buckets car/dog/cat labels, and the camera allowlist
 (commit a5b2dbc00) scopes cameras. Until the linker hotfix branch
 deploys, the LIVE URA version observes the new car events through the
 old unfiltered bus — acceptable (perimeter cameras, label-bucketed).
+
+---
+
+## BY-DESIGN SILENT CAMERAS — exclusion list (2026-09-15)
+
+**Read this before opening any "camera fired zero times" investigation.** The
+cameras below produce no person detections *on purpose*. To a zero-detection
+sweep they are indistinguishable from a dead camera, so each sweep re-opens
+them and buries any genuine fault in expected names. Exclude them by name, and
+treat anything NOT on this list as worth investigating.
+
+| camera | why it is silent | expected signature |
+|---|---|---|
+| `ArmCrestASH41B` | In the operator's office and **physically shielded whenever they are home**; unshielded only when away. A privacy shutter, not a fault. | 0 person events while home; events may appear while the operator is away. Alive, detecting, unmasked, and picking up **speech daily** throughout — that combination is the confirmation it is shuttered, not broken. |
+| `MadronePTUltra` | Battery-powered, aimed at a **narrow stretch by the external power wall**. Its primary job is watching the **main grid power connections**, not person recall. Wakes on a ~10-minute cycle (changed 2026-09-15 from PIR-motion-only, which is why it now produces a trickle of events where it previously had ZERO of any label, all time). | Very low person counts by design. **Never judge this camera on person recall**, and do not add it to `perimeter_cameras` expecting perimeter coverage. |
+
+**Verified 2026-09-15** (HA recorder, ON-state rows, 48h): ArmCrestASH41B 0 —
+expected, operator was home. MadronePTUltra 5 — the new wake cycle working.
+For contrast, `ReolinkStudyBPorchPTZ` was on this list's *candidate* set and is
+**NOT by design** — it was genuinely blind (detecting on a 640x480 sub-stream)
+and the operator fixed it by raising its detect resolution; it now reports 11
+ON rows/48h, up from zero across 8 days. That is the discriminator this list
+exists to make cheap: by-design silence stays silent, a real fault responds to
+a fix.
+
+Cards: `CAMERA-ZERO-FIRE-DETECTORS-1` (closed investigation),
+`CAMERA-BY-DESIGN-SILENT-EXCLUSION-1` (this list),
+`CAMERA-STUCK-SENSOR-TRIPWIRE-1` (mirror-image detector — stuck ON vs never ON;
+should share this list).

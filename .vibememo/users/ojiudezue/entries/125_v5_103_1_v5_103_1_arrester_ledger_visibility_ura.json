@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "125",
+  "author": "ojiudezue",
+  "session_id": "claude_20260916_050020_ship_v5_103_1",
+  "timestamp": "2026-09-16T05:00:20Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.1 shipped: v5.103.1: Arrester ledger visibility + ura_action entity_id guard",
+  "summary": "v5.103.1: Arrester ledger visibility + ura_action entity_id guard",
+  "why": "Three separate investigations stalled in one night (2026-09-16) because a thermostat write that demonstrably happened could not be attributed to anything: the activity log held no HVAC row for the window while the cooling ceiling moved 75->76. The arrester was writing its ledger to a log level that discards it. D2 is step 2 of HVAC-SUPPLE-SEQUENCE-1 and is the instrument the rest of the HVAC sequence depends on - steps 1-3 change no behaviour by design, so that the one behaviour change (step 4) can be proven rather than asserted. D1 ships with it because the same ledger is about to gain new writers, and the field contract must be enforced before it is widened rather than after.",
+  "implications": "Shipped ACTIVITY-LOG-BARE-SLUG-ENTITY-ID-1, ARRESTER-LEDGER-INVISIBLE-1 at v5.103.1; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.1.md (Live criteria).",
+  "revisit_trigger": "ura_activity_log has >=1 row WHERE action='override_detected' AND json_extract(details_json,'$.mode') IS NOT NULL after the next genuine thermostat override; AND zero 'ValueError: Invalid entity ID garage_a' in a post-boot log scan",
+  "refs": {
+    "cards": [
+      "ACTIVITY-LOG-BARE-SLUG-ENTITY-ID-1",
+      "ARRESTER-LEDGER-INVISIBLE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.1.md"
+    ],
+    "release_notes": "Two additive, defensive fixes. No behaviour change to HVAC actuation, presence, or energy.\n\nD1 ACTIVITY-LOG-BARE-SLUG-ENTITY-ID-1: the EVSE charge-onset path wrote a bay slug (\"garage_a\") into the entity_id field of the ura_action bus event. HA's recorder subscribes to every event and calls split_entity_id on it, so it raised ValueError inside the recorder's listener job (live on the running system; 24 rows in the URA DB). activity_logger now admits only a well-formed domain.object_id onto the event; the slug is still stored in the DB column where it is useful bay identity. Guard placed at the producer so it protects every future caller, including D2's new writers.\n\nD2 ARRESTER-LEDGER-INVISIBLE-1: the HVAC override arrester recorded its decisions only as INFO log lines while URA's log keeps WARNING and above, so every arrest was erased as it was written. It now writes a durable activity-ledger row at both detection sites, tagged mode=governed vs passive, carrying zone/entity/old+new preset and setpoints. Fail-open by construction (broad except, no await) because recording an arrest must never be able to prevent one."
+  }
+}

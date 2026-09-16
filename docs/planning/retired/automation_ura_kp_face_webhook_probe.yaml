@@ -1,0 +1,48 @@
+# RETIRED 2026-09-15 — verbatim config of the UniFi Protect face webhook probe,
+# captured immediately before deletion so it is restorable.
+#
+# WHY RETIRED: the probe concluded. Its own description said "Remove after probe
+# concludes". The Protect Alarm Manager webhook path it existed to evaluate is dead:
+#   - Protect face fires on only 2 cameras (Family Room, G6 Entry) and names people
+#     INTERIOR, not at the door (docs/planning/PROBE_protect_face_egress.md, 2026-08-18)
+#   - the HA unifiprotect integration exposes face as DETECTION only (no name)
+#   - real Protect POSTs arrive with an EMPTY body; the Alarm Manager rule lives in the
+#     inaccessible v2 UI (established 2026-08-28)
+# Superseded by the poll-based add-on: card D1-PROTECT-FACE-BRIDGE-ADDON-1.
+# Card: EXTERIOR-GUEST-FACE-FASTFOLLOW-1 (closed done 2026-09-15).
+#
+# KNOWN DEFECT (do not re-copy as-is): the content_type channel is dead —
+# `trigger.headers` is undefined on this HA version, so it always rendered "no-headers".
+#
+# TO RESTORE: re-add this block to /config/automations.yaml (keep the id) and reload
+# automations. Webhook id was `ura_kp_face_probe`, local_only, POST.
+
+- id: '1786827208839'
+  alias: URA KP Face Webhook Probe
+  description: >-
+    PROBE (KP-ANNOTATION-1): captures UniFi Protect Alarm Manager face-match webhook
+    POSTs. Enhanced 2026-08-28 — prior single-field capture came through empty {}, so now
+    captures json / form / query / headers SEPARATELY + logs all four, to learn which
+    channel carries name/confidence and the content-type. Remove after probe concludes.
+  triggers:
+  - trigger: webhook
+    webhook_id: ura_kp_face_probe
+    allowed_methods:
+    - POST
+    local_only: true
+  actions:
+  - event: ura_kp_face_probe_received
+    event_data:
+      json: '{{ trigger.json | default({}, true) }}'
+      form: '{{ trigger.data | default({}, true) }}'
+      query: '{{ trigger.query | default({}, true) }}'
+      content_type: '{{ trigger.headers.get(''content-type'', ''n/a'') if trigger.headers is defined else ''no-headers'' }}'
+  - action: system_log.write
+    data:
+      level: warning
+      message: >-
+        URA_KP_FACE_PROBE ct={{ trigger.headers.get('content-type','n/a') if trigger.headers
+        is defined else 'no-headers' }} json={{ trigger.json | default({}, true) }} form={{
+        trigger.data | default({}, true) }} query={{ trigger.query | default({}, true) }}
+  mode: queued
+  max: 25
