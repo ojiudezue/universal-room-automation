@@ -10001,10 +10001,19 @@ cards:
   title: Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing
     parity break)
   thread: presence
-  status: pre_planning
+  status: waiting_operator
+  VERIFIED_2026_09_15: 'STILL-REAL, re-confirmed by direct source read this session (not by
+    trusting the 09-12 sweep). automation.py:974 returns early when the entry light action is
+    NONE, and the sleep/night-light branch does not run until :991 — so the canonical path can
+    never turn a night light on for those rooms. A second short-circuit sits at :980 (`if not
+    lights:`), which is why a night-light-ONLY room is skipped in canonical even when its entry
+    action is not NONE. The reconciler keys only on (is_sleep_hours and night_lights), so it WOULD
+    turn them on. The two controllers therefore disagree exactly as carded. Moving to
+    waiting_operator: this is a behaviour question about what you want to happen in your bedroom
+    at night, not a defect with one correct answer — I should not pick it for you.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: automation.py:970 early-returns on action==NONE before sleep branch; reconciler sleep branch keys only on (sleep and night_lights). Sibling NIGHT-LIGHT-NO-OFF-PATH-1 shipped but did NOT close entry=none parity. Needs operator decision on intended behavior.'
   created: 2026-08-31 19:05
-  updated: 2026-08-31 19:05
+  updated: '2026-09-15'
   refinement_status: initial
   approval: unreviewed
   sibling_of: NIGHT-LIGHT-NO-OFF-PATH-1
@@ -10025,8 +10034,16 @@ cards:
   why: AUDIT_room_light_automation.md F2 (MED) + F3 (MED). Predates the night-light off-path cycle; must
     be resolved as part of, or before, the NIGHT-LIGHT-NO-OFF-PATH-1 build so the fix does not entrench
     the split.
-  next: Operator/orchestrator decision on the intended entry=none+sleep night-light behavior; then align
-    both canonical + reconciler. Coordinate with NIGHT-LIGHT-NO-OFF-PATH-1 (same files). Tier 2-DB.
+  next: 'PICK the intended behaviour for rooms whose entry-light action is "none" (Master Bedroom,
+    Patio, Game Room) during sleep hours -> then I make BOTH light controllers honour it and add
+    parity tests. (A) NIGHT LIGHTS SHOULD COME ON: "none" means "do not do the normal entry
+    lighting", not "no lighting ever" — so I move the sleep/night-light branch ahead of the
+    entry-action check in the canonical path, and night-light-only rooms start being managed there
+    too. (B) NIGHT LIGHTS SHOULD STAY OFF: "none" means hands off entirely — so I gate the
+    reconciler to respect entry-action NONE and it stops turning them on. Practical difference:
+    under (A) walking into the Master Bedroom at 3am gets you a night light; under (B) it stays
+    dark unless you hit a switch. Whichever you pick, both controllers end up agreeing — today
+    they do not, which is why behaviour can differ depending on which one acts first.'
   refs:
   - docs/planning/AUDIT_room_light_automation.md F2/F3
   - automation.py:973/980; actuator_reconciler.py:746
@@ -13793,10 +13810,39 @@ cards:
     Promoted inbox -> pre_planning; linked plan; next rewritten.'
 - id: UNLOAD-SYMMETRY-TASK-HYGIENE-1
   title: Setup/unload symmetry + tracked background tasks (tech-debt hardening)
-  status: pre_planning
+  status: planned
+  AUDIT_2026_09_15: 'AUDIT DONE — and it DE-SCOPES this card by ~96%. Built a reusable AST audit,
+    quality/tools/audit_listener_cleanup.py (REUSE of the audit_shadow_imports.py walker skeleton
+    shipped 2026-09-12; read-only, standalone, not gated on the broken suite).
+
+    WHY THE TOOL WAS NECESSARY RATHER THAN A GREP: grep reports 294 async_dispatcher_connect calls
+    against 163 cleanup idioms (149 async_on_remove + 14 async_on_unload) and implies ~131 leaks.
+    THAT NUMBER IS WRONG and would have scoped a huge fictional cycle. The retaining wrapper is
+    usually on a DIFFERENT LINE from the call it wraps (black splits long calls), so line-based
+    matching cannot see it. The AST asks the only question that matters — is the returned
+    unsubscribe callable retained by anything?
+
+    MEASURED RESULT: 5 discarded, 282 retained. All 5 are async_call_later (one-shot timers), NOT
+    dispatcher subscriptions — and ZERO bare async_dispatcher_connect leaks exist. That kills the
+    card''s premise of a broad reload-leak: recurring subscriptions are in fact consistently
+    cleaned up. The 5 sites: transit_validator.py:1072 (_on_egress_state_change),
+    transit_validator.py:1111 (_on_egress_count_change), __init__.py:1618 (_emit_with_retry),
+    domain_coordinators/coordinator_diagnostics.py:369 (schedule_check),
+    domain_coordinators/hvac.py:1259 (async_setup, 60s egress-gate release).
+
+    SEVERITY, STATED HONESTLY: a dropped async_call_later handle is NOT a permanent listener leak —
+    the timer fires once and self-clears. The real (bounded) risk is that it CANNOT BE CANCELLED,
+    so a pending one-shot can fire AFTER unload/reload and touch a torn-down entry. hvac.py:1259 is
+    the most interesting of the 5 (a 60-second delay armed during async_setup, so a reload inside
+    that window leaves a callback in flight). This is a genuine hardening item, not an incident.
+
+    IMPORTANT LIMIT OF THE TOOL (do not over-read it): "retained" is deliberately generous — it
+    counts anything bound or passed onward, and does NOT prove the unsubscribe is ever CALLED.
+    So 282 is not a clean bill of health; only the DISCARDED list is a definite finding. Proving
+    the retained ones are actually invoked on unload needs a different check.'
   thread: platform
   created: 2026-08-18 02:30
-  updated: 2026-09-12 09:45
+  updated: '2026-09-15'
   refinement_status: refined
   problem: 'untracked background tasks — matches a known URA bug class (task leak). One hardening cycle.
     (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified
