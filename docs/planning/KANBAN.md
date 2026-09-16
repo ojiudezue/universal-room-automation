@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T17:37:39-05:00_ - _Data commit: `6403c8924169`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T17:38:44-05:00_ - _Data commit: `cc10d0205a93`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -349,7 +349,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (16):**
+- **Forensic keys (17):**
+  - `PLAN_FINALIZED_2026_09_16`: Final buildable plan written: docs/planning/PLANNING_hvac_zone_conditioning_demand.md. Falsifiable invariant: a zone whose only occupied rooms are hallway-typed is NEVER conditioned; a zone with any dwelling room HVAC-occupied (kind-awar...
   - `CHECKPOINT_CLEARED_2026_09_16`: Operator step-4 checkpoint RESOLVED. Decisions: (6) AGGRESSION = ABSOLUTE (hallway-only occupancy never conditions the zone) — the launch posture, justified by Stage 0 42:0. (1) aggregation = OR over HVAC-relevant rooms. (2) RETIRE zone_...
   - `STAGE0_CONFIRMED_2026_09_16`: GATE GREEN. H3 CONFIRMED by read-only measurement: of 51 pointless zone_3 conditioning episodes (7d, retreat off home within <=11min), 42 were CORRIDOR-only and ZERO were dwelling-only (kitchen_hallway_garage 37, garage_hallway 22, kitch...
   - `PLANNING_DOC_2026_09_16`: The readable proposal + full digest lives at docs/planning/PROPOSAL_hvac_conditioning_demand_2026_09_16.md (operator: "cards are not a substitute" for planning hygiene). That doc is the SOURCE for this cycle — hypothesis history (H1 fals...
@@ -401,7 +402,8 @@ _created 2026-08-24 16:45 · updated 2026-09-12 10:30 · initial_
 - **Tags:** institutional-context, numbers-get-knobs
 - **Parsimony:** [BUILD] Independent SOC sliders can be set to inverted values that flip an EV gate polarity, with no guard.
 - **Refs:** docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md:521-525; docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:822; energy_const.py:980
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `REVIEWS_AC_2026_09_16`: EC-SOC reviews A+C in (B pending). A (clamp arithmetic) = SHIP + 2 MED: peak_buffer clamp can emit >100 (energy.py:9362; fix min(100,...)); drain_targets accessor drops the reachable "unknown" class (shape divergence, Bug Class #53). C (...
   - `PLAN_2026_09_16`: Plan written: docs/planning/PLANNING_ec_soc_ladder_xvalidate.md. Prior-art scan found MOST already shipped ON DEVELOP (verified in source, not just the branch name): validate_threshold_ladder cross-field kwargs (energy_const.py:1156), CA...
   - `disposition_2026_09_12_sweep2`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: reject-at-save + runtime threshold_ladder_violation anomaly SHIPPED (energy.py:9155/9235, energy_const.py:1311; feature/energy-validate-staleness merged). NARR...
   - `relane_2026_09_10`: Not a soak -> PRE-PLANNING. This is FUTURE Tier-2-DB build work (harvest parked D3/S5 spec + O3 analysis -> enumerate ordered-pair invariants for the shared EC validator). No shipped deliverable to dispose.
