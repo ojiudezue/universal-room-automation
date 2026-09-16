@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.2
+# Universal Room Automation vv5.103.3
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -12769,10 +12769,11 @@ class HVACZonePresetSensor(AggregationEntity, SensorEntity):
             )
         except Exception:  # noqa: BLE001
             _d3_skipped = False
-        try:
-            _honest_on = bool(hvac.hvac_offphase_honesty_enabled)
-        except Exception:  # noqa: BLE001
-            _honest_on = True
+        # S14 REMOVED 2026-09-16: the off-phase ceiling hold is gone, so this
+        # attribute must no longer claim a zone is in an S14 "honest off-phase"
+        # — that state cannot occur. Pinned False rather than reading the now-
+        # inert flag, so the attribute reports reality instead of a dead knob.
+        _honest_on = False
         try:
             _shed_on = bool(hvac.shed_active)
         except Exception:  # noqa: BLE001

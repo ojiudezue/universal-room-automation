@@ -353,3 +353,72 @@ def test_the_pin_itself_is_wrapped():
         "the pin must sit inside a try/except so a failure after a successful "
         "clear can be handled rather than stranding the zone"
     )
+
+
+# --------------------------------------------------------------------------
+# 4a — the boot path must restore the PRESET, from the PERSISTED snapshot.
+# --------------------------------------------------------------------------
+
+def _startup_audit_src():
+    src = OVERRIDE.read_text()
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and node.name == "async_startup_ramp_audit":
+            return ast.get_source_segment(src, node) or ""
+    raise AssertionError("async_startup_ramp_audit not found")
+
+
+def test_boot_restore_puts_the_preset_back():
+    """OBSERVED LIVE 2026-09-16: zone_3 went away|away -> manual|manual at
+    01:17:04, seconds after a restart, on the healthiest zone in the house.
+    The boot path restored the numbers and left an anonymous hold."""
+    src = _startup_audit_src()
+    assert "emit_set_preset_mode(" in src, (
+        "the startup ramp audit restores setpoints but not the preset — every "
+        "restart then strands the zone in an anonymous hold"
+    )
+
+
+def test_boot_restore_reads_the_PERSISTED_snapshot_not_the_ram_map():
+    """THE REASON THIS BUG EXISTED.
+
+    `_restore_after_nudge` restores from `self._nudge_pre_preset`, which is
+    RAM-ONLY and therefore EMPTY after a restart — the boot path had nothing to
+    restore to. The snapshot does survive, in hvac_excursion_state.pre_preset.
+    A fix that reached for the RAM map would be a no-op at boot: exactly the
+    shape of the original defect.
+    """
+    src = _startup_audit_src()
+    assert "get_all_excursion_rows" in src, (
+        "boot restore must read the PERSISTED excursion snapshot; the in-memory "
+        "_nudge_pre_preset map is empty after a restart"
+    )
+    # AST, not substring: the comment in the source legitimately NAMES the RAM
+    # map to explain why it is not used. Forbid the ATTRIBUTE ACCESS, not the
+    # explanation — a test that bans the word would forbid documenting the bug.
+    tree = ast.parse(OVERRIDE.read_text())
+    fn = next(
+        n for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and n.name == "async_startup_ramp_audit"
+    )
+    ram_reads = [
+        n for n in ast.walk(fn)
+        if isinstance(n, ast.Attribute) and n.attr == "_nudge_pre_preset"
+    ]
+    assert not ram_reads, (
+        "the boot path must NOT read the RAM-only _nudge_pre_preset map — it is "
+        "empty after a restart, so that would silently restore nothing"
+    )
+
+
+def test_boot_preset_restore_cannot_break_the_setpoint_restore():
+    """The setpoint restore is the load-bearing half; the preset half is
+    additive and must fail soft."""
+    src = _startup_audit_src()
+    idx = src.index("get_all_excursion_rows")
+    assert "except" in src[:idx] or "try:" in src[:idx], (
+        "the excursion-row load must be wrapped — an unavailable table must not "
+        "prevent the setpoint restore this audit exists to perform"
+    )

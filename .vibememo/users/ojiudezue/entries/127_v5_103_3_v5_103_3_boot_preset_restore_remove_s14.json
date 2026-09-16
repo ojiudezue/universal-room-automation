@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "127",
+  "author": "ojiudezue",
+  "session_id": "claude_20260916_131431_ship_v5_103_3",
+  "timestamp": "2026-09-16T13:14:31Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.3 shipped: v5.103.3: Boot preset restore + remove S14 off-phase ceiling hold",
+  "summary": "v5.103.3: Boot preset restore + remove S14 off-phase ceiling hold",
+  "why": "The boot finding came from watching the v5.103.2 restart rather than from analysis: the healthiest zone in the house was stranded seconds after boot, which confirmed a plan-review finding (R1-MEDIUM-1) that had been filed as a note. S14's removal was costed only after establishing it was already switched off \u2014 that single fact made the decision lopsided, because it meant removal changes nothing today while repair would turn a disliked behaviour back on. The S14 removal deliberately overturns a shipped trade encoded in three artifacts, including a test that would have kept passing VACUOUSLY after the feature was deleted; it is inverted rather than dropped, with the original anti-flap rationale preserved for whoever revisits it.",
+  "implications": "Shipped HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1, S14-CEILING-NEEDS-AN-ENDING-1 at v5.103.3; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.3.md (Live criteria).",
+  "revisit_trigger": "On the first restart after this ships: a zone holding a NAMED preset before the restart holds the SAME named preset once boot settles (before-picture: zone_3 away|away -> manual|manual at 01:17:04 on the 2026-09-16 boot); discriminating negative = a zone genuinely in manual beforehand still is; AND duty_cycle_off_phase reads False with no zone entering an off-phase ceiling hold",
+  "refs": {
+    "cards": [
+      "HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1",
+      "S14-CEILING-NEEDS-AN-ENDING-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.3.md"
+    ],
+    "release_notes": "Two changes closing out the preset-hold arc. Neither adds behaviour.\n\nD1 HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1: the startup ramp audit restored an in-flight nudge's SETPOINT and never its PRESET, so every restart dropped zones into an anonymous hold. Observed live 2026-09-16: zone_3 went away|away -> manual|manual at 01:17:04, seconds after a restart, on the healthiest zone in the house; at ~2.9 restarts/day that is a recurring insult. It could not restore a preset because _nudge_pre_preset is RAM-only and empty after a restart \u2014 but hvac_excursion_state.pre_preset IS persisted and get_all_excursion_rows() already existed, so no schema migration. The row load is wrapped so it can never break the load-bearing setpoint restore.\n\nD2 S14 REMOVED: the off-phase ceiling hold wrote a raw setpoint during an occupied off-phase, which put the zone into `manual` \u2014 and should_change_preset refuses to act on a manual zone, so S14 created the exact condition preventing its own documented exit. Removed rather than repaired because the kill switch had been off for weeks: removal is behaviour-neutral (the away fall-through is already what ran) while repair would have re-enabled a disliked behaviour. Its kill-switch entity and offset Number are gone too; an inert control is a footgun."
+  }
+}

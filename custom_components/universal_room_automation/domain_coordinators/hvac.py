@@ -2002,41 +2002,33 @@ class HVACCoordinator(BaseCoordinator):
                         # through to the normal preset-decision path.
                         _d3_skipped_this_tick = True
                     else:
-                        # HVAC-PRESET-FLAP-1 (2026-08-11): duty off-phase
-                        # honesty. In occupied zones (`any_room_occupied`
-                        # True) hold home_target_high + OFFSET via
-                        # `emit_set_temperature` (S14) instead of writing
-                        # `preset=away`. The dominance short-circuits below
-                        # are EXHAUSTIVE per plan §3.2 — any True predicate
-                        # means an existing branch owns this tick; preserve
-                        # the pre-cycle `effective_preset = "away"` path so
-                        # the correct reason (stale_occupancy / vacant /
-                        # runtime_exceeded) fires on the S1 preset write.
-                        if (
-                            stale_occupancy                              # D6 stuck-sensor — INV #7
-                            or zone_vacant_past_grace                    # real vacancy — INV #5
-                            or not zone.any_room_occupied                # within-grace vacancy — INV #8
-                            or not self._hvac_offphase_honesty_enabled   # kill-switch OFF
-                        ):
-                            effective_preset = "away"
-                        else:
-                            _s14_written = await self._apply_duty_off_phase(
-                                zone,
-                                target_preset,
-                                activity_logger,
-                            )
-                            if not _s14_written:
-                                # S14 emit was DEFERRED by the comfort-delay
-                                # gate (chokepoint already logged the
-                                # deferred-write row). Do NOT set
-                                # effective_preset to "away" — leave it at
-                                # target_preset so the S1 preset path stays
-                                # a no-op via should_change_preset. Skip to
-                                # the next zone.
-                                continue
-                            # DO NOT set effective_preset = "away"; leave it
-                            # as target_preset so the S1 preset path is a
-                            # no-op (should_change_preset False).
+                        # S14 REMOVED 2026-09-16 (operator: "Remove s14").
+                        #
+                        # WHAT WAS HERE. HVAC-PRESET-FLAP-1 (2026-08-11) added
+                        # "duty off-phase honesty": in an OCCUPIED zone, rather
+                        # than writing preset=away (which relaxes toward ~80F),
+                        # it held home_target_high + OFFSET with a RAW SETPOINT
+                        # write. The intent was kind — save energy without
+                        # abandoning a room someone is sitting in.
+                        #
+                        # WHY IT IS GONE. A raw setpoint write puts the Bryant
+                        # into preset `manual`, and should_change_preset refuses
+                        # to act on a manual zone — so S14 CREATED THE EXACT
+                        # CONDITION THAT PREVENTED ITS OWN DOCUMENTED EXIT
+                        # ("holds until the next preset transition"). No timer,
+                        # no decay, no restore: a zone could sit off-preset
+                        # indefinitely. The flap fix had introduced a
+                        # permanent-manual writer.
+                        #
+                        # WHY REMOVE RATHER THAN REPAIR. The kill switch had
+                        # been OFF for weeks (operator disabled it on instinct,
+                        # then called the feature "marginal — possibly should
+                        # not have built it at all"), so this limb was already
+                        # dead in practice and the away path below was already
+                        # what ran. Removal is therefore BEHAVIOUR-NEUTRAL,
+                        # while repair would have re-enabled a disliked
+                        # behaviour. Costed 2026-09-16; operator picked remove.
+                        effective_preset = "away"
                 # Expose per-zone D3-skip flag for the sensor attribute (D3).
                 try:
                     self._d3_skipped_current_tick[zone_id] = bool(_d3_skipped_this_tick)
@@ -3144,200 +3136,6 @@ class HVACCoordinator(BaseCoordinator):
     # ------------------------------------------------------------------
     # HVAC-PRESET-FLAP-1 (2026-08-11): duty off-phase honesty (S14).
     # ------------------------------------------------------------------
-    async def _apply_duty_off_phase(
-        self,
-        zone,
-        target_preset: str,
-        activity_logger,
-        *,
-        reason: str = "runtime_exceeded_offphase",
-    ) -> bool:
-        """Route the D5 duty-limiter off-phase through a setpoint write
-        instead of a preset write.
-
-        Returns True if a write was issued OR if the shed early-return
-        gated the S14 emit (the CALLER treats "silent this tick" as a
-        success — do NOT set effective_preset to "away"). Returns False
-        only when the ``emit_set_temperature`` comfort-delay ``gate``
-        deferred the write, in which case the CALLER continues to the
-        next zone.
-
-        Order-proof: shed dominance is enforced by an EARLY return here
-        so a same-tick shed write is never raised by an S14 write on the
-        same entity (§3.5 option (a), rev-2 M3 — no fabricated shed
-        accessor).
-        """
-        # Shed dominance: hard early-return (no fabricated accessor). Any
-        # shed action on this tick already owns the ceiling; S14 silent.
-        if self.shed_active:
-            return True
-
-        # Compute seasonal home cool baseline for the current target preset.
-        try:
-            baselines = self._preset_manager.get_seasonal_setpoints(target_preset)
-        except Exception as exc:  # noqa: BLE001
-            _LOGGER.warning(
-                "HVAC-PRESET-FLAP-1: get_seasonal_setpoints(%s) errored on %s: %s"
-                " — falling through to pre-cycle preset behavior.",
-                target_preset, zone.zone_name, exc,
-            )
-            return False
-        if baselines is None:
-            _LOGGER.warning(
-                "HVAC-PRESET-FLAP-1: get_seasonal_setpoints(%s) is None on %s"
-                " — falling through to pre-cycle preset behavior.",
-                target_preset, zone.zone_name,
-            )
-            return False
-        try:
-            cool_baseline, heat_baseline = float(baselines[0]), float(baselines[1])
-        except (TypeError, ValueError, IndexError):
-            _LOGGER.warning(
-                "HVAC-PRESET-FLAP-1: get_seasonal_setpoints(%s) returned "
-                "malformed value on %s: %r — falling through.",
-                target_preset, zone.zone_name, baselines,
-            )
-            return False
-
-        offset = float(self._comfort_offphase_offset_f)
-        high = cool_baseline + offset
-        low = heat_baseline
-
-        _zone_id = zone.zone_id
-        # Discharge episode dedup AND throttle map on house_state
-        # transition BEFORE checking the throttle — a new house_state is
-        # a new episode by construction, and stale throttle state from
-        # the prior episode would otherwise suppress the first emit of
-        # the new one (matches the night-trust discharge pattern).
-        try:
-            if self._offphase_logged_state != self._house_state:
-                self._offphase_logged.clear()
-                self._last_offphase_emit.clear()
-                self._offphase_logged_state = self._house_state
-        except Exception:  # noqa: BLE001
-            pass
-        # B1 (fix-up): idempotent throttle — skip emit if this (low, high)
-        # pair matches the last-emitted pair on this zone (mirror of
-        # S10 `_last_emitted_range` at hvac.py:2219). Silent-True return
-        # so the caller preserves `effective_preset = target_preset`.
-        _throttle_pair = (float(low), float(high))
-        if self._last_offphase_emit.get(_zone_id) == _throttle_pair:
-            return True
-
-        # Suppress the arrester on this URA-initiated setpoint write
-        # (mirrors the S1 preset-write path at ~:1793).
-        # B9 (fix-up): `OverrideArrester.suppress` at hvac_override.py:1925
-        # accepts `kind` unconditionally — no TypeError fallback needed.
-        if self._override_arrester is not None:
-            try:
-                self._override_arrester.suppress(
-                    zone.climate_entity, kind="temp",
-                )
-            except Exception:  # noqa: BLE001
-                pass
-
-        # S14 comfort-delay gate. Single-reason defer-set for this site
-        # (A-LOW-1): unlike S1's four-reason ladder, S14 always emits
-        # under `runtime_exceeded_offphase` — the reason string is fixed,
-        # so the gate collapses to `comfort_delay_active(zone)`.
-        def _s14_gate() -> bool:
-            if self._override_arrester is None:
-                return False
-            try:
-                return bool(
-                    self._override_arrester.comfort_delay_active(_zone_id)
-                )
-            except Exception:  # noqa: BLE001
-                return False
-
-        # Episode-gated ledger row BEFORE the emit — one row per
-        # (zone_id, house_state) episode (mirror of _night_trust_logged
-        # gating shape). Skipped when the gate defers (chokepoint logs
-        # its own `comfort_delay_deferred_write` row in that case).
-        # (discharge check already ran at the top of the helper — see
-        # the throttle-preceding block; nothing to re-do here.)
-        would_have_preset = "away"
-        setpoint_high_written = high
-        home_persons_live: list[str] = []
-        try:
-            for _p in (zone.zone_persons or []):
-                _st = self.hass.states.get(_p)
-                if _st is not None and _st.state == "home":
-                    home_persons_live.append(_p)
-        except Exception:  # noqa: BLE001
-            home_persons_live = []
-
-        # Emit through the S-gate chokepoint.
-        _s14_written = await emit_set_temperature(
-            self.hass,
-            zone.climate_entity,
-            target_temp_low=low,
-            target_temp_high=high,
-            freeze_active=self._freeze_active,
-            gate=_s14_gate,
-            site="S14_duty_off_phase",
-            zone_id=_zone_id,
-            reason=reason,
-        )
-        if not _s14_written:
-            # B2 (fix-up): roll back the pre-emit suppress() stamp on
-            # gate-defer so a real manual within SUPPRESS_TTL_SECONDS
-            # isn't swallowed (mirror of S10 A-MED-2 discipline at
-            # hvac.py:2261). Do NOT record the throttle pair — next tick
-            # re-attempts naturally when the grace expires.
-            if self._override_arrester is not None:
-                try:
-                    self._override_arrester.unsuppress(zone.climate_entity)
-                except Exception:  # noqa: BLE001
-                    pass
-            return False
-        # B1 (fix-up): record the emitted pair AFTER a successful write
-        # so the next tick with identical (low, high) skips the emit.
-        self._last_offphase_emit[_zone_id] = _throttle_pair
-
-        _LOGGER.info(
-            "HVAC-PRESET-FLAP-1: %s duty off-phase — holding "
-            "target_temp_high=%.1f (home_cool=%.1f + offset=%.1f, "
-            "preset stays %s, occupied=%s)",
-            zone.zone_name, high, cool_baseline, offset,
-            target_preset, home_persons_live,
-        )
-
-        # Episode-gated preset_change_suppressed ledger row (mirror of
-        # night-trust suppression row shape at ~:1687-1709).
-        log_key = (_zone_id, self._house_state)
-        if activity_logger and log_key not in self._offphase_logged:
-            self._offphase_logged.add(log_key)
-            try:
-                self.hass.async_create_task(
-                    activity_logger.log(
-                        coordinator="hvac",
-                        action="preset_change_suppressed",
-                        description=(
-                            f"{zone.zone_name} duty off-phase — holding "
-                            f"{setpoint_high_written:.1f}°F instead of "
-                            f"forcing preset=away (occupied)"
-                        ),
-                        zone=_zone_id,
-                        importance="notable",
-                        entity_id=zone.climate_entity,
-                        details={
-                            "old_preset": zone.preset_mode,
-                            "new_preset": zone.preset_mode,
-                            "house_state": self._house_state,
-                            "reason": reason,
-                            "duty_cycle_off_phase": True,
-                            "would_have_written_preset": would_have_preset,
-                            "setpoint_high_written": float(setpoint_high_written),
-                            "home_persons": list(home_persons_live),
-                        },
-                    )
-                )
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug(
-                    "HVAC-PRESET-FLAP-1 ledger emit failed", exc_info=True,
-                )
-        return True
 
     async def _execute_vacancy_sweep(self, zone) -> None:
         """Turn off URA-configured lights and fans in all rooms of a vacant zone.
@@ -4123,11 +3921,75 @@ class HVACCoordinator(BaseCoordinator):
                         "HVAC short-cycle: anomaly persist failed",
                         exc_info=True,
                     )
+        # B4 (2026-08-23 Tier-2-DB review residual): persist the baselines
+        # NOW, on the genuine-rollover path only. record_observation is
+        # pure in-memory (coordinator_diagnostics.py:988) and the
+        # coordinator's only other save_baselines() call is in
+        # async_teardown — so at ~2.9 restarts/day the once-per-local-day
+        # short_cycle_rate observation was almost always discarded before
+        # reaching metric_baselines, leaving sample_count stuck far below
+        # HVAC_SHORT_CYCLE_MIN_SAMPLES.
+        #
+        # Same doctrine as the CM setup_duration_seconds precedent at
+        # __init__.py:4058-4068: a metric that fires ONCE per day/boot
+        # cannot use the teardown-only cadence its many-times-per-session
+        # peers use. This save deliberately does NOT run on any of the
+        # four early-return paths above (first-boot seed, mid-day restart,
+        # detector-None, multi-day gap) — a save on the mid-day-restart
+        # path would fire on every boot.
+        #
+        # Isolated so a DB failure can never prevent the load-bearing
+        # counter reset / date stamp (same defensive style as store_event
+        # and clear_active_anomalies_filtered above).
+        #
+        # ORDERING (fix-up round, Review B LOW-2): the counter reset and
+        # the date stamp run BEFORE the await, not after. `CancelledError`
+        # is a `BaseException`, so it escapes the `except Exception` below
+        # — if a shutdown cancels this tick inside the awaited save, a
+        # reset-after-save ordering would never reach the date stamp;
+        # teardown would then persist {date: prev_date, counts: non-zero}
+        # and the NEXT boot's rollover would re-record the same day, a
+        # duplicate observation into a 14-sample gate. Reordering is free:
+        # every observation is already recorded in memory above, so what
+        # gets persisted is unchanged.
         # Reset counter keyed on the new day.
         self._short_cycles_today = {
             zid: 0 for zid in self._zone_manager.zones
         }
         self._short_cycles_today_date = today
+        # DURABILITY NUDGE (fix-up round, Review A MEDIUM-1): the stamp
+        # above is RAM-only. The durable copy lives in the zone-state
+        # `.storage` snapshot, written at clean teardown or by the
+        # periodic block below (gated on `_zone_state_save_counter >= 5`,
+        # ~25 min). Setting the counter to 4 here makes the increment in
+        # `_run_decision_cycle` reach 5 and write the durable snapshot
+        # later in the SAME decision cycle (this method is awaited from
+        # that function, and there is no `return` between the two sites).
+        #
+        # HONEST SCOPE: this SHRINKS the double-count window from up to
+        # ~25 minutes to the remainder of one decision cycle. It does NOT
+        # close it — an unclean kill between this baseline save and the
+        # snapshot write later in the tick can still double-count the
+        # day. Full closure needs the durable snapshot written BEFORE the
+        # baseline save, i.e. a shared snapshot-construction helper used
+        # by all three sites (rollover, periodic, teardown). Deliberately
+        # out of scope for an unattended overnight change; carded.
+        self._zone_state_save_counter = 4
+        try:
+            await self.anomaly_detector.save_baselines()
+            _LOGGER.info(
+                "HVAC short-cycle: baselines persisted after day rollover "
+                "(prev=%s today=%s)", prev_date, today,
+            )
+        except Exception as e:
+            # `save_baselines` already swallows DB errors one level down,
+            # so anything reaching here is a programming error — error,
+            # not warning (fix-up round, Review A LOW-2).
+            _LOGGER.error(
+                "HVAC short-cycle: save_baselines failed after rollover "
+                "(prev=%s today=%s): %s — counter already reset",
+                prev_date, today, e,
+            )
 
     async def _record_anomaly_observations(self) -> None:
         """Record observations for anomaly detection and persist anomalies to anomaly_log.
