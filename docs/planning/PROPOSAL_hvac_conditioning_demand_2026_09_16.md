@@ -216,6 +216,43 @@ the one existing zone rollup site; lights untouched.
   `ROOM-CLASSIFICATION-CONSISTENCY-1` work; check that card for a parked
   missing-types deliverable before building.
 
+### Stage A′ — Zone-level aggregation of the per-room signals (the piece I'd missed)
+
+**Operator caught this gap 2026-09-16:** if each room has its own HVAC dwell/hold,
+how does it sum to a zone decision? HVAC decides at the *zone* (thermostat)
+granularity, and — verified in code — HVAC `ZoneState` enumerates its member rooms
+*directly* (`zone.rooms`) and computes `any_room_occupied = any(r.occupied ...)`, a
+pure OR (`hvac_zones.py:148`). House-zones do **not** enter HVAC aggregation; the
+HVAC zone keeps its own room membership (which is why HVAC-zone ≠ house-zone). The
+plan swaps the per-room *input* from the lighting-held `occupied` to the room's
+HVAC-occupancy signal; the aggregation answer is **asymmetric, not a single
+LCD/HCD choice:**
+
+- **Entry (adopt conditioning) = first room to qualify** (OR / min). Zone conditions
+  as soon as any member room's HVAC-occupancy flips true. Fast-in latency = that
+  room's dwell-to-enter + one loop tick. Per-room dwell and loop cadence are
+  independent: dwell decides *when a room contributes*; the loop decides *how often
+  the zone re-reads the OR*.
+- **Exit (retreat) = last room to clear** (max), then the zone retreat timer. Never
+  abandon a zone while any member room still holds.
+
+**Four decisions (recommendations):**
+1. **Aggregation = OR** over HVAC-relevant rooms. Hallways drop out by having
+   HVAC-occupancy off — not by a special-case rule. OR, never AND (AND would only
+   condition when every room is full).
+2. **Dwell-to-enter moves per-room; RETIRE the zone-level `zone_entry_dwell`
+   (live 5 min).** Otherwise per-room dwell + zone dwell stack (e.g. 4+5=9 min) and
+   defeat fast-in. This changes a live timer — call it out at the checkpoint.
+3. **Retreat stays zone-level: keep `vacancy_grace` (10 min) as the single exit
+   timer.** Per-room *holds* stay short (bridge mmWave dropout only), NOT second
+   retreat timers — stacking two long holds makes exit latency unreasonable.
+   Optional per-room "hold longer" override for a case like a bedroom overnight.
+4. **The 60 s fast sub-loop reads the same zone OR**, just more often, for the
+   hot-and-occupied case.
+
+Net: dwell is per-room (the flexibility), retreat is one zone timer (reasoning stays
+simple), entry is responsive, exit is conservative.
+
 ### Stage B — Within-room stillness (refinement, only if needed, measurement-gated)
 
 If Stage A leaves residual pointless conditioning inside dwelling rooms from brief
@@ -260,14 +297,16 @@ coordinator, two cadences" is a proven in-repo pattern.
    hold is noticed within ~60 s, not up to 5 min). Proven pattern, bounded blast
    radius, no herd risk.
 3. **Central URA loop / tick-multiplier abstraction.** Parked, not rejected — an
-   appealing north star. Downsides now: it is a **Tier-3 shared-primitive refactor**
-   touching every coordinator's timing, and it **fights the deliberate jitter**
-   (`coordinator.py:630`: `30 + jitter`) that prevents a thundering herd —
-   synchronizing all coordinators onto one base tick risks the event-loop stalls that
-   trip the watchdog into a ~5-min outage (parent-reload-watchdog hazard; optimizer
-   write-flood incident both live here). Marginal benefit today = one fast-in need.
-   **Revival trigger:** a 3rd/4th fast sub-loop need appears → extract a shared
-   scheduler *then*, with stagger/jitter built in by design.
+   appealing north star, and *cleaner* than the current pile of independent
+   `async_track_time_interval`s when re-architecture comes.
+   **Correction (operator, 2026-09-16): the thundering-herd objection was WRONG and
+   is struck.** One base clock does NOT mean everything fires on the same tick — a
+   tick-wheel gives each consumer a *divisor* (1×/30×/60×/300×) and a *phase offset*,
+   so the herd is a solved design detail, not a risk. The honest reason to defer is
+   **marginal benefit + it deserves to be a deliberate re-architecture, not bolted on
+   for one fast-in need** — NOT stall risk. **Revival trigger:** a 3rd/4th fast
+   sub-loop need appears, or a re-architecture pass opens → build the central
+   tick-wheel then, with divisors + staggered offsets by design.
 
 Note on loop inventory (corrects a common mental model — it is not just HVAC + EC +
 SC): ~10+ periodic loops exist at intentionally heterogeneous, jittered cadences —
