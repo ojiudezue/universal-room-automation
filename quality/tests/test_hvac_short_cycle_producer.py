@@ -582,10 +582,22 @@ class _AnomalyDetectorRecorderStub:
     def __init__(self):
         self.calls = []
         self.filtered_clears = []
+        # B4: ordered trace of record vs save, so a save that runs
+        # BEFORE the observations are recorded is detectable.
+        self.order = []
+        self.save_calls = 0
+        self.save_raises = False
 
     def record_observation(self, metric_name, scope, value):
         self.calls.append((metric_name, scope, value))
+        self.order.append(("record", scope))
         return None
+
+    async def save_baselines(self):
+        self.save_calls += 1
+        self.order.append(("save", None))
+        if self.save_raises:
+            raise RuntimeError("simulated DB write failure")
 
     def clear_active_anomalies_filtered(self, *, metric_name=None, scope=None):
         self.filtered_clears.append((metric_name, scope))
@@ -1039,3 +1051,119 @@ def test_short_cycle_detector_none_resets_counter_no_date_advance(hvac_ns):
     asyncio.run(emit("2026-08-24"))
     assert stub._short_cycles_today == {"zone_1": 0}
     assert stub._short_cycles_today_date == "2026-08-23"
+
+
+# ===========================================================================
+# B4 — daily baseline persist on the genuine-rollover path
+#
+# record_observation is pure in-memory; the coordinator's only other
+# save_baselines() call is in async_teardown. At ~2.9 restarts/day the
+# once-per-local-day short_cycle_rate observation was discarded before it
+# reached metric_baselines (live DB: sample_count=2 after ~20 days vs a
+# HVAC_SHORT_CYCLE_MIN_SAMPLES=14 gate). These tests pin the write leg.
+# ===========================================================================
+
+def test_short_cycle_rollover_persists_baselines_after_recording(hvac_ns):
+    """B4: genuine rollover awaits save_baselines exactly once, AFTER all
+    per-zone observations were recorded (ORDER is load-bearing)."""
+    stub = _CoordStub(
+        ["zone_1", "zone_2", "zone_3"],
+        _make_hvac_stub_with_bound_methods._now,
+    )
+    stub._short_cycles_today = {"zone_1": 3, "zone_2": 0, "zone_3": 5}
+    stub._short_cycles_today_date = "2026-08-23"
+    emit = _bind(hvac_ns, "_emit_and_reset_short_cycles", stub)
+
+    import asyncio
+    asyncio.run(emit("2026-08-24"))
+
+    det = stub.anomaly_detector
+    assert det.save_calls == 1, (
+        "write-leg defect: genuine day rollover did not persist the "
+        "freshly-recorded daily observations (teardown-only save leg)."
+    )
+    # ORDER: every record must precede the single save.
+    kinds = [k for k, _ in det.order]
+    assert kinds.count("save") == 1
+    save_idx = kinds.index("save")
+    assert save_idx == len(kinds) - 1, (
+        f"save_baselines must run AFTER all record_observation calls; "
+        f"order was {det.order}"
+    )
+    assert kinds[:save_idx] == ["record"] * 3
+
+
+def test_short_cycle_midday_restart_does_not_persist_baselines(hvac_ns):
+    """NEGATIVE: mid-day restart is a strict no-op — a save here would
+    fire on EVERY boot."""
+    stub = _CoordStub(["zone_1"], _make_hvac_stub_with_bound_methods._now)
+    stub._short_cycles_today = {"zone_1": 2}
+    stub._short_cycles_today_date = "2026-08-24"
+    emit = _bind(hvac_ns, "_emit_and_reset_short_cycles", stub)
+
+    import asyncio
+    asyncio.run(emit("2026-08-24"))
+    assert stub.anomaly_detector.save_calls == 0
+    assert stub.anomaly_detector.order == []
+
+
+def test_short_cycle_first_boot_seed_does_not_persist_baselines(hvac_ns):
+    """NEGATIVE: first-boot seed path records nothing, saves nothing."""
+    stub = _CoordStub(["zone_1"], _make_hvac_stub_with_bound_methods._now)
+    stub._short_cycles_today_date = ""
+    emit = _bind(hvac_ns, "_emit_and_reset_short_cycles", stub)
+
+    import asyncio
+    asyncio.run(emit("2026-08-24"))
+    assert stub.anomaly_detector.save_calls == 0
+
+
+def test_short_cycle_multi_day_gap_does_not_persist_baselines(hvac_ns):
+    """NEGATIVE: discard-and-reseed must not persist a stale partial."""
+    stub = _CoordStub(["zone_1"], _make_hvac_stub_with_bound_methods._now)
+    stub._short_cycles_today = {"zone_1": 7}
+    stub._short_cycles_today_date = "2026-08-20"
+    emit = _bind(hvac_ns, "_emit_and_reset_short_cycles", stub)
+
+    import asyncio
+    asyncio.run(emit("2026-08-24"))
+    assert stub.anomaly_detector.save_calls == 0
+    assert stub._short_cycles_today_date == "2026-08-24"
+
+
+def test_short_cycle_detector_none_does_not_persist_baselines(hvac_ns):
+    """NEGATIVE: detector-None path cannot save (and must not crash)."""
+    stub = _CoordStub(["zone_1"], _make_hvac_stub_with_bound_methods._now)
+    stub._short_cycles_today = {"zone_1": 12}
+    stub._short_cycles_today_date = "2026-08-23"
+    held = stub.anomaly_detector
+    stub.anomaly_detector = None
+    emit = _bind(hvac_ns, "_emit_and_reset_short_cycles", stub)
+
+    import asyncio
+    asyncio.run(emit("2026-08-24"))
+    assert held.save_calls == 0
+    assert stub._short_cycles_today_date == "2026-08-23"
+
+
+def test_short_cycle_save_baselines_failure_does_not_block_rollover(hvac_ns):
+    """DEFENSIVE ISOLATION: a DB write failure must not prevent the
+    load-bearing counter reset or the date stamp advancing."""
+    stub = _CoordStub(
+        ["zone_1", "zone_2"], _make_hvac_stub_with_bound_methods._now,
+    )
+    stub._short_cycles_today = {"zone_1": 4, "zone_2": 1}
+    stub._short_cycles_today_date = "2026-08-23"
+    stub.anomaly_detector.save_raises = True
+    emit = _bind(hvac_ns, "_emit_and_reset_short_cycles", stub)
+
+    import asyncio
+    asyncio.run(emit("2026-08-24"))  # must not raise
+
+    assert stub.anomaly_detector.save_calls == 1
+    assert stub._short_cycles_today == {"zone_1": 0, "zone_2": 0}, (
+        "save_baselines failure blocked the counter reset"
+    )
+    assert stub._short_cycles_today_date == "2026-08-24", (
+        "save_baselines failure blocked the date stamp"
+    )

@@ -4123,6 +4123,38 @@ class HVACCoordinator(BaseCoordinator):
                         "HVAC short-cycle: anomaly persist failed",
                         exc_info=True,
                     )
+        # B4 (2026-08-23 Tier-2-DB review residual): persist the baselines
+        # NOW, on the genuine-rollover path only. record_observation is
+        # pure in-memory (coordinator_diagnostics.py:988) and the
+        # coordinator's only other save_baselines() call is in
+        # async_teardown — so at ~2.9 restarts/day the once-per-local-day
+        # short_cycle_rate observation was almost always discarded before
+        # reaching metric_baselines, leaving sample_count stuck far below
+        # HVAC_SHORT_CYCLE_MIN_SAMPLES.
+        #
+        # Same doctrine as the CM setup_duration_seconds precedent at
+        # __init__.py:4058-4068: a metric that fires ONCE per day/boot
+        # cannot use the teardown-only cadence its many-times-per-session
+        # peers use. This save deliberately does NOT run on any of the
+        # four early-return paths above (first-boot seed, mid-day restart,
+        # detector-None, multi-day gap) — a save on the mid-day-restart
+        # path would fire on every boot.
+        #
+        # Isolated so a DB failure can never prevent the load-bearing
+        # counter reset / date stamp below (same defensive style as
+        # store_event and clear_active_anomalies_filtered above).
+        try:
+            await self.anomaly_detector.save_baselines()
+            _LOGGER.info(
+                "HVAC short-cycle: baselines persisted after day rollover "
+                "(prev=%s today=%s)", prev_date, today,
+            )
+        except Exception as e:
+            _LOGGER.warning(
+                "HVAC short-cycle: save_baselines failed after rollover "
+                "(prev=%s today=%s): %s — continuing with counter reset",
+                prev_date, today, e,
+            )
         # Reset counter keyed on the new day.
         self._short_cycles_today = {
             zid: 0 for zid in self._zone_manager.zones
