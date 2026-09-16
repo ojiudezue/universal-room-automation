@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T17:55:58-05:00_ - _Data commit: `08b22f3490b0`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T17:57:39-05:00_ - _Data commit: `bcb3369716e4`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -349,7 +349,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (18):**
+- **Forensic keys (19):**
+  - `PLAN_REVISED_2026_09_16`: Plan revised, all mechanical findings fixed. CRIT-1: reversed to SIBLING field RoomCondition.hvac_occupied + zone.any_room_hvac_occupied, consumed ONLY by the preset flip (hvac.py:1794) + co-timestamps + D6 stale branch; RoomCondition.oc...
   - `PLAN_REVIEW_2026_09_16`: Adversarial plan review = FIX-REQUIRED-IN-PLAN, 2 CRIT — caught BEFORE build (the EC-SOC lesson applied, and it paid off big). CRIT-1: swapping RoomCondition.occupied is NOT transparent — that field also drives _execute_vacancy_sweep (hv...
   - `PLAN_FINALIZED_2026_09_16`: Final buildable plan written: docs/planning/PLANNING_hvac_zone_conditioning_demand.md. Falsifiable invariant: a zone whose only occupied rooms are hallway-typed is NEVER conditioned; a zone with any dwelling room HVAC-occupied (kind-awar...
   - `CHECKPOINT_CLEARED_2026_09_16`: Operator step-4 checkpoint RESOLVED. Decisions: (6) AGGRESSION = ABSOLUTE (hallway-only occupancy never conditions the zone) — the launch posture, justified by Stage 0 42:0. (1) aggregation = OR over HVAC-relevant rooms. (2) RETIRE zone_...

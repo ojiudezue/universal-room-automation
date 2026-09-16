@@ -10506,6 +10506,17 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  PLAN_REVISED_2026_09_16: 'Plan revised, all mechanical findings fixed. CRIT-1: reversed to SIBLING
+    field RoomCondition.hvac_occupied + zone.any_room_hvac_occupied, consumed ONLY by the preset flip
+    (hvac.py:1794) + co-timestamps + D6 stale branch; RoomCondition.occupied UNTOUCHED so vacancy
+    sweep/fans/covers/Source-4 keep lighting semantics (audit swap-not-parallel superseded). HIGH-1:
+    D4 edits BOTH selector lists (create :1387 + options :10410). HIGH-2: §2a per-site swap/no-swap
+    verdicts (presumption NO-SWAP). MEDs: DEFAULT_HVAC_VACANCY_HOLD once in const.py; ROOM_TYPE_TIMEOUTS
+    create-only flagged; all 5 tables named. CRIT-2 = A/B OPERATOR-PENDING (build blocked). New detail:
+    Option B reverses project_zone_away_when_occupied_home_night_gap (2026-06-05 Zone-1 flap) AND needs
+    mmWave-still-through-sleep measured first (else a sleeping resident bedroom could go away). => B is
+    a Tier-3 measured follow-on, not a step-4 bolt-on. Before build: quick plan re-review spot-check on
+    the CRIT-1 parallel-field reversal, then Tier-2-DB build.'
   PLAN_REVIEW_2026_09_16: 'Adversarial plan review = FIX-REQUIRED-IN-PLAN, 2 CRIT — caught BEFORE
     build (the EC-SOC lesson applied, and it paid off big). CRIT-1: swapping RoomCondition.occupied
     is NOT transparent — that field also drives _execute_vacancy_sweep (hvac.py:3142) which turns off
