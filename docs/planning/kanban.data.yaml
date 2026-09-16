@@ -575,7 +575,21 @@ cards:
   title: Cameras that are silent ON PURPOSE look identical to broken ones, so every zero-detection
     sweep re-investigates them
   thread: cameras
-  status: inbox
+  status: done
+  CLOSED_2026_09_15: 'DONE — the parsimony verdict was SIMPLIFY ("write the reasons where the
+    sweep looks; only build a config surface if the list grows"), and that smallest-useful version
+    is now shipped rather than left carded. Added a "BY-DESIGN SILENT CAMERAS — exclusion list"
+    section to docs/planning/AUDIT_exterior_camera_detection_settings.md giving, per camera, WHY it
+    is silent and WHAT SIGNATURE to expect: ArmCrestASH41B (office, physically shielded while the
+    operator is home — the alive+detecting+hearing-speech-daily+zero-persons combination is the
+    confirmation, not a puzzle) and MadronePTUltra (grid power-wall watcher on a ~10-min wake
+    cycle; never to be judged on person recall, and not to be added to perimeter_cameras expecting
+    coverage). The doc also records the CONTRAST case — ReolinkStudyBPorchPTZ looked identical but
+    was genuinely blind and responded to a fix (0 in 8 days -> 11 ON/48h after the detect-resolution
+    change) — which is exactly the discriminator the list exists to make cheap.
+    NOT BUILT, deliberately: no programmatic exclusion field. Per the parsimony verdict that waits
+    for the list to grow or for a consumer that needs it in code. If a future sweep still flags
+    these two, THAT is the trigger to build the field — reopen then, with evidence.'
   created: '2026-09-15'
   updated: '2026-09-15'
   refinement_status: initial
@@ -608,13 +622,7 @@ cards:
     problem: Zero-detection checks cannot distinguish deliberate silence from failure, so they
       generate recurring false positives on the same cameras.
     verdict: SIMPLIFY
-  next: 'Smallest useful version FIRST (do not build a config surface yet): write the three known
-    reasons into the camera/adjacency documentation and into whatever the zero-detection sweep
-    reads, so the next sweep says "expected-silent: office shielded while home" rather than
-    flagging it. Known set today — ArmCrestASH41B (office, physically shielded while the operator
-    is home; live only while away), MadronePTUltra (grid power-wall watcher, ~10-min wake cycle,
-    never a person-recall camera). Only escalate to a real config field if the list grows or a
-    consumer needs it programmatically.'
+  next: 'NONE — closed. Exclusion list lives in docs/planning/AUDIT_exterior_camera_detection_settings.md. Reopen only if a sweep still flags a by-design camera, or a consumer needs the exclusion programmatically.'
   links:
     related: [CAMERA-ZERO-FIRE-DETECTORS-1, CAMERA-STUCK-SENSOR-TRIPWIRE-1, CAMERA-PTULTRA-NOT-IN-PERIMETER-1]
     context: 'CAMERA-ZERO-FIRE-DETECTORS-1 is the closed investigation that produced these

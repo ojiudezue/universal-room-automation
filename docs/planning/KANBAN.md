@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T21:59:29-05:00_ - _Data commit: `0f1839d95cc5`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T22:02:32-05:00_ - _Data commit: `0b6bbfc15e37`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 2 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 3 |
 | 🧭 Pre-planning | 10 |
 | 📝 Planned | 8 |
@@ -19,26 +19,12 @@ _Generated: 2026-09-15T21:59:29-05:00_ - _Data commit: `0f1839d95cc5`_ - _last_r
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 19 |
 | 🅿️ Parked | 54 |
-| ✅ Done | 169 |
+| ✅ Done | 170 |
 
-## 📥 Inbox (2)
+## 📥 Inbox (1)
 _raw capture_
 
-### `CAMERA-BY-DESIGN-SILENT-EXCLUSION-1` - Cameras that are silent ON PURPOSE look identical to broken ones, so every zero-detection sweep re-investigates them — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **cameras** - status: **inbox** - approval: **unreviewed**
-_created 2026-09-15 · initial_
-- **Problem / Solution:**
-  - Problem: some cameras are meant to report nothing. The office camera is physically shielded whenever the operator is home; the power-wall camera watches the grid connections and only wakes briefly every ten minutes. To any check that loo...
-- **Origin:** 2026-09-15 - Closing CAMERA-ZERO-FIRE-DETECTORS-1 — 2 of 3 silent cameras turned out to be by-design or already fixed, and the operator had to explain the same designs again
-- **Why:** A detector whose output is mostly known false positives stops being read. This is the same failure shape as the HVAC anomaly sensor reporting nominal while blind — a check nobody trusts is worse than no check, because it still costs atte...
-- **Next:** Smallest useful version FIRST (do not build a config surface yet): write the three known reasons into the camera/adjacency documentation and into whatever the zero-detection sweep reads, so the next sweep says "expected-silent: office sh...
-- **Tags:** observability, false-positive
-- **Parsimony:** [SIMPLIFY] Zero-detection checks cannot distinguish deliberate silence from failure, so they generate recurring false positives on the same cameras.
-- **Refs:** docs/planning/AUDIT_exterior_camera_adjacency_probe.md; docs/planning/AUDIT_exterior_camera_detection_settings.md
-- **Forensic keys (1):**
-  - `ADJACENCY_SWEEP_2026_09_15`: Swept before minting. ADJACENT, not duplicate, to CAMERA-STUCK-SENSOR-TRIPWIRE-1 (that one detects sensors STUCK ON; this is about legitimately never-ON) and to CAMERA-ZERO-FIRE-DETECTORS-1 (the one-shot investigation this fell out of, n...
-
-### `ARRESTER-LEDGER-INVISIBLE-1` - The HVAC override arrester keeps its ledger in INFO log lines, on a log that only records WARNING and above — so every arrest it makes is invisible after the fact — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ARRESTER-LEDGER-INVISIBLE-1` - The HVAC override arrester keeps its ledger in INFO log lines, on a log that only records WARNING and above — so every arrest it makes is invisible after the fact — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **inbox** - approval: **unreviewed**
 _created 2026-09-15 · initial_
 - **Problem / Solution:**
@@ -1899,7 +1885,7 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (169)
+## ✅ Done (170)
 _closed, evidence in refs_
 
 ### `GUEST-FALSE-POSITIVE-JAYA-ONLY-1` - House flips to GUEST when only a single resident (Jaya) is home — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -1919,6 +1905,21 @@ _created 2026-09-05 16:40 · updated 2026-09-15 02:30 · refined_
   - `verify_2026_09_12`: APPROVED -> verify-before-work: STILL-REAL (FP live) + CANNOT-VERIFY the exact term from recorder. MEASURED: GUEST flips ~daily (10d); single-resident flip CONFIRMED 2026-09-10 14:17 (people_home_census=1 at flip). Faces dead (face_recog...
   - `disposition_2026_09_12b`: APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): static confirms wifi guest floor is diagnostic-only (camera_census.py:4531). Single-resident flip is a runtime census question — run the recorder discriminator jointly with C...
+
+### `CAMERA-BY-DESIGN-SILENT-EXCLUSION-1` - Cameras that are silent ON PURPOSE look identical to broken ones, so every zero-detection sweep re-investigates them — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **cameras** - status: **done** - approval: **unreviewed**
+_created 2026-09-15 · initial_
+- **Problem / Solution:**
+  - Problem: some cameras are meant to report nothing. The office camera is physically shielded whenever the operator is home; the power-wall camera watches the grid connections and only wakes briefly every ten minutes. To any check that loo...
+- **Origin:** 2026-09-15 - Closing CAMERA-ZERO-FIRE-DETECTORS-1 — 2 of 3 silent cameras turned out to be by-design or already fixed, and the operator had to explain the same designs again
+- **Why:** A detector whose output is mostly known false positives stops being read. This is the same failure shape as the HVAC anomaly sensor reporting nominal while blind — a check nobody trusts is worse than no check, because it still costs atte...
+- **Next:** NONE — closed. Exclusion list lives in docs/planning/AUDIT_exterior_camera_detection_settings.md. Reopen only if a sweep still flags a by-design camera, or a consumer needs the exclusion programmatically.
+- **Tags:** observability, false-positive
+- **Parsimony:** [SIMPLIFY] Zero-detection checks cannot distinguish deliberate silence from failure, so they generate recurring false positives on the same cameras.
+- **Refs:** docs/planning/AUDIT_exterior_camera_adjacency_probe.md; docs/planning/AUDIT_exterior_camera_detection_settings.md
+- **Forensic keys (2):**
+  - `CLOSED_2026_09_15`: DONE — the parsimony verdict was SIMPLIFY ("write the reasons where the sweep looks; only build a config surface if the list grows"), and that smallest-useful version is now shipped rather than left carded. Added a "BY-DESIGN SILENT CAME...
+  - `ADJACENCY_SWEEP_2026_09_15`: Swept before minting. ADJACENT, not duplicate, to CAMERA-STUCK-SENSOR-TRIPWIRE-1 (that one detects sensors STUCK ON; this is about legitimately never-ON) and to CAMERA-ZERO-FIRE-DETECTORS-1 (the one-shot investigation this fell out of, n...
 
 ### `EXTERIOR-GUEST-FACE-FASTFOLLOW-1` - Face-identity arm for exterior->interior arrival — Protect Alarm Manager webhook -> HA -> family-room/garage named recognition — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **done** - approval: **explicit**
