@@ -146,11 +146,19 @@ class TestD1TickSnapshot:
         if end < 0:
             end = len(src)
         slice_ = src[idx:end]
+        # v4.7.6.1 D1 required a snapshot line. EC-SOC-LADDER-XVALIDATE-1
+        # D2 strengthened the snapshot to read through
+        # safely_ordered_ladder(). Accept either shape.
         assert (
             "excess_solar_soc_tick = int(self._excess_solar_soc)" in slice_
+            or (
+                "excess_solar_soc_tick = (\n" in slice_
+                and "safely_ordered_ladder()" in slice_
+            )
         ), (
-            "D1: tick-snapshot of _excess_solar_soc must be captured at the "
-            "actuation-block start, mirroring fill_priority_soc_tick"
+            "D1 / EC-SOC-LADDER-XVALIDATE-1: tick-snapshot of "
+            "_excess_solar_soc must be captured at the actuation-block "
+            "start, mirroring fill_priority_soc_tick"
         )
 
     def test_excess_solar_branch_reads_tick_snapshot(self):

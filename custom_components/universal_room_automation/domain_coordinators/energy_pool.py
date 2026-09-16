@@ -1321,11 +1321,20 @@ class EVChargerController:
                         # Fail-safe pause leg (Q1): pause mid-charge UNLESS
                         # the LKG envelope lower bound >= drain threshold
                         # OR mains-export active (battery not discharging).
+                        # EC-SOC-LADDER-XVALIDATE-1 D2: route through the
+                        # safe accessor so a live Number inversion cannot
+                        # push the drain target below reserve_soc for the
+                        # blind-window ride check.
                         drain_target = None
                         try:
-                            drain_target = int(
-                                getattr(coord, "_ev_battery_drain_soc", None) or 0
-                            ) or None
+                            _l_getter = getattr(
+                                coord, "safely_ordered_ladder", None,
+                            )
+                            _l = _l_getter() if callable(_l_getter) else {}
+                            _v = _l.get("ev_battery_drain_soc")
+                            if _v is None:
+                                _v = getattr(coord, "_ev_battery_drain_soc", None)
+                            drain_target = int(_v or 0) or None
                         except Exception:  # noqa: BLE001
                             drain_target = None
                         ride_ok = self._blind_window_envelope_permits_ride(
@@ -1817,11 +1826,18 @@ class EVChargerController:
                 # alone (a legitimate optimization for the off_peak
                 # fail-safe ride leg where either signal suffices, but
                 # wrong for CONTINUE-permission which requires BOTH).
+                # EC-SOC-LADDER-XVALIDATE-1 D2: safe-accessor read; same
+                # rationale as the fail-safe leg above.
                 drain_target_for_ride = None
                 try:
-                    drain_target_for_ride = int(
-                        getattr(coord, "_ev_battery_drain_soc", None) or 0
-                    ) or None
+                    _l_getter2 = getattr(
+                        coord, "safely_ordered_ladder", None,
+                    )
+                    _l2 = _l_getter2() if callable(_l_getter2) else {}
+                    _v2 = _l2.get("ev_battery_drain_soc")
+                    if _v2 is None:
+                        _v2 = getattr(coord, "_ev_battery_drain_soc", None)
+                    drain_target_for_ride = int(_v2 or 0) or None
                 except Exception:  # noqa: BLE001
                     drain_target_for_ride = None
                 envelope_ride_ok = False

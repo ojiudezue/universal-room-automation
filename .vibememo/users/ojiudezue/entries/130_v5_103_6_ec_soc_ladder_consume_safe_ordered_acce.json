@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "130",
+  "author": "ojiudezue",
+  "session_id": "claude_20260916_231807_ship_v5_103_6",
+  "timestamp": "2026-09-16T23:18:07Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.6 shipped: EC SOC-ladder: consume safe-ordered accessor for fill-priority + ev-drain (inversion guard, consumed scope)",
+  "summary": "EC SOC-ladder: consume safe-ordered accessor for fill-priority + ev-drain (inversion guard, consumed scope)",
+  "why": "Ships the consumed half of the SOC-ladder inversion guard. First build failed all 3 framing-disjoint reviews (Bug-Class-53 clamp-without-consumers + false docstring + hollow anchors); revert-scope fix-up + focused re-review = SHIP. Orchestrator name-diff on post-merge develop: 305==305, zero new. Cost-impacting EC logic but happy-path identity-equivalent; operator briefed and in ship-mode. #1/#2/#6 wiring explicitly deferred to EC-SOC-LADDER-FULL-WIRING-1 (a ~25-site migration needing its own plan review).",
+  "implications": "Shipped EC-SOC-LADDER-XVALIDATE-1 at v5.103.6; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.6.md (Live criteria).",
+  "revisit_trigger": "with an inverted fill_priority>excess_solar test config, actuation reads the clamped value not raw; live ladder valid => EC decisions unchanged vs v5.103.5; no threshold_ladder_violation anomaly on the healthy live config",
+  "refs": {
+    "cards": [
+      "EC-SOC-LADDER-XVALIDATE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.6.md"
+    ],
+    "release_notes": "- safely_ordered_ladder() clamps #4 (fill_priority<=excess_solar) + #5 (ev_drain>=reserve); ~9 decision/display sites read through it via a per-tick snapshot\n- Identity-equivalent on a valid ladder (no happy-path behavior change); only bites an inverted config\n- Reviewed Tier 2-DB 3x framing-disjoint + re-review: first build over-clamped 3 unconsumed invariants + shipped a false docstring + 2 hollow anchors; fix-up reverted to consumed scope, restored honest warning, real per-site anchors\n- Deferred by design: #1/#2/#6 wiring (~25 readers) carded as EC-SOC-LADDER-FULL-WIRING-1; they remain detect-only (save reject + runtime anomaly)\n- Name-diff vs develop byte-identical (zero new failures), +19 tests"
+  }
+}
