@@ -9390,6 +9390,39 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-PRESET-FLAP-1
+  REMEASURED_2026_09_15_MY_CLAIM_WITHDRAWN: 'I told the operator "the flap is still live" on the
+    strength of a RAW TRANSITION COUNT. That was wrong twice over and is WITHDRAWN.
+
+    THE OPERATOR CORRECTED THE FRAME: "Flipping is not the same as flapping. When no one is in the
+    zone its supposed to go away. Its meant to be occupancy aware but react in a measured way." A
+    count of home<->away transitions cannot separate correct occupancy tracking from oscillation,
+    so it was never evidence of a defect — it violated this repo''s own rule that an acceptance
+    observation must DISCRIMINATE between the fix and a plausible different behaviour.
+
+    WHAT I ACTUALLY COUNTED: 115 zone_3 preset transitions over 3 days, and I reported the
+    home<->away subtotal (32) as a flap signature.
+
+    THE DISCRIMINATING MEASUREMENT (episode DURATIONS, zone_3, 3 days, from ura_activity_log):
+      away  n=75  median 25.8 min  p25 5.0  (34% <= 15 min)
+      home  n=30  median 10.0 min  p25 5.0  (63% <= 15 min)
+      sleep n=9   median 15.0 min
+    Against this card''s own 2026-08-20 baseline (HOME med 15.0 / AWAY med 10.0), the AWAY side
+    IMPROVED MARKEDLY — 10.0 -> 25.8 min median. The zone now commits to away and stays there,
+    which is the "measured" behaviour the operator asked for.
+
+    AND THE SHORT HOME EPISODES ARE PROBABLY CORRECT, NOT FLAP: vacancy_grace is live at 10
+    minutes, so a ~10-minute HOME episode means occupancy ended almost immediately after the zone
+    flipped home — the exact signature of a person walking THROUGH. zone_3 is a transit corridor
+    (hallways, staircase, breakfast nook, garage hallway). A 10-minute home episode from a real
+    transit is the design working, not oscillating.
+
+    WHAT REMAINS TRUE, AND IT IS SHARPER THAN THE ORIGINAL CLAIM: this cannot be settled from
+    URA''s own signals AT ALL. Proving a SPURIOUS away needs presence ground truth at the moment of
+    the flip — but zone_3 has empty zone_persons, so the unweighted 12-room occupancy OR is
+    simultaneously the TRIGGER and the ONLY WITNESS. There is no independent source to corroborate
+    against. So "is zone_3 flapping?" is currently UNFALSIFIABLE, which is itself the finding and
+    is a second, independent argument for the person-fusion fix: it would make the zone both better
+    behaved AND diagnosable. Until then, do not re-assert flap from transition counts.'
   PRECONDITION_ASSUMPTION_REFUTED_2026_08_23: 'THIS CARD''S `next` SAYS: "v5.88.0 shipped the borrow restore
     so URA-induced manual is largely addressed". THAT IS NOW REFUTED BY MEASUREMENT. The borrow restores
     the SETPOINT (912/914) but NOT the preset: 0/10 restores of a real preset take, at any delay out to

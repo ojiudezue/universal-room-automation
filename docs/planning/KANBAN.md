@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T21:39:53-05:00_ - _Data commit: `f13e71071c4b`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T21:55:20-05:00_ - _Data commit: `ec9a2e05e0f6`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
@@ -1331,7 +1331,8 @@ _updated 2026-08-20 18:10 · refined_
 - **Next:** BLOCKED ON PRECONDITIONS, not awaiting a decision — the design axis is ALREADY RULED by the operator (person-assignment-aware + transit-aware zone policy, explicitly NOT a global debounce). Gates, in order: (1) the manual-write half — v5...
 - **Tags:** no-fabrication-verify, measure-before-build, context-wide-scoping
 - **Refs:** docs/planning/kanban.data.yaml card P1P3 (the falsification); custom_components/universal_room_automation/domain_coordinators/hvac.py:1569-1610 (reason ladder), :1660-1675 (ledger row), :2470-2492 (coast duty limiter)
-- **Forensic keys (34):**
+- **Forensic keys (35):**
+  - `REMEASURED_2026_09_15_MY_CLAIM_WITHDRAWN`: I told the operator "the flap is still live" on the strength of a RAW TRANSITION COUNT. That was wrong twice over and is WITHDRAWN.
   - `PRECONDITION_ASSUMPTION_REFUTED_2026_08_23`: THIS CARD'S `next` SAYS: "v5.88.0 shipped the borrow restore so URA-induced manual is largely addressed". THAT IS NOW REFUTED BY MEASUREMENT. The borrow restores the SETPOINT (912/914) but NOT the preset: 0/10 restores of a real preset t...
   - `STATUS_CORRECTED_TWICE_2026_08_22`: CORRECTED, and my FIRST correction was also wrong. I moved this review -> waiting_operator on the strength of the stale `next` line WITHOUT reading the ruling fields already on this card. Operator: "Preset flap. I thought I ruled already...
   - `STATUS_CORRECTED_2026_08_22`: Was `review`; nothing is under review. The card own next field says: "Mechanism proven; this is now a DESIGN question, not a diagnosis. Decide the arbitration rule between the coast..." — i.e. it is waiting on an OPERATOR DECISION, not o...
