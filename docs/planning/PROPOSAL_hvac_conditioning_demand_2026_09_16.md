@@ -318,6 +318,29 @@ coordinator, two cadences" is a proven in-repo pattern.
    sub-loop need appears, or a re-architecture pass opens → build the central
    tick-wheel then, with divisors + staggered offsets by design.
 
+### Stage D design spec (operator, 2026-09-16) — for when it is built
+
+Fast-in is DEFERRED, but the design is now pinned so it isn't re-derived:
+
+- **Trigger = the preset bands, NOT a new temp threshold.** The home comfort band
+  already defines "out of band"; fast-in fires when the zone temp is outside the
+  home band. (The earlier "temp threshold" lever is RETRACTED — redundant with the
+  bands. One fewer knob.)
+- **Dwelling gate = the Stage-A demand signal, reused.** Continuous presence for X s
+  via FUSION — mmWave continuous / PIR-continuous-for-X / BLE-claim-for-X-before-
+  another-room-claims — not individual sensors. No separate gate. **HARD PLAN
+  REQUIREMENT:** the Stage-D plan MUST detail BLE failure modes + how Bermuda works
+  in detail (intra-floor bleed, the 441-min bathroom-bleed precedent, tier1-direct
+  vs shared-scanner, claim latency), with a possible BLE exception.
+- **Action = preset-driven by default; pre-cool = optional middle-ground knob.** The
+  standing principle is preset-driven. Pre-cool is the gentle intermediate ramp (a
+  middle preset step, applicable in BOTH directions) exposed as a knob — the same
+  "middle step" as the trigger note above.
+- **Pattern = zone-level analog of house-entry pre-cool.** `hvac.py:530` pre-arrival
+  machinery (geofence/BLE/camera_face → person→zone routing → pre-cool) is the
+  house-level version. The Stage-D plan MUST examine it and mirror-or-improve —
+  reuse the pattern, flag any seams where the zone-level case wants something better.
+
 Note on loop inventory (corrects a common mental model — it is not just HVAC + EC +
 SC): ~10+ periodic loops exist at intentionally heterogeneous, jittered cadences —
 room coordinator 30 s+jitter, census 30 s, `_solar_follow` 60 s, safety 60 s,

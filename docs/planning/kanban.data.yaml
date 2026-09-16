@@ -20549,6 +20549,21 @@ cards:
   - energy.py:8647
   - feature/dp-verypoor-drain-validator @ 87e047ac
 - id: EC-SOC-LADDER-XVALIDATE-1
+  REVIEW_B_2026_09_16: 'Review B (consumer-switch/tick-snapshot) = FIX-REQUIRED, CONFIRMS A+C and
+    ran the mutation drill via a fixture shim (executed, not just read): B-HIGH-1 = 4 of 5 switched
+    sites survive neuter GREEN (energy.py:6038-6040 tick triple + energy_pool.py:1334/1839) — the
+    hollow-anchor finding CONFIRMED by execution. B-MED-1 = the 3 unconsumed invariants (=C1/C2).
+    B-MED-2 = dropped unknown drain class (=A-MED-2). B also CLEARED: every switched site is
+    identity-equivalent on a VALID ladder (zero happy-path behavior change), tick-snapshot consistent,
+    no missed #4/#5 consumer, pool getattr fallbacks are fixture-safety only. All 3 reviews unanimous.
+    CONFIRMED FIX-UP = REVERT-SCOPE: accessor back to #4 (fill_priority) + #5 (ev_drain) only [the
+    consumed invariants w/ real anchors TestFillPriorityStatusRoutesThroughAccessor +
+    TestLivenessReleaseUsesClampedDrain], restore the honest Bug-Class-53 warning docstring, add REAL
+    behavioral anchors for the tick-triple + 2 pool sites (per-site neuter must go RED), fold LOWs
+    (exception-guard display-surface accessor calls; fix docstring contradictions). This single revert
+    evaporates A-MED-1 (peak_buffer>100), B-MED-2 (unknown), B-MED-1/C1/C2 (unconsumed) at once.
+    CARD the full #1/#2/#6 wiring (~25 sites: peak_buffer gates energy_battery.py:2882+, drain-target
+    energy_battery.py:1876, inclement floor) as its OWN Tier-2-DB cycle w/ a plan review.'
   REVIEWS_AC_2026_09_16: 'EC-SOC reviews A+C in (B pending). A (clamp arithmetic) = SHIP + 2 MED:
     peak_buffer clamp can emit >100 (energy.py:9362; fix min(100,...)); drain_targets accessor drops
     the reachable "unknown" class (shape divergence, Bug Class #53). C (completeness) = FIX-REQUIRED

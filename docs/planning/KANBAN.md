@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T17:38:44-05:00_ - _Data commit: `cc10d0205a93`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T17:44:24-05:00_ - _Data commit: `d7abae3f41fb`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -402,7 +402,8 @@ _created 2026-08-24 16:45 · updated 2026-09-12 10:30 · initial_
 - **Tags:** institutional-context, numbers-get-knobs
 - **Parsimony:** [BUILD] Independent SOC sliders can be set to inverted values that flip an EV gate polarity, with no guard.
 - **Refs:** docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md:521-525; docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:822; energy_const.py:980
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `REVIEW_B_2026_09_16`: Review B (consumer-switch/tick-snapshot) = FIX-REQUIRED, CONFIRMS A+C and ran the mutation drill via a fixture shim (executed, not just read): B-HIGH-1 = 4 of 5 switched sites survive neuter GREEN (energy.py:6038-6040 tick triple + energ...
   - `REVIEWS_AC_2026_09_16`: EC-SOC reviews A+C in (B pending). A (clamp arithmetic) = SHIP + 2 MED: peak_buffer clamp can emit >100 (energy.py:9362; fix min(100,...)); drain_targets accessor drops the reachable "unknown" class (shape divergence, Bug Class #53). C (...
   - `PLAN_2026_09_16`: Plan written: docs/planning/PLANNING_ec_soc_ladder_xvalidate.md. Prior-art scan found MOST already shipped ON DEVELOP (verified in source, not just the branch name): validate_threshold_ladder cross-field kwargs (energy_const.py:1156), CA...
   - `disposition_2026_09_12_sweep2`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: reject-at-save + runtime threshold_ladder_violation anomaly SHIPPED (energy.py:9155/9235, energy_const.py:1311; feature/energy-validate-staleness merged). NARR...
