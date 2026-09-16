@@ -10420,6 +10420,59 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  OPERATOR_DESIGN_THESIS_RECOVERED_2026_09_16: 'Recovered from the pre-compaction transcript after
+    the operator flagged compaction was dropping detail. These are LOAD-BEARING design constraints
+    stated across several turns; capturing verbatim-close so they survive. Compaction has already
+    eaten them twice.
+
+    [T2] "a strong recommendation to better couple room to zone for hvac functions... re-examine the
+    timers and how they line up and work back from the behaviors we want... we could DECOUPLE room
+    occupancy a bit more from zone occupancy."
+    [T1] "presence detection pre-cool driven off ble — each zone knows its normal occupiers and if
+    ble sees them at house edge, it can start an immediate pre-cool... fusion w BLE... BLE imperfect
+    because of INTRA FLOOR LEAKAGE but a COMBO is good and we have a lot of prior art... I do not want
+    to redo anything we don''t have to."
+    [T9] "I''d be careful of RAW SENSOR DEPENDENCY since there is no machinery for so many things that
+    make this flaky. So we need a mature proposal that takes into consideration what was measured."
+    [T13] "We could BYPASS THE ROOM MACHINERY in this case and maybe THIS CASE ONLY" (the case = a
+    known occupier''s BLE anchor holding a still person).
+
+    CODE GROUNDING (verified 2026-09-16, corrected two of my own overstatements):
+    - HVAC primary occupancy read = zone.any_room_occupied (hvac.py:1787,1808), the OR of room-layer
+      occupancy. check_zone_occupancy_confidence is consulted ONLY in a long-occupancy STUCK-GUARD
+      branch (hvac.py:1808-1835), NOT the main decision. So the room fusion DOES reach HVAC.
+    - BLE may EXTEND a motion-confirmed occupancy but NEVER CREATE one, for ANY room direct or shared
+      (coordinator.py:3720+, BLE-WARM-CREATE-1). A still-body BLE hold extends INDEFINITELY via the
+      chain leg while the phone is reported present — so the still-known-occupier hold ALREADY works
+      and ALREADY propagates to HVAC via any_room_occupied. My earlier "BLE cant hold a still person
+      in shared-scanner rooms" was WRONG.
+    - The CREATE ban exists because leg (b) admitted adjacent-room BLE bleed (Master Bathroom,
+      2026-08-10) — the operator''s "intra floor leakage" made concrete.
+
+    THE ACTUAL GAPS (narrower than I first framed): (1) ENTRY/transit — room 6-8min clearance floor
+    inflates a 20s walk-through into a dwell that outlasts the 5min guard and HVAC adopts it via
+    any_room_occupied [dominant leak]; (2) cold-start / chain-break / PIR-only — BLE cannot create or
+    re-establish, so a fast-arrive-then-still occupier or a one-tick chain drop is missed; (3) retreat
+    latency stack = occupancy_timeout + vacancy_grace(10) + one 5min tick.
+
+    LIVE TIMERS (verified from .storage): vacancy_grace=10min (constrained 5), zone_entry_dwell=5min,
+    energy tick=5min; occupancy_timeout mostly 300s but 360 Garage Hallway, 480-540 Kitchen/Study
+    A/Game/Breakfast/Ziri, 900 bathrooms/Exercise/Master Bath. Retreat-from-empty today ~15-20min
+    standard, up to 25-30min long-hold rooms.
+
+    THE SYNTHESIS ("bypass room machinery, this case only", reconciled with the raw-sensor warning):
+    give HVAC its OWN occupancy read that, FOR THE KNOWN-OCCUPIER-BLE-ANCHOR CASE ONLY, trusts the
+    anchor directly and bypasses the room CREATE-ban — LEAKAGE-GUARDED by requiring Tier-1 direct
+    scanner OR mmWave-stationary corroboration (the "combo"). This is bypassing INTO the fusion for a
+    high-confidence signal, NOT into raw motion/mmWave (honors T9). Plus: ENTRY requires a dwell
+    signal (mmWave stationary OR known-occupier anchor) so transit never adopts; RETREAT may go faster
+    when confidently vacant (no stillness + no anchor). Reuse is_room_direct_ble, the chain machinery,
+    person_coordinator.get_persons_in_zone, check_zone_occupancy_confidence — do NOT rebuild (T1).
+
+    STILL THE ONE REAL UNKNOWN -> the modality scan: is the mmWave STATIONARY/stillness KIND readable
+    at the room/zone boundary? The BLE-anchor leg does not need it, but the ENTRY-dwell and
+    RETREAT-fast legs do. If readable -> compose job; if not -> plumbing build first. This scan gates
+    the plan and the operator aggression checkpoint. NOT YET RUN.'
   SIMULATION_FALSIFIED_THE_DESIGN_2026_09_16: 'OPERATOR ASKED for a simulation before building
     ("assume an optimistic result and model it"). It FALSIFIED the design — and the optimistic
     framing is what made it decisive, because even the upper bound fails.
