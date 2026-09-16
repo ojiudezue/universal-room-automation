@@ -7885,6 +7885,16 @@ cards:
   - activity_logger.py:114-117 (unvalidated entity_id onto the ura_action bus event)
   - 'live ERROR 2026-09-16 boot: recorder core.py:304 -> split_entity_id ValueError garage_a'
 - id: HVAC-PRESET-WRITE-STRATEGY-1
+  seq_2026_09_16: 'STEP 6 of HVAC-SUPPLE-SEQUENCE-1 — LAST, deliberately. It generalises the
+    step-1 mechanism to other vendors, and abstracting a mechanism before its numeric prediction
+    validates would be abstracting a guess. The capability gate shipped in v5.103.2 removes the
+    immediate hazard, so there is no urgency — only a correctness debt.'
+  links:
+    blocked_by: [HVAC-MANUAL-PRESET-CONTRACT-1]
+    related: [HVAC-SUPPLE-SEQUENCE-1]
+    context: 'blocked_by HVAC-MANUAL-PRESET-CONTRACT-1: this abstracts the resume-then-pin
+      mechanism, which must first be PROVEN by the 24h numeric prediction on zone_1. Generalising
+      an unvalidated mechanism would bake a guess into a vendor-neutral seam.'
   DESIGN_DETECT_VS_SPECIFY_2026_09_16: 'OPERATOR: "Give thought to how an operator might specify
     their integration''s mechanism or we can detect it." The question splits, and the two halves
     have DIFFERENT answers — that split is the whole design.
@@ -7975,12 +7985,6 @@ cards:
     strategy seam first; add selection when a second vendor actually exists.
     ACCEPTANCE must DISCRIMINATE: a Carrier zone still gets clear-then-pin, and a stubbed
     other-vendor zone gets a direct pin with NO clear command attempted.'
-  links:
-    related: [HVAC-MANUAL-PRESET-CONTRACT-1]
-    context: 'HVAC-MANUAL-PRESET-CONTRACT-1 D2a is where the Carrier semantics were introduced and
-      where the capability gate now mitigates them; this card generalises that seam. It should be
-      done AFTER D2a''s numeric prediction is validated — abstracting a mechanism we have not yet
-      confirmed works in production would be abstracting a guess.'
   refs:
   - hvac_setpoint.py PRESET_RESUME / ANONYMOUS_HOLD / _needs_resume_first (the hardcoded seam)
   - ha_carrier/climate.py:405-409 (resume_schedule), :418-430 (set_config_hold)
@@ -9593,6 +9597,44 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-SUPPLE-SEQUENCE-1
+  ARC_MEMBERSHIP_CLOSED_2026_09_16: 'FINISH-THE-JOB LINK PASS (operator: "We MUST finish them all
+    to complete the thread and not leave stragglers. Link them now."). The arc''s membership is now
+    CLOSED and wired in the DATA, not just in prose — every dependency is mirrored on both sides,
+    so ranking cannot pull a member before its gate and no member can be quietly dropped.
+
+    THE COMPLETE ARC — seven steps, nothing else belongs to it:
+      1  HVAC-MANUAL-PRESET-CONTRACT-1        SHIPPED v5.103.2  (resume-then-pin, D1+D2a+D2b)
+      2  ARRESTER-LEDGER-INVISIBLE-1          SHIPPED v5.103.1  (the instrument)
+      3  baseline capture                     DONE 2026-09-16   (committed on this card)
+      4a HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1  READY           (D2b residual; boot strands zones)
+      4  HVAC-ZONE-CONDITIONING-DEMAND-1        blocked by 4a   (THE tap; operator checkpoint)
+      5  HVAC-GUEST-AS-ZONE-PERSON-1 + HVAC-HOT-ENTRY-LATENCY-1  blocked by 4 (conditional)
+      6  HVAC-PRESET-WRITE-STRATEGY-1           READY but LAST  (vendor abstraction)
+      7  close the arc                          (README write-back + dispose the evidence cards)
+
+    WHY 4a JUMPED AHEAD OF 4 — this is the non-obvious ordering and it came from a live
+    observation: the boot path manufactures an anonymous hold on EVERY restart (~2.9/day measured),
+    watched happening to zone_3 at 01:17:04 tonight. Step 4''s measurement must not be taken while
+    every restart is still stranding zones, and step 1''s own 24h acceptance is cleaner with it
+    fixed. Small card, big measurement payoff.
+
+    WHY 6 IS LAST DESPITE BEING UNBLOCKED: it generalises step 1''s mechanism to other vendors, and
+    the mechanism is not yet PROVEN (one live recovery on the already-healthy zone; the numeric
+    prediction on zone_1 has not run). Abstracting an unvalidated mechanism bakes a guess into a
+    vendor-neutral seam. The v5.103.2 capability gate removed the immediate hazard, so this is a
+    correctness debt with no urgency — but it IS arc membership and must not be dropped.
+
+    STRAGGLERS EXPLICITLY ACCOUNTED FOR (the finish-the-job failure mode is silence, so each is
+    named): HVAC-PRESET-FLAP-1 is superseded_by step 4 and survives only as the evidence ledger —
+    it closes at step 7, not by being forgotten. S14-CEILING-NEEDS-AN-ENDING-1 is the LAST sibling
+    of the setpoint-writer family (a writer with NO return path at all); it is NOT arc membership
+    because the operator already ruled its scope separately, but step 7 must state its disposition
+    rather than leave it dangling. TEST-LEAK-DETECTOR-WRONG-LOOP-1 and
+    ACTIVITY-LOG-BARE-SLUG-ENTITY-ID-1 also came out of this thread but belong to other threads.
+
+    THE ARC IS NOT DONE UNTIL 4a, 4, 5, 6 AND 7 ARE ALL DISPOSED — shipped, or parked with an
+    explicit revival trigger. "Shipped step 1 and left the rest carded" is precisely the outcome
+    the finish-the-job rule exists to prevent.'
   STEP3_BASELINE_COMMITTED_2026_09_16: 'STEP 3 DONE — baseline captured and committed BEFORE the
     only behaviour change (step 4), which is the whole point of its position in the sequence.
     Measured 7d from the recorder, immediately after the v5.103.2 deploy so it still describes
@@ -10013,7 +10055,9 @@ cards:
   - 'Gated on HVAC-MANUAL-PRESET-CONTRACT-1: with 0/10 preset restores taking, URA-induced manual
     cannot be told from a human yank, which would corrupt the measurement of every item here.'
   links:
-    blocked_by: [HVAC-MANUAL-PRESET-CONTRACT-1]
+    blocked_by: [HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1]
+    blocks: [HVAC-GUEST-AS-ZONE-PERSON-1, HVAC-HOT-ENTRY-LATENCY-1]
+    mirror_note_2026_09_16: 'blocked_by gained the boot-ramp card (step 4a) — step 4''s measurement must not be taken while every restart still strands zones. blocks added as the mirror for the two step-5 children that already declared blocked_by this card.'
     related: [HVAC-PRESET-FLAP-1, HVAC-HOT-ENTRY-LATENCY-1, HVAC-GUEST-AS-ZONE-PERSON-1, HVAC-TICK-LITERAL-1]
     context: 'HVAC-PRESET-FLAP-1 holds the measurement history and the operator design rulings this
       plan is built on; this card is the structural answer its knob-tuning analysis kept arriving
@@ -17098,6 +17142,20 @@ cards:
     restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
     the borrow primitive, not folded into it.'
 - id: HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1
+  seq_2026_09_16: 'STEP 4a of HVAC-SUPPLE-SEQUENCE-1 — completes step 1''s surface, and goes
+    BEFORE the step-1 acceptance measurement. Reason: the boot path manufactures an anonymous hold
+    on EVERY restart (~2.9/day measured), so zone_1''s 24h manual%% would carry boot-induced manual
+    that has nothing to do with whether resume-then-pin works. Fixing it both improves the outcome
+    AND cleans the measurement. Small, Tier 2, same fix shape as D2b.'
+  links:
+    blocked_by: [HVAC-MANUAL-PRESET-CONTRACT-1]
+    blocks: [HVAC-ZONE-CONDITIONING-DEMAND-1]
+    related: [S14-CEILING-NEEDS-AN-ENDING-1, HVAC-SUPPLE-SEQUENCE-1]
+    context: 'blocked_by HVAC-MANUAL-PRESET-CONTRACT-1 because the restore it adds is only useful
+      once preset writes LAND (v5.103.2). blocks HVAC-ZONE-CONDITIONING-DEMAND-1 because step 4''s
+      measurement should not be taken while every restart is still stranding zones.
+      S14-CEILING-NEEDS-AN-ENDING-1 is the last sibling of the same family: a setpoint writer with
+      no return path at all.'
   title: The startup ramp audit writes setpoints and restores no preset, so every restart drops
     zones into an anonymous hold
   thread: hvac
@@ -17133,15 +17191,17 @@ cards:
     excursion borrow so it inherits the restore. Acceptance must DISCRIMINATE: after a restart a
     zone that was on a NAMED hold is on that SAME named hold once boot settles — and a zone that
     was genuinely in manual before the restart still is (we are not inventing a preset it never had).'
-  links:
-    related: [HVAC-MANUAL-PRESET-CONTRACT-1, S14-CEILING-NEEDS-AN-ENDING-1]
-    context: 'The D2b residual — HVAC-MANUAL-PRESET-CONTRACT-1 fixed the two excursion RETURN
-      paths; this is the third non-restoring writer and the only one that fires on every boot.
-      S14-CEILING-NEEDS-AN-ENDING-1 is the remaining sibling: a writer with no return path at all.'
   refs:
   - hvac_override.py async_startup_ramp_audit (temp=1, preset=0)
   - docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md (R1-MEDIUM-1)
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  arc_blocks_2026_09_16: [HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1, HVAC-PRESET-WRITE-STRATEGY-1, HVAC-ZONE-CONDITIONING-DEMAND-1]
+  arc_mirror_note_2026_09_16: 'blocks back-refs for the arc, added during the finish-the-job link
+    pass. This card (step 1, shipped v5.103.2) gates three descendants: the boot-ramp residual
+    (step 4a — its restore is only useful once preset writes LAND), the conditioning-demand tap
+    (step 4), and the vendor-strategy abstraction (step 6 — generalising an unvalidated mechanism
+    would bake in a guess). One-sided dependencies were invisible from this side, so ranking could
+    have pulled a descendant before its gate.'
   FIRST_LIVE_EXERCISE_2026_09_16: 'RESUME-THEN-PIN WORKED IN PRODUCTION, first exercise, ~7 minutes
     after the v5.103.2 restart — and it recovered a zone that the BOOT PATH had just stranded.
 
