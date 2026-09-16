@@ -7816,6 +7816,63 @@ cards:
     earlier attempt to label the actual camera sensor and picking the wrong row. It validates (camera_presence
     is not in _NON_CORROBORATOR_KINDS so the D-MEDIUM-1 rule does not fire) but it is very likely wrong,
     and it changes how that sensor is trusted. Confirm intent before clearing it.'
+- id: ACTIVITY-LOG-BARE-SLUG-ENTITY-ID-1
+  title: The EVSE onset path logs a bay slug in the entity_id field, and HA's recorder raises on
+    every one of those events
+  thread: energy
+  status: planned
+  created: '2026-09-15'
+  updated: '2026-09-15'
+  refinement_status: initial
+  approval: implied
+  tags: [tier-1, no-fabrication-verify, found-during-validation]
+  problem_solution:
+  - 'Problem: when URA records an activity entry it also announces it on Home Assistant''s event
+    bus, and one field is meant to hold a full entity id like `switch.garage_a_charger`. The EV
+    charge-onset code puts a bare bay name — "garage_a" — in that field instead. Home Assistant''s
+    recorder listens to every event on the bus and tries to split that value into a domain and a
+    name; a bare word has no domain, so it throws an error and that recorder job dies for that
+    event. It is logged as an ERROR on the live system. Solution: pass a real entity id, or leave
+    the field empty when we only have a bay name — never a bare slug.'
+  origin:
+    date: '2026-09-15'
+    gist: Surfaced in the post-restart log scan done for the AggregationEntity thread-safety
+      measurement — an unrelated ERROR in the same boot
+  why: 'It is a live ERROR with a real victim: the recorder''s global event listener raises, so
+    that job invocation fails. Cheap to fix, and it is exactly the kind of small contract breach
+    that the activity ledger work (ARRESTER-LEDGER-INVISIBLE-1) is about to add MORE callers to —
+    fix the contract before widening it.'
+  VERIFIED_2026_09_15: 'Producer and consumer both confirmed, not inferred.
+    PRODUCER: activity_logger.py:114-117 copies `entity_id` into the `ura_action` bus event
+    verbatim, with no validation. DB ground truth — rows whose entity_id contains no dot:
+    garage_a / energy_pool / onset_release (12), garage_a / energy_pool / onset_hold (11),
+    garage_b / energy_pool / onset_hold (1). So the offending callers are the EVSE charge-onset
+    hold/release sites, passing a BAY slug where an entity_id belongs. 24 rows to date.
+    CONSUMER: HA recorder core.py:304 `_event_listener` -> entityfilter.py:230 ->
+    core.py:176 `split_entity_id` raises `ValueError: Invalid entity ID garage_a`, surfacing as
+    "Error running job: <Job listen * HassJobType.Callback Recorder...>" at ERROR in the live log
+    (captured 2026-09-16 boot). The recorder listens to ALL events, which is why a URA-internal
+    field convention escapes into someone else''s code path.'
+  parsimony:
+    problem: A bare slug is written into a field the whole HA bus treats as an entity_id, so every
+      such event raises inside the recorder.
+    verdict: BUILD
+  next: 'Tier 1. Fix the two EVSE onset call sites to pass a real entity_id (the bay''s charger
+    switch) or omit the field when only a bay slug is known. THEN add the guard at the shared
+    producer — activity_logger.py:114 should refuse to put a value lacking a `domain.object_id`
+    shape onto the bus event (log and drop the field rather than poison the event), because the
+    ledger is about to gain more callers. Acceptance must DISCRIMINATE: a well-formed entity_id
+    still rides the event, a bare slug does not, and the recorder ERROR disappears from a boot
+    scan.'
+  links:
+    related: [ARRESTER-LEDGER-INVISIBLE-1, EVSE-CHARGE-ONSET-NOT-HELD-1]
+    context: 'ARRESTER-LEDGER-INVISIBLE-1 is about to add a new set of writers to this same
+      activity ledger, so the field contract should be enforced at the producer BEFORE it is
+      widened. EVSE-CHARGE-ONSET-NOT-HELD-1 covers the onset feature whose logging sites are the
+      current offenders.'
+  refs:
+  - activity_logger.py:114-117 (unvalidated entity_id onto the ura_action bus event)
+  - 'live ERROR 2026-09-16 boot: recorder core.py:304 -> split_entity_id ValueError garage_a'
 - id: ARRESTER-LEDGER-INVISIBLE-1
   seq_2026_09_15: 'STEP 2 of HVAC-SUPPLE-SEQUENCE-1 — and it was PROMOTED: this is the MEASUREMENT INSTRUMENT for the arc, not side-hygiene. A human correcting the thermostat after an away flip is the only INDEPENDENT witness of a spurious away (the guest/person route is circular — it derives from the very occupancy signal under audit). GATE: a real override writes a durable row; a no-override tick writes none.'
   title: The HVAC override arrester keeps its ledger in INFO log lines, on a log that only records
