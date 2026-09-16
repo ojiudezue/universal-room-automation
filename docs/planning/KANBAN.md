@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T16:35:21-05:00_ - _Data commit: `849d2365116f`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T16:38:06-05:00_ - _Data commit: `4c7f84a59691`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -12,9 +12,9 @@ _Generated: 2026-09-16T16:35:21-05:00_ - _Data commit: `849d2365116f`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 11 |
-| 📝 Planned | 9 |
+| 📝 Planned | 8 |
 | 🔨 In progress | 1 |
-| 🔍 Review | 0 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 26 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 26 |
@@ -219,7 +219,7 @@ _created 2026-09-16 · initial_
   - `PER_ZONE_CORRECTED_2026_09_16`: OPERATOR: "If we did this, why per zone? It should be the same function, no?" CORRECT, and my sketch was wrong. Ask what per-zone STATE a handle would hold: entity_id is a PARAMETER; the vendor is DERIVED from the entity's platform (memo...
   - `DESIGN_SHAPE_2026_09_16`: Stateless, entity-parameterised, all three verbs plus vendor dispatch: read_hold(hass, entity_id)              -> named / anonymous / none set_preset(hass, entity_id, name, ...)  -> strategy decides clear-then-pin vs direct pin set_setpo...
 
-## 📝 Planned (9)
+## 📝 Planned (8)
 _has plan / acceptance_
 
 ### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#1 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
@@ -263,25 +263,7 @@ _updated 2026-08-21 10:05_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `EC-SOC-LADDER-XVALIDATE-1` - No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity and oscillate EV pause/resume; the parked fix's trigger has now fired — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **planned** - approval: **unreviewed**
-_created 2026-08-24 16:45 · updated 2026-09-12 10:30 · initial_
-- **Problem / Solution:**
-  - Problem: the energy coordinator has several SOC thresholds the operator sets independently (reserve floor, pause-EV-until SOC, resume/drain floors, excess-solar confirm/resume, drain targets vs the inclement floor). Nothing checks they a...
-- **Origin:** 2026-08-24 - handoff live-fault
-- **Why:** This is NOT new work — it is a PARKED deliverable whose trigger has fired. Parked at PLANNING_dp_sticky_yields_to_excess_solar.md:521-525 (D3 LOW / S5); underlying analysis in BACKLOG_part2_cross_field_invariants_unenforced.md:15-27 (O3)...
-- **Next:** Harvest the parked D3/S5 spec + the O3 analysis into a plan; enumerate the exact ordered pairs to enforce (fill_priority < excess_solar; drain targets vs inclement floor; etc.). Tier 2-DB (touches a shared validator consumed across EC).
-- **Tags:** institutional-context, numbers-get-knobs
-- **Parsimony:** [BUILD] Independent SOC sliders can be set to inverted values that flip an EV gate polarity, with no guard.
-- **Refs:** docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md:521-525; docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:822; energy_const.py:980
-- **Forensic keys (5):**
-  - `PLAN_2026_09_16`: Plan written: docs/planning/PLANNING_ec_soc_ladder_xvalidate.md. Prior-art scan found MOST already shipped ON DEVELOP (verified in source, not just the branch name): validate_threshold_ladder cross-field kwargs (energy_const.py:1156), CA...
-  - `disposition_2026_09_12_sweep2`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: reject-at-save + runtime threshold_ladder_violation anomaly SHIPPED (energy.py:9155/9235, energy_const.py:1311; feature/energy-validate-staleness merged). NARR...
-  - `relane_2026_09_10`: Not a soak -> PRE-PLANNING. This is FUTURE Tier-2-DB build work (harvest parked D3/S5 spec + O3 analysis -> enumerate ordered-pair invariants for the shared EC validator). No shipped deliverable to dispose.
-  - `operator_refine_2026_09_09`: Operator: VALIDATE NEEDS AN ACTION — detection alone is useless; if the ladder does not make sense, then WHAT? Proposed (to confirm in plan): reject at the SOURCE — a config-flow/options validation error at save time that names the speci...
-  - `build_2026_09_09`: BUILT on feature/energy-validate-staleness (e68a0af66). Save-time ladder validation in async_step_coordinator_energy + runtime guard (_check_threshold_ladder -> rate-limited threshold_ladder_violation anomaly) + safely_ordered_ladder() a...
-
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-12 17:00_
 - **Problem / Solution:**
@@ -294,7 +276,7 @@ _created 2026-08-19 13:40 · updated 2026-09-12 17:00_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-### `HVAC-HOT-ENTRY-LATENCY-1` - Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry dwell does not care how hot the room is — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-HOT-ENTRY-LATENCY-1` - Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry dwell does not care how hot the room is — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **planned** - approval: **needs_operator**
 _updated 2026-09-15_
 - **Origin:** 2026-08-20 - Operator asked why zone 2 was not being arrested. I gave two wrong answers — that the equipment was idle and that URA had written the manual itself. Operator refuted both ("The equipment is not idle", "I think a human did th...
@@ -311,7 +293,7 @@ _updated 2026-09-15_
   - `root_cause`: A RESPONSIVENESS failure, not an arrester failure. The zone was legitimately `away` with the away ceiling at 80F. Jaya arrived at ~20:18 into an 80F room. zone_entry_dwell is 5.0 minutes = exactly one decision tick, so the EARLIEST URA c...
   - `open_question`: DID THE ARRESTER DETECT THE OVERRIDE? UNRESOLVED — do not let the next session assume either way. The 20:20:39 away->manual transition is the arrester's documented trigger (hvac_override.py:2069-2071), yet the Upstairs zone still reports...
 
-### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-31 19:05 · updated 2026-09-15 · initial_
 - **Problem / Solution:**
@@ -326,7 +308,7 @@ _created 2026-08-31 19:05 · updated 2026-09-15 · initial_
   - `VERIFIED_2026_09_15`: STILL-REAL, re-confirmed by direct source read this session (not by trusting the 09-12 sweep). automation.py:974 returns early when the entry light action is NONE, and the sleep/night-light branch does not run until :991 — so the canonic...
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: automation.py:970 early-returns on action==NONE before sleep branch; reconciler sleep branch keys only on (sleep and night_lights). Sibling NIGHT-LIGHT-NO-OFF-PATH...
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-15 02:50_
 - **Problem / Solution:**
@@ -342,7 +324,7 @@ _updated 2026-09-15 02:50_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **quality** - status: **planned** - approval: **unreviewed**
 _created 2026-09-12 17:10 · updated 2026-09-16 04:20 · initial_
 - **Problem / Solution:**
@@ -356,7 +338,7 @@ _created 2026-09-12 17:10 · updated 2026-09-16 04:20 · initial_
   - `MEASURED_2026_09_16`: STILL-REAL, re-measured by RUNNING it (not trusting the recorded numbers), and the fix surface is now NAMED — but the gate stopped short of building it, for a reason worth reading before anyone picks this up. THE MEASUREMENT. Default (al...
   - `links_note_2026_09_16`: Effectively blocked on TEST-HARNESS-REAL-HA-DEFAULT-1 for the same reason its parent TEST-STRATEGY-REARCH-1 is: not because the fix is unclear, but because the regression check that makes it safe needs a working runtime harness.
 
-### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#9 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#8 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **implied**
 _created 2026-09-16 · initial_
 - **Problem / Solution:**
@@ -374,19 +356,35 @@ _created 2026-09-16 · initial_
 ## 🔨 In progress (1)
 _being built_
 
+### `EC-SOC-LADDER-XVALIDATE-1` - No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity and oscillate EV pause/resume; the parked fix's trigger has now fired — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **in_progress** - approval: **unreviewed**
+_created 2026-08-24 16:45 · updated 2026-09-12 10:30 · initial_
+- **Problem / Solution:**
+  - Problem: the energy coordinator has several SOC thresholds the operator sets independently (reserve floor, pause-EV-until SOC, resume/drain floors, excess-solar confirm/resume, drain targets vs the inclement floor). Nothing checks they a...
+- **Origin:** 2026-08-24 - handoff live-fault
+- **Why:** This is NOT new work — it is a PARKED deliverable whose trigger has fired. Parked at PLANNING_dp_sticky_yields_to_excess_solar.md:521-525 (D3 LOW / S5); underlying analysis in BACKLOG_part2_cross_field_invariants_unenforced.md:15-27 (O3)...
+- **Next:** Harvest the parked D3/S5 spec + the O3 analysis into a plan; enumerate the exact ordered pairs to enforce (fill_priority < excess_solar; drain targets vs inclement floor; etc.). Tier 2-DB (touches a shared validator consumed across EC).
+- **Tags:** institutional-context, numbers-get-knobs
+- **Parsimony:** [BUILD] Independent SOC sliders can be set to inverted values that flip an EV gate polarity, with no guard.
+- **Refs:** docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md:521-525; docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:822; energy_const.py:980
+- **Forensic keys (5):**
+  - `PLAN_2026_09_16`: Plan written: docs/planning/PLANNING_ec_soc_ladder_xvalidate.md. Prior-art scan found MOST already shipped ON DEVELOP (verified in source, not just the branch name): validate_threshold_ladder cross-field kwargs (energy_const.py:1156), CA...
+  - `disposition_2026_09_12_sweep2`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: reject-at-save + runtime threshold_ladder_violation anomaly SHIPPED (energy.py:9155/9235, energy_const.py:1311; feature/energy-validate-staleness merged). NARR...
+  - `relane_2026_09_10`: Not a soak -> PRE-PLANNING. This is FUTURE Tier-2-DB build work (harvest parked D3/S5 spec + O3 analysis -> enumerate ordered-pair invariants for the shared EC validator). No shipped deliverable to dispose.
+  - `operator_refine_2026_09_09`: Operator: VALIDATE NEEDS AN ACTION — detection alone is useless; if the ladder does not make sense, then WHAT? Proposed (to confirm in plan): reject at the SOURCE — a config-flow/options validation error at save time that names the speci...
+  - `build_2026_09_09`: BUILT on feature/energy-validate-staleness (e68a0af66). Save-time ladder validation in async_step_coordinator_energy + runtime guard (_check_threshold_ladder -> rate-limited threshold_ladder_violation anomaly) + safely_ordered_ladder() a...
+
+## 🔍 Review (1)
+_under review_
+
 ### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Setup/unload symmetry + tracked background tasks (tech-debt hardening) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **platform** - status: **in_progress**
+thread: **platform** - status: **review**
 _created 2026-08-18 02:30 · updated 2026-09-15 · refined_
 - **Next:** Tier 2 production hardening: audit async_on_unload coverage + track background tasks (reload-safety + task-leak). Independent of the test cluster.
 - **Forensic keys (3):**
   - `AUDIT_2026_09_15`: AUDIT DONE — and it DE-SCOPES this card by ~96%. Built a reusable AST audit, quality/tools/audit_listener_cleanup.py (REUSE of the audit_shadow_imports.py walker skeleton shipped 2026-09-12; read-only, standalone, not gated on the broken...
   - `problem`: untracked background tasks — matches a known URA bug class (task leak). One hardening cycle. (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified 19 async_on_unload sites. The real, large ...
   - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
-
-## 🔍 Review (0)
-_under review_
-
-_(none)_
 
 ## ⏸️ Waiting on operator (26)
 _needs a human call — groomed first_
