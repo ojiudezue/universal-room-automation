@@ -10467,6 +10467,24 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  PLAN_REVIEW_2026_09_16: 'Adversarial plan review = FIX-REQUIRED-IN-PLAN, 2 CRIT — caught BEFORE
+    build (the EC-SOC lesson applied, and it paid off big). CRIT-1: swapping RoomCondition.occupied
+    is NOT transparent — that field also drives _execute_vacancy_sweep (hvac.py:3142) which turns off
+    lights/night_lights in ALL zone.rooms incl hallway with NO per-room guard. Post-swap a person in a
+    hallway loses their lights (Bug Class #63: a LIGHTING actuator reading the conditioning-side value).
+    => REVERSE the swap-vs-parallel decision: the CONDITIONING decision (hvac.py:1793 preset path) reads
+    a SEPARATE hvac_occupied; lights/fans/covers/confidence keep RoomCondition.occupied. The code-sweep
+    audit was wrong to say swap-not-parallel — it did not see the non-conditioning consumers. CRIT-2:
+    the falsifiable invariant is FALSE at night — night-trust (FAN_TRUST_STATES + zone_persons=home,
+    hvac.py:2021) keeps a corridor-only zone conditioned without consulting occupancy; the whole block
+    is if zi:; grace uses constrained value under coast/shed. Since Stage 0''s 42:0 waste is OVERNIGHT,
+    the cycle barely helps at night as written => OPERATOR DECISION (trust-hierarchy). HIGH-1 reclassify
+    needs config_flow.py:10410 options selector (plan named only :1387). HIGH-2 hvac_fans.py:1477 +
+    hvac_covers.py:626 + presence.py:2150 Source-4 read non-swapped paths — each needs an explicit
+    swap/no-swap verdict. MED: magic literal 60 -> name DEFAULT_HVAC_VACANCY_HOLD once in const.py;
+    ROOM_TYPE_TIMEOUTS is create-only (wont re-seed the 6 existing hallways). CLEARED: .get() safety
+    holds across all 5 ROOM_TYPE_* tables; zone_entry_dwell->0 holds; non-goals pass.
+    NEXT: planner revises (CRIT-1 parallel-field reversal + HIGHs + MEDs); CRIT-2 awaits operator.'
   PLAN_FINALIZED_2026_09_16: 'Final buildable plan written: docs/planning/PLANNING_hvac_zone_conditioning_demand.md.
     Falsifiable invariant: a zone whose only occupied rooms are hallway-typed is NEVER conditioned;
     a zone with any dwelling room HVAC-occupied (kind-aware on grace-held STATE_OCCUPIED, held per
