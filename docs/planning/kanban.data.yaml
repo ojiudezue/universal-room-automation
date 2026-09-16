@@ -7820,7 +7820,23 @@ cards:
   title: The EVSE onset path logs a bay slug in the entity_id field, and HA's recorder raises on
     every one of those events
   thread: energy
-  status: planned
+  status: review
+  BUILT_2026_09_15: 'BUILT (Tier 1), in review on develop, NOT yet deployed.
+    SCOPE CHOICE — producer guard INSTEAD of editing the call sites, a deliberate departure from
+    this card''s own `next`. Reasoning: the bay slug in the DB column is genuinely useful bay
+    identity and has NO consumer requiring entity-id shape, so rewriting the call sites would
+    change DB semantics for a cosmetic gain. The contract that actually matters is HA''s, at the
+    bus boundary. One guard at activity_logger fixes the live ERROR, protects EVERY future caller
+    (including the ARRESTER-LEDGER-INVISIBLE-1 writers about to be added), and leaves the
+    diagnostic value intact. Malformed values are dropped from the EVENT only, with a debug line.
+    EVIDENCE: 12 tests, including a cross-check asserting the guard agrees with Home Assistant''s
+    OWN `split_entity_id` for every sample — an independent oracle rather than a re-statement of
+    my own logic, so if HA changes the contract the test fails (correctly). Mutation drill run:
+    guard neutered -> 9 failed; restored -> 12 passed; working tree diff clean afterwards.
+    Adjacent suites re-run green (113 passed across this + the two AST-slice files).
+    NOT VERIFIED YET: that the recorder ERROR actually disappears from a live boot — that is a
+    post-deploy check, and it is the acceptance criterion that discriminates a real fix from a
+    plausible one.'
   created: '2026-09-15'
   updated: '2026-09-15'
   refinement_status: initial
@@ -7857,13 +7873,7 @@ cards:
     problem: A bare slug is written into a field the whole HA bus treats as an entity_id, so every
       such event raises inside the recorder.
     verdict: BUILD
-  next: 'Tier 1. Fix the two EVSE onset call sites to pass a real entity_id (the bay''s charger
-    switch) or omit the field when only a bay slug is known. THEN add the guard at the shared
-    producer — activity_logger.py:114 should refuse to put a value lacking a `domain.object_id`
-    shape onto the bus event (log and drop the field rather than poison the event), because the
-    ledger is about to gain more callers. Acceptance must DISCRIMINATE: a well-formed entity_id
-    still rides the event, a bare slug does not, and the recorder ERROR disappears from a boot
-    scan.'
+  next: 'DEPLOY with the next release, then verify on the first boot scan that "ValueError: Invalid entity ID garage_a" no longer appears in the HA log. Until that live check runs the fix is plausible, not proven.'
   links:
     related: [ARRESTER-LEDGER-INVISIBLE-1, EVSE-CHARGE-ONSET-NOT-HELD-1]
     context: 'ARRESTER-LEDGER-INVISIBLE-1 is about to add a new set of writers to this same
