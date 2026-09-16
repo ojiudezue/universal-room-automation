@@ -155,6 +155,22 @@ def _needs_resume_first(
         state = hass.states.get(entity_id)
         if state is None:
             return False
+        # CAPABILITY CHECK (not a vendor check). `resume` and the "manual"
+        # anonymous-hold marker are BRYANT/CARRIER semantics, and this is a
+        # SHARED chokepoint that every climate write passes through. A
+        # thermostat from another integration may mean something different by
+        # "manual" and may have no `resume` preset at all — firing one at it
+        # would be a guaranteed-failing service call on every write.
+        #
+        # So we gate on the entity's OWN advertised capability rather than on
+        # the integration name: only attempt the clear when the device itself
+        # lists `resume` among its preset_modes. Unknown thermostats fall
+        # through to the pre-existing direct-pin behaviour, unchanged.
+        # See HVAC-PRESET-WRITE-STRATEGY-1 for the full per-integration
+        # abstraction this is the seed of.
+        modes = state.attributes.get("preset_modes") or ()
+        if PRESET_RESUME not in modes:
+            return False
         hold = state.attributes.get("hold_activity")
         if hold is None:
             return False  # no hold at all -> a pin takes directly

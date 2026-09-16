@@ -35,7 +35,11 @@ from .hvac_const import (
 )
 from .hvac_override import OverrideArrester
 from .hvac_preset import PresetManager
-from .hvac_setpoint import apply_setpoint_guards, emit_set_temperature
+from .hvac_setpoint import (
+    apply_setpoint_guards,
+    emit_set_preset_mode,
+    emit_set_temperature,
+)
 from .hvac_zones import ZoneManager
 from .signals import EnergyConstraint
 
@@ -1000,6 +1004,36 @@ class HVACPredictor:
             _bt = getattr(self, "_banking_excursion_tokens", {}).pop(
                 zone_id, None,
             )
+            # HVAC-MANUAL-PRESET-CONTRACT-1 D2b — solar banking's RELEASE
+            # restored setpoints and never a preset, so a banked zone came
+            # back with correct numbers sitting in an ANONYMOUS hold. Same
+            # gap as the pre-heat return; same fix, using the snapshot the
+            # token already carries. Only attempted when the setpoint
+            # restore itself succeeded (_release_ok) — re-presetting a zone
+            # whose numbers were never restored would assert governance over
+            # a state we did not actually establish.
+            if _bt is not None and _release_ok and getattr(_bt, "pre_preset", ""):
+                _bz = self._zone_manager.zones.get(zone_id)
+                if _bz is not None:
+                    try:
+                        if self._override_arrester:
+                            self._override_arrester.suppress(
+                                _bz.climate_entity, kind="preset",
+                            )
+                        await emit_set_preset_mode(
+                            self.hass,
+                            _bz.climate_entity,
+                            _bt.pre_preset,
+                            blocking=True,  # EXCURSION_RETURN_BLOCKING
+                            site="S11_release_banked_preset",
+                            zone_id=zone_id,
+                            reason="banking_release",
+                        )
+                    except Exception as _bp:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "banking release: preset restore failed for "
+                            "%s: %s", zone_id, _bp,
+                        )
             if _bt is not None:
                 try:
                     from . import hvac_excursion as _ex_mod  # noqa: PLC0415
@@ -1471,6 +1505,45 @@ class HVACPredictor:
                 if coord is not None and hasattr(coord, "_last_emitted_range"):
                     coord._last_emitted_range[zone_id] = (
                         tok.pre_target_low, tok.pre_target_high,
+                    )
+                # HVAC-MANUAL-PRESET-CONTRACT-1 D2b — RESTORE THE PRESET,
+                # not just the numbers.
+                #
+                # THE GAP THIS CLOSES. Returning a setpoint hands back the
+                # right TEMPERATURES but leaves the zone in an ANONYMOUS hold
+                # — a raw setpoint write IS a hold with no named activity — so
+                # the zone keeps correct numbers with no preset governance,
+                # and `should_change_preset` then refuses to act on it
+                # (hvac_preset.py:202-217). Measured consequence: zone_1 spent
+                # 69.6% of 7 days in `manual`, with a 17.9-hour tail.
+                # hvac_predict.py owned solar banking, pre-cool AND pre-heat
+                # and contained ZERO preset emissions — these returns never
+                # even attempted it.
+                #
+                # WHY THE SNAPSHOT IS THE RIGHT TARGET. The excursion token
+                # already carries `pre_preset` (hvac_excursion.py:116), and
+                # the established semantic (rev-4, operator-ruled) is an
+                # UNFILTERED snapshot: restore exactly what was there. If it
+                # was "manual" the write is an equality no-op; if empty we
+                # skip. Fighting an operator-set manual is the arrester's job,
+                # not the excursion's.
+                #
+                # This only became worth doing now that D2a makes a preset
+                # write actually LAND — before, a named pin over an anonymous
+                # hold had its name discarded by the cloud.
+                if tok.pre_preset:
+                    if self._override_arrester:
+                        self._override_arrester.suppress(
+                            zone.climate_entity, kind="preset",
+                        )
+                    await emit_set_preset_mode(
+                        self.hass,
+                        zone.climate_entity,
+                        tok.pre_preset,
+                        blocking=True,  # EXCURSION_RETURN_BLOCKING
+                        site="S13_preheat_return_preset",
+                        zone_id=zone_id,
+                        reason="preheat_boundary",
                     )
             except Exception as _rex:  # noqa: BLE001
                 _LOGGER.warning(

@@ -53,8 +53,10 @@ GATE, CONSTS = _load_gate()
 
 
 class _State:
-    def __init__(self, hold):
-        self.attributes = {} if hold is _MISSING else {"hold_activity": hold}
+    def __init__(self, hold, modes=("away", "home", "manual", "sleep", "resume")):
+        self.attributes = {"preset_modes": modes}
+        if hold is not _MISSING:
+            self.attributes["hold_activity"] = hold
 
 
 _MISSING = object()
@@ -162,3 +164,92 @@ def test_suppress_selects_the_ttl_by_kind():
         "constant is a hollow fix"
     )
     assert '"preset"' in src or "'preset'" in src
+
+
+def test_thermostat_without_a_resume_preset_is_left_alone():
+    """CAPABILITY GATE — `resume`/`manual` are Carrier semantics in a SHARED
+    chokepoint.
+
+    A thermostat from another integration may have no `resume` preset. Firing
+    one at it would be a guaranteed-failing service call on every write. Such a
+    device must fall through to the pre-existing direct-pin behaviour even when
+    its hold happens to be called "manual".
+    """
+    other = _State("manual", modes=("home", "away", "eco"))
+    assert GATE(_Hass(other), "climate.some_other_brand", "home") is False
+
+
+def test_carrier_style_thermostat_still_gets_the_clear():
+    """The capability gate must not disable the fix for the device it is for."""
+    carrier = _State("manual", modes=("away", "home", "manual", "sleep", "resume"))
+    assert GATE(_Hass(carrier), "climate.z1", "sleep") is True
+
+
+# --------------------------------------------------------------------------
+# D2b — sanctioned-excursion RETURN paths must restore a preset, not just
+#       the numbers.
+# --------------------------------------------------------------------------
+
+PREDICT = DC / "hvac_predict.py"
+
+
+def _fns_with_setpoint_writes():
+    """Map function name -> (n_setpoint_writes, n_preset_writes) in hvac_predict."""
+    src = PREDICT.read_text()
+    tree = ast.parse(src)
+    out = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            seg = ast.get_source_segment(src, node) or ""
+            if "emit_set_temperature(" in seg:
+                out[node.name] = (
+                    seg.count("emit_set_temperature("),
+                    seg.count("emit_set_preset_mode("),
+                )
+    return out
+
+
+@pytest.mark.parametrize("fn", ["_return_preheat", "_release_banked_zones"])
+def test_excursion_return_paths_restore_a_preset(fn):
+    """THE D2b ANCHOR.
+
+    hvac_predict.py owns solar banking, pre-cool and pre-heat and contained
+    ZERO preset emissions — its RETURN paths handed back correct temperatures
+    while leaving the zone in an anonymous hold, which `should_change_preset`
+    then refuses to act on. Measured consequence: zone_1 at 69.6% manual over
+    7 days with a 17.9-hour tail.
+    """
+    fns = _fns_with_setpoint_writes()
+    assert fn in fns, f"{fn} no longer writes setpoints — re-scope this test"
+    _temp, preset = fns[fn]
+    assert preset >= 1, (
+        f"{fn} restores setpoints but NOT a preset — the zone comes back with "
+        "correct numbers in an anonymous hold"
+    )
+
+
+def test_return_paths_use_the_token_snapshot_not_a_guess():
+    """Restore target must be the excursion token's `pre_preset` snapshot.
+
+    Inventing a target (e.g. deriving from house state) would assert a preset
+    the zone was never on. The token already carries an UNFILTERED snapshot;
+    the established semantic is to restore exactly what was there.
+    """
+    src = PREDICT.read_text()
+    assert "tok.pre_preset" in src, "_return_preheat must restore from the token"
+    assert "_bt, \"pre_preset\"" in src or "_bt.pre_preset" in src, (
+        "banking release must restore from its own token snapshot"
+    )
+
+
+def test_banking_release_does_not_preset_when_the_setpoint_restore_failed():
+    """Do not assert preset governance over a state we never established.
+
+    If the setpoint restore deferred or raised, re-presetting would claim the
+    zone is back at baseline when it is not.
+    """
+    src = PREDICT.read_text()
+    assert "_release_ok and getattr(_bt" in src or "_release_ok" in src, (
+        "banking preset restore must be gated on the setpoint restore having "
+        "succeeded"
+    )
