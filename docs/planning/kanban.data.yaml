@@ -180,7 +180,7 @@ cards:
 - id: ZIRI-PRESENCE-SENSOR-DEAD-1
   title: Ziri Bedroom presence redundancy degraded — ziri_3_presence mmWave is dead (never fired 7 nights),
     leaving one live mmWave with 360+min overnight OFF stretches
-  status: waiting_operator
+  status: done
   thread: presence
   created: '2026-09-16'
   updated: '2026-09-16'
@@ -207,7 +207,14 @@ cards:
   links:
     related: [HVAC-ZONE-CONDITIONING-DEMAND-1]
     context: 'Found by the HVAC-B overnight occupancy-retention probe. Ziri is the concrete instance of the
-      redundancy-degradation failure mode that makes the 2-6am leniency required (P1) in Option B.'
+      redundancy-degradation failure mode that makes the 2-6am leniency required (P1) in Option B.'  REFUTED_2026_09_16: 'CLOSED — operator ground truth: ZIRI IS NOT AT HOME. ziri_3_presence "never
+    fired all week" and mmwave_zigbee_ziribedroom''s 360-416min OFF stretches are an EMPTY ROOM behaving
+    correctly, NOT a dead sensor and NOT redundancy degradation. The measurement agent labeled it "dead"
+    without knowing the occupant was away (a dead sensor and an empty room are indistinguishable from
+    "never ON"). No degradation evidence exists. RESIDUAL (folded, not a separate card): if Ziri returns
+    home and the room still reads perpetually unoccupied, THEN re-open as a real dead-sensor finding —
+    but do not assume it now. This card taught a false premise; closing it.'
+
 - id: EC-SOC-LADDER-FULL-WIRING-1
   title: Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto
     the safe accessor across ~25 consumer sites
@@ -10537,6 +10544,19 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  D8_RESCOPED_2026_09_16: 'CORRECTION cascading from the Ziri refutation. The night measurement made
+    the 2-6am leniency (D8) REQUIRED/P1 on the basis that redundancy degrades silently AND Ziri proved
+    it. Ziri did NOT prove it — Ziri is away (operator), so there is NO observed degraded-occupied-
+    bedroom instance. D8''s justification collapses back to the operator''s ORIGINAL P2-3: defensible
+    insurance against a hypothetical (a sensor dying while a room is occupied), not a proven need.
+    => RE-SCOPE step-4-B: BUILD D7 only (night-trust gated on fused room occupancy — validated SAFE:
+    Master+Jaya occupied, fused held continuous 2.4min worst gap). DEFER D8 (leniency + 4 discharge
+    paths) as a parked knob, revival trigger = a REAL observed occupied-bedroom degradation (a resident
+    reports a night away-retreat, OR a bedroom is confirmed degraded-to-single-sensor while occupied).
+    This SHRINKS the Tier-3 build materially (D8 was much of the complexity). D7 still Tier 3 (touches
+    night-trust hierarchy + reverses the 2026-06-05 flap fix); INV-1 (no sleeping bedroom -> away) is
+    protected by D7''s fused-signal reads + the measured 2.4min margin for the CURRENT healthy config.
+    Operator to confirm defer-D8 vs build-anyway at the Tier-3 checkpoint.'
   NIGHT_MEASUREMENT_2026_09_16: 'Option-B safety gate measured (7 nights). VERDICT: SAFE now + 2-6am
     leniency REQUIRED (upgraded P2-3 -> P1 by the data). Findings: (1) NO resident/guest bedroom is
     PIR-only — all mmWave/occupancy-backed. (2) The FUSED binary_sensor.<room>_occupied holds
