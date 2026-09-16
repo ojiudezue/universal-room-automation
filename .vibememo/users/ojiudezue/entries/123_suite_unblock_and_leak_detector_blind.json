@@ -1,0 +1,25 @@
+{
+ "format_version": "2.1",
+ "entry_id": "123",
+ "author": "ojiudezue",
+ "session_id": "claude_20260915_2100_suite_unblock",
+ "timestamp": "2026-09-15T21:45:00Z",
+ "type": "reasoning",
+ "weight": "critical",
+ "title": "Test suite unblocked (option A) \u2014 and the mutation drill proved the task-leak detector never worked",
+ "summary": "The full suite was unrunnable (1 passed / 10,592 setup errors) because phcc's sync autouse fixtures call asyncio.get_event_loop(), which HassEventLoopPolicy RAISES instead of auto-creating \u2014 order-dependent, so single files passed while the suite died. Overrode both fixtures in quality/tests/conftest.py; suite now runs (10,214 passed / 368 failed / 6 errors in 5m33s). The acceptance drill then showed a deliberately leaked task STILL PASSES.",
+ "why": "Operator picked option A (preserve leak detection) over B (no-op the detector) precisely because a green suite that has stopped detecting is worse than an honest red one. Implementing it surfaced something bigger: pytest-asyncio 1.3 runs each test on a per-test loop that the fixture never sees (measured: setup/teardown see running=False debug=True while the test body runs on a different running=True debug=False loop), so verify_cleanup \u2014 phcc's upstream version included \u2014 has been comparing against an idle bystander loop. The detection was already inert before the crash; the crash merely hid it. Option C was eliminated by measurement, not judgement: phcc 0.13.316 is the latest published release and every installed pin already matches its declared set exactly, so there was nowhere to upgrade to. Also proved no 'touch neither fixture' option exists \u2014 fixing enable_event_loop_debug alone just moves the identical RuntimeError to verify_cleanup.",
+ "implications": "Do NOT cite a green suite as evidence of no task/timer leaks until TEST-LEAK-DETECTOR-WRONG-LOOP-1 lands \u2014 that claim has been unbacked for a long time, which plausibly explains reload-leak defects reaching production despite a large suite. conftest.py documents the honest scope inline (thread check real; task/timer blind). The newly visible 368 failures are a real triage backlog, already split: test_v47x_weather_manager fails 47 in-suite but passes 76 in isolation (order pollution), while 68 others traced to ONE stale symbol (CONF_APPLIANCE_RECORDS missing from the AST-slice loader after v5.103.0) and are now fixed.",
+ "revisit_trigger": "When TEST-LEAK-DETECTOR-WRONG-LOOP-1 is built: the deliberate-leak drill MUST go red, and a full-suite run must show the failure set did not grow (a leaked task from one test is visible to the next test's fixture, so naive differencing will cascade).",
+ "refs": {
+  "cards": [
+   "TEST-HARNESS-REAL-HA-DEFAULT-1",
+   "TEST-LEAK-DETECTOR-WRONG-LOOP-1",
+   "UNLOAD-SYMMETRY-TASK-HYGIENE-1"
+  ],
+  "docs": [
+   "quality/tests/conftest.py"
+  ],
+  "release_notes": "Test-only. No production change."
+ }
+}
