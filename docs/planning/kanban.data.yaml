@@ -7809,6 +7809,7 @@ cards:
     is not in _NON_CORROBORATOR_KINDS so the D-MEDIUM-1 rule does not fire) but it is very likely wrong,
     and it changes how that sensor is trusted. Confirm intent before clearing it.'
 - id: ARRESTER-LEDGER-INVISIBLE-1
+  seq_2026_09_15: 'STEP 2 of HVAC-SUPPLE-SEQUENCE-1 — and it was PROMOTED: this is the MEASUREMENT INSTRUMENT for the arc, not side-hygiene. A human correcting the thermostat after an away flip is the only INDEPENDENT witness of a spurious away (the guest/person route is circular — it derives from the very occupancy signal under audit). GATE: a real override writes a durable row; a no-override tick writes none.'
   title: The HVAC override arrester keeps its ledger in INFO log lines, on a log that only records
     WARNING and above — so every arrest it makes is invisible after the fact
   thread: hvac
@@ -7877,6 +7878,7 @@ cards:
   - hvac_fans.py:1058-1060, :1716-1720 (the durable activity_logger pattern to reuse)
   - docs/planning/PLANNING_arrester_comfort_delay.md
 - id: HVAC-HOT-ENTRY-LATENCY-1
+  seq_2026_09_15: 'STEP 5 (conditional) of HVAC-SUPPLE-SEQUENCE-1. The ONLY thing that can satisfy fast-in is the event-driven path, because HVAC_DECISION_TICK (5 min) is a hard floor no dwell value can beat. Its old arrester open-question is answered by STEP 2.'
   title: Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry dwell does
     not care how hot the room is
   thread: hvac
@@ -9397,6 +9399,100 @@ cards:
       structurally inert and grac
     verdict: BUILD
   batch: tier1-gate-and-knobs
+- id: HVAC-SUPPLE-SEQUENCE-1
+  title: The ordered plan for making HVAC supple — six steps, each with a gate, run to completion
+    rather than cherry-picked
+  thread: hvac
+  status: planned
+  created: '2026-09-15'
+  updated: '2026-09-15'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-15 ("We should define sequence now. We have some related work and
+    we should move through it methodically till done.")'
+  tags: [measure-before-build, tier-2db, sequence]
+  problem_solution:
+  - 'Problem: the HVAC work is spread across half a dozen cards that each look independently
+    buildable, but they are not — several of them cannot be MEASURED until others land, so
+    building them in the wrong order produces changes nobody can prove helped or hurt. Solution:
+    fix the order once, make each step''s exit condition explicit, and work it through to the end
+    instead of picking off whichever card looks easiest.'
+  why: 'Per the finish-the-job rule: decomposing this arc is a commitment to complete it, not a
+    menu. And per measure-before-build: the middle of this sequence is a behaviour change to live
+    comfort and spend, so the instrumentation and baseline have to exist BEFORE it, or the success
+    criteria are unfalsifiable and the cycle cannot be closed honestly.'
+  WITNESS_CORRECTION_2026_09_15: 'I told the operator the spurious-away metric might need the
+    guest/person work first. THAT WAS WRONG and the correction reorders the sequence.
+    HVAC-GUEST-AS-ZONE-PERSON-1 derives a zone person FROM ROOM OCCUPANCY — the very signal we are
+    trying to audit — so it cannot witness its own input. Circular.
+    The genuinely INDEPENDENT witness already exists and is free: A HUMAN CORRECTING THE THERMOSTAT
+    shortly after an away flip. That is a different channel from the occupancy sensors entirely,
+    and it is the operational definition of "spurious away" — URA retreated and a person disagreed.
+    We cannot see it today only because the arrester writes its decisions to INFO lines that the
+    log level discards (ARRESTER-LEDGER-INVISIBLE-1). So that card is NOT side-hygiene; it is the
+    MEASUREMENT INSTRUMENT for this whole arc, and it moves near the front.'
+  SEQUENCE_2026_09_15: 'Six steps. Each names its exit GATE; do not start step N+1 until step N''s
+    gate is met. Steps 1-3 change no HVAC behaviour, which is deliberate — they make the rest
+    provable.
+
+    STEP 1 — HVAC-MANUAL-PRESET-CONTRACT-1 (Tier 2-DB). The operator has already called this one:
+    "We have to finish this." It is first because it is the ATTRIBUTION foundation: with 0/10
+    preset restores taking, a zone sitting in `manual` cannot be attributed to URA versus a human,
+    so every downstream metric is contaminated by episodes of unknown authorship.
+    GATE: preset restores demonstrably take (a restored preset survives), measured not assumed.
+
+    STEP 2 — ARRESTER-LEDGER-INVISIBLE-1 (Tier 1-2, additive observability, no behaviour change).
+    Write arrest decisions to the durable activity ledger, REUSING the hvac_fans.py:1058 pattern.
+    This is the independent witness (see WITNESS_CORRECTION) and it also closes the long-open
+    "did the arrester detect that override?" question on HVAC-HOT-ENTRY-LATENCY-1.
+    GATE: a real override produces a durable row; a no-override tick produces none (discriminating).
+
+    STEP 3 — BASELINE CAPTURE (read-only, one-shot, no build). Compute the success metrics defined
+    on HVAC-ZONE-CONDITIONING-DEMAND-1 against data that ALREADY exists: comfort (spurious-away
+    count now that step 2 makes it visible, time-to-condition, pointless-conditioning episodes —
+    currently 15/day in zone_3 at median exactly 10.0 min) and energy (compressor runtime per
+    COOLING-DEGREE-DAY per zone, plus cycle count). Commit the numbers.
+    GATE: a committed baseline table. Without it the cycle cannot be closed honestly later.
+
+    STEP 4 — HVAC-ZONE-CONDITIONING-DEMAND-1 (Tier 2-DB). The actual fix, and the only behaviour
+    change in the sequence: publish `grace_hold ? held : any_sensor_active` and have the zone
+    rollup read it, so HVAC stops inheriting the lighting clearance timeout.
+    PRE-GATE (can kill the approach): prove raw-signal gaps during DWELLING episodes are shorter
+    than vacancy_grace. If they are not, STOP and re-plan rather than adding machinery.
+    GATE: the paired metrics from step 3 both move the right way. Either alone is gameable, so a
+    comfort gain paid for with energy (or the reverse) is a FAILURE, not a trade.
+
+    STEP 5 — RE-MEASURE AND DISPOSE. Compare against the step-3 baseline. Only NOW decide whether
+    the remaining ideas are still needed, because the whole point of the ordering is to avoid
+    building them on speculation: soft-away first step, the event-driven fast path (which is the
+    only thing that can beat the 5-minute tick floor and therefore the only real answer to
+    HVAC-HOT-ENTRY-LATENCY-1), and HVAC-GUEST-AS-ZONE-PERSON-1.
+    GATE: each surviving item has a measured justification, or it is parked with its trigger.
+
+    STEP 6 — CLOSE THE ARC. Write the validation table back into the README, dispose
+    HVAC-PRESET-FLAP-1 (currently the evidence ledger) and HVAC-HOT-ENTRY-LATENCY-1 against the
+    measured outcome, and record which step-5 items were parked and why.
+
+    RUNS IN PARALLEL, NOT IN THE CHAIN: HVAC-ANOMALY-BLIND-1 (its short_cycle_rate metric is the
+    natural home for the cycle-count guard in step 3/B3, and it is already gated on tonight''s
+    rollover probe) and S14-CEILING-NEEDS-AN-ENDING-1 (a separate off-phase behaviour the operator
+    has already decided; no dependency either way).'
+  parsimony:
+    problem: Related HVAC cards are order-dependent for MEASUREMENT, not just for code, so building
+      them in the wrong order yields changes nobody can prove helped.
+    verdict: BUILD
+  next: 'START STEP 1 — HVAC-MANUAL-PRESET-CONTRACT-1, already operator-directed ("we have to
+    finish this"). Steps 1-3 are all no-behaviour-change or read-only, so they can be driven
+    without a further operator gate; the operator checkpoint falls at STEP 4, which is the live
+    comfort/spend change.'
+  links:
+    blocks: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-GUEST-AS-ZONE-PERSON-1, HVAC-HOT-ENTRY-LATENCY-1]
+    related: [HVAC-MANUAL-PRESET-CONTRACT-1, ARRESTER-LEDGER-INVISIBLE-1, HVAC-PRESET-FLAP-1, HVAC-ANOMALY-BLIND-1, S14-CEILING-NEEDS-AN-ENDING-1]
+    context: 'This card is the ORDER; the linked cards are the work. It blocks the three cards
+      whose measurement is impossible until the instrumentation and baseline exist.
+      HVAC-MANUAL-PRESET-CONTRACT-1 is step 1 (attribution), ARRESTER-LEDGER-INVISIBLE-1 is step 2
+      (the independent witness). HVAC-PRESET-FLAP-1 remains the evidence ledger to read before
+      starting. HVAC-ANOMALY-BLIND-1 and S14-CEILING-NEEDS-AN-ENDING-1 run in parallel.'
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
   TAP_POINT_RESOLVED_2026_09_15: 'OPERATOR: "Does it re-use stuck sensor machinery correctly? We
     really want to avoid those if we are driving HVAC." The right question — a careless "tap
@@ -15807,6 +15903,7 @@ cards:
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL adjacent-independent Tier 1 audit. Promoted inbox -> pre_planning.'
 - id: HVAC-GUEST-AS-ZONE-PERSON-1
+  seq_2026_09_15: 'STEP 5 (conditional) of HVAC-SUPPLE-SEQUENCE-1. NOT a prerequisite for measuring spurious-away — that was my error; this derives a person FROM room occupancy and so cannot witness its own input. Build only if the step-5 re-measure still justifies it.'
   title: A guest in an occupied guest room should count as that zone's "person" — today a zone with no
     assigned residents loses three protections entirely
   thread: hvac
@@ -16709,6 +16806,7 @@ cards:
     restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
     the borrow primitive, not folded into it.'
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  seq_2026_09_15: 'STEP 1 of HVAC-SUPPLE-SEQUENCE-1 — the attribution foundation. Operator-directed ("We have to finish this"). GATE: preset restores demonstrably take, measured. Everything downstream is contaminated until this lands, because a zone in `manual` cannot be attributed to URA vs a human.'
   DEDUPE_2026_08_23: 'RULING: DUPLICATE — a card `PRESET-RESTORE-DOES-NOT-TAKE-1` was created on 2026-08-23
     and has been DELETED; its content is folded into this card as the INSTANCE block below plus SCOPE_ONE_OR_MANY
     / CARRIER_MECHANISM_HYPOTHESIS / CANARY_BEFORE_BUILD. WHY IT MERGED: this card''s own TITLE already
