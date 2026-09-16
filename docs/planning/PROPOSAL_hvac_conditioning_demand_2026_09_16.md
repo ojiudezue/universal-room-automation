@@ -143,18 +143,64 @@ with **Garage Hallway** occupancy and *not* guest-bedroom occupancy?
 
 This is the gate. It has **not** been run yet.
 
-### Stage A — Circulation-aware zone demand (the core change)
+### Stage A — Per-room HVAC-occupancy sensor with its own timer (the core change)
 
-One new explicit distinction: mark circulation rooms (the ~6 hallways/foyer).
-**Operator-declared, not derived** — you know your house, and deriving transit-vs-
-dwell is exactly the flaky move H1/H2 warned against. HVAC zone demand becomes the
-OR over **non-circulation** rooms; circulation rooms stop voting for conditioning.
+> **Revised 2026-09-16 (operator).** The original Stage A was a *binary circulation
+> exclusion* (mark ~6 hallways, they stop voting). The operator generalized it, and
+> the generalization is better — recorded here; the binary version is retired into a
+> special case of this one.
 
-- Reuses `room.occupied` as-is (all machinery intact). **No raw sensor tap.**
-- One field, read at the one existing rollup site. Lighting untouched (no
-  regression risk to lights).
-- Directly targets the measured defect; predicted to kill most of zone_3's 15/day.
-- `grace_hold` and `vacancy_grace` unchanged.
+Expose a **second, HVAC-specific occupancy view per room**, with its **own per-room
+hold** (a decay *duration* — how long HVAC-occupancy persists after the signal
+drops), separate from the `occupancy_timeout` that drives lights/automations. One
+signal drives automations; the other drives HVAC.
+
+> **Precision (operator, 2026-09-16): a hold is not a timer loop.** A *hold* is a
+> duration a state persists, evaluated on whatever tick runs. A *loop/tick* is the
+> evaluation cadence. They are orthogonal, and this Stage A is entirely about the
+> **hold** (what the HVAC-occupancy state is). It does **not** change how fast HVAC
+> reacts — that is the loop, and it is Stage-D's problem (§ fast-in), not this
+> sensor's. Do not sell the per-room hold as improving reaction latency; it can't.
+
+**Why this beats binary circulation exclusion:**
+- **Handles the kitchen** — a room that is *both* circulation and a legit
+  short-dwell space. Binary exclude loses its automation needs; a per-room HVAC
+  dwell tunes it.
+- **Subsumes circulation** — a pure hallway is simply a room whose HVAC-occupancy
+  is off (or whose HVAC dwell is set so transit never qualifies). No new
+  `room_type` value, no separate flag. (This answers "map to the room_type
+  unification?" — **no**: `room_type` is *purpose* and feeds `ROOM_TYPE_TIMEOUTS` /
+  `_FAILSAFE_DURATIONS` / `_FEATURE_DEFAULTS`; overloading it would ripple. The
+  distinction lives on the per-room HVAC timer instead.)
+- **Proven prior art — extend, don't invent.** `CONF_FAN_VACANCY_HOLD` (300s,
+  per-room configurable; `const.py:966,1153`) is *exactly* this pattern: a second,
+  consumer-specific hold stacked on the room's `occupancy_timeout`. Fans already do
+  "one timer for me, a different one for the room." HVAC extends the same pattern.
+
+**The layered shape (this is the skeptical part):** a per-room *duration* timer
+alone does **not** separate transit from dwell in a **busy corridor** — measured:
+the transit corridor produced *longer* clustered sessions (max 25.8 min) than the
+bedroom (max 4.5). Repeated crossings defeat any duration threshold. So the HVAC
+sensor's **input** cannot be "the fused signal held longer/shorter":
+
+- **Input** = kind-aware presence — mmWave *stillness* where available (continuous
+  `device_class: occupancy` = settled body; transit barely touches it — see §6),
+  known-occupier BLE anchor, or the fused signal elsewhere. **Never raw sensors**
+  (the H1/H2 lesson).
+- **Hold** = the per-room HVAC decay duration (the `fan_vacancy_hold` pattern) —
+  governs adopt-dwell and retreat *persistence*. NOT reaction cadence (that's the
+  loop, § Stage D).
+
+The hold is the per-room flexibility; the kind-aware input is what lets it separate
+transit from dwell where duration can't. Reuses `room.occupied`'s fused, machined
+signal (exclusion / chatter / grace-hold / mmWave-demotion all intact); consumed at
+the one existing zone rollup site; lights untouched.
+
+**Two knob-placement decisions for the operator** (Numbers-Get-Knobs / parsimony):
+- **(a) Exposure:** a real per-room HVAC-occupancy *entity* in all 43 rooms
+  (observability, but entity clutter) vs. an internal signal with opt-in diagnostic.
+  Recommend **internal + opt-in diagnostic**.
+- **(b) Timer home:** per-room config field mirroring `CONF_FAN_VACANCY_HOLD`.
 
 ### Stage B — Within-room stillness (refinement, only if needed, measurement-gated)
 
@@ -172,13 +218,25 @@ For the guest wing (no assigned residents) and pre-arrival. This is
 *dynamic* zone person from an occupied guest room with an explicit liveness/decay
 contract. Not a stubbed dummy (rejected — a fiction defeats a trust gate).
 
-### Named separately, NOT folded in — the fast-in constraint
+### Stage D — Fast-in (the loop problem, NOT a hold)
 
 The 5-minute decision tick is a **hard floor** on "react quickly if it's hot." Even
 at dwell=0, worst-case latency to act is a full tick; the founding incident had the
-occupant at the thermostat in ~2.5 min. **No demand-signal fixes this** — fast-in
-needs an event-driven path that acts between ticks. Any plan claiming fast-in
-without addressing the tick is promising something it can't deliver.
+occupant at the thermostat in ~2.5 min. **No hold and no demand-signal fixes this**
+— reaction latency is set by the *loop cadence*, not by any state-persistence
+duration (see the hold-vs-loop precision note in Stage A). Fast-in needs a faster
+loop or an event path.
+
+**Prior art (operator): a subsystem can run a dedicated faster loop.** The
+solar-follow / EVSE logic runs a **60 s tick** (`energy_const.py:1007,1016`) while
+the optimizer and energy system run at 5 min (`SCAN_INTERVAL_OPTIMIZATION`,
+`SCAN_INTERVAL_ENERGY`). So the lower-risk option is a **dedicated ~60 s HVAC
+reaction sub-tick for the hot-and-occupied case**, leaving the 5-min decision tick
+for everything else — a proven, bounded pattern rather than a from-scratch
+event-driven rebuild. A 60 s loop tightens *both* fast-in (adopt when hot+occupied)
+*and* retreat latency (a hold that expired is noticed within ~60 s, not up to 5
+min). Event-driven is the tighter-but-heavier alternative if 60 s proves
+insufficient.
 
 ---
 
@@ -208,15 +266,21 @@ passes.
 ## 7. The operator checkpoint — what's actually yours to decide
 
 The checkpoint comes **pre-build** (Tier 2-DB; building the wrong aggression burns a
-cycle), after Stage 0 confirms. It's cleaner than three timers:
+cycle), after Stage 0 confirms.
 
-1. **The circulation set** — which rooms are transit. My read: Garage Hallway,
-   Kitchen Hallway, Kitchen Hallway Garage, Master Hallway, Upstairs Hallway, Foyer.
-   This *is* the aggression lever — a declaration you can eyeball, not a number.
-2. **Absolute or soft** — never condition a zone on hallway-only occupancy
-   (recommended), vs. a brief pre-condition.
-3. **Retreat timing** — keep `vacancy_grace`=10 initially; tighten later on measured
-   residual, not now.
+1. **Per-room HVAC-occupancy holds** — the aggression lever, now generalized (not a
+   binary circulation flag). Pure-transit rooms → HVAC-occupancy off (the degenerate
+   case): Garage Hallway, Kitchen Hallway, Kitchen Hallway Garage, Master Hallway,
+   Upstairs Hallway, Foyer. Dwelling rooms → a per-room hold you can eyeball
+   (kitchen short, bedroom generous). A declaration + a small table, not a fleet of
+   timers.
+2. **Exposure** — internal signal + opt-in diagnostic (recommended) vs. a real
+   HVAC-occupancy entity in all 43 rooms.
+3. **Fast-in loop cadence** — adopt the ~60 s HVAC reaction sub-tick (EVSE pattern)
+   for hot-and-occupied, vs. leave fast-in for a later cycle. Distinct from the holds
+   above (hold ≠ loop).
+
+`vacancy_grace` stays 10 initially; tighten later on measured residual, not now.
 
 ### Two caveats I won't bury
 
