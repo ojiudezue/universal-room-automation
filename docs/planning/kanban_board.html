@@ -212,18 +212,42 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-09-16T01:27:59-05:00</b></span>
-<span>data <b>913141ad8c7e</b></span>
+<span>generated <b>2026-09-16T01:31:18-05:00</b></span>
+<span>data <b>aaf13e184aa8</b></span>
 <span>reconciled <b>2026-09-16</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">19<span class="den"> / 124</span></span>
+<span class="metric">23<span class="den"> / 124</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
-<details open><summary>recent autonomous work — 26 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
+<details open><summary>recent autonomous work — 30 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
 <ul class="feed">
+<li class="" data-fid="HVAC-ZONE-CONDITIONING-DEMAND-1@2026-09-16T02:05" data-card="HVAC-ZONE-CONDITIONING-DEMAND-1">
+<span class="oc investigated">investigated</span>
+<span class="fhd">YOUR SIMULATION CALL SAVED US FROM STRANDING THE GUEST BEDROOM. You asked to model step 4 before building it. It FAILED. The plan was to have the heating read the raw motion signal instead of the smoothed one — but over 7 days NEITHER room ever holds a raw signal for the 5 minutes the logic requires: the hallway maxes at 2.6 min and the guest bedroom at 4.1 min. So the change would have filtered out the BEDROOM too, meaning a sleeping guest never registers, the zone never warms, and the room sits at its 80F ceiling all night — the exact stranding you warned about. It also corrected my own reasoning: I called the smoothing a lighting artifact, but these sensors only emit brief blips and the smoothing is what turns them into usable occupancy. Step 4 does not proceed as designed. Honest limit: the guest room had no guest in the sample, so the dwelling half is untested rather than disproven.<br><span class="ft">2026-09-16T02:05:00</span>
+</span>
+<button type="button" class="ack" data-fid="HVAC-ZONE-CONDITIONING-DEMAND-1@2026-09-16T02:05">✓ ack</button>
+</li>
+<li class="" data-fid="HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1@2026-09-16T02:00" data-card="HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1">
+<span class="oc built">built</span>
+<span class="fhd">EVERY RESTART WAS QUIETLY BREAKING YOUR THERMOSTAT SETTINGS — built the fix, not deployed. Watched it live: seconds after tonight&#x27;s restart the healthiest zone in the house went from a proper &quot;away&quot; setting to a nameless hold. A startup check writes temperatures back but never the named setting, and at ~3 restarts a day that is a recurring insult. It could not restore the name because it looked in memory, which is wiped by the restart — but the name IS saved on disk and we simply never read it. No database change needed. In review for the morning.<br><span class="ft">2026-09-16T02:00:00</span>
+</span>
+<button type="button" class="ack" data-fid="HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1@2026-09-16T02:00">✓ ack</button>
+</li>
+<li class="" data-fid="HVAC-MANUAL-PRESET-CONTRACT-1@2026-09-16T01:19" data-card="HVAC-MANUAL-PRESET-CONTRACT-1">
+<span class="oc shipped">shipped</span>
+<span class="fhd">THE FOUR-WEEK THERMOSTAT MYSTERY IS SOLVED AND THE FIX IS LIVE. Your thermostats would not hold a named setting: writing one over a hand-set hold makes the Bryant cloud keep the temperatures and silently throw away the NAME. Clearing the hold first, then setting it, works — proven live, held 8 minutes across 9 cloud checks where every previous attempt died in under a minute. Shipped as v5.103.2. It then rescued a zone in production 7 minutes after the restart, and you can see both behaviours a minute apart in the same zone: the name dropping at 01:17:21, then landing at 01:19:06. Real acceptance is still pending — zone 1 must fall from 69.6% stuck-in-manual toward 6% over 24h, and if it does not, we stop rather than patch.<br><span class="ft">2026-09-16T01:19:00</span>
+</span>
+<button type="button" class="ack" data-fid="HVAC-MANUAL-PRESET-CONTRACT-1@2026-09-16T01:19">✓ ack</button>
+</li>
+<li class="" data-fid="ARRESTER-LEDGER-INVISIBLE-1@2026-09-16T00:05" data-card="ARRESTER-LEDGER-INVISIBLE-1">
+<span class="oc shipped">shipped</span>
+<span class="fhd">URA CAN NOW SHOW ITS WORK ON THERMOSTAT OVERRIDES (v5.103.1). It was recording every override decision at a log level that throws them away, so nobody could ever answer &quot;did URA notice that?&quot; after the fact — which blocked three separate investigations in one night. It now writes a durable record. It proved itself within the hour: it captured the exact write that rescued a zone. Shipped alongside a fix for a second defect where URA was poisoning Home Assistant&#x27;s event bus with a malformed id, causing a recorder error on the live system.<br><span class="ft">2026-09-16T00:05:00</span>
+</span>
+<button type="button" class="ack" data-fid="ARRESTER-LEDGER-INVISIBLE-1@2026-09-16T00:05">✓ ack</button>
+</li>
 <li class="" data-fid="TEST-HARNESS-REAL-HA-DEFAULT-1@2026-09-15T21:40" data-card="TEST-HARNESS-REAL-HA-DEFAULT-1">
 <span class="oc investigated">investigated</span>
 <span class="fhd">THE TEST SUITE IS DEAD AND I NOW KNOW EXACTLY WHY — ONE WORD FROM YOU RESTORES IT. Reproduced it myself: 1 test passes, 10,592 error. Cause: a Home Assistant policy makes a routine asyncio call RAISE instead of quietly working, so the moment any test loads HA, every later test dies in setup. That is why one file looks green and the whole suite is a graveyard. I tried twice to fix it WITHOUT touching the leak detector and proved it impossible — patch the first fixture and the same error just moves to the second. I also killed option C: we are already on the newest library and every pin matches exactly, so no upgrade exists. Backed my attempt out cleanly, tree untouched. It is A or B now and I recommend A (keep leak detection, reimplement it) — B gives a green suite that has quietly stopped catching leaks, which is worse than honest red. Also worth knowing: the harness tests against HA 2026.2.3 while your house runs 2026.9.2.<br><span class="ft">2026-09-15T21:40:00</span>
@@ -766,7 +790,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>913141ad8c7e</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>aaf13e184aa8</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
