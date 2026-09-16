@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T00:00:20-05:00_ - _Data commit: `9ba090287678`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T00:18:03-05:00_ - _Data commit: `c8078c2c07a8`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -398,12 +398,13 @@ _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_
 - **Problem / Solution:**
   - Problem: the thermostats are supposed to be driven by named presets that each carry a fixed temperature range, so the house always returns to known settings. Instead one zone spent over ten hours sitting on a hand-set temperature pair, s...
 - **Why:** OPERATOR SPEC (verbatim 2026-08-20): "The design spec was to not use manual but to use our presets as control. That way it always returns to same ranges. In addition we always want to use heat_cool. Have seen that part hold so far. Manua...
-- **Next:** Scope as one excursion-restore cycle with BORROW + S14: restore-path for every raw-setpoint excursion + fix/guard the should_change_preset manual self-lockout. Buildable; audit done 2026-08-25.
+- **Next:** PLAN REVIEW x2 (framing-disjoint) on PLANNING_preset_hold_contract_resume_then_pin.md before any build: (1) completeness — independently re-enumerate every setpoint/preset emission site rather than trusting the plan's S1-S14 list; (2) ad...
 - **Tags:** no-fabrication-verify, institutional-context, tier-2db
 - **Sibling of:** BORROW-BANKING-LEASE-NOT-RELEASED-1, S14-CEILING-NEEDS-AN-ENDING-1
 - **Parsimony:** [BUILD] URA writes raw setpoints at volume and can strand a zone off-preset, against an explicit operator design contract
 - **Refs:** hvac_preset.py:212-217; hvac_override.py:186-195, 3070-3097; HVAC-PRESET-RESTORE-MISS-1; HVAC-PRESET-FLAP-1
-- **Forensic keys (39):**
+- **Forensic keys (40):**
+  - `PLAN_WRITTEN_2026_09_16`: PLAN drafted: docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md. Carries the Tier-3 falsifiable invariant in three parts — I1 after any URA write the zone holds a NAMED activity on EVERY reachable path; I2 URA never books it...
   - `SUPPRESS_TTL_ANSWER_2026_09_16`: OPERATOR: "I assume we could extend this to a larger value as long as we understand the impact?" YES — and after reading the mechanism the impact is NARROWER than my blocker note implied, but it is NOT uniform, so the answer is EXTEND PE...
   - `DURABILITY_CONFIRMED_2026_09_16`: resume-then-pin HELD for 8 MINUTES across 9 cloud-confirmed updates, zero reverts: pin 23:32:35, then 23:32:51, 23:33:31, 23:33:47, 23:34:39, 23:35:53, 23:38:29, 23:39:56, 23:40:28 — all sleep|sleep 70/75. Direct preset writes on the sam...
   - `DERIVED_WRITE_SEQUENCE_2026_09_16`: THE WRITE URA SHOULD MAKE, derived from tonight's evidence plus a prior-art scan the operator prompted ("do not overlook the Bryant cloud delay/mismatch machinery we have built and the use of refreshes").

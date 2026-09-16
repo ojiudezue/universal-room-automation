@@ -16933,6 +16933,26 @@ cards:
     restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
     the borrow primitive, not folded into it.'
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  PLAN_WRITTEN_2026_09_16: 'PLAN drafted: docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md.
+    Carries the Tier-3 falsifiable invariant in three parts — I1 after any URA write the zone holds
+    a NAMED activity on EVERY reachable path; I2 URA never books its own write as a human override
+    (zero mode=governed ledger rows from a resume+pin); I3 the zone is never left following the
+    Bryant schedule. D1 = per-kind TTL split (prerequisite), D2 = resume-then-pin through ONE
+    chokepoint (the borrow/return_excursion primitive, which is bookkeeping-only today) + targeted
+    REFRESH + verify reusing _verify_restore.
+    NOT BUILD-READY. Tier 3 requires TWO framing-disjoint PLAN reviews before any build dispatch,
+    then four framing-disjoint build reviews, orchestrator independent verification, and an
+    operator checkpoint at pre-deploy. Writing the code first would be the process violation.
+    THREE OPEN QUESTIONS carried into plan review rather than guessed: (a) ledger row on every
+    resume+pin or only on verify failure (row rate unmeasured); (b) does any consumer read
+    preset_mode=="manual" as a SIGNAL rather than a fault — a producer/consumer check NOT yet run,
+    and making manual rare would change that consumer; (c) if resume succeeds and the pin fails AT
+    THE CLOUD, the zone sits on the schedule with no hold — does verify+retry recover it or is an
+    explicit rollback needed? (c) is the I3 hazard.
+    ALSO STILL OUTSTANDING (cheap): whether a zone''s `sleep` activity is configured the way
+    zone_3''s `away` is. If some activities are unconfigured per zone, pinning them may fail even
+    after resume. Test by pinning `away` on zone_3 — operator cleared zone_3, ruled zone_2
+    OFF-LIMITS.'
   SUPPRESS_TTL_ANSWER_2026_09_16: 'OPERATOR: "I assume we could extend this to a larger value as
     long as we understand the impact?" YES — and after reading the mechanism the impact is NARROWER
     than my blocker note implied, but it is NOT uniform, so the answer is EXTEND PER-KIND, NOT
@@ -17594,8 +17614,7 @@ cards:
     verdict: BUILD
     note: gate on the audit — if every excursion already restores, this reduces to a guard + a test rather
       than a redesign
-  next: 'Scope as one excursion-restore cycle with BORROW + S14: restore-path for every raw-setpoint excursion
-    + fix/guard the should_change_preset manual self-lockout. Buildable; audit done 2026-08-25.'
+  next: 'PLAN REVIEW x2 (framing-disjoint) on PLANNING_preset_hold_contract_resume_then_pin.md before any build: (1) completeness — independently re-enumerate every setpoint/preset emission site rather than trusting the plan''s S1-S14 list; (2) adversarial build-prediction — what will the builder get wrong, especially the resume->pin adjacency (I3) and the CLOUDFLAP ordering. Then build 1a (TTL split) -> 1b (resume-then-pin). Operator checkpoint at pre-deploy per Tier 3.'
   refs:
   - hvac_preset.py:212-217
   - hvac_override.py:186-195, 3070-3097
