@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T18:22:59-05:00_ - _Data commit: `69ada25cd710`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T18:25:06-05:00_ - _Data commit: `bc0f162d7e5d`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -1138,7 +1138,8 @@ _created 2026-08-24 16:45 · updated 2026-09-12 10:30 · initial_
 - **Tags:** institutional-context, numbers-get-knobs
 - **Parsimony:** [BUILD] Independent SOC sliders can be set to inverted values that flip an EV gate polarity, with no guard.
 - **Refs:** docs/planning/PLANNING_dp_sticky_yields_to_excess_solar.md:521-525; docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:822; energy_const.py:980
-- **Forensic keys (8):**
+- **Forensic keys (9):**
+  - `SHIPPED_5103_6_2026_09_16`: Shipped v5.103.6, live-validated: loads clean, zero ERROR, name-diff byte-identical (305==305). Identity-equivalent on valid ladder. shipped_organic; discriminator = inverted-config test reads clamped + no threshold_ladder_violation on h...
   - `FIXUP_DONE_2026_09_16`: Revert-scope fix-up complete (commit 20938f934). Accessor back to #4/#5 only; A-MED-1/A-MED-2/B-MED-2/B-MED-1/C1/C2 all evaporated. Honest docstring restored. Real behavioral anchors: per-site neuter drill 4 RED (energy.py:6039/6041, ene...
   - `REVIEW_B_2026_09_16`: Review B (consumer-switch/tick-snapshot) = FIX-REQUIRED, CONFIRMS A+C and ran the mutation drill via a fixture shim (executed, not just read): B-HIGH-1 = 4 of 5 switched sites survive neuter GREEN (energy.py:6038-6040 tick triple + energ...
   - `REVIEWS_AC_2026_09_16`: EC-SOC reviews A+C in (B pending). A (clamp arithmetic) = SHIP + 2 MED: peak_buffer clamp can emit >100 (energy.py:9362; fix min(100,...)); drain_targets accessor drops the reachable "unknown" class (shape divergence, Bug Class #53). C (...

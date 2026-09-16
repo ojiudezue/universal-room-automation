@@ -20745,6 +20745,7 @@ cards:
   - energy.py:8647
   - feature/dp-verypoor-drain-validator @ 87e047ac
 - id: EC-SOC-LADDER-XVALIDATE-1
+  SHIPPED_5103_6_2026_09_16: 'Shipped v5.103.6, live-validated: loads clean, zero ERROR, name-diff byte-identical (305==305). Identity-equivalent on valid ladder. shipped_organic; discriminator = inverted-config test reads clamped + no threshold_ladder_violation on healthy live ladder.'
   FIXUP_DONE_2026_09_16: 'Revert-scope fix-up complete (commit 20938f934). Accessor back to #4/#5
     only; A-MED-1/A-MED-2/B-MED-2/B-MED-1/C1/C2 all evaporated. Honest docstring restored. Real
     behavioral anchors: per-site neuter drill 4 RED (energy.py:6039/6041, energy_pool.py:1334/1837);
