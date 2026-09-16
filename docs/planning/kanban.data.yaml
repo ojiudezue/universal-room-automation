@@ -10420,6 +10420,41 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  MODALITY_SCAN_RESULT_2026_09_16: 'THE PIVOTAL SCAN IS DONE (operator: "run that scan now"). RESULT:
+    mmWave stillness kind IS readable end-to-end -> this is a COMPOSE job, not a plumbing build. The
+    infrastructure the card feared might be missing exists in THREE places, all verified in code:
+
+    1. ROOM substrate — domain_coordinators/occupancy_substrate.py, a "unified per-room, per-kind
+       raw-signal input layer": _raw_state[room][kind]->bool, public is_kind_active(room, kind),
+       get_room_kinds(room)->{motion,mmwave,occupancy}, get_all_room_kinds(). Stored at
+       hass.data[DOMAIN]["occupancy_substrate"] (presence.py:2592) — globally reachable exactly like
+       person_coordinator, so HVAC can query it with zero new wiring. Per-kind edges dispatch on
+       SIGNAL_SUBSTRATE_KIND_CHANGED (the D3 actuation-critical path).
+    2. ZONE tracker — presence.py:531 ZonePresenceTracker.provenance_for(room)->per-kind bools, same
+       shape as the substrate, ALREADY feeding OccupiedBinarySensor D5 attrs. So kind is present at
+       the zone boundary too, not only the room.
+    3. KIND CLASSIFICATION is robust to the lumping worry — chatter_detector._CONF_TO_KIND maps CONF
+       fields (motion_sensors->motion, presence_sensors->mmwave, occupancy_sensors->occupancy) AND
+       _PROVIDER_SUBSTRINGS recovers kind from entity NAME (presence/mmwave->mmwave, _pir->pir,
+       _motion->pir). So a mmWave lumped under motion_sensors (Garage Hallway) is still classified
+       mmwave by its name. The card''s "typing may come from naming not structure" is TRUE and it is
+       FINE — naming recovery is a designed fallback, not an accident.
+
+    PHYSICAL-FACT CHECK (live, not doc): binary_sensor.mmwave_zigbee_studya_presence has
+    device_class=occupancy (continuous presence while a stationary body is present), NOT
+    device_class=motion (pulse). That is the stillness signal. mmWave ON + motion OFF = a still body.
+
+    CONCLUSION FOR THE PLAN: HVAC can derive its own occupancy answer by asking, per zone-room,
+    substrate.is_kind_active(room,"mmwave") (stillness) and person_coordinator.get_persons_in_zone
+    (known-occupier anchor), WITHOUT rebuilding any classification. The three build legs are all
+    COMPOSE-over-existing: (a) ENTRY dwell = require mmwave-stillness OR known-occupier-anchor before
+    adopting, so transit (neither) never conditions; (b) RETREAT-fast = when confidently vacant (no
+    mmwave stillness AND no anchor) retreat in ~1 stillness-window+tick instead of
+    occupancy_timeout+vacancy_grace; (c) the T13 BLE-anchor bypass = known-occupier anchor holds
+    through a motion timeout, leakage-guarded by Tier-1-direct OR mmwave corroboration (the combo).
+    Modality readability is NO LONGER a blocker. Remaining before the operator aggression checkpoint:
+    the concrete 3-number proposal (dwell definition, retreat timing, relax-occupied-idle y/n) sized
+    against the post-swap residual.'
   OPERATOR_DESIGN_THESIS_RECOVERED_2026_09_16: 'Recovered from the pre-compaction transcript after
     the operator flagged compaction was dropping detail. These are LOAD-BEARING design constraints
     stated across several turns; capturing verbatim-close so they survive. Compaction has already
