@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-15T23:06:42-05:00_ - _Data commit: `600b94aa010c`_ - _last_reconciled: 2026-09-15_
+_Generated: 2026-09-15T23:19:51-05:00_ - _Data commit: `8fd8d3726c5e`_ - _last_reconciled: 2026-09-15_
 
 
 ## Columns
@@ -419,7 +419,8 @@ _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_
 - **Sibling of:** BORROW-BANKING-LEASE-NOT-RELEASED-1, S14-CEILING-NEEDS-AN-ENDING-1
 - **Parsimony:** [BUILD] URA writes raw setpoints at volume and can strand a zone off-preset, against an explicit operator design contract
 - **Refs:** hvac_preset.py:212-217; hvac_override.py:186-195, 3070-3097; HVAC-PRESET-RESTORE-MISS-1; HVAC-PRESET-FLAP-1
-- **Forensic keys (30):**
+- **Forensic keys (31):**
+  - `CANARY_RUN_2026_09_16_INCONCLUSIVE_BUT_INFORMATIVE`: CANARY RUN on zone_1 (operator-approved, bounded — explicitly NOT left running all night). It did NOT confirm the collision hypothesis, and the honest verdict is INCONCLUSIVE with N=1 in each arm. Recording it precisely so nobody reads i...
   - `OPERATOR_DECISION_2026_09_15_PIN_HOLD`: DECIDED: option (A) PIN A HOLD via a named preset. NOT "resume". Operator verbatim: "Definitely 1. I do not use the Bryant schedule at all. It also matches URA conventions - home, away, vacation, etc. And our seasonal adjustments. All I ...
   - `ADJACENT_FINDING_NEXT_ACTIVITY_BOUNDARY_2026_09_15`: FLAGGED, NOT ASSERTED — verify during the build rather than treating as a defect now. The arrester sunsets immune holds on two conditions (hvac_override.py:742-745): ARRESTER_IMMUNE_HOLD_MAX_S, and `next_activity_boundary` — "the thermos...
   - `seq_2026_09_15`: STEP 1 of HVAC-SUPPLE-SEQUENCE-1 — the attribution foundation. Operator-directed ("We have to finish this"). GATE: preset restores demonstrably take, measured. Everything downstream is contaminated until this lands, because a zone in `ma...

@@ -16893,6 +16893,53 @@ cards:
     restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
     the borrow primitive, not folded into it.'
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  CANARY_RUN_2026_09_16_INCONCLUSIVE_BUT_INFORMATIVE: 'CANARY RUN on zone_1 (operator-approved,
+    bounded — explicitly NOT left running all night). It did NOT confirm the collision hypothesis,
+    and the honest verdict is INCONCLUSIVE with N=1 in each arm. Recording it precisely so nobody
+    reads it as stronger than it is.
+
+    WHY A DIRECT A/B INSTEAD OF THE CARD''S "one night, one zone": the card scoped the canary
+    against ORGANIC nudges, but its own baseline shows only 10 of 47 restores were informative (37
+    were manual-over-manual no-ops). At ~2 nudges/hour that needs ~9 hours to collect 4 informative
+    samples — literally all night, which the operator ruled out. A direct write answers the same
+    question in minutes and does not require modifying the restore path at all.
+
+    SAFETY BASIS FOR WRITING TO A BEDROOM ZONE AT 23:18: URA''s own activity log showed it had
+    written `sleep` to zone_1 at 23:03 and 22:00 (house=sleep), while the thermostat read `manual`.
+    So writing `sleep` was COMPLETING URA''S EXISTING INTENT on a stranded zone, not imposing a new
+    regime.
+
+    OBSERVATION 1 (arm A, preset-only): 23:18:59 wrote preset=sleep ONLY, no set_temperature.
+    Optimistic local state: sleep, 70/75. At 23:19:43 — 44 SECONDS later — it read preset `manual`,
+    hold_activity `manual`, 70/76. The cooling ceiling had moved 75 -> 76 (+1F), which is a RAW
+    SETPOINT write and is the signature that creates an anonymous hold.
+    OBSERVATION 2 (repeat): 23:21:04 wrote preset=sleep again. It HELD — still sleep / 70/75
+    minutes later.
+
+    WHAT THIS DOES AND DOES NOT ESTABLISH. It does NOT establish "preset-only fails": one write
+    reverted, the next held, so N=1 per arm and the two outcomes differ. It does NOT confirm the
+    two-writes-collide hypothesis either — arm A carried NO setpoint write and still got reverted,
+    which is evidence AGAINST collision being the whole story. What it DOES establish is that
+    something wrote a +1F ceiling within 44 seconds of a clean preset write, and that WE CANNOT SAY
+    WHAT.
+
+    THE REAL BLOCKER IS ATTRIBUTION, AND THIS VALIDATES THE SEQUENCE ORDER. I checked
+    ura_activity_log for the canary window: it contains NO HVAC write at all (only an unrelated
+    room occupancy_exit and an optimizer shadow summary). That is not because nothing wrote — the
+    ceiling demonstrably moved — but because the arrester/nudge path RECORDS NOTHING
+    (ARRESTER-LEDGER-INVISIBLE-1). So the experiment ran straight into the exact instrument gap
+    that step 2 of HVAC-SUPPLE-SEQUENCE-1 exists to close, and it did so within one hour of the
+    sequence being written. STRONG confirmation that step 2 must precede any further canary work:
+    repeating this experiment without the ledger would produce more unattributable reverts.
+
+    OPERATOR-VISIBLE SIDE EFFECT, OWNED: I found the zone at manual 68/75 and arm A left it at
+    manual 70/76 — a 1F WARMER ceiling in a bedroom near midnight. I did not leave it there: the
+    repeat write put it on sleep 70/75, a named preset with the original ceiling, which is also
+    what URA wanted. Net state is better than found (named preset instead of an anonymous hold),
+    but the transient was a real if minor comfort cost and should not have been incurred blind.
+
+    NEXT TIME: do not re-run this canary until the ledger lands. Then the SAME experiment becomes
+    decisive, because every revert will name its writer.'
   OPERATOR_DECISION_2026_09_15_PIN_HOLD: 'DECIDED: option (A) PIN A HOLD via a named preset. NOT
     "resume". Operator verbatim: "Definitely 1. I do not use the Bryant schedule at all. It also
     matches URA conventions - home, away, vacation, etc. And our seasonal adjustments. All I have
