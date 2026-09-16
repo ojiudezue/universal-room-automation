@@ -9867,10 +9867,25 @@ cards:
       5  HVAC-HOT-ENTRY-LATENCY-1        PLANNED. slow to cool on hot entry -> fast-in. gate: G4(needs
          4). LINK: conditional on the conditioning signal.
       8  HVAC-THERMOSTAT-ABSTRACTION-1   PRE-PLANNING. 22 sites route 2 funnels but 7 raw calls bypass;
-         callers express mechanics not intent -> one ZoneThermostat handle. gate: NONE — OPERATOR
-         PREFERENCE to place LAST ("not a preempter... the last thing in the sequence"). Represented
-         as preference, NOT a dependency (fake gate removed: I had written it "blocked until the
-         mechanism is proven"; that was my judgment dressed as a gate).
+         callers express mechanics not intent -> one ZoneThermostat handle. gate: NONE (no hard
+         dependency). PLACEMENT ON THE MERITS = LAST, specifically AFTER escape(6). REASONING
+         CORRECTED 2026-09-16 (operator: "where should it go on the merits?"): my earlier reason
+         "abstract after the mechanism is proven" was WRONG — it conflated the WRITE MECHANISM
+         (resume-then-pin, PROVEN live) with the BEHAVIOURAL THESIS (does it move manual%, unproven);
+         the abstraction only needs the mechanism, which is proven. THE REAL MERITS REASON: an
+         abstraction interface is defined by what its clients need to EXPRESS, and steps 4/5/6 are the
+         cycles that reveal that vocabulary (escape may need PROVENANCE on the handle; the tap may need
+         a new INTENT verb; hot-entry may need a PRIORITY write). Building the handle before them =
+         guessing the interface and reshaping per client, and interface churn ripples to EVERY client
+         (worse than migrating call sites against a known interface). After escape it is a mechanical
+         consolidation. VERIFIED it is a consolidation not a prerequisite: the 7 bypassing calls are
+         all set_hvac_mode (mode off/on — egress leave/resume, override pause/resume in hvac_egress.py
+         + hvac_override.py), NOT setpoint writes, so they do NOT create the anonymous manual hold that
+         causes the lockout — they are DEBT, not a live stranding bug. Escape provenance can be stamped
+         at the existing setpoint funnel (emit_set_temperature) without the handle, so escape does not
+         hard-depend on it. ONE SPOT-CHECK when we get there: hvac_override.py:1601 comments on
+         "set_hvac_mode to a zone we deliberately paused - defeating egress" — confirm that guard is
+         handled, not merely described; a spot-check, not a resequencing reason.
       R1 HVAC-ROLLOVER-DURABLE-DATE-ORDERING-1   PARKED. residual of 4d; dispose at close.
       R2 ANOMALY-SAVE-BASELINES-DICT-MUTATION-1  PARKED. pre-existing, surfaced by 4d; dispose at close.
 
