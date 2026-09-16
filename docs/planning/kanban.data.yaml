@@ -16893,6 +16893,46 @@ cards:
     restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
     the borrow primitive, not folded into it.'
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  OPERATOR_DECISION_2026_09_15_PIN_HOLD: 'DECIDED: option (A) PIN A HOLD via a named preset. NOT
+    "resume". Operator verbatim: "Definitely 1. I do not use the Bryant schedule at all. It also
+    matches URA conventions - home, away, vacation, etc. And our seasonal adjustments. All I have
+    to make sure of is if these presets are correctly tuned." This closes the
+    OPERATOR_DECISION_NEEDED_BEFORE_BUILD item in CARRIER_MECHANISM_HYPOTHESIS.
+
+    WHAT A HOLD ACTUALLY IS — answered from SOURCE, because the semantics decide the fix.
+    Bryant/Carrier Infinity thermostats natively run a SCHEDULE OF ACTIVITIES (home/away/sleep/
+    wake) with time-of-day transitions, and left alone the thermostat follows it. There is
+    therefore NO operation meaning "select this activity without holding": suppressing the
+    schedule IS the hold, so selecting a preset and holding it are THE SAME ACTION.
+    ha_carrier/climate.py:418-430 calls set_config_hold(activity_type, hold_until) and then
+    applies that activity''s OWN heat_set_point / cool_set_point.
+    HOW LONG THE HOLD LASTS, ON THIS HOUSE SPECIFICALLY: climate.py:383-396 returns the next
+    schedule transition as hold_until UNLESS `infinite_hold`, in which case it returns None (an
+    open-ended hold). The LIVE ha_carrier config entry reads options {"infinite_holds": True}.
+    So every preset URA writes pins an INDEFINITE hold that never expires and never hands back to
+    the Bryant schedule. Given the operator does not use that schedule, this is correct — and it
+    means URA is ALREADY the sole scheduler in practice. Option A does not hand URA control; it
+    makes the code honest about control it already has.
+    IT ALSO REFRAMES "manual": a raw setpoint write is simply a hold carrying CUSTOM setpoints
+    instead of a named activity''s — same mechanism, no name. So the operator''s spec ("all
+    thermostat writes should appear as presets") is precisely: ALWAYS HOLD A NAMED ACTIVITY, NEVER
+    AN ANONYMOUS ONE. That is a single testable invariant, and it is cleaner than the 13-site case
+    analysis this card has been carrying.
+    CONFIRMED LIVE 2026-09-16 00:17: zone_1 read preset_mode "manual", hold_activity "manual",
+    hold_until null — an anonymous indefinite hold, i.e. the defect in exactly the predicted shape.
+    OPERATOR-FLAGGED DEPENDENCY, and it is real: if presets pin indefinitely then the preset RANGES
+    *are* the thermostat''s behaviour — there is no schedule underneath to catch a badly-tuned one.
+    "Are these presets correctly tuned?" is therefore a precondition of the whole sequence, not a
+    side concern.'
+  ADJACENT_FINDING_NEXT_ACTIVITY_BOUNDARY_2026_09_15: 'FLAGGED, NOT ASSERTED — verify during the
+    build rather than treating as a defect now. The arrester sunsets immune holds on two
+    conditions (hvac_override.py:742-745): ARRESTER_IMMUNE_HOLD_MAX_S, and `next_activity_boundary`
+    — "the thermostat''s schedule reached its next activity". But with infinite_holds=True and an
+    unused Bryant schedule, that boundary is a SCHEDULE EVENT THAT NO LONGER GOVERNS ANYTHING. The
+    thermostat still reports it (live: next_activity_time "06:00"), so URA expires immunity on the
+    tick of a schedule the house does not run. Unmeasured whether harmful: it may be a harmless
+    extra sunset path, or it may retire immunity on an arbitrary clock. Cheap to check while in
+    this code.'
   seq_2026_09_15: 'STEP 1 of HVAC-SUPPLE-SEQUENCE-1 — the attribution foundation. Operator-directed ("We have to finish this"). GATE: preset restores demonstrably take, measured. Everything downstream is contaminated until this lands, because a zone in `manual` cannot be attributed to URA vs a human.'
   DEDUPE_2026_08_23: 'RULING: DUPLICATE — a card `PRESET-RESTORE-DOES-NOT-TAKE-1` was created on 2026-08-23
     and has been DELETED; its content is folded into this card as the INSTANCE block below plus SCOPE_ONE_OR_MANY
