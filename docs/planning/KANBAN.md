@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T01:31:18-05:00_ - _Data commit: `aaf13e184aa8`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T01:55:19-05:00_ - _Data commit: `6ffaf9d7e65b`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -12,10 +12,10 @@ _Generated: 2026-09-16T01:31:18-05:00_ - _Data commit: `aaf13e184aa8`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 3 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 9 |
+| 📝 Planned | 8 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| ⏸️ Waiting on operator | 23 |
+| ⏸️ Waiting on operator | 24 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 22 |
 | 🅿️ Parked | 54 |
@@ -292,7 +292,7 @@ _created 2026-09-14 02:20 · initial_
   - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
   - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
 
-## 📝 Planned (9)
+## 📝 Planned (8)
 _has plan / acceptance_
 
 ### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#1 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
@@ -412,25 +412,6 @@ _updated 2026-09-15 02:50_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#9 · WSJF 1.5 · v5 tc3 u4 /e8 ⚠_
-thread: **hvac** - status: **planned** - approval: **operator_decided**
-_created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
-- **Next:** Scope S14 as a borrow kind: bounded-timer ending, one-shot-per-off-phase (discriminating acceptance), Number duration knob, restart behaviour; INVERT test_ceiling_held_until_next_preset_transition. Gate cleared 2026-08-25.
-- **Tags:** tier-2db, re-litigates-shipped-trade, suppression-needs-a-discharge
-- **Parsimony:** [BUILD] an energy-saving hold with no exit locks the zone out of preset control indefinitely
-- **Refs:** hvac.py:2972-2983; hvac_preset.py:202; PLANNING_preset_flap_offphase_honesty.md:184-195,:280; PLANNING_hvac_governed_excursion.md §12; test_ceiling_held_until_next_preset_transition; HVAC-MANUAL-PRESET-CONTRACT-1 (+1 more)
-- **Forensic keys (10):**
-  - `seq_2026_09_16`: STEP 4b of HVAC-SUPPLE-SEQUENCE-1 — ADDED TO THE ARC by operator 2026-09-16. It is the LAST member of the setpoint-writer family: S14 writes a raw setpoint to hold the cooling ceiling during a coast/shed off-phase and has NO RETURN PATH ...
-  - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py _apply_duty_off_phase writes a RAW setpoint via emit_set_temperature, zero begin/return_excursion — no lease-expiry ending. Operator-chosen fix (make S14 a...
-  - `OPERATOR_DECISION_2026_08_21`: Operator chose option (a) "give it an ending" from the three costed in HVAC-MANUAL-PRESET-CONTRACT-1 / S14_OPERATOR_VERDICT (a: add ending, b: reduce to suppression-only, c: remove entirely). Operator suggestion for the mechanism: "Maybe...
-  - `THE_DEFECT`: During an energy coast/shed off-phase in an OCCUPIED zone, S14 (_apply_duty_off_phase, hvac.py ~:2972-2983) writes a RAW SETPOINT to hold the cooling ceiling instead of flipping the zone to away. The raw write puts the Bryant into preset...
-  - `RE_LITIGATES_A_DELIBERATE_SHIPPED_TRADE`: IMPORTANT — the no-release behaviour is INTENDED, not accidental, and THREE artifacts encode it. Overturn all three deliberately and visibly: (1) PLANNING_preset_flap_offphase_honesty.md:184-195 states the ceiling holds until the next pr...
-  - `TIMER_RESOLVED_BY_THE_BORROW_2026_08_21`: FINAL SHAPE, after operator asked "Borrow framing good. But you want a timer still? Suggestions?" ANSWER: yes, but the borrow ALREADY HAS ONE — do not build a second. The lease expiry IS the timer: expiry_ts = min(started + duration_s + ...
-  - `SUPERSEDED_OPERATOR_CHOSE_A_TIMER_2026_08_21`: SUPERSEDED by TIMER_RESOLVED_BY_THE_BORROW above — the timer is the lease, not a new mechanism, and the duration knob is withdrawn in favour of a computed duration_s. The FLAP GUARD in this entry STANDS. Original: operator: "Give it a ti...
-  - `THE_ENDING_NEEDS_THREE_PARTS_NOT_ONE`: SUPERSEDED IN PART — see OPERATOR_CHOSE_A_TIMER above: part (1) is REPLACED by a bounded timer + one-shot-per-off-phase; parts (2) and (3) stand. ORIGINAL: Operator proposed reading S14s own interventional setpoint. CORRECT but it is a R...
-  - `RECOMMENDATION_MAKE_IT_A_BORROW_NOT_A_BESPOKE_ENDING`: STRONG RECOMMENDATION — do NOT build a bespoke S14 ending. Bounded hold + snapshot + preset restore + relinquish-on-divergence + restart audit IS the governed-excursion ("borrow") primitive under HVAC-GOVERNED-EXCURSION-1. S14 was EXCLUD...
-  - `unblocked_2026_08_25`: GATE CLEARED: HVAC-GOVERNED-EXCURSION-1 is validated+done (live DB). S14 is now scopeable as a borrow kind (bounded timer + one-shot-per-off-phase, Number-entity duration knob, declared restart behaviour) per the operator's 2026-08-21 de...
-
 ## 🔨 In progress (0)
 _being built_
 
@@ -455,7 +436,7 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 4a of HVAC-SUPPLE-SEQUENCE-1 — completes step 1's surface, and goes BEFORE the step-1 acceptance measurement. Reason: the boot path manufactures an anonymous hold on EVERY restart (~2.9/day measured), so zone_1's 24h manual%% would ...
   - `VERIFIED_2026_09_16`: Static: async_startup_ramp_audit (hvac_override.py) has temp=1, preset=0 — one setpoint emission, no preset restore. Live: zone_3 went away|away -> manual|manual at 01:17:04, seconds after the 01:12 restart, on the zone that is 93.7% nam...
 
-## ⏸️ Waiting on operator (23)
+## ⏸️ Waiting on operator (24)
 _needs a human call — groomed first_
 
 ### `OVERNIGHT-PASS-NO-LOG-REACH-1` - The overnight pass cannot read HA logs, so every log-based investigation silently stalls — _#1 · WSJF 7.5 · v6 tc5 u4 /e2_
@@ -779,7 +760,27 @@ _created 2026-09-07 00:30 · updated 2026-09-12 11:00 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, LOW exposure (12-cam house list, months apart): _cameras_by_area built once at discover (__init__.py:2316), consumed live (coordinator.py:3670); census invalidate ...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#23 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#23 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **hvac** - status: **waiting_operator** - approval: **operator_decided**
+_created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
+- **Next:** Scope S14 as a borrow kind: bounded-timer ending, one-shot-per-off-phase (discriminating acceptance), Number duration knob, restart behaviour; INVERT test_ceiling_held_until_next_preset_transition. Gate cleared 2026-08-25.
+- **Tags:** tier-2db, re-litigates-shipped-trade, suppression-needs-a-discharge
+- **Parsimony:** [BUILD] an energy-saving hold with no exit locks the zone out of preset control indefinitely
+- **Refs:** hvac.py:2972-2983; hvac_preset.py:202; PLANNING_preset_flap_offphase_honesty.md:184-195,:280; PLANNING_hvac_governed_excursion.md §12; test_ceiling_held_until_next_preset_transition; HVAC-MANUAL-PRESET-CONTRACT-1 (+1 more)
+- **Forensic keys (11):**
+  - `COSTED_2026_09_16`: FIX-vs-REMOVE costed autonomously, and the decisive input is that S14 IS CURRENTLY OFF. Tonight's boot log, authoritative for the coordinator flag: "hvac_offphase_honesty_enabled=False — duty off-phase in occupied zones will fall through...
+  - `seq_2026_09_16`: STEP 4b of HVAC-SUPPLE-SEQUENCE-1 — ADDED TO THE ARC by operator 2026-09-16. It is the LAST member of the setpoint-writer family: S14 writes a raw setpoint to hold the cooling ceiling during a coast/shed off-phase and has NO RETURN PATH ...
+  - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py _apply_duty_off_phase writes a RAW setpoint via emit_set_temperature, zero begin/return_excursion — no lease-expiry ending. Operator-chosen fix (make S14 a...
+  - `OPERATOR_DECISION_2026_08_21`: Operator chose option (a) "give it an ending" from the three costed in HVAC-MANUAL-PRESET-CONTRACT-1 / S14_OPERATOR_VERDICT (a: add ending, b: reduce to suppression-only, c: remove entirely). Operator suggestion for the mechanism: "Maybe...
+  - `THE_DEFECT`: During an energy coast/shed off-phase in an OCCUPIED zone, S14 (_apply_duty_off_phase, hvac.py ~:2972-2983) writes a RAW SETPOINT to hold the cooling ceiling instead of flipping the zone to away. The raw write puts the Bryant into preset...
+  - `RE_LITIGATES_A_DELIBERATE_SHIPPED_TRADE`: IMPORTANT — the no-release behaviour is INTENDED, not accidental, and THREE artifacts encode it. Overturn all three deliberately and visibly: (1) PLANNING_preset_flap_offphase_honesty.md:184-195 states the ceiling holds until the next pr...
+  - `TIMER_RESOLVED_BY_THE_BORROW_2026_08_21`: FINAL SHAPE, after operator asked "Borrow framing good. But you want a timer still? Suggestions?" ANSWER: yes, but the borrow ALREADY HAS ONE — do not build a second. The lease expiry IS the timer: expiry_ts = min(started + duration_s + ...
+  - `SUPERSEDED_OPERATOR_CHOSE_A_TIMER_2026_08_21`: SUPERSEDED by TIMER_RESOLVED_BY_THE_BORROW above — the timer is the lease, not a new mechanism, and the duration knob is withdrawn in favour of a computed duration_s. The FLAP GUARD in this entry STANDS. Original: operator: "Give it a ti...
+  - `THE_ENDING_NEEDS_THREE_PARTS_NOT_ONE`: SUPERSEDED IN PART — see OPERATOR_CHOSE_A_TIMER above: part (1) is REPLACED by a bounded timer + one-shot-per-off-phase; parts (2) and (3) stand. ORIGINAL: Operator proposed reading S14s own interventional setpoint. CORRECT but it is a R...
+  - `RECOMMENDATION_MAKE_IT_A_BORROW_NOT_A_BESPOKE_ENDING`: STRONG RECOMMENDATION — do NOT build a bespoke S14 ending. Bounded hold + snapshot + preset restore + relinquish-on-divergence + restart audit IS the governed-excursion ("borrow") primitive under HVAC-GOVERNED-EXCURSION-1. S14 was EXCLUD...
+  - `unblocked_2026_08_25`: GATE CLEARED: HVAC-GOVERNED-EXCURSION-1 is validated+done (live DB). S14 is now scopeable as a borrow kind (bounded timer + one-shot-per-off-phase, Number-entity duration knob, declared restart behaviour) per the operator's 2026-08-21 de...
+
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#24 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-12 20:40 · refined_
 - **Problem / Solution:**

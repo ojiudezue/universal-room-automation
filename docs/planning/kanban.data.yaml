@@ -10029,7 +10029,7 @@ cards:
   - 'Gated on HVAC-MANUAL-PRESET-CONTRACT-1: with 0/10 preset restores taking, URA-induced manual
     cannot be told from a human yank, which would corrupt the measurement of every item here.'
   links:
-    blocked_by: [HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1, S14-CEILING-NEEDS-AN-ENDING-1]
+    blocked_by: [HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1]
     blocks: [HVAC-GUEST-AS-ZONE-PERSON-1, HVAC-HOT-ENTRY-LATENCY-1]
     mirror_note_2026_09_16: 'blocked_by gained the boot-ramp card (step 4a) — step 4''s measurement must not be taken while every restart still strands zones. blocks added as the mirror for the two step-5 children that already declared blocked_by this card.'
     related: [HVAC-PRESET-FLAP-1, HVAC-HOT-ENTRY-LATENCY-1, HVAC-GUEST-AS-ZONE-PERSON-1, HVAC-TICK-LITERAL-1]
@@ -16997,6 +16997,33 @@ cards:
   - '2026-08-23 watch-pass: friendly_name = "URA: HVAC Coordinator Temporary Thermostat Changes" confirmed
     live; validation table PASS 2026-08-22 in README_v5.88.1. H1 confirmed.'
 - id: S14-CEILING-NEEDS-AN-ENDING-1
+  COSTED_2026_09_16: 'FIX-vs-REMOVE costed autonomously, and the decisive input is that S14 IS
+    CURRENTLY OFF. Tonight''s boot log, authoritative for the coordinator flag:
+      "hvac_offphase_honesty_enabled=False — duty off-phase in occupied zones will fall through to
+       the pre-cycle preset=away path (kill-switch active)"
+    Corroborated: ZERO rows in ura_activity_log mentioning off-phase/offphase, ever.
+
+    THAT CHANGES TWO THINGS.
+    (1) IT DOES NOT BLOCK STEP 4 — I sequenced it as a blocker on the ASSUMPTION it was live. It
+        is not writing, so it cannot contaminate step 4''s measurement. blocked_by/blocks links
+        corrected; step 4 now waits only on 4a. This was my error, caught by checking rather than
+        inheriting my own claim.
+    (2) THE COSTING IS LOPSIDED, in a way that only shows once you know it is off:
+        * REMOVE is BEHAVIOUR-NEUTRAL relative to today. With the kill switch off the code already
+          falls through to the preset=away path, which is exactly what removal leaves behind. So
+          removal changes nothing about how the house behaves right now — it only deletes a dormant
+          raw-setpoint writer, its switch and its knob, and closes the last non-restoring
+          setpoint-writer in the family.
+        * FIX would REINTRODUCE a behaviour the operator disabled on instinct and then described as
+          "marginal, i possibly should not have built it at all". It also costs real work: a
+          bounded ending, a duration knob, restart behaviour, and inverting an existing test — all
+          to re-enable something switched off for weeks.
+    RECOMMENDATION: REMOVE. Parsimony is unusually clean here — the risky option is the one that
+    turns a dormant writer back ON, and the safe option is deletion. Per dead-does-not-mean-delete
+    this is the DELETE bucket specifically because it is a superseded, operator-disliked path that
+    a better mechanism (the preset=away fall-through) already replaced.
+    NOT DOING IT UNPROMPTED: deleting a shipped feature is a scope decision, and the operator
+    explicitly wanted removal COSTED ALONGSIDE repair rather than assumed. One PICK settles it.'
   seq_2026_09_16: 'STEP 4b of HVAC-SUPPLE-SEQUENCE-1 — ADDED TO THE ARC by operator 2026-09-16.
     It is the LAST member of the setpoint-writer family: S14 writes a raw setpoint to hold the
     cooling ceiling during a coast/shed off-phase and has NO RETURN PATH AT ALL — its documented
@@ -17009,7 +17036,6 @@ cards:
     costed alongside repair rather than assumed away.'
   links:
     blocked_by: [HVAC-MANUAL-PRESET-CONTRACT-1]
-    blocks: [HVAC-ZONE-CONDITIONING-DEMAND-1]
     related: [HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1, HVAC-SUPPLE-SEQUENCE-1, HVAC-PRESET-FLAP-1]
     context: 'blocked_by the preset contract because any restore it gains is only useful once
       preset writes LAND (v5.103.2). blocks step 4 for the same reason 4a does — a writer that
@@ -17020,7 +17046,7 @@ cards:
   title: S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose
     option (a) 2026-08-21), preferably by making it a borrow kind
   thread: hvac
-  status: planned
+  status: waiting_operator
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py _apply_duty_off_phase writes a RAW setpoint via emit_set_temperature, zero begin/return_excursion — no lease-expiry ending. Operator-chosen fix (make S14 a borrow kind w/ off-phase-remaining duration) unbuilt. Tier 2-DB.'
   created: 2026-08-21 10:20
