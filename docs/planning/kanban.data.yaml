@@ -9819,6 +9819,73 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-SUPPLE-SEQUENCE-1
+  ARC_RECOMPOSED_NO_FAKE_GATES_2026_09_16: 'Operator: "recompose the full arc with old and new. Put
+    in problem/solution and link purpose... put it in proper sequence with no fake gates." The prior
+    step-numbered lists implied a CHAIN. Most of this arc is NOT a chain. Only FOUR edges are real
+    (hard) dependencies; the rest is shipped, parallel, or a stated preference I had dressed as
+    sequential. This block is the honest picture and supersedes the ordering claims above where they
+    conflict.
+
+    THE THESIS (what the whole arc proves): URA can keep a zone on the preset it chooses AND stop
+    conditioning empty rooms — measurably, not anecdotally.
+
+    REAL (HARD) GATES — B genuinely cannot be MEASURED or BUILT until A exists:
+      G1  instrument(2) -> baseline(3): cannot capture a spurious-away baseline without the ledger
+          that makes spurious-away visible.
+      G2  baseline(3) -> conditioning tap(4): cannot judge a behaviour change with no before-number.
+      G3  lockout telemetry(4c) -> escape(6): escape is a HYPOTHESIS; telemetry confirms/refutes it
+          before anyone builds it (measure-before-build).
+      G4  conditioning tap(4) -> guest-person(5) + hot-entry(5): both consume the conditioning signal.
+
+    THE CARDS (problem -> solution | gated-by | link purpose):
+      1  HVAC-MANUAL-PRESET-CONTRACT-1   SHIPPED v5.103.2 NOT-ACCEPTED. named hold cannot pin over an
+         anonymous manual -> resume-then-pin. gate: none. LINK: the write MECHANISM the arc rests on.
+      2  ARRESTER-LEDGER-INVISIBLE-1     SHIPPED v5.103.1. arrest decisions went to discarded INFO ->
+         durable ledger. gate: none. LINK: the INSTRUMENT, independent witness for spurious-away.
+      3  baseline capture                DONE. no before-numbers -> committed 7d comfort+energy.
+         gate: G1(needs 2). LINK: the BEFORE picture step 4 is judged against.
+      -  HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1  SHIPPED v5.103.3, PARALLEL. every restart ~2.9/day
+         manufactured an anonymous hold -> boot restores preset from persisted snapshot. gate: none.
+         LINK: sibling defect that was CONTAMINATING step 1 acceptance — NOT a gate on 4 (fake gate
+         removed: I had claimed step 4 measurement must wait on it; it is a quality sibling, parallel).
+      -  S14-CEILING-NEEDS-AN-ENDING-1   SHIPPED v5.103.3, PARALLEL. permanent-manual writer with no
+         exit -> removed code+control+observability. gate: none. LINK: independent cleanup the operator
+         ordered; touches preset-writing but blocks nothing (fake gate removed: it was never "step 4b
+         in a chain").
+      4c HVAC-PRESET-LOCKOUT-TELEMETRY-1 BUILT, v5.103.4 gate. refusal site was silent -> edge-triggered
+         row + daily counter. gate: none. LINK: the INSTRUMENT that explains why step 1 hit 46% not 6%.
+      4d HVAC-ANOMALY-BLIND-1 residual B4 BUILT, v5.103.4 gate. short-cycle sample lost on unclean
+         restart -> persist at rollover. gate: none. LINK: step 4 CYCLE-COUNT GUARD, live before 4 judged.
+      4  HVAC-ZONE-CONDITIONING-DEMAND-1 PRE-PLANNING. rooms conditioned while empty -> publish
+         grace_hold?held:any_sensor_active. gate: G2(needs 3). LINK: THE behaviour change, operator
+         checkpoint.
+      6  HVAC-PRESET-LOCKOUT-ESCAPE-1    PLANNED. should_change_preset refuses manual assuming a human,
+         but URA MADE the manual -> provenance-aware escape. gate: G3(needs 4c to confirm real). LINK:
+         the "write never attempted" half, disjoint from step 1 "write does not land".
+      5  HVAC-GUEST-AS-ZONE-PERSON-1     PRE-PLANNING. guest wing has no zone person -> derive one.
+         gate: G4(needs 4). LINK: conditional on the conditioning signal.
+      5  HVAC-HOT-ENTRY-LATENCY-1        PLANNED. slow to cool on hot entry -> fast-in. gate: G4(needs
+         4). LINK: conditional on the conditioning signal.
+      8  HVAC-THERMOSTAT-ABSTRACTION-1   PRE-PLANNING. 22 sites route 2 funnels but 7 raw calls bypass;
+         callers express mechanics not intent -> one ZoneThermostat handle. gate: NONE — OPERATOR
+         PREFERENCE to place LAST ("not a preempter... the last thing in the sequence"). Represented
+         as preference, NOT a dependency (fake gate removed: I had written it "blocked until the
+         mechanism is proven"; that was my judgment dressed as a gate).
+      R1 HVAC-ROLLOVER-DURABLE-DATE-ORDERING-1   PARKED. residual of 4d; dispose at close.
+      R2 ANOMALY-SAVE-BASELINES-DICT-MUTATION-1  PARKED. pre-existing, surfaced by 4d; dispose at close.
+
+    THE FOUR FAKE GATES REMOVED, NAMED SO THEY DO NOT COME BACK:
+      (a) "baseline(3) cannot precede step 1" — FALSE; zone_3 gate is open 93.7% of the time, its
+          baseline measures behaviour not an outage. Operator caught this first.
+      (b) "boot-fix gates step 4" — parallel sibling that cleaned step 1 acceptance, not a prerequisite.
+      (c) "S14 removal is step 4b in the chain" — independent cleanup, blocks nothing.
+      (d) "abstraction is blocked until the mechanism is proven" — operator preference to be last, not
+          a hard dependency.
+
+    WHAT IS ACTUALLY ON THE CRITICAL PATH RIGHT NOW: deploy v5.103.4 (4c + 4d) -> read the lockout
+    counter -> that single number forks the arc: non-zero on zone_1 => build escape(6); near-zero =>
+    re-diagnose the residual 46%. Step 4 (the behaviour change) is a SEPARATE track gated only on the
+    baseline, which is already done, and on the operator checkpoint.'
   OPERATOR_RECALL_RECONCILED_2026_09_16: 'The operator recited the sequence from memory as five rows
     (1 CONTRACT planned, 2 LEDGER planned, 4 CONDITIONING-DEMAND pre_planning blocked-by-1, 5
     GUEST-AS-ZONE-PERSON pre_planning blocked-by-4, 5 HOT-ENTRY-LATENCY planned blocked-by-4).

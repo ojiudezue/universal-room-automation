@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T08:55:51-05:00_ - _Data commit: `7ef6422a261f`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T09:15:29-05:00_ - _Data commit: `e53e7d17d5cc`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -272,7 +272,8 @@ _created 2026-09-15 · initial_
 - **Next:** DEPLOY STEP 4c (HVAC-PRESET-LOCKOUT-TELEMETRY-1, built on develop) — it gates steps 5-8 because it is the instrument that answers WHY zone_1 only reached 46.0%% against a ~6%% target, and without it step 4 would be judged on a number nob...
 - **Tags:** measure-before-build, tier-2db, sequence
 - **Parsimony:** [BUILD] Related HVAC cards are order-dependent for MEASUREMENT, not just for code, so building them in the wrong order yields changes nobody can prove helped.
-- **Forensic keys (11):**
+- **Forensic keys (12):**
+  - `ARC_RECOMPOSED_NO_FAKE_GATES_2026_09_16`: Operator: "recompose the full arc with old and new. Put in problem/solution and link purpose... put it in proper sequence with no fake gates." The prior step-numbered lists implied a CHAIN. Most of this arc is NOT a chain. Only FOUR edge...
   - `OPERATOR_RECALL_RECONCILED_2026_09_16`: The operator recited the sequence from memory as five rows (1 CONTRACT planned, 2 LEDGER planned, 4 CONDITIONING-DEMAND pre_planning blocked-by-1, 5 GUEST-AS-ZONE-PERSON pre_planning blocked-by-4, 5 HOT-ENTRY-LATENCY planned blocked-by-4).
   - `ARC_RESIDUALS_2026_09_16`: TWO CARDS THIS CYCLE MINTED AND DID NOT REPRESENT — operator: "I think we carded 2 things in this cycle. Hunt for them in the transcript. They were sequences after 4a." Found by creation-date audit, not recall: both stamped 2026-09-16 04...
   - `ARC_ADJACENT_CARDS_2026_09_16`: THE OTHER 9 LINKED CARDS — operator: "There were more linked cards in the sequence. Find and represent." Traversed the link graph rather than recalling: 20 cards are reachable from the arc. 11 are sequence MEMBERS (each carries a seq_ st...
