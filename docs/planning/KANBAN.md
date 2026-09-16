@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T17:06:19-05:00_ - _Data commit: `3d2ac16ca22e`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T17:37:39-05:00_ - _Data commit: `6403c8924169`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-09-16T17:06:19-05:00_ - _Data commit: `3d2ac16ca22e`_ - _last_r
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 9 |
-| 🔨 In progress | 1 |
-| 🔍 Review | 1 |
+| 🔨 In progress | 0 |
+| 🔍 Review | 2 |
 | ⏸️ Waiting on operator | 25 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 26 |
@@ -382,11 +382,16 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
+_(none)_
+
+## 🔍 Review (2)
+_under review_
+
 ### `EC-SOC-LADDER-XVALIDATE-1` - No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity and oscillate EV pause/resume; the parked fix's trigger has now fired — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **in_progress** - approval: **unreviewed**
+thread: **energy** - status: **review** - approval: **unreviewed**
 _created 2026-08-24 16:45 · updated 2026-09-12 10:30 · initial_
 - **Problem / Solution:**
   - Problem: the energy coordinator has several SOC thresholds the operator sets independently (reserve floor, pause-EV-until SOC, resume/drain floors, excess-solar confirm/resume, drain targets vs the inclement floor). Nothing checks they a...
@@ -403,10 +408,7 @@ _created 2026-08-24 16:45 · updated 2026-09-12 10:30 · initial_
   - `operator_refine_2026_09_09`: Operator: VALIDATE NEEDS AN ACTION — detection alone is useless; if the ladder does not make sense, then WHAT? Proposed (to confirm in plan): reject at the SOURCE — a config-flow/options validation error at save time that names the speci...
   - `build_2026_09_09`: BUILT on feature/energy-validate-staleness (e68a0af66). Save-time ladder validation in async_step_coordinator_energy + runtime guard (_check_threshold_ladder -> rate-limited threshold_ladder_violation anomaly) + safely_ordered_ladder() a...
 
-## 🔍 Review (1)
-_under review_
-
-### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Setup/unload symmetry + tracked background tasks (tech-debt hardening) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Setup/unload symmetry + tracked background tasks (tech-debt hardening) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **review**
 _created 2026-08-18 02:30 · updated 2026-09-15 · refined_
 - **Next:** Tier 2 production hardening: audit async_on_unload coverage + track background tasks (reload-safety + task-leak). Independent of the test cluster.
