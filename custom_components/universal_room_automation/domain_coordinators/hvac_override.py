@@ -127,6 +127,31 @@ _LOGGER = logging.getLogger(__name__)
 # one suppress()). The TTL window covers all settle events from a single
 # logical write and self-clears so we don't grow unbounded.
 SUPPRESS_TTL_SECONDS = 5
+# HVAC-MANUAL-PRESET-CONTRACT-1 D1 — PER-KIND suppression TTL.
+#
+# WHY THIS IS SPLIT RATHER THAN RAISED. The suppression window is NOT blanket
+# blindness: `_is_genuine_manual` implements a MID-WINDOW PASSTHROUGH — inside
+# the TTL a fresh transition INTO "manual" is still treated as genuine ("URA
+# never writes manual") — EXCEPT when the suppression was tagged kind="temp",
+# which classifies the induced manual as a side effect of URA's own setpoint
+# write. So the two kinds have opposite risk profiles:
+#
+#   kind="preset" -> a long TTL is SAFE. A human grabbing the dial mid-window
+#       still comes through the passthrough, and a preset->preset move is not
+#       an override by the arrester's own definition anyway.
+#   kind="temp"   -> the ONLY path that swallows a genuine human manual flip.
+#       A long TTL here would blind us to a human correcting the thermostat —
+#       which is the INDEPENDENT WITNESS the spurious-away metric depends on
+#       (HVAC-SUPPLE-SEQUENCE-1). It stays at 5s.
+#
+# The preset value must span resume -> pin -> refresh -> verify. Sized from the
+# MEASURED ha_carrier coordinator refresh window (42-79s, 2026-08-23) plus
+# headroom, so a write's consequence is attributed to URA rather than booked as
+# a human override (invariant I2).
+#
+# Knob ladder: MODULE CONSTANT, deliberately. These are safety-adjacent —
+# changing them should require code review, not a dashboard slider.
+SUPPRESS_TTL_SECONDS_PRESET = 120
 
 
 class OverrideArrester:
@@ -2674,8 +2699,16 @@ class OverrideArrester:
         pass ``kind="preset"``. External callers that leave ``kind=None``
         retain legacy behavior (manual passthrough fires as before).
         """
+        # D1: preset writes need a window that spans the whole
+        # resume -> pin -> refresh -> verify sequence; temp writes keep the
+        # short window because theirs is the kind that blinds genuine manual
+        # detection. See the constants above.
+        ttl = (
+            SUPPRESS_TTL_SECONDS_PRESET if kind == "preset"
+            else SUPPRESS_TTL_SECONDS
+        )
         self._suppressed_until[entity_id] = (
-            dt_util.now() + timedelta(seconds=SUPPRESS_TTL_SECONDS)
+            dt_util.now() + timedelta(seconds=ttl)
         )
         self._suppress_kind[entity_id] = kind
 

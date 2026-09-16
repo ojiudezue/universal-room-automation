@@ -36,7 +36,7 @@ The caller keeps its own ``suppress()`` / arrester handshake around this call.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, Final
 
 from homeassistant.core import HomeAssistant
 
@@ -116,6 +116,51 @@ def _log_deferred_write(
         _LOGGER.debug(
             "comfort_delay_deferred_write ledger emit failed", exc_info=True,
         )
+
+
+
+# HVAC-MANUAL-PRESET-CONTRACT-1 D2a. The integration exposes a special
+# "resume" preset that calls `resume_schedule`, clearing the hold entirely
+# (ha_carrier/climate.py:405-409). It is NOT a destination — the operator
+# does not use the Bryant schedule — it is the only way to clear an
+# anonymous hold so a NAMED one can be pinned.
+PRESET_RESUME: Final = "resume"
+
+# The value a raw-setpoint write leaves in `hold_activity`: a hold with no
+# named activity. This is what cannot be overwritten by a named pin.
+ANONYMOUS_HOLD: Final = "manual"
+
+
+def _needs_resume_first(
+    hass: HomeAssistant, entity_id: str, target_preset: str,
+) -> bool:
+    """Return True when the zone must be cleared before a named pin will take.
+
+    Reads `hold_activity` from the live entity. NOTE (plan review R2-HIGH-1):
+    immediately after a write this attribute carries the integration's
+    OPTIMISTIC local value rather than cloud truth, so this read is only
+    trustworthy outside a write's settle window. That is acceptable here
+    because being wrong is cheap in BOTH directions:
+      * false positive -> a redundant `resume` before a pin that would have
+        worked anyway; the pin still lands.
+      * false negative -> the pre-existing behaviour (name discarded), which
+        the next write retries.
+    It is NOT acceptable to make this read authoritative for anything else.
+
+    Never raises: a failure here must not block a thermostat write.
+    """
+    try:
+        if target_preset == PRESET_RESUME:
+            return False  # resuming IS the clear; never recurse
+        state = hass.states.get(entity_id)
+        if state is None:
+            return False
+        hold = state.attributes.get("hold_activity")
+        if hold is None:
+            return False  # no hold at all -> a pin takes directly
+        return str(hold) == ANONYMOUS_HOLD
+    except Exception:  # noqa: BLE001
+        return False
 
 
 async def emit_set_temperature(
@@ -211,6 +256,55 @@ async def emit_set_preset_mode(
                 would_have_emitted={"preset_mode": preset_mode},
             )
             return False
+
+    # ==================================================================
+    # HVAC-MANUAL-PRESET-CONTRACT-1 D2a — RESUME-THEN-PIN.
+    #
+    # THE MECHANISM (measured live 2026-09-16, zone_1). A Bryant/Carrier
+    # zone sitting in an ANONYMOUS hold (`hold_activity == "manual"`, which
+    # is what any raw setpoint write leaves behind) will NOT accept a named
+    # activity hold written over the top of it: the cloud keeps the
+    # activity's SETPOINTS and DISCARDS THE NAME. Two direct writes to a
+    # stuck zone reverted to `manual` in 44s and 68s, each inside the
+    # measured 42-79s coordinator refresh window, while the setpoints
+    # persisted. Clearing the hold first with the integration's special
+    # "resume" preset and THEN pinning took, and held for 8 minutes across
+    # 9 cloud-confirmed refreshes with zero reverts.
+    #
+    # WHY THIS IS THE RIGHT HOME. This function is already the documented
+    # preset-write chokepoint (see the docstring above), so every URA
+    # caller inherits the fix. The alternative considered and rejected was
+    # the borrow / `return_excursion` primitive — plan review measured that
+    # NONE of the 11 setpoint-writing functions reference `borrow` and that
+    # `return_excursion` emits no writes at all, so routing through it
+    # would have produced a half-applied fix (Bug Class #53).
+    #
+    # WHY IT IS CONDITIONAL. A zone already on a NAMED hold accepts a
+    # direct pin — zone_3 does this continuously. `resume` is only needed
+    # to escape an ANONYMOUS hold, so we pay its cost (a brief window on
+    # the thermostat's own schedule) only when there is no alternative.
+    #
+    # ADJACENCY IS LOAD-BEARING (invariant I3). Between the resume and the
+    # pin the zone follows the Bryant schedule, which the operator does not
+    # use. Nothing awaitable and failure-prone may sit between them, and
+    # the resume is NOT issued unless we are about to pin.
+    # ==================================================================
+    if _needs_resume_first(hass, entity_id, preset_mode):
+        try:
+            await hass.services.async_call(
+                "climate",
+                "set_preset_mode",
+                {"entity_id": entity_id, "preset_mode": PRESET_RESUME},
+                blocking=True,
+            )
+        except Exception:  # noqa: BLE001
+            # Fail-forward: if the clear fails we still attempt the pin.
+            # Worst case is the pre-existing behaviour (name discarded),
+            # never a zone left on the schedule with no hold (I3).
+            _LOGGER.debug(
+                "resume-then-pin: resume failed for %s; pinning anyway",
+                entity_id, exc_info=True,
+            )
 
     await hass.services.async_call(
         "climate",
