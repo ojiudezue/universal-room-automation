@@ -62,7 +62,7 @@ meta:
      acknowledged: false}
   - {fid: 'TEST-1@2026-09-14T15:30', at: '2026-09-14T15:30:00', outcome: built,
      headline: 'TEST-1 BUILT (review): boot-time shadow diff warns if resolver leg set is not a superset of legacy — live tripwire for silent camera coverage shrinkage. 4 tests + wire-in anchor + 2 mutation drills',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'SECURITY-ENTRY-VERDICT-NAME-1@2026-09-14T15:00', at: '2026-09-14T15:00:00', outcome: parked,
      headline: 'SECURITY-ENTRY-VERDICT-NAME-1 PARKED (measured): person_id not plumbed to the builders (they get verdict+entity_id only), entry naming rate ~6-16pct, and doctrine forbids naming in the ALERT path. Misframed; revival trigger recorded',
      acknowledged: false}
@@ -80,16 +80,16 @@ meta:
      acknowledged: false}
   - {fid: 'REGIME-NOTIFY-PATH-DEAD-1@2026-09-14T03:05', at: '2026-09-14T03:05:00', outcome: investigated,
      headline: 'REGIME-NOTIFY-PATH-DEAD-1 — REFUTED + CLOSED: the routine-shift notify path is ALIVE. notification_log shows 5 Weekly Routine Digests on 5 consecutive Sundays (08-16 -> 09-13). The two empty tables were expected under mode=weekly_digest, and an empty queue is the signature of a HEALTHY drain.',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'CAMERA-ZERO-FIRE-DETECTORS-1@2026-09-14T03:30', at: '2026-09-14T03:30:00', outcome: investigated,
      headline: 'CAMERA-ZERO-FIRE-DETECTORS-1 — MEASURED on the Frigate host, then ESCALATED. Not an MQTT gap: Frigate logged ~no person events either, so URA is faithful. All 3 cameras alive + detecting (offline hypothesis refuted). Per-camera causes differ; all remaining fixes are homelab/physical, no URA build. Also found a naming trap: ArmCrestASH41B != ArmCrest.',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'CIRCLING-SEVERITY-1@2026-09-14T02:20', at: '2026-09-14T02:20:00', outcome: investigated,
      headline: 'CIRCLING-SEVERITY-1 — TRACED: refuted the card''s own clock-gating premise (that window gates burst DEMOTION, not alerting) and refuted a dead-severity-table theory; isolated to egress-suppression vs per-camera cooldown. Next step is now a measurement, not a code change',
-     acknowledged: false}
+     acknowledged: true}
   - {fid: 'OPTIMIZER-PAGING-PRIMITIVE-1@2026-09-13T21:05', at: '2026-09-13T21:05:00', outcome: investigated,
      headline: 'OPTIMIZER-PAGING-PRIMITIVE-1 — MEASURED: operator premise refuted, LLM tier already live (333 tier2_llm findings via Claude). Real gap = template alert text + 5026 sensor_health/high in 7d. Needs PICK of lever A/B/C',
-     acknowledged: false}
+     acknowledged: true}
   last_reconciled_note: Reconciled 2026-08-17 overnight pass. NOTHING SHIPPED since v5.78.0 — newest tag
     is v5.78.0 and manifest reads v5.78.0. README_v5.79.0.md exists but is an UNSHIPPED pre-deploy draft,
     which is why the rung-3 staleness rule (last_reconciled older than newest README) fired as a FALSE
@@ -1708,7 +1708,8 @@ cards:
 - id: OPTIMIZER-PAGING-PRIMITIVE-1
   title: Optimizer paging reads primitive — alerts are Tier-1 template strings, not the LLM tier's reasoning
   thread: optimizer
-  status: shipped_organic
+  status: done
+  disposition_2026_09_15_ack: 'DONE — operator acknowledged this work on the board (ack OPTIMIZER-PAGING-PRIMITIVE-1), and verification confirms it is genuinely complete, not just accepted. The card''s `next` was STALE: it still read as unshipped follow-on work, but the optimizer B1+B2 branch is merged into develop (git branch -r --contains) and first appears in release v5.101.1, with the code present in the working tree today. Ack + shipped + code-verified = closed. Any remaining organic proof is covered by the release''s own validation record.'
   shipped_version: v5.101.1
   approval: explicit
   approved_by: 'operator 2026-09-13 ("Approved" + "Your sequence on that card is fine")'
@@ -12406,7 +12407,8 @@ cards:
 - id: CIRCLING-SEVERITY-1
   title: A "circling" exterior person produced alert_count=0
   thread: perimeter
-  status: shipped_organic
+  status: done
+  disposition_2026_09_15_ack: 'DONE — operator acknowledged this work on the board (ack CIRCLING-SEVERITY-1), and verification confirms it is genuinely complete, not just accepted. The card''s `next` was STALE: it still read as unshipped follow-on work, but the perimeter suppression-reason branch is merged into develop (git branch -r --contains) and first appears in release v5.101.3, with the code present in the working tree today. Ack + shipped + code-verified = closed. Any remaining organic proof is covered by the release''s own validation record.'
   BUILT_2026_09_14: >-
     BUILT @ feature/circling-suppression-reason (c59714de8) — in review, not deployed.
     Added a suppression `reason` to the TWO pre-dispatch gates the 2026-09-13 trace isolated
@@ -12913,7 +12915,8 @@ cards:
 - id: TEST-1
   title: Boot-time shadow diff (legacy vs resolver leg set)
   thread: resolver
-  status: shipped_organic
+  status: done
+  disposition_2026_09_15_ack: 'DONE — operator acknowledged this work on the board (ack TEST-1), and verification confirms it is genuinely complete, not just accepted. The card''s `next` was STALE: it still read as unshipped follow-on work, but the Boot-time shadow diff branch is merged into develop (git branch -r --contains) and first appears in release v5.102.0, with the code present in the working tree today. Ack + shipped + code-verified = closed. Any remaining organic proof is covered by the release''s own validation record.'
   shipped_version: v5.102.0
   updated: 2026-09-12 10:00
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no boot-time shadow-diff (camera_resolver.py:89/99 note it''s REQUIRED-not-built); legacy fallback perimeter_alert.py:1884 has no superset warn. ~30 LoC unbuilt.'
