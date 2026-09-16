@@ -1066,10 +1066,25 @@ class EgressDirectionTracker:
         # Schedule resolution after ENTRY_WINDOW_SECONDS
         from homeassistant.helpers.event import async_call_later
 
+        # UNLOAD-SYMMETRY-TASK-HYGIENE-1 fix-up (2026-09-16): per-detection
+        # hot path — use the self-removing idiom (mirrors
+        # ``hvac.py:1351 _unsub_kick``) so the retention list stays bounded
+        # across process lifetime while still being cancellable on
+        # ``async_teardown``.
+        _captured_unsub = None
+
         async def _delayed_resolve(now):
+            if _captured_unsub is not None:
+                try:
+                    self._unsub.remove(_captured_unsub)
+                except ValueError:
+                    pass  # Already drained by teardown — benign
             await self._resolve_direction(entity_id, timestamp)
 
-        async_call_later(self.hass, self.ENTRY_WINDOW_SECONDS, _delayed_resolve)
+        _captured_unsub = async_call_later(
+            self.hass, self.ENTRY_WINDOW_SECONDS, _delayed_resolve,
+        )
+        self._unsub.append(_captured_unsub)
 
     @callback
     def _on_egress_count_change(self, event: Event) -> None:
@@ -1105,10 +1120,22 @@ class EgressDirectionTracker:
         # Schedule delayed resolution
         from homeassistant.helpers.event import async_call_later
 
+        # UNLOAD-SYMMETRY-TASK-HYGIENE-1 fix-up (2026-09-16): per-detection
+        # hot path — self-removing idiom keeps ``self._unsub`` bounded.
+        _captured_unsub = None
+
         async def _delayed_resolve(now):
+            if _captured_unsub is not None:
+                try:
+                    self._unsub.remove(_captured_unsub)
+                except ValueError:
+                    pass  # Already drained by teardown — benign
             await self._resolve_direction(entity_id, timestamp)
 
-        async_call_later(self.hass, self.ENTRY_WINDOW_SECONDS, _delayed_resolve)
+        _captured_unsub = async_call_later(
+            self.hass, self.ENTRY_WINDOW_SECONDS, _delayed_resolve,
+        )
+        self._unsub.append(_captured_unsub)
 
     @callback
     def _on_interior_state_change(self, event: Event) -> None:

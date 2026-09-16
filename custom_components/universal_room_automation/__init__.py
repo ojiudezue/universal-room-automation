@@ -1605,7 +1605,28 @@ async def _check_and_notify_room_name_desync(
                 return
             # First attempt failed — NM machinery likely not up yet.
             # Schedule ONE deferred retry ~60s later, then swallow.
+            #
+            # UNLOAD-SYMMETRY-TASK-HYGIENE-1 fix-up (2026-09-16, Review B):
+            # this diagnostic runs in a background task spawned via
+            # ``entry.async_create_background_task``, so the ``_emit_with_retry``
+            # closure may resume AFTER ``async_unload_entry`` has already
+            # drained ``async_on_unload``. Registering an unsub then would
+            # re-populate a drained list that won't be drained again this
+            # unload — a silent leak. Gate on ``entry.state ==
+            # ConfigEntryState.LOADED`` and (a) cancel the timer inline if
+            # the entry is no longer loaded, and (b) re-check state inside
+            # ``_retry`` before it acts, so a state flip between schedule
+            # and fire is caught. No ``except Exception`` around
+            # ``async_on_unload`` — it just appends and cannot raise.
+            from homeassistant.config_entries import (  # noqa: PLC0415
+                ConfigEntryState,
+            )
+
             async def _retry(_now):
+                # Re-check state at fire time: the entry may have unloaded
+                # after the timer was armed but before it fired.
+                if entry.state is not ConfigEntryState.LOADED:
+                    return
                 try:
                     await _emit()
                 except Exception:  # noqa: BLE001
@@ -1615,12 +1636,26 @@ async def _check_and_notify_room_name_desync(
                     )
 
             try:
-                async_call_later(hass, 60, _retry)
+                _retry_unsub = async_call_later(hass, 60, _retry)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "room_name_desync retry schedule failed (swallowed) "
                     "entry_id=%s", entry.entry_id, exc_info=True,
                 )
+                return
+
+            if entry.state is ConfigEntryState.LOADED:
+                # Fresh loaded entry — the async_on_unload list is still
+                # live; register the unsub so unload cancels the retry.
+                entry.async_on_unload(_retry_unsub)
+            else:
+                # Entry has already unloaded / is unloading. The
+                # async_on_unload list has been (or is being) drained;
+                # registering now would leak. Cancel inline instead.
+                try:
+                    _retry_unsub()
+                except Exception:  # noqa: BLE001
+                    pass
 
         # Fire-and-forget — don't block setup on the diagnostic. Tracked
         # via `entry.async_create_background_task` per the
