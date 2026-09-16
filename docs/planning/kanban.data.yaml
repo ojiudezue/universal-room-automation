@@ -9493,6 +9493,37 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-SUPPLE-SEQUENCE-1
+  TUNABILITY_REMEASURED_2026_09_16: 'OPERATOR CHALLENGED the "zone 1 tunable ~9 of 24 hours" figure
+    I had been repeating: "We have to verify if this is right and a legit blocker or not." It was a
+    2026-08-20 number, ~4 weeks old, and I had never re-verified it. RE-MEASURED over the last 7
+    days from the recorder (duration-weighted preset_mode occupancy, unavailable states excluded):
+
+      zone      span_h   manual_h   manual%   tunable%   top presets
+      zone_1     168.0      116.9     69.6%      30.4%   manual 116.9h, home 25.8h, away 17.7h, sleep 7.5h
+      zone_2     167.8       77.8     46.4%      53.6%   manual 77.8h, away 65.4h, home 17.4h, sleep 7.2h
+      zone_3     167.9       10.6      6.3%      93.7%   away 132.6h, home 21.1h, manual 10.6h, sleep 3.6h
+
+    VERDICT 1 — THE CLAIM IS VERIFIED, AND UNDERSTATED. zone_1 is tunable ~7.3 of 24 hours now, not
+    9. Step 1 is a live defect, not a stale card.
+
+    VERDICT 2 — BUT IT IS NOT A UNIFORM BLOCKER, AND MY SEQUENCING CLAIM WAS WRONG. I wrote that
+    step 3 (baseline) "genuinely cannot precede 1b", generalising a zone_1 measurement to the whole
+    house. zone_3 is 93.7% ON NAMED PRESETS — its preset gate is open almost all the time. And
+    zone_3 is precisely the SUBJECT of step 4: it is the zone with ~15 pointless conditioning
+    episodes/day at a median of exactly vacancy_grace. A baseline captured there measures
+    BEHAVIOUR, not an outage.
+
+    CONSEQUENCE FOR THE SEQUENCE: steps 3 and 4 can proceed ON ZONE_3 IN PARALLEL with step 1
+    fixing zones 1 and 2. The strict serial ordering was over-constrained. Conditions on doing so:
+    (a) scope the baseline to zone_3 and SAY SO — a house-wide baseline would still be contaminated
+    by zone_1/zone_2; (b) exclude zone_3''s residual 6.3% manual windows from the baseline rather
+    than averaging through them; (c) do NOT generalise a zone_3 result to zones 1/2 afterwards —
+    that is the same error in the other direction.
+
+    WHY ZONE_3 IS THE CLEAN ONE IS ALSO INFORMATIVE: it holds `away` 132.6h of 168 and is the zone
+    observed all night holding a NAMED indefinite hold. It is the control that proved named holds
+    work on this system at all. zone_1 (69.6% manual) and zone_2 (46.4%) are where the anonymous-
+    hold defect actually lives.'
   RESUME_PLACEMENT_2026_09_16: 'OPERATOR ASKED: "Where does resume fall in this sequence?"
     ANSWER: resume-then-pin IS STEP 1''S BUILD — not a new step. Step 1 was always "make preset
     restores actually take"; as of 2026-09-16 we know WHY they do not (a named hold cannot be

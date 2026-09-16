@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T00:18:03-05:00_ - _Data commit: `c8078c2c07a8`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T00:19:19-05:00_ - _Data commit: `9d0307144604`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -287,7 +287,8 @@ _created 2026-09-15 · initial_
 - **Next:** START STEP 1 — HVAC-MANUAL-PRESET-CONTRACT-1, already operator-directed ("we have to finish this"). Steps 1-3 are all no-behaviour-change or read-only, so they can be driven without a further operator gate; the operator checkpoint falls ...
 - **Tags:** measure-before-build, tier-2db, sequence
 - **Parsimony:** [BUILD] Related HVAC cards are order-dependent for MEASUREMENT, not just for code, so building them in the wrong order yields changes nobody can prove helped.
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `TUNABILITY_REMEASURED_2026_09_16`: OPERATOR CHALLENGED the "zone 1 tunable ~9 of 24 hours" figure I had been repeating: "We have to verify if this is right and a legit blocker or not." It was a 2026-08-20 number, ~4 weeks old, and I had never re-verified it. RE-MEASURED o...
   - `RESUME_PLACEMENT_2026_09_16`: OPERATOR ASKED: "Where does resume fall in this sequence?" ANSWER: resume-then-pin IS STEP 1'S BUILD — not a new step. Step 1 was always "make preset restores actually take"; as of 2026-09-16 we know WHY they do not (a named hold cannot ...
   - `seq_2026_09_15`: THIS CARD IS THE ORDER. Steps 1-3 change no behaviour (attribution, instrument, baseline); step 4 is the live change; steps 5-6 dispose and close.
   - `WITNESS_CORRECTION_2026_09_15`: I told the operator the spurious-away metric might need the guest/person work first. THAT WAS WRONG and the correction reorders the sequence. HVAC-GUEST-AS-ZONE-PERSON-1 derives a zone person FROM ROOM OCCUPANCY — the very signal we are ...
