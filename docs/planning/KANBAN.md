@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T01:11:15-05:00_ - _Data commit: `88929a2f7fee`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T01:14:47-05:00_ - _Data commit: `da1bbfe134c0`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -12,7 +12,7 @@ _Generated: 2026-09-16T01:11:15-05:00_ - _Data commit: `88929a2f7fee`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 3 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 9 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 23 |
@@ -290,7 +290,7 @@ _created 2026-09-14 02:20 · initial_
   - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
   - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
 
-## 📝 Planned (9)
+## 📝 Planned (10)
 _has plan / acceptance_
 
 ### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#1 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
@@ -409,7 +409,21 @@ _updated 2026-09-15 02:50_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#9 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1` - The startup ramp audit writes setpoints and restores no preset, so every restart drops zones into an anonymous hold — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **planned** - approval: **implied**
+_created 2026-09-16 · initial_
+- **Problem / Solution:**
+  - Problem: when Home Assistant restarts, a startup check writes temperatures directly to the thermostats. Writing a raw temperature is what puts a Bryant zone into a hand-set hold, and the startup check never puts the named setting back — ...
+- **Origin:** 2026-09-16 - Watched it happen live to zone_3 seconds after the v5.103.2 restart; first flagged as plan-review finding R1-MEDIUM-1
+- **Why:** Measured restart cadence is ~2.9/day, so this manufactures an anonymous hold several times a day on every zone. Before v5.103.2 only the vacancy bypass could recover it, which is why an OCCUPIED zone could stay stranded for up to 17.9h w...
+- **Next:** Tier 2. Mirror what D2b did for the excursion return paths: capture the pre-existing preset and restore it after the ramp audit's setpoint write, or route the audit through the excursion borrow so it inherits the restore. Acceptance must...
+- **Tags:** tier-2, found-during-validation, no-fabrication-verify
+- **Parsimony:** [BUILD] A boot-time setpoint write leaves every zone in an anonymous hold on every restart.
+- **Refs:** hvac_override.py async_startup_ramp_audit (temp=1, preset=0); docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md (R1-MEDIUM-1)
+- **Forensic keys (1):**
+  - `VERIFIED_2026_09_16`: Static: async_startup_ramp_audit (hvac_override.py) has temp=1, preset=0 — one setpoint emission, no preset restore. Live: zone_3 went away|away -> manual|manual at 01:17:04, seconds after the 01:12 restart, on the zone that is 93.7% nam...
+
+### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#10 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **operator_decided**
 _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
 - **Next:** Scope S14 as a borrow kind: bounded-timer ending, one-shot-per-off-phase (discriminating acceptance), Number duration knob, restart behaviour; INVERT test_ceiling_held_until_next_preset_transition. Gate cleared 2026-08-25.
@@ -1092,7 +1106,9 @@ _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_
 - **Sibling of:** BORROW-BANKING-LEASE-NOT-RELEASED-1, S14-CEILING-NEEDS-AN-ENDING-1
 - **Parsimony:** [BUILD] URA writes raw setpoints at volume and can strand a zone off-preset, against an explicit operator design contract
 - **Refs:** hvac_preset.py:212-217; hvac_override.py:186-195, 3070-3097; HVAC-PRESET-RESTORE-MISS-1; HVAC-PRESET-FLAP-1
-- **Forensic keys (42):**
+- **Forensic keys (44):**
+  - `FIRST_LIVE_EXERCISE_2026_09_16`: RESUME-THEN-PIN WORKED IN PRODUCTION, first exercise, ~7 minutes after the v5.103.2 restart — and it recovered a zone that the BOOT PATH had just stranded.
+  - `BOOT_PATH_STRANDS_ZONES_2026_09_16`: R1-MEDIUM-1 CONFIRMED LIVE, and it is worse than a review note. The boot path strands zones on EVERY restart: async_startup_ramp_audit writes setpoints (temp=1, preset=0) and restores no preset, so a zone that was on a named hold comes b...
   - `BUILT_D1_D2a_2026_09_16`: BUILT (Tier 3, AFTER the two plan reviews — which changed what got built). In review on develop, NOT deployed.
   - `WHY_ZONE3_IS_CLEAN_2026_09_16`: ANSWERED, and it sharpens the whole cycle. Chasing "what is different about zone_3?" produced the mechanism behind the zone-by-zone distribution.
   - `PLAN_WRITTEN_2026_09_16`: PLAN drafted: docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md. Carries the Tier-3 falsifiable invariant in three parts — I1 after any URA write the zone holds a NAMED activity on EVERY reachable path; I2 URA never books it...
