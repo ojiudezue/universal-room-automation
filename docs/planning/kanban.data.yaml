@@ -9493,6 +9493,32 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-SUPPLE-SEQUENCE-1
+  RESUME_PLACEMENT_2026_09_16: 'OPERATOR ASKED: "Where does resume fall in this sequence?"
+    ANSWER: resume-then-pin IS STEP 1''S BUILD — not a new step. Step 1 was always "make preset
+    restores actually take"; as of 2026-09-16 we know WHY they do not (a named hold cannot be
+    pinned over an anonymous manual hold) and HOW to fix it (clear, then pin). Step 1 therefore
+    splits into:
+      1a PER-KIND SUPPRESSION TTL SPLIT — prerequisite. Without it URA books its OWN second write
+         as a human override (SUPPRESS_TTL_SECONDS=5 cannot span resume->pin->refresh->verify).
+         preset-kind ~120s; temp-kind STAYS 5s. See SUPPRESS_TTL_ANSWER on the card.
+      1b RESUME-THEN-PIN at the restore sites, routed through ONE chokepoint, plus the targeted
+         coordinator REFRESH (never a reload) and verify+retry reusing _verify_restore.
+    STEP 2 IS ALREADY SHIPPED (v5.103.1) AND THAT ORDERING WAS FORTUNATE: the arrester ledger is
+    exactly the instrument that PROVES 1b. If resume-then-pin books URA''s own writes as overrides,
+    we will now see override_detected rows with mode=governed where there should be none. Without
+    the ledger, 1b''s live validation would be blind in the same way the 2026-09-16 canary was.
+    STEP 3 STILL CANNOT PRECEDE 1b: while a zone sits in `manual`, should_change_preset returns
+    False for everything (hvac_preset.py:202-217), so vacancy_grace and zone_entry_dwell are
+    downstream of a CLOSED GATE. zone_1 was measured tunable for roughly 9 of 24 hours. A baseline
+    captured before 1b would measure an OUTAGE, not a behaviour — the exact non-discriminating
+    observation this sequence exists to prevent.
+    UPDATED ORDER: 1a -> 1b -> [2 DONE] -> 3 baseline -> 4 tap (operator checkpoint) -> 5 conditional
+    -> 6 close.
+    TIER: step 1 is TIER 3, operator-confirmed (OPERATOR_RULINGS_2026_08_20 item 3). So it needs a
+    PLAN with a falsifiable invariant + TWO framing-disjoint plan reviews BEFORE build, four
+    framing-disjoint build reviews, orchestrator independent verification, and an operator
+    checkpoint at pre-deploy. Writing Tier-3 thermostat code without the plan review would be a
+    process violation; the plan is the correct next artifact.'
   seq_2026_09_15: 'THIS CARD IS THE ORDER. Steps 1-3 change no behaviour (attribution, instrument, baseline); step 4 is the live change; steps 5-6 dispose and close.'
   title: The ordered plan for making HVAC supple — six steps, each with a gate, run to completion
     rather than cherry-picked
