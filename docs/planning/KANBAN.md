@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T17:47:07-05:00_ - _Data commit: `a6dccbb4c60c`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T17:54:03-05:00_ - _Data commit: `a5c3d7611b5c`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -12,12 +12,12 @@ _Generated: 2026-09-16T17:47:07-05:00_ - _Data commit: `a6dccbb4c60c`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 11 |
-| 📝 Planned | 9 |
+| 📝 Planned | 10 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 2 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 25 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🚀 Shipped (organic open) | 26 |
+| 🚀 Shipped (organic open) | 27 |
 | 🅿️ Parked | 57 |
 | ✅ Done | 170 |
 
@@ -219,7 +219,7 @@ _created 2026-09-16 · initial_
   - `PER_ZONE_CORRECTED_2026_09_16`: OPERATOR: "If we did this, why per zone? It should be the same function, no?" CORRECT, and my sketch was wrong. Ask what per-zone STATE a handle would hold: entity_id is a PARAMETER; the vendor is DERIVED from the entity's platform (memo...
   - `DESIGN_SHAPE_2026_09_16`: Stateless, entity-parameterised, all three verbs plus vendor dispatch: read_hold(hass, entity_id)              -> named / anonymous / none set_preset(hass, entity_id, name, ...)  -> strategy decides clear-then-pin vs direct pin set_setpo...
 
-## 📝 Planned (9)
+## 📝 Planned (10)
 _has plan / acceptance_
 
 ### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#1 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
@@ -369,7 +369,17 @@ _created 2026-09-15 · initial_
   - `DESIGN_2026_09_15`: Five parts, ordered by blast radius. (1) HVAC-OWNED DERIVATION — add a zone-level "conditioning demand" signal; HVAC consumes it INSTEAD of any_room_occupied. Room automation keeps reading the existing signal untouched, so lights carry n...
   - `DUMMY_PERSON_REJECTED_2026_09_15`: OPERATOR ASKED: "Zone 3 has no zone persons because its a guest wing. Should we stub a dummy?" RECOMMENDATION: NO. The three gates (night-trust away-suppression hvac.py:1788-1795, sleep veto aggregation.py:4017-4019, non-sleep person-hom...
 
-### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#9 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#9 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **energy** - status: **planned** - approval: **implied**
+_created 2026-09-16_
+- **Problem / Solution:**
+  - Problem: safely_ordered_ladder() clamps invariants #4 (fill_priority) and #5 (ev_drain) and its consumers are wired, but the other three ordering invariants — #1 drain-target monotonicity, #2 peak_buffer_target, #6 inclement_partial_hold...
+- **Why:** Split OUT of EC-SOC-LADDER-XVALIDATE-1 (2026-09-16). That cycle's residual was scoped as "extend + wire 8 consumers" but the 3 remaining invariants have ~25 readers — a migration, not a residual. All 3 framing-disjoint reviews of the res...
+- **Next:** PLAN FIRST (Tier 2-DB, plan-reviewed before build — the residual skipped its plan review and failed 3 code reviews on exactly the under-scoped consumer count). Enumerate ALL readers of drain_targets / peak_buffer_target / inclement floor...
+- **Tags:** energy, tier-2db, bug-class-53, needs-plan-review
+- **Parsimony:** [BUILD] three ordering invariants are validated at save time + anomaly-flagged at runtime but their ~25 live decision readers still read raw, so an inverted slider flips a gate
+
+### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#10 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **implied**
 _created 2026-09-16 · initial_
 - **Problem / Solution:**
@@ -389,7 +399,7 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (2)
+## 🔍 Review (1)
 _under review_
 
 ### `EC-SOC-LADDER-XVALIDATE-1` - No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity and oscillate EV pause/resume; the parked fix's trigger has now fired — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -411,18 +421,6 @@ _created 2026-08-24 16:45 · updated 2026-09-12 10:30 · initial_
   - `relane_2026_09_10`: Not a soak -> PRE-PLANNING. This is FUTURE Tier-2-DB build work (harvest parked D3/S5 spec + O3 analysis -> enumerate ordered-pair invariants for the shared EC validator). No shipped deliverable to dispose.
   - `operator_refine_2026_09_09`: Operator: VALIDATE NEEDS AN ACTION — detection alone is useless; if the ladder does not make sense, then WHAT? Proposed (to confirm in plan): reject at the SOURCE — a config-flow/options validation error at save time that names the speci...
   - `build_2026_09_09`: BUILT on feature/energy-validate-staleness (e68a0af66). Save-time ladder validation in async_step_coordinator_energy + runtime guard (_check_threshold_ladder -> rate-limited threshold_ladder_violation anomaly) + safely_ordered_ladder() a...
-
-### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Setup/unload symmetry + tracked background tasks (tech-debt hardening) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **platform** - status: **review**
-_created 2026-08-18 02:30 · updated 2026-09-15 · refined_
-- **Next:** Tier 2 production hardening: audit async_on_unload coverage + track background tasks (reload-safety + task-leak). Independent of the test cluster.
-- **Forensic keys (6):**
-  - `FIXUP_DONE_2026_09_16`: Consolidated fix-up complete (commit 9aba9ce21). All 4: (1) self-removal- on-fire at the 3 per-event sites, append-drain kept at the 2 once-per-instance; (2) __init__ entry-state LOADED gate + _retry re-check + dead except removed; (3) c...
-  - `REVIEW_B_2026_09_16`: Framing B (lifecycle/teardown) = SHIP-WITH-FIXES, no CRIT/HIGH. CONVERGES with A on the retention leak (B-MED-2). Adds B-MED-1: the __init__.py:1618 fix does NOT close its window (drain runs before the parked NM background task resumes +...
-  - `REVIEW_A_2026_09_16`: Framing A (cancel-safety) = FIX-REQUIRED. Strong catch: the hygiene fix INTRODUCED a leak. MUST-FIX (1): per-EVENT sites (coordinator_diagnostics.py:381 schedule_check per-command; transit_validator.py:1075,1119 per-detection) append uns...
-  - `AUDIT_2026_09_15`: AUDIT DONE — and it DE-SCOPES this card by ~96%. Built a reusable AST audit, quality/tools/audit_listener_cleanup.py (REUSE of the audit_shadow_imports.py walker skeleton shipped 2026-09-12; read-only, standalone, not gated on the broken...
-  - `problem`: untracked background tasks — matches a known URA bug class (task leak). One hardening cycle. (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified 19 async_on_unload sites. The real, large ...
-  - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
 
 ## ⏸️ Waiting on operator (25)
 _needs a human call — groomed first_
@@ -820,7 +818,7 @@ _I owe something_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (26)
+## 🚀 Shipped (organic open) (27)
 _live, awaiting proof_
 
 ### `BLE-HOLD-CAP-SUITE-POLLUTION-1` - test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution (passes alone/in pairs) — _#1 · WSJF 7.5 · v5 tc8 u2 /e2 ⚠_
@@ -1235,7 +1233,19 @@ _created 2026-09-15 · initial_
   - `VERIFIED_2026_09_15`: Ground truth, read in source this session (not inferred). (1) hvac_override.py contains ZERO activity_logger / log_activity calls — grep returns nothing. (2) Its self-described "ledger" is log-only: hvac_override.py:600 is literally comm...
   - `ADJACENCY_SWEEP_2026_09_15`: NEW (not duplicate). Swept all four surfaces. (1) Board: the four arrester cards are each a distinct BEHAVIOUR defect (boot-window blindness, cloud-flap false positive, sunset-on-away, comfort delay) — none is about the decisions being u...
 
-### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window — _#23 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Setup/unload symmetry + tracked background tasks (tech-debt hardening) — _#23 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **platform** - status: **shipped_organic**
+_created 2026-08-18 02:30 · updated 2026-09-15 · refined_
+- **Next:** Tier 2 production hardening: audit async_on_unload coverage + track background tasks (reload-safety + task-leak). Independent of the test cluster.
+- **Forensic keys (6):**
+  - `FIXUP_DONE_2026_09_16`: Consolidated fix-up complete (commit 9aba9ce21). All 4: (1) self-removal- on-fire at the 3 per-event sites, append-drain kept at the 2 once-per-instance; (2) __init__ entry-state LOADED gate + _retry re-check + dead except removed; (3) c...
+  - `REVIEW_B_2026_09_16`: Framing B (lifecycle/teardown) = SHIP-WITH-FIXES, no CRIT/HIGH. CONVERGES with A on the retention leak (B-MED-2). Adds B-MED-1: the __init__.py:1618 fix does NOT close its window (drain runs before the parked NM background task resumes +...
+  - `REVIEW_A_2026_09_16`: Framing A (cancel-safety) = FIX-REQUIRED. Strong catch: the hygiene fix INTRODUCED a leak. MUST-FIX (1): per-EVENT sites (coordinator_diagnostics.py:381 schedule_check per-command; transit_validator.py:1075,1119 per-detection) append uns...
+  - `AUDIT_2026_09_15`: AUDIT DONE — and it DE-SCOPES this card by ~96%. Built a reusable AST audit, quality/tools/audit_listener_cleanup.py (REUSE of the audit_shadow_imports.py walker skeleton shipped 2026-09-12; read-only, standalone, not gated on the broken...
+  - `problem`: untracked background tasks — matches a known URA bug class (task leak). One hardening cycle. (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified 19 async_on_unload sites. The real, large ...
+  - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
+
+### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window — _#24 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **implied**
 _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
 - **Problem / Solution:**
@@ -1256,7 +1266,7 @@ _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
   - `root_cause_confirmed_2026_09_10`: ROOT CONFIRMED (evidence-complete). Night 09-09->10 the gate held correctly 21:00->23:01 CDT (onset_active on; ONSET_MAX_HOLD_H=8.0 -> hold window 17:00-01:00) then RELEASED at 23:01 CDT (04:01:43 UTC), reason=onset_permits, remaining_to...
   - `fix_direction_2026_09_10`: FIX (two surfaces, this card owns #1): (1) ONSET GATE reload-resilience -- _evaluate_onset_gate must NOT release a currently-held charger on a transient enabled=False. Options: gate should distinguish "feature genuinely off" from "enable...
 
-### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#24 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#25 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **shipped_organic** - approval: **operator_decided**
 _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
 - **Next:** Scope S14 as a borrow kind: bounded-timer ending, one-shot-per-off-phase (discriminating acceptance), Number duration knob, restart behaviour; INVERT test_ceiling_held_until_next_preset_transition. Gate cleared 2026-08-25.
@@ -1277,7 +1287,7 @@ _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
   - `RECOMMENDATION_MAKE_IT_A_BORROW_NOT_A_BESPOKE_ENDING`: STRONG RECOMMENDATION — do NOT build a bespoke S14 ending. Bounded hold + snapshot + preset restore + relinquish-on-divergence + restart audit IS the governed-excursion ("borrow") primitive under HVAC-GOVERNED-EXCURSION-1. S14 was EXCLUD...
   - `unblocked_2026_08_25`: GATE CLEARED: HVAC-GOVERNED-EXCURSION-1 is validated+done (live DB). S14 is now scopeable as a borrow kind (bounded timer + one-shot-per-off-phase, Number-entity duration knob, declared restart behaviour) per the operator's 2026-08-21 de...
 
-### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#25 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#26 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **config-flow** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-12 16:30 · updated 2026-09-12 16:05 · refined_
 - **Problem / Solution:**
@@ -1307,7 +1317,7 @@ _created 2026-09-12 16:30 · updated 2026-09-12 16:05 · refined_
   - `recommended_combo_2026_09_12`: Presented the most-assistive LINEAR combo for operator approval (the bold end of each proposal, resolving the conservative/aggressive variants): area-first + auto-detect-and-confirm (P2 bold) + continuous house->room ribbon (P5) + essent...
   - `planning_2026_09_12`: AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + sep...
 
-### `APPLIANCE-MGMT-REFINE-1` - Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities — _#26 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `APPLIANCE-MGMT-REFINE-1` - Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities — _#27 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-12 16:30 · initial_
 - **Problem / Solution:**
