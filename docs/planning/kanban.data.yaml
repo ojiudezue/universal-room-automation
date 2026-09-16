@@ -7981,6 +7981,89 @@ cards:
   refs:
   - activity_logger.py:114-117 (unvalidated entity_id onto the ura_action bus event)
   - 'live ERROR 2026-09-16 boot: recorder core.py:304 -> split_entity_id ValueError garage_a'
+- id: HVAC-THERMOSTAT-ABSTRACTION-1
+  title: We unified the call sites but never built an abstraction — three write verbs, two funnels,
+    and vendor knowledge loose inside a shared path
+  thread: hvac
+  status: pre_planning
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-16 ("We should have a function that can encapsulate all writes to
+    HVAC and maybe reads... so it can be extended to any therm system. Borrow was a similar cycle
+    on return and maybe it is as good machinery to extend?" / "It feels like we unified site and
+    callers but did not use an abstraction")'
+  tags: [tier-3, platform-enabler, institutional-context]
+  problem_solution:
+  - 'Problem: every instruction URA sends a thermostat goes through one of two shared helpers,
+    which looks tidy — but they are traffic funnels, not a model of a thermostat. Callers still
+    describe the mechanics ("write these two numbers, then write that named setting") rather than
+    the intention ("put this zone on home"), a third kind of instruction escapes the funnels
+    entirely, and the knowledge of how one particular brand behaves sits loose inside the shared
+    path. The result is that the same restore logic gets copied to each new site, and each copy is
+    a chance to forget one. Solution: give each zone a single thermostat handle that owns all the
+    instructions and the brand-specific behaviour, so callers state intent and the handle decides
+    how.'
+  origin:
+    date: '2026-09-16'
+    gist: Operator observed that the night''s work unified callers without introducing an
+      abstraction — and the evidence confirmed it
+  THE_EVIDENCE_2026_09_16: 'MEASURED, not asserted — this is what distinguishes a funnel from an
+    abstraction:
+    * 22 call sites route through emit_set_temperature / emit_set_preset_mode. Tidy.
+    * BUT 7 raw `climate.set_hvac_mode` calls BYPASS them entirely (hvac.py:1724,
+      hvac_override.py:3447/3816/3934/3969, hvac_egress.py:682/778) — there is no third funnel, so
+      a whole write verb escapes. A real abstraction cannot have a verb leak out of it.
+    * The funnels know `climate.set_temperature` CONCRETELY; callers express mechanics, not intent.
+    * Vendor knowledge leaked in as a free function + module constants (_needs_resume_first,
+      PRESET_RESUME, ANONYMOUS_HOLD) INSIDE a shared path — which is exactly why it is
+      Carrier-specific where every thermostat passes.
+    * The borrow holds the snapshot but CANNOT perform a restore, because it has no handle to act
+      through. Its own docstring says so: "Callers still emit the actual wire writes."'
+  DESIGN_SHAPE_2026_09_16: 'One handle per zone, owning all three verbs plus the vendor strategy:
+      ZoneThermostat(zone)
+        .read()                -> current hold: named / anonymous / none
+        .set_preset(name)      -> strategy decides clear-then-pin vs direct pin
+        .set_setpoints(lo, hi) -> knows this INDUCES an anonymous hold
+        .set_mode(mode)        -> the verb that currently escapes
+    THE BORROW IS THE RIGHT CLIENT (operator''s instinct, and it is correct). The borrow already
+    models the LIFECYCLE — take the zone, snapshot pre_preset/pre_target_low/high (already
+    PERSISTED in hvac_excursion_state), hand it back. That is exactly the shape a restore needs;
+    what it lacks is something to act THROUGH. Give return_excursion a ZoneThermostat and the
+    restore stops being copy-pasted per site — which is precisely the Bug-Class-#53 exposure we
+    patched one site at a time all night (D2b''s two return paths, 4a''s boot path, and the nine
+    non-restoring writers still out there).
+    THREE CONCERNS, ONE PLACE EACH: borrow = lifecycle, handle = mechanism, strategy = vendor.
+    HVAC-PRESET-WRITE-STRATEGY-1 becomes a PROPERTY OF THE HANDLE rather than a special case inside
+    a funnel — which is what makes "extends to any thermostat system" real rather than aspirational.'
+  parsimony:
+    problem: Write mechanics are duplicated per call site and one verb bypasses the funnels
+      entirely, so every new restore path is a fresh chance to omit one.
+    verdict: BUILD
+  next: 'GATED — do NOT start before the lockout telemetry reports. A write abstraction does NOT
+    fix the lockout (HVAC-PRESET-LOCKOUT-ESCAPE-1): that failure is "URA never ATTEMPTS the write",
+    and there is nothing for a better writer to improve. If lockouts dominate zone_1''s residual,
+    this refactor would be a large Tier-3 change to live HVAC paths that moves the metric very
+    little. Let a day of telemetry say whether the write path is even the bottleneck before
+    rebuilding it.
+    WHEN IT PROCEEDS: Tier 3 (touches every thermostat write in an occupied house). Migrate in this
+    order — (1) introduce the handle wrapping today''s funnels, no behaviour change; (2) add the
+    missing set_mode verb and migrate the 7 bypassing sites; (3) move the vendor strategy inside;
+    (4) give return_excursion the handle and collapse the per-site restores. Each step ships
+    separately with its own acceptance; a big-bang migration of this surface is how the flap fix
+    introduced S14 in the first place.'
+  links:
+    related: [HVAC-PRESET-WRITE-STRATEGY-1, HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-PRESET-LOCKOUT-ESCAPE-1]
+    context: 'HVAC-PRESET-WRITE-STRATEGY-1 is SUBSUMED as a property of the handle rather than a
+      standalone seam — do not build it separately once this proceeds.
+      HVAC-MANUAL-PRESET-CONTRACT-1 is the cycle whose per-site patching exposed the need.
+      HVAC-PRESET-LOCKOUT-ESCAPE-1 gates it: if the bottleneck is not-writing rather than
+      writing-badly, this refactor is not where the value is.'
+  refs:
+  - hvac_setpoint.py (the two funnels + the leaked vendor constants)
+  - 'the 7 bypassing set_hvac_mode sites: hvac.py:1724, hvac_override.py:3447/3816/3934/3969, hvac_egress.py:682/778'
+  - hvac_excursion.py return_excursion ("Callers still emit the actual wire writes")
 - id: HVAC-PRESET-WRITE-STRATEGY-1
   seq_2026_09_16: 'STEP 6 of HVAC-SUPPLE-SEQUENCE-1 — LAST, deliberately. It generalises the
     step-1 mechanism to other vendors, and abstracting a mechanism before its numeric prediction
