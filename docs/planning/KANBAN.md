@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T00:19:19-05:00_ - _Data commit: `9d0307144604`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T00:20:38-05:00_ - _Data commit: `00b964e621f2`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -404,7 +404,8 @@ _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_
 - **Sibling of:** BORROW-BANKING-LEASE-NOT-RELEASED-1, S14-CEILING-NEEDS-AN-ENDING-1
 - **Parsimony:** [BUILD] URA writes raw setpoints at volume and can strand a zone off-preset, against an explicit operator design contract
 - **Refs:** hvac_preset.py:212-217; hvac_override.py:186-195, 3070-3097; HVAC-PRESET-RESTORE-MISS-1; HVAC-PRESET-FLAP-1
-- **Forensic keys (40):**
+- **Forensic keys (41):**
+  - `WHY_ZONE3_IS_CLEAN_2026_09_16`: ANSWERED, and it sharpens the whole cycle. Chasing "what is different about zone_3?" produced the mechanism behind the zone-by-zone distribution.
   - `PLAN_WRITTEN_2026_09_16`: PLAN drafted: docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md. Carries the Tier-3 falsifiable invariant in three parts — I1 after any URA write the zone holds a NAMED activity on EVERY reachable path; I2 URA never books it...
   - `SUPPRESS_TTL_ANSWER_2026_09_16`: OPERATOR: "I assume we could extend this to a larger value as long as we understand the impact?" YES — and after reading the mechanism the impact is NARROWER than my blocker note implied, but it is NOT uniform, so the answer is EXTEND PE...
   - `DURABILITY_CONFIRMED_2026_09_16`: resume-then-pin HELD for 8 MINUTES across 9 cloud-confirmed updates, zero reverts: pin 23:32:35, then 23:32:51, 23:33:31, 23:33:47, 23:34:39, 23:35:53, 23:38:29, 23:39:56, 23:40:28 — all sleep|sleep 70/75. Direct preset writes on the sam...

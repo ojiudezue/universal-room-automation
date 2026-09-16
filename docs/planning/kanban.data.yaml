@@ -16964,6 +16964,44 @@ cards:
     restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
     the borrow primitive, not folded into it.'
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  WHY_ZONE3_IS_CLEAN_2026_09_16: 'ANSWERED, and it sharpens the whole cycle. Chasing "what is
+    different about zone_3?" produced the mechanism behind the zone-by-zone distribution.
+
+    FIRST HYPOTHESIS REFUTED: I assumed zone_3 receives fewer raw-setpoint writes (being a transit
+    corridor with no comfort features aimed at it). WRONG. Transitions INTO manual over 7d:
+    zone_1 81 (66 with a setpoint change), zone_2 51 (50), zone_3 66 (66/66). zone_3 enters manual
+    just as often as the others, and EVERY entry coincides with a setpoint change. Entering manual
+    is not the differentiator.
+
+    THE REAL DIFFERENTIATOR IS ESCAPE, NOT ENTRY. Manual-episode exits over 7d:
+      zone_3  exits_to {away:62, home:4}                episodes 66  median  2m  max   99m
+      zone_2  exits_to {away:37, home:12, sleep:2}      episodes 50  median 15m  max  846m (14.1h)
+      zone_1  exits_to {away:36, home:35, sleep:10}     episodes 80  median 10m  max 1073m (17.9h)
+
+    MECHANISM: the documented exception to should_change_preset''s manual lockout is the VACANCY
+    bypass. zone_3 is a transit corridor that empties constantly, so vacancy fires almost
+    immediately and rescues it — 94% of its exits are to `away`, median 2 minutes. zone_1 is the
+    master suite: OCCUPIED most of the day, so vacancy rarely fires and there is a 17.9-HOUR
+    stranding in the tail (consistent with the 14h35m originally observed on 2026-08-20). zone_2 is
+    intermediate. That fully explains 69.6% / 46.4% / 6.3% manual occupancy without appealing to
+    anything zone-specific about the thermostats.
+
+    HONESTY CORRECTION TO THIS CARD''S OWN FRAMING: SELF_LOCKOUT_CONFIRMED describes a "genuine
+    self-lockout with no self-recovery path". That OVERSTATES it. zone_1 exits manual to `home` 35
+    times and `sleep` 10 times in 7 days, so escapes other than vacancy do occur. The accurate
+    statement is that escape is UNRELIABLE AND SLOW IN OCCUPIED ZONES, with a multi-hour tail — not
+    that it is impossible. Do not cite "no self-recovery path" as fact.
+
+    WHY THIS MATTERS FOR THE FIX: it predicts WHERE resume-then-pin pays. The value is concentrated
+    in OCCUPIED zones (1 and 2) — which is exactly where comfort matters most and where the
+    operator felt the problem. zone_3 was never the patient.
+
+    NUMERIC PREDICTION, STATED BEFORE THE EXPERIMENT (evidence-bar requirement): if resume-then-pin
+    works, zone_1''s manual occupancy should collapse from 69.6% toward zone_3''s ~6%, and the
+    multi-hour tail (max 1073m) should disappear. If manual% stays high after the fix, the
+    mechanism is NOT what this card now claims and the cycle must stop rather than be patched.
+    This is a better acceptance criterion than "a preset restore took", because it discriminates
+    the fix from a lucky single observation.'
   PLAN_WRITTEN_2026_09_16: 'PLAN drafted: docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md.
     Carries the Tier-3 falsifiable invariant in three parts — I1 after any URA write the zone holds
     a NAMED activity on EVERY reachable path; I2 URA never books its own write as a human override
