@@ -9397,6 +9397,125 @@ cards:
       structurally inert and grac
     verdict: BUILD
   batch: tier1-gate-and-knobs
+- id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  title: HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC
+    its own dwell-vs-transit derivation instead of tuning a knob that cannot win
+  thread: hvac
+  status: pre_planning
+  created: '2026-09-15'
+  updated: '2026-09-15'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-15 ("We need a strong recommendation to better couple room to zone
+    for hvac functions... re-examine the timers and how they line up and work back from the
+    behaviors we want... we could decouple room occupancy a bit more from zone occupancy which
+    drives hvac. We could even just drive hvac directly from person seen in zone vs room occupancy
+    timeout which is really meant to drive room automation.")'
+  tags: [tier-2db, measure-before-build, institutional-context, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: the signal HVAC uses to decide whether a zone is occupied was designed for a
+    different job — switching lights on and off. That job needs a generous hold so a light never
+    blinks off on someone standing still, so the room layer keeps a room marked occupied for about
+    six to eight minutes after the last movement. HVAC then reads that same output, which means a
+    two-second walk through a hallway looks to the heating system exactly like someone settling in
+    for the evening. The guard meant to filter that out waits five minutes, so it is a short guard
+    placed after a long smoother and it cannot win. Solution: let HVAC derive its own answer to its
+    own question — "is anyone actually staying here?" — using the sensors that can tell a
+    stationary body from a passing one, and leave the lighting signal alone.'
+  origin:
+    date: '2026-09-15'
+    gist: Operator challenged the dwell explanation, then asked for a deep recommendation on
+      room-to-zone coupling for HVAC rather than another knob turn
+  why: 'Every previous attempt on this problem has been a knob turn, and the measured ceiling on
+    knob turns is a 64% cut that still is not calm and costs comfort in all three zones. The reason
+    is structural, not parametric: a 1-tick guard sits downstream of a 6-8 minute smoother built
+    for a different consumer. No value of that guard fixes it.'
+  MECHANISM_VERIFIED_2026_09_15: 'Read from source this session, not inherited.
+    - zone_entry_dwell gate hvac.py:2049-2059 requires zone.any_room_occupied AND
+      current_session_start older than dwell_minutes, else `continue` (keep current preset). It
+      carries `effective_preset != "away"`, so it damps ONLY away->home.
+    - hvac_zones.py:562-566: current_session_start is set on the first refresh where the room OR is
+      True and RESET TO None the instant it goes False. So a bare 20s blip cannot flip a zone home.
+    - The amplifier is the ROOM layer clearance timeout: measured garage_hallway room sessions have
+      a ~6 min FLOOR (n=26, min 6.2, median 8.1, p90 20.2 — this card''s parent
+      ROOM_SESSION_FLOOR_2026_08_20). A 20s sensor blip becomes a 6-8 min ROOM session that spans
+      1-2 ticks and outlasts a 5-min dwell.
+    - HVAC_DECISION_TICK = timedelta(minutes=5), hvac_const.py:13 (now a named constant — the old
+      inline-literal card shipped).'
+  THE_BINDING_CONSTRAINT: 'NAMED HERE FOR THE FIRST TIME, and it reframes the whole problem: the
+    5-minute decision tick is a HARD FLOOR on "react quickly to someone being there if its hot".
+    Even at dwell=0 the worst-case latency to act is a full tick. The founding incident had the
+    occupant at the thermostat in ~2.5 minutes. THEREFORE NO DWELL SETTING CAN EVER SATISFY THE
+    FAST-IN REQUIREMENT — it is arithmetically out of reach. Fast-in needs an EVENT-DRIVEN path
+    that can act between ticks for the hot-and-occupied case. Any plan that promises fast-in
+    without addressing the tick is promising something it cannot deliver.'
+  DESIGN_2026_09_15: 'Five parts, ordered by blast radius.
+    (1) HVAC-OWNED DERIVATION — add a zone-level "conditioning demand" signal; HVAC consumes it
+    INSTEAD of any_room_occupied. Room automation keeps reading the existing signal untouched, so
+    lights carry no regression risk. This is the decoupling the operator proposed.
+    (2) SENSOR-KIND AWARENESS as the transit/dwell discriminator, using hardware already installed:
+    mmWave/occupancy detect STATIONARY bodies (dwell-capable) while PIR/motion detect MOVEMENT
+    (transit-biased alone). A corridor crossing lights PIR briefly and mmWave barely; someone
+    settled in Guest Bedroom 1 holds mmWave continuously. Today''s boolean OR cannot see that
+    difference. Garage Hallway now carries BOTH kinds after the operator''s swap, so the
+    discriminator is live there today.
+    (3) EVENT-DRIVEN FAST PATH for zone-above-comfort-band + dwell-capable evidence (see
+    THE_BINDING_CONSTRAINT). This is temperature-conditional dwell PLUS the tick fix; the dwell
+    half alone under-delivers.
+    (4) SOFT-AWAY FIRST STEP — partial relaxation before the full ~80F ceiling, full away only on
+    second confirmation. Bounds the COST OF BEING WRONG rather than requiring better occupancy;
+    works even with imperfect sensing and is independent of (1)-(3).
+    (5) GUEST-AS-ZONE-PERSON (HVAC-GUEST-AS-ZONE-PERSON-1) restores the three inert suppressions
+    for the guest wing.'
+  DUMMY_PERSON_REJECTED_2026_09_15: 'OPERATOR ASKED: "Zone 3 has no zone persons because its a
+    guest wing. Should we stub a dummy?" RECOMMENDATION: NO.
+    The three gates (night-trust away-suppression hvac.py:1788-1795, sleep veto
+    aggregation.py:4017-4019, non-sleep person-home bias aggregation.py:4152-4154) ask "is an
+    ASSIGNED RESIDENT present?" — an identity-based trust question. A guest wing has no
+    identities, so the honest answer is "nobody is assigned; presence must be SENSED". A stub
+    replaces an honest unknown with a fabricated answer: pinned `home` it keeps the guest wing in
+    comfort 24/7 including when empty; pinned `away` it changes nothing. Same failure class as the
+    resolver lesson already on this board — None is safer than a confidently wrong value, and these
+    are TRUST inputs where a fiction silently defeats the gate.
+    THE PRINCIPLED VERSION IS ALREADY CARDED AND IS THE OPERATOR''S OWN IDEA:
+    HVAC-GUEST-AS-ZONE-PERSON-1 (2026-08-20) — derive a DYNAMIC zone person from an occupied
+    guest room with an explicit liveness/decay contract. Same benefit, no fiction.'
+  parsimony:
+    problem: HVAC consumes an occupancy signal smoothed for lighting, so transit is
+      indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute
+      smoother it cannot overcome.
+    verdict: BUILD
+  next: 'RE-MEASURE FIRST (measure-before-build, and the parent card demanded exactly this after
+    the sensor swap): the operator''s Garage Hallway swap has LANDED — the Frigate person cam is
+    gone from the room config, replaced by a Zigbee PIR + mmWave pair, and 24h chatter is now 17 ON
+    (mmWave) + 2 ON (PIR) against the camera''s previous 89 cycles/24h. So size the residual
+    problem against post-swap reality before building anything. THEN: verify whether sensor
+    MODALITY is exposed at the zone boundary (URA has mmWave-specific machinery in the room layer —
+    fan demotion, corroboration — but I have NOT confirmed the kind is readable where the zone
+    rollup happens, and the live Garage Hallway config lumps mmWave and PIR together under
+    motion_sensors, so typing may come from entity naming rather than structure). That scan decides
+    whether (2) is a read or a build. Build order: re-measure -> soft-away (4) -> demand signal +
+    kind (1)(2) -> fast path (3, Tier 3, shared primitive) -> guest person (5).'
+  constraints:
+  - 'Room automation must keep consuming the existing occupancy signal unchanged — the decoupling
+    is additive for HVAC only; lights carry no regression risk.'
+  - 'Must not strand Guest Bedroom 1: the derivation has to work with NO BLE identity present,
+    which is why dwell-capable sensing (not person assignment) is the primary evidence.'
+  - 'Gated on HVAC-MANUAL-PRESET-CONTRACT-1: with 0/10 preset restores taking, URA-induced manual
+    cannot be told from a human yank, which would corrupt the measurement of every item here.'
+  links:
+    blocked_by: [HVAC-MANUAL-PRESET-CONTRACT-1]
+    related: [HVAC-PRESET-FLAP-1, HVAC-HOT-ENTRY-LATENCY-1, HVAC-GUEST-AS-ZONE-PERSON-1, HVAC-TICK-LITERAL-1]
+    context: 'HVAC-PRESET-FLAP-1 holds the measurement history and the operator design rulings this
+      plan is built on; this card is the structural answer its knob-tuning analysis kept arriving
+      at. HVAC-HOT-ENTRY-LATENCY-1 is the fast-in half and is satisfied by part (3), not by dwell.
+      HVAC-GUEST-AS-ZONE-PERSON-1 is part (5). HVAC-TICK-LITERAL-1 named the 5-minute quantum that
+      THE_BINDING_CONSTRAINT shows is the real ceiling on fast-in. HVAC-MANUAL-PRESET-CONTRACT-1
+      blocks: until preset restores take, no measurement here can be trusted.'
+  refs:
+  - hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset)
+  - hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling)
+  - hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
 - id: HVAC-PRESET-FLAP-1
   DWELL_VS_BLIP_CLARIFIED_2026_09_15: 'OPERATOR CHALLENGE: "a single ~20-second blip in any of 12 —
     I thought we had an entry dwell wait timer?" They are RIGHT, and my paraphrase was sloppy in a
