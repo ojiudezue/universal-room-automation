@@ -16893,6 +16893,47 @@ cards:
     restart behaviour) per the operator''s 2026-08-21 decision. Ready to plan/build; still sequenced AFTER
     the borrow primitive, not folded into it.'
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  RESUME_THEN_PIN_WORKS_2026_09_16: 'THE MECHANISM IS FOUND, AND SO IS THE FIX — operator approved
+    a live spot-check, and testing the CANDIDATE FIX (rather than just diagnosing further) resolved
+    the card''s central question in three minutes.
+
+    THE EXPERIMENT: on zone_1, stuck in an anonymous manual hold that had defeated two direct
+    preset writes, call preset "resume" FIRST (clears the hold), then immediately pin "sleep".
+
+    THE SEQUENCE (recorder, preset_mode | hold_activity):
+      23:31:40  manual | manual    <- stuck, as it had been for ~10 min
+      23:31:57  sleep  | manual    <- resume lands: the preset NAME appears, old hold still listed
+      23:31:57  sleep  | (empty)   <- HOLD CLEARED, same second
+      23:32:35  sleep  | sleep     <- the pin: a NAMED hold is established
+      23:32:51  sleep  | sleep     <- survives a refresh
+    Contrast with the two direct writes earlier, which both collapsed to manual inside 36s and 29s.
+
+    WHAT THIS ESTABLISHES: candidate (c) is CONFIRMED. You cannot pin a named activity hold OVER an
+    existing anonymous (manual) hold — the cloud keeps the activity''s SETPOINTS and discards the
+    NAME, which is precisely the half-working behaviour observed all night (the operator''s vendor
+    screenshot showed my 70 low persisting at the cloud while the app read a nameless "Holding").
+    Clear the hold first and the pin takes.
+
+    THEREFORE THE FIX IS RESUME-THEN-PIN, and it RECONCILES the operator''s decision with the
+    mechanism rather than overturning it. Option B ("resume") was rejected as an ALTERNATIVE and
+    that rejection stands — releasing to the Bryant schedule is not the goal. But resume is the
+    necessary PREREQUISITE STEP: clear the anonymous hold, then immediately pin the named activity
+    URA wants. The zone still ends on a NAMED preset, URA stays authoritative, and the Bryant
+    schedule is never actually followed (the gap is seconds).
+    NOTE the intermediate state is safe here for a reason worth keeping: after resume the zone
+    follows the schedule, and at 23:31 that schedule''s current activity was itself `sleep` 70/75.
+    That will NOT always be true — a resume at a different hour exposes whatever the schedule says
+    until the pin lands, so the two calls must be adjacent with no await between them that could
+    fail in the middle.
+
+    WHAT IS STILL OPEN: (1) durability beyond a few minutes — being verified now; a hold that
+    survives 3 minutes but not the next nudge is not yet a fix. (2) WHY revert #1 moved the ceiling
+    75->76 remains unattributable (no ledger). (3) Whether the same sequence fixes zone_2 and
+    whether the AC-nudge path re-manuals a pinned zone later. Operator has cleared zone_3 for
+    testing and ruled zone_2 OFF-LIMITS (kids'' bedrooms upstairs) — respect that.
+    NEXT BUILD SHAPE (not yet built): the restore sites should emit resume-then-pin rather than
+    setpoint-then-preset, routed through ONE implementation (the borrow/return_excursion chokepoint
+    candidate already on this card) so it cannot be half-applied across the 13 sites.'
   CANARY_FULL_SEQUENCE_2026_09_16: 'OPERATOR ASKED: "Check to see if it was just a cloud delay."
     IT WAS NOT — and pulling the full recorder sequence (rather than point reads) both answers that
     and splits the two reverts into DIFFERENT mechanisms. This supersedes the two entries below;
