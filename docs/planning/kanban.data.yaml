@@ -177,6 +177,49 @@ meta:
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated, headline: "PERIMETER-ALERT-VOLUME-FATIGUE-1 \u2014 MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working \u2014 so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).", acknowledged: false}
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
+- id: HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1
+  status: parked
+  thread: hvac
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  tags: [hvac, parked-with-trigger, night-trust, suppression-discharge, do-not-retire]
+  title: The FULL 2-6am degradation-defense leniency for night HVAC retreat (200min, 4 discharge paths) —
+    parked, uncork if a real occupied-bedroom sensor-degradation is observed
+  problem_solution:
+  - 'Problem: HVAC Option B (HVAC-ZONE-CONDITIONING-DEMAND-1 D7) retreats an empty zone to away at night
+    on fused room occupancy. If a bedroom''s multi-sensor redundancy degrades WHILE OCCUPIED (a sensor dies
+    mid-sleep), its fused signal could drop 100-186min and B would wrongly retreat a sleeping person''s room.
+    Solution (the FULL version): a 2-6am post-continuous-hold leniency — once a dwelling room has held
+    continuously occupied from pre-02:00, force-hold hvac_occupied=true through transient drops during
+    02:00-06:00, sized ~200min (the worst single-mmWave dropout), room_type-gated to bedroom/common_area/
+    media_room/generic, with 4 named discharge paths (06:00 window exit, leniency cap, pre-arm break,
+    restart fail-safe).'
+  why: 'CARDED-NOT-RETIRED per operator ("Do not lose the p2-3 from compaction. Card and link it, do not
+    retire it in case we need to uncork it"). This was briefly elevated to P1-required on the basis that
+    Ziri proved silent redundancy degradation — REFUTED (Ziri is away, not degraded; see closed
+    ZIRI-PRESENCE-SENSOR-DEAD-1). With no OBSERVED degradation instance, the full machinery is not built
+    now; step-4-B ships D7 + a MODEST prudent grace instead (see HVAC-ZONE-CONDITIONING-DEMAND-1
+    D8_RESCOPED). This card preserves the full design so it can be uncorked fast if degradation is ever
+    observed, rather than re-derived from a compacted note.'
+  next: 'REVIVE IF a REAL occupied-bedroom degradation is observed: (a) a resident reports their room went
+    to away / got cold overnight, OR (b) a bedroom is confirmed degraded-to-single-sensor while occupied
+    (a redundant presence sensor genuinely dead with the occupant HOME — the discriminator ZIRI failed
+    because Ziri was away), OR (c) the modest D8 grace in step-4-B proves insufficient in live validation.
+    Then build the full 200min/4-discharge leniency per problem_solution. Do NOT schedule on its own before
+    a trigger fires. Sizing + discharge-path spec preserved here and in the git history of
+    PLANNING_hvac_zone_conditioning_demand.md.'
+  parsimony:
+    problem: night retreat is safe for the measured (healthy-redundancy) rooms but a degraded-while-occupied
+      bedroom could be wrongly retreated; the full defense is unbuilt for lack of an observed instance
+    verdict: PARK
+    note: real failure mode, zero observed instances; the modest grace in D7/D8 covers the unmeasured rooms
+      cheaply. Full machinery waits for evidence, but is preserved (not retired) so it can be uncorked.
+  links:
+    related: [HVAC-ZONE-CONDITIONING-DEMAND-1, ZIRI-PRESENCE-SENSOR-DEAD-1]
+    sibling_of: [HVAC-ZONE-CONDITIONING-DEMAND-1]
+    context: 'Split out of HVAC-ZONE-CONDITIONING-DEMAND-1 D8 when the Ziri degradation evidence was refuted.
+      Step-4-B keeps a MODEST grace (D8); THIS card is the FULL degradation-defense version, parked with an
+      observed-degradation revival trigger so it survives compaction and can be uncorked.'
 - id: ZIRI-PRESENCE-SENSOR-DEAD-1
   title: Ziri Bedroom presence redundancy degraded — ziri_3_presence mmWave is dead (never fired 7 nights),
     leaving one live mmWave with 360+min overnight OFF stretches
@@ -207,7 +250,8 @@ cards:
   links:
     related: [HVAC-ZONE-CONDITIONING-DEMAND-1]
     context: 'Found by the HVAC-B overnight occupancy-retention probe. Ziri is the concrete instance of the
-      redundancy-degradation failure mode that makes the 2-6am leniency required (P1) in Option B.'  REFUTED_2026_09_16: 'CLOSED — operator ground truth: ZIRI IS NOT AT HOME. ziri_3_presence "never
+      redundancy-degradation failure mode that makes the 2-6am leniency required (P1) in Option B.'
+  REFUTED_2026_09_16: 'CLOSED — operator ground truth: ZIRI IS NOT AT HOME. ziri_3_presence "never
     fired all week" and mmwave_zigbee_ziribedroom''s 360-416min OFF stretches are an EMPTY ROOM behaving
     correctly, NOT a dead sensor and NOT redundancy degradation. The measurement agent labeled it "dead"
     without knowing the occupant was away (a dead sensor and an empty room are indistinguishable from
@@ -10549,14 +10593,17 @@ cards:
     it. Ziri did NOT prove it — Ziri is away (operator), so there is NO observed degraded-occupied-
     bedroom instance. D8''s justification collapses back to the operator''s ORIGINAL P2-3: defensible
     insurance against a hypothetical (a sensor dying while a room is occupied), not a proven need.
-    => RE-SCOPE step-4-B: BUILD D7 only (night-trust gated on fused room occupancy — validated SAFE:
-    Master+Jaya occupied, fused held continuous 2.4min worst gap). DEFER D8 (leniency + 4 discharge
-    paths) as a parked knob, revival trigger = a REAL observed occupied-bedroom degradation (a resident
-    reports a night away-retreat, OR a bedroom is confirmed degraded-to-single-sensor while occupied).
-    This SHRINKS the Tier-3 build materially (D8 was much of the complexity). D7 still Tier 3 (touches
-    night-trust hierarchy + reverses the 2026-06-05 flap fix); INV-1 (no sleeping bedroom -> away) is
-    protected by D7''s fused-signal reads + the measured 2.4min margin for the CURRENT healthy config.
-    Operator to confirm defer-D8 vs build-anyway at the Tier-3 checkpoint.'
+    => RE-SCOPE step-4-B (MODERATED by operator 2026-09-16 "doesn''t mean no grace... gives context to
+    the measurement" + "Master and Jaya are the only occupied in the last 2 weeks"): BUILD D7 (night-trust
+    gated on fused room occupancy) AND KEEP D8 as PRUDENT GRACE. Two corrections vs the first re-scope:
+    (1) the "fused holds continuous" SAFETY RESULT is scoped to MASTER + JAYA ONLY — the only bedrooms
+    occupied in the last 2 weeks; every other bedroom is UNMEASURED (empty), so we cannot claim the same
+    hold for them. (2) D8 grace STAYS (operator wants grace) but its JUSTIFICATION is corrected: prudent
+    default covering the UNMEASURED rooms + the real-but-unobserved degradation mode — NOT the P1 forced
+    by the refuted Ziri evidence, and NOT the 200min that evidence implied. D8 sizing is now an OPERATOR
+    CHECKPOINT decision (a modest grace, not degradation-sized). D7 still Tier 3 (night-trust hierarchy +
+    reverses the 2026-06-05 flap); INV-1 protected by D7 fused reads + measured 2.4min margin ON THE
+    MEASURED ROOMS, with D8 grace as the safety net for the unmeasured ones.'
   NIGHT_MEASUREMENT_2026_09_16: 'Option-B safety gate measured (7 nights). VERDICT: SAFE now + 2-6am
     leniency REQUIRED (upgraded P2-3 -> P1 by the data). Findings: (1) NO resident/guest bedroom is
     PIR-only — all mmWave/occupancy-backed. (2) The FUSED binary_sensor.<room>_occupied holds
