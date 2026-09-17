@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T08:33:04-05:00_ - _Data commit: `ee1d09b2291e`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T09:19:33-05:00_ - _Data commit: `d6c253f917fd`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-09-17T08:33:04-05:00_ - _Data commit: `ee1d09b2291e`_ - _last_r
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 10 |
-| 🔨 In progress | 1 |
-| 🔍 Review | 0 |
+| 🔨 In progress | 0 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 27 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 28 |
@@ -376,11 +376,16 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
+_(none)_
+
+## 🔍 Review (1)
+_under review_
+
 ### `HVAC-ZONE-CONDITIONING-DEMAND-1` - HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC its own dwell-vs-transit derivation instead of tuning a knob that cannot win — _#1 · WSJF 1.8 · v5 tc3 u6 /e8 ⚠_
-thread: **hvac** - status: **in_progress** - approval: **explicit**
+thread: **hvac** - status: **review** - approval: **explicit**
 _created 2026-09-15 · initial_
 - **Problem / Solution:**
   - Problem: the signal HVAC uses to decide whether a zone is occupied was designed for a different job — switching lights on and off. That job needs a generous hold so a light never blinks off on someone standing still, so the room layer ke...
@@ -432,11 +437,6 @@ _created 2026-09-15 · initial_
   - `THE_BINDING_CONSTRAINT`: NAMED HERE FOR THE FIRST TIME, and it reframes the whole problem: the 5-minute decision tick is a HARD FLOOR on "react quickly to someone being there if its hot". Even at dwell=0 the worst-case latency to act is a full tick. The founding...
   - `DESIGN_2026_09_15`: Five parts, ordered by blast radius. (1) HVAC-OWNED DERIVATION — add a zone-level "conditioning demand" signal; HVAC consumes it INSTEAD of any_room_occupied. Room automation keeps reading the existing signal untouched, so lights carry n...
   - `DUMMY_PERSON_REJECTED_2026_09_15`: OPERATOR ASKED: "Zone 3 has no zone persons because its a guest wing. Should we stub a dummy?" RECOMMENDATION: NO. The three gates (night-trust away-suppression hvac.py:1788-1795, sleep veto aggregation.py:4017-4019, non-sleep person-hom...
-
-## 🔍 Review (0)
-_under review_
-
-_(none)_
 
 ## ⏸️ Waiting on operator (27)
 _needs a human call — groomed first_
