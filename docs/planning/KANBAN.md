@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T02:14:06-05:00_ - _Data commit: `8590248d7de4`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T02:16:44-05:00_ - _Data commit: `48a898997d60`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -481,18 +481,19 @@ _created 2026-09-14 · updated 2026-09-15 03:05 · initial_
 
 ### `FRONT-SIDE-PTZ-CHATTER-1` - front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling — _#4 · WSJF 4.7 · v7 tc5 u2 /e3_
 thread: **perimeter** - status: **waiting_operator**
-_created 2026-09-14 00:20 · updated 2026-09-14 03:10 · refined_
+_created 2026-09-14 00:20 · updated 2026-09-17 03:15 · refined_
 - **Problem / Solution:**
   - Problem: one exterior camera reports "person detected" far more than any other — it is active 21% of the time, its busiest hours are 3-5am when nobody is about, and it once stayed "on" continuously for 29.5 hours. Because the system link...
 - **Origin:** 2026-09-14 - fell out of the CIRCLING-FOUNDING-CASE-ARTIFACT-1 measurement — the control-pair comparison isolated front_side_ptz as the anomaly
-- **Next:** DO: recheck front_side_ptz and apply the detection-zone crop you flagged ("I'll recheck and handle the crop") -> then I re-measure the circling-shaped track count. RECOMMENDED SEQUENCE if it recurs: ship the corrected seam graph FIRST, t...
+- **Next:** ANSWER: did you apply that detection-zone crop or mask to front_side_ptz on or around 09-14/15? It matters because the camera has gone from 204 person-detections a day to exactly 1, and has stayed there for three days, while its motion d...
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
 - **Refs:** docs/planning/VALIDATE_exterior_camera_seams.md
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `evidence_2026_09_14`: Measured over 2026-09-06..09-14 (8 days, recorder). front_side_ptz: 739 ON-periods, 38.59h total ON, 21.25% duty cycle, median duration 19s, and ONE period lasting 106,308s (29.5h). Onset peak 03:00-05:00 local (76/118/82). Compare its n...
   - `CORRECTED_2026_09_14`: TWO OF MY REPORTED FACTS WERE WRONG — corrected so they are not inherited. (1) TIMEZONE ERROR: I reported the onset peak as 03:00-05:00 "when nobody is about". The real peak is 08:00-10:00 LOCAL with ZERO onsets between midnight and 04:0...
   - `DETECT_ZONE_HYPOTHESIS_REFUTED_2026_09_14`: The agent recommended a detect-zone crop, reasoning Frigate's zone covers the street while Protect's is cropped. THAT WAS INFERRED, NOT VERIFIED — and a committed audit refutes it. AUDIT_exterior_camera_detection_settings.md (2026-08-06)...
+  - `RE_MEASURED_2026_09_17`: THE CHATTER IS GONE, BUT DO NOT BANK IT AS A WIN — this camera has stopped detecting people ENTIRELY, and it is the only one that has. Measured from the HA recorder (immutable=1, verified live-fresh). front_side_ptz person detections per...
   - `groom_2026_09_14`: LANE FIX (overnight groom): this card sat in `investigating` while its own `next` read "OPERATOR OWNS THIS ... Nothing queued on my side" — i.e. there is no measurement left for me to run, which is the entry condition for the investigati...
 
 ### `FRIGATE-THRESHOLD-CLAIM-DISPUTED-1` - The '98-99% of detections score below 0.70' claim is DISPUTED by the operator and unverified by me — _#5 · WSJF 4.5 · v5 tc2 u2 /e2_

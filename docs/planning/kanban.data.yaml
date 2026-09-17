@@ -85,6 +85,28 @@ meta:
       schedule at all — and if you do, that assumption is wrong and it is quietly handing your zone
       to a live competitor every time it fires. I have not touched the HVAC code: this is comfort
       logic on a shared coordinator and wants your answer plus a proper review, not an overnight fix.'
+  - fid: FRONT-SIDE-PTZ-CHATTER-1@2026-09-17T03:15:00
+    at: '2026-09-17T03:15:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'YOUR NOISIEST FRONT CAMERA STOPPED SEEING PEOPLE ALTOGETHER — and I need to know
+      whether you did that on purpose. This card was about front_side_ptz firing far too often (204
+      person-detections in a day, manufacturing false "someone is circling the house" tracks). The
+      good news on paper: that noise is completely gone. The bad news: it is gone because the camera
+      has stopped detecting people at all. One detection a day for three days straight, down from 204.
+      THE CAMERA IS WIDE AWAKE, which is how I know this is not just a quiet week — its motion
+      detection over the same days is the BUSIEST it has ever been, a record 383 events on Tuesday,
+      on the very day person detection reported one. Motion fine, people-spotting dead, same camera.
+      AND THIS IS SEPARATE FROM THE FLEET OUTAGE I reported earlier tonight: every other outdoor
+      camera recovered on Tuesday and is behaving normally. This one did not. So your front side
+      currently has effectively no person detection, three days running. THE LIKELY CAUSE IS THE
+      THING THIS CARD ASKED YOU TO DO: we asked you to apply a detection-zone crop to this camera to
+      calm it down. A crop would zero person detections while leaving motion untouched — which is
+      precisely the fingerprint, on precisely this camera, at about the right time. If that is what
+      happened, it overshot: we wanted it quieter, not blind. Tell me yes or no and I will either
+      help widen the crop or go after a genuine fault on the camera host. Please do not let anyone
+      close this card on the grounds that the chatter stopped — the noise stopped because the camera
+      stopped, which is not the win it looks like.'
   - fid: OVERNIGHT-PASS-NO-LOG-REACH-1@2026-09-17T02:20:00
     at: '2026-09-17T02:20:00'
     outcome: escalated
@@ -725,7 +747,7 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-14 00:20'
-  updated: '2026-09-14 03:10'
+  updated: '2026-09-17 03:15'
   refinement_status: refined
   problem_solution:
   - 'Problem: one exterior camera reports "person detected" far more than any other — it is
@@ -778,15 +800,40 @@ cards:
     is now struck.
     CAVEATS: the audit is five weeks old and the 0.6/1 settings are NOT re-verified as current;
     the audit itself flags PTZ aiming as an unreadable gap.
+  RE_MEASURED_2026_09_17: 'THE CHATTER IS GONE, BUT DO NOT BANK IT AS A WIN — this camera has stopped
+    detecting people ENTIRELY, and it is the only one that has. Measured from the HA recorder
+    (immutable=1, verified live-fresh). front_side_ptz person detections per day 09-09..09-16: 78 /
+    54 / 16 / 181 / 204 / 64 / 1 / 1. So the 21%-duty chatter this card was opened about has indeed
+    vanished — and stayed vanished for three days. THE CAMERA IS NOT ASLEEP, which is what makes this
+    a fault rather than a fix: its MOTION sensor over the same days ran 214 / 183 / 223 / 383 / 92-so-far,
+    i.e. MORE active than ever, hitting a record 383 on 09-16 while person detection reported 1.
+    Motion layer thriving, object layer dead, same camera, same window.
+    CRITICALLY, IT IS NOT THE FLEET OUTAGE. The fleet-wide blackout (PERIMETER-DETECTION-WENT-DARK-1)
+    ended on 09-15 and the rest of the fleet recovered fully on 09-16 — 317 detections, led by hot_tub
+    140, back_yard 50, pool_equipment 35, and eleven others reporting normally. front_side_ptz alone
+    stayed at 1. So there are TWO distinct faults here, and last night''s card conflated them: a
+    fleet-wide 26h outage that healed, and front_side_ptz going individually dark and STAYING dark.
+    THE MOST LIKELY EXPLANATION IS THE ACTION THIS CARD ASKED FOR, which is why it lands here: this
+    card asked you to recheck the camera and apply a detection-zone crop. A crop or mask applied to
+    this camera would zero its person detections while leaving motion untouched — exactly the
+    signature observed, on exactly the camera named, in roughly the right window. If that is what
+    happened, the crop overshot: it did not calm the noisiest perimeter camera, it switched it off.'
   next: >-
-    DO: recheck front_side_ptz and apply the detection-zone crop you flagged ("I'll recheck and
-    handle the crop") -> then I re-measure the circling-shaped track count. RECOMMENDED SEQUENCE
-    if it recurs: ship the corrected seam graph FIRST, then re-measure. If the count collapses on
-    the seam fix alone, the recall tune is fine as-is and no crop is needed — the seam was the
-    fault, not the sensitivity.
+    ANSWER: did you apply that detection-zone crop or mask to front_side_ptz on or around 09-14/15?
+    It matters because the camera has gone from 204 person-detections a day to exactly 1, and has
+    stayed there for three days, while its motion detection is busier than ever (see
+    RE_MEASURED_2026_09_17). -> If YES, the crop overshot and needs widening: we wanted the chatter
+    damped, not the busiest perimeter camera blinded, and right now your front side has effectively
+    no person detection. -> If NO, then this camera has an individual object-detection fault that
+    survived the fleet-wide outage everything else recovered from, and it needs looking at on the
+    Frigate host. Either way do NOT read the vanished chatter as this card being solved — the noise
+    stopped because the camera stopped, which is not the outcome we wanted.
   parsimony:
     problem: One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
     verdict: BUILD
+    note: 'SUPERSEDED 2026-09-17 — the over-firing stopped, but by the camera going dark rather than
+      by any tuning. The live problem is now the opposite one (zero recall on the busiest perimeter
+      camera), so the original BUILD scope is on hold pending the operator ANSWER above.'
   rank: {value: 7, time_criticality: 5, effort: 3}
   tags: [measure-before-build, no-fabrication-verify]
   links:
