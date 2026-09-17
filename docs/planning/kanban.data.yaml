@@ -10954,6 +10954,18 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  REREVIEW_TESTAUTH_FAILED_2026_09_17: 'Re-review #2 (test-authority) DIED on a login-expiry API error
+    (not a finding). Not re-run: both #1 (F-LOW) and #3 (D-LOW-1) independently found the same thing —
+    round-2 anchors are STILL source-greps; no behavioral test asserts D9 honors the backstop or the
+    throttle-strand. So test-authority signal is covered. CONSOLIDATED RE-REVIEW VERDICT (2 of 3
+    completed, converged): FIX-REQUIRED. Two HIGH must-fix (D-HIGH-1/F3 D9-defeats-backstop-at-setpoint;
+    D-HIGH-2/F2 throttle-strand via S8/S9), one MED must-fix (F1 establishment permanently-off on a
+    disabled room), one MED polarity (F4/D-MED-2 row-10), plus F5 inert knobs. And ONE OPERATOR POLICY
+    CALL (D-MED-1): backstop breadth = any-resident-home preserves every empty zone all night = the
+    over-preservation the cycle set out to kill. ALL night-trust findings; the daytime piece (D1
+    circulation exclusion + day empty-zone retreat) is CLEAN across all reviews. -> escalating to
+    operator with a DECOUPLE recommendation (ship daytime, split night-trust to its own hardened
+    cycle) rather than auto-dispatching round-5.'
   REREVIEW_ADVERSARIAL_2026_09_17: 'Re-review #3 (adversarial) = FIX-REQUIRED, CONVERGES with
     correctness. D-HIGH-1 == F3: D9 compose-away has NO backstop -> setpoint-composes away over the
     preset row-1/D7 preserved (clean reload repro); fix = ONE shared _zone_conditioning_retreat_ok

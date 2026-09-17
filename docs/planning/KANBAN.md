@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T09:30:14-05:00_ - _Data commit: `ec96cb03e21c`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T09:31:14-05:00_ - _Data commit: `3b66503a0518`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -395,7 +395,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (43):**
+- **Forensic keys (44):**
+  - `REREVIEW_TESTAUTH_FAILED_2026_09_17`: Re-review #2 (test-authority) DIED on a login-expiry API error (not a finding). Not re-run: both #1 (F-LOW) and #3 (D-LOW-1) independently found the same thing — round-2 anchors are STILL source-greps; no behavioral test asserts D9 honor...
   - `REREVIEW_ADVERSARIAL_2026_09_17`: Re-review #3 (adversarial) = FIX-REQUIRED, CONVERGES with correctness. D-HIGH-1 == F3: D9 compose-away has NO backstop -> setpoint-composes away over the preset row-1/D7 preserved (clean reload repro); fix = ONE shared _zone_conditioning...
   - `REREVIEW_CORRECTNESS_2026_09_17`: Re-review #1 (correctness+integration of round-2 changes) = FIX-REQUIRED, 2 HIGH + 3 MED. The fail-open/compose rework introduced new gaps: F1 (HIGH) is_zone_hvac_established requires ALL rooms in _hvac_seen but _hvac_seen populates only...
   - `FREEZE_FLOOR_ROOTCAUSE_2026_09_17`: Root cause = TEST-INFRA leak, NOT a production regression. The new test_zzz_hvac_conditioning_demand.py mutated sys.modules at COLLECTION time (package shims w/ __path__ into the real ura dir); a sibling test then resolved a real submodu...
