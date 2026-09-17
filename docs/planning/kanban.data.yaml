@@ -2437,7 +2437,7 @@ cards:
   thread: platform
   status: waiting_operator
   created: '2026-09-15 03:45'
-  updated: '2026-09-15 03:45'
+  updated: '2026-09-17 02:15'
   refinement_status: initial
   approval: unreviewed
   tags: [tier-1, no-fabrication-verify]
@@ -2465,15 +2465,46 @@ cards:
   constraints:
   - 'READ-ONLY is sufficient — the pass never needs to write via the supervisor API, so scope any
     token to the narrowest read that makes `ha core logs` work.'
-  next: 'DO (one-time, operator): provision a read-only supervisor/long-lived token the launchd
-    overnight job can use for `ha core logs` (or tell me the route you prefer — e.g. making the
-    home-assistant MCP reachable headless). -> I wire it into the overnight script and immediately
-    re-run the armed reload-storm probe on URA-CONFIG-ENTRY-RELOAD-STORM-1.'
+  next: 'DO (operator, network — the ask changed tonight, see DIAGNOSED_2026_09_17): restore LAN
+    reach from the Mac mini (192.168.13.149) to the homelab hosts 192.168.13.12 and 192.168.13.13.
+    This is no longer a token request — no new TCP connection to either host succeeds on ANY port,
+    while the gateway is fine and HA itself is demonstrably alive and writing, so it is a
+    segmentation/firewall question on the UDM rather than anything on HA. Worth checking first
+    whether this Mac being dual-homed on the same /24 (en0 .149 + en1 .101) is the trigger, since
+    that arrived recently and is the one asymmetry I can see. -> The moment new flows work I re-run
+    the armed reload-storm log probe on URA-CONFIG-ENTRY-RELOAD-STORM-1 and unstall every log-based
+    card. Nothing is needed from you for DB-based investigations — those already run fine.'
   links:
     blocks: [URA-CONFIG-ENTRY-RELOAD-STORM-1]
     context: 'URA-CONFIG-ENTRY-RELOAD-STORM-1 has debug logging ARMED on the live instance and its
       next action is literally a log read, so it cannot advance unattended until this is fixed.'
-  rank: {value: 6, time_criticality: 5, effort: 2}
+  rank: {value: 7, time_criticality: 7, effort: 2}
+  DIAGNOSED_2026_09_17: 'SECOND NIGHT RUNNING, and now diagnosed rather than just observed — the ask
+    has changed shape completely, so read this before acting on the older note below. THE ASK IS NO
+    LONGER ABOUT A TOKEN. Last night this looked like a supervisor-permissions problem; it is not.
+    It is a LAN reachability problem, and `ha core logs` returning 401 was a red herring from a
+    night when the host was reachable. WHAT I MEASURED TONIGHT, from the Mac mini at 192.168.13.149:
+    every NEW TCP connection to the HA host 192.168.13.13 fails with "No route to host" — ports 22,
+    445, 8123 and 80 alike, plus ICMP. Not a service being down: nothing new can reach the host at
+    all. THE OBSERVATION THAT MAKES IT A NETWORK FAULT rather than a dead host: an ALREADY-ESTABLISHED
+    SMB session to that exact IP kept working throughout and served data written six seconds earlier
+    (recorder newest row 02:01:10 against a wall clock of 02:01:13; DB mtime 02:07:27 read at
+    02:07:33). netstat confirms live ESTABLISHED sockets to 192.168.13.13 on ports 445 and 8123 while
+    a fresh connection to port 22 gets EHOSTUNREACH. So the host is up, HA is running and writing
+    normally, and only NEW flows are being refused. IT IS NOT HA-SPECIFIC, which is the finding that
+    makes this someone else''s fix rather than a URA one: the gateway 192.168.13.1 answers ping and
+    accepts port 22 fine, while BOTH 192.168.13.12 and 192.168.13.13 fail ping and port 22 together.
+    Two homelab hosts, same symptom, same time — that points at LAN segmentation (a UDM firewall or
+    isolation rule, or a VLAN change) rather than at either machine. PRIME SUSPECT, offered as a lead
+    and NOT as a conclusion: this Mac is dual-homed on the SAME /24 — en0 at 192.168.13.149 and en1
+    at 192.168.13.101, both carrying default routes to 192.168.13.1, with both interface routes for
+    192.168.13/24 flagged reject. Same-subnet dual-homing is a classic source of exactly this
+    asymmetry. I tested the obvious workaround and it did NOT help: binding the source address
+    explicitly to en0 (ssh -b 192.168.13.149) fails identically, so it cannot be fixed from this side
+    by choosing an interface. I did not touch any network configuration — that is outward-facing
+    infrastructure and not mine to change unattended. CONSEQUENCE: read-only DB probes remain fully
+    unblocked (see the note below, still accurate and still the technique to use), so most
+    investigations still run. Log-based ones stay dead until LAN reach returns.'
   NARROWED_2026_09_16: 'Tonight''s pass both CONFIRMED this card and NARROWED it usefully, so the
     ask to the operator is smaller than the title implies.
     CONFIRMED, and worse than "no log reach": ssh to the HA host was down for the ENTIRE pass — not
