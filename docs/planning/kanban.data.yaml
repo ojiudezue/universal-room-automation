@@ -10689,6 +10689,18 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  BUILD_NOT_GATED_ON_OSCILLATION_2026_09_16: 'CORRECTION (operator: "why cant we start on the plan
+    when its done?"). I over-serialized — step-4-B build has NO hard dependency on the zone_1
+    oscillation trace or the abstraction. Those gate the SEPARATE cards (HVAC-ZONE1-MANUAL-OSCILLATION-1
+    = zone_1 write-persistence, step-1 residual; HVAC-SETHVACMODE-CHOKEPOINT-1 = Phase-1, gated so it
+    doesnt over-fit). Step-4-B is conditioning-DEMAND decision logic (retreat empty zones); its target
+    is zone_3 (the money-pit), not the oscillating zone_1, so even live validation is not blocked.
+    ACTUAL step-4-B build gates: (1) round-3 plan done [finishing]; (2) orchestrator verify the round-3
+    revision resolved the CRITs (CRIT-1 kind-filter-not-raw, D8 collapse, HIGH-2 point-gate, enumeration,
+    generalization criterion) — targeted verify, not a full re-review round; (3) operator Tier-3 go
+    (given). On plan-landing: verify -> dispatch Tier-3 build (4 framing-disjoint reviews incl the
+    adversarial-completeness pass) -> operator pre-deploy checkpoint -> ship. Proceed when the plan is
+    done; do not wait on the measurements.'
   ROUND3_DISPATCHED_2026_09_16: 'Operator: proceed on the plan revision in progress while measurements
     run; dont lose the thread. UN-HELD the round-3 revision, scoped to measurement-INDEPENDENT fixes:
     CRIT-1 (kind-filter built on grace-held, not a raw AND), D8 collapse to a self-gating night
