@@ -10954,6 +10954,22 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  REREVIEW_ADVERSARIAL_2026_09_17: 'Re-review #3 (adversarial) = FIX-REQUIRED, CONVERGES with
+    correctness. D-HIGH-1 == F3: D9 compose-away has NO backstop -> setpoint-composes away over the
+    preset row-1/D7 preserved (clean reload repro); fix = ONE shared _zone_conditioning_retreat_ok
+    helper across row-1/D7/D9. D-HIGH-2 == F2: _last_emitted_range throttle strands the zone (S8/S9
+    override-restores dont update the map) -> compose-away does NOT close D-HIGH-2. D-MED-1 (OPERATOR
+    POLICY): the row-1 backstop is TOO BROAD — zone_has_home_person = any resident IN THE HOUSE (person-
+    union across rooms; HVAC zone fans to many house zones) -> holds EVERY established-empty zone at
+    home preset all night = the v4.7.13 over-preservation the cycle set out to KILL. So the backstop is
+    BOTH too-narrow-in-layer (preset-only; D9 defeats it) AND too-broad-in-trigger (any-home preserves
+    all). Recommend narrow to not-established-ONLY (drop the FAN_TRUST+home_person term) OR adjudicate.
+    D-MED-2 == F4 (row-10 no establishment guard). D-LOW-1: round-2 anchors STILL source-greps (no test
+    asserts D9 honors backstop / the throttle-strand). CLEARED: _hvac_seen not a false-establish at the
+    coordinator-not-ready layer, INV-2(a) never-occupied CAN retreat, D9 emits on first tick. FOURTH
+    bypass = the hvac_override restore family (3360/4390/4562/5774/6180), ungated, = the D-HIGH-2
+    stranders. This is round-4 territory + a real operator policy call on backstop breadth. HOLDING
+    for test-authority, then consolidated report + DECOUPLE recommendation.'
   REREVIEW_CORRECTNESS_2026_09_17: 'Re-review #1 (correctness+integration of round-2 changes) =
     FIX-REQUIRED, 2 HIGH + 3 MED. The fail-open/compose rework introduced new gaps: F1 (HIGH)
     is_zone_hvac_established requires ALL rooms in _hvac_seen but _hvac_seen populates only AFTER the
