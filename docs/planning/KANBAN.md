@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T20:36:48-05:00_ - _Data commit: `e4114b9b51d8`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T20:54:47-05:00_ - _Data commit: `f290085e1da4`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -360,7 +360,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (26):**
+- **Forensic keys (27):**
+  - `ROUND3_DISPATCHED_2026_09_16`: Operator: proceed on the plan revision in progress while measurements run; dont lose the thread. UN-HELD the round-3 revision, scoped to measurement-INDEPENDENT fixes: CRIT-1 (kind-filter built on grace-held, not a raw AND), D8 collapse ...
   - `HIGH2_AND_RESEQUENCING_2026_09_16`: Operator: HIGH-2 = BRING THE DPM WRITER IN SCOPE (gate _async_apply_preset_overrides hvac.py:2479 on occupancy; INV-2 = delivered conditioning, not just effective_preset). AND operator raised the ROOT-CAUSE question: too many ungoverned ...
   - `PLAN_REVIEW1_COMPLETENESS_2026_09_16`: Tier-3 plan review #1 (completeness) = FIX-REQUIRED, 2 CRIT 3 HIGH 4 MED. Converges w/ #2 on D8 (CRIT-2 = build-the-parked-card-on-refuted-Ziri). DISJOINT catches #2 missed: CRIT-1 (deepest) — the plan is INTERNALLY CONTRADICTORY: hvac_o...
   - `PLAN_REVIEW2_OVERCOMPLICATION_2026_09_16`: Tier-3 plan review #2 (over-complication, operator- requested lens) = FIX-REQUIRED-IN-PLAN, 3 CRIT 4 HIGH. Orchestrator ENDORSES the SIMPLIFY. Key findings: OC-1/OC-2 (CRIT) — the plan's D8 is the PARKED full machinery verbatim (200min, ...

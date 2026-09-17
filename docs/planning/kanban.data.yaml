@@ -10638,6 +10638,17 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  ROUND3_DISPATCHED_2026_09_16: 'Operator: proceed on the plan revision in progress while measurements
+    run; dont lose the thread. UN-HELD the round-3 revision, scoped to measurement-INDEPENDENT fixes:
+    CRIT-1 (kind-filter built on grace-held, not a raw AND), D8 collapse to a self-gating night
+    ROOM_TYPE_HVAC_HOLD value gated on FAN_TRUST_STATES (Ziri/P1 struck; resolves HIGH-3 via inherent
+    tail expiry), BP-1 inline the §2a + D1 tables, BP-2 split 555-566 per-line (557/563 NO-SWAP),
+    HIGH-1 complete per-site enumeration verdicts, BP-5 pin D7 insertion, MED-1 generalization
+    acceptance criterion, MED-2 measurement caveat (Master+Jaya only), MED-3 zi precondition, MED-4
+    flap+DST. ONE seam left PENDING + clearly marked: HIGH-2 DPM-writer placement (point-gate vs
+    abstraction-owned) awaits AUDIT_thermostat_write_paths + the zone_1 oscillation trace; INV-2
+    restated as delivered-conditioning w/ the DPM bypass named as must-gate. Plan does NOT hard-code a
+    DPM point-gate yet.'
   HIGH2_AND_RESEQUENCING_2026_09_16: 'Operator: HIGH-2 = BRING THE DPM WRITER IN SCOPE (gate
     _async_apply_preset_overrides hvac.py:2479 on occupancy; INV-2 = delivered conditioning, not just
     effective_preset). AND operator raised the ROOT-CAUSE question: too many ungoverned thermostat
