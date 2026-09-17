@@ -10954,6 +10954,20 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  FREEZE_FLOOR_ROOTCAUSE_2026_09_17: 'Root cause = TEST-INFRA leak, NOT a production regression. The
+    new test_zzz_hvac_conditioning_demand.py mutated sys.modules at COLLECTION time (package shims w/
+    __path__ into the real ura dir); a sibling test then resolved a real submodule import that pulled
+    in the REAL homeassistant.helpers.dispatcher, tripping test_freeze_floor stub-install guard
+    (test_freeze_floor.py:76 needs the dispatcher NOT loaded so its no-op stub installs) -> hvac.py:1590
+    async_dispatcher_send hit HA2026.9 verify_event_loop_thread on _FakeHass -> AttributeError. This is
+    the known suite-pollution class (adjacent TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 / const-stub-isolation).
+    FIX: moved ALL sys.modules/path mutations INSIDE the lazy _ensure_loaded() (fires on first test call,
+    after test_freeze_floor already installed its stub since test_zzz sorts last); + test_freeze_floor
+    fake ZoneManager.update_room_conditions accepts the new house_state kwarg. Only 2 TEST files touched
+    this round; NO production source change. NOTE the revert-in-suite was RIGHT that the branch caused
+    it (the branch TEST FILE) — pre-existing-on-faith would have been wrong. LESSON: new test files must
+    not mutate sys.modules at collection time; lazy-load. Orchestrator name-diff re-running to confirm
+    NEW=0 before re-review.'
   FREEZE_FLOOR_IS_REAL_REGRESSION_2026_09_17: 'Orchestrator name-diff on round-2: NEW = 2 freeze_floor
     params, GONE=0. Did NOT trust the pre-existing label (my TestD1I6Scope lesson). Definitive revert-
     in-suite: reverted the 9 branch SOURCE files to develop, KEPT the branch test set (collection order
