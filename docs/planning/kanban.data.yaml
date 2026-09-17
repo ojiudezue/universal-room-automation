@@ -10954,6 +10954,17 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  FREEZE_FLOOR_IS_REAL_REGRESSION_2026_09_17: 'Orchestrator name-diff on round-2: NEW = 2 freeze_floor
+    params, GONE=0. Did NOT trust the pre-existing label (my TestD1I6Scope lesson). Definitive revert-
+    in-suite: reverted the 9 branch SOURCE files to develop, KEPT the branch test set (collection order
+    held constant), re-ran full suite -> freeze_floor PASSED. On the branch (branch source, same tests)
+    -> freeze_floor FAILS. Source is the ONLY variable => BRANCH-CAUSED REGRESSION, not an order-flake.
+    OVERTURNS the builder + review-C + my-earlier belief that freeze_floor was pre-existing (that claim
+    traced to my isolation test, never a proper revert-in-suite). test_freeze_refreshed_before_predictor_
+    with_apply_gated is a PREDICTOR-ORDERING test; the branch touched hvac_predict.py (row-8:581/row-9
+    swaps + pre-cool gate) — likely culprit, possibly a runtime state-leak from an HVAC test whose
+    behavior changed under the new source, leaking into freeze_floor. -> back to builder to bisect +
+    fix; NO re-review on a build with a code-caused NEW failure. Worktree source restored to branch.'
   ROUND2_BUILD_LANDED_2026_09_17: 'Round-2 fix-up landed (@7959b2587, plan synced to round-3-rev). Per
     builder: all 3 operator decisions (D9 compose-away via zone_target_preset=away + emit; D7
     _hvac_seen/is_zone_hvac_established fail-open + person-trust backstop + _row1_fail_open, unified
@@ -11573,7 +11584,7 @@ cards:
   title: HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC
     its own dwell-vs-transit derivation instead of tuning a knob that cannot win
   thread: hvac
-  status: review
+  status: in_progress
   created: '2026-09-15'
   updated: '2026-09-15'
   refinement_status: initial
