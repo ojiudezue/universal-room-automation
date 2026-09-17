@@ -220,9 +220,10 @@ cards:
   updated: '2026-09-17 02:35'
   refinement_status: refined
   tags: [hvac, measure-first, producer-check, found-during-validation]
-  title: SOLVED — the zone_1 re-manual writer is the Bryant thermostat itself re-asserting a 76/69 hold
-    ~1s after every URA preset write; URA and the thermostat are in a write-fight that also fires ~45
-    false "someone grabbed the thermostat" pages a day
+  title: MECHANISM FOUND — zone_1's re-manual is the Bryant's own 76/69 schedule reclaiming the zone ~1s
+    after every URA preset write (either re-asserted by the thermostat, or handed to it by URA's own
+    resume-then-pin); the resulting write-fight also fires ~45 false "someone grabbed the thermostat"
+    pages a day
   problem_solution:
   - 'Problem: the v5.103.4 lockout telemetry shows zone_1 (climate.thermostat_bryant_wifi_studyb_zone_1)
     flapping manual<->away ~20+x/evening, often within seconds. URA''s away writes LAND (vacancy path
@@ -246,11 +247,33 @@ cards:
     THE VALUES NAME THE CULPRIT: the re-assertion lands on 76/69 in 13 of 18 overrides in three days
     (the rest 80/73 and 75/70). 76/69 is not a value URA ever writes to this zone — URA''s away is
     80/68. A stable, repeated setpoint pair that URA does not own is a schedule on the other side.
-    URA IS NOT THE WRITER, and this is the decisive negative: across three days the ONLY write action
-    URA logs against zone_1 is preset_change (78 of them). There is no URA setpoint or temperature
-    write to this zone at all — so nothing in URA could have produced 76/69. URA''S OWN CLASSIFIER
-    AGREES, independently of my reasoning: the compliance rows tag override_source `thermostat_manual`
-    in 20 of 23 cases (3 `unknown`).
+    URA NEVER WRITES A TEMPERATURE HERE: across three days the ONLY write action URA logs against
+    zone_1 is preset_change (78 of them), with no setpoint write at all. URA''S OWN CLASSIFIER AGREES,
+    independently of my reasoning: the compliance rows tag override_source `thermostat_manual` in 20 of
+    23 cases (3 `unknown`).
+    CORRECTION — I FIRST WROTE THAT THIS EXONERATES URA, AND THAT WAS TOO STRONG. I checked the write
+    path before letting the claim stand and it does not hold up, so I am recording the correction
+    rather than the tidier story. URA''s preset funnel contains a RESUME-then-PIN escape hatch
+    (hvac_setpoint.py:308-366): when a zone sits in an anonymous `manual` hold — which is zone_1''s
+    normal condition — URA first sends the thermostat `resume`, which DELIBERATELY drops the zone onto
+    the Bryant''s own schedule, and only then pins the named preset. The code says so in its own words
+    at hvac_setpoint.py:303: "Between the resume and the pin the zone follows the Bryant schedule."
+    Those raw service calls live INSIDE the funnel, so they never appear as separate activity_log rows
+    — which is precisely why the log looked exonerating. If the pin does not take (cloud lag, an
+    optimistic local attribute, a vendor rejection — all documented as observed on this integration),
+    the zone is left sitting on the Bryant schedule. So candidate (c), "resume-then-pin''s resume
+    leaves manual", is NOT excluded and is in fact a strong fit for an away->manual flip one second
+    later. WHAT SURVIVES BOTH READINGS, and it is the part that matters: 76/69 is the Bryant''s own
+    schedule value either way. Whether the thermostat re-asserts it unprompted (a) or URA hands the
+    zone to it via resume and fails to pin (c), the fix starts in the same place — the vendor schedule.
+    I cannot split (a) from (c) from here: the discriminator is whether a `resume` was issued at each
+    flip, which lives in the HA core log, and LAN reach was down all night (OVERNIGHT-PASS-NO-LOG-REACH-1).
+    A LOAD-BEARING DESIGN ASSUMPTION MAY BE FALSE, and this is the most consequential thing in this
+    note: resume-then-pin is safe only because it assumes the Bryant schedule is inert — the comment
+    at hvac_setpoint.py:303-305 states outright that the operator "does not use" it. If that schedule
+    is in fact live and holding 76/69, then every resume hands the zone to a REAL competing schedule
+    rather than to a harmless gap, and the escape hatch is paying a much higher price than its design
+    review believed. That question is worth answering on its own merits, independently of this card.
     THE LOOP, stated plainly: URA writes away -> the thermostat re-asserts 76/69 as a manual hold
     within a second or two -> URA sees a manual hold, reads it as a human grabbing the thermostat, and
     writes away again on its next cycle. 78 preset writes in three days on one zone. This is why
@@ -277,10 +300,13 @@ cards:
   next: 'ANSWER, then PICK — the measurement is done (see MEASURED_2026_09_17) and only you can supply
     the missing half. ANSWER: does the Bryant thermostat for zone_1 (Entertainment + Master Suite) have
     a schedule or comfort profile of its own — on the thermostat itself or in the Bryant/Carrier app —
-    that holds 76 cool / 69 heat? That is the value it re-asserts within a second or two of every write
-    URA makes, and I have no way to see the vendor schedule from here. If yes, the clean fix is almost
-    certainly to disable the thermostat-side schedule so URA is the only scheduler, which ends the
-    write-fight at its source. PICK how URA should behave in the meantime, because both options are
+    that holds 76 cool / 69 heat? Everything turns on this. It is the value the zone lands on within a
+    second or two of every write URA makes, and I have no way to see the vendor schedule from here. It
+    also decides something bigger than this card: URA''s resume-then-pin escape hatch is built on the
+    written assumption that you do NOT use the Bryant schedule, and if you do, that assumption is
+    wrong and the escape hatch is handing your zone to a live competitor every time it fires. If the
+    answer is yes, the clean fix is almost certainly to disable the thermostat-side schedule so URA is
+    the only scheduler, which ends the write-fight at its source. PICK how URA should behave in the meantime, because both options are
     defensible and this one is yours: (A) STOP THE PAGING ONLY — keep the loop but stop treating a
     re-assertion that arrives seconds after our own write as a human override, which kills roughly 45
     false HIGH pages a day and is the smaller, safer change; (B) STOP THE FIGHT — have URA back off

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T02:08:53-05:00_ - _Data commit: `1ab3a11a3e16`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-17T02:11:13-05:00_ - _Data commit: `c607adcdf8fb`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -523,7 +523,7 @@ _created 2026-09-14 03:05 · initial_
   - `MY_RECOMMENDATION_IS_WITHDRAWN`: I recommended sweeping seven ring cameras from threshold 0.7 to 0.6 and called it "the high-value item". THAT RECOMMENDATION IS WITHDRAWN pending verification. It rested entirely on an agent-reported figure I did not reproduce, and the o...
   - `what_would_settle_it`: A read of the Frigate host's `events` table for a recent window: per camera, the count of person events and the distribution of `top_score` (median, p90, and the fraction >= 0.70). That single query decides whether 0.7 is a sensible cut ...
 
-### `HVAC-ZONE1-MANUAL-OSCILLATION-1` - SOLVED — the zone_1 re-manual writer is the Bryant thermostat itself re-asserting a 76/69 hold ~1s after every URA preset write; URA and the thermostat are in a write-fight that also fires ~45 false "someone grabbed the thermostat" pages a day — _#6 · WSJF 3.4 · v8 tc7 u2 /e5_
+### `HVAC-ZONE1-MANUAL-OSCILLATION-1` - MECHANISM FOUND — zone_1's re-manual is the Bryant's own 76/69 schedule reclaiming the zone ~1s after every URA preset write (either re-asserted by the thermostat, or handed to it by URA's own resume-then-pin); the resulting write-fight also fires ~45 false "someone grabbed the thermostat" pages a day — _#6 · WSJF 3.4 · v8 tc7 u2 /e5_
 thread: **hvac** - status: **waiting_operator**
 _created 2026-09-16 · updated 2026-09-17 02:35 · refined_
 - **Problem / Solution:**
