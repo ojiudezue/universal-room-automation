@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T09:19:33-05:00_ - _Data commit: `d6c253f917fd`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T09:24:59-05:00_ - _Data commit: `39faac78b722`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -395,7 +395,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (41):**
+- **Forensic keys (42):**
+  - `REREVIEW_CORRECTNESS_2026_09_17`: Re-review #1 (correctness+integration of round-2 changes) = FIX-REQUIRED, 2 HIGH + 3 MED. The fail-open/compose rework introduced new gaps: F1 (HIGH) is_zone_hvac_established requires ALL rooms in _hvac_seen but _hvac_seen populates only...
   - `FREEZE_FLOOR_ROOTCAUSE_2026_09_17`: Root cause = TEST-INFRA leak, NOT a production regression. The new test_zzz_hvac_conditioning_demand.py mutated sys.modules at COLLECTION time (package shims w/ __path__ into the real ura dir); a sibling test then resolved a real submodu...
   - `FREEZE_FLOOR_IS_REAL_REGRESSION_2026_09_17`: Orchestrator name-diff on round-2: NEW = 2 freeze_floor params, GONE=0. Did NOT trust the pre-existing label (my TestD1I6Scope lesson). Definitive revert- in-suite: reverted the 9 branch SOURCE files to develop, KEPT the branch test set ...
   - `ROUND2_BUILD_LANDED_2026_09_17`: Round-2 fix-up landed (@7959b2587, plan synced to round-3-rev). Per builder: all 3 operator decisions (D9 compose-away via zone_target_preset=away + emit; D7 _hvac_seen/is_zone_hvac_established fail-open + person-trust backstop + _row1_f...
