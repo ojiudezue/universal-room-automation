@@ -770,10 +770,44 @@ class TestD3_ZonePresetPersonTrust:
             return f.read()
 
     def test_zone_preset_person_trust_uses_fan_trust_states(self, src: str) -> None:
-        """The away-flip suppression now keys off FAN_TRUST_STATES."""
-        assert (
-            'effective_preset == "away" and self._house_state in FAN_TRUST_STATES'
-            in src
+        """The away-flip suppression now keys off FAN_TRUST_STATES.
+
+        Contract update (HVAC-ZONE-CONDITIONING-DEMAND-1 D7, 2026-09-16):
+        the outer `if` was reshaped from a single-line to a multi-line
+        boolean chain so a fused-signal AND could be fused into the same
+        guard (INV-2: empty zone retreats within one loop tick even
+        under FAN_TRUST_STATES). The literal expression is preserved as
+        two consecutive-line fragments. Assert BOTH fragments are
+        present so a reversal to the old sleep-only bare-compare
+        breaks the test; also assert the fused-gate line so a
+        strip-D7 mutation reds this test.
+        """
+        assert 'effective_preset == "away"' in src
+        assert "self._house_state in FAN_TRUST_STATES" in src
+        # D7 fused-guard: SCOPE the assertion to the outer-if body so a
+        # deletion of ONLY the fused clause (leaving unrelated uses of
+        # `any_room_hvac_occupied` elsewhere in hvac.py) reds this test.
+        anchor = (
+            'if (\n                effective_preset == "away"\n'
+            "                and self._house_state in FAN_TRUST_STATES"
+        )
+        idx = src.find(anchor)
+        assert idx > 0, "D7 outer-if header shape not found"
+        # The outer-if header extends until its closing `):`. Scan a bounded
+        # window from anchor and require the fused clause is inside it.
+        header_end = src.find("            ):\n", idx)
+        assert header_end > idx, "D7 outer-if header end not found"
+        header = src[idx:header_end]
+        # Filter out comment lines — a stripped fused clause would leave
+        # the comment block referencing `any_room_hvac_occupied` behind
+        # and defeat a naive `in header` scan (2026-09-16 fix-up).
+        code_only = "\n".join(
+            ln for ln in header.split("\n")
+            if not ln.lstrip().startswith("#")
+        )
+        assert 'any_room_hvac_occupied' in code_only, (
+            "D7 outer-if header (non-comment) must include the "
+            "fused-signal AND"
         )
 
     def test_zone_preset_person_trust_no_bare_sleep_compare(self, src: str) -> None:
@@ -799,15 +833,40 @@ class TestD3_ZonePresetPersonTrust:
         empty. Verify the predicate gate is `if home_persons:` not
         unconditional, and that the v4.7.14 all-trackers-away veto path
         in presence.py StateInferenceEngine is not referenced (no
-        coupling)."""
-        # Anchor: the trust branch only continues when home_persons is non-empty.
-        anchor = "if effective_preset == \"away\" and self._house_state in FAN_TRUST_STATES:"
+        coupling).
+
+        Contract update (HVAC-ZONE-CONDITIONING-DEMAND-1 D7, 2026-09-16):
+        the outer `if` was reshaped to include the fused-signal AND
+        (`zone.any_room_hvac_occupied`) so that a zone empty in the
+        HVAC denomination retreats even when a phone reads home — this
+        is the *intended narrowing* of the 2026-06-05 flap fix: the
+        earlier broadening preserved presets on person-home
+        UNCONDITIONALLY, which allowed hallway-only crossings to keep
+        empty rooms in `home`. Now the anchor spans multiple lines, so
+        we anchor on the first stable line and scan a widened body for
+        the same invariants (`if home_persons:` and no
+        `StateInferenceEngine` reference).
+        """
+        # Anchor: the outer `if` header (multi-line under D7).
+        anchor = 'if (\n                effective_preset == "away"\n                and self._house_state in FAN_TRUST_STATES'
         idx = src.find(anchor)
-        assert idx > 0
-        body = src[idx: idx + 2000]
+        assert idx > 0, "D7 outer-if header shape not found"
+        body = src[idx: idx + 2500]
+        # `home_persons` predicate is still non-empty gated (bidirectionality).
         assert "if home_persons:" in body
         # The away-veto runs upstream in presence.py and is not coupled.
         assert "StateInferenceEngine" not in body
+        # D7 fused-guard is fused into the same outer `if`, not a separate
+        # guard. This means empty-fused zones fall through past the whole
+        # block (INV-2), while non-empty-fused zones proceed to the legacy
+        # home_persons check (byte-identical activity_logger emission path).
+        # Discriminator: filter comment lines so the assertion reds on a
+        # code-only strip of the fused clause.
+        body_code_only = "\n".join(
+            ln for ln in body.split("\n")
+            if not ln.lstrip().startswith("#")
+        )
+        assert 'any_room_hvac_occupied' in body_code_only
 
 
 # -------------------------------- D4: Mode-2 BLE recheck stays sleep-only

@@ -1046,12 +1046,18 @@ class TestFixupWriteSiteCallerDrills:
 
     async def test_S13_pre_heat_defers_under_grace(self):
         pred, calls = _make_predictor(comfort_active=True)
-        # any_room_occupied gate in _execute_pre_heat requires True.
+        # HVAC-ZONE-CONDITIONING-DEMAND-1 §2a row 9 (2026-09-16): the
+        # pre-heat occupancy gate SWAPPED from lighting-fused
+        # `any_room_occupied` to HVAC-fused `any_room_hvac_occupied`.
+        # The fixture must set `hvac_occupied=True` so the pre-heat
+        # path proceeds; setting only `occupied=True` (lighting-fused)
+        # would correctly be rejected — the whole point of the SWAP
+        # is that hallway crossings don't arm pre-heat.
         from custom_components.universal_room_automation.domain_coordinators.hvac_zones import (
             RoomCondition,
         )
         pred._zone_manager.zones[ZONE_ID].room_conditions = [
-            RoomCondition(room_name="r", occupied=True),
+            RoomCondition(room_name="r", occupied=True, hvac_occupied=True),
         ]
         await pred._execute_pre_heat()
         assert not any(
@@ -1060,16 +1066,40 @@ class TestFixupWriteSiteCallerDrills:
 
     async def test_S13_pre_heat_fires_without_grace(self):
         pred, calls = _make_predictor(comfort_active=False)
+        # See sibling test above for the row-9 SWAP contract note.
         from custom_components.universal_room_automation.domain_coordinators.hvac_zones import (
             RoomCondition,
         )
         pred._zone_manager.zones[ZONE_ID].room_conditions = [
-            RoomCondition(room_name="r", occupied=True),
+            RoomCondition(room_name="r", occupied=True, hvac_occupied=True),
         ]
         await pred._execute_pre_heat()
         assert any(
             c["args"][:2] == ("climate", "set_temperature") for c in calls
         ), "S13: pre-heat emit MUST fire when grace is inactive"
+
+    async def test_S13_pre_heat_skipped_when_hvac_denomination_empty(self):
+        """HVAC-ZONE-CONDITIONING-DEMAND-1 §2a row 9 discriminator.
+
+        The NEW contract: with lighting-fused `occupied=True` but
+        HVAC-fused `hvac_occupied=False` (the classic hallway-crossing
+        shape), pre-heat MUST skip. If the row-9 SWAP were reverted to
+        `any_room_occupied`, this test reds (pre-heat would fire).
+        """
+        pred, calls = _make_predictor(comfort_active=False)
+        from custom_components.universal_room_automation.domain_coordinators.hvac_zones import (
+            RoomCondition,
+        )
+        pred._zone_manager.zones[ZONE_ID].room_conditions = [
+            RoomCondition(room_name="r", occupied=True, hvac_occupied=False),
+        ]
+        await pred._execute_pre_heat()
+        assert not any(
+            c["args"][:2] == ("climate", "set_temperature") for c in calls
+        ), (
+            "S13 row-9 discriminator: lighting-only occupancy (hallway) "
+            "must NOT arm pre-heat under the HVAC denomination"
+        )
 
 
 # ---------------------------------------------------------------------------
