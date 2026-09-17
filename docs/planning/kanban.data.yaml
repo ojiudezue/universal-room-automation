@@ -10689,6 +10689,21 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  REVIEW_C_2026_09_16: 'Framing C (test-authority via per-site mutation) = FIX-REQUIRED, hardest.
+    C-CRIT-1: D9 ENTIRELY UNTESTED — fused->lighting flip AND full gate deletion both leave the full
+    suite green; coverage is an unscoped whole-file grep (Bug#62). Row 1 (preset-flip) + Row 4 (stale)
+    + D1 HALLWAY EXCLUSION also untested (revert = zero suite movement) — the hallway exclusion is
+    CRIT-1s entire transit-rejection mechanism, unanchored. C-HIGH-3 CORRECTS the orchestrator name-
+    diff: reverting row-8 (hvac_predict.py:581) makes the 2 TestD1I6Scope precool tests FAIL->PASS in
+    the FULL SUITE -> they are REAL row-8 regressions (lighting-fused fixtures, same class as S13), NOT
+    pre-existing order-flakes as isolation-testing suggested. My isolation check was insufficient;
+    revert-in-suite is the definitive method. Only the 2 freeze_floor are truly pre-existing. C-MED-1:
+    cycle-own D7 tests hollow (source-grep); real D7 coverage lives accidentally in the fan_trust
+    sibling. C-MED-2: 2 of 3 S13 contract tests DONT discriminate (set occupied+hvac_occupied both
+    True, pass under old+new) — relaxed not re-contracted; saved only by the new _skipped test.
+    CLEARED: D1 arm/tail/precondition/generalization + CRIT-1 kind guard genuinely anchored; row 2b
+    anchored. VERDICT: build needs REAL behavioral anchors for D9/row1/row4/hallway + fix the row-8
+    fixtures. ALL 4 REVIEWS FIX-REQUIRED. Escalating to operator checkpoint before a big second round.'
   REVIEW_D_2026_09_16: 'Framing D (adversarial completeness) = FIX-REQUIRED, FALSIFIED BOTH invariants
     w/ legal-config repros. D-HIGH-1 (INV-1, SEVERE): CM reload storm ~5x/night (known live issue) wipes
     in-memory D1 arm state; reload path has boot-settle already released; last_occupied_time seeded PAST
