@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T20:34:08-05:00_ - _Data commit: `d7de9d451871`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T20:35:37-05:00_ - _Data commit: `55c1a124634c`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-09-16T20:34:08-05:00_ - _Data commit: `d7de9d451871`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 10 |
 | 🔨 In progress | 0 |
@@ -26,10 +26,20 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#1 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `HVAC-ZONE1-MANUAL-OSCILLATION-1` - zone_1 oscillates manual<->away every few minutes — a mystery writer re-manuals the Bryant zone after URA's away write lands (this is why zone_1 stays 67.5% manual, not resume-then-pin failing) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **investigating**
+_created 2026-09-16_
+- **Problem / Solution:**
+  - Problem: the v5.103.4 lockout telemetry shows zone_1 (climate.thermostat_bryant_wifi_studyb_zone_1) flapping manual<->away ~20+x/evening, often within seconds. URA's away writes LAND (vacancy path bypasses the manual guard, 28.3% away) b...
+- **Why:** This is the ACTUAL dominant reason zone_1 sits 67.5% manual — not resume-then-pin failing to land (it lands) and not escape (rare). Found by the interim lockout read. Until the re-manual producer is known, any further preset-write work o...
+- **Next:** MEASURE (clean 24h read available ~09:45 CDT 2026-09-17): on climate.thermostat_bryant_wifi_studyb_zone_1, trace every transition INTO manual with the preceding URA action + any concurrent set_temperature/ set_preset/set_hvac_mode from U...
+- **Tags:** hvac, measure-first, producer-check, found-during-validation
+- **Parsimony:** [BUILD] zone_1 stays 67.5% manual because a mystery writer re-manuals it every few minutes after URA's away write lands; producer unknown
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
@@ -397,7 +407,8 @@ _created 2026-09-16 · initial_
 - **Tags:** tier-2db, no-fabrication-verify, found-during-validation
 - **Parsimony:** [BUILD] URA refuses to re-preset a zone in manual even when URA itself caused the manual, and the component expected to handle it deliberately ignores URA-caused cases.
 - **Refs:** hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented); hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `DOWNGRADED_2026_09_16`: Lockout telemetry (10.8h) shows escape is REAL but RARE (2 lockouts in 10.8h, occupied/home path only) — NOT the dominant zone_1 residual. The dominant residual is a manual<->away oscillation (mystery re-manual writer) — see HVAC-ZONE1-M...
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
@@ -1036,7 +1047,8 @@ _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_
 - **Sibling of:** BORROW-BANKING-LEASE-NOT-RELEASED-1, S14-CEILING-NEEDS-AN-ENDING-1
 - **Parsimony:** [BUILD] URA writes raw setpoints at volume and can strand a zone off-preset, against an explicit operator design contract
 - **Refs:** hvac_preset.py:212-217; hvac_override.py:186-195, 3070-3097; HVAC-PRESET-RESTORE-MISS-1; HVAC-PRESET-FLAP-1
-- **Forensic keys (47):**
+- **Forensic keys (48):**
+  - `LOCKOUT_READ_2026_09_16`: Interim lockout-telemetry read (10.8h post-v5.103.4, instrument LIVE: 6 episodes, all wanted=home blocked_by=manual). FINDINGS: zone_1 manual%% 67.5%% — UNCHANGED from 69.6%% (home lands 2.5%%); resume-then-pin is NOT giving sustained co...
   - `ACCEPTANCE_CRITERION_CORRECTED_2026_09_16`: Operator: "Target was wrong. So that cannot be the criteria." The ~6%% manual-occupancy target was BORROWED from zone_3 (a transit corridor, structurally unlike zone_1) and is NOT a valid acceptance bar. RETRACT the framing "step 1 not a...
   - `arc_blocks_2026_09_16`: HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1
   - `arc_mirror_note_2026_09_16`: blocks back-refs for the arc, added during the finish-the-job link pass. This card (step 1, shipped v5.103.2) gates three descendants: the boot-ramp residual (step 4a — its restore is only useful once preset writes LAND), the conditionin...

@@ -177,6 +177,41 @@ meta:
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated, headline: "PERIMETER-ALERT-VOLUME-FATIGUE-1 \u2014 MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working \u2014 so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).", acknowledged: false}
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
+- id: HVAC-ZONE1-MANUAL-OSCILLATION-1
+  status: investigating
+  thread: hvac
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  tags: [hvac, measure-first, producer-check, found-during-validation]
+  title: zone_1 oscillates manual<->away every few minutes — a mystery writer re-manuals the Bryant zone
+    after URA's away write lands (this is why zone_1 stays 67.5% manual, not resume-then-pin failing)
+  problem_solution:
+  - 'Problem: the v5.103.4 lockout telemetry shows zone_1 (climate.thermostat_bryant_wifi_studyb_zone_1)
+    flapping manual<->away ~20+x/evening, often within seconds. URA''s away writes LAND (vacancy path
+    bypasses the manual guard, 28.3% away) but something re-writes the zone to manual within minutes.
+    The re-manual PRODUCER is unidentified — candidates: the Bryant/Carrier thermostat/cloud re-asserting
+    a manual hold, resume-then-pin''s own resume leaving a manual, or another URA setpoint/excursion writer.
+    Solution: identify the producer (measure-first: trace every manual-write to zone_1 over a window), then
+    fix at the producer.'
+  why: 'This is the ACTUAL dominant reason zone_1 sits 67.5% manual — not resume-then-pin failing to land
+    (it lands) and not escape (rare). Found by the interim lockout read. Until the re-manual producer is
+    known, any further preset-write work on zone_1 is guessing. Supersedes the "resume-then-pin not
+    working" and "escape is the residual" readings for zone_1.'
+  next: 'MEASURE (clean 24h read available ~09:45 CDT 2026-09-17): on climate.thermostat_bryant_wifi_studyb_zone_1,
+    trace every transition INTO manual with the preceding URA action + any concurrent set_temperature/
+    set_preset/set_hvac_mode from URA (ura_activity_log) vs cloud-originated changes (recorder attribute
+    deltas with no URA row). Discriminate: (a) Bryant cloud re-asserts manual on its own; (b) a URA writer
+    (which one) re-manuals; (c) resume-then-pin resume leaves manual. THEN fix at the identified producer.'
+  parsimony:
+    problem: zone_1 stays 67.5% manual because a mystery writer re-manuals it every few minutes after
+      URA's away write lands; producer unknown
+    verdict: BUILD
+    note: measure-first — identify the producer before any fix; likely a single writer or a Bryant-cloud
+      re-assertion. Do not build escape or more resume machinery until this is known.
+  links:
+    related: [HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-PRESET-LOCKOUT-ESCAPE-1, HVAC-SUPPLE-SEQUENCE-1]
+    context: 'Found by the v5.103.4 interim lockout read. Explains why manual% did not move on zone_1
+      (67.5% vs 69.6%). Distinct from escape (URA refuses to write) — here something WRITES manual.'
 - id: HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1
   status: parked
   thread: hvac
@@ -10525,6 +10560,12 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset — the silent refusal)
   - hvac.py (the instrumented refusal site)
 - id: HVAC-PRESET-LOCKOUT-ESCAPE-1
+  DOWNGRADED_2026_09_16: 'Lockout telemetry (10.8h) shows escape is REAL but RARE (2 lockouts in
+    10.8h, occupied/home path only) — NOT the dominant zone_1 residual. The dominant residual is a
+    manual<->away oscillation (mystery re-manual writer) — see HVAC-ZONE1-MANUAL-OSCILLATION-1. Do
+    NOT build escape next; the oscillation producer is the measure-first priority. Escape remains a
+    valid small fix for the occupied/home lockout once the oscillation is understood. Re-confirm
+    frequency on the clean 24h read (~09:45 CDT 09-17).'
   seq_2026_09_16: 'STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".'
   title: URA refuses to write a preset to a zone in `manual` — including when URA itself caused the
     manual, so nothing ever rescues it
@@ -18469,6 +18510,16 @@ cards:
   - hvac_override.py async_startup_ramp_audit (temp=1, preset=0)
   - docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md (R1-MEDIUM-1)
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  LOCKOUT_READ_2026_09_16: 'Interim lockout-telemetry read (10.8h post-v5.103.4, instrument LIVE:
+    6 episodes, all wanted=home blocked_by=manual). FINDINGS: zone_1 manual%% 67.5%% — UNCHANGED from
+    69.6%% (home lands 2.5%%); resume-then-pin is NOT giving sustained control on zone_1. Lockouts RARE
+    (2 in 10.8h) => ESCAPE is real-but-not-dominant (occupied/home path only). DOMINANT RESIDUAL:
+    zone_1 OSCILLATES manual<->away every few min — URA away writes land (vacancy bypass, 28.3%% away)
+    but a MYSTERY WRITER re-manuals within minutes (producer unidentified: Bryant cloud? resume-then-
+    pin? another writer?). That is neither write-doesnt-land nor write-never-attempted. zone_2 13%%
+    zone_3 6%% already near band — problem is zone_1-concentrated. Clean 24h read ~09:45 CDT 09-17.
+    NEXT for the preset-write thread = identify the away->manual re-write producer (measure-first),
+    NOT build escape. See new card HVAC-ZONE1-MANUAL-OSCILLATION-1.'
   ACCEPTANCE_CRITERION_CORRECTED_2026_09_16: 'Operator: "Target was wrong. So that cannot be the
     criteria." The ~6%% manual-occupancy target was BORROWED from zone_3 (a transit corridor,
     structurally unlike zone_1) and is NOT a valid acceptance bar. RETRACT the framing "step 1 not
