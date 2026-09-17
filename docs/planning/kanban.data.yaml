@@ -2754,6 +2754,15 @@ cards:
     quoted as blocked in future sessions.'
 
 - id: URA-CONFIG-ENTRY-RELOAD-STORM-1
+  REMEASURED_2026_09_17: 'Recorder-authoritative re-measure (ura_setup_duration started_at +
+    coordinator_manager running->not_initialized transitions; significant_changes_only=false). Last
+    48h = 8 setups: overnight storm 09-15->16 = 3 (22:56/00:02/01:15), 09-16->17 = 0; daytime setups
+    are deploys. Trend DOWN from ~5x/night (09-10) but NOT durably gone (fired 34h ago). All 46
+    entries loaded, no setup_retry/error. NOTE: the 09-10 armed debug was DISARMED (logger back to
+    WARNING) by this weeks deploy restarts, so the 09-15->16 reloads were not captured — RE-ARM debug
+    if we want the producer on the next overnight fire. Recommend one more overnight recorder check
+    before downgrading. Log sources note: journald/docker/ha-core-logs all inaccessible via ssh
+    (401/perm); recorder history is the working authoritative source for reload counting here.'
   measured_2026_09_15_self_issued_reloads: 'OVERNIGHT PASS — THE STATIC HALF OF THIS CARD next IS NOW
     ANSWERED, and the answer is a clean NEGATIVE that removes the most attractive suspect. The next
     asked me to "grep the codebase for self-issued homeassistant.reload_config_entry" alongside the log
@@ -10945,6 +10954,14 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  STORM_VERIFIED_2026_09_17: 'Reload-storm verification (recorder-authoritative via ura_setup_duration
+    re-stamps; logs were inaccessible - journald 401/perm-denied, samba logfile stale). RESULT: REDUCED,
+    0 overnight LAST night (09-16->17) but 3 overnight ~34h ago (09-15->16); ~5x/night baseline 09-10.
+    24h = 4 setups all daytime (my deploys). All 46 entries loaded, no retry loop. SEVERITY for the D7
+    night-safety fix: REAL + RECENT (hazard fired 34h ago) but not a nightly emergency. Fix WARRANTED
+    (operator: regardless) — on a storm night, built-form cold-retreats sleeping bedrooms; the fail-open
+    + person-trust backstop prevents it. Confidence HIGH on counts, MED on durably-stopped (1 clean
+    night). No change to the round-2 fix-up needed.'
   ROUND2_FIXUP_DISPATCHED_2026_09_17: 'Operator decided all 3: (1) D7 night-safety FIX REGARDLESS
     ("too many holes") + FIRST verify the CM reload storm (dispatched a5fdc6d — measurement, ha core
     logs returned 401 in ssh so delegating to find a working source); (2) D9 COMPOSE-AWAY endorsed;
