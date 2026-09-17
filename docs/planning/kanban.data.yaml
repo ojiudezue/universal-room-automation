@@ -10689,6 +10689,25 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  REVIEW_D_2026_09_16: 'Framing D (adversarial completeness) = FIX-REQUIRED, FALSIFIED BOTH invariants
+    w/ legal-config repros. D-HIGH-1 (INV-1, SEVERE): CM reload storm ~5x/night (known live issue) wipes
+    in-memory D1 arm state; reload path has boot-settle already released; last_occupied_time seeded PAST
+    grace -> first tick all rooms hvac_occupied=False -> sleeping bedroom retreats away, D7 fail-CLOSED
+    lets it stand (no fused history). OLD unconditional night-trust rescued exactly this (2026-06-05).
+    FIX: D7/row-1 must FAIL-OPEN on un-established fused signal. D-HIGH-2 (INV-2): third writers
+    (_restore_after_nudge unconditional, _return_preheat, async_startup_ramp_audit, _engage_resume) put
+    home setpoints back on a retreated night zone; D9-as-SKIP removed the DPM corrector that overwrote
+    them every tick -> guest wing 72F all night w/ preset=away (the setpoint-vs-mode split D9 exists to
+    close, reversed). FIX (strong): D9 COMPOSES away setpoints + keeps emitting, NOT continue. D-MED-1:
+    row-10 arrester comfort-delay reads any_room_occupied -> hallway crossing defers D7 away indefinitely
+    (deferral was fixture-cost not correctness). D-MED-2: D9 fail-OPEN vs D7/row-1 fail-CLOSED on empty
+    room_conditions = the split D9 prevents; unify polarity. D-MED-3: per-room hold override is day/night-
+    blind -> wins over night table -> silently drops night insurance. Plan copy in worktree is STALE
+    (round-1); sync. ADJUDICATION (A/B vs D conflict on vacancy sweep): A/B CORRECT, D WRONG — verified
+    in branch: fire gate zone_vacant_past_grace is HVAC-denom (hvac.py:1808), vacancy_sweep_done reset
+    (hvac_zones.py:672) stays lighting-fused = ARMS the sweep during hallway occupancy -> sweep FIRES on
+    occupied hallway every tick. Fix = gate _execute_vacancy_sweep on not any_room_occupied. ROOT across
+    B-HIGH-1/B-MED-1/D-HIGH-1: D7 fails UNSAFE on reset/unestablished state. HOLDING for C.'
   REVIEW_A_2026_09_16: 'Framing A (local correctness) = FIX-REQUIRED, CONVERGES with B. A-HIGH ==
     B-CRIT-1 (vacancy sweep lights-off on occupied hallway — both name it the plan-predicted Bug#63
     collision; same exposure on the D6 stale branch hvac.py:1883). A-MED == B-HIGH-3 (night hold < day
