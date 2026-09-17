@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T21:07:27-05:00_ - _Data commit: `4017f7fa84f0`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T21:08:49-05:00_ - _Data commit: `f0dcfd3f9f2a`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -400,7 +400,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (29):**
+- **Forensic keys (30):**
+  - `BUILD_PAGED_PLAN_FIXED_2026_09_16`: Builder paged (No-Fabrication, correct): D1 cited last_edge_kind_for which does not exist (substrate exposes last_edge_entity_for -> entity_id, not kind). ROOT: the kind read was mis-cited AND unused (vestigial) — round-3 already moved D...
   - `ORCH_VALIDATION_PASS_2026_09_16`: Orchestrator personally validated the round-3 plan (operator: validate yourself, watch for over-complication). PASS + not over-built: CRIT-1 resolved via kind- at-rising-edge (last_edge_entity_for) then ride grace-held STATE_OCCUPIED+tai...
   - `BUILD_NOT_GATED_ON_OSCILLATION_2026_09_16`: CORRECTION (operator: "why cant we start on the plan when its done?"). I over-serialized — step-4-B build has NO hard dependency on the zone_1 oscillation trace or the abstraction. Those gate the SEPARATE cards (HVAC-ZONE1-MANUAL-OSCILLA...
   - `ROUND3_DISPATCHED_2026_09_16`: Operator: proceed on the plan revision in progress while measurements run; dont lose the thread. UN-HELD the round-3 revision, scoped to measurement-INDEPENDENT fixes: CRIT-1 (kind-filter built on grace-held, not a raw AND), D8 collapse ...

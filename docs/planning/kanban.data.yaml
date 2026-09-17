@@ -10689,6 +10689,14 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  BUILD_PAGED_PLAN_FIXED_2026_09_16: 'Builder paged (No-Fabrication, correct): D1 cited
+    last_edge_kind_for which does not exist (substrate exposes last_edge_entity_for -> entity_id, not
+    kind). ROOT: the kind read was mis-cited AND unused (vestigial) — round-3 already moved D1 to ride
+    grace-held STATE_OCCUPIED, and transit is handled by circulation exclusion (hallway room_type), not
+    per-edge kind. FIX = DELETE the kind read entirely (kind-aware within-room discrimination = Stage B,
+    deferred). Fully dissolves CRIT-1 (no kind method on the D1 path) + removes the missing-helper gap.
+    No new machinery. My validation miss owned: I trusted the plan''s REUSE citation without grepping
+    the symbol returns a kind. Plan amended; build re-dispatched (same worktree).'
   ORCH_VALIDATION_PASS_2026_09_16: 'Orchestrator personally validated the round-3 plan (operator:
     validate yourself, watch for over-complication). PASS + not over-built: CRIT-1 resolved via kind-
     at-rising-edge (last_edge_entity_for) then ride grace-held STATE_OCCUPIED+tail (test_d1_holds_
