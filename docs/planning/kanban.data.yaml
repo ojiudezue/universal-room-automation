@@ -23783,15 +23783,15 @@ cards:
     context: 'Spawned from WATCHDOG-INERT-1 (D1 caught it). Same class as STUCK-SENSOR-1 (stuck-signal).'
   refs: [anomaly_log metric_name=camera_stuck]
 - id: PERIMETER-DETECTION-WENT-DARK-1
-  title: Every exterior person-detector stopped firing on 2026-09-15 while the cameras kept seeing
-    motion — the whole outdoor person-detection layer is effectively blind and has been for ~36h
+  title: Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on
+    its own — nothing noticed either the outage or the recovery
   thread: perimeter
   status: waiting_operator
   created: '2026-09-16 03:30'
-  updated: '2026-09-16 03:30'
-  refinement_status: initial
+  updated: '2026-09-17 02:10'
+  refinement_status: refined
   approval: blocked
-  live_broken: true
+  live_broken: false
   tags:
   - measure-before-build
   - no-fabrication-verify
@@ -23854,9 +23854,11 @@ cards:
     ssh to HA was down for the whole pass and I have no route to the Frigate host, so this needs the
     operator or restored reach — see OVERNIGHT-PASS-NO-LOG-REACH-1.'
   A_TRAP_TO_AVOID: 'Do NOT read PERIMETER-ALERT-VOLUME-FATIGUE-1 as having resolved itself. That
-    card measured ~155 alerts/day and asked how to cut the volume; the volume is now 14/day. That is
-    not the fix landing, it is the producer failing, and closing the fatigue card on this evidence
-    would bank a blindness as a win. The fatigue card stays open and its PICK still stands.'
+    card measured ~155 alerts/day and asked how to cut the volume. During the outage the volume fell
+    to 14/day, which was the producer failing rather than a fix landing, and closing the fatigue card
+    on that evidence would have banked a blindness as a win. UPDATE 2026-09-17: moot in the happiest
+    way — the producer recovered and exterior_person alerts are back to 263/day, so the fatigue
+    problem is fully intact and its PICK still stands, on fresh numbers rather than outage numbers.'
   parsimony:
     problem: every exterior person-detector went silent within ~24h while motion continued, and the
       operator-facing alerts went silent with them
@@ -23865,18 +23867,17 @@ cards:
       durable code lesson is separate and already half-carded: a producer-silence trip-wire is the
       mirror image of CAMERA-STUCK-SENSOR-TRIPWIRE-1 stuck-ON check, and would have caught this in
       hours instead of never.'
-  next: 'ANSWER first, because it changes everything downstream: did you (or anything on the Frigate
-    2 host) change detection settings, masks, thresholds or the model on or around 2026-09-14/15?
-    -> If NO, treat it as a live outage: Frigate 2 object detection is down, the house has had no
-    exterior person detection for ~36h, and I will help diagnose the moment I have a route to the
-    host (or paste me `docker logs` for the Frigate container and I will read it).
-    -> If YES, tell me what changed and we decide together whether zeroing detection fleet-wide was
-    the intent — my read is that it overshot, since motion is unaffected and one person-detection a
-    day across seventeen cameras cannot be right.
-    Either way I am NOT touching camera config autonomously: it is a physical/host surface and
-    outward-facing. Separately, and independent of the answer, this makes the case for the
-    producer-SILENCE trip-wire (the mirror of the stuck-ON one) concrete — say the word and I scope
-    it, because the real defect is that this ran for a day and a half with nothing noticing.'
+  next: 'READ this first, then APPROVE one thing. READ: stand down on the emergency — exterior person
+    detection came back by itself on 09-15 at about 15:00 and has been normal ever since (see
+    RE_MEASURED_2026_09_17). Last night''s card overstated it as ongoing; it was a bounded ~26h
+    outage, 09-14 13:00 to 09-15 15:00. Nothing needs doing tonight and nothing is blind right now.
+    APPROVE (the only live ask): let me build the producer-SILENCE trip-wire — the missing mirror of
+    the stuck-ON check we already shipped, which fires when a detector that normally reports goes
+    abnormally quiet. It is the one thing that would have turned this 26-hour blackout into a page on
+    the same afternoon, and its absence is why the outage AND the recovery both passed unnoticed.
+    OPTIONAL, only if you are curious: do you know whether anything changed on the Frigate 2 host
+    around 09-14? It would explain the window, but since the producer healed itself the answer no
+    longer gates anything, and I am still not touching camera config autonomously.'
   links:
     related:
     - CAMERA-ZERO-FIRE-DETECTORS-1
@@ -23895,9 +23896,33 @@ cards:
       this, not a fix. blocked_by OVERNIGHT-PASS-NO-LOG-REACH-1 because the discriminating evidence
       is host-side logs an unattended pass cannot reach.'
   rank:
-    value: 9
-    time_criticality: 9
+    value: 8
+    time_criticality: 4
     effort: 2
+  RE_MEASURED_2026_09_17: 'OVERNIGHT PASS — VERIFY-BEFORE-WORK. Verdict: STILL-REAL (the outage
+    happened) but CARD-WAS-WRONG on its central live claim. THE CLAIM THAT IS NOW WRONG: this card
+    said the house "has been blind for ~36h" and is blind ONGOING. That is FALSE and should not be
+    acted on. WHAT REFUTED IT: an hourly re-count of ON-transitions across every
+    binary_sensor.*_person_occupancy_2 from the HA recorder (Samba mount, immutable=1, recorder
+    verified live-fresh — newest states row 2026-09-17 02:01:10 against a wall clock of 02:01:13).
+    Daily totals 09-10..09-17: 160 / 171 / 580 / 474 / 402 / 42 / 317 / 3-so-far. Detection RECOVERED
+    on 09-16 (317 is squarely inside the normal 160-580 band) and is behaving normally right now —
+    the 3 counted so far today are hours 00 and 01, which matches 09-16 hours 00-02 (1,2) exactly, so
+    it is an ordinary quiet night, not continued silence. HOW THE ORIGINAL CARD GOT IT WRONG, worth
+    keeping as a method lesson: it was measured at 03:30 on 09-16 and read that day''s partial count
+    of 1 as "today is also dark", when a count of ~1-3 before 03:30 is simply what a normal night
+    looks like on this fleet. A partial-day count must be compared against the SAME hours of a
+    reference day, never against a full-day total. THE REAL OUTAGE, now bounded precisely instead of
+    open-ended: hourly buckets show a hard gap from 09-14 13:00 local to 09-15 15:00 local — about 26
+    hours of exactly zero person detections fleet-wide — with normal traffic on both sides of it.
+    Not ~36h, not ongoing. DOWNSTREAM TRACKS AND HAS ALSO RECOVERED (URA DB notification_log,
+    hazard_type=exterior_person, by day): 406 / 568 / 254 / 64 / 263 / 25-so-far for 09-12..09-17, so
+    operator-facing exterior alerts were suppressed during the window and are flowing again.
+    WHAT THIS CHANGES: this is no longer a live emergency and must not be reported as one. It is now
+    (a) a post-hoc question about what happened in that 26h window, which only matters if you care to
+    know, and (b) the durable defect, which is unchanged and is the actual work: a 26-hour fleet-wide
+    blackout of a safety-relevant producer began, ran and ended with NOTHING noticing in either
+    direction. See the producer-silence trip-wire residual in `next`.'
   refs:
   - binary_sensor.front_side_ptz_person_occupancy_2
   - binary_sensor.front_side_ptz_motion_3
@@ -23914,6 +23939,109 @@ cards:
     channel carrying this, which is exactly why the contract makes the page and the card redundant
     rather than alternatives. Flagging it here so nobody assumes the operator was told: as far as I
     know, they have not been.'
+
+- id: CAMERA-SILENT-PRODUCER-TRIPWIRE-1
+  title: Exterior person detection can go fleet-wide silent for a day at a time and nothing notices —
+    build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped
+  thread: perimeter
+  status: in_progress
+  created: '2026-09-17 02:20'
+  updated: '2026-09-17 02:20'
+  refinement_status: initial
+  approval: implied
+  tags:
+  - tier-2
+  - measure-before-build
+  - numbers-get-knobs
+  - mutation-drill
+  problem_solution:
+  - 'Problem: the part of the system that spots people outside the house can stop answering entirely
+    — every outdoor camera at once — and absolutely nothing raises a hand. It has now done this
+    three times in the last eight days, once for 30 hours straight and once for 26, and each time it
+    started, ran and healed itself with nobody any the wiser. While it is out, nobody gets told about
+    a person outside, and the whole thing is invisible because a detector reporting "no person" looks
+    exactly like a calm evening. We already built the opposite check last week — it catches a camera
+    STUCK ON — but a camera stuck OFF, or a detector that has quietly died, sails straight past it.
+    Solution: add the mirror check. If the entire outdoor person-detection fleet reports nobody for
+    longer than it ever normally goes quiet, say so. Deliberately fleet-wide rather than per-camera,
+    because individual cameras are legitimately silent for days and we already have a whole card
+    about how impossible that makes per-camera silence to judge.'
+  origin:
+    date: '2026-09-17'
+    gist: overnight pass re-measured PERIMETER-DETECTION-WENT-DARK-1, found the outage had self-healed
+      AND that it was the second such blackout in eight days — the recurrence is what justified the build
+  why: 'the outage card asks what happened to the cameras; this card is the durable defect underneath
+    it, and they are different problems. The measured recurrence is the argument: this is not a
+    one-off worth a shrug, it is a producer that fails silently on a roughly weekly cadence, and the
+    reason it keeps going unnoticed is a missing check rather than anything about the cameras.'
+  MEASURED_2026_09_17: 'Read-only, HA recorder over the Samba mount (immutable=1), recorder verified
+    live-fresh at read time. Gap analysis over every binary_sensor.*_person_occupancy_2 ON-transition
+    across the full ~8 days of recorder retention, looking for stretches where the WHOLE fleet
+    reported nobody. THREE episodes stand clear of the noise: 29.94h (09-10 10:06 -> 09-11 16:02),
+    25.90h (09-14 13:58 -> 09-15 15:52) and 8.26h (09-09 11:00 -> 09-09 19:15 — a daytime hole, which
+    is the least explainable of the three). NORMAL BEHAVIOUR, by contrast: the largest non-episode
+    fleet-quiet stretch is 4.29h and every other one over 3h is an ordinary overnight lull (09-13
+    21:49, 09-10 00:20, 09-16 20:04). So the separation is clean — roughly 4h normal versus 8h+
+    pathological — and a 6h threshold catches all three episodes with comfortable headroom above
+    anything normal. That is the whole sizing argument, and it is why this is buildable tonight
+    rather than a guess: the number came out of the data instead of out of my head.'
+  parsimony:
+    problem: exterior person detection has gone fleet-wide silent three times in eight days, twice for
+      over a day, and no part of the system noticed the outage OR the recovery
+    verdict: SIMPLIFY
+    note: 'BUILD the FLEET-level silence check only; explicitly PARK per-camera silence baselines. Per
+      camera is where this gets expensive and unreliable — detection rates span 2/day to 204/day and
+      CAMERA-BY-DESIGN-SILENT-EXCLUSION-1 exists precisely because some cameras are silent on purpose,
+      so per-camera silence needs a baseline model and an exclusion list to avoid crying wolf. The
+      fleet check needs neither, has no plausible false positive in eight days of data, and catches
+      100% of the measured episodes. Revive the per-camera variant only if an episode ever hits a
+      subset of the fleet rather than all of it — none of the three did.'
+  prior_art_2026_09_17: 'REUSE, not build — this is a structural twin of the shipped stuck-ON check
+    and should be written as its mirror, not as new machinery. REUSE _exterior_person_sensors()
+    (optimization.py:1941) for the camera->entity map, so the check follows operator config instead of
+    a hardcoded list. REUSE the _evaluate_camera_stuck_dimension() shape (optimization.py:1868):
+    kill-switch-on-zero-threshold, a fired-latch so one episode emits one finding, OptimizationFinding
+    with dimension SENSOR_HEALTH and a dedup_key. REUSE the evaluator registry (optimization.py:922).
+    REUSE the CAMERA_STUCK_ON_THRESHOLD_S constant pattern (const.py:3548) for the new number. NEW,
+    and only this: one evaluator method, one module constant + its kill switch, and the last-seen
+    timestamp state. No new alerting path, no new dimension, no new config-flow field.'
+  knobs:
+  - CAMERA_FLEET_SILENCE_THRESHOLD_S (module constant, const.py beside CAMERA_STUCK_ON_THRESHOLD_S —
+    rung 1 because it is a fitted number derived from a measured distribution, so changing it should
+    require review rather than a dashboard turn; 0 disables the check, same kill-switch convention as
+    its stuck-ON sibling)
+  next: 'BUILD dispatched 2026-09-17 by the overnight pass — fleet-silence evaluator mirroring
+    _evaluate_camera_stuck_dimension, threshold 21600s (6h) per the measured 4.3h-normal / 8.3h-worst
+    separation. To review lane only; NOT deployed (deploying restarts HA in a sleeping occupied house).'
+  links:
+    related:
+    - CAMERA-STUCK-SENSOR-TRIPWIRE-1
+    - PERIMETER-DETECTION-WENT-DARK-1
+    - CAMERA-ZERO-FIRE-DETECTORS-1
+    - CAMERA-BY-DESIGN-SILENT-EXCLUSION-1
+    context: 'CAMERA-STUCK-SENSOR-TRIPWIRE-1 (shipped v5.101.3) is the exact mirror — same sensors,
+      same dimension, opposite polarity — and its code is the template this one should follow.
+      PERIMETER-DETECTION-WENT-DARK-1 is the incident that surfaced this and stays open for its own
+      separate question about what happened on the Frigate host.
+      CAMERA-BY-DESIGN-SILENT-EXCLUSION-1 is the reason this check is deliberately fleet-level rather
+      than per-camera: it documents cameras that are silent on purpose. CAMERA-ZERO-FIRE-DETECTORS-1
+      is the per-camera chronic-silence version and is closed.'
+  rank:
+    value: 8
+    time_criticality: 6
+    effort: 5
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/optimization.py
+  - custom_components/universal_room_automation/const.py
+  DEDUPE_2026_09_17: 'NEW. Swept all four surfaces before minting. Board: grepped every card whose id
+    or title carries tripwire / silence / silent / stuck / zero-fire — found the stuck-ON sibling
+    (shipped), the two closed per-camera silence cards, and OC-STUCK-SENSOR-GENERALIZE-1 (a different
+    axis: generalising stuck detection across device KINDS, not detecting silence). None covers
+    stuck-OFF/producer-silence. docs/BACKLOG.md: grepped silen/trip-wire — no match in this domain.
+    Planning docs: the two exterior-camera AUDITs are referenced by the closed cards and carry the
+    by-design exclusion list, not a silence check. Distinct problem statement from
+    PERIMETER-DETECTION-WENT-DARK-1 (that card asks what broke on the host; this one asks why nothing
+    noticed), so linked rather than folded in, per the retire-and-relink rule.'
 
 - id: PERIMETER-ALERT-VOLUME-FATIGUE-1
   title: "Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue"

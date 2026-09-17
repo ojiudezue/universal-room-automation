@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T23:13:20-05:00_ - _Data commit: `dbdac6acf9f5`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T23:50:48-05:00_ - _Data commit: `e1ab4e8906ea`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -13,7 +13,7 @@ _Generated: 2026-09-16T23:13:20-05:00_ - _Data commit: `dbdac6acf9f5`_ - _last_r
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 10 |
-| 🔨 In progress | 0 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 25 |
 | ⏳ Waiting on me (Claude) | 0 |
@@ -386,10 +386,24 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
+### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#1 · WSJF 3.2 · v8 tc6 u2 /e5_
+thread: **perimeter** - status: **in_progress** - approval: **implied**
+_created 2026-09-17 02:20 · initial_
+- **Problem / Solution:**
+  - Problem: the part of the system that spots people outside the house can stop answering entirely — every outdoor camera at once — and absolutely nothing raises a hand. It has now done this three times in the last eight days, once for 30 h...
+- **Origin:** 2026-09-17 - overnight pass re-measured PERIMETER-DETECTION-WENT-DARK-1, found the outage had self-healed AND that it was the second such blackout in eight days — the recurrence is what justified the build
+- **Why:** the outage card asks what happened to the cameras; this card is the durable defect underneath it, and they are different problems. The measured recurrence is the argument: this is not a one-off worth a shrug, it is a producer that fails ...
+- **Next:** BUILD dispatched 2026-09-17 by the overnight pass — fleet-silence evaluator mirroring _evaluate_camera_stuck_dimension, threshold 21600s (6h) per the measured 4.3h-normal / 8.3h-worst separation. To review lane only; NOT deployed (deploy...
+- **Tags:** tier-2, measure-before-build, numbers-get-knobs, mutation-drill
+- **Parsimony:** [SIMPLIFY] exterior person detection has gone fleet-wide silent three times in eight days, twice for over a day, and no part of the system noticed the outage OR the recovery
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; custom_components/universal_room_automation/const.py
+- **Forensic keys (3):**
+  - `MEASURED_2026_09_17`: Read-only, HA recorder over the Samba mount (immutable=1), recorder verified live-fresh at read time. Gap analysis over every binary_sensor.*_person_occupancy_2 ON-transition across the full ~8 days of recorder retention, looking for str...
+  - `prior_art_2026_09_17`: REUSE, not build — this is a structural twin of the shipped stuck-ON check and should be written as its mirror, not as new machinery. REUSE _exterior_person_sensors() (optimization.py:1941) for the camera->entity map, so the check follow...
+  - `DEDUPE_2026_09_17`: NEW. Swept all four surfaces before minting. Board: grepped every card whose id or title carries tripwire / silence / silent / stuck / zero-fire — found the stuck-ON sibling (shipped), the two closed per-camera silence cards, and OC-STUC...
 
 ## 🔍 Review (1)
 _under review_
@@ -446,25 +460,7 @@ _created 2026-09-15 · initial_
 ## ⏸️ Waiting on operator (25)
 _needs a human call — groomed first_
 
-### `PERIMETER-DETECTION-WENT-DARK-1` - Every exterior person-detector stopped firing on 2026-09-15 while the cameras kept seeing motion — the whole outdoor person-detection layer is effectively blind and has been for ~36h — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
-thread: **perimeter** - status: **waiting_operator** - approval: **blocked**
-_created 2026-09-16 03:30 · initial_
-- **Problem / Solution:**
-  - Problem: the system that spots people outside the house has gone quiet across EVERY outdoor camera at once. Two days ago the cameras between them reported a person about 470 times a day; yesterday that fell to about 40, and so far today ...
-- **Origin:** 2026-09-16 - fell out of re-measuring FRONT-SIDE-PTZ-CHATTER-1 overnight — the chatter had vanished, and checking WHY it vanished turned up a fleet-wide blackout instead of a fix
-- **Why:** exterior person detection feeds perimeter alerts, the property census, the circling/track linker and egress identity. All of them degrade silently when the producer goes quiet, which is precisely the blind spot CAMERA-ZERO-FIRE-DETECTORS...
-- **Next:** ANSWER first, because it changes everything downstream: did you (or anything on the Frigate 2 host) change detection settings, masks, thresholds or the model on or around 2026-09-14/15? -> If NO, treat it as a live outage: Frigate 2 obje...
-- **Tags:** measure-before-build, no-fabrication-verify
-- **Parsimony:** [BUILD] every exterior person-detector went silent within ~24h while motion continued, and the operator-facing alerts went silent with them
-- **Refs:** binary_sensor.front_side_ptz_person_occupancy_2; binary_sensor.front_side_ptz_motion_3; notification_log hazard_type=exterior_person
-- **Forensic keys (5):**
-  - `MEASURED_2026_09_16`: All numbers from the HA recorder over the Samba mount (read-only, immutable=1; ssh to HA was down all night). Daily ON-transition counts per binary_sensor.*_person_occupancy_2, 2026-09-13 -> 2026-09-16 local: front_side_ptz 204 / 64 / 1 ...
-  - `TWO_CANDIDATE_CAUSES_NOT_YET_DISCRIMINATED`: Stated honestly because I could not settle it from here and guessing would be worse than asking. (1) FAULT on the Frigate-2 side — the object detector/ML leg stopped producing while the motion leg kept running. This fits the shape perfec...
-  - `A_TRAP_TO_AVOID`: Do NOT read PERIMETER-ALERT-VOLUME-FATIGUE-1 as having resolved itself. That card measured ~155 alerts/day and asked how to cut the volume; the volume is now 14/day. That is not the fix landing, it is the producer failing, and closing th...
-  - `DEDUPE_2026_09_16`: ADJACENT, not duplicate — swept the board (all 17 FRIGATE/CAMERA/PERIMETER/ STUCK cards), docs/BACKLOG.md, and the perimeter planning/audit docs. CAMERA-ZERO-FIRE-DETECTORS-1 is the nearest prior art but is a CLOSED, per-camera card abou...
-  - `PAGE_ATTEMPTED_2026_09_16`: Tried to page the operator directly about this (it is the one finding tonight that justified interrupting a sleeping house) and the push could NOT be delivered — Remote Control was inactive, so there was nowhere to send it. That means th...
-
-### `OVERNIGHT-PASS-NO-LOG-REACH-1` - The overnight pass cannot read HA logs, so every log-based investigation silently stalls — _#2 · WSJF 9.5 · v6 tc5 u8 /e2_
+### `OVERNIGHT-PASS-NO-LOG-REACH-1` - The overnight pass cannot read HA logs, so every log-based investigation silently stalls — _#1 · WSJF 9.5 · v6 tc5 u8 /e2_
 thread: **platform** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-15 03:45 · initial_
 - **Problem / Solution:**
@@ -475,6 +471,25 @@ _created 2026-09-15 03:45 · initial_
 - **Tags:** tier-1, no-fabrication-verify
 - **Forensic keys (1):**
   - `NARROWED_2026_09_16`: Tonight's pass both CONFIRMED this card and NARROWED it usefully, so the ask to the operator is smaller than the title implies. CONFIRMED, and worse than "no log reach": ssh to the HA host was down for the ENTIRE pass — not a permission ...
+
+### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#2 · WSJF 7.0 · v8 tc4 u2 /e2_
+thread: **perimeter** - status: **waiting_operator** - approval: **blocked**
+_created 2026-09-16 03:30 · updated 2026-09-17 02:10 · refined_
+- **Problem / Solution:**
+  - Problem: the system that spots people outside the house has gone quiet across EVERY outdoor camera at once. Two days ago the cameras between them reported a person about 470 times a day; yesterday that fell to about 40, and so far today ...
+- **Origin:** 2026-09-16 - fell out of re-measuring FRONT-SIDE-PTZ-CHATTER-1 overnight — the chatter had vanished, and checking WHY it vanished turned up a fleet-wide blackout instead of a fix
+- **Why:** exterior person detection feeds perimeter alerts, the property census, the circling/track linker and egress identity. All of them degrade silently when the producer goes quiet, which is precisely the blind spot CAMERA-ZERO-FIRE-DETECTORS...
+- **Next:** READ this first, then APPROVE one thing. READ: stand down on the emergency — exterior person detection came back by itself on 09-15 at about 15:00 and has been normal ever since (see RE_MEASURED_2026_09_17). Last night's card overstated ...
+- **Tags:** measure-before-build, no-fabrication-verify
+- **Parsimony:** [BUILD] every exterior person-detector went silent within ~24h while motion continued, and the operator-facing alerts went silent with them
+- **Refs:** binary_sensor.front_side_ptz_person_occupancy_2; binary_sensor.front_side_ptz_motion_3; notification_log hazard_type=exterior_person
+- **Forensic keys (6):**
+  - `MEASURED_2026_09_16`: All numbers from the HA recorder over the Samba mount (read-only, immutable=1; ssh to HA was down all night). Daily ON-transition counts per binary_sensor.*_person_occupancy_2, 2026-09-13 -> 2026-09-16 local: front_side_ptz 204 / 64 / 1 ...
+  - `TWO_CANDIDATE_CAUSES_NOT_YET_DISCRIMINATED`: Stated honestly because I could not settle it from here and guessing would be worse than asking. (1) FAULT on the Frigate-2 side — the object detector/ML leg stopped producing while the motion leg kept running. This fits the shape perfec...
+  - `A_TRAP_TO_AVOID`: Do NOT read PERIMETER-ALERT-VOLUME-FATIGUE-1 as having resolved itself. That card measured ~155 alerts/day and asked how to cut the volume. During the outage the volume fell to 14/day, which was the producer failing rather than a fix lan...
+  - `RE_MEASURED_2026_09_17`: OVERNIGHT PASS — VERIFY-BEFORE-WORK. Verdict: STILL-REAL (the outage happened) but CARD-WAS-WRONG on its central live claim. THE CLAIM THAT IS NOW WRONG: this card said the house "has been blind for ~36h" and is blind ONGOING. That is FA...
+  - `DEDUPE_2026_09_16`: ADJACENT, not duplicate — swept the board (all 17 FRIGATE/CAMERA/PERIMETER/ STUCK cards), docs/BACKLOG.md, and the perimeter planning/audit docs. CAMERA-ZERO-FIRE-DETECTORS-1 is the nearest prior art but is a CLOSED, per-camera card abou...
+  - `PAGE_ATTEMPTED_2026_09_16`: Tried to page the operator directly about this (it is the one finding tonight that justified interrupting a sleeping house) and the push could NOT be delivered — Remote Control was inactive, so there was nowhere to send it. That means th...
 
 ### `HUMIDITY-LOW-RUNG-PAGING-KNOB-1` - Make the LOW-severity humidity-band NM page null/configurable (un-knobbed rung) — _#3 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **safety** - status: **waiting_operator** - approval: **explicit**
