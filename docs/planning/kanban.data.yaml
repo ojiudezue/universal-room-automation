@@ -10689,6 +10689,23 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  REVIEW_B_2026_09_16: 'Framing B (integration/lifecycle) = FIX-REQUIRED, 1 CRIT + 3 HIGH — real
+    build bugs. B-CRIT-1: the lights-off-on-occupied-hallway regression the PLAN REVIEW predicted,
+    reintroduced via an INCOMPLETE swap — fire gate moved to HVAC-denom (last_occupied_time basis at
+    hvac_zones.py:660) but vacancy_sweep_done RESET stayed lighting-fused (:672), decoupling them so
+    _execute_vacancy_sweep turns hallway lights/fans off on a standing occupant every 30s tick. Fix:
+    keep the sweep gate lighting-fused (or and-not-any_room_occupied) / exclude hallway rooms; reset
+    basis must match fire basis. B-HIGH-2: D9 skip desyncs _last_emitted_range -> after re-occupancy
+    DPM throttle-hits on the stale pair and never re-emits -> thermostat stuck on away setpoints; fix
+    = pop the cache on the D9 skip. B-HIGH-3: ROOM_TYPE_HVAC_HOLD_NIGHT covers only bedroom/media/
+    common/generic/hallway -> bathroom/kitchen/office/utility fall to NIGHT default 0 vs DAY 60 =
+    shorter tail at night than noon -> instant night retreat on a real occupant; fix = full room-type
+    coverage or night-default >= day-default. B-HIGH-1 (OPERATOR DECISION): D7 fused-AND makes the
+    night-trust guard DEAD on the D1 retreat path (needs not-fused) and REMOVES the v4.7.13 person-
+    trust veto (project_zone_away_when_occupied_home_night_gap) — leaving only the known-unreliable
+    mmWave + a bounded tail. B-MED-1 restart mid-tail loses the RAM-only hold; B-MED-2 missing-coord
+    freezes D1 state (benign now); B-LOW-1 armed_by_kind documented-not-emitted. HOLDING for A/C/D to
+    consolidate one fix-up round + surface B-HIGH-1 to operator.'
   FIXUP_DONE_REVIEWS_DISPATCHED_2026_09_16: 'Fix-up complete (@1e17d400a): 3 regressions -> contract
     updates w/ new discriminator tests + mutation drills (fan_trust TestD3 x2 = D7 narrowing; arrester
     S13 = row-9 swap, + new test_S13_pre_heat_skipped_when_hvac_denomination_empty). D2 binary_sensor
