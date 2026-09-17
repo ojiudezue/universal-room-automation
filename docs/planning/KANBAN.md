@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T21:14:34-05:00_ - _Data commit: `41e38cf8a36f`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T22:52:43-05:00_ - _Data commit: `a96dd841dc63`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-09-16T21:14:34-05:00_ - _Data commit: `41e38cf8a36f`_ - _last_r
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 10 |
-| 🔨 In progress | 1 |
-| 🔍 Review | 0 |
+| 🔨 In progress | 0 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 25 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 28 |
@@ -386,11 +386,16 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
+_(none)_
+
+## 🔍 Review (1)
+_under review_
+
 ### `HVAC-ZONE-CONDITIONING-DEMAND-1` - HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC its own dwell-vs-transit derivation instead of tuning a knob that cannot win — _#1 · WSJF 1.8 · v5 tc3 u6 /e8 ⚠_
-thread: **hvac** - status: **in_progress** - approval: **explicit**
+thread: **hvac** - status: **review** - approval: **explicit**
 _created 2026-09-15 · initial_
 - **Problem / Solution:**
   - Problem: the signal HVAC uses to decide whether a zone is occupied was designed for a different job — switching lights on and off. That job needs a generous hold so a light never blinks off on someone standing still, so the room layer ke...
@@ -400,7 +405,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (31):**
+- **Forensic keys (32):**
+  - `FIXUP_DONE_REVIEWS_DISPATCHED_2026_09_16`: Fix-up complete (@1e17d400a): 3 regressions -> contract updates w/ new discriminator tests + mutation drills (fan_trust TestD3 x2 = D7 narrowing; arrester S13 = row-9 swap, + new test_S13_pre_heat_skipped_when_hvac_denomination_empty). D...
   - `BUILD_LANDED_NAMEDIFF_VERIFIED_2026_09_16`: Build landed (feature/hvac-conditioning-demand @6bcba611f, D1-D9 + 17 tests, D9/D7/row-2b mutation drills RED-on-strip). Name-diff = 7 NEW failures — NOT clean. Orchestrator VERIFIED the categorization (isolation on branch vs develop, no...
   - `BUILD_PAGED_PLAN_FIXED_2026_09_16`: Builder paged (No-Fabrication, correct): D1 cited last_edge_kind_for which does not exist (substrate exposes last_edge_entity_for -> entity_id, not kind). ROOT: the kind read was mis-cited AND unused (vestigial) — round-3 already moved D...
   - `ORCH_VALIDATION_PASS_2026_09_16`: Orchestrator personally validated the round-3 plan (operator: validate yourself, watch for over-complication). PASS + not over-built: CRIT-1 resolved via kind- at-rising-edge (last_edge_entity_for) then ride grace-held STATE_OCCUPIED+tai...
@@ -432,11 +438,6 @@ _created 2026-09-15 · initial_
   - `THE_BINDING_CONSTRAINT`: NAMED HERE FOR THE FIRST TIME, and it reframes the whole problem: the 5-minute decision tick is a HARD FLOOR on "react quickly to someone being there if its hot". Even at dwell=0 the worst-case latency to act is a full tick. The founding...
   - `DESIGN_2026_09_15`: Five parts, ordered by blast radius. (1) HVAC-OWNED DERIVATION — add a zone-level "conditioning demand" signal; HVAC consumes it INSTEAD of any_room_occupied. Room automation keeps reading the existing signal untouched, so lights carry n...
   - `DUMMY_PERSON_REJECTED_2026_09_15`: OPERATOR ASKED: "Zone 3 has no zone persons because its a guest wing. Should we stub a dummy?" RECOMMENDATION: NO. The three gates (night-trust away-suppression hvac.py:1788-1795, sleep veto aggregation.py:4017-4019, non-sleep person-hom...
-
-## 🔍 Review (0)
-_under review_
-
-_(none)_
 
 ## ⏸️ Waiting on operator (25)
 _needs a human call — groomed first_

@@ -10689,6 +10689,16 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  FIXUP_DONE_REVIEWS_DISPATCHED_2026_09_16: 'Fix-up complete (@1e17d400a): 3 regressions -> contract
+    updates w/ new discriminator tests + mutation drills (fan_trust TestD3 x2 = D7 narrowing; arrester
+    S13 = row-9 swap, + new test_S13_pre_heat_skipped_when_hvac_denomination_empty). D2 binary_sensor
+    ENTITY built (HVACOccupiedBinarySensor, registry-disabled-default, wire-in anchor). Name-diff NOW
+    CLEAN: NEW=4 GONE=0, all 4 = the verified pre-existing order-flakes (test_v5_7_1 TestD1I6Scope x2 +
+    test_freeze_floor x2, fail identically on develop-isolation). -> in review: 4 framing-disjoint
+    Tier-3 reviews dispatched (A local-correctness, B integration/cross-coord/restart, C test-authority-
+    via-mutation, D adversarial-completeness/falsify INV-1+INV-2). Targeted-only (orchestrator owns the
+    final serial name-diff). Then operator PRE-DEPLOY checkpoint. Deferred: §2a rows 10/11 (reverted,
+    reviews adjudicate); 6-hallway reclassification (operator runbook).'
   BUILD_LANDED_NAMEDIFF_VERIFIED_2026_09_16: 'Build landed (feature/hvac-conditioning-demand @6bcba611f,
     D1-D9 + 17 tests, D9/D7/row-2b mutation drills RED-on-strip). Name-diff = 7 NEW failures — NOT
     clean. Orchestrator VERIFIED the categorization (isolation on branch vs develop, not trusted):
@@ -11194,7 +11204,7 @@ cards:
   title: HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC
     its own dwell-vs-transit derivation instead of tuning a knob that cannot win
   thread: hvac
-  status: in_progress
+  status: review
   created: '2026-09-15'
   updated: '2026-09-15'
   refinement_status: initial
