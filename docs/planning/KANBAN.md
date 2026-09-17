@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T20:35:37-05:00_ - _Data commit: `55c1a124634c`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T20:36:48-05:00_ - _Data commit: `e4114b9b51d8`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -223,7 +223,8 @@ _created 2026-09-16 · initial_
 - **Tags:** tier-3, platform-enabler, institutional-context
 - **Parsimony:** [BUILD] Write mechanics are duplicated per call site and one verb bypasses the funnels entirely, so every new restore path is a fresh chance to omit one.
 - **Refs:** hvac_setpoint.py (the two funnels + the leaked vendor constants); the 7 bypassing set_hvac_mode sites: hvac.py:1724, hvac_override.py:3447/3816/3934/3969, hvac_egress.py:682/778; hvac_excursion.py return_excursion ("Callers still emit the actual wire writes")
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `RESEQUENCING_CONSIDERED_2026_09_16`: Operator pulled this forward for reconsideration: the tonight evidence (HIGH-2 DPM bypass, zone_1 oscillation mystery writer, 7 raw set_hvac_mode, suspected nudge bypass) suggests ungoverned write paths are the ROOT cause of the preset-w...
   - `seq_2026_09_16`: STEP 8 of HVAC-SUPPLE-SEQUENCE-1 — LAST. Fixes duplication, not a live defect: every bug this arc surfaced is already patched at its site. Earlier would mean a large Tier-3 refactor of every thermostat write in an occupied house, competi...
   - `THE_EVIDENCE_2026_09_16`: MEASURED, not asserted — this is what distinguishes a funnel from an abstraction: * 22 call sites route through emit_set_temperature / emit_set_preset_mode. Tidy. * BUT 7 raw `climate.set_hvac_mode` calls BYPASS them entirely (hvac.py:17...
   - `PER_ZONE_CORRECTED_2026_09_16`: OPERATOR: "If we did this, why per zone? It should be the same function, no?" CORRECT, and my sketch was wrong. Ask what per-zone STATE a handle would hold: entity_id is a PARAMETER; the vendor is DERIVED from the entity's platform (memo...
@@ -359,7 +360,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (25):**
+- **Forensic keys (26):**
+  - `HIGH2_AND_RESEQUENCING_2026_09_16`: Operator: HIGH-2 = BRING THE DPM WRITER IN SCOPE (gate _async_apply_preset_overrides hvac.py:2479 on occupancy; INV-2 = delivered conditioning, not just effective_preset). AND operator raised the ROOT-CAUSE question: too many ungoverned ...
   - `PLAN_REVIEW1_COMPLETENESS_2026_09_16`: Tier-3 plan review #1 (completeness) = FIX-REQUIRED, 2 CRIT 3 HIGH 4 MED. Converges w/ #2 on D8 (CRIT-2 = build-the-parked-card-on-refuted-Ziri). DISJOINT catches #2 missed: CRIT-1 (deepest) — the plan is INTERNALLY CONTRADICTORY: hvac_o...
   - `PLAN_REVIEW2_OVERCOMPLICATION_2026_09_16`: Tier-3 plan review #2 (over-complication, operator- requested lens) = FIX-REQUIRED-IN-PLAN, 3 CRIT 4 HIGH. Orchestrator ENDORSES the SIMPLIFY. Key findings: OC-1/OC-2 (CRIT) — the plan's D8 is the PARKED full machinery verbatim (200min, ...
   - `GENERALIZES_ALL_ROOMS_2026_09_16`: Framing correction (operator): the design GENERALIZES to ALL bedrooms/rooms — it is NOT scoped to Master+Jaya. D7 reads the FUSED per-room occupancy signal for ANY room and retreats empty zones / holds occupied ones; nothing is hardcoded...

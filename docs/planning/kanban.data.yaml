@@ -8185,6 +8185,15 @@ cards:
   - activity_logger.py:114-117 (unvalidated entity_id onto the ura_action bus event)
   - 'live ERROR 2026-09-16 boot: recorder core.py:304 -> split_entity_id ValueError garage_a'
 - id: HVAC-THERMOSTAT-ABSTRACTION-1
+  RESEQUENCING_CONSIDERED_2026_09_16: 'Operator pulled this forward for reconsideration: the tonight
+    evidence (HIGH-2 DPM bypass, zone_1 oscillation mystery writer, 7 raw set_hvac_mode, suspected
+    nudge bypass) suggests ungoverned write paths are the ROOT cause of the preset-write problems,
+    not a step-8 cleanup. The earlier "place last, interface revealed by clients 4/5/6" reasoning is
+    weaker now — the write vocabulary is largely revealed. Thermostat write-path INVENTORY dispatched
+    (AUDIT_thermostat_write_paths_2026_09_16) to size it + decide re-sequencing. Operator wants EVERY
+    push AND pull through one handle, borrow included ("maybe borrow should use it; nudges probably
+    dont"). Gated also on the zone_1 oscillation producer (URA path -> abstraction fixes it; cloud ->
+    doesnt). May move ahead of step-4-B.'
   seq_2026_09_16: 'STEP 8 of HVAC-SUPPLE-SEQUENCE-1 — LAST. Fixes duplication, not a live defect: every bug this arc surfaced is already patched at its site. Earlier would mean a large Tier-3 refactor of every thermostat write in an occupied house, competing with fixes that move real numbers. Subsumes HVAC-PRESET-WRITE-STRATEGY-1.'
   title: We unified the call sites but never built an abstraction — three write verbs, two funnels,
     and vendor knowledge loose inside a shared path
@@ -10629,6 +10638,20 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  HIGH2_AND_RESEQUENCING_2026_09_16: 'Operator: HIGH-2 = BRING THE DPM WRITER IN SCOPE (gate
+    _async_apply_preset_overrides hvac.py:2479 on occupancy; INV-2 = delivered conditioning, not just
+    effective_preset). AND operator raised the ROOT-CAUSE question: too many ungoverned thermostat
+    write paths (DPM bypass + zone_1 oscillation mystery writer + 7 raw set_hvac_mode + "nudges
+    probably bypass") -> should HVAC-THERMOSTAT-ABSTRACTION-1 move EARLIER as the structural fix?
+    ORCHESTRATOR: likely yes, but VALIDATE first (measure-before-build) — dispatched a thermostat
+    write-path INVENTORY (AUDIT_thermostat_write_paths_2026_09_16). FORK: if the inventory shows many
+    URA bypass paths AND tomorrow''s oscillation trace shows the re-manual writer is a URA path, the
+    abstraction is THE structural fix (move it ahead of / absorb step-4-B''s DPM gating). If the
+    oscillation is Bryant-CLOUD, the abstraction still fixes HIGH-2 + the bypass class but is not the
+    oscillation fix. HOLDING the step-4-B round-3 plan revision until the inventory returns — do NOT
+    hard-code a DPM point-gate into step-4-B if the abstraction is going to own it. Round-3 must still
+    fix: D8->modest night ROOM_TYPE_HVAC_HOLD value, CRIT-1 kind-filter-not-raw, complete enumeration,
+    generalization acceptance criterion, MEDs.'
   PLAN_REVIEW1_COMPLETENESS_2026_09_16: 'Tier-3 plan review #1 (completeness) = FIX-REQUIRED, 2 CRIT
     3 HIGH 4 MED. Converges w/ #2 on D8 (CRIT-2 = build-the-parked-card-on-refuted-Ziri). DISJOINT
     catches #2 missed: CRIT-1 (deepest) — the plan is INTERNALLY CONTRADICTORY: hvac_occupied =
