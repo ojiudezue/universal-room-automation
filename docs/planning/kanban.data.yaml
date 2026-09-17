@@ -10588,6 +10588,27 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  PLAN_REVIEW1_COMPLETENESS_2026_09_16: 'Tier-3 plan review #1 (completeness) = FIX-REQUIRED, 2 CRIT
+    3 HIGH 4 MED. Converges w/ #2 on D8 (CRIT-2 = build-the-parked-card-on-refuted-Ziri). DISJOINT
+    catches #2 missed: CRIT-1 (deepest) — the plan is INTERNALLY CONTRADICTORY: hvac_occupied =
+    STATE_OCCUPIED AND is_kind_active(), but is_kind_active is a RAW substrate read (its docstring),
+    so the AND drops the signal on any raw mmWave blip (100-186min) — the raw-read failure the night
+    measurement warned of, laundered through one indirection; the plan''s own reads-fused-not-raw test
+    would FAIL against its own D1 formula. FIX: kind filter at rising-edge/attribution or a HELD per-
+    kind signal, never a live AND over _raw_state. HIGH-2 (scope SEAM, operator call): D7 gating
+    effective_preset is NOT sufficient — _async_apply_preset_overrides (hvac.py:2479) recomputes
+    setpoints from house_state and writes set_temperature, BYPASSING effective_preset, so an empty
+    zone D7 left at away still gets home-baseline setpoints when EC has a dynamic override. INV-2
+    unachievable while that path runs unless it too is gated on occupancy. HIGH-1: enumeration still
+    incomplete — hvac_predict.py:578/1368 (pre-cool) + hvac_override.py:2282/2433 (preset overrides)
+    are conditioning-decision sites w/ no verdict. HIGH-3: D8 missing a mid-window-departure discharge
+    (occupant leaves 02-06 while another keeps house in FAN_TRUST_STATES -> force-holds empty bedroom).
+    MEDs: generalization not an acceptance criterion; §0a overstates measurement (all-7-nights vs
+    Master+Jaya only); INV-2 omits the zi precondition; HVAC-PRESET-FLAP-1 interaction + DST unaddressed.
+    ORCHESTRATOR VALIDATION (operator asked): over-complication REAL (D8 -> simplify, endorsed) AND two
+    real SEAMS missed (CRIT-1 correctness, HIGH-2 DPM bypass). Plan NOT ready; needs round-3 revision
+    + HIGH-2 is an operator scope decision (bring DPM writer into step-4-B vs card separately + narrow
+    INV-2 to the preset path).'
   PLAN_REVIEW2_OVERCOMPLICATION_2026_09_16: 'Tier-3 plan review #2 (over-complication, operator-
     requested lens) = FIX-REQUIRED-IN-PLAN, 3 CRIT 4 HIGH. Orchestrator ENDORSES the SIMPLIFY. Key
     findings: OC-1/OC-2 (CRIT) — the plan''s D8 is the PARKED full machinery verbatim (200min, 4
