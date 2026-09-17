@@ -427,6 +427,11 @@ ROOM_TYPE_UTILITY: Final = "utility"
 ROOM_TYPE_COMMON_AREA: Final = "common_area"
 ROOM_TYPE_GENERIC: Final = "generic"
 ROOM_TYPE_INFRASTRUCTURE: Final = "infrastructure"  # v4.2.0: Always-on equipment rooms
+# HVAC-ZONE-CONDITIONING-DEMAND-1 D4 (2026-09-16): "hallway" enum — a
+# CIRCULATION exclusion for the HVAC-occupancy denomination. Hallways carry
+# transit occupancy that MUST NOT arm zone conditioning. All non-HVAC surfaces
+# treat this exactly like any other room type (lighting, fans, covers unchanged).
+ROOM_TYPE_HALLWAY: Final = "hallway"
 
 # --- Step 2: Sensors ---
 CONF_MOTION_SENSORS: Final = "motion_sensors"
@@ -1178,7 +1183,41 @@ ROOM_TYPE_TIMEOUTS: Final = {
     ROOM_TYPE_COMMON_AREA: 900,  # 15 minutes
     ROOM_TYPE_GENERIC: 300,      # 5 minutes
     ROOM_TYPE_INFRASTRUCTURE: 120,  # 2 minutes (rarely visited)
+    ROOM_TYPE_HALLWAY: 120,      # 2 minutes (transit only)
 }
+
+# ============================================================================
+# HVAC-ZONE-CONDITIONING-DEMAND-1 D3/D8 (2026-09-16): per-room HVAC vacancy
+# tail-hold. The D1 producer at hvac_zones.py rides grace-held STATE_OCCUPIED
+# and, on a falling edge, extends `hvac_occupied` for a room-type-tuned tail
+# window before releasing the zone's HVAC-occupancy denomination. Distinct
+# from ROOM_TYPE_TIMEOUTS (motion-clear grace) and CONF_FAN_VACANCY_HOLD
+# (fan-off-delay). Never fires for hallway (D1 rejects hallway upstream).
+# ============================================================================
+DEFAULT_HVAC_VACANCY_HOLD: Final = 60         # 1 minute (daytime baseline)
+DEFAULT_HVAC_VACANCY_HOLD_NIGHT: Final = 0    # No day-tail baseline at night;
+                                              # ROOM_TYPE_HVAC_HOLD_NIGHT wins.
+# Day-side tail hold (self-gating: only extends an existing D1 arm).
+ROOM_TYPE_HVAC_HOLD: Final = {
+    ROOM_TYPE_BEDROOM: 60,       # 1 min
+    ROOM_TYPE_MEDIA_ROOM: 120,   # 2 min
+    ROOM_TYPE_COMMON_AREA: 60,   # 1 min
+    ROOM_TYPE_HALLWAY: 0,        # never — hallway is CIRCULATION EXCLUSION
+}
+# Night-side variant. D1 picks this table when self._house_state in
+# FAN_TRUST_STATES. Sized as an insurance tail for unmeasured bedrooms
+# whose mmwave can drop a still body mid-sleep.
+ROOM_TYPE_HVAC_HOLD_NIGHT: Final = {
+    ROOM_TYPE_BEDROOM: 1800,     # 30 min
+    ROOM_TYPE_MEDIA_ROOM: 1800,  # 30 min
+    ROOM_TYPE_COMMON_AREA: 600,  # 10 min
+    ROOM_TYPE_GENERIC: 600,      # 10 min
+    ROOM_TYPE_HALLWAY: 0,        # never
+}
+
+# Per-room override for HVAC vacancy tail hold (seconds). Rare per-room tune;
+# empty / None => fall through to ROOM_TYPE_HVAC_HOLD[.NIGHT] table.
+CONF_HVAC_VACANCY_HOLD: Final = "hvac_vacancy_hold"
 
 # v4.5.15: Room-type-specific failsafe durations. Caps the maximum time
 # a room can stay "occupied" before URA forces vacancy, regardless of

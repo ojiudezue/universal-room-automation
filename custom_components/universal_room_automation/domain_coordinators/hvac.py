@@ -1070,7 +1070,7 @@ class HVACCoordinator(BaseCoordinator):
 
         # Initial zone update
         self._zone_manager.update_all_zones()
-        self._zone_manager.update_room_conditions()
+        self._zone_manager.update_room_conditions(house_state=self._house_state)
 
         # Discover fans and covers
         fan_rooms = self._fan_controller.discover_fans()
@@ -1448,7 +1448,7 @@ class HVACCoordinator(BaseCoordinator):
 
         # Update zone states
         self._zone_manager.update_all_zones()
-        self._zone_manager.update_room_conditions()
+        self._zone_manager.update_room_conditions(house_state=self._house_state)
 
         # CARRIER-STALE-POLL-REFRESH-1 D1: per-tick Carrier freshness check.
         # Wire-in anchors (fix-up round 2026-09-09, C-HIGH-2):
@@ -1786,12 +1786,32 @@ class HVACCoordinator(BaseCoordinator):
             # coordinator forces "away" against a still-any_room_occupied zone.
             stale_occupancy = False
 
+            # HVAC-ZONE-CONDITIONING-DEMAND-1 D6 (doc-only, 2026-09-16):
+            # retreat semantics on the preset-flip path (row 1) + the D6
+            # stale-occupancy branch (row 4) key on the HVAC-occupancy
+            # denomination — `zone.any_room_hvac_occupied` — NOT the
+            # lighting-fused `any_room_occupied`. Downstream basis writes
+            # `last_occupied_time` (row 2a) and `continuous_occupied_since`
+            # (row 2c) share the same denomination; `zone_presence_state`
+            # (row 7) similarly swaps to match. Lighting / fan / cover
+            # surfaces continue to read the lighting-fused sibling.
             # --- D1/D5/D6: Zone Intelligence overrides (gated by toggle) ---
             if zi:
-                # D1: Per-zone vacancy override
-                # Only override "home" preset — sleep/away/vacation are already correct
+                # D1: Per-zone vacancy override.
+                # HVAC-ZONE-CONDITIONING-DEMAND-1 §2a row 1: SWAP the
+                # preset-flip retreat gate from the lighting-fused
+                # `any_room_occupied` to the HVAC-denomination sibling
+                # `any_room_hvac_occupied`. This is the load-bearing
+                # preset-decision site — hallway transits must not keep
+                # a bedroom zone in `home` past a legitimate retreat.
+                # Only override "home"/"sleep" presets — away/vacation are already correct.
+                _row1_fused = getattr(zone, "any_room_hvac_occupied", None)
+                if _row1_fused is None:
+                    # Fail-OPEN for legacy fakes lacking both attributes:
+                    # default True preserves pre-cycle behavior.
+                    _row1_fused = getattr(zone, "any_room_occupied", True)
                 zone_vacant_past_grace = (
-                    not zone.any_room_occupied
+                    not _row1_fused
                     and zone.last_occupied_time is not None
                     and (now - zone.last_occupied_time).total_seconds()
                     > grace_minutes * 60
@@ -1811,8 +1831,15 @@ class HVACCoordinator(BaseCoordinator):
                 # If 2+ independent sources confirm presence, reset the timer
                 # instead of forcing away. Only treat as stale if a single
                 # stuck sensor is the sole evidence.
+                # HVAC-ZONE-CONDITIONING-DEMAND-1 §2a row 4: SWAP D6
+                # stale-occupancy branch to HVAC denomination. This is the
+                # sibling of the row-1 preset-flip retreat and consumes the
+                # HVAC-scoped `continuous_occupied_since` write (row 2c).
+                _row4_fused = getattr(zone, "any_room_hvac_occupied", None)
+                if _row4_fused is None:
+                    _row4_fused = getattr(zone, "any_room_occupied", True)
                 if (
-                    zone.any_room_occupied
+                    _row4_fused
                     and self._house_state != "sleep"
                     and zone.continuous_occupied_since is not None
                     and (now - zone.continuous_occupied_since).total_seconds()
@@ -2024,7 +2051,28 @@ class HVACCoordinator(BaseCoordinator):
             # (project_zone_away_when_occupied_home_night_gap.md): Zone 1
             # flipped to `away` 7+ times during home_night because this
             # gate was sleep-only.
-            if effective_preset == "away" and self._house_state in FAN_TRUST_STATES:
+            if (
+                effective_preset == "away"
+                and self._house_state in FAN_TRUST_STATES
+                # HVAC-ZONE-CONDITIONING-DEMAND-1 D7 (2026-09-16): SINGLE
+                # early guard on the FUSED denomination. When the zone is
+                # empty in `any_room_hvac_occupied` (fused D1 signal —
+                # grace-held STATE_OCCUPIED + tail, hallway excluded), the
+                # night-trust suppression MUST NOT preserve `home`; let
+                # `away` stand and DO NOT touch _night_trust_logged. The
+                # legitimate suppression path below (non-empty fused +
+                # zone_persons home) is byte-identical to pre-cycle.
+                # INV-2: empty zone retreats within one loop tick even
+                # under FAN_TRUST_STATES. Reads the D1 sibling, NEVER a
+                # raw substrate entity; grep-provable at this site.
+                # Defensive read (see D9 for rationale). Real ZoneState
+                # always provides the property; legacy fakes default True.
+                and (
+                    getattr(zone, "any_room_hvac_occupied", None)
+                    if getattr(zone, "any_room_hvac_occupied", None) is not None
+                    else getattr(zone, "any_room_occupied", True)
+                )
+            ):
                 home_persons = []
                 try:
                     for person_entity in (zone.zone_persons or []):
@@ -2512,6 +2560,53 @@ class HVACCoordinator(BaseCoordinator):
                     if callable(_log):
                         _log(zone.zone_name, zone_id, "dpm_preset_override")
                     continue
+                # HVAC-ZONE-CONDITIONING-DEMAND-1 D9 (2026-09-16): CALLER-SIDE
+                # POINT-GATE on the FUSED HVAC-occupancy denomination. When the
+                # zone is empty in `zone.any_room_hvac_occupied` (D1 fused
+                # signal), the DPM MUST NOT compose home-baseline setpoints
+                # from `target_preset` (which is derived from house_state and
+                # is NOT zone-scoped) and MUST NOT emit them — doing so would
+                # silently overwrite a caller-narrowed effective_preset (e.g.
+                # D7's `away` retreat) at the setpoint layer while
+                # `preset_mode` is left untouched (the setpoint-vs-mode split
+                # identified in AUDIT_thermostat_write_paths_2026_09_16).
+                #
+                # Placement: BEFORE `get_seasonal_setpoints` (avoid wasted
+                # compute + no throttle read + no arrester suppress); AFTER
+                # the egress-pause gate (:2492) and arrester-hold gate
+                # (:2506) so those keep their more-specific short-circuits.
+                # Reads `any_room_hvac_occupied` — NEVER `any_room_occupied`
+                # (lighting-fused hallway crossing would keep DPM writing
+                # baseline) and NEVER a raw substrate entity. Grep-provable.
+                # Wire chokepoint at :2568 (`emit_set_temperature`) is
+                # UNTOUCHED. Aligned with HVAC-PRESET-FLAP-1: D9 SKIPS a
+                # write; flap suppression is about NOT writing on damped-flap
+                # conditions, so skipping is not a shortening of that window.
+                # Defensive read: real ZoneState always provides
+                # `any_room_hvac_occupied` (property). When BOTH attrs are
+                # missing OR the zone has no room_conditions configured
+                # (bare test fakes / not-yet-populated zones), default
+                # TRUE so pre-cycle DPM behavior is preserved. Production
+                # zones always resolve through the property.
+                _fused = getattr(zone, "any_room_hvac_occupied", None)
+                if _fused is None:
+                    _fused = getattr(zone, "any_room_occupied", True)
+                if not getattr(zone, "room_conditions", None):
+                    # No room population — cannot judge; treat as
+                    # occupied and let downstream throttle / arrester
+                    # gates decide. INV-2 unaffected: real zones always
+                    # have room_conditions populated by ZoneManager
+                    # before DPM runs.
+                    _fused = True
+                if not _fused:
+                    try:
+                        self._dpm_skipped_empty_zones = (
+                            getattr(self, "_dpm_skipped_empty_zones", 0) + 1
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+                    continue
+
                 zone_overrides = all_overrides.get(zone_id, [])
 
                 # Get baseline from preset manager
@@ -3631,7 +3726,16 @@ class HVACCoordinator(BaseCoordinator):
                 zone.zone_presence_state = "pre_arrival"
             elif zone_id in pre_conditioning_zones:
                 zone.zone_presence_state = "pre_conditioning"
-            elif zone.any_room_occupied:
+            # HVAC-ZONE-CONDITIONING-DEMAND-1 §2a row 7: SWAP zone_presence_state
+            # to the HVAC denomination. Pairs with row 2a's HVAC-scoped
+            # last_occupied_time so the "vacant" branch's grace math uses a
+            # matching basis. Diagnostic entity now reports HVAC-side
+            # occupancy (matches intent).
+            elif (
+                getattr(zone, "any_room_hvac_occupied", None)
+                if getattr(zone, "any_room_hvac_occupied", None) is not None
+                else getattr(zone, "any_room_occupied", True)
+            ):
                 zone.zone_presence_state = "occupied"
             elif (
                 zone.last_occupied_time is not None

@@ -71,6 +71,7 @@ from .const import (
     ROOM_TYPE_COMMON_AREA,
     ROOM_TYPE_GENERIC,
     ROOM_TYPE_INFRASTRUCTURE,
+    ROOM_TYPE_HALLWAY,
     DEFAULT_OCCUPANCY_TIMEOUT,
     DEFAULT_OCCUPANCY_DEBOUNCE,
     ROOM_TYPE_TIMEOUTS,
@@ -1393,6 +1394,8 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             {"label": "Common Area (Living/Dining)", "value": ROOM_TYPE_COMMON_AREA},
             {"label": "Generic Room", "value": ROOM_TYPE_GENERIC},
             {"label": "Infrastructure (Always-On Equipment)", "value": ROOM_TYPE_INFRASTRUCTURE},
+            # HVAC-ZONE-CONDITIONING-DEMAND-1 D4: hallway = CIRCULATION exclusion for HVAC-occupancy.
+            {"label": "Hallway (Circulation — excluded from HVAC occupancy)", "value": ROOM_TYPE_HALLWAY},
         ]
 
         # v3.3.5.3: Get existing zones from Zone config entries
@@ -10417,6 +10420,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             {"label": "Common Area (Living/Dining)", "value": ROOM_TYPE_COMMON_AREA},
             {"label": "Generic Room", "value": ROOM_TYPE_GENERIC},
             {"label": "Infrastructure (Always-On Equipment)", "value": ROOM_TYPE_INFRASTRUCTURE},
+            # HVAC-ZONE-CONDITIONING-DEMAND-1 D4: hallway = CIRCULATION exclusion for HVAC-occupancy.
+            {"label": "Hallway (Circulation — excluded from HVAC occupancy)", "value": ROOM_TYPE_HALLWAY},
         ]
 
         # Get existing zones for combo selector

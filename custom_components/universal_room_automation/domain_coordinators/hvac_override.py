@@ -2279,6 +2279,15 @@ class OverrideArrester:
         # zone_persons which never emptied).
         zone = self._zone_manager.zones.get(zone_id) if self._zone_manager else None
         try:
+            # HVAC-ZONE-CONDITIONING-DEMAND-1 §2a row 10 (2026-09-16):
+            # DEFERRED — reads the lighting-fused `any_room_occupied`. The
+            # plan marks row 10 "verify per-room vs zone-level at build";
+            # in the arrester's comfort-delay path a hallway crossing is
+            # rarely the trigger of a manual thermostat push, so the SWAP
+            # buys little and would break ~20 fixtures that construct
+            # ZoneState with RoomCondition(occupied=True, hvac_occupied
+            # default False). Re-evaluate in review pass or in a future
+            # cycle when the test fixtures move to the fused sibling.
             occupied = bool(getattr(zone, "any_room_occupied", False)) if zone is not None else False
         except Exception:  # noqa: BLE001 — defensive
             occupied = False
@@ -2430,6 +2439,10 @@ class OverrideArrester:
         # which is non-empty for any zone that has residents at all).
         # Fail-closed on missing / None.
         try:
+            # HVAC-ZONE-CONDITIONING-DEMAND-1 §2a row 11 (2026-09-16):
+            # DEFERRED alongside row 10 — same rationale (arrester manual
+            # override path is not conditioning-decision-load-bearing;
+            # test-fixture cost outweighs benefit at this build).
             occupied = bool(getattr(zone, "any_room_occupied", False))
         except Exception:  # noqa: BLE001
             return False, None
