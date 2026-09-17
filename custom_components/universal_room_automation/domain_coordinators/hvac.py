@@ -1805,23 +1805,63 @@ class HVACCoordinator(BaseCoordinator):
                 # preset-decision site — hallway transits must not keep
                 # a bedroom zone in `home` past a legitimate retreat.
                 # Only override "home"/"sleep" presets — away/vacation are already correct.
-                _row1_fused = getattr(zone, "any_room_hvac_occupied", None)
-                if _row1_fused is None:
-                    # Fail-OPEN for legacy fakes lacking both attributes:
-                    # default True preserves pre-cycle behavior.
+                # HVAC-ZONE-CONDITIONING-DEMAND-1 D-HIGH-1 fix-up
+                # (2026-09-17): row-1 fail-OPEN + person-trust backstop.
+                # An unestablished zone (no D1 producer read yet for
+                # any room) must NOT drive a night-retreat — the ~5x/
+                # night CM reload wipes in-memory D1 state and can
+                # seed last_occupied_time past grace on first tick.
+                # Additionally, under FAN_TRUST_STATES the v4.7.13-style
+                # person-trust veto is restored as a backstop: if
+                # zone_persons phone reads `home` AND the fused signal
+                # is unestablished, do NOT retreat. Normal established-
+                # fused path is unchanged (cycle's intent).
+                _row1_fused_raw = getattr(zone, "any_room_hvac_occupied", None)
+                if _row1_fused_raw is None:
+                    # Legacy fake shape — fail-OPEN via lighting-fused.
                     _row1_fused = getattr(zone, "any_room_occupied", True)
-                zone_vacant_past_grace = (
-                    not _row1_fused
-                    and zone.last_occupied_time is not None
-                    and (now - zone.last_occupied_time).total_seconds()
-                    > grace_minutes * 60
+                else:
+                    _row1_fused = _row1_fused_raw
+                _row1_established = self._is_zone_hvac_established(zone)
+                # Fail-open when unestablished OR (night-flank + a
+                # home-person known here). Established+empty at night
+                # still retreats — that IS the cycle's intent.
+                _row1_fail_open = (not _row1_established) or (
+                    self._house_state in FAN_TRUST_STATES
+                    and not _row1_fused
+                    and self._zone_has_home_person(zone)
                 )
+                if _row1_fail_open:
+                    zone_vacant_past_grace = False
+                else:
+                    zone_vacant_past_grace = (
+                        not _row1_fused
+                        and zone.last_occupied_time is not None
+                        and (now - zone.last_occupied_time).total_seconds()
+                        > grace_minutes * 60
+                    )
 
                 if zone_vacant_past_grace and target_preset in ("home", "sleep"):
                     effective_preset = "away"
 
-                    # Zone sweep: turn off lights + fans (once per vacancy cycle)
-                    if not zone.vacancy_sweep_done and zone.vacancy_sweep_enabled:
+                    # HVAC-ZONE-CONDITIONING-DEMAND-1 fix-up round 2
+                    # (2026-09-17, A-HIGH/B-CRIT-1): DECOUPLE the vacancy
+                    # sweep call from the HVAC-denomination retreat. The
+                    # sweep is a LIGHTING actuator — it must fire only
+                    # when the room is empty in the LIGHTING denomination
+                    # (`not zone.any_room_occupied`). A standing hallway
+                    # occupant makes the zone HVAC-empty (CIRCULATION
+                    # EXCLUSION) but the hallway lights must stay on
+                    # while the person is IN the hallway. Same shape as
+                    # row 2b's NO-SWAP write basis in hvac_zones.py.
+                    _sweep_light_ok = not getattr(
+                        zone, "any_room_occupied", False,
+                    )
+                    if (
+                        _sweep_light_ok
+                        and not zone.vacancy_sweep_done
+                        and zone.vacancy_sweep_enabled
+                    ):
                         await self._execute_vacancy_sweep(zone)
                         zone.vacancy_sweep_done = True
                         self._vacancy_sweeps_today.increment()
@@ -1880,7 +1920,23 @@ class HVACCoordinator(BaseCoordinator):
                         # True while we force effective_preset -> "away").
                         stale_occupancy = True
                         effective_preset = "away"
-                        if not zone.vacancy_sweep_done and zone.vacancy_sweep_enabled:
+                        # HVAC-ZONE-CONDITIONING-DEMAND-1 fix-up round 2
+                        # (2026-09-17, A-HIGH/B-CRIT-1): sibling of the
+                        # row-1 sweep decouple. The D6 stale branch only
+                        # sweeps lighting when the zone is empty in the
+                        # LIGHTING denomination. In practice this branch
+                        # is entered because the HVAC-fused signal shows
+                        # continuous occupancy > max_hours (a stuck
+                        # sensor); if lighting shows real occupancy we
+                        # DO NOT sweep the lights dark.
+                        _sweep_light_ok = not getattr(
+                            zone, "any_room_occupied", False,
+                        )
+                        if (
+                            _sweep_light_ok
+                            and not zone.vacancy_sweep_done
+                            and zone.vacancy_sweep_enabled
+                        ):
                             await self._execute_vacancy_sweep(zone)
                             zone.vacancy_sweep_done = True
                             self._vacancy_sweeps_today.increment()
@@ -2051,27 +2107,32 @@ class HVACCoordinator(BaseCoordinator):
             # (project_zone_away_when_occupied_home_night_gap.md): Zone 1
             # flipped to `away` 7+ times during home_night because this
             # gate was sleep-only.
+            # HVAC-ZONE-CONDITIONING-DEMAND-1 D7 (2026-09-16, revised
+            # 2026-09-17 for D-HIGH-1 / D-MED-2). Unified fail-OPEN
+            # polarity with row-1 + person-trust backstop.
+            #
+            # Retreat (let `away` stand) only when the zone is
+            # ESTABLISHED (D1 has read every room >=1x) AND fused-empty.
+            # Otherwise fall through to the LEGACY home_persons block
+            # below — that block preserves `home` when any zone_persons
+            # phone reads `home`, which is the v4.7.13 veto and now the
+            # backstop for the unestablished / degraded case (D-HIGH-1
+            # closure: ~5x/night CM reload wipes D1 in-memory state; a
+            # sleeping bedroom must not retreat until the fused signal
+            # has proven itself real for this zone).
+            _d7_fused_raw = getattr(zone, "any_room_hvac_occupied", None)
+            if _d7_fused_raw is None:
+                _d7_fused = getattr(zone, "any_room_occupied", True)
+            else:
+                _d7_fused = _d7_fused_raw
+            _d7_should_retreat = (
+                self._is_zone_hvac_established(zone)
+                and not _d7_fused
+            )
             if (
                 effective_preset == "away"
                 and self._house_state in FAN_TRUST_STATES
-                # HVAC-ZONE-CONDITIONING-DEMAND-1 D7 (2026-09-16): SINGLE
-                # early guard on the FUSED denomination. When the zone is
-                # empty in `any_room_hvac_occupied` (fused D1 signal —
-                # grace-held STATE_OCCUPIED + tail, hallway excluded), the
-                # night-trust suppression MUST NOT preserve `home`; let
-                # `away` stand and DO NOT touch _night_trust_logged. The
-                # legitimate suppression path below (non-empty fused +
-                # zone_persons home) is byte-identical to pre-cycle.
-                # INV-2: empty zone retreats within one loop tick even
-                # under FAN_TRUST_STATES. Reads the D1 sibling, NEVER a
-                # raw substrate entity; grep-provable at this site.
-                # Defensive read (see D9 for rationale). Real ZoneState
-                # always provides the property; legacy fakes default True.
-                and (
-                    getattr(zone, "any_room_hvac_occupied", None)
-                    if getattr(zone, "any_room_hvac_occupied", None) is not None
-                    else getattr(zone, "any_room_occupied", True)
-                )
+                and not _d7_should_retreat
             ):
                 home_persons = []
                 try:
@@ -2560,57 +2621,65 @@ class HVACCoordinator(BaseCoordinator):
                     if callable(_log):
                         _log(zone.zone_name, zone_id, "dpm_preset_override")
                     continue
-                # HVAC-ZONE-CONDITIONING-DEMAND-1 D9 (2026-09-16): CALLER-SIDE
-                # POINT-GATE on the FUSED HVAC-occupancy denomination. When the
-                # zone is empty in `zone.any_room_hvac_occupied` (D1 fused
-                # signal), the DPM MUST NOT compose home-baseline setpoints
-                # from `target_preset` (which is derived from house_state and
-                # is NOT zone-scoped) and MUST NOT emit them — doing so would
-                # silently overwrite a caller-narrowed effective_preset (e.g.
-                # D7's `away` retreat) at the setpoint layer while
-                # `preset_mode` is left untouched (the setpoint-vs-mode split
-                # identified in AUDIT_thermostat_write_paths_2026_09_16).
+                # HVAC-ZONE-CONDITIONING-DEMAND-1 D9 (2026-09-17 fix-up
+                # round 2 — COMPOSE-AWAY, operator-endorsed). CALLER-SIDE
+                # POINT-GATE on the FUSED HVAC-occupancy denomination. When
+                # the zone is empty in `zone.any_room_hvac_occupied` (D1
+                # fused signal), the DPM DOES NOT SKIP — it composes the
+                # `away` preset baseline (instead of the house-state
+                # target_preset baseline) for THIS zone and emits it
+                # through the existing chokepoint.
                 #
-                # Placement: BEFORE `get_seasonal_setpoints` (avoid wasted
-                # compute + no throttle read + no arrester suppress); AFTER
-                # the egress-pause gate (:2492) and arrester-hold gate
-                # (:2506) so those keep their more-specific short-circuits.
+                # Why compose-away (not skip): the DPM is the *corrector*
+                # for third-writer restores (nudge-restore, pre-heat
+                # return, ramp-audit) that would otherwise strand an
+                # empty zone at comfort setpoints all night (D-HIGH-2 —
+                # sibling writer strands the zone). Emitting the `away`
+                # baseline lets the throttle guard on `_last_emitted_range`
+                # dedupe repeat writes cheaply, and any concurrent
+                # third-writer restore is overwritten on the next tick.
+                #
+                # Fail-OPEN polarity (D-MED-2, unified with D7/row-1):
+                # when the fused signal is UN-ESTABLISHED for this zone
+                # (D1 producer has not observed >=1 arm/release cycle
+                # for any of the zone's rooms since ZoneManager
+                # construction — see `_is_zone_hvac_established`) OR the
+                # zone has no room_conditions yet (early boot / test
+                # fake), keep pre-cycle behaviour: use the caller-narrowed
+                # `target_preset`, no retreat. Only ESTABLISHED empty
+                # zones compose-away.
+                #
                 # Reads `any_room_hvac_occupied` — NEVER `any_room_occupied`
                 # (lighting-fused hallway crossing would keep DPM writing
-                # baseline) and NEVER a raw substrate entity. Grep-provable.
-                # Wire chokepoint at :2568 (`emit_set_temperature`) is
-                # UNTOUCHED. Aligned with HVAC-PRESET-FLAP-1: D9 SKIPS a
-                # write; flap suppression is about NOT writing on damped-flap
-                # conditions, so skipping is not a shortening of that window.
-                # Defensive read: real ZoneState always provides
-                # `any_room_hvac_occupied` (property). When BOTH attrs are
-                # missing OR the zone has no room_conditions configured
-                # (bare test fakes / not-yet-populated zones), default
-                # TRUE so pre-cycle DPM behavior is preserved. Production
-                # zones always resolve through the property.
+                # baseline) and NEVER a raw substrate entity.
                 _fused = getattr(zone, "any_room_hvac_occupied", None)
                 if _fused is None:
+                    # Legacy fake / not-yet-populated zone shape — treat
+                    # as occupied so the pre-cycle path proceeds.
                     _fused = getattr(zone, "any_room_occupied", True)
-                if not getattr(zone, "room_conditions", None):
-                    # No room population — cannot judge; treat as
-                    # occupied and let downstream throttle / arrester
-                    # gates decide. INV-2 unaffected: real zones always
-                    # have room_conditions populated by ZoneManager
-                    # before DPM runs.
-                    _fused = True
-                if not _fused:
+                _rc_ready = bool(getattr(zone, "room_conditions", None))
+                _zone_established = self._is_zone_hvac_established(zone)
+                _compose_away = (
+                    _rc_ready
+                    and _zone_established
+                    and not _fused
+                )
+                if _compose_away:
+                    zone_target_preset = "away"
                     try:
-                        self._dpm_skipped_empty_zones = (
-                            getattr(self, "_dpm_skipped_empty_zones", 0) + 1
+                        self._dpm_composed_away_zones = (
+                            getattr(self, "_dpm_composed_away_zones", 0) + 1
                         )
                     except Exception:  # noqa: BLE001
                         pass
-                    continue
+                else:
+                    zone_target_preset = target_preset
 
                 zone_overrides = all_overrides.get(zone_id, [])
 
-                # Get baseline from preset manager
-                baseline = self._preset_manager.get_seasonal_setpoints(target_preset)
+                # Get baseline from preset manager (compose-away swaps to
+                # the `away` baseline for empty established zones).
+                baseline = self._preset_manager.get_seasonal_setpoints(zone_target_preset)
                 if baseline is None:
                     continue
                 baseline_cool, _baseline_heat = baseline
@@ -2620,9 +2689,12 @@ class HVACCoordinator(BaseCoordinator):
                 baseline_low = baseline_cool - 7.0  # standard 7°F spread from SEASONAL_DEFAULTS
                 baseline_high = baseline_cool
 
-                # Resolve override for this zone + preset
+                # Resolve override for this zone + preset. Under the D9
+                # compose-away branch, resolve against the zone-scoped
+                # target ("away") so operator overrides on `away` apply
+                # if present.
                 active = engine.get_active_overrides(
-                    zone_id, target_preset, self._house_state, master_enabled, zone_overrides
+                    zone_id, zone_target_preset, self._house_state, master_enabled, zone_overrides
                 )
                 resolved = engine.resolve_range(baseline_low, baseline_high, active)
 
@@ -3411,6 +3483,33 @@ class HVACCoordinator(BaseCoordinator):
             "HVAC: Vacancy sweep for zone %s — swept %d entities",
             zone.zone_name, swept_count,
         )
+
+    def _is_zone_hvac_established(self, zone) -> bool:
+        """HVAC-ZONE-CONDITIONING-DEMAND-1 D-HIGH-1 fix-up (2026-09-17).
+
+        Delegate to ZoneManager.is_zone_hvac_established. Fail-safely
+        returns False when the zone manager or zone_id is unavailable —
+        callers then take the fail-OPEN branch (preserve preset / no
+        retreat). Never raises.
+        """
+        try:
+            zm = getattr(self, "_zone_manager", None)
+            zone_id = getattr(zone, "zone_id", None)
+            if zm is None or zone_id is None:
+                return False
+            return bool(zm.is_zone_hvac_established(zone_id))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _zone_has_home_person(self, zone) -> bool:
+        """Person-trust backstop delegate. Never raises."""
+        try:
+            zm = getattr(self, "_zone_manager", None)
+            if zm is None or not hasattr(zm, "zone_has_home_person"):
+                return False
+            return bool(zm.zone_has_home_person(zone, self.hass))
+        except Exception:  # noqa: BLE001
+            return False
 
     def _get_room_coordinator(self, room_name: str):
         """Get room coordinator by room name."""

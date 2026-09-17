@@ -1195,8 +1195,10 @@ ROOM_TYPE_TIMEOUTS: Final = {
 # (fan-off-delay). Never fires for hallway (D1 rejects hallway upstream).
 # ============================================================================
 DEFAULT_HVAC_VACANCY_HOLD: Final = 60         # 1 minute (daytime baseline)
-DEFAULT_HVAC_VACANCY_HOLD_NIGHT: Final = 0    # No day-tail baseline at night;
-                                              # ROOM_TYPE_HVAC_HOLD_NIGHT wins.
+# NIGHT default MUST be >= day default (monotonicity — fix-up round 2
+# A-MED/B-HIGH-3): the night tail is an INSURANCE window for unmeasured
+# rooms; a shorter night tail would produce instant night retreats.
+DEFAULT_HVAC_VACANCY_HOLD_NIGHT: Final = 60   # 1 min baseline (rare fallback).
 # Day-side tail hold (self-gating: only extends an existing D1 arm).
 ROOM_TYPE_HVAC_HOLD: Final = {
     ROOM_TYPE_BEDROOM: 60,       # 1 min
@@ -1204,20 +1206,30 @@ ROOM_TYPE_HVAC_HOLD: Final = {
     ROOM_TYPE_COMMON_AREA: 60,   # 1 min
     ROOM_TYPE_HALLWAY: 0,        # never — hallway is CIRCULATION EXCLUSION
 }
-# Night-side variant. D1 picks this table when self._house_state in
-# FAN_TRUST_STATES. Sized as an insurance tail for unmeasured bedrooms
-# whose mmwave can drop a still body mid-sleep.
+# Night-side variant (fix-up round 2, A-MED/B-HIGH-3): MUST cover
+# every non-hallway room type AND every type's night value MUST be
+# >= its day value (monotonicity — no shorter night tail). Sized
+# as an insurance tail for unmeasured rooms whose mmwave can drop
+# a still body mid-sleep.
 ROOM_TYPE_HVAC_HOLD_NIGHT: Final = {
-    ROOM_TYPE_BEDROOM: 1800,     # 30 min
-    ROOM_TYPE_MEDIA_ROOM: 1800,  # 30 min
-    ROOM_TYPE_COMMON_AREA: 600,  # 10 min
-    ROOM_TYPE_GENERIC: 600,      # 10 min
-    ROOM_TYPE_HALLWAY: 0,        # never
+    ROOM_TYPE_BEDROOM: 1800,        # 30 min  (>= day 60)
+    ROOM_TYPE_MEDIA_ROOM: 1800,     # 30 min  (>= day 120)
+    ROOM_TYPE_COMMON_AREA: 900,     # 15 min  (>= day 60)
+    ROOM_TYPE_GENERIC: 600,         # 10 min  (>= day default 60)
+    ROOM_TYPE_CLOSET: 300,          # 5 min   (>= day default 60)
+    ROOM_TYPE_BATHROOM: 600,        # 10 min  (>= day default 60)
+    ROOM_TYPE_GARAGE: 600,          # 10 min
+    ROOM_TYPE_UTILITY: 600,         # 10 min
+    ROOM_TYPE_INFRASTRUCTURE: 300,  # 5 min   (rarely visited)
+    ROOM_TYPE_HALLWAY: 0,           # never — circulation excluded
 }
 
-# Per-room override for HVAC vacancy tail hold (seconds). Rare per-room tune;
-# empty / None => fall through to ROOM_TYPE_HVAC_HOLD[.NIGHT] table.
+# Per-room DAY-side override for HVAC vacancy tail hold (seconds). Rare
+# per-room tune; empty / None / 0 => fall through to ROOM_TYPE_HVAC_HOLD.
+# Night-only override lives at CONF_HVAC_VACANCY_HOLD_NIGHT (below) —
+# a single override MUST NOT silently affect both tables (D-MED-3).
 CONF_HVAC_VACANCY_HOLD: Final = "hvac_vacancy_hold"
+CONF_HVAC_VACANCY_HOLD_NIGHT: Final = "hvac_vacancy_hold_night"
 
 # v4.5.15: Room-type-specific failsafe durations. Caps the maximum time
 # a room can stay "occupied" before URA forces vacancy, regardless of

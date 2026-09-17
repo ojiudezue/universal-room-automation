@@ -239,8 +239,17 @@ def _make_arrester(hass=None, *, occupied=True, soc=94.0, blind=False, shed=Fals
     from custom_components.universal_room_automation.domain_coordinators.hvac_zones import (
         RoomCondition,
     )
+    # HVAC-ZONE-CONDITIONING-DEMAND-1 row-10 SWAP (fix-up round 2,
+    # 2026-09-17 D-MED-1): _comfort_delay_active now reads the fused
+    # HVAC denomination. Set BOTH `.occupied` (lighting) and
+    # `.hvac_occupied` (HVAC) so the fixture keeps expressing the same
+    # "occupied by the resident, not by a hallway crossing" intent.
     zone.room_conditions = [
-        RoomCondition(room_name="room_a", occupied=bool(occupied)),
+        RoomCondition(
+            room_name="room_a",
+            occupied=bool(occupied),
+            hvac_occupied=bool(occupied),
+        ),
     ]
 
     zm = MagicMock()
@@ -482,11 +491,16 @@ class TestCommonComfortDelayActive:
                          current_temp=79,
                          last_updated=fake_clock.utcnow())
         a._handle_climate_change(ev)
-        # Occupant leaves — comfort_delay_active must return False.
-        # Fix-up A-CRIT-1: authoritative signal is live any_room_occupied
-        # (RoomCondition.occupied), NOT the static zone_persons list.
+        # Occupant TRULY leaves — comfort_delay_active must return False.
+        # HVAC-ZONE-CONDITIONING-DEMAND-1 row-10 SWAP (fix-up round 2,
+        # 2026-09-17 D-MED-1): comfort_delay_active now reads the fused
+        # HVAC denomination. A "true vacate" flips BOTH lighting and
+        # HVAC occupancy; a hallway crossing that leaves lighting True
+        # while HVAC-fused False must ALSO evict the grace (a hallway
+        # crosser cannot indefinitely defer D7's `away` correction).
         for rc in a._zone_manager.zones[ZONE_ID].room_conditions:
             rc.occupied = False
+            rc.hvac_occupied = False
         assert a.comfort_delay_active(ZONE_ID) is False
 
     def test_inactive_when_switch_flips_on(self, fake_clock):
@@ -779,9 +793,12 @@ class TestACRIT1LiveOccupancy:
         # room is currently occupied → predicate must fail.
         a = _make_arrester()
         # Zone still has zone_persons=[PERSON] from _make_arrester, but
-        # flip live occupancy off:
+        # flip live occupancy off. Row-10 SWAP (fix-up round 2,
+        # D-MED-1): both lighting AND HVAC-fused must flip for a TRUE
+        # vacate signal.
         for rc in a._zone_manager.zones[ZONE_ID].room_conditions:
             rc.occupied = False
+            rc.hvac_occupied = False
         ev = _make_event(hvac_mode="cool", old_sp=76, new_sp=72,
                          current_temp=79,
                          last_updated=fake_clock.utcnow())
@@ -791,6 +808,7 @@ class TestACRIT1LiveOccupancy:
     def test_mid_grace_vacancy_flips_comfort_delay_active_false(self, fake_clock):
         # Grant, then flip live occupancy off — comfort_delay_active must
         # return False on next evaluation AND log expiry_reason=zone_unoccupied.
+        # Row-10 SWAP contract update (fix-up round 2, D-MED-1).
         a = _make_arrester()
         ev = _make_event(hvac_mode="cool", old_sp=76, new_sp=72,
                          current_temp=79,
@@ -799,6 +817,7 @@ class TestACRIT1LiveOccupancy:
         assert a.comfort_delay_active(ZONE_ID) is True
         for rc in a._zone_manager.zones[ZONE_ID].room_conditions:
             rc.occupied = False
+            rc.hvac_occupied = False
         # comfort_delay_active returns False AND evicts the timer with
         # the ledger row expiry_reason="zone_unoccupied" (fix A-LOW-1).
         assert a.comfort_delay_active(ZONE_ID) is False
@@ -1045,19 +1064,26 @@ class TestFixupWriteSiteCallerDrills:
         ), "S12: pre-cool emit MUST fire when grace is inactive"
 
     async def test_S13_pre_heat_defers_under_grace(self):
+        """Row-9 discriminator (HVAC-ZONE-CONDITIONING-DEMAND-1 fix-up
+        round 2, 2026-09-17 C-MED-2): the pre-heat occupancy gate reads
+        the fused HVAC denomination. This test uses a fixture that
+        DISCRIMINATES fused vs lighting: `occupied=False,
+        hvac_occupied=True` — the D1 tail-hold shape where the raw
+        lighting-fused signal has released but the HVAC tail is still
+        armed. Under OLD (lighting-fused) code the gate rejects; under
+        NEW (fused) code the gate accepts. This test asserts the
+        emit is DEFERRED under active grace: fires + is caught by
+        grace. Revert-in-suite: change the fused read in
+        hvac_predict.py:1368 to `any_room_occupied` -> this test reds
+        (no emit attempted, so the assertion holds vacuously — but the
+        sibling `_fires_without_grace` test breaks on the revert).
+        """
         pred, calls = _make_predictor(comfort_active=True)
-        # HVAC-ZONE-CONDITIONING-DEMAND-1 §2a row 9 (2026-09-16): the
-        # pre-heat occupancy gate SWAPPED from lighting-fused
-        # `any_room_occupied` to HVAC-fused `any_room_hvac_occupied`.
-        # The fixture must set `hvac_occupied=True` so the pre-heat
-        # path proceeds; setting only `occupied=True` (lighting-fused)
-        # would correctly be rejected — the whole point of the SWAP
-        # is that hallway crossings don't arm pre-heat.
         from custom_components.universal_room_automation.domain_coordinators.hvac_zones import (
             RoomCondition,
         )
         pred._zone_manager.zones[ZONE_ID].room_conditions = [
-            RoomCondition(room_name="r", occupied=True, hvac_occupied=True),
+            RoomCondition(room_name="r", occupied=False, hvac_occupied=True),
         ]
         await pred._execute_pre_heat()
         assert not any(
@@ -1065,13 +1091,19 @@ class TestFixupWriteSiteCallerDrills:
         ), "S13: pre-heat emit MUST be deferred under active grace"
 
     async def test_S13_pre_heat_fires_without_grace(self):
+        """See sibling test above for the discrimination shape.
+        Under OLD (lighting-fused) code: `occupied=False` -> gate rejects
+        -> pre-heat does NOT fire -> assertion `any(...) is True` fails.
+        Under NEW (fused) code: `hvac_occupied=True` -> gate passes ->
+        pre-heat fires -> assertion holds. This is the DISCRIMINATING
+        shape (occupied=False, hvac_occupied=True) — the D1 tail-hold.
+        """
         pred, calls = _make_predictor(comfort_active=False)
-        # See sibling test above for the row-9 SWAP contract note.
         from custom_components.universal_room_automation.domain_coordinators.hvac_zones import (
             RoomCondition,
         )
         pred._zone_manager.zones[ZONE_ID].room_conditions = [
-            RoomCondition(room_name="r", occupied=True, hvac_occupied=True),
+            RoomCondition(room_name="r", occupied=False, hvac_occupied=True),
         ]
         await pred._execute_pre_heat()
         assert any(

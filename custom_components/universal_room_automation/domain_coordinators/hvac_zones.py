@@ -225,6 +225,16 @@ class ZoneManager:
         # Producer diagnostics: last-known room_type per room and the source
         # of arm-attribution ("edge" / "held" / "tail" / "hallway_excluded").
         self._hvac_arm_source: dict[str, str] = {}
+        # HVAC-ZONE-CONDITIONING-DEMAND-1 D-HIGH-1 fix-up (2026-09-17):
+        # `_hvac_seen` tracks rooms for which the D1 producer has produced
+        # a value AT LEAST ONCE since ZoneManager construction. A zone is
+        # HVAC-ESTABLISHED iff all its `zone.rooms` are in `_hvac_seen`.
+        # An unestablished zone must NOT drive a night-trust retreat
+        # (D7/row-1 fail-open) — the ~5x/night CM reload otherwise wipes
+        # in-memory D1 state, releases boot-settle on the reload path, and
+        # `last_occupied_time` seeded past-grace causes a first-tick
+        # retreat of a sleeping bedroom.
+        self._hvac_seen: set[str] = set()
 
     @property
     def zones(self) -> dict[str, ZoneState]:
@@ -524,6 +534,7 @@ class ZoneManager:
             DEFAULT_HVAC_VACANCY_HOLD,
             DEFAULT_HVAC_VACANCY_HOLD_NIGHT,
             CONF_HVAC_VACANCY_HOLD,
+            CONF_HVAC_VACANCY_HOLD_NIGHT,
         )
 
         room_coordinators: dict[str, Any] = {}
@@ -554,10 +565,15 @@ class ZoneManager:
                     merged.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)
                     or ROOM_TYPE_GENERIC
                 ),
-                # Per-room hold override — None / empty / 0 means fall through
-                # to the ROOM_TYPE_HVAC_HOLD[.NIGHT] table.
+                # Per-room hold overrides — separate day / night sliders
+                # so a single override MUST NOT silently affect both
+                # tables (D-MED-3, 2026-09-17). None / empty / 0 falls
+                # through to the room-type table for that house_state.
                 "hvac_vacancy_hold_override": merged.get(
                     CONF_HVAC_VACANCY_HOLD, None,
+                ),
+                "hvac_vacancy_hold_override_night": merged.get(
+                    CONF_HVAC_VACANCY_HOLD_NIGHT, None,
                 ),
             }
 
@@ -622,6 +638,13 @@ class ZoneManager:
                     self._hvac_armed[room_name] = False
                     self._hvac_tail_until.pop(room_name, None)
                     self._hvac_arm_source[room_name] = "hallway_excluded"
+                    # D-HIGH-1: hallway rooms are still "seen" — their
+                    # coordinator is live; the state machine just short-
+                    # circuits them via CIRCULATION EXCLUSION. Marking
+                    # them seen means a zone consisting solely of
+                    # hallway + dwelling rooms can still reach
+                    # ESTABLISHED once the dwelling room is read.
+                    self._hvac_seen.add(room_name)
                 else:
                     hvac_occupied_val = self._compute_hvac_occupied(
                         room_name=room_name,
@@ -630,6 +653,9 @@ class ZoneManager:
                         now=now,
                         house_state=house_state,
                         override_hold=meta.get("hvac_vacancy_hold_override"),
+                        override_hold_night=meta.get(
+                            "hvac_vacancy_hold_override_night",
+                        ),
                     )
 
                 condition = RoomCondition(
@@ -827,12 +853,17 @@ class ZoneManager:
         room_type: str,
         house_state: str | None,
         override: Any,
+        override_night: Any = None,
     ) -> int:
         """Return the effective tail-hold window for a room in seconds.
 
         Selects day vs night table by `house_state in FAN_TRUST_STATES`.
-        A truthy per-room override (from CONF_HVAC_VACANCY_HOLD) wins over
-        the room-type table. 0 means no tail — release on the falling edge.
+        A truthy per-room override wins over the room-type table for
+        THAT house-state's table only (D-MED-3 fix-up round 2,
+        2026-09-17): `override` is day-only, `override_night` is
+        night-only. A single override MUST NOT silently affect both
+        tables. 0 or None means no override — fall through to the
+        room-type table.
         """
         from ..const import (
             ROOM_TYPE_HVAC_HOLD,
@@ -842,15 +873,17 @@ class ZoneManager:
         )
         from .hvac_const import FAN_TRUST_STATES
 
-        if override is not None:
+        night = house_state in FAN_TRUST_STATES
+        effective_override = override_night if night else override
+        if effective_override is not None:
             try:
-                ov = int(override)
+                ov = int(effective_override)
                 if ov > 0:
                     return ov
             except (TypeError, ValueError):
                 pass
 
-        if house_state in FAN_TRUST_STATES:
+        if night:
             table = ROOM_TYPE_HVAC_HOLD_NIGHT
             default = DEFAULT_HVAC_VACANCY_HOLD_NIGHT
         else:
@@ -870,6 +903,7 @@ class ZoneManager:
         now: datetime,
         house_state: str | None,
         override_hold: Any,
+        override_hold_night: Any = None,
     ) -> bool:
         """D1 state machine — returns True iff the room is HVAC-occupied.
 
@@ -878,6 +912,11 @@ class ZoneManager:
         """
         from datetime import timedelta as _td
 
+        # D-HIGH-1 fix-up: mark the room as seen so its zone can be
+        # considered HVAC-established. Populated on every producer call,
+        # even when state_occupied is False — presence of a live
+        # producer read is what "established" means.
+        self._hvac_seen.add(room_name)
         prev = self._hvac_prev_state_occupied.get(room_name, False)
         armed = self._hvac_armed.get(room_name, False)
 
@@ -909,6 +948,7 @@ class ZoneManager:
         if tail_expiry is None:
             hold_s = self._effective_hvac_hold_seconds(
                 room_type, house_state, override_hold,
+                override_night=override_hold_night,
             )
             if hold_s <= 0:
                 # No tail configured — release immediately.
@@ -927,6 +967,56 @@ class ZoneManager:
         self._hvac_armed[room_name] = False
         self._hvac_tail_until.pop(room_name, None)
         self._hvac_arm_source[room_name] = "released_tail_expired"
+        return False
+
+    def is_zone_hvac_established(self, zone_id: str) -> bool:
+        """D-HIGH-1 fix-up (2026-09-17): fused-signal establishment check.
+
+        A zone is HVAC-ESTABLISHED iff every room in `zone.rooms` has
+        been observed by the D1 producer at least once since ZoneManager
+        construction (present in `_hvac_seen`). Callers (D7, row-1,
+        D9) fail-OPEN on unestablished zones — do NOT drive a retreat
+        or compose-away when the fused signal hasn't produced yet.
+
+        Boot / reload rationale: the CM parent reloads ~5x/night wipe
+        in-memory D1 state. Boot-settle can release before the D1
+        producer catches up, and `last_occupied_time` may be seeded
+        past grace by ZoneManager.async_discover_zones for
+        never-occupied zones. Fail-open until the signal is real closes
+        this window without adding wall-clock coupling.
+        """
+        zone = self._zones.get(zone_id)
+        if zone is None:
+            return False
+        rooms = list(zone.rooms or [])
+        if not rooms:
+            # A zone with no rooms cannot be established.
+            return False
+        return all(r in self._hvac_seen for r in rooms)
+
+    def zone_has_home_person(self, zone, hass) -> bool:
+        """Person-trust backstop (D-HIGH-1 companion, 2026-09-17).
+
+        Return True iff any of the zone's `zone_persons` phone trackers
+        currently reads `home`. Used by the D7 / row-1 fail-open path
+        as the v4.7.13-style veto when the fused signal is
+        UNESTABLISHED or DEGRADED — preserve the preset (don't retreat)
+        on the backstop of "a person known to be home".
+
+        Fail-closed on missing / error — never let a lookup fault flip
+        this into a spurious preserve.
+        """
+        try:
+            persons = list(getattr(zone, "zone_persons", []) or [])
+        except Exception:  # noqa: BLE001
+            return False
+        for person_entity in persons:
+            try:
+                st = hass.states.get(person_entity)
+            except Exception:  # noqa: BLE001
+                continue
+            if st is not None and getattr(st, "state", None) == "home":
+                return True
         return False
 
     def hvac_occupied_diag(self, room_name: str) -> dict[str, Any]:

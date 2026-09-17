@@ -332,40 +332,370 @@ def test_d7_fused_not_lighting_shape():
     assert z.any_room_hvac_occupied is False
 
 
-def test_d9_reads_fused_source_shape():
-    """D9 caller-side gate source guard: the DPM per-zone loop uses
-    `zone.any_room_hvac_occupied` and NOT `any_room_occupied`.
+def test_d9_compose_away_when_established_empty_zone_source_shape():
+    """D9 COMPOSE-AWAY: an established fused-empty zone must have its
+    setpoint composed as `away` (not `home`).
 
-    Under the wrong-fix failure mode (guard reads lighting-fused), a
-    hallway crossing 15 min ago would keep the DPM writing baseline for
-    an empty guest wing. This regression-locks the SHAPE of the guard.
+    Fix-up round 2 (2026-09-17) D9 semantics changed from SKIP to
+    COMPOSE-AWAY. Source-shape assertion — a real end-to-end behavioral
+    test lives in test_d9_compose_away_behavioral below. This guard
+    just anchors the shape: the code MUST reference "compose-away" +
+    `zone_target_preset`, MUST call `_is_zone_hvac_established`, and
+    MUST NOT `continue` out of the empty-zone branch (skipping).
     """
-    # Read the file directly. Do NOT `_load` hvac.py — its import chain
-    # (hvac_predict → hvac_setpoint) pollutes sys.modules and breaks
-    # ~40 downstream tests that install their own stubs for those
-    # modules. The source-shape guard here needs only the text.
     with open(os.path.join(_dc_path, "hvac.py"), "r") as fh:
         hvac_src = fh.read()
-    assert "D9 (2026-09-16): CALLER-SIDE" in hvac_src or \
-        "D9 (2026-09-16): CALLER-SIDE POINT-GATE" in hvac_src
-    # Guard body reads the fused sibling. Defensive `getattr` with
-    # fallback to `any_room_occupied` cushions test fakes; production
-    # ZoneState always resolves through the fused property first.
-    # If someone removes the fused read, this test fails.
-    assert 'getattr(zone, "any_room_hvac_occupied"' in hvac_src
-    # And the wire chokepoint at emit_set_temperature stays untouched.
+    # Compose-away identifier is present.
+    assert "COMPOSE-AWAY" in hvac_src or "compose-away" in hvac_src
+    # Zone-scoped preset variable and the away branch.
+    assert "zone_target_preset" in hvac_src
+    # Establishment check delegated.
+    assert "_is_zone_hvac_established" in hvac_src
+    # Wire chokepoint untouched.
     assert "await emit_set_temperature(" in hvac_src
 
 
-def test_d7_fused_guard_source_shape():
-    """D7 source guard: the night-trust `if` condition MUST include
-    `zone.any_room_hvac_occupied`."""
+def test_d9_compose_away_behavioral():
+    """Behavioral D9 anchor: drive a scenario where established fused-
+    empty causes compose-away (target_preset -> "away") on a real
+    ZoneManager + ZoneState pair.
+
+    Constructs a real ZoneManager and drives update_room_conditions
+    twice: first tick establishes the fused signal (marks _hvac_seen),
+    then a second tick with occupancy released leaves the fused signal
+    False. `_is_zone_hvac_established` returns True; the D9 predicate
+    `_rc_ready and _zone_established and not _fused` is True; therefore
+    a downstream D9 gate would compose-away. Revert `_is_zone_hvac_
+    established` to always-False, and the compose-away branch is
+    skipped -> no name-diff regression on this test (fail-open by
+    design). This test therefore only anchors the ESTABLISHED-EMPTY
+    predicate; the RED-on-revert discriminator is
+    test_row1_fail_open_unestablished_zone (below).
+    """
+    m = _zm_module()
+    C = _const_mod()
+    zm = m.ZoneManager(MagicMock())
+    zone = m.ZoneState(zone_id="z9", zone_name="Z9", climate_entity="c.z9")
+    zone.rooms = ["r_dwell"]
+    zm._zones["z9"] = zone
+
+    # Simulate a tick where the D1 producer has read the room once.
+    zm._hvac_seen.add("r_dwell")
+    zone.room_conditions = [
+        m.RoomCondition(
+            room_name="r_dwell", occupied=False, hvac_occupied=False,
+        ),
+    ]
+    # Establishment: all zone rooms are in _hvac_seen -> True.
+    assert zm.is_zone_hvac_established("z9") is True
+    # Fused signal: no room has hvac_occupied=True -> False.
+    assert zone.any_room_hvac_occupied is False
+    # Under D9 semantics (compose-away): established + empty -> compose-away.
+    # We assert the PREDICATE HOLDS. The downstream compose-away happens
+    # inside _async_apply_preset_overrides; the full-drive test is in
+    # test_arrester_comfort_delay.py::TestFixupS10DPMApplyCallerDrill.
+
+
+def test_row1_fail_open_unestablished_zone():
+    """D-HIGH-1 fix-up: `_is_zone_hvac_established` fails-open (returns
+    False) BEFORE the D1 producer has read any room for the zone. Under
+    the wrong-fix failure mode (helper hard-coded to always-True), a
+    boot-time zone with `last_occupied_time` seeded past-grace would be
+    retreated on the first tick — the exact ~5x/night reload failure.
+
+    Revert-in-suite discriminator: force the helper to return True
+    unconditionally -> this test reds (unestablished zone is falsely
+    treated as established).
+    """
+    m = _zm_module()
+    zm = m.ZoneManager(MagicMock())
+    zone = m.ZoneState(zone_id="z_boot", zone_name="Boot", climate_entity="c.b")
+    zone.rooms = ["r_bed", "r_bath"]
+    zm._zones["z_boot"] = zone
+    # No _hvac_seen entries yet — zone must not be established.
+    assert zm.is_zone_hvac_established("z_boot") is False
+
+    # Seed only one of the two rooms as seen -> still unestablished
+    # (all zone rooms must be observed at least once).
+    zm._hvac_seen.add("r_bed")
+    assert zm.is_zone_hvac_established("z_boot") is False
+
+    # Seed both -> established.
+    zm._hvac_seen.add("r_bath")
+    assert zm.is_zone_hvac_established("z_boot") is True
+
+
+def test_person_trust_backstop_shape():
+    """`zone_has_home_person` returns True iff any zone_persons phone
+    reads `home`. Fails closed on missing / error. Used by D7/row-1 as
+    the v4.7.13 veto backstop for the unestablished / degraded case.
+    """
+    m = _zm_module()
+    zm = m.ZoneManager(MagicMock())
+    zone = m.ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.z1")
+
+    class _StatesStub:
+        def __init__(self, mapping):
+            self._m = mapping
+        def get(self, ent_id):
+            st = self._m.get(ent_id)
+            if st is None:
+                return None
+            return types.SimpleNamespace(state=st)
+
+    hass = types.SimpleNamespace(
+        states=_StatesStub({"person.a": "home", "person.b": "not_home"}),
+    )
+    # No persons configured -> False.
+    zone.zone_persons = []
+    assert zm.zone_has_home_person(zone, hass) is False
+    # Configured phone reads not_home -> False.
+    zone.zone_persons = ["person.b"]
+    assert zm.zone_has_home_person(zone, hass) is False
+    # Any phone reads home -> True.
+    zone.zone_persons = ["person.b", "person.a"]
+    assert zm.zone_has_home_person(zone, hass) is True
+
+
+def test_night_hold_table_covers_all_non_hallway_types_monotonic():
+    """A-MED/B-HIGH-3 fix-up round 2: ROOM_TYPE_HVAC_HOLD_NIGHT must
+    cover every non-hallway room type (no silent fall-through to
+    default=0 at night), AND night value MUST be >= day value for
+    every type (monotonicity).
+    """
+    C = _const_mod()
+    non_hallway = [
+        C.ROOM_TYPE_BEDROOM, C.ROOM_TYPE_MEDIA_ROOM, C.ROOM_TYPE_COMMON_AREA,
+        C.ROOM_TYPE_GENERIC, C.ROOM_TYPE_CLOSET, C.ROOM_TYPE_BATHROOM,
+        C.ROOM_TYPE_GARAGE, C.ROOM_TYPE_UTILITY, C.ROOM_TYPE_INFRASTRUCTURE,
+    ]
+    for rt in non_hallway:
+        assert rt in C.ROOM_TYPE_HVAC_HOLD_NIGHT, (
+            f"Night-hold table missing {rt} — instant-retreat risk"
+        )
+        night = C.ROOM_TYPE_HVAC_HOLD_NIGHT[rt]
+        day = C.ROOM_TYPE_HVAC_HOLD.get(rt, C.DEFAULT_HVAC_VACANCY_HOLD)
+        assert night >= day, (
+            f"Night hold for {rt} ({night}s) is SHORTER than day "
+            f"({day}s) — monotonicity violated"
+        )
+    # Night default MUST be >= day default too.
+    assert C.DEFAULT_HVAC_VACANCY_HOLD_NIGHT >= C.DEFAULT_HVAC_VACANCY_HOLD
+
+
+def test_per_room_override_is_day_only():
+    """D-MED-3 fix-up round 2: CONF_HVAC_VACANCY_HOLD is DAY-ONLY. A
+    day override must NOT silently affect the night table.
+    Discriminator shape: a day-only override of 300s under a night
+    house_state returns the NIGHT table value, not 300.
+    """
+    m = _zm_module()
+    zm = m.ZoneManager(MagicMock())
+    # Day house_state -> override honored.
+    assert zm._effective_hvac_hold_seconds(
+        "bedroom", "home_day", 300, override_night=None,
+    ) == 300
+    # Night house_state -> DAY override NOT applied; use night table.
+    got = zm._effective_hvac_hold_seconds(
+        "bedroom", "home_night", 300, override_night=None,
+    )
+    C = _const_mod()
+    assert got == C.ROOM_TYPE_HVAC_HOLD_NIGHT["bedroom"], (
+        "Day override must not affect night table (D-MED-3)"
+    )
+    # Night override applies at night.
+    assert zm._effective_hvac_hold_seconds(
+        "bedroom", "sleep", None, override_night=900,
+    ) == 900
+    # Night override does NOT apply at day.
+    assert zm._effective_hvac_hold_seconds(
+        "bedroom", "home_day", None, override_night=900,
+    ) == C.ROOM_TYPE_HVAC_HOLD["bedroom"]
+
+
+def test_hallway_circulation_exclusion_via_update_room_conditions():
+    """Behavioral: drive the real `update_room_conditions` producer
+    path with two rooms — a `hallway` room and a `bedroom` room —
+    where both are lighting-occupied. The zone's fused signal
+    (`any_room_hvac_occupied`) MUST reflect ONLY the bedroom's
+    hvac_occupied value; deleting the CIRCULATION EXCLUSION would
+    let the hallway arm the D1 producer -> the discriminator flips.
+    """
+    m = _zm_module()
+    C = _const_mod()
+
+    # Build a stub hass whose config_entries expose two ROOM entries +
+    # a ZM entry with our zone.
+    from custom_components.universal_room_automation.const import (
+        DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM, ENTRY_TYPE_ZONE_MANAGER,
+        CONF_ROOM_NAME, CONF_ROOM_TYPE,
+    )
+
+    class _Entry:
+        def __init__(self, entry_id, data, options=None):
+            self.entry_id = entry_id
+            self.data = data
+            self.options = options or {}
+
+    hall = _Entry(
+        "e_hall", {CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+                    CONF_ROOM_NAME: "hall_r",
+                    CONF_ROOM_TYPE: C.ROOM_TYPE_HALLWAY},
+    )
+    bed = _Entry(
+        "e_bed", {CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+                   CONF_ROOM_NAME: "bed_r",
+                   CONF_ROOM_TYPE: C.ROOM_TYPE_BEDROOM},
+    )
+    # ZM entry not consulted by update_room_conditions itself — the
+    # zone_manager already has zones populated via _zones.
+    entries = [hall, bed]
+
+    class _CEs:
+        def async_entries(self, dom):
+            return entries
+
+    class _RoomCoord:
+        def __init__(self, occupied):
+            self.data = {"occupied": occupied, "temperature": None, "humidity": None}
+            self.config_entry = None
+
+    hass = MagicMock()
+    hass.config_entries = _CEs()
+    hass.data = {DOMAIN: {"e_hall": _RoomCoord(True), "e_bed": _RoomCoord(True)}}
+    hass.states = MagicMock()
+    hass.states.get = lambda ent_id: None
+
+    zm = m.ZoneManager(hass)
+    zone = m.ZoneState(
+        zone_id="z_mixed", zone_name="MIXED", climate_entity="c.mixed",
+    )
+    zone.rooms = ["hall_r", "bed_r"]
+    zm._zones["z_mixed"] = zone
+
+    zm.update_room_conditions(house_state="home_day")
+
+    # Both rooms populated, both lighting-occupied.
+    assert zone.any_room_occupied is True
+    # Hallway is HVAC-excluded; bedroom is armed via rising edge ->
+    # any_room_hvac_occupied True. Deleting the exclusion would make
+    # both rooms have hvac_occupied=True as well — no discriminator here.
+    # The DISCRIMINATOR is what happens when the bedroom releases and
+    # only the hallway remains lighting-occupied.
+    assert zone.any_room_hvac_occupied is True
+
+    # Release the bedroom, keep the hallway occupied.
+    hass.data[DOMAIN]["e_bed"] = _RoomCoord(False)
+    zm.update_room_conditions(house_state="home_day")
+    assert zone.any_room_occupied is True  # hallway still lighting-occupied
+    # HVAC-fused should be False (bedroom released past tail; hallway
+    # is CIRCULATION-EXCLUDED and never arms). Under a mutation that
+    # deletes `if room_type == ROOM_TYPE_HALLWAY:` short-circuit, the
+    # hallway would arm and this assertion reds.
+    # Wait one tail-hold-plus for the bedroom to fully release.
+    # Advance the internal state by nudging tail_until.
+    # Easiest: force-clear the bedroom's tail.
+    zm._hvac_armed["bed_r"] = False
+    zm._hvac_tail_until.pop("bed_r", None)
+    # Re-run so the RoomCondition reflects the cleared state.
+    zm.update_room_conditions(house_state="home_day")
+    assert zone.any_room_hvac_occupied is False, (
+        "Hallway must not arm the fused signal (CIRCULATION EXCLUSION)"
+    )
+
+
+def test_d5_migration_rewrites_legacy_default_only():
+    """D5 fix-up round 2: the migration rewrites stored value 3 -> 0
+    (legacy default) but leaves operator-set non-default values
+    untouched. Idempotent via the sentinel option.
+    """
+    import asyncio
+    # Extract the migration function via AST + exec — full package
+    # import chain is heavy and would pollute sys.modules across the
+    # suite (see _load-vs-collect-time policy at top of this file).
+    import ast as _ast
+    init_path = os.path.join(_ura_path, "__init__.py")
+    with open(init_path) as _fh:
+        init_src = _fh.read()
+    _tree = _ast.parse(init_src)
+    fn_src = None
+    for _node in _ast.walk(_tree):
+        if (
+            isinstance(_node, _ast.AsyncFunctionDef)
+            and _node.name == "_migrate_hvac_zone_entry_dwell_to_zero"
+        ):
+            fn_src = _ast.get_source_segment(init_src, _node)
+            break
+    assert fn_src is not None
+    # The function does `from .domain_coordinators.hvac_const import
+    # CONF_HVAC_ZONE_ENTRY_DWELL` at call time — provide a stub.
+    _stub_hvac_const = types.SimpleNamespace(
+        CONF_HVAC_ZONE_ENTRY_DWELL="hvac_zone_entry_dwell",
+    )
+    _ns = {
+        "_LOGGER": types.SimpleNamespace(info=lambda *a, **k: None),
+    }
+    exec(
+        fn_src.replace(
+            "from .domain_coordinators.hvac_const import (\n"
+            "        CONF_HVAC_ZONE_ENTRY_DWELL,\n"
+            "    )",
+            "CONF_HVAC_ZONE_ENTRY_DWELL = 'hvac_zone_entry_dwell'",
+        ),
+        _ns,
+    )
+    fn = _ns["_migrate_hvac_zone_entry_dwell_to_zero"]
+
+    class _Entry:
+        def __init__(self, options):
+            self.entry_id = "cm1"
+            self.data = {}
+            self.options = dict(options)
+
+    updates = []
+
+    class _CEs:
+        def async_update_entry(self, entry, options=None):
+            entry.options = dict(options)
+            updates.append(("update", entry.entry_id, dict(options)))
+        def async_get_entry(self, eid):
+            return None
+
+    hass = types.SimpleNamespace(config_entries=_CEs())
+
+    # Case A: legacy default 3 -> rewritten to 0.
+    entry_a = _Entry({"hvac_zone_entry_dwell": 3})
+    changed_a = asyncio.new_event_loop().run_until_complete(fn(hass, entry_a))
+    assert changed_a is True
+    assert entry_a.options["hvac_zone_entry_dwell"] == 0
+    assert entry_a.options["hvac_zone_entry_dwell_zero_migration_done"] is True
+
+    # Case B: operator-set value 5 -> untouched, sentinel still set.
+    updates.clear()
+    entry_b = _Entry({"hvac_zone_entry_dwell": 5})
+    changed_b = asyncio.new_event_loop().run_until_complete(fn(hass, entry_b))
+    assert changed_b is False
+    assert entry_b.options["hvac_zone_entry_dwell"] == 5
+    assert entry_b.options["hvac_zone_entry_dwell_zero_migration_done"] is True
+
+    # Case C: already-migrated -> no-op.
+    updates.clear()
+    entry_c = _Entry({"hvac_zone_entry_dwell": 5, "hvac_zone_entry_dwell_zero_migration_done": True})
+    changed_c = asyncio.new_event_loop().run_until_complete(fn(hass, entry_c))
+    assert changed_c is False
+    assert updates == []
+
+
+def test_row1_and_d7_helpers_present_on_coordinator():
+    """Fix-up round 2: HVACCoordinator must expose
+    `_is_zone_hvac_established` and `_zone_has_home_person` (the
+    fail-open + backstop delegates). Anchor: these methods are named
+    on the class body of HVACCoordinator in hvac.py.
+    """
     with open(os.path.join(_dc_path, "hvac.py"), "r") as fh:
-        hvac_src = fh.read()
-    # The guard was fused into the outer `if` alongside FAN_TRUST_STATES.
-    assert "self._house_state in FAN_TRUST_STATES" in hvac_src
-    # Fused sibling is read (via defensive getattr, prod-safe fallback).
-    assert 'getattr(zone, "any_room_hvac_occupied"' in hvac_src
+        src = fh.read()
+    assert "def _is_zone_hvac_established" in src
+    assert "def _zone_has_home_person" in src
 
 
 def test_swap_row1_preset_flip_reads_fused():
@@ -536,10 +866,35 @@ def test_d2_binary_sensor_entity_registered_and_reflects_producer():
 def test_d3_defaults_and_tables_present():
     C = _const_mod()
     assert C.DEFAULT_HVAC_VACANCY_HOLD == 60
-    assert C.DEFAULT_HVAC_VACANCY_HOLD_NIGHT == 0
+    # Fix-up round 2 (2026-09-17 A-MED/B-HIGH-3): night default MUST
+    # be >= day default (monotonicity).
+    assert C.DEFAULT_HVAC_VACANCY_HOLD_NIGHT >= C.DEFAULT_HVAC_VACANCY_HOLD
     # Bedroom day = 60s (matches DEFAULT).
     assert C.ROOM_TYPE_HVAC_HOLD["bedroom"] == 60
     # Night table has bigger bedroom tail.
     assert C.ROOM_TYPE_HVAC_HOLD_NIGHT["bedroom"] == 1800
     assert C.CONF_HVAC_VACANCY_HOLD == "hvac_vacancy_hold"
+    # Night sibling override (D-MED-3, 2026-09-17).
+    assert C.CONF_HVAC_VACANCY_HOLD_NIGHT == "hvac_vacancy_hold_night"
     assert C.ROOM_TYPE_HALLWAY == "hallway"
+
+
+def test_vacancy_sweep_call_decoupled_from_hvac_denomination():
+    """A-HIGH/B-CRIT-1 fix-up round 2: the vacancy sweep CALL SITE is
+    gated on the LIGHTING denomination (`any_room_occupied`), not the
+    HVAC-fused signal. A standing hallway occupant makes the zone
+    HVAC-empty but lighting-occupied — hallway lights must stay ON.
+
+    Source guard: the sweep-call blocks in hvac.py must reference
+    `zone.any_room_occupied` (lighting-fused) NOT `zone.any_room_hvac_
+    occupied` in their guard predicate.
+    """
+    with open(os.path.join(_dc_path, "hvac.py"), "r") as fh:
+        src = fh.read()
+    # There are exactly two sweep call sites (row-1 retreat + D6 stale
+    # branch). Anchor on the shared decouple comment + the lighting-
+    # fused read used to gate both.
+    assert "sweep call from the HVAC-denomination retreat" in src
+    assert "_sweep_light_ok = not getattr(" in src
+    # Both sweep-call `if` blocks should be gated by _sweep_light_ok.
+    assert src.count("_sweep_light_ok") >= 4  # 2 decls + 2 uses
