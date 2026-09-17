@@ -927,7 +927,14 @@ class _CycleZoneManager(_FakeZoneManager):
     def update_all_zones(self):
         pass
 
-    def update_room_conditions(self):
+    def update_room_conditions(self, *args, **kwargs):
+        # HVAC-ZONE-CONDITIONING-DEMAND-1 D1 (fix-up round 3, 2026-09-17):
+        # the real `ZoneManager.update_room_conditions` now takes an
+        # optional `house_state` kwarg (used by the D1 producer to
+        # select day vs night hold table). The freeze-floor cycle test
+        # subclass must accept + ignore the new kwarg to preserve its
+        # no-op contract — the freeze-floor tests don't drive
+        # per-room hold semantics.
         pass
 
     def reset_daily_counters(self):

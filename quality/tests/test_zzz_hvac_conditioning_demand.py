@@ -30,73 +30,99 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 
-# --- Minimal HA stubs -------------------------------------------------------
+# --- Zero-side-effect at COLLECT time ---------------------------------------
+# Fix-up round 3 (2026-09-17): the previous versions of this file ran
+# `sys.modules.setdefault` on `custom_components`, `custom_components.
+# universal_room_automation`, and `.domain_coordinators` at MODULE IMPORT
+# time (pytest collection). Even though the setdefaults were meant to be
+# defensive no-ops, they installed shim `types.ModuleType` objects whose
+# `__path__` points at the real ura dir — a subsequent test that
+# `from custom_components.universal_room_automation.<foo>` imports would
+# resolve `<foo>` as a submodule of the SHIM package, execute the real
+# submodule (which recursively imports HA modules including the REAL
+# `homeassistant.helpers.dispatcher`), and thereby defeat
+# `test_freeze_floor::_load_hvac_module`'s guard
+# (`if "homeassistant.helpers.dispatcher" not in sys.modules: install stub`).
+# The real dispatcher then hit `_FakeHass.verify_event_loop_thread` and
+# raised.
+#
+# The bulletproof fix: NO sys.modules mutation, NO `types.ModuleType`
+# install, NO sys.path insertion at import time. All setup lives inside
+# the lazy `_ensure_loaded()` helper which fires only on first test
+# invocation — by which time test_freeze_floor has already run
+# (test_zzz sorts last) and installed its own dispatcher stub.
 _identity = lambda fn: fn  # noqa: E731
 
-_mods = {
-    "homeassistant": {},
-    "homeassistant.core": {"HomeAssistant": MagicMock, "callback": _identity},
-    "homeassistant.config_entries": {"ConfigEntry": MagicMock},
-    "homeassistant.const": MagicMock(),
-    "homeassistant.util": {},
-    "homeassistant.util.dt": {
-        "utcnow": lambda: datetime.now(timezone.utc),
-        "now": lambda: datetime.now(timezone.utc),
-        "as_local": lambda dt: dt,
-        "parse_datetime": lambda s: None,
-    },
-}
-for name, attrs in _mods.items():
-    if isinstance(attrs, dict):
-        mod = types.ModuleType(name)
-        for k, v in attrs.items():
-            setattr(mod, k, v)
-        sys.modules.setdefault(name, mod)
-    else:
-        sys.modules.setdefault(name, attrs)
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-
-# Bypass custom_components/__init__ side-effects.
-_cc = types.ModuleType("custom_components")
-_cc.__path__ = [os.path.join(os.path.dirname(__file__), "..", "..", "custom_components")]
-sys.modules.setdefault("custom_components", _cc)
-
-_ura_path = os.path.join(_cc.__path__[0], "universal_room_automation")
-_ura = types.ModuleType("custom_components.universal_room_automation")
-_ura.__path__ = [_ura_path]
-_ura.__package__ = "custom_components.universal_room_automation"
-sys.modules.setdefault("custom_components.universal_room_automation", _ura)
-
-_dc_path = os.path.join(_ura_path, "domain_coordinators")
-_dc = types.ModuleType("custom_components.universal_room_automation.domain_coordinators")
-_dc.__path__ = [_dc_path]
-sys.modules.setdefault(
-    "custom_components.universal_room_automation.domain_coordinators", _dc,
-)
-
-# Direct-load the const module (skip package init).
-import importlib.util as _ilu  # noqa: E402
-
-
-def _load(mod_name: str, path: str):
-    spec = _ilu.spec_from_file_location(mod_name, path)
-    m = _ilu.module_from_spec(spec)
-    sys.modules[mod_name] = m
-    spec.loader.exec_module(m)
-    return m
-
-
-# NOTE: loading URA modules at COLLECT time shifts pytest's per-file
-# import ordering and breaks ~40 sibling tests whose stubs depend on a
-# particular pre-load state (test-suite fragility, pre-existing). Defer
-# loading to test-run time via a lazy helper.
 _LOADED: dict = {}
+_ura_path = os.path.join(
+    os.path.dirname(__file__), "..", "..",
+    "custom_components", "universal_room_automation",
+)
+_dc_path = os.path.join(_ura_path, "domain_coordinators")
 
 
 def _ensure_loaded():
     if _LOADED:
         return _LOADED
+
+    # Install HA stubs INSIDE the lazy helper so no collection-time
+    # sys.modules writes occur.
+    import importlib.util as _ilu
+
+    _mods = {
+        "homeassistant": {},
+        "homeassistant.core": {"HomeAssistant": MagicMock, "callback": _identity},
+        "homeassistant.config_entries": {"ConfigEntry": MagicMock},
+        "homeassistant.const": MagicMock(),
+        "homeassistant.util": {},
+        "homeassistant.util.dt": {
+            "utcnow": lambda: datetime.now(timezone.utc),
+            "now": lambda: datetime.now(timezone.utc),
+            "as_local": lambda dt: dt,
+            "parse_datetime": lambda s: None,
+        },
+    }
+    for name, attrs in _mods.items():
+        if isinstance(attrs, dict):
+            mod = types.ModuleType(name)
+            for k, v in attrs.items():
+                setattr(mod, k, v)
+            sys.modules.setdefault(name, mod)
+        else:
+            sys.modules.setdefault(name, attrs)
+
+    if os.path.join(os.path.dirname(__file__), "..", "..") not in sys.path:
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+
+    # Package-shim installs — same setdefault discipline; deferred to run
+    # time so collect-time sys.modules stays untouched.
+    if "custom_components" not in sys.modules:
+        _cc = types.ModuleType("custom_components")
+        _cc.__path__ = [os.path.join(os.path.dirname(__file__), "..", "..",
+                                     "custom_components")]
+        sys.modules["custom_components"] = _cc
+    if "custom_components.universal_room_automation" not in sys.modules:
+        _ura = types.ModuleType("custom_components.universal_room_automation")
+        _ura.__path__ = [_ura_path]
+        _ura.__package__ = "custom_components.universal_room_automation"
+        sys.modules["custom_components.universal_room_automation"] = _ura
+    if ("custom_components.universal_room_automation.domain_coordinators"
+            not in sys.modules):
+        _dc = types.ModuleType(
+            "custom_components.universal_room_automation.domain_coordinators",
+        )
+        _dc.__path__ = [_dc_path]
+        sys.modules[
+            "custom_components.universal_room_automation.domain_coordinators"
+        ] = _dc
+
+    def _load(mod_name: str, path: str):
+        spec = _ilu.spec_from_file_location(mod_name, path)
+        m = _ilu.module_from_spec(spec)
+        sys.modules[mod_name] = m
+        spec.loader.exec_module(m)
+        return m
+
     _LOADED["const"] = _load(
         "custom_components.universal_room_automation.const",
         os.path.join(_ura_path, "const.py"),
