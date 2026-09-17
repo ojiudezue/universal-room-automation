@@ -10689,6 +10689,20 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  BUILD_LANDED_NAMEDIFF_VERIFIED_2026_09_16: 'Build landed (feature/hvac-conditioning-demand @6bcba611f,
+    D1-D9 + 17 tests, D9/D7/row-2b mutation drills RED-on-strip). Name-diff = 7 NEW failures — NOT
+    clean. Orchestrator VERIFIED the categorization (isolation on branch vs develop, not trusted):
+    (1) 4 are PRE-EXISTING order-fragility — test_v5_7_1_energy_precool::TestD1I6Scope + test_freeze_
+    floor fail IDENTICALLY in isolation on develop; re-exposed by the +17 tests shifting collection
+    order (TEST-SUITE-ORDER-INDEP). Not the change. (2) 3 are REAL branch regressions —
+    test_arrester_comfort_delay::S13 (1) + test_fan_trust_state_extension::TestD3 (2) PASS on develop,
+    FAIL on branch: intended semantic consequences of D7 (fused night-trust) + row-9 (hvac_predict
+    swap), but real failures that MUST be resolved by updating the tests to the NEW contract (justified,
+    not made-green). PLUS D2 INCOMPLETE vs operator requirement ("has to be observable"): producer +
+    diag API landed, binary_sensor ENTITY deferred. NOT review-ready. FIX-UP dispatched: update the 3
+    regressed tests to the new contract + build the D2 entity + re-run name-diff (only the 4 verified
+    order-flakes may remain). THEN the 4 framing-disjoint reviews. §2a rows 10/11 reverted to lighting-
+    fused — reviews adjudicate.'
   BUILD_PAGED_PLAN_FIXED_2026_09_16: 'Builder paged (No-Fabrication, correct): D1 cited
     last_edge_kind_for which does not exist (substrate exposes last_edge_entity_for -> entity_id, not
     kind). ROOT: the kind read was mis-cited AND unused (vestigial) — round-3 already moved D1 to ride
