@@ -32,28 +32,33 @@ meta:
       happens to your house roughly weekly and that you have never been told about. I have built the
       check that would have caught it (see the next item) and left the question of WHY the detector
       keeps dropping out for you, since it needs someone who can get onto the camera host.'
-  - fid: CAMERA-SILENT-PRODUCER-TRIPWIRE-1@2026-09-17T02:45:00
-    at: '2026-09-17T02:45:00'
-    outcome: built_to_review
+  - fid: CAMERA-SILENT-PRODUCER-TRIPWIRE-1@2026-09-17T03:05:00
+    at: '2026-09-17T03:05:00'
+    outcome: escalated
     acknowledged: false
-    headline: 'BUILT, REVIEWED, WAITING FOR YOU TO SHIP IT — the alarm that would have told you about
-      those blackouts. We already had a check that catches an outdoor camera stuck ON, reporting a
-      person forever. What we never had was the mirror: a check for the fleet going SILENT. So a
-      camera stuck saying "person!" got caught within the hour, while all seventeen cameras going
-      quiet for thirty hours got caught by nobody. That asymmetry is why three blackouts passed
-      unnoticed. The new check watches the whole outdoor fleet together and speaks up when nothing
-      has seen anybody for longer than the fleet ever normally goes quiet. I deliberately did NOT
-      build it per-camera, even though that sounds better: individual cameras go quiet for days quite
-      legitimately — one of yours is physically covered when you are home, another only wakes every
-      ten minutes — so a per-camera version would need a baseline model and an exclusion list and
-      would still cry wolf. The fleet-level version needs neither and caught all three real episodes.
-      I sized the threshold from your own data rather than guessing: the longest NORMAL quiet stretch
-      in the recorder is 4.3 hours (an overnight lull), the shortest real blackout was 8.3 hours, so
-      six hours sits cleanly between them with room on both sides. It reuses the existing camera list
-      and the existing alerting path — no new machinery. Tests drive the real code, and I proved they
-      would actually catch a regression by breaking the check on purpose and confirming four of them
-      went red. NOT DEPLOYED, on purpose: shipping it restarts Home Assistant and you are asleep. It
-      is sitting on a branch ready for a one-word go.'
+    headline: 'I BUILT THE BLACKOUT ALARM, THEN THE REVIEWS KILLED IT — and they were right, so it is
+      NOT shipping and I want your go on the redesign. The idea is sound and still worth doing: we
+      already catch an outdoor camera stuck ON shouting "person!", but we never had the opposite
+      check for the whole fleet going silent, which is exactly why three blackouts in eight days
+      passed unnoticed. I built that mirror check, tests green, and proved the tests would catch a
+      regression by deliberately breaking the check and watching four of them fail. THEN TWO
+      REVIEWERS, WORKING INDEPENDENTLY FROM DIFFERENT ANGLES, LANDED ON THE SAME FATAL FLAW — which
+      is the strongest warning this process can give. The check counts elapsed silence in memory. Your
+      system reloads itself roughly five times a night (a known open problem), and every reload wipes
+      that memory and restarts the count from zero. A check that needs six uninterrupted hours would
+      therefore never get there. It would have sat silent through BOTH real blackouts while looking
+      installed and healthy — which is worse than having no alarm at all, because you would have
+      believed it. AND ONE OF THE THREE PROBLEMS IS MINE, not the builder''s, so I want it on the
+      record: I sized the six-hour threshold by measuring "no camera reported anybody", but what got
+      built tests "every camera currently reads off". Those sound identical and are not — a sensor
+      stuck ON contributes nothing to the first measure while permanently blocking the second. So my
+      evidence did not actually validate the thing that was built. I only found that because I went
+      to check a reviewer''s claim against the database instead of taking their word for it, and the
+      number they quoted turned out to be overstated while pointing at something real. THE GOOD NEWS
+      is that one redesign fixes all of it: read how long each camera has actually been quiet from
+      the cameras themselves at the moment of checking, rather than counting it up in memory. That
+      survives the reloads by construction and makes the check match the evidence. Say go and I redo
+      it properly and put it back through both reviews.'
   - fid: HVAC-ZONE1-MANUAL-OSCILLATION-1@2026-09-17T02:40:00
     at: '2026-09-17T02:40:00'
     outcome: measured
@@ -24148,10 +24153,10 @@ cards:
   title: Exterior person detection can go fleet-wide silent for a day at a time and nothing notices —
     build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped
   thread: perimeter
-  status: in_progress
+  status: waiting_operator
   created: '2026-09-17 02:20'
-  updated: '2026-09-17 02:20'
-  refinement_status: initial
+  updated: '2026-09-17 03:05'
+  refinement_status: refined
   approval: implied
   tags:
   - tier-2
@@ -24214,9 +24219,59 @@ cards:
     rung 1 because it is a fitted number derived from a measured distribution, so changing it should
     require review rather than a dashboard turn; 0 disables the check, same kill-switch convention as
     its stuck-ON sibling)
-  next: 'BUILD dispatched 2026-09-17 by the overnight pass — fleet-silence evaluator mirroring
-    _evaluate_camera_stuck_dimension, threshold 21600s (6h) per the measured 4.3h-normal / 8.3h-worst
-    separation. To review lane only; NOT deployed (deploying restarts HA in a sleeping occupied house).'
+  REVIEWED_2026_09_17: 'BUILT, THEN BOTH REVIEWS SAID DO-NOT-SHIP — and they are right. Two
+    framing-disjoint reviews (A local-correctness, B lifecycle/write-volume) ran in parallel and
+    CONVERGED INDEPENDENTLY on the same HIGH, which is the strongest signal this protocol produces.
+    THE KILLER (A-HIGH-1 = B-1): the check accumulates elapsed silence in RAM on the
+    OptimizationCoordinator, which is rebuilt on every config-entry reload (__init__.py:3956). The CM
+    entry is in a documented live RELOAD STORM at roughly 5x/night, so the silence clock is reset
+    every ~2h and can never reach 6h. The check would have emitted NOTHING during the exact 26h and
+    30h blackouts it was built to catch. The sibling stuck-ON check is immune only because its window
+    is 1800s and fits between reloads — the mirror argument does not survive a 12x larger window.
+    MY OWN SIZING WAS ALSO WRONG, and I caught this verifying A-HIGH-3 rather than taking the
+    reviewer''s number on trust. The reviewer claimed pool_equipment is ON 53% of the time, which
+    would make a 6h all-OFF window arithmetically impossible. The live figure is lower — 36.0h ON out
+    of 119h (30%), longest continuous ON run 3.3h — so the window is reachable and that specific
+    claim is overstated. BUT checking it exposed a worse problem that is mine: I sized the threshold
+    by counting ON-TRANSITIONS (no camera reported anybody for 26h), while the code implements a
+    different predicate (every camera simultaneously reads OFF for 6h). Those are not the same
+    quantity. A sensor sitting stuck ON contributes zero ON-transitions while permanently blocking
+    all-OFF — so my measurement does not actually validate the predicate that was built, and the true
+    false-positive/false-negative rate of this implementation is UNMEASURED. That is a
+    measure-before-build failure in my own work, not the builder''s.
+    THE FIX DIRECTION IS THE SAME FOR BOTH, which is what makes the redesign worth doing rather than
+    patching: stop accumulating elapsed silence in RAM and instead DERIVE it at evaluation time from
+    the fleet entities'' own last-changed timestamps (or the recorder). That survives reload storms by
+    construction, and it lets the predicate match the quantity I actually measured. Re-size against
+    the corrected predicate afterwards.
+    OTHER FINDINGS TO CARRY INTO THE REDESIGN: no minimum-fleet-size guard, so a degraded resolution
+    down to one camera still pages as "fleet-wide" (A-HIGH-2); total disappearance of the camera
+    entities — the most severe producer failure — returns early and provably cannot page (A-MED-1);
+    a vacation-empty house can legitimately exceed 6h and would page once a night (A-MED-2); the
+    wire-in anchor is an inspect.getsource string grep rather than a real cycle-driven test, which is
+    Bug Class #62 and must be replaced (A-MED-3a = B-2); and severity=high currently lands in the
+    daily digest rather than paging, because no URA entry allowlists sensor_health — so as built this
+    reports a dead detector layer up to 24h late (B-3, an operator decision).
+    CLEARED, so the redesign does not re-litigate them: no write-flood risk (worst case ~4 rows/day,
+    the v5.0.0 incident is not re-created), exception isolation correct, no boot-transient firing, no
+    listeners/timers/tasks added, kill switch genuinely disables every path, and the latch cannot
+    double-emit or stick forever across a real recovery.
+    BRANCH STATE: feat/camera-fleet-silence-tripwire @ 4f4183543, 7 tests green, mutation drill
+    confirmed 4 tests go red when the evaluator is neutered. NOT merged, NOT deployed. Do not ship
+    this branch as-is — it would install a trip-wire that the live reload cadence silently disarms,
+    which is worse than no trip-wire because it would be believed.'
+  next: 'APPROVE the redesign (I stopped because both reviews came back DO-NOT-SHIP, which is a
+    mandatory pause). The build is done but does not work: it counts silence in memory, and the
+    nightly config-entry reload storm resets that memory every couple of hours, so a check needing 6
+    hours never gets there — it would have stayed silent through both real blackouts. The fix is a
+    small redesign rather than a patch: read how long each camera has actually been quiet from the
+    entities themselves at the moment of checking, instead of counting it up in memory. That survives
+    reloads by construction and also fixes a sizing error of my own (I measured "no camera reported
+    anyone" but built "every camera reads off", which are different things when a sensor is stuck on).
+    Say go and I redo it that way, re-size the threshold honestly against the corrected definition,
+    replace the one hollow test, and put it back through both reviews. Related decision while you are
+    here: as built this lands in the daily digest rather than paging you, so you would learn about a
+    dead detector layer up to a day late — tell me if you want it to page instead.'
   links:
     related:
     - CAMERA-STUCK-SENSOR-TRIPWIRE-1
