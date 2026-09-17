@@ -10689,6 +10689,16 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  ORCH_VALIDATION_PASS_2026_09_16: 'Orchestrator personally validated the round-3 plan (operator:
+    validate yourself, watch for over-complication). PASS + not over-built: CRIT-1 resolved via kind-
+    at-rising-edge (last_edge_entity_for) then ride grace-held STATE_OCCUPIED+tail (test_d1_holds_
+    through_raw_kind_blip pins it); D8 truly collapsed to ROOM_TYPE_HVAC_HOLD_NIGHT table value under
+    FAN_TRUST_STATES, self-gating, no arm-machine/cap/restart/wall-clock (modest bedroom 30-45); D7 &
+    D9 each a SINGLE early guard on fused any_room_hvac_occupied (grep-provable ship-stop on raw);
+    §2a keeps 557/563 NO-SWAP (lighting protected); generalization an acceptance criterion; DST moot;
+    flap reversal addressed. No missed seams. -> Tier-3 build DISPATCHED (worktree). 4 framing-disjoint
+    build reviews incl adversarial-completeness D; operator PRE-DEPLOY checkpoint before ship. Build
+    NOT gated on the oscillation trace (that gates the separate Phase-1 chokepoint).'
   BUILD_NOT_GATED_ON_OSCILLATION_2026_09_16: 'CORRECTION (operator: "why cant we start on the plan
     when its done?"). I over-serialized — step-4-B build has NO hard dependency on the zone_1
     oscillation trace or the abstraction. Those gate the SEPARATE cards (HVAC-ZONE1-MANUAL-OSCILLATION-1
@@ -11162,7 +11172,7 @@ cards:
   title: HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC
     its own dwell-vs-transit derivation instead of tuning a knob that cannot win
   thread: hvac
-  status: planned
+  status: in_progress
   created: '2026-09-15'
   updated: '2026-09-15'
   refinement_status: initial
