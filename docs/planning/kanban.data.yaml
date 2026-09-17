@@ -10588,6 +10588,19 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  GENERALIZES_ALL_ROOMS_2026_09_16: 'Framing correction (operator): the design GENERALIZES to ALL
+    bedrooms/rooms — it is NOT scoped to Master+Jaya. D7 reads the FUSED per-room occupancy signal for
+    ANY room and retreats empty zones / holds occupied ones; nothing is hardcoded to specific rooms.
+    Master+Jaya are the only OCCUPIED instances we had data to VALIDATE against (the only bedrooms
+    occupied in 2 weeks) — that is validation COVERAGE, not a scope limit. Empty bedrooms are handled
+    GRACEFULLY by construction: an empty room (Ziri today) reads unoccupied -> its zone retreats (the
+    intended win, no waste); and D8 grace only ARMS after a room has held CONTINUOUSLY occupied into
+    the night, so an empty/never-occupied room never false-holds. Empty and occupied rooms both fall
+    out of ONE generic rule. CORRECTED INVARIANT WORDING: INV-1 = "no OCCUPIED bedroom (any bedroom)
+    falls to away overnight"; Master+Jaya = the validated evidence the fused signal holds for a real
+    occupant; D8 grace = the generic safety for ANY occupied room whose sensors drop, measured or not.
+    Supersedes the earlier "safety scoped to Master+Jaya" phrasing in D8_RESCOPED — that was validation
+    coverage mis-stated as design scope.'
   D8_RESCOPED_2026_09_16: 'CORRECTION cascading from the Ziri refutation. The night measurement made
     the 2-6am leniency (D8) REQUIRED/P1 on the basis that redundancy degrades silently AND Ziri proved
     it. Ziri did NOT prove it — Ziri is away (operator), so there is NO observed degraded-occupied-
