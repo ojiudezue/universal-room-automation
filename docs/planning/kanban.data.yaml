@@ -10588,6 +10588,24 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  PLAN_REVIEW2_OVERCOMPLICATION_2026_09_16: 'Tier-3 plan review #2 (over-complication, operator-
+    requested lens) = FIX-REQUIRED-IN-PLAN, 3 CRIT 4 HIGH. Orchestrator ENDORSES the SIMPLIFY. Key
+    findings: OC-1/OC-2 (CRIT) — the plan''s D8 is the PARKED full machinery verbatim (200min, 4
+    discharge paths, arm state machine) justified on the REFUTED Ziri evidence (P1/HARD/"exists
+    because of Ziri") — contradicts D8_RESCOPED''s modest-grace. OC-3 (HIGH) — D8 is a FOURTH cascaded
+    hold; 3 already cover the seam (ROOM_TYPE_TIMEOUTS bedroom 900s + unavail grace + vacancy_grace
+    10min) + D3''s new per-room hold. COLLAPSE D8 -> a NIGHT VARIANT of D3''s ROOM_TYPE_HVAC_HOLD gated
+    on FAN_TRUST_STATES (self-gating tail-hold: cannot false-hold an empty room, delivers the arm
+    precondition free). Deletes arm machine, cap, continuity check, restart fail-safe, 2 attrs, 5/7
+    tests. One real seam preserved: night-scope it (a VALUE not a state machine) so daytime empty-
+    bedroom retreat (the money) is not delayed. BUILD-PREDICTION CRITs: BP-1 the §2a swap table + D1
+    acceptance criteria are NOT in the doc ("carried forward" but absent) -> inline them; BP-2 blanket
+    swap of hvac_zones.py:555-566 breaks the LIGHTING vacancy sweep (vacancy_sweep_done@557 gates
+    light/fan turn-off) -> split per-line: SWAP 556/560 (HVAC), NO-SWAP 557/563. HIGH: missed consumers
+    hvac_zones.py:349/418, hvac.py:3625-3643, optimization.py:2412; D7 sketch != real code (log-once
+    cache + reason-ledger) -> pin exact insertion, drop "builder pins the form". D7 itself = KEEP
+    (minimal, no new state — the cycle''s actual value). HOLDING plan revision for review #1
+    (completeness) to consolidate.'
   GENERALIZES_ALL_ROOMS_2026_09_16: 'Framing correction (operator): the design GENERALIZES to ALL
     bedrooms/rooms — it is NOT scoped to Master+Jaya. D7 reads the FUSED per-room occupancy signal for
     ANY room and retreats empty zones / holds occupied ones; nothing is hardcoded to specific rooms.

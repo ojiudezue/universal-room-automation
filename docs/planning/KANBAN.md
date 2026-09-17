@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T20:27:07-05:00_ - _Data commit: `ec5e647fc33c`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T20:31:58-05:00_ - _Data commit: `33a5e2db09dd`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -349,7 +349,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (23):**
+- **Forensic keys (24):**
+  - `PLAN_REVIEW2_OVERCOMPLICATION_2026_09_16`: Tier-3 plan review #2 (over-complication, operator- requested lens) = FIX-REQUIRED-IN-PLAN, 3 CRIT 4 HIGH. Orchestrator ENDORSES the SIMPLIFY. Key findings: OC-1/OC-2 (CRIT) — the plan's D8 is the PARKED full machinery verbatim (200min, ...
   - `GENERALIZES_ALL_ROOMS_2026_09_16`: Framing correction (operator): the design GENERALIZES to ALL bedrooms/rooms — it is NOT scoped to Master+Jaya. D7 reads the FUSED per-room occupancy signal for ANY room and retreats empty zones / holds occupied ones; nothing is hardcoded...
   - `D8_RESCOPED_2026_09_16`: CORRECTION cascading from the Ziri refutation. The night measurement made the 2-6am leniency (D8) REQUIRED/P1 on the basis that redundancy degrades silently AND Ziri proved it. Ziri did NOT prove it — Ziri is away (operator), so there is...
   - `NIGHT_MEASUREMENT_2026_09_16`: Option-B safety gate measured (7 nights). VERDICT: SAFE now + 2-6am leniency REQUIRED (upgraded P2-3 -> P1 by the data). Findings: (1) NO resident/guest bedroom is PIR-only — all mmWave/occupancy-backed. (2) The FUSED binary_sensor.<room...
