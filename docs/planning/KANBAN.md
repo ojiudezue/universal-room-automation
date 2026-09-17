@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T07:47:57-05:00_ - _Data commit: `019652011f86`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T07:50:38-05:00_ - _Data commit: `6f12358dd133`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -395,7 +395,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (38):**
+- **Forensic keys (39):**
+  - `ROUND2_BUILD_LANDED_2026_09_17`: Round-2 fix-up landed (@7959b2587, plan synced to round-3-rev). Per builder: all 3 operator decisions (D9 compose-away via zone_target_preset=away + emit; D7 _hvac_seen/is_zone_hvac_established fail-open + person-trust backstop + _row1_f...
   - `STORM_VERIFIED_2026_09_17`: Reload-storm verification (recorder-authoritative via ura_setup_duration re-stamps; logs were inaccessible - journald 401/perm-denied, samba logfile stale). RESULT: REDUCED, 0 overnight LAST night (09-16->17) but 3 overnight ~34h ago (09...
   - `ROUND2_FIXUP_DISPATCHED_2026_09_17`: Operator decided all 3: (1) D7 night-safety FIX REGARDLESS ("too many holes") + FIRST verify the CM reload storm (dispatched a5fdc6d — measurement, ha core logs returned 401 in ssh so delegating to find a working source); (2) D9 COMPOSE-...
   - `REVIEW_C_2026_09_16`: Framing C (test-authority via per-site mutation) = FIX-REQUIRED, hardest. C-CRIT-1: D9 ENTIRELY UNTESTED — fused->lighting flip AND full gate deletion both leave the full suite green; coverage is an unscoped whole-file grep (Bug#62). Row...

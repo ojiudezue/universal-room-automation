@@ -10954,6 +10954,22 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  ROUND2_BUILD_LANDED_2026_09_17: 'Round-2 fix-up landed (@7959b2587, plan synced to round-3-rev). Per
+    builder: all 3 operator decisions (D9 compose-away via zone_target_preset=away + emit; D7
+    _hvac_seen/is_zone_hvac_established fail-open + person-trust backstop + _row1_fail_open, unified
+    polarity; D5 _migrate_hvac_zone_entry_dwell_to_zero) + all converged must-fixes (vacancy sweep
+    lighting-gated both branches; night table 9 types + night>=day, default 60; row-10 fused swap;
+    per-room override day-only + CONF_HVAC_VACANCY_HOLD_NIGHT sibling) + behavioral anchors replacing
+    the hollow greps. Builder name-diff: NEW=2 GONE=2, NEW = the 2 pre-existing freeze_floor flakes,
+    TestD1I6Scope now pass. ORCHESTRATOR re-running its OWN name-diff (bqc59akiv) — NOT trusting the
+    categorization (got burned round-1). RESIDUALS: config-flow UI for the hold knobs deferred (A-LOW,
+    matches CONF_FAN_VACANCY_HOLD); 6-hallway reclassification = operator runbook.
+    NEXT: on clean name-diff -> FOCUSED re-review (3 framing-disjoint on the CHANGED/new surfaces: A/B
+    correctness+integration of D9-compose/row-10/migration/fail-open logic; C test-authority verify the
+    new anchors DISCRIMINATE via revert-in-suite; D adversarial — the NEW fail-open/backstop is unreviewed
+    + night-safety-critical: confirm INV-1 holds under reload AND INV-2 does NOT over-preserve (an
+    empty-at-boot zone must still retreat once established, not stay conditioned forever)). Then operator
+    pre-deploy checkpoint.'
   STORM_VERIFIED_2026_09_17: 'Reload-storm verification (recorder-authoritative via ura_setup_duration
     re-stamps; logs were inaccessible - journald 401/perm-denied, samba logfile stale). RESULT: REDUCED,
     0 overnight LAST night (09-16->17) but 3 overnight ~34h ago (09-15->16); ~5x/night baseline 09-10.
