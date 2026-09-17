@@ -10689,6 +10689,21 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  REVIEW_A_2026_09_16: 'Framing A (local correctness) = FIX-REQUIRED, CONVERGES with B. A-HIGH ==
+    B-CRIT-1 (vacancy sweep lights-off on occupied hallway — both name it the plan-predicted Bug#63
+    collision; same exposure on the D6 stale branch hvac.py:1883). A-MED == B-HIGH-3 (night hold < day
+    for 5 uncovered room types: closet/bathroom/garage/utility/infrastructure -> night default 0 vs
+    day 60). A NEW catch (B missed): D5 NOT REAL on the live install — the 3->0 default flip is shadowed
+    by the PERSISTED hvac_zone_entry_dwell option (Number knob number.py:494 + CM flow), so entry-dwell
+    keeps firing + stacks with the D1 tail = the exact thing D5 removes; needs a MIGRATION that rewrites
+    the stored option, not a constant flip (or drop the D5 no-stack claim). A-LOW: CONF_HVAC_VACANCY_HOLD
+    per-room override is UNSETTABLE (no config-flow field / Number entity) -> the plan-specified override
+    cant be set; wire it or document code-only. Also: _dpm_skipped_empty_zones computed-not-consumed;
+    hallway branch doesnt clear _hvac_prev_state_occupied; dead imports; the 2 fan_trust D3 tests still
+    source-grep (Bug#62, -> C). CLEARED by A: D8 effective_hold, D9 placement, D7 boolean, getattr fail-
+    open direction, S13 contract test genuine. A scope note: plan text still carries stale "D7 non-goal
+    unless operator picks it" language (operator DID pick B + measurement done) — clean up. HOLDING for
+    C/D.'
   REVIEW_B_2026_09_16: 'Framing B (integration/lifecycle) = FIX-REQUIRED, 1 CRIT + 3 HIGH — real
     build bugs. B-CRIT-1: the lights-off-on-occupied-hallway regression the PLAN REVIEW predicted,
     reintroduced via an INCOMPLETE swap — fire gate moved to HVAC-denom (last_occupied_time basis at

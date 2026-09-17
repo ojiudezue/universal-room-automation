@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T23:06:35-05:00_ - _Data commit: `ec43f8202df1`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T23:10:05-05:00_ - _Data commit: `f00277763eee`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -405,7 +405,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (33):**
+- **Forensic keys (34):**
+  - `REVIEW_A_2026_09_16`: Framing A (local correctness) = FIX-REQUIRED, CONVERGES with B. A-HIGH == B-CRIT-1 (vacancy sweep lights-off on occupied hallway — both name it the plan-predicted Bug#63 collision; same exposure on the D6 stale branch hvac.py:1883). A-ME...
   - `REVIEW_B_2026_09_16`: Framing B (integration/lifecycle) = FIX-REQUIRED, 1 CRIT + 3 HIGH — real build bugs. B-CRIT-1: the lights-off-on-occupied-hallway regression the PLAN REVIEW predicted, reintroduced via an INCOMPLETE swap — fire gate moved to HVAC-denom (...
   - `FIXUP_DONE_REVIEWS_DISPATCHED_2026_09_16`: Fix-up complete (@1e17d400a): 3 regressions -> contract updates w/ new discriminator tests + mutation drills (fan_trust TestD3 x2 = D7 narrowing; arrester S13 = row-9 swap, + new test_S13_pre_heat_skipped_when_hvac_denomination_empty). D...
   - `BUILD_LANDED_NAMEDIFF_VERIFIED_2026_09_16`: Build landed (feature/hvac-conditioning-demand @6bcba611f, D1-D9 + 17 tests, D9/D7/row-2b mutation drills RED-on-strip). Name-diff = 7 NEW failures — NOT clean. Orchestrator VERIFIED the categorization (isolation on branch vs develop, no...
