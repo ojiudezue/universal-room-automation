@@ -10945,6 +10945,20 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  ROUND2_FIXUP_DISPATCHED_2026_09_17: 'Operator decided all 3: (1) D7 night-safety FIX REGARDLESS
+    ("too many holes") + FIRST verify the CM reload storm (dispatched a5fdc6d — measurement, ha core
+    logs returned 401 in ssh so delegating to find a working source); (2) D9 COMPOSE-AWAY endorsed;
+    (3) D5 migration yes. NO decoupling of daytime from night — harden night-trust in place. Round-2
+    fix-up dispatched (a6e1518, same worktree) covering: D9 compose-away (keeps DPM-as-corrector, kills
+    third-writer strand + cache desync); D7/row-1 FAIL-OPEN on unestablished fused signal (_hvac_seen)
+    + person-trust BACKSTOP for the reset/degraded case (restores v4.7.13 veto as backstop; closes
+    D-HIGH-1 reload + B-HIGH-1 + B-MED-1) + unify polarity D9/D7/row-1; D5 config-entry migration of
+    the stored hvac_zone_entry_dwell option; vacancy sweep gated on lighting denom (A-HIGH/B-CRIT-1) +
+    D6 branch; night table full coverage + night>=day (A-MED/B-HIGH-3); row-10 fused swap or correctness
+    justify (D-MED-1); per-room override night-aware + settable (D-MED-3/A-LOW); REAL behavioral anchors
+    for D9/row1/row4/hallway + fix row-8 TestD1I6Scope fixtures + fix 2 non-discriminating S13 tests
+    (C-CRIT/HIGH/MED); revert-in-suite name-diff (NOT isolation); sync plan into worktree. Storm verify
+    informs SEVERITY, does not block (fix is correct regardless).'
   REVIEW_C_2026_09_16: 'Framing C (test-authority via per-site mutation) = FIX-REQUIRED, hardest.
     C-CRIT-1: D9 ENTIRELY UNTESTED — fused->lighting flip AND full gate deletion both leave the full
     suite green; coverage is an unscoped whole-file grep (Bug#62). Row 1 (preset-flip) + Row 4 (stale)

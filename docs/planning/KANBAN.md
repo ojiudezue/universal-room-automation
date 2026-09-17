@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T02:16:44-05:00_ - _Data commit: `48a898997d60`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T02:17:35-05:00_ - _Data commit: `b579cc9385e7`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -395,7 +395,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (36):**
+- **Forensic keys (37):**
+  - `ROUND2_FIXUP_DISPATCHED_2026_09_17`: Operator decided all 3: (1) D7 night-safety FIX REGARDLESS ("too many holes") + FIRST verify the CM reload storm (dispatched a5fdc6d — measurement, ha core logs returned 401 in ssh so delegating to find a working source); (2) D9 COMPOSE-...
   - `REVIEW_C_2026_09_16`: Framing C (test-authority via per-site mutation) = FIX-REQUIRED, hardest. C-CRIT-1: D9 ENTIRELY UNTESTED — fused->lighting flip AND full gate deletion both leave the full suite green; coverage is an unscoped whole-file grep (Bug#62). Row...
   - `REVIEW_D_2026_09_16`: Framing D (adversarial completeness) = FIX-REQUIRED, FALSIFIED BOTH invariants w/ legal-config repros. D-HIGH-1 (INV-1, SEVERE): CM reload storm ~5x/night (known live issue) wipes in-memory D1 arm state; reload path has boot-settle alrea...
   - `REVIEW_A_2026_09_16`: Framing A (local correctness) = FIX-REQUIRED, CONVERGES with B. A-HIGH == B-CRIT-1 (vacancy sweep lights-off on occupied hallway — both name it the plan-predicted Bug#63 collision; same exposure on the D6 stale branch hvac.py:1883). A-ME...
