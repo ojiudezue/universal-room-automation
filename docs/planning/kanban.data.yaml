@@ -18430,6 +18430,18 @@ cards:
   - hvac_override.py async_startup_ramp_audit (temp=1, preset=0)
   - docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md (R1-MEDIUM-1)
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  ACCEPTANCE_CRITERION_CORRECTED_2026_09_16: 'Operator: "Target was wrong. So that cannot be the
+    criteria." The ~6%% manual-occupancy target was BORROWED from zone_3 (a transit corridor,
+    structurally unlike zone_1) and is NOT a valid acceptance bar. RETRACT the framing "step 1 not
+    accepted because 69.6->46.0%% did not reach 6%%" wherever it appears (ARC_STATE on
+    HVAC-SUPPLE-SEQUENCE-1, and this card). manual%% ABSOLUTE LEVEL is at best a loose proxy, not a
+    target; 46%% is not a failure against any real bar. CORRECT ACCEPTANCE CRITERION for the preset-
+    write work: (a) the named preset WRITE LANDS — PROVEN LIVE (resume-then-pin held 8min/9 refreshes);
+    (b) URA is not REFUSED the presets it decides — measured by the v5.103.4 lockout telemetry
+    (preset_change_locked_out rate), NOT by manual%%. So step 1s MECHANISM is accepted; the only open
+    question is the REFUSAL/ESCAPE residual (HVAC-PRESET-LOCKOUT-ESCAPE-1: does URA refuse its own
+    manual?), which the lockout read forks. Any future manual%% number is context/diagnostic, never
+    the pass/fail gate.'
   arc_blocks_2026_09_16: [HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1, HVAC-PRESET-WRITE-STRATEGY-1, HVAC-ZONE-CONDITIONING-DEMAND-1, S14-CEILING-NEEDS-AN-ENDING-1]
   arc_mirror_note_2026_09_16: 'blocks back-refs for the arc, added during the finish-the-job link
     pass. This card (step 1, shipped v5.103.2) gates three descendants: the boot-ramp residual

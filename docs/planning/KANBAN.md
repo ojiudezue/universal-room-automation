@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T18:25:40-05:00_ - _Data commit: `8198372e0b06`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T20:27:07-05:00_ - _Data commit: `ec5e647fc33c`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -1034,7 +1034,8 @@ _created 2026-08-20 14:40 · updated 2026-09-12 11:00 · reframed_architectural_
 - **Sibling of:** BORROW-BANKING-LEASE-NOT-RELEASED-1, S14-CEILING-NEEDS-AN-ENDING-1
 - **Parsimony:** [BUILD] URA writes raw setpoints at volume and can strand a zone off-preset, against an explicit operator design contract
 - **Refs:** hvac_preset.py:212-217; hvac_override.py:186-195, 3070-3097; HVAC-PRESET-RESTORE-MISS-1; HVAC-PRESET-FLAP-1
-- **Forensic keys (46):**
+- **Forensic keys (47):**
+  - `ACCEPTANCE_CRITERION_CORRECTED_2026_09_16`: Operator: "Target was wrong. So that cannot be the criteria." The ~6%% manual-occupancy target was BORROWED from zone_3 (a transit corridor, structurally unlike zone_1) and is NOT a valid acceptance bar. RETRACT the framing "step 1 not a...
   - `arc_blocks_2026_09_16`: HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1
   - `arc_mirror_note_2026_09_16`: blocks back-refs for the arc, added during the finish-the-job link pass. This card (step 1, shipped v5.103.2) gates three descendants: the boot-ramp residual (step 4a — its restore is only useful once preset writes LAND), the conditionin...
   - `FIRST_LIVE_EXERCISE_2026_09_16`: RESUME-THEN-PIN WORKED IN PRODUCTION, first exercise, ~7 minutes after the v5.103.2 restart — and it recovered a zone that the BOOT PATH had just stranded.
