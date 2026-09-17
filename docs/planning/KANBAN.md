@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-16T20:54:47-05:00_ - _Data commit: `f290085e1da4`_ - _last_reconciled: 2026-09-16_
+_Generated: 2026-09-16T20:57:53-05:00_ - _Data commit: `239be60bd264`_ - _last_reconciled: 2026-09-16_
 
 
 ## Columns
@@ -12,7 +12,7 @@ _Generated: 2026-09-16T20:54:47-05:00_ - _Data commit: `f290085e1da4`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 11 |
-| 📝 Planned | 10 |
+| 📝 Planned | 11 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 25 |
@@ -223,14 +223,15 @@ _created 2026-09-16 · initial_
 - **Tags:** tier-3, platform-enabler, institutional-context
 - **Parsimony:** [BUILD] Write mechanics are duplicated per call site and one verb bypasses the funnels entirely, so every new restore path is a fresh chance to omit one.
 - **Refs:** hvac_setpoint.py (the two funnels + the leaked vendor constants); the 7 bypassing set_hvac_mode sites: hvac.py:1724, hvac_override.py:3447/3816/3934/3969, hvac_egress.py:682/778; hvac_excursion.py return_excursion ("Callers still emit the actual wire writes")
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `INVENTORY_2026_09_16`: Thermostat write-path inventory done (AUDIT_thermostat_write_paths). CORRECTS the root-cause hypothesis: writes are MORE governed than feared. set_preset_mode 10/10 funnelled, set_temperature 11/11 funnelled; ONLY set_hvac_mode bypasses ...
   - `RESEQUENCING_CONSIDERED_2026_09_16`: Operator pulled this forward for reconsideration: the tonight evidence (HIGH-2 DPM bypass, zone_1 oscillation mystery writer, 7 raw set_hvac_mode, suspected nudge bypass) suggests ungoverned write paths are the ROOT cause of the preset-w...
   - `seq_2026_09_16`: STEP 8 of HVAC-SUPPLE-SEQUENCE-1 — LAST. Fixes duplication, not a live defect: every bug this arc surfaced is already patched at its site. Earlier would mean a large Tier-3 refactor of every thermostat write in an occupied house, competi...
   - `THE_EVIDENCE_2026_09_16`: MEASURED, not asserted — this is what distinguishes a funnel from an abstraction: * 22 call sites route through emit_set_temperature / emit_set_preset_mode. Tidy. * BUT 7 raw `climate.set_hvac_mode` calls BYPASS them entirely (hvac.py:17...
   - `PER_ZONE_CORRECTED_2026_09_16`: OPERATOR: "If we did this, why per zone? It should be the same function, no?" CORRECT, and my sketch was wrong. Ask what per-zone STATE a handle would hold: entity_id is a PARAMETER; the vendor is DERIVED from the entity's platform (memo...
   - `DESIGN_SHAPE_2026_09_16`: Stateless, entity-parameterised, all three verbs plus vendor dispatch: read_hold(hass, entity_id)              -> named / anonymous / none set_preset(hass, entity_id, name, ...)  -> strategy decides clear-then-pin vs direct pin set_setpo...
 
-## 📝 Planned (10)
+## 📝 Planned (11)
 _has plan / acceptance_
 
 ### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#1 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
@@ -335,7 +336,17 @@ _updated 2026-09-15 02:50_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-SETHVACMODE-CHOKEPOINT-1` - Add emit_set_hvac_mode chokepoint + migrate the 7 raw set_hvac_mode bypass sites (close the only verb-scoped write gap — 2 of 3 verbs are funnelled, set_hvac_mode is not) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **planned**
+_created 2026-09-16_
+- **Problem / Solution:**
+  - Problem: the write-path inventory (AUDIT_thermostat_write_paths_2026_09_16) found set_preset_mode (10/10) and set_temperature (11/11) fully route through the hvac_setpoint funnels, but set_hvac_mode has NO chokepoint — 7 raw sites bypass...
+- **Why:** Phase 1 of HVAC-THERMOSTAT-ABSTRACTION-1, split out because it is mechanical Tier 2 (one verb, 7 sites) vs the full ZoneThermostat API (Phase 2, parked). Closes the only real chokepoint gap. NOTE the inventory's caution: this does NOT fi...
+- **Next:** GATED: run AFTER the zone_1 oscillation producer is identified (HVAC-ZONE1-MANUAL-OSCILLATION-1, clean 24h read ~09:45 CDT 09-17) so Phase 1 does not over-fit to a writer that is either already funnelled or cloud-side. Then: add emit_set...
+- **Tags:** hvac, tier-2, chokepoint, do-robust-fix, gated-on-measurement
+- **Parsimony:** [BUILD] 25% of URA climate writes (all set_hvac_mode) bypass any chokepoint; the other 2 verbs are fully funnelled
+
+### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **quality** - status: **planned** - approval: **unreviewed**
 _created 2026-09-12 17:10 · updated 2026-09-16 04:20 · initial_
 - **Problem / Solution:**
@@ -349,7 +360,7 @@ _created 2026-09-12 17:10 · updated 2026-09-16 04:20 · initial_
   - `MEASURED_2026_09_16`: STILL-REAL, re-measured by RUNNING it (not trusting the recorded numbers), and the fix surface is now NAMED — but the gate stopped short of building it, for a reason worth reading before anyone picks this up. THE MEASUREMENT. Default (al...
   - `links_note_2026_09_16`: Effectively blocked on TEST-HARNESS-REAL-HA-DEFAULT-1 for the same reason its parent TEST-STRATEGY-REARCH-1 is: not because the fix is unclear, but because the regression check that makes it safe needs a working runtime harness.
 
-### `HVAC-ZONE-CONDITIONING-DEMAND-1` - HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC its own dwell-vs-transit derivation instead of tuning a knob that cannot win — _#8 · WSJF 1.8 · v5 tc3 u6 /e8 ⚠_
+### `HVAC-ZONE-CONDITIONING-DEMAND-1` - HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC its own dwell-vs-transit derivation instead of tuning a knob that cannot win — _#9 · WSJF 1.8 · v5 tc3 u6 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **explicit**
 _created 2026-09-15 · initial_
 - **Problem / Solution:**
@@ -389,7 +400,7 @@ _created 2026-09-15 · initial_
   - `DESIGN_2026_09_15`: Five parts, ordered by blast radius. (1) HVAC-OWNED DERIVATION — add a zone-level "conditioning demand" signal; HVAC consumes it INSTEAD of any_room_occupied. Room automation keeps reading the existing signal untouched, so lights carry n...
   - `DUMMY_PERSON_REJECTED_2026_09_15`: OPERATOR ASKED: "Zone 3 has no zone persons because its a guest wing. Should we stub a dummy?" RECOMMENDATION: NO. The three gates (night-trust away-suppression hvac.py:1788-1795, sleep veto aggregation.py:4017-4019, non-sleep person-hom...
 
-### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#9 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#10 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **planned** - approval: **implied**
 _created 2026-09-16_
 - **Problem / Solution:**
@@ -399,7 +410,7 @@ _created 2026-09-16_
 - **Tags:** energy, tier-2db, bug-class-53, needs-plan-review
 - **Parsimony:** [BUILD] three ordering invariants are validated at save time + anomaly-flagged at runtime but their ~25 live decision readers still read raw, so an inverted slider flips a gate
 
-### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#10 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#11 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **implied**
 _created 2026-09-16 · initial_
 - **Problem / Solution:**

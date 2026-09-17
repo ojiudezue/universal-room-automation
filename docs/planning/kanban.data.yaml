@@ -177,6 +177,42 @@ meta:
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated, headline: "PERIMETER-ALERT-VOLUME-FATIGUE-1 \u2014 MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working \u2014 so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).", acknowledged: false}
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
+- id: HVAC-SETHVACMODE-CHOKEPOINT-1
+  status: planned
+  thread: hvac
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  tags: [hvac, tier-2, chokepoint, do-robust-fix, gated-on-measurement]
+  title: Add emit_set_hvac_mode chokepoint + migrate the 7 raw set_hvac_mode bypass sites (close the only
+    verb-scoped write gap — 2 of 3 verbs are funnelled, set_hvac_mode is not)
+  problem_solution:
+  - 'Problem: the write-path inventory (AUDIT_thermostat_write_paths_2026_09_16) found set_preset_mode
+    (10/10) and set_temperature (11/11) fully route through the hvac_setpoint funnels, but set_hvac_mode
+    has NO chokepoint — 7 raw sites bypass (hvac.py:1731 heat_cool enforcer; hvac_egress.py:682/778
+    pause/resume; hvac_override.py:3447/3816/3934/3969 override-revert + AC-reset). Solution: add an
+    emit_set_hvac_mode funnel mirroring emit_set_preset_mode/emit_set_temperature (gate/site/zone_id/
+    reason plumbing) and migrate the 7 sites, so all 3 verbs are governed and future audits assert
+    "3 of 3 verbs funnelled" in one grep.'
+  why: 'Phase 1 of HVAC-THERMOSTAT-ABSTRACTION-1, split out because it is mechanical Tier 2 (one verb,
+    7 sites) vs the full ZoneThermostat API (Phase 2, parked). Closes the only real chokepoint gap. NOTE
+    the inventory''s caution: this does NOT fix HIGH-2 (caller-side composition) NOR the zone_1 oscillation
+    (already-funnelled-if-URA, or Bryant-cloud) — it is hygiene + future-bypass prevention, not a fix for
+    tonight''s two problems.'
+  next: 'GATED: run AFTER the zone_1 oscillation producer is identified (HVAC-ZONE1-MANUAL-OSCILLATION-1,
+    clean 24h read ~09:45 CDT 09-17) so Phase 1 does not over-fit to a writer that is either already
+    funnelled or cloud-side. Then: add emit_set_hvac_mode + migrate the 7 sites, per-site wire-in anchor
+    (neuter -> the site''s behavior red), name-diff. Tier 2 (2 framing-disjoint reviews).'
+  parsimony:
+    problem: 25% of URA climate writes (all set_hvac_mode) bypass any chokepoint; the other 2 verbs are
+      fully funnelled
+    verdict: BUILD
+    note: mechanical, bounded, high hygiene value (a future audit can assert full verb coverage); explicitly
+      NOT the fix for HIGH-2 or the oscillation. Gate on the oscillation trace to avoid over-fitting.
+  links:
+    related: [HVAC-THERMOSTAT-ABSTRACTION-1, HVAC-ZONE1-MANUAL-OSCILLATION-1, HVAC-ZONE-CONDITIONING-DEMAND-1]
+    parent: HVAC-THERMOSTAT-ABSTRACTION-1
+    context: 'Phase 1 split from HVAC-THERMOSTAT-ABSTRACTION-1 per the write-path inventory. Phase 2 (full
+      ZoneThermostat API) stays on the parent card, parked.'
 - id: HVAC-ZONE1-MANUAL-OSCILLATION-1
   status: investigating
   thread: hvac
@@ -8185,6 +8221,21 @@ cards:
   - activity_logger.py:114-117 (unvalidated entity_id onto the ura_action bus event)
   - 'live ERROR 2026-09-16 boot: recorder core.py:304 -> split_entity_id ValueError garage_a'
 - id: HVAC-THERMOSTAT-ABSTRACTION-1
+  INVENTORY_2026_09_16: 'Thermostat write-path inventory done (AUDIT_thermostat_write_paths). CORRECTS
+    the root-cause hypothesis: writes are MORE governed than feared. set_preset_mode 10/10 funnelled,
+    set_temperature 11/11 funnelled; ONLY set_hvac_mode bypasses (7/7 sites, 25%% of writes, one verb).
+    REFUTED: nudges bypass (they route through emit_set_*); borrow-should-use-funnel (begin/return_
+    excursion emit ZERO climate calls — pure bookkeeping; wire writes are caller-side wrapped in a
+    borrow). HIGH-2/DPM is NOT a chokepoint bypass — it is CALLER-SIDE preset composition (wire write
+    IS funnelled at :2568). => SPLIT the abstraction: PHASE 1 = add emit_set_hvac_mode + migrate the 7
+    sites (mechanical, TIER 2, closes the only verb-scoped gap -> 3/3 verbs governed) -> carded
+    HVAC-SETHVACMODE-CHOKEPOINT-1. PHASE 2 = the full ZoneThermostat governed-write API (funnel+borrow+
+    snapshot compose) stays THIS card, PARKED, trigger = HIGH-2 point-gate leaks OR a 2nd DPM-shaped
+    intent bypass surfaces. KEY: the abstraction does NOT fix HIGH-2 (caller-side) NOR the zone_1
+    oscillation (if URA, the writer is ALREADY funnelled among the 21; if Bryant-cloud, no abstraction
+    helps). BLOCKING: identify the oscillation producer (24h read) BEFORE dispatching Phase 1 so it
+    doesnt over-fit. Adjacent gap noted: coordinator.py:1096-1123 chained AI-rule routes (automation/
+    scene/script/homeassistant.turn_on) still bypass — neither phase closes it.'
   RESEQUENCING_CONSIDERED_2026_09_16: 'Operator pulled this forward for reconsideration: the tonight
     evidence (HIGH-2 DPM bypass, zone_1 oscillation mystery writer, 7 raw set_hvac_mode, suspected
     nudge bypass) suggests ungoverned write paths are the ROOT cause of the preset-write problems,
