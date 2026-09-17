@@ -27,7 +27,7 @@ Reviewer D (§5) must falsify EITHER under any legal-config repro.
 
 **Subordinate corollaries:**
 - Aggression = **absolute** on the daytime conditioning path (Stage A / D1): hallway-typed rooms never contribute to `any_room_hvac_occupied`.
-- Grace-hold is **inherited** — `hvac_occupied` rides purely on the grace-held `STATE_OCCUPIED`. Kind information is consulted **only at rising edges**, never as a live AND (§CRIT-1 resolution below).
+- Grace-hold is **inherited** — `hvac_occupied` rides purely on the grace-held `STATE_OCCUPIED` (+ tail). **Kind is NOT consulted on the D1 path at all** (transit handled by circulation exclusion; within-room kind discrimination is Stage B, deferred). This fully closes CRIT-1: no `is_kind_active` / substrate kind method anywhere on D1/D7/D9.
 - **Fused-signal precondition on D7 AND D9:** the night-trust guard and the DPM setpoint gate both read the D1 sibling `zone.any_room_hvac_occupied`, built on grace-held `STATE_OCCUPIED`. **NEVER a raw substrate read** at either site.
 - Adopt and retreat timers never stack (`CONF_HVAC_ZONE_ENTRY_DWELL` default flips to 0 the same cycle per-room `CONF_HVAC_VACANCY_HOLD` ships).
 - **Generalization (§MED-1):** zero room-name / entry-id literals on the D1/D7/D8/D9 code path; a never-occupied dwelling room cannot arm any hold and its zone retreats normally.
