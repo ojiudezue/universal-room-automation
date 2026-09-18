@@ -734,7 +734,18 @@ cards:
   parsimony: {problem: 'no why-not-firing signal on the sole pre-cool path', verdict: BUILD, note: 'additive obs, low risk, enables the gap measurement'}
   links: {related: [EC-GRID-ANTICIPATORY-PRECOOL-GAP-1, EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1], context: 'post-Path-B-delete quick check 2026-09-18'}
 - id: HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1
-  status: investigating
+  TRACE_2026_09_18: 'ROOT CAUSE confirmed (read-only trace): two-stage. (1) ORDERING MISS - EC
+    registered before HVAC (__init__.py:3759 vs 3856); CoordinatorManager sets up sequentially
+    (manager.py:417), so EC async_setup fires its boot decision cycle -> dispatches SIGNAL_ENERGY_
+    CONSTRAINT(normal) (energy.py:1133->7495) BEFORE HVAC subscribes (hvac.py:1139). Fire-and-forget, no
+    replay -> HVAC misses it. (2) NON-CHANGE SUPPRESSION - later ticks dont re-dispatch stable normal
+    (change-gate energy.py:7471) so HVAC _energy_constraint stays None (init hvac.py:449) until the first
+    mode change (evening coast). No pull/backfill exists. Self-heals ONLY at coast; restart-morning pre-
+    cool window missed. FIX (planned): HVAC pulls EC current constraint at end of async_setup (after the
+    subscribe hvac.py:1145), via a producer-owned energy.current_energy_constraint() helper that reuses the
+    EXACT payload construction at energy.py:7482-7494 (no shape drift). Ordering-proof (EC fully set up by
+    then), idempotent (later real signal just re-applies). Tier 2-DB. BUILD DISPATCHED.'
+  status: planned
   thread: hvac
   created: '2026-09-18'
   updated: '2026-09-18'

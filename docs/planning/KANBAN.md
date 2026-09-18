@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T10:18:12-05:00_ - _Data commit: `d050e117370f`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T14:19:04-05:00_ - _Data commit: `d741caf98fd5`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -10,9 +10,9 @@ _Generated: 2026-09-18T10:18:12-05:00_ - _Data commit: `d050e117370f`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🔬 Investigating | 3 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 13 |
+| 📝 Planned | 14 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 25 |
@@ -34,20 +34,10 @@ _created 2026-09-18_
 - **Tags:** hvac, precool, tou, seasonal, phase-aware
 - **Parsimony:** [BUILD] summer-hardcoded pre-cool window, phase-blind to shoulder/winter
 
-## 🔬 Investigating (3)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
-### `HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1` - Post-restart the HVAC predictor sees constraint=None (pre_cool_skip_reason=no_constraint) while EC computes normal — Path A pre-cool disabled boot->first-mode-change — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **investigating**
-_created 2026-09-18_
-- **Problem / Solution:**
-  - Problem (surfaced live 2026-09-18 by the new pre_cool_skip_reason obs, v5.103.12): after a restart at 10:14 CDT (in [10,14) window, summer, both enables true), sensor.ura_energy_coordinator_hvac_constraint shows a REAL computed normal (r...
-- **Why:** Real restart-day pre-cool gap; the sole pre-cool path silently no-ops. High-value catch validating the skip-reason obs on its first boot.
-- **Next:** TRACE: does _handle_energy_constraint fire post-boot on the HVAC coordinator? is _energy_constraint set after the EC first tick? does the EC re-dispatch normal on first boot tick or suppress as non-change vs init _last_published_constrai...
-- **Tags:** hvac, precool, boot, signal-delivery, energy
-- **Parsimony:** [BUILD] restart-day pre-cool disabled until first mode change
-
-### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **investigating** - approval: **explicit**
 _created 2026-09-10 00:50 · updated 2026-09-18 02:15 · initial_
 - **Problem / Solution:**
@@ -75,7 +65,7 @@ _created 2026-09-10 00:50 · updated 2026-09-18 02:15 · initial_
   - `next_2026_09_10`: Review the debug log after the next CM reload (see capture_enabled). Name the trigger, then fix at source.
   - `allowlist_note_2026_09_10`: INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py:6664) currently covers ONLY census/perimeter/face keys -- no energy/hvac coordinator keys. So whatever CM key is being written nightly is guaranteed to reload.
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#3 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
@@ -281,7 +271,7 @@ _created 2026-09-16 · initial_
   - `PER_ZONE_CORRECTED_2026_09_16`: OPERATOR: "If we did this, why per zone? It should be the same function, no?" CORRECT, and my sketch was wrong. Ask what per-zone STATE a handle would hold: entity_id is a PARAMETER; the vendor is DERIVED from the entity's platform (memo...
   - `DESIGN_SHAPE_2026_09_16`: Stateless, entity-parameterised, all three verbs plus vendor dispatch: read_hold(hass, entity_id)              -> named / anonymous / none set_preset(hass, entity_id, name, ...)  -> strategy decides clear-then-pin vs direct pin set_setpo...
 
-## 📝 Planned (13)
+## 📝 Planned (14)
 _has plan / acceptance_
 
 ### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#1 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
@@ -445,7 +435,19 @@ _created 2026-09-17_
 - **Forensic keys (1):**
   - `FOLD_2026_09_17`: From HVAC-EC-OFFSET-SELF-LOCKOUT-1 (refuted): verify the EC coast/shed OFFSET apply path carries a FIX-B2-style pre-write preset snapshot + set_preset_mode restore (like the nudge path), so a coast setpoint write cannot leave a zone in m...
 
-### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#12 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1` - Post-restart the HVAC predictor sees constraint=None (pre_cool_skip_reason=no_constraint) while EC computes normal — Path A pre-cool disabled boot->first-mode-change — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **planned**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem (surfaced live 2026-09-18 by the new pre_cool_skip_reason obs, v5.103.12): after a restart at 10:14 CDT (in [10,14) window, summer, both enables true), sensor.ura_energy_coordinator_hvac_constraint shows a REAL computed normal (r...
+- **Why:** Real restart-day pre-cool gap; the sole pre-cool path silently no-ops. High-value catch validating the skip-reason obs on its first boot.
+- **Next:** TRACE: does _handle_energy_constraint fire post-boot on the HVAC coordinator? is _energy_constraint set after the EC first tick? does the EC re-dispatch normal on first boot tick or suppress as non-change vs init _last_published_constrai...
+- **Tags:** hvac, precool, boot, signal-delivery, energy
+- **Parsimony:** [BUILD] restart-day pre-cool disabled until first mode change
+- **Forensic keys (1):**
+  - `TRACE_2026_09_18`: ROOT CAUSE confirmed (read-only trace): two-stage. (1) ORDERING MISS - EC registered before HVAC (__init__.py:3759 vs 3856); CoordinatorManager sets up sequentially (manager.py:417), so EC async_setup fires its boot decision cycle -> dis...
+
+### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#13 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **planned** - approval: **implied**
 _created 2026-09-16_
 - **Problem / Solution:**
@@ -455,7 +457,7 @@ _created 2026-09-16_
 - **Tags:** energy, tier-2db, bug-class-53, needs-plan-review
 - **Parsimony:** [BUILD] three ordering invariants are validated at save time + anomaly-flagged at runtime but their ~25 live decision readers still read raw, so an inverted slider flips a gate
 
-### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#13 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#14 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **implied**
 _created 2026-09-16 · initial_
 - **Problem / Solution:**
