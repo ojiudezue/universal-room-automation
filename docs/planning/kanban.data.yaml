@@ -839,11 +839,29 @@ cards:
   BUILD_DISPATCH_2026_09_18: 'Build dispatched (ura-builder, worktree, feature/occupancy-freshness-gate off
     develop). Next: 3 framing-disjoint reviews (A correctness / B trust-lifecycle both tiers / C mutation-
     anchored incl. CRIT-2 subject-exclude + CRIT-3 non-empty) -> orchestrator mutation-verify -> ship.'
-  status: in_progress
+  BUILD_MISTARGETED_2026_09_18: 'DO NOT SHIP build 29787cbf2. Producer-path trace (run late — the miss)
+    proved the gate does NOT intercept the incident. binary_sensor.upstairs_hall_motion_3 is platform=frigate,
+    enters via the CAMERA-OVERRIDE path (coordinator.py:3974, area-keyed, RAW hass.states read, bypasses
+    _fusion_filter_active). D1 iterates only CONF motion/mmwave/occupancy (never sees the camera object); D2
+    substrate has no camera bucket. So the built gate secures the CONF/substrate surface while the incident
+    came through the camera-override door. PLUS both reviews FIX-REQUIRED: B-CRIT-1 = D2 force_kind_clear ->
+    update_room_occupancy(False) wipes the WHOLE room provenance (presence.py:873), so a motion demote erases a
+    live mmWave vote = incident INVERTED (abandon a real occupant); B-HIGH-1 = release doesnt re-seed substrate
+    (kill switch doesnt revert); A-HIGH = boot-settle mutate-before-return strands the zone. Re-scope in plan:
+    D1prime add camera person-sensors (kind camera_presence, floor exists), D2prime gate the camera override at
+    CONSUMPTION on is_excluded() (:3974 + :3670) [the real incident fix]; original D2 substrate retained ONLY
+    for the distinct CONF-sensor-freeze case + must fix B-CRIT-1/B-HIGH-1. DECISION for operator: one cycle
+    (camera-consumption fix + fix substrate D2) vs split (ship camera fix, card CONF-substrate D2).'
+  status: waiting_operator
+  next: 'PICK scope: (A) ONE cycle — add camera-override consumption gate [the real incident fix] AND fix the
+    substrate-D2 B-CRIT-1/B-HIGH-1 in the same rebuild; or (B) SPLIT — rebuild just the camera-consumption fix
+    to ship the incident fix fast, card the CONF-sensor-freeze substrate-D2 separately. -> I rebuild on branch,
+    re-run 3 reviews + mutation-verify, ship. (Recommend A: both are the same files + machinery; splitting
+    doubles the review surface for one small extra delta.)'
   thread: presence
   created: '2026-09-18'
   updated: '2026-09-18'
-  tags: [presence, occupancy, stuck-sensor, staleness, bug-class-7, incident]
+  tags: [presence, occupancy, stuck-sensor, staleness, bug-class-7, incident, do-not-ship]
   title: Stuck-sensor defense is blind to a MOTION/PIR sensor frozen ON (offline holding last state) — trusted anchor + unavailable-only staleness let a phantom hold the house occupied
   problem_solution:
   - 'Problem (live incident 2026-09-18): binary_sensor.upstairs_hall_motion_3 went OFFLINE holding state=on

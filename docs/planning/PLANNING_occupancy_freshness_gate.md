@@ -47,6 +47,54 @@ age gate would clip live occupants → the false-negative the card fears. Incide
 (STEP contract), `PLANNING_stuck_sensor_consequence.md` (positive-evidence variant PARKED),
 `PLANNING_mmwave_corroboration_tier3.md` (D6 parked dead/stuck-mmwave — adjacent, sibling-linked).
 
+## ⛔ PRODUCER-PATH CORRECTION (2026-09-18, post-build) — build 29787cbf2 MIS-TARGETED
+A producer-path trace (mandatory Producer-check, run late — the miss) established that the **incident sensor
+enters URA occupancy through the CAMERA-OVERRIDE path, not the CONF-list/substrate surface this plan targeted.**
+- `binary_sensor.upstairs_hall_motion_3` is `platform=frigate`, admitted to the **area** camera map
+  (`camera_census.py:972,1009-1017`) and consumed RAW by the camera override at `coordinator.py:3974`
+  (`state.state=="on" → STATE_OCCUPIED=True, source="camera"`) — keyed on HA **area**, not the room's CONF
+  lists, and it **bypasses `_fusion_filter_active`** (the only `is_excluded()` consumer, applied only to
+  motion/mmwave/occupancy CONF kinds at `:3549/3555/3561`).
+- **D1 never iterates it** — `_room_sensors_all` (`coordinator.py:3236-3244`) = CONF motion+mmwave+occupancy
+  only; the camera object is in none.
+- **D2 cannot clear it** — the substrate ingests only the three CONF kinds; there is no camera bucket.
+- The room's occupied flag latched via the **camera override**, so clearing substrate kinds would not release it.
+
+**Re-scoped deliverables (supersede D1/D2 targeting; corroboration machinery + floors REUSED intact):**
+- **D1′ — widen the iterated set:** add the room's camera person-sensors
+  (`camera_manager.get_person_sensor_for_area(room_area)`) to the freshness evaluation, classified
+  `camera_presence` (floor already at `const.py:4211`). The configured mmwave-motion sensor is a valid
+  `_CORROBORATOR_KINDS` corroborator, so a frozen camera + quiet configured motion → demote fires.
+- **D2′ — gate at CONSUMPTION, not substrate:** the camera override (`coordinator.py:3974` AND sibling
+  `:3670`) must skip a `person_sensor` when `self._exclusion_set.is_excluded(person_sensor)` (or route the
+  camera list through `_fusion_filter_active`). This is the correct incident interception — the camera path
+  never touches the substrate, so a substrate `force_kind_clear` is the wrong tool for it.
+- **D2 (original, substrate) is retained ONLY for the distinct CONF-sensor-freeze→zone-latch case**, and MUST
+  be fixed per Review B before it can ship (see review findings below). It is NOT the incident fix.
+
+## Review findings (A + B, build 29787cbf2) — both FIX-REQUIRED
+- **A-HIGH** `occupancy_substrate.py:824-831`: `force_kind_clear` mutates the bucket BEFORE the boot-settle
+  early-return → desync, no edge ever emitted, zone stranded. (One-line reorder.)
+- **A-MED** `coordinator.py:2874-2887`: mmWave latch suppression is room-scoped not subject-scoped → a healthy
+  sibling mmWave's genuine-off never clears the flap latch. Scope to "demoted set explains the whole mmWave leg."
+- **A-MED (verification)** — CONFIRMED: the incident room has ONE configured motion sensor; the corroboration
+  gate can only fire against it, and the incident sensor isn't even a CONF sensor (→ producer-path correction above).
+- **B-CRIT-1** `occupancy_substrate.py:811-829` + `presence.py:873`: D2's per-kind `False` edge triggers
+  `update_room_occupancy(occupied=False)` which does `_room_provenance[room]={}` — a **FULL-ROOM wipe**. A
+  motion-kind demote erases a genuinely-`on` mmWave's zone vote → abandons a real occupant (the incident
+  INVERTED). **Fix:** if any other kind bucket in the room is True, set the bucket False but **do NOT dispatch**
+  (zone OR already True; edge is harmful+unnecessary).
+- **B-HIGH-1** asymmetric recovery: release/kill-switch-off does NOT re-seed the substrate bucket → zone stays
+  latched-unoccupied until the frozen sensor emits an edge. Contradicts "flipping OFF reverts." Needs explicit
+  re-seed on release.
+- **B-MED-1** `refresh_subscriptions` re-seed vs demote → guaranteed True→False zone flap per lifecycle event.
+- **B-MED-2** boot-settle mutate-without-dispatch (same site as A-HIGH).
+- **B-MED-3** (#53 one-missed-site) substrate clear wired ONLY to the `freshness` client; p22 continuous-on +
+  dutycycle still latch the zone. Consider driving `force_kind_clear` from `_exclusion_set.excluded()`.
+- LOWs: `_freshness_demoted_now` reset inside try (both reviews); `_stuck_sensor_kinds` label clobber; docstring
+  contradicts the state-scoped code (trap for next maintainer); `MappingProxyType` on the floor table; debug-log
+  in the `_freshness_kind_and_state` exception handler.
+
 ## Falsifiable invariant (INV-FRESH)
 1. **The freshness gate NEVER causes a room to be reported unoccupied while at least one *non-stale*
    occupancy input in that room is `on`.** Guaranteed structurally: demote zeroes exactly ONE sensor's vote
