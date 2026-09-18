@@ -449,7 +449,8 @@ cards:
     normal/pre_cool/pre_heat/coast/shed, with attrs (offset, since-timestamp). Additive, Tier 1. Consider
     also a coast/shed active-duration attribute so time-in-coast is queryable for the D5 reframe.'
   parsimony: {problem: 'coast/shed drives HVAC behavior but is invisible -> unattributable aways', verdict: BUILD, note: 'additive sensor, signal+property already exist; trivial'}
-  links: {related: [HVAC-SUPPLE-SEQUENCE-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'coast observability; feeds the D5 reframe + made the zone_3 away attributable'}  ABSORBED_2026_09_17: 'Absorbed as D7 of the v5.103.8 knobs+obs cycle — coast/shed dwell
+  links: {related: [HVAC-SUPPLE-SEQUENCE-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'coast observability; feeds the D5 reframe + made the zone_3 away attributable'}
+  ABSORBED_2026_09_17: 'Absorbed as D7 of the v5.103.8 knobs+obs cycle — coast/shed dwell
     (since/duration_s) added as attrs on the EXISTING sensor 10-Mode (energy_constraint_mode was
     already exposed there; a new sensor was rejected as a duplicate in plan review P7). Ships with
     v5.103.8; close this on that ship.'
