@@ -662,6 +662,15 @@ class EnergyCoordinator(BaseCoordinator):
         self._constraint_coast_offset: float = ec.get(
             CONF_ENERGY_CONSTRAINT_COAST_OFFSET, DEFAULT_CONSTRAINT_COAST_OFFSET
         )
+        # RETIRED 2026-09-18 (HVAC-D5... cycle): the EC-constraint
+        # pre_cool branch that consumed this was deleted (phase-blind
+        # + inert; superseded by Path A surplus-banking in v5.7.1).
+        # The CONF key + read are KEPT (tombstone) so a stored config
+        # entry does not strand on load. The PRINCIPLE the branch was
+        # reaching for — anticipatory off-peak GRID pre-cool for
+        # hot-forecast + low-morning-SOC days, which Path A
+        # (surplus-only) does NOT cover — is preserved on card
+        # EC-GRID-ANTICIPATORY-PRECOOL-GAP-1.
         self._constraint_precool_offset: float = ec.get(
             CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET, DEFAULT_CONSTRAINT_PRECOOL_OFFSET
         )
@@ -7402,7 +7411,15 @@ class EnergyCoordinator(BaseCoordinator):
             and not self._tou.peak_ahead_before_offpeak()
         )
 
-        # Determine constraint mode (priority order: shed > coast > pre_cool > pre_heat > normal)
+        # Determine constraint mode (priority order: shed > coast > pre_heat > normal).
+        # NOTE: the legacy off-peak `pre_cool` mode was retired 2026-09-18
+        # (phase-blind, inert-except-harmful — its only live effect was to
+        # BLOCK Path A surplus-banking via the mode!=normal gate). The
+        # off_peak+low-SOC+good-solar window now falls through to `normal`
+        # so Path A is eligible. The DISTINCT capability the branch was
+        # reaching for (anticipatory off-peak GRID pre-cool for hot-forecast
+        # + low-morning-SOC days, which Path A's surplus-only trigger does
+        # NOT cover) is preserved on card EC-GRID-ANTICIPATORY-PRECOOL-GAP-1.
         if (
             tou_period == "peak"
             and soc < 20
@@ -7424,14 +7441,6 @@ class EnergyCoordinator(BaseCoordinator):
             self._hvac_constraint_mode = "coast"
             self._hvac_constraint_offset = self._constraint_coast_offset - 1.0
             reason = "mid-peak poor solar"
-        elif (
-            tou_period == "off_peak"
-            and soc < 50
-            and solar_class in ("excellent", "good")
-        ):
-            self._hvac_constraint_mode = "pre_cool"
-            self._hvac_constraint_offset = self._constraint_precool_offset
-            reason = "off-peak pre-cool (low SOC, good solar)"
         elif (
             tou_period == "off_peak"
             and forecast_low is not None

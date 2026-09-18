@@ -9,6 +9,39 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: HVAC-D5-SLEEP-EXIT-RESET-1@2026-09-18T02:45:00
+    at: '2026-09-18T02:45:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'SECOND RUNTIME-CAP WORRY CLOSED, AND A 3AM SCARE THAT TURNED OUT TO BE NOTHING. The
+      worry: we thought the AC runtime counter might quietly pile up all night while the cap is paused
+      for sleep, then slam a just-woken room into an energy-saving mode the second you get up. It
+      cannot. The counter works in short windows — currently 20 minutes — and every window wipes it
+      back to zero, so it can never carry the whole night. Worst case is that a room cooling right
+      before you wake carries up to 20 minutes in, which could pause it briefly, and that clears itself
+      within 20 minutes. It has also never actually happened — no record of it, ever. Not worth
+      changing; adding a reset would add a moving part for no gain. SEPARATELY, and worth telling you
+      because I nearly reported it as an emergency: mid-check I saw 104 URA entities showing
+      unavailable, including the main heating and cooling switches. I waited and looked again instead
+      of raising an alarm — it was the house still finishing its start-up after the 00:43 restart. It
+      settled to 5, then to essentially none. Your system is healthy. I am flagging it only because
+      last night I DID raise an alarm on exactly this kind of half-settled snapshot.'
+  - fid: HVAC-D5-WINDOW-START-RESTORE-1@2026-09-18T02:35:00
+    at: '2026-09-18T02:35:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'ONE WORRY OFF THE LIST, FOR FREE — the AC runtime counter does NOT get wiped when URA
+      reloads. We had an open question from the runtime-cap audit: every time URA reloads itself (and
+      something is doing that several times a night), does the running total of how long the AC has
+      been on get reset to zero? If it did, the runtime cap would be counting wrong all night. It does
+      not. I followed the whole path this time instead of spot-checking it: the running total and the
+      window it belongs to are both written to disk every 25 minutes AND again on the way down every
+      time URA shuts a coordinator, and they are read back on the way up. I specifically checked the
+      on-the-way-down save is genuinely hooked up rather than dead code, because that was the link the
+      whole answer rested on — it is. The only way to lose anything is a hard power cut, which can cost
+      at most the last 25 minutes; not worth engineering around. Worth admitting: I searched for the
+      wrong function name first, found nothing, and was one step from reporting this as a real bug.
+      Card closed, no work needed.'
   - fid: OVERNIGHT-PASS-NO-LOG-REACH-1@2026-09-18T02:15:00
     at: '2026-09-18T02:15:00'
     outcome: done
@@ -638,12 +671,15 @@ cards:
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: HVAC-KNOB-LABEL-PASS-1
+  DONE_2026_09_18: 'v5.103.10 shipped + live-validated: 6 new display names live (AC Runtime Cap x4,
+    Comfort Grace x2), values intact (75/50/20/on/85/20), entity_ids stable, egress two untouched, zero
+    URA ERROR. Cosmetic rename validated at restart - no soak. CLOSED done.'
   SCOPE_CORRECTION_2026_09_18: 'Operator: DROP the 2 egress renames - egress_pause_threshold +
     egress_resume_delay are about OPENING EGRESS WINDOWS (venting), NOT occupant exit; my "Exit Pause"
     wording mislabeled the semantic. Keep them as "Egress Pause Threshold" / "Egress Resume Delay"
     unchanged. Pass is now SIX renames only: D5 four (AC Runtime Cap ...) + comfort_delay soc_floor/grace
     (Comfort Grace Battery Floor / Duration). Builder messaged mid-run to revert the egress two.'
-  status: shipped_organic
+  status: done
   shipped_version: v5.103.10
   thread: hvac
   created: '2026-09-18'
@@ -663,7 +699,66 @@ cards:
     Comfort Grace Battery Floor/Duration; egress_pause_threshold/resume_delay -> Exit Pause Wait/Resume Delay.'
   parsimony: {problem: 'jargon labels truncate in UI', verdict: BUILD, note: 'cosmetic, reversible, low-risk'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'operator screenshot 2026-09-18'}
+- id: EC-GRID-ANTICIPATORY-PRECOOL-GAP-1
+  status: parked
+  thread: energy
+  created: '2026-09-18'
+  updated: '2026-09-18'
+  tags: [energy, precool, grid, gap, keep-document, measure-first]
+  title: Path A pre-cools ONLY on live PV surplus — a hot-forecast day with LOW morning SOC gets no pre-cool (grid-anticipatory gap the deleted Path B reached for)
+  problem_solution:
+  - 'Problem (principle preserved from the deleted EC pre_cool vestige, D1): the real banking path (Path A,
+    hvac_predict.py:_should_energy_precool) REQUIRES live PV export/surplus (net_power exporting, line 717) +
+    10am-2pm + summer/shoulder. So on a hot-forecast day where morning SOC is LOW (battery not yet charged,
+    cloudy AM) there is NO surplus -> Path A does not fire -> the house is NOT pre-cooled before the 4-8pm
+    peak, even though cheap OFF-PEAK GRID power is available. The deleted Path B (off_peak+soc<50+good-forecast)
+    was reaching for exactly this - anticipatory off-peak GRID pre-cool - but was phase-blind (fired at night)
+    and inert (offset never applied). Solution (if revisited): a PHASE-AWARE (before-peak, reuse summer_peak_
+    ahead energy_battery.py:5390) anticipatory grid pre-cool that fires in the morning/afternoon shoulder when
+    forecast is hot AND surplus is unavailable, banking on cheap grid before the peak. Do it right this time.'
+  why: 'Post-delete supersession doctrine (KEEP+DOCUMENT the principle, not the naive artifact). The offset
+    constant CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET is tombstoned in-code pointing here. NOT highest priority
+    (operator) - a design axis, not a live bug.'
+  next: 'PARKED. Revival trigger = summer billing / a measured hot-day-with-low-morning-SOC where the house
+    ran hot into peak because Path A could not pre-cool (no surplus). Measure-first: how often does low-morning-
+    SOC + hot-forecast co-occur? If rare, leave parked. If real $, design phase-aware grid pre-cool.'
+  parsimony: {problem: 'surplus-only pre-cool leaves low-SOC hot mornings uncovered', verdict: PARK, note: 'principle preserved; measure before building'}
+  links: {related: [EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1], context: 'preserved from deleted Path B; supersession KEEP+DOCUMENT'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  REVIEW_B_AND_FIXUP_2026_09_18: 'B (D1 integration/restart) = SHIP: Path A unblocking confirmed, offset
+    change a proven no-op (offset already dead pre-cycle - compute_energy_offset zero callers), pre_cool was
+    rank-equivalent to normal everywhere, restart fine. B CONVERGED with C on the persist-on-submit bug
+    (B-MED-1==C1) - two disjoint framings = real. B adds MED-2 (orphaned live precool-offset config FIELD,
+    remove it), LOW-1 (stale pre_cool restore one-tick, add allowlist), LOW-2 (doc drift signals.py:256 +
+    strings:1211). Net: D1 SHIPS (A+B); D2 needs C1 rework. CONSOLIDATED FIX-UP dispatched (aaa36322b):
+    C1 revert to blank-when-unset + guidance-in-text (kill the pinning), C2 real schema-driving test
+    (mutation->RED), C3 reword clamp text, A-MED/B-MED-2 REMOVE the dead offset config field (keep CONF+read
+    tombstoned), A-LOW tombstone comment, B-LOW-1 restore allowlist pre_cool->normal, B-LOW-2 doc drift.
+    Then orchestrator mutation-verify + ship.'
+  REVIEW_C_2026_09_18: 'C (D2 config) = FIX-REQUIRED, caught a real HIGH. C1(HIGH): suggested_value=type-
+    default PERSISTS on submit (HA option flow returns the prefill in user_input unless blanked) -> a room
+    with unset holds, opened to change anything else + submitted, gets 60/1800 PINNED as explicit override
+    -> frozen vs the type table forever (later room_type->hallway=0 wouldnt take). Breaks the no-overwrite
+    invariant via the mechanism meant to express it. FIX = do what operator originally asked: put per-type
+    guidance in HELP TEXT (static or dynamic description_placeholders), keep field BLANK when unset (no
+    persisted prefill). C2(HIGH hollow anchor): D2 test re-implements the expr locally + source-greps -
+    inverting the production is-not-None stays GREEN; need a real async_step_climate schema-driving test
+    (RED on inversion). C3(MED): help text says night auto-clamped but form REJECTS day>night when both
+    explicit (clamp only at runtime for blank night) -> reword. C4(LOW): test-mirror divergence. Cleared:
+    explicit-0 preserved, resolver untouched, step=30 safe, translations parse. Hold fix-up for B.'
+  REVIEW_A_2026_09_18: 'A (D1 delete) = SHIP. Independently confirmed inert premise (compute_energy_offset
+    has ZERO callers -> the -2F never actuated; fall-through to normal safe, old branch + pre_heat were SOC-
+    disjoint). Findings (both in-cycle, ~6 LoC): MED = the offset knobs OPERATOR-FACING string (strings.json/
+    en.json:960,1027, HVAC Pre-Cool Offset) still reads as functional -> add (retired - no effect) + gap-card
+    ref; LOW = config_flow offset field (config_flow.py:4462/4471/5223) lacks a tombstone comment -> add one.
+    Hold fix-up for B+C.'
+  BUILD_2026_09_18: 'Combined cycle DISPATCHED (feature/ec-precool-vacancy-ui, a49ec0bda). D1 = delete
+    the EC pre_cool vestige (energy.py:7427-7434). D2 (operator fold-in) = make the room vacancy-hold
+    day/night config fields assistive: suggest the ROOM_TYPE_HVAC_HOLD[_NIGHT] type-default when unset,
+    add step, and help text (0=disabled; per-type good ranges; night auto-clamped>=day) WITHOUT overwriting
+    current room values. Plan: PLANNING_ec_precool_delete_and_vacancy_hold_assistive.md. Tier 2-DB, 3
+    framing-disjoint reviews (A D1-correctness, B D1-integration/Path-A-eligible/restart, C D2 config-
+    correctness+UX). Reviews after build.'
   POST_DELETE_OBSERVABILITY_2026_09_18: 'Confirmed energy.py:7432 is the SOLE emitter of EC mode
     pre_cool; Path A NEVER sets the EC mode (only reads constraint.mode, all normal-gated; sets its own
     _pre_cool_active). CONSEQUENCE of deleting Path B: sensor.ura_energy_coordinator_hvac_constraint will
@@ -772,7 +867,8 @@ cards:
     export, not soc<50. Trace: (1) is solar_class tomorrow-forecast (likely Solcast) vs stale-today; (2)
     does an excess-solar (daytime PV-surplus) pre-cool path exist separately or is it conflated with this
     off-peak-grid path; (3) at SOC 10% overnight, is spending off-peak grid to pre-cool net-positive?'
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.11
   thread: energy
   created: '2026-09-18'
   updated: '2026-09-18'
@@ -863,10 +959,31 @@ cards:
   parsimony: {problem: 'coarse duty proxy vs available richer signal', verdict: PARK, note: 'follow-up to reframe; marginal benefit'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'Bryant duty-cycle redundancy audit 2026-09-17'}
 - id: HVAC-D5-WINDOW-START-RESTORE-1
-  status: inbox
+  VERIFIED_2026_09_18: 'REFUTED — window_start IS persisted across a reload, and so is the runtime
+    counter. The card feared the D5 runtime window resets on a config-entry reload; the full chain is
+    wired and I traced every link. PRODUCER: HVACZoneManager.get_state_snapshot()
+    (hvac_zones.py:815-831) serializes BOTH window_start and runtime_seconds_this_window (plus
+    last_occupied_time, zone_presence_state, continuous_occupied_since and a saved_at stamp). SAVE
+    SITES, two of them: periodically every 5 coordinator cycles (~25 min) at hvac.py:1752-1768, and
+    on teardown at hvac.py:4931-4948 inside HVACCoordinator.async_teardown (hvac.py:4898). THE
+    TEARDOWN SAVE IS ACTUALLY WIRED — that was the load-bearing link and I checked it rather than
+    assuming: CoordinatorManager.async_stop (manager.py:457) iterates every registered coordinator in
+    reverse-priority order and awaits coordinator.async_teardown(), so the HVAC teardown save runs on
+    a normal unload/reload. CONSUMER: hvac.py:1045-1050 loads the store and calls
+    restore_state_snapshot (hvac_zones.py:833+), which parses window_start back to a datetime
+    (hvac_zones.py:880-884) and restores runtime_seconds_this_window (hvac_zones.py:875), behind an
+    intentional >4h staleness skip (hvac_zones.py:846-856). NET: the reload case the card worried
+    about — including the ~5x/night storm, since a config-entry reload goes through async_stop ->
+    teardown -> save — is CLEAN, and the counter is not reset. RESIDUAL, stated honestly and NOT worth
+    a card: a HARD kill that bypasses teardown (power loss, SIGKILL, watchdog) can lose up to ~25 min
+    of accumulated runtime, because only the periodic save protects that path. MY OWN CORRECTION: I
+    first grepped for save_state_snapshot, found zero call sites, and nearly filed this as a
+    computed-but-never-consumed defect — the method is actually named get_state_snapshot and is called
+    twice. The premise was wrong, not the code.'
+  status: done
   thread: hvac
   created: '2026-09-17'
-  updated: '2026-09-17'
+  updated: '2026-09-18 02:35'
   tags: [hvac, restart-safety, tier-1, contingent]
   title: D5 window_start restore-across-reload unverified (hvac_zones.py:685-700) — reload may reset the runtime counter
   problem_solution:
@@ -875,14 +992,31 @@ cards:
     Given the ~5x/night reload storm this could matter. Solution: read hvac_zones.py:685-700 fully; if not
     restored, persist window_start or accept+document.'
   why: 'D5 audit finding 4, contingent — verify before scoping.'
-  next: 'Read the restore path; confirm whether window_start is persisted. Close if fine.'
+  next: 'CLOSED — premise refuted by a full producer/consumer trace. No work needed; see VERIFIED_2026_09_18.'
   parsimony: {problem: 'duty-cycle counter may not survive reload', verdict: BUILD, note: 'verify-first, likely tiny'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, URA-CONFIG-ENTRY-RELOAD-STORM-1], context: 'D5 audit'}
 - id: HVAC-D5-SLEEP-EXIT-RESET-1
-  status: inbox
+  MEASURED_2026_09_18: 'REFUTED — the counter CANNOT accumulate overnight, because the window rolls.
+    The card assumed the D5 runtime counter keeps growing all night through the sleep-skip and can
+    therefore instant-trip the moment the house wakes into coast or shed. The accumulator at
+    hvac.py:3838-3850 disproves it: on EVERY tick, for every zone, if (now - zone.window_start) >=
+    window_seconds then window_start is reset to now AND runtime_seconds_this_window is zeroed AND
+    runtime_exceeded is cleared. So the counter is bounded by ONE window, not by the length of the
+    night. LIVE CONFIG confirms the window is short: switch hvac_d5_duty_cycle_enable is ON with
+    window=20 min, coast cap=75%, shed cap=50% (read from the live HA API this pass). RECORDER
+    CROSS-CHECK: zero rows have ever carried the state energy_shed_cap_reached, so there is no
+    observed instance of the feared wake-trip either. RESIDUAL, bounded and self-healing, NOT worth a
+    card or a reset: if a zone happened to be actively cooling just before a wake transition, it can
+    carry at most ~20 min of runtime into the wake, so a trip is possible within the CURRENT window
+    (coast would trip at 15 of 20 min) — but that window self-resets within 20 minutes and clears
+    runtime_exceeded with it. That is a transient at worst, not the overnight-accumulation failure the
+    card described, and freezing/resetting the counter on sleep entry would add a state-machine seam
+    for no measurable gain. NOTE the accumulator deliberately keeps running when d5_enabled is false
+    (hvac.py:3856-3858, for diagnostics and clean re-enable) — that is intended, not the bug.'
+  status: done
   thread: hvac
   created: '2026-09-17'
-  updated: '2026-09-17'
+  updated: '2026-09-18 02:45'
   tags: [hvac, tier-1, contingent, measure-first]
   title: D5 counter accumulates overnight during sleep-skip and can instant-trip on wake into coast/shed
   problem_solution:
@@ -890,7 +1024,7 @@ cards:
     night, so waking into coast/shed can instant-trip runtime_exceeded and force a just-woken zone away.
     Solution: reset (or freeze) the counter on sleep entry, or on wake before the first enforcement.'
   why: 'D5 audit finding 5, contingent on live measurement that it actually fires on wake.'
-  next: 'Measure (recorder): does runtime_exceeded fire shortly after waking transitions? If yes, reset counter on sleep. Else close.'
+  next: 'CLOSED — premise refuted at the producer. No reset needed; see MEASURED_2026_09_18.'
   parsimony: {problem: 'overnight accumulation instant-trips on wake', verdict: BUILD, note: 'measure-first'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: INSTALL-ARCHIFY-SKILL-1

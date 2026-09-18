@@ -770,6 +770,9 @@ CONF_ENERGY_LOAD_SHEDDING_SUSTAINED_MINUTES: Final = "energy_load_shedding_susta
 CONF_ENERGY_LOAD_SHEDDING_MODE: Final = "energy_load_shedding_mode"
 
 CONF_ENERGY_CONSTRAINT_COAST_OFFSET: Final = "energy_constraint_coast_offset"
+# RETIRED 2026-09-18: consumer branch deleted from
+# `_update_hvac_constraint`; TOMBSTONED to keep stored config entries
+# from stranding. See card EC-GRID-ANTICIPATORY-PRECOOL-GAP-1.
 CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET: Final = "energy_constraint_precool_offset"
 CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET: Final = "energy_constraint_preheat_offset"
 CONF_ENERGY_CONSTRAINT_SHED_OFFSET: Final = "energy_constraint_shed_offset"
@@ -1057,6 +1060,7 @@ LOAD_SHEDDING_AUTO_PERCENTILE: Final = 90  # 90th percentile of peak import
 
 # Constraint offset defaults (degrees F)
 DEFAULT_CONSTRAINT_COAST_OFFSET: Final = 3.0
+# RETIRED 2026-09-18: see CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET.
 DEFAULT_CONSTRAINT_PRECOOL_OFFSET: Final = -2.0
 DEFAULT_CONSTRAINT_PREHEAT_OFFSET: Final = 2.0
 DEFAULT_CONSTRAINT_SHED_OFFSET: Final = 5.0
