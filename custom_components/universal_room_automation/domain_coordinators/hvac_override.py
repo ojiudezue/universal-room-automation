@@ -4629,11 +4629,19 @@ class OverrideArrester:
                 # blocking=True (EXCURSION_RETURN_BLOCKING) so the D1
                 # immediate-read below sees the settled write, not a
                 # racing cloud poll.
+                # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 A-MED-4 fixup
+                # (v5.103.8): pass zone_id + reason so the D6 chokepoint
+                # captures a legible `retreat_reason`. Without these
+                # kwargs, `_capture_preset_reason` short-circuits on
+                # empty zone_id and the sensor keeps the stale prior
+                # reason.
                 await emit_set_preset_mode(
                     self.hass,
                     zone.climate_entity,
                     pre_preset,
                     blocking=True,
+                    zone_id=zone_id,
+                    reason="soft_nudge_preset_restore",
                 )
                 _LOGGER.info(
                     "Soft nudge restore on %s: preset -> %s "

@@ -1243,14 +1243,22 @@ CONF_HVAC_VACANCY_HOLD_NIGHT: Final = "hvac_vacancy_hold_night"
 # Any new emission site adding a reason string outside this set fails
 # the vocabulary-completeness mutation test.
 #
-# - 6 S1-ladder reasons from `hvac.py:2273-2306`.
-# - 8 static per-site literals passed at the 10 non-S1 emission sites.
-# - Excursion `auto_return` (`hvac_excursion.py:667`) passes a dynamic
-#   `trigger` string (the ExcursionTokenKind value). Its known values
-#   are `excursion_return`, `excursion_timeout`, `excursion_settled`,
-#   `startup_audit_nudge_preset_restore`. All enumerated below.
-# - `hvac_override.py:4632` calls without `reason=` — captured as
-#   `unknown` (also the boot pre-hydration sentinel).
+# - 6 S1-ladder reasons from `hvac.py:2273-2306` (assigned to
+#   `preset_change_reason`, passed as `reason=preset_change_reason`
+#   at `hvac.py:2360`).
+# - 8 static per-site literals passed at the 8 non-S1 emission sites
+#   that spell out a literal string (see per-site citations below).
+# - `hvac_excursion.py:667` passes `reason=trigger`, where `trigger`
+#   is an INDEPENDENT string argument (NOT the token's `kind`) passed
+#   by the callers of `_auto_return`. The full set of live triggers
+#   reaching that emission today is: `lease_expiry`
+#   (`hvac_excursion.py:750`) and `stale_boot_release`
+#   (`hvac_excursion.py:1188-1190`). Any new `_auto_return` caller
+#   introducing a novel trigger string must add it here or fail the
+#   completeness test.
+# - `hvac_override.py:4632` (soft-nudge restore) passes an explicit
+#   `reason="soft_nudge_preset_restore"` as of v5.103.8 A-MED-4 fixup.
+# - Sentinel `unknown` covers the pre-hydration boot window.
 HVAC_PRESET_REASONS: Final[frozenset[str]] = frozenset({
     # S1 ladder (hvac.py:2273-2306)
     "stale_occupancy",
@@ -1263,15 +1271,16 @@ HVAC_PRESET_REASONS: Final[frozenset[str]] = frozenset({
     "egress_resume",                       # hvac_egress.py:803
     "severe_override_revert",              # hvac_override.py:3555
     "ac_reset_preset_restore",             # hvac_override.py:4121
+    "soft_nudge_preset_restore",           # hvac_override.py:4632 (A-MED-4)
     "cancel_nudge_preset_restore",         # hvac_override.py:5841
     "startup_ramp_audit_restore",          # hvac_override.py:6244
     "banking_release",                     # hvac_predict.py:1036
     "preheat_boundary",                    # hvac_predict.py:1556
     "startup_audit_nudge_preset_restore",  # hvac_excursion.py:1139
-    # Dynamic excursion trigger values (ExcursionTokenKind + startup)
-    "excursion_return",
-    "excursion_timeout",
-    "excursion_settled",
+    # Dynamic `_auto_return(trigger=...)` values that reach the
+    # `reason=trigger` at hvac_excursion.py:675.
+    "lease_expiry",                        # hvac_excursion.py:750
+    "stale_boot_release",                  # hvac_excursion.py:1190
     # Sentinel
     "unknown",
 })

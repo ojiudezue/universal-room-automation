@@ -11473,6 +11473,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             if not errors:
                 try:
                     merged = {**self._config_entry.options, **user_input}
+                    # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 A-MED-2 fixup
+                    # (v5.103.8): the per-room HVAC hold overrides must
+                    # be CLEARABLE. HA delivers unset vol.Optional fields
+                    # as absent keys, so `user_input` won't contain the
+                    # key at all when the operator blanks the field —
+                    # but the merge above would then preserve the prior
+                    # stored value forever. Explicitly POP the two keys
+                    # from `merged` if they weren't submitted, so the
+                    # resolver falls back to the room-type table. Only
+                    # the two knobs this cycle introduced are treated
+                    # this way (others in the step retain their prior-
+                    # behaviour merge semantics).
+                    for _clearable in (
+                        CONF_HVAC_VACANCY_HOLD,
+                        CONF_HVAC_VACANCY_HOLD_NIGHT,
+                    ):
+                        if _clearable not in user_input and _clearable in merged:
+                            merged.pop(_clearable, None)
                     _LOGGER.debug("climate save: entry_id=%s, merged_keys=%d",
                                   self._config_entry.entry_id, len(merged))
                     result = self.async_create_entry(title="", data=merged)
@@ -11680,15 +11698,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     # per-room HVAC vacancy tail-hold (day/night).
                     # Blank/unset = fall through to the room-type
                     # default (never coerced to 0). Cross-field
-                    # monotonicity validation runs in
-                    # `_validate_climate_fans_form`; the resolver also
-                    # clamps night up to day at runtime and logs once
-                    # so a partial override never inverts silently.
+                    # monotonicity validation in
+                    # `_validate_climate_fans_form` ONLY fires when
+                    # BOTH day AND night are populated in the SAME
+                    # submit (a one-sided edit is legal and can only
+                    # be caught by the effective pair). The runtime
+                    # clamp in `hvac_zones.py:_effective_hvac_hold_
+                    # seconds` is the real backstop — it clamps
+                    # `night >= day` against the resolved effective
+                    # values and logs once per (room, kind).
+                    # Explicit `0` is preserved (displayed as 0 via
+                    # `description.suggested_value`), unblanked by
+                    # the pop-if-absent in the save branch above.
                     vol.Optional(
                         CONF_HVAC_VACANCY_HOLD,
-                        default=self._get_current(
+                        description={"suggested_value": self._get_current(
                             CONF_HVAC_VACANCY_HOLD,
-                        ) or vol.UNDEFINED,
+                        )},
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=0, max=7200,
@@ -11698,9 +11724,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     ),
                     vol.Optional(
                         CONF_HVAC_VACANCY_HOLD_NIGHT,
-                        default=self._get_current(
+                        description={"suggested_value": self._get_current(
                             CONF_HVAC_VACANCY_HOLD_NIGHT,
-                        ) or vol.UNDEFINED,
+                        )},
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=0, max=7200,

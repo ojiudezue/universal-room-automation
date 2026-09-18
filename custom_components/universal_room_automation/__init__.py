@@ -702,6 +702,7 @@ async def _enable_hvac_occupied_entities_one_shot(
     if cm_entry.options.get(DONE_KEY):
         return 0
     enabled_count = 0
+    completed = False
     try:
         registry = er.async_get(hass)
         for entity in list(registry.entities.values()):
@@ -730,14 +731,22 @@ async def _enable_hvac_occupied_entities_one_shot(
                     "hvac_occupied registry-enable: could not enable %s",
                     entity.entity_id, exc_info=True,
                 )
+        # Only mark the run completed if the enumeration+update pass
+        # finished. A-HIGH-1 fixup (v5.103.8): a raise inside the loop
+        # would have burned the one-shot with 0 entities enabled and
+        # no retry. Now the sentinel is written only when we know we
+        # actually iterated the whole registry.
+        completed = True
     except Exception:  # noqa: BLE001
         _LOGGER.warning(
-            "hvac_occupied registry-enable migration failed (non-fatal)",
+            "hvac_occupied registry-enable migration failed (non-fatal) — "
+            "will retry on next boot (sentinel NOT written)",
             exc_info=True,
         )
-    new_options = dict(cm_entry.options)
-    new_options[DONE_KEY] = True
-    hass.config_entries.async_update_entry(cm_entry, options=new_options)
+    if completed:
+        new_options = dict(cm_entry.options)
+        new_options[DONE_KEY] = True
+        hass.config_entries.async_update_entry(cm_entry, options=new_options)
     if enabled_count:
         _LOGGER.info(
             "HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D3: enabled %d pre-existing "

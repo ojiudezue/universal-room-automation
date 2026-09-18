@@ -766,7 +766,9 @@ class HVACOccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
     # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D3 (v5.103.8): enabled by
     # default. New entries pick this up automatically; existing rooms
     # need the one-shot registry migration in `__init__.py` (see
-    # `_hvac_occupied_registry_enable_migration_done`).
+    # `hvac_occupied_registry_enable_migration_done` sentinel option
+    # on the CM entry — same DONE-flag pattern as the sibling
+    # zone_entry_dwell migration).
     _attr_entity_registry_enabled_default = True
     _attr_icon = ICON_OCCUPIED
 

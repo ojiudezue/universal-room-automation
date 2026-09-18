@@ -12116,13 +12116,24 @@ class HVACModeSensor(AggregationEntity, SensorEntity, RestoreEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D7 (v5.103.8): resume-if-same
-        # / reset-if-different for `energy_constraint_since`. Iff the
-        # live mode matches the restored mode, seed the coordinator's
-        # tracker so `duration_s` continues from the pre-restart
-        # transition. If it differs, do NOTHING — the coordinator's
-        # transition-in stamp on the next `_handle_energy_constraint`
-        # will reset `since` to now.
+        # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D7 (v5.103.8, A-MED-3 fixup):
+        # real resume-if-same. At async_added_to_hass the HVAC
+        # coordinator is still in its init state (`_energy_constraint`
+        # is None, `_energy_constraint_mode == "normal"`) because the
+        # Energy Coordinator has not published yet. Comparing the
+        # restored mode to `"normal"` at this instant would ALWAYS
+        # reset a real coast/shed restart — the exact case the
+        # feature exists for. Instead: if the coordinator has NOT yet
+        # received any EnergyConstraint, seed BOTH the mode AND the
+        # `_since` timestamp from restored state. When the next
+        # `_handle_energy_constraint` arrives, `old_mode` will be the
+        # restored mode:
+        #   - restored == fresh -> old_mode==new_mode; the
+        #     `_energy_constraint_mode_since is None` clause is False
+        #     (we just seeded it), so the stamp is NOT reset -> dwell
+        #     continues through the restart (resume-if-same).
+        #   - restored != fresh -> old_mode != new_mode -> transition
+        #     -> stamp reset to now (reset-if-different).
         try:
             last = await self.async_get_last_state()
         except Exception:  # noqa: BLE001
@@ -12139,13 +12150,17 @@ class HVACModeSensor(AggregationEntity, SensorEntity, RestoreEntity):
                 manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
                 hvac = manager.coordinators.get("hvac") if manager else None
                 if restored_since is not None and hvac is not None:
-                    current = getattr(hvac, "_energy_constraint_mode", "normal")
-                    if current == restored_mode:
-                        existing = getattr(
-                            hvac, "_energy_constraint_mode_since", None,
-                        )
-                        if existing is None or restored_since < existing:
-                            hvac._energy_constraint_mode_since = restored_since
+                    # Seed only while the coordinator is still in its
+                    # init state (no EC has arrived yet) — never
+                    # overrule a real-time EC event that has already
+                    # been handled.
+                    ec = getattr(hvac, "_energy_constraint", None)
+                    current_since = getattr(
+                        hvac, "_energy_constraint_mode_since", None,
+                    )
+                    if ec is None and current_since is None:
+                        hvac._energy_constraint_mode = restored_mode
+                        hvac._energy_constraint_mode_since = restored_since
 
         from homeassistant.helpers.dispatcher import async_dispatcher_connect
         from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE

@@ -870,6 +870,7 @@ class ZoneManager:
         house_state: str | None,
         override_day: int | None = None,
         override_night: int | None = None,
+        room_name: str | None = None,
     ) -> int:
         """Return the effective tail-hold window for a room in seconds.
 
@@ -911,19 +912,23 @@ class ZoneManager:
         if override_night is not None:
             night_val = int(override_night)
 
-        # Monotonicity clamp: night MUST be >= day.
+        # Monotonicity clamp: night MUST be >= day. Log-once key names
+        # the specific ROOM (A-LOW-7 fixup, v5.103.8) — a room_type
+        # key would collapse two inverted bedrooms into a single log
+        # and hide one of them.
         if night_val < day_val:
-            clamp_key = (room_type, "night_lt_day")
+            clamp_key = (room_name or "?", room_type, "night_lt_day")
             logged = getattr(self, "_hvac_hold_clamp_logged", None)
             if logged is None:
                 logged = set()
                 self._hvac_hold_clamp_logged = logged
             if clamp_key not in logged:
                 _LOGGER.warning(
-                    "HVAC hold monotonicity: room_type=%s night=%ds < "
-                    "day=%ds — clamping night up to %ds (overrides: "
-                    "day=%s night=%s)",
-                    room_type, night_val, day_val, day_val,
+                    "HVAC hold monotonicity: room=%s (type=%s) "
+                    "night=%ds < day=%ds — clamping night up to %ds "
+                    "(overrides: day=%s night=%s)",
+                    room_name or "?", room_type,
+                    night_val, day_val, day_val,
                     override_day, override_night,
                 )
                 logged.add(clamp_key)
@@ -987,6 +992,7 @@ class ZoneManager:
                 room_type, house_state,
                 override_day=override_day,
                 override_night=override_night,
+                room_name=room_name,
             )
             if hold_s <= 0:
                 # No tail configured — release immediately.
