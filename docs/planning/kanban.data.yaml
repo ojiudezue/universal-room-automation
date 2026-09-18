@@ -298,6 +298,33 @@ meta:
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated, headline: "PERIMETER-ALERT-VOLUME-FATIGUE-1 \u2014 MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working \u2014 so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).", acknowledged: false}
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
+- id: HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1
+  status: planned
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, numbers-get-knobs, observability, post-ship-gap]
+  title: v5.103.7 shipped the conditioning-demand debounce with NO operator control (hold is module-constant
+    only) + incomplete observability (D2 entity disabled-by-default, no `established` attr)
+  problem_solution:
+  - 'Problem (CONTROL): the per-room HVAC hold that debounces retreat (ROOM_TYPE_HVAC_HOLD/_NIGHT,
+    const.py:1203/1214) is a MODULE CONSTANT — no config-flow field, no Number entity. The settable
+    per-room override (CONF_HVAC_VACANCY_HOLD) was DESIGNED then DROPPED in round-5 F5 for lack of a UI
+    surface. So tuning any room''s debounce needs a code change — violates Numbers-Get-Knobs (this hold is
+    a tune-by-observation policy, Rung 2-3). Problem (OBSERVABILITY): the D2 HVACOccupiedBinarySensor
+    exists but _attr_entity_registry_enabled_default=False (hidden unless enabled), and has NO `established`
+    attribute so an operator cannot see when a zone is fail-open/unestablished (F6 LOW, never added).
+    Solution: (a) expose the hold as operator control — config-flow field and/or per-room-type Number,
+    per the knob ladder; (b) enable D2 by default (or document enabling) + add an `established` attr;
+    (c) [zone-reason legibility is HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1].'
+  why: 'Operator post-ship question: "Is there any needed observability and control for this? Did we think
+    of that?" Audit: observability half-built (entity exists, hidden+incomplete); control thought-of then
+    punted under ship pressure. This is the mandated post-ship consumer/knob gap for v5.103.7.'
+  next: 'Decide the hold knob rung (config field for structure vs Number for live-tune) + wire it; flip D2
+    enabled-default or document; add `established` attr to D2. Tier 1-2 additive. Also: the D5 entry-dwell
+    field is now a TOMBSTONE (default->0, kept one release) — remove next release.'
+  parsimony: {problem: 'debounce hold has no operator knob + observability entity hidden/incomplete', verdict: BUILD, note: 'Numbers-Get-Knobs gap + obs polish; additive'}
+  links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1, HVAC-COAST-OBSERVABILITY-1], context: 'post-ship knob+obs audit for v5.103.7 (operator-requested)'}
 - id: HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1
   status: investigating
   thread: hvac
