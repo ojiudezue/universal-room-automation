@@ -643,6 +643,10 @@ class EnergyCoordinator(BaseCoordinator):
         self._hvac_constraint_mode: str = "normal"
         self._hvac_constraint_offset: float = 0.0
         self._hvac_constraint_reason: str = ""
+        # HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1: stash max_runtime so the
+        # producer-owned pull helper can rebuild the SAME EnergyConstraint
+        # payload the dispatch site emits (fed through _build_energy_constraint).
+        self._hvac_constraint_max_runtime: int | None = None
         self._last_published_constraint: str = ""  # track to avoid duplicate signals
         self._energy_situation: str = "normal"
         # E6 v3.9.0: Load shedding + configurable constraints
@@ -7463,6 +7467,9 @@ class EnergyCoordinator(BaseCoordinator):
             transition = self._tou.get_next_transition()
             hours_until = transition.get("hours_until", 0)
             max_runtime = int(hours_until * 60)
+        # HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1: stash so the pull helper
+        # rebuilds the identical payload.
+        self._hvac_constraint_max_runtime = max_runtime
 
         # Fire dispatcher signal on constraint change
         constraint_key = (
@@ -7476,22 +7483,10 @@ class EnergyCoordinator(BaseCoordinator):
                 reason=reason,
                 target_entity=None,
             )
-            from .signals import EnergyConstraint, SIGNAL_ENERGY_CONSTRAINT
+            from .signals import SIGNAL_ENERGY_CONSTRAINT
             from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-            constraint = EnergyConstraint(
-                mode=self._hvac_constraint_mode,
-                setpoint_offset=self._hvac_constraint_offset,
-                occupied_only=True,
-                max_runtime_minutes=max_runtime,
-                fan_assist=(self._hvac_constraint_mode in ("coast", "shed")),
-                reason=reason,
-                solar_class=solar_class,
-                forecast_high_temp=forecast_high,
-                soc=soc if soc > 0 else None,
-                # v4.7.x Cycle A: apparent-temp alongside raw_high (Bug #37 — additive)
-                apparent_forecast_high_temp=self._cached_apparent_forecast_high,
-            )
+            constraint = self._build_energy_constraint()
             async_dispatcher_send(
                 self.hass, SIGNAL_ENERGY_CONSTRAINT, constraint
             )
@@ -7503,6 +7498,54 @@ class EnergyCoordinator(BaseCoordinator):
                 max_runtime,
                 reason,
             )
+
+    def _build_energy_constraint(self):
+        """Build an EnergyConstraint payload from CURRENT constraint state.
+
+        HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1: single source of truth for the
+        EnergyConstraint shape. Both the dispatch site in
+        `_update_hvac_constraint` and the producer-owned pull helper
+        `current_energy_constraint` call this so the payload cannot drift.
+        """
+        from .signals import EnergyConstraint
+
+        try:
+            soc = self._battery.battery_soc or 0
+        except Exception:
+            soc = 0
+        try:
+            solar_class = self._battery.classify_solar_day()
+        except Exception:
+            # A-LOW: EnergyConstraint.solar_class is str (default ""),
+            # not Optional[str] — align exception path with
+            # classify_solar_day's own "unknown" convention.
+            solar_class = "unknown"
+        return EnergyConstraint(
+            mode=self._hvac_constraint_mode,
+            setpoint_offset=self._hvac_constraint_offset,
+            occupied_only=True,
+            max_runtime_minutes=self._hvac_constraint_max_runtime,
+            fan_assist=(self._hvac_constraint_mode in ("coast", "shed")),
+            reason=self._hvac_constraint_reason,
+            solar_class=solar_class,
+            forecast_high_temp=self._cached_forecast_high,
+            soc=soc if soc > 0 else None,
+            # v4.7.x Cycle A: apparent-temp alongside raw_high (Bug #37 — additive)
+            apparent_forecast_high_temp=self._cached_apparent_forecast_high,
+        )
+
+    def current_energy_constraint(self):
+        """Return the current EnergyConstraint payload for producer-owned pull.
+
+        HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1: `async_dispatcher_send` is
+        fire-and-forget with no replay. EC's async_setup fires the boot
+        decision cycle BEFORE HVAC subscribes, so HVAC misses the initial
+        `normal` constraint dispatch and the change-gate then suppresses
+        re-emits until the mode changes (evening coast). HVAC pulls this at
+        the end of its own async_setup to seed itself with the current
+        payload — ordering-proof and idempotent with any later signal.
+        """
+        return self._build_energy_constraint()
 
     def _update_energy_situation(self, tou_period: str) -> None:
         """Assess overall energy situation."""
@@ -10090,7 +10133,16 @@ class EnergyCoordinator(BaseCoordinator):
 
     @property
     def hvac_constraint(self) -> dict[str, Any]:
-        """Current HVAC constraint — full detail for sensors."""
+        """Current HVAC constraint — full detail for sensors.
+
+        A-LOW #53: This property intentionally duplicates 9 fields with
+        `_build_energy_constraint()` rather than routing through it,
+        because `max_runtime` here is recomputed LIVE from the current
+        `_tou.get_next_transition()` (a display value that must not go
+        stale between constraint updates), whereas the builder uses the
+        stashed `_hvac_constraint_max_runtime` frozen at last dispatch.
+        Two sites, different semantics — do not consolidate blindly.
+        """
         transition = self._tou.get_next_transition()
         max_runtime = None
         if self._hvac_constraint_mode in ("coast", "shed"):

@@ -28,10 +28,21 @@ morning that silently skips (the `EC-GRID-ANTICIPATORY-PRECOOL-GAP-1` case) was 
 Doubly useful: this is the measure-first signal `EC-GRID-ANTICIPATORY-PRECOOL-GAP-1` needs (count
 `no_pv_surplus` skips on hot days → its revival trigger).
 
-## Validation — prospective
-- **Verify:** `sensor.ura_hvac_coordinator_mode` carries `pre_cool_skip_reason`; at a normal off-peak
-  hour it reads `outside_window` (before 10) or `no_pv_surplus`/`soc_below_floor` etc., not empty.
-- **Verify:** zero URA ERROR on boot; `pre_cool_active` behavior unchanged.
+## Validated 2026-09-18 (post-restart, running v5.103.12)
+
+| Criterion | Result | Observed |
+|---|---|---|
+| `pre_cool_skip_reason` live on the mode sensor | **PASS** | attribute present on `sensor.ura_hvac_coordinator_mode`; moved `boot` → `no_constraint` with fresh `last_evaluate` (10:14) — set + updating each tick. |
+| Mutation authority | **PASS** | orchestrator drill: renaming `"outside_window"` in source → `test_outside_window` REDs; restored. |
+| No behavior change | **PASS** | `pre_cool_active` unchanged; return values byte-identical (string-set-before-return). |
+| Zero URA ERROR | **PASS** | (per boot log; obs is additive). |
+
+**The obs immediately earned its keep:** it surfaced that post-restart the predictor sees
+`constraint=None` (`no_constraint`) while the EC's own sensor shows a real `normal` — i.e. the HVAC
+coordinator hasn't received an `EnergyConstraint` object this boot (EC dispatches on *change* only;
+mode unchanged since boot). That would leave Path A pre-cool effectively disabled from boot until the
+first mode change (evening coast) on a restart day. Pre-existing signal-delivery behavior, not this
+cycle — carded as `HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1`.
 
 ## Rollback
 `git revert` — additive attribute, no state impact.

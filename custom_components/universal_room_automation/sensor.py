@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.12
+# Universal Room Automation vv5.103.13
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -12164,14 +12164,45 @@ class HVACModeSensor(AggregationEntity, SensorEntity, RestoreEntity):
                     current_since = getattr(
                         hvac, "_energy_constraint_mode_since", None,
                     )
+                    # EC pre_cool retired (v5.103.11): a stale restored
+                    # `pre_cool` must never seed the live field — map it
+                    # back to `normal` before ANY gate check.
+                    if restored_mode == "pre_cool":
+                        restored_mode = "normal"
                     if ec is None and current_since is None:
-                        # EC pre_cool retired (v5.103.11): a stale
-                        # restored `pre_cool` must never seed the live
-                        # field — map it back to `normal`.
-                        if restored_mode == "pre_cool":
-                            restored_mode = "normal"
                         hvac._energy_constraint_mode = restored_mode
                         hvac._energy_constraint_mode_since = restored_since
+                    else:
+                        # HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1 B-MED-1:
+                        # the producer-owned pull runs during HVAC setup
+                        # (BEFORE this sensor is added to hass) and stamps
+                        # `_since = utcnow()`, so by the time the sensor's
+                        # RestoreEntity path fires, current_since is no
+                        # longer None. Without this branch the initial
+                        # `ec is None and current_since is None` gate
+                        # would always fall through and the dwell counter
+                        # would zero on every restart — the exact
+                        # regression the v5.103.8 D7 machinery was built
+                        # to prevent. Resume-if-same: if the pull-seeded
+                        # mode matches the restored mode AND the pull
+                        # stamp is FRESHER than the restored stamp, prefer
+                        # the older restored stamp so dwell continues
+                        # across restart. If the modes differ, this is a
+                        # legitimate transition — keep the pull's stamp.
+                        try:
+                            live_mode = getattr(
+                                hvac, "_energy_constraint_mode", None,
+                            )
+                            if (
+                                live_mode == restored_mode
+                                and current_since is not None
+                                and restored_since < current_since
+                            ):
+                                hvac._energy_constraint_mode_since = (
+                                    restored_since
+                                )
+                        except Exception:  # noqa: BLE001
+                            pass
 
         from homeassistant.helpers.dispatcher import async_dispatcher_connect
         from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE

@@ -17,6 +17,18 @@ set -euo pipefail
 VERSION="${1:?Usage: deploy.sh <version> <commit-summary> <release-notes>}"
 # Strip leading 'v' if present — script adds 'v' prefix in commits/tags/releases
 VERSION="${VERSION#v}"
+# DEPLOY-SH-REJECT-FLAG-AS-VERSION-1 (2026-09-18): positionals MUST lead.
+# If a flag was passed as $1 (e.g. `deploy.sh --cards X ... 5.103.9 ...`),
+# VERSION becomes "--cards" and the whole ship stamps a garbage "v--cards"
+# release/tag/manifest (this bit us on the first v5.103.9 attempt). Reject a
+# VERSION that is not a bare dotted number. Correct order:
+#   deploy.sh <version> "<summary>" "<notes>" --cards ID --why "..." --revisit "..."
+if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$'; then
+  echo "ERROR: version '$1' is not a valid version (got VERSION='$VERSION' after stripping 'v')." >&2
+  echo "       Positional args MUST come FIRST, flags after:" >&2
+  echo "       deploy.sh <version> \"<summary>\" \"<notes>\" --cards ID --why \"...\" --revisit \"...\"" >&2
+  exit 2
+fi
 SUMMARY="${2:?Usage: deploy.sh <version> <commit-summary> <release-notes>}"
 NOTES="${3:?Usage: deploy.sh <version> <commit-summary> <release-notes>}"
 DRY_RUN=false

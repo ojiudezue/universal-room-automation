@@ -549,7 +549,11 @@ cards:
     v5.103.8; close this on that ship.'
 
 - id: DEPLOY-SH-REJECT-FLAG-AS-VERSION-1
-  status: inbox
+  DONE_2026_09_18: 'Guard added at scripts/deploy.sh:17-30 — after stripping leading v, VERSION must
+    match ^[0-9]+.[0-9]+.[0-9]+([.-]...)?$ else exit 2 with the correct positionals-first usage. Verified:
+    rejects --cards/--why as $1, accepts 5.103.13 / v5.103.13 / 5.90.0 / 5.103.9.1; bash -n clean. Prevents
+    the v--cards botch recurrence. Tooling change (no release/restart).'
+  status: done
   thread: tooling
   created: '2026-09-18'
   updated: '2026-09-18'
@@ -703,7 +707,10 @@ cards:
   parsimony: {problem: 'jargon labels truncate in UI', verdict: BUILD, note: 'cosmetic, reversible, low-risk'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'operator screenshot 2026-09-18'}
 - id: HVAC-PRECOOL-SKIP-REASON-OBS-1
-  status: shipped_organic
+  DONE_2026_09_18: 'Shipped v5.103.12, live-validated: pre_cool_skip_reason live on the 10-Mode
+    sensor (boot->no_constraint, updating; mutation-verified outside_window->test RED; no behavior change;
+    zero ERROR). Immediately surfaced a real boot condition -> spawned HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1.'
+  status: done
   shipped_version: v5.103.12
   thread: hvac
   created: '2026-09-18'
@@ -726,6 +733,78 @@ cards:
     sensor. Then a one-shot recorder query can quantify hot-day surplus-only skips (feeds the gap card).'
   parsimony: {problem: 'no why-not-firing signal on the sole pre-cool path', verdict: BUILD, note: 'additive obs, low risk, enables the gap measurement'}
   links: {related: [EC-GRID-ANTICIPATORY-PRECOOL-GAP-1, EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1], context: 'post-Path-B-delete quick check 2026-09-18'}
+- id: HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1
+  REVIEW_C_AND_FIXUP_2026_09_18: 'C (test authority) = FIX-REQUIRED. PRODUCTION FIX SOUND (A+B+C agree
+    parity/ordering/guards hold live) but ALL new tests HOLLOW (#62): C1 boot-ordering test execs a text-
+    slice vs MagicMock, never builds HVACCoordinator/async_setup - early-return-before-pull (A2) stays GREEN;
+    C2 current_energy_constraint() zero behavioral cover - return None (B2) GREEN; C3 payload test compares
+    STRINGS - dropping setpoint_offset+fan_assist zero new failures across 10.7k tests. CONSOLIDATED FIX-UP
+    dispatched: (1) real tests - build HVACCoordinator+await async_setup w/ stub energy on hass.data, assert
+    _energy_constraint not None + mode/offset match (RED on A2 early-return + pull removal); current_energy_
+    constraint() on real EC (RED on B2); capture dispatched EnergyConstraint via dispatcher_connect + assert
+    dataclass-eq vs current_energy_constraint() (RED on field-drop); reuse test_domain_coordinators fixture.
+    (2) B-MED-1 sensor.py D7 resume-if-same under seed ordering + test. (3) A-LOW solar_class=unknown not
+    None. (4) A-LOW#53 route hvac_constraint property thru _build_energy_constraint (keep live max_runtime).
+    (5) B-LOW-1 reword ordering-proof->tolerant + fix :3856->:4041. Then orchestrator mutation-verify A2/B2/
+    field-drop + ship.'
+  REVIEW_A_2026_09_18: 'A (payload parity) = SHIP. All 10 EnergyConstraint fields byte-parity between
+    _build_energy_constraint and the old inline; _hvac_constraint_max_runtime stash populated before the
+    gate (ordering holds); freezing max_runtime via stash is parity-correct vs the live-recompute in the
+    hvac_constraint property. Findings: A-MED (#62 hollow) - parity+ordering tests are source-greps/exec-
+    block, not behavioral (moving the pull before subscribe still passes); fix = assert ec.current_energy_
+    constraint()==captured_dispatched (dataclass __eq__ = all 10 fields) + a real setup-driving ordering
+    test. A-LOW: builder sets solar_class=None on exception but field is str/classify returns unknown ->
+    use "unknown". A-LOW(#53): hvac_constraint property (energy.py:10131) reconstructs 9 fields NOT via the
+    builder -> route it through too (keep its live max_runtime) for true single-source. A+B CONVERGE on the
+    hollow test anchors. Hold fix-up for C.'
+  REVIEW_B_2026_09_18: 'B (boot lifecycle) = FIX-REQUIRED. Ordering/guards/idempotency/restart all PASS
+    (manager assigned before async_start; EC boot cycle populates constraint before HVAC pull - verified;
+    payload-equivalence cross-checked, holds; coast-seed duty-reset is an IMPROVEMENT clearing stale restored
+    counters). MED-1 (regression this cycle introduces): the boot pull stamps _energy_constraint_mode_since=
+    utcnow() during HVAC setup, now BEFORE the mode-sensor D7 restore (async_added_to_hass, platforms
+    forwarded __init__.py:4676 after async_start:4158). Sensor resume-if-same gate keys on ec is None and
+    current_since is None -> now false -> skipped -> energy_constraint_since/duration_s ZEROS mid-coast every
+    restart, defeating v5.103.8 D7 dwell-continuity. Display-only (no trust consumer), untested. FIX (sensor
+    side, keep pull): resume-if-same when restored_mode==live_mode and current_since not None and restored<
+    current -> seed restored_since; add a test. LOW-1: hvac.py comment says ordering-proof; its ordering-
+    TOLERANT (reorder -> default payload, silently inert) -> reword. Hold fix-up for A+C.'
+  TRACE_2026_09_18: 'ROOT CAUSE confirmed (read-only trace): two-stage. (1) ORDERING MISS - EC
+    registered before HVAC (__init__.py:3759 vs 3856); CoordinatorManager sets up sequentially
+    (manager.py:417), so EC async_setup fires its boot decision cycle -> dispatches SIGNAL_ENERGY_
+    CONSTRAINT(normal) (energy.py:1133->7495) BEFORE HVAC subscribes (hvac.py:1139). Fire-and-forget, no
+    replay -> HVAC misses it. (2) NON-CHANGE SUPPRESSION - later ticks dont re-dispatch stable normal
+    (change-gate energy.py:7471) so HVAC _energy_constraint stays None (init hvac.py:449) until the first
+    mode change (evening coast). No pull/backfill exists. Self-heals ONLY at coast; restart-morning pre-
+    cool window missed. FIX (planned): HVAC pulls EC current constraint at end of async_setup (after the
+    subscribe hvac.py:1145), via a producer-owned energy.current_energy_constraint() helper that reuses the
+    EXACT payload construction at energy.py:7482-7494 (no shape drift). Ordering-proof (EC fully set up by
+    then), idempotent (later real signal just re-applies). Tier 2-DB. BUILD DISPATCHED.'
+  status: shipped_organic
+  shipped_version: v5.103.13
+  thread: hvac
+  created: '2026-09-18'
+  updated: '2026-09-18'
+  tags: [hvac, precool, boot, signal-delivery, energy]
+  title: Post-restart the HVAC predictor sees constraint=None (pre_cool_skip_reason=no_constraint) while EC computes normal — Path A pre-cool disabled boot->first-mode-change
+  problem_solution:
+  - 'Problem (surfaced live 2026-09-18 by the new pre_cool_skip_reason obs, v5.103.12): after a restart at
+    10:14 CDT (in [10,14) window, summer, both enables true), sensor.ura_energy_coordinator_hvac_constraint
+    shows a REAL computed normal (reason "normal conditions"), but sensor.ura_hvac_coordinator_mode.pre_cool_
+    skip_reason=no_constraint and energy_offset=0 -> the HVAC coordinator _energy_constraint object is None.
+    The EC dispatches SIGNAL_ENERGY_CONSTRAINT on CHANGE only; mode unchanged since boot -> the HVAC
+    coordinator may not receive an EnergyConstraint object until the first real mode change (evening coast).
+    Net: Path A afternoon pre-cool effectively DISABLED from boot until first coast on a restart day - the
+    10am-2pm banking window can be entirely missed if the house restarted that morning. Pre-existing signal-
+    delivery behavior; the obs revealed it. (Review B of the EC cycle claimed first post-boot tick always
+    republishes - live evidence contradicts that, or the HVAC subscription misses the first publish.)'
+  why: 'Real restart-day pre-cool gap; the sole pre-cool path silently no-ops. High-value catch validating
+    the skip-reason obs on its first boot.'
+  next: 'TRACE: does _handle_energy_constraint fire post-boot on the HVAC coordinator? is _energy_constraint
+    set after the EC first tick? does the EC re-dispatch normal on first boot tick or suppress as non-change
+    vs init _last_published_constraint? does it self-heal at the evening coast transition? Likely fix: EC
+    force-dispatch current constraint on HVAC subscribe, OR HVAC pulls the EC constraint at setup. Tier 2.'
+  parsimony: {problem: 'restart-day pre-cool disabled until first mode change', verdict: BUILD, note: 'trace signal delivery first; measure self-heal'}
+  links: {related: [HVAC-PRECOOL-SKIP-REASON-OBS-1, EC-GRID-ANTICIPATORY-PRECOOL-GAP-1], context: 'surfaced by pre_cool_skip_reason obs v5.103.12 on first boot'}
 - id: HVAC-PRECOOL-WINDOW-TOU-DERIVED-1
   status: inbox
   thread: hvac
