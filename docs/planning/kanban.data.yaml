@@ -607,6 +607,19 @@ cards:
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  DIVERGENCE_CONFIRMED_2026_09_18: 'Operator read-the-plan request -> CONFIRMED design-vs-shipped
+    divergence. DESIGN (ENERGY_COORDINATOR_DESIGN_v2.2:176 + :461-464): pre-cool is a 2-4PM AFTERNOON
+    behavior (-3F) before the 4-8pm coast, to bank coolness during the day so there is NO 6-8pm HVAC spike
+    when everyone is home; primary trigger = HIGH solar (>80kWh) "use solar for pre-cool / run during peak
+    solar" (midday PV surplus), with off-peak-only as the LOW-battery fallback. SHIPPED (energy.py:7427-
+    7434): off_peak AND soc<50 AND solar_class in {good,excellent} -> (1) NO time-of-day gate, fires any
+    off-peak incl 9pm-midnight (wrong time; useless for the already-passed 4-8pm peak); (2) gated on soc<50
+    LOW = opposite of the high-SOC/excess-solar primary intent; (3) forecast not actual midday PV. The
+    afternoon solar-banking pre-cool the operator built is NOT what this branch does. FIX DIRECTION (needs
+    plan): enumerate ALL pre_cool paths first - HVAC predictor has STATE_PRECOOL_START_TIME/_LEAD_MINUTES
+    (const.py:1408); either the afternoon path lives there and works (this EC night branch = diverged
+    duplicate to gate/remove) OR it is missing and must be built to fire 2-4pm on solar-surplus/high-SOC.
+    Tier 2-DB (EC strategy, regression-prone). AWAIT operator go on the plan.'
   SHARPENED_2026_09_18: 'Operator: pre_cool should happen with EXCESS SOLAR, no way at 9pm. LIVE FINDING:
     sensor.ura_energy_coordinator_hvac_constraint fired mode=pre_cool at 21:00 CDT (REAL local time - ha_
     get_history localizes, -05:00 offset; NOT a UTC artifact, unlike the D5-fire hours which were raw-log
@@ -619,7 +632,7 @@ cards:
     export, not soc<50. Trace: (1) is solar_class tomorrow-forecast (likely Solcast) vs stale-today; (2)
     does an excess-solar (daytime PV-surplus) pre-cool path exist separately or is it conflated with this
     off-peak-grid path; (3) at SOC 10% overnight, is spending off-peak grid to pre-cool net-positive?'
-  status: investigating
+  status: planned
   thread: energy
   created: '2026-09-18'
   updated: '2026-09-18'

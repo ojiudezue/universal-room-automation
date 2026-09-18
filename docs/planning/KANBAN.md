@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T01:37:28-05:00_ - _Data commit: `e3539d9e93cb`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T01:38:52-05:00_ - _Data commit: `9aac40e16e71`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -10,9 +10,9 @@ _Generated: 2026-09-18T01:37:28-05:00_ - _Data commit: `e3539d9e93cb`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 4 |
-| 🔬 Investigating | 2 |
+| 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 13 |
+| 📝 Planned | 14 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 27 |
@@ -64,22 +64,10 @@ _created 2026-09-18_
 - **Tags:** tooling, deploy, hotfix, tier-1
 - **Parsimony:** [BUILD] deploy footgun ships corrupt version metadata
 
-## 🔬 Investigating (2)
+## 🔬 Investigating (1)
 _measuring; truth not yet known_
 
-### `EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1` - pre_cool fires at LOW SOC on off-peak grid (not excess solar) gated on a forecast — verify EC pre_cool/coast solar_class semantics & intent — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **investigating**
-_created 2026-09-18_
-- **Problem / Solution:**
-  - Problem (operator-raised 2026-09-18): solar_class is a solar-production FORECAST that applies to daytime, but two EC constraint branches evaluate in the dark and consume it: (1) coast via mid_peak + solar_class in {poor,very_poor} (energ...
-- **Why:** Surfaced while auditing D5 fire-frequency (D5 itself is peak-TOU-driven, solar-independent, RESOLVED). This is upstream EC-logic correctness, separate from the shipped D5 cycle. A night decision on a daytime forecast is a classic seam. P...
-- **Next:** TRACE solar_class producer + the day it targets at energy.py:7419-7434 consumers; confirm pre_cool uses tomorrow-forecast and the mid_peak-poor-solar coast cannot fire on a nighttime solar value. Measure- first (read the code + a few liv...
-- **Tags:** energy, coast, precool, solar, measure-first, correctness
-- **Parsimony:** [BUILD] daytime solar forecast possibly consumed by night EC decisions
-- **Forensic keys (1):**
-  - `SHARPENED_2026_09_18`: Operator: pre_cool should happen with EXCESS SOLAR, no way at 9pm. LIVE FINDING: sensor.ura_energy_coordinator_hvac_constraint fired mode=pre_cool at 21:00 CDT (REAL local time - ha_ get_history localizes, -05:00 offset; NOT a UTC artifa...
-
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#1 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
@@ -285,7 +273,7 @@ _created 2026-09-16 · initial_
   - `PER_ZONE_CORRECTED_2026_09_16`: OPERATOR: "If we did this, why per zone? It should be the same function, no?" CORRECT, and my sketch was wrong. Ask what per-zone STATE a handle would hold: entity_id is a PARAMETER; the vendor is DERIVED from the entity's platform (memo...
   - `DESIGN_SHAPE_2026_09_16`: Stateless, entity-parameterised, all three verbs plus vendor dispatch: read_hold(hass, entity_id)              -> named / anonymous / none set_preset(hass, entity_id, name, ...)  -> strategy decides clear-then-pin vs direct pin set_setpo...
 
-## 📝 Planned (13)
+## 📝 Planned (14)
 _has plan / acceptance_
 
 ### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#1 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
@@ -449,7 +437,20 @@ _created 2026-09-17_
 - **Forensic keys (1):**
   - `FOLD_2026_09_17`: From HVAC-EC-OFFSET-SELF-LOCKOUT-1 (refuted): verify the EC coast/shed OFFSET apply path carries a FIX-B2-style pre-write preset snapshot + set_preset_mode restore (like the nudge path), so a coast setpoint write cannot leave a zone in m...
 
-### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#12 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1` - pre_cool fires at LOW SOC on off-peak grid (not excess solar) gated on a forecast — verify EC pre_cool/coast solar_class semantics & intent — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **planned**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem (operator-raised 2026-09-18): solar_class is a solar-production FORECAST that applies to daytime, but two EC constraint branches evaluate in the dark and consume it: (1) coast via mid_peak + solar_class in {poor,very_poor} (energ...
+- **Why:** Surfaced while auditing D5 fire-frequency (D5 itself is peak-TOU-driven, solar-independent, RESOLVED). This is upstream EC-logic correctness, separate from the shipped D5 cycle. A night decision on a daytime forecast is a classic seam. P...
+- **Next:** TRACE solar_class producer + the day it targets at energy.py:7419-7434 consumers; confirm pre_cool uses tomorrow-forecast and the mid_peak-poor-solar coast cannot fire on a nighttime solar value. Measure- first (read the code + a few liv...
+- **Tags:** energy, coast, precool, solar, measure-first, correctness
+- **Parsimony:** [BUILD] daytime solar forecast possibly consumed by night EC decisions
+- **Forensic keys (2):**
+  - `DIVERGENCE_CONFIRMED_2026_09_18`: Operator read-the-plan request -> CONFIRMED design-vs-shipped divergence. DESIGN (ENERGY_COORDINATOR_DESIGN_v2.2:176 + :461-464): pre-cool is a 2-4PM AFTERNOON behavior (-3F) before the 4-8pm coast, to bank coolness during the day so the...
+  - `SHARPENED_2026_09_18`: Operator: pre_cool should happen with EXCESS SOLAR, no way at 9pm. LIVE FINDING: sensor.ura_energy_coordinator_hvac_constraint fired mode=pre_cool at 21:00 CDT (REAL local time - ha_ get_history localizes, -05:00 offset; NOT a UTC artifa...
+
+### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#13 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **planned** - approval: **implied**
 _created 2026-09-16_
 - **Problem / Solution:**
@@ -459,7 +460,7 @@ _created 2026-09-16_
 - **Tags:** energy, tier-2db, bug-class-53, needs-plan-review
 - **Parsimony:** [BUILD] three ordering invariants are validated at save time + anomaly-flagged at runtime but their ~25 live decision readers still read raw, so an inverted slider flips a gate
 
-### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#13 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#14 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **implied**
 _created 2026-09-16 · initial_
 - **Problem / Solution:**
