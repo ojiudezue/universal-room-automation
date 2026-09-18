@@ -6,3 +6,5 @@
 {"action": "ack", "at": "2026-09-18T19:11:41.419Z", "card_id": "OVERNIGHT-PASS-NO-LOG-REACH-1@2026-09-17T02:20:00"}
 {"action": "ack", "at": "2026-09-18T19:11:52.524Z", "card_id": "PERIMETER-DETECTION-WENT-DARK-1@2026-09-17T02:15:00"}
 {"action": "ack", "at": "2026-09-18T19:12:37.890Z", "card_id": "TEST-SUITE-ORDER-INDEP-PRODSTUBS-1@2026-09-16T04:20:00"}
+{"action": "ack", "at": "2026-09-18T19:18:39.835Z", "card_id": "HVAC-ANOMALY-BLIND-1@2026-09-16T04:05:00"}
+{"action": "ack", "at": "2026-09-18T19:19:02.937Z", "card_id": "PERIMETER-DETECTION-WENT-DARK-1@2026-09-16T03:35:00"}
