@@ -1,0 +1,33 @@
+{
+ "format_version": "2.1",
+ "entry_id": "135",
+ "author": "ojiudezue",
+ "session_id": "claude_20260917_hvac_d5_trueup",
+ "timestamp": "2026-09-17T22:30:00Z",
+ "type": "reasoning",
+ "weight": "critical",
+ "title": "D5 true-up: Bryant research = D5 is NOT compressor protection (redundant with native board protection); S14 removal reveals setpoint-write->manual->self-lockout; D-b2 must be a NO-WRITE defer; EC's occupied-only offset may self-lock house-wide",
+ "summary": "Operator asked 'how do we true up' to the D5 finding. A read-only Bryant/carrier_api research returned PARTIALLY REDUNDANT: the Infinity/Evolution control board + delay-on-break already protect the compressor natively (variable-speed modulates rather than cycles), so URA's D5 force-to-away protects nothing - it is pure occupancy-blind energy-shed policy wearing a protection name (audit's zero-grounding claim CONFIRMED). Chosen fix = option (b) reframe+gate, NOT delete (still a legit coast/shed lever on empty zones). Concept-honesty sweep then found URA ALREADY HAD the occupancy fix (S14, 2026-08-11: hold occupied zones at home+offset instead of away) and REMOVED it 2026-09-16 because a raw setpoint write flips Carrier to manual and should_change_preset then refuses the zone - S14 CREATED THE LOCKOUT. This internally answers the Bryant research's open question (a URA setpoint write DOES self-induce manual).",
+ "why": "Two load-bearing consequences reshape the arc. (1) The D5 occupancy-gate (D-b2) must DEFER AS A NO-WRITE (ledger row energy_shed_cap_deferred_occupied only), never restore S14's offset-hold - restoring it re-creates the lockout the removal fixed; builder was messaged mid-build with this trap + the once-per-off-phase + stale_occupancy-precedence invariants. (2) EC publishes SIGNAL_ENERGY_CONSTRAINT with setpoint_offset + occupied_only=True (energy.py:7473-7488) aimed at OCCUPIED zones during coast/shed; if the HVAC-side application uses emit_set_temperature it has the SAME self-lockout as S14, meaning URA's 'graceful degree-based shed on occupied zones' is itself broken on Carrier and the 15 measured lockouts/2d may largely BE EC - untraced (hvac.py:1575-1613 feeds _energy_offset to arrester+fans+covers+predictor, not an obvious direct write). This is the reconciliation crux: it sizes the lockout-escape (item #2) and tests whether the 'EC handles occupied graceful shed' premise the D5 gate rests on is even true.",
+ "implications": "Build DISPATCHED on feature/hvac-d5-reframe (ura-builder, worktree): D-b1 remove runtime_exceeded->energy_shed_cap_reached (no alias), D-b2 no-write occupancy defer (shed dominates), D-b3 caps->Rung-3 Numbers + kill switch (absorbs HVAC-D5-KNOBS-TO-RUNG-3-1) + window_start restore check (folds HVAC-D5-WINDOW-START-RESTORE-1). Tier 2-DB, INV-D5-GATE. New cards: HVAC-EC-OFFSET-SELF-LOCKOUT-1 (investigating - trace whether EC's occupied-only offset self-locks; discriminator for item #2 size), HVAC-D5-REGROUND-ON-ODU-VAR-1 (parked - ha_carrier ODU Var %/stage_status is a richer real-duty signal than the 20-min hvac_action integral). Record corrected: tail MD open-question answered; AUDIT_bryant_duty_cycle_redundancy_2026_09_17.md written. Left correctly-named: DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT (real protection cap, unrelated to D5).",
+ "revisit_trigger": "When feature/hvac-d5-reframe reports: verify D-b2 is genuinely a no-write defer (mutation-anchored), the runtime_exceeded rename is complete across all ~8 sites, and window_start restore. THEN trace HVAC-EC-OFFSET-SELF-LOCKOUT-1: find the offset->target->write verb (arrester/predictor); if emit_set_temperature on occupied coast zones, escalate item #2 (lockout escape) to house-wide+urgent and re-scope EC's graceful-shed; correlate the 15 lockout episode timestamps vs coast/shed windows.",
+ "refs": {
+  "cards": [
+   "HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1",
+   "HVAC-EC-OFFSET-SELF-LOCKOUT-1",
+   "HVAC-PRESET-LOCKOUT-ESCAPE-1",
+   "HVAC-D5-REGROUND-ON-ODU-VAR-1",
+   "HVAC-D5-KNOBS-TO-RUNG-3-1",
+   "HVAC-PRESET-FLAP-1",
+   "HVAC-ZONE1-MANUAL-OSCILLATION-1"
+  ],
+  "docs": [
+   "docs/planning/AUDIT_bryant_duty_cycle_redundancy_2026_09_17.md",
+   "docs/planning/PLANNING_hvac_d5_reframe_occupancy_gate.md",
+   "docs/planning/PLANNING_preset_flap_offphase_honesty.md",
+   "docs/readmes/README_v5.103.3.md",
+   "docs/planning/HVAC_ARC_TAIL_2026_09_18.md"
+  ],
+  "key_facts": "Bryant: ha_carrier v2.28.2 / carrier-api 3.6.0 exposes NO min-off/CPH field but DOES expose ODU Var % (sensor.py:788-834) + zone.stage_status (entry_level_climate.py:153-158). Native anti-short-cycle is board-level (industry min-off ~5min/300s). S14 removal: hvac.py:2055-2066 + README_v5.103.3 D2. EC offset: energy.py:7413-7488, occupied_only=True. _energy_offset consumers hvac.py:1575-1613 (arrester/fans/covers/predictor)."
+ }
+}
