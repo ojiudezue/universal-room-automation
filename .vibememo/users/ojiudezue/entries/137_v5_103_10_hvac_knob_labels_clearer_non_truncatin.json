@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "137",
+  "author": "ojiudezue",
+  "session_id": "claude_20260918_070920_ship_v5_103_10",
+  "timestamp": "2026-09-18T07:09:20Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.10 shipped: HVAC knob labels: clearer, non-truncating (6 renames)",
+  "summary": "HVAC knob labels: clearer, non-truncating (6 renames)",
+  "why": "Operator flagged truncating/jargon knob labels via screenshot. D5 wording (AC Runtime Cap style) picked via AskUserQuestion; comfort-delay reworded to Comfort Grace from verified semantics (grant-grace SOC floor + grace duration). Egress two PULLED mid-build per operator (they're about opening egress windows/venting, not occupant exit - my Exit Pause wording mislabeled). Net diff verified = exactly 6 _attr_name strings, no unique_id/logic change; 190 label-adjacent tests pass. Tier 1 cosmetic.",
+  "implications": "Shipped HVAC-KNOB-LABEL-PASS-1 at v5.103.10; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.10.md (Live criteria).",
+  "revisit_trigger": "In HA the 6 entities show the new display names (AC Runtime Cap Coast/Shed/Window/Enable, Comfort Grace Battery Floor/Duration) with entity_ids + values unchanged (75/50/20/on/85/20); Egress Pause Threshold / Egress Resume Delay names unchanged",
+  "refs": {
+    "cards": [
+      "HVAC-KNOB-LABEL-PASS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.10.md"
+    ],
+    "release_notes": "Display-name-only rename of 6 HVAC knobs: D5 Duty-Cycle -> AC Runtime Cap (Coast/Shed/Window/Enable); Comfort-Delay -> Comfort Grace (Battery Floor/Duration). unique_id/entity_id/history preserved. Egress knobs deliberately untouched (about opening egress windows, not occupant exit)."
+  }
+}
