@@ -734,6 +734,17 @@ cards:
   parsimony: {problem: 'no why-not-firing signal on the sole pre-cool path', verdict: BUILD, note: 'additive obs, low risk, enables the gap measurement'}
   links: {related: [EC-GRID-ANTICIPATORY-PRECOOL-GAP-1, EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1], context: 'post-Path-B-delete quick check 2026-09-18'}
 - id: HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1
+  REVIEW_B_2026_09_18: 'B (boot lifecycle) = FIX-REQUIRED. Ordering/guards/idempotency/restart all PASS
+    (manager assigned before async_start; EC boot cycle populates constraint before HVAC pull - verified;
+    payload-equivalence cross-checked, holds; coast-seed duty-reset is an IMPROVEMENT clearing stale restored
+    counters). MED-1 (regression this cycle introduces): the boot pull stamps _energy_constraint_mode_since=
+    utcnow() during HVAC setup, now BEFORE the mode-sensor D7 restore (async_added_to_hass, platforms
+    forwarded __init__.py:4676 after async_start:4158). Sensor resume-if-same gate keys on ec is None and
+    current_since is None -> now false -> skipped -> energy_constraint_since/duration_s ZEROS mid-coast every
+    restart, defeating v5.103.8 D7 dwell-continuity. Display-only (no trust consumer), untested. FIX (sensor
+    side, keep pull): resume-if-same when restored_mode==live_mode and current_since not None and restored<
+    current -> seed restored_since; add a test. LOW-1: hvac.py comment says ordering-proof; its ordering-
+    TOLERANT (reorder -> default payload, silently inert) -> reword. Hold fix-up for A+C.'
   TRACE_2026_09_18: 'ROOT CAUSE confirmed (read-only trace): two-stage. (1) ORDERING MISS - EC
     registered before HVAC (__init__.py:3759 vs 3856); CoordinatorManager sets up sequentially
     (manager.py:417), so EC async_setup fires its boot decision cycle -> dispatches SIGNAL_ENERGY_
