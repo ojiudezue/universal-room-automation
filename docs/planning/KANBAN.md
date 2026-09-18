@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T19:55:31-05:00_ - _Data commit: `f1cdb64697de`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T20:01:04-05:00_ - _Data commit: `cb782a78f1a5`_ - _last_reconciled: 2026-09-17_
 
 
 > ## ⚠️ STALE - board has not been reconciled against newer work
@@ -15,7 +15,7 @@ _Generated: 2026-09-17T19:55:31-05:00_ - _Data commit: `f1cdb64697de`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 13 |
@@ -27,10 +27,18 @@ _Generated: 2026-09-17T19:55:31-05:00_ - _Data commit: `f1cdb64697de`_ - _last_r
 | 🅿️ Parked | 58 |
 | ✅ Done | 171 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (1)
 _raw capture_
 
-_(none)_
+### `INSTALL-ARCHIFY-SKILL-1` - Install the archify skill (github.com/tt-a1i/archify) in a spare cycle — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **tooling** - status: **inbox**
+_created 2026-09-17_
+- **Problem / Solution:**
+  - Operator: "Install this skill in a spare cycle - https://github.com/tt-a1i/archify". Evaluate + install the archify skill when there is spare capacity (not during the HVAC ship). Read the repo, check what it does / how it installs (likel...
+- **Why:** Operator-requested tooling; deliberately deferred to a spare cycle so it does not interrupt the in-flight Tier-3 HVAC ship.
+- **Next:** In a spare cycle: fetch github.com/tt-a1i/archify, read its README/SKILL.md, confirm what it is (name suggests architecture/graph tooling — verify), install to ~/.claude/skills/ if appropriate, report what it adds. Do NOT install blind —...
+- **Tags:** tooling, spare-cycle, operator-requested
+- **Parsimony:** [BUILD] operator wants a skill installed; no urgency
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_
@@ -431,7 +439,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (51):**
+- **Forensic keys (52):**
+  - `TRANSIT_ROOMS_VETTED_2026_09_17`: Operator vetted the circulation (hallway) set for the D4 reclassify: APPROVED as hallway = Garage Hallway, Kitchen Hallway, Kitchen Hallway Garage, Master Hallway, Upstairs Hallway, Foyer (operator: "No. Its transit"), Guest Bedroom 2 Ha...
   - `ROUND5_DONE_2026_09_17`: Round-5 landed @f88f4bc84. F1 reverted any->all (retreat requires ALL rooms readable; 2 discriminating tests, mutation all->any reds them). Energy-restart NEW RESOLVED by definitive revert-in-suite: develop source + branch tests -> the 2...
   - `AWAY_CAUSE_ATTRIBUTED_2026_09_17`: Operator asked if zone_3 away is EC coast or duty-cycle, not vacancy. ATTRIBUTED from ura_activity_log preset_change reasons (zone_3, last 3d): vacant_past_grace 89 (84%), runtime_exceeded 13 (12%), house_state_transition 4. ZERO EC coas...
   - `CAUSATION_PROBE_2026_09_17`: Did any deploy step up the flapping? INCONCLUSIVE, leaning UNCHANGED (recorder-authoritative, transitions timed on preset_mode last_updated). The 09-16 all-zone spike (z1 93, z2 67, z3 93) is a DEPLOY ARTIFACT — 4 reloads that day = boot...
