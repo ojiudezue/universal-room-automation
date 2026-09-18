@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T21:49:03-05:00_ - _Data commit: `021a60bf7630`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T21:49:27-05:00_ - _Data commit: `5bd311ad96c5`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -474,7 +474,8 @@ _created 2026-09-17_
 - **Next:** Decide the hold knob rung (config field for structure vs Number for live-tune) + wire it; flip D2 enabled-default or document; add `established` attr to D2. Tier 1-2 additive. Also: the D5 entry-dwell field is now a TOMBSTONE (default->0...
 - **Tags:** hvac, numbers-get-knobs, observability, post-ship-gap
 - **Parsimony:** [BUILD] debounce hold has no operator knob + observability entity hidden/incomplete
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `FIXUP_DONE_2026_09_17`: Consolidated fix-up @d4cadfad0, all 9 items. Real anchors added (D1/D2 override entry->meta->resolver; D6 chokepoint capture; AST completeness scanner over all sites + dynamic sources) — builder mutation-drilled RED-then-GREEN. Reason vo...
   - `REVIEW_A_2026_09_17`: Framing A (correctness+restart) = FIX-REQUIRED 1 HIGH 4 MED. CONVERGES w/ B + adds the key finding: TESTS ARE HOLLOW (mutation-proven) — making D1/D2 knob inert stays GREEN, and neutering chokepoint capture stays GREEN -> neither headlin...
   - `REVIEW_B_2026_09_17`: Framing B (schema+Bug53) = FIX-REQUIRED, 2 HIGH + 2 MED. B1(HIGH, No-Fab): HVAC_PRESET_REASONS is partly FABRICATED — contains excursion_return/timeout/settled (NOWHERE in repo) + MISSES the real dynamic reasons the excursion path passes...
   - `BUILD_DONE_2026_09_17`: Build @9be22f498 (worktree hvac-knobs-obs). All D1-D8 per revised plan; D9 dropped. 9/9 new tests; 5 mutation drills RED-then-GREEN (resolver override, clamp, blank->None, reasons frozenset, chokepoint capture). Builder name-diff 308=308...

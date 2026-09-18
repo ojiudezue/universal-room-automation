@@ -299,6 +299,17 @@ meta:
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
 - id: HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1
+  FIXUP_DONE_2026_09_17: 'Consolidated fix-up @d4cadfad0, all 9 items. Real anchors added (D1/D2
+    override entry->meta->resolver; D6 chokepoint capture; AST completeness scanner over all sites +
+    dynamic sources) — builder mutation-drilled RED-then-GREEN. Reason vocab fixed (No-Fab): deleted 3
+    phantom excursion_* literals, added lease_expiry + stale_boot_release + soft_nudge_preset_restore;
+    fixed the soft-nudge site (hvac_override.py:4632 now passes zone_id+reason); const comment corrected
+    (EXCURSION_KIND, trigger independent). D3 sentinel gated on loop completion (retries on failure).
+    Config overrides now CLEARABLE (pop-on-blank + suggested_value not UNDEFINED so stored 0 shows).
+    D7 REAL fix (seed mode+since on init-state at added_to_hass -> resume survives coast-restart).
+    Labels: 3 error strings added both JSONs; clamp log names the ROOM. Name-diff 0 new. ORCHESTRATOR
+    VERIFIED: re-ran the D6 capture mutation myself -> anchor REDs on neuter, GREEN restored (the
+    previously-hollow anchor is now real). Running own full name-diff -> ship v5.103.8.'
   REVIEW_A_2026_09_17: 'Framing A (correctness+restart) = FIX-REQUIRED 1 HIGH 4 MED. CONVERGES w/ B +
     adds the key finding: TESTS ARE HOLLOW (mutation-proven) — making D1/D2 knob inert stays GREEN, and
     neutering chokepoint capture stays GREEN -> neither headline deliverable has a real anchor (why B1
