@@ -9,7 +9,7 @@ _Generated: 2026-09-18T02:09:20-05:00_ - _Data commit: `5048cef5d659`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 4 |
+| 📥 Inbox | 3 |
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 14 |
@@ -19,9 +19,9 @@ _Generated: 2026-09-18T02:09:20-05:00_ - _Data commit: `5048cef5d659`_ - _last_r
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 34 |
 | 🅿️ Parked | 59 |
-| ✅ Done | 174 |
+| ✅ Done | 175 |
 
-## 📥 Inbox (4)
+## 📥 Inbox (3)
 _raw capture_
 
 ### `HVAC-D5-KNOBS-TO-RUNG-3-1` - D5 duty-cycle window/caps are Rung-1 module constants for what is a Rung-3 operator policy; no kill switch — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -34,17 +34,7 @@ _created 2026-09-17_
 - **Tags:** hvac, numbers-get-knobs, tier-1
 - **Parsimony:** [BUILD] policy numbers hardcoded, no kill switch
 
-### `HVAC-D5-WINDOW-START-RESTORE-1` - D5 window_start restore-across-reload unverified (hvac_zones.py:685-700) — reload may reset the runtime counter — _#2 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
-thread: **hvac** - status: **inbox**
-_created 2026-09-17_
-- **Problem / Solution:**
-  - Problem: the D5 audit could not verify (in its grep window) that zone.window_start / runtime counter survive a config-entry reload; a reload mid-window may reset the counter, under- or over-counting runtime. Given the ~5x/night reload st...
-- **Why:** D5 audit finding 4, contingent — verify before scoping.
-- **Next:** Read the restore path; confirm whether window_start is persisted. Close if fine.
-- **Tags:** hvac, restart-safety, tier-1, contingent
-- **Parsimony:** [BUILD] duty-cycle counter may not survive reload
-
-### `HVAC-D5-SLEEP-EXIT-RESET-1` - D5 counter accumulates overnight during sleep-skip and can instant-trip on wake into coast/shed — _#3 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+### `HVAC-D5-SLEEP-EXIT-RESET-1` - D5 counter accumulates overnight during sleep-skip and can instant-trip on wake into coast/shed — _#2 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **hvac** - status: **inbox**
 _created 2026-09-17_
 - **Problem / Solution:**
@@ -54,7 +44,7 @@ _created 2026-09-17_
 - **Tags:** hvac, tier-1, contingent, measure-first
 - **Parsimony:** [BUILD] overnight accumulation instant-trips on wake
 
-### `DEPLOY-SH-REJECT-FLAG-AS-VERSION-1` - deploy.sh should reject a flag as $1/VERSION (footgun shipped a "v--cards" release) — _#4 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+### `DEPLOY-SH-REJECT-FLAG-AS-VERSION-1` - deploy.sh should reject a flag as $1/VERSION (footgun shipped a "v--cards" release) — _#3 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **tooling** - status: **inbox**
 _created 2026-09-18_
 - **Problem / Solution:**
@@ -2432,8 +2422,20 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (174)
+## ✅ Done (175)
 _closed, evidence in refs_
+
+### `HVAC-D5-WINDOW-START-RESTORE-1` - D5 window_start restore-across-reload unverified (hvac_zones.py:685-700) — reload may reset the runtime counter — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **hvac** - status: **done**
+_created 2026-09-17 · updated 2026-09-18 02:35_
+- **Problem / Solution:**
+  - Problem: the D5 audit could not verify (in its grep window) that zone.window_start / runtime counter survive a config-entry reload; a reload mid-window may reset the counter, under- or over-counting runtime. Given the ~5x/night reload st...
+- **Why:** D5 audit finding 4, contingent — verify before scoping.
+- **Next:** CLOSED — premise refuted by a full producer/consumer trace. No work needed; see VERIFIED_2026_09_18.
+- **Tags:** hvac, restart-safety, tier-1, contingent
+- **Parsimony:** [BUILD] duty-cycle counter may not survive reload
+- **Forensic keys (1):**
+  - `VERIFIED_2026_09_18`: REFUTED — window_start IS persisted across a reload, and so is the runtime counter. The card feared the D5 runtime window resets on a config-entry reload; the full chain is wired and I traced every link. PRODUCER: HVACZoneManager.get_sta...
 
 ### `OVERNIGHT-PASS-NO-LOG-REACH-1` - The overnight pass cannot read HA logs, so every log-based investigation silently stalls — _WSJF 11.0 · v7 tc7 u8 /e2_
 thread: **platform** - status: **done** - approval: **unreviewed**

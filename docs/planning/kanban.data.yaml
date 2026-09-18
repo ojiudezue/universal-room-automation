@@ -9,6 +9,22 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: HVAC-D5-WINDOW-START-RESTORE-1@2026-09-18T02:35:00
+    at: '2026-09-18T02:35:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'ONE WORRY OFF THE LIST, FOR FREE — the AC runtime counter does NOT get wiped when URA
+      reloads. We had an open question from the runtime-cap audit: every time URA reloads itself (and
+      something is doing that several times a night), does the running total of how long the AC has
+      been on get reset to zero? If it did, the runtime cap would be counting wrong all night. It does
+      not. I followed the whole path this time instead of spot-checking it: the running total and the
+      window it belongs to are both written to disk every 25 minutes AND again on the way down every
+      time URA shuts a coordinator, and they are read back on the way up. I specifically checked the
+      on-the-way-down save is genuinely hooked up rather than dead code, because that was the link the
+      whole answer rested on — it is. The only way to lose anything is a hard power cut, which can cost
+      at most the last 25 minutes; not worth engineering around. Worth admitting: I searched for the
+      wrong function name first, found nothing, and was one step from reporting this as a real bug.
+      Card closed, no work needed.'
   - fid: OVERNIGHT-PASS-NO-LOG-REACH-1@2026-09-18T02:15:00
     at: '2026-09-18T02:15:00'
     outcome: done
@@ -863,10 +879,31 @@ cards:
   parsimony: {problem: 'coarse duty proxy vs available richer signal', verdict: PARK, note: 'follow-up to reframe; marginal benefit'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'Bryant duty-cycle redundancy audit 2026-09-17'}
 - id: HVAC-D5-WINDOW-START-RESTORE-1
-  status: inbox
+  VERIFIED_2026_09_18: 'REFUTED — window_start IS persisted across a reload, and so is the runtime
+    counter. The card feared the D5 runtime window resets on a config-entry reload; the full chain is
+    wired and I traced every link. PRODUCER: HVACZoneManager.get_state_snapshot()
+    (hvac_zones.py:815-831) serializes BOTH window_start and runtime_seconds_this_window (plus
+    last_occupied_time, zone_presence_state, continuous_occupied_since and a saved_at stamp). SAVE
+    SITES, two of them: periodically every 5 coordinator cycles (~25 min) at hvac.py:1752-1768, and
+    on teardown at hvac.py:4931-4948 inside HVACCoordinator.async_teardown (hvac.py:4898). THE
+    TEARDOWN SAVE IS ACTUALLY WIRED — that was the load-bearing link and I checked it rather than
+    assuming: CoordinatorManager.async_stop (manager.py:457) iterates every registered coordinator in
+    reverse-priority order and awaits coordinator.async_teardown(), so the HVAC teardown save runs on
+    a normal unload/reload. CONSUMER: hvac.py:1045-1050 loads the store and calls
+    restore_state_snapshot (hvac_zones.py:833+), which parses window_start back to a datetime
+    (hvac_zones.py:880-884) and restores runtime_seconds_this_window (hvac_zones.py:875), behind an
+    intentional >4h staleness skip (hvac_zones.py:846-856). NET: the reload case the card worried
+    about — including the ~5x/night storm, since a config-entry reload goes through async_stop ->
+    teardown -> save — is CLEAN, and the counter is not reset. RESIDUAL, stated honestly and NOT worth
+    a card: a HARD kill that bypasses teardown (power loss, SIGKILL, watchdog) can lose up to ~25 min
+    of accumulated runtime, because only the periodic save protects that path. MY OWN CORRECTION: I
+    first grepped for save_state_snapshot, found zero call sites, and nearly filed this as a
+    computed-but-never-consumed defect — the method is actually named get_state_snapshot and is called
+    twice. The premise was wrong, not the code.'
+  status: done
   thread: hvac
   created: '2026-09-17'
-  updated: '2026-09-17'
+  updated: '2026-09-18 02:35'
   tags: [hvac, restart-safety, tier-1, contingent]
   title: D5 window_start restore-across-reload unverified (hvac_zones.py:685-700) — reload may reset the runtime counter
   problem_solution:
@@ -875,7 +912,7 @@ cards:
     Given the ~5x/night reload storm this could matter. Solution: read hvac_zones.py:685-700 fully; if not
     restored, persist window_start or accept+document.'
   why: 'D5 audit finding 4, contingent — verify before scoping.'
-  next: 'Read the restore path; confirm whether window_start is persisted. Close if fine.'
+  next: 'CLOSED — premise refuted by a full producer/consumer trace. No work needed; see VERIFIED_2026_09_18.'
   parsimony: {problem: 'duty-cycle counter may not survive reload', verdict: BUILD, note: 'verify-first, likely tiny'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, URA-CONFIG-ENTRY-RELOAD-STORM-1], context: 'D5 audit'}
 - id: HVAC-D5-SLEEP-EXIT-RESET-1
