@@ -3031,7 +3031,7 @@ class HVACEgressPauseThresholdNumber(NumberEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_egress_threshold_min"
-        self._attr_name = "Exit Pause · Wait (min)"
+        self._attr_name = "Egress Pause Threshold"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -3140,7 +3140,7 @@ class HVACEgressResumeDelayNumber(NumberEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_egress_resume_delay_min"
-        self._attr_name = "Exit Pause · Resume Delay (min)"
+        self._attr_name = "Egress Resume Delay"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
