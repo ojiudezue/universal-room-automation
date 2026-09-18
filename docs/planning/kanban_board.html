@@ -212,14 +212,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-09-18T04:02:03-05:00</b></span>
-<span>data <b>5acaf6bcefdd</b></span>
+<span>generated <b>2026-09-18T04:08:43-05:00</b></span>
+<span>data <b>67977db7ca5a</b></span>
 <span>reconciled <b>2026-09-18</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">4<span class="den"> / 147</span></span>
+<span class="metric">4<span class="den"> / 148</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
 <details open><summary>recent autonomous work — 46 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
@@ -508,7 +508,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </ul></details>
 </section>
 <div class="summary">
-<span>Inbox <b>2</b></span>
+<span>Inbox <b>3</b></span>
 <span>Investigating <b>2</b></span>
 <span>Pre-planning <b>12</b></span>
 <span>Planned <b>13</b></span>
@@ -522,10 +522,11 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 <main class="board">
 <section class="lane" data-col="inbox">
-<h2>Inbox <span class="count">2</span><span class="hint">raw capture</span></h2>
+<h2>Inbox <span class="count">3</span><span class="hint">raw capture</span></h2>
 <div class="cards">
 <details class="card" data-id="HVAC-D5-KNOBS-TO-RUNG-3-1" draggable="true"><summary><span class="id">HVAC-D5-KNOBS-TO-RUNG-3-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠</span><span class="title">D5 duty-cycle window/caps are Rung-1 module constants for what is a Rung-3 operator policy; no kill switch</span><div class="tagline">hvac<span class="sep">·</span>hvac<span class="sep">·</span>numbers-get-knobs<span class="sep">·</span>tier-1</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-17</div><dt>Problem / Solution</dt><dd>Problem: DUTY_CYCLE_WINDOW_SECONDS/COAST/SHED (hvac_const.py:396-399) are module constants, but the coast/shed runtime caps are legitimately operator policy (comfort-vs-savings), and there is no kill switch to disable D5. Solution: expos...</dd><dt>Why</dt><dd>D5 audit finding 3. Pairs with the reframe cycle.</dd><dt>Next</dt><dd>Decide knob rung + add a D5 enable/kill switch; fold into HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 if built together.</dd><dt>Parsimony</dt><dd>[BUILD] policy numbers hardcoded, no kill switch</dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div></div></details>
 <details class="card" data-id="DEPLOY-SH-REJECT-FLAG-AS-VERSION-1" draggable="true"><summary><span class="id">DEPLOY-SH-REJECT-FLAG-AS-VERSION-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#2 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠</span><span class="title">deploy.sh should reject a flag as $1/VERSION (footgun shipped a &quot;v--cards&quot; release)</span><div class="tagline">tooling<span class="sep">·</span>tooling<span class="sep">·</span>deploy<span class="sep">·</span>hotfix<span class="sep">·</span>tier-1</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-18</div><dt>Problem / Solution</dt><dd>Problem: deploy.sh reads VERSION=$1 positionally (deploy.sh:17); passing --cards/--why/--revisit BEFORE the version makes VERSION=&quot;--cards&quot; -&gt; ships a release/tag/manifest literally &quot;v--cards&quot; and breaks the kanban/vibememo sub-scripts (...</dd><dt>Why</dt><dd>Cheap guard against a real, already-triggered deploy footgun; deploy.sh already guards --cards values but not the positional VERSION. See memory feedback_deploy_sh_version_is_positional_one.</dd><dt>Next</dt><dd>Add a VERSION sanity check in scripts/deploy.sh after the #v strip; Tier 1 (one review).</dd><dt>Parsimony</dt><dd>[BUILD] deploy footgun ships corrupt version metadata</dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div></div></details>
+<details class="card" data-id="HVAC-PRECOOL-SKIP-REASON-OBS-1" draggable="true"><summary><span class="id">HVAC-PRECOOL-SKIP-REASON-OBS-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#3 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠</span><span class="title">Path A pre-cool has no &quot;why it did NOT fire&quot; reason — surplus-only skips are invisible (also the measure-enabler for the grid-anticipatory gap)</span><div class="tagline">hvac<span class="sep">·</span>hvac<span class="sep">·</span>observability<span class="sep">·</span>precool<span class="sep">·</span>tier-1<span class="sep">·</span>measure-enabler</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-18</div><dt>Problem / Solution</dt><dd>Problem: Path A (_should_energy_precool, hvac_predict.py:686) exposes positive state (pre_cool_active, pre_cool_likelihood, energy_precool_zones/enabled/offset/scope on sensor.ura_hvac_coordinator_mode) but NO skip-reason. The only reaso...</dd><dt>Why</dt><dd>Sole-path observability gap surfaced by a post-delete quick check (operator). Doubly valuable: it is ALSO the measure-first enabler for EC-GRID-ANTICIPATORY-PRECOOL-GAP-1 - counting &quot;skipped: no surplus on a hot day&quot; rows is exactly that...</dd><dt>Next</dt><dd>Add a per-tick skip-reason set at each _should_energy_precool early-return; surface on the 10-Mode sensor. Then a one-shot recorder query can quantify hot-day surplus-only skips (feeds the gap card).</dd><dt>Parsimony</dt><dd>[BUILD] no why-not-firing signal on the sole pre-cool path</dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div></div></details>
 </div>
 </section>
 <section class="lane" data-col="investigating">
@@ -917,7 +918,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>5acaf6bcefdd</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>67977db7ca5a</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {

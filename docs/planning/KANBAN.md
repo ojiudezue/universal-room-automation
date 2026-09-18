@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T04:02:03-05:00_ - _Data commit: `5acaf6bcefdd`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T04:08:43-05:00_ - _Data commit: `67977db7ca5a`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 2 |
+| 📥 Inbox | 3 |
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 13 |
@@ -21,7 +21,7 @@ _Generated: 2026-09-18T04:02:03-05:00_ - _Data commit: `5acaf6bcefdd`_ - _last_r
 | 🅿️ Parked | 60 |
 | ✅ Done | 178 |
 
-## 📥 Inbox (2)
+## 📥 Inbox (3)
 _raw capture_
 
 ### `HVAC-D5-KNOBS-TO-RUNG-3-1` - D5 duty-cycle window/caps are Rung-1 module constants for what is a Rung-3 operator policy; no kill switch — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -43,6 +43,16 @@ _created 2026-09-18_
 - **Next:** Add a VERSION sanity check in scripts/deploy.sh after the #v strip; Tier 1 (one review).
 - **Tags:** tooling, deploy, hotfix, tier-1
 - **Parsimony:** [BUILD] deploy footgun ships corrupt version metadata
+
+### `HVAC-PRECOOL-SKIP-REASON-OBS-1` - Path A pre-cool has no "why it did NOT fire" reason — surplus-only skips are invisible (also the measure-enabler for the grid-anticipatory gap) — _#3 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **hvac** - status: **inbox**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem: Path A (_should_energy_precool, hvac_predict.py:686) exposes positive state (pre_cool_active, pre_cool_likelihood, energy_precool_zones/enabled/offset/scope on sensor.ura_hvac_coordinator_mode) but NO skip-reason. The only reaso...
+- **Why:** Sole-path observability gap surfaced by a post-delete quick check (operator). Doubly valuable: it is ALSO the measure-first enabler for EC-GRID-ANTICIPATORY-PRECOOL-GAP-1 - counting "skipped: no surplus on a hot day" rows is exactly that...
+- **Next:** Add a per-tick skip-reason set at each _should_energy_precool early-return; surface on the 10-Mode sensor. Then a one-shot recorder query can quantify hot-day surplus-only skips (feeds the gap card).
+- **Tags:** hvac, observability, precool, tier-1, measure-enabler
+- **Parsimony:** [BUILD] no why-not-firing signal on the sole pre-cool path
 
 ## 🔬 Investigating (2)
 _measuring; truth not yet known_

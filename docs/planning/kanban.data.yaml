@@ -699,6 +699,29 @@ cards:
     Comfort Grace Battery Floor/Duration; egress_pause_threshold/resume_delay -> Exit Pause Wait/Resume Delay.'
   parsimony: {problem: 'jargon labels truncate in UI', verdict: BUILD, note: 'cosmetic, reversible, low-risk'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'operator screenshot 2026-09-18'}
+- id: HVAC-PRECOOL-SKIP-REASON-OBS-1
+  status: inbox
+  thread: hvac
+  created: '2026-09-18'
+  updated: '2026-09-18'
+  tags: [hvac, observability, precool, tier-1, measure-enabler]
+  title: Path A pre-cool has no "why it did NOT fire" reason — surplus-only skips are invisible (also the measure-enabler for the grid-anticipatory gap)
+  problem_solution:
+  - 'Problem: Path A (_should_energy_precool, hvac_predict.py:686) exposes positive state (pre_cool_active,
+    pre_cool_likelihood, energy_precool_zones/enabled/offset/scope on sensor.ura_hvac_coordinator_mode) but
+    NO skip-reason. The only reason string ("energy_precool", :598) is on the ACTUATION. So when Path A does
+    NOT fire, nothing says which gate blocked it: no-PV-surplus (net not exporting) / soc-below-floor /
+    outside-[10,14) / not-hot / already-triggered-today / disabled. Now that Path B is deleted and Path A is
+    the SOLE, surplus-only path, a hot low-SOC morning that silently skips (the EC-GRID-ANTICIPATORY-PRECOOL-
+    GAP-1 case) is invisible. Solution: expose a pre_cool_skip_reason (or pre_cool_gate) attribute on the mode
+    sensor set at each early-return in _should_energy_precool (the gate that blocked, this tick/today).'
+  why: 'Sole-path observability gap surfaced by a post-delete quick check (operator). Doubly valuable: it is
+    ALSO the measure-first enabler for EC-GRID-ANTICIPATORY-PRECOOL-GAP-1 - counting "skipped: no surplus on a
+    hot day" rows is exactly that card revival trigger. Tier 1 (additive attribute, no behavior change).'
+  next: 'Add a per-tick skip-reason set at each _should_energy_precool early-return; surface on the 10-Mode
+    sensor. Then a one-shot recorder query can quantify hot-day surplus-only skips (feeds the gap card).'
+  parsimony: {problem: 'no why-not-firing signal on the sole pre-cool path', verdict: BUILD, note: 'additive obs, low risk, enables the gap measurement'}
+  links: {related: [EC-GRID-ANTICIPATORY-PRECOOL-GAP-1, EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1], context: 'post-Path-B-delete quick check 2026-09-18'}
 - id: EC-GRID-ANTICIPATORY-PRECOOL-GAP-1
   status: parked
   thread: energy
