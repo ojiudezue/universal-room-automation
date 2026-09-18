@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T01:55:34-05:00_ - _Data commit: `6e227aa36028`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T01:57:25-05:00_ - _Data commit: `41d83e696fb5`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -446,7 +446,8 @@ _created 2026-09-18_
 - **Next:** TRACE solar_class producer + the day it targets at energy.py:7419-7434 consumers; confirm pre_cool uses tomorrow-forecast and the mid_peak-poor-solar coast cannot fire on a nighttime solar value. Measure- first (read the code + a few liv...
 - **Tags:** energy, coast, precool, solar, measure-first, correctness
 - **Parsimony:** [BUILD] daytime solar forecast possibly consumed by night EC decisions
-- **Forensic keys (9):**
+- **Forensic keys (10):**
+  - `POST_DELETE_OBSERVABILITY_2026_09_18`: Confirmed energy.py:7432 is the SOLE emitter of EC mode pre_cool; Path A NEVER sets the EC mode (only reads constraint.mode, all normal-gated; sets its own _pre_cool_active). CONSEQUENCE of deleting Path B: sensor.ura_energy_coordinator_...
   - `IMPACT_ON_D5_CYCLE_2026_09_18`: Operator asked if this vestige affects the just-shipped v5.103.9 D5 reframe. ANSWER: NO material effect - disjoint. (1) Modes: D5 fires only coast/shed; Path B is pre_cool, which is BELOW coast in the EC priority chain (shed>coast>pre_co...
   - `DISPOSITION_2026_09_18`: Operator AGREED: delete Path B. Overlap analysis: Path A window = 10am-2pm (ENERGY_PRECOOL_HOUR_START=10, PEAK_HOUR_START=14, self-clears at 2pm). Path B fires EVENING (observed 21:00; midday=normal) because its soc<50 gate is only met A...
   - `SAFE_TO_DELETE_CONFIRMED_2026_09_18`: Pre-delete safety greps CLEAN. (a) fan/cover controllers do NOT branch on pre_cool mode. (b) the ONLY functional readers of a non-normal mode are two predictor gates - hvac_predict.py:719 (Path A suppression) + :335 (_update_pre_cool_lik...

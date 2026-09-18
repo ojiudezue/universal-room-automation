@@ -607,6 +607,15 @@ cards:
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  POST_DELETE_OBSERVABILITY_2026_09_18: 'Confirmed energy.py:7432 is the SOLE emitter of EC mode
+    pre_cool; Path A NEVER sets the EC mode (only reads constraint.mode, all normal-gated; sets its own
+    _pre_cool_active). CONSEQUENCE of deleting Path B: sensor.ura_energy_coordinator_hvac_constraint will
+    NEVER show pre_cool again (only normal/coast/shed/pre_heat) - intended. The REAL afternoon banking
+    survives: Path A actuates under mode==normal with its OWN offset (_get_energy_precool_offset, NOT the
+    deleted _constraint_precool_offset) and signals via pre_cool_active on the 10-Mode sensor. Post-fix, the
+    authoritative pre-cool signal is pre_cool_active (HVAC side / at the actuator), NOT the EC constraint
+    mode. Update any dashboard/doc that reads the EC pre_cool mode as a pre-cool indicator -> point it at
+    pre_cool_active. Include this in the delete cycle acceptance criteria.'
   IMPACT_ON_D5_CYCLE_2026_09_18: 'Operator asked if this vestige affects the just-shipped v5.103.9 D5
     reframe. ANSWER: NO material effect - disjoint. (1) Modes: D5 fires only coast/shed; Path B is pre_cool,
     which is BELOW coast in the EC priority chain (shed>coast>pre_cool>pre_heat>normal, energy.py:7405) so
