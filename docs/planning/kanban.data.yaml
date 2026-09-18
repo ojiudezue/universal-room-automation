@@ -389,7 +389,14 @@ cards:
   parsimony: {problem: 'debounce hold has no operator knob + observability entity hidden/incomplete', verdict: BUILD, note: 'Numbers-Get-Knobs gap + obs polish; additive'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1, HVAC-COAST-OBSERVABILITY-1], context: 'post-ship knob+obs audit for v5.103.7 (operator-requested)'}
 - id: HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1
-  status: investigating
+  FOLDED_INTO_v5_103_8_2026_09_17: 'BEING HANDLED in the same cycle as HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1
+    (one combined plan PLANNING_hvac_demand_knobs_and_observability.md, build @9be22f498, 2 reviews +
+    consolidated fix-up in flight). This cards deliverables = D5 retreat_reason attr on the zone preset
+    sensor + D6 chokepoint reason-capture/boot-hydration/HVAC_PRESET_REASONS vocab + D7 coast dwell on
+    the 10-Mode sensor. ABSORBS HVAC-COAST-OBSERVABILITY-1 (D7). Most of the review HIGHs land HERE
+    (B1 fabricated vocab, A-MED-4 stale-reason soft-nudge site, hollow D6 anchor) — under active fix-up.
+    Ships together as v5.103.8. status review to track it with its cycle, not orphaned in investigating.'
+  status: review
   thread: hvac
   created: '2026-09-17'
   updated: '2026-09-17'
@@ -418,7 +425,7 @@ cards:
   parsimony: {problem: 'preset-away causation is DB-only, not live-legible -> chronic misattribution', verdict: BUILD, note: 'investigation first; likely small additive sensors/attrs'}
   links: {related: [HVAC-COAST-OBSERVABILITY-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-ZONE1-MANUAL-OSCILLATION-1], context: 'operator-requested attribution-legibility investigation; coast-observability is a component'}
 - id: HVAC-COAST-OBSERVABILITY-1
-  status: planned
+  status: review
   thread: hvac
   created: '2026-09-17'
   updated: '2026-09-17'
@@ -442,7 +449,11 @@ cards:
     normal/pre_cool/pre_heat/coast/shed, with attrs (offset, since-timestamp). Additive, Tier 1. Consider
     also a coast/shed active-duration attribute so time-in-coast is queryable for the D5 reframe.'
   parsimony: {problem: 'coast/shed drives HVAC behavior but is invisible -> unattributable aways', verdict: BUILD, note: 'additive sensor, signal+property already exist; trivial'}
-  links: {related: [HVAC-SUPPLE-SEQUENCE-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'coast observability; feeds the D5 reframe + made the zone_3 away attributable'}
+  links: {related: [HVAC-SUPPLE-SEQUENCE-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'coast observability; feeds the D5 reframe + made the zone_3 away attributable'}  ABSORBED_2026_09_17: 'Absorbed as D7 of the v5.103.8 knobs+obs cycle — coast/shed dwell
+    (since/duration_s) added as attrs on the EXISTING sensor 10-Mode (energy_constraint_mode was
+    already exposed there; a new sensor was rejected as a duplicate in plan review P7). Ships with
+    v5.103.8; close this on that ship.'
+
 - id: HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1
   status: planned
   thread: hvac
