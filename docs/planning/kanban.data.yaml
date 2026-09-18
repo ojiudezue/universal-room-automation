@@ -556,6 +556,45 @@ cards:
   next: 'Decide knob rung + add a D5 enable/kill switch; fold into HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 if built together.'
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
+- id: HVAC-EQUIPMENT-HEALTH-OBSERVABILITY-1
+  status: pre_planning
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, safety-coordinator, anomaly, telemetry, carrier, measure-first, closed-loop, workstream]
+  title: HVAC equipment-health observability + closed-loop tuning from the Bryant ODU/IDU telemetry (ONE workstream, not a card flurry)
+  problem_solution:
+  - 'Problem: ha_carrier already publishes a rich per-thermostat refrigeration + air-handler telemetry
+    stream URA does not consume - ODU Status (off/Stage 1-5 + suction/discharge pressure&temp,
+    suction_superheat, outdoor_coil_temp, line_voltage, static_pressure, blower_rpm), IDU Status
+    (airflow_cfm, static_pressure, blower_rpm, 2-stage furnace), filter_remaining, and per-zone
+    cooling_energy_*. The Infinity board PROTECTS the compressor but never tells the owner it is
+    DEGRADING. Solution: consume this telemetry in the SafetyCoordinator SAFETY_METRICS + shared
+    anomaly engine (same home as short_cycle_rate) -> NM, and use the real duty signal to measure and
+    tune URA HVAC. Operator: "alert at a level impossible for most home owners."'
+  why: 'Surfaced 2026-09-17 out of the Bryant duty-cycle audit (the ODU Var/stage signal) + live reads
+    (sensor.thermostat_bryant_wifi_*_odu_status/idu_status/filter_remaining, sensor.office_b_odu_status=
+    Stage 5 with full refrigerant telemetry). New capability, additive, low-risk observation. Operator
+    explicitly wants ONE workstream, not a flurry.'
+  next: 'MEASURE-FIRST pass (read-only, gates everything): (1) theory-of-not-great-state = hard physical
+    limits for this equipment/refrigerant (superheat floodback floor, discharge ceiling, static-pressure
+    airflow limit ~>0.8in, line-voltage brownout <~210 / over >~264) + per-stage/per-outdoor-temp
+    SELF-BASELINE from recorder history (superheat@Stage5@82F distribution); (2) reset-vs-nudge: correlate
+    URA action log vs ODU STAGE moves - does a reset (force-away) slam compressor off then restart Stage 5
+    (short-cycle) while a nudge modulates 5->3 gracefully? -> empirical verdict on kill-resets + informs D5
+    reframe/S14; (3) closed-loop energy: ODU stage + cooling_energy_* + action log -> did vacancy/coast/
+    pre-cool actually save kWh, and tune knobs to measured energy. Output = docs/planning/AUDIT + not-great-
+    state doc; THEN scope the SC/anomaly wiring + dirty-filter detector (static_pressure UP + filter_remaining
+    DOWN, cross-corroborated).'
+  parsimony: {problem: 'rich HVAC health+duty telemetry unconsumed; open-loop energy claims', verdict: BUILD, note: 'high value, low risk, additive; measure-first before wiring'}
+  links: {related: [HVAC-D5-REGROUND-ON-ODU-VAR-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-HOT-ENTRY-LATENCY-1], context: 'Bryant duty-cycle audit 2026-09-17 + live ODU/IDU telemetry'}
+  SUB_IDEAS_2026_09_17: 'Checklist inside this one workstream (do NOT mint separate cards): (a) compressor/
+    refrigerant health anomaly (superheat/discharge/suction) -> SC+anomaly->NM; (b) airflow/dirty-filter
+    (static_pressure + filter_remaining cross-corroborated); (c) electrical (line_voltage brownout);
+    (d) reset-vs-nudge measurement -> maybe KILL resets; (e) closed-loop energy attribution + knob tuning;
+    (f) re-ground D5 duty on ODU Stage (folds HVAC-D5-REGROUND-ON-ODU-VAR-1). filter_remaining home = SC
+    SAFETY_METRICS (operator: "add to SC"), confirmed safety.py:904 already registers metrics + emits
+    anomalies + tracks degraded.'
 - id: HVAC-D5-REGROUND-ON-ODU-VAR-1
   status: parked
   thread: hvac

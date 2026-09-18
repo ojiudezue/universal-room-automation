@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T23:07:28-05:00_ - _Data commit: `203df805fa2e`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T23:17:39-05:00_ - _Data commit: `f92c5d5c2d87`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -11,7 +11,7 @@ _Generated: 2026-09-17T23:07:28-05:00_ - _Data commit: `203df805fa2e`_ - _last_r
 |---|---:|
 | 📥 Inbox | 3 |
 | 🔬 Investigating | 1 |
-| 🧭 Pre-planning | 11 |
+| 🧭 Pre-planning | 12 |
 | 📝 Planned | 13 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
@@ -72,7 +72,7 @@ _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
   - `pytest_restore_hook_2026_08_19`: CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates coordinator.py during a normal pytest run without guaranteed restore -> the batch run leaves an uncommitted mutation (a test that edits production source is a...
   - `BLOCKED_LINK_2026_09_16`: Recorded the dependency as a real blocked_by link instead of leaving it as prose in measured_2026_09_15. This parent asks for a re-arch scoped to ~87 order-dependent RUNTIME failures, and those failures are currently unmeasurable because...
 
-## 🧭 Pre-planning (11)
+## 🧭 Pre-planning (12)
 _idea being decomposed_
 
 ### `HVAC-PRESET-WRITE-STRATEGY-1` - How to write a preset successfully is vendor-specific, and that knowledge is hardcoded in a shared chokepoint every thermostat write passes through — _#1 · WSJF 2.8 · v5 tc3 u6 /e5 ⚠_
@@ -216,7 +216,19 @@ _created 2026-09-15 · initial_
 - **Forensic keys (1):**
   - `MEASURED_2026_09_15`: Proven by drill, not inferred. (1) A test that creates a never-finishing task via `asyncio.get_running_loop().create_task(asyncio.sleep(3600))` PASSES under the current fixture. (2) Instrumented the loop identity at each phase: fixture s...
 
-### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#10 · WSJF 1.8 · v8 tc4 u2 /e8_
+### `HVAC-EQUIPMENT-HEALTH-OBSERVABILITY-1` - HVAC equipment-health observability + closed-loop tuning from the Bryant ODU/IDU telemetry (ONE workstream, not a card flurry) — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **pre_planning**
+_created 2026-09-17_
+- **Problem / Solution:**
+  - Problem: ha_carrier already publishes a rich per-thermostat refrigeration + air-handler telemetry stream URA does not consume - ODU Status (off/Stage 1-5 + suction/discharge pressure&temp, suction_superheat, outdoor_coil_temp, line_volta...
+- **Why:** Surfaced 2026-09-17 out of the Bryant duty-cycle audit (the ODU Var/stage signal) + live reads (sensor.thermostat_bryant_wifi_*_odu_status/idu_status/filter_remaining, sensor.office_b_odu_status= Stage 5 with full refrigerant telemetry)....
+- **Next:** MEASURE-FIRST pass (read-only, gates everything): (1) theory-of-not-great-state = hard physical limits for this equipment/refrigerant (superheat floodback floor, discharge ceiling, static-pressure airflow limit ~>0.8in, line-voltage brow...
+- **Tags:** hvac, safety-coordinator, anomaly, telemetry, carrier, measure-first, closed-loop, workstream
+- **Parsimony:** [BUILD] rich HVAC health+duty telemetry unconsumed; open-loop energy claims
+- **Forensic keys (1):**
+  - `SUB_IDEAS_2026_09_17`: Checklist inside this one workstream (do NOT mint separate cards): (a) compressor/ refrigerant health anomaly (superheat/discharge/suction) -> SC+anomaly->NM; (b) airflow/dirty-filter (static_pressure + filter_remaining cross-corroborate...
+
+### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#11 · WSJF 1.8 · v8 tc4 u2 /e8_
 thread: **optimization** - status: **pre_planning**
 _created 2026-09-14 02:20 · initial_
 - **Problem / Solution:**
@@ -231,7 +243,7 @@ _created 2026-09-14 02:20 · initial_
   - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
   - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
 
-### `HVAC-THERMOSTAT-ABSTRACTION-1` - We unified the call sites but never built an abstraction — three write verbs, two funnels, and vendor knowledge loose inside a shared path — _#11 · WSJF 1.1 · v5 tc3 u6 /e13 ⚠_
+### `HVAC-THERMOSTAT-ABSTRACTION-1` - We unified the call sites but never built an abstraction — three write verbs, two funnels, and vendor knowledge loose inside a shared path — _#12 · WSJF 1.1 · v5 tc3 u6 /e13 ⚠_
 thread: **hvac** - status: **pre_planning** - approval: **explicit**
 _created 2026-09-16 · initial_
 - **Problem / Solution:**
