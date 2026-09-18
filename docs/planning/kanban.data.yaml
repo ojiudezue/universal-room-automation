@@ -485,7 +485,15 @@ cards:
     v5.103.8; close this on that ship.'
 
 - id: HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1
-  status: planned
+  PLAN_2026_09_18: 'Plan PLANNING_hvac_d5_reframe_occupancy_gate.md. INV-D5-GATE: under coast, no
+    occupied zone (any_room_hvac_occupied) is forced to away by D5; under shed, byte-identical pre-
+    cycle. Tier 2-DB (presence<->HVAC<->EC ripple; shared-primitive consumer swap; reason-ledger
+    allow-list change) -> 3 framing-disjoint reviews. OPERATOR CHECKPOINT (pre-build): (1) SHED x
+    OCCUPANCY precedence [genuine tradeoff, asked]; (2) runtime_exceeded back-compat window -> applying
+    standing Single-User-No-Back-Compat = remove immediately; (3) absorb HVAC-D5-KNOBS-TO-RUNG-3
+    (number duty window/coast_pct/shed_pct + enable switch, 0=kill) -> taking the recommendation YES.
+    NEXT: operator picks #1 -> plan-review (Tier-2-DB) -> build -> checkpoint held.'
+  status: waiting_operator
   thread: hvac
   created: '2026-09-17'
   updated: '2026-09-17'
