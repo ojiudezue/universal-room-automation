@@ -484,6 +484,24 @@ cards:
     already exposed there; a new sensor was rejected as a duplicate in plan review P7). Ships with
     v5.103.8; close this on that ship.'
 
+- id: DEPLOY-SH-REJECT-FLAG-AS-VERSION-1
+  status: inbox
+  thread: tooling
+  created: '2026-09-18'
+  updated: '2026-09-18'
+  tags: [tooling, deploy, hotfix, tier-1]
+  title: deploy.sh should reject a flag as $1/VERSION (footgun shipped a "v--cards" release)
+  problem_solution:
+  - 'Problem: deploy.sh reads VERSION=$1 positionally (deploy.sh:17); passing --cards/--why/--revisit
+    BEFORE the version makes VERSION="--cards" -> ships a release/tag/manifest literally "v--cards" and
+    breaks the kanban/vibememo sub-scripts (hit 2026-09-18 on v5.103.9, recovered). Solution: after
+    stripping the leading v, reject VERSION if it starts with "--" (or does not match a semver-ish
+    pattern) with a clear usage error, same style as the existing --cards leading-flag guard.'
+  why: 'Cheap guard against a real, already-triggered deploy footgun; deploy.sh already guards --cards
+    values but not the positional VERSION. See memory feedback_deploy_sh_version_is_positional_one.'
+  next: 'Add a VERSION sanity check in scripts/deploy.sh after the #v strip; Tier 1 (one review).'
+  parsimony: {problem: 'deploy footgun ships corrupt version metadata', verdict: BUILD, note: 'tiny guard; already bit us'}
+  links: {related: [], context: 'v5.103.9 deploy botch 2026-09-18'}
 - id: HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1
   REVIEW_C_AND_FIXUP_2026_09_17: 'Reviewer C (test-authority+adversarial) FIX-REQUIRED: independently
     re-ran mutation drills -> 8/9 load-bearing sites UNTESTED (all 9 tests are source-greps = hollow anchors

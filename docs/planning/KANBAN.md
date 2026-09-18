@@ -2,26 +2,26 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T23:19:01-05:00_ - _Data commit: `c932b63a7b2e`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-18T00:16:42-05:00_ - _Data commit: `9cfd141a915d`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 3 |
+| 📥 Inbox | 4 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 13 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 1 |
+| 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 27 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🚀 Shipped (organic open) | 32 |
+| 🚀 Shipped (organic open) | 33 |
 | 🅿️ Parked | 59 |
 | ✅ Done | 173 |
 
-## 📥 Inbox (3)
+## 📥 Inbox (4)
 _raw capture_
 
 ### `HVAC-D5-KNOBS-TO-RUNG-3-1` - D5 duty-cycle window/caps are Rung-1 module constants for what is a Rung-3 operator policy; no kill switch — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -53,6 +53,16 @@ _created 2026-09-17_
 - **Next:** Measure (recorder): does runtime_exceeded fire shortly after waking transitions? If yes, reset counter on sleep. Else close.
 - **Tags:** hvac, tier-1, contingent, measure-first
 - **Parsimony:** [BUILD] overnight accumulation instant-trips on wake
+
+### `DEPLOY-SH-REJECT-FLAG-AS-VERSION-1` - deploy.sh should reject a flag as $1/VERSION (footgun shipped a "v--cards" release) — _#4 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **tooling** - status: **inbox**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem: deploy.sh reads VERSION=$1 positionally (deploy.sh:17); passing --cards/--why/--revisit BEFORE the version makes VERSION="--cards" -> ships a release/tag/manifest literally "v--cards" and breaks the kanban/vibememo sub-scripts (...
+- **Why:** Cheap guard against a real, already-triggered deploy footgun; deploy.sh already guards --cards values but not the positional VERSION. See memory feedback_deploy_sh_version_is_positional_one.
+- **Next:** Add a VERSION sanity check in scripts/deploy.sh after the #v strip; Tier 1 (one review).
+- **Tags:** tooling, deploy, hotfix, tier-1
+- **Parsimony:** [BUILD] deploy footgun ships corrupt version metadata
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_
@@ -459,23 +469,10 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (1)
+## 🔍 Review (0)
 _under review_
 
-### `HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1` - D5 duty-cycle is occupancy-blind (forces OCCUPIED zones away during coast/shed) + its runtime_exceeded name falsely implies Bryant compressor protection — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **review**
-_created 2026-09-17_
-- **Problem / Solution:**
-  - Problem: D5 duty-cycle enforcement forces a zone to away when cooling runtime exceeds 75%(coast)/50%(shed) of a 20min window — REGARDLESS of occupancy. On a hot evening in EC coast (peak TOU) an occupied zone (e.g. kitchen) gets forced a...
-- **Why:** Audit AUDIT_hvac_duty_cycle_protection_2026_09_17. The one live complaint step-4-B leaves unfixed. Tier 2; depends on step-4-B for the fused signal.
-- **Next:** After step-4-B ships: gate D5 enforcement on fused occupancy (defer under coast when occupied, shed dominates), reframe the reason string + README. Verify no regression to the coast energy savings.
-- **Tags:** hvac, tier-2, occupancy-blind, depends-step4b
-- **Parsimony:** [BUILD] occupancy-blind duty-cycle forces occupied zones away in coast
-- **Forensic keys (4):**
-  - `BUILD_LANDED_2026_09_17`: feature/hvac-d5-reframe @ f2ce50293. D-b1 operator-facing rename -> energy_shed_cap_reached (internal zone.runtime_exceeded field KEPT, ~30 refs + persistence path; no operator surface leaks it); D-b2 NO-WRITE defer ledger-only episode-g...
-  - `BRYANT_AUDIT_2026_09_17`: VERDICT = PARTIALLY REDUNDANT: Infinity/Evolution control board + delay-on- break already protect the compressor natively; D5 force-away does NOT lengthen compressor off-time = pure energy-shed policy wearing a protection name (zero-Brya...
-  - `CHECKPOINT_DEFAULTS_2026_09_18`: Operator: dont hold it + finish this tail (superseding the earlier dismiss). Proceeding on RECOMMENDED defaults: (1) SHED>OCCUPANCY>COAST-DUTY (shed still forces occupied away; occupancy defers ONLY under coast — matches D3 shed-dominate...
-  - `PLAN_2026_09_18`: Plan PLANNING_hvac_d5_reframe_occupancy_gate.md. INV-D5-GATE: under coast, no occupied zone (any_room_hvac_occupied) is forced to away by D5; under shed, byte-identical pre- cycle. Tier 2-DB (presence<->HVAC<->EC ripple; shared-primitive...
+_(none)_
 
 ## ⏸️ Waiting on operator (27)
 _needs a human call — groomed first_
@@ -908,7 +905,7 @@ _I owe something_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (32)
+## 🚀 Shipped (organic open) (33)
 _live, awaiting proof_
 
 ### `BLE-HOLD-CAP-SUITE-POLLUTION-1` - test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution (passes alone/in pairs) — _#1 · WSJF 7.5 · v5 tc8 u2 /e2 ⚠_
@@ -1404,7 +1401,24 @@ _created 2026-09-17_
   - `VALIDATED_5108_2026_09_18`: v5.103.8 live-validated: loaded clean, zero ERROR. retreat_reason live on zone preset sensor (house_state_transition + retreat_reason_at). Coast dwell attrs (energy_constraint_mode/since/duration_s) live on 10-Mode. All 43 hvac_occupied ...
   - `FOLDED_INTO_v5_103_8_2026_09_17`: BEING HANDLED in the same cycle as HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 (one combined plan PLANNING_hvac_demand_knobs_and_observability.md, build @9be22f498, 2 reviews + consolidated fix-up in flight). This cards deliverables = D5 retreat_re...
 
-### `HVAC-ZONE-CONDITIONING-DEMAND-1` - HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC its own dwell-vs-transit derivation instead of tuning a knob that cannot win — _#28 · WSJF 1.8 · v5 tc3 u6 /e8 ⚠_
+### `HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1` - D5 duty-cycle is occupancy-blind (forces OCCUPIED zones away during coast/shed) + its runtime_exceeded name falsely implies Bryant compressor protection — _#28 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **shipped_organic**
+_created 2026-09-17_
+- **Problem / Solution:**
+  - Problem: D5 duty-cycle enforcement forces a zone to away when cooling runtime exceeds 75%(coast)/50%(shed) of a 20min window — REGARDLESS of occupancy. On a hot evening in EC coast (peak TOU) an occupied zone (e.g. kitchen) gets forced a...
+- **Why:** Audit AUDIT_hvac_duty_cycle_protection_2026_09_17. The one live complaint step-4-B leaves unfixed. Tier 2; depends on step-4-B for the fused signal.
+- **Next:** After step-4-B ships: gate D5 enforcement on fused occupancy (defer under coast when occupied, shed dominates), reframe the reason string + README. Verify no regression to the coast energy savings.
+- **Tags:** hvac, tier-2, occupancy-blind, depends-step4b
+- **Parsimony:** [BUILD] occupancy-blind duty-cycle forces occupied zones away in coast
+- **Forensic keys (6):**
+  - `REVIEW_C_AND_FIXUP_2026_09_17`: Reviewer C (test-authority+adversarial) FIX-REQUIRED: independently re-ran mutation drills -> 8/9 load-bearing sites UNTESTED (all 9 tests are source-greps = hollow anchors #62; the build mutation table was itself hollow). NEW C-M3: live...
+  - `REVIEW_AB_2026_09_17`: Reviews A+B CONVERGED FIX-REQUIRED (C test-authority still running). Theme: rename+defer-flag swept hvac.py but not consumers. Must-fix: (1)CRIT sensor.py:13683 still filters zone_presence_state==runtime_limited -> zones_runtime_limited ...
+  - `BUILD_LANDED_2026_09_17`: feature/hvac-d5-reframe @ f2ce50293. D-b1 operator-facing rename -> energy_shed_cap_reached (internal zone.runtime_exceeded field KEPT, ~30 refs + persistence path; no operator surface leaks it); D-b2 NO-WRITE defer ledger-only episode-g...
+  - `BRYANT_AUDIT_2026_09_17`: VERDICT = PARTIALLY REDUNDANT: Infinity/Evolution control board + delay-on- break already protect the compressor natively; D5 force-away does NOT lengthen compressor off-time = pure energy-shed policy wearing a protection name (zero-Brya...
+  - `CHECKPOINT_DEFAULTS_2026_09_18`: Operator: dont hold it + finish this tail (superseding the earlier dismiss). Proceeding on RECOMMENDED defaults: (1) SHED>OCCUPANCY>COAST-DUTY (shed still forces occupied away; occupancy defers ONLY under coast — matches D3 shed-dominate...
+  - `PLAN_2026_09_18`: Plan PLANNING_hvac_d5_reframe_occupancy_gate.md. INV-D5-GATE: under coast, no occupied zone (any_room_hvac_occupied) is forced to away by D5; under shed, byte-identical pre- cycle. Tier 2-DB (presence<->HVAC<->EC ripple; shared-primitive...
+
+### `HVAC-ZONE-CONDITIONING-DEMAND-1` - HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC its own dwell-vs-transit derivation instead of tuning a knob that cannot win — _#29 · WSJF 1.8 · v5 tc3 u6 /e8 ⚠_
 thread: **hvac** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-15 · initial_
 - **Problem / Solution:**
@@ -1471,7 +1485,7 @@ _created 2026-09-15 · initial_
   - `DESIGN_2026_09_15`: Five parts, ordered by blast radius. (1) HVAC-OWNED DERIVATION — add a zone-level "conditioning demand" signal; HVAC consumes it INSTEAD of any_room_occupied. Room automation keeps reading the existing signal untouched, so lights carry n...
   - `DUMMY_PERSON_REJECTED_2026_09_15`: OPERATOR ASKED: "Zone 3 has no zone persons because its a guest wing. Should we stub a dummy?" RECOMMENDATION: NO. The three gates (night-trust away-suppression hvac.py:1788-1795, sleep veto aggregation.py:4017-4019, non-sleep person-hom...
 
-### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window — _#29 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window — _#30 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **implied**
 _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
 - **Problem / Solution:**
@@ -1492,7 +1506,7 @@ _created 2026-09-08 00:10 · updated 2026-09-12 11:00 · refined ×2_
   - `root_cause_confirmed_2026_09_10`: ROOT CONFIRMED (evidence-complete). Night 09-09->10 the gate held correctly 21:00->23:01 CDT (onset_active on; ONSET_MAX_HOLD_H=8.0 -> hold window 17:00-01:00) then RELEASED at 23:01 CDT (04:01:43 UTC), reason=onset_permits, remaining_to...
   - `fix_direction_2026_09_10`: FIX (two surfaces, this card owns #1): (1) ONSET GATE reload-resilience -- _evaluate_onset_gate must NOT release a currently-held charger on a transient enabled=False. Options: gate should distinguish "feature genuinely off" from "enable...
 
-### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#30 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `S14-CEILING-NEEDS-AN-ENDING-1` - S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose option (a) 2026-08-21), preferably by making it a borrow kind — _#31 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **shipped_organic** - approval: **operator_decided**
 _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
 - **Next:** Scope S14 as a borrow kind: bounded-timer ending, one-shot-per-off-phase (discriminating acceptance), Number duration knob, restart behaviour; INVERT test_ceiling_held_until_next_preset_transition. Gate cleared 2026-08-25.
@@ -1513,7 +1527,7 @@ _created 2026-08-21 10:20 · updated 2026-09-12 11:00 · initial_
   - `RECOMMENDATION_MAKE_IT_A_BORROW_NOT_A_BESPOKE_ENDING`: STRONG RECOMMENDATION — do NOT build a bespoke S14 ending. Bounded hold + snapshot + preset restore + relinquish-on-divergence + restart audit IS the governed-excursion ("borrow") primitive under HVAC-GOVERNED-EXCURSION-1. S14 was EXCLUD...
   - `unblocked_2026_08_25`: GATE CLEARED: HVAC-GOVERNED-EXCURSION-1 is validated+done (live DB). S14 is now scopeable as a borrow kind (bounded timer + one-shot-per-off-phase, Number-entity duration knob, declared restart behaviour) per the operator's 2026-08-21 de...
 
-### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#31 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#32 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **config-flow** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-12 16:30 · updated 2026-09-12 16:05 · refined_
 - **Problem / Solution:**
@@ -1543,7 +1557,7 @@ _created 2026-09-12 16:30 · updated 2026-09-12 16:05 · refined_
   - `recommended_combo_2026_09_12`: Presented the most-assistive LINEAR combo for operator approval (the bold end of each proposal, resolving the conservative/aggressive variants): area-first + auto-detect-and-confirm (P2 bold) + continuous house->room ribbon (P5) + essent...
   - `planning_2026_09_12`: AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + sep...
 
-### `APPLIANCE-MGMT-REFINE-1` - Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities — _#32 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `APPLIANCE-MGMT-REFINE-1` - Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities — _#33 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-12 16:30 · initial_
 - **Problem / Solution:**
