@@ -607,6 +607,17 @@ cards:
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  FIX_2026_09_18: 'Vibememo has NO entry retaining the EC pre_cool branch through the v5.7.1 rewrite ->
+    forgotten, not deliberately kept (supersession-cleanup miss confirmed by absence). Consumer grep:
+    mode==pre_cool is SET only at energy.py:7432 (producer); NOTHING consumes it positively (offset applied
+    only under coast/shed hvac.py:1922; Path A decides independently). Its ONLY live effect is HARM: Path A
+    gate constraint.mode!=normal (hvac_predict.py:719) means Path B suppresses the real banking. FIX =
+    DELETE the superseded phase-blind Path B branch (energy.py:7427-7434); EC then stays normal in those
+    windows -> misleading 9pm label gone AND Path A becomes eligible. Low-risk (no positive consumer).
+    Pre-delete checks: (a) grep fan/cover controllers for mode==pre_cool branching (they receive the
+    constraint); (b) confirm no other reader. Urgency (not correctness) hinges on whether suppression bites:
+    Path B needs soc<50, Path A needs PV export (usually fuller battery) - in tension, so may rarely fire;
+    quick empirical check. Tier 1-2 supersession cleanup, NOT a strategy rebuild. Ready to build on operator go.'
   CODE_HISTORY_2026_09_18: 'git blame = the real story. (1) BORN phase-blind: EC pre_cool branch
     (energy.py:7427 off_peak+soc<50+solar) is v3.7.0/v3.9.0 (007d0a2b9 2026-03-06, 00827c5d67 2026-03-07)
     - never phase-aware, not a regression. (2) PHASE FIX SKIPPED IT: b53e6e97 (2026-06-08) added

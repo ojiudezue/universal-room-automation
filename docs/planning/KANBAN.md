@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T01:49:45-05:00_ - _Data commit: `f04440a335ae`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T01:51:10-05:00_ - _Data commit: `20c58ea51590`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -446,7 +446,8 @@ _created 2026-09-18_
 - **Next:** TRACE solar_class producer + the day it targets at energy.py:7419-7434 consumers; confirm pre_cool uses tomorrow-forecast and the mid_peak-poor-solar coast cannot fire on a nighttime solar value. Measure- first (read the code + a few liv...
 - **Tags:** energy, coast, precool, solar, measure-first, correctness
 - **Parsimony:** [BUILD] daytime solar forecast possibly consumed by night EC decisions
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `FIX_2026_09_18`: Vibememo has NO entry retaining the EC pre_cool branch through the v5.7.1 rewrite -> forgotten, not deliberately kept (supersession-cleanup miss confirmed by absence). Consumer grep: mode==pre_cool is SET only at energy.py:7432 (producer...
   - `CODE_HISTORY_2026_09_18`: git blame = the real story. (1) BORN phase-blind: EC pre_cool branch (energy.py:7427 off_peak+soc<50+solar) is v3.7.0/v3.9.0 (007d0a2b9 2026-03-06, 00827c5d67 2026-03-07) - never phase-aware, not a regression. (2) PHASE FIX SKIPPED IT: b...
   - `ROOTCAUSE_2026_09_18`: Operator diagnosis CONFIRMED: off-peak occurs TWICE/day (morning BEFORE peak = the intended banking window; night AFTER peak = the 9pm bug), and mid_peak-before != mid_peak-after. URA HAS the peak-PHASE machinery: summer_peak_ahead / sum...
   - `TRACE_2026_09_18`: Ran down the second pre-cool path (operator ask). THERE ARE TWO, and they are different. PATH A (the REAL actuator) = hvac_predict.py:_should_energy_precool:686 (v5.7.1, comment "replaces the v3.17.0 weather-pre-cool + solar-banking bran...
