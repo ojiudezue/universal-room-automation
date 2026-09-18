@@ -703,7 +703,10 @@ cards:
   parsimony: {problem: 'jargon labels truncate in UI', verdict: BUILD, note: 'cosmetic, reversible, low-risk'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'operator screenshot 2026-09-18'}
 - id: HVAC-PRECOOL-SKIP-REASON-OBS-1
-  status: shipped_organic
+  DONE_2026_09_18: 'Shipped v5.103.12, live-validated: pre_cool_skip_reason live on the 10-Mode
+    sensor (boot->no_constraint, updating; mutation-verified outside_window->test RED; no behavior change;
+    zero ERROR). Immediately surfaced a real boot condition -> spawned HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1.'
+  status: done
   shipped_version: v5.103.12
   thread: hvac
   created: '2026-09-18'

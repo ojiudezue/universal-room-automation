@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T09:04:39-05:00_ - _Data commit: `d795bad122c0`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T10:08:24-05:00_ - _Data commit: `c85418e053c0`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -13,13 +13,13 @@ _Generated: 2026-09-18T09:04:39-05:00_ - _Data commit: `d795bad122c0`_ - _last_r
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 13 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 0 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 25 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 33 |
 | 🅿️ Parked | 60 |
-| ✅ Done | 179 |
+| ✅ Done | 180 |
 
 ## 📥 Inbox (2)
 _raw capture_
@@ -472,18 +472,10 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `HVAC-PRECOOL-SKIP-REASON-OBS-1` - Path A pre-cool has no "why it did NOT fire" reason — surplus-only skips are invisible (also the measure-enabler for the grid-anticipatory gap) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
-thread: **hvac** - status: **in_progress**
-_created 2026-09-18_
-- **Problem / Solution:**
-  - Problem: Path A (_should_energy_precool, hvac_predict.py:686) exposes positive state (pre_cool_active, pre_cool_likelihood, energy_precool_zones/enabled/offset/scope on sensor.ura_hvac_coordinator_mode) but NO skip-reason. The only reaso...
-- **Why:** Sole-path observability gap surfaced by a post-delete quick check (operator). Doubly valuable: it is ALSO the measure-first enabler for EC-GRID-ANTICIPATORY-PRECOOL-GAP-1 - counting "skipped: no surplus on a hot day" rows is exactly that...
-- **Next:** Add a per-tick skip-reason set at each _should_energy_precool early-return; surface on the 10-Mode sensor. Then a one-shot recorder query can quantify hot-day surplus-only skips (feeds the gap card).
-- **Tags:** hvac, observability, precool, tier-1, measure-enabler
-- **Parsimony:** [BUILD] no why-not-firing signal on the sole pre-cool path
+_(none)_
 
 ## 🔍 Review (0)
 _under review_
@@ -2397,7 +2389,7 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (179)
+## ✅ Done (180)
 _closed, evidence in refs_
 
 ### `HVAC-D5-SLEEP-EXIT-RESET-1` - D5 counter accumulates overnight during sleep-skip and can instant-trip on wake into coast/shed — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -2450,6 +2442,18 @@ _created 2026-09-18_
 - **Forensic keys (2):**
   - `DONE_2026_09_18`: v5.103.10 shipped + live-validated: 6 new display names live (AC Runtime Cap x4, Comfort Grace x2), values intact (75/50/20/on/85/20), entity_ids stable, egress two untouched, zero URA ERROR. Cosmetic rename validated at restart - no soa...
   - `SCOPE_CORRECTION_2026_09_18`: Operator: DROP the 2 egress renames - egress_pause_threshold + egress_resume_delay are about OPENING EGRESS WINDOWS (venting), NOT occupant exit; my "Exit Pause" wording mislabeled the semantic. Keep them as "Egress Pause Threshold" / "E...
+
+### `HVAC-PRECOOL-SKIP-REASON-OBS-1` - Path A pre-cool has no "why it did NOT fire" reason — surplus-only skips are invisible (also the measure-enabler for the grid-anticipatory gap) — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **hvac** - status: **done**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem: Path A (_should_energy_precool, hvac_predict.py:686) exposes positive state (pre_cool_active, pre_cool_likelihood, energy_precool_zones/enabled/offset/scope on sensor.ura_hvac_coordinator_mode) but NO skip-reason. The only reaso...
+- **Why:** Sole-path observability gap surfaced by a post-delete quick check (operator). Doubly valuable: it is ALSO the measure-first enabler for EC-GRID-ANTICIPATORY-PRECOOL-GAP-1 - counting "skipped: no surplus on a hot day" rows is exactly that...
+- **Next:** Add a per-tick skip-reason set at each _should_energy_precool early-return; surface on the 10-Mode sensor. Then a one-shot recorder query can quantify hot-day surplus-only skips (feeds the gap card).
+- **Tags:** hvac, observability, precool, tier-1, measure-enabler
+- **Parsimony:** [BUILD] no why-not-firing signal on the sole pre-cool path
+- **Forensic keys (1):**
+  - `DONE_2026_09_18`: Shipped v5.103.12, live-validated: pre_cool_skip_reason live on the 10-Mode sensor (boot->no_constraint, updating; mutation-verified outside_window->test RED; no behavior change; zero ERROR). Immediately surfaced a real boot condition ->...
 
 ### `EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1` - pre_cool fires at LOW SOC on off-peak grid (not excess solar) gated on a forecast — verify EC pre_cool/coast solar_class semantics & intent — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **done**
