@@ -607,6 +607,11 @@ cards:
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: HVAC-KNOB-LABEL-PASS-1
+  SCOPE_CORRECTION_2026_09_18: 'Operator: DROP the 2 egress renames - egress_pause_threshold +
+    egress_resume_delay are about OPENING EGRESS WINDOWS (venting), NOT occupant exit; my "Exit Pause"
+    wording mislabeled the semantic. Keep them as "Egress Pause Threshold" / "Egress Resume Delay"
+    unchanged. Pass is now SIX renames only: D5 four (AC Runtime Cap ...) + comfort_delay soc_floor/grace
+    (Comfort Grace Battery Floor / Duration). Builder messaged mid-run to revert the egress two.'
   status: in_progress
   thread: hvac
   created: '2026-09-18'
@@ -3315,11 +3320,25 @@ cards:
   - docs/planning/PLANNING_evse_charge_onset_time_v2_ensure_on.md
   sibling_of: URA-CONFIG-ENTRY-RELOAD-STORM-1
 - id: OVERNIGHT-PASS-NO-LOG-REACH-1
+  RESOLVED_2026_09_18: 'RESOLVED AUTONOMOUSLY — no operator action is needed, and BOTH of this
+    cards diagnoses are superseded. (1) The 2026-09-17 LAN-reachability diagnosis is MOOT: verified
+    from the Mac mini this pass that 192.168.13.13:8123 and 192.168.13.12:22 both ACCEPT new TCP
+    connections (nc succeeded on each) and ssh ha returns a live listing of the URA DB, so the no
+    route to host condition has cleared on its own. (2) The ORIGINAL token diagnosis was real but
+    its proposed fix was unnecessary: ha core logs over ssh does still return 401 Unauthorized
+    (re-verified this pass), but a WORKING read-only log route already existed and was never tried
+    — the long-lived HA access token already sitting in ~/Code/homelab-automation/.env as HA_TOKEN
+    authenticates against the HA REST API, whose supervisor-proxy endpoints return full logs: GET
+    http://192.168.13.13:8123/api/hassio/core/logs returns HTTP 200 with the HA core log, and
+    /api/hassio/supervisor/logs and /api/hassio/host/logs work the same way. Confirmed live by
+    pulling 20000 lines covering 2026-09-17 23:53 through 2026-09-18 02:01. NOTE: /api/error_log is
+    404 on this HA version — use the hassio proxy paths. This was a prior-art miss on my side: three
+    routes were tried across two nights and the fourth — a token we already own — was not.'
   title: The overnight pass cannot read HA logs, so every log-based investigation silently stalls
   thread: platform
-  status: waiting_operator
+  status: done
   created: '2026-09-15 03:45'
-  updated: '2026-09-17 02:15'
+  updated: '2026-09-18 02:15'
   refinement_status: initial
   approval: unreviewed
   tags: [tier-1, no-fabrication-verify]
@@ -3347,15 +3366,7 @@ cards:
   constraints:
   - 'READ-ONLY is sufficient — the pass never needs to write via the supervisor API, so scope any
     token to the narrowest read that makes `ha core logs` work.'
-  next: 'DO (operator, network — the ask changed tonight, see DIAGNOSED_2026_09_17): restore LAN
-    reach from the Mac mini (192.168.13.149) to the homelab hosts 192.168.13.12 and 192.168.13.13.
-    This is no longer a token request — no new TCP connection to either host succeeds on ANY port,
-    while the gateway is fine and HA itself is demonstrably alive and writing, so it is a
-    segmentation/firewall question on the UDM rather than anything on HA. Worth checking first
-    whether this Mac being dual-homed on the same /24 (en0 .149 + en1 .101) is the trigger, since
-    that arrived recently and is the one asymmetry I can see. -> The moment new flows work I re-run
-    the armed reload-storm log probe on URA-CONFIG-ENTRY-RELOAD-STORM-1 and unstall every log-based
-    card. Nothing is needed from you for DB-based investigations — those already run fine.'
+  next: 'CLOSED — no operator action needed. The log route works; see RESOLVED_2026_09_18.'
   links:
     blocks: [URA-CONFIG-ENTRY-RELOAD-STORM-1]
     context: 'URA-CONFIG-ENTRY-RELOAD-STORM-1 has debug logging ARMED on the live instance and its
@@ -3411,6 +3422,24 @@ cards:
     quoted as blocked in future sessions.'
 
 - id: URA-CONFIG-ENTRY-RELOAD-STORM-1
+  MEASURED_2026_09_18: 'THREE findings, and the card is now UNBLOCKED — its blocker
+    OVERNIGHT-PASS-NO-LOG-REACH-1 is closed because a working log route exists via the HA REST API
+    supervisor proxy using the HA_TOKEN in homelab-automation/.env. (1) DEBUG WAS STILL DISARMED,
+    exactly as this cards own REMEASURED_2026_09_17 note predicted: ZERO DEBUG lines across 20000
+    lines of core log covering 2026-09-17 23:53 to 2026-09-18 02:01 — so the storm has been firing
+    unrecorded all week. I RE-ARMED it this pass via the logger.set_level service
+    (homeassistant.config_entries=debug, HTTP 200, runtime-only, no restart required). (2) ZERO
+    config-entry reloads occurred inside that 2h window. The only lifecycle event was ONE full
+    restart at 2026-09-18 00:42:43, and the log names its initiator outright — a pending service
+    homeassistant.restart task — i.e. a DELIBERATE restart service call, not a crash and not a
+    self-issued reload. The 0-byte /config/home-assistant.log.fault stamped 00:43 is a benign
+    artifact of that clean shutdown, not evidence of a fault. (3) RESTARTS ARE NOT THE STORM,
+    confirmed against an authoritative source: recorder_runs carries one row per HA start, and the
+    last 10 days read 09-10=1, 09-12=1, 09-13=3, 09-14=7, 09-15=2, 09-16=7, 09-17=3 (20:17, 20:33,
+    22:17) and 09-18=1 (00:43). Those cluster in evening deploy hours, and 09-17 had ZERO restarts
+    between 00:00 and 20:00 — so full restarts cannot explain a ~5x/night overnight pattern. The
+    storm is therefore config-entry reloads WITHOUT an HA restart, which is precisely why only the
+    armed DEBUG can name its producer.'
   REMEASURED_2026_09_17: 'Recorder-authoritative re-measure (ura_setup_duration started_at +
     coordinator_manager running->not_initialized transitions; significant_changes_only=false). Last
     48h = 8 setups: overnight storm 09-15->16 = 3 (22:56/00:02/01:15), 09-16->17 = 0; daytime setups
@@ -3456,8 +3485,8 @@ cards:
     118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload
     watchdog risk)
   thread: energy
-  status: waiting_operator
-  updated: '2026-09-12 19:20'
+  status: investigating
+  updated: '2026-09-18 02:15'
   verify_2026_09_12: 'APPROVED -> verify-before-work: PREMISE NO LONGER ACUTE. MEASURED (10d recorder, CM-hosted entity unavailable-transitions = parent reloads): ~5x/night on 09-08(6)/09-09(5) COLLAPSED to 1 reload/59h after 09-10 00:06 CDT (coincides with the v5.99.0 + v5.100.8/9 deploys). Reloads are afternoon/evening, NEVER deep-overnight (contradicts the overnight framing). Root cause still UNNAMED — and the armed capture is SELF-DEFEATING: URA-package DEBUG floods journald so the homeassistant.config_entries initiator line is unreadable. NEXT -> operator: do NOT ship a blind suppression/onset fix (you already held it; storm abated; blind fix = negative cost-benefit on a shared primitive). RE-INSTRUMENT instead: (a) set URA logger back to INFO while keeping config_entries=debug (de-flood), AND/OR (b) add a guarded WARNING+traceback breadcrumb at async_unload_entry top for the CM entry (trip-wire-in-code, No-Soak) so the next reload names its initiator. PICK: build the breadcrumb trip-wire, or downgrade to a low-priority watch + card the unnamed-trigger residual.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
@@ -3543,10 +3572,11 @@ cards:
   constraints:
   - Do NOT blanket-suppress reloads that are legitimately needed (the reload-suppression allowlist exists
     for exactly this balance — see PLANNING_integration_reload_comprehensive_2026_09.md).
-  next: 'Investigate the reload TRIGGER: ha_get_logs core around one blip (e.g. 04:01 UTC) for "reload"/"Unloading"/"Setting
-    up universal_room_automation"; grep the codebase for self-issued homeassistant.reload_config_entry
-    / async_reload / async_update_entry-on-options (number-persistence writes that cascade a reload are
-    a prime suspect). Then eliminate the unnecessary reloads at source.'
+  next: 'READ the armed debug on the next pass — no operator input needed any more. The log route
+    now works (see MEASURED_2026_09_18) and homeassistant.config_entries was armed at DEBUG at
+    2026-09-18 02:10, so pull /api/hassio/core/logs and grep DEBUG for the reload initiator. CAVEAT:
+    the arming is runtime-only and ANY HA restart silently disarms it — check that DEBUG lines exist
+    at all BEFORE concluding no reloads occurred, and re-arm if they are absent.'
   refs:
   - docs/planning/PLANNING_integration_reload_comprehensive_2026_09.md
   - project_cm_reload_suppression_cycle_stack
