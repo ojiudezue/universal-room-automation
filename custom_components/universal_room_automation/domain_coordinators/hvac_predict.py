@@ -111,10 +111,7 @@ class HVACPredictor:
         self._pre_heat_active: bool = False
         self._pre_cool_triggered_today: bool = False
         self._pre_heat_triggered_today: bool = False
-        # Observability: WHY Path A pre-cool did NOT fire this eval.
-        # "" == eligible/firing; non-empty == gate name that blocked it.
-        # Set at every exit of _should_energy_precool.
-        self._pre_cool_skip_reason: str = "boot"
+        self._pre_cool_skip_reason: str = "boot"  # obs: "" if firing
 
         # Daily outcome tracking
         self._in_band_checks: int = 0

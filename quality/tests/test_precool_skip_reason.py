@@ -12,14 +12,16 @@ import types
 from datetime import datetime
 from unittest.mock import MagicMock
 
-# Import sibling to install HA mock modules (side-effect).
-import test_v5_7_1_energy_precool as _sib  # noqa: F401
-
-
 _DC_NAME = (
     "custom_components.universal_room_automation.domain_coordinators"
 )
-_DC_PATH = _sib._dc_path
+
+
+def _prime_and_get_dc_path():
+    # Defer sibling import to test-time (not collection-time) so importing
+    # this module does not perturb collection of unrelated test modules.
+    import test_v5_7_1_energy_precool as _sib  # noqa: F401
+    return _sib._dc_path
 
 
 def _install_stubs():
@@ -59,22 +61,48 @@ def _install_stubs():
     )
 
 
+_PREDICTOR_CLS = None
+
+
+_SENTINEL = object()
+
+
 def _load_predictor_cls():
-    _install_stubs()
+    global _PREDICTOR_CLS
+    if _PREDICTOR_CLS is not None:
+        return _PREDICTOR_CLS
+    dc_path = _prime_and_get_dc_path()
+    stub_names = [
+        f"{_DC_NAME}.hvac_override",
+        f"{_DC_NAME}.hvac_preset",
+        f"{_DC_NAME}.hvac_zones",
+        f"{_DC_NAME}.hvac_setpoint",
+        f"{_DC_NAME}.signals",
+    ]
     full = f"{_DC_NAME}.hvac_predict"
-    spec = importlib.util.spec_from_file_location(
-        full, os.path.join(_DC_PATH, "hvac_predict.py"),
-    )
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[full] = mod
-    spec.loader.exec_module(mod)
-    return mod.HVACPredictor
-
-
-HVACPredictor = _load_predictor_cls()
+    saved = {n: sys.modules.get(n, _SENTINEL) for n in stub_names + [full]}
+    try:
+        _install_stubs()
+        spec = importlib.util.spec_from_file_location(
+            full, os.path.join(dc_path, "hvac_predict.py"),
+        )
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[full] = mod
+        spec.loader.exec_module(mod)
+        _PREDICTOR_CLS = mod.HVACPredictor
+    finally:
+        # Restore sys.modules so we don't pollute subsequent test modules
+        # (unrelated tests must see the real hvac_setpoint / signals / etc).
+        for n, prev in saved.items():
+            if prev is _SENTINEL:
+                sys.modules.pop(n, None)
+            else:
+                sys.modules[n] = prev
+    return _PREDICTOR_CLS
 
 
 def _make_pred():
+    HVACPredictor = _load_predictor_cls()
     hass = MagicMock()
     hass.data = {}
     zm = MagicMock()
