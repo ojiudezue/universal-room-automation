@@ -607,6 +607,16 @@ cards:
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  IMPACT_ON_D5_CYCLE_2026_09_18: 'Operator asked if this vestige affects the just-shipped v5.103.9 D5
+    reframe. ANSWER: NO material effect - disjoint. (1) Modes: D5 fires only coast/shed; Path B is pre_cool,
+    which is BELOW coast in the EC priority chain (shed>coast>pre_cool>pre_heat>normal, energy.py:7405) so
+    cannot preempt coast; under pre_cool, D5 guard mode in {coast,shed} makes it correctly INACTIVE. (2)
+    Windows: D5 = 4-7pm coast; Path B pre_cool = evening 9pm+ (soc<50 post-coast) - no temporal overlap.
+    (3) Validation intact: the v5.103.9 soak discriminator is coast-window-scoped; INV-D5-GATE trivially
+    holds under pre_cool. (4) Shared surface (energy_constraint_mode + defer episode-gate .clear on mode
+    transitions) is benign - just resets a once-per-episode ledger flag while D5 is not firing; duty
+    accumulator is coast/shed-scoped, uncorrupted. The pre_cool vestige surfaced as a TANGENT off the D5
+    fire-frequency audit (the 9pm out-of-TOU catch), not a defect in D5 scope; D5 correctly did not touch it.'
   DISPOSITION_2026_09_18: 'Operator AGREED: delete Path B. Overlap analysis: Path A window = 10am-2pm
     (ENERGY_PRECOOL_HOUR_START=10, PEAK_HOUR_START=14, self-clears at 2pm). Path B fires EVENING (observed
     21:00; midday=normal) because its soc<50 gate is only met AFTER the 4-8pm coast discharges the battery

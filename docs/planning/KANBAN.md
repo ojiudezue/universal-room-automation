@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T01:53:35-05:00_ - _Data commit: `ca0538811b96`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T01:55:34-05:00_ - _Data commit: `6e227aa36028`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -446,7 +446,8 @@ _created 2026-09-18_
 - **Next:** TRACE solar_class producer + the day it targets at energy.py:7419-7434 consumers; confirm pre_cool uses tomorrow-forecast and the mid_peak-poor-solar coast cannot fire on a nighttime solar value. Measure- first (read the code + a few liv...
 - **Tags:** energy, coast, precool, solar, measure-first, correctness
 - **Parsimony:** [BUILD] daytime solar forecast possibly consumed by night EC decisions
-- **Forensic keys (8):**
+- **Forensic keys (9):**
+  - `IMPACT_ON_D5_CYCLE_2026_09_18`: Operator asked if this vestige affects the just-shipped v5.103.9 D5 reframe. ANSWER: NO material effect - disjoint. (1) Modes: D5 fires only coast/shed; Path B is pre_cool, which is BELOW coast in the EC priority chain (shed>coast>pre_co...
   - `DISPOSITION_2026_09_18`: Operator AGREED: delete Path B. Overlap analysis: Path A window = 10am-2pm (ENERGY_PRECOOL_HOUR_START=10, PEAK_HOUR_START=14, self-clears at 2pm). Path B fires EVENING (observed 21:00; midday=normal) because its soc<50 gate is only met A...
   - `SAFE_TO_DELETE_CONFIRMED_2026_09_18`: Pre-delete safety greps CLEAN. (a) fan/cover controllers do NOT branch on pre_cool mode. (b) the ONLY functional readers of a non-normal mode are two predictor gates - hvac_predict.py:719 (Path A suppression) + :335 (_update_pre_cool_lik...
   - `FIX_2026_09_18`: Vibememo has NO entry retaining the EC pre_cool branch through the v5.7.1 rewrite -> forgotten, not deliberately kept (supersession-cleanup miss confirmed by absence). Consumer grep: mode==pre_cool is SET only at energy.py:7432 (producer...
