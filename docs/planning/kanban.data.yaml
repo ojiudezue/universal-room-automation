@@ -607,6 +607,20 @@ cards:
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  TRACE_2026_09_18: 'Ran down the second pre-cool path (operator ask). THERE ARE TWO, and they are
+    different. PATH A (the REAL actuator) = hvac_predict.py:_should_energy_precool:686 (v5.7.1, comment
+    "replaces the v3.17.0 weather-pre-cool + solar-banking branches"): REQUIRES live PV export (net_power
+    exporting), hour-window [10,14) (10am-2pm), summer/shoulder, mode==normal. It is the ONLY caller of
+    _execute_zone_pre_cool (line 559). = EXACTLY the designed afternoon solar-banking; correct + alive.
+    PATH B = the EC constraint mode=pre_cool (energy.py:7427) firing 9pm off_peak/soc<50/forecast. BUT
+    the pre_cool OFFSET is only applied to setpoints when energy_constrained = mode in {coast,shed}
+    (hvac.py:1922) - pre_cool is NOT in that set - AND Path A hour-gates OUT at 9pm. So the 9pm pre_cool
+    is a MISLEADING EC MODE LABEL with no actuator at that hour: it almost certainly moved NO setpoints.
+    CONCLUSION: divergence is in the EC mode-label DECISION LOGIC (labels a low-SOC off-peak night pre_cool
+    nothing acts on), NOT in the real afternoon banking (correct) and NOT in actual 9pm cooling (did not
+    happen). FIX = correct/remove the EC misleading night pre_cool label + confirm inert; do NOT rebuild
+    Path A. EMPIRICAL confirm still open: verify zone setpoints did NOT drop ~2F at 21:00 CDT (trace says
+    no). This DOWNGRADES the cycle from a strategy-rebuild to a label/decision-hygiene fix (likely Tier 1-2).'
   DIVERGENCE_CONFIRMED_2026_09_18: 'Operator read-the-plan request -> CONFIRMED design-vs-shipped
     divergence. DESIGN (ENERGY_COORDINATOR_DESIGN_v2.2:176 + :461-464): pre-cool is a 2-4PM AFTERNOON
     behavior (-3F) before the 4-8pm coast, to bank coolness during the day so there is NO 6-8pm HVAC spike

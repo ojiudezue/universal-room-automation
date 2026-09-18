@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T01:38:52-05:00_ - _Data commit: `9aac40e16e71`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T01:42:59-05:00_ - _Data commit: `5d183ae95202`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -446,7 +446,8 @@ _created 2026-09-18_
 - **Next:** TRACE solar_class producer + the day it targets at energy.py:7419-7434 consumers; confirm pre_cool uses tomorrow-forecast and the mid_peak-poor-solar coast cannot fire on a nighttime solar value. Measure- first (read the code + a few liv...
 - **Tags:** energy, coast, precool, solar, measure-first, correctness
 - **Parsimony:** [BUILD] daytime solar forecast possibly consumed by night EC decisions
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `TRACE_2026_09_18`: Ran down the second pre-cool path (operator ask). THERE ARE TWO, and they are different. PATH A (the REAL actuator) = hvac_predict.py:_should_energy_precool:686 (v5.7.1, comment "replaces the v3.17.0 weather-pre-cool + solar-banking bran...
   - `DIVERGENCE_CONFIRMED_2026_09_18`: Operator read-the-plan request -> CONFIRMED design-vs-shipped divergence. DESIGN (ENERGY_COORDINATOR_DESIGN_v2.2:176 + :461-464): pre-cool is a 2-4PM AFTERNOON behavior (-3F) before the 4-8pm coast, to bank coolness during the day so the...
   - `SHARPENED_2026_09_18`: Operator: pre_cool should happen with EXCESS SOLAR, no way at 9pm. LIVE FINDING: sensor.ura_energy_coordinator_hvac_constraint fired mode=pre_cool at 21:00 CDT (REAL local time - ha_ get_history localizes, -05:00 offset; NOT a UTC artifa...
 
