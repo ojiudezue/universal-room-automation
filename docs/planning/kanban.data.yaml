@@ -692,6 +692,9 @@ cards:
   parsimony: {problem: 'restore writers strand empty zones; the intended corrector is dormant', verdict: BUILD, note: 'measure-first; pre-existing'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1], context: 'round-4 adversarial 4th-writer enumeration'}
 - id: HVAC-SETHVACMODE-CHOKEPOINT-1
+  PROVENANCE_LINK_2026_09_17: 'Phase-1 (govern the 3rd verb) is the prerequisite for the provenance
+    invariant on HVAC-THERMOSTAT-ABSTRACTION-1: you cannot classify manual as URA-vs-external until ALL
+    write verbs route through the governed path that stamps provenance. See that card PROVENANCE_INVARIANT.'
   status: planned
   thread: hvac
   created: '2026-09-16'
@@ -8884,6 +8887,21 @@ cards:
   - activity_logger.py:114-117 (unvalidated entity_id onto the ura_action bus event)
   - 'live ERROR 2026-09-16 boot: recorder core.py:304 -> split_entity_id ValueError garage_a'
 - id: HVAC-THERMOSTAT-ABSTRACTION-1
+  PROVENANCE_INVARIANT_2026_09_17: 'Operator framing (2026-09-17): if URA governs ALL writes with
+    provenance, any manual is classifiable and there is NO self-lockout. This is the arc acceptance
+    criterion (NOT a new card). INVARIANT: should_change_preset refuses on EXTERNAL manual only; URA-
+    induced manual is reclaimed freely; genuine human manual is respected (arrester grace/immunity).
+    The Bryant native schedule is NOT in the manual set (it sets named presets home/away/sleep, not
+    manual - live-tested 2026-09-17, exonerated). LIVE EVIDENCE the abstraction must resolve (zone_1,
+    ura DB): URA governed setpoint writes (high 76/low 69 = URA home target) flip Carrier away->manual
+    routinely (override_detected mode=governed, ~5-20/night); the arrester then re-detects them because
+    ha_carrier ASYNC RE-POSTS URA''s own writes AFTER the suppression TTL (hvac_override.py:2944-2946).
+    HARD REQUIREMENT: provenance must be tracked by WRITE IDENTITY/VALUE (this manual+setpoint == a write
+    I made), NOT a fragile time-window - else URA''s delayed echo reads external and self-locks. Existing
+    partial machinery to extend: _suppress_kind (provenance by kind, :243-250) + FIX B2 pre-write preset
+    snapshot (:251-262, NUDGE-path only today). HVAC-PRESET-LOCKOUT-ESCAPE-1 (item #2) IS the behavioral
+    realization of this - fold, do not duplicate. Separate (not this): the home<->away preset FLAP volume
+    (86/3d occupancy churn) belongs to the conditioning-demand debounce (v5.103.7), not write-governance.'
   INVENTORY_2026_09_16: 'Thermostat write-path inventory done (AUDIT_thermostat_write_paths). CORRECTS
     the root-cause hypothesis: writes are MORE governed than feared. set_preset_mode 10/10 funnelled,
     set_temperature 11/11 funnelled; ONLY set_hvac_mode bypasses (7/7 sites, 25%% of writes, one verb).
