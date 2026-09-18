@@ -734,6 +734,19 @@ cards:
   parsimony: {problem: 'no why-not-firing signal on the sole pre-cool path', verdict: BUILD, note: 'additive obs, low risk, enables the gap measurement'}
   links: {related: [EC-GRID-ANTICIPATORY-PRECOOL-GAP-1, EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1], context: 'post-Path-B-delete quick check 2026-09-18'}
 - id: HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1
+  REVIEW_C_AND_FIXUP_2026_09_18: 'C (test authority) = FIX-REQUIRED. PRODUCTION FIX SOUND (A+B+C agree
+    parity/ordering/guards hold live) but ALL new tests HOLLOW (#62): C1 boot-ordering test execs a text-
+    slice vs MagicMock, never builds HVACCoordinator/async_setup - early-return-before-pull (A2) stays GREEN;
+    C2 current_energy_constraint() zero behavioral cover - return None (B2) GREEN; C3 payload test compares
+    STRINGS - dropping setpoint_offset+fan_assist zero new failures across 10.7k tests. CONSOLIDATED FIX-UP
+    dispatched: (1) real tests - build HVACCoordinator+await async_setup w/ stub energy on hass.data, assert
+    _energy_constraint not None + mode/offset match (RED on A2 early-return + pull removal); current_energy_
+    constraint() on real EC (RED on B2); capture dispatched EnergyConstraint via dispatcher_connect + assert
+    dataclass-eq vs current_energy_constraint() (RED on field-drop); reuse test_domain_coordinators fixture.
+    (2) B-MED-1 sensor.py D7 resume-if-same under seed ordering + test. (3) A-LOW solar_class=unknown not
+    None. (4) A-LOW#53 route hvac_constraint property thru _build_energy_constraint (keep live max_runtime).
+    (5) B-LOW-1 reword ordering-proof->tolerant + fix :3856->:4041. Then orchestrator mutation-verify A2/B2/
+    field-drop + ship.'
   REVIEW_A_2026_09_18: 'A (payload parity) = SHIP. All 10 EnergyConstraint fields byte-parity between
     _build_energy_constraint and the old inline; _hvac_constraint_max_runtime stash populated before the
     gate (ordering holds); freezing max_runtime via stash is parity-correct vs the live-recompute in the
