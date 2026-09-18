@@ -671,12 +671,15 @@ cards:
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: HVAC-KNOB-LABEL-PASS-1
+  DONE_2026_09_18: 'v5.103.10 shipped + live-validated: 6 new display names live (AC Runtime Cap x4,
+    Comfort Grace x2), values intact (75/50/20/on/85/20), entity_ids stable, egress two untouched, zero
+    URA ERROR. Cosmetic rename validated at restart - no soak. CLOSED done.'
   SCOPE_CORRECTION_2026_09_18: 'Operator: DROP the 2 egress renames - egress_pause_threshold +
     egress_resume_delay are about OPENING EGRESS WINDOWS (venting), NOT occupant exit; my "Exit Pause"
     wording mislabeled the semantic. Keep them as "Egress Pause Threshold" / "Egress Resume Delay"
     unchanged. Pass is now SIX renames only: D5 four (AC Runtime Cap ...) + comfort_delay soc_floor/grace
     (Comfort Grace Battery Floor / Duration). Builder messaged mid-run to revert the egress two.'
-  status: shipped_organic
+  status: done
   shipped_version: v5.103.10
   thread: hvac
   created: '2026-09-18'

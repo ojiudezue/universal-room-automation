@@ -22,10 +22,15 @@ Renamed **6 entity display names only** (unique_id / entity_id / history preserv
 **Deliberately NOT renamed** (operator correction): `Egress Pause Threshold` / `Egress Resume Delay`
 — they concern opening egress windows (venting), not occupant exit; the names stay.
 
-## Validation — prospective
-- **Verify:** the 6 entities show the new display names in the HA UI; entity_ids unchanged (history intact).
-- **Verify:** `number`/`switch` states + values unchanged across the rename (75/50/20/on/85/20).
-- **Verify:** zero URA ERROR on boot.
+## Validated 2026-09-18 (post-restart, running v5.103.10)
+
+| Criterion | Result | Observed |
+|---|---|---|
+| 6 new display names live | **PASS** | friendly_names = `AC Runtime Cap · Coast (%) / Shed (%) / Window (min) / Enable`, `Comfort Grace · Battery Floor (%) / Duration (min)` |
+| Values unchanged across rename | **PASS** | 75 / 50 / 20 / on / 85 / 20 — identical to pre-rename |
+| entity_ids stable (history intact) | **PASS** | same entity_ids resolved; only `_attr_name` changed (unique_id untouched) |
+| Egress knobs untouched | **PASS** | `Egress Pause Threshold` / `Egress Resume Delay` names unchanged |
+| Zero URA ERROR on boot | **PASS** | system log ERROR filter for `universal_room_automation` = 0 entries |
 
 ## Rollback
 `git revert` the merge — cosmetic, no state impact.
