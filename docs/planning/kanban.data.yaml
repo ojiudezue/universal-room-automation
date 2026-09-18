@@ -729,6 +729,32 @@ cards:
     sensor. Then a one-shot recorder query can quantify hot-day surplus-only skips (feeds the gap card).'
   parsimony: {problem: 'no why-not-firing signal on the sole pre-cool path', verdict: BUILD, note: 'additive obs, low risk, enables the gap measurement'}
   links: {related: [EC-GRID-ANTICIPATORY-PRECOOL-GAP-1, EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1], context: 'post-Path-B-delete quick check 2026-09-18'}
+- id: HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1
+  status: investigating
+  thread: hvac
+  created: '2026-09-18'
+  updated: '2026-09-18'
+  tags: [hvac, precool, boot, signal-delivery, energy]
+  title: Post-restart the HVAC predictor sees constraint=None (pre_cool_skip_reason=no_constraint) while EC computes normal — Path A pre-cool disabled boot->first-mode-change
+  problem_solution:
+  - 'Problem (surfaced live 2026-09-18 by the new pre_cool_skip_reason obs, v5.103.12): after a restart at
+    10:14 CDT (in [10,14) window, summer, both enables true), sensor.ura_energy_coordinator_hvac_constraint
+    shows a REAL computed normal (reason "normal conditions"), but sensor.ura_hvac_coordinator_mode.pre_cool_
+    skip_reason=no_constraint and energy_offset=0 -> the HVAC coordinator _energy_constraint object is None.
+    The EC dispatches SIGNAL_ENERGY_CONSTRAINT on CHANGE only; mode unchanged since boot -> the HVAC
+    coordinator may not receive an EnergyConstraint object until the first real mode change (evening coast).
+    Net: Path A afternoon pre-cool effectively DISABLED from boot until first coast on a restart day - the
+    10am-2pm banking window can be entirely missed if the house restarted that morning. Pre-existing signal-
+    delivery behavior; the obs revealed it. (Review B of the EC cycle claimed first post-boot tick always
+    republishes - live evidence contradicts that, or the HVAC subscription misses the first publish.)'
+  why: 'Real restart-day pre-cool gap; the sole pre-cool path silently no-ops. High-value catch validating
+    the skip-reason obs on its first boot.'
+  next: 'TRACE: does _handle_energy_constraint fire post-boot on the HVAC coordinator? is _energy_constraint
+    set after the EC first tick? does the EC re-dispatch normal on first boot tick or suppress as non-change
+    vs init _last_published_constraint? does it self-heal at the evening coast transition? Likely fix: EC
+    force-dispatch current constraint on HVAC subscribe, OR HVAC pulls the EC constraint at setup. Tier 2.'
+  parsimony: {problem: 'restart-day pre-cool disabled until first mode change', verdict: BUILD, note: 'trace signal delivery first; measure self-heal'}
+  links: {related: [HVAC-PRECOOL-SKIP-REASON-OBS-1, EC-GRID-ANTICIPATORY-PRECOOL-GAP-1], context: 'surfaced by pre_cool_skip_reason obs v5.103.12 on first boot'}
 - id: HVAC-PRECOOL-WINDOW-TOU-DERIVED-1
   status: inbox
   thread: hvac
