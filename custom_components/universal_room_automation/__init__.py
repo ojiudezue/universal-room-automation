@@ -3910,6 +3910,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             "excursion_primitive_enabled": bool(_cfg.get(
                                 "excursion_primitive_enabled", True,
                             )),
+                            # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b3):
+                            # Rung-3 D5 duty-cycle knobs. Defaults match
+                            # the pre-cycle module constants (20min /
+                            # 75% / 50%). `0` = kill for that mode.
+                            "duty_cycle_window_minutes": int(_cfg.get(
+                                "hvac_duty_cycle_window_minutes", 20,
+                            )),
+                            "duty_cycle_coast_pct": int(_cfg.get(
+                                "hvac_duty_cycle_coast_pct", 75,
+                            )),
+                            "duty_cycle_shed_pct": int(_cfg.get(
+                                "hvac_duty_cycle_shed_pct", 50,
+                            )),
+                            "d5_enabled": bool(_cfg.get(
+                                "hvac_d5_enabled", True,
+                            )),
                         })(cm_config),
                         zone_entry_dwell=int(cm_config.get(
                             CONF_HVAC_ZONE_ENTRY_DWELL, DEFAULT_ZONE_ENTRY_DWELL_MINUTES

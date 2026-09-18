@@ -759,7 +759,12 @@ class ZoneManager:
             "zone_presence_state": zone.zone_presence_state,
             "vacancy_sweep_done": zone.vacancy_sweep_done,
             "vacancy_sweep_enabled": zone.vacancy_sweep_enabled,
-            "runtime_exceeded": zone.runtime_exceeded,
+            # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b1): renamed
+            # operator-facing attribute from `runtime_exceeded` to
+            # `energy_shed_cap_reached`. Internal field name kept for
+            # serialization/restore stability. No alias per
+            # Single-User-No-Back-Compat.
+            "energy_shed_cap_reached": zone.runtime_exceeded,
             "runtime_duty_cycle_pct": (
                 min(
                     round(
