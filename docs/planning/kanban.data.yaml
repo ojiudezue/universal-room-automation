@@ -725,6 +725,17 @@ cards:
   parsimony: {problem: 'surplus-only pre-cool leaves low-SOC hot mornings uncovered', verdict: PARK, note: 'principle preserved; measure before building'}
   links: {related: [EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1], context: 'preserved from deleted Path B; supersession KEEP+DOCUMENT'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  REVIEW_C_2026_09_18: 'C (D2 config) = FIX-REQUIRED, caught a real HIGH. C1(HIGH): suggested_value=type-
+    default PERSISTS on submit (HA option flow returns the prefill in user_input unless blanked) -> a room
+    with unset holds, opened to change anything else + submitted, gets 60/1800 PINNED as explicit override
+    -> frozen vs the type table forever (later room_type->hallway=0 wouldnt take). Breaks the no-overwrite
+    invariant via the mechanism meant to express it. FIX = do what operator originally asked: put per-type
+    guidance in HELP TEXT (static or dynamic description_placeholders), keep field BLANK when unset (no
+    persisted prefill). C2(HIGH hollow anchor): D2 test re-implements the expr locally + source-greps -
+    inverting the production is-not-None stays GREEN; need a real async_step_climate schema-driving test
+    (RED on inversion). C3(MED): help text says night auto-clamped but form REJECTS day>night when both
+    explicit (clamp only at runtime for blank night) -> reword. C4(LOW): test-mirror divergence. Cleared:
+    explicit-0 preserved, resolver untouched, step=30 safe, translations parse. Hold fix-up for B.'
   REVIEW_A_2026_09_18: 'A (D1 delete) = SHIP. Independently confirmed inert premise (compute_energy_offset
     has ZERO callers -> the -2F never actuated; fall-through to normal safe, old branch + pre_heat were SOC-
     disjoint). Findings (both in-cycle, ~6 LoC): MED = the offset knobs OPERATOR-FACING string (strings.json/
