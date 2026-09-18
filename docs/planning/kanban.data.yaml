@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-17'
+  last_reconciled: '2026-09-18'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -540,7 +540,8 @@ cards:
     standing Single-User-No-Back-Compat = remove immediately; (3) absorb HVAC-D5-KNOBS-TO-RUNG-3
     (number duty window/coast_pct/shed_pct + enable switch, 0=kill) -> taking the recommendation YES.
     NEXT: operator picks #1 -> plan-review (Tier-2-DB) -> build -> checkpoint held.'
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.9
   thread: hvac
   created: '2026-09-17'
   updated: '2026-09-17'

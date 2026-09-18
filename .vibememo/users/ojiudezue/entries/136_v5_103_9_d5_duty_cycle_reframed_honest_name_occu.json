@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "136",
+  "author": "ojiudezue",
+  "session_id": "claude_20260918_051642_ship_v5_103_9",
+  "timestamp": "2026-09-18T05:16:42Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.9 shipped: D5 duty-cycle reframed: honest name, occupancy-gated, operator knobs",
+  "summary": "D5 duty-cycle reframed: honest name, occupancy-gated, operator knobs",
+  "why": "Bryant audit: D5 protects nothing the Infinity board doesn't already; it is occupancy-blind energy-shed policy wearing a protection name, abandoning occupied zones on hot coast evenings. Option (b) reframe+gate over (c) delete (still a legit lever on EMPTY zones). Gate is NO-WRITE defer because a setpoint write flips Carrier to manual (the S14 self-lockout). 3 framing-disjoint reviews converged FIX-REQUIRED (rename missed sensor+frontend consumers, defer unwired, kill-latch, non-discriminating live criterion, 8/9 sites UNTESTED). Fix-up added 13 behavioral tests; orchestrator re-ran mutation drills (gate/latch/rename all RED on neuter).",
+  "implications": "Shipped HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 at v5.103.9; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.9.md (Live criteria).",
+  "revisit_trigger": "On a coast/peak-TOU evening (~18:00-21:00) ura_activity_log shows >=1 row reason=energy_shed_cap_deferred_occupied with details_json any_room_hvac_occupied=1 (occupied zone NOT written) AND >=1 reason=energy_shed_cap_reached (empty zone shed), and ZERO rows reason=runtime_exceeded post-deploy",
+  "refs": {
+    "cards": [
+      "HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.9.md"
+    ],
+    "release_notes": "runtime_exceeded -> energy_shed_cap_reached (no alias); coast+occupied defers as NO-WRITE (ledger-only), shed dominates, empty zones still shed; duty window+caps -> Rung-3 Number knobs + enable switch (0=kill). 3 framing-disjoint reviews + fix-up + orchestrator mutation-verify; 13 behavioral tests replace hollow anchors."
+  }
+}
