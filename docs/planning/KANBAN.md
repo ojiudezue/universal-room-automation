@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T22:36:37-05:00_ - _Data commit: `6200233998ea`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T22:42:53-05:00_ - _Data commit: `6cc219548fbc`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-09-17T22:36:37-05:00_ - _Data commit: `6200233998ea`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 3 |
-| 🔬 Investigating | 2 |
+| 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 13 |
 | 🔨 In progress | 1 |
@@ -19,7 +19,7 @@ _Generated: 2026-09-17T22:36:37-05:00_ - _Data commit: `6200233998ea`_ - _last_r
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 32 |
 | 🅿️ Parked | 59 |
-| ✅ Done | 172 |
+| ✅ Done | 173 |
 
 ## 📥 Inbox (3)
 _raw capture_
@@ -54,20 +54,10 @@ _created 2026-09-17_
 - **Tags:** hvac, tier-1, contingent, measure-first
 - **Parsimony:** [BUILD] overnight accumulation instant-trips on wake
 
-## 🔬 Investigating (2)
+## 🔬 Investigating (1)
 _measuring; truth not yet known_
 
-### `HVAC-EC-OFFSET-SELF-LOCKOUT-1` - Does EC's occupied-only coast/shed setpoint offset ALSO flip Carrier to manual and self-lock (the S14 trap, house-wide)? — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **investigating**
-_created 2026-09-17_
-- **Problem / Solution:**
-  - Problem: S14 was removed 2026-09-16 because a raw setpoint write flips the Bryant/Carrier thermostat to manual and should_change_preset then refuses the zone (self-lockout). EC publishes SIGNAL_ENERGY_ CONSTRAINT with setpoint_offset + o...
-- **Why:** Surfaced during the D5 true-up (Bryant audit + S14 history). This is the discriminator that sizes HVAC-PRESET-LOCKOUT-ESCAPE-1 and validates/breaks the "EC handles graceful shed on occupied" premise the D5 occupancy-gate reconciliation r...
-- **Next:** TRACE: where is EC setpoint_offset applied to a target and written (arrester/predictor)? verb = emit_set_temperature (locks) or preset-safe? Then correlate the 15 lockout episodes' timestamps vs coast/shed windows. CONFIRMED->the lockout...
-- **Tags:** hvac, energy, lockout, cross-coordinator, measure-first
-- **Parsimony:** [BUILD] possible house-wide self-lockout via EC offset
-
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#1 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
@@ -418,6 +408,8 @@ _created 2026-09-17_
 - **Next:** Measure how often a restore fires on an empty zone (recorder) before scoping; likely small. Fix = the restore sites update _last_emitted_range. Coordinate with the compose-away blocker.
 - **Tags:** hvac, pre-existing, setpoint-vs-mode
 - **Parsimony:** [BUILD] restore writers strand empty zones; the intended corrector is dormant
+- **Forensic keys (1):**
+  - `FOLD_2026_09_17`: From HVAC-EC-OFFSET-SELF-LOCKOUT-1 (refuted): verify the EC coast/shed OFFSET apply path carries a FIX-B2-style pre-write preset snapshot + set_preset_mode restore (like the nudge path), so a coast setpoint write cannot leave a zone in m...
 
 ### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#12 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **planned** - approval: **implied**
@@ -2387,7 +2379,7 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (172)
+## ✅ Done (173)
 _closed, evidence in refs_
 
 ### `INSTALL-ARCHIFY-SKILL-1` - Install the archify skill (github.com/tt-a1i/archify) in a spare cycle — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -2401,6 +2393,18 @@ _created 2026-09-17_
 - **Parsimony:** [BUILD] operator wants a skill installed; no urgency
 - **Forensic keys (1):**
   - `DONE_2026_09_17`: Installed + verified. Diagram-rendering skill (arch/workflow/sequence/dataflow/ lifecycle -> standalone HTML), MIT, tt-a1i/archify v2.17. Safety-reviewed CLEAN (Node built-ins only, no network egress, no install hooks; 3rd-party deps are...
+
+### `HVAC-EC-OFFSET-SELF-LOCKOUT-1` - Does EC's occupied-only coast/shed setpoint offset ALSO flip Carrier to manual and self-lock (the S14 trap, house-wide)? — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **done**
+_created 2026-09-17_
+- **Problem / Solution:**
+  - Problem: S14 was removed 2026-09-16 because a raw setpoint write flips the Bryant/Carrier thermostat to manual and should_change_preset then refuses the zone (self-lockout). EC publishes SIGNAL_ENERGY_ CONSTRAINT with setpoint_offset + o...
+- **Why:** Surfaced during the D5 true-up (Bryant audit + S14 history). This is the discriminator that sizes HVAC-PRESET-LOCKOUT-ESCAPE-1 and validates/breaks the "EC handles graceful shed on occupied" premise the D5 occupancy-gate reconciliation r...
+- **Next:** TRACE: where is EC setpoint_offset applied to a target and written (arrester/predictor)? verb = emit_set_temperature (locks) or preset-safe? Then correlate the 15 lockout episodes' timestamps vs coast/shed windows. CONFIRMED->the lockout...
+- **Tags:** hvac, energy, lockout, cross-coordinator, measure-first
+- **Parsimony:** [BUILD] possible house-wide self-lockout via EC offset
+- **Forensic keys (1):**
+  - `REFUTED_2026_09_17`: Closed as REFUTED (investigation binary exit). The house-wide self-lockout premise is FALSE: induced-manual reconciliation is the OverrideArrester's owned, EXISTING machinery. Evidence (code, not assumption): (1) a URA set_temperature wr...
 
 ### `WORKTREE-BACKLOG-PRUNE-1` - 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work — _WSJF 4.5 · v4 tc3 u2 /e2_
 thread: **infra** - status: **done**

@@ -668,6 +668,9 @@ cards:
   parsimony: {problem: 'unconditional throttle bypass = steady write-storm once the feature is on', verdict: BUILD, note: 'gate on enabling the switch'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], sibling_of: [HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1], context: 'F2 residual; blocker on guest_mode_actuation'}
 - id: HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1
+  FOLD_2026_09_17: 'From HVAC-EC-OFFSET-SELF-LOCKOUT-1 (refuted): verify the EC coast/shed OFFSET apply
+    path carries a FIX-B2-style pre-write preset snapshot + set_preset_mode restore (like the nudge path),
+    so a coast setpoint write cannot leave a zone in manual after the constraint clears. Same strand class.'
   status: planned
   thread: hvac
   created: '2026-09-17'
@@ -11286,7 +11289,21 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset — the silent refusal)
   - hvac.py (the instrumented refusal site)
 - id: HVAC-EC-OFFSET-SELF-LOCKOUT-1
-  status: investigating
+  REFUTED_2026_09_17: 'Closed as REFUTED (investigation binary exit). The house-wide self-lockout
+    premise is FALSE: induced-manual reconciliation is the OverrideArrester''s owned, EXISTING machinery.
+    Evidence (code, not assumption): (1) a URA set_temperature write DOES flip Carrier preset_mode->manual
+    and it persists (hvac_override.py:251-253, FIX B2) - so the mechanism is real; BUT (2) _suppress_kind
+    (hvac_override.py:243-250) stops URA''s own writes self-counting as a user override, and (3) the nudge
+    restore path snapshots the pre-write preset and re-emits set_preset_mode to restore it (FIX B2,
+    :251-262); (4) the arrester detects real overrides by setpoint-delta-vs-expected (:162-163), not by
+    preset==manual. S14 was the SPECIAL case that stranded precisely because it had NO restore path and
+    relied on the preset-manager exit (should_change_preset refuses manual, hvac_preset.py:215). Persistent
+    manual was separately traced to the BRYANT NATIVE SCHEDULE (HVAC-ZONE1-MANUAL-OSCILLATION-1), not the
+    EC offset. Prior litigation this session already downgraded the lockout escape to RARE. RESIDUAL (narrow,
+    real): does the coast/shed offset path specifically carry a B2-style preset-restore, or can a coast
+    setpoint write leave a zone in manual after the constraint clears? -> folded into HVAC-RESTORE-WRITERS-
+    STRAND-EMPTY-NIGHT-ZONE-1 (same class), NOT a standalone card.'
+  status: done
   thread: hvac
   created: '2026-09-17'
   updated: '2026-09-17'

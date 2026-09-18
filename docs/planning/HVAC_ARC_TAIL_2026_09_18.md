@@ -138,11 +138,20 @@ occupancy-gate (defer for occupied coast zones, shed still dominates) + knobs to
 `HVAC-D5-REGROUND-ON-ODU-VAR-1` (ha_carrier exposes a richer real-duty signal, ODU Var %/stage_status).
 Full detail: `AUDIT_bryant_duty_cycle_redundancy_2026_09_17.md`.
 
-**NEW true-up finding (the deeper yikes).** URA *had* this occupancy fix already — "S14" (2026-08-11)
-held occupied zones at a comfort offset during the D5 off-phase instead of forcing away — and it was
-**REMOVED 2026-09-16** because a raw setpoint write flips Carrier to `manual`, and `should_change_preset`
-then refuses the zone: **S14 created the exact lockout.** So (1) the D5 occupancy-gate must defer as a
-NO-WRITE (ledger-only), never restore an offset-hold; and (2) EC's own coast/shed offset is *also*
-`occupied_only=True` and setpoint-based — **does it self-lock the same way, house-wide?** Untraced →
-carded `HVAC-EC-OFFSET-SELF-LOCKOUT-1` (investigating). That question sizes the lockout-escape (item #2)
-and tests whether "EC handles graceful shed on occupied zones" is even true today.
+**NEW true-up finding — investigated and RESOLVED 2026-09-17.** URA *had* the occupancy fix already
+— "S14" (2026-08-11) held occupied zones at a comfort offset during the D5 off-phase — and it was
+**REMOVED 2026-09-16** because a raw setpoint write flips Carrier to `manual` (persistent side-effect),
+S14 had **no restore path**, and it relied on the preset-manager exit (`should_change_preset` refuses
+`manual`, hvac_preset.py:215) → it stranded itself. So the D5 occupancy-gate (D-b2) defers as a
+**NO-WRITE** (ledger-only), never an offset-hold.
+
+I briefly worried EC's own `occupied_only` coast/shed offset self-locks the same way, house-wide. **It
+does not** — checked against the code, not assumed. A URA `set_temperature` write does flip Carrier to
+`manual` (real: hvac_override.py:251-253), **but induced-manual reconciliation is the OverrideArrester's
+owned machinery**: `_suppress_kind` stops URA's own writes self-counting as a user override
+(:243-250), the nudge path snapshots the pre-write preset and re-emits `set_preset_mode` to restore it
+(FIX B2, :251-262), and real overrides are detected by setpoint-delta, not `preset==manual` (:162-163).
+S14 was the one path that bypassed all of that. Persistent manual was separately traced to the **Bryant
+native schedule** (`HVAC-ZONE1-MANUAL-OSCILLATION-1`), not the EC offset. `HVAC-EC-OFFSET-SELF-LOCKOUT-1`
+closed REFUTED; the one narrow residual (does the coast-offset path carry a B2-style preset-restore?) is
+folded into the existing `HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1`.
