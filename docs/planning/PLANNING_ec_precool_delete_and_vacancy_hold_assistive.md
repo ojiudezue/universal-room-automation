@@ -8,8 +8,12 @@
 - **D2 good-values source REUSED:** `ROOM_TYPE_HVAC_HOLD` (const.py:1203) + `ROOM_TYPE_HVAC_HOLD_NIGHT` (:1214) — per-type day/night hold defaults; `0 = never-hold` (hallway circulation exclusion); runtime clamp `night >= day` in `hvac_zones.py:_effective_hvac_hold_seconds`. Types present: bedroom, media_room, common_area, generic, closet, bathroom, garage, utility, infrastructure, hallway.
 - **D2 control (current):** config_flow.py:11713-11736 — both fields `NumberSelector(min=0, max=7200, unit=s, mode=BOX)`, `suggested_value = self._get_current(...)`; NO help text, NO per-type default hint, NO "0=disabled" note. Field help text lives in `translations/en.json` + `strings.json` under `options→step→climate→data_description`.
 
-## D1 — Delete the EC pre_cool vestige
-Remove the `elif tou_period=="off_peak" and soc<50 and solar_class in (...)` pre_cool branch (energy.py:7427-7434). EC stays `normal` in those windows → the misleading 9pm pre_cool label disappears AND Path A becomes eligible (`mode==normal`) in its 10am-2pm window. Remove the now-unused `_constraint_precool_offset` ONLY if nothing else reads it (grep first; it may be shared — if so leave it).
+## D1 — Delete the EC pre_cool vestige (branch), TOMBSTONE the constant, PRESERVE the principle
+**Re-check (producer/consumer, thorough, 2026-09-18):** Path B's outputs are inert-except-harmful — offset stored in `_energy_offset` but applied to setpoints ONLY under coast/shed (hvac.py:1922; hvac.py:3211 is a log line, not application); `fan_assist=False` for pre_cool; `mode=="pre_cool"` consumed only by Path A's `!=normal` gates (blocks it). BUT Path B is a **distinct capability**, not a dup: Path A requires live **PV export** (hvac_predict.py:717), so it does NOT cover a **hot-forecast day with LOW morning SOC** (no surplus). Path B reached for that (anticipatory off-peak GRID pre-cool) but was phase-blind + inert.
+
+- **Delete** the pre_cool `elif` branch (energy.py:7427-7434) → falls through to `else: normal`. Misleading 9pm label gone; Path A eligible (`mode==normal`) in its 10am-2pm window.
+- **TOMBSTONE (KEEP+DOCUMENT), do NOT delete:** `CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET` + `DEFAULT_CONSTRAINT_PRECOOL_OFFSET` + the `self._constraint_precool_offset = ec.get(...)` read (energy.py:665-666). Add a retirement comment at the read pointing to card `EC-GRID-ANTICIPATORY-PRECOOL-GAP-1`. Config key kept = a stored config entry doesn't strand (S14 tombstone pattern); comment preserves the principle in-code.
+- **Principle preserved out-of-code:** parked card `EC-GRID-ANTICIPATORY-PRECOOL-GAP-1` (Path A surplus-only leaves low-SOC hot mornings uncovered; a phase-aware grid-anticipatory pre-cool reusing `summer_peak_ahead` is the future design axis; measure-first).
 
 ### Acceptance (D1)
 - **Verify:** `sensor.ura_energy_coordinator_hvac_constraint` never reports `pre_cool` again (only normal/coast/shed/pre_heat).
