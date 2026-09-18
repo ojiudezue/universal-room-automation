@@ -427,15 +427,16 @@ def test_d9_compose_away_behavioral():
 
 
 def test_row1_fail_open_unestablished_zone():
-    """F1 fix-up round 4 (2026-09-17): `is_zone_hvac_established` uses
-    ANY (not ALL) rooms in `_hvac_seen`. Disabled/absent rooms in
-    `zone.rooms` (never iterated because `if coordinator is None:
-    continue` in update_room_conditions) must NOT permanently block
-    establishment.
+    """Fix-up round 5 (orchestrator adjudication, 2026-09-17):
+    `is_zone_hvac_established` reverted to `all(...)` semantics —
+    EVERY room in `zone.rooms` must be in `_hvac_seen`. `any`
+    would let the zone retreat on unreadable rooms, and "never
+    retreats on an unreadable room" is the safer failure. Trip-wire
+    for permanently-disabled rooms is a separate card, not a gate
+    relaxation.
 
-    Revert-in-suite discriminator: force the helper to return True
-    unconditionally -> this test reds (unestablished zone is falsely
-    treated as established).
+    Revert-in-suite discriminator: mutate `all` -> `any` -> this
+    test reds. The single-room-seen state now stays unestablished.
     """
     m = _zm_module()
     zm = m.ZoneManager(MagicMock())
@@ -445,12 +446,14 @@ def test_row1_fail_open_unestablished_zone():
     # No _hvac_seen entries yet — zone must not be established.
     assert zm.is_zone_hvac_established("z_boot") is False
 
-    # F1: seeding ANY one of the zone's rooms flips the zone to
-    # established (was: required ALL rooms; broke on disabled rooms).
+    # Round-5 `all` contract: seeding ONE room is NOT enough.
     zm._hvac_seen.add("r_bed")
-    assert zm.is_zone_hvac_established("z_boot") is True
+    assert zm.is_zone_hvac_established("z_boot") is False, (
+        "Round-5 `all` contract: single-room-seen must stay unestablished; "
+        "`any` semantics is a regression (mutate all->any -> this asserts reds)"
+    )
 
-    # Adding more rooms as seen keeps it established.
+    # Seeding EVERY zone room flips the zone to established.
     zm._hvac_seen.add("r_bath")
     assert zm.is_zone_hvac_established("z_boot") is True
 
@@ -958,17 +961,23 @@ def test_reset_only_backstop_unestablished_denies_retreat():
     assert zm.conditioning_retreat_ok(zone) is False
 
 
-def test_f1_established_with_disabled_room_becomes_ready():
-    """F1 fix-up round 4 (2026-09-17): a zone with a DISABLED room
-    (still in `zone.rooms` but never iterated because the room
-    coordinator is None / disabled) must still be able to reach
-    ESTABLISHED via its live rooms.
+def test_f1_disabled_room_leaves_zone_unestablished_round5():
+    """Fix-up round 5 (orchestrator adjudication, 2026-09-17):
+    round-4 `any` semantics was REVERTED. Under the round-5 `all`
+    contract, a zone with a permanently-disabled room (still in
+    `zone.rooms` but its coordinator is None → never iterated past
+    the `if coordinator is None: continue` gate in
+    `update_room_conditions` → never added to `_hvac_seen`) stays
+    permanently UNESTABLISHED.
 
-    Under the wrong-fix failure mode (all rooms in _hvac_seen), the
-    disabled room would permanently block establishment -> the zone
-    fail-opens forever and never retreats. This test constructs a
-    zone with one live + one disabled room; seeds only the live one
-    as seen; asserts established.
+    Consequence: the zone will never retreat. Wrong direction is
+    never wrong (retreat safety intact) but the feature is INERT
+    for that zone. Carded as a TRIP-WIRE follow-up
+    (HVAC-DEGRADED-ROOM-TRIPWIRE-1) — a code trip-wire per No-Soak
+    surfaces the degraded room; the gate stays strict.
+
+    Mutation drill: swap `all` -> `any` -> this test asserts red
+    (zone would incorrectly establish from the live room alone).
     """
     m = _zm_module()
     zm = m.ZoneManager(MagicMock())
@@ -978,9 +987,10 @@ def test_f1_established_with_disabled_room_becomes_ready():
 
     # Only the live room's producer has run.
     zm._hvac_seen.add("r_live")
-    assert zm.is_zone_hvac_established("z_mix") is True, (
-        "Zone with a disabled room must still establish from its live "
-        "rooms (F1 fix — was permanently unestablished under ALL semantics)"
+    assert zm.is_zone_hvac_established("z_mix") is False, (
+        "Round-5 `all` contract: a zone with a disabled room MUST NOT "
+        "establish from its live rooms alone — never retreats on an "
+        "unreadable room. Mutation `all`->`any` reds this assertion."
     )
 
 

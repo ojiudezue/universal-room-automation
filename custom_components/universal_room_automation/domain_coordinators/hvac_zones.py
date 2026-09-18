@@ -937,25 +937,34 @@ class ZoneManager:
         return False
 
     def is_zone_hvac_established(self, zone_id: str) -> bool:
-        """Fused-signal establishment check (F1 fix-up round 4, 2026-09-17).
+        """Fused-signal establishment check (fix-up round 5, 2026-09-17).
 
-        A zone is HVAC-ESTABLISHED iff at least one of its rooms has
+        A zone is HVAC-ESTABLISHED iff EVERY room in `zone.rooms` has
         been observed by the D1 producer at least once since ZoneManager
-        construction (present in `_hvac_seen`).
+        construction (present in `_hvac_seen`). Round-5 orchestrator
+        adjudication reverted the round-4 `any` relaxation back to
+        `all`: `any` would let the zone retreat on the rooms it can't
+        read (a disabled / setup_retry room whose true state is
+        unknown), and "never retreats on an unreadable room" is the
+        safer failure mode for a conditioning decision.
 
-        F1 rationale (round 4): the previous "all zone.rooms in
-        _hvac_seen" test blocked establishment when ANY room lacked a
-        live coordinator (disabled, in setup_retry, or otherwise
-        absent) — `_hvac_seen` is populated only for rooms iterated
-        in `update_room_conditions` past the `if coordinator is None:
-        continue` gate. That created a permanent fail-open (zone never
-        retreats). The relaxed "any" test lets a zone become established
-        from its live rooms while unaffected by disabled ones. The
-        boot / reload cold-retreat window is still closed by the same
-        producer having to have produced AT LEAST ONCE (the boot-time
-        seeding of `last_occupied_time` past grace hits BEFORE any
-        producer call, so a zone at boot has `_hvac_seen` empty for
-        it and returns False here — reset-only backstop intact).
+        Known residual (carded, not fixed here — TRIP-WIRE approach):
+        a zone with a permanently-disabled room never reaches
+        established and therefore never retreats. Benign (wrong
+        direction is never wrong) but leaves the feature INERT for
+        that zone. The right fix is a code trip-wire that surfaces the
+        degraded room (per No-Soak), NOT a relaxation of this gate.
+
+        Reload-window rationale (softened per operator round-5): this
+        function alone does NOT close the reload cold-retreat window —
+        establishment happens in the same synchronous pass as the D1
+        producer's first read on setup, so `_hvac_seen` gets populated
+        essentially in the same tick. The real reload-safety anchor is
+        in `__init__.py`'s HVACCoordinator setup path
+        (`await coordinator.async_config_entry_first_refresh()` at
+        approximately `__init__.py:4959-4962` — awaiting first-refresh
+        before publishing the coordinator to consumers). This function
+        is a defensive OR-condition on top of that.
 
         Callers (row-1, D7, D9, F4 row-10) use this via
         `conditioning_retreat_ok` — the single retreat authorization
@@ -967,7 +976,7 @@ class ZoneManager:
         rooms = list(zone.rooms or [])
         if not rooms:
             return False
-        return any(r in self._hvac_seen for r in rooms)
+        return all(r in self._hvac_seen for r in rooms)
 
     def conditioning_retreat_ok(self, zone) -> bool:
         """F3 fix-up round 4 (2026-09-17): unified retreat-authorization.
