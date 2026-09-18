@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T04:08:43-05:00_ - _Data commit: `67977db7ca5a`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T08:32:48-05:00_ - _Data commit: `f9b9828f5345`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -13,7 +13,7 @@ _Generated: 2026-09-18T04:08:43-05:00_ - _Data commit: `67977db7ca5a`_ - _last_r
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 13 |
-| 🔨 In progress | 0 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 25 |
 | ⏳ Waiting on me (Claude) | 0 |
@@ -44,15 +44,15 @@ _created 2026-09-18_
 - **Tags:** tooling, deploy, hotfix, tier-1
 - **Parsimony:** [BUILD] deploy footgun ships corrupt version metadata
 
-### `HVAC-PRECOOL-SKIP-REASON-OBS-1` - Path A pre-cool has no "why it did NOT fire" reason — surplus-only skips are invisible (also the measure-enabler for the grid-anticipatory gap) — _#3 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+### `HVAC-PRECOOL-WINDOW-TOU-DERIVED-1` - Path A pre-cool window is summer-hardcoded [10,14) — not responsive to shoulder/winter TOU peaks (same phase-blindness we just deleted) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **inbox**
 _created 2026-09-18_
 - **Problem / Solution:**
-  - Problem: Path A (_should_energy_precool, hvac_predict.py:686) exposes positive state (pre_cool_active, pre_cool_likelihood, energy_precool_zones/enabled/offset/scope on sensor.ura_hvac_coordinator_mode) but NO skip-reason. The only reaso...
-- **Why:** Sole-path observability gap surfaced by a post-delete quick check (operator). Doubly valuable: it is ALSO the measure-first enabler for EC-GRID-ANTICIPATORY-PRECOOL-GAP-1 - counting "skipped: no surplus on a hot day" rows is exactly that...
-- **Next:** Add a per-tick skip-reason set at each _should_energy_precool early-return; surface on the 10-Mode sensor. Then a one-shot recorder query can quantify hot-day surplus-only skips (feeds the gap card).
-- **Tags:** hvac, observability, precool, tier-1, measure-enabler
-- **Parsimony:** [BUILD] no why-not-firing signal on the sole pre-cool path
+  - Problem (operator 2026-09-18): _should_energy_precool gates on hour in [ENERGY_PRECOOL_HOUR_START=10, PEAK_HOUR_START=14) (hvac_const.py:143 + hvac_predict.py:52) - a FIXED 10am-2pm window anchored to a 2pm summer peak. TOU peak windows ...
+- **Why:** Corrects my (assistant) wrong claim that the window constants are structural/no-gap. Seasonal peak responsiveness is real; the constants make Path A summer-only-correct. Related to the phase-aware theme of the deleted EC branch.
+- **Next:** Scope: replace the fixed [10,14) hour gate with a peak-relative window derived from the TOU next- transition; keep a knob for the lead hours. Measure-first: check shoulder/winter peak times vs the fixed window before building. Tier 2 (de...
+- **Tags:** hvac, precool, tou, seasonal, phase-aware
+- **Parsimony:** [BUILD] summer-hardcoded pre-cool window, phase-blind to shoulder/winter
 
 ## 🔬 Investigating (2)
 _measuring; truth not yet known_
@@ -482,10 +482,18 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
+### `HVAC-PRECOOL-SKIP-REASON-OBS-1` - Path A pre-cool has no "why it did NOT fire" reason — surplus-only skips are invisible (also the measure-enabler for the grid-anticipatory gap) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **hvac** - status: **in_progress**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem: Path A (_should_energy_precool, hvac_predict.py:686) exposes positive state (pre_cool_active, pre_cool_likelihood, energy_precool_zones/enabled/offset/scope on sensor.ura_hvac_coordinator_mode) but NO skip-reason. The only reaso...
+- **Why:** Sole-path observability gap surfaced by a post-delete quick check (operator). Doubly valuable: it is ALSO the measure-first enabler for EC-GRID-ANTICIPATORY-PRECOOL-GAP-1 - counting "skipped: no surplus on a hot day" rows is exactly that...
+- **Next:** Add a per-tick skip-reason set at each _should_energy_precool early-return; surface on the 10-Mode sensor. Then a one-shot recorder query can quantify hot-day surplus-only skips (feeds the gap card).
+- **Tags:** hvac, observability, precool, tier-1, measure-enabler
+- **Parsimony:** [BUILD] no why-not-firing signal on the sole pre-cool path
 
 ## 🔍 Review (0)
 _under review_

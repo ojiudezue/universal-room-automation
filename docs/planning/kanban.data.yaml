@@ -700,7 +700,7 @@ cards:
   parsimony: {problem: 'jargon labels truncate in UI', verdict: BUILD, note: 'cosmetic, reversible, low-risk'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'operator screenshot 2026-09-18'}
 - id: HVAC-PRECOOL-SKIP-REASON-OBS-1
-  status: inbox
+  status: in_progress
   thread: hvac
   created: '2026-09-18'
   updated: '2026-09-18'
@@ -722,6 +722,30 @@ cards:
     sensor. Then a one-shot recorder query can quantify hot-day surplus-only skips (feeds the gap card).'
   parsimony: {problem: 'no why-not-firing signal on the sole pre-cool path', verdict: BUILD, note: 'additive obs, low risk, enables the gap measurement'}
   links: {related: [EC-GRID-ANTICIPATORY-PRECOOL-GAP-1, EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1], context: 'post-Path-B-delete quick check 2026-09-18'}
+- id: HVAC-PRECOOL-WINDOW-TOU-DERIVED-1
+  status: inbox
+  thread: hvac
+  created: '2026-09-18'
+  updated: '2026-09-18'
+  tags: [hvac, precool, tou, seasonal, phase-aware]
+  title: Path A pre-cool window is summer-hardcoded [10,14) — not responsive to shoulder/winter TOU peaks (same phase-blindness we just deleted)
+  problem_solution:
+  - 'Problem (operator 2026-09-18): _should_energy_precool gates on hour in [ENERGY_PRECOOL_HOUR_START=10,
+    PEAK_HOUR_START=14) (hvac_const.py:143 + hvac_predict.py:52) - a FIXED 10am-2pm window anchored to a
+    2pm summer peak. TOU peak windows + solar profiles SHIFT seasonally (shoulder spring/fall, winter), so
+    the pre-cool window is wrong outside summer - it pre-cools at the summer-peak-relative time regardless of
+    the actual peak. This is the SAME phase-blindness just deleted from the EC pre_cool branch, now hiding in
+    Path A as hardcoded constants. Solution: DERIVE the pre-cool window from the actual TOU schedule (start =
+    N hours before the next peak transition; reuse the tou get_next_transition / summer_peak_ahead machinery,
+    energy.py:7454 / energy_battery.py:5390) so it tracks shoulder/winter peaks, not a fixed clock.'
+  why: 'Corrects my (assistant) wrong claim that the window constants are structural/no-gap. Seasonal peak
+    responsiveness is real; the constants make Path A summer-only-correct. Related to the phase-aware theme
+    of the deleted EC branch.'
+  next: 'Scope: replace the fixed [10,14) hour gate with a peak-relative window derived from the TOU next-
+    transition; keep a knob for the lead hours. Measure-first: check shoulder/winter peak times vs the fixed
+    window before building. Tier 2 (decision-logic, seasonal).'
+  parsimony: {problem: 'summer-hardcoded pre-cool window, phase-blind to shoulder/winter', verdict: BUILD, note: 'real seasonal gap; measure peak-time shift first'}
+  links: {related: [EC-GRID-ANTICIPATORY-PRECOOL-GAP-1, HVAC-PRECOOL-SKIP-REASON-OBS-1], context: 'operator quick-check pushback 2026-09-18'}
 - id: EC-GRID-ANTICIPATORY-PRECOOL-GAP-1
   status: parked
   thread: energy
