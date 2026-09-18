@@ -373,7 +373,8 @@ cards:
     CLEARED: single resolver _effective_hvac_hold_seconds (hvac_zones.py:837), no half-wired F5 remnants,
     D4 re-derived-safe, non-goals explicit. OVER-COMPLICATION: drop D9 + collapse D7 = removes ~all real
     risk -> additive Tier-2 (D1/D2 room step + D3+migration + D4 + D5/D6 chokepoint). Revising.'
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.8
   thread: hvac
   created: '2026-09-17'
   updated: '2026-09-17'
@@ -407,7 +408,8 @@ cards:
     the 10-Mode sensor. ABSORBS HVAC-COAST-OBSERVABILITY-1 (D7). Most of the review HIGHs land HERE
     (B1 fabricated vocab, A-MED-4 stale-reason soft-nudge site, hollow D6 anchor) — under active fix-up.
     Ships together as v5.103.8. status review to track it with its cycle, not orphaned in investigating.'
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.8
   thread: hvac
   created: '2026-09-17'
   updated: '2026-09-17'
@@ -436,7 +438,8 @@ cards:
   parsimony: {problem: 'preset-away causation is DB-only, not live-legible -> chronic misattribution', verdict: BUILD, note: 'investigation first; likely small additive sensors/attrs'}
   links: {related: [HVAC-COAST-OBSERVABILITY-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-ZONE1-MANUAL-OSCILLATION-1], context: 'operator-requested attribution-legibility investigation; coast-observability is a component'}
 - id: HVAC-COAST-OBSERVABILITY-1
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.8
   thread: hvac
   created: '2026-09-17'
   updated: '2026-09-17'
