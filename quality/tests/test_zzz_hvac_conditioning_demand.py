@@ -516,20 +516,23 @@ def test_night_hold_table_covers_all_non_hallway_types_monotonic():
     assert C.DEFAULT_HVAC_VACANCY_HOLD_NIGHT >= C.DEFAULT_HVAC_VACANCY_HOLD
 
 
-def test_per_room_override_conf_removed_f5():
-    """F5 fix-up round 4 (2026-09-17): CONF_HVAC_VACANCY_HOLD and
-    CONF_HVAC_VACANCY_HOLD_NIGHT are DROPPED (they were inert — no
-    config-flow/Number surface). Ensures the const module no longer
-    exposes them so downstream readers get an ImportError instead of
-    a silently-inert knob.
+def test_per_room_override_conf_reintroduced_v5_103_8():
+    """HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D1/D2 (v5.103.8): the F5-dropped
+    CONF_HVAC_VACANCY_HOLD[_NIGHT] fields are REINTRODUCED with a real
+    ROOM options-flow surface (`config_flow.py:async_step_climate`) and
+    are read by the D1 producer via `_effective_hvac_hold_seconds`.
+    Ensures the CONF names are exposed again with the byte-for-byte
+    original strings so downstream readers resolve without ImportError.
     """
     C = _const_mod()
-    assert not hasattr(C, "CONF_HVAC_VACANCY_HOLD"), (
-        "CONF_HVAC_VACANCY_HOLD should be REMOVED (F5, dropped inert knob)"
+    assert hasattr(C, "CONF_HVAC_VACANCY_HOLD"), (
+        "CONF_HVAC_VACANCY_HOLD must be REINTRODUCED (D1/D2, v5.103.8)"
     )
-    assert not hasattr(C, "CONF_HVAC_VACANCY_HOLD_NIGHT"), (
-        "CONF_HVAC_VACANCY_HOLD_NIGHT should be REMOVED (F5)"
+    assert hasattr(C, "CONF_HVAC_VACANCY_HOLD_NIGHT"), (
+        "CONF_HVAC_VACANCY_HOLD_NIGHT must be REINTRODUCED (D1/D2)"
     )
+    assert C.CONF_HVAC_VACANCY_HOLD == "hvac_vacancy_hold"
+    assert C.CONF_HVAC_VACANCY_HOLD_NIGHT == "hvac_vacancy_hold_night"
 
 
 def test_hallway_circulation_exclusion_via_update_room_conditions():
@@ -899,9 +902,10 @@ def test_d3_defaults_and_tables_present():
     assert C.ROOM_TYPE_HVAC_HOLD["bedroom"] == 60
     # Night table has bigger bedroom tail.
     assert C.ROOM_TYPE_HVAC_HOLD_NIGHT["bedroom"] == 1800
-    # F5 fix-up round 4: CONF_HVAC_VACANCY_HOLD[_NIGHT] dropped.
-    assert not hasattr(C, "CONF_HVAC_VACANCY_HOLD")
-    assert not hasattr(C, "CONF_HVAC_VACANCY_HOLD_NIGHT")
+    # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D1/D2 (v5.103.8): CONFs
+    # REINTRODUCED with a real config-flow surface.
+    assert hasattr(C, "CONF_HVAC_VACANCY_HOLD")
+    assert hasattr(C, "CONF_HVAC_VACANCY_HOLD_NIGHT")
     assert C.ROOM_TYPE_HALLWAY == "hallway"
 
 

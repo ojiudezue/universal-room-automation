@@ -1954,12 +1954,16 @@
             "data": {
               "target_temp_heat": "Comfort Range — Low (°F)",
               "target_temp_cool": "Comfort Range — High (°F)",
-              "climate_entity": "Climate/Thermostat Entity (fallback)"
+              "climate_entity": "Climate/Thermostat Entity (fallback)",
+              "hvac_vacancy_hold": "HVAC vacancy hold (day, seconds — blank uses the room-type default)",
+              "hvac_vacancy_hold_night": "HVAC vacancy hold (night, seconds — blank uses the room-type default)"
             },
             "data_description": {
               "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
-              "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set."
+              "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set.",
+              "hvac_vacancy_hold": "Per-room override for how long HVAC keeps a room denoted as HVAC-occupied after motion clears (daytime). Leave blank to use the room-type default. Night value must be ≥ day.",
+              "hvac_vacancy_hold_night": "Per-room override for the night-time HVAC vacancy tail-hold. Leave blank to use the room-type default. Must be ≥ the day value; night < day is rejected."
             }
           }
         }

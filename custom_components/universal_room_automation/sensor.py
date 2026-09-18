@@ -12073,11 +12073,16 @@ def _hvac_device_info():
     )
 
 
-class HVACModeSensor(AggregationEntity, SensorEntity):
+class HVACModeSensor(AggregationEntity, SensorEntity, RestoreEntity):
     """HVAC operating mode.
 
     Entity: sensor.ura_hvac_coordinator_mode
     Device: URA: HVAC Coordinator
+
+    HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D7 (v5.103.8): RestoreEntity so
+    `energy_constraint_since` survives restart with resume-if-same /
+    reset-if-different discipline. Without this the `duration_s`
+    attr zeros out mid-coast on every restart.
     """
 
     _attr_has_entity_name = True
@@ -12111,6 +12116,37 @@ class HVACModeSensor(AggregationEntity, SensorEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+        # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D7 (v5.103.8): resume-if-same
+        # / reset-if-different for `energy_constraint_since`. Iff the
+        # live mode matches the restored mode, seed the coordinator's
+        # tracker so `duration_s` continues from the pre-restart
+        # transition. If it differs, do NOTHING — the coordinator's
+        # transition-in stamp on the next `_handle_energy_constraint`
+        # will reset `since` to now.
+        try:
+            last = await self.async_get_last_state()
+        except Exception:  # noqa: BLE001
+            last = None
+        if last is not None:
+            restored_mode = last.attributes.get("energy_constraint_mode")
+            restored_since_iso = last.attributes.get("energy_constraint_since")
+            if restored_mode and restored_since_iso:
+                try:
+                    from homeassistant.util import dt as _dt_util  # noqa: PLC0415
+                    restored_since = _dt_util.parse_datetime(restored_since_iso)
+                except Exception:  # noqa: BLE001
+                    restored_since = None
+                manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+                hvac = manager.coordinators.get("hvac") if manager else None
+                if restored_since is not None and hvac is not None:
+                    current = getattr(hvac, "_energy_constraint_mode", "normal")
+                    if current == restored_mode:
+                        existing = getattr(
+                            hvac, "_energy_constraint_mode_since", None,
+                        )
+                        if existing is None or restored_since < existing:
+                            hvac._energy_constraint_mode_since = restored_since
+
         from homeassistant.helpers.dispatcher import async_dispatcher_connect
         from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
         self.async_on_remove(
@@ -12790,6 +12826,26 @@ class HVACZonePresetSensor(AggregationEntity, SensorEntity):
         season = hvac.preset_manager.current_season
         if season:
             attrs["season"] = season
+        # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D5 (v5.103.8): retreat_reason.
+        # Reads the chokepoint-captured `_last_reason_by_zone` cache
+        # (populated on every successful `emit_set_preset_mode` call
+        # and hydrated at boot from `ura_activity_log` for the S1 path
+        # only — see planning §P3). Non-S1 sites show `unknown` after
+        # restart until the next write on that zone.
+        try:
+            cache = getattr(hvac, "_last_reason_by_zone", None) or {}
+            entry = cache.get(self._zone_id)
+            if entry is None:
+                attrs["retreat_reason"] = "unknown"
+            else:
+                reason, ts = entry
+                attrs["retreat_reason"] = reason or "unknown"
+                try:
+                    attrs["retreat_reason_at"] = ts.isoformat()
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception:  # noqa: BLE001
+            attrs["retreat_reason"] = "unknown"
         return attrs
 
     async def async_added_to_hass(self) -> None:
@@ -13794,6 +13850,19 @@ class HVACArresterStatusSensor(AggregationEntity, SensorEntity):
             "ac_reset_timeout_minutes": ac_reset_timeout_minutes,
             "enabled": detail.get("enabled", False),
             "ac_reset_enabled": detail.get("ac_reset_enabled", False),
+            # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D8 (v5.103.8): this
+            # `energy_coast` bool is the OverrideArrester's own cached
+            # flag (`hvac_override.py:6596`, set by `update_energy_state`
+            # from `hvac_override.py:2242`). It is a DISTINCT concept
+            # from the live `energy_constraint_mode == "coast"` on the
+            # "10 · Mode" sensor: this one is a per-arrester cache with
+            # its own consumers (`hvac_override.py:2028`, `:3171`) and
+            # its own test coverage (`test_cycle_e_observability.py:
+            # 42/553`). They EQUAL each other in the common path today,
+            # which is a Bug Class #63 coincidental-equality: do NOT
+            # unify. If a future refactor drops the arrester cache,
+            # verify by mutation that each of the two consumers falls
+            # over independently before choosing which surface wins.
             "energy_coast": detail.get("energy_coast", False),
             "zones": zones,
         }

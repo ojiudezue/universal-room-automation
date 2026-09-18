@@ -45,6 +45,47 @@ from .hvac_const import FREEZE_FLOOR, MIN_DEADBAND
 _LOGGER = logging.getLogger(__name__)
 
 
+def _capture_preset_reason(
+    hass: HomeAssistant, zone_id: str, reason: str,
+) -> None:
+    """HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D6 (v5.103.8).
+
+    Cache the ``reason=`` argument on the HVAC coordinator, keyed by
+    zone_id, so the zone-preset sensor can surface it as
+    ``retreat_reason``. Called from the two chokepoint success paths
+    (initial + retry). Covers ALL 11 URA-side preset-write sites
+    automatically — no per-caller wiring (Bug Class #53 prevention).
+
+    Best-effort: never raises. Empty/missing zone_id or reason falls
+    through to the sensor's ``unknown`` default.
+    """
+    if not zone_id:
+        return
+    try:
+        from homeassistant.util import dt as dt_util  # noqa: PLC0415
+        from ..const import DOMAIN  # noqa: PLC0415
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return
+        hvac = manager.coordinators.get("hvac") if hasattr(
+            manager, "coordinators",
+        ) else None
+        if hvac is None:
+            return
+        cache = getattr(hvac, "_last_reason_by_zone", None)
+        if cache is None:
+            cache = {}
+            hvac._last_reason_by_zone = cache
+        cache[zone_id] = (reason or "unknown", dt_util.utcnow())
+    except Exception:  # noqa: BLE001
+        # Best-effort observability — never let a cache write take
+        # down a preset-write call site.
+        _LOGGER.debug(
+            "preset-reason capture failed for zone=%s reason=%s",
+            zone_id, reason, exc_info=True,
+        )
+
+
 def apply_setpoint_guards(
     target_temp_low: float | None,
     target_temp_high: float | None,
@@ -330,7 +371,7 @@ async def emit_set_preset_mode(
             {"entity_id": entity_id, "preset_mode": preset_mode},
             blocking=blocking,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         # INVARIANT I3 — "the zone is never left following the vendor
         # schedule". Found by the adversarial build review, and it is the
         # one way this fix could CAUSE the harm it exists to prevent:
@@ -355,6 +396,7 @@ async def emit_set_preset_mode(
                     "resume-then-pin: pin retry succeeded for %s (%s)",
                     entity_id, preset_mode,
                 )
+                _capture_preset_reason(hass, zone_id, reason)
                 return True
             except Exception:  # noqa: BLE001
                 _LOGGER.error(
@@ -364,4 +406,5 @@ async def emit_set_preset_mode(
                     entity_id, preset_mode, exc_info=True,
                 )
         raise
+    _capture_preset_reason(hass, zone_id, reason)
     return True
