@@ -222,6 +222,10 @@ from .const import (
     CONF_HUMIDITY_FAN_MAX_RUNTIME,
     CONF_HVAC_VACANCY_HOLD,
     CONF_HVAC_VACANCY_HOLD_NIGHT,
+    ROOM_TYPE_HVAC_HOLD,
+    ROOM_TYPE_HVAC_HOLD_NIGHT,
+    DEFAULT_HVAC_VACANCY_HOLD,
+    DEFAULT_HVAC_VACANCY_HOLD_NIGHT,
     DEFAULT_TARGET_TEMP_COOL,
     DEFAULT_TARGET_TEMP_HEAT,
     DEFAULT_FAN_TEMP_THRESHOLD,
@@ -11710,26 +11714,47 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     # Explicit `0` is preserved (displayed as 0 via
                     # `description.suggested_value`), unblanked by
                     # the pop-if-absent in the save branch above.
+                    # Assistive suggested-default: when the operator has
+                    # NOT set an explicit value, show the room-TYPE default
+                    # from `ROOM_TYPE_HVAC_HOLD[_NIGHT]` so what "good" is
+                    # for THIS room is visible in the field (an unset
+                    # bedroom sees ~60s / 1800s, a hallway sees 0). An
+                    # explicitly-set value (including 0) is preserved.
+                    # The pop-if-absent in the save branch above still
+                    # translates a blanked field into "unset" so the
+                    # runtime falls through to the same table — the
+                    # suggested value is display-only, never persisted
+                    # by suggesting it.
                     vol.Optional(
                         CONF_HVAC_VACANCY_HOLD,
-                        description={"suggested_value": self._get_current(
-                            CONF_HVAC_VACANCY_HOLD,
+                        description={"suggested_value": (
+                            self._get_current(CONF_HVAC_VACANCY_HOLD)
+                            if self._get_current(CONF_HVAC_VACANCY_HOLD) is not None
+                            else ROOM_TYPE_HVAC_HOLD.get(
+                                self._get_current(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC),
+                                DEFAULT_HVAC_VACANCY_HOLD,
+                            )
                         )},
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
-                            min=0, max=7200,
+                            min=0, max=7200, step=30,
                             unit_of_measurement="s",
                             mode=selector.NumberSelectorMode.BOX,
                         )
                     ),
                     vol.Optional(
                         CONF_HVAC_VACANCY_HOLD_NIGHT,
-                        description={"suggested_value": self._get_current(
-                            CONF_HVAC_VACANCY_HOLD_NIGHT,
+                        description={"suggested_value": (
+                            self._get_current(CONF_HVAC_VACANCY_HOLD_NIGHT)
+                            if self._get_current(CONF_HVAC_VACANCY_HOLD_NIGHT) is not None
+                            else ROOM_TYPE_HVAC_HOLD_NIGHT.get(
+                                self._get_current(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC),
+                                DEFAULT_HVAC_VACANCY_HOLD_NIGHT,
+                            )
                         )},
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
-                            min=0, max=7200,
+                            min=0, max=7200, step=30,
                             unit_of_measurement="s",
                             mode=selector.NumberSelectorMode.BOX,
                         )
