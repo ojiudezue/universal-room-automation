@@ -125,13 +125,24 @@ alternative to a stubbed dummy (rejected as fabricating a trust input).
 
 ---
 
-## Open question threading through several of these
+## Open question — ANSWERED 2026-09-17 (Bryant audit) + a NEW one surfaced
 
-**Is URA's D5 duty-cycle protection redundant with the Bryant thermostat's own
-compressor protection?** If the Infinity thermostat already enforces
-short-cycle / minimum-off-time protection natively, then URA's D5 is not
-protecting anything — it's a pure energy-policy lever wearing a safety name, and
-the occupancy-blind forced-away is downside with no protective upside. That would
-reshape item #1 (from "gate it" toward "reframe/reduce/remove"), and it connects
-to item #3 (the Bryant native schedule is already doing more than we credited).
-Research task dispatched 2026-09-18.
+**Was URA's D5 duty-cycle "protection" redundant with the Bryant thermostat's own compressor
+protection?** **YES, PARTIALLY.** The Infinity/Evolution control board + equipment delay-on-break
+already protect the compressor natively (variable-speed units modulate rather than cycle; the board
+logs short-cycling as a fault and self-delays). URA's force-to-`away` does NOT lengthen any compressor
+off-time — **it is pure energy-shed policy wearing a protection name** (audit's "zero Bryant grounding"
+CONFIRMED). Resolution: **option (b)** — reframe (`runtime_exceeded` → `energy_shed_cap_reached`) +
+occupancy-gate (defer for occupied coast zones, shed still dominates) + knobs to Rung-3. NOT delete
+(it stays a legit coast/shed load-shed lever on EMPTY zones). Follow-up parked:
+`HVAC-D5-REGROUND-ON-ODU-VAR-1` (ha_carrier exposes a richer real-duty signal, ODU Var %/stage_status).
+Full detail: `AUDIT_bryant_duty_cycle_redundancy_2026_09_17.md`.
+
+**NEW true-up finding (the deeper yikes).** URA *had* this occupancy fix already — "S14" (2026-08-11)
+held occupied zones at a comfort offset during the D5 off-phase instead of forcing away — and it was
+**REMOVED 2026-09-16** because a raw setpoint write flips Carrier to `manual`, and `should_change_preset`
+then refuses the zone: **S14 created the exact lockout.** So (1) the D5 occupancy-gate must defer as a
+NO-WRITE (ledger-only), never restore an offset-hold; and (2) EC's own coast/shed offset is *also*
+`occupied_only=True` and setpoint-based — **does it self-lock the same way, house-wide?** Untraced →
+carded `HVAC-EC-OFFSET-SELF-LOCKOUT-1` (investigating). That question sizes the lockout-escape (item #2)
+and tests whether "EC handles graceful shed on occupied zones" is even true today.

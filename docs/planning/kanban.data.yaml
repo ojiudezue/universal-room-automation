@@ -494,7 +494,7 @@ cards:
     energy_constraint_mode==shed (shed dominates), log energy_shed_cap_deferred_occupied; (3) knobs->Rung-3
     (absorb HVAC-D5-KNOBS-TO-RUNG-3-1, 0=kill). NEW finding: ha_carrier exposes ODU Var %/stage_status =
     richer real-duty signal than the 20-min hvac_action integral -> parked (d) HVAC-D5-REGROUND-ON-ODU-VAR-1.
-    See docs/planning/AUDIT_bryant_duty_cycle_redundancy_2026_09_17.md. BUILD DISPATCHED (Tier 2-DB).'
+    See docs/planning/AUDIT_bryant_duty_cycle_redundancy_2026_09_17.md. BUILD NOT YET DISPATCHED - operator asked how to fully true-up (2026-09-17); reconciling scope first (redundancy-with-EC-shed question open).'
   CHECKPOINT_DEFAULTS_2026_09_18: 'Operator: dont hold it + finish this tail (superseding the earlier
     dismiss). Proceeding on RECOMMENDED defaults: (1) SHED>OCCUPANCY>COAST-DUTY (shed still forces
     occupied away; occupancy defers ONLY under coast — matches D3 shed-dominates); (2) remove
@@ -11285,6 +11285,33 @@ cards:
   refs:
   - hvac_preset.py:202-217 (should_change_preset — the silent refusal)
   - hvac.py (the instrumented refusal site)
+- id: HVAC-EC-OFFSET-SELF-LOCKOUT-1
+  status: investigating
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, energy, lockout, cross-coordinator, measure-first]
+  title: Does EC's occupied-only coast/shed setpoint offset ALSO flip Carrier to manual and self-lock (the S14 trap, house-wide)?
+  problem_solution:
+  - 'Problem: S14 was removed 2026-09-16 because a raw setpoint write flips the Bryant/Carrier thermostat
+    to manual and should_change_preset then refuses the zone (self-lockout). EC publishes SIGNAL_ENERGY_
+    CONSTRAINT with setpoint_offset + occupied_only=True (energy.py:7473-7488), aimed at OCCUPIED zones
+    during coast/shed. If the HVAC-side application of that offset uses emit_set_temperature, EC has the
+    SAME self-lockout as S14 - meaning URA''s graceful degree-based shed on occupied zones is itself
+    broken on Carrier, and the 15 measured lockouts/2d (HVAC-PRESET-LOCKOUT-ESCAPE-1) may largely BE EC.
+    UNVERIFIED: hvac.py:1575-1613 feeds _energy_offset to the override arrester + fans + covers +
+    predictor, NOT an obvious direct setpoint write - the actual offset->setpoint application site and its
+    write verb are untraced. Solution/next: TRACE the offset->target->write path (arrester + predictor);
+    if it emit_set_temperature''s occupied zones during coast, that is the real lockout producer.'
+  why: 'Surfaced during the D5 true-up (Bryant audit + S14 history). This is the discriminator that sizes
+    HVAC-PRESET-LOCKOUT-ESCAPE-1 and validates/breaks the "EC handles graceful shed on occupied" premise
+    the D5 occupancy-gate reconciliation rests on.'
+  next: 'TRACE: where is EC setpoint_offset applied to a target and written (arrester/predictor)? verb =
+    emit_set_temperature (locks) or preset-safe? Then correlate the 15 lockout episodes'' timestamps vs
+    coast/shed windows. CONFIRMED->the lockout escape (item #2) is house-wide + urgent; REFUTED->offset is
+    applied safely, item #2 stays rare.'
+  parsimony: {problem: 'possible house-wide self-lockout via EC offset', verdict: BUILD, note: 'investigation; read-only trace, cheap, decisive'}
+  links: {related: [HVAC-PRESET-LOCKOUT-ESCAPE-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-ZONE1-MANUAL-OSCILLATION-1], context: 'D5 true-up / S14 removal 2026-09-16 / Bryant audit'}
 - id: HVAC-PRESET-LOCKOUT-ESCAPE-1
   MEASUREMENT_2026_09_17: 'Gate read (v5.103.4 telemetry, ura_activity_log action=preset_change_
     locked_out, immutable snapshot): 15 episodes across 09-16/09-17 = ~6-9/day house-wide (zone_1 6,

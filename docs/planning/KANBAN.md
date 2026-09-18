@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T22:33:38-05:00_ - _Data commit: `69bd5689801f`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T22:36:37-05:00_ - _Data commit: `6200233998ea`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-09-17T22:33:38-05:00_ - _Data commit: `69bd5689801f`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 3 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 13 |
 | 🔨 In progress | 1 |
@@ -54,10 +54,20 @@ _created 2026-09-17_
 - **Tags:** hvac, tier-1, contingent, measure-first
 - **Parsimony:** [BUILD] overnight accumulation instant-trips on wake
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#1 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `HVAC-EC-OFFSET-SELF-LOCKOUT-1` - Does EC's occupied-only coast/shed setpoint offset ALSO flip Carrier to manual and self-lock (the S14 trap, house-wide)? — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **investigating**
+_created 2026-09-17_
+- **Problem / Solution:**
+  - Problem: S14 was removed 2026-09-16 because a raw setpoint write flips the Bryant/Carrier thermostat to manual and should_change_preset then refuses the zone (self-lockout). EC publishes SIGNAL_ENERGY_ CONSTRAINT with setpoint_offset + o...
+- **Why:** Surfaced during the D5 true-up (Bryant audit + S14 history). This is the discriminator that sizes HVAC-PRESET-LOCKOUT-ESCAPE-1 and validates/breaks the "EC handles graceful shed on occupied" premise the D5 occupancy-gate reconciliation r...
+- **Next:** TRACE: where is EC setpoint_offset applied to a target and written (arrester/predictor)? verb = emit_set_temperature (locks) or preset-safe? Then correlate the 15 lockout episodes' timestamps vs coast/shed windows. CONFIRMED->the lockout...
+- **Tags:** hvac, energy, lockout, cross-coordinator, measure-first
+- **Parsimony:** [BUILD] possible house-wide self-lockout via EC offset
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
