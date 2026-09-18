@@ -1,0 +1,35 @@
+{
+ "format_version": "2.1",
+ "entry_id": "131",
+ "author": "ojiudezue",
+ "session_id": "claude_20260917_hvac_step4b_arc",
+ "timestamp": "2026-09-17T00:00:00Z",
+ "type": "reasoning",
+ "weight": "critical",
+ "title": "HVAC step-4-B (conditioning-demand) arc: plan-review + 4-review + 3 build rounds; night-trust unresolved (operator decision pending)",
+ "summary": "Drove HVAC-ZONE-CONDITIONING-DEMAND-1 (step 4 of HVAC-SUPPLE-SEQUENCE-1) from proposal to a 3-rounds-deep Tier-3 build. Design settled: circulation-aware per-room HVAC-occupancy (sibling RoomCondition.hvac_occupied, NOT a swap), OR aggregation, absolute aggression, D9 DPM caller-side gate, night-trust in scope (Option B). Gate-heavy process caught many defects before any deploy; the DAYTIME piece is clean but the NIGHT-TRUST piece (D7/D8/D9 backstop) still has 2 HIGH + an operator policy call after 3 build rounds, so a DECOUPLE (ship daytime, split night to its own hardened cycle) is being recommended.",
+ "why": "Operator picked Option B (night-trust in scope) because zone_3/back-hallway overnight is 'a money pit' and empty zones must retreat fast at night; occupancy is P0. But every review round localized the churn to the night-trust logic. The daytime win (D1 circulation exclusion + D9 compose-away for empty zones) cleared all reviews; the night fail-open + person-trust backstop keeps producing HIGH findings (D9 defeats the preset-layer backstop at the setpoint layer; the DPM throttle strands zones when S8/S9 restores fire; the backstop breadth = any-resident-home preserves EVERY empty zone = the exact over-preservation the cycle set out to kill). That asymmetry is the case for decoupling.",
+ "implications": "Step-4-B NOT shipped. Build lives on feature/hvac-conditioning-demand (worktree .claude/worktrees/hvac-conditioning-demand @66c20636b), name-diff CLEAN (orchestrator-verified NEW=0). Two re-reviews (correctness + adversarial) converged FIX-REQUIRED; test-authority re-review died on login-expiry (its finding covered by the other two: anchors still source-greps). Decision pending from operator: (A) round-4 fix-up keeping night-trust in scope, or (B) DECOUPLE — ship daytime piece now, split night-trust (D7/D8/D9-backstop) to its own Tier-3 cycle with the backstop-breadth policy decided up front. Live: back-hallway (zone_3) reported HOT + staying AWAY while operator in kitchen — pre-fix behavior, being checked.",
+ "revisit_trigger": "Operator picks decouple vs round-4. If decouple: daytime-only build = D1 circulation exclusion + D9 compose-away + hallway enum + D5 migration, invariant scoped to daytime; night-trust card carries the fail-open/backstop with the breadth decision (narrow to not-established-only vs any-home) made in the plan. Must-fix carried either way: F1 (establishment permanently-off on a disabled room), F2/D-HIGH-2 (S8/S9 update _last_emitted_range or compose bypasses throttle), F3/D-HIGH-1 (shared _zone_conditioning_retreat_ok across row-1/D7/D9), F4 (row-10 establishment guard), F5 (inert CONF_HVAC_VACANCY_HOLD[_NIGHT] knobs), real behavioral anchors replacing source-greps.",
+ "refs": {
+  "cards": [
+   "HVAC-ZONE-CONDITIONING-DEMAND-1",
+   "HVAC-SUPPLE-SEQUENCE-1",
+   "HVAC-MANUAL-PRESET-CONTRACT-1",
+   "HVAC-ZONE1-MANUAL-OSCILLATION-1",
+   "HVAC-PRESET-LOCKOUT-ESCAPE-1",
+   "HVAC-SETHVACMODE-CHOKEPOINT-1",
+   "HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1",
+   "ZIRI-PRESENCE-SENSOR-DEAD-1",
+   "URA-CONFIG-ENTRY-RELOAD-STORM-1"
+  ],
+  "docs": [
+   "docs/planning/PLANNING_hvac_zone_conditioning_demand.md",
+   "docs/planning/PROPOSAL_hvac_conditioning_demand_2026_09_16.md",
+   "docs/planning/AUDIT_hvac_conditioning_demand_supersession_and_reuse_2026_09_16.md",
+   "docs/planning/AUDIT_thermostat_write_paths_2026_09_16.md",
+   "docs/planning/MEMO_ura_central_tick_wheel_2026_09_16.md"
+  ],
+  "key_findings": "6% manual-target RETRACTED (borrowed from zone_3, wrong). Preset-write acceptance = write lands (proven resume-then-pin) + URA not refused (lockout telemetry), NOT manual%. Zone_1 residual = manual<->away OSCILLATION w/ unidentified re-manual writer (measure-first carded). Escape real-but-RARE (downgraded). Reload storm REDUCED (0 last night, 3x ~34h ago vs 5x/night baseline) but fix warranted. Ziri 'dead sensor' REFUTED (away, not degraded). Thermostat writes MORE governed than feared (21/28 funnelled; only set_hvac_mode bypasses, 7 sites -> Phase-1 card). Abstraction NOT the root fix for HIGH-2/oscillation. Central tick-wheel: herd objection struck, parked memo."
+ }
+}

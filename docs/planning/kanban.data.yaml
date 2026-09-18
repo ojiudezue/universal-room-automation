@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-16'
+  last_reconciled: '2026-09-17'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -9,6 +9,127 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: PERIMETER-DETECTION-WENT-DARK-1@2026-09-17T02:15:00
+    at: '2026-09-17T02:15:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'STAND DOWN ON LAST NIGHT''S ALARM — your cameras are fine, and I was wrong to tell you
+      they were still blind. Last night I reported that outdoor person detection had gone dark and
+      was staying dark. The first half was true; the second half was not. Detection came back by
+      itself on Monday afternoon around 15:00 and has been completely normal since — 317 detections
+      on Tuesday, squarely in the usual 160-580 range, and the alerts that depend on it are flowing
+      again too. The mistake is worth knowing about because it is an easy one to repeat: I measured
+      at half past three in the morning, saw one detection so far that day, and read it as continued
+      silence. One detection before 3am is just what a quiet night looks like on these cameras. I
+      should have compared the same hours of a normal day rather than a partial day against a full
+      one. WHAT WAS REAL, now pinned precisely instead of open-ended: a hard blackout from Monday
+      13:00 to Tuesday 15:00 — about 26 hours, not the 36-and-counting I claimed. BUT I FOUND
+      SOMETHING WORSE WHILE CHECKING, and this is the actual news: it has happened more than once.
+      Going back through everything the recorder still holds, there was an even longer blackout the
+      week before — nearly 30 hours, from the 10th into the 11th — and a third 8-hour hole in the
+      middle of a Wednesday. Three of them in eight days. Every one started, ran and healed itself
+      with nothing noticing in either direction. So this is not a freak event, it is something that
+      happens to your house roughly weekly and that you have never been told about. I have built the
+      check that would have caught it (see the next item) and left the question of WHY the detector
+      keeps dropping out for you, since it needs someone who can get onto the camera host.'
+  - fid: CAMERA-SILENT-PRODUCER-TRIPWIRE-1@2026-09-17T03:05:00
+    at: '2026-09-17T03:05:00'
+    outcome: escalated
+    acknowledged: false
+    headline: 'I BUILT THE BLACKOUT ALARM, THEN THE REVIEWS KILLED IT — and they were right, so it is
+      NOT shipping and I want your go on the redesign. The idea is sound and still worth doing: we
+      already catch an outdoor camera stuck ON shouting "person!", but we never had the opposite
+      check for the whole fleet going silent, which is exactly why three blackouts in eight days
+      passed unnoticed. I built that mirror check, tests green, and proved the tests would catch a
+      regression by deliberately breaking the check and watching four of them fail. THEN TWO
+      REVIEWERS, WORKING INDEPENDENTLY FROM DIFFERENT ANGLES, LANDED ON THE SAME FATAL FLAW — which
+      is the strongest warning this process can give. The check counts elapsed silence in memory. Your
+      system reloads itself roughly five times a night (a known open problem), and every reload wipes
+      that memory and restarts the count from zero. A check that needs six uninterrupted hours would
+      therefore never get there. It would have sat silent through BOTH real blackouts while looking
+      installed and healthy — which is worse than having no alarm at all, because you would have
+      believed it. AND ONE OF THE THREE PROBLEMS IS MINE, not the builder''s, so I want it on the
+      record: I sized the six-hour threshold by measuring "no camera reported anybody", but what got
+      built tests "every camera currently reads off". Those sound identical and are not — a sensor
+      stuck ON contributes nothing to the first measure while permanently blocking the second. So my
+      evidence did not actually validate the thing that was built. I only found that because I went
+      to check a reviewer''s claim against the database instead of taking their word for it, and the
+      number they quoted turned out to be overstated while pointing at something real. THE GOOD NEWS
+      is that one redesign fixes all of it: read how long each camera has actually been quiet from
+      the cameras themselves at the moment of checking, rather than counting it up in memory. That
+      survives the reloads by construction and makes the check match the evidence. Say go and I redo
+      it properly and put it back through both reviews.'
+  - fid: HVAC-ZONE1-MANUAL-OSCILLATION-1@2026-09-17T02:40:00
+    at: '2026-09-17T02:40:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'SOLVED THE THERMOSTAT MYSTERY, AND IT EXPLAINS YOUR PHANTOM ALERTS — but I need one
+      answer from you to finish it. The open question was why the Entertainment + Master Suite zone
+      keeps flipping itself back to "manual" minutes after Home Assistant sets it, and who was doing
+      the flipping. Now I know the shape of it. Every time URA tells that zone to go to "away", the
+      zone comes back as a manual hold at 76 cool / 69 heat roughly ONE SECOND later. Not minutes —
+      one second, over and over, all evening. Those numbers are the tell: 76/69 is not a setting URA
+      ever writes. It belongs to the Bryant thermostat itself. So URA sets the zone, the Bryant
+      immediately reclaims it, URA sets it again — 78 times in three days on this one zone. THE PART
+      THAT AFFECTS YOU DAILY: every lap of that loop makes URA think a human walked up and grabbed
+      the thermostat, so it sends you a HIGH-priority "HVAC Override" alert. That is 45 of those
+      pages on Tuesday alone, every one of them reporting something that never happened. AN HONEST
+      CORRECTION, because I nearly filed this wrong: my first conclusion was that URA was innocent
+      and the thermostat was acting alone. Then I read the write path and found that URA''s own
+      escape hatch for stuck zones deliberately hands the zone back to the Bryant''s schedule for a
+      moment before re-pinning it — so URA may be the one handing the zone to 76/69 rather than the
+      thermostat stealing it. I could not tell those two apart without the Home Assistant log, which
+      I could not reach tonight. WHAT I NEED FROM YOU, and it decides more than this one card: does
+      that thermostat have a schedule of its own set to 76/69, on the unit or in the Bryant app?
+      Because URA''s escape hatch is built on a written assumption that you do not use the Bryant
+      schedule at all — and if you do, that assumption is wrong and it is quietly handing your zone
+      to a live competitor every time it fires. I have not touched the HVAC code: this is comfort
+      logic on a shared coordinator and wants your answer plus a proper review, not an overnight fix.'
+  - fid: FRONT-SIDE-PTZ-CHATTER-1@2026-09-17T03:15:00
+    at: '2026-09-17T03:15:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'YOUR NOISIEST FRONT CAMERA STOPPED SEEING PEOPLE ALTOGETHER — and I need to know
+      whether you did that on purpose. This card was about front_side_ptz firing far too often (204
+      person-detections in a day, manufacturing false "someone is circling the house" tracks). The
+      good news on paper: that noise is completely gone. The bad news: it is gone because the camera
+      has stopped detecting people at all. One detection a day for three days straight, down from 204.
+      THE CAMERA IS WIDE AWAKE, which is how I know this is not just a quiet week — its motion
+      detection over the same days is the BUSIEST it has ever been, a record 383 events on Tuesday,
+      on the very day person detection reported one. Motion fine, people-spotting dead, same camera.
+      AND THIS IS SEPARATE FROM THE FLEET OUTAGE I reported earlier tonight: every other outdoor
+      camera recovered on Tuesday and is behaving normally. This one did not. So your front side
+      currently has effectively no person detection, three days running. THE LIKELY CAUSE IS THE
+      THING THIS CARD ASKED YOU TO DO: we asked you to apply a detection-zone crop to this camera to
+      calm it down. A crop would zero person detections while leaving motion untouched — which is
+      precisely the fingerprint, on precisely this camera, at about the right time. If that is what
+      happened, it overshot: we wanted it quieter, not blind. Tell me yes or no and I will either
+      help widen the crop or go after a genuine fault on the camera host. Please do not let anyone
+      close this card on the grounds that the chatter stopped — the noise stopped because the camera
+      stopped, which is not the win it looks like.'
+  - fid: OVERNIGHT-PASS-NO-LOG-REACH-1@2026-09-17T02:20:00
+    at: '2026-09-17T02:20:00'
+    outcome: escalated
+    acknowledged: false
+    headline: 'THE THING BLOCKING MY NIGHT WORK IS A NETWORK FAULT, NOT A PERMISSIONS ONE — and the
+      ask I made last night was wrong. Last night I asked you to provision a token so I could read
+      Home Assistant logs. Scrap that. Tonight I could not reach the Home Assistant machine at all:
+      every new connection to it fails outright, on every port I tried — SSH, the web interface, file
+      sharing, ping. Not a service refusing me, no route at all. AND YET Home Assistant is perfectly
+      healthy, which is the clue that makes this diagnosable: a file-sharing connection that was
+      already open before the fault kept working the whole night and served me data written six
+      seconds earlier. So the machine is up and running normally; only NEW connections are being
+      refused. It is also not specific to Home Assistant — your router answers fine, but BOTH
+      192.168.13.12 and 192.168.13.13 refuse new connections in exactly the same way. Two machines,
+      same symptom, same moment, points at the network rather than at either box. One lead worth
+      checking first: this Mac now has two network interfaces on the same subnet at once (.149 and
+      .101), which is a classic cause of precisely this. I tried the obvious workaround of forcing
+      traffic out the working interface and it did not help, so it cannot be fixed from my side. I
+      did not touch any network settings — that is your infrastructure, not mine to reconfigure while
+      you sleep. THE GOOD NEWS, so you do not over-prioritise this: database probes still work fine
+      over the file share, which is how I got everything else done tonight. Only log-based
+      investigations are stuck, and the reload-storm hunt is still sitting with its debug armed and
+      unread for a second night.'
   - fid: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1@2026-09-16T04:20:00
     at: '2026-09-16T04:20:00'
     outcome: measured
@@ -177,10 +298,360 @@ meta:
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated, headline: "PERIMETER-ALERT-VOLUME-FATIGUE-1 \u2014 MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working \u2014 so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).", acknowledged: false}
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
+- id: HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1
+  status: planned
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, tier-2, occupancy-blind, depends-step4b]
+  title: D5 duty-cycle is occupancy-blind (forces OCCUPIED zones away during coast/shed) + its runtime_exceeded
+    name falsely implies Bryant compressor protection
+  problem_solution:
+  - 'Problem: D5 duty-cycle enforcement forces a zone to away when cooling runtime exceeds 75%(coast)/50%(shed)
+    of a 20min window — REGARDLESS of occupancy. On a hot evening in EC coast (peak TOU) an occupied zone
+    (e.g. kitchen) gets forced away = the operator "hot and away while I am in the kitchen" complaint.
+    step-4-B does NOT fix it (D5 reads thermostat hvac_action, not fused occupancy). The reason string
+    runtime_exceeded implies Bryant compressor protection; audit found NO Bryant grounding — it is a URA
+    energy-policy heuristic. Solution: D5 should consume zone.any_room_hvac_occupied and DEFER under coast
+    when occupied (shed still dominates comfort); and rename/reframe the reason to energy-policy, not
+    compressor-protection.'
+  why: 'Audit AUDIT_hvac_duty_cycle_protection_2026_09_17. The one live complaint step-4-B leaves unfixed.
+    Tier 2; depends on step-4-B for the fused signal.'
+  next: 'After step-4-B ships: gate D5 enforcement on fused occupancy (defer under coast when occupied,
+    shed dominates), reframe the reason string + README. Verify no regression to the coast energy savings.'
+  parsimony: {problem: 'occupancy-blind duty-cycle forces occupied zones away in coast', verdict: BUILD, note: 'depends step-4-B fused signal'}
+  links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'D5 audit; the live hot-kitchen-away cause step-4-B does not fix'}
+- id: HVAC-D5-KNOBS-TO-RUNG-3-1
+  status: inbox
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, numbers-get-knobs, tier-1]
+  title: D5 duty-cycle window/caps are Rung-1 module constants for what is a Rung-3 operator policy; no kill switch
+  problem_solution:
+  - 'Problem: DUTY_CYCLE_WINDOW_SECONDS/COAST/SHED (hvac_const.py:396-399) are module constants, but the
+    coast/shed runtime caps are legitimately operator policy (comfort-vs-savings), and there is no kill
+    switch to disable D5. Solution: expose the caps + an enable on the knob ladder (Number/switch or options),
+    per Numbers-Get-Knobs.'
+  why: 'D5 audit finding 3. Pairs with the reframe cycle.'
+  next: 'Decide knob rung + add a D5 enable/kill switch; fold into HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 if built together.'
+  parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
+  links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
+- id: HVAC-D5-WINDOW-START-RESTORE-1
+  status: inbox
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, restart-safety, tier-1, contingent]
+  title: D5 window_start restore-across-reload unverified (hvac_zones.py:685-700) — reload may reset the runtime counter
+  problem_solution:
+  - 'Problem: the D5 audit could not verify (in its grep window) that zone.window_start / runtime counter
+    survive a config-entry reload; a reload mid-window may reset the counter, under- or over-counting runtime.
+    Given the ~5x/night reload storm this could matter. Solution: read hvac_zones.py:685-700 fully; if not
+    restored, persist window_start or accept+document.'
+  why: 'D5 audit finding 4, contingent — verify before scoping.'
+  next: 'Read the restore path; confirm whether window_start is persisted. Close if fine.'
+  parsimony: {problem: 'duty-cycle counter may not survive reload', verdict: BUILD, note: 'verify-first, likely tiny'}
+  links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, URA-CONFIG-ENTRY-RELOAD-STORM-1], context: 'D5 audit'}
+- id: HVAC-D5-SLEEP-EXIT-RESET-1
+  status: inbox
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, tier-1, contingent, measure-first]
+  title: D5 counter accumulates overnight during sleep-skip and can instant-trip on wake into coast/shed
+  problem_solution:
+  - 'Problem: the sleep-skip is on D5 ENFORCEMENT only; the runtime counter keeps accumulating through the
+    night, so waking into coast/shed can instant-trip runtime_exceeded and force a just-woken zone away.
+    Solution: reset (or freeze) the counter on sleep entry, or on wake before the first enforcement.'
+  why: 'D5 audit finding 5, contingent on live measurement that it actually fires on wake.'
+  next: 'Measure (recorder): does runtime_exceeded fire shortly after waking transitions? If yes, reset counter on sleep. Else close.'
+  parsimony: {problem: 'overnight accumulation instant-trips on wake', verdict: BUILD, note: 'measure-first'}
+  links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
+- id: INSTALL-ARCHIFY-SKILL-1
+  status: inbox
+  thread: tooling
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [tooling, spare-cycle, operator-requested]
+  title: Install the archify skill (github.com/tt-a1i/archify) in a spare cycle
+  problem_solution:
+  - 'Operator: "Install this skill in a spare cycle - https://github.com/tt-a1i/archify". Evaluate + install
+    the archify skill when there is spare capacity (not during the HVAC ship). Read the repo, check what it
+    does / how it installs (likely a Claude skill under ~/.claude/skills/), verify it is safe + relevant,
+    then install per its instructions.'
+  why: 'Operator-requested tooling; deliberately deferred to a spare cycle so it does not interrupt the
+    in-flight Tier-3 HVAC ship.'
+  next: 'In a spare cycle: fetch github.com/tt-a1i/archify, read its README/SKILL.md, confirm what it is
+    (name suggests architecture/graph tooling — verify), install to ~/.claude/skills/ if appropriate, report
+    what it adds. Do NOT install blind — read first.'
+  parsimony: {problem: 'operator wants a skill installed; no urgency', verdict: BUILD, note: 'spare-cycle, read-before-install'}
+  links: {context: 'operator drop 2026-09-17 mid HVAC ship'}
+- id: HVAC-DEGRADED-ROOM-TRIPWIRE-1
+  status: planned
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, no-soak, trip-wire, safety-gate-residual]
+  title: A zone with a permanently-disabled/setup_retry room never establishes (is_zone_hvac_established
+    all()) -> conditioning-demand feature INERT for that zone, silently
+  problem_solution:
+  - 'Problem: step-4-B gates retreat on is_zone_hvac_established = all(rooms readable). A room stuck
+    disabled / setup_retry is never in _hvac_seen -> zone never establishes -> the whole conditioning-
+    demand debounce is inert for that zone, with no signal. Benign direction (never wrongly retreats)
+    but silent. Solution: a code TRIP-WIRE (No-Soak) that detects a zone with a chronically-unreadable
+    room and surfaces it (NM / an anomaly / a diag attr) — NOT a relaxation of the all() gate.'
+  why: 'Left as the deliberate residual of the round-5 F1 revert (any->all). all() is the safe gate;
+    the cost is silent inertness on a degraded zone. Surface it rather than trade safety for coverage.'
+  next: 'Add a trip-wire: on each cycle, if a zone has a room whose coordinator has been absent > N ticks,
+    emit once to NM / set a diag flag. Reuse the stuck-signal watchdog pattern. Tier 1-2.'
+  parsimony: {problem: 'a disabled room silently disables conditioning-demand for its whole zone', verdict: BUILD, note: 'small trip-wire; do NOT relax the gate'}
+  links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'residual of the round-5 F1 all() revert'}
+- id: HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1
+  status: planned
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, blocker, carrier-write-sensitivity, do-before-enable]
+  title: BLOCKER on enabling guest_mode_actuation — F2 compose-away throttle bypass is unconditional
+    (12 set_temperature/hr/zone to Carrier cloud)
+  problem_solution:
+  - 'Problem: D9 compose-away bypasses the _last_emitted_range throttle UNCONDITIONALLY, so once
+    guest_mode_actuation (Custom Preset Ranges) is enabled, an empty night zone emits ~12 set_temperature
+    calls/hr/zone to the Carrier cloud indefinitely (no wire dedupe), against documented write-sensitivity
+    + reload-storm history. Dormant today (switch OFF). Solution: narrow the bypass to EDGE-TRIGGERED
+    _last_emitted_range invalidation on the S8/S9 restore sites, OR compare against live ground-truth
+    setpoints and emit only on real diff.'
+  why: 'D9 is inert live (guest_mode_actuation OFF), so not a pre-ship fix — but it is a hard BLOCKER
+    that must land BEFORE that switch is ever turned on, or it storms the thermostat cloud.'
+  next: 'Before enabling Custom Preset Ranges: replace the unconditional compose-away bypass with a
+    ground-truth setpoint compare (house rule) or S8/S9 cache invalidation. Then the compose-away
+    acceptance criteria become live-verifiable.'
+  parsimony: {problem: 'unconditional throttle bypass = steady write-storm once the feature is on', verdict: BUILD, note: 'gate on enabling the switch'}
+  links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], sibling_of: [HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1], context: 'F2 residual; blocker on guest_mode_actuation'}
+- id: HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1
+  status: planned
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, pre-existing, setpoint-vs-mode]
+  title: S8/S9/S11/S13-return writers emit comfort setpoints to an empty night zone without updating
+    _last_emitted_range — uncorrected live because D9 (intended corrector) is dormant
+  problem_solution:
+  - 'Problem: the restore-class writers (S8 cancel-nudge, S9 ramp-audit, S11 release-banked, S13 pre-heat
+    return; hvac_override.py:5814/6220, hvac_predict.py:976/1507) emit comfort setpoints and do NOT update
+    _last_emitted_range. The design intent is that the DPM compose-away corrects them next tick — but D9
+    is dormant (guest_mode_actuation OFF), so live these strand an empty night zone at comfort setpoints
+    for up to a night. Solution: the restore sites invalidate _last_emitted_range (or retarget to the
+    zone-correct baseline) so whatever corrector runs re-emits.'
+  why: 'Pre-existing (predates step-4-B); surfaced by the round-4 adversarial enumeration. Currently a
+    live ≤overnight stranding surface on any zone that gets a nudge/ramp/banked restore while empty.'
+  next: 'Measure how often a restore fires on an empty zone (recorder) before scoping; likely small.
+    Fix = the restore sites update _last_emitted_range. Coordinate with the compose-away blocker.'
+  parsimony: {problem: 'restore writers strand empty zones; the intended corrector is dormant', verdict: BUILD, note: 'measure-first; pre-existing'}
+  links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1], context: 'round-4 adversarial 4th-writer enumeration'}
+- id: HVAC-SETHVACMODE-CHOKEPOINT-1
+  status: planned
+  thread: hvac
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  tags: [hvac, tier-2, chokepoint, do-robust-fix, gated-on-measurement]
+  title: Add emit_set_hvac_mode chokepoint + migrate the 7 raw set_hvac_mode bypass sites (close the only
+    verb-scoped write gap — 2 of 3 verbs are funnelled, set_hvac_mode is not)
+  problem_solution:
+  - 'Problem: the write-path inventory (AUDIT_thermostat_write_paths_2026_09_16) found set_preset_mode
+    (10/10) and set_temperature (11/11) fully route through the hvac_setpoint funnels, but set_hvac_mode
+    has NO chokepoint — 7 raw sites bypass (hvac.py:1731 heat_cool enforcer; hvac_egress.py:682/778
+    pause/resume; hvac_override.py:3447/3816/3934/3969 override-revert + AC-reset). Solution: add an
+    emit_set_hvac_mode funnel mirroring emit_set_preset_mode/emit_set_temperature (gate/site/zone_id/
+    reason plumbing) and migrate the 7 sites, so all 3 verbs are governed and future audits assert
+    "3 of 3 verbs funnelled" in one grep.'
+  why: 'Phase 1 of HVAC-THERMOSTAT-ABSTRACTION-1, split out because it is mechanical Tier 2 (one verb,
+    7 sites) vs the full ZoneThermostat API (Phase 2, parked). Closes the only real chokepoint gap. NOTE
+    the inventory''s caution: this does NOT fix HIGH-2 (caller-side composition) NOR the zone_1 oscillation
+    (already-funnelled-if-URA, or Bryant-cloud) — it is hygiene + future-bypass prevention, not a fix for
+    tonight''s two problems.'
+  next: 'GATED: run AFTER the zone_1 oscillation producer is identified (HVAC-ZONE1-MANUAL-OSCILLATION-1,
+    clean 24h read ~09:45 CDT 09-17) so Phase 1 does not over-fit to a writer that is either already
+    funnelled or cloud-side. Then: add emit_set_hvac_mode + migrate the 7 sites, per-site wire-in anchor
+    (neuter -> the site''s behavior red), name-diff. Tier 2 (2 framing-disjoint reviews).'
+  parsimony:
+    problem: 25% of URA climate writes (all set_hvac_mode) bypass any chokepoint; the other 2 verbs are
+      fully funnelled
+    verdict: BUILD
+    note: mechanical, bounded, high hygiene value (a future audit can assert full verb coverage); explicitly
+      NOT the fix for HIGH-2 or the oscillation. Gate on the oscillation trace to avoid over-fitting.
+  links:
+    related: [HVAC-THERMOSTAT-ABSTRACTION-1, HVAC-ZONE1-MANUAL-OSCILLATION-1, HVAC-ZONE-CONDITIONING-DEMAND-1]
+    parent: HVAC-THERMOSTAT-ABSTRACTION-1
+    context: 'Phase 1 split from HVAC-THERMOSTAT-ABSTRACTION-1 per the write-path inventory. Phase 2 (full
+      ZoneThermostat API) stays on the parent card, parked.'
+- id: HVAC-ZONE1-MANUAL-OSCILLATION-1
+  MANUAL_PERSISTS_EVIDENCE_2026_09_17: 'Causation probe corroborates the mystery re-manual writer:
+    zone_3 shows 27 manual preset episodes post-v5.103.2, ~121s median dwell — named holds are NOT
+    uniformly durable, manual is re-asserted at ~2min cadence. Either the pin is not fully effective
+    on-device or the Bryant native schedule/an operator/a URA writer re-manuals. Still the measure-
+    first target; clean 24h read to identify the producer.'
+  status: waiting_operator
+  thread: hvac
+  created: '2026-09-16'
+  updated: '2026-09-17 02:35'
+  refinement_status: refined
+  tags: [hvac, measure-first, producer-check, found-during-validation]
+  title: MECHANISM FOUND — zone_1's re-manual is the Bryant's own 76/69 schedule reclaiming the zone ~1s
+    after every URA preset write (either re-asserted by the thermostat, or handed to it by URA's own
+    resume-then-pin); the resulting write-fight also fires ~45 false "someone grabbed the thermostat"
+    pages a day
+  problem_solution:
+  - 'Problem: the v5.103.4 lockout telemetry shows zone_1 (climate.thermostat_bryant_wifi_studyb_zone_1)
+    flapping manual<->away ~20+x/evening, often within seconds. URA''s away writes LAND (vacancy path
+    bypasses the manual guard, 28.3% away) but something re-writes the zone to manual within minutes.
+    The re-manual PRODUCER is unidentified — candidates: the Bryant/Carrier thermostat/cloud re-asserting
+    a manual hold, resume-then-pin''s own resume leaving a manual, or another URA setpoint/excursion writer.
+    Solution: identify the producer (measure-first: trace every manual-write to zone_1 over a window), then
+    fix at the producer.'
+  why: 'This is the ACTUAL dominant reason zone_1 sits 67.5% manual — not resume-then-pin failing to land
+    (it lands) and not escape (rare). Found by the interim lockout read. Until the re-manual producer is
+    known, any further preset-write work on zone_1 is guessing. Supersedes the "resume-then-pin not
+    working" and "escape is the residual" readings for zone_1.'
+  MEASURED_2026_09_17: 'OVERNIGHT PASS — MEASUREMENT RUN, MECHANISM CONFIRMED. The three-way
+    discriminator this card asked for is settled, and the answer is (a): the Bryant thermostat
+    re-asserts its OWN hold. It is not a URA writer and it is not resume-then-pin.
+    THE SMOKING GUN is the timing, straight out of ura_activity_log: at 23:04:58.769 URA wrote zone_1
+    home -> away, and at 23:05:00.281 — one and a half seconds later — the zone came back as
+    "preset away->manual, temp_high 80->76, temp_low 68->69". The same one-to-three-second flip-back
+    repeats all evening (recorder preset attribute: 17:10:54 away -> 17:10:55 manual; 18:01:13 away ->
+    18:01:14 manual; 18:04:59 -> 18:05:00; 18:24:22 -> 18:24:23; 22:00:03 sleep -> 22:00:06 manual).
+    THE VALUES NAME THE CULPRIT: the re-assertion lands on 76/69 in 13 of 18 overrides in three days
+    (the rest 80/73 and 75/70). 76/69 is not a value URA ever writes to this zone — URA''s away is
+    80/68. A stable, repeated setpoint pair that URA does not own is a schedule on the other side.
+    URA NEVER WRITES A TEMPERATURE HERE: across three days the ONLY write action URA logs against
+    zone_1 is preset_change (78 of them), with no setpoint write at all. URA''S OWN CLASSIFIER AGREES,
+    independently of my reasoning: the compliance rows tag override_source `thermostat_manual` in 20 of
+    23 cases (3 `unknown`).
+    CORRECTION — I FIRST WROTE THAT THIS EXONERATES URA, AND THAT WAS TOO STRONG. I checked the write
+    path before letting the claim stand and it does not hold up, so I am recording the correction
+    rather than the tidier story. URA''s preset funnel contains a RESUME-then-PIN escape hatch
+    (hvac_setpoint.py:308-366): when a zone sits in an anonymous `manual` hold — which is zone_1''s
+    normal condition — URA first sends the thermostat `resume`, which DELIBERATELY drops the zone onto
+    the Bryant''s own schedule, and only then pins the named preset. The code says so in its own words
+    at hvac_setpoint.py:303: "Between the resume and the pin the zone follows the Bryant schedule."
+    Those raw service calls live INSIDE the funnel, so they never appear as separate activity_log rows
+    — which is precisely why the log looked exonerating. If the pin does not take (cloud lag, an
+    optimistic local attribute, a vendor rejection — all documented as observed on this integration),
+    the zone is left sitting on the Bryant schedule. So candidate (c), "resume-then-pin''s resume
+    leaves manual", is NOT excluded and is in fact a strong fit for an away->manual flip one second
+    later. WHAT SURVIVES BOTH READINGS, and it is the part that matters: 76/69 is the Bryant''s own
+    schedule value either way. Whether the thermostat re-asserts it unprompted (a) or URA hands the
+    zone to it via resume and fails to pin (c), the fix starts in the same place — the vendor schedule.
+    I cannot split (a) from (c) from here: the discriminator is whether a `resume` was issued at each
+    flip, which lives in the HA core log, and LAN reach was down all night (OVERNIGHT-PASS-NO-LOG-REACH-1).
+    A LOAD-BEARING DESIGN ASSUMPTION MAY BE FALSE, and this is the most consequential thing in this
+    note: resume-then-pin is safe only because it assumes the Bryant schedule is inert — the comment
+    at hvac_setpoint.py:303-305 states outright that the operator "does not use" it. If that schedule
+    is in fact live and holding 76/69, then every resume hands the zone to a REAL competing schedule
+    rather than to a harmless gap, and the escape hatch is paying a much higher price than its design
+    review believed. That question is worth answering on its own merits, independently of this card.
+    THE LOOP, stated plainly: URA writes away -> the thermostat re-asserts 76/69 as a manual hold
+    within a second or two -> URA sees a manual hold, reads it as a human grabbing the thermostat, and
+    writes away again on its next cycle. 78 preset writes in three days on one zone. This is why
+    zone_1 sits 67.5% manual, and the earlier readings ("resume-then-pin is failing", "escape is the
+    residual") are WRONG for zone_1 and should not be carried forward.
+    A SECOND DEFECT FELL OUT OF THIS, and it is arguably the more annoying one: every lap of the loop
+    fires a HIGH-severity "HVAC Override" notification. hvac_override pages ran 45 on 09-16 (vs 3 on
+    09-15 and 5 on 09-13), and zone_1 alone accounts for 18 of the 25 override_detected rows in three
+    days. So the house is paging you at HIGH severity, dozens of times a day, to report a human
+    override that never happened — it is two machines disagreeing, and URA is the one narrating it.
+    WHAT I COULD NOT DETERMINE, stated rather than guessed: I cannot see the Bryant''s own schedule.
+    It is a cloud thermostat and LAN reach to the house was down all night (see
+    OVERNIGHT-PASS-NO-LOG-REACH-1), so whether 76/69 comes from a schedule programmed on the
+    thermostat face, one in the Bryant/Carrier app, or a cloud-side comfort profile is exactly the
+    part that needs you. That is the whole remaining question, and it is why this is going to you
+    rather than to a builder.'
+  OLD_next_superseded: 'MEASURE (clean 24h read available ~09:45 CDT 2026-09-17): on climate.thermostat_bryant_wifi_studyb_zone_1,
+    trace every transition INTO manual with the preceding URA action + any concurrent set_temperature/
+    set_preset/set_hvac_mode from URA (ura_activity_log) vs cloud-originated changes (recorder attribute
+    deltas with no URA row). Discriminate: (a) Bryant cloud re-asserts manual on its own; (b) a URA writer
+    (which one) re-manuals; (c) resume-then-pin resume leaves manual. THEN fix at the identified producer.
+    SUPERSEDED 2026-09-17: this measurement has been RUN and the answer is (a). Kept only as the record
+    of what was asked; do not re-run it.'
+  next: 'ANSWER, then PICK — the measurement is done (see MEASURED_2026_09_17) and only you can supply
+    the missing half. ANSWER: does the Bryant thermostat for zone_1 (Entertainment + Master Suite) have
+    a schedule or comfort profile of its own — on the thermostat itself or in the Bryant/Carrier app —
+    that holds 76 cool / 69 heat? Everything turns on this. It is the value the zone lands on within a
+    second or two of every write URA makes, and I have no way to see the vendor schedule from here. It
+    also decides something bigger than this card: URA''s resume-then-pin escape hatch is built on the
+    written assumption that you do NOT use the Bryant schedule, and if you do, that assumption is
+    wrong and the escape hatch is handing your zone to a live competitor every time it fires. If the
+    answer is yes, the clean fix is almost certainly to disable the thermostat-side schedule so URA is
+    the only scheduler, which ends the write-fight at its source. PICK how URA should behave in the meantime, because both options are
+    defensible and this one is yours: (A) STOP THE PAGING ONLY — keep the loop but stop treating a
+    re-assertion that arrives seconds after our own write as a human override, which kills roughly 45
+    false HIGH pages a day and is the smaller, safer change; (B) STOP THE FIGHT — have URA back off
+    zone_1 when it detects the thermostat re-asserting, which stops the 78-writes-in-3-days loop but
+    means conceding the zone to the vendor schedule until you disable it. My recommendation is to
+    disable the thermostat-side schedule AND take (A), since (A) is worth doing regardless of the
+    answer. I have not touched HVAC code — this is cost-and-comfort logic on a shared coordinator and
+    wants your call plus a Tier-3-grade review, not an overnight build.'
+  rank: {value: 8, time_criticality: 7, effort: 5}
+  parsimony:
+    problem: the Bryant thermostat re-asserts a 76/69 hold seconds after every URA preset write to
+      zone_1, so URA and the thermostat fight continuously and URA narrates each lap as a HIGH-severity
+      human override (~45 false pages/day)
+    verdict: BUILD
+    note: measure-first — identify the producer before any fix; likely a single writer or a Bryant-cloud
+      re-assertion. Do not build escape or more resume machinery until this is known.
+  links:
+    related: [HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-PRESET-LOCKOUT-ESCAPE-1, HVAC-SUPPLE-SEQUENCE-1]
+    context: 'Found by the v5.103.4 interim lockout read. Explains why manual% did not move on zone_1
+      (67.5% vs 69.6%). Distinct from escape (URA refuses to write) — here something WRITES manual.'
+- id: HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1
+  status: parked
+  thread: hvac
+  created: '2026-09-16'
+  updated: '2026-09-16'
+  tags: [hvac, parked-with-trigger, night-trust, suppression-discharge, do-not-retire]
+  title: The FULL 2-6am degradation-defense leniency for night HVAC retreat (200min, 4 discharge paths) —
+    parked, uncork if a real occupied-bedroom sensor-degradation is observed
+  problem_solution:
+  - 'Problem: HVAC Option B (HVAC-ZONE-CONDITIONING-DEMAND-1 D7) retreats an empty zone to away at night
+    on fused room occupancy. If a bedroom''s multi-sensor redundancy degrades WHILE OCCUPIED (a sensor dies
+    mid-sleep), its fused signal could drop 100-186min and B would wrongly retreat a sleeping person''s room.
+    Solution (the FULL version): a 2-6am post-continuous-hold leniency — once a dwelling room has held
+    continuously occupied from pre-02:00, force-hold hvac_occupied=true through transient drops during
+    02:00-06:00, sized ~200min (the worst single-mmWave dropout), room_type-gated to bedroom/common_area/
+    media_room/generic, with 4 named discharge paths (06:00 window exit, leniency cap, pre-arm break,
+    restart fail-safe).'
+  why: 'CARDED-NOT-RETIRED per operator ("Do not lose the p2-3 from compaction. Card and link it, do not
+    retire it in case we need to uncork it"). This was briefly elevated to P1-required on the basis that
+    Ziri proved silent redundancy degradation — REFUTED (Ziri is away, not degraded; see closed
+    ZIRI-PRESENCE-SENSOR-DEAD-1). With no OBSERVED degradation instance, the full machinery is not built
+    now; step-4-B ships D7 + a MODEST prudent grace instead (see HVAC-ZONE-CONDITIONING-DEMAND-1
+    D8_RESCOPED). This card preserves the full design so it can be uncorked fast if degradation is ever
+    observed, rather than re-derived from a compacted note.'
+  next: 'REVIVE IF a REAL occupied-bedroom degradation is observed: (a) a resident reports their room went
+    to away / got cold overnight, OR (b) a bedroom is confirmed degraded-to-single-sensor while occupied
+    (a redundant presence sensor genuinely dead with the occupant HOME — the discriminator ZIRI failed
+    because Ziri was away), OR (c) the modest D8 grace in step-4-B proves insufficient in live validation.
+    Then build the full 200min/4-discharge leniency per problem_solution. Do NOT schedule on its own before
+    a trigger fires. Sizing + discharge-path spec preserved here and in the git history of
+    PLANNING_hvac_zone_conditioning_demand.md.'
+  parsimony:
+    problem: night retreat is safe for the measured (healthy-redundancy) rooms but a degraded-while-occupied
+      bedroom could be wrongly retreated; the full defense is unbuilt for lack of an observed instance
+    verdict: PARK
+    note: real failure mode, zero observed instances; the modest grace in D7/D8 covers the unmeasured rooms
+      cheaply. Full machinery waits for evidence, but is preserved (not retired) so it can be uncorked.
+  links:
+    related: [HVAC-ZONE-CONDITIONING-DEMAND-1, ZIRI-PRESENCE-SENSOR-DEAD-1]
+    sibling_of: [HVAC-ZONE-CONDITIONING-DEMAND-1]
+    context: 'Split out of HVAC-ZONE-CONDITIONING-DEMAND-1 D8 when the Ziri degradation evidence was refuted.
+      Step-4-B keeps a MODEST grace (D8); THIS card is the FULL degradation-defense version, parked with an
+      observed-degradation revival trigger so it survives compaction and can be uncorked.'
 - id: ZIRI-PRESENCE-SENSOR-DEAD-1
   title: Ziri Bedroom presence redundancy degraded — ziri_3_presence mmWave is dead (never fired 7 nights),
     leaving one live mmWave with 360+min overnight OFF stretches
-  status: waiting_operator
+  status: done
   thread: presence
   created: '2026-09-16'
   updated: '2026-09-16'
@@ -208,6 +679,14 @@ cards:
     related: [HVAC-ZONE-CONDITIONING-DEMAND-1]
     context: 'Found by the HVAC-B overnight occupancy-retention probe. Ziri is the concrete instance of the
       redundancy-degradation failure mode that makes the 2-6am leniency required (P1) in Option B.'
+  REFUTED_2026_09_16: 'CLOSED — operator ground truth: ZIRI IS NOT AT HOME. ziri_3_presence "never
+    fired all week" and mmwave_zigbee_ziribedroom''s 360-416min OFF stretches are an EMPTY ROOM behaving
+    correctly, NOT a dead sensor and NOT redundancy degradation. The measurement agent labeled it "dead"
+    without knowing the occupant was away (a dead sensor and an empty room are indistinguishable from
+    "never ON"). No degradation evidence exists. RESIDUAL (folded, not a separate card): if Ziri returns
+    home and the room still reads perpetually unoccupied, THEN re-open as a real dead-sensor finding —
+    but do not assume it now. This card taught a false premise; closing it.'
+
 - id: EC-SOC-LADDER-FULL-WIRING-1
   title: Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto
     the safe accessor across ~25 consumer sites
@@ -425,7 +904,7 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-14 00:20'
-  updated: '2026-09-14 03:10'
+  updated: '2026-09-17 03:15'
   refinement_status: refined
   problem_solution:
   - 'Problem: one exterior camera reports "person detected" far more than any other — it is
@@ -478,15 +957,40 @@ cards:
     is now struck.
     CAVEATS: the audit is five weeks old and the 0.6/1 settings are NOT re-verified as current;
     the audit itself flags PTZ aiming as an unreadable gap.
+  RE_MEASURED_2026_09_17: 'THE CHATTER IS GONE, BUT DO NOT BANK IT AS A WIN — this camera has stopped
+    detecting people ENTIRELY, and it is the only one that has. Measured from the HA recorder
+    (immutable=1, verified live-fresh). front_side_ptz person detections per day 09-09..09-16: 78 /
+    54 / 16 / 181 / 204 / 64 / 1 / 1. So the 21%-duty chatter this card was opened about has indeed
+    vanished — and stayed vanished for three days. THE CAMERA IS NOT ASLEEP, which is what makes this
+    a fault rather than a fix: its MOTION sensor over the same days ran 214 / 183 / 223 / 383 / 92-so-far,
+    i.e. MORE active than ever, hitting a record 383 on 09-16 while person detection reported 1.
+    Motion layer thriving, object layer dead, same camera, same window.
+    CRITICALLY, IT IS NOT THE FLEET OUTAGE. The fleet-wide blackout (PERIMETER-DETECTION-WENT-DARK-1)
+    ended on 09-15 and the rest of the fleet recovered fully on 09-16 — 317 detections, led by hot_tub
+    140, back_yard 50, pool_equipment 35, and eleven others reporting normally. front_side_ptz alone
+    stayed at 1. So there are TWO distinct faults here, and last night''s card conflated them: a
+    fleet-wide 26h outage that healed, and front_side_ptz going individually dark and STAYING dark.
+    THE MOST LIKELY EXPLANATION IS THE ACTION THIS CARD ASKED FOR, which is why it lands here: this
+    card asked you to recheck the camera and apply a detection-zone crop. A crop or mask applied to
+    this camera would zero its person detections while leaving motion untouched — exactly the
+    signature observed, on exactly the camera named, in roughly the right window. If that is what
+    happened, the crop overshot: it did not calm the noisiest perimeter camera, it switched it off.'
   next: >-
-    DO: recheck front_side_ptz and apply the detection-zone crop you flagged ("I'll recheck and
-    handle the crop") -> then I re-measure the circling-shaped track count. RECOMMENDED SEQUENCE
-    if it recurs: ship the corrected seam graph FIRST, then re-measure. If the count collapses on
-    the seam fix alone, the recall tune is fine as-is and no crop is needed — the seam was the
-    fault, not the sensitivity.
+    ANSWER: did you apply that detection-zone crop or mask to front_side_ptz on or around 09-14/15?
+    It matters because the camera has gone from 204 person-detections a day to exactly 1, and has
+    stayed there for three days, while its motion detection is busier than ever (see
+    RE_MEASURED_2026_09_17). -> If YES, the crop overshot and needs widening: we wanted the chatter
+    damped, not the busiest perimeter camera blinded, and right now your front side has effectively
+    no person detection. -> If NO, then this camera has an individual object-detection fault that
+    survived the fleet-wide outage everything else recovered from, and it needs looking at on the
+    Frigate host. Either way do NOT read the vanished chatter as this card being solved — the noise
+    stopped because the camera stopped, which is not the outcome we wanted.
   parsimony:
     problem: One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
     verdict: BUILD
+    note: 'SUPERSEDED 2026-09-17 — the over-firing stopped, but by the camera going dark rather than
+      by any tuning. The live problem is now the opposite one (zero recall on the busiest perimeter
+      camera), so the original BUILD scope is on hold pending the operator ANSWER above.'
   rank: {value: 7, time_criticality: 5, effort: 3}
   tags: [measure-before-build, no-fabrication-verify]
   links:
@@ -2315,7 +2819,7 @@ cards:
   thread: platform
   status: waiting_operator
   created: '2026-09-15 03:45'
-  updated: '2026-09-15 03:45'
+  updated: '2026-09-17 02:15'
   refinement_status: initial
   approval: unreviewed
   tags: [tier-1, no-fabrication-verify]
@@ -2343,15 +2847,46 @@ cards:
   constraints:
   - 'READ-ONLY is sufficient — the pass never needs to write via the supervisor API, so scope any
     token to the narrowest read that makes `ha core logs` work.'
-  next: 'DO (one-time, operator): provision a read-only supervisor/long-lived token the launchd
-    overnight job can use for `ha core logs` (or tell me the route you prefer — e.g. making the
-    home-assistant MCP reachable headless). -> I wire it into the overnight script and immediately
-    re-run the armed reload-storm probe on URA-CONFIG-ENTRY-RELOAD-STORM-1.'
+  next: 'DO (operator, network — the ask changed tonight, see DIAGNOSED_2026_09_17): restore LAN
+    reach from the Mac mini (192.168.13.149) to the homelab hosts 192.168.13.12 and 192.168.13.13.
+    This is no longer a token request — no new TCP connection to either host succeeds on ANY port,
+    while the gateway is fine and HA itself is demonstrably alive and writing, so it is a
+    segmentation/firewall question on the UDM rather than anything on HA. Worth checking first
+    whether this Mac being dual-homed on the same /24 (en0 .149 + en1 .101) is the trigger, since
+    that arrived recently and is the one asymmetry I can see. -> The moment new flows work I re-run
+    the armed reload-storm log probe on URA-CONFIG-ENTRY-RELOAD-STORM-1 and unstall every log-based
+    card. Nothing is needed from you for DB-based investigations — those already run fine.'
   links:
     blocks: [URA-CONFIG-ENTRY-RELOAD-STORM-1]
     context: 'URA-CONFIG-ENTRY-RELOAD-STORM-1 has debug logging ARMED on the live instance and its
       next action is literally a log read, so it cannot advance unattended until this is fixed.'
-  rank: {value: 6, time_criticality: 5, effort: 2}
+  rank: {value: 7, time_criticality: 7, effort: 2}
+  DIAGNOSED_2026_09_17: 'SECOND NIGHT RUNNING, and now diagnosed rather than just observed — the ask
+    has changed shape completely, so read this before acting on the older note below. THE ASK IS NO
+    LONGER ABOUT A TOKEN. Last night this looked like a supervisor-permissions problem; it is not.
+    It is a LAN reachability problem, and `ha core logs` returning 401 was a red herring from a
+    night when the host was reachable. WHAT I MEASURED TONIGHT, from the Mac mini at 192.168.13.149:
+    every NEW TCP connection to the HA host 192.168.13.13 fails with "No route to host" — ports 22,
+    445, 8123 and 80 alike, plus ICMP. Not a service being down: nothing new can reach the host at
+    all. THE OBSERVATION THAT MAKES IT A NETWORK FAULT rather than a dead host: an ALREADY-ESTABLISHED
+    SMB session to that exact IP kept working throughout and served data written six seconds earlier
+    (recorder newest row 02:01:10 against a wall clock of 02:01:13; DB mtime 02:07:27 read at
+    02:07:33). netstat confirms live ESTABLISHED sockets to 192.168.13.13 on ports 445 and 8123 while
+    a fresh connection to port 22 gets EHOSTUNREACH. So the host is up, HA is running and writing
+    normally, and only NEW flows are being refused. IT IS NOT HA-SPECIFIC, which is the finding that
+    makes this someone else''s fix rather than a URA one: the gateway 192.168.13.1 answers ping and
+    accepts port 22 fine, while BOTH 192.168.13.12 and 192.168.13.13 fail ping and port 22 together.
+    Two homelab hosts, same symptom, same time — that points at LAN segmentation (a UDM firewall or
+    isolation rule, or a VLAN change) rather than at either machine. PRIME SUSPECT, offered as a lead
+    and NOT as a conclusion: this Mac is dual-homed on the SAME /24 — en0 at 192.168.13.149 and en1
+    at 192.168.13.101, both carrying default routes to 192.168.13.1, with both interface routes for
+    192.168.13/24 flagged reject. Same-subnet dual-homing is a classic source of exactly this
+    asymmetry. I tested the obvious workaround and it did NOT help: binding the source address
+    explicitly to en0 (ssh -b 192.168.13.149) fails identically, so it cannot be fixed from this side
+    by choosing an interface. I did not touch any network configuration — that is outward-facing
+    infrastructure and not mine to change unattended. CONSEQUENCE: read-only DB probes remain fully
+    unblocked (see the note below, still accurate and still the technique to use), so most
+    investigations still run. Log-based ones stay dead until LAN reach returns.'
   NARROWED_2026_09_16: 'Tonight''s pass both CONFIRMED this card and NARROWED it usefully, so the
     ask to the operator is smaller than the title implies.
     CONFIRMED, and worse than "no log reach": ssh to the HA host was down for the ENTIRE pass — not
@@ -2376,6 +2911,15 @@ cards:
     quoted as blocked in future sessions.'
 
 - id: URA-CONFIG-ENTRY-RELOAD-STORM-1
+  REMEASURED_2026_09_17: 'Recorder-authoritative re-measure (ura_setup_duration started_at +
+    coordinator_manager running->not_initialized transitions; significant_changes_only=false). Last
+    48h = 8 setups: overnight storm 09-15->16 = 3 (22:56/00:02/01:15), 09-16->17 = 0; daytime setups
+    are deploys. Trend DOWN from ~5x/night (09-10) but NOT durably gone (fired 34h ago). All 46
+    entries loaded, no setup_retry/error. NOTE: the 09-10 armed debug was DISARMED (logger back to
+    WARNING) by this weeks deploy restarts, so the 09-15->16 reloads were not captured — RE-ARM debug
+    if we want the producer on the next overnight fire. Recommend one more overnight recorder check
+    before downgrading. Log sources note: journald/docker/ha-core-logs all inaccessible via ssh
+    (401/perm); recorder history is the working authoritative source for reload counting here.'
   measured_2026_09_15_self_issued_reloads: 'OVERNIGHT PASS — THE STATIC HALF OF THIS CARD next IS NOW
     ANSWERED, and the answer is a clean NEGATIVE that removes the most attractive suspect. The next
     asked me to "grep the codebase for self-issued homeassistant.reload_config_entry" alongside the log
@@ -8099,6 +8643,30 @@ cards:
   - activity_logger.py:114-117 (unvalidated entity_id onto the ura_action bus event)
   - 'live ERROR 2026-09-16 boot: recorder core.py:304 -> split_entity_id ValueError garage_a'
 - id: HVAC-THERMOSTAT-ABSTRACTION-1
+  INVENTORY_2026_09_16: 'Thermostat write-path inventory done (AUDIT_thermostat_write_paths). CORRECTS
+    the root-cause hypothesis: writes are MORE governed than feared. set_preset_mode 10/10 funnelled,
+    set_temperature 11/11 funnelled; ONLY set_hvac_mode bypasses (7/7 sites, 25%% of writes, one verb).
+    REFUTED: nudges bypass (they route through emit_set_*); borrow-should-use-funnel (begin/return_
+    excursion emit ZERO climate calls — pure bookkeeping; wire writes are caller-side wrapped in a
+    borrow). HIGH-2/DPM is NOT a chokepoint bypass — it is CALLER-SIDE preset composition (wire write
+    IS funnelled at :2568). => SPLIT the abstraction: PHASE 1 = add emit_set_hvac_mode + migrate the 7
+    sites (mechanical, TIER 2, closes the only verb-scoped gap -> 3/3 verbs governed) -> carded
+    HVAC-SETHVACMODE-CHOKEPOINT-1. PHASE 2 = the full ZoneThermostat governed-write API (funnel+borrow+
+    snapshot compose) stays THIS card, PARKED, trigger = HIGH-2 point-gate leaks OR a 2nd DPM-shaped
+    intent bypass surfaces. KEY: the abstraction does NOT fix HIGH-2 (caller-side) NOR the zone_1
+    oscillation (if URA, the writer is ALREADY funnelled among the 21; if Bryant-cloud, no abstraction
+    helps). BLOCKING: identify the oscillation producer (24h read) BEFORE dispatching Phase 1 so it
+    doesnt over-fit. Adjacent gap noted: coordinator.py:1096-1123 chained AI-rule routes (automation/
+    scene/script/homeassistant.turn_on) still bypass — neither phase closes it.'
+  RESEQUENCING_CONSIDERED_2026_09_16: 'Operator pulled this forward for reconsideration: the tonight
+    evidence (HIGH-2 DPM bypass, zone_1 oscillation mystery writer, 7 raw set_hvac_mode, suspected
+    nudge bypass) suggests ungoverned write paths are the ROOT cause of the preset-write problems,
+    not a step-8 cleanup. The earlier "place last, interface revealed by clients 4/5/6" reasoning is
+    weaker now — the write vocabulary is largely revealed. Thermostat write-path INVENTORY dispatched
+    (AUDIT_thermostat_write_paths_2026_09_16) to size it + decide re-sequencing. Operator wants EVERY
+    push AND pull through one handle, borrow included ("maybe borrow should use it; nudges probably
+    dont"). Gated also on the zone_1 oscillation producer (URA path -> abstraction fixes it; cloud ->
+    doesnt). May move ahead of step-4-B.'
   seq_2026_09_16: 'STEP 8 of HVAC-SUPPLE-SEQUENCE-1 — LAST. Fixes duplication, not a live defect: every bug this arc surfaced is already patched at its site. Earlier would mean a large Tier-3 refactor of every thermostat write in an occupied house, competing with fixes that move real numbers. Subsumes HVAC-PRESET-WRITE-STRATEGY-1.'
   title: We unified the call sites but never built an abstraction — three write verbs, two funnels,
     and vendor knowledge loose inside a shared path
@@ -10474,6 +11042,12 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset — the silent refusal)
   - hvac.py (the instrumented refusal site)
 - id: HVAC-PRESET-LOCKOUT-ESCAPE-1
+  DOWNGRADED_2026_09_16: 'Lockout telemetry (10.8h) shows escape is REAL but RARE (2 lockouts in
+    10.8h, occupied/home path only) — NOT the dominant zone_1 residual. The dominant residual is a
+    manual<->away oscillation (mystery re-manual writer) — see HVAC-ZONE1-MANUAL-OSCILLATION-1. Do
+    NOT build escape next; the oscillation producer is the measure-first priority. Escape remains a
+    valid small fix for the occupied/home lockout once the oscillation is understood. Re-confirm
+    frequency on the clean 24h read (~09:45 CDT 09-17).'
   seq_2026_09_16: 'STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".'
   title: URA refuses to write a preset to a zone in `manual` — including when URA itself caused the
     manual, so nothing ever rescues it
@@ -10537,6 +11111,432 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  D5_AUDIT_2026_09_17: 'Duty-cycle audit done (AUDIT_hvac_duty_cycle_protection_2026_09_17.md). CORRECTS
+    my earlier not-coast answer: D5 runtime_exceeded fires ONLY during EC coast/shed (caps runtime 75%/
+    50% of a 20min window, hvac.py:3331-3375, forces away hvac.py:1928). So the 12% runtime_exceeded
+    aways ARE coast-conditioned — operator coast suspicion RIGHT; my zero-coast-rows read conflated
+    reason-label with gating-condition. GOOD NEWS: runtime source = thermostats OWN hvac_action, NOT
+    URA presets -> URA flapping CANNOT self-trip D5 (my vicious-cycle worry REFUTED). BRYANT GROUNDING
+    = NONE: URA-invented energy-mode heuristic, zero Bryant/Carrier spec references; runtime_exceeded
+    name misleads. D5 is OCCUPANCY-BLIND -> forces OCCUPIED zones away during coast/shed; step-4-B does
+    NOT fix this (different input) — the hot-kitchen-away-in-evening-coast complaint is D5, unfixed by
+    this ship. Needs a Tier-2 cycle. 4 stubs carded.'
+  TRANSIT_ROOMS_VETTED_2026_09_17: 'Operator vetted the circulation (hallway) set for the D4 reclassify:
+    APPROVED as hallway = Garage Hallway, Kitchen Hallway, Kitchen Hallway Garage, Master Hallway,
+    Upstairs Hallway, Foyer (operator: "No. Its transit"), Guest Bedroom 2 Hallway (operator: "Its a
+    hallway. Reclassify" — currently mis-typed closet). = 7 rooms. Dwelling common_areas STAY: Kitchen,
+    Living Room, Dining Room, Breakfast Nook, Game Room, Exercise Room, Patio, Receiving Room, Butler
+    Pantry. STAGE these 7 room_type->hallway options-flow edits for post-v5.103.7. CLOSETS: operator
+    asked how to handle — closets are NOT circulation-excluded (only hallway is) so a closet occupancy
+    VOTES the zone occupied, but with room_type=closet short timeout (ROOM_TYPE_TIMEOUTS closet=120s)
+    + ROOM_TYPE_HVAC_HOLD[closet] short. Recommendation: leave closets voting (brief entry is real
+    occupancy) but set ROOM_TYPE_HVAC_HOLD[closet] low so they dont hold the zone long. Decide the
+    closet HVAC-hold value at the same time as the reclassify.'
+  ROUND5_DONE_2026_09_17: 'Round-5 landed @f88f4bc84. F1 reverted any->all (retreat requires ALL rooms
+    readable; 2 discriminating tests, mutation all->any reds them). Energy-restart NEW RESOLVED by
+    definitive revert-in-suite: develop source + branch tests -> the 2 TestBillingRestoreDaily STILL
+    FAIL -> pre-existing develop-side collection-order artifact, NOT branch-caused (my earlier NEW=2 was
+    a lucky-order baseline hiding them). Builder name-diff NEW=0/GONE=0. README_v5.103.7 written: LIVE-
+    ACTIVE = D1 circulation excl + row-1/D7 fused retreat + D8 night hold + reset-only backstop + D5
+    migration + hallway enum + D2 diag + vacancy-sweep decouple; DORMANT behind guest_mode_actuation
+    (Custom Preset Ranges, live OFF) = D9 compose-away + F2 + F4, marked NOT live-verifiable. Live
+    discriminator = zone_3 daytime flip-rate drop from 56-62/day. ORCHESTRATOR re-running own name-diff
+    (bvy5c7jpx) before ship.'
+  AWAY_CAUSE_ATTRIBUTED_2026_09_17: 'Operator asked if zone_3 away is EC coast or duty-cycle, not
+    vacancy. ATTRIBUTED from ura_activity_log preset_change reasons (zone_3, last 3d): vacant_past_grace
+    89 (84%), runtime_exceeded 13 (12%), house_state_transition 4. ZERO EC coast/shed rows. So: NOT
+    coast. DOMINANT = vacancy retreat (the corridor/occupancy flapping step-4-B targets). SECONDARY =
+    runtime_exceeded = D5 DUTY-CYCLE protection (hvac.py:1899) forcing away to rest the compressor after
+    long cooling — operator duty-cycle hypothesis CONFIRMED as a real ~12% contributor. home re-asserts
+    are all reason=house_state_transition (the producer-labeling quirk). Possible vicious cycle: flapping
+    home->cool->away->home restarts cooling -> more runtime -> runtime_exceeded forced-away -> feels
+    hot+stuck. Step-4-B addresses the vacancy 84%; whether D5 duty enforcement reads the new hvac_occupied
+    is a follow-up to check. Not a coast issue.'
+  CAUSATION_PROBE_2026_09_17: 'Did any deploy step up the flapping? INCONCLUSIVE, leaning UNCHANGED
+    (recorder-authoritative, transitions timed on preset_mode last_updated). The 09-16 all-zone spike
+    (z1 93, z2 67, z3 93) is a DEPLOY ARTIFACT — 4 reloads that day = boot re-eval churn, NOT steady
+    state. Only clean post-boundary day = 09-17: z1 45 + z2 28 UNCHANGED (within pre-range 32-63/14-32);
+    z3 76 elevated vs pre-max 67 but n=1, unseparable from occupancy variance. CORRECTS my earlier
+    over-read of raw ura_activity_log counts (44/56/62) which did NOT separate deploy-churn -> I
+    inflated it; recorder analysis says no clean evidence we worsened it. Flapping is PRE-EXISTING.
+    Recorder retention only reaches 09-10 (~6.5 pre days). Re-run after 3-4 deploy-free days to settle
+    z3 (scripts /tmp/flip3.py, /tmp/flip5.py). FINDING: manual episodes PERSIST post-v5.103.2 (z3: 27
+    episodes, ~121s median) -> resume-then-pin did NOT make holds uniformly durable; re-manual writer
+    still active -> HVAC-ZONE1-MANUAL-OSCILLATION-1.'
+  REREVIEW_R4_ADVERSARIAL_2026_09_17: 'Round-4 re-review #2 (adversarial) = SHIP w/ a reframe. KEY:
+    D-HIGH-1 — _async_apply_preset_overrides (D9) early-returns on guest_mode_actuation_enabled=False;
+    LIVE switch.ura_hvac_coordinator_guest_mode_actuation = OFF -> D9 compose-away + F2 throttle-bypass
+    are DORMANT in production. So the live-active ship = DAYTIME + PRESET layer (D1 circulation excl,
+    row-1/D7 fused-gated retreat, D8 night hold, reset-only backstop, D5 migration); D9/F2 ship dormant.
+    CONFLICT w/ correctness on F1: adversarial says any-room disabled-room case is byte-for-byte pre-
+    cycle (develop also retreats there) = LOW/no-regression; correctness says HIGH revert-to-all.
+    ORCHESTRATOR ADJUDICATION: revert F1 to all anyway — not a regression vs develop, but all is
+    strictly safer for the disabled-room edge + both reviewers accept it; dead-room visibility -> its
+    own trip-wire card. INV-1 PASS (rests on room coord surviving reload via __init__.py:4959 await-
+    before-publish, NOT the backstop — soften docstring). INV-2 preset-layer PASS, over-preservation
+    DEAD (no person read in retreat_ok). D-MED-2: F2 throttle-storm is inert live (switch off) -> CARD
+    as blocker-on-enabling-guest_mode_actuation, not a pre-ship fix. Ungated restore-writers (S8/S9/S11/
+    S13-return) strand empty night zones — pre-existing, uncorrected live (D9 was the intended corrector,
+    dormant) -> card. ROUND-5 (small): revert F1->all + card dead-room; resolve the 2 energy-restart NEW
+    (my name-diff, revert-in-suite); README marks D9/F2 DORMANT (not live-verifiable); cards for F2-
+    blocker + restore-writer stranding; docstring soften. Then ship v5.103.7 (live piece = the debounce).'
+  REREVIEW_R4_CORRECTNESS_2026_09_17: 'Round-4 re-review #1 (correctness) = FIX-REQUIRED, 1 HIGH + 1
+    MED. NOT SHIPPING. F1 (HIGH, orchestrator-predicted): the any-room-seen establishment lets a zone
+    with a DISABLED/setup_retry room retreat on the room it CANNOT read (unreadable counted as empty;
+    live hallway sibling establishes the zone) -> occupied bedroom loses conditioning all night. D-HIGH-1
+    reintroduced PERSISTENTLY. FIX: revert hvac_zones.py:970 to all(...) [round-3 semantics]; the dead-
+    room-fail-open F1 was trying to solve is a SEPARATE problem -> card w/ a code trip-wire (surface the
+    degraded room), do NOT relax the safety gate. Reviewer confirmed the proposed middle (all-live-coord)
+    does NOT fix it — hazard is the fused read, not the seen-set. F2 (MED): throttle-bypass emits 12
+    set_temperature/hr/zone to Carrier cloud indefinitely (no wire dedupe); FIX: bypass on LIVE ground-
+    truth setpoints (compare climate entity attrs), emit only on real diff — corrects third-writer strand
+    AND dedupes (house rule: ground truth not stale cache). CLEARED: shared-helper polarity + 4-site
+    consistency, reset-only backstop (home-person term gone from established path), F4 MagicMock carve-
+    out cant mask prod, F5 override removal clean. 3 test failures = PRE-EXISTING TestD4_Mode2BleGate
+    (presence_fan_recheck untouched). LOW: zone_has_home_person now dead (no callers) -> remove. HOLDING
+    for adversarial #2 + orchestrator name-diff, then round-5 (small: revert F1 + F2 ground-truth).'
+  ROUND4_CLEAN_2026_09_17: 'Round-4 landed @2f091a025, NEW=0 name-diff (builder). Reset-only backstop
+    + shared conditioning_retreat_ok(zone) across row-1/D7/D9/row-10; F2 throttle-bypass on compose-
+    away; F1 established=ANY-room-seen (disabled room cant wedge); F4 row-10 helper; F5 CONF knobs
+    DROPPED to constant tables. 32 tests, revert-in-suite drills. -> re-review (orchestrator will re-run
+    the changed-surface framings). LIVE CONTEXT that raises urgency: zone_3 measured flapping home<->away
+    19x/6h (~5-15min period), retreated to away ON the operator mid-check. Root: the DEBOUNCE (this
+    cycle) is UNSHIPPED; v5.103.2 resume-then-pin made the pre-existing decision oscillation land
+    faithfully = half-arc exposure. This build IS the fix. Operator offered a manual comfort hold for
+    immediate relief.'
+  ROUND4_DECISIONS_2026_09_17: 'Operator: (1) ROUND-4, keep night IN SCOPE (one combined cycle, NOT
+    decouple); (2) backstop breadth = RESET-ONLY. Round-4 fix-up dispatched w/ the full must-fix set:
+    F3/D-HIGH-1 shared _zone_conditioning_retreat_ok(zone) across row-1/D7/D9 (D9 must honor the
+    backstop at the SETPOINT layer, not just preset); F2/D-HIGH-2 S8/S9 restore sites update
+    _last_emitted_range OR compose-away bypasses the throttle; F1 scope is_zone_hvac_established to
+    rooms with a LIVE entry (not all zone.rooms) so a disabled room cant wedge fail-open forever;
+    F4 row-10 establishment guard; F5 wire CONF_HVAC_VACANCY_HOLD[_NIGHT] to a config surface or drop
+    to constants; real BEHAVIORAL anchors for D9/row-1/hallway (kill the source-greps). BACKSTOP =
+    RESET-ONLY: fires ONLY while zone unestablished (post-reload gap); once established, occupancy
+    alone decides -> empty zone retreats even w/ a resident home elsewhere (kills the over-preservation;
+    still closes the reload cold-retreat). Genuine-degradation-while-established is covered by mmWave
+    hold + the parked HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1, NOT the backstop. Then 4-framing
+    re-review -> operator pre-deploy checkpoint.'
+  REREVIEW_TESTAUTH_FAILED_2026_09_17: 'Re-review #2 (test-authority) DIED on a login-expiry API error
+    (not a finding). Not re-run: both #1 (F-LOW) and #3 (D-LOW-1) independently found the same thing —
+    round-2 anchors are STILL source-greps; no behavioral test asserts D9 honors the backstop or the
+    throttle-strand. So test-authority signal is covered. CONSOLIDATED RE-REVIEW VERDICT (2 of 3
+    completed, converged): FIX-REQUIRED. Two HIGH must-fix (D-HIGH-1/F3 D9-defeats-backstop-at-setpoint;
+    D-HIGH-2/F2 throttle-strand via S8/S9), one MED must-fix (F1 establishment permanently-off on a
+    disabled room), one MED polarity (F4/D-MED-2 row-10), plus F5 inert knobs. And ONE OPERATOR POLICY
+    CALL (D-MED-1): backstop breadth = any-resident-home preserves every empty zone all night = the
+    over-preservation the cycle set out to kill. ALL night-trust findings; the daytime piece (D1
+    circulation exclusion + day empty-zone retreat) is CLEAN across all reviews. -> escalating to
+    operator with a DECOUPLE recommendation (ship daytime, split night-trust to its own hardened
+    cycle) rather than auto-dispatching round-5.'
+  REREVIEW_ADVERSARIAL_2026_09_17: 'Re-review #3 (adversarial) = FIX-REQUIRED, CONVERGES with
+    correctness. D-HIGH-1 == F3: D9 compose-away has NO backstop -> setpoint-composes away over the
+    preset row-1/D7 preserved (clean reload repro); fix = ONE shared _zone_conditioning_retreat_ok
+    helper across row-1/D7/D9. D-HIGH-2 == F2: _last_emitted_range throttle strands the zone (S8/S9
+    override-restores dont update the map) -> compose-away does NOT close D-HIGH-2. D-MED-1 (OPERATOR
+    POLICY): the row-1 backstop is TOO BROAD — zone_has_home_person = any resident IN THE HOUSE (person-
+    union across rooms; HVAC zone fans to many house zones) -> holds EVERY established-empty zone at
+    home preset all night = the v4.7.13 over-preservation the cycle set out to KILL. So the backstop is
+    BOTH too-narrow-in-layer (preset-only; D9 defeats it) AND too-broad-in-trigger (any-home preserves
+    all). Recommend narrow to not-established-ONLY (drop the FAN_TRUST+home_person term) OR adjudicate.
+    D-MED-2 == F4 (row-10 no establishment guard). D-LOW-1: round-2 anchors STILL source-greps (no test
+    asserts D9 honors backstop / the throttle-strand). CLEARED: _hvac_seen not a false-establish at the
+    coordinator-not-ready layer, INV-2(a) never-occupied CAN retreat, D9 emits on first tick. FOURTH
+    bypass = the hvac_override restore family (3360/4390/4562/5774/6180), ungated, = the D-HIGH-2
+    stranders. This is round-4 territory + a real operator policy call on backstop breadth. HOLDING
+    for test-authority, then consolidated report + DECOUPLE recommendation.'
+  REREVIEW_CORRECTNESS_2026_09_17: 'Re-review #1 (correctness+integration of round-2 changes) =
+    FIX-REQUIRED, 2 HIGH + 3 MED. The fail-open/compose rework introduced new gaps: F1 (HIGH)
+    is_zone_hvac_established requires ALL rooms in _hvac_seen but _hvac_seen populates only AFTER the
+    coordinator-None continue -> a zone with any disabled/setup_retry room (or legacy ZONE pseudo-room)
+    is PERMANENTLY unestablished -> D7/row-1/D9 fail-open forever -> zone NEVER retreats (silent,
+    permanent). Fix: scope establishment to rooms with a live entry. F2 (HIGH) compose-away relies on
+    the DPM throttle to overwrite third-writer restores, but S8 cancel-nudge + S9 ramp-audit dont
+    update _last_emitted_range -> still strand empty zone at comfort all night (D-HIGH-2 NOT closed);
+    fix: S8/S9 update the map OR compose-away bypasses throttle. F3 (MED-HIGH) person-trust backstop is
+    PRESET-ONLY — D9 composes away SETPOINTS regardless -> sleeping bedroom w/ mmwave-drop + phone-home
+    keeps preset=home but retreats THERMALLY (backstop defeated at setpoint layer); fix: add the
+    night/person term to _compose_away OR document preset-only. F4 (MED) row-10 fails CLOSED, no
+    establishment guard -> reload-window manual push stomped. F5 (MED) CONF_HVAC_VACANCY_HOLD[_NIGHT]
+    inert (no config surface) — day/night split unreachable. F6 (LOW) D2 lacks established attr.
+    CLEARED: D9 emits, chokepoint/preset_mode untouched, _last_emitted_range desync gone (S13), D7
+    boolean, D5 migration (thorough), night table, restart. HOLDING for test-authority + adversarial.'
+  FREEZE_FLOOR_ROOTCAUSE_2026_09_17: 'Root cause = TEST-INFRA leak, NOT a production regression. The
+    new test_zzz_hvac_conditioning_demand.py mutated sys.modules at COLLECTION time (package shims w/
+    __path__ into the real ura dir); a sibling test then resolved a real submodule import that pulled
+    in the REAL homeassistant.helpers.dispatcher, tripping test_freeze_floor stub-install guard
+    (test_freeze_floor.py:76 needs the dispatcher NOT loaded so its no-op stub installs) -> hvac.py:1590
+    async_dispatcher_send hit HA2026.9 verify_event_loop_thread on _FakeHass -> AttributeError. This is
+    the known suite-pollution class (adjacent TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 / const-stub-isolation).
+    FIX: moved ALL sys.modules/path mutations INSIDE the lazy _ensure_loaded() (fires on first test call,
+    after test_freeze_floor already installed its stub since test_zzz sorts last); + test_freeze_floor
+    fake ZoneManager.update_room_conditions accepts the new house_state kwarg. Only 2 TEST files touched
+    this round; NO production source change. NOTE the revert-in-suite was RIGHT that the branch caused
+    it (the branch TEST FILE) — pre-existing-on-faith would have been wrong. LESSON: new test files must
+    not mutate sys.modules at collection time; lazy-load. Orchestrator name-diff re-running to confirm
+    NEW=0 before re-review.'
+  FREEZE_FLOOR_IS_REAL_REGRESSION_2026_09_17: 'Orchestrator name-diff on round-2: NEW = 2 freeze_floor
+    params, GONE=0. Did NOT trust the pre-existing label (my TestD1I6Scope lesson). Definitive revert-
+    in-suite: reverted the 9 branch SOURCE files to develop, KEPT the branch test set (collection order
+    held constant), re-ran full suite -> freeze_floor PASSED. On the branch (branch source, same tests)
+    -> freeze_floor FAILS. Source is the ONLY variable => BRANCH-CAUSED REGRESSION, not an order-flake.
+    OVERTURNS the builder + review-C + my-earlier belief that freeze_floor was pre-existing (that claim
+    traced to my isolation test, never a proper revert-in-suite). test_freeze_refreshed_before_predictor_
+    with_apply_gated is a PREDICTOR-ORDERING test; the branch touched hvac_predict.py (row-8:581/row-9
+    swaps + pre-cool gate) — likely culprit, possibly a runtime state-leak from an HVAC test whose
+    behavior changed under the new source, leaking into freeze_floor. -> back to builder to bisect +
+    fix; NO re-review on a build with a code-caused NEW failure. Worktree source restored to branch.'
+  ROUND2_BUILD_LANDED_2026_09_17: 'Round-2 fix-up landed (@7959b2587, plan synced to round-3-rev). Per
+    builder: all 3 operator decisions (D9 compose-away via zone_target_preset=away + emit; D7
+    _hvac_seen/is_zone_hvac_established fail-open + person-trust backstop + _row1_fail_open, unified
+    polarity; D5 _migrate_hvac_zone_entry_dwell_to_zero) + all converged must-fixes (vacancy sweep
+    lighting-gated both branches; night table 9 types + night>=day, default 60; row-10 fused swap;
+    per-room override day-only + CONF_HVAC_VACANCY_HOLD_NIGHT sibling) + behavioral anchors replacing
+    the hollow greps. Builder name-diff: NEW=2 GONE=2, NEW = the 2 pre-existing freeze_floor flakes,
+    TestD1I6Scope now pass. ORCHESTRATOR re-running its OWN name-diff (bqc59akiv) — NOT trusting the
+    categorization (got burned round-1). RESIDUALS: config-flow UI for the hold knobs deferred (A-LOW,
+    matches CONF_FAN_VACANCY_HOLD); 6-hallway reclassification = operator runbook.
+    NEXT: on clean name-diff -> FOCUSED re-review (3 framing-disjoint on the CHANGED/new surfaces: A/B
+    correctness+integration of D9-compose/row-10/migration/fail-open logic; C test-authority verify the
+    new anchors DISCRIMINATE via revert-in-suite; D adversarial — the NEW fail-open/backstop is unreviewed
+    + night-safety-critical: confirm INV-1 holds under reload AND INV-2 does NOT over-preserve (an
+    empty-at-boot zone must still retreat once established, not stay conditioned forever)). Then operator
+    pre-deploy checkpoint.'
+  STORM_VERIFIED_2026_09_17: 'Reload-storm verification (recorder-authoritative via ura_setup_duration
+    re-stamps; logs were inaccessible - journald 401/perm-denied, samba logfile stale). RESULT: REDUCED,
+    0 overnight LAST night (09-16->17) but 3 overnight ~34h ago (09-15->16); ~5x/night baseline 09-10.
+    24h = 4 setups all daytime (my deploys). All 46 entries loaded, no retry loop. SEVERITY for the D7
+    night-safety fix: REAL + RECENT (hazard fired 34h ago) but not a nightly emergency. Fix WARRANTED
+    (operator: regardless) — on a storm night, built-form cold-retreats sleeping bedrooms; the fail-open
+    + person-trust backstop prevents it. Confidence HIGH on counts, MED on durably-stopped (1 clean
+    night). No change to the round-2 fix-up needed.'
+  ROUND2_FIXUP_DISPATCHED_2026_09_17: 'Operator decided all 3: (1) D7 night-safety FIX REGARDLESS
+    ("too many holes") + FIRST verify the CM reload storm (dispatched a5fdc6d — measurement, ha core
+    logs returned 401 in ssh so delegating to find a working source); (2) D9 COMPOSE-AWAY endorsed;
+    (3) D5 migration yes. NO decoupling of daytime from night — harden night-trust in place. Round-2
+    fix-up dispatched (a6e1518, same worktree) covering: D9 compose-away (keeps DPM-as-corrector, kills
+    third-writer strand + cache desync); D7/row-1 FAIL-OPEN on unestablished fused signal (_hvac_seen)
+    + person-trust BACKSTOP for the reset/degraded case (restores v4.7.13 veto as backstop; closes
+    D-HIGH-1 reload + B-HIGH-1 + B-MED-1) + unify polarity D9/D7/row-1; D5 config-entry migration of
+    the stored hvac_zone_entry_dwell option; vacancy sweep gated on lighting denom (A-HIGH/B-CRIT-1) +
+    D6 branch; night table full coverage + night>=day (A-MED/B-HIGH-3); row-10 fused swap or correctness
+    justify (D-MED-1); per-room override night-aware + settable (D-MED-3/A-LOW); REAL behavioral anchors
+    for D9/row1/row4/hallway + fix row-8 TestD1I6Scope fixtures + fix 2 non-discriminating S13 tests
+    (C-CRIT/HIGH/MED); revert-in-suite name-diff (NOT isolation); sync plan into worktree. Storm verify
+    informs SEVERITY, does not block (fix is correct regardless).'
+  REVIEW_C_2026_09_16: 'Framing C (test-authority via per-site mutation) = FIX-REQUIRED, hardest.
+    C-CRIT-1: D9 ENTIRELY UNTESTED — fused->lighting flip AND full gate deletion both leave the full
+    suite green; coverage is an unscoped whole-file grep (Bug#62). Row 1 (preset-flip) + Row 4 (stale)
+    + D1 HALLWAY EXCLUSION also untested (revert = zero suite movement) — the hallway exclusion is
+    CRIT-1s entire transit-rejection mechanism, unanchored. C-HIGH-3 CORRECTS the orchestrator name-
+    diff: reverting row-8 (hvac_predict.py:581) makes the 2 TestD1I6Scope precool tests FAIL->PASS in
+    the FULL SUITE -> they are REAL row-8 regressions (lighting-fused fixtures, same class as S13), NOT
+    pre-existing order-flakes as isolation-testing suggested. My isolation check was insufficient;
+    revert-in-suite is the definitive method. Only the 2 freeze_floor are truly pre-existing. C-MED-1:
+    cycle-own D7 tests hollow (source-grep); real D7 coverage lives accidentally in the fan_trust
+    sibling. C-MED-2: 2 of 3 S13 contract tests DONT discriminate (set occupied+hvac_occupied both
+    True, pass under old+new) — relaxed not re-contracted; saved only by the new _skipped test.
+    CLEARED: D1 arm/tail/precondition/generalization + CRIT-1 kind guard genuinely anchored; row 2b
+    anchored. VERDICT: build needs REAL behavioral anchors for D9/row1/row4/hallway + fix the row-8
+    fixtures. ALL 4 REVIEWS FIX-REQUIRED. Escalating to operator checkpoint before a big second round.'
+  REVIEW_D_2026_09_16: 'Framing D (adversarial completeness) = FIX-REQUIRED, FALSIFIED BOTH invariants
+    w/ legal-config repros. D-HIGH-1 (INV-1, SEVERE): CM reload storm ~5x/night (known live issue) wipes
+    in-memory D1 arm state; reload path has boot-settle already released; last_occupied_time seeded PAST
+    grace -> first tick all rooms hvac_occupied=False -> sleeping bedroom retreats away, D7 fail-CLOSED
+    lets it stand (no fused history). OLD unconditional night-trust rescued exactly this (2026-06-05).
+    FIX: D7/row-1 must FAIL-OPEN on un-established fused signal. D-HIGH-2 (INV-2): third writers
+    (_restore_after_nudge unconditional, _return_preheat, async_startup_ramp_audit, _engage_resume) put
+    home setpoints back on a retreated night zone; D9-as-SKIP removed the DPM corrector that overwrote
+    them every tick -> guest wing 72F all night w/ preset=away (the setpoint-vs-mode split D9 exists to
+    close, reversed). FIX (strong): D9 COMPOSES away setpoints + keeps emitting, NOT continue. D-MED-1:
+    row-10 arrester comfort-delay reads any_room_occupied -> hallway crossing defers D7 away indefinitely
+    (deferral was fixture-cost not correctness). D-MED-2: D9 fail-OPEN vs D7/row-1 fail-CLOSED on empty
+    room_conditions = the split D9 prevents; unify polarity. D-MED-3: per-room hold override is day/night-
+    blind -> wins over night table -> silently drops night insurance. Plan copy in worktree is STALE
+    (round-1); sync. ADJUDICATION (A/B vs D conflict on vacancy sweep): A/B CORRECT, D WRONG — verified
+    in branch: fire gate zone_vacant_past_grace is HVAC-denom (hvac.py:1808), vacancy_sweep_done reset
+    (hvac_zones.py:672) stays lighting-fused = ARMS the sweep during hallway occupancy -> sweep FIRES on
+    occupied hallway every tick. Fix = gate _execute_vacancy_sweep on not any_room_occupied. ROOT across
+    B-HIGH-1/B-MED-1/D-HIGH-1: D7 fails UNSAFE on reset/unestablished state. HOLDING for C.'
+  REVIEW_A_2026_09_16: 'Framing A (local correctness) = FIX-REQUIRED, CONVERGES with B. A-HIGH ==
+    B-CRIT-1 (vacancy sweep lights-off on occupied hallway — both name it the plan-predicted Bug#63
+    collision; same exposure on the D6 stale branch hvac.py:1883). A-MED == B-HIGH-3 (night hold < day
+    for 5 uncovered room types: closet/bathroom/garage/utility/infrastructure -> night default 0 vs
+    day 60). A NEW catch (B missed): D5 NOT REAL on the live install — the 3->0 default flip is shadowed
+    by the PERSISTED hvac_zone_entry_dwell option (Number knob number.py:494 + CM flow), so entry-dwell
+    keeps firing + stacks with the D1 tail = the exact thing D5 removes; needs a MIGRATION that rewrites
+    the stored option, not a constant flip (or drop the D5 no-stack claim). A-LOW: CONF_HVAC_VACANCY_HOLD
+    per-room override is UNSETTABLE (no config-flow field / Number entity) -> the plan-specified override
+    cant be set; wire it or document code-only. Also: _dpm_skipped_empty_zones computed-not-consumed;
+    hallway branch doesnt clear _hvac_prev_state_occupied; dead imports; the 2 fan_trust D3 tests still
+    source-grep (Bug#62, -> C). CLEARED by A: D8 effective_hold, D9 placement, D7 boolean, getattr fail-
+    open direction, S13 contract test genuine. A scope note: plan text still carries stale "D7 non-goal
+    unless operator picks it" language (operator DID pick B + measurement done) — clean up. HOLDING for
+    C/D.'
+  REVIEW_B_2026_09_16: 'Framing B (integration/lifecycle) = FIX-REQUIRED, 1 CRIT + 3 HIGH — real
+    build bugs. B-CRIT-1: the lights-off-on-occupied-hallway regression the PLAN REVIEW predicted,
+    reintroduced via an INCOMPLETE swap — fire gate moved to HVAC-denom (last_occupied_time basis at
+    hvac_zones.py:660) but vacancy_sweep_done RESET stayed lighting-fused (:672), decoupling them so
+    _execute_vacancy_sweep turns hallway lights/fans off on a standing occupant every 30s tick. Fix:
+    keep the sweep gate lighting-fused (or and-not-any_room_occupied) / exclude hallway rooms; reset
+    basis must match fire basis. B-HIGH-2: D9 skip desyncs _last_emitted_range -> after re-occupancy
+    DPM throttle-hits on the stale pair and never re-emits -> thermostat stuck on away setpoints; fix
+    = pop the cache on the D9 skip. B-HIGH-3: ROOM_TYPE_HVAC_HOLD_NIGHT covers only bedroom/media/
+    common/generic/hallway -> bathroom/kitchen/office/utility fall to NIGHT default 0 vs DAY 60 =
+    shorter tail at night than noon -> instant night retreat on a real occupant; fix = full room-type
+    coverage or night-default >= day-default. B-HIGH-1 (OPERATOR DECISION): D7 fused-AND makes the
+    night-trust guard DEAD on the D1 retreat path (needs not-fused) and REMOVES the v4.7.13 person-
+    trust veto (project_zone_away_when_occupied_home_night_gap) — leaving only the known-unreliable
+    mmWave + a bounded tail. B-MED-1 restart mid-tail loses the RAM-only hold; B-MED-2 missing-coord
+    freezes D1 state (benign now); B-LOW-1 armed_by_kind documented-not-emitted. HOLDING for A/C/D to
+    consolidate one fix-up round + surface B-HIGH-1 to operator.'
+  FIXUP_DONE_REVIEWS_DISPATCHED_2026_09_16: 'Fix-up complete (@1e17d400a): 3 regressions -> contract
+    updates w/ new discriminator tests + mutation drills (fan_trust TestD3 x2 = D7 narrowing; arrester
+    S13 = row-9 swap, + new test_S13_pre_heat_skipped_when_hvac_denomination_empty). D2 binary_sensor
+    ENTITY built (HVACOccupiedBinarySensor, registry-disabled-default, wire-in anchor). Name-diff NOW
+    CLEAN: NEW=4 GONE=0, all 4 = the verified pre-existing order-flakes (test_v5_7_1 TestD1I6Scope x2 +
+    test_freeze_floor x2, fail identically on develop-isolation). -> in review: 4 framing-disjoint
+    Tier-3 reviews dispatched (A local-correctness, B integration/cross-coord/restart, C test-authority-
+    via-mutation, D adversarial-completeness/falsify INV-1+INV-2). Targeted-only (orchestrator owns the
+    final serial name-diff). Then operator PRE-DEPLOY checkpoint. Deferred: §2a rows 10/11 (reverted,
+    reviews adjudicate); 6-hallway reclassification (operator runbook).'
+  BUILD_LANDED_NAMEDIFF_VERIFIED_2026_09_16: 'Build landed (feature/hvac-conditioning-demand @6bcba611f,
+    D1-D9 + 17 tests, D9/D7/row-2b mutation drills RED-on-strip). Name-diff = 7 NEW failures — NOT
+    clean. Orchestrator VERIFIED the categorization (isolation on branch vs develop, not trusted):
+    (1) 4 are PRE-EXISTING order-fragility — test_v5_7_1_energy_precool::TestD1I6Scope + test_freeze_
+    floor fail IDENTICALLY in isolation on develop; re-exposed by the +17 tests shifting collection
+    order (TEST-SUITE-ORDER-INDEP). Not the change. (2) 3 are REAL branch regressions —
+    test_arrester_comfort_delay::S13 (1) + test_fan_trust_state_extension::TestD3 (2) PASS on develop,
+    FAIL on branch: intended semantic consequences of D7 (fused night-trust) + row-9 (hvac_predict
+    swap), but real failures that MUST be resolved by updating the tests to the NEW contract (justified,
+    not made-green). PLUS D2 INCOMPLETE vs operator requirement ("has to be observable"): producer +
+    diag API landed, binary_sensor ENTITY deferred. NOT review-ready. FIX-UP dispatched: update the 3
+    regressed tests to the new contract + build the D2 entity + re-run name-diff (only the 4 verified
+    order-flakes may remain). THEN the 4 framing-disjoint reviews. §2a rows 10/11 reverted to lighting-
+    fused — reviews adjudicate.'
+  BUILD_PAGED_PLAN_FIXED_2026_09_16: 'Builder paged (No-Fabrication, correct): D1 cited
+    last_edge_kind_for which does not exist (substrate exposes last_edge_entity_for -> entity_id, not
+    kind). ROOT: the kind read was mis-cited AND unused (vestigial) — round-3 already moved D1 to ride
+    grace-held STATE_OCCUPIED, and transit is handled by circulation exclusion (hallway room_type), not
+    per-edge kind. FIX = DELETE the kind read entirely (kind-aware within-room discrimination = Stage B,
+    deferred). Fully dissolves CRIT-1 (no kind method on the D1 path) + removes the missing-helper gap.
+    No new machinery. My validation miss owned: I trusted the plan''s REUSE citation without grepping
+    the symbol returns a kind. Plan amended; build re-dispatched (same worktree).'
+  ORCH_VALIDATION_PASS_2026_09_16: 'Orchestrator personally validated the round-3 plan (operator:
+    validate yourself, watch for over-complication). PASS + not over-built: CRIT-1 resolved via kind-
+    at-rising-edge (last_edge_entity_for) then ride grace-held STATE_OCCUPIED+tail (test_d1_holds_
+    through_raw_kind_blip pins it); D8 truly collapsed to ROOM_TYPE_HVAC_HOLD_NIGHT table value under
+    FAN_TRUST_STATES, self-gating, no arm-machine/cap/restart/wall-clock (modest bedroom 30-45); D7 &
+    D9 each a SINGLE early guard on fused any_room_hvac_occupied (grep-provable ship-stop on raw);
+    §2a keeps 557/563 NO-SWAP (lighting protected); generalization an acceptance criterion; DST moot;
+    flap reversal addressed. No missed seams. -> Tier-3 build DISPATCHED (worktree). 4 framing-disjoint
+    build reviews incl adversarial-completeness D; operator PRE-DEPLOY checkpoint before ship. Build
+    NOT gated on the oscillation trace (that gates the separate Phase-1 chokepoint).'
+  BUILD_NOT_GATED_ON_OSCILLATION_2026_09_16: 'CORRECTION (operator: "why cant we start on the plan
+    when its done?"). I over-serialized — step-4-B build has NO hard dependency on the zone_1
+    oscillation trace or the abstraction. Those gate the SEPARATE cards (HVAC-ZONE1-MANUAL-OSCILLATION-1
+    = zone_1 write-persistence, step-1 residual; HVAC-SETHVACMODE-CHOKEPOINT-1 = Phase-1, gated so it
+    doesnt over-fit). Step-4-B is conditioning-DEMAND decision logic (retreat empty zones); its target
+    is zone_3 (the money-pit), not the oscillating zone_1, so even live validation is not blocked.
+    ACTUAL step-4-B build gates: (1) round-3 plan done [finishing]; (2) orchestrator verify the round-3
+    revision resolved the CRITs (CRIT-1 kind-filter-not-raw, D8 collapse, HIGH-2 point-gate, enumeration,
+    generalization criterion) — targeted verify, not a full re-review round; (3) operator Tier-3 go
+    (given). On plan-landing: verify -> dispatch Tier-3 build (4 framing-disjoint reviews incl the
+    adversarial-completeness pass) -> operator pre-deploy checkpoint -> ship. Proceed when the plan is
+    done; do not wait on the measurements.'
+  ROUND3_DISPATCHED_2026_09_16: 'Operator: proceed on the plan revision in progress while measurements
+    run; dont lose the thread. UN-HELD the round-3 revision, scoped to measurement-INDEPENDENT fixes:
+    CRIT-1 (kind-filter built on grace-held, not a raw AND), D8 collapse to a self-gating night
+    ROOM_TYPE_HVAC_HOLD value gated on FAN_TRUST_STATES (Ziri/P1 struck; resolves HIGH-3 via inherent
+    tail expiry), BP-1 inline the §2a + D1 tables, BP-2 split 555-566 per-line (557/563 NO-SWAP),
+    HIGH-1 complete per-site enumeration verdicts, BP-5 pin D7 insertion, MED-1 generalization
+    acceptance criterion, MED-2 measurement caveat (Master+Jaya only), MED-3 zi precondition, MED-4
+    flap+DST. ONE seam left PENDING + clearly marked: HIGH-2 DPM-writer placement (point-gate vs
+    abstraction-owned) awaits AUDIT_thermostat_write_paths + the zone_1 oscillation trace; INV-2
+    restated as delivered-conditioning w/ the DPM bypass named as must-gate. Plan does NOT hard-code a
+    DPM point-gate yet.'
+  HIGH2_AND_RESEQUENCING_2026_09_16: 'Operator: HIGH-2 = BRING THE DPM WRITER IN SCOPE (gate
+    _async_apply_preset_overrides hvac.py:2479 on occupancy; INV-2 = delivered conditioning, not just
+    effective_preset). AND operator raised the ROOT-CAUSE question: too many ungoverned thermostat
+    write paths (DPM bypass + zone_1 oscillation mystery writer + 7 raw set_hvac_mode + "nudges
+    probably bypass") -> should HVAC-THERMOSTAT-ABSTRACTION-1 move EARLIER as the structural fix?
+    ORCHESTRATOR: likely yes, but VALIDATE first (measure-before-build) — dispatched a thermostat
+    write-path INVENTORY (AUDIT_thermostat_write_paths_2026_09_16). FORK: if the inventory shows many
+    URA bypass paths AND tomorrow''s oscillation trace shows the re-manual writer is a URA path, the
+    abstraction is THE structural fix (move it ahead of / absorb step-4-B''s DPM gating). If the
+    oscillation is Bryant-CLOUD, the abstraction still fixes HIGH-2 + the bypass class but is not the
+    oscillation fix. HOLDING the step-4-B round-3 plan revision until the inventory returns — do NOT
+    hard-code a DPM point-gate into step-4-B if the abstraction is going to own it. Round-3 must still
+    fix: D8->modest night ROOM_TYPE_HVAC_HOLD value, CRIT-1 kind-filter-not-raw, complete enumeration,
+    generalization acceptance criterion, MEDs.'
+  PLAN_REVIEW1_COMPLETENESS_2026_09_16: 'Tier-3 plan review #1 (completeness) = FIX-REQUIRED, 2 CRIT
+    3 HIGH 4 MED. Converges w/ #2 on D8 (CRIT-2 = build-the-parked-card-on-refuted-Ziri). DISJOINT
+    catches #2 missed: CRIT-1 (deepest) — the plan is INTERNALLY CONTRADICTORY: hvac_occupied =
+    STATE_OCCUPIED AND is_kind_active(), but is_kind_active is a RAW substrate read (its docstring),
+    so the AND drops the signal on any raw mmWave blip (100-186min) — the raw-read failure the night
+    measurement warned of, laundered through one indirection; the plan''s own reads-fused-not-raw test
+    would FAIL against its own D1 formula. FIX: kind filter at rising-edge/attribution or a HELD per-
+    kind signal, never a live AND over _raw_state. HIGH-2 (scope SEAM, operator call): D7 gating
+    effective_preset is NOT sufficient — _async_apply_preset_overrides (hvac.py:2479) recomputes
+    setpoints from house_state and writes set_temperature, BYPASSING effective_preset, so an empty
+    zone D7 left at away still gets home-baseline setpoints when EC has a dynamic override. INV-2
+    unachievable while that path runs unless it too is gated on occupancy. HIGH-1: enumeration still
+    incomplete — hvac_predict.py:578/1368 (pre-cool) + hvac_override.py:2282/2433 (preset overrides)
+    are conditioning-decision sites w/ no verdict. HIGH-3: D8 missing a mid-window-departure discharge
+    (occupant leaves 02-06 while another keeps house in FAN_TRUST_STATES -> force-holds empty bedroom).
+    MEDs: generalization not an acceptance criterion; §0a overstates measurement (all-7-nights vs
+    Master+Jaya only); INV-2 omits the zi precondition; HVAC-PRESET-FLAP-1 interaction + DST unaddressed.
+    ORCHESTRATOR VALIDATION (operator asked): over-complication REAL (D8 -> simplify, endorsed) AND two
+    real SEAMS missed (CRIT-1 correctness, HIGH-2 DPM bypass). Plan NOT ready; needs round-3 revision
+    + HIGH-2 is an operator scope decision (bring DPM writer into step-4-B vs card separately + narrow
+    INV-2 to the preset path).'
+  PLAN_REVIEW2_OVERCOMPLICATION_2026_09_16: 'Tier-3 plan review #2 (over-complication, operator-
+    requested lens) = FIX-REQUIRED-IN-PLAN, 3 CRIT 4 HIGH. Orchestrator ENDORSES the SIMPLIFY. Key
+    findings: OC-1/OC-2 (CRIT) — the plan''s D8 is the PARKED full machinery verbatim (200min, 4
+    discharge paths, arm state machine) justified on the REFUTED Ziri evidence (P1/HARD/"exists
+    because of Ziri") — contradicts D8_RESCOPED''s modest-grace. OC-3 (HIGH) — D8 is a FOURTH cascaded
+    hold; 3 already cover the seam (ROOM_TYPE_TIMEOUTS bedroom 900s + unavail grace + vacancy_grace
+    10min) + D3''s new per-room hold. COLLAPSE D8 -> a NIGHT VARIANT of D3''s ROOM_TYPE_HVAC_HOLD gated
+    on FAN_TRUST_STATES (self-gating tail-hold: cannot false-hold an empty room, delivers the arm
+    precondition free). Deletes arm machine, cap, continuity check, restart fail-safe, 2 attrs, 5/7
+    tests. One real seam preserved: night-scope it (a VALUE not a state machine) so daytime empty-
+    bedroom retreat (the money) is not delayed. BUILD-PREDICTION CRITs: BP-1 the §2a swap table + D1
+    acceptance criteria are NOT in the doc ("carried forward" but absent) -> inline them; BP-2 blanket
+    swap of hvac_zones.py:555-566 breaks the LIGHTING vacancy sweep (vacancy_sweep_done@557 gates
+    light/fan turn-off) -> split per-line: SWAP 556/560 (HVAC), NO-SWAP 557/563. HIGH: missed consumers
+    hvac_zones.py:349/418, hvac.py:3625-3643, optimization.py:2412; D7 sketch != real code (log-once
+    cache + reason-ledger) -> pin exact insertion, drop "builder pins the form". D7 itself = KEEP
+    (minimal, no new state — the cycle''s actual value). HOLDING plan revision for review #1
+    (completeness) to consolidate.'
+  GENERALIZES_ALL_ROOMS_2026_09_16: 'Framing correction (operator): the design GENERALIZES to ALL
+    bedrooms/rooms — it is NOT scoped to Master+Jaya. D7 reads the FUSED per-room occupancy signal for
+    ANY room and retreats empty zones / holds occupied ones; nothing is hardcoded to specific rooms.
+    Master+Jaya are the only OCCUPIED instances we had data to VALIDATE against (the only bedrooms
+    occupied in 2 weeks) — that is validation COVERAGE, not a scope limit. Empty bedrooms are handled
+    GRACEFULLY by construction: an empty room (Ziri today) reads unoccupied -> its zone retreats (the
+    intended win, no waste); and D8 grace only ARMS after a room has held CONTINUOUSLY occupied into
+    the night, so an empty/never-occupied room never false-holds. Empty and occupied rooms both fall
+    out of ONE generic rule. CORRECTED INVARIANT WORDING: INV-1 = "no OCCUPIED bedroom (any bedroom)
+    falls to away overnight"; Master+Jaya = the validated evidence the fused signal holds for a real
+    occupant; D8 grace = the generic safety for ANY occupied room whose sensors drop, measured or not.
+    Supersedes the earlier "safety scoped to Master+Jaya" phrasing in D8_RESCOPED — that was validation
+    coverage mis-stated as design scope.'
+  D8_RESCOPED_2026_09_16: 'CORRECTION cascading from the Ziri refutation. The night measurement made
+    the 2-6am leniency (D8) REQUIRED/P1 on the basis that redundancy degrades silently AND Ziri proved
+    it. Ziri did NOT prove it — Ziri is away (operator), so there is NO observed degraded-occupied-
+    bedroom instance. D8''s justification collapses back to the operator''s ORIGINAL P2-3: defensible
+    insurance against a hypothetical (a sensor dying while a room is occupied), not a proven need.
+    => RE-SCOPE step-4-B (MODERATED by operator 2026-09-16 "doesn''t mean no grace... gives context to
+    the measurement" + "Master and Jaya are the only occupied in the last 2 weeks"): BUILD D7 (night-trust
+    gated on fused room occupancy) AND KEEP D8 as PRUDENT GRACE. Two corrections vs the first re-scope:
+    (1) the "fused holds continuous" SAFETY RESULT is scoped to MASTER + JAYA ONLY — the only bedrooms
+    occupied in the last 2 weeks; every other bedroom is UNMEASURED (empty), so we cannot claim the same
+    hold for them. (2) D8 grace STAYS (operator wants grace) but its JUSTIFICATION is corrected: prudent
+    default covering the UNMEASURED rooms + the real-but-unobserved degradation mode — NOT the P1 forced
+    by the refuted Ziri evidence, and NOT the 200min that evidence implied. D8 sizing is now an OPERATOR
+    CHECKPOINT decision (a modest grace, not degradation-sized). D7 still Tier 3 (night-trust hierarchy +
+    reverses the 2026-06-05 flap); INV-1 protected by D7 fused reads + measured 2.4min margin ON THE
+    MEASURED ROOMS, with D8 grace as the safety net for the unmeasured ones.'
   NIGHT_MEASUREMENT_2026_09_16: 'Option-B safety gate measured (7 nights). VERDICT: SAFE now + 2-6am
     leniency REQUIRED (upgraded P2-3 -> P1 by the data). Findings: (1) NO resident/guest bedroom is
     PIR-only — all mmWave/occupancy-backed. (2) The FUSED binary_sensor.<room>_occupied holds
@@ -10905,7 +11905,8 @@ cards:
   title: HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC
     its own dwell-vs-transit derivation instead of tuning a knob that cannot win
   thread: hvac
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.7
   created: '2026-09-15'
   updated: '2026-09-15'
   refinement_status: initial
@@ -18350,6 +19351,28 @@ cards:
   - hvac_override.py async_startup_ramp_audit (temp=1, preset=0)
   - docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md (R1-MEDIUM-1)
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
+  LOCKOUT_READ_2026_09_16: 'Interim lockout-telemetry read (10.8h post-v5.103.4, instrument LIVE:
+    6 episodes, all wanted=home blocked_by=manual). FINDINGS: zone_1 manual%% 67.5%% — UNCHANGED from
+    69.6%% (home lands 2.5%%); resume-then-pin is NOT giving sustained control on zone_1. Lockouts RARE
+    (2 in 10.8h) => ESCAPE is real-but-not-dominant (occupied/home path only). DOMINANT RESIDUAL:
+    zone_1 OSCILLATES manual<->away every few min — URA away writes land (vacancy bypass, 28.3%% away)
+    but a MYSTERY WRITER re-manuals within minutes (producer unidentified: Bryant cloud? resume-then-
+    pin? another writer?). That is neither write-doesnt-land nor write-never-attempted. zone_2 13%%
+    zone_3 6%% already near band — problem is zone_1-concentrated. Clean 24h read ~09:45 CDT 09-17.
+    NEXT for the preset-write thread = identify the away->manual re-write producer (measure-first),
+    NOT build escape. See new card HVAC-ZONE1-MANUAL-OSCILLATION-1.'
+  ACCEPTANCE_CRITERION_CORRECTED_2026_09_16: 'Operator: "Target was wrong. So that cannot be the
+    criteria." The ~6%% manual-occupancy target was BORROWED from zone_3 (a transit corridor,
+    structurally unlike zone_1) and is NOT a valid acceptance bar. RETRACT the framing "step 1 not
+    accepted because 69.6->46.0%% did not reach 6%%" wherever it appears (ARC_STATE on
+    HVAC-SUPPLE-SEQUENCE-1, and this card). manual%% ABSOLUTE LEVEL is at best a loose proxy, not a
+    target; 46%% is not a failure against any real bar. CORRECT ACCEPTANCE CRITERION for the preset-
+    write work: (a) the named preset WRITE LANDS — PROVEN LIVE (resume-then-pin held 8min/9 refreshes);
+    (b) URA is not REFUSED the presets it decides — measured by the v5.103.4 lockout telemetry
+    (preset_change_locked_out rate), NOT by manual%%. So step 1s MECHANISM is accepted; the only open
+    question is the REFUSAL/ESCAPE residual (HVAC-PRESET-LOCKOUT-ESCAPE-1: does URA refuse its own
+    manual?), which the lockout read forks. Any future manual%% number is context/diagnostic, never
+    the pass/fail gate.'
   arc_blocks_2026_09_16: [HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1, HVAC-PRESET-WRITE-STRATEGY-1, HVAC-ZONE-CONDITIONING-DEMAND-1, S14-CEILING-NEEDS-AN-ENDING-1]
   arc_mirror_note_2026_09_16: 'blocks back-refs for the arc, added during the finish-the-job link
     pass. This card (step 1, shipped v5.103.2) gates three descendants: the boot-ramp residual
@@ -20678,6 +21701,7 @@ cards:
   - energy.py:8647
   - feature/dp-verypoor-drain-validator @ 87e047ac
 - id: EC-SOC-LADDER-XVALIDATE-1
+  SHIPPED_5103_6_2026_09_16: 'Shipped v5.103.6, live-validated: loads clean, zero ERROR, name-diff byte-identical (305==305). Identity-equivalent on valid ladder. shipped_organic; discriminator = inverted-config test reads clamped + no threshold_ladder_violation on healthy live ladder.'
   FIXUP_DONE_2026_09_16: 'Revert-scope fix-up complete (commit 20938f934). Accessor back to #4/#5
     only; A-MED-1/A-MED-2/B-MED-2/B-MED-1/C1/C2 all evaporated. Honest docstring restored. Real
     behavioral anchors: per-site neuter drill 4 RED (energy.py:6039/6041, energy_pool.py:1334/1837);
@@ -23395,15 +24419,15 @@ cards:
     context: 'Spawned from WATCHDOG-INERT-1 (D1 caught it). Same class as STUCK-SENSOR-1 (stuck-signal).'
   refs: [anomaly_log metric_name=camera_stuck]
 - id: PERIMETER-DETECTION-WENT-DARK-1
-  title: Every exterior person-detector stopped firing on 2026-09-15 while the cameras kept seeing
-    motion — the whole outdoor person-detection layer is effectively blind and has been for ~36h
+  title: Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on
+    its own — nothing noticed either the outage or the recovery
   thread: perimeter
   status: waiting_operator
   created: '2026-09-16 03:30'
-  updated: '2026-09-16 03:30'
-  refinement_status: initial
+  updated: '2026-09-17 02:10'
+  refinement_status: refined
   approval: blocked
-  live_broken: true
+  live_broken: false
   tags:
   - measure-before-build
   - no-fabrication-verify
@@ -23466,9 +24490,11 @@ cards:
     ssh to HA was down for the whole pass and I have no route to the Frigate host, so this needs the
     operator or restored reach — see OVERNIGHT-PASS-NO-LOG-REACH-1.'
   A_TRAP_TO_AVOID: 'Do NOT read PERIMETER-ALERT-VOLUME-FATIGUE-1 as having resolved itself. That
-    card measured ~155 alerts/day and asked how to cut the volume; the volume is now 14/day. That is
-    not the fix landing, it is the producer failing, and closing the fatigue card on this evidence
-    would bank a blindness as a win. The fatigue card stays open and its PICK still stands.'
+    card measured ~155 alerts/day and asked how to cut the volume. During the outage the volume fell
+    to 14/day, which was the producer failing rather than a fix landing, and closing the fatigue card
+    on that evidence would have banked a blindness as a win. UPDATE 2026-09-17: moot in the happiest
+    way — the producer recovered and exterior_person alerts are back to 263/day, so the fatigue
+    problem is fully intact and its PICK still stands, on fresh numbers rather than outage numbers.'
   parsimony:
     problem: every exterior person-detector went silent within ~24h while motion continued, and the
       operator-facing alerts went silent with them
@@ -23477,18 +24503,17 @@ cards:
       durable code lesson is separate and already half-carded: a producer-silence trip-wire is the
       mirror image of CAMERA-STUCK-SENSOR-TRIPWIRE-1 stuck-ON check, and would have caught this in
       hours instead of never.'
-  next: 'ANSWER first, because it changes everything downstream: did you (or anything on the Frigate
-    2 host) change detection settings, masks, thresholds or the model on or around 2026-09-14/15?
-    -> If NO, treat it as a live outage: Frigate 2 object detection is down, the house has had no
-    exterior person detection for ~36h, and I will help diagnose the moment I have a route to the
-    host (or paste me `docker logs` for the Frigate container and I will read it).
-    -> If YES, tell me what changed and we decide together whether zeroing detection fleet-wide was
-    the intent — my read is that it overshot, since motion is unaffected and one person-detection a
-    day across seventeen cameras cannot be right.
-    Either way I am NOT touching camera config autonomously: it is a physical/host surface and
-    outward-facing. Separately, and independent of the answer, this makes the case for the
-    producer-SILENCE trip-wire (the mirror of the stuck-ON one) concrete — say the word and I scope
-    it, because the real defect is that this ran for a day and a half with nothing noticing.'
+  next: 'READ this first, then APPROVE one thing. READ: stand down on the emergency — exterior person
+    detection came back by itself on 09-15 at about 15:00 and has been normal ever since (see
+    RE_MEASURED_2026_09_17). Last night''s card overstated it as ongoing; it was a bounded ~26h
+    outage, 09-14 13:00 to 09-15 15:00. Nothing needs doing tonight and nothing is blind right now.
+    APPROVE (the only live ask): let me build the producer-SILENCE trip-wire — the missing mirror of
+    the stuck-ON check we already shipped, which fires when a detector that normally reports goes
+    abnormally quiet. It is the one thing that would have turned this 26-hour blackout into a page on
+    the same afternoon, and its absence is why the outage AND the recovery both passed unnoticed.
+    OPTIONAL, only if you are curious: do you know whether anything changed on the Frigate 2 host
+    around 09-14? It would explain the window, but since the producer healed itself the answer no
+    longer gates anything, and I am still not touching camera config autonomously.'
   links:
     related:
     - CAMERA-ZERO-FIRE-DETECTORS-1
@@ -23507,9 +24532,33 @@ cards:
       this, not a fix. blocked_by OVERNIGHT-PASS-NO-LOG-REACH-1 because the discriminating evidence
       is host-side logs an unattended pass cannot reach.'
   rank:
-    value: 9
-    time_criticality: 9
+    value: 8
+    time_criticality: 4
     effort: 2
+  RE_MEASURED_2026_09_17: 'OVERNIGHT PASS — VERIFY-BEFORE-WORK. Verdict: STILL-REAL (the outage
+    happened) but CARD-WAS-WRONG on its central live claim. THE CLAIM THAT IS NOW WRONG: this card
+    said the house "has been blind for ~36h" and is blind ONGOING. That is FALSE and should not be
+    acted on. WHAT REFUTED IT: an hourly re-count of ON-transitions across every
+    binary_sensor.*_person_occupancy_2 from the HA recorder (Samba mount, immutable=1, recorder
+    verified live-fresh — newest states row 2026-09-17 02:01:10 against a wall clock of 02:01:13).
+    Daily totals 09-10..09-17: 160 / 171 / 580 / 474 / 402 / 42 / 317 / 3-so-far. Detection RECOVERED
+    on 09-16 (317 is squarely inside the normal 160-580 band) and is behaving normally right now —
+    the 3 counted so far today are hours 00 and 01, which matches 09-16 hours 00-02 (1,2) exactly, so
+    it is an ordinary quiet night, not continued silence. HOW THE ORIGINAL CARD GOT IT WRONG, worth
+    keeping as a method lesson: it was measured at 03:30 on 09-16 and read that day''s partial count
+    of 1 as "today is also dark", when a count of ~1-3 before 03:30 is simply what a normal night
+    looks like on this fleet. A partial-day count must be compared against the SAME hours of a
+    reference day, never against a full-day total. THE REAL OUTAGE, now bounded precisely instead of
+    open-ended: hourly buckets show a hard gap from 09-14 13:00 local to 09-15 15:00 local — about 26
+    hours of exactly zero person detections fleet-wide — with normal traffic on both sides of it.
+    Not ~36h, not ongoing. DOWNSTREAM TRACKS AND HAS ALSO RECOVERED (URA DB notification_log,
+    hazard_type=exterior_person, by day): 406 / 568 / 254 / 64 / 263 / 25-so-far for 09-12..09-17, so
+    operator-facing exterior alerts were suppressed during the window and are flowing again.
+    WHAT THIS CHANGES: this is no longer a live emergency and must not be reported as one. It is now
+    (a) a post-hoc question about what happened in that 26h window, which only matters if you care to
+    know, and (b) the durable defect, which is unchanged and is the actual work: a 26-hour fleet-wide
+    blackout of a safety-relevant producer began, ran and ended with NOTHING noticing in either
+    direction. See the producer-silence trip-wire residual in `next`.'
   refs:
   - binary_sensor.front_side_ptz_person_occupancy_2
   - binary_sensor.front_side_ptz_motion_3
@@ -23526,6 +24575,159 @@ cards:
     channel carrying this, which is exactly why the contract makes the page and the card redundant
     rather than alternatives. Flagging it here so nobody assumes the operator was told: as far as I
     know, they have not been.'
+
+- id: CAMERA-SILENT-PRODUCER-TRIPWIRE-1
+  title: Exterior person detection can go fleet-wide silent for a day at a time and nothing notices —
+    build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped
+  thread: perimeter
+  status: waiting_operator
+  created: '2026-09-17 02:20'
+  updated: '2026-09-17 03:05'
+  refinement_status: refined
+  approval: implied
+  tags:
+  - tier-2
+  - measure-before-build
+  - numbers-get-knobs
+  - mutation-drill
+  problem_solution:
+  - 'Problem: the part of the system that spots people outside the house can stop answering entirely
+    — every outdoor camera at once — and absolutely nothing raises a hand. It has now done this
+    three times in the last eight days, once for 30 hours straight and once for 26, and each time it
+    started, ran and healed itself with nobody any the wiser. While it is out, nobody gets told about
+    a person outside, and the whole thing is invisible because a detector reporting "no person" looks
+    exactly like a calm evening. We already built the opposite check last week — it catches a camera
+    STUCK ON — but a camera stuck OFF, or a detector that has quietly died, sails straight past it.
+    Solution: add the mirror check. If the entire outdoor person-detection fleet reports nobody for
+    longer than it ever normally goes quiet, say so. Deliberately fleet-wide rather than per-camera,
+    because individual cameras are legitimately silent for days and we already have a whole card
+    about how impossible that makes per-camera silence to judge.'
+  origin:
+    date: '2026-09-17'
+    gist: overnight pass re-measured PERIMETER-DETECTION-WENT-DARK-1, found the outage had self-healed
+      AND that it was the second such blackout in eight days — the recurrence is what justified the build
+  why: 'the outage card asks what happened to the cameras; this card is the durable defect underneath
+    it, and they are different problems. The measured recurrence is the argument: this is not a
+    one-off worth a shrug, it is a producer that fails silently on a roughly weekly cadence, and the
+    reason it keeps going unnoticed is a missing check rather than anything about the cameras.'
+  MEASURED_2026_09_17: 'Read-only, HA recorder over the Samba mount (immutable=1), recorder verified
+    live-fresh at read time. Gap analysis over every binary_sensor.*_person_occupancy_2 ON-transition
+    across the full ~8 days of recorder retention, looking for stretches where the WHOLE fleet
+    reported nobody. THREE episodes stand clear of the noise: 29.94h (09-10 10:06 -> 09-11 16:02),
+    25.90h (09-14 13:58 -> 09-15 15:52) and 8.26h (09-09 11:00 -> 09-09 19:15 — a daytime hole, which
+    is the least explainable of the three). NORMAL BEHAVIOUR, by contrast: the largest non-episode
+    fleet-quiet stretch is 4.29h and every other one over 3h is an ordinary overnight lull (09-13
+    21:49, 09-10 00:20, 09-16 20:04). So the separation is clean — roughly 4h normal versus 8h+
+    pathological — and a 6h threshold catches all three episodes with comfortable headroom above
+    anything normal. That is the whole sizing argument, and it is why this is buildable tonight
+    rather than a guess: the number came out of the data instead of out of my head.'
+  parsimony:
+    problem: exterior person detection has gone fleet-wide silent three times in eight days, twice for
+      over a day, and no part of the system noticed the outage OR the recovery
+    verdict: SIMPLIFY
+    note: 'BUILD the FLEET-level silence check only; explicitly PARK per-camera silence baselines. Per
+      camera is where this gets expensive and unreliable — detection rates span 2/day to 204/day and
+      CAMERA-BY-DESIGN-SILENT-EXCLUSION-1 exists precisely because some cameras are silent on purpose,
+      so per-camera silence needs a baseline model and an exclusion list to avoid crying wolf. The
+      fleet check needs neither, has no plausible false positive in eight days of data, and catches
+      100% of the measured episodes. Revive the per-camera variant only if an episode ever hits a
+      subset of the fleet rather than all of it — none of the three did.'
+  prior_art_2026_09_17: 'REUSE, not build — this is a structural twin of the shipped stuck-ON check
+    and should be written as its mirror, not as new machinery. REUSE _exterior_person_sensors()
+    (optimization.py:1941) for the camera->entity map, so the check follows operator config instead of
+    a hardcoded list. REUSE the _evaluate_camera_stuck_dimension() shape (optimization.py:1868):
+    kill-switch-on-zero-threshold, a fired-latch so one episode emits one finding, OptimizationFinding
+    with dimension SENSOR_HEALTH and a dedup_key. REUSE the evaluator registry (optimization.py:922).
+    REUSE the CAMERA_STUCK_ON_THRESHOLD_S constant pattern (const.py:3548) for the new number. NEW,
+    and only this: one evaluator method, one module constant + its kill switch, and the last-seen
+    timestamp state. No new alerting path, no new dimension, no new config-flow field.'
+  knobs:
+  - CAMERA_FLEET_SILENCE_THRESHOLD_S (module constant, const.py beside CAMERA_STUCK_ON_THRESHOLD_S —
+    rung 1 because it is a fitted number derived from a measured distribution, so changing it should
+    require review rather than a dashboard turn; 0 disables the check, same kill-switch convention as
+    its stuck-ON sibling)
+  REVIEWED_2026_09_17: 'BUILT, THEN BOTH REVIEWS SAID DO-NOT-SHIP — and they are right. Two
+    framing-disjoint reviews (A local-correctness, B lifecycle/write-volume) ran in parallel and
+    CONVERGED INDEPENDENTLY on the same HIGH, which is the strongest signal this protocol produces.
+    THE KILLER (A-HIGH-1 = B-1): the check accumulates elapsed silence in RAM on the
+    OptimizationCoordinator, which is rebuilt on every config-entry reload (__init__.py:3956). The CM
+    entry is in a documented live RELOAD STORM at roughly 5x/night, so the silence clock is reset
+    every ~2h and can never reach 6h. The check would have emitted NOTHING during the exact 26h and
+    30h blackouts it was built to catch. The sibling stuck-ON check is immune only because its window
+    is 1800s and fits between reloads — the mirror argument does not survive a 12x larger window.
+    MY OWN SIZING WAS ALSO WRONG, and I caught this verifying A-HIGH-3 rather than taking the
+    reviewer''s number on trust. The reviewer claimed pool_equipment is ON 53% of the time, which
+    would make a 6h all-OFF window arithmetically impossible. The live figure is lower — 36.0h ON out
+    of 119h (30%), longest continuous ON run 3.3h — so the window is reachable and that specific
+    claim is overstated. BUT checking it exposed a worse problem that is mine: I sized the threshold
+    by counting ON-TRANSITIONS (no camera reported anybody for 26h), while the code implements a
+    different predicate (every camera simultaneously reads OFF for 6h). Those are not the same
+    quantity. A sensor sitting stuck ON contributes zero ON-transitions while permanently blocking
+    all-OFF — so my measurement does not actually validate the predicate that was built, and the true
+    false-positive/false-negative rate of this implementation is UNMEASURED. That is a
+    measure-before-build failure in my own work, not the builder''s.
+    THE FIX DIRECTION IS THE SAME FOR BOTH, which is what makes the redesign worth doing rather than
+    patching: stop accumulating elapsed silence in RAM and instead DERIVE it at evaluation time from
+    the fleet entities'' own last-changed timestamps (or the recorder). That survives reload storms by
+    construction, and it lets the predicate match the quantity I actually measured. Re-size against
+    the corrected predicate afterwards.
+    OTHER FINDINGS TO CARRY INTO THE REDESIGN: no minimum-fleet-size guard, so a degraded resolution
+    down to one camera still pages as "fleet-wide" (A-HIGH-2); total disappearance of the camera
+    entities — the most severe producer failure — returns early and provably cannot page (A-MED-1);
+    a vacation-empty house can legitimately exceed 6h and would page once a night (A-MED-2); the
+    wire-in anchor is an inspect.getsource string grep rather than a real cycle-driven test, which is
+    Bug Class #62 and must be replaced (A-MED-3a = B-2); and severity=high currently lands in the
+    daily digest rather than paging, because no URA entry allowlists sensor_health — so as built this
+    reports a dead detector layer up to 24h late (B-3, an operator decision).
+    CLEARED, so the redesign does not re-litigate them: no write-flood risk (worst case ~4 rows/day,
+    the v5.0.0 incident is not re-created), exception isolation correct, no boot-transient firing, no
+    listeners/timers/tasks added, kill switch genuinely disables every path, and the latch cannot
+    double-emit or stick forever across a real recovery.
+    BRANCH STATE: feat/camera-fleet-silence-tripwire @ 4f4183543, 7 tests green, mutation drill
+    confirmed 4 tests go red when the evaluator is neutered. NOT merged, NOT deployed. Do not ship
+    this branch as-is — it would install a trip-wire that the live reload cadence silently disarms,
+    which is worse than no trip-wire because it would be believed.'
+  next: 'APPROVE the redesign (I stopped because both reviews came back DO-NOT-SHIP, which is a
+    mandatory pause). The build is done but does not work: it counts silence in memory, and the
+    nightly config-entry reload storm resets that memory every couple of hours, so a check needing 6
+    hours never gets there — it would have stayed silent through both real blackouts. The fix is a
+    small redesign rather than a patch: read how long each camera has actually been quiet from the
+    entities themselves at the moment of checking, instead of counting it up in memory. That survives
+    reloads by construction and also fixes a sizing error of my own (I measured "no camera reported
+    anyone" but built "every camera reads off", which are different things when a sensor is stuck on).
+    Say go and I redo it that way, re-size the threshold honestly against the corrected definition,
+    replace the one hollow test, and put it back through both reviews. Related decision while you are
+    here: as built this lands in the daily digest rather than paging you, so you would learn about a
+    dead detector layer up to a day late — tell me if you want it to page instead.'
+  links:
+    related:
+    - CAMERA-STUCK-SENSOR-TRIPWIRE-1
+    - PERIMETER-DETECTION-WENT-DARK-1
+    - CAMERA-ZERO-FIRE-DETECTORS-1
+    - CAMERA-BY-DESIGN-SILENT-EXCLUSION-1
+    context: 'CAMERA-STUCK-SENSOR-TRIPWIRE-1 (shipped v5.101.3) is the exact mirror — same sensors,
+      same dimension, opposite polarity — and its code is the template this one should follow.
+      PERIMETER-DETECTION-WENT-DARK-1 is the incident that surfaced this and stays open for its own
+      separate question about what happened on the Frigate host.
+      CAMERA-BY-DESIGN-SILENT-EXCLUSION-1 is the reason this check is deliberately fleet-level rather
+      than per-camera: it documents cameras that are silent on purpose. CAMERA-ZERO-FIRE-DETECTORS-1
+      is the per-camera chronic-silence version and is closed.'
+  rank:
+    value: 8
+    time_criticality: 6
+    effort: 5
+  refs:
+  - custom_components/universal_room_automation/domain_coordinators/optimization.py
+  - custom_components/universal_room_automation/const.py
+  DEDUPE_2026_09_17: 'NEW. Swept all four surfaces before minting. Board: grepped every card whose id
+    or title carries tripwire / silence / silent / stuck / zero-fire — found the stuck-ON sibling
+    (shipped), the two closed per-camera silence cards, and OC-STUCK-SENSOR-GENERALIZE-1 (a different
+    axis: generalising stuck detection across device KINDS, not detecting silence). None covers
+    stuck-OFF/producer-silence. docs/BACKLOG.md: grepped silen/trip-wire — no match in this domain.
+    Planning docs: the two exterior-camera AUDITs are referenced by the closed cards and carry the
+    by-design exclusion list, not a silence check. Distinct problem statement from
+    PERIMETER-DETECTION-WENT-DARK-1 (that card asks what broke on the host; this one asks why nothing
+    noticed), so linked rather than folded in, per the retire-and-relink rule.'
 
 - id: PERIMETER-ALERT-VOLUME-FATIGUE-1
   title: "Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue"

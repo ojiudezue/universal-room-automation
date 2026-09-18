@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.6
+# Universal Room Automation vv5.103.7
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -233,6 +233,12 @@ async def async_setup_entry(
         # opt-in rooms without a config-flow round-trip. is_on reads
         # FanRecheckManager.get_room_attrs each access.
         RoomFanRecheckInProgressSensor(coordinator),
+        # HVAC-ZONE-CONDITIONING-DEMAND-1 D2 (2026-09-16): per-room
+        # HVAC-denomination occupancy — sibling of OccupiedBinarySensor
+        # but keyed on the D1 producer's grace-held + tail-hold signal
+        # (with hallway CIRCULATION EXCLUSION). Disabled-by-default;
+        # operator enables per room / per zone as needed.
+        HVACOccupiedBinarySensor(coordinator),
     ])
 
     async_add_entities(entities)
@@ -734,6 +740,160 @@ class PresenceDetectedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
     def is_on(self) -> bool:
         """Return true if presence is detected."""
         return self.coordinator.data.get(STATE_PRESENCE_DETECTED, False) if self.coordinator.data else False
+
+
+class HVACOccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
+    """HVAC-denomination occupancy for this room.
+
+    HVAC-ZONE-CONDITIONING-DEMAND-1 D2 (2026-09-16). Read-only mirror of
+    the D1 producer's per-room ``RoomCondition.hvac_occupied`` (grace-held
+    STATE_OCCUPIED + room-type-tuned tail-hold; hallway rooms excluded
+    per CIRCULATION EXCLUSION). Sibling of ``OccupiedBinarySensor`` — the
+    latter is the lighting-fused signal, this is the HVAC-fused signal
+    consumed by the preset-flip retreat, D7 night-trust guard, and D9
+    DPM caller-side point-gate. Both entities coexist; they diverge only
+    for hallway crossings and within the D1 tail-hold window.
+
+    Observability contract (operator-coined 2026-09-16): the operator
+    can see WHY HVAC decided a room is HVAC-occupied — attrs surface the
+    arm state, arm source, tail expiry, and effective hold seconds
+    (day/night table selected). Lazy cross-coordinator read; gracefully
+    degrades when the HVAC coordinator hasn't booted (returns False +
+    empty attrs).
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.OCCUPANCY
+    # Disabled-by-default like other Phase-4 diagnostics — operator
+    # opts in per-room / per-zone via the entity registry.
+    _attr_entity_registry_enabled_default = False
+    _attr_icon = ICON_OCCUPIED
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        super().__init__(coordinator, "hvac_occupied", "HVAC Occupied")
+
+    def _zone_manager(self):
+        """Locate the HVAC zone manager, or None if unavailable."""
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get(
+                "coordinator_manager"
+            )
+            if manager is None:
+                return None
+            hvac = manager.coordinators.get("hvac") if hasattr(
+                manager, "coordinators",
+            ) else None
+            if hvac is None:
+                return None
+            return getattr(hvac, "_zone_manager", None)
+        except Exception:  # noqa: BLE001 — defensive
+            return None
+
+    def _find_room_condition(self):
+        """Locate this room's RoomCondition across HVAC zones."""
+        zm = self._zone_manager()
+        if zm is None:
+            return None
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        if not room_name:
+            return None
+        try:
+            for zone in zm.zones.values():
+                for rc in zone.room_conditions:
+                    if rc.room_name == room_name:
+                        return rc
+        except Exception:  # noqa: BLE001
+            return None
+        return None
+
+    @property
+    def is_on(self) -> bool:
+        """Return the D1 producer's per-room `hvac_occupied` value.
+
+        Falls back to False when the HVAC zone manager is not yet
+        available (early boot, zone not yet populated) — never crashes
+        the entity read.
+        """
+        rc = self._find_room_condition()
+        if rc is None:
+            return False
+        return bool(getattr(rc, "hvac_occupied", False))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Surface D1 diagnostic snapshot + kind context.
+
+        Attrs (per operator D2 requirement):
+        - ``armed``: True iff D1 latch is armed for this room.
+        - ``armed_by_kind`` (best-effort, from the substrate's last-edge
+          entity classification, may be empty when boot-settle).
+        - ``tail_expires_at``: ISO datetime when the tail hold expires,
+          or None when riding grace-held STATE_OCCUPIED.
+        - ``source``: last state-machine transition tag
+          (edge / held / tail / released_no_tail / released_tail_expired
+          / hallway_excluded).
+        - ``room_type``: this room's classification.
+        - ``hvac_vacancy_hold_s``: effective hold seconds — reflects
+          day-vs-night table + per-room override.
+        - ``hold_expires_at``: alias of ``tail_expires_at`` per operator
+          spec.
+        - ``kinds_active``: raw substrate kinds for this room
+          (motion / mmwave / occupancy booleans) when the substrate is
+          reachable, else empty dict.
+        """
+        attrs: dict = {}
+        zm = self._zone_manager()
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        if zm is None or not room_name:
+            return attrs
+
+        # D1 diag snapshot from the producer.
+        try:
+            diag = zm.hvac_occupied_diag(room_name)
+        except Exception:  # noqa: BLE001
+            diag = {}
+        attrs["armed"] = diag.get("armed", False)
+        attrs["tail_expires_at"] = diag.get("tail_expires_at")
+        attrs["hold_expires_at"] = diag.get("tail_expires_at")
+        attrs["source"] = diag.get("source", "idle")
+
+        # room_type + effective hold seconds — resolve from the config
+        # entry + producer's `_effective_hvac_hold_seconds` helper so the
+        # displayed number reflects any per-room override + day/night
+        # selection.
+        try:
+            from .const import CONF_ROOM_TYPE, ROOM_TYPE_GENERIC
+            merged = {
+                **self.coordinator.entry.data,
+                **self.coordinator.entry.options,
+            }
+            room_type = merged.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC) or ROOM_TYPE_GENERIC
+            house_state = None
+            try:
+                manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+                hvac = manager.coordinators.get("hvac") if manager else None
+                house_state = getattr(hvac, "_house_state", None)
+            except Exception:  # noqa: BLE001
+                house_state = None
+            attrs["room_type"] = room_type
+            attrs["hvac_vacancy_hold_s"] = zm._effective_hvac_hold_seconds(
+                room_type, house_state,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Raw kinds — from the presence substrate, best-effort.
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            presence = manager.coordinators.get("presence") if manager else None
+            substrate = getattr(presence, "_substrate", None) if presence else None
+            if substrate is not None and hasattr(substrate, "get_room_kinds"):
+                attrs["kinds_active"] = substrate.get_room_kinds(room_name)
+            else:
+                attrs["kinds_active"] = {}
+        except Exception:  # noqa: BLE001
+            attrs["kinds_active"] = {}
+
+        return attrs
 
 
 class DarkBinarySensor(UniversalRoomEntity, BinarySensorEntity):

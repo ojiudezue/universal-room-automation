@@ -770,11 +770,31 @@ class TestD3_ZonePresetPersonTrust:
             return f.read()
 
     def test_zone_preset_person_trust_uses_fan_trust_states(self, src: str) -> None:
-        """The away-flip suppression now keys off FAN_TRUST_STATES."""
-        assert (
-            'effective_preset == "away" and self._house_state in FAN_TRUST_STATES'
-            in src
+        """The away-flip suppression now keys off FAN_TRUST_STATES.
+
+        Contract update (HVAC-ZONE-CONDITIONING-DEMAND-1 D7, 2026-09-16):
+        the outer `if` was reshaped from a single-line to a multi-line
+        boolean chain so a fused-signal AND could be fused into the same
+        guard (INV-2: empty zone retreats within one loop tick even
+        under FAN_TRUST_STATES). The literal expression is preserved as
+        two consecutive-line fragments. Assert BOTH fragments are
+        present so a reversal to the old sleep-only bare-compare
+        breaks the test; also assert the fused-gate line so a
+        strip-D7 mutation reds this test.
+        """
+        assert 'effective_preset == "away"' in src
+        assert "self._house_state in FAN_TRUST_STATES" in src
+        # HVAC-ZONE-CONDITIONING-DEMAND-1 fix-up round 4 (2026-09-17,
+        # F3): the D7 gate now routes through the shared helper
+        # `_zone_conditioning_retreat_ok(zone)`. That helper encodes
+        # ESTABLISHED-AND-not-fused with the reset-only backstop.
+        # Anchor: the D7 outer if MUST reference the shared helper.
+        assert "self._zone_conditioning_retreat_ok(zone)" in src, (
+            "D7 must consult the F3 shared retreat-authorization helper"
         )
+        # Helper delegates to ZoneManager.conditioning_retreat_ok which
+        # internally checks is_zone_hvac_established (reset-only backstop).
+        assert "conditioning_retreat_ok" in src
 
     def test_zone_preset_person_trust_no_bare_sleep_compare(self, src: str) -> None:
         # The trust branch must NOT still test bare sleep equality.
@@ -799,12 +819,34 @@ class TestD3_ZonePresetPersonTrust:
         empty. Verify the predicate gate is `if home_persons:` not
         unconditional, and that the v4.7.14 all-trackers-away veto path
         in presence.py StateInferenceEngine is not referenced (no
-        coupling)."""
-        # Anchor: the trust branch only continues when home_persons is non-empty.
-        anchor = "if effective_preset == \"away\" and self._house_state in FAN_TRUST_STATES:"
+        coupling).
+
+        Contract update (HVAC-ZONE-CONDITIONING-DEMAND-1 D7, 2026-09-16):
+        the outer `if` was reshaped to include the fused-signal AND
+        (`zone.any_room_hvac_occupied`) so that a zone empty in the
+        HVAC denomination retreats even when a phone reads home — this
+        is the *intended narrowing* of the 2026-06-05 flap fix: the
+        earlier broadening preserved presets on person-home
+        UNCONDITIONALLY, which allowed hallway-only crossings to keep
+        empty rooms in `home`. Now the anchor spans multiple lines, so
+        we anchor on the first stable line and scan a widened body for
+        the same invariants (`if home_persons:` and no
+        `StateInferenceEngine` reference).
+        """
+        # HVAC-ZONE-CONDITIONING-DEMAND-1 fix-up round 4 (2026-09-17,
+        # F3): outer if now gates on
+        # `not self._zone_conditioning_retreat_ok(zone)`. Anchor on the
+        # multi-line `if (` header + shared helper.
+        anchor = (
+            'if (\n'
+            '                effective_preset == "away"\n'
+            '                and self._house_state in FAN_TRUST_STATES\n'
+            '                and not self._zone_conditioning_retreat_ok(zone)'
+        )
         idx = src.find(anchor)
-        assert idx > 0
-        body = src[idx: idx + 2000]
+        assert idx > 0, "D7 outer-if header shape not found (fix-up round 4)"
+        body = src[idx: idx + 2500]
+        # `home_persons` predicate is still non-empty gated (bidirectionality).
         assert "if home_persons:" in body
         # The away-veto runs upstream in presence.py and is not coupled.
         assert "StateInferenceEngine" not in body

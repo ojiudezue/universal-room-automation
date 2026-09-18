@@ -374,7 +374,11 @@ DEFAULT_FAN_CONTROL_ENABLED: Final = True
 DEFAULT_VACANCY_GRACE_MINUTES: Final = 15  # Normal grace period
 DEFAULT_VACANCY_GRACE_CONSTRAINED: Final = 5  # Grace during energy coast/shed
 DEFAULT_MAX_OCCUPANCY_HOURS: Final = 8  # Stale sensor failsafe threshold
-DEFAULT_ZONE_ENTRY_DWELL_MINUTES: Final = 3  # v4.2.2: Min occupancy before preset change
+DEFAULT_ZONE_ENTRY_DWELL_MINUTES: Final = 0  # HVAC-ZONE-CONDITIONING-DEMAND-1 D5 (2026-09-16):
+# retired — the per-room HVAC vacancy tail-hold (ROOM_TYPE_HVAC_HOLD) is now the sole
+# hold source. Zone-level entry dwell would stack with per-room retreat timers. The
+# CONF_HVAC_ZONE_ENTRY_DWELL entity/field is kept one release with LEGACY semantics;
+# the default flips to 0 so no zone dwell fires unless the operator explicitly sets it.
 CONF_HVAC_ZONE_ENTRY_DWELL: Final = "hvac_zone_entry_dwell"  # Config key
 
 # v3.17.0 → v5.7.1: Solar banking constants.

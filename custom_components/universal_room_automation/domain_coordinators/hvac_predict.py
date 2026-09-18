@@ -574,9 +574,15 @@ class HVACPredictor:
 
             # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
             for zone_id, zone in list(self._zone_manager.zones.items()):
-                is_occupied = bool(
-                    getattr(zone, "any_room_occupied", False)
-                )
+                # HVAC-ZONE-CONDITIONING-DEMAND-1 §2a row 8: SWAP pre-cool
+                # occupancy gate to HVAC denomination — same decision path
+                # as the preset-flip retreat (row 1).
+                # Defensive read: fall back to lighting-fused for legacy
+                # / fake test zones that lack the D1 sibling.
+                _f8 = getattr(zone, "any_room_hvac_occupied", None)
+                if _f8 is None:
+                    _f8 = getattr(zone, "any_room_occupied", True)
+                is_occupied = bool(_f8)
                 if scope == ENERGY_PRECOOL_SCOPE_OCCUPIED_ONLY:
                     if not is_occupied:
                         continue  # comfort-first; never bank empty zones
@@ -1365,7 +1371,11 @@ class HVACPredictor:
                 and self._egress_manager.is_paused(zone.zone_id)
             ):
                 continue
-            if not zone.any_room_occupied:
+            # HVAC-ZONE-CONDITIONING-DEMAND-1 §2a row 9: SWAP pre-heat gate.
+            _f9 = getattr(zone, "any_room_hvac_occupied", None)
+            if _f9 is None:
+                _f9 = getattr(zone, "any_room_occupied", True)
+            if not _f9:
                 continue
             if zone.target_temp_high is None or zone.target_temp_low is None:
                 continue

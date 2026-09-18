@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "132",
+  "author": "ojiudezue",
+  "session_id": "claude_20260918_011616_ship_v5_103_7",
+  "timestamp": "2026-09-18T01:16:16Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.7 shipped: HVAC conditioning-demand debounce: circulation exclusion + per-room hold (daytime/preset live; night dormant)",
+  "summary": "HVAC conditioning-demand debounce: circulation exclusion + per-room hold (daytime/preset live; night dormant)",
+  "why": "Ships the debounce for the pre-existing zone-3 corridor-driven preset flapping. Live-active = daytime+preset layer (circulation exclusion + per-room hold + fused-gated retreat + reset-only backstop + D5 migration). Night setpoint-layer (D9) DORMANT behind guest_mode_actuation (live OFF). Tier-3: plan-reviewed + 4 framing-disjoint reviews + 5 rounds; final name-diff NEW=0, 2 energy-restart fails proven pre-existing by orchestrator revert-in-suite. Residuals carded (degraded-room trip-wire, throttle blocker-on-enable, restore-writer stranding, D5 occupancy-gate reframe).",
+  "implications": "Shipped HVAC-ZONE-CONDITIONING-DEMAND-1 at v5.103.7; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.7.md (Live criteria).",
+  "revisit_trigger": "zone_3 DAYTIME preset flip-rate drops materially vs baseline (56/62 per day) once circulation-exclusion + per-room hold debounce the corridor flapping; CM options show hvac_zone_entry_dwell==0; no new URA ERROR; guest_mode_actuation stays OFF (D9 dormant)",
+  "refs": {
+    "cards": [
+      "HVAC-ZONE-CONDITIONING-DEMAND-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.7.md"
+    ],
+    "release_notes": "- HVAC gets its own per-room occupancy (RoomCondition.hvac_occupied, sibling not swap): circulation (hallway) rooms excluded from voting a zone occupied; per-room HVAC hold (ROOM_TYPE_HVAC_HOLD day/night) debounces vacancy retreat\n- Night-trust retreat gated on fused occupancy (row-1/D7) via shared conditioning_retreat_ok; reset-only person-trust backstop (unestablished/reload gap only)\n- D5 entry-dwell migration (stored hvac_zone_entry_dwell -> 0); hallway room_type enum; per-room hvac_occupied diagnostic entity; vacancy-sweep decoupled to lighting denomination\n- DORMANT behind switch.ura_hvac_coordinator_guest_mode_actuation (Custom Preset Ranges, live OFF): D9 setpoint compose-away + throttle bypass + F4 \u2014 NOT live-verifiable this cycle\n- Tier 3: plan-review + 4 framing-disjoint build reviews + 5 build rounds; name-diff NEW=0"
+  }
+}

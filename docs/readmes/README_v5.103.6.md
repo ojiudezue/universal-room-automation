@@ -54,7 +54,15 @@ both already shipped). The wiring is carded as **`EC-SOC-LADDER-FULL-WIRING-1`**
 
 ## Live validation
 
-- [ ] Integration loads clean at v5.103.6; no new URA ERROR.
-- [ ] No behavior change on the (valid) live ladder — EC decisions match v5.103.5.
-- [ ] Discriminating check: with a deliberately inverted `fill_priority > excess_solar`
-      (test config only), the actuation reads the clamped value, not the raw one.
+### Validated 2026-09-16 (post-restart)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| Loads clean at v5.103.6 | **PASS** | HACS `installed_version: v5.103.6`, `pending_update: false` |
+| No new URA ERROR | **PASS** | `source=system` ERROR scan → 0 entries |
+| No happy-path behavior change | **PASS (by construction)** | identity-equivalent on a valid ladder; name-diff byte-identical |
+
+### Pending (soak-exit discriminator, one-shot)
+- [ ] With an inverted `fill_priority > excess_solar` test config, actuation reads the
+      clamped value not raw; live healthy ladder → no `threshold_ladder_violation`
+      anomaly and EC decisions unchanged vs v5.103.5.
