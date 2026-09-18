@@ -725,6 +725,12 @@ cards:
   parsimony: {problem: 'surplus-only pre-cool leaves low-SOC hot mornings uncovered', verdict: PARK, note: 'principle preserved; measure before building'}
   links: {related: [EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1], context: 'preserved from deleted Path B; supersession KEEP+DOCUMENT'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  REVIEW_A_2026_09_18: 'A (D1 delete) = SHIP. Independently confirmed inert premise (compute_energy_offset
+    has ZERO callers -> the -2F never actuated; fall-through to normal safe, old branch + pre_heat were SOC-
+    disjoint). Findings (both in-cycle, ~6 LoC): MED = the offset knobs OPERATOR-FACING string (strings.json/
+    en.json:960,1027, HVAC Pre-Cool Offset) still reads as functional -> add (retired - no effect) + gap-card
+    ref; LOW = config_flow offset field (config_flow.py:4462/4471/5223) lacks a tombstone comment -> add one.
+    Hold fix-up for B+C.'
   BUILD_2026_09_18: 'Combined cycle DISPATCHED (feature/ec-precool-vacancy-ui, a49ec0bda). D1 = delete
     the EC pre_cool vestige (energy.py:7427-7434). D2 (operator fold-in) = make the room vacancy-hold
     day/night config fields assistive: suggest the ROOM_TYPE_HVAC_HOLD[_NIGHT] type-default when unset,
