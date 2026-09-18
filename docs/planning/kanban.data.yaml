@@ -11905,7 +11905,8 @@ cards:
   title: HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC
     its own dwell-vs-transit derivation instead of tuning a knob that cannot win
   thread: hvac
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.7
   created: '2026-09-15'
   updated: '2026-09-15'
   refinement_status: initial
