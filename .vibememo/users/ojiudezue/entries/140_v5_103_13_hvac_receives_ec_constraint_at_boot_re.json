@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "140",
+  "author": "ojiudezue",
+  "session_id": "claude_20260918_210658_ship_v5_103_13",
+  "timestamp": "2026-09-18T21:06:58Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.13 shipped: HVAC receives EC constraint at boot (restart-day pre-cool restored)",
+  "summary": "HVAC receives EC constraint at boot (restart-day pre-cool restored)",
+  "why": "Surfaced live by the v5.103.12 pre_cool_skip_reason obs (no_constraint post-restart while EC computed normal). Read-only trace root-caused: EC-before-HVAC registration + fire-and-forget dispatch + non-change suppression = HVAC never gets the constraint object until a mode change. Fix is HVAC-pull-at-setup (parsimonious vs manager-reorder or EC re-dispatch). Reviews: A/B SHIP, B caught a D7-dwell regression the pull introduced (fixed), C caught the tests were hollow (source-greps) -> rewrote to 8 behavioral tests. Orchestrator INDEPENDENTLY mutation-verified on the shipping code cache-clean (earlier worktree verify was invalid - wrong import path + stale pyc): pull-neuter REDs the ordering test, field-drop REDs the payload test.",
+  "implications": "Shipped HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1 at v5.103.13; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.13.md (Live criteria).",
+  "revisit_trigger": "After a restart in the 10am-2pm window, sensor.ura_hvac_coordinator_mode.pre_cool_skip_reason is NOT no_constraint (HVAC holds the constraint object); energy_constraint_since/duration_s survive a coast-window restart (no zeroing); zero URA ERROR",
+  "refs": {
+    "cards": [
+      "HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.13.md"
+    ],
+    "release_notes": "Post-restart, HVAC missed the EC's fire-and-forget SIGNAL_ENERGY_CONSTRAINT (subscribed after dispatch) and stayed constraint=None until evening coast, disabling Path A afternoon pre-cool on restart mornings. Fix: producer-owned _build_energy_constraint() (single source), HVAC pulls current_energy_constraint() at end of async_setup (ordering-proof, guarded, idempotent); D7 dwell resume-if-same preserved. 3 framing-disjoint reviews + fix-up + orchestrator mutation-verify."
+  }
+}
