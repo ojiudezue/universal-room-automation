@@ -1,0 +1,28 @@
+{
+ "format_version": "2.1",
+ "entry_id": "133",
+ "author": "ojiudezue",
+ "session_id": "claude_20260918_hvac_attribution_d5",
+ "timestamp": "2026-09-18T02:30:00Z",
+ "type": "reasoning",
+ "weight": "significant",
+ "title": "D5 duty-cycle is a URA heuristic (not Bryant), occupancy-blind + coast-gated; zone-3 away attributed; live .storage edits get clobbered (use reconfigure flow)",
+ "summary": "Post-v5.103.7, attributed zone_3's 'hot and away' aways from the ura_activity_log reasons: vacant_past_grace 84% (vacancy retreat, what step-4-B debounces) + runtime_exceeded 12% (D5 duty-cycle). An audit found D5 is NOT grounded in any Bryant/Carrier compressor spec (URA-invented energy-mode heuristic), it fires ONLY during EC coast/shed, and it is OCCUPANCY-BLIND — so it forces occupied zones to away during evening peak-TOU coast. That is the 'hot kitchen forced away' complaint, and step-4-B does NOT fix it (D5 reads thermostat hvac_action, not fused occupancy).",
+ "why": "The operator suspected coast/duty-cycle; the data confirmed a linked cause (D5 only fires under coast). Naming it as a URA heuristic (not a hardware safety rule) matters because the runtime_exceeded label implies compressor protection it doesn't earn, and because the fix (gate D5 on the new fused occupancy) is now possible post-step-4-B. Also corrected two of my own errors this session: (1) I claimed resume-then-pin 'exposed/worsened' the flapping — a controlled recorder analysis across the v5.103.2 boundary was INCONCLUSIVE/leaning-unchanged (the 09-16 spike was deploy-reload churn); the flapping is PRE-EXISTING, we did not worsen it. (2) I said coast wasn't observable — it IS already an attribute on the existing sensor.ura_hvac_coordinator_mode ('10 · Mode'); a plan-review caught my plan proposing a duplicate sensor.",
+ "implications": "Carded HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (Tier 2, depends on step-4-B's fused signal: gate D5 on any_room_hvac_occupied, reframe the reason string) + HVAC-D5-KNOBS-TO-RUNG-3 + 2 contingent D5 cards. The knobs+obs+attribution cycle (v5.103.8, D5/D6/D7 = the attribution-legibility deliverables incl retreat_reason + coast dwell) is in flight — it makes these aways legible per-zone. Method lesson: hand-editing .storage/core.config_entries while HA runs is CLOBBERED on restart (HA writes in-memory over the file); the correct persisted way to change a URA config entry (e.g. room_type) is ha_set_integration options/reconfigure flow (returns abort reason=reconfigure_successful, the URA success sentinel).",
+ "revisit_trigger": "Build HVAC-D5-REFRAME after v5.103.8 ships: gate D5 enforcement on fused occupancy (defer under coast when occupied; shed still dominates), verify no regression to coast energy savings, reframe runtime_exceeded to an energy-policy string. Re-run the flip-rate recorder probe (scripts /tmp/flip3.py) after ~3 deploy-free days to firm the causation-unchanged conclusion for zone_3.",
+ "refs": {
+  "cards": [
+   "HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1",
+   "HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1",
+   "HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1",
+   "HVAC-ZONE1-MANUAL-OSCILLATION-1",
+   "HVAC-D5-KNOBS-TO-RUNG-3-1"
+  ],
+  "docs": [
+   "docs/planning/AUDIT_hvac_duty_cycle_protection_2026_09_17.md",
+   "docs/planning/PLANNING_hvac_demand_knobs_and_observability.md"
+  ],
+  "key_facts": "D5 caps runtime at 75%(coast)/50%(shed) of a 20-min window (hvac.py:3331+), forces away (hvac.py:1928/2058), reason=runtime_exceeded. Runtime source = thermostat hvac_action NOT URA presets, so URA flapping cannot self-trip D5. Zero Bryant/Carrier spec references. Reclassified 7 transit rooms -> hallway (live, via reconfigure flow) to activate v5.103.7 circulation exclusion."
+ }
+}
