@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T20:41:42-05:00_ - _Data commit: `68c24514da22`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T20:42:06-05:00_ - _Data commit: `7082b7296d05`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -408,6 +408,8 @@ _created 2026-09-17_
 - **Next:** Decide the hold knob rung (config field for structure vs Number for live-tune) + wire it; flip D2 enabled-default or document; add `established` attr to D2. Tier 1-2 additive. Also: the D5 entry-dwell field is now a TOMBSTONE (default->0...
 - **Tags:** hvac, numbers-get-knobs, observability, post-ship-gap
 - **Parsimony:** [BUILD] debounce hold has no operator knob + observability entity hidden/incomplete
+- **Forensic keys (1):**
+  - `PLAN_REVIEW_2026_09_17`: Plan review = FIX-REQUIRED-IN-PLAN, 6 blocking. Caught pre-build: P1(CRIT) D1/D2 config step points at CM house-wide step (config_flow.py:5836/:5885) NOT the per-room step (:3412/climate) -> knob would be house-wide, per-room resolver co...
 
 ### `HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1` - D5 duty-cycle is occupancy-blind (forces OCCUPIED zones away during coast/shed) + its runtime_exceeded name falsely implies Bryant compressor protection — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **planned**

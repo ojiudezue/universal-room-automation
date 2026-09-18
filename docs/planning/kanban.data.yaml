@@ -299,6 +299,27 @@ meta:
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
 - id: HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1
+  PLAN_REVIEW_2026_09_17: 'Plan review = FIX-REQUIRED-IN-PLAN, 6 blocking. Caught pre-build: P1(CRIT)
+    D1/D2 config step points at CM house-wide step (config_flow.py:5836/:5885) NOT the per-room step
+    (:3412/climate) -> knob would be house-wide, per-room resolver couldnt read it. P2(CRIT) D6 reason
+    cache hooks 1 of 11 preset-write sites -> HOOK THE CHOKEPOINT emit_set_preset_mode
+    (hvac_setpoint.py:241, reason= param all 11 sites pass) else retreat_reason misattributes = the bug
+    the card kills. P3(HIGH) durable ledger only covers S1 (hvac.py:2397); other 10 reasons not durably
+    logged -> either log successful chokepoint writes (scope growth) or scope D5 restart-safety to S1
+    honestly. P4(HIGH) reason vocab is >=15 not 6 -> invariant not falsifiable. P5(CRIT) D9 zone_entry_
+    dwell is NOT dead — 9 sites incl number.py:417 entity + live consumer hvac.py:2058 -> DROP D9 to its
+    own cycle. P6(HIGH) D3 registry flip doesnt enable the 43 EXISTING rooms (only at creation) -> needs
+    one-shot registry migration or state inert-live. P7(CRIT) D7 DUPLICATES existing sensor — coast/
+    energy_constraint_mode is ALREADY on sensor.ura_hvac_coordinator_mode (10 Mode) get_mode_attrs
+    (hvac.py:4364); COLLAPSE D7 -> add since/duration_s attrs to 10-Mode, no new entity. (Answers the
+    operator see-if-observable-first: coast IS already observable; I/planner missed it.) P8(MED) D8
+    energy_coast bool is the OVERRIDE-MANAGER bool (diff semantics, 2 trust consumers hvac_override.py:
+    2028/3171, Bug#63) -> reframe D8 to DOCUMENT distinct semantics, not supersede. P9(MED) strings.json
+    missing from files (labels). P10 monotonicity: validate effective pair post-resolution (clamp night
+    up + log) AND reject at form when both supplied; blank->fallback NEVER 0 (0=hallway never-hold).
+    CLEARED: single resolver _effective_hvac_hold_seconds (hvac_zones.py:837), no half-wired F5 remnants,
+    D4 re-derived-safe, non-goals explicit. OVER-COMPLICATION: drop D9 + collapse D7 = removes ~all real
+    risk -> additive Tier-2 (D1/D2 room step + D3+migration + D4 + D5/D6 chokepoint). Revising.'
   status: planned
   thread: hvac
   created: '2026-09-17'
