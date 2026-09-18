@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.9
+# Universal Room Automation vv5.103.10
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -3075,7 +3075,7 @@ class HVACD5EnableSwitch(SwitchEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_d5_duty_cycle_enable"
-        self._attr_name = "HVAC D5 Duty-Cycle Enable"
+        self._attr_name = "AC Runtime Cap · Enable"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
