@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T14:21:17-05:00_ - _Data commit: `65b92497aa12`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T16:06:58-05:00_ - _Data commit: `c74bd9335be5`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -14,12 +14,12 @@ _Generated: 2026-09-18T14:21:17-05:00_ - _Data commit: `65b92497aa12`_ - _last_r
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 13 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 1 |
+| 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 25 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 33 |
 | 🅿️ Parked | 60 |
-| ✅ Done | 181 |
+| ✅ Done | 182 |
 
 ## 📥 Inbox (1)
 _raw capture_
@@ -477,21 +477,10 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (1)
+## 🔍 Review (0)
 _under review_
 
-### `HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1` - Post-restart the HVAC predictor sees constraint=None (pre_cool_skip_reason=no_constraint) while EC computes normal — Path A pre-cool disabled boot->first-mode-change — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-> **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:24:21.185Z)
-thread: **hvac** - status: **review**
-_created 2026-09-18_
-- **Problem / Solution:**
-  - Problem (surfaced live 2026-09-18 by the new pre_cool_skip_reason obs, v5.103.12): after a restart at 10:14 CDT (in [10,14) window, summer, both enables true), sensor.ura_energy_coordinator_hvac_constraint shows a REAL computed normal (r...
-- **Why:** Real restart-day pre-cool gap; the sole pre-cool path silently no-ops. High-value catch validating the skip-reason obs on its first boot.
-- **Next:** TRACE: does _handle_energy_constraint fire post-boot on the HVAC coordinator? is _energy_constraint set after the EC first tick? does the EC re-dispatch normal on first boot tick or suppress as non-change vs init _last_published_constrai...
-- **Tags:** hvac, precool, boot, signal-delivery, energy
-- **Parsimony:** [BUILD] restart-day pre-cool disabled until first mode change
-- **Forensic keys (1):**
-  - `TRACE_2026_09_18`: ROOT CAUSE confirmed (read-only trace): two-stage. (1) ORDERING MISS - EC registered before HVAC (__init__.py:3759 vs 3856); CoordinatorManager sets up sequentially (manager.py:417), so EC async_setup fires its boot decision cycle -> dis...
+_(none)_
 
 ## ⏸️ Waiting on operator (25)
 _needs a human call — groomed first_
@@ -2400,7 +2389,7 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (181)
+## ✅ Done (182)
 _closed, evidence in refs_
 
 ### `HVAC-D5-SLEEP-EXIT-RESET-1` - D5 counter accumulates overnight during sleep-skip and can instant-trip on wake into coast/shed — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -2478,6 +2467,23 @@ _created 2026-09-18_
 - **Parsimony:** [BUILD] no why-not-firing signal on the sole pre-cool path
 - **Forensic keys (1):**
   - `DONE_2026_09_18`: Shipped v5.103.12, live-validated: pre_cool_skip_reason live on the 10-Mode sensor (boot->no_constraint, updating; mutation-verified outside_window->test RED; no behavior change; zero ERROR). Immediately surfaced a real boot condition ->...
+
+### `HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1` - Post-restart the HVAC predictor sees constraint=None (pre_cool_skip_reason=no_constraint) while EC computes normal — Path A pre-cool disabled boot->first-mode-change — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:24:21.185Z)
+thread: **hvac** - status: **done**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem (surfaced live 2026-09-18 by the new pre_cool_skip_reason obs, v5.103.12): after a restart at 10:14 CDT (in [10,14) window, summer, both enables true), sensor.ura_energy_coordinator_hvac_constraint shows a REAL computed normal (r...
+- **Why:** Real restart-day pre-cool gap; the sole pre-cool path silently no-ops. High-value catch validating the skip-reason obs on its first boot.
+- **Next:** TRACE: does _handle_energy_constraint fire post-boot on the HVAC coordinator? is _energy_constraint set after the EC first tick? does the EC re-dispatch normal on first boot tick or suppress as non-change vs init _last_published_constrai...
+- **Tags:** hvac, precool, boot, signal-delivery, energy
+- **Parsimony:** [BUILD] restart-day pre-cool disabled until first mode change
+- **Forensic keys (5):**
+  - `DONE_2026_09_18`: v5.103.13 shipped + live-validated. Post-restart (16:07 CDT, during coast): mode sensor shows energy_constraint_mode=coast, energy_offset=2, pre_cool_skip_reason=outside_window (NOT no_constraint) -> HVAC holds the EC constraint object A...
+  - `REVIEW_C_AND_FIXUP_2026_09_18`: C (test authority) = FIX-REQUIRED. PRODUCTION FIX SOUND (A+B+C agree parity/ordering/guards hold live) but ALL new tests HOLLOW (#62): C1 boot-ordering test execs a text- slice vs MagicMock, never builds HVACCoordinator/async_setup - ear...
+  - `REVIEW_A_2026_09_18`: A (payload parity) = SHIP. All 10 EnergyConstraint fields byte-parity between _build_energy_constraint and the old inline; _hvac_constraint_max_runtime stash populated before the gate (ordering holds); freezing max_runtime via stash is p...
+  - `REVIEW_B_2026_09_18`: B (boot lifecycle) = FIX-REQUIRED. Ordering/guards/idempotency/restart all PASS (manager assigned before async_start; EC boot cycle populates constraint before HVAC pull - verified; payload-equivalence cross-checked, holds; coast-seed du...
+  - `TRACE_2026_09_18`: ROOT CAUSE confirmed (read-only trace): two-stage. (1) ORDERING MISS - EC registered before HVAC (__init__.py:3759 vs 3856); CoordinatorManager sets up sequentially (manager.py:417), so EC async_setup fires its boot decision cycle -> dis...
 
 ### `EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1` - pre_cool fires at LOW SOC on off-peak grid (not excess solar) gated on a forecast — verify EC pre_cool/coast solar_class semantics & intent — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **done**
