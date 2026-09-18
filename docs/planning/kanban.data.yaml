@@ -813,6 +813,13 @@ cards:
   parsimony: {problem: 'restart-day pre-cool disabled until first mode change', verdict: BUILD, note: 'trace signal delivery first; measure self-heal'}
   links: {related: [HVAC-PRECOOL-SKIP-REASON-OBS-1, EC-GRID-ANTICIPATORY-PRECOOL-GAP-1], context: 'surfaced by pre_cool_skip_reason obs v5.103.12 on first boot'}
 - id: STUCK-MOTION-FROZEN-ON-BLINDSPOT-1
+  BUILD_APPROACH_2026_09_18: 'Operator greenlit the freshness gate. Tier 2-DB (occupancy TRUST; false-
+    negative = abandon a real occupant). Measure-first + prior-art scan dispatched (accb0d5f7, read-only):
+    (A) existing freshness/unavailable handling + stuck detector + role model + reusable CONF; (B) recorder
+    cadence of PIR/mmwave inputs (p50/p95/max inter-report gap while occupied) to pick a per-kind staleness
+    threshold that CANNOT clip a live-but-quiet sensor (esp. mmwave holding on for a still body). Falsifiable
+    invariant for the plan: a sensor reporting within its measured expected interval is NEVER dropped. Then
+    plan -> plan-review -> build -> 3 framing-disjoint reviews -> mutation-verify -> ship.'
   status: investigating
   thread: presence
   created: '2026-09-18'
