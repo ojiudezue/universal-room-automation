@@ -10954,6 +10954,21 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  REREVIEW_R4_CORRECTNESS_2026_09_17: 'Round-4 re-review #1 (correctness) = FIX-REQUIRED, 1 HIGH + 1
+    MED. NOT SHIPPING. F1 (HIGH, orchestrator-predicted): the any-room-seen establishment lets a zone
+    with a DISABLED/setup_retry room retreat on the room it CANNOT read (unreadable counted as empty;
+    live hallway sibling establishes the zone) -> occupied bedroom loses conditioning all night. D-HIGH-1
+    reintroduced PERSISTENTLY. FIX: revert hvac_zones.py:970 to all(...) [round-3 semantics]; the dead-
+    room-fail-open F1 was trying to solve is a SEPARATE problem -> card w/ a code trip-wire (surface the
+    degraded room), do NOT relax the safety gate. Reviewer confirmed the proposed middle (all-live-coord)
+    does NOT fix it — hazard is the fused read, not the seen-set. F2 (MED): throttle-bypass emits 12
+    set_temperature/hr/zone to Carrier cloud indefinitely (no wire dedupe); FIX: bypass on LIVE ground-
+    truth setpoints (compare climate entity attrs), emit only on real diff — corrects third-writer strand
+    AND dedupes (house rule: ground truth not stale cache). CLEARED: shared-helper polarity + 4-site
+    consistency, reset-only backstop (home-person term gone from established path), F4 MagicMock carve-
+    out cant mask prod, F5 override removal clean. 3 test failures = PRE-EXISTING TestD4_Mode2BleGate
+    (presence_fan_recheck untouched). LOW: zone_has_home_person now dead (no callers) -> remove. HOLDING
+    for adversarial #2 + orchestrator name-diff, then round-5 (small: revert F1 + F2 ground-truth).'
   ROUND4_CLEAN_2026_09_17: 'Round-4 landed @2f091a025, NEW=0 name-diff (builder). Reset-only backstop
     + shared conditioning_retreat_ok(zone) across row-1/D7/D9/row-10; F2 throttle-bypass on compose-
     away; F1 established=ANY-room-seen (disabled room cant wedge); F4 row-10 helper; F5 CONF knobs

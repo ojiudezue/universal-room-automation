@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T19:00:42-05:00_ - _Data commit: `c00438254b8c`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T19:23:41-05:00_ - _Data commit: `1a1582a7f4e4`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -395,7 +395,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (46):**
+- **Forensic keys (47):**
+  - `REREVIEW_R4_CORRECTNESS_2026_09_17`: Round-4 re-review #1 (correctness) = FIX-REQUIRED, 1 HIGH + 1 MED. NOT SHIPPING. F1 (HIGH, orchestrator-predicted): the any-room-seen establishment lets a zone with a DISABLED/setup_retry room retreat on the room it CANNOT read (unreadab...
   - `ROUND4_CLEAN_2026_09_17`: Round-4 landed @2f091a025, NEW=0 name-diff (builder). Reset-only backstop + shared conditioning_retreat_ok(zone) across row-1/D7/D9/row-10; F2 throttle-bypass on compose- away; F1 established=ANY-room-seen (disabled room cant wedge); F4 ...
   - `ROUND4_DECISIONS_2026_09_17`: Operator: (1) ROUND-4, keep night IN SCOPE (one combined cycle, NOT decouple); (2) backstop breadth = RESET-ONLY. Round-4 fix-up dispatched w/ the full must-fix set: F3/D-HIGH-1 shared _zone_conditioning_retreat_ok(zone) across row-1/D7/...
   - `REREVIEW_TESTAUTH_FAILED_2026_09_17`: Re-review #2 (test-authority) DIED on a login-expiry API error (not a finding). Not re-run: both #1 (F-LOW) and #3 (D-LOW-1) independently found the same thing — round-2 anchors are STILL source-greps; no behavioral test asserts D9 honor...
