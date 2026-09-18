@@ -3,10 +3,11 @@
 **Audience:** the homeowner running URA.
 **Scope:** what the HVAC Coordinator (HC) does day to day, the knobs
 you can turn, the surfaces you can watch, and how to intervene.
-**Current through:** URA v5.18.0.
+**Current through:** URA v5.103.13.
 
 This is NOT a code walkthrough. For architecture see
-`HVAC_COORDINATOR_DESIGN.md` (historical design spec).
+`HVAC_COORDINATOR_DESIGN.md` (historical design spec) and its
+`HVAC_COORDINATOR_DESIGN_EXTENSION_2026_09.md` (the v5.103.x changes).
 
 ---
 
@@ -330,6 +331,45 @@ During SLEEP:
 
 ---
 
+## 3.6 Saving energy: pre-cool, coast, and the "AC Runtime Cap" — in plain terms
+
+Three things happen around the expensive part of the day (peak pricing, roughly 4–8pm):
+
+- **Pre-cool (before peak).** On a sunny day with **spare solar power** (your battery is already
+  full and panels are exporting), the house cools itself a little extra in the **early afternoon
+  (about 10am–2pm)**. Think of it as **banking coolness** while the sun is free, so the AC can ease
+  off during the pricey evening. It only runs when there's real surplus solar — not at night, not
+  when the battery is low. If it *doesn't* run and you're wondering why, the reason is shown live
+  (see §5, `pre_cool_skip_reason` — e.g. "no spare solar" or "wrong time of day").
+- **Coast (during peak).** During peak pricing the house is allowed to drift a couple of degrees
+  warmer to spend less. You'll see the setpoints nudge up.
+- **AC Runtime Cap (during coast/shed).** If the AC has been running most of a 20-minute stretch
+  while we're coasting, URA can back a room off to `away` to stop spending. **Important:** this is
+  an **energy-saving choice, not equipment protection** — your Bryant/Carrier thermostat already
+  protects its own compressor. Because it's about money, not safety, **it now leaves an occupied
+  room alone** (it only backs off *empty* rooms during coast; under a harder grid "shed" it still
+  backs off to protect the grid). You can tune or turn it off entirely (see §4.1 "AC Runtime Cap").
+
+**One-line summary:** cool cheaply in the afternoon on sun, coast through the evening, and don't
+abandon a room you're sitting in just to save a few cents.
+
+## 3.7 Why a room went "away" — the reason is now labeled
+
+Every time URA lets a zone drift to `away`, it records **why**, visible on the zone's preset sensor
+as `retreat_reason`:
+
+- **`vacant_past_grace`** — the room emptied and its grace timer ran out. (Normal.)
+- **`energy_shed_cap_reached`** — the AC Runtime Cap backed off an *empty* room during peak coasting.
+- **`energy_shed_cap_deferred_occupied`** — the cap *wanted* to back off, but **you were in the room,
+  so it didn't** (it just noted the decision). This is the new "don't abandon occupants" behavior.
+- **`stale_occupancy`** — a sensor looks stuck; URA is being cautious.
+- **`house_state_transition`** — a normal house-mode change (e.g. everyone left → away).
+
+If a room goes warm and you want to know whether it was the energy cap or just vacancy, this
+attribute answers it directly — no guessing.
+
+---
+
 ## 4. Knobs and where they live
 
 ### 4.1 Number entities (dashboard-tunable, HVAC device)
@@ -339,6 +379,11 @@ During SLEEP:
 | 48 | `number.ura_hvac_coordinator_vacancy_grace` | (per config) | **Zone Vacancy Delay (minutes).** Time an empty zone must stay empty before the HC retreats. |
 | 49 | `number.ura_hvac_coordinator_vacancy_grace_constrained` | (per config) | **Energy-Saving Zone Vacancy Delay (minutes).** Shorter delay used when the Energy Coordinator is shedding/coasting. **Clamped `<=` #48** (bidirectional). Confirmed live 2026-06-06: setting 49 → 30 while 48 = 15 clamps to 15. |
 | 50 | `number.ura_hvac_coordinator_max_zone_occupied` | (per config) | **Max Zone Occupied Time (hours).** Diagnostic trip for "this zone has been occupied for suspiciously long". |
+| — | `number.ura_hvac_coordinator_d5_duty_cycle_coast` | 75% | **AC Runtime Cap · Coast (%).** During peak coasting, if the AC runs more than this fraction of a 20-min window, an *empty* room is backed off to save. Lower = backs off sooner (more savings, less comfort). `0` = disabled. (Energy policy, not equipment protection — see §3.6.) |
+| — | `number.ura_hvac_coordinator_d5_duty_cycle_shed` | 50% | **AC Runtime Cap · Shed (%).** Same, but during a harder grid "shed" — stricter (backs off even occupied rooms). |
+| — | `number.ura_hvac_coordinator_d5_duty_cycle_window_minutes` | 20 min | **AC Runtime Cap · Window (min).** The rolling window the runtime fraction is measured over. |
+| — | `number.ura_hvac_coordinator_comfort_delay_soc_floor` | 85% | **Comfort Grace · Battery Floor (%).** Battery level above which a manual comfort request earns a grace window before URA reasserts. |
+| — | `number.ura_hvac_coordinator_comfort_delay_grace_minutes` | 20 min | **Comfort Grace · Duration (min).** How long that grace window lasts. |
 
 ### 4.2 Button
 
@@ -353,6 +398,7 @@ During SLEEP:
 | 46 | `switch.ura_hvac_coordinator_vacancy_sweep_enabled` | **Vacancy Auto-Off.** When ON, vacancy sweeps turn lights/fans off after the delay. When OFF, they stay as-is (delay still runs, but no actuation). |
 | — | `switch.ura_hvac_ac_ramp_master` | **AC Ramp-Down (Energy-Aware).** Default OFF (invasive feature — user opts in per zone). **Persistence (2026-08-06 fix):** the toggle write-through updates `entry.options[hvac_ac_ramp_master_enabled]`; the arrester seeds from this option at init so the setting SURVIVES config-entry reload. RestoreEntity is a belt-and-braces fallback for the fresh-install case only. |
 | — | `switch.ura_hvac_temp_arrester_override` | **Temp Arrester Override** (2026-08-06). Default OFF. When ON, suspends **all** arrester corrective writes house-wide. Auto-sunsets on `sleep` transition OR `COMFORT_OVERRIDE_MAX_S` (6h) — flips OFF + LOW NM note. Does NOT restore ON across restart (default-OFF is safe). See §3.4b.2. |
+| — | `switch.ura_hvac_coordinator_hvac_d5_duty_cycle_enable` | **AC Runtime Cap · Enable.** Master on/off for the runtime-cap energy-saving described in §3.6. OFF (or setting a cap to `0`) disables it entirely. |
 | — | Zone Intelligence master switch | When ON (default): per-zone vacancy management, duty cycle, presets by house state. When OFF: no zone-level intelligence — coarse manual mode. |
 
 ### 4.4 Options flow
@@ -403,6 +449,18 @@ Live in `hvac_const.py`. Not dashboard knobs.
   / fan / cover). See §6.
 - **Vacancy-sweep counters**: `sweeps_today` attribute on the
   Vacancy Auto-Off switch shows how many sweeps fired today.
+- **`retreat_reason`** (zone preset sensor): *why* a zone went `away`
+  (§3.7). The one-glance answer to "was that energy-saving or vacancy?"
+- **`pre_cool_skip_reason`** (`sensor.ura_hvac_coordinator_mode`): *why*
+  the afternoon pre-cool didn't run — e.g. `no_pv_surplus` (no spare
+  solar), `outside_window` (wrong time), `soc_below_floor` (battery low),
+  or blank (it's running). `pre_cool_active` shows when it IS running.
+- **Coast/shed dwell** (`sensor.ura_hvac_coordinator_mode`):
+  `energy_constraint_mode` (normal / coast / shed / pre_heat) and
+  `energy_constraint_duration_s` — how long we've been in that mode.
+- **`hvac_occupied` diagnostics** (per room, diagnostic): HVAC's own
+  occupancy view (slower/steadier than the lights one), e.g.
+  `binary_sensor.<room>_<room>_hvac_occupied`.
 
 ---
 
@@ -474,3 +532,10 @@ manually setting 48/49/50 back one by one.
 | v4.7.24 | `OccupancySubstrate` per-room/per-kind raw layer beneath room + zone occupancy. Curated CONF sensor lists are single source of truth. |
 | v4.7.25 | Presence-timer cluster surfaced as Number entities #48/49/50 + Reset button #51 + collapsed `presence_timing` config-flow section. Bidirectional clamp (#49 ≤ #48) confirmed live. Dwell Number persistence retrofit. |
 | v4.7.29 | Day-boundary TOU mid_peak hold gated on peak-ahead (energy-side, but HC coast behavior downstream). |
+| v5.103.7 | HVAC gained its **own** occupancy (conditioning-demand), circulation exclusion for hallways, and per-room vacancy tail-hold; home↔away flapping debounced. |
+| v5.103.8 | Legibility: `retreat_reason`, coast/shed dwell attributes, and ~43 `hvac_occupied` diagnostic sensors. |
+| v5.103.9 | **AC Runtime Cap reframed** — the duty-cap is honest energy-saving (not compressor protection); it now **leaves occupied rooms alone during coast** (shed still dominates); caps became dashboard knobs. Old `runtime_exceeded` → `energy_shed_cap_reached`. |
+| v5.103.10 | Knob labels de-jargoned ("AC Runtime Cap · …", "Comfort Grace · …"). |
+| v5.103.11 | Deleted a dead "pre_cool" energy-mode that did nothing but block the real afternoon pre-cool; room vacancy-hold fields got helpful guidance text. |
+| v5.103.12 | `pre_cool_skip_reason` — the afternoon pre-cool now tells you *why* it didn't run. |
+| v5.103.13 | **Restart-day pre-cool fix** — after a restart HVAC now gets the energy plan immediately (it used to miss it until the evening), so a restart morning no longer skips pre-cool. |
