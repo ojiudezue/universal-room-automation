@@ -298,6 +298,32 @@ meta:
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated, headline: "PERIMETER-ALERT-VOLUME-FATIGUE-1 \u2014 MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working \u2014 so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).", acknowledged: false}
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
+- id: HVAC-COAST-OBSERVABILITY-1
+  status: planned
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, observability, tier-1, additive-sensor]
+  title: Expose EC coast/shed (energy_constraint_mode) as a first-class HVAC sensor — today it is invisible,
+    which is why coast-driven aways cannot be attributed
+  problem_solution:
+  - 'Problem: the HVAC energy_constraint_mode (normal|pre_cool|pre_heat|coast|shed) drives D5 duty-cycle
+    enforcement (runtime_exceeded fires ONLY under coast/shed) and the coast-precedence guard, but it is
+    NOT observable — only a buried energy_coast bool in a sensor detail dict (sensor.py:13797). This is
+    exactly why the operator + orchestrator could not attribute the zone_3 hot-and-away to coast. Solution:
+    FEASIBLE + cheap — the signal (SIGNAL_ENERGY_CONSTRAINT, EnergyConstraint.mode, signals.py:253-256)
+    and the HVAC property (energy_constraint_mode, hvac.py:660) already exist; expose the mode as a
+    first-class entity (sensor.ura_hvac_energy_constraint_mode) or an attribute on the HVAC status sensor.
+    No new plumbing — surface what already flows. Source is EC (Energy Coordinator).'
+  why: 'Operator: "We need coast to be observable from HC. I assume the signal comes from EC? See if
+    feasible and card it." Verified feasible (signal+property exist, just unsurfaced). Pairs with the D5
+    audit — coast is the gating condition for the runtime_exceeded aways the operator felt; without a coast
+    sensor the behavior is unattributable.'
+  next: 'Add sensor.ura_hvac_energy_constraint_mode exposing energy_constraint_mode (hvac.py:660), state =
+    normal/pre_cool/pre_heat/coast/shed, with attrs (offset, since-timestamp). Additive, Tier 1. Consider
+    also a coast/shed active-duration attribute so time-in-coast is queryable for the D5 reframe.'
+  parsimony: {problem: 'coast/shed drives HVAC behavior but is invisible -> unattributable aways', verdict: BUILD, note: 'additive sensor, signal+property already exist; trivial'}
+  links: {related: [HVAC-SUPPLE-SEQUENCE-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'coast observability; feeds the D5 reframe + made the zone_3 away attributable'}
 - id: HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1
   status: planned
   thread: hvac
@@ -10504,6 +10530,12 @@ cards:
     verdict: BUILD
   batch: tier1-gate-and-knobs
 - id: HVAC-SUPPLE-SEQUENCE-1
+  COAST_OBSERVABILITY_ADDED_2026_09_17: 'Added HVAC-COAST-OBSERVABILITY-1 to the arc BOTTOM (operator:
+    "add it to our HVAC arc at the bottom, although we can resequence"). Tier-1 additive sensor exposing
+    EC coast/shed (energy_constraint_mode) — feasible, signal+property already exist. Resequenceable;
+    logically it wants to come BEFORE the D5 reframe (HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1) since coast
+    visibility is the prerequisite for validating any D5 change. Arc now also carries the D5 cards +
+    the 3 step-4-B residuals as tail items.'
   ARC_RECOMPOSED_NO_FAKE_GATES_2026_09_16: 'Operator: "recompose the full arc with old and new. Put
     in problem/solution and link purpose... put it in proper sequence with no fake gates." The prior
     step-numbered lists implied a CHAIN. Most of this arc is NOT a chain. Only FOUR edges are real
