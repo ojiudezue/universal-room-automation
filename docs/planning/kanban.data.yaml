@@ -557,6 +557,12 @@ cards:
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: HVAC-EQUIPMENT-HEALTH-OBSERVABILITY-1
+  DOC_2026_09_17: 'Possibilities written up in priority order (P1 health-anomaly -> SC/anomaly->NM;
+    P2 reset-vs-nudge -> maybe kill resets; P3 closed-loop energy attribution+tuning; P4 re-ground D5 on
+    stage) + measurements catalog + theory-of-not-great-state, in docs/planning/PROPOSAL_hvac_equipment_
+    health_observability.md. Operator process: doc-first -> card -> link (this). Live Zone-1 reset A/B is
+    CLEARED by operator but deferred (passive-first). Data gap found: no nudge/ramp-named rows for zone_1
+    -> first sub-probe = locate nudge logging.'
   status: pre_planning
   thread: hvac
   created: '2026-09-17'

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T23:17:39-05:00_ - _Data commit: `f92c5d5c2d87`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T23:19:01-05:00_ - _Data commit: `c932b63a7b2e`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -225,7 +225,8 @@ _created 2026-09-17_
 - **Next:** MEASURE-FIRST pass (read-only, gates everything): (1) theory-of-not-great-state = hard physical limits for this equipment/refrigerant (superheat floodback floor, discharge ceiling, static-pressure airflow limit ~>0.8in, line-voltage brow...
 - **Tags:** hvac, safety-coordinator, anomaly, telemetry, carrier, measure-first, closed-loop, workstream
 - **Parsimony:** [BUILD] rich HVAC health+duty telemetry unconsumed; open-loop energy claims
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `DOC_2026_09_17`: Possibilities written up in priority order (P1 health-anomaly -> SC/anomaly->NM; P2 reset-vs-nudge -> maybe kill resets; P3 closed-loop energy attribution+tuning; P4 re-ground D5 on stage) + measurements catalog + theory-of-not-great-sta...
   - `SUB_IDEAS_2026_09_17`: Checklist inside this one workstream (do NOT mint separate cards): (a) compressor/ refrigerant health anomaly (superheat/discharge/suction) -> SC+anomaly->NM; (b) airflow/dirty-filter (static_pressure + filter_remaining cross-corroborate...
 
 ### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#11 · WSJF 1.8 · v8 tc4 u2 /e8_
