@@ -681,6 +681,52 @@ async def _camera_autoenable_dry_run_scan(
     )
 
 
+async def _migrate_hvac_zone_entry_dwell_to_zero(
+    hass: HomeAssistant, cm_entry: ConfigEntry,
+) -> bool:
+    """HVAC-ZONE-CONDITIONING-DEMAND-1 D5 fix-up round 2 (2026-09-17).
+
+    The D5 default flip (3 -> 0) in `hvac_const.py` does not help the
+    live install because the CM entry's stored `hvac_zone_entry_dwell`
+    option (persisted by the Number entity / CM options flow) SHADOWS
+    the new default. Without this migration, `zone_entry_dwell` stays
+    at the legacy 3 minutes and stacks with the D1 per-room tail-hold —
+    the exact failure this cycle is meant to eliminate.
+
+    Idempotent — gated on the sentinel option
+    `hvac_zone_entry_dwell_zero_migration_done`. Rewrites the stored
+    option to 0 EXACTLY when the legacy default 3 is observed; leaves
+    non-default operator-set values untouched (the operator can still
+    set a positive dwell explicitly — the plan retains the entity for
+    one release with LEGACY semantics).
+    """
+    from .domain_coordinators.hvac_const import (
+        CONF_HVAC_ZONE_ENTRY_DWELL,
+    )
+    DONE_KEY = "hvac_zone_entry_dwell_zero_migration_done"
+    if cm_entry.options.get(DONE_KEY):
+        return False
+
+    new_options = dict(cm_entry.options)
+    legacy = new_options.get(CONF_HVAC_ZONE_ENTRY_DWELL, None)
+    changed = False
+    # Only rewrite when the stored value is the pre-D5 legacy default
+    # (3 minutes) — respect an operator-set non-default number. When the
+    # key is absent, no rewrite is needed; the new module default (0)
+    # applies automatically.
+    if legacy == 3:
+        new_options[CONF_HVAC_ZONE_ENTRY_DWELL] = 0
+        changed = True
+        _LOGGER.info(
+            "HVAC-ZONE-CONDITIONING-DEMAND-1 D5 migration: rewriting "
+            "hvac_zone_entry_dwell 3 -> 0 (legacy default; per-room "
+            "HVAC vacancy tail-hold is now the sole hold source)"
+        )
+    new_options[DONE_KEY] = True
+    hass.config_entries.async_update_entry(cm_entry, options=new_options)
+    return changed
+
+
 async def _migrate_arbitrage_target_to_peak_buffer(
     hass: HomeAssistant, cm_entry: ConfigEntry
 ) -> bool:
@@ -3099,6 +3145,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         _LOGGER.error(
                             "v5.7.1 solar_banking → energy_precool migration "
                             "failed: %s", e,
+                        )
+
+                # HVAC-ZONE-CONDITIONING-DEMAND-1 D5 migration (fix-up
+                # round 2, 2026-09-17): rewrite the stored
+                # hvac_zone_entry_dwell option from the legacy 3 to 0.
+                # Idempotent via _zero_migration_done sentinel; must run
+                # BEFORE cm_config is built so the HVAC coordinator picks
+                # up the corrected value.
+                if cm_entry is not None:
+                    try:
+                        await _migrate_hvac_zone_entry_dwell_to_zero(
+                            hass, cm_entry,
+                        )
+                        cm_entry = (
+                            hass.config_entries.async_get_entry(cm_entry.entry_id)
+                            or cm_entry
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        _LOGGER.error(
+                            "HVAC D5 zone_entry_dwell migration failed: %s", e,
                         )
 
                 if cm_entry is not None:

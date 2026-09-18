@@ -307,7 +307,13 @@ def _make_zone(zone_id="z1", occupied=True, temp_high=78.0, temp_low=70.0):
     z.climate_entity = f"climate.{zone_id}"
     z.target_temp_high = temp_high
     z.target_temp_low = temp_low
+    # HVAC-ZONE-CONDITIONING-DEMAND-1 row-8 SWAP (fix-up round 2,
+    # 2026-09-17 C-HIGH-3): the pre-cool gate now reads the fused
+    # denomination `any_room_hvac_occupied`. Set both to `occupied`
+    # so the fixture keeps expressing the same intent (a dwelling
+    # room occupied by a resident, not a hallway crossing).
     z.any_room_occupied = occupied
+    z.any_room_hvac_occupied = occupied
     z.last_occupied_time = None
     return z
 
@@ -613,6 +619,40 @@ class TestD1I6Scope:
         assert "z_occ" in zone_ids
         assert "z_emp" not in zone_ids, (
             "occupied_only MUST skip unoccupied zone even under surplus"
+        )
+
+    def test_occupied_only_uses_fused_denomination_not_lighting(self):
+        """Row-8 discriminator (HVAC-ZONE-CONDITIONING-DEMAND-1 fix-up
+        round 2, 2026-09-17): the pre-cool `occupied_only` gate MUST
+        read `any_room_hvac_occupied` (fused). Under the wrong-fix
+        failure mode (reads `any_room_occupied`), a zone with a hallway
+        crossing (lighting True, fused False) would be banked; under
+        the correct fix that zone must be SKIPPED. Revert-in-suite:
+        change the fused read in hvac_predict.py:578 to
+        `any_room_occupied` -> this test reds.
+        """
+        z_hallway = _make_zone("z_hallway", occupied=True)
+        # Simulate a hallway-crossing shape: lighting-fused occupied,
+        # but HVAC-fused empty (D1 excluded the hallway via CIRCULATION
+        # EXCLUSION).
+        z_hallway.any_room_hvac_occupied = False
+        zones = {
+            "z_dwell": _make_zone("z_dwell", occupied=True),
+            "z_hallway": z_hallway,
+        }
+        pred, hass = _make_predictor(zones=zones)
+        calls = _drive(
+            pred, hass,
+            scope="occupied_only",
+            constraint=_make_constraint(soc=98, forecast_high=95),
+            net_power=-2000.0,  # huge surplus
+            now=datetime(2026, 6, 11, 13, 0, 0),
+        )
+        zone_ids = [c["zone_id"] for c in calls]
+        assert "z_dwell" in zone_ids
+        assert "z_hallway" not in zone_ids, (
+            "occupied_only under FUSED denomination MUST skip a "
+            "hallway-crossing zone even when lighting-fused is True"
         )
 
     def test_whole_house_banks_all(self):
