@@ -485,6 +485,18 @@ cards:
     v5.103.8; close this on that ship.'
 
 - id: HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1
+  REVIEW_AB_2026_09_17: 'Reviews A+B CONVERGED FIX-REQUIRED (C test-authority still running). Theme:
+    rename+defer-flag swept hvac.py but not consumers. Must-fix: (1)CRIT sensor.py:13683 still filters
+    zone_presence_state==runtime_limited -> zones_runtime_limited attr permanently EMPTY (repoint +
+    drive from derivation in test); (2)HIGH _d5_occupancy_deferred_current_tick zero readers -> wire to
+    sensor attr like D3 sibling sensor.py:12819 (plan D1); (3)HIGH energy_shed_cap_deferred_occupied never
+    assigned to preset_change_reason -> extend relabel hvac.py:2548 gated on _d5_occupancy_deferred_this_tick
+    (plan D2); (4)HIGH cap_pct=0 kill leaves runtime_exceeded latched -> clear False before continue
+    hvac.py:3823; (5)HIGH frontend-v3 bundles read runtime_exceeded attr for yellow card -> dual-emit or
+    rebuild; (6)MED D6xD5 false suppression row + burns episode gate -> skip defer bookkeeping when away
+    already forced; (7)MED runtime_duty_cycle_pct 3 sites divide by const not live knob (#63). LOWs: comment
+    hvac.py:392, window seed clamp __init__.py:3913. Anchors HOLLOW (green via hand-assigned strings, #62) ->
+    fix-up must add REAL behavioral tests. HOLD fix-up for reviewer C.'
   BUILD_LANDED_2026_09_17: 'feature/hvac-d5-reframe @ f2ce50293. D-b1 operator-facing rename ->
     energy_shed_cap_reached (internal zone.runtime_exceeded field KEPT, ~30 refs + persistence path;
     no operator surface leaks it); D-b2 NO-WRITE defer ledger-only episode-gated (shed dominates, D6
