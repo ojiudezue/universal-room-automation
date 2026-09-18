@@ -787,7 +787,7 @@ class ComfortGraceMinutesNumber(NumberEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_comfort_grace_min"
-        self._attr_name = "Comfort-Delay Grace (minutes)"
+        self._attr_name = "Comfort Grace · Duration (min)"
         self._attr_native_min_value = MIN_COMFORT_GRACE_MIN
         self._attr_native_max_value = MAX_COMFORT_GRACE_MIN
         self._attr_device_info = DeviceInfo(
@@ -879,7 +879,7 @@ class ComfortSOCFloorNumber(NumberEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_comfort_soc_floor_pct"
-        self._attr_name = "Comfort-Delay SOC Floor (%)"
+        self._attr_name = "Comfort Grace · Battery Floor (%)"
         self._attr_native_min_value = MIN_COMFORT_SOC_FLOOR_PCT
         self._attr_native_max_value = MAX_COMFORT_SOC_FLOOR_PCT
         self._attr_device_info = DeviceInfo(
@@ -996,7 +996,7 @@ class HVACDutyCycleWindowMinutesNumber(_HVACD5NumberBase):
         )
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_duty_cycle_window_minutes"
-        self._attr_name = "D5 Duty-Cycle Window (minutes)"
+        self._attr_name = "AC Runtime Cap · Window (min)"
         self._attr_native_min_value = MIN_HVAC_DUTY_CYCLE_WINDOW_MIN
         self._attr_native_max_value = MAX_HVAC_DUTY_CYCLE_WINDOW_MIN
         config = {**entry.data, **entry.options}
@@ -1049,7 +1049,7 @@ class HVACDutyCycleCoastPctNumber(_HVACD5NumberBase):
         )
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_duty_cycle_coast_pct"
-        self._attr_name = "D5 Duty-Cycle Coast (%)"
+        self._attr_name = "AC Runtime Cap · Coast (%)"
         self._attr_native_min_value = MIN_HVAC_DUTY_CYCLE_COAST_PCT
         self._attr_native_max_value = MAX_HVAC_DUTY_CYCLE_COAST_PCT
         config = {**entry.data, **entry.options}
@@ -1102,7 +1102,7 @@ class HVACDutyCycleShedPctNumber(_HVACD5NumberBase):
         )
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_duty_cycle_shed_pct"
-        self._attr_name = "D5 Duty-Cycle Shed (%)"
+        self._attr_name = "AC Runtime Cap · Shed (%)"
         self._attr_native_min_value = MIN_HVAC_DUTY_CYCLE_SHED_PCT
         self._attr_native_max_value = MAX_HVAC_DUTY_CYCLE_SHED_PCT
         config = {**entry.data, **entry.options}
@@ -3031,7 +3031,7 @@ class HVACEgressPauseThresholdNumber(NumberEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_egress_threshold_min"
-        self._attr_name = "Egress Pause Threshold"
+        self._attr_name = "Exit Pause · Wait (min)"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -3140,7 +3140,7 @@ class HVACEgressResumeDelayNumber(NumberEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_egress_resume_delay_min"
-        self._attr_name = "Egress Resume Delay"
+        self._attr_name = "Exit Pause · Resume Delay (min)"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
