@@ -725,6 +725,12 @@ cards:
   parsimony: {problem: 'surplus-only pre-cool leaves low-SOC hot mornings uncovered', verdict: PARK, note: 'principle preserved; measure before building'}
   links: {related: [EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1], context: 'preserved from deleted Path B; supersession KEEP+DOCUMENT'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  DONE_2026_09_18: 'v5.103.11 shipped + live-validated. D1: EC pre_cool vestige DELETED (constraint
+    sensor=normal, pre_cool unreachable by construction; Path A unblocked, pre_cool_active=false healthy;
+    offset constant tombstoned + dead config field removed; principle preserved on EC-GRID-ANTICIPATORY-
+    PRECOOL-GAP-1). D2: vacancy-hold assistive text + blank-when-unset (in-suite proven, orchestrator
+    mutation-verified; current room holds untouched). Zero URA ERROR. 3 framing-disjoint reviews (A+B SHIP,
+    C fix-required->fixed) + fix-up + orchestrator mutation-verify. CLOSED done.'
   REVIEW_B_AND_FIXUP_2026_09_18: 'B (D1 integration/restart) = SHIP: Path A unblocking confirmed, offset
     change a proven no-op (offset already dead pre-cycle - compute_energy_offset zero callers), pre_cool was
     rank-equivalent to normal everywhere, restart fine. B CONVERGED with C on the persist-on-submit bug
@@ -867,7 +873,7 @@ cards:
     export, not soc<50. Trace: (1) is solar_class tomorrow-forecast (likely Solcast) vs stale-today; (2)
     does an excess-solar (daytime PV-surplus) pre-cool path exist separately or is it conflated with this
     off-peak-grid path; (3) at SOC 10% overnight, is spending off-peak grid to pre-cool net-positive?'
-  status: shipped_organic
+  status: done
   shipped_version: v5.103.11
   thread: energy
   created: '2026-09-18'
