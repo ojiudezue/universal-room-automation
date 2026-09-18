@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T00:18:36-05:00_ - _Data commit: `0d793cfc46af`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T00:50:40-05:00_ - _Data commit: `fab5afeb6a92`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-09-18T00:18:36-05:00_ - _Data commit: `0d793cfc46af`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 4 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 13 |
 | 🔨 In progress | 0 |
@@ -64,10 +64,20 @@ _created 2026-09-18_
 - **Tags:** tooling, deploy, hotfix, tier-1
 - **Parsimony:** [BUILD] deploy footgun ships corrupt version metadata
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#1 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1` - solar_class is a DAYTIME forecast — verify each EC consumer uses the right day (not a stale/night value) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **investigating**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem (operator-raised 2026-09-18): solar_class is a solar-production FORECAST that applies to daytime, but two EC constraint branches evaluate in the dark and consume it: (1) coast via mid_peak + solar_class in {poor,very_poor} (energ...
+- **Why:** Surfaced while auditing D5 fire-frequency (D5 itself is peak-TOU-driven, solar-independent, RESOLVED). This is upstream EC-logic correctness, separate from the shipped D5 cycle. A night decision on a daytime forecast is a classic seam. P...
+- **Next:** TRACE solar_class producer + the day it targets at energy.py:7419-7434 consumers; confirm pre_cool uses tomorrow-forecast and the mid_peak-poor-solar coast cannot fire on a nighttime solar value. Measure- first (read the code + a few liv...
+- **Tags:** energy, coast, precool, solar, measure-first, correctness
+- **Parsimony:** [BUILD] daytime solar forecast possibly consumed by night EC decisions
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).

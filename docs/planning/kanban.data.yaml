@@ -606,6 +606,32 @@ cards:
   next: 'Decide knob rung + add a D5 enable/kill switch; fold into HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 if built together.'
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
+- id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  status: investigating
+  thread: energy
+  created: '2026-09-18'
+  updated: '2026-09-18'
+  tags: [energy, coast, precool, solar, measure-first, correctness]
+  title: solar_class is a DAYTIME forecast — verify each EC consumer uses the right day (not a stale/night value)
+  problem_solution:
+  - 'Problem (operator-raised 2026-09-18): solar_class is a solar-production FORECAST that applies to
+    daytime, but two EC constraint branches evaluate in the dark and consume it: (1) coast via
+    mid_peak + solar_class in {poor,very_poor} (energy.py:7419-7426) — at night solar is trivially
+    very_poor, so this could coast for a bogus reason if it ever evaluates in the evening; (2) off-peak
+    pre_cool (energy.py:7427-7434) which fired live at 21:00 CDT (dark) with reason "off-peak pre-cool
+    (low SOC, good/excellent solar)". If pre_cool consumes TOMORROW''s forecast (pre-cool tonight so
+    tomorrow coasts on solar) it is correct+intended; if it reads a STALE realized-today value it is a
+    bug. Solution/next: TRACE the producer of solar_class as consumed at each site — is it forward
+    (tomorrow) or realized (today)? and is the mid_peak branch reachable in the evening?'
+  why: 'Surfaced while auditing D5 fire-frequency (D5 itself is peak-TOU-driven, solar-independent, RESOLVED).
+    This is upstream EC-logic correctness, separate from the shipped D5 cycle. A night decision on a daytime
+    forecast is a classic seam. Producer-check mandatory (which derivation, is the dependency healthy at the
+    time it is read).'
+  next: 'TRACE solar_class producer + the day it targets at energy.py:7419-7434 consumers; confirm pre_cool
+    uses tomorrow-forecast and the mid_peak-poor-solar coast cannot fire on a nighttime solar value. Measure-
+    first (read the code + a few live/recorder samples of solar_class vs actual). Tier 2 if a fix is needed.'
+  parsimony: {problem: 'daytime solar forecast possibly consumed by night EC decisions', verdict: BUILD, note: 'read-only trace first; cheap, decisive'}
+  links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 fire-frequency audit 2026-09-18; operator: solar_class is a daytime forecast'}
 - id: HVAC-EQUIPMENT-HEALTH-OBSERVABILITY-1
   DOC_2026_09_17: 'Possibilities written up in priority order (P1 health-anomaly -> SC/anomaly->NM;
     P2 reset-vs-nudge -> maybe kill resets; P3 closed-loop energy attribution+tuning; P4 re-ground D5 on
