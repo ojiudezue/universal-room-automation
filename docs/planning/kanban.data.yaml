@@ -10954,6 +10954,19 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  ROUND4_DECISIONS_2026_09_17: 'Operator: (1) ROUND-4, keep night IN SCOPE (one combined cycle, NOT
+    decouple); (2) backstop breadth = RESET-ONLY. Round-4 fix-up dispatched w/ the full must-fix set:
+    F3/D-HIGH-1 shared _zone_conditioning_retreat_ok(zone) across row-1/D7/D9 (D9 must honor the
+    backstop at the SETPOINT layer, not just preset); F2/D-HIGH-2 S8/S9 restore sites update
+    _last_emitted_range OR compose-away bypasses the throttle; F1 scope is_zone_hvac_established to
+    rooms with a LIVE entry (not all zone.rooms) so a disabled room cant wedge fail-open forever;
+    F4 row-10 establishment guard; F5 wire CONF_HVAC_VACANCY_HOLD[_NIGHT] to a config surface or drop
+    to constants; real BEHAVIORAL anchors for D9/row-1/hallway (kill the source-greps). BACKSTOP =
+    RESET-ONLY: fires ONLY while zone unestablished (post-reload gap); once established, occupancy
+    alone decides -> empty zone retreats even w/ a resident home elsewhere (kills the over-preservation;
+    still closes the reload cold-retreat). Genuine-degradation-while-established is covered by mmWave
+    hold + the parked HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1, NOT the backstop. Then 4-framing
+    re-review -> operator pre-deploy checkpoint.'
   REREVIEW_TESTAUTH_FAILED_2026_09_17: 'Re-review #2 (test-authority) DIED on a login-expiry API error
     (not a finding). Not re-run: both #1 (F-LOW) and #3 (D-LOW-1) independently found the same thing —
     round-2 anchors are STILL source-greps; no behavioral test asserts D9 honors the backstop or the
@@ -11642,7 +11655,7 @@ cards:
   title: HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC
     its own dwell-vs-transit derivation instead of tuning a knob that cannot win
   thread: hvac
-  status: review
+  status: in_progress
   created: '2026-09-15'
   updated: '2026-09-15'
   refinement_status: initial

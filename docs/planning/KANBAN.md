@@ -13,8 +13,8 @@ _Generated: 2026-09-17T18:48:01-05:00_ - _Data commit: `fb5370e38fc2`_ - _last_r
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 10 |
-| 🔨 In progress | 0 |
-| 🔍 Review | 1 |
+| 🔨 In progress | 1 |
+| 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 27 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 28 |
@@ -376,16 +376,11 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
-
-## 🔍 Review (1)
-_under review_
-
 ### `HVAC-ZONE-CONDITIONING-DEMAND-1` - HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC its own dwell-vs-transit derivation instead of tuning a knob that cannot win — _#1 · WSJF 1.8 · v5 tc3 u6 /e8 ⚠_
-thread: **hvac** - status: **review** - approval: **explicit**
+thread: **hvac** - status: **in_progress** - approval: **explicit**
 _created 2026-09-15 · initial_
 - **Problem / Solution:**
   - Problem: the signal HVAC uses to decide whether a zone is occupied was designed for a different job — switching lights on and off. That job needs a generous hold so a light never blinks off on someone standing still, so the room layer ke...
@@ -395,7 +390,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (44):**
+- **Forensic keys (45):**
+  - `ROUND4_DECISIONS_2026_09_17`: Operator: (1) ROUND-4, keep night IN SCOPE (one combined cycle, NOT decouple); (2) backstop breadth = RESET-ONLY. Round-4 fix-up dispatched w/ the full must-fix set: F3/D-HIGH-1 shared _zone_conditioning_retreat_ok(zone) across row-1/D7/...
   - `REREVIEW_TESTAUTH_FAILED_2026_09_17`: Re-review #2 (test-authority) DIED on a login-expiry API error (not a finding). Not re-run: both #1 (F-LOW) and #3 (D-LOW-1) independently found the same thing — round-2 anchors are STILL source-greps; no behavioral test asserts D9 honor...
   - `REREVIEW_ADVERSARIAL_2026_09_17`: Re-review #3 (adversarial) = FIX-REQUIRED, CONVERGES with correctness. D-HIGH-1 == F3: D9 compose-away has NO backstop -> setpoint-composes away over the preset row-1/D7 preserved (clean reload repro); fix = ONE shared _zone_conditioning...
   - `REREVIEW_CORRECTNESS_2026_09_17`: Re-review #1 (correctness+integration of round-2 changes) = FIX-REQUIRED, 2 HIGH + 3 MED. The fail-open/compose rework introduced new gaps: F1 (HIGH) is_zone_hvac_established requires ALL rooms in _hvac_seen but _hvac_seen populates only...
@@ -440,6 +436,11 @@ _created 2026-09-15 · initial_
   - `THE_BINDING_CONSTRAINT`: NAMED HERE FOR THE FIRST TIME, and it reframes the whole problem: the 5-minute decision tick is a HARD FLOOR on "react quickly to someone being there if its hot". Even at dwell=0 the worst-case latency to act is a full tick. The founding...
   - `DESIGN_2026_09_15`: Five parts, ordered by blast radius. (1) HVAC-OWNED DERIVATION — add a zone-level "conditioning demand" signal; HVAC consumes it INSTEAD of any_room_occupied. Room automation keeps reading the existing signal untouched, so lights carry n...
   - `DUMMY_PERSON_REJECTED_2026_09_15`: OPERATOR ASKED: "Zone 3 has no zone persons because its a guest wing. Should we stub a dummy?" RECOMMENDATION: NO. The three gates (night-trust away-suppression hvac.py:1788-1795, sleep veto aggregation.py:4017-4019, non-sleep person-hom...
+
+## 🔍 Review (0)
+_under review_
+
+_(none)_
 
 ## ⏸️ Waiting on operator (27)
 _needs a human call — groomed first_
