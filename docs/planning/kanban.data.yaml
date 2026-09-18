@@ -840,7 +840,7 @@ cards:
     export, not soc<50. Trace: (1) is solar_class tomorrow-forecast (likely Solcast) vs stale-today; (2)
     does an excess-solar (daytime PV-surplus) pre-cool path exist separately or is it conflated with this
     off-peak-grid path; (3) at SOC 10% overnight, is spending off-peak grid to pre-cool net-positive?'
-  status: in_progress
+  status: review
   thread: energy
   created: '2026-09-18'
   updated: '2026-09-18'

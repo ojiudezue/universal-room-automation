@@ -212,14 +212,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-09-18T03:02:57-05:00</b></span>
-<span>data <b>f1aca32687d0</b></span>
+<span>generated <b>2026-09-18T03:09:04-05:00</b></span>
+<span>data <b>b987509c8707</b></span>
 <span>reconciled <b>2026-09-18</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">5<span class="den"> / 148</span></span>
+<span class="metric">4<span class="den"> / 148</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
 <details open><summary>recent autonomous work — 46 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
@@ -512,8 +512,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <span>Investigating <b>2</b></span>
 <span>Pre-planning <b>12</b></span>
 <span>Planned <b>13</b></span>
-<span>In progress <b>1</b></span>
-<span>Review <b>0</b></span>
+<span>In progress <b>0</b></span>
+<span>Review <b>1</b></span>
 <span>Waiting on operator <b>25</b></span>
 <span>Waiting on me (Claude) <b>0</b></span>
 <span>Shipped (organic open) <b>33</b></span>
@@ -571,14 +571,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="in_progress">
-<h2>In progress <span class="count">1</span><span class="hint">being built</span></h2>
+<h2>In progress <span class="count">0</span><span class="hint">being built</span></h2>
+<div class="none">(none)</div>
+</section>
+<section class="lane" data-col="review">
+<h2>Review <span class="count">1</span><span class="hint">under review</span></h2>
 <div class="cards">
 <details class="card" data-id="EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1" draggable="true"><summary><span class="id">EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">pre_cool fires at LOW SOC on off-peak grid (not excess solar) gated on a forecast — verify EC pre_cool/coast solar_class semantics &amp; intent</span><div class="tagline">energy<span class="sep">·</span>energy<span class="sep">·</span>coast<span class="sep">·</span>precool<span class="sep">·</span>solar<span class="sep">·</span>measure-first<span class="sep">·</span>+1</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-18</div><dt>Problem / Solution</dt><dd>Problem (operator-raised 2026-09-18): solar_class is a solar-production FORECAST that applies to daytime, but two EC constraint branches evaluate in the dark and consume it: (1) coast via mid_peak + solar_class in {poor,very_poor} (energ...</dd><dt>Why</dt><dd>Surfaced while auditing D5 fire-frequency (D5 itself is peak-TOU-driven, solar-independent, RESOLVED). This is upstream EC-logic correctness, separate from the shipped D5 cycle. A night decision on a daytime forecast is a classic seam. P...</dd><dt>Next</dt><dd>TRACE solar_class producer + the day it targets at energy.py:7419-7434 consumers; confirm pre_cool uses tomorrow-forecast and the mid_peak-poor-solar coast cannot fire on a nighttime solar value. Measure- first (read the code + a few liv...</dd><dt>Parsimony</dt><dd>[BUILD] daytime solar forecast possibly consumed by night EC decisions</dd><dt>Forensic (11)</dt><dd><ul class="forensic"><li><code>BUILD_2026_09_18</code>: Combined cycle DISPATCHED (feature/ec-precool-vacancy-ui, a49ec0bda). D1 = delete the EC pre_cool vestige (energy.py:7427-7434). D2 (operator fold-in) = make the room vacancy-hold day/night config fields assistive: suggest the ROOM_TYPE_...</li><li><code>POST_DELETE_OBSERVABILITY_2026_09_18</code>: Confirmed energy.py:7432 is the SOLE emitter of EC mode pre_cool; Path A NEVER sets the EC mode (only reads constraint.mode, all normal-gated; sets its own _pre_cool_active). CONSEQUENCE of deleting Path B: sensor.ura_energy_coordinator_...</li><li><code>IMPACT_ON_D5_CYCLE_2026_09_18</code>: Operator asked if this vestige affects the just-shipped v5.103.9 D5 reframe. ANSWER: NO material effect - disjoint. (1) Modes: D5 fires only coast/shed; Path B is pre_cool, which is BELOW coast in the EC priority chain (shed&gt;coast&gt;pre_co...</li><li><code>DISPOSITION_2026_09_18</code>: Operator AGREED: delete Path B. Overlap analysis: Path A window = 10am-2pm (ENERGY_PRECOOL_HOUR_START=10, PEAK_HOUR_START=14, self-clears at 2pm). Path B fires EVENING (observed 21:00; midday=normal) because its soc&lt;50 gate is only met A...</li><li><code>SAFE_TO_DELETE_CONFIRMED_2026_09_18</code>: Pre-delete safety greps CLEAN. (a) fan/cover controllers do NOT branch on pre_cool mode. (b) the ONLY functional readers of a non-normal mode are two predictor gates - hvac_predict.py:719 (Path A suppression) + :335 (_update_pre_cool_lik...</li><li><code>FIX_2026_09_18</code>: Vibememo has NO entry retaining the EC pre_cool branch through the v5.7.1 rewrite -&gt; forgotten, not deliberately kept (supersession-cleanup miss confirmed by absence). Consumer grep: mode==pre_cool is SET only at energy.py:7432 (producer...</li><li><code>CODE_HISTORY_2026_09_18</code>: git blame = the real story. (1) BORN phase-blind: EC pre_cool branch (energy.py:7427 off_peak+soc&lt;50+solar) is v3.7.0/v3.9.0 (007d0a2b9 2026-03-06, 00827c5d67 2026-03-07) - never phase-aware, not a regression. (2) PHASE FIX SKIPPED IT: b...</li><li><code>ROOTCAUSE_2026_09_18</code>: Operator diagnosis CONFIRMED: off-peak occurs TWICE/day (morning BEFORE peak = the intended banking window; night AFTER peak = the 9pm bug), and mid_peak-before != mid_peak-after. URA HAS the peak-PHASE machinery: summer_peak_ahead / sum...</li><li><code>TRACE_2026_09_18</code>: Ran down the second pre-cool path (operator ask). THERE ARE TWO, and they are different. PATH A (the REAL actuator) = hvac_predict.py:_should_energy_precool:686 (v5.7.1, comment &quot;replaces the v3.17.0 weather-pre-cool + solar-banking bran...</li><li><code>DIVERGENCE_CONFIRMED_2026_09_18</code>: Operator read-the-plan request -&gt; CONFIRMED design-vs-shipped divergence. DESIGN (ENERGY_COORDINATOR_DESIGN_v2.2:176 + :461-464): pre-cool is a 2-4PM AFTERNOON behavior (-3F) before the 4-8pm coast, to bank coolness during the day so the...</li><li><code>SHARPENED_2026_09_18</code>: Operator: pre_cool should happen with EXCESS SOLAR, no way at 9pm. LIVE FINDING: sensor.ura_energy_coordinator_hvac_constraint fired mode=pre_cool at 21:00 CDT (REAL local time - ha_ get_history localizes, -05:00 offset; NOT a UTC artifa...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
 </div>
-</section>
-<section class="lane" data-col="review">
-<h2>Review <span class="count">0</span><span class="hint">under review</span></h2>
-<div class="none">(none)</div>
 </section>
 <section class="lane" data-col="waiting_operator">
 <h2>Waiting on operator <span class="count">25</span><span class="hint">needs a human call — groomed first</span></h2>
@@ -918,7 +918,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>f1aca32687d0</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>b987509c8707</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
