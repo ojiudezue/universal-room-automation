@@ -299,6 +299,13 @@ meta:
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
 - id: HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1
+  BUILD_DONE_2026_09_17: 'Build @9be22f498 (worktree hvac-knobs-obs). All D1-D8 per revised plan;
+    D9 dropped. 9/9 new tests; 5 mutation drills RED-then-GREEN (resolver override, clamp, blank->None,
+    reasons frozenset, chokepoint capture). Builder name-diff 308=308; one bathroom-exhaust AST-exec
+    test needed a mock-globals proxy for the new CONF (fixture update, proven pre-existing via revert-
+    in-suite). Plan-vs-code note: real class names HVACModeSensor / HVACZonePresetSensor (plan said
+    HVACCoordinatorModeSensor) — built against real names, benign. -> 2 framing-disjoint reviews
+    (A correctness+restart-safety, B config-schema+Bug#53 re-grep), then orchestrator name-diff, ship v5.103.8.'
   PLAN_REVISED_READY_2026_09_17: 'Revision addresses all 6 blocking + 4 advisory; orchestrator-validated
     additive Tier-2. D1/D2 room climate step (config_flow.py:11419); D6 chokepoint hook (all 11 sites);
     D3 registry migration for 43 existing; D7 collapsed to since/duration_s attrs on existing 10-Mode
@@ -325,7 +332,7 @@ cards:
     CLEARED: single resolver _effective_hvac_hold_seconds (hvac_zones.py:837), no half-wired F5 remnants,
     D4 re-derived-safe, non-goals explicit. OVER-COMPLICATION: drop D9 + collapse D7 = removes ~all real
     risk -> additive Tier-2 (D1/D2 room step + D3+migration + D4 + D5/D6 chokepoint). Revising.'
-  status: in_progress
+  status: review
   thread: hvac
   created: '2026-09-17'
   updated: '2026-09-17'

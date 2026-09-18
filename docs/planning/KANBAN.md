@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T20:45:37-05:00_ - _Data commit: `95be1e18e7a4`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T20:49:58-05:00_ - _Data commit: `b0a01f93c86b`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-09-17T20:45:37-05:00_ - _Data commit: `95be1e18e7a4`_ - _last_r
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 15 |
-| 🔨 In progress | 1 |
-| 🔍 Review | 0 |
+| 🔨 In progress | 0 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 27 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 29 |
@@ -465,11 +465,16 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
+_(none)_
+
+## 🔍 Review (1)
+_under review_
+
 ### `HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1` - v5.103.7 shipped the conditioning-demand debounce with NO operator control (hold is module-constant only) + incomplete observability (D2 entity disabled-by-default, no `established` attr) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **in_progress**
+thread: **hvac** - status: **review**
 _created 2026-09-17_
 - **Problem / Solution:**
   - Problem (CONTROL): the per-room HVAC hold that debounces retreat (ROOM_TYPE_HVAC_HOLD/_NIGHT, const.py:1203/1214) is a MODULE CONSTANT — no config-flow field, no Number entity. The settable per-room override (CONF_HVAC_VACANCY_HOLD) was ...
@@ -477,14 +482,10 @@ _created 2026-09-17_
 - **Next:** Decide the hold knob rung (config field for structure vs Number for live-tune) + wire it; flip D2 enabled-default or document; add `established` attr to D2. Tier 1-2 additive. Also: the D5 entry-dwell field is now a TOMBSTONE (default->0...
 - **Tags:** hvac, numbers-get-knobs, observability, post-ship-gap
 - **Parsimony:** [BUILD] debounce hold has no operator knob + observability entity hidden/incomplete
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `BUILD_DONE_2026_09_17`: Build @9be22f498 (worktree hvac-knobs-obs). All D1-D8 per revised plan; D9 dropped. 9/9 new tests; 5 mutation drills RED-then-GREEN (resolver override, clamp, blank->None, reasons frozenset, chokepoint capture). Builder name-diff 308=308...
   - `PLAN_REVISED_READY_2026_09_17`: Revision addresses all 6 blocking + 4 advisory; orchestrator-validated additive Tier-2. D1/D2 room climate step (config_flow.py:11419); D6 chokepoint hook (all 11 sites); D3 registry migration for 43 existing; D7 collapsed to since/durat...
   - `PLAN_REVIEW_2026_09_17`: Plan review = FIX-REQUIRED-IN-PLAN, 6 blocking. Caught pre-build: P1(CRIT) D1/D2 config step points at CM house-wide step (config_flow.py:5836/:5885) NOT the per-room step (:3412/climate) -> knob would be house-wide, per-room resolver co...
-
-## 🔍 Review (0)
-_under review_
-
-_(none)_
 
 ## ⏸️ Waiting on operator (27)
 _needs a human call — groomed first_
