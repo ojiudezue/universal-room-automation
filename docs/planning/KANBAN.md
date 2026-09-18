@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T01:57:25-05:00_ - _Data commit: `41d83e696fb5`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T01:59:05-05:00_ - _Data commit: `dc7f7346179d`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -13,7 +13,7 @@ _Generated: 2026-09-18T01:57:25-05:00_ - _Data commit: `41d83e696fb5`_ - _last_r
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 14 |
-| 🔨 In progress | 0 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 27 |
 | ⏳ Waiting on me (Claude) | 0 |
@@ -485,10 +485,18 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
+### `HVAC-KNOB-LABEL-PASS-1` - Relabel truncating/jargon HVAC knob display names (D5 duty + comfort-delay + egress) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **hvac** - status: **in_progress**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem: newer HVAC knobs skipped the NN-dot naming convention and carry jargon that truncates in the slider list (D5 Duty-Cycle Coa..., Comfort-Delay SO..., Egress Pause Thr...). Solution: rename DISPLAY names only (unique_id/entity_id ...
+- **Why:** Operator flagged the labels (screenshot). Cosmetic, reversible, Tier 1. D5 wording locked via AskUserQuestion; comfort-delay/egress worded from verified semantics (comfort GRACE soc-floor+duration; egress = pause-HVAC-on-exit wait + resu...
+- **Next:** BUILT on feature/hvac-label-pass (dispatched). Review (Tier 1) -> deploy. Renames: d5_duty_cycle_ coast/shed/window/enable -> AC Runtime Cap Coast/Shed/Window/Enable; comfort_delay_soc_floor/grace -> Comfort Grace Battery Floor/Duration;...
+- **Tags:** hvac, labels, ux, tier-1
+- **Parsimony:** [BUILD] jargon labels truncate in UI
 
 ## 🔍 Review (0)
 _under review_

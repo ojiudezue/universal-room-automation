@@ -606,6 +606,26 @@ cards:
   next: 'Decide knob rung + add a D5 enable/kill switch; fold into HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 if built together.'
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
+- id: HVAC-KNOB-LABEL-PASS-1
+  status: in_progress
+  thread: hvac
+  created: '2026-09-18'
+  updated: '2026-09-18'
+  tags: [hvac, labels, ux, tier-1]
+  title: Relabel truncating/jargon HVAC knob display names (D5 duty + comfort-delay + egress)
+  problem_solution:
+  - 'Problem: newer HVAC knobs skipped the NN-dot naming convention and carry jargon that truncates in the
+    slider list (D5 Duty-Cycle Coa..., Comfort-Delay SO..., Egress Pause Thr...). Solution: rename DISPLAY
+    names only (unique_id/entity_id preserved) to clear, non-truncating, function-first labels. Operator
+    approved the AC Runtime Cap style for the D5 four; others worded to match.'
+  why: 'Operator flagged the labels (screenshot). Cosmetic, reversible, Tier 1. D5 wording locked via
+    AskUserQuestion; comfort-delay/egress worded from verified semantics (comfort GRACE soc-floor+duration;
+    egress = pause-HVAC-on-exit wait + resume delay).'
+  next: 'BUILT on feature/hvac-label-pass (dispatched). Review (Tier 1) -> deploy. Renames: d5_duty_cycle_
+    coast/shed/window/enable -> AC Runtime Cap Coast/Shed/Window/Enable; comfort_delay_soc_floor/grace ->
+    Comfort Grace Battery Floor/Duration; egress_pause_threshold/resume_delay -> Exit Pause Wait/Resume Delay.'
+  parsimony: {problem: 'jargon labels truncate in UI', verdict: BUILD, note: 'cosmetic, reversible, low-risk'}
+  links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'operator screenshot 2026-09-18'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
   POST_DELETE_OBSERVABILITY_2026_09_18: 'Confirmed energy.py:7432 is the SOLE emitter of EC mode
     pre_cool; Path A NEVER sets the EC mode (only reads constraint.mode, all normal-gated; sets its own
