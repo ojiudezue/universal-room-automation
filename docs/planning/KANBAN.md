@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T16:06:58-05:00_ - _Data commit: `c74bd9335be5`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T16:14:07-05:00_ - _Data commit: `a6faad1cac0f`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-09-18T16:06:58-05:00_ - _Data commit: `c74bd9335be5`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🔬 Investigating | 2 |
+| 🔬 Investigating | 3 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 13 |
 | 🔨 In progress | 0 |
@@ -35,10 +35,20 @@ _created 2026-09-18_
 - **Tags:** hvac, precool, tou, seasonal, phase-aware
 - **Parsimony:** [BUILD] summer-hardcoded pre-cool window, phase-blind to shoulder/winter
 
-## 🔬 Investigating (2)
+## 🔬 Investigating (3)
 _measuring; truth not yet known_
 
-### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `STUCK-MOTION-FROZEN-ON-BLINDSPOT-1` - Stuck-sensor defense is blind to a MOTION/PIR sensor frozen ON (offline holding last state) — trusted anchor + unavailable-only staleness let a phantom hold the house occupied — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **investigating**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem (live incident 2026-09-18): binary_sensor.upstairs_hall_motion_3 went OFFLINE holding state=on at 16:27 (last_updated frozen, no heartbeat since) -> upstairs_hall_all_occupancy stuck on -> house_state stuck home_day with ALL pers...
+- **Why:** Real live incident: a single stuck PIR held the whole house occupied + a zone home while empty. The defense assumed PIR is trustworthy (clears fast) and that a dead sensor goes unavailable - both false for a Zigbee dropout holding on. Pr...
+- **Next:** TRACE the occupancy aggregation freshness handling (does any input get a last_updated-age check?); design a per-kind expected-report-interval staleness gate applied to ALL occupancy inputs incl motion; decide demote-vs-drop; wire to the ...
+- **Tags:** presence, occupancy, stuck-sensor, staleness, bug-class-7, incident
+- **Parsimony:** [BUILD] stuck PIR frozen-on holds house occupied; every defense layer misses it
+
+### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 > **⚡ OPERATOR: investigate — pending apply** (at 2026-09-18T19:24:05.731Z)
 thread: **energy** - status: **investigating** - approval: **explicit**
 _created 2026-09-10 00:50 · updated 2026-09-18 02:15 · initial_
@@ -67,7 +77,7 @@ _created 2026-09-10 00:50 · updated 2026-09-18 02:15 · initial_
   - `next_2026_09_10`: Review the debug log after the next CM reload (see capture_enabled). Name the trigger, then fix at source.
   - `allowlist_note_2026_09_10`: INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py:6664) currently covers ONLY census/perimeter/face keys -- no energy/hvac coordinator keys. So whatever CM key is being written nightly is guaranteed to reload.
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#3 · WSJF 1.5 · v9 tc8 u2 /e13_
 > **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:23:53.217Z)
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_

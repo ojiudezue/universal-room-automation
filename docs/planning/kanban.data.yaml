@@ -812,6 +812,38 @@ cards:
     force-dispatch current constraint on HVAC subscribe, OR HVAC pulls the EC constraint at setup. Tier 2.'
   parsimony: {problem: 'restart-day pre-cool disabled until first mode change', verdict: BUILD, note: 'trace signal delivery first; measure self-heal'}
   links: {related: [HVAC-PRECOOL-SKIP-REASON-OBS-1, EC-GRID-ANTICIPATORY-PRECOOL-GAP-1], context: 'surfaced by pre_cool_skip_reason obs v5.103.12 on first boot'}
+- id: STUCK-MOTION-FROZEN-ON-BLINDSPOT-1
+  status: investigating
+  thread: presence
+  created: '2026-09-18'
+  updated: '2026-09-18'
+  tags: [presence, occupancy, stuck-sensor, staleness, bug-class-7, incident]
+  title: Stuck-sensor defense is blind to a MOTION/PIR sensor frozen ON (offline holding last state) — trusted anchor + unavailable-only staleness let a phantom hold the house occupied
+  problem_solution:
+  - 'Problem (live incident 2026-09-18): binary_sensor.upstairs_hall_motion_3 went OFFLINE holding state=on
+    at 16:27 (last_updated frozen, no heartbeat since) -> upstairs_hall_all_occupancy stuck on -> house_state
+    stuck home_day with ALL persons not_home -> zone_2 held home while the family was out. The stuck-sensor
+    defense (_detect_duty_cycle_stuck, coordinator.py:1702) did NOT catch it, for THREE reasons: (1) MOTION
+    sensors are explicitly exempt (lines 1719-1722: PIR is the trusted corroboration anchor, never scored) -
+    the defense targets stuck mmWave, not stuck PIR; (2) the stuck-classification requires no-motion-in-window
+    (line 1716), so a stuck PIR VOUCHES for phantom occupancy and defeats corroboration; (3) the staleness/
+    unavailable guard keys on state in (unavailable,unknown) (coordinator.py:767/2733/2748) - this sensor reads
+    on (Zigbee kept last state), so #7 staleness never fires; nothing checks "claims on but last_updated is
+    stale". And the duty-cycle detector is NOTIFY-ONLY anyway (_dutycycle_notify) - it warns, does not demote.
+    Solution: add a FRESHNESS/heartbeat check that treats ANY occupancy input (incl. motion) claiming on with
+    last_updated older than an expected-report-interval (per kind) as STALE -> drop from occupancy / demote
+    from corroboration. Extends Bug Class #7 to the frozen-on case; closes the trusted-PIR-goes-stuck blind spot.'
+  why: 'Real live incident: a single stuck PIR held the whole house occupied + a zone home while empty. The
+    defense assumed PIR is trustworthy (clears fast) and that a dead sensor goes unavailable - both false for a
+    Zigbee dropout holding on. Presence-layer gap, NOT a v5.103.x HVAC regression (verified: house_state chain
+    honored the stuck sensor correctly).'
+  next: 'TRACE the occupancy aggregation freshness handling (does any input get a last_updated-age check?);
+    design a per-kind expected-report-interval staleness gate applied to ALL occupancy inputs incl motion;
+    decide demote-vs-drop; wire to the stuck-signal NM. Tier 2 (presence trust, regression-prone). Also carry
+    the secondary observation: zone_2 did NOT get the vacancy-override zones 1 & 3 got despite no person -
+    check whether away-while-occupied trust should cover motion-only occupancy with all persons away.'
+  parsimony: {problem: 'stuck PIR frozen-on holds house occupied; every defense layer misses it', verdict: BUILD, note: 'real incident; freshness gate is the fix'}
+  links: {related: [HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1], context: 'live stuck-sensor incident 2026-09-18; NOT a today-deploy regression'}
 - id: HVAC-PRECOOL-WINDOW-TOU-DERIVED-1
   status: inbox
   thread: hvac
