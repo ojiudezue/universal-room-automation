@@ -299,6 +299,22 @@ meta:
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
 - id: HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1
+  REVIEW_B_2026_09_17: 'Framing B (schema+Bug53) = FIX-REQUIRED, 2 HIGH + 2 MED. B1(HIGH, No-Fab):
+    HVAC_PRESET_REASONS is partly FABRICATED — contains excursion_return/timeout/settled (NOWHERE in
+    repo) + MISSES the real dynamic reasons the excursion path passes: lease_expiry (hvac_excursion.py:
+    750) + stale_boot_release (:1190); const comment invents ExcursionTokenKind (enum is EXCURSION_KIND,
+    trigger is independent). So retreat_reason can show lease_expiry (value outside declared set).
+    B2(HIGH, hollow #62): the completeness test regex stops at first ) -> misses egress_resume
+    (hvac_egress.py:803) + severe_override_revert (hvac_override.py:3555, nested paren) + all dynamic
+    reasons -> the test guarding the vocab CANT see B1. Fix: AST extraction + enumerate dynamic sources;
+    prove by mutation (new reason= at those sites must RED). B3(MED): hvac_hold_night_below_day error
+    key absent from strings/translations -> raw slug (+ sibling presence_runtime_cap_above_max also
+    missing). B4(MED): override cannot be CLEARED to default via UI (merge preserves old + schema
+    prefills current) -> "blank=room-type default" documented but unreachable once set; fix = pop key
+    on empty submit / no prefilled default. B5(LOW): D8 comment inverts setter/consumer line roles
+    (doc-only). CLEARED: room-step placement, strings/translations PARITY (for the fields), write==read,
+    Bug#53 single-resolver (2 readers both via _effective_hvac_hold_seconds), F5 cleanup, D7 no-dup-
+    sensor, S1 ladder reasons complete. HOLDING for review A -> consolidated fix-up.'
   BUILD_DONE_2026_09_17: 'Build @9be22f498 (worktree hvac-knobs-obs). All D1-D8 per revised plan;
     D9 dropped. 9/9 new tests; 5 mutation drills RED-then-GREEN (resolver override, clamp, blank->None,
     reasons frozenset, chokepoint capture). Builder name-diff 308=308; one bathroom-exhaust AST-exec
