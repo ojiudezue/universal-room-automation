@@ -50,3 +50,7 @@
 {"action": "approve", "at": "2026-09-18T19:24:21.185Z", "card_id": "HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1"}
 {"action": "approve", "at": "2026-09-18T19:24:41.847Z", "card_id": "HVAC-PRECOOL-WINDOW-TOU-DERIVED-1"}
 {"action": "approve", "at": "2026-09-18T19:24:51.164Z", "card_id": "DEPLOY-SH-REJECT-FLAG-AS-VERSION-1"}
+{"action": "approve", "at": "2026-09-18T19:25:30.065Z", "card_id": "CENSUS-ACCURACY-1"}
+{"action": "approve", "at": "2026-09-18T19:25:38.430Z", "card_id": "TEST-LEAK-DETECTOR-WRONG-LOOP-1"}
+{"action": "approve", "at": "2026-09-18T19:26:04.651Z", "card_id": "OC-STUCK-SENSOR-GENERALIZE-1"}
+{"action": "approve", "at": "2026-09-18T19:26:12.813Z", "card_id": "HVAC-THERMOSTAT-ABSTRACTION-1"}
