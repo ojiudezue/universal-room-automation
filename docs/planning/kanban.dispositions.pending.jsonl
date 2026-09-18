@@ -1,3 +1,8 @@
 {"action": "ack", "at": "2026-09-18T19:07:20.391Z", "card_id": "HVAC-D5-SLEEP-EXIT-RESET-1@2026-09-18T02:45:00"}
 {"action": "ack", "at": "2026-09-18T19:07:30.359Z", "card_id": "HVAC-D5-WINDOW-START-RESTORE-1@2026-09-18T02:35:00"}
 {"action": "ack", "at": "2026-09-18T19:09:35.557Z", "card_id": "URA-CONFIG-ENTRY-RELOAD-STORM-1@2026-09-18T02:20:00"}
+{"action": "ack", "at": "2026-09-18T19:10:10.157Z", "card_id": "OVERNIGHT-PASS-NO-LOG-REACH-1@2026-09-18T02:15:00"}
+{"action": "ack", "at": "2026-09-18T19:11:38.120Z", "card_id": "HVAC-ZONE1-MANUAL-OSCILLATION-1@2026-09-17T02:40:00"}
+{"action": "ack", "at": "2026-09-18T19:11:41.419Z", "card_id": "OVERNIGHT-PASS-NO-LOG-REACH-1@2026-09-17T02:20:00"}
+{"action": "ack", "at": "2026-09-18T19:11:52.524Z", "card_id": "PERIMETER-DETECTION-WENT-DARK-1@2026-09-17T02:15:00"}
+{"action": "ack", "at": "2026-09-18T19:12:37.890Z", "card_id": "TEST-SUITE-ORDER-INDEP-PRODSTUBS-1@2026-09-16T04:20:00"}
