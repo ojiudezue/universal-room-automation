@@ -549,7 +549,11 @@ cards:
     v5.103.8; close this on that ship.'
 
 - id: DEPLOY-SH-REJECT-FLAG-AS-VERSION-1
-  status: inbox
+  DONE_2026_09_18: 'Guard added at scripts/deploy.sh:17-30 — after stripping leading v, VERSION must
+    match ^[0-9]+.[0-9]+.[0-9]+([.-]...)?$ else exit 2 with the correct positionals-first usage. Verified:
+    rejects --cards/--why as $1, accepts 5.103.13 / v5.103.13 / 5.90.0 / 5.103.9.1; bash -n clean. Prevents
+    the v--cards botch recurrence. Tooling change (no release/restart).'
+  status: done
   thread: tooling
   created: '2026-09-18'
   updated: '2026-09-18'

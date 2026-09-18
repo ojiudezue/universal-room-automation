@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T10:17:35-05:00_ - _Data commit: `52eba8790e57`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T10:18:12-05:00_ - _Data commit: `d050e117370f`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 2 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 3 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 13 |
@@ -19,22 +19,12 @@ _Generated: 2026-09-18T10:17:35-05:00_ - _Data commit: `52eba8790e57`_ - _last_r
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 33 |
 | 🅿️ Parked | 60 |
-| ✅ Done | 180 |
+| ✅ Done | 181 |
 
-## 📥 Inbox (2)
+## 📥 Inbox (1)
 _raw capture_
 
-### `DEPLOY-SH-REJECT-FLAG-AS-VERSION-1` - deploy.sh should reject a flag as $1/VERSION (footgun shipped a "v--cards" release) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
-thread: **tooling** - status: **inbox**
-_created 2026-09-18_
-- **Problem / Solution:**
-  - Problem: deploy.sh reads VERSION=$1 positionally (deploy.sh:17); passing --cards/--why/--revisit BEFORE the version makes VERSION="--cards" -> ships a release/tag/manifest literally "v--cards" and breaks the kanban/vibememo sub-scripts (...
-- **Why:** Cheap guard against a real, already-triggered deploy footgun; deploy.sh already guards --cards values but not the positional VERSION. See memory feedback_deploy_sh_version_is_positional_one.
-- **Next:** Add a VERSION sanity check in scripts/deploy.sh after the #v strip; Tier 1 (one review).
-- **Tags:** tooling, deploy, hotfix, tier-1
-- **Parsimony:** [BUILD] deploy footgun ships corrupt version metadata
-
-### `HVAC-PRECOOL-WINDOW-TOU-DERIVED-1` - Path A pre-cool window is summer-hardcoded [10,14) — not responsive to shoulder/winter TOU peaks (same phase-blindness we just deleted) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-PRECOOL-WINDOW-TOU-DERIVED-1` - Path A pre-cool window is summer-hardcoded [10,14) — not responsive to shoulder/winter TOU peaks (same phase-blindness we just deleted) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **inbox**
 _created 2026-09-18_
 - **Problem / Solution:**
@@ -2399,7 +2389,7 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (180)
+## ✅ Done (181)
 _closed, evidence in refs_
 
 ### `HVAC-D5-SLEEP-EXIT-RESET-1` - D5 counter accumulates overnight during sleep-skip and can instant-trip on wake into coast/shed — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -2439,6 +2429,18 @@ _created 2026-09-15 03:45 · updated 2026-09-18 02:15 · initial_
   - `RESOLVED_2026_09_18`: RESOLVED AUTONOMOUSLY — no operator action is needed, and BOTH of this cards diagnoses are superseded. (1) The 2026-09-17 LAN-reachability diagnosis is MOOT: verified from the Mac mini this pass that 192.168.13.13:8123 and 192.168.13.12:...
   - `DIAGNOSED_2026_09_17`: SECOND NIGHT RUNNING, and now diagnosed rather than just observed — the ask has changed shape completely, so read this before acting on the older note below. THE ASK IS NO LONGER ABOUT A TOKEN. Last night this looked like a supervisor-pe...
   - `NARROWED_2026_09_16`: Tonight's pass both CONFIRMED this card and NARROWED it usefully, so the ask to the operator is smaller than the title implies. CONFIRMED, and worse than "no log reach": ssh to the HA host was down for the ENTIRE pass — not a permission ...
+
+### `DEPLOY-SH-REJECT-FLAG-AS-VERSION-1` - deploy.sh should reject a flag as $1/VERSION (footgun shipped a "v--cards" release) — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **tooling** - status: **done**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem: deploy.sh reads VERSION=$1 positionally (deploy.sh:17); passing --cards/--why/--revisit BEFORE the version makes VERSION="--cards" -> ships a release/tag/manifest literally "v--cards" and breaks the kanban/vibememo sub-scripts (...
+- **Why:** Cheap guard against a real, already-triggered deploy footgun; deploy.sh already guards --cards values but not the positional VERSION. See memory feedback_deploy_sh_version_is_positional_one.
+- **Next:** Add a VERSION sanity check in scripts/deploy.sh after the #v strip; Tier 1 (one review).
+- **Tags:** tooling, deploy, hotfix, tier-1
+- **Parsimony:** [BUILD] deploy footgun ships corrupt version metadata
+- **Forensic keys (1):**
+  - `DONE_2026_09_18`: Guard added at scripts/deploy.sh:17-30 — after stripping leading v, VERSION must match ^[0-9]+.[0-9]+.[0-9]+([.-]...)?$ else exit 2 with the correct positionals-first usage. Verified: rejects --cards/--why as $1, accepts 5.103.13 / v5.10...
 
 ### `HVAC-KNOB-LABEL-PASS-1` - Relabel truncating/jargon HVAC knob display names (D5 duty + comfort-delay + egress) — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **hvac** - status: **done**
