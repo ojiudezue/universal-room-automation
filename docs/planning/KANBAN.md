@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T17:29:46-05:00_ - _Data commit: `9bef8c76f89b`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T17:36:13-05:00_ - _Data commit: `94720037773a`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -12,8 +12,8 @@ _Generated: 2026-09-18T17:29:46-05:00_ - _Data commit: `9bef8c76f89b`_ - _last_r
 | 📥 Inbox | 1 |
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 14 |
-| 🔨 In progress | 0 |
+| 📝 Planned | 13 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 25 |
 | ⏳ Waiting on me (Claude) | 0 |
@@ -281,7 +281,7 @@ _created 2026-09-16 · initial_
   - `PER_ZONE_CORRECTED_2026_09_16`: OPERATOR: "If we did this, why per zone? It should be the same function, no?" CORRECT, and my sketch was wrong. Ask what per-zone STATE a handle would hold: entity_id is a PARAMETER; the vendor is DERIVED from the entity's platform (memo...
   - `DESIGN_SHAPE_2026_09_16`: Stateless, entity-parameterised, all three verbs plus vendor dispatch: read_hold(hass, entity_id)              -> named / anonymous / none set_preset(hass, entity_id, name, ...)  -> strategy decides clear-then-pin vs direct pin set_setpo...
 
-## 📝 Planned (14)
+## 📝 Planned (13)
 _has plan / acceptance_
 
 ### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#1 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
@@ -445,20 +445,7 @@ _created 2026-09-17_
 - **Forensic keys (1):**
   - `FOLD_2026_09_17`: From HVAC-EC-OFFSET-SELF-LOCKOUT-1 (refuted): verify the EC coast/shed OFFSET apply path carries a FIX-B2-style pre-write preset snapshot + set_preset_mode restore (like the nudge path), so a coast setpoint write cannot leave a zone in m...
 
-### `STUCK-MOTION-FROZEN-ON-BLINDSPOT-1` - Stuck-sensor defense is blind to a MOTION/PIR sensor frozen ON (offline holding last state) — trusted anchor + unavailable-only staleness let a phantom hold the house occupied — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **planned**
-_created 2026-09-18_
-- **Problem / Solution:**
-  - Problem (live incident 2026-09-18): binary_sensor.upstairs_hall_motion_3 went OFFLINE holding state=on at 16:27 (last_updated frozen, no heartbeat since) -> upstairs_hall_all_occupancy stuck on -> house_state stuck home_day with ALL pers...
-- **Why:** Real live incident: a single stuck PIR held the whole house occupied + a zone home while empty. The defense assumed PIR is trustworthy (clears fast) and that a dead sensor goes unavailable - both false for a Zigbee dropout holding on. Pr...
-- **Next:** TRACE the occupancy aggregation freshness handling (does any input get a last_updated-age check?); design a per-kind expected-report-interval staleness gate applied to ALL occupancy inputs incl motion; decide demote-vs-drop; wire to the ...
-- **Tags:** presence, occupancy, stuck-sensor, staleness, bug-class-7, incident
-- **Parsimony:** [BUILD] stuck PIR frozen-on holds house occupied; every defense layer misses it
-- **Forensic keys (2):**
-  - `PLAN_2026_09_18`: Measure-first FALSIFIED the naive age-gate (edge-driven sensors: legit silence- while-on p95 1.8h motion / 5h mmwave still-body; incident sensor is camera/Frigate not Zigbee). Design = corroboration-gated DEMOTE reusing SensorExclusionSe...
-  - `BUILD_APPROACH_2026_09_18`: Operator greenlit the freshness gate. Tier 2-DB (occupancy TRUST; false- negative = abandon a real occupant). Measure-first + prior-art scan dispatched (accb0d5f7, read-only): (A) existing freshness/unavailable handling + stuck detector ...
-
-### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#13 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#12 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **planned** - approval: **implied**
 _created 2026-09-16_
 - **Problem / Solution:**
@@ -468,7 +455,7 @@ _created 2026-09-16_
 - **Tags:** energy, tier-2db, bug-class-53, needs-plan-review
 - **Parsimony:** [BUILD] three ordering invariants are validated at save time + anomaly-flagged at runtime but their ~25 live decision readers still read raw, so an inverted slider flips a gate
 
-### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#14 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#13 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **implied**
 _created 2026-09-16 · initial_
 - **Problem / Solution:**
@@ -485,10 +472,23 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
+### `STUCK-MOTION-FROZEN-ON-BLINDSPOT-1` - Stuck-sensor defense is blind to a MOTION/PIR sensor frozen ON (offline holding last state) — trusted anchor + unavailable-only staleness let a phantom hold the house occupied — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **in_progress**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem (live incident 2026-09-18): binary_sensor.upstairs_hall_motion_3 went OFFLINE holding state=on at 16:27 (last_updated frozen, no heartbeat since) -> upstairs_hall_all_occupancy stuck on -> house_state stuck home_day with ALL pers...
+- **Why:** Real live incident: a single stuck PIR held the whole house occupied + a zone home while empty. The defense assumed PIR is trustworthy (clears fast) and that a dead sensor goes unavailable - both false for a Zigbee dropout holding on. Pr...
+- **Next:** TRACE the occupancy aggregation freshness handling (does any input get a last_updated-age check?); design a per-kind expected-report-interval staleness gate applied to ALL occupancy inputs incl motion; decide demote-vs-drop; wire to the ...
+- **Tags:** presence, occupancy, stuck-sensor, staleness, bug-class-7, incident
+- **Parsimony:** [BUILD] stuck PIR frozen-on holds house occupied; every defense layer misses it
+- **Forensic keys (4):**
+  - `PLAN_2026_09_18`: Measure-first FALSIFIED the naive age-gate (edge-driven sensors: legit silence- while-on p95 1.8h motion / 5h mmwave still-body; incident sensor is camera/Frigate not Zigbee). Design = corroboration-gated DEMOTE reusing SensorExclusionSe...
+  - `BUILD_APPROACH_2026_09_18`: Operator greenlit the freshness gate. Tier 2-DB (occupancy TRUST; false- negative = abandon a real occupant). Measure-first + prior-art scan dispatched (accb0d5f7, read-only): (A) existing freshness/unavailable handling + stuck detector ...
+  - `PLANREVIEW_2026_09_18`: Plan-review returned NOT-BUILD-READY (4 CRIT + 3 HIGH) — folded all. CRIT-1: a room-tier exclusion does NOT reach zone/house (substrate is exclusion-blind + frozen sensor emits no edge), so the first draft would NOT have fixed the incide...
+  - `BUILD_DISPATCH_2026_09_18`: Build dispatched (ura-builder, worktree, feature/occupancy-freshness-gate off develop). Next: 3 framing-disjoint reviews (A correctness / B trust-lifecycle both tiers / C mutation- anchored incl. CRIT-2 subject-exclude + CRIT-3 non-empty...
 
 ## 🔍 Review (0)
 _under review_

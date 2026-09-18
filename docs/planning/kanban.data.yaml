@@ -827,7 +827,19 @@ cards:
     threshold that CANNOT clip a live-but-quiet sensor (esp. mmwave holding on for a still body). Falsifiable
     invariant for the plan: a sensor reporting within its measured expected interval is NEVER dropped. Then
     plan -> plan-review -> build -> 3 framing-disjoint reviews -> mutation-verify -> ship.'
-  status: planned
+  PLANREVIEW_2026_09_18: 'Plan-review returned NOT-BUILD-READY (4 CRIT + 3 HIGH) — folded all. CRIT-1: a
+    room-tier exclusion does NOT reach zone/house (substrate is exclusion-blind + frozen sensor emits no edge),
+    so the first draft would NOT have fixed the incident -> added D2 (substrate-edge propagation; the zone-
+    release acceptance moved to D2). CRIT-2: incident subject kind=motion IS a corroborator kind -> gate could
+    never fire -> subject-exclude the subject from its own corroborator set. CRIT-3: vacuous-true (empty
+    universal + stale _effective_corroborators_last_tick) -> non-empty guard + independent recompute. CRIT-4:
+    no camera_motion kind (closed set const.py:461) -> real-kind floor table + fail-safe never-demote default.
+    HIGH: last_changed not last_updated (Frigate attr-churn); sleep-doctrine guard + kill switch;
+    _mmwave_demoted_latch false-clear. Record: docs/reviews/plan-review/. Plan now D1 room/D2 zone/D3 obs.'
+  BUILD_DISPATCH_2026_09_18: 'Build dispatched (ura-builder, worktree, feature/occupancy-freshness-gate off
+    develop). Next: 3 framing-disjoint reviews (A correctness / B trust-lifecycle both tiers / C mutation-
+    anchored incl. CRIT-2 subject-exclude + CRIT-3 non-empty) -> orchestrator mutation-verify -> ship.'
+  status: in_progress
   thread: presence
   created: '2026-09-18'
   updated: '2026-09-18'
