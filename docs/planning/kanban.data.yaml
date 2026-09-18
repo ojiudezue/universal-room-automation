@@ -734,6 +734,16 @@ cards:
   parsimony: {problem: 'no why-not-firing signal on the sole pre-cool path', verdict: BUILD, note: 'additive obs, low risk, enables the gap measurement'}
   links: {related: [EC-GRID-ANTICIPATORY-PRECOOL-GAP-1, EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1], context: 'post-Path-B-delete quick check 2026-09-18'}
 - id: HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1
+  REVIEW_A_2026_09_18: 'A (payload parity) = SHIP. All 10 EnergyConstraint fields byte-parity between
+    _build_energy_constraint and the old inline; _hvac_constraint_max_runtime stash populated before the
+    gate (ordering holds); freezing max_runtime via stash is parity-correct vs the live-recompute in the
+    hvac_constraint property. Findings: A-MED (#62 hollow) - parity+ordering tests are source-greps/exec-
+    block, not behavioral (moving the pull before subscribe still passes); fix = assert ec.current_energy_
+    constraint()==captured_dispatched (dataclass __eq__ = all 10 fields) + a real setup-driving ordering
+    test. A-LOW: builder sets solar_class=None on exception but field is str/classify returns unknown ->
+    use "unknown". A-LOW(#53): hvac_constraint property (energy.py:10131) reconstructs 9 fields NOT via the
+    builder -> route it through too (keep its live max_runtime) for true single-source. A+B CONVERGE on the
+    hollow test anchors. Hold fix-up for C.'
   REVIEW_B_2026_09_18: 'B (boot lifecycle) = FIX-REQUIRED. Ordering/guards/idempotency/restart all PASS
     (manager assigned before async_start; EC boot cycle populates constraint before HVAC pull - verified;
     payload-equivalence cross-checked, holds; coast-seed duty-reset is an IMPROVEMENT clearing stale restored
