@@ -10959,6 +10959,16 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  AWAY_CAUSE_ATTRIBUTED_2026_09_17: 'Operator asked if zone_3 away is EC coast or duty-cycle, not
+    vacancy. ATTRIBUTED from ura_activity_log preset_change reasons (zone_3, last 3d): vacant_past_grace
+    89 (84%), runtime_exceeded 13 (12%), house_state_transition 4. ZERO EC coast/shed rows. So: NOT
+    coast. DOMINANT = vacancy retreat (the corridor/occupancy flapping step-4-B targets). SECONDARY =
+    runtime_exceeded = D5 DUTY-CYCLE protection (hvac.py:1899) forcing away to rest the compressor after
+    long cooling — operator duty-cycle hypothesis CONFIRMED as a real ~12% contributor. home re-asserts
+    are all reason=house_state_transition (the producer-labeling quirk). Possible vicious cycle: flapping
+    home->cool->away->home restarts cooling -> more runtime -> runtime_exceeded forced-away -> feels
+    hot+stuck. Step-4-B addresses the vacancy 84%; whether D5 duty enforcement reads the new hvac_occupied
+    is a follow-up to check. Not a coast issue.'
   CAUSATION_PROBE_2026_09_17: 'Did any deploy step up the flapping? INCONCLUSIVE, leaning UNCHANGED
     (recorder-authoritative, transitions timed on preset_mode last_updated). The 09-16 all-zone spike
     (z1 93, z2 67, z3 93) is a DEPLOY ARTIFACT — 4 reloads that day = boot re-eval churn, NOT steady

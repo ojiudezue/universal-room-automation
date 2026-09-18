@@ -2,8 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T19:38:03-05:00_ - _Data commit: `17f1d1f0c5fc`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T19:39:49-05:00_ - _Data commit: `30e87cf3f0cf`_ - _last_reconciled: 2026-09-17_
 
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.103.7.md (2026-09-18) is newer than last_reconciled (2026-09-17)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -395,7 +401,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (49):**
+- **Forensic keys (50):**
+  - `AWAY_CAUSE_ATTRIBUTED_2026_09_17`: Operator asked if zone_3 away is EC coast or duty-cycle, not vacancy. ATTRIBUTED from ura_activity_log preset_change reasons (zone_3, last 3d): vacant_past_grace 89 (84%), runtime_exceeded 13 (12%), house_state_transition 4. ZERO EC coas...
   - `CAUSATION_PROBE_2026_09_17`: Did any deploy step up the flapping? INCONCLUSIVE, leaning UNCHANGED (recorder-authoritative, transitions timed on preset_mode last_updated). The 09-16 all-zone spike (z1 93, z2 67, z3 93) is a DEPLOY ARTIFACT — 4 reloads that day = boot...
   - `REREVIEW_R4_ADVERSARIAL_2026_09_17`: Round-4 re-review #2 (adversarial) = SHIP w/ a reframe. KEY: D-HIGH-1 — _async_apply_preset_overrides (D9) early-returns on guest_mode_actuation_enabled=False; LIVE switch.ura_hvac_coordinator_guest_mode_actuation = OFF -> D9 compose-awa...
   - `REREVIEW_R4_CORRECTNESS_2026_09_17`: Round-4 re-review #1 (correctness) = FIX-REQUIRED, 1 HIGH + 1 MED. NOT SHIPPING. F1 (HIGH, orchestrator-predicted): the any-room-seen establishment lets a zone with a DISABLED/setup_retry room retreat on the room it CANNOT read (unreadab...
