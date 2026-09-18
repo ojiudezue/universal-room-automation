@@ -4455,7 +4455,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_LOAD_SHEDDING_SUSTAINED_MINUTES,
             CONF_ENERGY_LOAD_SHEDDING_MODE,
             CONF_ENERGY_CONSTRAINT_COAST_OFFSET,
-            CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET,
+            # CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET retired (v5.103.11) —
+            # constant lives in const.py for stored-entry forward-compat;
+            # no options-flow field, no live consumer.
             CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET,
             CONF_ENERGY_CONSTRAINT_SHED_OFFSET,
             CONF_ENERGY_PREHEAT_TEMP_THRESHOLD,
@@ -4464,7 +4466,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             LOAD_SHEDDING_MODE_FIXED,
             LOAD_SHEDDING_MODE_AUTO,
             DEFAULT_CONSTRAINT_COAST_OFFSET,
-            DEFAULT_CONSTRAINT_PRECOOL_OFFSET,
             DEFAULT_CONSTRAINT_PREHEAT_OFFSET,
             DEFAULT_CONSTRAINT_SHED_OFFSET,
             DEFAULT_PREHEAT_TEMP_THRESHOLD,
@@ -5216,16 +5217,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),
-            vol.Optional(
-                CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET,
-                default=self._get_current(CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET, DEFAULT_CONSTRAINT_PRECOOL_OFFSET),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=-5, max=0, step=0.5,
-                    unit_of_measurement="°F",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                )
-            ),
+            # EC pre_cool retired (v5.103.11): the operator-facing HVAC
+            # Pre-Cool Offset field is REMOVED from the options flow.
+            # The CONF/DEFAULT constants live on for stored-entry
+            # forward-compat (see energy.py tombstoned read). The
+            # grid-anticipatory pre-cool design axis is parked on card
+            # EC-GRID-ANTICIPATORY-PRECOOL-GAP-1.
             vol.Optional(
                 CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET,
                 default=self._get_current(CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET, DEFAULT_CONSTRAINT_PREHEAT_OFFSET),
@@ -11708,8 +11705,18 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     # `night >= day` against the resolved effective
                     # values and logs once per (room, kind).
                     # Explicit `0` is preserved (displayed as 0 via
-                    # `description.suggested_value`), unblanked by
-                    # the pop-if-absent in the save branch above.
+                    # `description.suggested_value`); when the operator
+                    # has NOT set an explicit value the field is BLANK
+                    # (suggested_value=None) so the runtime falls through
+                    # to the room-TYPE default table. NO type-default
+                    # fallthrough is placed in `suggested_value` here:
+                    # a prefilled `suggested_value` is RETURNED in
+                    # `user_input` on submit in HA option flows, which
+                    # would silently convert "unset -> follows table"
+                    # into a pinned explicit override on any submit of
+                    # the climate step (breaks the no-overwrite
+                    # invariant). Per-type guidance lives entirely in
+                    # the `data_description` help text.
                     vol.Optional(
                         CONF_HVAC_VACANCY_HOLD,
                         description={"suggested_value": self._get_current(
@@ -11717,7 +11724,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         )},
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
-                            min=0, max=7200,
+                            min=0, max=7200, step=30,
                             unit_of_measurement="s",
                             mode=selector.NumberSelectorMode.BOX,
                         )
@@ -11729,7 +11736,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         )},
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
-                            min=0, max=7200,
+                            min=0, max=7200, step=30,
                             unit_of_measurement="s",
                             mode=selector.NumberSelectorMode.BOX,
                         )
