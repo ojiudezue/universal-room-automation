@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T08:32:48-05:00_ - _Data commit: `f9b9828f5345`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T09:04:39-05:00_ - _Data commit: `d795bad122c0`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 3 |
+| 📥 Inbox | 2 |
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 13 |
@@ -19,22 +19,12 @@ _Generated: 2026-09-18T08:32:48-05:00_ - _Data commit: `f9b9828f5345`_ - _last_r
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 33 |
 | 🅿️ Parked | 60 |
-| ✅ Done | 178 |
+| ✅ Done | 179 |
 
-## 📥 Inbox (3)
+## 📥 Inbox (2)
 _raw capture_
 
-### `HVAC-D5-KNOBS-TO-RUNG-3-1` - D5 duty-cycle window/caps are Rung-1 module constants for what is a Rung-3 operator policy; no kill switch — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
-thread: **hvac** - status: **inbox**
-_created 2026-09-17_
-- **Problem / Solution:**
-  - Problem: DUTY_CYCLE_WINDOW_SECONDS/COAST/SHED (hvac_const.py:396-399) are module constants, but the coast/shed runtime caps are legitimately operator policy (comfort-vs-savings), and there is no kill switch to disable D5. Solution: expos...
-- **Why:** D5 audit finding 3. Pairs with the reframe cycle.
-- **Next:** Decide knob rung + add a D5 enable/kill switch; fold into HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 if built together.
-- **Tags:** hvac, numbers-get-knobs, tier-1
-- **Parsimony:** [BUILD] policy numbers hardcoded, no kill switch
-
-### `DEPLOY-SH-REJECT-FLAG-AS-VERSION-1` - deploy.sh should reject a flag as $1/VERSION (footgun shipped a "v--cards" release) — _#2 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+### `DEPLOY-SH-REJECT-FLAG-AS-VERSION-1` - deploy.sh should reject a flag as $1/VERSION (footgun shipped a "v--cards" release) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **tooling** - status: **inbox**
 _created 2026-09-18_
 - **Problem / Solution:**
@@ -44,7 +34,7 @@ _created 2026-09-18_
 - **Tags:** tooling, deploy, hotfix, tier-1
 - **Parsimony:** [BUILD] deploy footgun ships corrupt version metadata
 
-### `HVAC-PRECOOL-WINDOW-TOU-DERIVED-1` - Path A pre-cool window is summer-hardcoded [10,14) — not responsive to shoulder/winter TOU peaks (same phase-blindness we just deleted) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-PRECOOL-WINDOW-TOU-DERIVED-1` - Path A pre-cool window is summer-hardcoded [10,14) — not responsive to shoulder/winter TOU peaks (same phase-blindness we just deleted) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **inbox**
 _created 2026-09-18_
 - **Problem / Solution:**
@@ -2407,7 +2397,7 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (178)
+## ✅ Done (179)
 _closed, evidence in refs_
 
 ### `HVAC-D5-SLEEP-EXIT-RESET-1` - D5 counter accumulates overnight during sleep-skip and can instant-trip on wake into coast/shed — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -2486,6 +2476,18 @@ _created 2026-09-18_
   - `TRACE_2026_09_18`: Ran down the second pre-cool path (operator ask). THERE ARE TWO, and they are different. PATH A (the REAL actuator) = hvac_predict.py:_should_energy_precool:686 (v5.7.1, comment "replaces the v3.17.0 weather-pre-cool + solar-banking bran...
   - `DIVERGENCE_CONFIRMED_2026_09_18`: Operator read-the-plan request -> CONFIRMED design-vs-shipped divergence. DESIGN (ENERGY_COORDINATOR_DESIGN_v2.2:176 + :461-464): pre-cool is a 2-4PM AFTERNOON behavior (-3F) before the 4-8pm coast, to bank coolness during the day so the...
   - `SHARPENED_2026_09_18`: Operator: pre_cool should happen with EXCESS SOLAR, no way at 9pm. LIVE FINDING: sensor.ura_energy_coordinator_hvac_constraint fired mode=pre_cool at 21:00 CDT (REAL local time - ha_ get_history localizes, -05:00 offset; NOT a UTC artifa...
+
+### `HVAC-D5-KNOBS-TO-RUNG-3-1` - D5 duty-cycle window/caps are Rung-1 module constants for what is a Rung-3 operator policy; no kill switch — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **hvac** - status: **done**
+_created 2026-09-17_
+- **Problem / Solution:**
+  - Problem: DUTY_CYCLE_WINDOW_SECONDS/COAST/SHED (hvac_const.py:396-399) are module constants, but the coast/shed runtime caps are legitimately operator policy (comfort-vs-savings), and there is no kill switch to disable D5. Solution: expos...
+- **Why:** D5 audit finding 3. Pairs with the reframe cycle.
+- **Next:** Decide knob rung + add a D5 enable/kill switch; fold into HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 if built together.
+- **Tags:** hvac, numbers-get-knobs, tier-1
+- **Parsimony:** [BUILD] policy numbers hardcoded, no kill switch
+- **Forensic keys (1):**
+  - `ABSORBED_2026_09_18`: Shipped as v5.103.9 D-b3 (Rung-3 Number knobs duty window/coast/shed + enable switch, 0=kill), live-validated (75/50/20/on). Card was absorbed into HVAC-D5-REFRAME-AND-OCCUPANCY- GATE-1; closing done.
 
 ### `INSTALL-ARCHIFY-SKILL-1` - Install the archify skill (github.com/tt-a1i/archify) in a spare cycle — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **tooling** - status: **done**

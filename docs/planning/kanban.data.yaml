@@ -655,7 +655,10 @@ cards:
   parsimony: {problem: 'occupancy-blind duty-cycle forces occupied zones away in coast', verdict: BUILD, note: 'depends step-4-B fused signal'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'D5 audit; the live hot-kitchen-away cause step-4-B does not fix'}
 - id: HVAC-D5-KNOBS-TO-RUNG-3-1
-  status: inbox
+  ABSORBED_2026_09_18: 'Shipped as v5.103.9 D-b3 (Rung-3 Number knobs duty window/coast/shed + enable
+    switch, 0=kill), live-validated (75/50/20/on). Card was absorbed into HVAC-D5-REFRAME-AND-OCCUPANCY-
+    GATE-1; closing done.'
+  status: done
   thread: hvac
   created: '2026-09-17'
   updated: '2026-09-17'
