@@ -298,6 +298,35 @@ meta:
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated, headline: "PERIMETER-ALERT-VOLUME-FATIGUE-1 \u2014 MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working \u2014 so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).", acknowledged: false}
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
+- id: HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1
+  status: investigating
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, observability, investigation, operator-requested]
+  title: Make "why did this zone retreat?" LIVE-LEGIBLE — the preset REASON (vacancy/coast-duty/house-state)
+    + coast state are invisible, so aways are unattributable at a glance (confused operator AND assistant)
+  problem_solution:
+  - 'Problem: a zone can go to away for MULTIPLE distinct reasons — vacant_past_grace (vacancy retreat),
+    runtime_exceeded (D5 duty-cycle, only under EC coast/shed), house_state_transition, pre-cool/pre-heat,
+    egress — and tonight zone_3 ALTERNATES between them (00:53 away runtime_exceeded, 01:08 away vacant_past_
+    grace). The reason exists ONLY in ura_activity_log.details_json (a DB dig) and the reason-ledger; the
+    live sensor.ura_hvac_coordinator_hvac_zone_preset_zone_N exposes preset/temps/action but NOT the reason,
+    and coast/shed (energy_constraint_mode) is not surfaced at all. Result: the operator AND the assistant
+    both misattributed the hot-and-away (thought vacancy, was partly coast-duty; thought resume-then-pin
+    made it worse, was inconclusive). Solution (investigate): make causation legible in real-time —
+    candidate deliverables: (a) last-preset-change REASON as an attribute on the per-zone preset sensor;
+    (b) coast/shed sensor (HVAC-COAST-OBSERVABILITY-1); (c) a per-zone away-cause rollup (counts by reason,
+    time-in-coast) so "why is my back hallway hot/away" is answerable at a glance without a DB query.'
+  why: 'Operator: "The issue is knowing when its happening and not being confused. like I was and you were...
+    card a look at how to improve this as an investigation." This session BOTH parties misattributed the
+    behavior repeatedly for lack of legible causation — a real observability gap, not a one-off.'
+  next: 'INVESTIGATE (measure/design, not build yet): enumerate every preset-away reason the code emits
+    (grep reason= in the preset-change path); confirm what the reason-ledger already captures vs what is
+    surfaced; design the minimal legible surface (reason attr + coast sensor + optional cause-rollup).
+    ABSORBS HVAC-COAST-OBSERVABILITY-1 as one component. Then card the build. Tier 1-2 additive.'
+  parsimony: {problem: 'preset-away causation is DB-only, not live-legible -> chronic misattribution', verdict: BUILD, note: 'investigation first; likely small additive sensors/attrs'}
+  links: {related: [HVAC-COAST-OBSERVABILITY-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-ZONE1-MANUAL-OSCILLATION-1], context: 'operator-requested attribution-legibility investigation; coast-observability is a component'}
 - id: HVAC-COAST-OBSERVABILITY-1
   status: planned
   thread: hvac

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T20:16:16-05:00_ - _Data commit: `242e81c2e4e7`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T20:22:27-05:00_ - _Data commit: `91af000d1807`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-09-17T20:16:16-05:00_ - _Data commit: `242e81c2e4e7`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 4 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 15 |
 | 🔨 In progress | 0 |
@@ -64,10 +64,20 @@ _created 2026-09-17_
 - **Tags:** tooling, spare-cycle, operator-requested
 - **Parsimony:** [BUILD] operator wants a skill installed; no urgency
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#1 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1` - Make "why did this zone retreat?" LIVE-LEGIBLE — the preset REASON (vacancy/coast-duty/house-state) + coast state are invisible, so aways are unattributable at a glance (confused operator AND assistant) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **investigating**
+_created 2026-09-17_
+- **Problem / Solution:**
+  - Problem: a zone can go to away for MULTIPLE distinct reasons — vacant_past_grace (vacancy retreat), runtime_exceeded (D5 duty-cycle, only under EC coast/shed), house_state_transition, pre-cool/pre-heat, egress — and tonight zone_3 ALTERN...
+- **Why:** Operator: "The issue is knowing when its happening and not being confused. like I was and you were... card a look at how to improve this as an investigation." This session BOTH parties misattributed the behavior repeatedly for lack of le...
+- **Next:** INVESTIGATE (measure/design, not build yet): enumerate every preset-away reason the code emits (grep reason= in the preset-change path); confirm what the reason-ledger already captures vs what is surfaced; design the minimal legible surf...
+- **Tags:** hvac, observability, investigation, operator-requested
+- **Parsimony:** [BUILD] preset-away causation is DB-only, not live-legible -> chronic misattribution
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
