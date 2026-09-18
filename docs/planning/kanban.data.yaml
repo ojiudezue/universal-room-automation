@@ -485,6 +485,16 @@ cards:
     v5.103.8; close this on that ship.'
 
 - id: HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1
+  REVIEW_C_AND_FIXUP_2026_09_17: 'Reviewer C (test-authority+adversarial) FIX-REQUIRED: independently
+    re-ran mutation drills -> 8/9 load-bearing sites UNTESTED (all 9 tests are source-greps = hollow anchors
+    #62; the build mutation table was itself hollow). NEW C-M3: live discriminator can NEVER fail
+    (any_room_hvac_occupied not in details, reason mode-agnostic) -> Review D would falsely PASS on a dead
+    gate = non-discriminating acceptance criterion. GOOD: C could NOT break INV-D5-GATE by static enum
+    (invariant SOUND, only unproven). Consolidated fix-up DISPATCHED (a1eccc451): F1 rename-consumer set
+    (sensor.py:13683 + full grep), F2 frontend duty-card (rebuild-or-dual-emit-attr), F3 wire d5_occupancy_
+    deferred sensor attr, F4 defer reason->preset_change_reason, F5 cap=0 clear latch, F6 emit any_room_hvac_
+    occupied+constraint_mode into details + fix plan SQL, F7 REAL behavioral tests (3-cell matrix + accumulator
+    w/ mutated knobs, must RED on M0-M8), + B-M1/B-M2/LOWs. Then orchestrator mutation-verify + ship.'
   REVIEW_AB_2026_09_17: 'Reviews A+B CONVERGED FIX-REQUIRED (C test-authority still running). Theme:
     rename+defer-flag swept hvac.py but not consumers. Must-fix: (1)CRIT sensor.py:13683 still filters
     zone_presence_state==runtime_limited -> zones_runtime_limited attr permanently EMPTY (repoint +
