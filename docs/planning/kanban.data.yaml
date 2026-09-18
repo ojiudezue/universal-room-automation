@@ -725,6 +725,16 @@ cards:
   parsimony: {problem: 'surplus-only pre-cool leaves low-SOC hot mornings uncovered', verdict: PARK, note: 'principle preserved; measure before building'}
   links: {related: [EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1], context: 'preserved from deleted Path B; supersession KEEP+DOCUMENT'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  REVIEW_B_AND_FIXUP_2026_09_18: 'B (D1 integration/restart) = SHIP: Path A unblocking confirmed, offset
+    change a proven no-op (offset already dead pre-cycle - compute_energy_offset zero callers), pre_cool was
+    rank-equivalent to normal everywhere, restart fine. B CONVERGED with C on the persist-on-submit bug
+    (B-MED-1==C1) - two disjoint framings = real. B adds MED-2 (orphaned live precool-offset config FIELD,
+    remove it), LOW-1 (stale pre_cool restore one-tick, add allowlist), LOW-2 (doc drift signals.py:256 +
+    strings:1211). Net: D1 SHIPS (A+B); D2 needs C1 rework. CONSOLIDATED FIX-UP dispatched (aaa36322b):
+    C1 revert to blank-when-unset + guidance-in-text (kill the pinning), C2 real schema-driving test
+    (mutation->RED), C3 reword clamp text, A-MED/B-MED-2 REMOVE the dead offset config field (keep CONF+read
+    tombstoned), A-LOW tombstone comment, B-LOW-1 restore allowlist pre_cool->normal, B-LOW-2 doc drift.
+    Then orchestrator mutation-verify + ship.'
   REVIEW_C_2026_09_18: 'C (D2 config) = FIX-REQUIRED, caught a real HIGH. C1(HIGH): suggested_value=type-
     default PERSISTS on submit (HA option flow returns the prefill in user_input unless blanked) -> a room
     with unset holds, opened to change anything else + submitted, gets 60/1800 PINNED as explicit override
