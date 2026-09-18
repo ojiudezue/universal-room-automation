@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T19:34:02-05:00_ - _Data commit: `bc27fcd3c1d6`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T19:38:03-05:00_ - _Data commit: `17f1d1f0c5fc`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -395,7 +395,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (48):**
+- **Forensic keys (49):**
+  - `CAUSATION_PROBE_2026_09_17`: Did any deploy step up the flapping? INCONCLUSIVE, leaning UNCHANGED (recorder-authoritative, transitions timed on preset_mode last_updated). The 09-16 all-zone spike (z1 93, z2 67, z3 93) is a DEPLOY ARTIFACT — 4 reloads that day = boot...
   - `REREVIEW_R4_ADVERSARIAL_2026_09_17`: Round-4 re-review #2 (adversarial) = SHIP w/ a reframe. KEY: D-HIGH-1 — _async_apply_preset_overrides (D9) early-returns on guest_mode_actuation_enabled=False; LIVE switch.ura_hvac_coordinator_guest_mode_actuation = OFF -> D9 compose-awa...
   - `REREVIEW_R4_CORRECTNESS_2026_09_17`: Round-4 re-review #1 (correctness) = FIX-REQUIRED, 1 HIGH + 1 MED. NOT SHIPPING. F1 (HIGH, orchestrator-predicted): the any-room-seen establishment lets a zone with a DISABLED/setup_retry room retreat on the room it CANNOT read (unreadab...
   - `ROUND4_CLEAN_2026_09_17`: Round-4 landed @2f091a025, NEW=0 name-diff (builder). Reset-only backstop + shared conditioning_retreat_ok(zone) across row-1/D7/D9/row-10; F2 throttle-bypass on compose- away; F1 established=ANY-room-seen (disabled room cant wedge); F4 ...
@@ -531,7 +532,8 @@ _created 2026-09-16 · updated 2026-09-17 02:35 · refined_
 - **Next:** ANSWER, then PICK — the measurement is done (see MEASURED_2026_09_17) and only you can supply the missing half. ANSWER: does the Bryant thermostat for zone_1 (Entertainment + Master Suite) have a schedule or comfort profile of its own — ...
 - **Tags:** hvac, measure-first, producer-check, found-during-validation
 - **Parsimony:** [BUILD] the Bryant thermostat re-asserts a 76/69 hold seconds after every URA preset write to zone_1, so URA and the thermostat fight continuously and URA narrates each lap as a HIGH-severity human override (~45 false pages/day)
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `MANUAL_PERSISTS_EVIDENCE_2026_09_17`: Causation probe corroborates the mystery re-manual writer: zone_3 shows 27 manual preset episodes post-v5.103.2, ~121s median dwell — named holds are NOT uniformly durable, manual is re-asserted at ~2min cadence. Either the pin is not fu...
   - `MEASURED_2026_09_17`: OVERNIGHT PASS — MEASUREMENT RUN, MECHANISM CONFIRMED. The three-way discriminator this card asked for is settled, and the answer is (a): the Bryant thermostat re-asserts its OWN hold. It is not a URA writer and it is not resume-then-pin...
   - `OLD_next_superseded`: MEASURE (clean 24h read available ~09:45 CDT 2026-09-17): on climate.thermostat_bryant_wifi_studyb_zone_1, trace every transition INTO manual with the preceding URA action + any concurrent set_temperature/ set_preset/set_hvac_mode from U...
 

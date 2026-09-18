@@ -335,6 +335,11 @@ cards:
     context: 'Phase 1 split from HVAC-THERMOSTAT-ABSTRACTION-1 per the write-path inventory. Phase 2 (full
       ZoneThermostat API) stays on the parent card, parked.'
 - id: HVAC-ZONE1-MANUAL-OSCILLATION-1
+  MANUAL_PERSISTS_EVIDENCE_2026_09_17: 'Causation probe corroborates the mystery re-manual writer:
+    zone_3 shows 27 manual preset episodes post-v5.103.2, ~121s median dwell — named holds are NOT
+    uniformly durable, manual is re-asserted at ~2min cadence. Either the pin is not fully effective
+    on-device or the Bryant native schedule/an operator/a URA writer re-manuals. Still the measure-
+    first target; clean 24h read to identify the producer.'
   status: waiting_operator
   thread: hvac
   created: '2026-09-16'
@@ -10954,6 +10959,17 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  CAUSATION_PROBE_2026_09_17: 'Did any deploy step up the flapping? INCONCLUSIVE, leaning UNCHANGED
+    (recorder-authoritative, transitions timed on preset_mode last_updated). The 09-16 all-zone spike
+    (z1 93, z2 67, z3 93) is a DEPLOY ARTIFACT — 4 reloads that day = boot re-eval churn, NOT steady
+    state. Only clean post-boundary day = 09-17: z1 45 + z2 28 UNCHANGED (within pre-range 32-63/14-32);
+    z3 76 elevated vs pre-max 67 but n=1, unseparable from occupancy variance. CORRECTS my earlier
+    over-read of raw ura_activity_log counts (44/56/62) which did NOT separate deploy-churn -> I
+    inflated it; recorder analysis says no clean evidence we worsened it. Flapping is PRE-EXISTING.
+    Recorder retention only reaches 09-10 (~6.5 pre days). Re-run after 3-4 deploy-free days to settle
+    z3 (scripts /tmp/flip3.py, /tmp/flip5.py). FINDING: manual episodes PERSIST post-v5.103.2 (z3: 27
+    episodes, ~121s median) -> resume-then-pin did NOT make holds uniformly durable; re-manual writer
+    still active -> HVAC-ZONE1-MANUAL-OSCILLATION-1.'
   REREVIEW_R4_ADVERSARIAL_2026_09_17: 'Round-4 re-review #2 (adversarial) = SHIP w/ a reframe. KEY:
     D-HIGH-1 — _async_apply_preset_overrides (D9) early-returns on guest_mode_actuation_enabled=False;
     LIVE switch.ura_hvac_coordinator_guest_mode_actuation = OFF -> D9 compose-away + F2 throttle-bypass
