@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "139",
+  "author": "ojiudezue",
+  "session_id": "claude_20260918_150824_ship_v5_103_12",
+  "timestamp": "2026-09-18T15:08:24Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.12 shipped: Path A pre-cool skip-reason observability",
+  "summary": "Path A pre-cool skip-reason observability",
+  "why": "Post-Path-B-delete quick check (operator, minimize stragglers): Path A is now the SOLE, surplus-only pre-cool path but had no why-not-firing signal, so a hot low-SOC morning skip was invisible. Additive skip-reason attribute set at each early-return (no behavior change - return values byte-identical). Tier 1; orchestrator mutation-verified (rename outside_window -> test_outside_window REDs). Doubles as the measure-first enabler for the parked grid-anticipatory gap card.",
+  "implications": "Shipped HVAC-PRECOOL-SKIP-REASON-OBS-1 at v5.103.12; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.12.md (Live criteria).",
+  "revisit_trigger": "sensor.ura_hvac_coordinator_mode has attribute pre_cool_skip_reason with a non-empty gate reason when not pre-cooling (e.g. outside_window before 10am / no_pv_surplus midday low-export); pre_cool_active behavior unchanged; zero URA ERROR",
+  "refs": {
+    "cards": [
+      "HVAC-PRECOOL-SKIP-REASON-OBS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.12.md"
+    ],
+    "release_notes": "Additive: _should_energy_precool sets pre_cool_skip_reason at every gate; published on sensor.ura_hvac_coordinator_mode. Surfaces WHY afternoon pre-cool did not fire (no_pv_surplus / outside_window / soc_below_floor / off_season / mode_* / already_today). No logic change. Also the measure-first signal for EC-GRID-ANTICIPATORY-PRECOOL-GAP-1."
+  }
+}

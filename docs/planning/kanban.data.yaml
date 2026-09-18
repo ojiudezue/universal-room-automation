@@ -703,7 +703,8 @@ cards:
   parsimony: {problem: 'jargon labels truncate in UI', verdict: BUILD, note: 'cosmetic, reversible, low-risk'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'operator screenshot 2026-09-18'}
 - id: HVAC-PRECOOL-SKIP-REASON-OBS-1
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.12
   thread: hvac
   created: '2026-09-18'
   updated: '2026-09-18'
