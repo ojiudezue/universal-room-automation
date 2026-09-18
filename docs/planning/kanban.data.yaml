@@ -607,6 +607,19 @@ cards:
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  CODE_HISTORY_2026_09_18: 'git blame = the real story. (1) BORN phase-blind: EC pre_cool branch
+    (energy.py:7427 off_peak+soc<50+solar) is v3.7.0/v3.9.0 (007d0a2b9 2026-03-06, 00827c5d67 2026-03-07)
+    - never phase-aware, not a regression. (2) PHASE FIX SKIPPED IT: b53e6e97 (2026-06-08) added
+    not-summer_post_peak_midpeak to the COAST branch one block ABOVE but did not retrofit the pre_cool
+    branch directly below. (3) SUPERSEDED, NOT DELETED: v5.7.1 built Path A (_should_energy_precool,
+    docstring "replaces the v3.17.0 weather-pre-cool + solar-banking branches") as the unified PV-aware
+    banking, but this March EC-constraint pre_cool was never removed = vestigial superseded phase-blind
+    path still emitting the misleading 9pm mode. (4) SUPPRESSION FOOTGUN (verify): Path A requires
+    constraint.mode==normal (hvac_predict.py:719); the vestigial Path B setting mode=pre_cool during any
+    off_peak+low-SOC+good-solar - INCLUDING Path A window [10,14) if that is off_peak - SUPPRESSES Path A,
+    so the real banking may never run. VERIFY: is 10am-2pm off_peak on this TOU? FIX = DELETE the superseded
+    branch (DELETE bucket: superseded+buggy+footgun) after confirming no other consumer of EC pre_cool mode;
+    do NOT repair. Supersession-cleanup miss per the post-ship supersession doctrine.'
   ROOTCAUSE_2026_09_18: 'Operator diagnosis CONFIRMED: off-peak occurs TWICE/day (morning BEFORE peak =
     the intended banking window; night AFTER peak = the 9pm bug), and mid_peak-before != mid_peak-after.
     URA HAS the peak-PHASE machinery: summer_peak_ahead / summer_post_peak (energy_battery.py:5390) +
