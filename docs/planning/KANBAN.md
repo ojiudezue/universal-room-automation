@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T14:19:04-05:00_ - _Data commit: `d741caf98fd5`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T14:21:17-05:00_ - _Data commit: `65b92497aa12`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -12,9 +12,9 @@ _Generated: 2026-09-18T14:19:04-05:00_ - _Data commit: `d741caf98fd5`_ - _last_r
 | 📥 Inbox | 1 |
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 14 |
+| 📝 Planned | 13 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 0 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 25 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 33 |
@@ -25,6 +25,7 @@ _Generated: 2026-09-18T14:19:04-05:00_ - _Data commit: `d741caf98fd5`_ - _last_r
 _raw capture_
 
 ### `HVAC-PRECOOL-WINDOW-TOU-DERIVED-1` - Path A pre-cool window is summer-hardcoded [10,14) — not responsive to shoulder/winter TOU peaks (same phase-blindness we just deleted) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:24:41.847Z)
 thread: **hvac** - status: **inbox**
 _created 2026-09-18_
 - **Problem / Solution:**
@@ -38,6 +39,7 @@ _created 2026-09-18_
 _measuring; truth not yet known_
 
 ### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+> **⚡ OPERATOR: investigate — pending apply** (at 2026-09-18T19:24:05.731Z)
 thread: **energy** - status: **investigating** - approval: **explicit**
 _created 2026-09-10 00:50 · updated 2026-09-18 02:15 · initial_
 - **Problem / Solution:**
@@ -66,6 +68,7 @@ _created 2026-09-10 00:50 · updated 2026-09-18 02:15 · initial_
   - `allowlist_note_2026_09_10`: INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py:6664) currently covers ONLY census/perimeter/face keys -- no energy/hvac coordinator keys. So whatever CM key is being written nightly is guaranteed to reload.
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:23:53.217Z)
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
@@ -84,6 +87,7 @@ _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
 _idea being decomposed_
 
 ### `HVAC-PRESET-WRITE-STRATEGY-1` - How to write a preset successfully is vendor-specific, and that knowledge is hardcoded in a shared chokepoint every thermostat write passes through — _#1 · WSJF 2.8 · v5 tc3 u6 /e5 ⚠_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:23:06.935Z)
 thread: **hvac** - status: **pre_planning** - approval: **explicit**
 _created 2026-09-16 · initial_
 - **Problem / Solution:**
@@ -101,6 +105,7 @@ _created 2026-09-16 · initial_
   - `MITIGATED_NOT_SOLVED_2026_09_16`: A capability gate shipped WITH D2a as the cheap half: the resume-then-pin path now fires only when the entity itself advertises `resume` among its preset_modes, so a non-Carrier thermostat falls through to the pre-existing direct-pin beh...
 
 ### `NIGHT-LIGHT-ACTION-SELECTOR-1` - Night lights have no actuation policy of their own — they ride on the regular lights' entry action, so "none" silently means two different things — _#2 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:23:28.234Z)
 thread: **lights** - status: **pre_planning** - approval: **explicit**
 _created 2026-09-15 · initial_
 - **Problem / Solution:**
@@ -115,6 +120,7 @@ _created 2026-09-15 · initial_
   - `INSTITUTIONAL_CONTEXT_2026_09_15`: Prior-art scan run before proposing (CLAUDE.md Institutional-Context-First). NEW — nothing equivalent exists. - const.py:876-886 holds FIVE night-light constants (CONF_NIGHT_LIGHTS, CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS/_COLOR, CONF_NIGHT_LI...
 
 ### `HVAC-GUEST-AS-ZONE-PERSON-1` - A guest in an occupied guest room should count as that zone's "person" — today a zone with no assigned residents loses three protections entirely — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:23:40.682Z)
 thread: **hvac** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-08-20 15:10 · initial_
 - **Problem / Solution:**
@@ -162,6 +168,7 @@ _created 2026-08-31 18:20 · updated 2026-09-12 11:15 · refined ×4_
   - `refinement_2026_09_01`: Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body- corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on BLE-extend-since-last-body (independent of sleep) a...
 
 ### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:25:30.065Z)
 thread: **presence** - status: **pre_planning** - approval: **implied**
 _updated 2026-09-12 11:15_
 - **Problem / Solution:**
@@ -211,6 +218,7 @@ _created 2026-08-26 03:10 · updated 2026-09-12 11:15 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: energy_battery.py:2695-2703 offset<=0 + today-unknown + no cache returns (classify_tomorrow_solar(),0); callers do classify_solar_day_n(0+1)=tomorrow again -> self...
 
 ### `TEST-LEAK-DETECTOR-WRONG-LOOP-1` - The harness's task-leak detector watches the wrong event loop, so it has never caught a leaked task — and a green suite has been over-trusted because of it — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:25:38.430Z)
 thread: **quality** - status: **pre_planning** - approval: **implied**
 _created 2026-09-15 · initial_
 - **Problem / Solution:**
@@ -238,6 +246,7 @@ _created 2026-09-17_
   - `SUB_IDEAS_2026_09_17`: Checklist inside this one workstream (do NOT mint separate cards): (a) compressor/ refrigerant health anomaly (superheat/discharge/suction) -> SC+anomaly->NM; (b) airflow/dirty-filter (static_pressure + filter_remaining cross-corroborate...
 
 ### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#11 · WSJF 1.8 · v8 tc4 u2 /e8_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:26:04.651Z)
 thread: **optimization** - status: **pre_planning**
 _created 2026-09-14 02:20 · initial_
 - **Problem / Solution:**
@@ -253,6 +262,7 @@ _created 2026-09-14 02:20 · initial_
   - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
 
 ### `HVAC-THERMOSTAT-ABSTRACTION-1` - We unified the call sites but never built an abstraction — three write verbs, two funnels, and vendor knowledge loose inside a shared path — _#12 · WSJF 1.1 · v5 tc3 u6 /e13 ⚠_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:26:12.813Z)
 thread: **hvac** - status: **pre_planning** - approval: **explicit**
 _created 2026-09-16 · initial_
 - **Problem / Solution:**
@@ -271,7 +281,7 @@ _created 2026-09-16 · initial_
   - `PER_ZONE_CORRECTED_2026_09_16`: OPERATOR: "If we did this, why per zone? It should be the same function, no?" CORRECT, and my sketch was wrong. Ask what per-zone STATE a handle would hold: entity_id is a PARAMETER; the vendor is DERIVED from the entity's platform (memo...
   - `DESIGN_SHAPE_2026_09_16`: Stateless, entity-parameterised, all three verbs plus vendor dispatch: read_hold(hass, entity_id)              -> named / anonymous / none set_preset(hass, entity_id, name, ...)  -> strategy decides clear-then-pin vs direct pin set_setpo...
 
-## 📝 Planned (14)
+## 📝 Planned (13)
 _has plan / acceptance_
 
 ### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#1 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
@@ -435,19 +445,7 @@ _created 2026-09-17_
 - **Forensic keys (1):**
   - `FOLD_2026_09_17`: From HVAC-EC-OFFSET-SELF-LOCKOUT-1 (refuted): verify the EC coast/shed OFFSET apply path carries a FIX-B2-style pre-write preset snapshot + set_preset_mode restore (like the nudge path), so a coast setpoint write cannot leave a zone in m...
 
-### `HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1` - Post-restart the HVAC predictor sees constraint=None (pre_cool_skip_reason=no_constraint) while EC computes normal — Path A pre-cool disabled boot->first-mode-change — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **planned**
-_created 2026-09-18_
-- **Problem / Solution:**
-  - Problem (surfaced live 2026-09-18 by the new pre_cool_skip_reason obs, v5.103.12): after a restart at 10:14 CDT (in [10,14) window, summer, both enables true), sensor.ura_energy_coordinator_hvac_constraint shows a REAL computed normal (r...
-- **Why:** Real restart-day pre-cool gap; the sole pre-cool path silently no-ops. High-value catch validating the skip-reason obs on its first boot.
-- **Next:** TRACE: does _handle_energy_constraint fire post-boot on the HVAC coordinator? is _energy_constraint set after the EC first tick? does the EC re-dispatch normal on first boot tick or suppress as non-change vs init _last_published_constrai...
-- **Tags:** hvac, precool, boot, signal-delivery, energy
-- **Parsimony:** [BUILD] restart-day pre-cool disabled until first mode change
-- **Forensic keys (1):**
-  - `TRACE_2026_09_18`: ROOT CAUSE confirmed (read-only trace): two-stage. (1) ORDERING MISS - EC registered before HVAC (__init__.py:3759 vs 3856); CoordinatorManager sets up sequentially (manager.py:417), so EC async_setup fires its boot decision cycle -> dis...
-
-### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#13 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#12 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **planned** - approval: **implied**
 _created 2026-09-16_
 - **Problem / Solution:**
@@ -457,7 +455,7 @@ _created 2026-09-16_
 - **Tags:** energy, tier-2db, bug-class-53, needs-plan-review
 - **Parsimony:** [BUILD] three ordering invariants are validated at save time + anomaly-flagged at runtime but their ~25 live decision readers still read raw, so an inverted slider flips a gate
 
-### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#14 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#13 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **implied**
 _created 2026-09-16 · initial_
 - **Problem / Solution:**
@@ -479,10 +477,21 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (0)
+## 🔍 Review (1)
 _under review_
 
-_(none)_
+### `HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1` - Post-restart the HVAC predictor sees constraint=None (pre_cool_skip_reason=no_constraint) while EC computes normal — Path A pre-cool disabled boot->first-mode-change — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:24:21.185Z)
+thread: **hvac** - status: **review**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem (surfaced live 2026-09-18 by the new pre_cool_skip_reason obs, v5.103.12): after a restart at 10:14 CDT (in [10,14) window, summer, both enables true), sensor.ura_energy_coordinator_hvac_constraint shows a REAL computed normal (r...
+- **Why:** Real restart-day pre-cool gap; the sole pre-cool path silently no-ops. High-value catch validating the skip-reason obs on its first boot.
+- **Next:** TRACE: does _handle_energy_constraint fire post-boot on the HVAC coordinator? is _energy_constraint set after the EC first tick? does the EC re-dispatch normal on first boot tick or suppress as non-change vs init _last_published_constrai...
+- **Tags:** hvac, precool, boot, signal-delivery, energy
+- **Parsimony:** [BUILD] restart-day pre-cool disabled until first mode change
+- **Forensic keys (1):**
+  - `TRACE_2026_09_18`: ROOT CAUSE confirmed (read-only trace): two-stage. (1) ORDERING MISS - EC registered before HVAC (__init__.py:3759 vs 3856); CoordinatorManager sets up sequentially (manager.py:417), so EC async_setup fires its boot decision cycle -> dis...
 
 ## ⏸️ Waiting on operator (25)
 _needs a human call — groomed first_
@@ -2433,6 +2442,7 @@ _created 2026-09-15 03:45 · updated 2026-09-18 02:15 · initial_
   - `NARROWED_2026_09_16`: Tonight's pass both CONFIRMED this card and NARROWED it usefully, so the ask to the operator is smaller than the title implies. CONFIRMED, and worse than "no log reach": ssh to the HA host was down for the ENTIRE pass — not a permission ...
 
 ### `DEPLOY-SH-REJECT-FLAG-AS-VERSION-1` - deploy.sh should reject a flag as $1/VERSION (footgun shipped a "v--cards" release) — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+> **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:24:51.164Z)
 thread: **tooling** - status: **done**
 _created 2026-09-18_
 - **Problem / Solution:**

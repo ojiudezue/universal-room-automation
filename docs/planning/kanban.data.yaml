@@ -745,7 +745,7 @@ cards:
     subscribe hvac.py:1145), via a producer-owned energy.current_energy_constraint() helper that reuses the
     EXACT payload construction at energy.py:7482-7494 (no shape drift). Ordering-proof (EC fully set up by
     then), idempotent (later real signal just re-applies). Tier 2-DB. BUILD DISPATCHED.'
-  status: planned
+  status: review
   thread: hvac
   created: '2026-09-18'
   updated: '2026-09-18'
