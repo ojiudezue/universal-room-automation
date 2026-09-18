@@ -1224,12 +1224,13 @@ ROOM_TYPE_HVAC_HOLD_NIGHT: Final = {
     ROOM_TYPE_HALLWAY: 0,           # never — circulation excluded
 }
 
-# Per-room DAY-side override for HVAC vacancy tail hold (seconds). Rare
-# per-room tune; empty / None / 0 => fall through to ROOM_TYPE_HVAC_HOLD.
-# Night-only override lives at CONF_HVAC_VACANCY_HOLD_NIGHT (below) —
-# a single override MUST NOT silently affect both tables (D-MED-3).
-CONF_HVAC_VACANCY_HOLD: Final = "hvac_vacancy_hold"
-CONF_HVAC_VACANCY_HOLD_NIGHT: Final = "hvac_vacancy_hold_night"
+# Per-room HVAC vacancy tail-hold is governed EXCLUSIVELY by the
+# ROOM_TYPE_HVAC_HOLD[_NIGHT] module-constant tables (fix-up round 4,
+# 2026-09-17, F5). The per-room CONF_HVAC_VACANCY_HOLD[_NIGHT] fields
+# were introduced in round 1 but never wired to config-flow/Number/UI —
+# read-by-nobody-settable knobs. Dropped rather than left inert. If a
+# per-room slider is needed later, reintroduce with a real config
+# surface (Numbers-Get-Knobs discipline).
 
 # v4.5.15: Room-type-specific failsafe durations. Caps the maximum time
 # a room can stay "occupied" before URA forces vacancy, regardless of

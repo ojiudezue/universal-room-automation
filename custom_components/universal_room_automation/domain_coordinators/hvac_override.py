@@ -2297,13 +2297,46 @@ class OverrideArrester:
             # lacking the sibling fall through to lighting-fused. Fresh
             # test fixtures construct RoomCondition with hvac_occupied=
             # True where they intend occupancy.
+            # F4 fix-up round 4 (2026-09-17): establishment-aware read.
+            # During the reload window the fused signal is not yet real
+            # for this zone. Fail-CLOSED means we'd stop deferring and
+            # a manual push right after reload could get stomped. Use
+            # the shared `conditioning_retreat_ok(zone)` inverse: while
+            # RETREAT is NOT authorized (unestablished OR fused-occupied),
+            # keep deferring — i.e. treat as occupied for grace purposes.
+            # Robust to mocked/legacy zone managers that don't implement
+            # the helper (e.g. many test fixtures use MagicMock() where
+            # ANY attribute is auto-truthy) — accept ONLY a real bool
+            # return; anything else falls through to the plain fused
+            # read that this file used pre-F4.
             if zone is None:
                 occupied = False
             else:
-                _r10_fused = getattr(zone, "any_room_hvac_occupied", None)
-                if _r10_fused is None:
-                    _r10_fused = getattr(zone, "any_room_occupied", False)
-                occupied = bool(_r10_fused)
+                zm = self._zone_manager
+                retreat_ok = None  # tri-state: None -> not answered
+                if zm is not None:
+                    try:
+                        _v = zm.conditioning_retreat_ok(zone)
+                    except Exception:  # noqa: BLE001
+                        _v = None
+                    # Strict typecheck: only accept a real bool result.
+                    # A MagicMock() sentinel here would auto-return truthy,
+                    # so we require True is _v OR False is _v.
+                    if _v is True or _v is False:
+                        retreat_ok = _v
+                if retreat_ok is True:
+                    # Established + fused-empty -> stop deferring.
+                    occupied = False
+                elif retreat_ok is False:
+                    # Unestablished OR fused-occupied -> keep deferring.
+                    occupied = True
+                else:
+                    # Helper not available (legacy fake / no real ZM)
+                    # -> fall back to the plain fused read used pre-F4.
+                    _r10_fused = getattr(zone, "any_room_hvac_occupied", None)
+                    if _r10_fused is None:
+                        _r10_fused = getattr(zone, "any_room_occupied", False)
+                    occupied = bool(_r10_fused)
         except Exception:  # noqa: BLE001 — defensive
             occupied = False
         if not occupied:

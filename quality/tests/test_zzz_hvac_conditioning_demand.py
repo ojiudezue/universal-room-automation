@@ -175,7 +175,7 @@ def test_d1_arms_on_state_occupied_rising_edge():
         state_occupied=True,
         now=NOW,
         house_state="home_day",
-        override_hold=None,
+        
     )
     assert out is True
     assert zm._hvac_armed["test_room"] is True
@@ -195,14 +195,14 @@ def test_d1_holds_through_raw_kind_blip():
     # Rising edge arm.
     zm._compute_hvac_occupied(
         room_name="test_room", room_type="bedroom", state_occupied=True,
-        now=NOW, house_state="home_day", override_hold=None,
+        now=NOW, house_state="home_day", 
     )
     # STATE_OCCUPIED still True (grace-held) — hvac_occupied MUST stay True
     # regardless of any raw substrate kind state.
     out = zm._compute_hvac_occupied(
         room_name="test_room", room_type="bedroom", state_occupied=True,
         now=NOW + timedelta(seconds=30), house_state="home_day",
-        override_hold=None,
+        
     )
     assert out is True
     assert zm._hvac_arm_source["test_room"] == "held"
@@ -212,13 +212,13 @@ def test_d1_falls_after_tail_expires():
     zm = _mk_manager()
     zm._compute_hvac_occupied(
         room_name="test_room", room_type="bedroom", state_occupied=True,
-        now=NOW, house_state="home_day", override_hold=None,
+        now=NOW, house_state="home_day", 
     )
     # Falling edge — schedule tail (bedroom day = 60s).
     out1 = zm._compute_hvac_occupied(
         room_name="test_room", room_type="bedroom", state_occupied=False,
         now=NOW + timedelta(seconds=5), house_state="home_day",
-        override_hold=None,
+        
     )
     assert out1 is True
     assert zm._hvac_arm_source["test_room"] == "tail"
@@ -226,13 +226,13 @@ def test_d1_falls_after_tail_expires():
     assert zm._compute_hvac_occupied(
         room_name="test_room", room_type="bedroom", state_occupied=False,
         now=NOW + timedelta(seconds=30), house_state="home_day",
-        override_hold=None,
+        
     ) is True
     # Tail expired.
     out2 = zm._compute_hvac_occupied(
         room_name="test_room", room_type="bedroom", state_occupied=False,
         now=NOW + timedelta(seconds=120), house_state="home_day",
-        override_hold=None,
+        
     )
     assert out2 is False
     assert zm._hvac_armed["test_room"] is False
@@ -241,21 +241,25 @@ def test_d1_falls_after_tail_expires():
 def test_d1_night_table_selection():
     """D8: house_state in FAN_TRUST_STATES selects the NIGHT table."""
     zm = _mk_manager()
-    hold_day = zm._effective_hvac_hold_seconds("bedroom", "home_day", None)
-    hold_night = zm._effective_hvac_hold_seconds("bedroom", "home_night", None)
-    hold_sleep = zm._effective_hvac_hold_seconds("bedroom", "sleep", None)
+    hold_day = zm._effective_hvac_hold_seconds("bedroom", "home_day")
+    hold_night = zm._effective_hvac_hold_seconds("bedroom", "home_night")
+    hold_sleep = zm._effective_hvac_hold_seconds("bedroom", "sleep")
     assert hold_day == 60
     assert hold_night == 1800
     assert hold_sleep == 1800
 
 
-def test_d1_per_room_override_wins():
+def test_d1_hold_tables_source_of_truth():
+    """F5 fix-up round 4 (2026-09-17): per-room CONF overrides removed.
+    Module-constant tables ROOM_TYPE_HVAC_HOLD[_NIGHT] are the sole
+    source of truth. Ensures the helper's signature is (room_type,
+    house_state) only — a reintroduction of an override arg would
+    reject-type here at call time."""
     zm = _mk_manager()
-    # Override of 300s beats bedroom day-table 60s.
-    assert zm._effective_hvac_hold_seconds("bedroom", "home_day", 300) == 300
-    # Empty / falsy override falls through.
-    assert zm._effective_hvac_hold_seconds("bedroom", "home_day", 0) == 60
-    assert zm._effective_hvac_hold_seconds("bedroom", "home_day", None) == 60
+    assert zm._effective_hvac_hold_seconds("bedroom", "home_day") == 60
+    assert zm._effective_hvac_hold_seconds("bedroom", "home_night") == 1800
+    # Unknown room_type falls to defaults.
+    assert zm._effective_hvac_hold_seconds("unknown_type", "home_day") == 60
 
 
 def test_d1_never_occupied_room_does_not_arm():
@@ -267,7 +271,7 @@ def test_d1_never_occupied_room_does_not_arm():
         out = zm._compute_hvac_occupied(
             room_name="phantom", room_type="bedroom", state_occupied=False,
             now=NOW + timedelta(seconds=tick), house_state="home_day",
-            override_hold=None,
+            
         )
         assert out is False
     assert zm._hvac_armed.get("phantom", False) is False
@@ -423,11 +427,11 @@ def test_d9_compose_away_behavioral():
 
 
 def test_row1_fail_open_unestablished_zone():
-    """D-HIGH-1 fix-up: `_is_zone_hvac_established` fails-open (returns
-    False) BEFORE the D1 producer has read any room for the zone. Under
-    the wrong-fix failure mode (helper hard-coded to always-True), a
-    boot-time zone with `last_occupied_time` seeded past-grace would be
-    retreated on the first tick — the exact ~5x/night reload failure.
+    """F1 fix-up round 4 (2026-09-17): `is_zone_hvac_established` uses
+    ANY (not ALL) rooms in `_hvac_seen`. Disabled/absent rooms in
+    `zone.rooms` (never iterated because `if coordinator is None:
+    continue` in update_room_conditions) must NOT permanently block
+    establishment.
 
     Revert-in-suite discriminator: force the helper to return True
     unconditionally -> this test reds (unestablished zone is falsely
@@ -441,12 +445,12 @@ def test_row1_fail_open_unestablished_zone():
     # No _hvac_seen entries yet — zone must not be established.
     assert zm.is_zone_hvac_established("z_boot") is False
 
-    # Seed only one of the two rooms as seen -> still unestablished
-    # (all zone rooms must be observed at least once).
+    # F1: seeding ANY one of the zone's rooms flips the zone to
+    # established (was: required ALL rooms; broke on disabled rooms).
     zm._hvac_seen.add("r_bed")
-    assert zm.is_zone_hvac_established("z_boot") is False
+    assert zm.is_zone_hvac_established("z_boot") is True
 
-    # Seed both -> established.
+    # Adding more rooms as seen keeps it established.
     zm._hvac_seen.add("r_bath")
     assert zm.is_zone_hvac_established("z_boot") is True
 
@@ -509,34 +513,20 @@ def test_night_hold_table_covers_all_non_hallway_types_monotonic():
     assert C.DEFAULT_HVAC_VACANCY_HOLD_NIGHT >= C.DEFAULT_HVAC_VACANCY_HOLD
 
 
-def test_per_room_override_is_day_only():
-    """D-MED-3 fix-up round 2: CONF_HVAC_VACANCY_HOLD is DAY-ONLY. A
-    day override must NOT silently affect the night table.
-    Discriminator shape: a day-only override of 300s under a night
-    house_state returns the NIGHT table value, not 300.
+def test_per_room_override_conf_removed_f5():
+    """F5 fix-up round 4 (2026-09-17): CONF_HVAC_VACANCY_HOLD and
+    CONF_HVAC_VACANCY_HOLD_NIGHT are DROPPED (they were inert — no
+    config-flow/Number surface). Ensures the const module no longer
+    exposes them so downstream readers get an ImportError instead of
+    a silently-inert knob.
     """
-    m = _zm_module()
-    zm = m.ZoneManager(MagicMock())
-    # Day house_state -> override honored.
-    assert zm._effective_hvac_hold_seconds(
-        "bedroom", "home_day", 300, override_night=None,
-    ) == 300
-    # Night house_state -> DAY override NOT applied; use night table.
-    got = zm._effective_hvac_hold_seconds(
-        "bedroom", "home_night", 300, override_night=None,
-    )
     C = _const_mod()
-    assert got == C.ROOM_TYPE_HVAC_HOLD_NIGHT["bedroom"], (
-        "Day override must not affect night table (D-MED-3)"
+    assert not hasattr(C, "CONF_HVAC_VACANCY_HOLD"), (
+        "CONF_HVAC_VACANCY_HOLD should be REMOVED (F5, dropped inert knob)"
     )
-    # Night override applies at night.
-    assert zm._effective_hvac_hold_seconds(
-        "bedroom", "sleep", None, override_night=900,
-    ) == 900
-    # Night override does NOT apply at day.
-    assert zm._effective_hvac_hold_seconds(
-        "bedroom", "home_day", None, override_night=900,
-    ) == C.ROOM_TYPE_HVAC_HOLD["bedroom"]
+    assert not hasattr(C, "CONF_HVAC_VACANCY_HOLD_NIGHT"), (
+        "CONF_HVAC_VACANCY_HOLD_NIGHT should be REMOVED (F5)"
+    )
 
 
 def test_hallway_circulation_exclusion_via_update_room_conditions():
@@ -713,24 +703,32 @@ def test_d5_migration_rewrites_legacy_default_only():
 
 
 def test_row1_and_d7_helpers_present_on_coordinator():
-    """Fix-up round 2: HVACCoordinator must expose
-    `_is_zone_hvac_established` and `_zone_has_home_person` (the
-    fail-open + backstop delegates). Anchor: these methods are named
-    on the class body of HVACCoordinator in hvac.py.
+    """Fix-up round 4: HVACCoordinator exposes the F3 shared helper
+    `_zone_conditioning_retreat_ok` (in addition to the underlying
+    `_is_zone_hvac_established` delegate). Row-1, D7, D9 must all
+    route through the shared helper — a code path bypassing it would
+    reintroduce the per-site drift the operator called out.
     """
     with open(os.path.join(_dc_path, "hvac.py"), "r") as fh:
         src = fh.read()
     assert "def _is_zone_hvac_established" in src
-    assert "def _zone_has_home_person" in src
+    assert "def _zone_conditioning_retreat_ok" in src
+    # Callers use the shared helper.
+    assert src.count("self._zone_conditioning_retreat_ok(") >= 3
 
 
-def test_swap_row1_preset_flip_reads_fused():
-    """§2a row 1: preset-flip retreat gate reads HVAC-fused."""
+def test_swap_row1_preset_flip_uses_shared_helper():
+    """§2a row 1 + F3 unification: preset-flip retreat gate routes
+    through `_zone_conditioning_retreat_ok(zone)`. Under the wrong-fix
+    failure mode (row-1 reads a raw fused attr or bypasses the helper),
+    the helper's reset-only backstop is not respected on this site.
+    """
     with open(os.path.join(_dc_path, "hvac.py"), "r") as fh:
         hvac_src = fh.read()
-    # Row 1 reads the fused sibling (via `_row1_fused`).
-    assert "_row1_fused" in hvac_src
-    assert 'getattr(zone, "any_room_hvac_occupied"' in hvac_src
+    assert "self._zone_conditioning_retreat_ok(zone)" in hvac_src
+    # Row-1 anchor: `zone_vacant_past_grace = ` under the helper True
+    # branch + `grace_minutes * 60` remains inside.
+    assert "zone_vacant_past_grace = (" in hvac_src
     assert "grace_minutes * 60" in hvac_src
 
 
@@ -892,17 +890,165 @@ def test_d2_binary_sensor_entity_registered_and_reflects_producer():
 def test_d3_defaults_and_tables_present():
     C = _const_mod()
     assert C.DEFAULT_HVAC_VACANCY_HOLD == 60
-    # Fix-up round 2 (2026-09-17 A-MED/B-HIGH-3): night default MUST
-    # be >= day default (monotonicity).
+    # Fix-up round 2: night default MUST be >= day default (monotonicity).
     assert C.DEFAULT_HVAC_VACANCY_HOLD_NIGHT >= C.DEFAULT_HVAC_VACANCY_HOLD
     # Bedroom day = 60s (matches DEFAULT).
     assert C.ROOM_TYPE_HVAC_HOLD["bedroom"] == 60
     # Night table has bigger bedroom tail.
     assert C.ROOM_TYPE_HVAC_HOLD_NIGHT["bedroom"] == 1800
-    assert C.CONF_HVAC_VACANCY_HOLD == "hvac_vacancy_hold"
-    # Night sibling override (D-MED-3, 2026-09-17).
-    assert C.CONF_HVAC_VACANCY_HOLD_NIGHT == "hvac_vacancy_hold_night"
+    # F5 fix-up round 4: CONF_HVAC_VACANCY_HOLD[_NIGHT] dropped.
+    assert not hasattr(C, "CONF_HVAC_VACANCY_HOLD")
+    assert not hasattr(C, "CONF_HVAC_VACANCY_HOLD_NIGHT")
     assert C.ROOM_TYPE_HALLWAY == "hallway"
+
+
+def test_reset_only_backstop_established_home_person_still_retreats():
+    """Fix-up round 4 (2026-09-17): reset-only backstop discriminator.
+
+    Operator-decided contract: person-trust preserve fires ONLY while
+    the zone is UNESTABLISHED. Once established, occupancy alone
+    decides — an empty zone retreats even if a resident's phone reads
+    home elsewhere in the house. This test constructs an ESTABLISHED
+    zone with fused-empty rooms AND a home-person setup; asserts
+    `conditioning_retreat_ok(zone) == True` (retreat authorized).
+
+    Under the wrong-fix failure mode (person-trust re-applied to
+    established path), the helper would return False and this test
+    reds. Revert-in-suite: force `conditioning_retreat_ok` to consult
+    `zone_has_home_person` on the established branch -> RED.
+    """
+    m = _zm_module()
+    zm = m.ZoneManager(MagicMock())
+    zone = m.ZoneState(zone_id="z_reset", zone_name="Reset", climate_entity="c.r")
+    zone.rooms = ["r_a", "r_b"]
+    # zone_persons includes a person; caller can independently look up
+    # `zone_has_home_person`, but the shared helper MUST NOT consult it.
+    zone.zone_persons = ["person.resident"]
+    # Both rooms empty in HVAC denomination.
+    zone.room_conditions = [
+        m.RoomCondition(room_name="r_a", occupied=False, hvac_occupied=False),
+        m.RoomCondition(room_name="r_b", occupied=False, hvac_occupied=False),
+    ]
+    zm._zones["z_reset"] = zone
+    # Seed as established.
+    zm._hvac_seen.update(["r_a", "r_b"])
+    assert zm.is_zone_hvac_established("z_reset") is True
+
+    # ESTABLISHED + fused-empty -> retreat OK (person-trust NOT
+    # consulted on this branch).
+    assert zm.conditioning_retreat_ok(zone) is True
+
+
+def test_reset_only_backstop_unestablished_denies_retreat():
+    """Sibling: unestablished zone MUST deny retreat regardless of
+    fused signal (reset-only backstop). This is the reload/boot gap
+    that closes the ~5x/night cold-retreat.
+    """
+    m = _zm_module()
+    zm = m.ZoneManager(MagicMock())
+    zone = m.ZoneState(zone_id="z_boot", zone_name="Boot", climate_entity="c.b")
+    zone.rooms = ["r_x"]
+    zone.room_conditions = [
+        m.RoomCondition(room_name="r_x", occupied=False, hvac_occupied=False),
+    ]
+    zm._zones["z_boot"] = zone
+    # Do NOT seed _hvac_seen — zone is unestablished at boot.
+    assert zm.is_zone_hvac_established("z_boot") is False
+    # Retreat MUST be denied.
+    assert zm.conditioning_retreat_ok(zone) is False
+
+
+def test_f1_established_with_disabled_room_becomes_ready():
+    """F1 fix-up round 4 (2026-09-17): a zone with a DISABLED room
+    (still in `zone.rooms` but never iterated because the room
+    coordinator is None / disabled) must still be able to reach
+    ESTABLISHED via its live rooms.
+
+    Under the wrong-fix failure mode (all rooms in _hvac_seen), the
+    disabled room would permanently block establishment -> the zone
+    fail-opens forever and never retreats. This test constructs a
+    zone with one live + one disabled room; seeds only the live one
+    as seen; asserts established.
+    """
+    m = _zm_module()
+    zm = m.ZoneManager(MagicMock())
+    zone = m.ZoneState(zone_id="z_mix", zone_name="Mix", climate_entity="c.mx")
+    zone.rooms = ["r_live", "r_disabled"]
+    zm._zones["z_mix"] = zone
+
+    # Only the live room's producer has run.
+    zm._hvac_seen.add("r_live")
+    assert zm.is_zone_hvac_established("z_mix") is True, (
+        "Zone with a disabled room must still establish from its live "
+        "rooms (F1 fix — was permanently unestablished under ALL semantics)"
+    )
+
+
+def test_d9_compose_away_gated_by_shared_helper():
+    """D9 + F3 unification (fix-up round 4): compose-away authorized
+    IFF the shared `conditioning_retreat_ok` helper approves. Two
+    scenarios:
+
+    1. ESTABLISHED + fused-empty -> compose-away allowed (retreat_ok True).
+    2. UNESTABLISHED + fused-empty + home-person -> retreat_ok False
+       (reset-only backstop) -> compose-away NOT allowed.
+
+    Revert-in-suite: force `conditioning_retreat_ok` to always-True
+    (bypass the reset-only backstop) -> the unestablished-branch
+    assertion reds.
+    """
+    m = _zm_module()
+    zm = m.ZoneManager(MagicMock())
+
+    # Established + fused-empty.
+    z1 = m.ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.1")
+    z1.rooms = ["a"]
+    z1.room_conditions = [m.RoomCondition("a", occupied=False, hvac_occupied=False)]
+    zm._zones["z1"] = z1
+    zm._hvac_seen.add("a")
+    assert zm.conditioning_retreat_ok(z1) is True
+
+    # Unestablished + fused-empty.
+    z2 = m.ZoneState(zone_id="z2", zone_name="Z2", climate_entity="c.2")
+    z2.rooms = ["b"]
+    z2.room_conditions = [m.RoomCondition("b", occupied=False, hvac_occupied=False)]
+    zm._zones["z2"] = z2
+    # z2's rooms NOT in _hvac_seen -> unestablished.
+    assert zm.is_zone_hvac_established("z2") is False
+    assert zm.conditioning_retreat_ok(z2) is False
+
+
+def test_f2_throttle_bypass_on_compose_away_source_shape():
+    """F2 fix-up round 4 (2026-09-17): the DPM throttle guard must
+    NOT skip on the compose-away branch. Third-writer restores (S8
+    cancel-nudge, S9 startup ramp-audit in hvac_override.py) write
+    setpoints without updating `_last_emitted_range`; the DPM must
+    overwrite them on the next tick to prevent a zone stranding at
+    comfort setpoints for the night.
+
+    Source-shape guard: the throttle predicate MUST reference
+    `_compose_away` in its skip guard.
+    """
+    with open(os.path.join(_dc_path, "hvac.py"), "r") as fh:
+        src = fh.read()
+    assert "if last == resolved_pair and not _compose_away:" in src, (
+        "F2 throttle bypass on compose-away missing — DPM would strand "
+        "empty zones at comfort setpoints after a third-writer restore"
+    )
+
+
+def test_f4_row10_comfort_delay_uses_shared_helper_source_shape():
+    """F4 fix-up round 4: `_comfort_delay_active` in hvac_override.py
+    must consult `conditioning_retreat_ok` via ZoneManager, so it
+    defers writes during the reload window (unestablished) instead
+    of failing-closed and letting a manual push get stomped.
+    """
+    with open(os.path.join(_dc_path, "hvac_override.py"), "r") as fh:
+        src = fh.read()
+    assert 'zm.conditioning_retreat_ok(zone)' in src, (
+        "F4: row-10 _comfort_delay_active must consult the shared "
+        "retreat-authorization helper"
+    )
 
 
 def test_vacancy_sweep_call_decoupled_from_hvac_denomination():

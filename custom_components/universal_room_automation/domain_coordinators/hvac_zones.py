@@ -533,8 +533,6 @@ class ZoneManager:
             ROOM_TYPE_HVAC_HOLD_NIGHT,
             DEFAULT_HVAC_VACANCY_HOLD,
             DEFAULT_HVAC_VACANCY_HOLD_NIGHT,
-            CONF_HVAC_VACANCY_HOLD,
-            CONF_HVAC_VACANCY_HOLD_NIGHT,
         )
 
         room_coordinators: dict[str, Any] = {}
@@ -565,16 +563,8 @@ class ZoneManager:
                     merged.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)
                     or ROOM_TYPE_GENERIC
                 ),
-                # Per-room hold overrides — separate day / night sliders
-                # so a single override MUST NOT silently affect both
-                # tables (D-MED-3, 2026-09-17). None / empty / 0 falls
-                # through to the room-type table for that house_state.
-                "hvac_vacancy_hold_override": merged.get(
-                    CONF_HVAC_VACANCY_HOLD, None,
-                ),
-                "hvac_vacancy_hold_override_night": merged.get(
-                    CONF_HVAC_VACANCY_HOLD_NIGHT, None,
-                ),
+                # F5 (fix-up round 4): per-room override reads dropped;
+                # tail-hold governed by module-constant tables only.
             }
 
         # v4.7.8 fix-up B-M1 / B4: unify on dt_util.now() (URA-wide convention)
@@ -652,10 +642,6 @@ class ZoneManager:
                         state_occupied=room_occupied,
                         now=now,
                         house_state=house_state,
-                        override_hold=meta.get("hvac_vacancy_hold_override"),
-                        override_hold_night=meta.get(
-                            "hvac_vacancy_hold_override_night",
-                        ),
                     )
 
                 condition = RoomCondition(
@@ -852,18 +838,12 @@ class ZoneManager:
         self,
         room_type: str,
         house_state: str | None,
-        override: Any,
-        override_night: Any = None,
     ) -> int:
         """Return the effective tail-hold window for a room in seconds.
 
         Selects day vs night table by `house_state in FAN_TRUST_STATES`.
-        A truthy per-room override wins over the room-type table for
-        THAT house-state's table only (D-MED-3 fix-up round 2,
-        2026-09-17): `override` is day-only, `override_night` is
-        night-only. A single override MUST NOT silently affect both
-        tables. 0 or None means no override — fall through to the
-        room-type table.
+        F5 fix-up round 4 (2026-09-17): per-room overrides removed —
+        the module-constant tables are the sole source of truth.
         """
         from ..const import (
             ROOM_TYPE_HVAC_HOLD,
@@ -873,17 +853,7 @@ class ZoneManager:
         )
         from .hvac_const import FAN_TRUST_STATES
 
-        night = house_state in FAN_TRUST_STATES
-        effective_override = override_night if night else override
-        if effective_override is not None:
-            try:
-                ov = int(effective_override)
-                if ov > 0:
-                    return ov
-            except (TypeError, ValueError):
-                pass
-
-        if night:
+        if house_state in FAN_TRUST_STATES:
             table = ROOM_TYPE_HVAC_HOLD_NIGHT
             default = DEFAULT_HVAC_VACANCY_HOLD_NIGHT
         else:
@@ -902,8 +872,6 @@ class ZoneManager:
         state_occupied: bool,
         now: datetime,
         house_state: str | None,
-        override_hold: Any,
-        override_hold_night: Any = None,
     ) -> bool:
         """D1 state machine — returns True iff the room is HVAC-occupied.
 
@@ -947,8 +915,7 @@ class ZoneManager:
         tail_expiry = self._hvac_tail_until.get(room_name)
         if tail_expiry is None:
             hold_s = self._effective_hvac_hold_seconds(
-                room_type, house_state, override_hold,
-                override_night=override_hold_night,
+                room_type, house_state,
             )
             if hold_s <= 0:
                 # No tail configured — release immediately.
@@ -970,29 +937,75 @@ class ZoneManager:
         return False
 
     def is_zone_hvac_established(self, zone_id: str) -> bool:
-        """D-HIGH-1 fix-up (2026-09-17): fused-signal establishment check.
+        """Fused-signal establishment check (F1 fix-up round 4, 2026-09-17).
 
-        A zone is HVAC-ESTABLISHED iff every room in `zone.rooms` has
+        A zone is HVAC-ESTABLISHED iff at least one of its rooms has
         been observed by the D1 producer at least once since ZoneManager
-        construction (present in `_hvac_seen`). Callers (D7, row-1,
-        D9) fail-OPEN on unestablished zones — do NOT drive a retreat
-        or compose-away when the fused signal hasn't produced yet.
+        construction (present in `_hvac_seen`).
 
-        Boot / reload rationale: the CM parent reloads ~5x/night wipe
-        in-memory D1 state. Boot-settle can release before the D1
-        producer catches up, and `last_occupied_time` may be seeded
-        past grace by ZoneManager.async_discover_zones for
-        never-occupied zones. Fail-open until the signal is real closes
-        this window without adding wall-clock coupling.
+        F1 rationale (round 4): the previous "all zone.rooms in
+        _hvac_seen" test blocked establishment when ANY room lacked a
+        live coordinator (disabled, in setup_retry, or otherwise
+        absent) — `_hvac_seen` is populated only for rooms iterated
+        in `update_room_conditions` past the `if coordinator is None:
+        continue` gate. That created a permanent fail-open (zone never
+        retreats). The relaxed "any" test lets a zone become established
+        from its live rooms while unaffected by disabled ones. The
+        boot / reload cold-retreat window is still closed by the same
+        producer having to have produced AT LEAST ONCE (the boot-time
+        seeding of `last_occupied_time` past grace hits BEFORE any
+        producer call, so a zone at boot has `_hvac_seen` empty for
+        it and returns False here — reset-only backstop intact).
+
+        Callers (row-1, D7, D9, F4 row-10) use this via
+        `conditioning_retreat_ok` — the single retreat authorization
+        helper.
         """
         zone = self._zones.get(zone_id)
         if zone is None:
             return False
         rooms = list(zone.rooms or [])
         if not rooms:
-            # A zone with no rooms cannot be established.
             return False
-        return all(r in self._hvac_seen for r in rooms)
+        return any(r in self._hvac_seen for r in rooms)
+
+    def conditioning_retreat_ok(self, zone) -> bool:
+        """F3 fix-up round 4 (2026-09-17): unified retreat-authorization.
+
+        Single helper called from row-1 (preset-flip retreat gate), D7
+        (night-trust suppression), D9 (DPM compose-away), and F4 row-10
+        (arrester comfort_delay_active). Returns True IFF the zone is
+        HVAC-ESTABLISHED AND fused-empty — the two conditions that
+        together authorize a conditioning retreat.
+
+        Reset-only backstop (operator-decided round 4): when the zone
+        is UNESTABLISHED, retreat is NEVER authorized — occupancy-alone
+        decides once established. Person-trust preserve was dropped
+        from the ESTABLISHED path (it was over-preserving empty zones
+        while a phone read `home` elsewhere in the house — the
+        "any-resident-home was holding every empty zone all night"
+        failure). Sensor degradation while ESTABLISHED is the mmWave
+        hold's job, not the backstop's; see parked
+        HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1.
+
+        Fail-CLOSED behavior when the zone is missing / unavailable —
+        callers observe `False` (do NOT retreat) so an accessor fault
+        never flips into a spurious retreat.
+        """
+        try:
+            zone_id = getattr(zone, "zone_id", None)
+            if zone_id is None:
+                return False
+            if not self.is_zone_hvac_established(zone_id):
+                return False
+            _fused = getattr(zone, "any_room_hvac_occupied", None)
+            if _fused is None:
+                # Legacy fake shape — fall through to lighting-fused so
+                # bare test zones don't spuriously retreat.
+                _fused = getattr(zone, "any_room_occupied", True)
+            return not bool(_fused)
+        except Exception:  # noqa: BLE001 — defensive; never raise
+            return False
 
     def zone_has_home_person(self, zone, hass) -> bool:
         """Person-trust backstop (D-HIGH-1 companion, 2026-09-17).

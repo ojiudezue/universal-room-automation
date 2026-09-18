@@ -861,17 +861,12 @@ class HVACOccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
         # displayed number reflects any per-room override + day/night
         # selection.
         try:
-            from .const import (
-                CONF_ROOM_TYPE, ROOM_TYPE_GENERIC,
-                CONF_HVAC_VACANCY_HOLD, CONF_HVAC_VACANCY_HOLD_NIGHT,
-            )
+            from .const import CONF_ROOM_TYPE, ROOM_TYPE_GENERIC
             merged = {
                 **self.coordinator.entry.data,
                 **self.coordinator.entry.options,
             }
             room_type = merged.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC) or ROOM_TYPE_GENERIC
-            override = merged.get(CONF_HVAC_VACANCY_HOLD, None)
-            override_night = merged.get(CONF_HVAC_VACANCY_HOLD_NIGHT, None)
             house_state = None
             try:
                 manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -881,8 +876,7 @@ class HVACOccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
                 house_state = None
             attrs["room_type"] = room_type
             attrs["hvac_vacancy_hold_s"] = zm._effective_hvac_hold_seconds(
-                room_type, house_state, override,
-                override_night=override_night,
+                room_type, house_state,
             )
         except Exception:  # noqa: BLE001
             pass

@@ -1805,41 +1805,23 @@ class HVACCoordinator(BaseCoordinator):
                 # preset-decision site — hallway transits must not keep
                 # a bedroom zone in `home` past a legitimate retreat.
                 # Only override "home"/"sleep" presets — away/vacation are already correct.
-                # HVAC-ZONE-CONDITIONING-DEMAND-1 D-HIGH-1 fix-up
-                # (2026-09-17): row-1 fail-OPEN + person-trust backstop.
-                # An unestablished zone (no D1 producer read yet for
-                # any room) must NOT drive a night-retreat — the ~5x/
-                # night CM reload wipes in-memory D1 state and can
-                # seed last_occupied_time past grace on first tick.
-                # Additionally, under FAN_TRUST_STATES the v4.7.13-style
-                # person-trust veto is restored as a backstop: if
-                # zone_persons phone reads `home` AND the fused signal
-                # is unestablished, do NOT retreat. Normal established-
-                # fused path is unchanged (cycle's intent).
-                _row1_fused_raw = getattr(zone, "any_room_hvac_occupied", None)
-                if _row1_fused_raw is None:
-                    # Legacy fake shape — fail-OPEN via lighting-fused.
-                    _row1_fused = getattr(zone, "any_room_occupied", True)
-                else:
-                    _row1_fused = _row1_fused_raw
-                _row1_established = self._is_zone_hvac_established(zone)
-                # Fail-open when unestablished OR (night-flank + a
-                # home-person known here). Established+empty at night
-                # still retreats — that IS the cycle's intent.
-                _row1_fail_open = (not _row1_established) or (
-                    self._house_state in FAN_TRUST_STATES
-                    and not _row1_fused
-                    and self._zone_has_home_person(zone)
-                )
-                if _row1_fail_open:
-                    zone_vacant_past_grace = False
-                else:
+                # HVAC-ZONE-CONDITIONING-DEMAND-1 row-1 (fix-up round 4,
+                # 2026-09-17 — F3 unification + reset-only backstop).
+                # Retreat authorized iff `conditioning_retreat_ok` (i.e.
+                # ESTABLISHED AND fused-empty). Person-trust preserve
+                # dropped from this path — occupancy alone decides once
+                # established (operator: "kills the over-preservation
+                # where any-resident-home held every empty zone all
+                # night"). Unestablished zones fail-open (no retreat)
+                # via the shared helper's reset-only backstop.
+                if self._zone_conditioning_retreat_ok(zone):
                     zone_vacant_past_grace = (
-                        not _row1_fused
-                        and zone.last_occupied_time is not None
+                        zone.last_occupied_time is not None
                         and (now - zone.last_occupied_time).total_seconds()
                         > grace_minutes * 60
                     )
+                else:
+                    zone_vacant_past_grace = False
 
                 if zone_vacant_past_grace and target_preset in ("home", "sleep"):
                     effective_preset = "away"
@@ -2107,32 +2089,18 @@ class HVACCoordinator(BaseCoordinator):
             # (project_zone_away_when_occupied_home_night_gap.md): Zone 1
             # flipped to `away` 7+ times during home_night because this
             # gate was sleep-only.
-            # HVAC-ZONE-CONDITIONING-DEMAND-1 D7 (2026-09-16, revised
-            # 2026-09-17 for D-HIGH-1 / D-MED-2). Unified fail-OPEN
-            # polarity with row-1 + person-trust backstop.
-            #
-            # Retreat (let `away` stand) only when the zone is
-            # ESTABLISHED (D1 has read every room >=1x) AND fused-empty.
-            # Otherwise fall through to the LEGACY home_persons block
-            # below — that block preserves `home` when any zone_persons
-            # phone reads `home`, which is the v4.7.13 veto and now the
-            # backstop for the unestablished / degraded case (D-HIGH-1
-            # closure: ~5x/night CM reload wipes D1 in-memory state; a
-            # sleeping bedroom must not retreat until the fused signal
-            # has proven itself real for this zone).
-            _d7_fused_raw = getattr(zone, "any_room_hvac_occupied", None)
-            if _d7_fused_raw is None:
-                _d7_fused = getattr(zone, "any_room_occupied", True)
-            else:
-                _d7_fused = _d7_fused_raw
-            _d7_should_retreat = (
-                self._is_zone_hvac_established(zone)
-                and not _d7_fused
-            )
+            # HVAC-ZONE-CONDITIONING-DEMAND-1 D7 (fix-up round 4,
+            # 2026-09-17). Uses the shared `_zone_conditioning_retreat_ok`
+            # helper (F3). Preserve preset iff retreat is NOT authorized —
+            # i.e. iff the zone is unestablished (reset-only backstop) OR
+            # fused-occupied. When established+empty, we FALL THROUGH
+            # (no suppression) and `away` stands. Person-trust preserve
+            # dropped from the established path per operator round-4
+            # decision.
             if (
                 effective_preset == "away"
                 and self._house_state in FAN_TRUST_STATES
-                and not _d7_should_retreat
+                and not self._zone_conditioning_retreat_ok(zone)
             ):
                 home_persons = []
                 try:
@@ -2649,21 +2617,16 @@ class HVACCoordinator(BaseCoordinator):
                 # `target_preset`, no retreat. Only ESTABLISHED empty
                 # zones compose-away.
                 #
-                # Reads `any_room_hvac_occupied` — NEVER `any_room_occupied`
-                # (lighting-fused hallway crossing would keep DPM writing
-                # baseline) and NEVER a raw substrate entity.
-                _fused = getattr(zone, "any_room_hvac_occupied", None)
-                if _fused is None:
-                    # Legacy fake / not-yet-populated zone shape — treat
-                    # as occupied so the pre-cycle path proceeds.
-                    _fused = getattr(zone, "any_room_occupied", True)
+                # Fix-up round 4 (2026-09-17, F3 unification): compose-away
+                # only when the SHARED retreat-authorization helper says
+                # retreat is OK. That helper wraps: ESTABLISHED AND
+                # fused-empty (reset-only backstop — see F3 in
+                # ZoneManager.conditioning_retreat_ok). Callers of D9,
+                # row-1, D7, and F4 row-10 all now consult the same
+                # oracle so the preset-layer preserve is never defeated
+                # at the setpoint layer.
                 _rc_ready = bool(getattr(zone, "room_conditions", None))
-                _zone_established = self._is_zone_hvac_established(zone)
-                _compose_away = (
-                    _rc_ready
-                    and _zone_established
-                    and not _fused
-                )
+                _compose_away = _rc_ready and self._zone_conditioning_retreat_ok(zone)
                 if _compose_away:
                     zone_target_preset = "away"
                     try:
@@ -2708,10 +2671,21 @@ class HVACCoordinator(BaseCoordinator):
                     freeze_active=self._freeze_active,
                 )
 
-                # Throttle: skip if resolved range matches last emitted
+                # Throttle: skip if resolved range matches last emitted.
+                # F2 fix-up round 4 (2026-09-17): BYPASS the throttle on
+                # compose-away. Third-writer restores (S8 cancel-nudge,
+                # S9 startup ramp-audit restore in hvac_override.py) emit
+                # comfort setpoints without updating `_last_emitted_range`.
+                # Without this bypass, the throttle sees a stale "away"
+                # entry, skips the corrective emit, and the zone strands
+                # at comfort setpoints for the rest of the night. Emitting
+                # unconditionally on the compose-away branch is by-design:
+                # the DPM is the CORRECTOR — its whole job on an
+                # established empty zone is to overwrite any third-writer
+                # restore back to `away` on the next tick.
                 last = self._last_emitted_range.get(zone_id)
                 resolved_pair = (emit_low, emit_high)
-                if last == resolved_pair:
+                if last == resolved_pair and not _compose_away:
                     continue
 
                 # Suppress arrester so set_temperature isn't flagged as manual override
@@ -3485,13 +3459,7 @@ class HVACCoordinator(BaseCoordinator):
         )
 
     def _is_zone_hvac_established(self, zone) -> bool:
-        """HVAC-ZONE-CONDITIONING-DEMAND-1 D-HIGH-1 fix-up (2026-09-17).
-
-        Delegate to ZoneManager.is_zone_hvac_established. Fail-safely
-        returns False when the zone manager or zone_id is unavailable —
-        callers then take the fail-OPEN branch (preserve preset / no
-        retreat). Never raises.
-        """
+        """Delegate — never raises. See ZoneManager.is_zone_hvac_established."""
         try:
             zm = getattr(self, "_zone_manager", None)
             zone_id = getattr(zone, "zone_id", None)
@@ -3501,13 +3469,22 @@ class HVACCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             return False
 
-    def _zone_has_home_person(self, zone) -> bool:
-        """Person-trust backstop delegate. Never raises."""
+    def _zone_conditioning_retreat_ok(self, zone) -> bool:
+        """F3 fix-up round 4 (2026-09-17): unified retreat authorization.
+
+        Single call site for row-1 preset-flip retreat, D7 night-trust
+        suppression, D9 DPM compose-away, and F4 arrester comfort-delay.
+        Returns True IFF established AND fused-empty. Never raises;
+        fail-CLOSED (returns False) on any accessor fault. See
+        ZoneManager.conditioning_retreat_ok for the full semantics
+        (reset-only backstop; person-trust dropped from the established
+        path).
+        """
         try:
             zm = getattr(self, "_zone_manager", None)
-            if zm is None or not hasattr(zm, "zone_has_home_person"):
+            if zm is None or not hasattr(zm, "conditioning_retreat_ok"):
                 return False
-            return bool(zm.zone_has_home_person(zone, self.hass))
+            return bool(zm.conditioning_retreat_ok(zone))
         except Exception:  # noqa: BLE001
             return False
 

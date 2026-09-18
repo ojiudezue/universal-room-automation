@@ -784,34 +784,17 @@ class TestD3_ZonePresetPersonTrust:
         """
         assert 'effective_preset == "away"' in src
         assert "self._house_state in FAN_TRUST_STATES" in src
-        # HVAC-ZONE-CONDITIONING-DEMAND-1 fix-up round 2 (2026-09-17,
-        # D-HIGH-1): the D7 gate was refactored so the fused-signal
-        # read (`_d7_fused` from `any_room_hvac_occupied`) is computed
-        # ABOVE the outer if and combined with `_is_zone_hvac_
-        # established` into a `_d7_should_retreat` variable. This
-        # preserves both intent (fused-gated retreat) AND fail-open
-        # polarity for the unestablished/degraded case. Anchor: the
-        # outer if MUST reference `_d7_should_retreat` and the block
-        # ABOVE the if must compute `_d7_fused` from the sibling.
-        # Anchor to the D7-specific compute — not the row-1 site.
-        anchor_if = "_d7_fused_raw = getattr(zone, \"any_room_hvac_occupied\""
-        idx = src.find(anchor_if)
-        assert idx > 0, "D7 outer-if header shape not found"
-        # A widened scan around the anchor picks up the compute lines.
-        scan = src[max(0, idx - 1000): idx + 800]
-        code_only = "\n".join(
-            ln for ln in scan.split("\n")
-            if not ln.lstrip().startswith("#")
+        # HVAC-ZONE-CONDITIONING-DEMAND-1 fix-up round 4 (2026-09-17,
+        # F3): the D7 gate now routes through the shared helper
+        # `_zone_conditioning_retreat_ok(zone)`. That helper encodes
+        # ESTABLISHED-AND-not-fused with the reset-only backstop.
+        # Anchor: the D7 outer if MUST reference the shared helper.
+        assert "self._zone_conditioning_retreat_ok(zone)" in src, (
+            "D7 must consult the F3 shared retreat-authorization helper"
         )
-        assert '_d7_should_retreat' in code_only, (
-            "D7 outer if MUST gate on _d7_should_retreat"
-        )
-        assert 'any_room_hvac_occupied' in code_only, (
-            "D7 must read `any_room_hvac_occupied` in its compute block"
-        )
-        assert '_is_zone_hvac_established' in code_only, (
-            "D7 must fail-OPEN on unestablished zones via helper"
-        )
+        # Helper delegates to ZoneManager.conditioning_retreat_ok which
+        # internally checks is_zone_hvac_established (reset-only backstop).
+        assert "conditioning_retreat_ok" in src
 
     def test_zone_preset_person_trust_no_bare_sleep_compare(self, src: str) -> None:
         # The trust branch must NOT still test bare sleep equality.
@@ -850,34 +833,23 @@ class TestD3_ZonePresetPersonTrust:
         the same invariants (`if home_persons:` and no
         `StateInferenceEngine` reference).
         """
-        # HVAC-ZONE-CONDITIONING-DEMAND-1 fix-up round 2 (2026-09-17):
-        # outer if now gates on `_d7_should_retreat`. Anchor on the
-        # `if (` line + FAN_TRUST_STATES membership check.
-        anchor = 'if (\n                effective_preset == "away"\n                and self._house_state in FAN_TRUST_STATES\n                and not _d7_should_retreat'
+        # HVAC-ZONE-CONDITIONING-DEMAND-1 fix-up round 4 (2026-09-17,
+        # F3): outer if now gates on
+        # `not self._zone_conditioning_retreat_ok(zone)`. Anchor on the
+        # multi-line `if (` header + shared helper.
+        anchor = (
+            'if (\n'
+            '                effective_preset == "away"\n'
+            '                and self._house_state in FAN_TRUST_STATES\n'
+            '                and not self._zone_conditioning_retreat_ok(zone)'
+        )
         idx = src.find(anchor)
-        assert idx > 0, "D7 outer-if header shape not found"
+        assert idx > 0, "D7 outer-if header shape not found (fix-up round 4)"
         body = src[idx: idx + 2500]
         # `home_persons` predicate is still non-empty gated (bidirectionality).
         assert "if home_persons:" in body
         # The away-veto runs upstream in presence.py and is not coupled.
         assert "StateInferenceEngine" not in body
-        # Fix-up round 2: the fused read is computed ABOVE the if
-        # into `_d7_fused` and combined with the establishment helper
-        # (`_is_zone_hvac_established`) into `_d7_should_retreat`.
-        # Verify the whole scaffold is present (fused read + helper
-        # + retreat variable + fail-OPEN comment cue).
-        wider = src[max(0, idx - 1200): idx + 400]
-        wider_code = "\n".join(
-            ln for ln in wider.split("\n")
-            if not ln.lstrip().startswith("#")
-        )
-        assert 'any_room_hvac_occupied' in wider_code, (
-            "D7 must consult the fused sibling"
-        )
-        assert '_is_zone_hvac_established' in wider_code, (
-            "D7 must fail-OPEN via _is_zone_hvac_established"
-        )
-        assert '_d7_should_retreat' in wider_code
 
 
 # -------------------------------- D4: Mode-2 BLE recheck stays sleep-only
