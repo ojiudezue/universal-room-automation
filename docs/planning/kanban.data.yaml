@@ -607,6 +607,15 @@ cards:
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  DISPOSITION_2026_09_18: 'Operator AGREED: delete Path B. Overlap analysis: Path A window = 10am-2pm
+    (ENERGY_PRECOOL_HOUR_START=10, PEAK_HOUR_START=14, self-clears at 2pm). Path B fires EVENING (observed
+    21:00; midday=normal) because its soc<50 gate is only met AFTER the 4-8pm coast discharges the battery
+    -> no functional overlap in practice (by the time Path B sets pre_cool, Path A is already hour-gated
+    off). Suppression = harm-in-principle, LOW urgency; the visible defect is the misleading 9pm label.
+    RESIDUAL RARE EDGE: SOC<50 persisting through 10am-2pm (weak-charge AM) + good forecast + midday off-
+    peak -> Path B could fire in Path A window and suppress it (uncommon). DELETE closes label + edge, zero
+    downside (no positive consumer). READY to build fresh (Tier 1-2): remove energy.py:7427-7434 pre_cool
+    branch; EC stays normal in those windows; verify suite + a boot check that Path A eligibility restored.'
   SAFE_TO_DELETE_CONFIRMED_2026_09_18: 'Pre-delete safety greps CLEAN. (a) fan/cover controllers do NOT
     branch on pre_cool mode. (b) the ONLY functional readers of a non-normal mode are two predictor gates -
     hvac_predict.py:719 (Path A suppression) + :335 (_update_pre_cool_likelihood), BOTH require mode==normal
