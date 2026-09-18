@@ -298,6 +298,69 @@ meta:
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated, headline: "PERIMETER-ALERT-VOLUME-FATIGUE-1 \u2014 MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working \u2014 so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).", acknowledged: false}
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
+- id: HVAC-DEGRADED-ROOM-TRIPWIRE-1
+  status: planned
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, no-soak, trip-wire, safety-gate-residual]
+  title: A zone with a permanently-disabled/setup_retry room never establishes (is_zone_hvac_established
+    all()) -> conditioning-demand feature INERT for that zone, silently
+  problem_solution:
+  - 'Problem: step-4-B gates retreat on is_zone_hvac_established = all(rooms readable). A room stuck
+    disabled / setup_retry is never in _hvac_seen -> zone never establishes -> the whole conditioning-
+    demand debounce is inert for that zone, with no signal. Benign direction (never wrongly retreats)
+    but silent. Solution: a code TRIP-WIRE (No-Soak) that detects a zone with a chronically-unreadable
+    room and surfaces it (NM / an anomaly / a diag attr) — NOT a relaxation of the all() gate.'
+  why: 'Left as the deliberate residual of the round-5 F1 revert (any->all). all() is the safe gate;
+    the cost is silent inertness on a degraded zone. Surface it rather than trade safety for coverage.'
+  next: 'Add a trip-wire: on each cycle, if a zone has a room whose coordinator has been absent > N ticks,
+    emit once to NM / set a diag flag. Reuse the stuck-signal watchdog pattern. Tier 1-2.'
+  parsimony: {problem: 'a disabled room silently disables conditioning-demand for its whole zone', verdict: BUILD, note: 'small trip-wire; do NOT relax the gate'}
+  links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'residual of the round-5 F1 all() revert'}
+- id: HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1
+  status: planned
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, blocker, carrier-write-sensitivity, do-before-enable]
+  title: BLOCKER on enabling guest_mode_actuation — F2 compose-away throttle bypass is unconditional
+    (12 set_temperature/hr/zone to Carrier cloud)
+  problem_solution:
+  - 'Problem: D9 compose-away bypasses the _last_emitted_range throttle UNCONDITIONALLY, so once
+    guest_mode_actuation (Custom Preset Ranges) is enabled, an empty night zone emits ~12 set_temperature
+    calls/hr/zone to the Carrier cloud indefinitely (no wire dedupe), against documented write-sensitivity
+    + reload-storm history. Dormant today (switch OFF). Solution: narrow the bypass to EDGE-TRIGGERED
+    _last_emitted_range invalidation on the S8/S9 restore sites, OR compare against live ground-truth
+    setpoints and emit only on real diff.'
+  why: 'D9 is inert live (guest_mode_actuation OFF), so not a pre-ship fix — but it is a hard BLOCKER
+    that must land BEFORE that switch is ever turned on, or it storms the thermostat cloud.'
+  next: 'Before enabling Custom Preset Ranges: replace the unconditional compose-away bypass with a
+    ground-truth setpoint compare (house rule) or S8/S9 cache invalidation. Then the compose-away
+    acceptance criteria become live-verifiable.'
+  parsimony: {problem: 'unconditional throttle bypass = steady write-storm once the feature is on', verdict: BUILD, note: 'gate on enabling the switch'}
+  links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], sibling_of: [HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1], context: 'F2 residual; blocker on guest_mode_actuation'}
+- id: HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1
+  status: planned
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, pre-existing, setpoint-vs-mode]
+  title: S8/S9/S11/S13-return writers emit comfort setpoints to an empty night zone without updating
+    _last_emitted_range — uncorrected live because D9 (intended corrector) is dormant
+  problem_solution:
+  - 'Problem: the restore-class writers (S8 cancel-nudge, S9 ramp-audit, S11 release-banked, S13 pre-heat
+    return; hvac_override.py:5814/6220, hvac_predict.py:976/1507) emit comfort setpoints and do NOT update
+    _last_emitted_range. The design intent is that the DPM compose-away corrects them next tick — but D9
+    is dormant (guest_mode_actuation OFF), so live these strand an empty night zone at comfort setpoints
+    for up to a night. Solution: the restore sites invalidate _last_emitted_range (or retarget to the
+    zone-correct baseline) so whatever corrector runs re-emits.'
+  why: 'Pre-existing (predates step-4-B); surfaced by the round-4 adversarial enumeration. Currently a
+    live ≤overnight stranding surface on any zone that gets a nudge/ramp/banked restore while empty.'
+  next: 'Measure how often a restore fires on an empty zone (recorder) before scoping; likely small.
+    Fix = the restore sites update _last_emitted_range. Coordinate with the compose-away blocker.'
+  parsimony: {problem: 'restore writers strand empty zones; the intended corrector is dormant', verdict: BUILD, note: 'measure-first; pre-existing'}
+  links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1], context: 'round-4 adversarial 4th-writer enumeration'}
 - id: HVAC-SETHVACMODE-CHOKEPOINT-1
   status: planned
   thread: hvac
@@ -10959,6 +11022,16 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  ROUND5_DONE_2026_09_17: 'Round-5 landed @f88f4bc84. F1 reverted any->all (retreat requires ALL rooms
+    readable; 2 discriminating tests, mutation all->any reds them). Energy-restart NEW RESOLVED by
+    definitive revert-in-suite: develop source + branch tests -> the 2 TestBillingRestoreDaily STILL
+    FAIL -> pre-existing develop-side collection-order artifact, NOT branch-caused (my earlier NEW=2 was
+    a lucky-order baseline hiding them). Builder name-diff NEW=0/GONE=0. README_v5.103.7 written: LIVE-
+    ACTIVE = D1 circulation excl + row-1/D7 fused retreat + D8 night hold + reset-only backstop + D5
+    migration + hallway enum + D2 diag + vacancy-sweep decouple; DORMANT behind guest_mode_actuation
+    (Custom Preset Ranges, live OFF) = D9 compose-away + F2 + F4, marked NOT live-verifiable. Live
+    discriminator = zone_3 daytime flip-rate drop from 56-62/day. ORCHESTRATOR re-running own name-diff
+    (bvy5c7jpx) before ship.'
   AWAY_CAUSE_ATTRIBUTED_2026_09_17: 'Operator asked if zone_3 away is EC coast or duty-cycle, not
     vacancy. ATTRIBUTED from ura_activity_log preset_change reasons (zone_3, last 3d): vacant_past_grace
     89 (84%), runtime_exceeded 13 (12%), house_state_transition 4. ZERO EC coast/shed rows. So: NOT
