@@ -12165,6 +12165,11 @@ class HVACModeSensor(AggregationEntity, SensorEntity, RestoreEntity):
                         hvac, "_energy_constraint_mode_since", None,
                     )
                     if ec is None and current_since is None:
+                        # EC pre_cool retired (v5.103.11): a stale
+                        # restored `pre_cool` must never seed the live
+                        # field — map it back to `normal`.
+                        if restored_mode == "pre_cool":
+                            restored_mode = "normal"
                         hvac._energy_constraint_mode = restored_mode
                         hvac._energy_constraint_mode_since = restored_since
 

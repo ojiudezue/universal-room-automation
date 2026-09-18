@@ -1,41 +1,42 @@
-"""Behavioral + source-anchored test for the assistive per-room HVAC
-vacancy-hold day/night config_flow fields.
+"""Behavioral test for the per-room HVAC vacancy-hold day/night config_flow
+fields (post-C1-fix).
 
-D2 of EC-PRECOOL-DELETE + vacancy-hold assistive UI cycle: when the
-operator has NOT set an explicit value for `hvac_vacancy_hold` /
-`_night`, the config_flow's `suggested_value` for that field must fall
-back to the room's TYPE default from `ROOM_TYPE_HVAC_HOLD[_NIGHT]` (so
-the operator sees what "good" is for THIS room). An explicit value
-(including 0) must be preserved. The runtime fallback + night>=day
-clamp are unaffected and covered by their own suites.
+Invariant (falsifiable): in `async_step_climate`'s returned schema, the
+`suggested_value` for `CONF_HVAC_VACANCY_HOLD[_NIGHT]` reflects ONLY the
+persisted `_get_current` value — it does NOT fall through to the room-TYPE
+default. This preserves the "unset -> follows the ROOM_TYPE table" invariant
+because a prefilled `suggested_value` is RETURNED in `user_input` on submit
+in HA option flows; falling through would silently PIN unset rooms on any
+climate-step submit.
 
-This test is DOUBLE-ANCHORED:
-1. Source-anchor: the config_flow.py source contains the exact
-   `ROOM_TYPE_HVAC_HOLD.get(..., DEFAULT_HVAC_VACANCY_HOLD)` fallback
-   for BOTH fields inside their `suggested_value` expressions. Removing
-   the fallback (or reverting to plain `_get_current(...)`) reddens
-   the source assertion.
-2. Behavioral: a stand-alone reproduction of the exact suggested-value
-   expression produces the type default for None, and preserves an
-   explicit value (incl. 0). Removing the None-check reddens the
-   behavior assertion.
+DRIVES the real production `async_step_climate` and extracts
+`vol.Optional(...).description["suggested_value"]` for the two hold fields
+from the returned flow result's `data_schema`.
+
+MUTATION-ANCHOR (report):
+- Re-inserting the `ROOM_TYPE_HVAC_HOLD.get(..., DEFAULT_...)` fallthrough
+  into the `suggested_value` expression (i.e. the pre-C1 code) flips the
+  extracted value for an UNSET bedroom from None -> 60 (day) / 1800 (night),
+  reddening `test_unset_bedroom_suggests_blank_day/night`.
+- Inverting the effective None-check (e.g. `if current is None` instead of
+  `is not None`) similarly reddens the UNSET assertions.
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
 
+import pytest
+import voluptuous as vol
+
+from custom_components.universal_room_automation import config_flow as _cf
 from custom_components.universal_room_automation.const import (
     CONF_HVAC_VACANCY_HOLD,
     CONF_HVAC_VACANCY_HOLD_NIGHT,
     CONF_ROOM_TYPE,
-    DEFAULT_HVAC_VACANCY_HOLD,
-    DEFAULT_HVAC_VACANCY_HOLD_NIGHT,
     ROOM_TYPE_BEDROOM,
-    ROOM_TYPE_GENERIC,
     ROOM_TYPE_HALLWAY,
-    ROOM_TYPE_HVAC_HOLD,
-    ROOM_TYPE_HVAC_HOLD_NIGHT,
 )
 
 _CONFIG_FLOW_PY = os.path.join(
@@ -44,84 +45,126 @@ _CONFIG_FLOW_PY = os.path.join(
 )
 
 
-def _suggested_day(current, room_type):
-    """Mirror the exact expression in config_flow.py:async_step_climate
-    for CONF_HVAC_VACANCY_HOLD suggested_value."""
-    return (
-        current
-        if current is not None
-        else ROOM_TYPE_HVAC_HOLD.get(room_type or ROOM_TYPE_GENERIC, DEFAULT_HVAC_VACANCY_HOLD)
+class _StubEntry:
+    """Minimal ConfigEntry surrogate with `.options` and `.data` dicts."""
+
+    def __init__(self, options=None, data=None):
+        self.entry_id = "test_entry"
+        self.options = options or {}
+        self.data = data or {}
+
+
+def _build_flow(options=None, data=None):
+    flow = _cf.UniversalRoomAutomationOptionsFlow(_StubEntry(options, data))
+    return flow
+
+
+def _walk_schema(schema):
+    """Yield (key_marker, value) pairs recursively across nested vol.Schema
+    and HA `Section` wrappers (both expose an inner schema via `.schema`)."""
+    inner = None
+    if isinstance(schema, dict):
+        inner = schema
+    elif isinstance(schema, vol.Schema):
+        inner = schema.schema
+    else:
+        sub = getattr(schema, "schema", None)
+        if isinstance(sub, (vol.Schema, dict)):
+            yield from _walk_schema(sub)
+        return
+    for marker, value in inner.items():
+        yield marker, value
+        # Recurse into value if it wraps a nested schema (vol.Schema, dict,
+        # or HA Section — Section carries `.schema` too).
+        if isinstance(value, (vol.Schema, dict)):
+            yield from _walk_schema(value)
+        else:
+            sub = getattr(value, "schema", None)
+            if isinstance(sub, (vol.Schema, dict)):
+                yield from _walk_schema(sub)
+
+
+def _extract_suggested(flow_result, conf_key):
+    """Find the vol.Optional(conf_key, ...) marker in the returned schema
+    and return its `description["suggested_value"]` (None if unset)."""
+    data_schema = flow_result["data_schema"]
+    for marker, _value in _walk_schema(data_schema):
+        # Voluptuous Optional markers carry `.schema` == the key string.
+        if getattr(marker, "schema", None) == conf_key:
+            desc = getattr(marker, "description", None)
+            if isinstance(desc, dict):
+                return desc.get("suggested_value")
+    raise AssertionError(f"CONF key {conf_key!r} not found in climate schema")
+
+
+def _run_climate(options=None, data=None):
+    flow = _build_flow(options=options, data=data)
+    return asyncio.get_event_loop().run_until_complete(
+        flow.async_step_climate(user_input=None)
+    ) if False else asyncio.new_event_loop().run_until_complete(
+        flow.async_step_climate(user_input=None)
     )
 
 
-def _suggested_night(current, room_type):
-    return (
-        current
-        if current is not None
-        else ROOM_TYPE_HVAC_HOLD_NIGHT.get(room_type or ROOM_TYPE_GENERIC, DEFAULT_HVAC_VACANCY_HOLD_NIGHT)
+# --------- Behavioral tests: schema-extracted suggested_value ---------
+
+@pytest.mark.parametrize("room_type", [ROOM_TYPE_BEDROOM, ROOM_TYPE_HALLWAY])
+def test_unset_bedroom_suggests_blank_day(room_type):
+    """UNSET day field must produce suggested_value=None regardless of
+    room type — no type-default fallthrough on the suggestion channel."""
+    result = _run_climate(data={CONF_ROOM_TYPE: room_type})
+    assert _extract_suggested(result, CONF_HVAC_VACANCY_HOLD) is None
+
+
+@pytest.mark.parametrize("room_type", [ROOM_TYPE_BEDROOM, ROOM_TYPE_HALLWAY])
+def test_unset_bedroom_suggests_blank_night(room_type):
+    result = _run_climate(data={CONF_ROOM_TYPE: room_type})
+    assert _extract_suggested(result, CONF_HVAC_VACANCY_HOLD_NIGHT) is None
+
+
+def test_explicit_zero_is_preserved_day():
+    result = _run_climate(
+        options={CONF_HVAC_VACANCY_HOLD: 0},
+        data={CONF_ROOM_TYPE: ROOM_TYPE_BEDROOM},
     )
+    assert _extract_suggested(result, CONF_HVAC_VACANCY_HOLD) == 0
 
 
-class TestSuggestedValueSemantics:
-    def test_unset_bedroom_suggests_type_default_day(self):
-        assert _suggested_day(None, ROOM_TYPE_BEDROOM) == ROOM_TYPE_HVAC_HOLD[ROOM_TYPE_BEDROOM]
-
-    def test_unset_bedroom_suggests_type_default_night(self):
-        assert _suggested_night(None, ROOM_TYPE_BEDROOM) == ROOM_TYPE_HVAC_HOLD_NIGHT[ROOM_TYPE_BEDROOM]
-
-    def test_unset_hallway_suggests_zero(self):
-        # Hallway is the never-hold circulation exclusion.
-        assert _suggested_day(None, ROOM_TYPE_HALLWAY) == 0
-        assert _suggested_night(None, ROOM_TYPE_HALLWAY) == 0
-
-    def test_unknown_room_type_falls_to_module_default(self):
-        assert _suggested_day(None, "not_a_type") == DEFAULT_HVAC_VACANCY_HOLD
-        assert _suggested_night(None, "not_a_type") == DEFAULT_HVAC_VACANCY_HOLD_NIGHT
-
-    def test_explicit_zero_is_preserved(self):
-        # Explicit 0 = operator-selected never-hold on a non-hallway room.
-        assert _suggested_day(0, ROOM_TYPE_BEDROOM) == 0
-        assert _suggested_night(0, ROOM_TYPE_BEDROOM) == 0
-
-    def test_explicit_value_is_preserved(self):
-        assert _suggested_day(300, ROOM_TYPE_BEDROOM) == 300
-        assert _suggested_night(2400, ROOM_TYPE_BEDROOM) == 2400
+def test_explicit_zero_is_preserved_night():
+    result = _run_climate(
+        options={CONF_HVAC_VACANCY_HOLD_NIGHT: 0},
+        data={CONF_ROOM_TYPE: ROOM_TYPE_BEDROOM},
+    )
+    assert _extract_suggested(result, CONF_HVAC_VACANCY_HOLD_NIGHT) == 0
 
 
-class TestConfigFlowSourceAnchor:
-    """Mutation-anchor: the config_flow source MUST contain the exact
-    ROOM_TYPE_HVAC_HOLD[_NIGHT] fallback inside both suggested_value
-    expressions. If a future edit reverts to a plain
-    `_get_current(...)` without the type-default fallback, these fail.
-    """
+def test_explicit_value_is_preserved_day():
+    result = _run_climate(
+        options={CONF_HVAC_VACANCY_HOLD: 300},
+        data={CONF_ROOM_TYPE: ROOM_TYPE_BEDROOM},
+    )
+    assert _extract_suggested(result, CONF_HVAC_VACANCY_HOLD) == 300
 
-    @classmethod
-    def setup_class(cls):
-        with open(_CONFIG_FLOW_PY, "r") as fh:
-            cls.src = fh.read()
 
-    def test_day_field_has_type_default_fallback(self):
-        # A collapsed one-line match tolerates whitespace variation.
-        collapsed = " ".join(self.src.split())
-        assert "CONF_HVAC_VACANCY_HOLD," in collapsed
-        # The day fallback references ROOM_TYPE_HVAC_HOLD.get( ..., DEFAULT_HVAC_VACANCY_HOLD )
-        assert "ROOM_TYPE_HVAC_HOLD.get(" in collapsed
-        assert "DEFAULT_HVAC_VACANCY_HOLD" in collapsed
+def test_explicit_value_is_preserved_night():
+    result = _run_climate(
+        options={CONF_HVAC_VACANCY_HOLD_NIGHT: 300},
+        data={CONF_ROOM_TYPE: ROOM_TYPE_BEDROOM},
+    )
+    assert _extract_suggested(result, CONF_HVAC_VACANCY_HOLD_NIGHT) == 300
 
-    def test_night_field_has_type_default_fallback(self):
-        collapsed = " ".join(self.src.split())
-        assert "CONF_HVAC_VACANCY_HOLD_NIGHT," in collapsed
-        assert "ROOM_TYPE_HVAC_HOLD_NIGHT.get(" in collapsed
-        assert "DEFAULT_HVAC_VACANCY_HOLD_NIGHT" in collapsed
 
-    def test_help_text_mentions_zero_disabled(self):
-        # Translation help text should include the operator-friendly
-        # "0 = disabled" guidance for both fields.
-        en_path = os.path.join(
-            os.path.dirname(_CONFIG_FLOW_PY), "translations", "en.json",
-        )
-        with open(en_path, "r") as fh:
-            en = fh.read()
-        assert "0 = disabled" in en
-        # Both fields carry the guidance (two occurrences).
-        assert en.count("0 = disabled") >= 2
+# --------- Source-level: help text describes reject-on-below (C3) ---------
+
+def test_help_text_describes_reject_on_night_below_day():
+    en_path = os.path.join(
+        os.path.dirname(_CONFIG_FLOW_PY), "translations", "en.json",
+    )
+    with open(en_path, "r") as fh:
+        en = fh.read()
+    # C3: reworded from "auto-clamped to >= day" to reject-on-form,
+    # runtime-clamp-blank-only wording.
+    assert "rejects a night below day" in en, (
+        "help text must state the form rejects a night below day"
+    )
+    assert "0 = disabled" in en
