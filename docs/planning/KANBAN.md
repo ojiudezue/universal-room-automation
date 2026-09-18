@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T02:09:20-05:00_ - _Data commit: `5048cef5d659`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T02:11:16-05:00_ - _Data commit: `8da8740924a4`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 3 |
+| 📥 Inbox | 2 |
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 14 |
@@ -19,9 +19,9 @@ _Generated: 2026-09-18T02:09:20-05:00_ - _Data commit: `5048cef5d659`_ - _last_r
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 34 |
 | 🅿️ Parked | 59 |
-| ✅ Done | 175 |
+| ✅ Done | 176 |
 
-## 📥 Inbox (3)
+## 📥 Inbox (2)
 _raw capture_
 
 ### `HVAC-D5-KNOBS-TO-RUNG-3-1` - D5 duty-cycle window/caps are Rung-1 module constants for what is a Rung-3 operator policy; no kill switch — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -34,17 +34,7 @@ _created 2026-09-17_
 - **Tags:** hvac, numbers-get-knobs, tier-1
 - **Parsimony:** [BUILD] policy numbers hardcoded, no kill switch
 
-### `HVAC-D5-SLEEP-EXIT-RESET-1` - D5 counter accumulates overnight during sleep-skip and can instant-trip on wake into coast/shed — _#2 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
-thread: **hvac** - status: **inbox**
-_created 2026-09-17_
-- **Problem / Solution:**
-  - Problem: the sleep-skip is on D5 ENFORCEMENT only; the runtime counter keeps accumulating through the night, so waking into coast/shed can instant-trip runtime_exceeded and force a just-woken zone away. Solution: reset (or freeze) the co...
-- **Why:** D5 audit finding 5, contingent on live measurement that it actually fires on wake.
-- **Next:** Measure (recorder): does runtime_exceeded fire shortly after waking transitions? If yes, reset counter on sleep. Else close.
-- **Tags:** hvac, tier-1, contingent, measure-first
-- **Parsimony:** [BUILD] overnight accumulation instant-trips on wake
-
-### `DEPLOY-SH-REJECT-FLAG-AS-VERSION-1` - deploy.sh should reject a flag as $1/VERSION (footgun shipped a "v--cards" release) — _#3 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+### `DEPLOY-SH-REJECT-FLAG-AS-VERSION-1` - deploy.sh should reject a flag as $1/VERSION (footgun shipped a "v--cards" release) — _#2 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **tooling** - status: **inbox**
 _created 2026-09-18_
 - **Problem / Solution:**
@@ -2422,8 +2412,20 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (175)
+## ✅ Done (176)
 _closed, evidence in refs_
+
+### `HVAC-D5-SLEEP-EXIT-RESET-1` - D5 counter accumulates overnight during sleep-skip and can instant-trip on wake into coast/shed — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **hvac** - status: **done**
+_created 2026-09-17 · updated 2026-09-18 02:45_
+- **Problem / Solution:**
+  - Problem: the sleep-skip is on D5 ENFORCEMENT only; the runtime counter keeps accumulating through the night, so waking into coast/shed can instant-trip runtime_exceeded and force a just-woken zone away. Solution: reset (or freeze) the co...
+- **Why:** D5 audit finding 5, contingent on live measurement that it actually fires on wake.
+- **Next:** CLOSED — premise refuted at the producer. No reset needed; see MEASURED_2026_09_18.
+- **Tags:** hvac, tier-1, contingent, measure-first
+- **Parsimony:** [BUILD] overnight accumulation instant-trips on wake
+- **Forensic keys (1):**
+  - `MEASURED_2026_09_18`: REFUTED — the counter CANNOT accumulate overnight, because the window rolls. The card assumed the D5 runtime counter keeps growing all night through the sleep-skip and can therefore instant-trip the moment the house wakes into coast or s...
 
 ### `HVAC-D5-WINDOW-START-RESTORE-1` - D5 window_start restore-across-reload unverified (hvac_zones.py:685-700) — reload may reset the runtime counter — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **hvac** - status: **done**

@@ -9,6 +9,23 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: HVAC-D5-SLEEP-EXIT-RESET-1@2026-09-18T02:45:00
+    at: '2026-09-18T02:45:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'SECOND RUNTIME-CAP WORRY CLOSED, AND A 3AM SCARE THAT TURNED OUT TO BE NOTHING. The
+      worry: we thought the AC runtime counter might quietly pile up all night while the cap is paused
+      for sleep, then slam a just-woken room into an energy-saving mode the second you get up. It
+      cannot. The counter works in short windows — currently 20 minutes — and every window wipes it
+      back to zero, so it can never carry the whole night. Worst case is that a room cooling right
+      before you wake carries up to 20 minutes in, which could pause it briefly, and that clears itself
+      within 20 minutes. It has also never actually happened — no record of it, ever. Not worth
+      changing; adding a reset would add a moving part for no gain. SEPARATELY, and worth telling you
+      because I nearly reported it as an emergency: mid-check I saw 104 URA entities showing
+      unavailable, including the main heating and cooling switches. I waited and looked again instead
+      of raising an alarm — it was the house still finishing its start-up after the 00:43 restart. It
+      settled to 5, then to essentially none. Your system is healthy. I am flagging it only because
+      last night I DID raise an alarm on exactly this kind of half-settled snapshot.'
   - fid: HVAC-D5-WINDOW-START-RESTORE-1@2026-09-18T02:35:00
     at: '2026-09-18T02:35:00'
     outcome: measured
@@ -916,10 +933,27 @@ cards:
   parsimony: {problem: 'duty-cycle counter may not survive reload', verdict: BUILD, note: 'verify-first, likely tiny'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, URA-CONFIG-ENTRY-RELOAD-STORM-1], context: 'D5 audit'}
 - id: HVAC-D5-SLEEP-EXIT-RESET-1
-  status: inbox
+  MEASURED_2026_09_18: 'REFUTED — the counter CANNOT accumulate overnight, because the window rolls.
+    The card assumed the D5 runtime counter keeps growing all night through the sleep-skip and can
+    therefore instant-trip the moment the house wakes into coast or shed. The accumulator at
+    hvac.py:3838-3850 disproves it: on EVERY tick, for every zone, if (now - zone.window_start) >=
+    window_seconds then window_start is reset to now AND runtime_seconds_this_window is zeroed AND
+    runtime_exceeded is cleared. So the counter is bounded by ONE window, not by the length of the
+    night. LIVE CONFIG confirms the window is short: switch hvac_d5_duty_cycle_enable is ON with
+    window=20 min, coast cap=75%, shed cap=50% (read from the live HA API this pass). RECORDER
+    CROSS-CHECK: zero rows have ever carried the state energy_shed_cap_reached, so there is no
+    observed instance of the feared wake-trip either. RESIDUAL, bounded and self-healing, NOT worth a
+    card or a reset: if a zone happened to be actively cooling just before a wake transition, it can
+    carry at most ~20 min of runtime into the wake, so a trip is possible within the CURRENT window
+    (coast would trip at 15 of 20 min) — but that window self-resets within 20 minutes and clears
+    runtime_exceeded with it. That is a transient at worst, not the overnight-accumulation failure the
+    card described, and freezing/resetting the counter on sleep entry would add a state-machine seam
+    for no measurable gain. NOTE the accumulator deliberately keeps running when d5_enabled is false
+    (hvac.py:3856-3858, for diagnostics and clean re-enable) — that is intended, not the bug.'
+  status: done
   thread: hvac
   created: '2026-09-17'
-  updated: '2026-09-17'
+  updated: '2026-09-18 02:45'
   tags: [hvac, tier-1, contingent, measure-first]
   title: D5 counter accumulates overnight during sleep-skip and can instant-trip on wake into coast/shed
   problem_solution:
@@ -927,7 +961,7 @@ cards:
     night, so waking into coast/shed can instant-trip runtime_exceeded and force a just-woken zone away.
     Solution: reset (or freeze) the counter on sleep entry, or on wake before the first enforcement.'
   why: 'D5 audit finding 5, contingent on live measurement that it actually fires on wake.'
-  next: 'Measure (recorder): does runtime_exceeded fire shortly after waking transitions? If yes, reset counter on sleep. Else close.'
+  next: 'CLOSED — premise refuted at the producer. No reset needed; see MEASURED_2026_09_18.'
   parsimony: {problem: 'overnight accumulation instant-trips on wake', verdict: BUILD, note: 'measure-first'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: INSTALL-ARCHIFY-SKILL-1
