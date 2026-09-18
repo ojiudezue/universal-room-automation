@@ -25853,6 +25853,34 @@ cards:
   links:
     related: [ARRESTER-CLOUDFLAP-FALSEPOS-1]
   refs: ['hvac_override.py:2009']
+- id: FRESHNESS-FALSE-AWAY-DOWNSTREAM-1
+  title: "Freshness-gate false-AWAY residuals — perimeter escalation / NM quiet-hours inversion / guest-gate cancel (daytime-only after sleep-guard)"
+  thread: presence
+  status: parked
+  created: '2026-09-18'
+  updated: '2026-09-18'
+  tags: [presence, occupancy, freshness-gate, security, perimeter, nm, guest, blast-radius]
+  problem_solution:
+  - 'Origin: the context-wide blast-radius scan for STUCK-MOTION-FROZEN-ON-BLINDSPOT-1 (the occupancy
+     freshness gate). A freshness demote that flips zone->house AWAY has three M-harm downstream consumers:
+     (3) perimeter alert severity escalation (perimeter_alert.py:1651-1684,:2769) — a resident outside their
+     own home gets intruder-grade alerts on a false AWAY; (4) NM away/arming notification + quiet-hours
+     inversion (security.py:1356; notification_manager.py:3759-3768) — false nighttime AWAY both emits a HIGH
+     notice and un-mutes suppressed night alerts; (5) guest-gate cancellation (presence.py:5715-5722) — false
+     AWAY disarms a pending guest gate. Security auto-follow arming (security.py:1335) is the H path but
+     CONF_SECURITY_AUTO_FOLLOW=false on this install (verified live) so it is latent.
+     Mitigation already in the gate: condition-4 state-scoped/kind-agnostic sleep-guard removes ALL nighttime
+     (SLEEP/WAKING/HOME_NIGHT) cases; camera/BLE re-occupy rescues real occupants. RESIDUAL = a DAYTIME false
+     AWAY requiring census==0 AND every zone released AND no camera/BLE rescue — i.e. the genuine house-empty
+     signature the gate is built to detect. Solution if residual proves real: an occupancy/sleep re-check on
+     the house->AWAY consumers, or a short confirm-hold before AWAY escalation fans out.'
+  why: 'blast-radius scan flagged 3 M-harm consumers of a freshness false-AWAY; nighttime cases removed by the
+     sleep-guard, so this is a daytime residual follow-up, captured not scope-crept.'
+  revisit_trigger: 'After the freshness gate ships, if ANY false daytime AWAY is observed (freshness demote ->
+     zone release -> house AWAY with a real occupant present), OR if CONF_SECURITY_AUTO_FOLLOW is ever enabled.'
+  next: 'REVIEW: reviewers judge whether the daytime residual needs a pre-ship guard; else parked until the trigger fires.'
+  links:
+    depends_on: [STUCK-MOTION-FROZEN-ON-BLINDSPOT-1]
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

@@ -25,7 +25,7 @@ age gate would clip live occupants → the false-negative the card fears. Incide
   **re-evaluation per tick IS the release** (there is no `release()` bookkeeping to write). → add client `"freshness"`.
 - A demoted sensor's vote contributes **0** to the room legs: sole consumer `_fusion_filter_active`
   (`coordinator.py:2247-2258`); legs at `:3239-3254`; the OR that holds the room is
-  `any_sensor_active = motion_detected or presence_detected or occupancy_detected` (`coordinator.py:3260`).
+  `any_sensor_active = motion_detected or presence_detected or occupancy_detected` (`coordinator.py:3290`).
   **This line is the INV-FRESH.1 guarantee** — excluding ONE sensor's vote cannot zero the OR while any other
   input is `on`.
 - Precedent promotion helper `_should_promote_to_stuck_exclusion` (`coordinator.py:2619-2664`) — the 4-AND
@@ -50,7 +50,7 @@ age gate would clip live occupants → the false-negative the card fears. Incide
 ## Falsifiable invariant (INV-FRESH)
 1. **The freshness gate NEVER causes a room to be reported unoccupied while at least one *non-stale*
    occupancy input in that room is `on`.** Guaranteed structurally: demote zeroes exactly ONE sensor's vote
-   in the `any_sensor_active` OR at `coordinator.py:3260`; any other `on` input still holds the room.
+   in the `any_sensor_active` OR at `coordinator.py:3290`; any other `on` input still holds the room.
 2. **A sensor is never excluded by AGE ALONE.** Age above p95 legitimate silence is *expected* and is
    protected by the corroboration gate, not the floor — the floor only bounds *when the gate is allowed to
    consider* a sensor. A sensor with any independent corroborator that fired within `CORROBORATOR_DISAGREE_S`
@@ -90,9 +90,14 @@ A sensor is promoted into `SensorExclusionSet` under client `"freshness"` (vote 
      `_detect_duty_cycle_stuck` which early-returns `set()` at the boot-settle gate (`:1768`), so it is
      empty/stale on early ticks (another vacuous-true source). Compute the corroborator set independently for
      freshness, or gate on `_d2_completed_cleanly`.
-4. **sleep-doctrine guard (HIGH-3):** for `mmwave` / `occupancy` / `bed` kinds, require `_d2_house_state_allows()`
-   (refuse during SLEEP / WAKING / HOME_NIGHT) — a sleeping person is ~100% mmWave duty with zero PIR, exactly
-   the state a long-horizon mmWave demote would wrongly hit. Motion/camera kinds are exempt (no still-sleeper hazard).
+4. **sleep-doctrine guard — STATE-SCOPED, KIND-AGNOSTIC (revised per blast-radius scan 2026-09-18):** refuse
+   **ANY** freshness demote (all kinds) when `house_state ∈ {SLEEP, WAKING, HOME_NIGHT}`, matching URA's
+   **established demote-veto precedent** at `presence.py:4093-4107` (mirrored `presence_fan_recheck.py:374`,
+   `coordinator.py:1812-1817`), which vetoes demotion by state regardless of kind. **A kind-scoped guard
+   (mmwave/occupancy/bed only) is INSUFFICIENT** — the house→AWAY branches (`presence.py:1102` "Nobody home",
+   :1134 path-α) are NOT sleep-exempt, so a **motion / camera_presence** demote during HOME_NIGHT/WAKING/pre-SLEEP
+   would flip the house to AWAY on a still resident (then, if `CONF_SECURITY_AUTO_FOLLOW` were on, arm it). Use
+   the same state set / helper the precedent uses, applied to all kinds.
 
 **`_mmwave_demoted_latch` interaction (HIGH-3):** when the subject is an mmWave demoted by freshness, suppress
 the false `mmwave_off` latch-clear in `_evaluate_mmwave_demoted_latch` — a freshness demote is not a genuine
@@ -158,6 +163,31 @@ name the real entity + attribute.
 - **Known accepted gap (MED-2):** two frozen siblings that fail their OWN kind floor are excluded from each
   other's corroborator set (so they can still be demoted); but two frozen siblings *below* their floor mutually
   vouch — accepted, a correlated-bridge failure (`sensor_capability.py:108`) out of scope this cycle.
+
+## Context-wide downstream impact (blast-radius scan 2026-09-18, read-only)
+Occupancy trust is a critical subsystem; a freshness demote can flip a room→zone→house state. The scan
+(record: `docs/reviews/plan-review/STUCK-MOTION-FROZEN-ON-BLINDSPOT-1.md`) traced every consumer. Cushions
+that bound room-tier harm (all verified): a demote does NOT force `STATE_OCCUPIED=False` — the normal
+`_occupancy_timeout` countdown (`coordinator.py:3613-3639`) still runs before room actuation (lights/fan/cover
+off); HVAC is triple-buffered (reads the timeout-cushioned room `occupied` at `hvac_zones.py:647` + per-room
+`_hvac_tail_until` + zone vacancy grace); fan has a 5-min hold; and **camera-person / BLE-person overrides
+(`coordinator.py:3665-3883`) re-occupy** a room for a real occupant with a tracked phone or camera-person hit.
+
+The **un-cushioned, highest-harm path is zone-release → house AWAY during sleep** (D2's substrate clear is
+immediate). Findings and disposition:
+
+| # | Consumer | file:line | HARM | Disposition |
+|---|---|---|---|---|
+| 1 | Security auto-follow arming (`ARMED_AWAY`) | `security.py:1335`, short-circuit :1081 | H (latent) | **`CONF_SECURITY_AUTO_FOLLOW` = `false` on this install (verified live `.storage/core.config_entries`)** → not reachable today. Condition 4 (state-scoped sleep-guard) is the protection if ever turned on. NO new build; noted. |
+| 2 | House→AWAY on a still resident during sleep | `presence.py:1102`/:1134 not sleep-exempt | H | **FIXED IN PLAN** — condition 4 revised to state-scoped/kind-agnostic (above). |
+| 3 | Perimeter alert severity escalation (resident outside = intruder-grade) | `perimeter_alert.py:1651-1684`, :2769 | M | Card `FRESHNESS-FALSE-AWAY-PERIMETER-ESCALATION-1` — but condition 4 + camera/BLE rescue make a false daytime AWAY require census 0 AND all zones released; low residual. |
+| 4 | NM away/arming notification + quiet-hours inversion | `security.py:1356`; `notification_manager.py:3759-3768` | M | Card (sibling of #3) — a false nighttime AWAY is largely pre-empted by condition 4; residual only for a daytime false AWAY. |
+| 5 | Guest gate cancellation on false AWAY | `presence.py:5715-5722` | M | Card / non-goal — guest gate already requires census evidence; a freshness demote can't manufacture a person. Low residual. |
+
+Cards #3–#5 are **residual daytime-AWAY** risks (condition 4 removes the nighttime cases). They are logged as
+follow-ups, not blockers — the false-negative that reaches them requires census==0 AND every zone released AND
+no camera/BLE rescue, i.e. the genuine "house actually empty" signature the gate is designed to detect. If the
+reviews judge any residual unacceptable, it converts to a pre-ship guard.
 
 ## Knob ladder
 `FRESHNESS_AGE_FLOOR[kind]` = module constants (Rung-1) — a *trust* safety envelope (clipping a live occupant
