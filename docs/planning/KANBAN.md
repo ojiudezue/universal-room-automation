@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T20:25:22-05:00_ - _Data commit: `3de217d2befb`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T20:27:43-05:00_ - _Data commit: `d7597454dcec`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -1389,7 +1389,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (53):**
+- **Forensic keys (54):**
+  - `HALLWAY_RECLASSIFY_DONE_2026_09_17`: All 7 vetted transit rooms reclassified room_type->hallway, LIVE + persisted: Garage Hallway, Kitchen Hallway, Kitchen Hallway Garage, Master Hallway, Upstairs Hallway, Foyer, Guest Bedroom 2 Hallway. This ACTIVATES v5.103.7 circulation ...
   - `D5_AUDIT_2026_09_17`: Duty-cycle audit done (AUDIT_hvac_duty_cycle_protection_2026_09_17.md). CORRECTS my earlier not-coast answer: D5 runtime_exceeded fires ONLY during EC coast/shed (caps runtime 75%/ 50% of a 20min window, hvac.py:3331-3375, forces away hv...
   - `TRANSIT_ROOMS_VETTED_2026_09_17`: Operator vetted the circulation (hallway) set for the D4 reclassify: APPROVED as hallway = Garage Hallway, Kitchen Hallway, Kitchen Hallway Garage, Master Hallway, Upstairs Hallway, Foyer (operator: "No. Its transit"), Guest Bedroom 2 Ha...
   - `ROUND5_DONE_2026_09_17`: Round-5 landed @f88f4bc84. F1 reverted any->all (retreat requires ALL rooms readable; 2 discriminating tests, mutation all->any reds them). Energy-restart NEW RESOLVED by definitive revert-in-suite: develop source + branch tests -> the 2...

@@ -11199,6 +11199,19 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  HALLWAY_RECLASSIFY_DONE_2026_09_17: 'All 7 vetted transit rooms reclassified room_type->hallway,
+    LIVE + persisted: Garage Hallway, Kitchen Hallway, Kitchen Hallway Garage, Master Hallway, Upstairs
+    Hallway, Foyer, Guest Bedroom 2 Hallway. This ACTIVATES v5.103.7 circulation exclusion for these
+    corridors (they no longer vote any_room_hvac_occupied / refresh last_occupied_time -> stops feeding
+    vacant_past_grace). METHOD LESSON (my mistake, recorded): first attempt hand-edited
+    .storage/core.config_entries while HA RUNNING -> CLOBBERED on restart (HA writes in-memory over the
+    file on shutdown; the known no-live-.storage-edit hazard). Correct method = ha_set_integration
+    options/reconfigure flow (config next_step_id=basic_setup + room_type=hallway) which returns
+    abort reason=reconfigure_successful (URA success sentinel, surfaced as an error by the tool) and
+    writes options.room_type via HA in-memory + live-reloads the single entry (no full restart, options
+    wins over data in the read). Verified 7/7 options.room_type=hallway HA-persisted; zero URA ERROR.
+    Backup core.config_entries.bak.pre-hallway-2026-09-17 left in place. Closets: NOT reclassified
+    (vote-but-short-hold decision pending the knob work).'
   D5_AUDIT_2026_09_17: 'Duty-cycle audit done (AUDIT_hvac_duty_cycle_protection_2026_09_17.md). CORRECTS
     my earlier not-coast answer: D5 runtime_exceeded fires ONLY during EC coast/shed (caps runtime 75%/
     50% of a 20min window, hvac.py:3331-3375, forces away hvac.py:1928). So the 12% runtime_exceeded
