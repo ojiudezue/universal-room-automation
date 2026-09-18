@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T22:23:36-05:00_ - _Data commit: `e1c7bf46c833`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T22:27:19-05:00_ - _Data commit: `1efe6393c70a`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
@@ -430,7 +430,8 @@ _created 2026-09-16 · initial_
 - **Tags:** tier-2db, no-fabrication-verify, found-during-validation
 - **Parsimony:** [BUILD] URA refuses to re-preset a zone in manual even when URA itself caused the manual, and the component expected to handle it deliberately ignores URA-caused cases.
 - **Refs:** hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented); hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `MEASUREMENT_2026_09_17`: Gate read (v5.103.4 telemetry, ura_activity_log action=preset_change_ locked_out, immutable snapshot): 15 episodes across 09-16/09-17 = ~6-9/day house-wide (zone_1 6, zone_2 4, zone_3 5). MODEST harm, not constant. DISCRIMINATOR still op...
   - `DOWNGRADED_2026_09_16`: Lockout telemetry (10.8h) shows escape is REAL but RARE (2 lockouts in 10.8h, occupied/home path only) — NOT the dominant zone_1 residual. The dominant residual is a manual<->away oscillation (mystery re-manual writer) — see HVAC-ZONE1-M...
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...

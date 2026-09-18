@@ -11256,6 +11256,15 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset — the silent refusal)
   - hvac.py (the instrumented refusal site)
 - id: HVAC-PRESET-LOCKOUT-ESCAPE-1
+  MEASUREMENT_2026_09_17: 'Gate read (v5.103.4 telemetry, ura_activity_log action=preset_change_
+    locked_out, immutable snapshot): 15 episodes across 09-16/09-17 = ~6-9/day house-wide (zone_1 6,
+    zone_2 4, zone_3 5). MODEST harm, not constant. DISCRIMINATOR still open: a provenance escape only
+    helps URA-INDUCED manuals; zone_1 manuals root-caused to the BRYANT NATIVE SCHEDULE (item #3, NOT
+    URA-fixable by an escape). KEY unknown: does a URA emit_set_temperature write flip Carrier into
+    manual (self-lockout)? -> that is what the Bryant/carrier_api research (dispatched 2026-09-17) is
+    determining. HOLD build-vs-park until that lands: if URA setpoint writes self-induce manual -> BUILD
+    the escape (real self-lockout); if manuals are Bryant-schedule/physical only -> PARK (escape helps
+    nothing; real fix = item #3 operator disables Bryant schedule).'
   DOWNGRADED_2026_09_16: 'Lockout telemetry (10.8h) shows escape is REAL but RARE (2 lockouts in
     10.8h, occupied/home path only) — NOT the dominant zone_1 residual. The dominant residual is a
     manual<->away oscillation (mystery re-manual writer) — see HVAC-ZONE1-MANUAL-OSCILLATION-1. Do
