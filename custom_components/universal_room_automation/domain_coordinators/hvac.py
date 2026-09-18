@@ -1144,6 +1144,43 @@ class HVACCoordinator(BaseCoordinator):
             )
         )
 
+        # HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1: producer-owned pull.
+        # EC is registered BEFORE HVAC (__init__.py:3759 vs :3856) and
+        # CoordinatorManager.async_start runs setups sequentially, so EC's
+        # boot decision cycle fires SIGNAL_ENERGY_CONSTRAINT before this
+        # subscribe is in place. async_dispatcher_send is fire-and-forget
+        # (no replay) and the change-gate then suppresses re-emits until
+        # the mode changes (evening coast) — leaving _energy_constraint
+        # None all afternoon on restart-days and dead-arming Path A pre-cool.
+        # Pull the current constraint from EC now that the subscribe is up.
+        # Ordering-proof (EC fully set up by this point) and idempotent
+        # with the next real signal (_handle_energy_constraint is a setter).
+        try:
+            _cm = self.hass.data.get("universal_room_automation", {}).get(
+                "coordinator_manager"
+            )
+            _energy = _cm.coordinators.get("energy") if _cm else None
+            if _energy is not None and hasattr(_energy, "current_energy_constraint"):
+                _seed = _energy.current_energy_constraint()
+                if _seed is not None:
+                    self._handle_energy_constraint(_seed)
+                    _LOGGER.info(
+                        "HVAC: Seeded energy constraint at setup mode=%s offset=%.1f reason=%s",
+                        getattr(_seed, "mode", None),
+                        getattr(_seed, "setpoint_offset", 0.0) or 0.0,
+                        getattr(_seed, "reason", None),
+                    )
+                else:
+                    _LOGGER.debug("HVAC: Energy pull returned None; keeping default constraint")
+            else:
+                _LOGGER.debug(
+                    "HVAC: Energy coordinator unavailable at setup; skipping constraint pull"
+                )
+        except Exception as _e:
+            _LOGGER.debug(
+                "HVAC: Energy constraint pull at setup failed (non-fatal): %s", _e
+            )
+
         # v3.17.0 D3: Subscribe to person arriving signals
         self._unsub_listeners.append(
             async_dispatcher_connect(
