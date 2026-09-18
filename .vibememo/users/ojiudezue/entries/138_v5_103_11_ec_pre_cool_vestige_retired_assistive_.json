@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "138",
+  "author": "ojiudezue",
+  "session_id": "claude_20260918_090203_ship_v5_103_11",
+  "timestamp": "2026-09-18T09:02:03Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.11 shipped: EC pre_cool vestige retired + assistive room vacancy-hold labels",
+  "summary": "EC pre_cool vestige retired + assistive room vacancy-hold labels",
+  "why": "Operator pushed to re-check the delete with producer/consumer doctrine + preserve the principle. Producer/consumer (twice + reviews A/B): the EC pre_cool branch outputs are inert-except-harmful (offset never applied - compute_energy_offset zero callers; mode only blocks Path A). git-blame: born phase-blind v3.7/v3.9, missed the June phase-fix, superseded by v5.7.1 Path A, never deleted. So DELETE artifact + TOMBSTONE constant + KEEP-DOCUMENT the principle (grid-anticipatory pre-cool Path A does not cover) on a parked card. Folded D2 (assistive vacancy-hold UI): review C caught (and B converged) that a prefilled suggested-value PERSISTS on submit and would pin unset rooms against the type table - fixed to blank-when-unset + guidance-in-text (operator's original ask). 3 framing-disjoint reviews + fix-up + orchestrator mutation-verify (re-add fallthrough REDs 3 tests).",
+  "implications": "Shipped EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1 at v5.103.11; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.11.md (Live criteria).",
+  "revisit_trigger": "EC constraint sensor never shows pre_cool post-deploy; a room climate step renders unset hold fields BLANK (not prefilled) with the assistive 0=disabled/per-type help text; current rooms effective holds unchanged; the pre-cool-offset dial absent from options flow; zero URA ERROR",
+  "refs": {
+    "cards": [
+      "EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.11.md"
+    ],
+    "release_notes": "D1: delete the superseded phase-blind EC pre_cool branch (misleading 9pm label gone, Path A afternoon banking unblocked); offset constant tombstoned (config-key-safe), dead offset config field removed, principle preserved on card EC-GRID-ANTICIPATORY-PRECOOL-GAP-1. D2: room vacancy-hold day/night fields now carry assistive help text (0=disabled + per-type ranges + clamp behavior); field blank when unset (no persisted prefill); current room values untouched."
+  }
+}
