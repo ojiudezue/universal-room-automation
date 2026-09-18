@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T00:50:40-05:00_ - _Data commit: `fab5afeb6a92`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T01:37:28-05:00_ - _Data commit: `e3539d9e93cb`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -67,7 +67,7 @@ _created 2026-09-18_
 ## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
-### `EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1` - solar_class is a DAYTIME forecast — verify each EC consumer uses the right day (not a stale/night value) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1` - pre_cool fires at LOW SOC on off-peak grid (not excess solar) gated on a forecast — verify EC pre_cool/coast solar_class semantics & intent — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **investigating**
 _created 2026-09-18_
 - **Problem / Solution:**
@@ -76,6 +76,8 @@ _created 2026-09-18_
 - **Next:** TRACE solar_class producer + the day it targets at energy.py:7419-7434 consumers; confirm pre_cool uses tomorrow-forecast and the mid_peak-poor-solar coast cannot fire on a nighttime solar value. Measure- first (read the code + a few liv...
 - **Tags:** energy, coast, precool, solar, measure-first, correctness
 - **Parsimony:** [BUILD] daytime solar forecast possibly consumed by night EC decisions
+- **Forensic keys (1):**
+  - `SHARPENED_2026_09_18`: Operator: pre_cool should happen with EXCESS SOLAR, no way at 9pm. LIVE FINDING: sensor.ura_energy_coordinator_hvac_constraint fired mode=pre_cool at 21:00 CDT (REAL local time - ha_ get_history localizes, -05:00 offset; NOT a UTC artifa...
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating**

@@ -607,12 +607,24 @@ cards:
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  SHARPENED_2026_09_18: 'Operator: pre_cool should happen with EXCESS SOLAR, no way at 9pm. LIVE FINDING:
+    sensor.ura_energy_coordinator_hvac_constraint fired mode=pre_cool at 21:00 CDT (REAL local time - ha_
+    get_history localizes, -05:00 offset; NOT a UTC artifact, unlike the D5-fire hours which were raw-log
+    UTC). Condition (energy.py:7427-7434): off_peak AND soc<50 AND solar_class in {good,excellent}. Live
+    sample had SOC=10% -> so this is NOT excess-solar (no surplus at 10% SOC); it is OFF-PEAK GRID
+    anticipatory pre-cool gated on TOMORROW''s Solcast forecast (the external forecast arriving for the
+    next day). MISMATCH with operator intent (pre_cool = soak daytime PV surplus). QUESTION: is grid-off-
+    peak-low-SOC-anticipatory pre-cool intended, or should pre_cool require actual PV surplus / high SOC?
+    The soc<50 gate is the smell - excess-solar pre-cool would gate on HIGH soc / battery-full / live PV
+    export, not soc<50. Trace: (1) is solar_class tomorrow-forecast (likely Solcast) vs stale-today; (2)
+    does an excess-solar (daytime PV-surplus) pre-cool path exist separately or is it conflated with this
+    off-peak-grid path; (3) at SOC 10% overnight, is spending off-peak grid to pre-cool net-positive?'
   status: investigating
   thread: energy
   created: '2026-09-18'
   updated: '2026-09-18'
   tags: [energy, coast, precool, solar, measure-first, correctness]
-  title: solar_class is a DAYTIME forecast — verify each EC consumer uses the right day (not a stale/night value)
+  title: pre_cool fires at LOW SOC on off-peak grid (not excess solar) gated on a forecast — verify EC pre_cool/coast solar_class semantics & intent
   problem_solution:
   - 'Problem (operator-raised 2026-09-18): solar_class is a solar-production FORECAST that applies to
     daytime, but two EC constraint branches evaluate in the dark and consume it: (1) coast via
