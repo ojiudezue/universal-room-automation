@@ -503,6 +503,15 @@ cards:
   parsimony: {problem: 'deploy footgun ships corrupt version metadata', verdict: BUILD, note: 'tiny guard; already bit us'}
   links: {related: [], context: 'v5.103.9 deploy botch 2026-09-18'}
 - id: HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1
+  LIVEVAL_2026_09_18: 'v5.103.9 shipped + live-validated (HACS download + restart + validate + README
+    write-back). PASS: D5 knobs live (window20/coast75/shed50, enable on); coast-dwell attrs on 10-Mode;
+    retreat_reason live (zone1 house_state_transition, zone2/3 vacant_past_grace); d5_occupancy_deferred
+    wired (all False at normal - the zero-readers HIGH fixed); ZERO URA ERROR at boot. README-vs-reality
+    drift CAUGHT+corrected: the CRIT consumer fix KEPT the attr key zones_runtime_limited (sensor.py:13715,
+    stable operational name) and fixed the COMPARAND to energy_shed_cap_reached (13717) - functional fix in
+    place, list no longer permanently empty; README corrected. DEFERRED to next coast evening (soak --revisit):
+    the occupancy defer + populated cap list are coast-only. Deploy footgun: first deploy shipped v--cards
+    (flags-before-version); recovered (deleted bad release/tag, re-deployed correctly). See README_v5.103.9.'
   REVIEW_C_AND_FIXUP_2026_09_17: 'Reviewer C (test-authority+adversarial) FIX-REQUIRED: independently
     re-ran mutation drills -> 8/9 load-bearing sites UNTESTED (all 9 tests are source-greps = hollow anchors
     #62; the build mutation table was itself hollow). NEW C-M3: live discriminator can NEVER fail

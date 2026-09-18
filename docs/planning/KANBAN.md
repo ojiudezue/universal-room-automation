@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T00:16:42-05:00_ - _Data commit: `9cfd141a915d`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T00:18:36-05:00_ - _Data commit: `0d793cfc46af`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -1410,7 +1410,8 @@ _created 2026-09-17_
 - **Next:** After step-4-B ships: gate D5 enforcement on fused occupancy (defer under coast when occupied, shed dominates), reframe the reason string + README. Verify no regression to the coast energy savings.
 - **Tags:** hvac, tier-2, occupancy-blind, depends-step4b
 - **Parsimony:** [BUILD] occupancy-blind duty-cycle forces occupied zones away in coast
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `LIVEVAL_2026_09_18`: v5.103.9 shipped + live-validated (HACS download + restart + validate + README write-back). PASS: D5 knobs live (window20/coast75/shed50, enable on); coast-dwell attrs on 10-Mode; retreat_reason live (zone1 house_state_transition, zone2/...
   - `REVIEW_C_AND_FIXUP_2026_09_17`: Reviewer C (test-authority+adversarial) FIX-REQUIRED: independently re-ran mutation drills -> 8/9 load-bearing sites UNTESTED (all 9 tests are source-greps = hollow anchors #62; the build mutation table was itself hollow). NEW C-M3: live...
   - `REVIEW_AB_2026_09_17`: Reviews A+B CONVERGED FIX-REQUIRED (C test-authority still running). Theme: rename+defer-flag swept hvac.py but not consumers. Must-fix: (1)CRIT sensor.py:13683 still filters zone_presence_state==runtime_limited -> zones_runtime_limited ...
   - `BUILD_LANDED_2026_09_17`: feature/hvac-d5-reframe @ f2ce50293. D-b1 operator-facing rename -> energy_shed_cap_reached (internal zone.runtime_exceeded field KEPT, ~30 refs + persistence path; no operator surface leaks it); D-b2 NO-WRITE defer ledger-only episode-g...

@@ -33,12 +33,22 @@ anchors with **13 behavioral tests**. **Orchestrator independently re-ran the mu
 (gate defer, F5 latch clear, rename producer) — all RED when neutered. `INV-D5-GATE` held under
 adversarial static enumeration (no away-forcing path leaks an occupied zone under non-shed).
 
-## Live Validation — prospective (write observed results back after restart)
-- **Verify:** `sensor.ura_hvac_coordinator_*` / HVAC zone-intelligence sensor `zones_energy_shed_cap_reached` (renamed from `zones_runtime_limited`) populates when a zone trips the cap under coast; **no** stray `runtime_exceeded` in any emitted reason/attr.
-- **Verify:** the new duty-cap Number entities + enable switch exist, persist across reload, and `0` disables D5 for that mode.
-- **Verify (discriminator):** a `preset_change` / `preset_change_suppressed` row for a duty-cap event now carries `any_room_hvac_occupied` + `constraint_mode` in `details_json` (so the gate is provable, not assumed). A coast+occupied event shows `energy_shed_cap_deferred_occupied` with **no** thermostat write; a coast+empty event shows `energy_shed_cap_reached` with the away write.
-- **Verify:** zero URA ERROR on boot; the recurring absence of the old `runtime_exceeded` operator surface.
-- **Live SQL (INV-D5-GATE):** see `PLANNING_hvac_d5_reframe_occupancy_gate.md` §6 (updated to the real reason + detail fields).
+## Validated 2026-09-18 (post-restart, running v5.103.9, house_state=away/normal mode ~00:47 CDT)
+
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| D5 duty knobs exist + correct defaults + enable | **PASS** | `number.ura_hvac_coordinator_d5_duty_cycle_window_minutes`=20, `..._coast`=75, `..._shed`=50; `switch.ura_hvac_coordinator_hvac_d5_duty_cycle_enable`=on |
+| Coast/shed dwell attrs | **PASS** | `sensor.ura_hvac_coordinator_mode` (10 · Mode): `energy_constraint_mode=normal`, `energy_constraint_since=null`, `energy_constraint_duration_s=0` (correct — not in coast) |
+| `retreat_reason` live, no stray `runtime_exceeded` | **PASS** | `sensor.ura_hvac_coordinator_hvac_zone_preset_zone_{1,2,3}` retreat_reason = `house_state_transition` / `vacant_past_grace` / `vacant_past_grace`; template scan of all sensors found **no** `runtime_exceeded` operator surface |
+| `d5_occupancy_deferred` wired (was the "zero readers" HIGH) | **PASS** | present on all three zone-preset sensors = `False` (correct — no defer at normal mode) |
+| CRIT rename consumer fix (permanently-empty list) | **PASS (corrected note)** | sensor.py:13717 comparand fixed to `== "energy_shed_cap_reached"`; **the attribute KEY was intentionally KEPT as `zones_runtime_limited`** (sensor.py:13711 comment — stable operational name / dashboard compat), NOT renamed. This README's original claim of a `zones_energy_shed_cap_reached` key was wrong; the *functional* fix (list no longer permanently empty) is in place. |
+| Zero URA ERROR on boot | **PASS** | system log (WARNING+) shows only benign known boot transients (Envoy re-validation, HVAC boot-settle 60s timeout, sensors-unavailable-holding, Bermuda/camera at boot, HA-2027 deprecation notices); no ERROR, HVAC first decision cycle proceeding |
+
+### Deferred to the next coast evening (the soak-exit `--revisit` discriminator — coast-only behavior)
+- The occupancy **defer** itself (`energy_shed_cap_deferred_occupied`, NO thermostat write on an occupied coast zone) and the populated `zones_runtime_limited` list + `energy_shed_cap_reached` away on empty coast zones. **Discriminator:** on a coast/peak-TOU evening (~18:00–21:00) `ura_activity_log` shows ≥1 `energy_shed_cap_deferred_occupied` row (`details_json.any_room_hvac_occupied=1`, occupied zone NOT written) AND ≥1 `energy_shed_cap_reached` (empty zone shed), ZERO `runtime_exceeded`. See `PLANNING_hvac_d5_reframe_occupancy_gate.md` §6.
+
+## Rollback
+`git revert` the merge, or set the D5 master enable switch OFF (kill switch) for immediate mitigation.
 
 ## Rollback
 `git revert` the merge, or set the D5 master enable switch OFF (kill switch) for immediate mitigation.
