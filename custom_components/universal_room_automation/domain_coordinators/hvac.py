@@ -220,6 +220,16 @@ class HVACCoordinator(BaseCoordinator):
         # Number/Switch entities' async_added_to_hass push. None => use
         # module defaults (fresh install / test bench).
         excursion_primitive_enabled: bool | None = None,
+        # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b3): Rung-3 knob seeds
+        # for the D5 duty-cycle window / caps / master enable. None
+        # falls back to the module DUTY_CYCLE_* defaults (fresh install
+        # / test bench). Live values are read via
+        # self.duty_cycle_window_seconds / duty_cycle_coast_pct /
+        # duty_cycle_shed_pct / d5_enabled.
+        duty_cycle_window_minutes: int | None = None,
+        duty_cycle_coast_pct: int | None = None,
+        duty_cycle_shed_pct: int | None = None,
+        d5_enabled: bool | None = None,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -310,6 +320,35 @@ class HVACCoordinator(BaseCoordinator):
             self._override_arrester.set_comfort_soc_floor_pct(
                 int(comfort_soc_floor_pct)
             )
+        # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b3): eager-seed D5
+        # duty-cycle Rung-3 knobs. None -> module defaults so fresh
+        # installs and unit tests match pre-cycle behavior.
+        from .hvac_const import (
+            DEFAULT_HVAC_DUTY_CYCLE_WINDOW_MIN as _DFLT_D5_WIN_MIN,
+            DEFAULT_HVAC_DUTY_CYCLE_COAST_PCT as _DFLT_D5_COAST_PCT,
+            DEFAULT_HVAC_DUTY_CYCLE_SHED_PCT as _DFLT_D5_SHED_PCT,
+            DEFAULT_HVAC_D5_ENABLED as _DFLT_D5_ENABLED,
+        )
+        self._duty_cycle_window_min: int = (
+            int(duty_cycle_window_minutes)
+            if duty_cycle_window_minutes is not None
+            else int(_DFLT_D5_WIN_MIN)
+        )
+        self._duty_cycle_coast_pct: int = (
+            int(duty_cycle_coast_pct)
+            if duty_cycle_coast_pct is not None
+            else int(_DFLT_D5_COAST_PCT)
+        )
+        self._duty_cycle_shed_pct: int = (
+            int(duty_cycle_shed_pct)
+            if duty_cycle_shed_pct is not None
+            else int(_DFLT_D5_SHED_PCT)
+        )
+        self._d5_enabled: bool = (
+            bool(d5_enabled)
+            if d5_enabled is not None
+            else bool(_DFLT_D5_ENABLED)
+        )
         # HVAC-GOVERNED-EXCURSION-1 D2 §4.7 — Excursion Primitive kill switch.
         # BEGIN-ONLY. Persisted rows still run their return path when OFF.
         from .hvac_const import DEFAULT_EXCURSION_PRIMITIVE_ENABLED as _DFLT_EX
@@ -343,6 +382,23 @@ class HVACCoordinator(BaseCoordinator):
         # Per-zone D3-guard skip flag exposed cross-tick for the D3 sensor
         # attribute (§3.3). Updated inside the D5 branch each tick.
         self._d3_skipped_current_tick: dict[str, bool] = {}
+        # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2): mirror flag for
+        # the new D5 occupancy gate. Set True on ticks where coast-mode
+        # + fused-occupied causes the D5 force-away to defer (no
+        # thermostat write). Exposed on the HVAC status sensor next to
+        # the D3-skip attribute. Episode-gated activity-log emission uses
+        # `_d5_occ_defer_logged_episode` below.
+        self._d5_occupancy_deferred_current_tick: dict[str, bool] = {}
+        # Episode gate for the deferred-occupied activity-log row. Value
+        # is (constraint_mode, house_state) at the last emit. C-L1
+        # (fix-up) — CORRECTED COMMENT: the map is cleared ONLY when
+        # `_handle_energy_constraint_change` sees a normal↔constrained
+        # transition (see hvac.py:_handle_energy_constraint_change).
+        # There is NO per-zone clear on runtime_exceeded drop today; a
+        # stale (constraint_mode, house_state) key persists until the
+        # next mode transition. Prevents per-tick firehose
+        # (~480/night/zone) — mirror of _night_trust_logged.
+        self._d5_occ_defer_logged_episode: dict[str, tuple] = {}
         self._fan_controller = FanController(
             hass, self._zone_manager,
             activation_delta=fan_activation_delta,
@@ -728,6 +784,75 @@ class HVACCoordinator(BaseCoordinator):
             return int(self._override_arrester._get_soc_floor())
         except Exception:  # noqa: BLE001
             return int(COMFORT_SOC_FLOOR_PCT)
+
+    # ------------------------------------------------------------------
+    # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b3) — Rung-3 D5 knobs.
+    # Accessors + setters. Accumulator + enforcement read the LIVE
+    # value from these properties (not the module constant), so
+    # operator tuning takes effect without a restart.
+    # ------------------------------------------------------------------
+    @property
+    def duty_cycle_window_seconds(self) -> int:
+        try:
+            return max(1, int(self._duty_cycle_window_min) * 60)
+        except Exception:  # noqa: BLE001
+            from .hvac_const import DUTY_CYCLE_WINDOW_SECONDS as _W
+            return int(_W)
+
+    def set_duty_cycle_window_minutes(self, value: int) -> None:
+        try:
+            v = int(value)
+        except (TypeError, ValueError):
+            return
+        self._duty_cycle_window_min = max(1, v)
+        _LOGGER.info(
+            "HVAC D5: duty_cycle_window_minutes -> %d",
+            self._duty_cycle_window_min,
+        )
+
+    @property
+    def duty_cycle_coast_pct(self) -> int:
+        return int(self._duty_cycle_coast_pct)
+
+    def set_duty_cycle_coast_pct(self, value: int) -> None:
+        try:
+            v = int(value)
+        except (TypeError, ValueError):
+            return
+        self._duty_cycle_coast_pct = max(0, min(100, v))
+        _LOGGER.info(
+            "HVAC D5: duty_cycle_coast_pct -> %d%s",
+            self._duty_cycle_coast_pct,
+            " (coast D5 disabled)" if self._duty_cycle_coast_pct == 0 else "",
+        )
+
+    @property
+    def duty_cycle_shed_pct(self) -> int:
+        return int(self._duty_cycle_shed_pct)
+
+    def set_duty_cycle_shed_pct(self, value: int) -> None:
+        try:
+            v = int(value)
+        except (TypeError, ValueError):
+            return
+        self._duty_cycle_shed_pct = max(0, min(100, v))
+        _LOGGER.info(
+            "HVAC D5: duty_cycle_shed_pct -> %d%s",
+            self._duty_cycle_shed_pct,
+            " (shed D5 disabled)" if self._duty_cycle_shed_pct == 0 else "",
+        )
+
+    @property
+    def d5_enabled(self) -> bool:
+        return bool(self._d5_enabled)
+
+    def set_d5_enabled(self, value: bool) -> None:
+        self._d5_enabled = bool(value)
+        _LOGGER.info(
+            "HVAC D5: d5_enabled -> %s%s",
+            self._d5_enabled,
+            "" if self._d5_enabled else " (D5 disabled entirely)",
+        )
 
     @property
     def excursion_primitive_enabled(self) -> bool:
@@ -2016,6 +2141,13 @@ class HVACCoordinator(BaseCoordinator):
                 # `comfort_delay_active` whenever both runtime_exceeded
                 # and comfort_delay_active happen to be true.
                 _d3_skipped_this_tick = False
+                # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2): per-tick
+                # occupancy-gate defer flag. Set True below when we
+                # skip the D5 force-away because the zone is fused-
+                # occupied under coast (shed still dominates — S14
+                # removal invariant: NEVER route a raw setpoint write
+                # here; leave the zone at its current preset).
+                _d5_occupancy_deferred_this_tick = False
                 # B1 (fix-up): clear the throttle map for this zone when
                 # runtime_exceeded is no longer set — the operator's
                 # runtime accumulator dropped below the cap; the S14
@@ -2023,7 +2155,11 @@ class HVACCoordinator(BaseCoordinator):
                 # anew (even if the resolved (low, high) tuple is
                 # identical). Matches reviewer spec: throttle discharges
                 # on runtime_exceeded clear OR house_state change.
-                if zone.runtime_exceeded and self._house_state != "sleep":
+                if (
+                    zone.runtime_exceeded
+                    and self._house_state != "sleep"
+                    and self.d5_enabled  # D-b3 kill switch
+                ):
                     _cd_soc = self.battery_soc
                     _cd_blind = self.battery_blind
                     _cd_shed = self.shed_active
@@ -2078,10 +2214,103 @@ class HVACCoordinator(BaseCoordinator):
                         # what ran. Removal is therefore BEHAVIOUR-NEUTRAL,
                         # while repair would have re-enabled a disliked
                         # behaviour. Costed 2026-09-16; operator picked remove.
-                        effective_preset = "away"
+                        #
+                        # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2):
+                        # OCCUPANCY GATE. D5 is EC coast/shed energy-
+                        # shed policy, occupancy-blind. Under coast (NOT
+                        # shed) with a fused-occupied zone, DEFER the
+                        # force-away — EC's graceful degree-offset
+                        # (energy.py:_hvac_constraint_offset) already
+                        # sheds this zone; a second blunter force-away
+                        # is what we're de-stacking. Under shed we
+                        # still force-away (shed dominates — matches
+                        # the D3 comfort-delay ordering). Empty zones
+                        # under coast still force-away (additive lever
+                        # preserved). NO-WRITE defer: leave the zone at
+                        # its current preset; do NOT restore S14's
+                        # setpoint hold (the 2026-09-16 removal fixed
+                        # the manual-lockout bug that produced).
+                        _row2054_fused = getattr(
+                            zone, "any_room_hvac_occupied", None,
+                        )
+                        if _row2054_fused is None:
+                            _row2054_fused = getattr(
+                                zone, "any_room_occupied", True,
+                            )
+                        # B-M1 (fix-up) — D6×D5 co-occurrence: if D6
+                        # stale_occupancy (or any upstream branch) has
+                        # ALREADY set `effective_preset = "away"` this
+                        # tick, D6 dominates and D5's "defer for
+                        # occupancy" would be a false suppression row.
+                        # Fall through to the away write and skip the
+                        # D5 bookkeeping.
+                        if (
+                            self._energy_constraint_mode != "shed"
+                            and _row2054_fused
+                            and effective_preset != "away"
+                        ):
+                            _d5_occupancy_deferred_this_tick = True
+                            _LOGGER.debug(
+                                "HVAC: skipping D5 forced-away on %s "
+                                "— occupancy gate (mode=%s)",
+                                zone.zone_name,
+                                self._energy_constraint_mode,
+                            )
+                            # Episode-gated activity-log row (once per
+                            # (zone, constraint_mode, house_state)
+                            # episode — mirrors the night_trust
+                            # suppressed pattern; NOT per-tick).
+                            _ep_key = (
+                                self._energy_constraint_mode,
+                                self._house_state,
+                            )
+                            _prev_ep = self._d5_occ_defer_logged_episode.get(zone_id)
+                            if _prev_ep != _ep_key and activity_logger:
+                                self._d5_occ_defer_logged_episode[zone_id] = _ep_key
+                                self.hass.async_create_task(
+                                    activity_logger.log(
+                                        coordinator="hvac",
+                                        action="preset_change_suppressed",
+                                        description=(
+                                            f"{zone.zone_name} D5 "
+                                            f"forced-away suppressed "
+                                            f"(coast + occupied)"
+                                        ),
+                                        zone=zone_id,
+                                        importance="notable",
+                                        entity_id=zone.climate_entity,
+                                        details={
+                                            "old_preset": zone.preset_mode,
+                                            "new_preset": zone.preset_mode,
+                                            "house_state": self._house_state,
+                                            "reason": "energy_shed_cap_deferred_occupied",
+                                            "energy_shed_cap_reached": bool(
+                                                zone.runtime_exceeded,
+                                            ),
+                                            "constraint_mode": self._energy_constraint_mode,
+                                            # F6: mirror the discriminating
+                                            # fields onto the defer row so
+                                            # INV-D5-GATE is evaluable on the
+                                            # SAME shape whether the gate
+                                            # fired or the zone was written.
+                                            "any_room_hvac_occupied": bool(_row2054_fused),
+                                        },
+                                    )
+                                )
+                        else:
+                            effective_preset = "away"
                 # Expose per-zone D3-skip flag for the sensor attribute (D3).
                 try:
                     self._d3_skipped_current_tick[zone_id] = bool(_d3_skipped_this_tick)
+                except Exception:  # noqa: BLE001
+                    pass
+                # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2): expose
+                # the per-zone D5 occupancy-defer flag on the same
+                # sensor surface.
+                try:
+                    self._d5_occupancy_deferred_current_tick[zone_id] = bool(
+                        _d5_occupancy_deferred_this_tick,
+                    )
                 except Exception:  # noqa: BLE001
                     pass
 
@@ -2196,7 +2425,8 @@ class HVACCoordinator(BaseCoordinator):
                                     "house_state": self._house_state,
                                     "reason": "night_trust_suppressed",
                                     "zone_vacant_past_grace": zone_vacant_past_grace,
-                                    "runtime_exceeded": bool(zone.runtime_exceeded),
+                                    # D-b1 rename (operator-facing).
+                                    "energy_shed_cap_reached": bool(zone.runtime_exceeded),
                                     "home_persons": list(home_persons),
                                 },
                             )
@@ -2308,7 +2538,11 @@ class HVACCoordinator(BaseCoordinator):
             elif effective_preset == "away" and zone_vacant_past_grace:
                 preset_change_reason = "vacant_past_grace"
             elif effective_preset == "away" and zone.runtime_exceeded:
-                preset_change_reason = "runtime_exceeded"
+                # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b1): renamed
+                # from `runtime_exceeded` → `energy_shed_cap_reached`.
+                # D5 is EC coast/shed energy-shed policy, not compressor
+                # protection. See PLANNING_hvac_d5_reframe_occupancy_gate.md.
+                preset_change_reason = "energy_shed_cap_reached"
             elif zone_id in self._pre_arrival_zones:
                 preset_change_reason = "pre_arrival"
             else:
@@ -2339,6 +2573,22 @@ class HVACCoordinator(BaseCoordinator):
                         preset_change_reason = "comfort_delay_active"
                 except Exception:  # noqa: BLE001
                     pass
+            # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2) fix-up F4:
+            # when the D5 occupancy gate deferred this tick, but some
+            # OTHER path is still driving a preset_change (i.e. we
+            # reached the emit below), relabel the reason so the
+            # ledger records WHY the D5 force-away didn't fire. This
+            # does NOT feed `_s1_defer_reasons` — the label is purely
+            # a ledger surface; deferral is a strictly non-emit path
+            # elsewhere. Fires only when the D5 defer flag AND the
+            # gate-satisfying preconditions held.
+            if (
+                _d5_occupancy_deferred_this_tick
+                and zone.runtime_exceeded
+                and preset_change_reason
+                in ("house_state_transition", "pre_arrival")
+            ):
+                preset_change_reason = "energy_shed_cap_deferred_occupied"
 
             # Suppress arrester for URA-initiated changes
             if self._override_arrester:
@@ -2367,7 +2617,8 @@ class HVACCoordinator(BaseCoordinator):
                 _s1_zone_id = zone_id
                 _s1_reason = preset_change_reason
                 _s1_defer_reasons = {
-                    "runtime_exceeded",
+                    # D-b1 rename: was `runtime_exceeded`.
+                    "energy_shed_cap_reached",
                     "house_state_transition",
                     "comfort_delay_active",
                 }
@@ -2438,7 +2689,21 @@ class HVACCoordinator(BaseCoordinator):
                                 "house_state": self._house_state,
                                 "reason": preset_change_reason,
                                 "zone_vacant_past_grace": zone_vacant_past_grace,
-                                "runtime_exceeded": bool(zone.runtime_exceeded),
+                                # D-b1 rename (operator-facing).
+                                "energy_shed_cap_reached": bool(zone.runtime_exceeded),
+                                # F6 (fix-up) — DISCRIMINATING fields so
+                                # INV-D5-GATE can be evaluated against
+                                # the ledger. constraint_mode + occupancy
+                                # split the "did the gate actually apply"
+                                # verdict from the "was the reason we
+                                # got here" label.
+                                "constraint_mode": self._energy_constraint_mode,
+                                "any_room_hvac_occupied": bool(
+                                    getattr(zone, "any_room_hvac_occupied", None)
+                                    if getattr(zone, "any_room_hvac_occupied", None)
+                                    is not None
+                                    else getattr(zone, "any_room_occupied", False)
+                                ),
                                 "home_persons": main_row_home_persons,
                             },
                         )
@@ -2469,7 +2734,8 @@ class HVACCoordinator(BaseCoordinator):
                             "old_preset": zone.preset_mode,
                             "new_preset": effective_preset,
                             "vacancy_override": zone_vacant_past_grace,
-                            "runtime_exceeded": zone.runtime_exceeded,
+                            # D-b1 rename (operator-facing).
+                            "energy_shed_cap_reached": zone.runtime_exceeded,
                             "reason": preset_change_reason,
                         },
                         action={"preset_mode": effective_preset},
@@ -2953,6 +3219,11 @@ class HVACCoordinator(BaseCoordinator):
                     zone.runtime_seconds_this_window = 0.0
                     zone.window_start = None
                     zone.runtime_exceeded = False
+                # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2): the
+                # deferred-occupied episode ends when the constraint
+                # mode transitions in EITHER direction — clear so the
+                # next episode re-emits an activity-log row.
+                self._d5_occ_defer_logged_episode.clear()
             # v4.7.30 (Review B-MED-1): also clear counters when RELEASING to
             # normal from a constrained mode. Otherwise a zone that hit
             # runtime_exceeded during coast/shed stays flagged until its duty
@@ -2967,6 +3238,11 @@ class HVACCoordinator(BaseCoordinator):
                     zone.runtime_seconds_this_window = 0.0
                     zone.window_start = None
                     zone.runtime_exceeded = False
+                # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2): the
+                # deferred-occupied episode ends when the constraint
+                # mode transitions in EITHER direction — clear so the
+                # next episode re-emits an activity-log row.
+                self._d5_occ_defer_logged_episode.clear()
 
     # ------------------------------------------------------------------
     # v3.22.0 D2: Safety hazard signal handler
@@ -3556,6 +3832,9 @@ class HVACCoordinator(BaseCoordinator):
             )
         self._last_runtime_accumulation = now
 
+        # D-b3: LIVE window seconds from the Rung-3 knob. Accumulator
+        # matches the enforcement site's window basis on every tick.
+        window_seconds = self.duty_cycle_window_seconds
         for zone in self._zone_manager.zones.values():
             # Initialize window
             if zone.window_start is None:
@@ -3564,7 +3843,7 @@ class HVACCoordinator(BaseCoordinator):
                 zone.runtime_exceeded = False
 
             # Check window expiry → reset
-            if (now - zone.window_start).total_seconds() >= DUTY_CYCLE_WINDOW_SECONDS:
+            if (now - zone.window_start).total_seconds() >= window_seconds:
                 zone.window_start = now
                 zone.runtime_seconds_this_window = 0.0
                 zone.runtime_exceeded = False
@@ -3573,14 +3852,30 @@ class HVACCoordinator(BaseCoordinator):
             if zone.hvac_action in ("heating", "cooling") and elapsed > 0:
                 zone.runtime_seconds_this_window += elapsed
 
-            # Check duty cycle
+            # D-b3: master enable kills enforcement entirely (accumulator
+            # keeps running for diagnostics + future re-enable).
+            if not self.d5_enabled:
+                continue
+
+            # Check duty cycle — LIVE percentage knobs. `0` on a cap =
+            # documented kill for that mode (no cap can be reached).
             mode = self._energy_constraint_mode
             if mode == "shed":
-                max_seconds = DUTY_CYCLE_WINDOW_SECONDS * DUTY_CYCLE_SHED
+                cap_pct = self.duty_cycle_shed_pct
             elif mode == "coast":
-                max_seconds = DUTY_CYCLE_WINDOW_SECONDS * DUTY_CYCLE_COAST
+                cap_pct = self.duty_cycle_coast_pct
             else:
                 continue  # No limit in normal mode
+            if cap_pct <= 0:
+                # Kill switch for this mode — never trip. F5 (fix-up):
+                # clear any latched `runtime_exceeded` BEFORE returning
+                # so an operator setting a mode cap to 0 mid-episode
+                # doesn't leave the zone forced-away for up to a full
+                # window. Same clear also releases a grow-window seed
+                # that predated a live knob change.
+                zone.runtime_exceeded = False
+                continue
+            max_seconds = window_seconds * (cap_pct / 100.0)
 
             # Skip enforcement during sleep (RH4 fix)
             if self._house_state == "sleep":
@@ -3841,7 +4136,9 @@ class HVACCoordinator(BaseCoordinator):
             if self._house_state == "sleep":
                 zone.zone_presence_state = "sleep"
             elif zone.runtime_exceeded:
-                zone.zone_presence_state = "runtime_limited"
+                # D-b1: operator-facing state label renamed. Internal
+                # `runtime_exceeded` field kept for stability.
+                zone.zone_presence_state = "energy_shed_cap_reached"
             elif zone_id in self._pre_arrival_zones:
                 zone.zone_presence_state = "pre_arrival"
             elif zone_id in pre_conditioning_zones:
@@ -4587,7 +4884,7 @@ class HVACCoordinator(BaseCoordinator):
         zone_limits: dict[str, dict[str, float | None]] = {}
         try:
             for zone_id, zone in self._zone_manager.zones.items():
-                zone_attrs = self._zone_manager.get_zone_status_attrs(zone_id)
+                zone_attrs = self._zone_manager.get_zone_status_attrs(zone_id, window_seconds=self.duty_cycle_window_seconds)
                 friendly_name = zone_attrs.get("friendly_name", zone_id)
                 zone_limits[friendly_name] = {
                     "cool_low": zone_attrs.get("target_temp_low"),

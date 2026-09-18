@@ -188,8 +188,11 @@ def test_hvac_preset_reasons_frozenset_present_and_complete():
     assert isinstance(reasons, frozenset)
     # Every documented emission literal (planning §Falsifiable invariant).
     required = {
-        # S1 ladder
-        "stale_occupancy", "vacant_past_grace", "runtime_exceeded",
+        # S1 ladder — HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b1):
+        # `runtime_exceeded` renamed to `energy_shed_cap_reached`; new
+        # sibling `energy_shed_cap_deferred_occupied` covers D-b2 defer.
+        "stale_occupancy", "vacant_past_grace",
+        "energy_shed_cap_reached", "energy_shed_cap_deferred_occupied",
         "pre_arrival", "house_state_transition", "comfort_delay_active",
         # Static site literals
         "egress_resume", "severe_override_revert",
@@ -279,11 +282,11 @@ def test_capture_preset_reason_writes_to_hvac_last_reason_by_zone():
     from custom_components.universal_room_automation.const import DOMAIN
     hass = MagicMock()
     hass.data = {DOMAIN: {"coordinator_manager": _CM()}}
-    hvac_setpoint._capture_preset_reason(hass, "zone_1", "runtime_exceeded")
+    hvac_setpoint._capture_preset_reason(hass, "zone_1", "energy_shed_cap_reached")
     hvac_setpoint._capture_preset_reason(hass, "zone_2", "egress_resume")
     cache = getattr(hvac, "_last_reason_by_zone", None)
     assert cache is not None, "helper must create the cache dict"
-    assert cache["zone_1"][0] == "runtime_exceeded"
+    assert cache["zone_1"][0] == "energy_shed_cap_reached"
     assert cache["zone_2"][0] == "egress_resume"
     # Empty reason -> sentinel 'unknown' (never-crash contract).
     hvac_setpoint._capture_preset_reason(hass, "zone_3", "")
@@ -301,7 +304,7 @@ def test_capture_preset_reason_never_raises_on_missing_manager():
     )
     hass = MagicMock()
     hass.data = {}
-    hvac_setpoint._capture_preset_reason(hass, "zone_1", "runtime_exceeded")
+    hvac_setpoint._capture_preset_reason(hass, "zone_1", "energy_shed_cap_reached")
     # (no assertion — the test passes iff no exception raised)
 
 
@@ -487,7 +490,7 @@ def test_emit_set_preset_mode_populates_last_reason_by_zone_on_success():
             "away",
             blocking=False,
             zone_id="zone_1",
-            reason="runtime_exceeded",
+            reason="energy_shed_cap_reached",
         )
 
     ok = asyncio.new_event_loop().run_until_complete(_drive())
@@ -501,7 +504,7 @@ def test_emit_set_preset_mode_populates_last_reason_by_zone_on_success():
         "neutered _capture_preset_reason() call would leave this None"
     )
     entry = cache.get("zone_1")
-    assert entry is not None and entry[0] == "runtime_exceeded"
+    assert entry is not None and entry[0] == "energy_shed_cap_reached"
 
 
 # ---------------------------------------------------------------------------
@@ -647,8 +650,9 @@ def test_hvac_preset_reasons_ast_completeness_across_all_call_sites():
     assert "severe_override_revert" in found, (
         "AST walker failed to detect hvac_override.py:3555 emission"
     )
-    assert "runtime_exceeded" in found, (
-        "AST walker failed to detect S1 ladder literals"
+    assert "energy_shed_cap_reached" in found, (
+        "AST walker failed to detect S1 ladder literals "
+        "(D-b1 renamed runtime_exceeded -> energy_shed_cap_reached)"
     )
     assert "lease_expiry" in found, (
         "AST walker failed to detect _auto_return(trigger=...) callers"

@@ -299,6 +299,11 @@ meta:
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
 - id: HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1
+  VALIDATED_5108_2026_09_18: 'v5.103.8 live-validated: loaded clean, zero ERROR. retreat_reason live
+    on zone preset sensor (house_state_transition + retreat_reason_at). Coast dwell attrs
+    (energy_constraint_mode/since/duration_s) live on 10-Mode. All 43 hvac_occupied diagnostics
+    enabled+visible (D3 registry migration worked). Discriminator (soak-exit): a real coast/duty or
+    vacancy away shows the right retreat_reason; coast dwell increments during a real coast window.'
   FIXUP_DONE_2026_09_17: 'Consolidated fix-up @d4cadfad0, all 9 items. Real anchors added (D1/D2
     override entry->meta->resolver; D6 chokepoint capture; AST completeness scanner over all sites +
     dynamic sources) — builder mutation-drilled RED-then-GREEN. Reason vocab fixed (No-Fab): deleted 3
@@ -401,6 +406,11 @@ cards:
   parsimony: {problem: 'debounce hold has no operator knob + observability entity hidden/incomplete', verdict: BUILD, note: 'Numbers-Get-Knobs gap + obs polish; additive'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1, HVAC-COAST-OBSERVABILITY-1], context: 'post-ship knob+obs audit for v5.103.7 (operator-requested)'}
 - id: HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1
+  VALIDATED_5108_2026_09_18: 'v5.103.8 live-validated: loaded clean, zero ERROR. retreat_reason live
+    on zone preset sensor (house_state_transition + retreat_reason_at). Coast dwell attrs
+    (energy_constraint_mode/since/duration_s) live on 10-Mode. All 43 hvac_occupied diagnostics
+    enabled+visible (D3 registry migration worked). Discriminator (soak-exit): a real coast/duty or
+    vacancy away shows the right retreat_reason; coast dwell increments during a real coast window.'
   FOLDED_INTO_v5_103_8_2026_09_17: 'BEING HANDLED in the same cycle as HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1
     (one combined plan PLANNING_hvac_demand_knobs_and_observability.md, build @9be22f498, 2 reviews +
     consolidated fix-up in flight). This cards deliverables = D5 retreat_reason attr on the zone preset
@@ -438,6 +448,11 @@ cards:
   parsimony: {problem: 'preset-away causation is DB-only, not live-legible -> chronic misattribution', verdict: BUILD, note: 'investigation first; likely small additive sensors/attrs'}
   links: {related: [HVAC-COAST-OBSERVABILITY-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-ZONE1-MANUAL-OSCILLATION-1], context: 'operator-requested attribution-legibility investigation; coast-observability is a component'}
 - id: HVAC-COAST-OBSERVABILITY-1
+  VALIDATED_5108_2026_09_18: 'v5.103.8 live-validated: loaded clean, zero ERROR. retreat_reason live
+    on zone preset sensor (house_state_transition + retreat_reason_at). Coast dwell attrs
+    (energy_constraint_mode/since/duration_s) live on 10-Mode. All 43 hvac_occupied diagnostics
+    enabled+visible (D3 registry migration worked). Discriminator (soak-exit): a real coast/duty or
+    vacancy away shows the right retreat_reason; coast dwell increments during a real coast window.'
   status: shipped_organic
   shipped_version: v5.103.8
   thread: hvac
@@ -470,7 +485,62 @@ cards:
     v5.103.8; close this on that ship.'
 
 - id: HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1
-  status: planned
+  REVIEW_C_AND_FIXUP_2026_09_17: 'Reviewer C (test-authority+adversarial) FIX-REQUIRED: independently
+    re-ran mutation drills -> 8/9 load-bearing sites UNTESTED (all 9 tests are source-greps = hollow anchors
+    #62; the build mutation table was itself hollow). NEW C-M3: live discriminator can NEVER fail
+    (any_room_hvac_occupied not in details, reason mode-agnostic) -> Review D would falsely PASS on a dead
+    gate = non-discriminating acceptance criterion. GOOD: C could NOT break INV-D5-GATE by static enum
+    (invariant SOUND, only unproven). Consolidated fix-up DISPATCHED (a1eccc451): F1 rename-consumer set
+    (sensor.py:13683 + full grep), F2 frontend duty-card (rebuild-or-dual-emit-attr), F3 wire d5_occupancy_
+    deferred sensor attr, F4 defer reason->preset_change_reason, F5 cap=0 clear latch, F6 emit any_room_hvac_
+    occupied+constraint_mode into details + fix plan SQL, F7 REAL behavioral tests (3-cell matrix + accumulator
+    w/ mutated knobs, must RED on M0-M8), + B-M1/B-M2/LOWs. Then orchestrator mutation-verify + ship.'
+  REVIEW_AB_2026_09_17: 'Reviews A+B CONVERGED FIX-REQUIRED (C test-authority still running). Theme:
+    rename+defer-flag swept hvac.py but not consumers. Must-fix: (1)CRIT sensor.py:13683 still filters
+    zone_presence_state==runtime_limited -> zones_runtime_limited attr permanently EMPTY (repoint +
+    drive from derivation in test); (2)HIGH _d5_occupancy_deferred_current_tick zero readers -> wire to
+    sensor attr like D3 sibling sensor.py:12819 (plan D1); (3)HIGH energy_shed_cap_deferred_occupied never
+    assigned to preset_change_reason -> extend relabel hvac.py:2548 gated on _d5_occupancy_deferred_this_tick
+    (plan D2); (4)HIGH cap_pct=0 kill leaves runtime_exceeded latched -> clear False before continue
+    hvac.py:3823; (5)HIGH frontend-v3 bundles read runtime_exceeded attr for yellow card -> dual-emit or
+    rebuild; (6)MED D6xD5 false suppression row + burns episode gate -> skip defer bookkeeping when away
+    already forced; (7)MED runtime_duty_cycle_pct 3 sites divide by const not live knob (#63). LOWs: comment
+    hvac.py:392, window seed clamp __init__.py:3913. Anchors HOLLOW (green via hand-assigned strings, #62) ->
+    fix-up must add REAL behavioral tests. HOLD fix-up for reviewer C.'
+  BUILD_LANDED_2026_09_17: 'feature/hvac-d5-reframe @ f2ce50293. D-b1 operator-facing rename ->
+    energy_shed_cap_reached (internal zone.runtime_exceeded field KEPT, ~30 refs + persistence path;
+    no operator surface leaks it); D-b2 NO-WRITE defer ledger-only episode-gated (shed dominates, D6
+    stale_occupancy precedence preserved); D-b3 Rung-3 Number knobs + enable switch, 0=kill; window_start
+    found ALREADY persisted (HVAC-D5-WINDOW-START-RESTORE-1 MET). Name-diff EMPTY vs develop. 3 framing-
+    disjoint Tier-2-DB reviews DISPATCHED (A rename-completeness/correctness, B state-machine/precedence/
+    restart, C test-authority-mutation + adversarial INV-D5-GATE).'
+  BRYANT_AUDIT_2026_09_17: 'VERDICT = PARTIALLY REDUNDANT: Infinity/Evolution control board + delay-on-
+    break already protect the compressor natively; D5 force-away does NOT lengthen compressor off-time =
+    pure energy-shed policy wearing a protection name (zero-Bryant-grounding CONFIRMED). FINALIZED SHAPE =
+    option (b) reframe+gate, NOT delete (still a legit coast/shed load-shed lever). Build spec: (1) remove
+    runtime_exceeded -> energy_shed_cap_reached (hvac.py:2200-2201, allow-list 2168-2178, no alias per no-
+    back-compat); (2) gate force-away at hvac.py:1928 on fused hvac_occupied - defer for occupied UNLESS
+    energy_constraint_mode==shed (shed dominates), log energy_shed_cap_deferred_occupied; (3) knobs->Rung-3
+    (absorb HVAC-D5-KNOBS-TO-RUNG-3-1, 0=kill). NEW finding: ha_carrier exposes ODU Var %/stage_status =
+    richer real-duty signal than the 20-min hvac_action integral -> parked (d) HVAC-D5-REGROUND-ON-ODU-VAR-1.
+    See docs/planning/AUDIT_bryant_duty_cycle_redundancy_2026_09_17.md. BUILD NOT YET DISPATCHED - operator asked how to fully true-up (2026-09-17); reconciling scope first (redundancy-with-EC-shed question open).'
+  CHECKPOINT_DEFAULTS_2026_09_18: 'Operator: dont hold it + finish this tail (superseding the earlier
+    dismiss). Proceeding on RECOMMENDED defaults: (1) SHED>OCCUPANCY>COAST-DUTY (shed still forces
+    occupied away; occupancy defers ONLY under coast — matches D3 shed-dominates); (2) remove
+    runtime_exceeded immediately (Single-User-No-Back-Compat), new reason coast_duty_limit/shed_duty_
+    limit; (3) absorb HVAC-D5-KNOBS-TO-RUNG-3 (number duty window/coast_pct/shed_pct + enable switch,
+    0=kill). Build dispatched. BRYANT RESEARCH running in parallel (for-later): may show D5 is REDUNDANT
+    with the thermostats native compressor protection -> would reshape/reduce this; the occupancy-gate
+    fix is valuable regardless (fixes the live complaint).'
+  PLAN_2026_09_18: 'Plan PLANNING_hvac_d5_reframe_occupancy_gate.md. INV-D5-GATE: under coast, no
+    occupied zone (any_room_hvac_occupied) is forced to away by D5; under shed, byte-identical pre-
+    cycle. Tier 2-DB (presence<->HVAC<->EC ripple; shared-primitive consumer swap; reason-ledger
+    allow-list change) -> 3 framing-disjoint reviews. OPERATOR CHECKPOINT (pre-build): (1) SHED x
+    OCCUPANCY precedence [genuine tradeoff, asked]; (2) runtime_exceeded back-compat window -> applying
+    standing Single-User-No-Back-Compat = remove immediately; (3) absorb HVAC-D5-KNOBS-TO-RUNG-3
+    (number duty window/coast_pct/shed_pct + enable switch, 0=kill) -> taking the recommendation YES.
+    NEXT: operator picks #1 -> plan-review (Tier-2-DB) -> build -> checkpoint held.'
+  status: review
   thread: hvac
   created: '2026-09-17'
   updated: '2026-09-17'
@@ -508,6 +578,71 @@ cards:
   next: 'Decide knob rung + add a D5 enable/kill switch; fold into HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 if built together.'
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
+- id: HVAC-EQUIPMENT-HEALTH-OBSERVABILITY-1
+  DOC_2026_09_17: 'Possibilities written up in priority order (P1 health-anomaly -> SC/anomaly->NM;
+    P2 reset-vs-nudge -> maybe kill resets; P3 closed-loop energy attribution+tuning; P4 re-ground D5 on
+    stage) + measurements catalog + theory-of-not-great-state, in docs/planning/PROPOSAL_hvac_equipment_
+    health_observability.md. Operator process: doc-first -> card -> link (this). Live Zone-1 reset A/B is
+    CLEARED by operator but deferred (passive-first). Data gap found: no nudge/ramp-named rows for zone_1
+    -> first sub-probe = locate nudge logging.'
+  status: pre_planning
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, safety-coordinator, anomaly, telemetry, carrier, measure-first, closed-loop, workstream]
+  title: HVAC equipment-health observability + closed-loop tuning from the Bryant ODU/IDU telemetry (ONE workstream, not a card flurry)
+  problem_solution:
+  - 'Problem: ha_carrier already publishes a rich per-thermostat refrigeration + air-handler telemetry
+    stream URA does not consume - ODU Status (off/Stage 1-5 + suction/discharge pressure&temp,
+    suction_superheat, outdoor_coil_temp, line_voltage, static_pressure, blower_rpm), IDU Status
+    (airflow_cfm, static_pressure, blower_rpm, 2-stage furnace), filter_remaining, and per-zone
+    cooling_energy_*. The Infinity board PROTECTS the compressor but never tells the owner it is
+    DEGRADING. Solution: consume this telemetry in the SafetyCoordinator SAFETY_METRICS + shared
+    anomaly engine (same home as short_cycle_rate) -> NM, and use the real duty signal to measure and
+    tune URA HVAC. Operator: "alert at a level impossible for most home owners."'
+  why: 'Surfaced 2026-09-17 out of the Bryant duty-cycle audit (the ODU Var/stage signal) + live reads
+    (sensor.thermostat_bryant_wifi_*_odu_status/idu_status/filter_remaining, sensor.office_b_odu_status=
+    Stage 5 with full refrigerant telemetry). New capability, additive, low-risk observation. Operator
+    explicitly wants ONE workstream, not a flurry.'
+  next: 'MEASURE-FIRST pass (read-only, gates everything): (1) theory-of-not-great-state = hard physical
+    limits for this equipment/refrigerant (superheat floodback floor, discharge ceiling, static-pressure
+    airflow limit ~>0.8in, line-voltage brownout <~210 / over >~264) + per-stage/per-outdoor-temp
+    SELF-BASELINE from recorder history (superheat@Stage5@82F distribution); (2) reset-vs-nudge: correlate
+    URA action log vs ODU STAGE moves - does a reset (force-away) slam compressor off then restart Stage 5
+    (short-cycle) while a nudge modulates 5->3 gracefully? -> empirical verdict on kill-resets + informs D5
+    reframe/S14; (3) closed-loop energy: ODU stage + cooling_energy_* + action log -> did vacancy/coast/
+    pre-cool actually save kWh, and tune knobs to measured energy. Output = docs/planning/AUDIT + not-great-
+    state doc; THEN scope the SC/anomaly wiring + dirty-filter detector (static_pressure UP + filter_remaining
+    DOWN, cross-corroborated).'
+  parsimony: {problem: 'rich HVAC health+duty telemetry unconsumed; open-loop energy claims', verdict: BUILD, note: 'high value, low risk, additive; measure-first before wiring'}
+  links: {related: [HVAC-D5-REGROUND-ON-ODU-VAR-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-HOT-ENTRY-LATENCY-1], context: 'Bryant duty-cycle audit 2026-09-17 + live ODU/IDU telemetry'}
+  SUB_IDEAS_2026_09_17: 'Checklist inside this one workstream (do NOT mint separate cards): (a) compressor/
+    refrigerant health anomaly (superheat/discharge/suction) -> SC+anomaly->NM; (b) airflow/dirty-filter
+    (static_pressure + filter_remaining cross-corroborated); (c) electrical (line_voltage brownout);
+    (d) reset-vs-nudge measurement -> maybe KILL resets; (e) closed-loop energy attribution + knob tuning;
+    (f) re-ground D5 duty on ODU Stage (folds HVAC-D5-REGROUND-ON-ODU-VAR-1). filter_remaining home = SC
+    SAFETY_METRICS (operator: "add to SC"), confirmed safety.py:904 already registers metrics + emits
+    anomalies + tracks degraded.'
+- id: HVAC-D5-REGROUND-ON-ODU-VAR-1
+  status: parked
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, energy, carrier, measure-first, tier-2]
+  title: Re-ground D5 duty estimate on the real ODU Var %% / stage_status instead of the coarse 20-min hvac_action integral
+  problem_solution:
+  - 'Problem: D5 integrates the thermostat hvac_action (cooling/idle) over a rolling 20-min window - a coarse
+    binary proxy for compressor duty. The Bryant audit (2026-09-17) found ha_carrier ALREADY publishes a
+    richer real-duty signal: sensor "ODU Var" = variable-capacity outdoor-unit %% output (sensor.py:788-834)
+    plus zone.stage_status (entry_level_climate.py:153-158). Solution: re-ground the D5 duty estimate on the
+    ODU Var %% (a modulating unit at 30%% is NOT the same load as one cycling on/off), so the shed cap tracks
+    actual compressor work rather than a hvac_action on/off integral.'
+  why: 'Bryant audit option (d). Strictly better duty signal, but a larger design change than reframe+gate;
+    Marginal-Benefit says reframe+gate (HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1) captures most of the value now.'
+  next: 'PARKED - revive if, after reframe+gate ships, the ledger shows the duty estimate still mis-fires on
+    modulating units (occupied zones shed while ODU Var is low). Then measure ODU Var live first (measure-before-build).'
+  parsimony: {problem: 'coarse duty proxy vs available richer signal', verdict: PARK, note: 'follow-up to reframe; marginal benefit'}
+  links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'Bryant duty-cycle redundancy audit 2026-09-17'}
 - id: HVAC-D5-WINDOW-START-RESTORE-1
   status: inbox
   thread: hvac
@@ -607,6 +742,9 @@ cards:
   parsimony: {problem: 'unconditional throttle bypass = steady write-storm once the feature is on', verdict: BUILD, note: 'gate on enabling the switch'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], sibling_of: [HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1], context: 'F2 residual; blocker on guest_mode_actuation'}
 - id: HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1
+  FOLD_2026_09_17: 'From HVAC-EC-OFFSET-SELF-LOCKOUT-1 (refuted): verify the EC coast/shed OFFSET apply
+    path carries a FIX-B2-style pre-write preset snapshot + set_preset_mode restore (like the nudge path),
+    so a coast setpoint write cannot leave a zone in manual after the constraint clears. Same strand class.'
   status: planned
   thread: hvac
   created: '2026-09-17'
@@ -628,6 +766,9 @@ cards:
   parsimony: {problem: 'restore writers strand empty zones; the intended corrector is dormant', verdict: BUILD, note: 'measure-first; pre-existing'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1], context: 'round-4 adversarial 4th-writer enumeration'}
 - id: HVAC-SETHVACMODE-CHOKEPOINT-1
+  PROVENANCE_LINK_2026_09_17: 'Phase-1 (govern the 3rd verb) is the prerequisite for the provenance
+    invariant on HVAC-THERMOSTAT-ABSTRACTION-1: you cannot classify manual as URA-vs-external until ALL
+    write verbs route through the governed path that stamps provenance. See that card PROVENANCE_INVARIANT.'
   status: planned
   thread: hvac
   created: '2026-09-16'
@@ -8820,6 +8961,21 @@ cards:
   - activity_logger.py:114-117 (unvalidated entity_id onto the ura_action bus event)
   - 'live ERROR 2026-09-16 boot: recorder core.py:304 -> split_entity_id ValueError garage_a'
 - id: HVAC-THERMOSTAT-ABSTRACTION-1
+  PROVENANCE_INVARIANT_2026_09_17: 'Operator framing (2026-09-17): if URA governs ALL writes with
+    provenance, any manual is classifiable and there is NO self-lockout. This is the arc acceptance
+    criterion (NOT a new card). INVARIANT: should_change_preset refuses on EXTERNAL manual only; URA-
+    induced manual is reclaimed freely; genuine human manual is respected (arrester grace/immunity).
+    The Bryant native schedule is NOT in the manual set (it sets named presets home/away/sleep, not
+    manual - live-tested 2026-09-17, exonerated). LIVE EVIDENCE the abstraction must resolve (zone_1,
+    ura DB): URA governed setpoint writes (high 76/low 69 = URA home target) flip Carrier away->manual
+    routinely (override_detected mode=governed, ~5-20/night); the arrester then re-detects them because
+    ha_carrier ASYNC RE-POSTS URA''s own writes AFTER the suppression TTL (hvac_override.py:2944-2946).
+    HARD REQUIREMENT: provenance must be tracked by WRITE IDENTITY/VALUE (this manual+setpoint == a write
+    I made), NOT a fragile time-window - else URA''s delayed echo reads external and self-locks. Existing
+    partial machinery to extend: _suppress_kind (provenance by kind, :243-250) + FIX B2 pre-write preset
+    snapshot (:251-262, NUDGE-path only today). HVAC-PRESET-LOCKOUT-ESCAPE-1 (item #2) IS the behavioral
+    realization of this - fold, do not duplicate. Separate (not this): the home<->away preset FLAP volume
+    (86/3d occupancy churn) belongs to the conditioning-demand debounce (v5.103.7), not write-governance.'
   INVENTORY_2026_09_16: 'Thermostat write-path inventory done (AUDIT_thermostat_write_paths). CORRECTS
     the root-cause hypothesis: writes are MORE governed than feared. set_preset_mode 10/10 funnelled,
     set_temperature 11/11 funnelled; ONLY set_hvac_mode bypasses (7/7 sites, 25%% of writes, one verb).
@@ -11224,7 +11380,57 @@ cards:
   refs:
   - hvac_preset.py:202-217 (should_change_preset — the silent refusal)
   - hvac.py (the instrumented refusal site)
+- id: HVAC-EC-OFFSET-SELF-LOCKOUT-1
+  REFUTED_2026_09_17: 'Closed as REFUTED (investigation binary exit). The house-wide self-lockout
+    premise is FALSE: induced-manual reconciliation is the OverrideArrester''s owned, EXISTING machinery.
+    Evidence (code, not assumption): (1) a URA set_temperature write DOES flip Carrier preset_mode->manual
+    and it persists (hvac_override.py:251-253, FIX B2) - so the mechanism is real; BUT (2) _suppress_kind
+    (hvac_override.py:243-250) stops URA''s own writes self-counting as a user override, and (3) the nudge
+    restore path snapshots the pre-write preset and re-emits set_preset_mode to restore it (FIX B2,
+    :251-262); (4) the arrester detects real overrides by setpoint-delta-vs-expected (:162-163), not by
+    preset==manual. S14 was the SPECIAL case that stranded precisely because it had NO restore path and
+    relied on the preset-manager exit (should_change_preset refuses manual, hvac_preset.py:215). Persistent
+    manual was separately traced to the BRYANT NATIVE SCHEDULE (HVAC-ZONE1-MANUAL-OSCILLATION-1), not the
+    EC offset. Prior litigation this session already downgraded the lockout escape to RARE. RESIDUAL (narrow,
+    real): does the coast/shed offset path specifically carry a B2-style preset-restore, or can a coast
+    setpoint write leave a zone in manual after the constraint clears? -> folded into HVAC-RESTORE-WRITERS-
+    STRAND-EMPTY-NIGHT-ZONE-1 (same class), NOT a standalone card.'
+  status: done
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, energy, lockout, cross-coordinator, measure-first]
+  title: Does EC's occupied-only coast/shed setpoint offset ALSO flip Carrier to manual and self-lock (the S14 trap, house-wide)?
+  problem_solution:
+  - 'Problem: S14 was removed 2026-09-16 because a raw setpoint write flips the Bryant/Carrier thermostat
+    to manual and should_change_preset then refuses the zone (self-lockout). EC publishes SIGNAL_ENERGY_
+    CONSTRAINT with setpoint_offset + occupied_only=True (energy.py:7473-7488), aimed at OCCUPIED zones
+    during coast/shed. If the HVAC-side application of that offset uses emit_set_temperature, EC has the
+    SAME self-lockout as S14 - meaning URA''s graceful degree-based shed on occupied zones is itself
+    broken on Carrier, and the 15 measured lockouts/2d (HVAC-PRESET-LOCKOUT-ESCAPE-1) may largely BE EC.
+    UNVERIFIED: hvac.py:1575-1613 feeds _energy_offset to the override arrester + fans + covers +
+    predictor, NOT an obvious direct setpoint write - the actual offset->setpoint application site and its
+    write verb are untraced. Solution/next: TRACE the offset->target->write path (arrester + predictor);
+    if it emit_set_temperature''s occupied zones during coast, that is the real lockout producer.'
+  why: 'Surfaced during the D5 true-up (Bryant audit + S14 history). This is the discriminator that sizes
+    HVAC-PRESET-LOCKOUT-ESCAPE-1 and validates/breaks the "EC handles graceful shed on occupied" premise
+    the D5 occupancy-gate reconciliation rests on.'
+  next: 'TRACE: where is EC setpoint_offset applied to a target and written (arrester/predictor)? verb =
+    emit_set_temperature (locks) or preset-safe? Then correlate the 15 lockout episodes'' timestamps vs
+    coast/shed windows. CONFIRMED->the lockout escape (item #2) is house-wide + urgent; REFUTED->offset is
+    applied safely, item #2 stays rare.'
+  parsimony: {problem: 'possible house-wide self-lockout via EC offset', verdict: BUILD, note: 'investigation; read-only trace, cheap, decisive'}
+  links: {related: [HVAC-PRESET-LOCKOUT-ESCAPE-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-ZONE1-MANUAL-OSCILLATION-1], context: 'D5 true-up / S14 removal 2026-09-16 / Bryant audit'}
 - id: HVAC-PRESET-LOCKOUT-ESCAPE-1
+  MEASUREMENT_2026_09_17: 'Gate read (v5.103.4 telemetry, ura_activity_log action=preset_change_
+    locked_out, immutable snapshot): 15 episodes across 09-16/09-17 = ~6-9/day house-wide (zone_1 6,
+    zone_2 4, zone_3 5). MODEST harm, not constant. DISCRIMINATOR still open: a provenance escape only
+    helps URA-INDUCED manuals; zone_1 manuals root-caused to the BRYANT NATIVE SCHEDULE (item #3, NOT
+    URA-fixable by an escape). KEY unknown: does a URA emit_set_temperature write flip Carrier into
+    manual (self-lockout)? -> that is what the Bryant/carrier_api research (dispatched 2026-09-17) is
+    determining. HOLD build-vs-park until that lands: if URA setpoint writes self-induce manual -> BUILD
+    the escape (real self-lockout); if manuals are Bryant-schedule/physical only -> PARK (escape helps
+    nothing; real fix = item #3 operator disables Bryant schedule).'
   DOWNGRADED_2026_09_16: 'Lockout telemetry (10.8h) shows escape is REAL but RARE (2 lockouts in
     10.8h, occupied/home path only) — NOT the dominant zone_1 residual. The dominant residual is a
     manual<->away oscillation (mystery re-manual writer) — see HVAC-ZONE1-MANUAL-OSCILLATION-1. Do

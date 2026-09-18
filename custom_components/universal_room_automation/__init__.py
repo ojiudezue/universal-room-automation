@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.8
+# Universal Room Automation vv--cards
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -3909,6 +3909,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             # switch. Default ON. BEGIN-ONLY.
                             "excursion_primitive_enabled": bool(_cfg.get(
                                 "excursion_primitive_enabled", True,
+                            )),
+                            # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b3):
+                            # Rung-3 D5 duty-cycle knobs. Defaults match
+                            # the pre-cycle module constants (20min /
+                            # 75% / 50%). `0` = kill for that mode.
+                            # A-LOW-2 (fix-up): clamp the seed to the same
+                            # [MIN=5, MAX=60] range the Number entity
+                            # enforces (see hvac_const.MIN/MAX_HVAC_DUTY_CYCLE_WINDOW_MIN)
+                            # so a rogue persisted 1-4 value can't slip
+                            # past the entity's MIN and produce a
+                            # sub-window basis.
+                            "duty_cycle_window_minutes": max(5, min(60, int(_cfg.get(
+                                "hvac_duty_cycle_window_minutes", 20,
+                            )))),
+                            "duty_cycle_coast_pct": int(_cfg.get(
+                                "hvac_duty_cycle_coast_pct", 75,
+                            )),
+                            "duty_cycle_shed_pct": int(_cfg.get(
+                                "hvac_duty_cycle_shed_pct", 50,
+                            )),
+                            "d5_enabled": bool(_cfg.get(
+                                "hvac_d5_enabled", True,
                             )),
                         })(cm_config),
                         zone_entry_dwell=int(cm_config.get(

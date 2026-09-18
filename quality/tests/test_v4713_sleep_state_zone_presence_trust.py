@@ -334,10 +334,17 @@ class TestD2PresetGuardSourceShape:
         ~800 char trailing window so the `continue` must live within the
         trust predicate's own body.
         """
+        # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2): a second
+        # `preset_change_suppressed` emit was added for the D5
+        # occupancy-defer ledger row. Anchor on the LAST occurrence
+        # (the night-trust body's emit), where the trust-body
+        # `continue` still lives. The D5 defer branch deliberately
+        # DOES NOT `continue` (it falls through so the D-b2 gate's
+        # no-write semantics stand).
         anchor = '"preset_change_suppressed"'
-        idx = hvac_src.find(anchor)
+        idx = hvac_src.rfind(anchor)
         if idx < 0:
-            idx = hvac_src.find("'preset_change_suppressed'")
+            idx = hvac_src.rfind("'preset_change_suppressed'")
         assert idx >= 0, (
             "Suppressed-row anchor (`preset_change_suppressed`) missing — "
             "the trust body's activity_logger emit was removed or renamed"

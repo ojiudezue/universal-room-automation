@@ -265,7 +265,10 @@ class TestHVACTunableNumberFactory:
         # Fix-up A-HIGH-1 (ARREST-COMFORT-1): +2 comfort-delay Number
         # entities pushed the builder call further into async_setup_entry;
         # window widened accordingly.
-        body = number_src[idx:idx + 7000]
+        # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b3): +3 D5 Rung-3
+        # Number entities push the v4.5.10 builder call further into
+        # async_setup_entry; widen the window accordingly.
+        body = number_src[idx:idx + 9000]
         assert "_build_hvac_v4510_numbers()" in body, (
             "async_setup_entry must add the 7 v4.5.10 Number entities"
         )

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.8
+# Universal Room Automation vv--cards
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -1581,10 +1581,13 @@ class EnergyEfficiencyScoreSensor(UniversalRoomEntity, SensorEntity):
 
         if zone is not None:
             from .domain_coordinators.hvac_const import DUTY_CYCLE_WINDOW_SECONDS
+            # B-M2 (fix-up): route through live window knob when hvac
+            # is available. Falls back to module constant otherwise.
+            _win = getattr(hvac, "duty_cycle_window_seconds", None) or DUTY_CYCLE_WINDOW_SECONDS
             if zone.window_start is not None:
                 duty_pct = min(
                     zone.runtime_seconds_this_window
-                    / DUTY_CYCLE_WINDOW_SECONDS
+                    / _win
                     * 100,
                     100.0,
                 )
@@ -1618,10 +1621,13 @@ class EnergyEfficiencyScoreSensor(UniversalRoomEntity, SensorEntity):
 
         if zone is not None:
             from .domain_coordinators.hvac_const import DUTY_CYCLE_WINDOW_SECONDS
+            # B-M2 (fix-up): route through live window knob when hvac
+            # is available. Falls back to module constant otherwise.
+            _win = getattr(hvac, "duty_cycle_window_seconds", None) or DUTY_CYCLE_WINDOW_SECONDS
             if zone.window_start is not None:
                 duty_pct = min(
                     zone.runtime_seconds_this_window
-                    / DUTY_CYCLE_WINDOW_SECONDS
+                    / _win
                     * 100,
                     100.0,
                 )
@@ -12217,7 +12223,12 @@ class HVACZoneStatusSensor(AggregationEntity, SensorEntity):
         hvac = manager.coordinators.get("hvac")
         if hvac is None:
             return {}
-        return hvac.zone_manager.get_zone_status_attrs(self._zone_id)
+        # B-M2 (fix-up): route the duty-cycle denominator through the
+        # live window knob rather than the module constant.
+        return hvac.zone_manager.get_zone_status_attrs(
+            self._zone_id,
+            window_seconds=getattr(hvac, "duty_cycle_window_seconds", None),
+        )
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -12802,7 +12813,9 @@ class HVACZonePresetSensor(AggregationEntity, SensorEntity):
         # HVAC-PRESET-FLAP-1 D3 (2026-08-11): honest exposure of the duty
         # off-phase episode. True iff:
         #   - the zone is running against the D5 duty cap
-        #     (runtime_exceeded)
+        #     (energy_shed_cap_reached — internal field
+        #     `zone.runtime_exceeded`, renamed operator-facing by
+        #     HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 D-b1)
         #   - AND the zone is occupied (any_room_occupied)
         #   - AND the D3 comfort-delay guard did NOT skip the forced-away
         #     this tick (_d3_skipped_current_tick)
@@ -12820,6 +12833,19 @@ class HVACZonePresetSensor(AggregationEntity, SensorEntity):
             )
         except Exception:  # noqa: BLE001
             _d3_skipped = False
+        # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2) fix-up F3: expose
+        # per-zone occupancy-defer flag so downstream tooling can
+        # observe why D5 did NOT force away this tick. Mirror of the
+        # D3 skip attribute above.
+        try:
+            _d5_occ_deferred = bool(
+                hvac._d5_occupancy_deferred_current_tick.get(
+                    self._zone_id, False,
+                )
+            )
+        except Exception:  # noqa: BLE001
+            _d5_occ_deferred = False
+        attrs["d5_occupancy_deferred"] = _d5_occ_deferred
         # S14 REMOVED 2026-09-16: the off-phase ceiling hold is gone, so this
         # attribute must no longer claim a zone is in an S14 "honest off-phase"
         # — that state cannot occur. Pinned False rather than reading the now-
@@ -13678,9 +13704,17 @@ class HVACZoneIntelligenceSensor(AggregationEntity, SensorEntity):
             "zones_energy_precool": list(
                 getattr(hvac.predictor, "_energy_precool_zones", set())
             ),
+            # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b1) fix-up F1: the
+            # producer at hvac.py:_compute_zone_presence_states emits
+            # `energy_shed_cap_reached` (renamed from `runtime_limited`);
+            # this consumer's filter had gone stale. Attribute key kept
+            # (`zones_runtime_limited`) since it names the OPERATIONAL
+            # meaning ("zones capped by duty limit") — a rename here is a
+            # separate operator-facing surface change tracked in the
+            # supersession audit if desired.
             "zones_runtime_limited": [
                 z.zone_id for z in zones.values()
-                if z.zone_presence_state == "runtime_limited"
+                if z.zone_presence_state == "energy_shed_cap_reached"
             ],
             "total_vacancy_sweeps_today": hvac.vacancy_sweeps_today,
         }

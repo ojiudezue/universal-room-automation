@@ -398,9 +398,40 @@ PRE_ARRIVAL_FAN_TIMEOUT: Final = 15  # Minutes before auto-off
 PRE_ARRIVAL_TIMEOUT_MINUTES: Final = 30  # Minutes before stale pre-arrival cleared
 
 # v3.17.0: Duty cycle
+# HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b3): the three duty-cycle
+# numbers below are the DEFAULTS for the Rung-3 entity knobs (Number
+# entities on the HVAC Coordinator device). LIVE values are read via
+# HVACCoordinator.duty_cycle_window_seconds /
+# duty_cycle_coast_pct / duty_cycle_shed_pct — the accumulator +
+# enforcement site consult those properties, NOT the module constants.
+# Kill semantics: `0` on either cap = D5 disabled for that mode.
+# `d5_enabled=False` = D5 disabled entirely (accumulator still runs;
+# enforcement gated off).
+# Framing: D5 is NOT compressor protection (the Bryant Infinity board
+# is natively protected); D5 is EC coast/shed energy-shed policy —
+# occupancy-blind. Occupancy-gate applied at the force-away site.
 DUTY_CYCLE_WINDOW_SECONDS: Final = 20 * 60  # 20-minute rolling window
 DUTY_CYCLE_SHED: Final = 0.50  # 50% max runtime during shed
 DUTY_CYCLE_COAST: Final = 0.75  # 75% max runtime during coast
+
+# D-b3 entity-knob defaults + ranges (persisted via entry.options).
+CONF_HVAC_DUTY_CYCLE_WINDOW_MIN: Final = "hvac_duty_cycle_window_minutes"
+DEFAULT_HVAC_DUTY_CYCLE_WINDOW_MIN: Final = 20
+MIN_HVAC_DUTY_CYCLE_WINDOW_MIN: Final = 5
+MAX_HVAC_DUTY_CYCLE_WINDOW_MIN: Final = 60
+
+CONF_HVAC_DUTY_CYCLE_COAST_PCT: Final = "hvac_duty_cycle_coast_pct"
+DEFAULT_HVAC_DUTY_CYCLE_COAST_PCT: Final = 75  # matches DUTY_CYCLE_COAST
+MIN_HVAC_DUTY_CYCLE_COAST_PCT: Final = 0  # 0 = coast D5 disabled
+MAX_HVAC_DUTY_CYCLE_COAST_PCT: Final = 100
+
+CONF_HVAC_DUTY_CYCLE_SHED_PCT: Final = "hvac_duty_cycle_shed_pct"
+DEFAULT_HVAC_DUTY_CYCLE_SHED_PCT: Final = 50  # matches DUTY_CYCLE_SHED
+MIN_HVAC_DUTY_CYCLE_SHED_PCT: Final = 0  # 0 = shed D5 disabled
+MAX_HVAC_DUTY_CYCLE_SHED_PCT: Final = 100
+
+CONF_HVAC_D5_ENABLED: Final = "hvac_d5_enabled"
+DEFAULT_HVAC_D5_ENABLED: Final = True
 
 # ============================================================================
 # ARREST-COMFORT-1 Cycle A — Comfort-Delay grace (2026-08-10)
