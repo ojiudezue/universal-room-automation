@@ -451,7 +451,7 @@ cards:
   parsimony: {problem: 'overnight accumulation instant-trips on wake', verdict: BUILD, note: 'measure-first'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: INSTALL-ARCHIFY-SKILL-1
-  status: inbox
+  status: done
   thread: tooling
   created: '2026-09-17'
   updated: '2026-09-17'
@@ -468,7 +468,12 @@ cards:
     (name suggests architecture/graph tooling — verify), install to ~/.claude/skills/ if appropriate, report
     what it adds. Do NOT install blind — read first.'
   parsimony: {problem: 'operator wants a skill installed; no urgency', verdict: BUILD, note: 'spare-cycle, read-before-install'}
-  links: {context: 'operator drop 2026-09-17 mid HVAC ship'}
+  links: {context: 'operator drop 2026-09-17 mid HVAC ship'}  DONE_2026_09_17: 'Installed + verified. Diagram-rendering skill (arch/workflow/sequence/dataflow/
+    lifecycle -> standalone HTML), MIT, tt-a1i/archify v2.17. Safety-reviewed CLEAN (Node built-ins
+    only, no network egress, no install hooks; 3rd-party deps are devDependencies only). Installed
+    MANUALLY (tarball -> ~/.claude/skills/archify/, NOT the npx installer). doctor 15/15 ok; validate
+    ok. Now a loadable skill. NOT wired into URA / not run against the repo. Update = re-pull+copy.'
+
 - id: HVAC-DEGRADED-ROOM-TRIPWIRE-1
   status: planned
   thread: hvac
