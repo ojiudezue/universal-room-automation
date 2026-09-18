@@ -607,6 +607,17 @@ cards:
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  ROOTCAUSE_2026_09_18: 'Operator diagnosis CONFIRMED: off-peak occurs TWICE/day (morning BEFORE peak =
+    the intended banking window; night AFTER peak = the 9pm bug), and mid_peak-before != mid_peak-after.
+    URA HAS the peak-PHASE machinery: summer_peak_ahead / summer_post_peak (energy_battery.py:5390) +
+    _midpeak_rate_lt_peak (:3977); the COAST branch even uses not-summer_post_peak_midpeak (energy.py:7422).
+    The PRE_COOL branch (energy.py:7427) is the ONE place that ignored it - bare tou_period==off_peak with
+    NO before/after-peak guard -> fires both morning (ok) and night (9pm bug). Builder reasoned on the raw
+    TOU label, skipped the day/night + peak-phase machinery its sibling battery/coast code already uses.
+    (Path A is correct precisely because it hard-codes hour [10,14) = implicitly before-peak.) FIX (reuse,
+    not rebuild): gate EC pre_cool on before-peak phase (summer_peak_ahead / not-post-peak) reusing the
+    existing machinery, OR drop Path B pre_cool label entirely since Path A already does the real banking.
+    Prior-art reuse target NAMED: summer_peak_ahead (energy_battery.py:5390). Tier 1-2 label/decision fix.'
   TRACE_2026_09_18: 'Ran down the second pre-cool path (operator ask). THERE ARE TWO, and they are
     different. PATH A (the REAL actuator) = hvac_predict.py:_should_energy_precool:686 (v5.7.1, comment
     "replaces the v3.17.0 weather-pre-cool + solar-banking branches"): REQUIRES live PV export (net_power
