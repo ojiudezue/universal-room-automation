@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T03:09:04-05:00_ - _Data commit: `b987509c8707`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T09:04:39-05:00_ - _Data commit: `d795bad122c0`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -13,28 +13,18 @@ _Generated: 2026-09-18T03:09:04-05:00_ - _Data commit: `b987509c8707`_ - _last_r
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 13 |
-| 🔨 In progress | 0 |
-| 🔍 Review | 1 |
+| 🔨 In progress | 1 |
+| 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 25 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 33 |
 | 🅿️ Parked | 60 |
-| ✅ Done | 177 |
+| ✅ Done | 179 |
 
 ## 📥 Inbox (2)
 _raw capture_
 
-### `HVAC-D5-KNOBS-TO-RUNG-3-1` - D5 duty-cycle window/caps are Rung-1 module constants for what is a Rung-3 operator policy; no kill switch — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
-thread: **hvac** - status: **inbox**
-_created 2026-09-17_
-- **Problem / Solution:**
-  - Problem: DUTY_CYCLE_WINDOW_SECONDS/COAST/SHED (hvac_const.py:396-399) are module constants, but the coast/shed runtime caps are legitimately operator policy (comfort-vs-savings), and there is no kill switch to disable D5. Solution: expos...
-- **Why:** D5 audit finding 3. Pairs with the reframe cycle.
-- **Next:** Decide knob rung + add a D5 enable/kill switch; fold into HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 if built together.
-- **Tags:** hvac, numbers-get-knobs, tier-1
-- **Parsimony:** [BUILD] policy numbers hardcoded, no kill switch
-
-### `DEPLOY-SH-REJECT-FLAG-AS-VERSION-1` - deploy.sh should reject a flag as $1/VERSION (footgun shipped a "v--cards" release) — _#2 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+### `DEPLOY-SH-REJECT-FLAG-AS-VERSION-1` - deploy.sh should reject a flag as $1/VERSION (footgun shipped a "v--cards" release) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
 thread: **tooling** - status: **inbox**
 _created 2026-09-18_
 - **Problem / Solution:**
@@ -43,6 +33,16 @@ _created 2026-09-18_
 - **Next:** Add a VERSION sanity check in scripts/deploy.sh after the #v strip; Tier 1 (one review).
 - **Tags:** tooling, deploy, hotfix, tier-1
 - **Parsimony:** [BUILD] deploy footgun ships corrupt version metadata
+
+### `HVAC-PRECOOL-WINDOW-TOU-DERIVED-1` - Path A pre-cool window is summer-hardcoded [10,14) — not responsive to shoulder/winter TOU peaks (same phase-blindness we just deleted) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **inbox**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem (operator 2026-09-18): _should_energy_precool gates on hour in [ENERGY_PRECOOL_HOUR_START=10, PEAK_HOUR_START=14) (hvac_const.py:143 + hvac_predict.py:52) - a FIXED 10am-2pm window anchored to a 2pm summer peak. TOU peak windows ...
+- **Why:** Corrects my (assistant) wrong claim that the window constants are structural/no-gap. Seasonal peak responsiveness is real; the constants make Path A summer-only-correct. Related to the phase-aware theme of the deleted EC branch.
+- **Next:** Scope: replace the fixed [10,14) hour gate with a peak-relative window derived from the TOU next- transition; keep a knob for the lead hours. Measure-first: check shoulder/winter peak times vs the fixed window before building. Tier 2 (de...
+- **Tags:** hvac, precool, tou, seasonal, phase-aware
+- **Parsimony:** [BUILD] summer-hardcoded pre-cool window, phase-blind to shoulder/winter
 
 ## 🔬 Investigating (2)
 _measuring; truth not yet known_
@@ -472,35 +472,23 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
-
-## 🔍 Review (1)
-_under review_
-
-### `EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1` - pre_cool fires at LOW SOC on off-peak grid (not excess solar) gated on a forecast — verify EC pre_cool/coast solar_class semantics & intent — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **review**
+### `HVAC-PRECOOL-SKIP-REASON-OBS-1` - Path A pre-cool has no "why it did NOT fire" reason — surplus-only skips are invisible (also the measure-enabler for the grid-anticipatory gap) — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **hvac** - status: **in_progress**
 _created 2026-09-18_
 - **Problem / Solution:**
-  - Problem (operator-raised 2026-09-18): solar_class is a solar-production FORECAST that applies to daytime, but two EC constraint branches evaluate in the dark and consume it: (1) coast via mid_peak + solar_class in {poor,very_poor} (energ...
-- **Why:** Surfaced while auditing D5 fire-frequency (D5 itself is peak-TOU-driven, solar-independent, RESOLVED). This is upstream EC-logic correctness, separate from the shipped D5 cycle. A night decision on a daytime forecast is a classic seam. P...
-- **Next:** TRACE solar_class producer + the day it targets at energy.py:7419-7434 consumers; confirm pre_cool uses tomorrow-forecast and the mid_peak-poor-solar coast cannot fire on a nighttime solar value. Measure- first (read the code + a few liv...
-- **Tags:** energy, coast, precool, solar, measure-first, correctness
-- **Parsimony:** [BUILD] daytime solar forecast possibly consumed by night EC decisions
-- **Forensic keys (11):**
-  - `BUILD_2026_09_18`: Combined cycle DISPATCHED (feature/ec-precool-vacancy-ui, a49ec0bda). D1 = delete the EC pre_cool vestige (energy.py:7427-7434). D2 (operator fold-in) = make the room vacancy-hold day/night config fields assistive: suggest the ROOM_TYPE_...
-  - `POST_DELETE_OBSERVABILITY_2026_09_18`: Confirmed energy.py:7432 is the SOLE emitter of EC mode pre_cool; Path A NEVER sets the EC mode (only reads constraint.mode, all normal-gated; sets its own _pre_cool_active). CONSEQUENCE of deleting Path B: sensor.ura_energy_coordinator_...
-  - `IMPACT_ON_D5_CYCLE_2026_09_18`: Operator asked if this vestige affects the just-shipped v5.103.9 D5 reframe. ANSWER: NO material effect - disjoint. (1) Modes: D5 fires only coast/shed; Path B is pre_cool, which is BELOW coast in the EC priority chain (shed>coast>pre_co...
-  - `DISPOSITION_2026_09_18`: Operator AGREED: delete Path B. Overlap analysis: Path A window = 10am-2pm (ENERGY_PRECOOL_HOUR_START=10, PEAK_HOUR_START=14, self-clears at 2pm). Path B fires EVENING (observed 21:00; midday=normal) because its soc<50 gate is only met A...
-  - `SAFE_TO_DELETE_CONFIRMED_2026_09_18`: Pre-delete safety greps CLEAN. (a) fan/cover controllers do NOT branch on pre_cool mode. (b) the ONLY functional readers of a non-normal mode are two predictor gates - hvac_predict.py:719 (Path A suppression) + :335 (_update_pre_cool_lik...
-  - `FIX_2026_09_18`: Vibememo has NO entry retaining the EC pre_cool branch through the v5.7.1 rewrite -> forgotten, not deliberately kept (supersession-cleanup miss confirmed by absence). Consumer grep: mode==pre_cool is SET only at energy.py:7432 (producer...
-  - `CODE_HISTORY_2026_09_18`: git blame = the real story. (1) BORN phase-blind: EC pre_cool branch (energy.py:7427 off_peak+soc<50+solar) is v3.7.0/v3.9.0 (007d0a2b9 2026-03-06, 00827c5d67 2026-03-07) - never phase-aware, not a regression. (2) PHASE FIX SKIPPED IT: b...
-  - `ROOTCAUSE_2026_09_18`: Operator diagnosis CONFIRMED: off-peak occurs TWICE/day (morning BEFORE peak = the intended banking window; night AFTER peak = the 9pm bug), and mid_peak-before != mid_peak-after. URA HAS the peak-PHASE machinery: summer_peak_ahead / sum...
-  - `TRACE_2026_09_18`: Ran down the second pre-cool path (operator ask). THERE ARE TWO, and they are different. PATH A (the REAL actuator) = hvac_predict.py:_should_energy_precool:686 (v5.7.1, comment "replaces the v3.17.0 weather-pre-cool + solar-banking bran...
-  - `DIVERGENCE_CONFIRMED_2026_09_18`: Operator read-the-plan request -> CONFIRMED design-vs-shipped divergence. DESIGN (ENERGY_COORDINATOR_DESIGN_v2.2:176 + :461-464): pre-cool is a 2-4PM AFTERNOON behavior (-3F) before the 4-8pm coast, to bank coolness during the day so the...
-  - `SHARPENED_2026_09_18`: Operator: pre_cool should happen with EXCESS SOLAR, no way at 9pm. LIVE FINDING: sensor.ura_energy_coordinator_hvac_constraint fired mode=pre_cool at 21:00 CDT (REAL local time - ha_ get_history localizes, -05:00 offset; NOT a UTC artifa...
+  - Problem: Path A (_should_energy_precool, hvac_predict.py:686) exposes positive state (pre_cool_active, pre_cool_likelihood, energy_precool_zones/enabled/offset/scope on sensor.ura_hvac_coordinator_mode) but NO skip-reason. The only reaso...
+- **Why:** Sole-path observability gap surfaced by a post-delete quick check (operator). Doubly valuable: it is ALSO the measure-first enabler for EC-GRID-ANTICIPATORY-PRECOOL-GAP-1 - counting "skipped: no surplus on a hot day" rows is exactly that...
+- **Next:** Add a per-tick skip-reason set at each _should_energy_precool early-return; surface on the 10-Mode sensor. Then a one-shot recorder query can quantify hot-day surplus-only skips (feeds the gap card).
+- **Tags:** hvac, observability, precool, tier-1, measure-enabler
+- **Parsimony:** [BUILD] no why-not-firing signal on the sole pre-cool path
+
+## 🔍 Review (0)
+_under review_
+
+_(none)_
 
 ## ⏸️ Waiting on operator (25)
 _needs a human call — groomed first_
@@ -2409,7 +2397,7 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (177)
+## ✅ Done (179)
 _closed, evidence in refs_
 
 ### `HVAC-D5-SLEEP-EXIT-RESET-1` - D5 counter accumulates overnight during sleep-skip and can instant-trip on wake into coast/shed — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -2462,6 +2450,44 @@ _created 2026-09-18_
 - **Forensic keys (2):**
   - `DONE_2026_09_18`: v5.103.10 shipped + live-validated: 6 new display names live (AC Runtime Cap x4, Comfort Grace x2), values intact (75/50/20/on/85/20), entity_ids stable, egress two untouched, zero URA ERROR. Cosmetic rename validated at restart - no soa...
   - `SCOPE_CORRECTION_2026_09_18`: Operator: DROP the 2 egress renames - egress_pause_threshold + egress_resume_delay are about OPENING EGRESS WINDOWS (venting), NOT occupant exit; my "Exit Pause" wording mislabeled the semantic. Keep them as "Egress Pause Threshold" / "E...
+
+### `EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1` - pre_cool fires at LOW SOC on off-peak grid (not excess solar) gated on a forecast — verify EC pre_cool/coast solar_class semantics & intent — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **done**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem (operator-raised 2026-09-18): solar_class is a solar-production FORECAST that applies to daytime, but two EC constraint branches evaluate in the dark and consume it: (1) coast via mid_peak + solar_class in {poor,very_poor} (energ...
+- **Why:** Surfaced while auditing D5 fire-frequency (D5 itself is peak-TOU-driven, solar-independent, RESOLVED). This is upstream EC-logic correctness, separate from the shipped D5 cycle. A night decision on a daytime forecast is a classic seam. P...
+- **Next:** TRACE solar_class producer + the day it targets at energy.py:7419-7434 consumers; confirm pre_cool uses tomorrow-forecast and the mid_peak-poor-solar coast cannot fire on a nighttime solar value. Measure- first (read the code + a few liv...
+- **Tags:** energy, coast, precool, solar, measure-first, correctness
+- **Parsimony:** [BUILD] daytime solar forecast possibly consumed by night EC decisions
+- **Forensic keys (15):**
+  - `DONE_2026_09_18`: v5.103.11 shipped + live-validated. D1: EC pre_cool vestige DELETED (constraint sensor=normal, pre_cool unreachable by construction; Path A unblocked, pre_cool_active=false healthy; offset constant tombstoned + dead config field removed;...
+  - `REVIEW_B_AND_FIXUP_2026_09_18`: B (D1 integration/restart) = SHIP: Path A unblocking confirmed, offset change a proven no-op (offset already dead pre-cycle - compute_energy_offset zero callers), pre_cool was rank-equivalent to normal everywhere, restart fine. B CONVERG...
+  - `REVIEW_C_2026_09_18`: C (D2 config) = FIX-REQUIRED, caught a real HIGH. C1(HIGH): suggested_value=type- default PERSISTS on submit (HA option flow returns the prefill in user_input unless blanked) -> a room with unset holds, opened to change anything else + s...
+  - `REVIEW_A_2026_09_18`: A (D1 delete) = SHIP. Independently confirmed inert premise (compute_energy_offset has ZERO callers -> the -2F never actuated; fall-through to normal safe, old branch + pre_heat were SOC- disjoint). Findings (both in-cycle, ~6 LoC): MED ...
+  - `BUILD_2026_09_18`: Combined cycle DISPATCHED (feature/ec-precool-vacancy-ui, a49ec0bda). D1 = delete the EC pre_cool vestige (energy.py:7427-7434). D2 (operator fold-in) = make the room vacancy-hold day/night config fields assistive: suggest the ROOM_TYPE_...
+  - `POST_DELETE_OBSERVABILITY_2026_09_18`: Confirmed energy.py:7432 is the SOLE emitter of EC mode pre_cool; Path A NEVER sets the EC mode (only reads constraint.mode, all normal-gated; sets its own _pre_cool_active). CONSEQUENCE of deleting Path B: sensor.ura_energy_coordinator_...
+  - `IMPACT_ON_D5_CYCLE_2026_09_18`: Operator asked if this vestige affects the just-shipped v5.103.9 D5 reframe. ANSWER: NO material effect - disjoint. (1) Modes: D5 fires only coast/shed; Path B is pre_cool, which is BELOW coast in the EC priority chain (shed>coast>pre_co...
+  - `DISPOSITION_2026_09_18`: Operator AGREED: delete Path B. Overlap analysis: Path A window = 10am-2pm (ENERGY_PRECOOL_HOUR_START=10, PEAK_HOUR_START=14, self-clears at 2pm). Path B fires EVENING (observed 21:00; midday=normal) because its soc<50 gate is only met A...
+  - `SAFE_TO_DELETE_CONFIRMED_2026_09_18`: Pre-delete safety greps CLEAN. (a) fan/cover controllers do NOT branch on pre_cool mode. (b) the ONLY functional readers of a non-normal mode are two predictor gates - hvac_predict.py:719 (Path A suppression) + :335 (_update_pre_cool_lik...
+  - `FIX_2026_09_18`: Vibememo has NO entry retaining the EC pre_cool branch through the v5.7.1 rewrite -> forgotten, not deliberately kept (supersession-cleanup miss confirmed by absence). Consumer grep: mode==pre_cool is SET only at energy.py:7432 (producer...
+  - `CODE_HISTORY_2026_09_18`: git blame = the real story. (1) BORN phase-blind: EC pre_cool branch (energy.py:7427 off_peak+soc<50+solar) is v3.7.0/v3.9.0 (007d0a2b9 2026-03-06, 00827c5d67 2026-03-07) - never phase-aware, not a regression. (2) PHASE FIX SKIPPED IT: b...
+  - `ROOTCAUSE_2026_09_18`: Operator diagnosis CONFIRMED: off-peak occurs TWICE/day (morning BEFORE peak = the intended banking window; night AFTER peak = the 9pm bug), and mid_peak-before != mid_peak-after. URA HAS the peak-PHASE machinery: summer_peak_ahead / sum...
+  - `TRACE_2026_09_18`: Ran down the second pre-cool path (operator ask). THERE ARE TWO, and they are different. PATH A (the REAL actuator) = hvac_predict.py:_should_energy_precool:686 (v5.7.1, comment "replaces the v3.17.0 weather-pre-cool + solar-banking bran...
+  - `DIVERGENCE_CONFIRMED_2026_09_18`: Operator read-the-plan request -> CONFIRMED design-vs-shipped divergence. DESIGN (ENERGY_COORDINATOR_DESIGN_v2.2:176 + :461-464): pre-cool is a 2-4PM AFTERNOON behavior (-3F) before the 4-8pm coast, to bank coolness during the day so the...
+  - `SHARPENED_2026_09_18`: Operator: pre_cool should happen with EXCESS SOLAR, no way at 9pm. LIVE FINDING: sensor.ura_energy_coordinator_hvac_constraint fired mode=pre_cool at 21:00 CDT (REAL local time - ha_ get_history localizes, -05:00 offset; NOT a UTC artifa...
+
+### `HVAC-D5-KNOBS-TO-RUNG-3-1` - D5 duty-cycle window/caps are Rung-1 module constants for what is a Rung-3 operator policy; no kill switch — _WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **hvac** - status: **done**
+_created 2026-09-17_
+- **Problem / Solution:**
+  - Problem: DUTY_CYCLE_WINDOW_SECONDS/COAST/SHED (hvac_const.py:396-399) are module constants, but the coast/shed runtime caps are legitimately operator policy (comfort-vs-savings), and there is no kill switch to disable D5. Solution: expos...
+- **Why:** D5 audit finding 3. Pairs with the reframe cycle.
+- **Next:** Decide knob rung + add a D5 enable/kill switch; fold into HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 if built together.
+- **Tags:** hvac, numbers-get-knobs, tier-1
+- **Parsimony:** [BUILD] policy numbers hardcoded, no kill switch
+- **Forensic keys (1):**
+  - `ABSORBED_2026_09_18`: Shipped as v5.103.9 D-b3 (Rung-3 Number knobs duty window/coast/shed + enable switch, 0=kill), live-validated (75/50/20/on). Card was absorbed into HVAC-D5-REFRAME-AND-OCCUPANCY- GATE-1; closing done.
 
 ### `INSTALL-ARCHIFY-SKILL-1` - Install the archify skill (github.com/tt-a1i/archify) in a spare cycle — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **tooling** - status: **done**

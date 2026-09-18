@@ -4798,6 +4798,7 @@ class HVACCoordinator(BaseCoordinator):
         attrs["pre_cool_likelihood"] = self._predictor.pre_cool_likelihood
         attrs["comfort_risk"] = self._predictor.comfort_violation_risk
         attrs["pre_cool_active"] = self._predictor.pre_cool_active
+        attrs["pre_cool_skip_reason"] = self._predictor.pre_cool_skip_reason
         attrs["pre_heat_active"] = self._predictor.pre_heat_active
         attrs["observation_mode"] = self._observation_mode
         attrs["arrester_state"] = self._override_arrester.get_arrester_state()

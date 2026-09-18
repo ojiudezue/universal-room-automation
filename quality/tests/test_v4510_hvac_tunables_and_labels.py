@@ -314,7 +314,10 @@ class TestSubControllerWiring:
 
     def test_predictor_has_4_v4510_runtime_fields(self, predict_src):
         idx = predict_src.find("def __init__")
-        body = predict_src[idx:idx + 3000]
+        # Window bumped 3000->3200 to accommodate additive
+        # `_pre_cool_skip_reason` init line
+        # (HVAC-PRECOOL-SKIP-REASON-OBS-1).
+        body = predict_src[idx:idx + 3200]
         for field in (
             "self._solar_bank_floor",
             "self._solar_bank_soc_min",
@@ -340,7 +343,9 @@ class TestSubControllerWiring:
             "v5.7.1: _should_energy_precool MUST exist (replaces the "
             "deleted _should_solar_bank + _should_weather_pre_cool)"
         )
-        body = predict_src[idx:idx + 2500]
+        # Window bumped 2500->3500 to accommodate additive observability
+        # inserts inside _should_energy_precool (HVAC-PRECOOL-SKIP-REASON-OBS-1).
+        body = predict_src[idx:idx + 3500]
         assert "self._solar_bank_soc_min" in body, (
             "v5.7.1 unified trigger MUST still read self._solar_bank_soc_min "
             "(cool-day SOC floor) — runtime-tunable field preserved"
