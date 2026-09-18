@@ -212,8 +212,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-09-17T22:48:43-05:00</b></span>
-<span>data <b>1c7a346b2a2c</b></span>
+<span>generated <b>2026-09-17T23:07:28-05:00</b></span>
+<span>data <b>203df805fa2e</b></span>
 <span>reconciled <b>2026-09-17</b></span>
 </div></header>
 <section class="autonomy">
@@ -488,8 +488,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <span>Investigating <b>1</b></span>
 <span>Pre-planning <b>11</b></span>
 <span>Planned <b>13</b></span>
-<span>In progress <b>1</b></span>
-<span>Review <b>0</b></span>
+<span>In progress <b>0</b></span>
+<span>Review <b>1</b></span>
 <span>Waiting on operator <b>27</b></span>
 <span>Waiting on me (Claude) <b>0</b></span>
 <span>Shipped (organic open) <b>32</b></span>
@@ -546,14 +546,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="in_progress">
-<h2>In progress <span class="count">1</span><span class="hint">being built</span></h2>
-<div class="cards">
-<details class="card" data-id="HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1" draggable="true"><summary><span class="id">HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">D5 duty-cycle is occupancy-blind (forces OCCUPIED zones away during coast/shed) + its runtime_exceeded name falsely implies Bryant compressor protection</span><div class="tagline">hvac<span class="sep">·</span>hvac<span class="sep">·</span>tier-2<span class="sep">·</span>occupancy-blind<span class="sep">·</span>depends-step4b</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-17</div><dt>Problem / Solution</dt><dd>Problem: D5 duty-cycle enforcement forces a zone to away when cooling runtime exceeds 75%(coast)/50%(shed) of a 20min window — REGARDLESS of occupancy. On a hot evening in EC coast (peak TOU) an occupied zone (e.g. kitchen) gets forced a...</dd><dt>Why</dt><dd>Audit AUDIT_hvac_duty_cycle_protection_2026_09_17. The one live complaint step-4-B leaves unfixed. Tier 2; depends on step-4-B for the fused signal.</dd><dt>Next</dt><dd>After step-4-B ships: gate D5 enforcement on fused occupancy (defer under coast when occupied, shed dominates), reframe the reason string + README. Verify no regression to the coast energy savings.</dd><dt>Parsimony</dt><dd>[BUILD] occupancy-blind duty-cycle forces occupied zones away in coast</dd><dt>Forensic (3)</dt><dd><ul class="forensic"><li><code>BRYANT_AUDIT_2026_09_17</code>: VERDICT = PARTIALLY REDUNDANT: Infinity/Evolution control board + delay-on- break already protect the compressor natively; D5 force-away does NOT lengthen compressor off-time = pure energy-shed policy wearing a protection name (zero-Brya...</li><li><code>CHECKPOINT_DEFAULTS_2026_09_18</code>: Operator: dont hold it + finish this tail (superseding the earlier dismiss). Proceeding on RECOMMENDED defaults: (1) SHED&gt;OCCUPANCY&gt;COAST-DUTY (shed still forces occupied away; occupancy defers ONLY under coast — matches D3 shed-dominate...</li><li><code>PLAN_2026_09_18</code>: Plan PLANNING_hvac_d5_reframe_occupancy_gate.md. INV-D5-GATE: under coast, no occupied zone (any_room_hvac_occupied) is forced to away by D5; under shed, byte-identical pre- cycle. Tier 2-DB (presence&lt;-&gt;HVAC&lt;-&gt;EC ripple; shared-primitive...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
-</div>
+<h2>In progress <span class="count">0</span><span class="hint">being built</span></h2>
+<div class="none">(none)</div>
 </section>
 <section class="lane" data-col="review">
-<h2>Review <span class="count">0</span><span class="hint">under review</span></h2>
-<div class="none">(none)</div>
+<h2>Review <span class="count">1</span><span class="hint">under review</span></h2>
+<div class="cards">
+<details class="card" data-id="HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1" draggable="true"><summary><span class="id">HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">D5 duty-cycle is occupancy-blind (forces OCCUPIED zones away during coast/shed) + its runtime_exceeded name falsely implies Bryant compressor protection</span><div class="tagline">hvac<span class="sep">·</span>hvac<span class="sep">·</span>tier-2<span class="sep">·</span>occupancy-blind<span class="sep">·</span>depends-step4b</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-17</div><dt>Problem / Solution</dt><dd>Problem: D5 duty-cycle enforcement forces a zone to away when cooling runtime exceeds 75%(coast)/50%(shed) of a 20min window — REGARDLESS of occupancy. On a hot evening in EC coast (peak TOU) an occupied zone (e.g. kitchen) gets forced a...</dd><dt>Why</dt><dd>Audit AUDIT_hvac_duty_cycle_protection_2026_09_17. The one live complaint step-4-B leaves unfixed. Tier 2; depends on step-4-B for the fused signal.</dd><dt>Next</dt><dd>After step-4-B ships: gate D5 enforcement on fused occupancy (defer under coast when occupied, shed dominates), reframe the reason string + README. Verify no regression to the coast energy savings.</dd><dt>Parsimony</dt><dd>[BUILD] occupancy-blind duty-cycle forces occupied zones away in coast</dd><dt>Forensic (4)</dt><dd><ul class="forensic"><li><code>BUILD_LANDED_2026_09_17</code>: feature/hvac-d5-reframe @ f2ce50293. D-b1 operator-facing rename -&gt; energy_shed_cap_reached (internal zone.runtime_exceeded field KEPT, ~30 refs + persistence path; no operator surface leaks it); D-b2 NO-WRITE defer ledger-only episode-g...</li><li><code>BRYANT_AUDIT_2026_09_17</code>: VERDICT = PARTIALLY REDUNDANT: Infinity/Evolution control board + delay-on- break already protect the compressor natively; D5 force-away does NOT lengthen compressor off-time = pure energy-shed policy wearing a protection name (zero-Brya...</li><li><code>CHECKPOINT_DEFAULTS_2026_09_18</code>: Operator: dont hold it + finish this tail (superseding the earlier dismiss). Proceeding on RECOMMENDED defaults: (1) SHED&gt;OCCUPANCY&gt;COAST-DUTY (shed still forces occupied away; occupancy defers ONLY under coast — matches D3 shed-dominate...</li><li><code>PLAN_2026_09_18</code>: Plan PLANNING_hvac_d5_reframe_occupancy_gate.md. INV-D5-GATE: under coast, no occupied zone (any_room_hvac_occupied) is forced to away by D5; under shed, byte-identical pre- cycle. Tier 2-DB (presence&lt;-&gt;HVAC&lt;-&gt;EC ripple; shared-primitive...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
+</div>
 </section>
 <section class="lane" data-col="waiting_operator">
 <h2>Waiting on operator <span class="count">27</span><span class="hint">needs a human call — groomed first</span></h2>
@@ -889,7 +889,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>1c7a346b2a2c</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>203df805fa2e</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
