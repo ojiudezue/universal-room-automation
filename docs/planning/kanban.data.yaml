@@ -607,6 +607,12 @@ cards:
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  SAFE_TO_DELETE_CONFIRMED_2026_09_18: 'Pre-delete safety greps CLEAN. (a) fan/cover controllers do NOT
+    branch on pre_cool mode. (b) the ONLY functional readers of a non-normal mode are two predictor gates -
+    hvac_predict.py:719 (Path A suppression) + :335 (_update_pre_cool_likelihood), BOTH require mode==normal
+    -> pre_cool mode only ever BLOCKS Path A, enables nothing (sensor.py:12128 is a comment). Deletion is a
+    PURE WIN: removes misleading 9pm label + unblocks Path A, nothing lost. Deletion fully de-risked; ready
+    to build. Recommend building FRESH (not a 2nd midnight deploy right after the v5.103.9 botch).'
   FIX_2026_09_18: 'Vibememo has NO entry retaining the EC pre_cool branch through the v5.7.1 rewrite ->
     forgotten, not deliberately kept (supersession-cleanup miss confirmed by absence). Consumer grep:
     mode==pre_cool is SET only at energy.py:7432 (producer); NOTHING consumes it positively (offset applied
