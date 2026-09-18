@@ -298,6 +298,76 @@ meta:
   - {fid: 'PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-14T04:20', at: '2026-09-14T04:20:00', outcome: investigated, headline: "PERIMETER-ALERT-VOLUME-FATIGUE-1 \u2014 MEASURED the full 5412-row notification_log, then ESCALATED with a recommendation. Volume is real but the 155/day headline counts audit + per-channel fan-out rows: true rate is 102/day. front_side_ptz = 42% of ALL alerts. Ack rate is 0.44% (24 of 5412). REFUTED two of my own hypotheses (same-camera dual-leg double-alerting; a per-entity debounce) and confirmed the existing 300s per-camera cooldown IS working \u2014 so NOT a new rate limiter. Recommended lever: the front_side_ptz crop you already own, then CRITICAL channel fan-out (433 events x 4 channels).", acknowledged: false}
   - {fid: 'REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1@2026-09-14T03:55', at: '2026-09-14T03:55:00', outcome: investigated, headline: "REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1 \u2014 MEASURED all 462 rows, then ESCALATED (ambiguous cost/benefit). Mechanism CONFIRMED but narrow: 82/462 = 17.8%, all ONE rename (Jaya Bedroom -> Jaya Bedroom (Bedroom 4)), not the assumed majority. The loose 58% figure over-counts. IMPORTANT: the measurement KILLS the card own cheap fix (it would suppress ~187 legitimate rows to catch 82). Needs a PICK: build a narrow rename-pair suppressor (82/82 precision) or park (artifact self-clears from the 2-month baseline, already decaying 57 -> 25).", acknowledged: false}
 cards:
+- id: HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1
+  status: planned
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, tier-2, occupancy-blind, depends-step4b]
+  title: D5 duty-cycle is occupancy-blind (forces OCCUPIED zones away during coast/shed) + its runtime_exceeded
+    name falsely implies Bryant compressor protection
+  problem_solution:
+  - 'Problem: D5 duty-cycle enforcement forces a zone to away when cooling runtime exceeds 75%(coast)/50%(shed)
+    of a 20min window — REGARDLESS of occupancy. On a hot evening in EC coast (peak TOU) an occupied zone
+    (e.g. kitchen) gets forced away = the operator "hot and away while I am in the kitchen" complaint.
+    step-4-B does NOT fix it (D5 reads thermostat hvac_action, not fused occupancy). The reason string
+    runtime_exceeded implies Bryant compressor protection; audit found NO Bryant grounding — it is a URA
+    energy-policy heuristic. Solution: D5 should consume zone.any_room_hvac_occupied and DEFER under coast
+    when occupied (shed still dominates comfort); and rename/reframe the reason to energy-policy, not
+    compressor-protection.'
+  why: 'Audit AUDIT_hvac_duty_cycle_protection_2026_09_17. The one live complaint step-4-B leaves unfixed.
+    Tier 2; depends on step-4-B for the fused signal.'
+  next: 'After step-4-B ships: gate D5 enforcement on fused occupancy (defer under coast when occupied,
+    shed dominates), reframe the reason string + README. Verify no regression to the coast energy savings.'
+  parsimony: {problem: 'occupancy-blind duty-cycle forces occupied zones away in coast', verdict: BUILD, note: 'depends step-4-B fused signal'}
+  links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'D5 audit; the live hot-kitchen-away cause step-4-B does not fix'}
+- id: HVAC-D5-KNOBS-TO-RUNG-3-1
+  status: inbox
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, numbers-get-knobs, tier-1]
+  title: D5 duty-cycle window/caps are Rung-1 module constants for what is a Rung-3 operator policy; no kill switch
+  problem_solution:
+  - 'Problem: DUTY_CYCLE_WINDOW_SECONDS/COAST/SHED (hvac_const.py:396-399) are module constants, but the
+    coast/shed runtime caps are legitimately operator policy (comfort-vs-savings), and there is no kill
+    switch to disable D5. Solution: expose the caps + an enable on the knob ladder (Number/switch or options),
+    per Numbers-Get-Knobs.'
+  why: 'D5 audit finding 3. Pairs with the reframe cycle.'
+  next: 'Decide knob rung + add a D5 enable/kill switch; fold into HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 if built together.'
+  parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
+  links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
+- id: HVAC-D5-WINDOW-START-RESTORE-1
+  status: inbox
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, restart-safety, tier-1, contingent]
+  title: D5 window_start restore-across-reload unverified (hvac_zones.py:685-700) — reload may reset the runtime counter
+  problem_solution:
+  - 'Problem: the D5 audit could not verify (in its grep window) that zone.window_start / runtime counter
+    survive a config-entry reload; a reload mid-window may reset the counter, under- or over-counting runtime.
+    Given the ~5x/night reload storm this could matter. Solution: read hvac_zones.py:685-700 fully; if not
+    restored, persist window_start or accept+document.'
+  why: 'D5 audit finding 4, contingent — verify before scoping.'
+  next: 'Read the restore path; confirm whether window_start is persisted. Close if fine.'
+  parsimony: {problem: 'duty-cycle counter may not survive reload', verdict: BUILD, note: 'verify-first, likely tiny'}
+  links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, URA-CONFIG-ENTRY-RELOAD-STORM-1], context: 'D5 audit'}
+- id: HVAC-D5-SLEEP-EXIT-RESET-1
+  status: inbox
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, tier-1, contingent, measure-first]
+  title: D5 counter accumulates overnight during sleep-skip and can instant-trip on wake into coast/shed
+  problem_solution:
+  - 'Problem: the sleep-skip is on D5 ENFORCEMENT only; the runtime counter keeps accumulating through the
+    night, so waking into coast/shed can instant-trip runtime_exceeded and force a just-woken zone away.
+    Solution: reset (or freeze) the counter on sleep entry, or on wake before the first enforcement.'
+  why: 'D5 audit finding 5, contingent on live measurement that it actually fires on wake.'
+  next: 'Measure (recorder): does runtime_exceeded fire shortly after waking transitions? If yes, reset counter on sleep. Else close.'
+  parsimony: {problem: 'overnight accumulation instant-trips on wake', verdict: BUILD, note: 'measure-first'}
+  links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
 - id: INSTALL-ARCHIFY-SKILL-1
   status: inbox
   thread: tooling
@@ -11041,6 +11111,16 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  D5_AUDIT_2026_09_17: 'Duty-cycle audit done (AUDIT_hvac_duty_cycle_protection_2026_09_17.md). CORRECTS
+    my earlier not-coast answer: D5 runtime_exceeded fires ONLY during EC coast/shed (caps runtime 75%/
+    50% of a 20min window, hvac.py:3331-3375, forces away hvac.py:1928). So the 12% runtime_exceeded
+    aways ARE coast-conditioned — operator coast suspicion RIGHT; my zero-coast-rows read conflated
+    reason-label with gating-condition. GOOD NEWS: runtime source = thermostats OWN hvac_action, NOT
+    URA presets -> URA flapping CANNOT self-trip D5 (my vicious-cycle worry REFUTED). BRYANT GROUNDING
+    = NONE: URA-invented energy-mode heuristic, zero Bryant/Carrier spec references; runtime_exceeded
+    name misleads. D5 is OCCUPANCY-BLIND -> forces OCCUPIED zones away during coast/shed; step-4-B does
+    NOT fix this (different input) — the hot-kitchen-away-in-evening-coast complaint is D5, unfixed by
+    this ship. Needs a Tier-2 cycle. 4 stubs carded.'
   TRANSIT_ROOMS_VETTED_2026_09_17: 'Operator vetted the circulation (hallway) set for the D4 reclassify:
     APPROVED as hallway = Garage Hallway, Kitchen Hallway, Kitchen Hallway Garage, Master Hallway,
     Upstairs Hallway, Foyer (operator: "No. Its transit"), Guest Bedroom 2 Hallway (operator: "Its a

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T20:01:04-05:00_ - _Data commit: `cb782a78f1a5`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T20:09:39-05:00_ - _Data commit: `148d22bb0d4a`_ - _last_reconciled: 2026-09-17_
 
 
 > ## ⚠️ STALE - board has not been reconciled against newer work
@@ -15,10 +15,10 @@ _Generated: 2026-09-17T20:01:04-05:00_ - _Data commit: `cb782a78f1a5`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 4 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 11 |
-| 📝 Planned | 13 |
+| 📝 Planned | 14 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 27 |
@@ -27,10 +27,40 @@ _Generated: 2026-09-17T20:01:04-05:00_ - _Data commit: `cb782a78f1a5`_ - _last_r
 | 🅿️ Parked | 58 |
 | ✅ Done | 171 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (4)
 _raw capture_
 
-### `INSTALL-ARCHIFY-SKILL-1` - Install the archify skill (github.com/tt-a1i/archify) in a spare cycle — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-D5-KNOBS-TO-RUNG-3-1` - D5 duty-cycle window/caps are Rung-1 module constants for what is a Rung-3 operator policy; no kill switch — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **hvac** - status: **inbox**
+_created 2026-09-17_
+- **Problem / Solution:**
+  - Problem: DUTY_CYCLE_WINDOW_SECONDS/COAST/SHED (hvac_const.py:396-399) are module constants, but the coast/shed runtime caps are legitimately operator policy (comfort-vs-savings), and there is no kill switch to disable D5. Solution: expos...
+- **Why:** D5 audit finding 3. Pairs with the reframe cycle.
+- **Next:** Decide knob rung + add a D5 enable/kill switch; fold into HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 if built together.
+- **Tags:** hvac, numbers-get-knobs, tier-1
+- **Parsimony:** [BUILD] policy numbers hardcoded, no kill switch
+
+### `HVAC-D5-WINDOW-START-RESTORE-1` - D5 window_start restore-across-reload unverified (hvac_zones.py:685-700) — reload may reset the runtime counter — _#2 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **hvac** - status: **inbox**
+_created 2026-09-17_
+- **Problem / Solution:**
+  - Problem: the D5 audit could not verify (in its grep window) that zone.window_start / runtime counter survive a config-entry reload; a reload mid-window may reset the counter, under- or over-counting runtime. Given the ~5x/night reload st...
+- **Why:** D5 audit finding 4, contingent — verify before scoping.
+- **Next:** Read the restore path; confirm whether window_start is persisted. Close if fine.
+- **Tags:** hvac, restart-safety, tier-1, contingent
+- **Parsimony:** [BUILD] duty-cycle counter may not survive reload
+
+### `HVAC-D5-SLEEP-EXIT-RESET-1` - D5 counter accumulates overnight during sleep-skip and can instant-trip on wake into coast/shed — _#3 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
+thread: **hvac** - status: **inbox**
+_created 2026-09-17_
+- **Problem / Solution:**
+  - Problem: the sleep-skip is on D5 ENFORCEMENT only; the runtime counter keeps accumulating through the night, so waking into coast/shed can instant-trip runtime_exceeded and force a just-woken zone away. Solution: reset (or freeze) the co...
+- **Why:** D5 audit finding 5, contingent on live measurement that it actually fires on wake.
+- **Next:** Measure (recorder): does runtime_exceeded fire shortly after waking transitions? If yes, reset counter on sleep. Else close.
+- **Tags:** hvac, tier-1, contingent, measure-first
+- **Parsimony:** [BUILD] overnight accumulation instant-trips on wake
+
+### `INSTALL-ARCHIFY-SKILL-1` - Install the archify skill (github.com/tt-a1i/archify) in a spare cycle — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **tooling** - status: **inbox**
 _created 2026-09-17_
 - **Problem / Solution:**
@@ -235,7 +265,7 @@ _created 2026-09-16 · initial_
   - `PER_ZONE_CORRECTED_2026_09_16`: OPERATOR: "If we did this, why per zone? It should be the same function, no?" CORRECT, and my sketch was wrong. Ask what per-zone STATE a handle would hold: entity_id is a PARAMETER; the vendor is DERIVED from the entity's platform (memo...
   - `DESIGN_SHAPE_2026_09_16`: Stateless, entity-parameterised, all three verbs plus vendor dispatch: read_hold(hass, entity_id)              -> named / anonymous / none set_preset(hass, entity_id, name, ...)  -> strategy decides clear-then-pin vs direct pin set_setpo...
 
-## 📝 Planned (13)
+## 📝 Planned (14)
 _has plan / acceptance_
 
 ### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#1 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
@@ -364,7 +394,17 @@ _created 2026-09-12 17:10 · updated 2026-09-16 04:20 · initial_
   - `MEASURED_2026_09_16`: STILL-REAL, re-measured by RUNNING it (not trusting the recorded numbers), and the fix surface is now NAMED — but the gate stopped short of building it, for a reason worth reading before anyone picks this up. THE MEASUREMENT. Default (al...
   - `links_note_2026_09_16`: Effectively blocked on TEST-HARNESS-REAL-HA-DEFAULT-1 for the same reason its parent TEST-STRATEGY-REARCH-1 is: not because the fix is unclear, but because the regression check that makes it safe needs a working runtime harness.
 
-### `HVAC-DEGRADED-ROOM-TRIPWIRE-1` - A zone with a permanently-disabled/setup_retry room never establishes (is_zone_hvac_established all()) -> conditioning-demand feature INERT for that zone, silently — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1` - D5 duty-cycle is occupancy-blind (forces OCCUPIED zones away during coast/shed) + its runtime_exceeded name falsely implies Bryant compressor protection — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **planned**
+_created 2026-09-17_
+- **Problem / Solution:**
+  - Problem: D5 duty-cycle enforcement forces a zone to away when cooling runtime exceeds 75%(coast)/50%(shed) of a 20min window — REGARDLESS of occupancy. On a hot evening in EC coast (peak TOU) an occupied zone (e.g. kitchen) gets forced a...
+- **Why:** Audit AUDIT_hvac_duty_cycle_protection_2026_09_17. The one live complaint step-4-B leaves unfixed. Tier 2; depends on step-4-B for the fused signal.
+- **Next:** After step-4-B ships: gate D5 enforcement on fused occupancy (defer under coast when occupied, shed dominates), reframe the reason string + README. Verify no regression to the coast energy savings.
+- **Tags:** hvac, tier-2, occupancy-blind, depends-step4b
+- **Parsimony:** [BUILD] occupancy-blind duty-cycle forces occupied zones away in coast
+
+### `HVAC-DEGRADED-ROOM-TRIPWIRE-1` - A zone with a permanently-disabled/setup_retry room never establishes (is_zone_hvac_established all()) -> conditioning-demand feature INERT for that zone, silently — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **planned**
 _created 2026-09-17_
 - **Problem / Solution:**
@@ -374,7 +414,7 @@ _created 2026-09-17_
 - **Tags:** hvac, no-soak, trip-wire, safety-gate-residual
 - **Parsimony:** [BUILD] a disabled room silently disables conditioning-demand for its whole zone
 
-### `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1` - BLOCKER on enabling guest_mode_actuation — F2 compose-away throttle bypass is unconditional (12 set_temperature/hr/zone to Carrier cloud) — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1` - BLOCKER on enabling guest_mode_actuation — F2 compose-away throttle bypass is unconditional (12 set_temperature/hr/zone to Carrier cloud) — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **planned**
 _created 2026-09-17_
 - **Problem / Solution:**
@@ -384,7 +424,7 @@ _created 2026-09-17_
 - **Tags:** hvac, blocker, carrier-write-sensitivity, do-before-enable
 - **Parsimony:** [BUILD] unconditional throttle bypass = steady write-storm once the feature is on
 
-### `HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1` - S8/S9/S11/S13-return writers emit comfort setpoints to an empty night zone without updating _last_emitted_range — uncorrected live because D9 (intended corrector) is dormant — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1` - S8/S9/S11/S13-return writers emit comfort setpoints to an empty night zone without updating _last_emitted_range — uncorrected live because D9 (intended corrector) is dormant — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **planned**
 _created 2026-09-17_
 - **Problem / Solution:**
@@ -394,7 +434,7 @@ _created 2026-09-17_
 - **Tags:** hvac, pre-existing, setpoint-vs-mode
 - **Parsimony:** [BUILD] restore writers strand empty zones; the intended corrector is dormant
 
-### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#12 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#13 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **planned** - approval: **implied**
 _created 2026-09-16_
 - **Problem / Solution:**
@@ -404,7 +444,7 @@ _created 2026-09-16_
 - **Tags:** energy, tier-2db, bug-class-53, needs-plan-review
 - **Parsimony:** [BUILD] three ordering invariants are validated at save time + anomaly-flagged at runtime but their ~25 live decision readers still read raw, so an inverted slider flips a gate
 
-### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#13 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#14 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **implied**
 _created 2026-09-16 · initial_
 - **Problem / Solution:**
@@ -439,7 +479,8 @@ _created 2026-09-15 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (52):**
+- **Forensic keys (53):**
+  - `D5_AUDIT_2026_09_17`: Duty-cycle audit done (AUDIT_hvac_duty_cycle_protection_2026_09_17.md). CORRECTS my earlier not-coast answer: D5 runtime_exceeded fires ONLY during EC coast/shed (caps runtime 75%/ 50% of a 20min window, hvac.py:3331-3375, forces away hv...
   - `TRANSIT_ROOMS_VETTED_2026_09_17`: Operator vetted the circulation (hallway) set for the D4 reclassify: APPROVED as hallway = Garage Hallway, Kitchen Hallway, Kitchen Hallway Garage, Master Hallway, Upstairs Hallway, Foyer (operator: "No. Its transit"), Guest Bedroom 2 Ha...
   - `ROUND5_DONE_2026_09_17`: Round-5 landed @f88f4bc84. F1 reverted any->all (retreat requires ALL rooms readable; 2 discriminating tests, mutation all->any reds them). Energy-restart NEW RESOLVED by definitive revert-in-suite: develop source + branch tests -> the 2...
   - `AWAY_CAUSE_ATTRIBUTED_2026_09_17`: Operator asked if zone_3 away is EC coast or duty-cycle, not vacancy. ATTRIBUTED from ura_activity_log preset_change reasons (zone_3, last 3d): vacant_past_grace 89 (84%), runtime_exceeded 13 (12%), house_state_transition 4. ZERO EC coas...
