@@ -102,6 +102,9 @@ interface ZoneStatusAttrs {
   zone_presence_state?: string;
   vacancy_sweep_done?: boolean;
   vacancy_sweep_enabled?: boolean;
+  // D-b1 rename: producer emits `energy_shed_cap_reached`. Dual-read
+  // for compat until bundle rebuild.
+  energy_shed_cap_reached?: boolean;
   runtime_exceeded?: boolean;
   runtime_duty_cycle_pct?: number;
   continuous_occupied_hours?: number;
@@ -121,7 +124,7 @@ function zoneCardCls(attrs: ZoneStatusAttrs | null): string {
   const presence = attrs.zone_presence_state;
   if (action === "cooling" || action === "heating") return "status-green";
   if (presence === "occupied") return "status-green";
-  if (attrs.runtime_exceeded) return "status-yellow";
+  if (attrs.energy_shed_cap_reached ?? attrs.runtime_exceeded) return "status-yellow";
   if (presence === "vacant" || presence === "away") return "";
   return "";
 }

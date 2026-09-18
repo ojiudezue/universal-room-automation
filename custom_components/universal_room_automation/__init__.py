@@ -3914,9 +3914,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             # Rung-3 D5 duty-cycle knobs. Defaults match
                             # the pre-cycle module constants (20min /
                             # 75% / 50%). `0` = kill for that mode.
-                            "duty_cycle_window_minutes": int(_cfg.get(
+                            # A-LOW-2 (fix-up): clamp the seed to the same
+                            # [MIN=5, MAX=60] range the Number entity
+                            # enforces (see hvac_const.MIN/MAX_HVAC_DUTY_CYCLE_WINDOW_MIN)
+                            # so a rogue persisted 1-4 value can't slip
+                            # past the entity's MIN and produce a
+                            # sub-window basis.
+                            "duty_cycle_window_minutes": max(5, min(60, int(_cfg.get(
                                 "hvac_duty_cycle_window_minutes", 20,
-                            )),
+                            )))),
                             "duty_cycle_coast_pct": int(_cfg.get(
                                 "hvac_duty_cycle_coast_pct", 75,
                             )),

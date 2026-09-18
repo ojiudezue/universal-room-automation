@@ -49,6 +49,10 @@ interface ZoneStatusAttrs {
   ac_reset_count_today?: number;
   zone_persons?: string[];
   zone_presence_state?: string;
+  // D-b1 rename: producer emits `energy_shed_cap_reached`. The old
+  // `runtime_exceeded` key is dual-emitted by the backend as a display
+  // shim until this bundle is rebuilt — either key is accepted here.
+  energy_shed_cap_reached?: boolean;
   runtime_exceeded?: boolean;
   runtime_duty_cycle_pct?: number;
   continuous_occupied_hours?: number;
@@ -126,7 +130,7 @@ function ZoneCard({ index }: { index: number }) {
   const cardCls =
     attrs?.hvac_action === "cooling" || attrs?.hvac_action === "heating"
       ? "status-green"
-      : attrs?.runtime_exceeded
+      : (attrs?.energy_shed_cap_reached ?? attrs?.runtime_exceeded)
         ? "status-yellow"
         : "";
 
