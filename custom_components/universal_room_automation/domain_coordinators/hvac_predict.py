@@ -111,6 +111,10 @@ class HVACPredictor:
         self._pre_heat_active: bool = False
         self._pre_cool_triggered_today: bool = False
         self._pre_heat_triggered_today: bool = False
+        # Observability: WHY Path A pre-cool did NOT fire this eval.
+        # "" == eligible/firing; non-empty == gate name that blocked it.
+        # Set at every exit of _should_energy_precool.
+        self._pre_cool_skip_reason: str = "boot"
 
         # Daily outcome tracking
         self._in_band_checks: int = 0
@@ -703,25 +707,32 @@ class HVACPredictor:
         flap guard, shared with the deleted weather-pre-cool path).
         """
         if constraint is None:
+            self._pre_cool_skip_reason = "no_constraint"
             return False
         season = self._preset_manager.current_season
         if season not in (SEASON_SUMMER, SEASON_SHOULDER):
+            self._pre_cool_skip_reason = "off_season"
             return False
 
         hour = now.hour
         if not (ENERGY_PRECOOL_HOUR_START <= hour < PEAK_HOUR_START):
+            self._pre_cool_skip_reason = "outside_window"
             return False
 
         # v5.7.1 fix-up (D-HIGH-1): PV+mode BEFORE re-engagement gate.
         net_power = self._get_net_power()
         if net_power >= -ENERGY_PRECOOL_EXPORT_THRESHOLD_W:
+            self._pre_cool_skip_reason = "no_pv_surplus"
             return False
         if getattr(constraint, "mode", "normal") != "normal":
+            self._pre_cool_skip_reason = "mode_" + str(getattr(constraint, "mode", "normal"))
             return False
 
         if self._pre_cool_active and hour < PEAK_HOUR_START:
+            self._pre_cool_skip_reason = ""
             return True  # already in-flight + still solar-rich + normal mode
         if self._pre_cool_active or self._pre_cool_triggered_today:
+            self._pre_cool_skip_reason = "already_today"
             return False  # daily-once guard (same as weather-pre-cool)
 
         forecast_high = constraint.forecast_high_temp
@@ -741,10 +752,13 @@ class HVACPredictor:
         # old `(soc or 0) < soc_floor`); hot-day fires on None.
         if soc is None:
             if not is_hot:
+                self._pre_cool_skip_reason = "soc_unknown_cool_day"
                 return False
         elif soc < soc_floor:
+            self._pre_cool_skip_reason = "soc_below_floor"
             return False
 
+        self._pre_cool_skip_reason = ""
         self._pre_cool_active = True
         self._pre_cool_triggered_today = True
         _LOGGER.info(
@@ -1647,6 +1661,11 @@ class HVACPredictor:
     def pre_cool_active(self) -> bool:
         """Return whether pre-cooling is active."""
         return self._pre_cool_active
+
+    @property
+    def pre_cool_skip_reason(self) -> str:
+        """Reason Path A pre-cool did NOT fire last eval ('' if firing)."""
+        return self._pre_cool_skip_reason
 
     @property
     def pre_heat_active(self) -> bool:
