@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.7
+# Universal Room Automation vv5.103.8
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -763,9 +763,13 @@ class HVACOccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
     """
 
     _attr_device_class = BinarySensorDeviceClass.OCCUPANCY
-    # Disabled-by-default like other Phase-4 diagnostics — operator
-    # opts in per-room / per-zone via the entity registry.
-    _attr_entity_registry_enabled_default = False
+    # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D3 (v5.103.8): enabled by
+    # default. New entries pick this up automatically; existing rooms
+    # need the one-shot registry migration in `__init__.py` (see
+    # `hvac_occupied_registry_enable_migration_done` sentinel option
+    # on the CM entry — same DONE-flag pattern as the sibling
+    # zone_entry_dwell migration).
+    _attr_entity_registry_enabled_default = True
     _attr_icon = ICON_OCCUPIED
 
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
@@ -861,12 +865,24 @@ class HVACOccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
         # displayed number reflects any per-room override + day/night
         # selection.
         try:
-            from .const import CONF_ROOM_TYPE, ROOM_TYPE_GENERIC
+            from .const import (
+                CONF_ROOM_TYPE,
+                CONF_HVAC_VACANCY_HOLD,
+                CONF_HVAC_VACANCY_HOLD_NIGHT,
+                ROOM_TYPE_GENERIC,
+            )
+            from .domain_coordinators.hvac_zones import _coerce_hold_override
             merged = {
                 **self.coordinator.entry.data,
                 **self.coordinator.entry.options,
             }
             room_type = merged.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC) or ROOM_TYPE_GENERIC
+            override_day = _coerce_hold_override(
+                merged.get(CONF_HVAC_VACANCY_HOLD, None)
+            )
+            override_night = _coerce_hold_override(
+                merged.get(CONF_HVAC_VACANCY_HOLD_NIGHT, None)
+            )
             house_state = None
             try:
                 manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -877,9 +893,30 @@ class HVACOccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
             attrs["room_type"] = room_type
             attrs["hvac_vacancy_hold_s"] = zm._effective_hvac_hold_seconds(
                 room_type, house_state,
+                override_day=override_day,
+                override_night=override_night,
             )
         except Exception:  # noqa: BLE001
             pass
+
+        # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D4 (v5.103.8): expose
+        # zone-level HVAC-established gate. False until every room in
+        # the zone has been observed by the D1 producer at least once.
+        try:
+            room_name_local = self.coordinator.entry.data.get("room_name", "")
+            zone_id_for_room: str | None = None
+            for zone in zm.zones.values():
+                if room_name_local in getattr(zone, "rooms", []):
+                    zone_id_for_room = zone.zone_id
+                    break
+            if zone_id_for_room:
+                attrs["established"] = bool(
+                    zm.is_zone_hvac_established(zone_id_for_room)
+                )
+            else:
+                attrs["established"] = False
+        except Exception:  # noqa: BLE001
+            attrs["established"] = False
 
         # Raw kinds — from the presence substrate, best-effort.
         try:

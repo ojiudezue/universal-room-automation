@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -393,6 +393,24 @@ class HVACCoordinator(BaseCoordinator):
         self._energy_constraint: EnergyConstraint | None = None
         self._energy_constraint_mode: str = "normal"
         self._energy_offset: float = 0.0
+        # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D7 (v5.103.8): timestamp of
+        # the most recent transition INTO the current
+        # `_energy_constraint_mode`. Updated in `_handle_energy_constraint`
+        # whenever `mode` changes; the "10 · Mode" sensor exposes
+        # `energy_constraint_since` (ISO) + `energy_constraint_duration_s`
+        # from this. RestoreEntity on the sensor persists it across
+        # restarts (resume-if-same, reset-if-different).
+        self._energy_constraint_mode_since: datetime | None = None
+        # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D6 (v5.103.8): per-zone
+        # cache of the most recent `reason=` argument observed at the
+        # `emit_set_preset_mode` chokepoint. Populated from the
+        # chokepoint's `_capture_preset_reason` on every successful
+        # write, and hydrated on setup from the durable
+        # ura_activity_log rows written by the S1 path
+        # (`action='preset_change'`). Values: (reason: str, ts:
+        # datetime). Non-S1 sites show `unknown` after restart until
+        # the next write repopulates — see planning doc P3 scope.
+        self._last_reason_by_zone: dict[str, tuple[str, datetime]] = {}
 
         # House state
         self._house_state: str = ""
@@ -1151,6 +1169,21 @@ class HVACCoordinator(BaseCoordinator):
             _LOGGER.warning(
                 "HVAC: database not available — EgressManager inert"
             )
+        # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D6 hydration (v5.103.8):
+        # populate `_last_reason_by_zone` from durable activity-log
+        # rows written by the S1 path (`action='preset_change'`). This
+        # is the ONLY path that logs preset writes durably today (see
+        # planning §P3); non-S1 sites remain `unknown` post-restart
+        # until the next write on that zone. Best-effort; failure is
+        # non-fatal (sensor falls back to `unknown`).
+        if db is not None:
+            try:
+                await self._hydrate_last_reason_by_zone(db)
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "HVAC: preset-reason hydration failed (non-fatal)",
+                    exc_info=True,
+                )
         # v4.7.8 D8: cross-rule precedence — let OverrideArrester +
         # HVACPredictor see paused zones so they skip cleanly.
         self._override_arrester.set_egress_manager(self._egress_manager)
@@ -2892,6 +2925,17 @@ class HVACCoordinator(BaseCoordinator):
         self._energy_constraint = constraint
         self._energy_constraint_mode = constraint.mode
         self._energy_offset = constraint.setpoint_offset
+        # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D7 (v5.103.8): stamp the
+        # transition-into-mode timestamp WHENEVER the mode changes
+        # AND on first observation (from initial `None` -> anything).
+        # Restart-safety lives on the mode sensor (RestoreEntity
+        # resume-if-same / reset-if-different) — this coordinator
+        # field is set for the live current-tick derivation.
+        if (
+            old_mode != constraint.mode
+            or self._energy_constraint_mode_since is None
+        ):
+            self._energy_constraint_mode_since = dt_util.utcnow()
 
         if old_mode != constraint.mode:
             _LOGGER.info(
@@ -4356,6 +4400,57 @@ class HVACCoordinator(BaseCoordinator):
             ),
         }
 
+    async def _hydrate_last_reason_by_zone(self, db) -> None:
+        """HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D6-hydrate (v5.103.8).
+
+        Populate `_last_reason_by_zone` from `ura_activity_log` rows
+        with `action='preset_change'`, one row per zone (most recent).
+        Only the S1 path writes this durable row today — non-S1 sites
+        remain `unknown` after restart until the next write on their
+        zone (planning §P3 scoped restart-safety).
+        """
+        import json  # noqa: PLC0415
+        sql = (
+            "SELECT zone, timestamp, details_json FROM ura_activity_log "
+            "WHERE coordinator='hvac' AND action='preset_change' "
+            "AND zone IS NOT NULL "
+            "ORDER BY timestamp DESC"
+        )
+        seen: set[str] = set()
+        try:
+            async with db._db_read() as conn:
+                async with conn.execute(sql) as cursor:
+                    async for row in cursor:
+                        zone_id = row[0]
+                        if not zone_id or zone_id in seen:
+                            continue
+                        seen.add(zone_id)
+                        ts_str = row[1]
+                        details_raw = row[2] or "{}"
+                        try:
+                            details = json.loads(details_raw)
+                        except Exception:  # noqa: BLE001
+                            details = {}
+                        reason = details.get("reason") or "unknown"
+                        try:
+                            ts = dt_util.parse_datetime(ts_str)
+                        except Exception:  # noqa: BLE001
+                            ts = None
+                        if ts is None:
+                            ts = dt_util.utcnow()
+                        self._last_reason_by_zone[zone_id] = (reason, ts)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "hydrate_last_reason_by_zone: query failed",
+                exc_info=True,
+            )
+            return
+        if self._last_reason_by_zone:
+            _LOGGER.info(
+                "HVAC: hydrated preset-reason cache for %d zones (S1 path)",
+                len(self._last_reason_by_zone),
+            )
+
     def get_mode(self) -> str:
         """Return current HVAC operating mode for sensor."""
         return self._energy_constraint_mode
@@ -4370,6 +4465,21 @@ class HVACCoordinator(BaseCoordinator):
             "zone_count": self._zone_manager.zone_count,
             "last_evaluate": self._last_evaluate,
         }
+        # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D7 (v5.103.8): energy-
+        # constraint dwell observability. `since` is ISO UTC; the
+        # sensor's RestoreEntity resume-if-same discipline persists
+        # this across restarts.
+        since = self._energy_constraint_mode_since
+        if since is not None:
+            attrs["energy_constraint_since"] = since.isoformat()
+            try:
+                delta = (dt_util.utcnow() - since).total_seconds()
+                attrs["energy_constraint_duration_s"] = int(max(0, delta))
+            except Exception:  # noqa: BLE001
+                attrs["energy_constraint_duration_s"] = 0
+        else:
+            attrs["energy_constraint_since"] = None
+            attrs["energy_constraint_duration_s"] = 0
         if self._energy_constraint:
             attrs["fan_assist"] = self._energy_constraint.fan_assist
             attrs["occupied_only"] = self._energy_constraint.occupied_only

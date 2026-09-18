@@ -943,6 +943,11 @@ def test_d5_d8_cross_field_validator():
         "CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S":
             CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
         "CONF_HUMIDITY_FAN_MAX_RUNTIME": CONF_HUMIDITY_FAN_MAX_RUNTIME,
+        # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D1/D2 (v5.103.8): the
+        # validator gained a per-room HVAC vacancy-hold monotonicity
+        # cross-check. Provide the CONF strings so the AST-exec resolves.
+        "CONF_HVAC_VACANCY_HOLD": "hvac_vacancy_hold",
+        "CONF_HVAC_VACANCY_HOLD_NIGHT": "hvac_vacancy_hold_night",
     }
     exec(func_src, g)
     validate = g["_validate_climate_fans_form"]

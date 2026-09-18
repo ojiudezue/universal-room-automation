@@ -38,6 +38,25 @@ from .hvac_const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _coerce_hold_override(raw: Any) -> int | None:
+    """Coerce a per-room HVAC hold override to a non-negative int, or None.
+
+    Blank / missing / non-numeric values return None so the resolver
+    falls through to the ROOM_TYPE_HVAC_HOLD[_NIGHT] table default.
+    Explicit 0 is preserved (legitimate never-hold value; only the
+    hallway table default uses it today).
+    """
+    if raw is None or raw == "":
+        return None
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if val < 0:
+        return None
+    return val
+
+
 @dataclass
 class RoomCondition:
     """Aggregated condition for a single room."""
@@ -521,18 +540,20 @@ class ZoneManager:
         from ..const import CONF_IS_EGRESS_WINDOW, DEFAULT_IS_EGRESS_WINDOW
         from ..const import CONF_WINDOW_SENSORS as _CONF_WINDOW_SENSORS
 
-        # HVAC-ZONE-CONDITIONING-DEMAND-1 D1: also read CONF_ROOM_TYPE and
-        # per-room CONF_HVAC_VACANCY_HOLD override so the D1 producer can
-        # apply CIRCULATION EXCLUSION for hallways and honour per-room hold
-        # overrides. Zero room-name literals — everything keys on room_type.
+        # HVAC-ZONE-CONDITIONING-DEMAND-1 D1: read CONF_ROOM_TYPE so the
+        # D1 producer can apply CIRCULATION EXCLUSION for hallways.
+        # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D1/D2 (v5.103.8): read the
+        # per-room CONF_HVAC_VACANCY_HOLD[_NIGHT] optional overrides
+        # (reintroduced with a real ROOM options-flow UI) and stash them
+        # on the room's meta so `_compute_hvac_occupied` can pass them
+        # into the resolver. Zero room-name literals — everything keys
+        # on room_type + optional per-entry overrides.
         from ..const import (
             CONF_ROOM_TYPE,
+            CONF_HVAC_VACANCY_HOLD,
+            CONF_HVAC_VACANCY_HOLD_NIGHT,
             ROOM_TYPE_GENERIC,
             ROOM_TYPE_HALLWAY,
-            ROOM_TYPE_HVAC_HOLD,
-            ROOM_TYPE_HVAC_HOLD_NIGHT,
-            DEFAULT_HVAC_VACANCY_HOLD,
-            DEFAULT_HVAC_VACANCY_HOLD_NIGHT,
         )
 
         room_coordinators: dict[str, Any] = {}
@@ -563,8 +584,15 @@ class ZoneManager:
                     merged.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)
                     or ROOM_TYPE_GENERIC
                 ),
-                # F5 (fix-up round 4): per-room override reads dropped;
-                # tail-hold governed by module-constant tables only.
+                # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D1/D2: optional
+                # per-room hold overrides (blank/None -> table default).
+                # Coerce numeric strings; sentinel non-int as None.
+                "hvac_hold_override_day": _coerce_hold_override(
+                    merged.get(CONF_HVAC_VACANCY_HOLD, None)
+                ),
+                "hvac_hold_override_night": _coerce_hold_override(
+                    merged.get(CONF_HVAC_VACANCY_HOLD_NIGHT, None)
+                ),
             }
 
         # v4.7.8 fix-up B-M1 / B4: unify on dt_util.now() (URA-wide convention)
@@ -642,6 +670,8 @@ class ZoneManager:
                         state_occupied=room_occupied,
                         now=now,
                         house_state=house_state,
+                        override_day=meta.get("hvac_hold_override_day"),
+                        override_night=meta.get("hvac_hold_override_night"),
                     )
 
                 condition = RoomCondition(
@@ -838,12 +868,21 @@ class ZoneManager:
         self,
         room_type: str,
         house_state: str | None,
+        override_day: int | None = None,
+        override_night: int | None = None,
+        room_name: str | None = None,
     ) -> int:
         """Return the effective tail-hold window for a room in seconds.
 
         Selects day vs night table by `house_state in FAN_TRUST_STATES`.
-        F5 fix-up round 4 (2026-09-17): per-room overrides removed —
-        the module-constant tables are the sole source of truth.
+        HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D1/D2 (v5.103.8): honour the
+        optional per-room `override_day` / `override_night` (from the
+        ROOM options-flow CONF_HVAC_VACANCY_HOLD[_NIGHT] fields). None
+        means "no override" — fall through to the module-constant
+        table. Monotonicity clamp: if BOTH overrides are supplied AND
+        the night override is smaller than the (resolved) day value,
+        clamp night up to day and log ONCE per (room_type, house_state)
+        so the operator sees the intent violation without a firehose.
         """
         from ..const import (
             ROOM_TYPE_HVAC_HOLD,
@@ -853,16 +892,49 @@ class ZoneManager:
         )
         from .hvac_const import FAN_TRUST_STATES
 
-        if house_state in FAN_TRUST_STATES:
-            table = ROOM_TYPE_HVAC_HOLD_NIGHT
-            default = DEFAULT_HVAC_VACANCY_HOLD_NIGHT
-        else:
-            table = ROOM_TYPE_HVAC_HOLD
-            default = DEFAULT_HVAC_VACANCY_HOLD
+        # Resolve day + night with overrides first (needed for clamp).
+        day_val: int
+        night_val: int
         try:
-            return int(table.get(room_type, default))
+            day_val = int(ROOM_TYPE_HVAC_HOLD.get(
+                room_type, DEFAULT_HVAC_VACANCY_HOLD,
+            ))
         except (TypeError, ValueError):
-            return int(default)
+            day_val = int(DEFAULT_HVAC_VACANCY_HOLD)
+        try:
+            night_val = int(ROOM_TYPE_HVAC_HOLD_NIGHT.get(
+                room_type, DEFAULT_HVAC_VACANCY_HOLD_NIGHT,
+            ))
+        except (TypeError, ValueError):
+            night_val = int(DEFAULT_HVAC_VACANCY_HOLD_NIGHT)
+        if override_day is not None:
+            day_val = int(override_day)
+        if override_night is not None:
+            night_val = int(override_night)
+
+        # Monotonicity clamp: night MUST be >= day. Log-once key names
+        # the specific ROOM (A-LOW-7 fixup, v5.103.8) — a room_type
+        # key would collapse two inverted bedrooms into a single log
+        # and hide one of them.
+        if night_val < day_val:
+            clamp_key = (room_name or "?", room_type, "night_lt_day")
+            logged = getattr(self, "_hvac_hold_clamp_logged", None)
+            if logged is None:
+                logged = set()
+                self._hvac_hold_clamp_logged = logged
+            if clamp_key not in logged:
+                _LOGGER.warning(
+                    "HVAC hold monotonicity: room=%s (type=%s) "
+                    "night=%ds < day=%ds — clamping night up to %ds "
+                    "(overrides: day=%s night=%s)",
+                    room_name or "?", room_type,
+                    night_val, day_val, day_val,
+                    override_day, override_night,
+                )
+                logged.add(clamp_key)
+            night_val = day_val
+
+        return night_val if house_state in FAN_TRUST_STATES else day_val
 
     def _compute_hvac_occupied(
         self,
@@ -872,6 +944,8 @@ class ZoneManager:
         state_occupied: bool,
         now: datetime,
         house_state: str | None,
+        override_day: int | None = None,
+        override_night: int | None = None,
     ) -> bool:
         """D1 state machine — returns True iff the room is HVAC-occupied.
 
@@ -916,6 +990,9 @@ class ZoneManager:
         if tail_expiry is None:
             hold_s = self._effective_hvac_hold_seconds(
                 room_type, house_state,
+                override_day=override_day,
+                override_night=override_night,
+                room_name=room_name,
             )
             if hold_s <= 0:
                 # No tail configured — release immediately.

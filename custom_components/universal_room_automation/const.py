@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.7
+# Universal Room Automation vv5.103.8
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.7"
+VERSION: Final = "v5.103.8"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1224,13 +1224,66 @@ ROOM_TYPE_HVAC_HOLD_NIGHT: Final = {
     ROOM_TYPE_HALLWAY: 0,           # never — circulation excluded
 }
 
-# Per-room HVAC vacancy tail-hold is governed EXCLUSIVELY by the
-# ROOM_TYPE_HVAC_HOLD[_NIGHT] module-constant tables (fix-up round 4,
-# 2026-09-17, F5). The per-room CONF_HVAC_VACANCY_HOLD[_NIGHT] fields
-# were introduced in round 1 but never wired to config-flow/Number/UI —
-# read-by-nobody-settable knobs. Dropped rather than left inert. If a
-# per-room slider is needed later, reintroduce with a real config
-# surface (Numbers-Get-Knobs discipline).
+# Per-room HVAC vacancy tail-hold — table defaults live in the two
+# ROOM_TYPE_HVAC_HOLD[_NIGHT] tables above. HVAC-DEMAND-KNOBS-AND-OBS-
+# GAPS-1 D1/D2 (v5.103.8) reintroduces optional per-room overrides with
+# a real ROOM options-flow UI (`config_flow.py:async_step_climate`).
+# Blank/None means "use the room-type default" (NEVER coerce blank to 0
+# — 0 is the legitimate hallway never-hold at `ROOM_TYPE_HVAC_HOLD[
+# ROOM_TYPE_HALLWAY]`). Round-1's inert CONF was dropped in F5; this
+# reintroduction wires the CONF names to a real config surface and to
+# `_effective_hvac_hold_seconds` (Numbers-Get-Knobs discipline).
+CONF_HVAC_VACANCY_HOLD: Final = "hvac_vacancy_hold"
+CONF_HVAC_VACANCY_HOLD_NIGHT: Final = "hvac_vacancy_hold_night"
+
+# HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D6 (v5.103.8): the complete
+# vocabulary of `reason=` strings passed to `emit_set_preset_mode` at
+# the 11 URA-side preset-write sites. The chokepoint captures reason
+# per zone; the zone-preset sensor exposes it as `retreat_reason`.
+# Any new emission site adding a reason string outside this set fails
+# the vocabulary-completeness mutation test.
+#
+# - 6 S1-ladder reasons from `hvac.py:2273-2306` (assigned to
+#   `preset_change_reason`, passed as `reason=preset_change_reason`
+#   at `hvac.py:2360`).
+# - 8 static per-site literals passed at the 8 non-S1 emission sites
+#   that spell out a literal string (see per-site citations below).
+# - `hvac_excursion.py:667` passes `reason=trigger`, where `trigger`
+#   is an INDEPENDENT string argument (NOT the token's `kind`) passed
+#   by the callers of `_auto_return`. The full set of live triggers
+#   reaching that emission today is: `lease_expiry`
+#   (`hvac_excursion.py:750`) and `stale_boot_release`
+#   (`hvac_excursion.py:1188-1190`). Any new `_auto_return` caller
+#   introducing a novel trigger string must add it here or fail the
+#   completeness test.
+# - `hvac_override.py:4632` (soft-nudge restore) passes an explicit
+#   `reason="soft_nudge_preset_restore"` as of v5.103.8 A-MED-4 fixup.
+# - Sentinel `unknown` covers the pre-hydration boot window.
+HVAC_PRESET_REASONS: Final[frozenset[str]] = frozenset({
+    # S1 ladder (hvac.py:2273-2306)
+    "stale_occupancy",
+    "vacant_past_grace",
+    "runtime_exceeded",
+    "pre_arrival",
+    "house_state_transition",
+    "comfort_delay_active",
+    # Static site literals
+    "egress_resume",                       # hvac_egress.py:803
+    "severe_override_revert",              # hvac_override.py:3555
+    "ac_reset_preset_restore",             # hvac_override.py:4121
+    "soft_nudge_preset_restore",           # hvac_override.py:4632 (A-MED-4)
+    "cancel_nudge_preset_restore",         # hvac_override.py:5841
+    "startup_ramp_audit_restore",          # hvac_override.py:6244
+    "banking_release",                     # hvac_predict.py:1036
+    "preheat_boundary",                    # hvac_predict.py:1556
+    "startup_audit_nudge_preset_restore",  # hvac_excursion.py:1139
+    # Dynamic `_auto_return(trigger=...)` values that reach the
+    # `reason=trigger` at hvac_excursion.py:675.
+    "lease_expiry",                        # hvac_excursion.py:750
+    "stale_boot_release",                  # hvac_excursion.py:1190
+    # Sentinel
+    "unknown",
+})
 
 # v4.5.15: Room-type-specific failsafe durations. Caps the maximum time
 # a room can stay "occupied" before URA forces vacancy, regardless of

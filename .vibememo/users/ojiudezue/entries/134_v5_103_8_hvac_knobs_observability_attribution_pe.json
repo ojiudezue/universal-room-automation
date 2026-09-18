@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "134",
+  "author": "ojiudezue",
+  "session_id": "claude_20260918_031548_ship_v5_103_8",
+  "timestamp": "2026-09-18T03:15:48Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.8 shipped: HVAC knobs + observability + attribution: per-room hold knobs, retreat_reason, coast dwell, hvac_occupied diagnostics",
+  "summary": "HVAC knobs + observability + attribution: per-room hold knobs, retreat_reason, coast dwell, hvac_occupied diagnostics",
+  "why": "Closes the observability+control surface for the conditioning-demand feature shipped in v5.103.7 \u2014 the operator flagged it lacked knobs (hold was module-constant-only) and legibility (why a zone retreated was DB-only). Now: per-room hold knobs in each room Climate options, retreat_reason per zone, coast dwell on the 10-Mode sensor (coast was already observable there \u2014 a new sensor was rejected as a duplicate in plan review), hvac_occupied diagnostics enabled across 43 rooms + established visibility. Plan-reviewed (6 blocking fixed incl wrong config-step + a fabricated reason vocabulary), built, 2 framing-disjoint reviews (both found hollow anchors \u2014 fixed, orchestrator re-verified the D6 anchor discriminates by mutation), name-diff NEW=0 with the 2 energy-restart order-flakes proven pre-existing by revert-in-suite on this branch (D3 __init__ change is clean).",
+  "implications": "Shipped HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1, HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1, HVAC-COAST-OBSERVABILITY-1 at v5.103.8; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.8.md (Live criteria).",
+  "revisit_trigger": "each room Climate options shows the HVAC vacancy hold fields (blank=default); a zone preset sensor's retreat_reason attr shows a value in HVAC_PRESET_REASONS matching the last write; sensor '10 Mode' has energy_constraint_since/duration_s; binary_sensor.<room>_hvac_occupied is enabled+visible across rooms with an established attr; no new URA ERROR",
+  "refs": {
+    "cards": [
+      "HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1",
+      "HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1",
+      "HVAC-COAST-OBSERVABILITY-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.8.md"
+    ],
+    "release_notes": "- Per-room HVAC vacancy hold (day+night) as ROOM Climate options-flow knobs (CONF_HVAC_VACANCY_HOLD[_NIGHT]); blank = room-type default, clearable, night>=day enforced\n- retreat_reason attr on each zone preset sensor (why it retreated) \u2014 captured at the write chokepoint (all 11 sites), boot-hydrated from ura_activity_log; HVAC_PRESET_REASONS vocabulary\n- Coast/shed dwell (energy_constraint_since + duration_s) as attrs on the existing '10 Mode' sensor\n- hvac_occupied diagnostic entity enabled by default + one-shot registry migration for the ~43 existing rooms; new  attr (zone active vs fail-open)\n- Closes HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 + HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1 + HVAC-COAST-OBSERVABILITY-1\n- Additive Tier-2; 2 framing-disjoint reviews + consolidated fix-up (real anchors mutation-drilled); name-diff NEW=0 (2 energy-restart fails proven pre-existing via revert-in-suite)"
+  }
+}

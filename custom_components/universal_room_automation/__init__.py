@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.7
+# Universal Room Automation vv5.103.8
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -679,6 +679,81 @@ async def _camera_autoenable_dry_run_scan(
         CAMERA_AUTOENABLE_DRY_RUN, knob_enabled, len(fusions),
         len(would_enable), would_enable,
     )
+
+
+async def _enable_hvac_occupied_entities_one_shot(
+    hass: HomeAssistant, cm_entry: ConfigEntry,
+) -> int:
+    """HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D3 (v5.103.8).
+
+    Flip the disabled-by-default flag OFF (i.e. enable) for every
+    pre-existing `binary_sensor.<room>_hvac_occupied` entity in the
+    registry. The `_attr_entity_registry_enabled_default = True`
+    flip on the class only affects entities CREATED after the flip;
+    existing rooms need this one-shot pass.
+
+    Idempotent — gated on the sentinel option
+    `hvac_occupied_registry_enable_migration_done` stored on the CM
+    entry (precedent: the `_zero_migration_done` flag next to this
+    helper). Returns the number of entities enabled by this run.
+    """
+    from homeassistant.helpers import entity_registry as er
+    DONE_KEY = "hvac_occupied_registry_enable_migration_done"
+    if cm_entry.options.get(DONE_KEY):
+        return 0
+    enabled_count = 0
+    completed = False
+    try:
+        registry = er.async_get(hass)
+        for entity in list(registry.entities.values()):
+            if entity.domain != "binary_sensor":
+                continue
+            # unique_id shape: <DOMAIN>_<room_id>_hvac_occupied (see
+            # UniversalRoomEntity + HVACOccupiedBinarySensor.__init__).
+            uid = entity.unique_id or ""
+            if not uid.endswith("_hvac_occupied"):
+                continue
+            if entity.platform != DOMAIN:
+                continue
+            if entity.disabled_by is None:
+                continue
+            # Only clear a disable that came from the integration or
+            # default — do NOT overrule an explicit USER disable.
+            if entity.disabled_by == er.RegistryEntryDisabler.USER:
+                continue
+            try:
+                registry.async_update_entity(
+                    entity.entity_id, disabled_by=None,
+                )
+                enabled_count += 1
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "hvac_occupied registry-enable: could not enable %s",
+                    entity.entity_id, exc_info=True,
+                )
+        # Only mark the run completed if the enumeration+update pass
+        # finished. A-HIGH-1 fixup (v5.103.8): a raise inside the loop
+        # would have burned the one-shot with 0 entities enabled and
+        # no retry. Now the sentinel is written only when we know we
+        # actually iterated the whole registry.
+        completed = True
+    except Exception:  # noqa: BLE001
+        _LOGGER.warning(
+            "hvac_occupied registry-enable migration failed (non-fatal) — "
+            "will retry on next boot (sentinel NOT written)",
+            exc_info=True,
+        )
+    if completed:
+        new_options = dict(cm_entry.options)
+        new_options[DONE_KEY] = True
+        hass.config_entries.async_update_entry(cm_entry, options=new_options)
+    if enabled_count:
+        _LOGGER.info(
+            "HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D3: enabled %d pre-existing "
+            "binary_sensor.*_hvac_occupied entities (one-shot migration)",
+            enabled_count,
+        )
+    return enabled_count
 
 
 async def _migrate_hvac_zone_entry_dwell_to_zero(
@@ -3165,6 +3240,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     except Exception as e:  # noqa: BLE001
                         _LOGGER.error(
                             "HVAC D5 zone_entry_dwell migration failed: %s", e,
+                        )
+                    # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D3 (v5.103.8):
+                    # one-shot registry-enable for pre-existing
+                    # binary_sensor.*_hvac_occupied entities.
+                    # Idempotent via the DONE sentinel on the CM entry.
+                    try:
+                        await _enable_hvac_occupied_entities_one_shot(
+                            hass, cm_entry,
+                        )
+                        cm_entry = (
+                            hass.config_entries.async_get_entry(cm_entry.entry_id)
+                            or cm_entry
+                        )
+                    except Exception as e:  # noqa: BLE001
+                        _LOGGER.error(
+                            "hvac_occupied registry-enable migration failed: %s", e,
                         )
 
                 if cm_entry is not None:
