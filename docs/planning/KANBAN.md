@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-17T20:39:50-05:00_ - _Data commit: `8504801b8213`_ - _last_reconciled: 2026-09-17_
+_Generated: 2026-09-17T20:41:42-05:00_ - _Data commit: `68c24514da22`_ - _last_reconciled: 2026-09-17_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 4 |
+| 📥 Inbox | 3 |
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 16 |
@@ -19,9 +19,9 @@ _Generated: 2026-09-17T20:39:50-05:00_ - _Data commit: `8504801b8213`_ - _last_r
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 29 |
 | 🅿️ Parked | 58 |
-| ✅ Done | 171 |
+| ✅ Done | 172 |
 
-## 📥 Inbox (4)
+## 📥 Inbox (3)
 _raw capture_
 
 ### `HVAC-D5-KNOBS-TO-RUNG-3-1` - D5 duty-cycle window/caps are Rung-1 module constants for what is a Rung-3 operator policy; no kill switch — _#1 · WSJF 5.0 · v5 tc3 u2 /e2 ⚠_
@@ -53,16 +53,6 @@ _created 2026-09-17_
 - **Next:** Measure (recorder): does runtime_exceeded fire shortly after waking transitions? If yes, reset counter on sleep. Else close.
 - **Tags:** hvac, tier-1, contingent, measure-first
 - **Parsimony:** [BUILD] overnight accumulation instant-trips on wake
-
-### `INSTALL-ARCHIFY-SKILL-1` - Install the archify skill (github.com/tt-a1i/archify) in a spare cycle — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **tooling** - status: **inbox**
-_created 2026-09-17_
-- **Problem / Solution:**
-  - Operator: "Install this skill in a spare cycle - https://github.com/tt-a1i/archify". Evaluate + install the archify skill when there is spare capacity (not during the HVAC ship). Read the repo, check what it does / how it installs (likel...
-- **Why:** Operator-requested tooling; deliberately deferred to a spare cycle so it does not interrupt the in-flight Tier-3 HVAC ship.
-- **Next:** In a spare cycle: fetch github.com/tt-a1i/archify, read its README/SKILL.md, confirm what it is (name suggests architecture/graph tooling — verify), install to ~/.claude/skills/ if appropriate, report what it adds. Do NOT install blind —...
-- **Tags:** tooling, spare-cycle, operator-requested
-- **Parsimony:** [BUILD] operator wants a skill installed; no urgency
 
 ## 🔬 Investigating (2)
 _measuring; truth not yet known_
@@ -2360,8 +2350,20 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (171)
+## ✅ Done (172)
 _closed, evidence in refs_
+
+### `INSTALL-ARCHIFY-SKILL-1` - Install the archify skill (github.com/tt-a1i/archify) in a spare cycle — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **tooling** - status: **done**
+_created 2026-09-17_
+- **Problem / Solution:**
+  - Operator: "Install this skill in a spare cycle - https://github.com/tt-a1i/archify". Evaluate + install the archify skill when there is spare capacity (not during the HVAC ship). Read the repo, check what it does / how it installs (likel...
+- **Why:** Operator-requested tooling; deliberately deferred to a spare cycle so it does not interrupt the in-flight Tier-3 HVAC ship.
+- **Next:** In a spare cycle: fetch github.com/tt-a1i/archify, read its README/SKILL.md, confirm what it is (name suggests architecture/graph tooling — verify), install to ~/.claude/skills/ if appropriate, report what it adds. Do NOT install blind —...
+- **Tags:** tooling, spare-cycle, operator-requested
+- **Parsimony:** [BUILD] operator wants a skill installed; no urgency
+- **Forensic keys (1):**
+  - `DONE_2026_09_17`: Installed + verified. Diagram-rendering skill (arch/workflow/sequence/dataflow/ lifecycle -> standalone HTML), MIT, tt-a1i/archify v2.17. Safety-reviewed CLEAN (Node built-ins only, no network egress, no install hooks; 3rd-party deps are...
 
 ### `WORKTREE-BACKLOG-PRUNE-1` - 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work — _WSJF 4.5 · v4 tc3 u2 /e2_
 thread: **infra** - status: **done**
