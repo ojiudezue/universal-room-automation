@@ -1145,7 +1145,7 @@ class HVACCoordinator(BaseCoordinator):
         )
 
         # HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1: producer-owned pull.
-        # EC is registered BEFORE HVAC (__init__.py:3759 vs :3856) and
+        # EC is registered BEFORE HVAC (__init__.py:3759 vs ~4041) and
         # CoordinatorManager.async_start runs setups sequentially, so EC's
         # boot decision cycle fires SIGNAL_ENERGY_CONSTRAINT before this
         # subscribe is in place. async_dispatcher_send is fire-and-forget
@@ -1153,8 +1153,9 @@ class HVACCoordinator(BaseCoordinator):
         # the mode changes (evening coast) — leaving _energy_constraint
         # None all afternoon on restart-days and dead-arming Path A pre-cool.
         # Pull the current constraint from EC now that the subscribe is up.
-        # Ordering-proof (EC fully set up by this point) and idempotent
-        # with the next real signal (_handle_energy_constraint is a setter).
+        # Ordering-TOLERANT (a reorder yields a default-valued payload,
+        # silently inert — not a loud failure) and idempotent with the
+        # next real signal (_handle_energy_constraint is a setter).
         try:
             _cm = self.hass.data.get("universal_room_automation", {}).get(
                 "coordinator_manager"

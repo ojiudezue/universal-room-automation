@@ -7516,7 +7516,10 @@ class EnergyCoordinator(BaseCoordinator):
         try:
             solar_class = self._battery.classify_solar_day()
         except Exception:
-            solar_class = None
+            # A-LOW: EnergyConstraint.solar_class is str (default ""),
+            # not Optional[str] — align exception path with
+            # classify_solar_day's own "unknown" convention.
+            solar_class = "unknown"
         return EnergyConstraint(
             mode=self._hvac_constraint_mode,
             setpoint_offset=self._hvac_constraint_offset,
@@ -10130,7 +10133,16 @@ class EnergyCoordinator(BaseCoordinator):
 
     @property
     def hvac_constraint(self) -> dict[str, Any]:
-        """Current HVAC constraint — full detail for sensors."""
+        """Current HVAC constraint — full detail for sensors.
+
+        A-LOW #53: This property intentionally duplicates 9 fields with
+        `_build_energy_constraint()` rather than routing through it,
+        because `max_runtime` here is recomputed LIVE from the current
+        `_tou.get_next_transition()` (a display value that must not go
+        stale between constraint updates), whereas the builder uses the
+        stashed `_hvac_constraint_max_runtime` frozen at last dispatch.
+        Two sites, different semantics — do not consolidate blindly.
+        """
         transition = self._tou.get_next_transition()
         max_runtime = None
         if self._hvac_constraint_mode in ("coast", "shed"):
