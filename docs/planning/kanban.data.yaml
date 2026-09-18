@@ -813,6 +813,13 @@ cards:
   parsimony: {problem: 'restart-day pre-cool disabled until first mode change', verdict: BUILD, note: 'trace signal delivery first; measure self-heal'}
   links: {related: [HVAC-PRECOOL-SKIP-REASON-OBS-1, EC-GRID-ANTICIPATORY-PRECOOL-GAP-1], context: 'surfaced by pre_cool_skip_reason obs v5.103.12 on first boot'}
 - id: STUCK-MOTION-FROZEN-ON-BLINDSPOT-1
+  PLAN_2026_09_18: 'Measure-first FALSIFIED the naive age-gate (edge-driven sensors: legit silence-
+    while-on p95 1.8h motion / 5h mmwave still-body; incident sensor is camera/Frigate not Zigbee). Design =
+    corroboration-gated DEMOTE reusing SensorExclusionSet (new client freshness @ coordinator.py:2988/3070) +
+    CORROBORATOR_DISAGREE_S(900) + per-kind age floors (motion 2h/mmwave 6h, Rung-1). Trigger = on AND age>
+    floor AND lone-dissenter (all corroborators quiet 15min). DEMOTE not drop -> INV-FRESH: never drops a room
+    while any non-stale input is on. Plan: PLANNING_occupancy_freshness_gate.md. Plan-review dispatched, then
+    build + 3 framing-disjoint reviews.'
   BUILD_APPROACH_2026_09_18: 'Operator greenlit the freshness gate. Tier 2-DB (occupancy TRUST; false-
     negative = abandon a real occupant). Measure-first + prior-art scan dispatched (accb0d5f7, read-only):
     (A) existing freshness/unavailable handling + stuck detector + role model + reusable CONF; (B) recorder
@@ -820,7 +827,7 @@ cards:
     threshold that CANNOT clip a live-but-quiet sensor (esp. mmwave holding on for a still body). Falsifiable
     invariant for the plan: a sensor reporting within its measured expected interval is NEVER dropped. Then
     plan -> plan-review -> build -> 3 framing-disjoint reviews -> mutation-verify -> ship.'
-  status: investigating
+  status: planned
   thread: presence
   created: '2026-09-18'
   updated: '2026-09-18'

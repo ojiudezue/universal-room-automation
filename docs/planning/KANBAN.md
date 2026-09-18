@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-18T16:14:07-05:00_ - _Data commit: `a6faad1cac0f`_ - _last_reconciled: 2026-09-18_
+_Generated: 2026-09-18T17:29:46-05:00_ - _Data commit: `9bef8c76f89b`_ - _last_reconciled: 2026-09-18_
 
 
 ## Columns
@@ -10,9 +10,9 @@ _Generated: 2026-09-18T16:14:07-05:00_ - _Data commit: `a6faad1cac0f`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 1 |
-| 🔬 Investigating | 3 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 13 |
+| 📝 Planned | 14 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 25 |
@@ -35,20 +35,10 @@ _created 2026-09-18_
 - **Tags:** hvac, precool, tou, seasonal, phase-aware
 - **Parsimony:** [BUILD] summer-hardcoded pre-cool window, phase-blind to shoulder/winter
 
-## 🔬 Investigating (3)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
-### `STUCK-MOTION-FROZEN-ON-BLINDSPOT-1` - Stuck-sensor defense is blind to a MOTION/PIR sensor frozen ON (offline holding last state) — trusted anchor + unavailable-only staleness let a phantom hold the house occupied — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **investigating**
-_created 2026-09-18_
-- **Problem / Solution:**
-  - Problem (live incident 2026-09-18): binary_sensor.upstairs_hall_motion_3 went OFFLINE holding state=on at 16:27 (last_updated frozen, no heartbeat since) -> upstairs_hall_all_occupancy stuck on -> house_state stuck home_day with ALL pers...
-- **Why:** Real live incident: a single stuck PIR held the whole house occupied + a zone home while empty. The defense assumed PIR is trustworthy (clears fast) and that a dead sensor goes unavailable - both false for a Zigbee dropout holding on. Pr...
-- **Next:** TRACE the occupancy aggregation freshness handling (does any input get a last_updated-age check?); design a per-kind expected-report-interval staleness gate applied to ALL occupancy inputs incl motion; decide demote-vs-drop; wire to the ...
-- **Tags:** presence, occupancy, stuck-sensor, staleness, bug-class-7, incident
-- **Parsimony:** [BUILD] stuck PIR frozen-on holds house occupied; every defense layer misses it
-
-### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `URA-CONFIG-ENTRY-RELOAD-STORM-1` - The COORDINATOR-MANAGER (CM) config entry reloads itself ~5x/night with no operator change — 118 coordinator entities blip unavailable each time (root of the onset early-release + parent-reload watchdog risk) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 > **⚡ OPERATOR: investigate — pending apply** (at 2026-09-18T19:24:05.731Z)
 thread: **energy** - status: **investigating** - approval: **explicit**
 _created 2026-09-10 00:50 · updated 2026-09-18 02:15 · initial_
@@ -77,7 +67,7 @@ _created 2026-09-10 00:50 · updated 2026-09-18 02:15 · initial_
   - `next_2026_09_10`: Review the debug log after the next CM reload (see capture_enabled). Name the trigger, then fix at source.
   - `allowlist_note_2026_09_10`: INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS (__init__.py:6664) currently covers ONLY census/perimeter/face keys -- no energy/hvac coordinator keys. So whatever CM key is being written nightly is guaranteed to reload.
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#3 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
 > **⚡ OPERATOR: approve — pending apply** (at 2026-09-18T19:23:53.217Z)
 thread: **platform** - status: **investigating**
 _created 2026-08-19 07:45 · updated 2026-09-12 20:40 · refined_
@@ -291,7 +281,7 @@ _created 2026-09-16 · initial_
   - `PER_ZONE_CORRECTED_2026_09_16`: OPERATOR: "If we did this, why per zone? It should be the same function, no?" CORRECT, and my sketch was wrong. Ask what per-zone STATE a handle would hold: entity_id is a PARAMETER; the vendor is DERIVED from the entity's platform (memo...
   - `DESIGN_SHAPE_2026_09_16`: Stateless, entity-parameterised, all three verbs plus vendor dispatch: read_hold(hass, entity_id)              -> named / anonymous / none set_preset(hass, entity_id, name, ...)  -> strategy decides clear-then-pin vs direct pin set_setpo...
 
-## 📝 Planned (13)
+## 📝 Planned (14)
 _has plan / acceptance_
 
 ### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#1 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
@@ -455,7 +445,20 @@ _created 2026-09-17_
 - **Forensic keys (1):**
   - `FOLD_2026_09_17`: From HVAC-EC-OFFSET-SELF-LOCKOUT-1 (refuted): verify the EC coast/shed OFFSET apply path carries a FIX-B2-style pre-write preset snapshot + set_preset_mode restore (like the nudge path), so a coast setpoint write cannot leave a zone in m...
 
-### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#12 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `STUCK-MOTION-FROZEN-ON-BLINDSPOT-1` - Stuck-sensor defense is blind to a MOTION/PIR sensor frozen ON (offline holding last state) — trusted anchor + unavailable-only staleness let a phantom hold the house occupied — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **planned**
+_created 2026-09-18_
+- **Problem / Solution:**
+  - Problem (live incident 2026-09-18): binary_sensor.upstairs_hall_motion_3 went OFFLINE holding state=on at 16:27 (last_updated frozen, no heartbeat since) -> upstairs_hall_all_occupancy stuck on -> house_state stuck home_day with ALL pers...
+- **Why:** Real live incident: a single stuck PIR held the whole house occupied + a zone home while empty. The defense assumed PIR is trustworthy (clears fast) and that a dead sensor goes unavailable - both false for a Zigbee dropout holding on. Pr...
+- **Next:** TRACE the occupancy aggregation freshness handling (does any input get a last_updated-age check?); design a per-kind expected-report-interval staleness gate applied to ALL occupancy inputs incl motion; decide demote-vs-drop; wire to the ...
+- **Tags:** presence, occupancy, stuck-sensor, staleness, bug-class-7, incident
+- **Parsimony:** [BUILD] stuck PIR frozen-on holds house occupied; every defense layer misses it
+- **Forensic keys (2):**
+  - `PLAN_2026_09_18`: Measure-first FALSIFIED the naive age-gate (edge-driven sensors: legit silence- while-on p95 1.8h motion / 5h mmwave still-body; incident sensor is camera/Frigate not Zigbee). Design = corroboration-gated DEMOTE reusing SensorExclusionSe...
+  - `BUILD_APPROACH_2026_09_18`: Operator greenlit the freshness gate. Tier 2-DB (occupancy TRUST; false- negative = abandon a real occupant). Measure-first + prior-art scan dispatched (accb0d5f7, read-only): (A) existing freshness/unavailable handling + stuck detector ...
+
+### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#13 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **planned** - approval: **implied**
 _created 2026-09-16_
 - **Problem / Solution:**
@@ -465,7 +468,7 @@ _created 2026-09-16_
 - **Tags:** energy, tier-2db, bug-class-53, needs-plan-review
 - **Parsimony:** [BUILD] three ordering invariants are validated at save time + anomaly-flagged at runtime but their ~25 live decision readers still read raw, so an inverted slider flips a gate
 
-### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#13 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#14 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **implied**
 _created 2026-09-16 · initial_
 - **Problem / Solution:**
