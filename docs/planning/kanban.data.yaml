@@ -699,6 +699,31 @@ cards:
     Comfort Grace Battery Floor/Duration; egress_pause_threshold/resume_delay -> Exit Pause Wait/Resume Delay.'
   parsimony: {problem: 'jargon labels truncate in UI', verdict: BUILD, note: 'cosmetic, reversible, low-risk'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'operator screenshot 2026-09-18'}
+- id: EC-GRID-ANTICIPATORY-PRECOOL-GAP-1
+  status: parked
+  thread: energy
+  created: '2026-09-18'
+  updated: '2026-09-18'
+  tags: [energy, precool, grid, gap, keep-document, measure-first]
+  title: Path A pre-cools ONLY on live PV surplus — a hot-forecast day with LOW morning SOC gets no pre-cool (grid-anticipatory gap the deleted Path B reached for)
+  problem_solution:
+  - 'Problem (principle preserved from the deleted EC pre_cool vestige, D1): the real banking path (Path A,
+    hvac_predict.py:_should_energy_precool) REQUIRES live PV export/surplus (net_power exporting, line 717) +
+    10am-2pm + summer/shoulder. So on a hot-forecast day where morning SOC is LOW (battery not yet charged,
+    cloudy AM) there is NO surplus -> Path A does not fire -> the house is NOT pre-cooled before the 4-8pm
+    peak, even though cheap OFF-PEAK GRID power is available. The deleted Path B (off_peak+soc<50+good-forecast)
+    was reaching for exactly this - anticipatory off-peak GRID pre-cool - but was phase-blind (fired at night)
+    and inert (offset never applied). Solution (if revisited): a PHASE-AWARE (before-peak, reuse summer_peak_
+    ahead energy_battery.py:5390) anticipatory grid pre-cool that fires in the morning/afternoon shoulder when
+    forecast is hot AND surplus is unavailable, banking on cheap grid before the peak. Do it right this time.'
+  why: 'Post-delete supersession doctrine (KEEP+DOCUMENT the principle, not the naive artifact). The offset
+    constant CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET is tombstoned in-code pointing here. NOT highest priority
+    (operator) - a design axis, not a live bug.'
+  next: 'PARKED. Revival trigger = summer billing / a measured hot-day-with-low-morning-SOC where the house
+    ran hot into peak because Path A could not pre-cool (no surplus). Measure-first: how often does low-morning-
+    SOC + hot-forecast co-occur? If rare, leave parked. If real $, design phase-aware grid pre-cool.'
+  parsimony: {problem: 'surplus-only pre-cool leaves low-SOC hot mornings uncovered', verdict: PARK, note: 'principle preserved; measure before building'}
+  links: {related: [EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1], context: 'preserved from deleted Path B; supersession KEEP+DOCUMENT'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
   BUILD_2026_09_18: 'Combined cycle DISPATCHED (feature/ec-precool-vacancy-ui, a49ec0bda). D1 = delete
     the EC pre_cool vestige (energy.py:7427-7434). D2 (operator fold-in) = make the room vacancy-hold
