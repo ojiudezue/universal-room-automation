@@ -485,6 +485,16 @@ cards:
     v5.103.8; close this on that ship.'
 
 - id: HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1
+  BRYANT_AUDIT_2026_09_17: 'VERDICT = PARTIALLY REDUNDANT: Infinity/Evolution control board + delay-on-
+    break already protect the compressor natively; D5 force-away does NOT lengthen compressor off-time =
+    pure energy-shed policy wearing a protection name (zero-Bryant-grounding CONFIRMED). FINALIZED SHAPE =
+    option (b) reframe+gate, NOT delete (still a legit coast/shed load-shed lever). Build spec: (1) remove
+    runtime_exceeded -> energy_shed_cap_reached (hvac.py:2200-2201, allow-list 2168-2178, no alias per no-
+    back-compat); (2) gate force-away at hvac.py:1928 on fused hvac_occupied - defer for occupied UNLESS
+    energy_constraint_mode==shed (shed dominates), log energy_shed_cap_deferred_occupied; (3) knobs->Rung-3
+    (absorb HVAC-D5-KNOBS-TO-RUNG-3-1, 0=kill). NEW finding: ha_carrier exposes ODU Var %/stage_status =
+    richer real-duty signal than the 20-min hvac_action integral -> parked (d) HVAC-D5-REGROUND-ON-ODU-VAR-1.
+    See docs/planning/AUDIT_bryant_duty_cycle_redundancy_2026_09_17.md. BUILD DISPATCHED (Tier 2-DB).'
   CHECKPOINT_DEFAULTS_2026_09_18: 'Operator: dont hold it + finish this tail (superseding the earlier
     dismiss). Proceeding on RECOMMENDED defaults: (1) SHED>OCCUPANCY>COAST-DUTY (shed still forces
     occupied away; occupancy defers ONLY under coast — matches D3 shed-dominates); (2) remove
@@ -539,6 +549,26 @@ cards:
   next: 'Decide knob rung + add a D5 enable/kill switch; fold into HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 if built together.'
   parsimony: {problem: 'policy numbers hardcoded, no kill switch', verdict: BUILD, note: 'small; pair with reframe'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 audit'}
+- id: HVAC-D5-REGROUND-ON-ODU-VAR-1
+  status: parked
+  thread: hvac
+  created: '2026-09-17'
+  updated: '2026-09-17'
+  tags: [hvac, energy, carrier, measure-first, tier-2]
+  title: Re-ground D5 duty estimate on the real ODU Var %% / stage_status instead of the coarse 20-min hvac_action integral
+  problem_solution:
+  - 'Problem: D5 integrates the thermostat hvac_action (cooling/idle) over a rolling 20-min window - a coarse
+    binary proxy for compressor duty. The Bryant audit (2026-09-17) found ha_carrier ALREADY publishes a
+    richer real-duty signal: sensor "ODU Var" = variable-capacity outdoor-unit %% output (sensor.py:788-834)
+    plus zone.stage_status (entry_level_climate.py:153-158). Solution: re-ground the D5 duty estimate on the
+    ODU Var %% (a modulating unit at 30%% is NOT the same load as one cycling on/off), so the shed cap tracks
+    actual compressor work rather than a hvac_action on/off integral.'
+  why: 'Bryant audit option (d). Strictly better duty signal, but a larger design change than reframe+gate;
+    Marginal-Benefit says reframe+gate (HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1) captures most of the value now.'
+  next: 'PARKED - revive if, after reframe+gate ships, the ledger shows the duty estimate still mis-fires on
+    modulating units (occupied zones shed while ODU Var is low). Then measure ODU Var live first (measure-before-build).'
+  parsimony: {problem: 'coarse duty proxy vs available richer signal', verdict: PARK, note: 'follow-up to reframe; marginal benefit'}
+  links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'Bryant duty-cycle redundancy audit 2026-09-17'}
 - id: HVAC-D5-WINDOW-START-RESTORE-1
   status: inbox
   thread: hvac

@@ -402,3 +402,51 @@ Before build dispatch:
 7. Close card + close absorbed `HVAC-D5-KNOBS-TO-RUNG-3-1`; audit follow-ups
    `HVAC-D5-WINDOW-START-RESTORE-1` and `HVAC-D5-SLEEP-EXIT-RESET-1` remain independently
    tracked.
+
+---
+
+## FINALIZED 2026-09-17 — option (b), per Bryant duty-cycle audit
+
+The Bryant/carrier_api research (`AUDIT_bryant_duty_cycle_redundancy_2026_09_17.md`) resolved the
+open shape question: D5 is **PARTIALLY REDUNDANT** — the compressor is natively protected; D5 is
+pure energy-shed policy. Build **option (b): reframe + occupancy-gate, do NOT delete.** Operator
+directive 2026-09-17: "don't hold it / finish this tail" → the three prior checkpoint decisions are
+resolved on recommended defaults (shed-dominates; remove `runtime_exceeded` immediately per
+Single-User-No-Back-Compat; absorb the Rung-3 knobs).
+
+### Build spec (the contract)
+- **D-b1 (reason rename):** remove `runtime_exceeded`, emit `energy_shed_cap_reached` instead.
+  Sites: `hvac.py:2200-2201` (emit), allow-list `hvac.py:2168-2178`, and every precedence/ladder
+  reference (`hvac.py:2278-2370`, 2441, 2472, 3843) + the diagnostics attribute keys. No alias.
+- **D-b2 (occupancy gate):** at the force-away decision (`hvac.py:1928` and its consumption at
+  `~2026`/`2213`/`2310`), when `energy_constraint_mode != "shed"` AND the zone is fused-occupied
+  (`zone.any_room_hvac_occupied`, the step-4-B signal), **defer** the force-away and emit reason
+  `energy_shed_cap_deferred_occupied`. Under `shed`, preserve today's behavior (shed dominates).
+  Reuse step-4-B's shared retreat helper if one exists; do NOT introduce a second occupancy read.
+- **D-b3 (knobs → Rung 3, absorbs `HVAC-D5-KNOBS-TO-RUNG-3-1`):** promote
+  `DUTY_CYCLE_WINDOW_SECONDS/COAST/SHED` (`hvac_const.py:396-399`) to `Number` entities with the
+  existing Number-persistence machinery; add a D5 **enable** switch; `0` on any cap = documented
+  kill. Wire through options round-trip + RestoreEntity.
+
+### Invariant (INV-D5-GATE, falsifiable)
+"Under `energy_constraint_mode != shed`, no zone with `any_room_hvac_occupied == True` is forced to
+`away` by the duty-cap in ANY reachable path." Adversarial pass must break it (incl. the ladder
+precedence at 2278-2370 and the comfort-delay interaction at 2319-2333).
+
+### Non-goals (explicit)
+- **NOT** re-grounding on ODU Var % — parked as `HVAC-D5-REGROUND-ON-ODU-VAR-1`.
+- **NOT** removing D5 (option c) — it stays as an honest coast/shed load-shed lever.
+- **NOT** touching `DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT` (the real, correctly-named protection cap).
+
+### Restart-safety
+- Reason-string + gate are stateless per tick — safe.
+- The Rung-3 Number knobs MUST persist via RestoreEntity (D-b3 acceptance).
+- `window_start` restore is a SEPARATE contingent card (`HVAC-D5-WINDOW-START-RESTORE-1`) — verify
+  in this build whether the duty counter survives reload; if not, it's a Tier-1 add here.
+
+### Tier / review
+Tier 2-DB (presence ↔ HVAC ↔ EC ripple) — 3 framing-disjoint reviews:
+A=local-correctness (rename completeness across all 8 sites; no stray `runtime_exceeded`),
+B=integration/state-machine (ladder precedence, comfort-delay, shed-dominates, restart),
+C=test-authority via real per-site mutation (each rename site + the gate + shed-override each fail a
+specific test when neutered) + D adversarial-completeness on INV-D5-GATE.
