@@ -10954,6 +10954,23 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  REREVIEW_R4_ADVERSARIAL_2026_09_17: 'Round-4 re-review #2 (adversarial) = SHIP w/ a reframe. KEY:
+    D-HIGH-1 — _async_apply_preset_overrides (D9) early-returns on guest_mode_actuation_enabled=False;
+    LIVE switch.ura_hvac_coordinator_guest_mode_actuation = OFF -> D9 compose-away + F2 throttle-bypass
+    are DORMANT in production. So the live-active ship = DAYTIME + PRESET layer (D1 circulation excl,
+    row-1/D7 fused-gated retreat, D8 night hold, reset-only backstop, D5 migration); D9/F2 ship dormant.
+    CONFLICT w/ correctness on F1: adversarial says any-room disabled-room case is byte-for-byte pre-
+    cycle (develop also retreats there) = LOW/no-regression; correctness says HIGH revert-to-all.
+    ORCHESTRATOR ADJUDICATION: revert F1 to all anyway — not a regression vs develop, but all is
+    strictly safer for the disabled-room edge + both reviewers accept it; dead-room visibility -> its
+    own trip-wire card. INV-1 PASS (rests on room coord surviving reload via __init__.py:4959 await-
+    before-publish, NOT the backstop — soften docstring). INV-2 preset-layer PASS, over-preservation
+    DEAD (no person read in retreat_ok). D-MED-2: F2 throttle-storm is inert live (switch off) -> CARD
+    as blocker-on-enabling-guest_mode_actuation, not a pre-ship fix. Ungated restore-writers (S8/S9/S11/
+    S13-return) strand empty night zones — pre-existing, uncorrected live (D9 was the intended corrector,
+    dormant) -> card. ROUND-5 (small): revert F1->all + card dead-room; resolve the 2 energy-restart NEW
+    (my name-diff, revert-in-suite); README marks D9/F2 DORMANT (not live-verifiable); cards for F2-
+    blocker + restore-writer stranding; docstring soften. Then ship v5.103.7 (live piece = the debounce).'
   REREVIEW_R4_CORRECTNESS_2026_09_17: 'Round-4 re-review #1 (correctness) = FIX-REQUIRED, 1 HIGH + 1
     MED. NOT SHIPPING. F1 (HIGH, orchestrator-predicted): the any-room-seen establishment lets a zone
     with a DISABLED/setup_retry room retreat on the room it CANNOT read (unreadable counted as empty;
