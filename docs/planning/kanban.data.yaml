@@ -700,6 +700,13 @@ cards:
   parsimony: {problem: 'jargon labels truncate in UI', verdict: BUILD, note: 'cosmetic, reversible, low-risk'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'operator screenshot 2026-09-18'}
 - id: EC-SOLAR-CLASS-DAYTIME-FORECAST-PROVENANCE-1
+  BUILD_2026_09_18: 'Combined cycle DISPATCHED (feature/ec-precool-vacancy-ui, a49ec0bda). D1 = delete
+    the EC pre_cool vestige (energy.py:7427-7434). D2 (operator fold-in) = make the room vacancy-hold
+    day/night config fields assistive: suggest the ROOM_TYPE_HVAC_HOLD[_NIGHT] type-default when unset,
+    add step, and help text (0=disabled; per-type good ranges; night auto-clamped>=day) WITHOUT overwriting
+    current room values. Plan: PLANNING_ec_precool_delete_and_vacancy_hold_assistive.md. Tier 2-DB, 3
+    framing-disjoint reviews (A D1-correctness, B D1-integration/Path-A-eligible/restart, C D2 config-
+    correctness+UX). Reviews after build.'
   POST_DELETE_OBSERVABILITY_2026_09_18: 'Confirmed energy.py:7432 is the SOLE emitter of EC mode
     pre_cool; Path A NEVER sets the EC mode (only reads constraint.mode, all normal-gated; sets its own
     _pre_cool_active). CONSEQUENCE of deleting Path B: sensor.ura_energy_coordinator_hvac_constraint will
@@ -808,7 +815,7 @@ cards:
     export, not soc<50. Trace: (1) is solar_class tomorrow-forecast (likely Solcast) vs stale-today; (2)
     does an excess-solar (daytime PV-surplus) pre-cool path exist separately or is it conflated with this
     off-peak-grid path; (3) at SOC 10% overnight, is spending off-peak grid to pre-cool net-positive?'
-  status: planned
+  status: in_progress
   thread: energy
   created: '2026-09-18'
   updated: '2026-09-18'
