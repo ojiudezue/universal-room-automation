@@ -1954,12 +1954,16 @@
             "data": {
               "target_temp_heat": "Comfort Range — Low (°F)",
               "target_temp_cool": "Comfort Range — High (°F)",
-              "climate_entity": "Climate/Thermostat Entity (fallback)"
+              "climate_entity": "Climate/Thermostat Entity (fallback)",
+              "hvac_vacancy_hold": "HVAC vacancy hold (day, seconds — blank uses the room-type default)",
+              "hvac_vacancy_hold_night": "HVAC vacancy hold (night, seconds — blank uses the room-type default)"
             },
             "data_description": {
               "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
-              "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set."
+              "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set.",
+              "hvac_vacancy_hold": "Per-room override for how long HVAC keeps a room denoted as HVAC-occupied after motion clears (daytime). Leave blank to use the room-type default. Night value must be ≥ day.",
+              "hvac_vacancy_hold_night": "Per-room override for the night-time HVAC vacancy tail-hold. Leave blank to use the room-type default. Must be ≥ the day value; night < day is rejected."
             }
           }
         }
@@ -2033,6 +2037,9 @@
       "ai_rule_empty_description": "Please enter a rule description.",
       "invalid_json": "Invalid JSON format. Use: {\"person.name\": [\"zone_1\", \"zone_2\"]}",
       "envoy_required": "Envoy entity is required when Energy Coordinator is enabled.",
+      "hvac_hold_night_below_day": "HVAC vacancy hold (night) must be greater than or equal to HVAC vacancy hold (day). Leave one blank to use the room-type default.",
+      "presence_runtime_cap_above_max": "Presence-runtime cap must be less than or equal to the humidity-fan max runtime.",
+      "comfort_range_inverted": "Comfort Range — Low must be less than or equal to Comfort Range — High.",
       "envoy_invalid_format": "Doesn't look like an Envoy entity ID — expected format: sensor.envoy_<serial>_<...>",
       "envoy_entity_missing": "This entity does not exist in Home Assistant. Verify the Enphase integration is set up.",
       "derived_entity_missing": "Auto-derived Envoy entity not found in Home Assistant — serial may be wrong, or the Enphase integration is partial.",
