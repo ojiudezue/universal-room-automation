@@ -485,6 +485,14 @@ cards:
     v5.103.8; close this on that ship.'
 
 - id: HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1
+  CHECKPOINT_DEFAULTS_2026_09_18: 'Operator: dont hold it + finish this tail (superseding the earlier
+    dismiss). Proceeding on RECOMMENDED defaults: (1) SHED>OCCUPANCY>COAST-DUTY (shed still forces
+    occupied away; occupancy defers ONLY under coast — matches D3 shed-dominates); (2) remove
+    runtime_exceeded immediately (Single-User-No-Back-Compat), new reason coast_duty_limit/shed_duty_
+    limit; (3) absorb HVAC-D5-KNOBS-TO-RUNG-3 (number duty window/coast_pct/shed_pct + enable switch,
+    0=kill). Build dispatched. BRYANT RESEARCH running in parallel (for-later): may show D5 is REDUNDANT
+    with the thermostats native compressor protection -> would reshape/reduce this; the occupancy-gate
+    fix is valuable regardless (fixes the live complaint).'
   PLAN_2026_09_18: 'Plan PLANNING_hvac_d5_reframe_occupancy_gate.md. INV-D5-GATE: under coast, no
     occupied zone (any_room_hvac_occupied) is forced to away by D5; under shed, byte-identical pre-
     cycle. Tier 2-DB (presence<->HVAC<->EC ripple; shared-primitive consumer swap; reason-ledger
@@ -493,7 +501,7 @@ cards:
     standing Single-User-No-Back-Compat = remove immediately; (3) absorb HVAC-D5-KNOBS-TO-RUNG-3
     (number duty window/coast_pct/shed_pct + enable switch, 0=kill) -> taking the recommendation YES.
     NEXT: operator picks #1 -> plan-review (Tier-2-DB) -> build -> checkpoint held.'
-  status: waiting_operator
+  status: in_progress
   thread: hvac
   created: '2026-09-17'
   updated: '2026-09-17'
