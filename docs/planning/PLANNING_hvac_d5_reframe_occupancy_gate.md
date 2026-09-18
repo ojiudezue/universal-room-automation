@@ -335,12 +335,28 @@ enforcement-consult step.
 
 ### INV-D5-GATE (post-deploy discriminator)
 
-Single-query DB check within 24h of deploy:
+Updated for the actual build shape (fix-up F6). The reason emitted for a
+D5 force-away is mode-agnostic (`energy_shed_cap_reached`); the DEFER row
+carries reason `energy_shed_cap_deferred_occupied`. `constraint_mode` +
+`any_room_hvac_occupied` are now emitted into `details_json` on BOTH
+force-away and defer rows so the invariant is evaluable.
+
+Single-query DB checks within 24h of deploy:
 ```sql
+-- Coast-mode force-away rows against an occupied zone MUST be zero
+-- (the gate is what prevents them).
 SELECT COUNT(*) FROM preset_change
- WHERE reason='coast_duty_limit'
+ WHERE reason = 'energy_shed_cap_reached'
+   AND json_extract(details_json, '$.constraint_mode') = 'coast'
    AND json_extract(details_json, '$.any_room_hvac_occupied') = 1;
 -- MUST be 0
+
+-- Sanity: at least one defer row emitted per real coast+occupied episode
+-- (proves the gate actually fires; a permanently-zero count means the
+-- gate never runs, not that it worked).
+SELECT COUNT(*) FROM preset_change_suppressed
+ WHERE reason = 'energy_shed_cap_deferred_occupied'
+   AND json_extract(details_json, '$.constraint_mode') = 'coast';
 ```
 
 ---

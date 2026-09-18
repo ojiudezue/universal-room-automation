@@ -131,6 +131,11 @@ async def async_setup_entry(
             # OverrideArrester (single source of truth).
             ComfortGraceMinutesNumber(hass, entry),
             ComfortSOCFloorNumber(hass, entry),
+            # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b3): D5 Rung-3
+            # knobs on the HVAC Coordinator device.
+            HVACDutyCycleWindowMinutesNumber(hass, entry),
+            HVACDutyCycleCoastPctNumber(hass, entry),
+            HVACDutyCycleShedPctNumber(hass, entry),
             # CONSOL-1 §D3 rung-3: operator-tunable llmvision enrichment
             # timeout (default 4.0s = 2× observed max from D0.2 probe).
             PerimeterEnrichmentTimeoutNumber(hass, entry),
@@ -934,6 +939,205 @@ class ComfortSOCFloorNumber(NumberEntity):
         self.async_write_ha_state()
 
 
+# ---------------------------------------------------------------------------
+# HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b3): D5 Rung-3 knobs on the
+# URA: HVAC Coordinator device. Live-tunable window (minutes) + coast /
+# shed caps (percent). `0` on a cap = documented kill for that mode.
+# Mirrors the ComfortGrace/ComfortSOCFloor entity pattern:
+#   * entry.options is the SOLE source of truth (no RestoreEntity).
+#   * setter pushes into HVACCoordinator, then writes options.
+#   * restart re-seeds via `__init__`'s `{**entry.data, **entry.options}`.
+# ---------------------------------------------------------------------------
+
+
+class _HVACD5NumberBase(NumberEntity):
+    _attr_has_entity_name = True
+    _attr_mode = NumberMode.SLIDER
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        self.hass = hass
+        self._entry = entry
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+        )
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+
+class HVACDutyCycleWindowMinutesNumber(_HVACD5NumberBase):
+    """D-b3: Rolling-window length (minutes) for D5 duty-cycle enforcement.
+
+    Entity: number.ura_hvac_coordinator_duty_cycle_window_minutes
+    """
+    _attr_icon = "mdi:timer-cog-outline"
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_DUTY_CYCLE_WINDOW_MIN,
+            DEFAULT_HVAC_DUTY_CYCLE_WINDOW_MIN,
+            MIN_HVAC_DUTY_CYCLE_WINDOW_MIN,
+            MAX_HVAC_DUTY_CYCLE_WINDOW_MIN,
+        )
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_duty_cycle_window_minutes"
+        self._attr_name = "D5 Duty-Cycle Window (minutes)"
+        self._attr_native_min_value = MIN_HVAC_DUTY_CYCLE_WINDOW_MIN
+        self._attr_native_max_value = MAX_HVAC_DUTY_CYCLE_WINDOW_MIN
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get(
+            CONF_HVAC_DUTY_CYCLE_WINDOW_MIN, DEFAULT_HVAC_DUTY_CYCLE_WINDOW_MIN,
+        ))
+
+    def _push(self) -> None:
+        hvac = self._get_hvac()
+        if hvac is not None and hasattr(hvac, "set_duty_cycle_window_minutes"):
+            hvac.set_duty_cycle_window_minutes(int(self._value))
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._push()
+
+    async def async_set_native_value(self, value: float) -> None:
+        from .domain_coordinators.hvac_const import CONF_HVAC_DUTY_CYCLE_WINDOW_MIN
+        self._value = int(value)
+        self._push()
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_HVAC_DUTY_CYCLE_WINDOW_MIN: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("D5 window options-writeback failed", exc_info=True)
+        self.async_write_ha_state()
+
+
+class HVACDutyCycleCoastPctNumber(_HVACD5NumberBase):
+    """D-b3: Max cooling runtime during COAST as % of window. `0` = coast D5 disabled."""
+    _attr_icon = "mdi:percent-outline"
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = PERCENTAGE
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_DUTY_CYCLE_COAST_PCT,
+            DEFAULT_HVAC_DUTY_CYCLE_COAST_PCT,
+            MIN_HVAC_DUTY_CYCLE_COAST_PCT,
+            MAX_HVAC_DUTY_CYCLE_COAST_PCT,
+        )
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_duty_cycle_coast_pct"
+        self._attr_name = "D5 Duty-Cycle Coast (%)"
+        self._attr_native_min_value = MIN_HVAC_DUTY_CYCLE_COAST_PCT
+        self._attr_native_max_value = MAX_HVAC_DUTY_CYCLE_COAST_PCT
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get(
+            CONF_HVAC_DUTY_CYCLE_COAST_PCT, DEFAULT_HVAC_DUTY_CYCLE_COAST_PCT,
+        ))
+
+    def _push(self) -> None:
+        hvac = self._get_hvac()
+        if hvac is not None and hasattr(hvac, "set_duty_cycle_coast_pct"):
+            hvac.set_duty_cycle_coast_pct(int(self._value))
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._push()
+
+    async def async_set_native_value(self, value: float) -> None:
+        from .domain_coordinators.hvac_const import CONF_HVAC_DUTY_CYCLE_COAST_PCT
+        self._value = int(value)
+        self._push()
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_HVAC_DUTY_CYCLE_COAST_PCT: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("D5 coast options-writeback failed", exc_info=True)
+        self.async_write_ha_state()
+
+
+class HVACDutyCycleShedPctNumber(_HVACD5NumberBase):
+    """D-b3: Max cooling runtime during SHED as % of window. `0` = shed D5 disabled."""
+    _attr_icon = "mdi:percent-outline"
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = PERCENTAGE
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_DUTY_CYCLE_SHED_PCT,
+            DEFAULT_HVAC_DUTY_CYCLE_SHED_PCT,
+            MIN_HVAC_DUTY_CYCLE_SHED_PCT,
+            MAX_HVAC_DUTY_CYCLE_SHED_PCT,
+        )
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_duty_cycle_shed_pct"
+        self._attr_name = "D5 Duty-Cycle Shed (%)"
+        self._attr_native_min_value = MIN_HVAC_DUTY_CYCLE_SHED_PCT
+        self._attr_native_max_value = MAX_HVAC_DUTY_CYCLE_SHED_PCT
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get(
+            CONF_HVAC_DUTY_CYCLE_SHED_PCT, DEFAULT_HVAC_DUTY_CYCLE_SHED_PCT,
+        ))
+
+    def _push(self) -> None:
+        hvac = self._get_hvac()
+        if hvac is not None and hasattr(hvac, "set_duty_cycle_shed_pct"):
+            hvac.set_duty_cycle_shed_pct(int(self._value))
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self._push()
+
+    async def async_set_native_value(self, value: float) -> None:
+        from .domain_coordinators.hvac_const import CONF_HVAC_DUTY_CYCLE_SHED_PCT
+        self._value = int(value)
+        self._push()
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_HVAC_DUTY_CYCLE_SHED_PCT: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("D5 shed options-writeback failed", exc_info=True)
+        self.async_write_ha_state()
 
 
 class OffPeakDrainNumber(NumberEntity):

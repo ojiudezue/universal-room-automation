@@ -1263,7 +1263,14 @@ HVAC_PRESET_REASONS: Final[frozenset[str]] = frozenset({
     # S1 ladder (hvac.py:2273-2306)
     "stale_occupancy",
     "vacant_past_grace",
-    "runtime_exceeded",
+    # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b1): renamed
+    # `runtime_exceeded` -> `energy_shed_cap_reached`. D5 is not
+    # compressor protection; it is EC coast/shed energy-shed policy.
+    # No alias per Single-User-No-Back-Compat.
+    "energy_shed_cap_reached",
+    # D-b2: D5 defer-on-occupied reason (coast + fused-occupied →
+    # no force-away, ledger-only defer).
+    "energy_shed_cap_deferred_occupied",
     "pre_arrival",
     "house_state_transition",
     "comfort_delay_active",

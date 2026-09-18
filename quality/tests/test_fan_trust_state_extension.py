@@ -807,7 +807,12 @@ class TestD3_ZonePresetPersonTrust:
     def test_d5_duty_cycle_skip_still_sleep_only(self, src: str) -> None:
         """D5 duty-cycle skip is a RUNAWAY-TIMER guard, not occupancy
         trust — sleep-only is deliberate; must NOT extend."""
-        assert "zone.runtime_exceeded and self._house_state != \"sleep\"" in src
+        # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b3): the D5 gate
+        # condition also honors the master enable knob; the sleep-only
+        # skip is preserved. Assert both invariants.
+        assert "zone.runtime_exceeded" in src
+        assert 'self._house_state != "sleep"' in src
+        assert "self.d5_enabled" in src
 
     def test_d6_stale_failsafe_skip_still_sleep_only(self, src: str) -> None:
         """D6 stale-failsafe skip remains sleep-only."""

@@ -350,7 +350,8 @@ class TestPresetChangeReasonLedger:
         for literal in (
             "stale_occupancy",
             "vacant_past_grace",
-            "runtime_exceeded",
+            # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b1) rename.
+            "energy_shed_cap_reached",
             "pre_arrival",
             "house_state_transition",
         ):
@@ -372,12 +373,18 @@ class TestPresetChangeReasonLedger:
         )
 
     def test_runtime_exceeded_maps_to_that_reason(self, apply_presets_src: str):
+        # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b1): the operator-
+        # facing reason string was renamed from `runtime_exceeded` to
+        # `energy_shed_cap_reached` (Single-User-No-Back-Compat, no
+        # alias). Internal field `zone.runtime_exceeded` kept for
+        # serialization stability. Test now asserts the branch maps to
+        # the NEW reason literal.
         pattern = re.compile(
-            r"zone\.runtime_exceeded.*?preset_change_reason\s*=\s*['\"]runtime_exceeded['\"]",
+            r"zone\.runtime_exceeded.*?preset_change_reason\s*=\s*['\"]energy_shed_cap_reached['\"]",
             re.DOTALL,
         )
         assert pattern.search(apply_presets_src), (
-            "runtime_exceeded branch must map to reason='runtime_exceeded'"
+            "runtime_exceeded branch must map to reason='energy_shed_cap_reached'"
         )
 
     def test_activity_details_carry_reason_and_inputs(self, apply_presets_src: str):
@@ -403,7 +410,8 @@ class TestPresetChangeReasonLedger:
         end = apply_presets_src.find("}))", idx)
         assert end > idx, "could not find end of main preset_change details dict"
         window = apply_presets_src[idx : end + 3]
-        for key in ("'reason'", "'zone_vacant_past_grace'", "'runtime_exceeded'"):
+        # D-b1 rename: operator-facing details key.
+        for key in ("'reason'", "'zone_vacant_past_grace'", "'energy_shed_cap_reached'"):
             assert key in window, (
                 f"activity_logger.log details missing `{key}`"
             )
@@ -462,11 +470,15 @@ class TestNightTrustSuppressedRow:
         # inside a branch predicated on `first_fire`. We locate the
         # `action="preset_change_suppressed"` anchor and walk back to find
         # a governing `if first_fire` in the preceding ~400 chars.
+        # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2): a second
+        # `preset_change_suppressed` emit was added for the D5
+        # occupancy-defer ledger row. Anchor on the LAST occurrence
+        # (the night-trust one — the target of this test).
         anchor = 'action="preset_change_suppressed"'
-        idx = apply_presets_src.find(anchor)
+        idx = apply_presets_src.rfind(anchor)
         if idx < 0:
             anchor = "action='preset_change_suppressed'"
-            idx = apply_presets_src.find(anchor)
+            idx = apply_presets_src.rfind(anchor)
         assert idx >= 0, "preset_change_suppressed anchor missing"
         pre_window = apply_presets_src[max(0, idx - 400) : idx]
         assert "first_fire" in pre_window, (
@@ -487,11 +499,15 @@ class TestNightTrustSuppressedRow:
         episode). We assert the description f-string does NOT interpolate
         home_persons.
         """
+        # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2): a second
+        # `preset_change_suppressed` emit was added for the D5
+        # occupancy-defer ledger row. Anchor on the LAST occurrence
+        # (the night-trust one — the target of this test).
         anchor = 'action="preset_change_suppressed"'
-        idx = apply_presets_src.find(anchor)
+        idx = apply_presets_src.rfind(anchor)
         if idx < 0:
             anchor = "action='preset_change_suppressed'"
-            idx = apply_presets_src.find(anchor)
+            idx = apply_presets_src.rfind(anchor)
         assert idx >= 0
         window = apply_presets_src[idx : idx + 500]
         # Find `description=` slice and confirm home_persons is not in it.
@@ -507,7 +523,9 @@ class TestNightTrustSuppressedRow:
         self, apply_presets_src: str
     ):
         """The suppressed row's details must carry reason + input bools."""
-        idx = apply_presets_src.find("preset_change_suppressed")
+        # D-b2 note: use rfind to target the night-trust suppressed
+        # row, not the D5-occupancy-defer suppressed row.
+        idx = apply_presets_src.rfind("preset_change_suppressed")
         assert idx >= 0
         # 1500 char window covers the log() call + kwargs.
         window = apply_presets_src[idx : idx + 1500]
@@ -515,7 +533,7 @@ class TestNightTrustSuppressedRow:
             "'reason'",
             "'night_trust_suppressed'",
             "'zone_vacant_past_grace'",
-            "'runtime_exceeded'",
+            "'energy_shed_cap_reached'",
         ):
             assert key in window, (
                 f"night-trust suppressed row details missing `{key}`"
@@ -546,7 +564,8 @@ class TestReasonLadderPrecedence:
     EXPECTED_ORDER = [
         "stale_occupancy",
         "vacant_past_grace",
-        "runtime_exceeded",
+        # D-b1 rename (Single-User-No-Back-Compat).
+        "energy_shed_cap_reached",
         "pre_arrival",
         "house_state_transition",
     ]
@@ -622,7 +641,10 @@ class TestReasonLadderPrecedence:
     PAIRING = {
         "stale_occupancy": "stale_occupancy",
         "vacant_past_grace": "zone_vacant_past_grace",
-        "runtime_exceeded": "runtime_exceeded",
+        # D-b1 rename: reason literal renamed; the condition input
+        # identifier `runtime_exceeded` (the internal zone field name)
+        # is UNCHANGED for serialization stability.
+        "energy_shed_cap_reached": "runtime_exceeded",
         "pre_arrival": "_pre_arrival_zones",
     }
 

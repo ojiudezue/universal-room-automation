@@ -717,11 +717,22 @@ class ZoneManager:
             else:
                 zone.current_session_start = None  # Row 2d reset
 
-    def get_zone_status_attrs(self, zone_id: str) -> dict[str, Any]:
-        """Return rich attribute dict for a zone status sensor."""
+    def get_zone_status_attrs(
+        self,
+        zone_id: str,
+        window_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        """Return rich attribute dict for a zone status sensor.
+
+        B-M2 (fix-up) — duty_cycle_pct denominator honors the LIVE window
+        knob when the caller passes it; falls back to the module constant
+        when None (preserves pre-fix behavior for callers that lack a
+        coordinator handle).
+        """
         zone = self._zones.get(zone_id)
         if zone is None:
             return {}
+        _win_sec = int(window_seconds) if window_seconds and window_seconds > 0 else DUTY_CYCLE_WINDOW_SECONDS
 
         return {
             "friendly_name": zone.zone_name,
@@ -759,12 +770,28 @@ class ZoneManager:
             "zone_presence_state": zone.zone_presence_state,
             "vacancy_sweep_done": zone.vacancy_sweep_done,
             "vacancy_sweep_enabled": zone.vacancy_sweep_enabled,
+            # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b1): renamed
+            # operator-facing attribute from `runtime_exceeded` to
+            # `energy_shed_cap_reached`. Internal field name kept for
+            # serialization/restore stability. No alias per
+            # Single-User-No-Back-Compat.
+            "energy_shed_cap_reached": zone.runtime_exceeded,
+            # F2 (fix-up round) — display-compat shim. The pre-built
+            # frontend-v3 bundle (assets/HVAC-*.js + Zones-*.js) keys
+            # its yellow duty-cap card on `attrs.runtime_exceeded`; the
+            # rebuild has NOT been run in this fix-up round (dashboard-v3
+            # source updated but not compiled). Dual-emit the display
+            # attribute so the shipping bundle keeps rendering. This is
+            # a DISPLAY-ONLY shim — the reason-ladder string is NOT
+            # dual-emitted (F1 completed the rename in the reason
+            # surface). Retire once the frontend bundle is rebuilt from
+            # the updated dashboard-v3 source.
             "runtime_exceeded": zone.runtime_exceeded,
             "runtime_duty_cycle_pct": (
                 min(
                     round(
                         zone.runtime_seconds_this_window
-                        / DUTY_CYCLE_WINDOW_SECONDS
+                        / _win_sec
                         * 100,
                         1,
                     ),

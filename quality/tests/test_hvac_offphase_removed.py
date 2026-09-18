@@ -104,9 +104,14 @@ def test_offphase_now_resolves_to_away():
     """
     src = HVAC.read_text()
     idx = src.index("S14 REMOVED 2026-09-16")
-    tail = src[idx:idx + 2000]
+    # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2): the D5 else-branch
+    # now includes an occupancy gate BEFORE the force-away. Widen the
+    # tail window so the (unchanged) `else: effective_preset = "away"`
+    # fall-through is still asserted.
+    tail = src[idx:idx + 8000]
     assert 'effective_preset = "away"' in tail, (
-        "the off-phase limb must fall through to the away path"
+        "the off-phase limb must fall through to the away path "
+        "(D-b2 preserved this in the gate's else branch)"
     )
 
 
