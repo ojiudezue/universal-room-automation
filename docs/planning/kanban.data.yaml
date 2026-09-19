@@ -9,6 +9,24 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-19T04:00:00
+    at: '2026-09-19T04:00:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'ONE OF YOUR PENDING DECISIONS MAY HAVE ANSWERED ITSELF — do not pull the lever yet. The
+      alert-fatigue card asks you to choose how to cut ~155 exterior alerts a day, and its leading
+      option is to quiet the front side camera because it was 42 percent of them. That camera is
+      barely detecting anyone now: about 5 person-detections a day over the last three days, against
+      the 204 a day it was running when the 42 percent was measured. So the biggest contributor has
+      already dropped roughly fortyfold on its own, and the volume number the decision rests on is
+      stale. I have recommended re-measuring total alert volume before choosing anything — if volume
+      is already tolerable, building a new suppression mechanism would make the system more
+      complicated for no gain. RELATED CORRECTION, on my own earlier claim: I told you that camera had
+      gone to "exactly 1 detection a day and stayed there." It is about 5 a day, not 1 — still a huge
+      collapse, still worth your answer about whether you cropped it, but it is not silent, and a
+      residual trickle is what a narrowed detection zone looks like rather than a full mask. Also
+      re-checked and cleared: exterior person detection house-wide has been steady for four straight
+      days (~450/day), so the detection-went-dark scare stays stood down.'
   - fid: URA-CONFIG-ENTRY-RELOAD-STORM-1@2026-09-19T03:30:00
     at: '2026-09-19T03:30:00'
     outcome: measured
@@ -1538,7 +1556,7 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-14 00:20'
-  updated: '2026-09-17 03:15'
+  updated: '2026-09-19 04:00'
   refinement_status: refined
   problem_solution:
   - 'Problem: one exterior camera reports "person detected" far more than any other — it is
@@ -1636,7 +1654,15 @@ cards:
     "OPERATOR OWNS THIS ... Nothing queued on my side" — i.e. there is no measurement left for me
     to run, which is the entry condition for the investigating lane. Moved to `waiting_operator`
     and the `next` rewritten operator-verb-first per the waiting-lane rule. No finding changed.
-
+  reverified_2026_09_19: 'CARD-WAS-WRONG on one detail, and the correction matters to the question
+    being asked. This card states front_side_ptz went to "exactly 1" person-detection a day and
+    "stayed there for three days". Re-measured tonight: over 09-16 -> 09-19 it logged 15
+    person-detection ON-transitions, i.e. about 5 a day, not 1 and not 0. The headline finding
+    survives — 5/day against a former 204/day is still a ~40x collapse, and it is still by far the
+    biggest change on any camera — but the sensor is NOT silent, so a total mask/crop-out is less
+    likely than a narrowed detection zone or a re-aim. Worth knowing before you answer: if you DID
+    crop it, a residual trickle is the expected signature, which makes the answer "yes" more
+    consistent with the data than it looked.'
 - id: CIRCLING-FOUNDING-CASE-ARTIFACT-1
   title: The founding circling case may be an artifact of a seam the operator has now struck
   thread: perimeter
@@ -25255,7 +25281,7 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-16 03:30'
-  updated: '2026-09-17 02:10'
+  updated: '2026-09-19 04:00'
   refinement_status: refined
   approval: blocked
   live_broken: false
@@ -25406,7 +25432,13 @@ cards:
     channel carrying this, which is exactly why the contract makes the page and the card redundant
     rather than alternatives. Flagging it here so nobody assumes the operator was told: as far as I
     know, they have not been.'
-
+  reverified_2026_09_19: 'STAND-DOWN CONFIRMED AND NOW DURABLE — independent re-read tonight, 4 days
+    after the recovery. Daily exterior person-detection ON-transitions across all person_occupancy
+    sensors (recorder): 09-13 = 811, 09-14 = 629, 09-15 = 117 (the outage day), 09-16 = 452,
+    09-17 = 443, 09-18 = 468, 09-19 = 82 by 02:10 (on pace for ~450). So detection has been steady
+    for four consecutive days at its pre-outage order of magnitude, and the 09-15 dip is visible as a
+    single-day anomaly rather than a new regime. Nothing here needs an emergency and nothing needs
+    re-measuring; only the APPROVE on the cards remaining ask is outstanding.'
 - id: CAMERA-SILENT-PRODUCER-TRIPWIRE-1
   title: Exterior person detection can go fleet-wide silent for a day at a time and nothing notices —
     build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped
@@ -25566,7 +25598,7 @@ cards:
   rank: {value: 8, time_criticality: 7, effort: 3}
   status: waiting_operator
   created: '2026-09-12 20:45'
-  updated: '2026-09-19 03:50'
+  updated: '2026-09-19 04:00'
   refinement_status: refined
   approval: unreviewed
   tags: [no-fabrication-verify]
@@ -25665,6 +25697,15 @@ cards:
       PERIMETER-PHANTOM (which is about severity/corroboration); this is about sheer VOLUME + re-page
       cadence = alert fatigue.'
   refs: [notification_log hazard_type=exterior_person]
+  lever_A_may_be_spent_2026_09_19: 'LEVER (A) HAS LARGELY FIRED ALREADY, without anyone pulling it —
+    re-measure before choosing. This card offers SOURCE-suppression of front_side_ptz as option (A) on
+    the grounds that it is 42%% of all exterior alerts. But that camera now produces ~5 person
+    detections a day (15 over 09-16 -> 09-19) against the 204/day it was running at when the 42%%
+    figure was computed — see reverified_2026_09_19 on FRONT-SIDE-PTZ-CHATTER-1. So the alert-volume
+    baseline this cards whole decision rests on is stale by roughly a 40x change in its largest single
+    contributor. RECOMMENDATION: re-measure total alert volume BEFORE picking a lever; the honest
+    answer may be that volume is already down and no lever is needed, which would make building any
+    new suppression a negative-value change.'
 - id: OVERRIDE-COUNT-STARTUP-AUDIT-UNTESTED-1
   title: "override_count_today startup-audit increment site (hvac_override.py:2009) has no test anchor"
   thread: hvac
