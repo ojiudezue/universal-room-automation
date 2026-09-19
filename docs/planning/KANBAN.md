@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-19T02:18:17-05:00_ - _Data commit: `8857a327dcbb`_ - _last_reconciled: 2026-09-19_
+_Generated: 2026-09-19T02:18:34-05:00_ - _Data commit: `7d928597e528`_ - _last_reconciled: 2026-09-19_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-09-19T02:18:17-05:00_ - _Data commit: `8857a327dcbb`_ - _last_r
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 14 |
-| 🔨 In progress | 1 |
-| 🔍 Review | 0 |
+| 🔨 In progress | 0 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 26 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 33 |
@@ -437,12 +437,17 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
+_(none)_
+
+## 🔍 Review (1)
+_under review_
+
 ### `TEST-LEAK-DETECTOR-WRONG-LOOP-1` - The harness's task-leak detector watches the wrong event loop, so it has never caught a leaked task — and a green suite has been over-trusted because of it — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **quality** - status: **in_progress** - approval: **explicit**
-_created 2026-09-15 · updated 2026-09-19 03:45 · initial_
+thread: **quality** - status: **review** - approval: **explicit**
+_created 2026-09-15 · updated 2026-09-19 04:50 · initial_
 - **Problem / Solution:**
   - Problem: the test harness is supposed to fail a test that walks away leaving background work running — that is the safety net for the exact bug URA keeps hitting (timers and tasks that outlive a reload). It watches the wrong thing. Each ...
 - **Origin:** 2026-09-15 - Found while implementing option A on TEST-HARNESS-REAL-HA-DEFAULT-1 — the mutation drill that was meant to confirm preserved detection instead proved detection never worked.
@@ -451,14 +456,10 @@ _created 2026-09-15 · updated 2026-09-19 03:45 · initial_
 - **Tags:** tier-2, hollow-test-anchors, no-fabrication-verify
 - **Parsimony:** [BUILD] The leak detector inspects a different event loop than the one under test, so it cannot observe leaked tasks and always passes.
 - **Refs:** quality/tests/conftest.py (verify_cleanup override + its HONEST SCOPE docstring); .venv-ha/.../pytest_homeassistant_custom_component/plugins.py:351 (upstream, same blind spot)
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `MEASURED_2026_09_15`: Proven by drill, not inferred. (1) A test that creates a never-finishing task via `asyncio.get_running_loop().create_task(asyncio.sleep(3600))` PASSES under the current fixture. (2) Instrumented the loop identity at each phase: fixture s...
   - `gate_2026_09_19`: FOUR-STEP GATE PASSED, build dispatched (overnight, worktree-isolated, NOT deployed). (1) VALIDITY/ground truth: STILL-REAL — read quality/tests/conftest.py:404-520 live; the override is unchanged and is still a SYNC fixture resolving th...
-
-## 🔍 Review (0)
-_under review_
-
-_(none)_
+  - `BUILD_2026_09_19`: BUILT on branch fix/test-leak-detector-wrong-loop, commit dab01cc35, in the isolated worktree .claude/worktrees/leakdetector-2026-09-19. NOT merged, NOT deployed (overnight pass rule: nothing ships while the house is asleep, and this nee...
 
 ## ⏸️ Waiting on operator (26)
 _needs a human call — groomed first_

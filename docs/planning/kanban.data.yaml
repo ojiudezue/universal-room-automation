@@ -9,6 +9,25 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: TEST-LEAK-DETECTOR-WRONG-LOOP-1@2026-09-19T04:50:00
+    at: '2026-09-19T04:50:00'
+    outcome: built-to-review
+    acknowledged: false
+    headline: 'BUILT, NOT SHIPPED — the safety net that was supposed to catch URAs most common bug
+      class has never actually been switched on, and now it is. Background: the test suite is meant to
+      fail any test that walks away leaving background work running, which is exactly the defect URA
+      keeps hitting in production (timers and tasks that outlive a reload). It has been watching the
+      wrong place — each test runs in its own little world and the checker was looking at an empty
+      one, so it reported all-clear no matter what. That also means every "the suite is green"
+      statement made in this repo has been quietly claiming something it never checked. The fix moves
+      the check to where it can see the right world, and — importantly — adds a test that deliberately
+      leaks and DEMANDS the detector go red, so the detector can never silently die again. It is
+      committed on its own branch, not merged and not deployed; it is test-only so it never needed a
+      deploy. ONE GATE IS STILL OPEN and I want to be straight about it: the full-suite run that
+      checks the new detector does not cause a cascade of false failures was still going when my time
+      window closed. Until that reads clean this is not done. If it does surface failures, those are
+      likely REAL leaks it is correctly catching for the first time — which is the point — and they
+      become their own cards rather than being silenced.'
   - fid: STUCK-MOTION-FROZEN-ON-BLINDSPOT-1@2026-09-19T04:45:00
     at: '2026-09-19T04:45:00'
     outcome: escalated
@@ -18719,9 +18738,9 @@ cards:
   title: The harness's task-leak detector watches the wrong event loop, so it has never caught a
     leaked task — and a green suite has been over-trusted because of it
   thread: quality
-  status: in_progress
+  status: review
   created: '2026-09-15'
-  updated: '2026-09-19 03:45'
+  updated: '2026-09-19 04:50'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
@@ -18792,6 +18811,21 @@ cards:
     false-positive cascade across ~10,745 tests (a leaked task is visible to the NEXT tests fixture),
     which is why scoping to tasks-created-during-this-test plus a full-suite name-diff are both
     mandatory acceptance gates in the brief rather than nice-to-haves.'
+  BUILD_2026_09_19: 'BUILT on branch fix/test-leak-detector-wrong-loop, commit dab01cc35, in the
+    isolated worktree .claude/worktrees/leakdetector-2026-09-19. NOT merged, NOT deployed (overnight
+    pass rule: nothing ships while the house is asleep, and this needs no deploy anyway — it is
+    test-harness only). What landed: the task/timer leak checks move into an autouse ASYNC fixture so
+    they run inside the per-test loop and can actually observe it, the sync thread check stays as-is,
+    and a self-check test asserts the detector FIRES on a deliberate leak (the mutation-drill gate,
+    encoded permanently rather than run by hand). STATE AT PASS END: the second acceptance gate — the
+    full-suite false-positive sweep, compared BY NAME against the pre-change baseline on the same
+    worktree — was still running when the pass wall-clock closed. That gate is not optional and the
+    card must NOT be treated as done until it reads clean: a leaked task from one test is visible to
+    the NEXT tests fixture, so a naive implementation cascades failures across all 10,745 tests.
+    Baseline to diff against: default-order collection 10,745 tests / 0 errors (measured 02:06 CDT
+    tonight, pre-change). NEXT SESSION: read the sweep result, and if it surfaced genuinely-failing
+    pre-existing tests, those are REAL leaks the detector is correctly catching — card them, do not
+    paper over them with expected_lingering_tasks.'
 - id: TEST-HARNESS-REAL-HA-DEFAULT-1
   DOCUMENTED_COMMAND_IS_A_TRAP_2026_09_16: 'FRESH SYMPTOM, folded in rather than carded separately
     (adjacency sweep: this card already owns "which interpreter is the harness"). Hit live during

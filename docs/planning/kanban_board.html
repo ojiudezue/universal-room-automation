@@ -212,18 +212,24 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-09-19T02:18:17-05:00</b></span>
-<span>data <b>8857a327dcbb</b></span>
+<span>generated <b>2026-09-19T02:18:34-05:00</b></span>
+<span>data <b>7d928597e528</b></span>
 <span>reconciled <b>2026-09-19</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">6<span class="den"> / 149</span></span>
+<span class="metric">7<span class="den"> / 149</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
-<details open><summary>recent autonomous work — 8 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
+<details open><summary>recent autonomous work — 9 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
 <ul class="feed">
+<li class="" data-fid="TEST-LEAK-DETECTOR-WRONG-LOOP-1@2026-09-19T04:50:00" data-card="TEST-LEAK-DETECTOR-WRONG-LOOP-1">
+<span class="oc built-to-review">built-to-review</span>
+<span class="fhd">BUILT, NOT SHIPPED — the safety net that was supposed to catch URAs most common bug class has never actually been switched on, and now it is. Background: the test suite is meant to fail any test that walks away leaving background work running, which is exactly the defect URA keeps hitting in production (timers and tasks that outlive a reload). It has been watching the wrong place — each test runs in its own little world and the checker was looking at an empty one, so it reported all-clear no matter what. That also means every &quot;the suite is green&quot; statement made in this repo has been quietly claiming something it never checked. The fix moves the check to where it can see the right world, and — importantly — adds a test that deliberately leaks and DEMANDS the detector go red, so the detector can never silently die again. It is committed on its own branch, not merged and not deployed; it is test-only so it never needed a deploy. ONE GATE IS STILL OPEN and I want to be straight about it: the full-suite run that checks the new detector does not cause a cascade of false failures was still going when my time window closed. Until that reads clean this is not done. If it does surface failures, those are likely REAL leaks it is correctly catching for the first time — which is the point — and they become their own cards rather than being silenced.<br><span class="ft">2026-09-19T04:50:00</span>
+</span>
+<button type="button" class="ack" data-fid="TEST-LEAK-DETECTOR-WRONG-LOOP-1@2026-09-19T04:50:00">✓ ack</button>
+</li>
 <li class="" data-fid="STUCK-MOTION-FROZEN-ON-BLINDSPOT-1@2026-09-19T04:45:00" data-card="STUCK-MOTION-FROZEN-ON-BLINDSPOT-1">
 <span class="oc escalated">escalated</span>
 <span class="fhd">A CARD HAD GONE INVISIBLE ON THE BOARD — worth knowing because of HOW it failed. The card about a motion sensor freezing in the ON position (the one that held the whole house &quot;occupied&quot; while it was empty) had no lane set on it at all. Not a wrong lane — no lane. The board only sorts cards by their lane, so it dropped into a bucket nothing displays, while still looking perfectly filled-in in the underlying file. That is the dangerous version of staleness: a card in the wrong lane is a judgement call you can argue with, a card in no lane is simply gone. It is the only one on the board in that state, and it is fixed. I also put it in front of you rather than back in my own queue, because its build was reviewed DO-NOT-SHIP (one part would have wiped a whole rooms occupancy) and then re-scoped, so what it needs now is your pick: proceed with the narrower version, or park it until a second stuck sensor actually happens. The branch is kept either way. I noted that (B) park is the honest call if one incident is not evidence enough for you.<br><span class="ft">2026-09-19T04:45:00</span>
@@ -279,8 +285,8 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <span>Investigating <b>1</b></span>
 <span>Pre-planning <b>12</b></span>
 <span>Planned <b>14</b></span>
-<span>In progress <b>1</b></span>
-<span>Review <b>0</b></span>
+<span>In progress <b>0</b></span>
+<span>Review <b>1</b></span>
 <span>Waiting on operator <b>26</b></span>
 <span>Waiting on me (Claude) <b>1</b></span>
 <span>Shipped (organic open) <b>33</b></span>
@@ -335,14 +341,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 </section>
 <section class="lane" data-col="in_progress">
-<h2>In progress <span class="count">1</span><span class="hint">being built</span></h2>
-<div class="cards">
-<details class="card ap-explicit" data-id="TEST-LEAK-DETECTOR-WRONG-LOOP-1" draggable="true"><summary><span class="id">TEST-LEAK-DETECTOR-WRONG-LOOP-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="apl">explicit</span><span class="title">The harness&#x27;s task-leak detector watches the wrong event loop, so it has never caught a leaked task — and a green suite has been over-trusted because of it</span><div class="tagline">quality<span class="sep">·</span>tier-2<span class="sep">·</span>hollow-test-anchors<span class="sep">·</span>no-fabrication-verify</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-15 · updated 2026-09-19 03:45 · initial</div><dt>Problem / Solution</dt><dd>Problem: the test harness is supposed to fail a test that walks away leaving background work running — that is the safety net for the exact bug URA keeps hitting (timers and tasks that outlive a reload). It watches the wrong thing. Each ...</dd><dt>Origin</dt><dd>2026-09-15 - Found while implementing option A on TEST-HARNESS-REAL-HA-DEFAULT-1 — the mutation drill that was meant to confirm preserved detection instead proved detection never worked.</dd><dt>Why</dt><dd>This is a HOLLOW ANCHOR at harness scale. Every &quot;suite is green&quot; statement in this repo has implicitly claimed no task leaks, and that claim was never backed. It also explains why reload-leak defects keep reaching production despite a la...</dd><dt>Next</dt><dd>Implement the task/timer check as an autouse ASYNC fixture (proven to see the correct loop) while keeping the existing sync thread check. TWO acceptance gates, both mandatory: (1) MUTATION DRILL — the deliberate-leak test must FAIL, and ...</dd><dt>Parsimony</dt><dd>[BUILD] The leak detector inspects a different event loop than the one under test, so it cannot observe leaked tasks and always passes.</dd><dt>Refs</dt><dd>quality/tests/conftest.py (verify_cleanup override + its HONEST SCOPE docstring); .venv-ha/.../pytest_homeassistant_custom_component/plugins.py:351 (upstream, same blind spot)</dd><dt>Forensic (2)</dt><dd><ul class="forensic"><li><code>MEASURED_2026_09_15</code>: Proven by drill, not inferred. (1) A test that creates a never-finishing task via `asyncio.get_running_loop().create_task(asyncio.sleep(3600))` PASSES under the current fixture. (2) Instrumented the loop identity at each phase: fixture s...</li><li><code>gate_2026_09_19</code>: FOUR-STEP GATE PASSED, build dispatched (overnight, worktree-isolated, NOT deployed). (1) VALIDITY/ground truth: STILL-REAL — read quality/tests/conftest.py:404-520 live; the override is unchanged and is still a SYNC fixture resolving th...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
-</div>
+<h2>In progress <span class="count">0</span><span class="hint">being built</span></h2>
+<div class="none">(none)</div>
 </section>
 <section class="lane" data-col="review">
-<h2>Review <span class="count">0</span><span class="hint">under review</span></h2>
-<div class="none">(none)</div>
+<h2>Review <span class="count">1</span><span class="hint">under review</span></h2>
+<div class="cards">
+<details class="card ap-explicit" data-id="TEST-LEAK-DETECTOR-WRONG-LOOP-1" draggable="true"><summary><span class="id">TEST-LEAK-DETECTOR-WRONG-LOOP-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="apl">explicit</span><span class="title">The harness&#x27;s task-leak detector watches the wrong event loop, so it has never caught a leaked task — and a green suite has been over-trusted because of it</span><div class="tagline">quality<span class="sep">·</span>tier-2<span class="sep">·</span>hollow-test-anchors<span class="sep">·</span>no-fabrication-verify</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-15 · updated 2026-09-19 04:50 · initial</div><dt>Problem / Solution</dt><dd>Problem: the test harness is supposed to fail a test that walks away leaving background work running — that is the safety net for the exact bug URA keeps hitting (timers and tasks that outlive a reload). It watches the wrong thing. Each ...</dd><dt>Origin</dt><dd>2026-09-15 - Found while implementing option A on TEST-HARNESS-REAL-HA-DEFAULT-1 — the mutation drill that was meant to confirm preserved detection instead proved detection never worked.</dd><dt>Why</dt><dd>This is a HOLLOW ANCHOR at harness scale. Every &quot;suite is green&quot; statement in this repo has implicitly claimed no task leaks, and that claim was never backed. It also explains why reload-leak defects keep reaching production despite a la...</dd><dt>Next</dt><dd>Implement the task/timer check as an autouse ASYNC fixture (proven to see the correct loop) while keeping the existing sync thread check. TWO acceptance gates, both mandatory: (1) MUTATION DRILL — the deliberate-leak test must FAIL, and ...</dd><dt>Parsimony</dt><dd>[BUILD] The leak detector inspects a different event loop than the one under test, so it cannot observe leaked tasks and always passes.</dd><dt>Refs</dt><dd>quality/tests/conftest.py (verify_cleanup override + its HONEST SCOPE docstring); .venv-ha/.../pytest_homeassistant_custom_component/plugins.py:351 (upstream, same blind spot)</dd><dt>Forensic (3)</dt><dd><ul class="forensic"><li><code>MEASURED_2026_09_15</code>: Proven by drill, not inferred. (1) A test that creates a never-finishing task via `asyncio.get_running_loop().create_task(asyncio.sleep(3600))` PASSES under the current fixture. (2) Instrumented the loop identity at each phase: fixture s...</li><li><code>gate_2026_09_19</code>: FOUR-STEP GATE PASSED, build dispatched (overnight, worktree-isolated, NOT deployed). (1) VALIDITY/ground truth: STILL-REAL — read quality/tests/conftest.py:404-520 live; the override is unchanged and is still a SYNC fixture resolving th...</li><li><code>BUILD_2026_09_19</code>: BUILT on branch fix/test-leak-detector-wrong-loop, commit dab01cc35, in the isolated worktree .claude/worktrees/leakdetector-2026-09-19. NOT merged, NOT deployed (overnight pass rule: nothing ships while the house is asleep, and this nee...</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button></div></div></details>
+</div>
 </section>
 <section class="lane" data-col="waiting_operator">
 <h2>Waiting on operator <span class="count">26</span><span class="hint">needs a human call — groomed first</span></h2>
@@ -692,7 +698,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>8857a327dcbb</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>7d928597e528</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {
