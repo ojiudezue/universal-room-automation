@@ -2,16 +2,16 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-19T18:01:13-05:00_ - _Data commit: `85fa199eb745`_ - _last_reconciled: 2026-09-19_
+_Generated: 2026-09-19T18:09:08-05:00_ - _Data commit: `6ab05714d6ff`_ - _last_reconciled: 2026-09-19_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 0 |
 | 🔬 Investigating | 1 |
-| 🧭 Pre-planning | 12 |
+| 🧭 Pre-planning | 13 |
 | 📝 Planned | 14 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
@@ -21,17 +21,10 @@ _Generated: 2026-09-19T18:01:13-05:00_ - _Data commit: `85fa199eb745`_ - _last_r
 | 🅿️ Parked | 61 |
 | ✅ Done | 185 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (0)
 _raw capture_
 
-### `ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1` - Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s — _#1 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
-thread: **presence** - status: **inbox**
-_created 2026-09-19_
-- **Problem / Solution:**
-  - Operator reported: changing room config -> HA becomes unresponsive ("some kind of reset"). VERIFIED from logs 2026-09-19: NO core restart (no "Starting Home Assistant" banner) -> unresponsive blip, not a reset. Mechanism: options-flow cl...
-- **Why:** operator hit a live stability blip while doing exactly what we recommended (enable fan control on Jaya); the room reload path is heavier than a single-room change should require, and amplified under network load.
-- **Next:** APPROVE Tier-2-DB fix scope: extend room suppress-allowlist to climate keys w/ live consumers + scope substrate re-subscribe to the changed room -> I plan (plan-review) then build. Separately: the Shelly/Tuya/ Bond timeout storm is likel...
-- **Tags:** reload, event-loop, config-flow, stability, tier-2db, incident
+_(none)_
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_
@@ -51,7 +44,7 @@ _created 2026-08-19 07:45 · updated 2026-09-19 03:10 · refined_
   - `pytest_restore_hook_2026_08_19`: CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates coordinator.py during a normal pytest run without guaranteed restore -> the batch run leaves an uncommitted mutation (a test that edits production source is a...
   - `BLOCKED_LINK_2026_09_16`: Recorded the dependency as a real blocked_by link instead of leaving it as prose in measured_2026_09_15. This parent asks for a re-arch scoped to ~87 order-dependent RUNTIME failures, and those failures are currently unmeasurable because...
 
-## 🧭 Pre-planning (12)
+## 🧭 Pre-planning (13)
 _idea being decomposed_
 
 ### `HVAC-PRESET-WRITE-STRATEGY-1` - How to write a preset successfully is vendor-specific, and that knowledge is hardcoded in a shared chokepoint every thermostat write passes through — _#1 · WSJF 2.8 · v5 tc3 u6 /e5 ⚠_
@@ -219,7 +212,18 @@ _created 2026-09-14 02:20 · updated 2026-09-19 03:10 · initial_
   - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
   - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
 
-### `HVAC-THERMOSTAT-ABSTRACTION-1` - We unified the call sites but never built an abstraction — three write verbs, two funnels, and vendor knowledge loose inside a shared path — _#12 · WSJF 1.1 · v5 tc3 u6 /e13 ⚠_
+### `ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1` - Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s — _#12 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **presence** - status: **pre_planning**
+_created 2026-09-19_
+- **Problem / Solution:**
+  - Operator reported: changing room config -> HA becomes unresponsive ("some kind of reset"). VERIFIED from logs 2026-09-19: NO core restart (no "Starting Home Assistant" banner) -> unresponsive blip, not a reset. Mechanism: options-flow cl...
+- **Why:** operator hit a live stability blip while doing exactly what we recommended (enable fan control on Jaya); the room reload path is heavier than a single-room change should require, and amplified under network load.
+- **Next:** APPROVED + planning in flight. -> plan-review -> build (Tier 2-DB) -> 3 reviews -> mutation-verify -> ship.
+- **Tags:** reload, event-loop, config-flow, stability, tier-2db, incident
+- **Forensic keys (1):**
+  - `PLAN_DISPATCH_2026_09_19`: Operator APPROVED Tier-2-DB fix. ura-planner dispatched -> PLANNING_room_config_reload_suppression.md (D1 per-key live-consumer-proven allowlist extension; D2 scope substrate re-subscribe to changed room). Next: plan-review -> build -> 3...
+
+### `HVAC-THERMOSTAT-ABSTRACTION-1` - We unified the call sites but never built an abstraction — three write verbs, two funnels, and vendor knowledge loose inside a shared path — _#13 · WSJF 1.1 · v5 tc3 u6 /e13 ⚠_
 thread: **hvac** - status: **pre_planning** - approval: **explicit**
 _created 2026-09-16 · updated 2026-09-19 03:10 · initial_
 - **Problem / Solution:**
