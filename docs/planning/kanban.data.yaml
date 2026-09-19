@@ -26112,6 +26112,27 @@ cards:
     test-harness build is already running in a worktree and the full suite must be run serially (the
     pytest guard kills concurrent runs), so a second concurrent builder would poison both baselines.
     Next pass picks this up; the brief above is complete.'
+- id: DISABLE-CAMERA-PRESENCE-SCOPE-GAP-1
+  title: "disable_camera_presence mutes only fan-veto, NOT the camera-occupancy override"
+  thread: presence
+  status: parked
+  created: '2026-09-19'
+  updated: '2026-09-19'
+  tags: [presence, camera, occupancy, config, low-priority]
+  problem_solution:
+  - 'Finding (read-only, 2026-09-18): CONF_DISABLE_CAMERA_PRESENCE (const.py:530) is consumed ONLY in
+     fan_veto.py:271 (fan-veto camera corroboration) + capability/diagnostic reads (memory_facade.py:852,
+     sensor.py:2776). It is ABSENT from coordinator.py, so the room-occupancy camera override at
+     coordinator.py:3665-3695 (area-keyed person-sensor read) still creates/extends occupancy for a room even
+     when disable_camera_presence=True. Rooms with the flag set (Upstairs Hallway, Garage Hallway) still get
+     camera PERSON occupancy. Fix: gate the override on the flag, OR document why the flag is fan-veto-only.
+     LOW priority, no evidence of harm; only relevant where camera person-detection feeds room occupancy.
+     Camera MOTION is NOT an occupancy source at all (verified 2026-09-18) so this concerns camera PERSON only.'
+  why: 'operator carded low-priority; a config flag that half-does what its name implies is a latent surprise,
+     but no observed harm.'
+  revisit_trigger: 'If an operator sets disable_camera_presence expecting a room to ignore ALL camera presence
+     and sees camera-driven occupancy anyway.'
+  next: 'REVIEW (operator, low priority): decide gate-vs-document; else parked.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
