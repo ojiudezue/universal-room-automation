@@ -1,33 +1,68 @@
-"""Tests for ROOM-entry options-flow reload suppression.
+"""Behavioral tests for ROOM-entry options-flow reload suppression.
 
 Cycle: ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 (Tier 2-DB).
 Plan: docs/planning/PLANNING_room_config_reload_suppression.md
-Scope: D0 (setup seeding + unload cleanup) + D1 (allowlist extension
-       — LIVE HVAC vacancy-hold keys only) + D2 (log-once dedup).
 
-Style: source-AST + light-mock, matching ``test_cm_reload_suppression.py``.
-Behavioral drive of the full listener is deferred to live-validation
-(README write-back) and the Tier 2-DB Reviewer C mutation drill; the
-tests below anchor:
+Two styles of coverage:
 
-- **D0**: ``_seed_room_last_applied_options`` exists, is called from
-  ROOM setup BEFORE ``entry.add_update_listener``, and unload pops the
-  snapshot. Neutering the seed (source-mutation drill) MUST fail
-  ``test_seed_room_last_applied_options_called_in_room_setup``.
-- **D1**: ``_ROOM_SUPPRESS_KEYS`` includes the six proven-LIVE keys
-  (comfort_temp_min/max, comfort_humidity_max, zone, fan_control_enabled,
-  humidity_fan_control_enabled, hvac_vacancy_hold, hvac_vacancy_hold_night)
-  and NOT the humidity-fan REFRESHED/EXCLUDED cluster.
-- **D2**: OccupancySubstrate holds per-instance log-once sets for the
-  two ``_discover_entity_map`` config-shape WARNs; both warning sites
-  gate on those sets before logging.
+1. **Behavioral (mutation-anchored).** AST-slice `_async_update_listener`
+   + `_seed_room_last_applied_options` into a clean namespace, drive
+   them with a `_FakeHass` / `_FakeEntry` that records reload intent,
+   and assert on suppress vs fall-through. Mirrors the pattern from
+   ``test_reload_watchdog_hazard.py`` which already drives the same
+   listener for the INTEGRATION branch. Each of the listed tests
+   is anchored — removing the corresponding production line makes a
+   SPECIFIC named test go RED.
+
+2. **Source-AST wire-up.** Structural checks for D0 seed call site
+   ordering + D2 dedup-set init/gate (the parts that are structural
+   invariants, not behavioral flows).
 """
 from __future__ import annotations
 
+import ast
+import asyncio
 import re
+import sys
+import types
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
+
+
+# ---------------------------------------------------------------------------
+# HA dispatcher stub (the listener's ROOM branch does a function-local
+# `from homeassistant.helpers.dispatcher import async_dispatcher_send`).
+# ---------------------------------------------------------------------------
+
+def _install_ha_dispatcher_stub():
+    ha = sys.modules.get("homeassistant")
+    if ha is None:
+        ha = types.ModuleType("homeassistant")
+        ha.__path__ = []
+        sys.modules["homeassistant"] = ha
+    helpers = sys.modules.get("homeassistant.helpers")
+    if helpers is None:
+        helpers = types.ModuleType("homeassistant.helpers")
+        helpers.__path__ = []
+        sys.modules["homeassistant.helpers"] = helpers
+        setattr(ha, "helpers", helpers)
+    disp = sys.modules.get("homeassistant.helpers.dispatcher")
+    if disp is None:
+        disp = types.ModuleType("homeassistant.helpers.dispatcher")
+        sys.modules["homeassistant.helpers.dispatcher"] = disp
+        setattr(helpers, "dispatcher", disp)
+    if not hasattr(disp, "async_dispatcher_send"):
+        disp.async_dispatcher_send = lambda *a, **kw: None
+    # Signals module — the listener imports SIGNAL_ROOM_ENTRY_LIFECYCLE
+    # from ``.domain_coordinators.signals``. That import is not resolved
+    # against a real package at test time; stub it out.
+    ura = sys.modules.get("custom_components.universal_room_automation")
+    return disp
+
+
+_DISPATCHER = _install_ha_dispatcher_stub()
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -36,184 +71,560 @@ INIT_SRC = (PKG / "__init__.py").read_text()
 SUBSTRATE_SRC = (
     PKG / "domain_coordinators" / "occupancy_substrate.py"
 ).read_text()
-CONST_SRC = (PKG / "const.py").read_text()
+
+# Shared AST-slice guard (Review-C M-1) — matches sibling tests.
+from _ast_slice_guard import assert_ast_slice_names_covered as _ast_slice_names_covered  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# D0 — setup seeding + unload cleanup
+# AST slice loader — pull `_async_update_listener` + helpers + the
+# allowlist frozensets into an execable namespace.
+# ---------------------------------------------------------------------------
+
+_KEEP_NAMES = {
+    "OPTIONS_RELOAD_SUPPRESS_KEYS",
+    "INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS",
+    "INTEGRATION_RELOAD_SUPPRESS_ENABLED",
+    "_INTEGRATION_KEY_SIGNAL_TABLE",
+    "_ROOM_SUPPRESS_KEYS",
+    "_NM_A2_KEYS",
+    "_NM_C_KEYS",
+    "_HVAC_TUNABLE_DISPATCH",
+    "_EC_SETTER_DISPATCH",
+    "_OFFPEAK_DRAIN_QUALITY",
+    "_NO_LIVE_ATTR_KEYS",
+    "_HVAC_TUNABLE_SETTER_METHOD",
+}
+_KEEP_FUNCS = {
+    "_hvac_tunable_apply",
+    "_seed_cm_last_applied_options",
+    "_seed_integration_last_applied_options",
+    "_seed_room_last_applied_options",
+    "_apply_in_place",
+    "_dispatch_integration_key_signals",
+    "_async_update_listener",
+}
+
+
+def _load_ns() -> dict:
+    tree = ast.parse(INIT_SRC)
+    body = []
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign):
+            t = getattr(node.target, "id", None)
+            if t in _KEEP_NAMES:
+                body.append(node)
+        elif isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id in _KEEP_NAMES:
+                    body.append(node)
+                    break
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if node.name in _KEEP_FUNCS:
+                body.append(node)
+
+    # Namespace — mirror the sibling watchdog test's stubs and add every
+    # _CONF_* alias the sliced code loads. String values are irrelevant
+    # to the reload-vs-suppress decision — only KEY IDENTITY matters —
+    # so we use the alias lowercased as the string except where a real
+    # value is asserted in tests (kept truthful to const.py).
+    conf_aliases_from_watchdog = [
+        "_CONF_CHATTER_BURST_K", "_CONF_CHATTER_T_FLOOR_S", "_CONF_CHATTER_MODE",
+        "_CONF_HVAC_AC_SOFT_NUDGE_DAILY_LIMIT", "_CONF_HVAC_AC_RESET_DAY_BUDGET",
+        "_CONF_HVAC_AC_RESET_NIGHT_BUDGET", "_CONF_HVAC_AC_RESET_OFF_DURATION",
+        "_CONF_HVAC_AC_DURABILITY_WINDOW", "_CONF_HVAC_AC_NIGHT_START_HHMM",
+        "_CONF_HVAC_AC_NIGHT_END_HHMM", "_CONF_HVAC_AC_GATE4_PREDICATE_MODE",
+        "_CONF_HVAC_VACANCY_GRACE_MINUTES", "_CONF_HVAC_VACANCY_GRACE_CONSTRAINED",
+        "_CONF_HVAC_MAX_OCCUPANCY_HOURS", "_CONF_HVAC_ZONE_ENTRY_DWELL",
+        "_CONF_DYNAMIC_PRESET_DWELL_MINUTES",
+        "_CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA", "_CONF_HVAC_COVER_CLOSE_TEMP",
+        "_CONF_HVAC_COVER_OPEN_TEMP", "_CONF_HVAC_COVER_OVERRIDE_HOURS",
+        "_CONF_HVAC_SOLAR_BANK_FLOOR", "_CONF_HVAC_FAN_ACTIVATION_DELTA",
+        "_CONF_HVAC_FAN_HYSTERESIS", "_CONF_HVAC_AC_NUDGE_SIZE",
+        "_CONF_HVAC_AC_NUDGE_DURATION", "_CONF_HVAC_AC_NUDGE_EVAL_DELAY",
+        "_CONF_HVAC_AC_SUSTAINED_SAMPLES", "_CONF_HVAC_AC_DETECTION_TIME_GATE",
+        "_CONF_HVAC_AC_HARD_RESET_DAILY_LIMIT", "_CONF_HVAC_AC_HARD_RESET_MIN_INTERVAL",
+        "_CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT", "_CONF_ENERGY_OFFPEAK_DRAIN_GOOD",
+        "_CONF_ENERGY_OFFPEAK_DRAIN_MODERATE", "_CONF_ENERGY_OFFPEAK_DRAIN_POOR",
+        "_CONF_ENERGY_OFFPEAK_DRAIN_VERY_POOR", "_CONF_ENERGY_PEAK_BUFFER_TARGET",
+        "_CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN",
+        "_CONF_ENERGY_EV_BATTERY_DRAIN_SOC",
+        "_CONF_ENERGY_EVSE_CHARGE_ONSET_TIME",
+        "_CONF_ENERGY_EVSE_CHARGE_ONSET_ENABLED",
+        "_CONF_ENERGY_FILL_PRIORITY_SOC", "_CONF_ENERGY_EXCESS_SOLAR_SOC",
+        "_CONF_ENERGY_MAINS_EXPORT_ENTITY", "_CONF_ENERGY_SOLAR_NAMEPLATE_W",
+        "_CONF_DYNAMIC_PRESET_HYSTERESIS_F", "_CONF_HVAC_EGRESS_THRESHOLD_MIN",
+        "_CONF_HVAC_EGRESS_RESUME_DELAY_MIN", "_CONF_FAN_INTERFERENCE_HOLD_S",
+        "_CONF_ROUTINE_EVENT_COOLDOWN_DAYS", "_CONF_ROUTINE_EVENT_MIN_SEVERITY",
+        "_CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS",
+        "_CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS",
+        "_CONF_BAYESIAN_CELL_STALENESS_DAYS",
+        "_CONF_OPTIMIZER_AUTONOMY_LEVEL", "_CONF_OPTIMIZER_KILL_SWITCH",
+        "_CONF_OPTIMIZER_DIMENSION_AUTONOMY", "_CONF_OPTIMIZER_CONFIDENCE_GATE",
+        "_CONF_OPTIMIZER_RATE_CAP_PER_HOUR", "_CONF_OPTIMIZER_QUIET_HOURS_SOURCE",
+        "_CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL",
+        "_CONF_OPTIMIZER_LLM_TASK_ENTITY", "_CONF_OPTIMIZER_LLM_TRIAGE_ENTITY",
+        "_CONF_OPTIMIZER_LLM_SYSTEM_PROMPT",
+        "_CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H",
+        "_CONF_OPTIMIZER_SAFETY_DENY_ENTITIES",
+        "_CONF_COMFORT_TEMP_MIN", "_CONF_COMFORT_TEMP_MAX",
+        "_CONF_COMFORT_HUMIDITY_MAX",
+        "_CONF_MF_SLEEP_SUPPRESS", "_CONF_MF_NIGHT_SUPPRESS_MODE",
+        "_CONF_FAN_CONTROL_ENABLED", "_CONF_HUMIDITY_FAN_CONTROL_ENABLED",
+        "_CONF_ENERGY_DP_ENABLE", "_CONF_ENERGY_DP_EVAL_DELAY_MIN",
+        "_CONF_ENERGY_DP_MARGIN_MIN", "_CONF_ENERGY_DP_MUST_START_BY_MIN",
+        "_CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A", "_CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B",
+        "_CONF_ENERGY_DP_HOUSE_LOAD_SOURCE",
+        "_CONF_HVAC_AC_RAMP_MASTER_ENABLED",
+        "_CONF_HVAC_ARRESTER_IMMUNE_PERSONS",
+        "_CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP",
+        "_CONF_ENERGY_SOC_DIVERGENCE_DWELL_MIN",
+        "_CONF_ENERGY_CLOUD_LAG_ALERT_S",
+        "_CONF_TRIPPED_BREAKER_ZERO_WINDOW_S", "_CONF_TRIPPED_BREAKER_ROUTE_NM",
+        "_CONF_LOCK_UNAVAILABLE_DEDUP_S",
+        "_CONF_HUMIDITY_NORMAL_LOG_ONLY_PCT", "_CONF_HUMIDITY_NORMAL_MEDIUM_PCT",
+        "_CONF_HUMIDITY_NORMAL_HIGH_PCT", "_CONF_HUMIDITY_SWING_DELTA_PCT",
+        "_CONF_HUMIDITY_SWING_MIN_ABS_PCT",
+        "_CONF_CO2_LOG_ONLY_CEILING_PPM", "_CONF_TVOC_ABSOLUTE_HIGH_PPB",
+        "_CONF_TVOC_SUSTAINED_S", "_CONF_SAFETY_DISCOVERY_BLOCKLIST",
+        "_CONF_OPTIMIZER_NM_HIGH_ALLOWLIST_DIMENSIONS",
+        "_CONF_STUCK_SIGNAL_NM_ENABLED", "_CONF_STUCK_SENSOR_EXCLUSION_ENABLED",
+        "_CONF_NM_DRY_RUN", "_CONF_NM_BUCKET_CAPACITY",
+        "_CONF_NM_BUCKET_REFILL_PER_MIN",
+        "_CONF_NM_PERSON_ROUTING_MATRIX", "_CONF_NM_PERSON_HAZARD_OVERRIDES",
+        "_CONF_NM_PERSON_DND_BYPASS_SEVERITIES",
+        "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES",
+        "_CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS",
+    ]
+    # Real string values for the D1-added ROOM allowlist keys — used by
+    # behavioral tests that assert on specific key identities.
+    room_new_conf_values = {
+        "_CONF_HVAC_VACANCY_HOLD": "hvac_vacancy_hold",
+        "_CONF_HVAC_VACANCY_HOLD_NIGHT": "hvac_vacancy_hold_night",
+        "_CONF_HVAC_COORDINATION_ENABLED": "hvac_coordination_enabled",
+        "_CONF_COMFORT_FAN_AWAY_VETO_ENABLED": "comfort_fan_away_veto_enabled",
+        "_CONF_WET_ROOM": "wet_room",
+        "_CONF_BLE_HOLD_CAP_ENABLED": "ble_hold_cap_enabled",
+        "_CONF_FAN_TEMP_THRESHOLD": "fan_temp_threshold",
+        "_CONF_HUMIDITY_FAN_THRESHOLD": "humidity_fan_threshold",
+        "_CONF_HUMIDITY_FAN_TIMEOUT": "humidity_fan_timeout",
+        "_CONF_HUMIDITY_FAN_MAX_RUNTIME": "humidity_fan_max_runtime",
+        "_CONF_HUMIDITY_FAN_SPIKE_ENABLED": "humidity_fan_spike_enabled",
+        "_CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT": "humidity_fan_spike_delta_pct",
+        "_CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S": "humidity_fan_spike_ema_alpha_s",
+        "_CONF_HUMIDITY_FAN_SPIKE_BASELINE_MODE": "humidity_fan_spike_baseline_mode",
+        "_CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED": "humidity_fan_presence_runtime_enabled",
+        "_CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S": "humidity_fan_presence_runtime_base_s",
+        "_CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S": "humidity_fan_presence_runtime_per_min_s",
+        "_CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S": "humidity_fan_presence_runtime_cap_s",
+        "_CONF_FAN_SPEED_LOW_TEMP": "fan_speed_low_temp",
+        "_CONF_FAN_SPEED_MED_TEMP": "fan_speed_med_temp",
+        "_CONF_FAN_SPEED_HIGH_TEMP": "fan_speed_high_temp",
+        "_CONF_TARGET_TEMP_HEAT": "target_temp_heat",
+        "_CONF_TARGET_TEMP_COOL": "target_temp_cool",
+    }
+
+    ns: dict = {
+        "_LOGGER": MagicMock(),
+        "DOMAIN": "universal_room_automation",
+        "CONF_ENTRY_TYPE": "entry_type",
+        "ENTRY_TYPE_ROOM": "room",
+        "ENTRY_TYPE_COORDINATOR_MANAGER": "coordinator_manager",
+        "ENTRY_TYPE_INTEGRATION": "integration",
+        "CONF_ZONE": "zone",
+        "CONF_CAMERA_PERSON_ENTITIES": "camera_person_entities",
+        "CONF_CENSUS_CROSS_VALIDATION": "census_cross_validation",
+        "CONF_CENSUS_BLE_CANCEL_ENABLED": "census_ble_cancel_enabled",
+        "CONF_KNOWN_FACE_GUESTS": "known_face_guests",
+        "CONF_EGRESS_IDENTITY_FAILSAFE_STRICT": "egress_identity_failsafe_strict",
+        "CONF_PERIMETER_VEHICLE_HOURS_START": "perimeter_vehicle_hours_start",
+        "CONF_PERIMETER_VEHICLE_HOURS_END": "perimeter_vehicle_hours_end",
+        "CONF_PERIMETER_ENRICHMENT_ENABLED": "perimeter_enrichment_enabled",
+        "CONF_PERIMETER_ENRICHMENT_PROVIDER": "perimeter_enrichment_provider",
+        "CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS": "perimeter_enrichment_person_sensors",
+        "CONF_PERIMETER_ENRICHMENT_MODEL": "perimeter_enrichment_model",
+        "CONF_PERIMETER_ENRICHMENT_MAX_TOKENS": "perimeter_enrichment_max_tokens",
+        "CONF_PERIMETER_ENRICHMENT_PROVIDER_ID": "perimeter_enrichment_provider_id",
+        "CONF_EXTERIOR_SNAPSHOT_OFFSET_S": "exterior_snapshot_offset_s",
+        "CONF_APPLIANCE_RECORDS": "appliance_records",
+        "CONF_ENHANCED_CENSUS": "enhanced_census",
+        "CONF_FACE_RECOGNITION_ENABLED": "face_recognition_enabled",
+        "CONF_EGRESS_IDENTITY_ENABLED": "egress_identity_enabled",
+        "SIGNAL_URA_FACE_RECOGNITION_CHANGED": "ura_face_recognition_changed",
+        "SIGNAL_URA_TRANSIT_CONFIG_CHANGED": "ura_transit_config_changed",
+        "ConfigEntry": type("ConfigEntry", (), {}),
+        "HomeAssistant": type("HomeAssistant", (), {}),
+        **{k: k.lower() for k in conf_aliases_from_watchdog},
+        **room_new_conf_values,
+        # Real values for the 4 pre-existing ROOM allowlist aliases
+        # (watchdog's `k.lower()` default would give the wrong string).
+        "_CONF_COMFORT_TEMP_MIN": "comfort_temp_min",
+        "_CONF_COMFORT_TEMP_MAX": "comfort_temp_max",
+        "_CONF_COMFORT_HUMIDITY_MAX": "comfort_humidity_max",
+        "_CONF_FAN_CONTROL_ENABLED": "fan_control_enabled",
+        "_CONF_HUMIDITY_FAN_CONTROL_ENABLED": "humidity_fan_control_enabled",
+    }
+    mod = ast.Module(body=body, type_ignores=[])
+    code = compile(mod, str(PKG / "__init__.py"), "exec")
+    _ast_slice_names_covered(mod, ns)
+    exec(code, ns)
+    return ns
+
+
+# ---------------------------------------------------------------------------
+# Fakes (copied minimal from test_reload_watchdog_hazard.py)
 # ---------------------------------------------------------------------------
 
 
-def test_seed_room_helper_defined():
-    """The seed helper must exist as a top-level function."""
-    assert re.search(
-        r"^def _seed_room_last_applied_options\(",
-        INIT_SRC, re.MULTILINE,
-    ), "_seed_room_last_applied_options helper is missing"
+class _FakeConfigEntries:
+    def __init__(self):
+        self.reload_calls = []
+
+    def async_reload(self, entry_id):
+        self.reload_calls.append(entry_id)
+
+        async def _done():
+            return None
+        return _done()
 
 
-def test_seed_room_helper_writes_to_room_last_applied_options():
-    """Helper must write into hass.data[DOMAIN]['room_last_applied_options']."""
-    m = re.search(
-        r"def _seed_room_last_applied_options\(.*?\n(.*?)(?=\n\ndef |\nasync def )",
-        INIT_SRC, re.DOTALL,
-    )
-    assert m, "helper body not found"
-    body = m.group(1)
-    assert '"room_last_applied_options"' in body
-    assert "snapshots[entry.entry_id] = dict(entry.options)" in body
+class _FakeHass:
+    def __init__(self):
+        self.data = {}
+        self.config_entries = _FakeConfigEntries()
+
+    def async_create_task(self, coro):
+        try:
+            coro.close()
+        except Exception:
+            pass
 
 
-def test_seed_room_last_applied_options_called_in_room_setup():
-    """The seed MUST be invoked in ROOM setup BEFORE add_update_listener.
+class _FakeEntry:
+    def __init__(self, *, entry_id="room_entry_1", title="Bathroom",
+                 entry_type="room", options=None, room_name="Bathroom"):
+        self.entry_id = entry_id
+        self.title = title
+        self.data = {"entry_type": entry_type, "room_name": room_name}
+        self.options = options or {}
 
-    Source-mutation drill (Reviewer C): commenting out the
-    ``_seed_room_last_applied_options(hass, entry)`` call MUST fail this
-    test — proves the wire-up is load-bearing.
+
+def _run(coro):
+    return asyncio.new_event_loop().run_until_complete(coro)
+
+
+# ---------------------------------------------------------------------------
+# The 20-key climate-form default-materialization payload (per plan §D1
+# and config_flow.py:11519-11746 Optional(default=...)).
+# ---------------------------------------------------------------------------
+
+_CLIMATE_FORM_KEYS_ALLOWLISTED = (
+    # 4 pre-existing allowlisted:
+    "fan_control_enabled", "humidity_fan_control_enabled",
+    # comfort_temp_min/max, comfort_humidity_max live in the comfort step,
+    # not climate — they're pre-existing allowlisted for the slider path.
+    # 23 D1 additions:
+    "hvac_vacancy_hold", "hvac_vacancy_hold_night",
+    "hvac_coordination_enabled", "comfort_fan_away_veto_enabled",
+    "wet_room", "ble_hold_cap_enabled",
+    "fan_temp_threshold",
+    "humidity_fan_threshold", "humidity_fan_timeout",
+    "humidity_fan_max_runtime",
+    "humidity_fan_spike_enabled", "humidity_fan_spike_delta_pct",
+    "humidity_fan_spike_ema_alpha_s", "humidity_fan_spike_baseline_mode",
+    "humidity_fan_presence_runtime_enabled",
+    "humidity_fan_presence_runtime_base_s",
+    "humidity_fan_presence_runtime_per_min_s",
+    "humidity_fan_presence_runtime_cap_s",
+    "fan_speed_low_temp", "fan_speed_med_temp", "fan_speed_high_temp",
+    "target_temp_heat", "target_temp_cool",
+)
+
+_CLIMATE_FORM_KEY_EXCLUDED_ENTITY = "climate_entity"
+
+
+# ===========================================================================
+# BEHAVIORAL — D0 setup seeding + first-save suppression
+# ===========================================================================
+
+
+def test_d0_first_save_after_setup_suppresses_when_allowlisted_only():
+    """Seed via `_seed_room_last_applied_options`, then a ROOM save that
+    changed only an allowlisted key must NOT trigger reload. This is the
+    guaranteed-first-save failure D0 exists to fix.
     """
-    # Locate the ROOM setup wire-up region: everything after the CM
-    # branch returns, up to the async_forward_entry_setups call.
-    # Simpler discriminator: the specific seeding + listener registration
-    # must appear in this exact order.
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={"fan_control_enabled": True})
+    # Simulate what the ROOM setup path now does: seed BEFORE the
+    # listener could ever fire.
+    ns["_seed_room_last_applied_options"](hass, entry)
+    # Operator toggles the LIVE key from True -> False.
+    entry.options = {"fan_control_enabled": False}
+
+    _run(ns["_async_update_listener"](hass, entry))
+
+    assert hass.config_entries.reload_calls == [], (
+        "first-save-after-setup on an allowlisted key must SUPPRESS"
+    )
+
+
+def test_d0_neuter_no_seed_first_save_falls_through_to_reload():
+    """Neuter drill for the seed line.
+
+    Without seeding, `old={}` and `new=entry.options`; every key in
+    `entry.options` looks 'changed'. In production the ROOM entry's
+    `entry.options` typically contains OTHER (non-climate-step) keys
+    that live in earlier onboarding steps (motion sensors, etc.) which
+    are NOT in `_ROOM_SUPPRESS_KEYS`. So the subset check fails and the
+    save reloads.
+
+    With D0 seeding those pre-existing keys are captured in the snapshot,
+    so a save that only mutates an allowlisted key produces a
+    `changed_keys` set that IS a subset of the allowlist, and suppress
+    fires. This test simulates the pre-D0 world by NOT calling the seed
+    helper: at least one non-allowlisted key (`motion_sensors`) is present
+    in `entry.options` at save time.
+    """
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={
+        "motion_sensors": ["binary_sensor.bathroom_motion"],
+        "fan_control_enabled": True,
+    })
+    # Deliberately DO NOT call `_seed_room_last_applied_options`.
+    # Save mutates ONLY the allowlisted key — but without seeding,
+    # motion_sensors also appears in `changed_keys` (present in new,
+    # absent in old={}) → subset check fails → reload.
+    entry.options = {
+        "motion_sensors": ["binary_sensor.bathroom_motion"],
+        "fan_control_enabled": False,
+    }
+
+    _run(ns["_async_update_listener"](hass, entry))
+
+    assert hass.config_entries.reload_calls == [entry.entry_id], (
+        "Without D0 seeding, the first save must fall through when a "
+        "non-allowlisted key is present in entry.options. This is the "
+        "failure mode D0 fixes."
+    )
+
+
+# ===========================================================================
+# BEHAVIORAL — D1 full-form Climate & Fans save
+# ===========================================================================
+
+
+def test_d1_full_climate_form_save_suppresses_when_no_excluded_key_touched():
+    """The reported symptom fix.
+
+    Operator saves the Climate & Fans step. HA materializes ~20 default
+    fields into ``user_input``. With every non-entity climate-step key
+    now allowlisted, a save whose ONLY effective delta is a bump to a
+    single allowlisted knob (here: humidity_fan_threshold 60 -> 65)
+    must SUPPRESS. The other ~19 keys have the same value in the
+    snapshot and the new options — `changed_keys` reduces to
+    {humidity_fan_threshold}, which is a subset of the allowlist.
+
+    Anchored: if `humidity_fan_threshold` (or any of the 22 D1
+    additions) is removed from `_ROOM_SUPPRESS_KEYS`, this test flips
+    to reload and RED-flags.
+    """
+    ns = _load_ns()
+    hass = _FakeHass()
+    # Full-form snapshot at whatever the operator last saved.
+    baseline = {k: 1 for k in _CLIMATE_FORM_KEYS_ALLOWLISTED}
+    entry = _FakeEntry(options=baseline)
+    ns["_seed_room_last_applied_options"](hass, entry)
+    # Operator touches ONE knob; HA re-submits ALL climate-step defaults.
+    new_options = dict(baseline)
+    new_options["humidity_fan_threshold"] = 999
+    entry.options = new_options
+
+    _run(ns["_async_update_listener"](hass, entry))
+
+    assert hass.config_entries.reload_calls == [], (
+        "full-form Climate & Fans save with only allowlisted delta "
+        "must SUPPRESS — this is the reported symptom the cycle fixes"
+    )
+    # Snapshot advanced.
+    snap = hass.data["universal_room_automation"][
+        "room_last_applied_options"
+    ][entry.entry_id]
+    assert snap["humidity_fan_threshold"] == 999
+
+
+def test_d1_climate_entity_change_still_reloads():
+    """CONF_CLIMATE_ENTITY stays EXCLUDED — an entity_id rewire must
+    still reload the room. Anchored: adding _CONF_CLIMATE_ENTITY to
+    `_ROOM_SUPPRESS_KEYS` would make this test flip green (a silent
+    admission of a structural-key we consider unsafe).
+    """
+    ns = _load_ns()
+    hass = _FakeHass()
+    baseline = {k: 1 for k in _CLIMATE_FORM_KEYS_ALLOWLISTED}
+    baseline[_CLIMATE_FORM_KEY_EXCLUDED_ENTITY] = "climate.old"
+    entry = _FakeEntry(options=baseline)
+    ns["_seed_room_last_applied_options"](hass, entry)
+    new_options = dict(baseline)
+    new_options[_CLIMATE_FORM_KEY_EXCLUDED_ENTITY] = "climate.new"
+    entry.options = new_options
+
+    _run(ns["_async_update_listener"](hass, entry))
+
+    assert hass.config_entries.reload_calls == [entry.entry_id], (
+        "CONF_CLIMATE_ENTITY change must RELOAD — structural rewire"
+    )
+
+
+def test_d1_virgin_room_first_save_default_materialization_suppresses():
+    """Plan-review P7 virgin-room test.
+
+    A room whose options dict is EMPTY at setup (no climate step ever
+    saved) receives its first save. HA's Optional(default=...) fills
+    ~20 fields into user_input. Because D0 seeded the snapshot from
+    `entry.options={}` and the diff computes `changed_keys` against
+    that, EVERY field looks changed on this first save — but all are
+    now allowlisted, so the save SUPPRESSES.
+    """
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={})
+    ns["_seed_room_last_applied_options"](hass, entry)
+    # First-ever climate save materializes all 23 defaults.
+    entry.options = {k: 1 for k in _CLIMATE_FORM_KEYS_ALLOWLISTED}
+
+    _run(ns["_async_update_listener"](hass, entry))
+
+    assert hass.config_entries.reload_calls == [], (
+        "virgin-room first climate save with only allowlisted keys "
+        "must SUPPRESS (default-materialization all-or-nothing)"
+    )
+
+
+def test_d1_virgin_room_first_save_with_climate_entity_falls_through():
+    """Same virgin case but the first save also introduces a
+    CONF_CLIMATE_ENTITY value — the whole form falls through to reload
+    because ONE excluded key materialized."""
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={})
+    ns["_seed_room_last_applied_options"](hass, entry)
+    new_options = {k: 1 for k in _CLIMATE_FORM_KEYS_ALLOWLISTED}
+    new_options[_CLIMATE_FORM_KEY_EXCLUDED_ENTITY] = "climate.picked"
+    entry.options = new_options
+
+    _run(ns["_async_update_listener"](hass, entry))
+
+    assert hass.config_entries.reload_calls == [entry.entry_id]
+
+
+# ===========================================================================
+# ALLOWLIST MEMBERSHIP — proven behaviorally, one test per allowlisted
+# key. Mutation-anchored: dropping a key from _ROOM_SUPPRESS_KEYS makes
+# its parametrized case flip to reload and RED-flag by name.
+# ===========================================================================
+
+
+@pytest.mark.parametrize("conf_string", list(_CLIMATE_FORM_KEYS_ALLOWLISTED))
+def test_solo_key_change_suppresses(conf_string):
+    """For EACH allowlisted climate-step key, a save whose only delta
+    is that one key MUST suppress. Failure = the key silently left
+    the allowlist."""
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={conf_string: "old"})
+    ns["_seed_room_last_applied_options"](hass, entry)
+    entry.options = {conf_string: "new"}
+
+    _run(ns["_async_update_listener"](hass, entry))
+
+    assert hass.config_entries.reload_calls == [], (
+        f"solo change to '{conf_string}' must SUPPRESS "
+        "(D1 allowlist verdict LIVE or REFRESHED-with-coverage)"
+    )
+
+
+def test_solo_climate_entity_change_reloads():
+    """CONF_CLIMATE_ENTITY intentionally EXCLUDED — entity-id rewire
+    requires a full reload; audit block cites the reason."""
+    ns = _load_ns()
+    hass = _FakeHass()
+    entry = _FakeEntry(options={
+        _CLIMATE_FORM_KEY_EXCLUDED_ENTITY: "climate.old",
+    })
+    ns["_seed_room_last_applied_options"](hass, entry)
+    entry.options = {_CLIMATE_FORM_KEY_EXCLUDED_ENTITY: "climate.new"}
+
+    _run(ns["_async_update_listener"](hass, entry))
+
+    assert hass.config_entries.reload_calls == [entry.entry_id]
+
+
+# ===========================================================================
+# SOURCE-AST — D0 wire-up ordering + D2 substrate dedup structure
+# ===========================================================================
+
+
+def test_seed_room_last_applied_options_called_before_add_update_listener():
+    """The seed call MUST precede `add_update_listener` in ROOM setup —
+    D0's raison d'etre. Neuter drill: comment the seed call → this
+    test RED-flags on "seed call missing".
+    """
     seed_pat = r"_seed_room_last_applied_options\(hass, entry\)"
     listener_pat = (
         r"entry\.async_on_unload\(entry\.add_update_listener\("
         r"_async_update_listener\)\)"
     )
-    seed_matches = [m.start() for m in re.finditer(seed_pat, INIT_SRC)]
-    listener_matches = [m.start() for m in re.finditer(listener_pat, INIT_SRC)]
-    assert seed_matches, "_seed_room_last_applied_options call missing"
-    assert listener_matches, "add_update_listener registration missing"
-    # At least one seed call must precede at least one listener
-    # registration (the ROOM setup path).
-    assert any(s < l for s in seed_matches for l in listener_matches), (
-        "_seed_room_last_applied_options must be called BEFORE "
-        "entry.add_update_listener registration in the ROOM setup path"
+    seeds = [m.start() for m in re.finditer(seed_pat, INIT_SRC)]
+    listeners = [m.start() for m in re.finditer(listener_pat, INIT_SRC)]
+    assert seeds, "_seed_room_last_applied_options call missing"
+    assert listeners, "add_update_listener registration missing"
+    assert any(s < l for s in seeds for l in listeners), (
+        "seed must be called BEFORE add_update_listener in ROOM setup"
     )
 
 
 def test_room_unload_pops_snapshot():
-    """Unload must pop the room's snapshot to avoid stale ghosts."""
     assert re.search(
-        r'"room_last_applied_options",\s*\{\},?\s*\)\s*\.pop\(entry\.entry_id,\s*None\)',
+        r'"room_last_applied_options",\s*\{\},?\s*\)\s*\.pop\('
+        r'entry\.entry_id,\s*None\)',
         INIT_SRC,
-    ), (
-        "async_unload_entry ROOM branch must pop entry_id from "
-        "room_last_applied_options"
-    )
-
-
-# ---------------------------------------------------------------------------
-# D1 — allowlist membership
-# ---------------------------------------------------------------------------
-
-
-def _extract_room_suppress_body() -> str:
-    m = re.search(
-        r"_ROOM_SUPPRESS_KEYS:\s*frozenset\[str\]\s*=\s*frozenset\(\{(.*?)\}\)",
-        INIT_SRC, re.DOTALL,
-    )
-    assert m, "_ROOM_SUPPRESS_KEYS block not found"
-    return m.group(1)
-
-
-@pytest.mark.parametrize("alias", [
-    "_CONF_COMFORT_TEMP_MIN",
-    "_CONF_COMFORT_TEMP_MAX",
-    "_CONF_COMFORT_HUMIDITY_MAX",
-    "CONF_ZONE",
-    "_CONF_FAN_CONTROL_ENABLED",
-    "_CONF_HUMIDITY_FAN_CONTROL_ENABLED",
-    # D1 additions (proven LIVE via _effective_hvac_hold_seconds call-
-    # parameter path — plan §D1 CORRECTION).
-    "_CONF_HVAC_VACANCY_HOLD",
-    "_CONF_HVAC_VACANCY_HOLD_NIGHT",
-])
-def test_room_suppress_keys_contains(alias: str) -> None:
-    body = _extract_room_suppress_body()
-    assert alias in body, f"{alias} missing from _ROOM_SUPPRESS_KEYS"
-
-
-@pytest.mark.parametrize("alias", [
-    # EXCLUDED per honest D1 posture — cached / unaudited consumer sites.
-    # A humidity-fan threshold value (min-over-sites = REFRESHED, coverage-
-    # proof not shipped this cycle) MUST NOT sneak into the allowlist.
-    "_CONF_HUMIDITY_FAN_THRESHOLD",
-    "_CONF_TARGET_TEMP_HEAT",
-    "_CONF_TARGET_TEMP_COOL",
-    "_CONF_CLIMATE_ENTITY",
-])
-def test_room_suppress_keys_does_not_contain_excluded(alias: str) -> None:
-    body = _extract_room_suppress_body()
-    assert alias not in body, (
-        f"{alias} MUST NOT be in _ROOM_SUPPRESS_KEYS — not audited "
-        "LIVE this cycle (plan §D1 EXCLUDED-by-default)"
-    )
-
-
-def test_hvac_vacancy_hold_conf_strings_match_const_source():
-    """Guard against a rename drift — the two D1-added CONFs must map
-    to the same string values referenced by the LIVE consumer sites
-    (binary_sensor.py:870-884, hvac_zones.py:553-594)."""
-    def extract(name: str) -> str:
-        m = re.search(
-            rf"^{name}:\s*Final\s*=\s*\"([^\"]+)\"",
-            CONST_SRC, re.MULTILINE,
-        )
-        assert m, f"{name} not found in const.py"
-        return m.group(1)
-
-    assert extract("CONF_HVAC_VACANCY_HOLD") == "hvac_vacancy_hold"
-    assert extract("CONF_HVAC_VACANCY_HOLD_NIGHT") == "hvac_vacancy_hold_night"
-
-
-# ---------------------------------------------------------------------------
-# D2 — log-once dedup for occupancy_substrate WARNs
-# ---------------------------------------------------------------------------
+    ), "ROOM unload must pop entry_id from room_last_applied_options"
 
 
 def test_substrate_defines_warn_dedup_sets():
-    """OccupancySubstrate.__init__ must initialize both dedup sets."""
     assert "self._warned_multi_conf: set = set()" in SUBSTRATE_SRC
     assert "self._warned_cross_room: set = set()" in SUBSTRATE_SRC
 
 
 def test_substrate_multi_conf_warn_gated_on_dedup_set():
-    """The multi-CONF-lists WARN must be inside an
-    ``if _dk not in self._warned_multi_conf:`` guard."""
-    # Find the WARN call and its preceding guard.
     idx = SUBSTRATE_SRC.find(
         '"OccupancySubstrate: entity %s appears in "'
     )
-    assert idx != -1, "multi-CONF WARN string not found"
-    preceding = SUBSTRATE_SRC[max(0, idx - 400):idx]
-    assert "if _dk not in self._warned_multi_conf:" in preceding, (
-        "multi-CONF WARN must be gated by the _warned_multi_conf dedup set"
+    assert idx != -1
+    assert (
+        "if _dk not in self._warned_multi_conf:"
+        in SUBSTRATE_SRC[max(0, idx - 400):idx]
     )
 
 
 def test_substrate_cross_room_warn_gated_on_dedup_set():
-    """The cross-room-claim WARN must be inside an
-    ``if _dk not in self._warned_cross_room:`` guard."""
     idx = SUBSTRATE_SRC.find(
         '"OccupancySubstrate: entity %s claimed by multiple "'
     )
-    assert idx != -1, "cross-room WARN string not found"
-    preceding = SUBSTRATE_SRC[max(0, idx - 400):idx]
-    assert "if _dk not in self._warned_cross_room:" in preceding, (
-        "cross-room WARN must be gated by the _warned_cross_room dedup set"
+    assert idx != -1
+    assert (
+        "if _dk not in self._warned_cross_room:"
+        in SUBSTRATE_SRC[max(0, idx - 400):idx]
     )
 
 
-# ---------------------------------------------------------------------------
-# INV-B — substrate fast-path no-diff return is preserved
-# ---------------------------------------------------------------------------
-
-
 def test_substrate_no_diff_fast_path_preserved():
-    """The suppressed path leans on the fast-path return at
-    occupancy_substrate.py:~442 — any regression here would falsify INV-B."""
+    """INV-B: substrate no-diff fast-path is what makes the suppressed-
+    path SIGNAL_ROOM_ENTRY_LIFECYCLE dispatch cheap. If this guard
+    disappears, INV-B is falsified."""
     assert re.search(
         r"if not added and not removed and not reclassified:",
         SUBSTRATE_SRC,
-    ), "OccupancySubstrate no-diff fast-path guard is missing"
+    )

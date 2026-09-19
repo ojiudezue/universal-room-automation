@@ -309,6 +309,34 @@ def _load_ns(*, kill_switch: bool = True,
             "_CONF_NM_PERSON_DND_BYPASS_SEVERITIES",
             "_CONF_NM_MUTE_DEFAULT_DURATION_MINUTES",
             "_CONF_NM_EXTRA_LIFE_SAFETY_HAZARDS",
+            # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D1 (2026-09-19) —
+            # climate-step LIVE + REFRESHED-with-coverage keys promoted
+            # into _ROOM_SUPPRESS_KEYS. String identity is irrelevant to
+            # the INTEGRATION-branch tests in this file; watchdog stubs
+            # them via k.lower() like the other CM/HVAC aliases.
+            "_CONF_HVAC_VACANCY_HOLD",
+            "_CONF_HVAC_VACANCY_HOLD_NIGHT",
+            "_CONF_HVAC_COORDINATION_ENABLED",
+            "_CONF_COMFORT_FAN_AWAY_VETO_ENABLED",
+            "_CONF_WET_ROOM",
+            "_CONF_BLE_HOLD_CAP_ENABLED",
+            "_CONF_FAN_TEMP_THRESHOLD",
+            "_CONF_HUMIDITY_FAN_THRESHOLD",
+            "_CONF_HUMIDITY_FAN_TIMEOUT",
+            "_CONF_HUMIDITY_FAN_MAX_RUNTIME",
+            "_CONF_HUMIDITY_FAN_SPIKE_ENABLED",
+            "_CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT",
+            "_CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S",
+            "_CONF_HUMIDITY_FAN_SPIKE_BASELINE_MODE",
+            "_CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED",
+            "_CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S",
+            "_CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S",
+            "_CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S",
+            "_CONF_FAN_SPEED_LOW_TEMP",
+            "_CONF_FAN_SPEED_MED_TEMP",
+            "_CONF_FAN_SPEED_HIGH_TEMP",
+            "_CONF_TARGET_TEMP_HEAT",
+            "_CONF_TARGET_TEMP_COOL",
         ]},
     }
     mod = ast.Module(body=body, type_ignores=[])
