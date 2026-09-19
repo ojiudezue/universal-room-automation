@@ -9,6 +9,22 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: STUCK-MOTION-FROZEN-ON-BLINDSPOT-1@2026-09-19T04:45:00
+    at: '2026-09-19T04:45:00'
+    outcome: escalated
+    acknowledged: false
+    headline: 'A CARD HAD GONE INVISIBLE ON THE BOARD — worth knowing because of HOW it failed. The
+      card about a motion sensor freezing in the ON position (the one that held the whole house
+      "occupied" while it was empty) had no lane set on it at all. Not a wrong lane — no lane. The
+      board only sorts cards by their lane, so it dropped into a bucket nothing displays, while still
+      looking perfectly filled-in in the underlying file. That is the dangerous version of staleness:
+      a card in the wrong lane is a judgement call you can argue with, a card in no lane is simply
+      gone. It is the only one on the board in that state, and it is fixed. I also put it in front of
+      you rather than back in my own queue, because its build was reviewed DO-NOT-SHIP (one part
+      would have wiped a whole rooms occupancy) and then re-scoped, so what it needs now is your
+      pick: proceed with the narrower version, or park it until a second stuck sensor actually
+      happens. The branch is kept either way. I noted that (B) park is the honest call if one
+      incident is not evidence enough for you.'
   - fid: RECORDER-CHURN-SWEEP-URASENSORS-1@2026-09-19T04:35:00
     at: '2026-09-19T04:35:00'
     outcome: measured
