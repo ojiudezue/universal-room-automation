@@ -26219,8 +26219,15 @@ cards:
     borrows unrefreshed automation.config -> route via live cfg. M2: binary_sensor.py:1025 reads entry.data
     only (missing options) — pre-existing stale, fix in-cycle. CLEARED: 5 LIVE keys, temp-fan REFRESHED,
     comfort-fan-veto, CONF_CLIMATE_ENTITY exclusion. Holding fix-up for B + validator (one consolidated pass).'
-  next: 'REVIEW: A done (FIX-REQ, H1 humidity-refresh). Awaiting B + validator -> consolidated fix-up + H1
-    pin test -> C mutation drill -> orchestrator mutation-verify -> ship.'
+  REVIEW_B_2026_09_19: 'B (lifecycle/signal-chain/fall-through) = SHIP (no CRIT/HIGH). D0 seed ROOM-only,
+    ordered before listener, popped on unload, re-seeded on reload, shape-matched; suppress branch advances
+    snapshot + single lifecycle dispatch; excluded-key fall-through unchanged; process-local (no restore-poison);
+    CM/INTEGRATION untouched; no suppressed key backs a stateful entity or gates entity creation. Non-blocking:
+    B-MED-1 D2 tests hollow (grep anchors, Bug Class #62) -> add behavioral D2 test; B-LOW-1 D2 dedup keys omit
+    kind -> changed same-entity conflict silently suppressed (one-token fix); B-LOW-2/3 noted no-fix.'
+  next: 'REVIEW: A=FIX-REQ (H1 CRIT), B=SHIP. Awaiting validator name-diff (owns suite) -> consolidated fix-up
+    (A-H1/M1/M2 + B-MED-1/LOW-1 + H1 pin test) -> Review C mutation drill on fixed code -> orchestrator
+    mutation-verify -> ship + live-validate + README write-back.'
   links:
     related: [JAYA-FAN-STILL-PHANTOM-1]
 - id: SUBSTRATE-PER-ROOM-REFRESH-1
