@@ -26144,6 +26144,38 @@ cards:
   revisit_trigger: 'If an operator sets disable_camera_presence expecting a room to ignore ALL camera presence
      and sees camera-driven occupancy anyway.'
   next: 'REVIEW (operator, low priority): decide gate-vs-document; else parked.'
+- id: ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1
+  title: "Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s"
+  thread: presence
+  status: inbox
+  created: '2026-09-19'
+  updated: '2026-09-19'
+  tags: [reload, event-loop, config-flow, stability, tier-2db, incident]
+  problem_solution:
+  - 'Operator reported: changing room config -> HA becomes unresponsive ("some kind of reset"). VERIFIED from
+     logs 2026-09-19: NO core restart (no "Starting Home Assistant" banner) -> unresponsive blip, not a reset.
+     Mechanism: options-flow climate-step SAVE (async_step_climate user_input=yes @ 17:58:21, 18:03:48) fires a
+     BACKGROUND full ROOM reload (~90 entities, per _async_update_listener __init__.py:7616 else-branch) PLUS a
+     house-wide occupancy-substrate re-subscribe (substrate re-claim warnings for Game Room / Guest Bedroom 2
+     Hallway + RoomOptimizationHealthSensor teardown/re-add fire right after each save). Loop backs up: websocket
+     "Client unable to keep up ... Stayed over 1024 for 10 seconds ... load too high or integration misbehaving"
+     + "No PONG received after 27.5s" (mobile disconnects) in the same window. NOT fan_control_enabled (that key
+     IS in _ROOM_SUPPRESS_KEYS :7672) - it is that SUBMITTING the whole climate step re-writes non-suppressed
+     fields (fan-speed temps, thresholds) -> falls through to full reload. COMPOUNDING: concurrent integration-
+     failure storm (Shelly/Tuya/Bond/TPLink/PowerView all timing out, thousands of unreachable errors, cover
+     updates >10s) = likely a network event already loading the loop; the reload spike tips it over.
+     FIX (Tier 2-DB, reload path = regression-prone): extend _ROOM_SUPPRESS_KEYS to climate-step keys with LIVE
+     consumers (mirror the comfort-slider + fan-toggle precedent) so a room save applies in-place; AND stop the
+     full house-wide substrate rebuild on a single-room change (scope the D1 lifecycle re-subscribe to the
+     changed room). Sibling: parent-entry reload watchdog hazard (feedback_parent_entry_reload_watchdog_hazard),
+     CM reload-suppression (project_cm_reload_suppression_cycle_stack).'
+  why: 'operator hit a live stability blip while doing exactly what we recommended (enable fan control on Jaya);
+     the room reload path is heavier than a single-room change should require, and amplified under network load.'
+  next: 'APPROVE Tier-2-DB fix scope: extend room suppress-allowlist to climate keys w/ live consumers + scope
+     substrate re-subscribe to the changed room -> I plan (plan-review) then build. Separately: the Shelly/Tuya/
+     Bond timeout storm is likely a network/WiFi event, not URA — flag if it persists.'
+  links:
+    related: [JAYA-FAN-STILL-PHANTOM-1]
 - id: JAYA-FAN-STILL-PHANTOM-1
   title: "Jaya Bedroom fan-induced mmWave still-phantom held Upstairs HVAC zone (empty room) — resolved by enabling fan control so the shipped pause-recheck covers it"
   thread: presence

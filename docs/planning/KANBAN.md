@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-19T11:46:35-05:00_ - _Data commit: `344e31f68427`_ - _last_reconciled: 2026-09-19_
+_Generated: 2026-09-19T18:01:13-05:00_ - _Data commit: `85fa199eb745`_ - _last_reconciled: 2026-09-19_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 14 |
@@ -21,10 +21,17 @@ _Generated: 2026-09-19T11:46:35-05:00_ - _Data commit: `344e31f68427`_ - _last_r
 | 🅿️ Parked | 61 |
 | ✅ Done | 185 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (1)
 _raw capture_
 
-_(none)_
+### `ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1` - Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s — _#1 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **presence** - status: **inbox**
+_created 2026-09-19_
+- **Problem / Solution:**
+  - Operator reported: changing room config -> HA becomes unresponsive ("some kind of reset"). VERIFIED from logs 2026-09-19: NO core restart (no "Starting Home Assistant" banner) -> unresponsive blip, not a reset. Mechanism: options-flow cl...
+- **Why:** operator hit a live stability blip while doing exactly what we recommended (enable fan control on Jaya); the room reload path is heavier than a single-room change should require, and amplified under network load.
+- **Next:** APPROVE Tier-2-DB fix scope: extend room suppress-allowlist to climate keys w/ live consumers + scope substrate re-subscribe to the changed room -> I plan (plan-review) then build. Separately: the Shelly/Tuya/ Bond timeout storm is likel...
+- **Tags:** reload, event-loop, config-flow, stability, tier-2db, incident
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_
