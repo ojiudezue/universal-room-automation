@@ -852,12 +852,18 @@ cards:
     CONSUMPTION on is_excluded() (:3974 + :3670) [the real incident fix]; original D2 substrate retained ONLY
     for the distinct CONF-sensor-freeze case + must fix B-CRIT-1/B-HIGH-1. DECISION for operator: one cycle
     (camera-consumption fix + fix substrate D2) vs split (ship camera fix, card CONF-substrate D2).'
-  status: waiting_operator
-  next: 'PICK scope: (A) ONE cycle — add camera-override consumption gate [the real incident fix] AND fix the
-    substrate-D2 B-CRIT-1/B-HIGH-1 in the same rebuild; or (B) SPLIT — rebuild just the camera-consumption fix
-    to ship the incident fix fast, card the CONF-sensor-freeze substrate-D2 separately. -> I rebuild on branch,
-    re-run 3 reviews + mutation-verify, ship. (Recommend A: both are the same files + machinery; splitting
-    doubles the review surface for one small extra delta.)'
+  RESCOPE_2026_09_18: 'Operator re-scoped: (1) KEEP branch 29787cbf2 unmerged (corroboration-demote machinery
+    reusable), PARK cards. (2) The real target is the PIR STUCK-ON LEAK, NOT camera: "we do NOT use camera
+    motion for occupancy" (operator design fact — contradicts the producer-path investigation which claimed the
+    camera-override at coordinator.py:3974 consumes any frigate _motion object; VERIFY which is true). (3)
+    Premise re-affirmed by operator: a fully-trusted PIR/motion sensor (exempt from stuck-detection as the
+    corroboration anchor @ coordinator.py:1719-1722; staleness keyed unavailable-only) frozen ON holds a room
+    occupied with no defense = the legit leak to fix. NOTE the 9/17-9/18 recorder showed house/zones/HVAC-zone-2
+    all transitioning away/0 normally (no visible stuck window in that span) — but operator asserts the incident
+    was real; verify the PIR leak on its MERITS (design gap) independent of pinning the exact incident timestamp.'
+  next: 'BUILD (implied approval): verify PIR-stuck-on leak is legit + verify camera-motion-not-occupancy claim;
+    if leak real, the built D1 corroboration-demote already targets CONF motion sensors (incl. PIR) — re-scope
+    to PIR, drop camera D1prime/D2prime, fix the A/B review bugs, ship.'
   thread: presence
   created: '2026-09-18'
   updated: '2026-09-18'
