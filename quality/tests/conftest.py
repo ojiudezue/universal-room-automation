@@ -433,32 +433,77 @@ def enable_event_loop_debug():
 
 @pytest.fixture(autouse=True)
 def verify_cleanup(expected_lingering_tasks, expected_lingering_timers):
-    """Override phcc's leak detector — THREAD checks live here.
+    """Override phcc's leak detector — THREADS + sync-test tasks/timers.
 
-    The sync fixture body runs OUTSIDE the test's asyncio loop (pytest-asyncio
-    1.3 creates a fresh per-test loop and never installs it on the policy),
-    so task/timer checks issued from here inspect an idle bystander loop and
-    are useless. Those checks moved to the async fixture below
-    (`_ura_async_leak_detector`), which runs *inside* the real test loop and
-    can therefore see tasks/timers the test actually created.
+    HONEST SCOPE (updated for card TEST-LEAK-DETECTOR-WRONG-LOOP-1, 2026-09-19).
 
-    Kept here (still real, still active):
-      - Leaked THREAD detection (thread state is process-wide, loop-agnostic).
-      - The `expected_lingering_tasks` / `expected_lingering_timers` fixture
-        parameters are consumed so phcc's original `verify_cleanup` stays
-        overridden (test-suite override contract).
+    This fixture is SYNC. Its setup/teardown run OUTSIDE the per-test asyncio
+    loop pytest-asyncio 1.3 creates for `async def` tests, so for ASYNC tests
+    the task/timer check below inspects a bystander loop and cannot detect
+    leaks — that job is handled by `_ura_async_leak_detector` below, which
+    runs INSIDE the real test loop.
 
-    Do NOT re-add task/timer checks here — they will silently no-op.
+    For SYNC tests, though, this fixture DOES have access to whatever loop is
+    reachable via `get_event_loop_policy().get_event_loop()`, which is the
+    loop those tests actually schedule work on. So the task/timer check is
+    kept here so we do not regress sync-test leak coverage (the baseline sync
+    detector was catching real leaks in e.g. `ExteriorTrackLinker` tests; my
+    replacement must keep catching them).
+
+    On ASYNC tests the two paths do NOT double-fire: the loop resolved here
+    is a different, idle loop, so `all_tasks() - tasks_before` is empty and
+    no timer is scheduled on it. On SYNC tests the async fixture does not
+    run at all, and this path is the only detector.
+
+    Thread checks (process-wide, loop-agnostic) always run.
     """
-    # Consumed to preserve the override contract; the async detector below
-    # is what actually enforces them.
-    _ = (expected_lingering_tasks, expected_lingering_timers)
-
+    loop = _ura_current_loop()
     threads_before = frozenset(_threading.enumerate())
+    tasks_before = _asyncio.all_tasks(loop) if loop is not None else set()
 
     yield
 
-    # Leaked THREADS — process-wide, works from any context.
+    loop_after = _ura_current_loop() or loop
+
+    if loop_after is not None and not loop_after.is_closed():
+        # Lingering TASKS on the sync-visible loop (real for sync tests,
+        # empty-diff on async tests — harmless).
+        try:
+            tasks = _asyncio.all_tasks(loop_after) - tasks_before
+        except Exception:
+            tasks = set()
+        for task in tasks:
+            if expected_lingering_tasks:
+                print(f"WARNING: Lingering task after test {task!r}")
+            else:
+                pytest.fail(f"Lingering task after test {task!r}")
+            task.cancel()
+
+        # Lingering TIMERS. Mirrors phcc's HassJob-aware exemption.
+        try:
+            from homeassistant.core import HassJob
+            from pytest_homeassistant_custom_component.plugins import (
+                get_scheduled_timer_handles,
+            )
+
+            for handle in get_scheduled_timer_handles(loop_after):
+                if handle.cancelled():
+                    continue
+                if expected_lingering_timers:
+                    print(f"WARNING: Lingering timer after test {handle!r}")
+                elif handle._args and isinstance(
+                    job := handle._args[-1], HassJob
+                ):
+                    if job.cancel_on_shutdown:
+                        continue
+                    pytest.fail(f"Lingering timer after job {job!r}")
+                else:
+                    pytest.fail(f"Lingering timer after test {handle!r}")
+                handle.cancel()
+        except ImportError:
+            pass
+
+    # Leaked THREADS — runs regardless of loop resolution.
     threads = frozenset(_threading.enumerate()) - threads_before
     for thread in threads:
         assert (
