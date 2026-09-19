@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-19T02:18:34-05:00_ - _Data commit: `7d928597e528`_ - _last_reconciled: 2026-09-19_
+_Generated: 2026-09-19T02:19:29-05:00_ - _Data commit: `17e22f272db3`_ - _last_reconciled: 2026-09-19_
 
 
 ## Columns
@@ -663,7 +663,7 @@ _created 2026-09-16 · updated 2026-09-17 02:35 · refined_
 
 ### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#15 · WSJF 3.3 · v5 tc3 u2 /e3_
 thread: **notifications** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-26 11:00 · updated 2026-09-19 03:50 · refined ×1_
+_created 2026-08-26 11:00 · updated 2026-09-19 04:55 · refined ×1_
 - **Problem / Solution:**
   - Problem: a message URA sends me shows up TWICE in my iMessage — once when it is sent (my Mac sending as me) and once when it arrives (my phone/Mac receiving as me), so every URA alert reads as a duplicate. Solution to VERIFY (do NOT asse...
 - **Origin:** 2026-08-26 - operator: BlueBubbles v0.7.0 may have a way to decouple messages from the imessage user; check release notes
@@ -671,10 +671,11 @@ _created 2026-08-26 11:00 · updated 2026-09-19 03:50 · refined ×1_
 - **Next:** SMALL CYCLE (operator: "should be a small cycle"). Operator is upgrading to 0.7.0. (1) First reproduce/confirm the self-send cause in NM send path (grep notification_manager for send_message + how recipients/addresses are built). (2) Det...
 - **Tags:** nm, no-fabrication-verify
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/notification_manager.py; ~/Code/bluebubbles-integration-guide.md
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: 0 chat_guid hits; _send_imessage builds {addresses:handle} only. Blocked on operator question: is there a non-self URA-alerts chat with a resolvable GUID?
   - `VERIFIED_CAUSE_2026_08_26`: Confirmed the self-send mechanism from source: NM _send_imessage (notification_manager.py:2259) sends bluebubbles.send_message with payload {addresses: handle, message} where handle = the recipient CONF_NM_PERSON_IMESSAGE_HANDLE. When th...
   - `ACCURACY_NOTE`: Orchestrator over-restated the operator hypothesis as documented fact on first pass; corrected. v0.7.0 notes = send-by-chat-GUID + README rewrite + lodash bump. No self-send claim.
+  - `STATIC_HALF_ANSWERED_2026_09_19`: Step (1) of this cards next is DONE — read, not guessed, and it changes what the fix is. THE SEND PATH HAS NO ADDRESS-BUILDING LOGIC AT ALL. _send_imessage (notification_manager.py:2256-2296) passes `addresses: <handle>` straight through...
 
 ### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#16 · WSJF 3.2 · v8 tc6 u2 /e5_
 thread: **perimeter** - status: **waiting_operator** - approval: **implied**

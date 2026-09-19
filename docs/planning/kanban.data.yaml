@@ -9,6 +9,23 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: NM-BB-CHATGUID-SELFSEND-1@2026-09-19T04:55:00
+    at: '2026-09-19T04:55:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'THE iMESSAGE SELF-SEND MAY NOT NEED A CODE CHANGE AT ALL — check one setting before we
+      build anything. I read the whole send path: URA does not work out who to message in any clever
+      way. It takes the phone number or Apple ID you typed into that persons settings and hands it
+      straight to the BlueBubbles integration, untouched. So it cannot be inventing a self-address.
+      That leaves two possibilities. Either the handle saved for someone IS the sending accounts own
+      address — in which case messages to them correctly land in a note-to-self chat, and the fix is
+      to correct that one setting, free, no cycle; or the handle is right and BlueBubbles is picking
+      the wrong conversation for it, which is what the new send-by-conversation-ID feature in 0.7.0
+      would fix. Worth knowing: routing by conversation ID would need a NEW per-person setting (there
+      is no such field anywhere today, I checked), so it is a small but real addition — only worth it
+      if the simple explanation is ruled out first. I did NOT try to reproduce it: that needs a live
+      message send, and firing test messages into peoples chats at 3am is not something I will do
+      unattended.'
   - fid: TEST-LEAK-DETECTOR-WRONG-LOOP-1@2026-09-19T04:50:00
     at: '2026-09-19T04:50:00'
     outcome: built-to-review
@@ -6116,7 +6133,7 @@ cards:
   status: waiting_operator
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: 0 chat_guid hits; _send_imessage builds {addresses:handle} only. Blocked on operator question: is there a non-self URA-alerts chat with a resolvable GUID?'
   created: 2026-08-26 11:00
-  updated: '2026-09-19 03:50'
+  updated: '2026-09-19 04:55'
   refinement_status: refined
   approval: unreviewed
   tags:
@@ -6161,6 +6178,22 @@ cards:
   refs:
   - custom_components/universal_room_automation/domain_coordinators/notification_manager.py
   - ~/Code/bluebubbles-integration-guide.md
+  STATIC_HALF_ANSWERED_2026_09_19: 'Step (1) of this cards next is DONE — read, not guessed, and it
+    changes what the fix is. THE SEND PATH HAS NO ADDRESS-BUILDING LOGIC AT ALL. _send_imessage
+    (notification_manager.py:2256-2296) passes `addresses: <handle>` straight through to the
+    bluebubbles.send_message service, and that handle is a plain per-person config value read at
+    :1880 (CONF_NM_PERSON_IMESSAGE_HANDLE, const.py:2799). Nothing derives, normalizes, falls back to,
+    or defaults the address — so NM cannot be "computing" a self-address. That leaves exactly two live
+    hypotheses, and they are distinguishable by reading config rather than code: (a) a persons
+    configured handle IS the accounts own address (the sending Mac/Apple ID), in which case BlueBubbles
+    correctly delivers to a note-to-self chat and the fix is a CONFIG correction, not a code cycle; or
+    (b) the handle is right and BlueBubbles resolves address -> chat wrongly, which is the case the
+    0.7.0 send-by-chat-GUID feature exists to fix. PRIOR-ART VERDICT for the proposed fix: no chat_guid
+    constant or config field exists anywhere in const.py or config_flow.py (grepped), so routing by
+    GUID would need a genuinely NEW per-person field — which is a real (if small) config-surface
+    addition, and it is only worth adding if hypothesis (b) survives. DO (a) FIRST: it is free and it
+    may close the card outright. NOTE this does NOT reproduce the symptom — reproduction needs a live
+    send, which is not something to do unattended at 3am into someone messages.'
 - id: EVSE-SOLAR-IDLE-DERESERVE-1
   title: A finished/idle solar bay reserves ~1.44-2.88 kW that starves a charging sibling — de-reserve
     long-idle bays from the solar-follow parked floor WITHOUT removing them from the claim set
