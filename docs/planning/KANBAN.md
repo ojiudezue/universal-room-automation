@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-19T02:15:30-05:00_ - _Data commit: `589c83546cda`_ - _last_reconciled: 2026-09-19_
+_Generated: 2026-09-19T02:16:21-05:00_ - _Data commit: `4f8c30ba1852`_ - _last_reconciled: 2026-09-19_
 
 
 ## Columns
@@ -15,12 +15,11 @@ _Generated: 2026-09-19T02:15:30-05:00_ - _Data commit: `589c83546cda`_ - _last_r
 | 📝 Planned | 14 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 0 |
-| ⏸️ Waiting on operator | 25 |
+| ⏸️ Waiting on operator | 26 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 33 |
 | 🅿️ Parked | 61 |
 | ✅ Done | 183 |
-| ❓ Other | 1 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -461,7 +460,7 @@ _under review_
 
 _(none)_
 
-## ⏸️ Waiting on operator (25)
+## ⏸️ Waiting on operator (26)
 _needs a human call — groomed first_
 
 ### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase — _#1 · WSJF 15.0 · v6 tc7 u2 /e1_
@@ -693,7 +692,26 @@ _created 2026-09-17 02:20 · updated 2026-09-17 03:05 · refined_
   - `REVIEWED_2026_09_17`: BUILT, THEN BOTH REVIEWS SAID DO-NOT-SHIP — and they are right. Two framing-disjoint reviews (A local-correctness, B lifecycle/write-volume) ran in parallel and CONVERGED INDEPENDENTLY on the same HIGH, which is the strongest signal this...
   - `DEDUPE_2026_09_17`: NEW. Swept all four surfaces before minting. Board: grepped every card whose id or title carries tripwire / silence / silent / stuck / zero-fire — found the stuck-ON sibling (shipped), the two closed per-camera silence cards, and OC-STUC...
 
-### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#17 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `STUCK-MOTION-FROZEN-ON-BLINDSPOT-1` - Stuck-sensor defense is blind to a MOTION/PIR sensor frozen ON (offline holding last state) — trusted anchor + unavailable-only staleness let a phantom hold the house occupied — _#17 · WSJF 3.0 · v7 tc4 u4 /e5_
+thread: **presence** - status: **waiting_operator**
+_created 2026-09-18 · updated 2026-09-19 04:40_
+- **Problem / Solution:**
+  - Problem (live incident 2026-09-18): binary_sensor.upstairs_hall_motion_3 went OFFLINE holding state=on at 16:27 (last_updated frozen, no heartbeat since) -> upstairs_hall_all_occupancy stuck on -> house_state stuck home_day with ALL pers...
+- **Why:** Real live incident: a single stuck PIR held the whole house occupied + a zone home while empty. The defense assumed PIR is trustworthy (clears fast) and that a dead sensor goes unavailable - both false for a Zigbee dropout holding on. Pr...
+- **Next:** TRACE the occupancy aggregation freshness handling (does any input get a last_updated-age check?); design a per-kind expected-report-interval staleness gate applied to ALL occupancy inputs incl motion; decide demote-vs-drop; wire to the ...
+- **Tags:** presence, occupancy, stuck-sensor, staleness, bug-class-7, incident, do-not-ship
+- **Parsimony:** [BUILD] stuck PIR frozen-on holds house occupied; every defense layer misses it
+- **Forensic keys (8):**
+  - `PLAN_2026_09_18`: Measure-first FALSIFIED the naive age-gate (edge-driven sensors: legit silence- while-on p95 1.8h motion / 5h mmwave still-body; incident sensor is camera/Frigate not Zigbee). Design = corroboration-gated DEMOTE reusing SensorExclusionSe...
+  - `BUILD_APPROACH_2026_09_18`: Operator greenlit the freshness gate. Tier 2-DB (occupancy TRUST; false- negative = abandon a real occupant). Measure-first + prior-art scan dispatched (accb0d5f7, read-only): (A) existing freshness/unavailable handling + stuck detector ...
+  - `PLANREVIEW_2026_09_18`: Plan-review returned NOT-BUILD-READY (4 CRIT + 3 HIGH) — folded all. CRIT-1: a room-tier exclusion does NOT reach zone/house (substrate is exclusion-blind + frozen sensor emits no edge), so the first draft would NOT have fixed the incide...
+  - `BUILD_DISPATCH_2026_09_18`: Build dispatched (ura-builder, worktree, feature/occupancy-freshness-gate off develop). Next: 3 framing-disjoint reviews (A correctness / B trust-lifecycle both tiers / C mutation- anchored incl. CRIT-2 subject-exclude + CRIT-3 non-empty...
+  - `BUILD_MISTARGETED_2026_09_18`: DO NOT SHIP build 29787cbf2. Producer-path trace (run late — the miss) proved the gate does NOT intercept the incident. binary_sensor.upstairs_hall_motion_3 is platform=frigate, enters via the CAMERA-OVERRIDE path (coordinator.py:3974, a...
+  - `RESCOPE_2026_09_18`: Operator re-scoped: (1) KEEP branch 29787cbf2 unmerged (corroboration-demote machinery reusable), PARK cards. (2) The real target is the PIR STUCK-ON LEAK, NOT camera: "we do NOT use camera motion for occupancy" (operator design fact — c...
+  - `LANE_FIXED_2026_09_19`: BOARD-HYGIENE DEFECT FIXED, and it is the silent kind. This card carried NO status field at all, so the renderer could not lane it — it fell into the bucket nobody reads and was invisible to every lane view of the board while looking per...
+  - `prior_next_2026_09_18`: BUILD (implied approval): verify PIR-stuck-on leak is legit + verify camera-motion-not-occupancy claim; if leak real, the built D1 corroboration-demote already targets CONF motion sensors (incl. PIR) — re-scope to PIR, drop camera D1prim...
+
+### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#18 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **planning** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-18 02:45 · updated 2026-09-19 03:50 · initial_
 - **Problem / Solution:**
@@ -706,7 +724,7 @@ _created 2026-08-18 02:45 · updated 2026-09-19 03:50 · initial_
   - `lane_note_2026_08_28`: ROADMAP_v12.md now written (2026-08-28) — the roadmap-refresh half is discharged. What remains is operator green-light on scope/priority for the room-to-room AGENTIC layer, which v12 names as the next-MINOR-capability track. Hence waitin...
   - `audit_ledger_2026_08_18`: AUDIT_roadmap_undone_worthwhile.md now provides the "already shipped" ledger for the roadmap rewrite: mark ROADMAP v9/v10/v11 + VISION_v7 + ROADMAP_REMAINING as HISTORICAL; most v3.22 "future" shipped under other names (arbitrage hardeni...
 
-### `REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1` - Room renames split one room's history across two labels and manufacture fake "routine drift" — _#18 · WSJF 2.4 · v7 tc3 u2 /e5_
+### `REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1` - Room renames split one room's history across two labels and manufacture fake "routine drift" — _#19 · WSJF 2.4 · v7 tc3 u2 /e5_
 thread: **analytics** - status: **waiting_operator**
 _created 2026-09-14 00:45 · updated 2026-09-14 03:55 · refined_
 - **Problem / Solution:**
@@ -724,7 +742,7 @@ _created 2026-09-14 00:45 · updated 2026-09-14 03:55 · refined_
   - `fix_option_assessment_2026_09_14`: MARGINAL-BENEFIT DECOMPOSITION of the two options this card proposed, plus a third the measurement suggests: (a) ROBUST — rename-aware room-identity key. Correct, but it is a real build against the baseline store to fix one rename affect...
   - `gate_2026_09_14`: AMBIGUOUS AT THE COST/BENEFIT STEP -> escalated rather than guessed, per the autonomy gate. The honest read is that (c) is cheap and precise but the artifact self-heals, so "build the narrow suppressor" and "park until the next rename" a...
 
-### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#19 · WSJF 2.4 · v6 tc4 u2 /e5_
+### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#20 · WSJF 2.4 · v6 tc4 u2 /e5_
 thread: **config-flow** - status: **waiting_operator** - approval: **explicit**
 _created 2026-09-13 01:00 · updated 2026-09-19 03:50 · initial_
 - **Problem / Solution:**
@@ -746,7 +764,7 @@ _created 2026-09-13 01:00 · updated 2026-09-19 03:50 · initial_
   - `symptom2_cannot_add_2026_09_13`: SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (conf...
   - `instrumented_2026_09_13`: INSTRUMENTATION BUILT @ eb2f73094 (feature/config-flow-timing). Class decorator instrument_flow wraps all 44 ConfigFlow + 56 OptionsFlow async_step_* handlers (HA-dispatch-safe, verified vs data_entry_flow.py:483/568); logs WARNING ENTER...
 
-### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#20 · WSJF 2.2 · v6 tc3 u2 /e5_
+### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#21 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **quality** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-07 00:30 · updated 2026-09-19 03:50 · refined_
 - **Problem / Solution:**
@@ -760,7 +778,7 @@ _created 2026-09-07 00:30 · updated 2026-09-19 03:50 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, LOW exposure (12-cam house list, months apart): _cameras_by_area built once at discover (__init__.py:2316), consumed live (coordinator.py:3670); census invalidate ...
 
-### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events) — _#21 · WSJF 2.0 · v5 tc3 u2 /e5_
+### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events) — _#22 · WSJF 2.0 · v5 tc3 u2 /e5_
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
 _created 2026-08-21 17:40 · updated 2026-09-19 03:50 · initial_
 - **Next:** Decide whether a RATE-based sensor-health signal is worth building at all — decompose the benefit before speccing (marginal-benefit duty). Cheapest version may be a diagnostic-only transitions-per-hour surface with NO automatic action, l...
@@ -777,7 +795,7 @@ _created 2026-08-21 17:40 · updated 2026-09-19 03:50 · initial_
   - `THE_DESIGN_TENSION_READ_THIS_BEFORE_FIXING`: DO NOT simply add a rate threshold to the existing detector. The impossibility framing was chosen ON PURPOSE so the detector could QUARANTINE-ALWAYS WITH NO CORROBORATOR GATE (chatter_detector.py:8 — "quarantine-ALWAYS on a physics viola...
   - `SECOND_FINDING_WRONG_LEG_WATCHED`: The detector registers over "the room blind-time-gated tier-1 entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,...
 
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#22 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#23 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-19 03:50_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -796,7 +814,7 @@ _updated 2026-09-19 03:50_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped) — _#23 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped) — _#24 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
 _updated 2026-09-19 03:50_
 - **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
@@ -808,7 +826,7 @@ _updated 2026-09-19 03:50_
   - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
   - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real...
 
-### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#24 · WSJF 1.2 · v5 tc3 u2 /e8_
+### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#25 · WSJF 1.2 · v5 tc3 u2 /e8_
 thread: **diagnostics** - status: **waiting_operator**
 _created 2026-08-19 09:00 · updated 2026-09-19 03:50 · refined_
 - **Next:** APPROVE building D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) as a SHADOW-FIRST ship. NOTE: approving STARTS a hard 2-day forcing gate (flip to acting within 2 days of shadow deploy or declare moot).
@@ -820,7 +838,7 @@ _created 2026-08-19 09:00 · updated 2026-09-19 03:50 · refined_
   - `build_2026_08_19`: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
   - `reviews_2026_08_19`: D7 TIER-3 REVIEWS: A+D SHIP-WITH-FIX, B+C DO-NOT-SHIP — INDEPENDENTLY CONVERGED on the HIGH. Boot-safety CLEAN (no repeat of the v5.84.0 import-shadow incident class). HIGH: act->shadow/off mode-flip leaves stale chatter exclusions (occu...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#25 · WSJF 1.0 · v7 tc4 u2 /e13_
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#26 · WSJF 1.0 · v7 tc4 u2 /e13_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-19 03:50 · refined_
 - **Problem / Solution:**
@@ -5124,26 +5142,6 @@ thread: **camera** - status: **done** - approval: **blocked**
 - **Refs:** AUDIT_frigate1_sunset.md
 - **Forensic keys (1):**
   - `closed_2026_08_16`: STALE (was blocked). Frigate-1 fully decommissioned 2026-08-15: entry deleted, 965 entities + 25 f1retired removed, F2 sole NVR, hardware repurposed by homelab agent. Go/no-go resolved months of soak ago.
-
-## ❓ Other (1)
-_unknown status bucket_
-
-### `STUCK-MOTION-FROZEN-ON-BLINDSPOT-1` - Stuck-sensor defense is blind to a MOTION/PIR sensor frozen ON (offline holding last state) — trusted anchor + unavailable-only staleness let a phantom hold the house occupied — _WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
-thread: **presence**
-_created 2026-09-18_
-- **Problem / Solution:**
-  - Problem (live incident 2026-09-18): binary_sensor.upstairs_hall_motion_3 went OFFLINE holding state=on at 16:27 (last_updated frozen, no heartbeat since) -> upstairs_hall_all_occupancy stuck on -> house_state stuck home_day with ALL pers...
-- **Why:** Real live incident: a single stuck PIR held the whole house occupied + a zone home while empty. The defense assumed PIR is trustworthy (clears fast) and that a dead sensor goes unavailable - both false for a Zigbee dropout holding on. Pr...
-- **Next:** TRACE the occupancy aggregation freshness handling (does any input get a last_updated-age check?); design a per-kind expected-report-interval staleness gate applied to ALL occupancy inputs incl motion; decide demote-vs-drop; wire to the ...
-- **Tags:** presence, occupancy, stuck-sensor, staleness, bug-class-7, incident, do-not-ship
-- **Parsimony:** [BUILD] stuck PIR frozen-on holds house occupied; every defense layer misses it
-- **Forensic keys (6):**
-  - `PLAN_2026_09_18`: Measure-first FALSIFIED the naive age-gate (edge-driven sensors: legit silence- while-on p95 1.8h motion / 5h mmwave still-body; incident sensor is camera/Frigate not Zigbee). Design = corroboration-gated DEMOTE reusing SensorExclusionSe...
-  - `BUILD_APPROACH_2026_09_18`: Operator greenlit the freshness gate. Tier 2-DB (occupancy TRUST; false- negative = abandon a real occupant). Measure-first + prior-art scan dispatched (accb0d5f7, read-only): (A) existing freshness/unavailable handling + stuck detector ...
-  - `PLANREVIEW_2026_09_18`: Plan-review returned NOT-BUILD-READY (4 CRIT + 3 HIGH) — folded all. CRIT-1: a room-tier exclusion does NOT reach zone/house (substrate is exclusion-blind + frozen sensor emits no edge), so the first draft would NOT have fixed the incide...
-  - `BUILD_DISPATCH_2026_09_18`: Build dispatched (ura-builder, worktree, feature/occupancy-freshness-gate off develop). Next: 3 framing-disjoint reviews (A correctness / B trust-lifecycle both tiers / C mutation- anchored incl. CRIT-2 subject-exclude + CRIT-3 non-empty...
-  - `BUILD_MISTARGETED_2026_09_18`: DO NOT SHIP build 29787cbf2. Producer-path trace (run late — the miss) proved the gate does NOT intercept the incident. binary_sensor.upstairs_hall_motion_3 is platform=frigate, enters via the CAMERA-OVERRIDE path (coordinator.py:3974, a...
-  - `RESCOPE_2026_09_18`: Operator re-scoped: (1) KEEP branch 29787cbf2 unmerged (corroboration-demote machinery reusable), PARK cards. (2) The real target is the PIR STUCK-ON LEAK, NOT camera: "we do NOT use camera motion for occupancy" (operator design fact — c...
 
 ## 🅿️ Parked ideas (top-level list)
 
