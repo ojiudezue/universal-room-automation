@@ -26144,6 +26144,47 @@ cards:
   revisit_trigger: 'If an operator sets disable_camera_presence expecting a room to ignore ALL camera presence
      and sees camera-driven occupancy anyway.'
   next: 'REVIEW (operator, low priority): decide gate-vs-document; else parked.'
+- id: JAYA-FAN-STILL-PHANTOM-1
+  title: "Jaya Bedroom fan-induced mmWave still-phantom held Upstairs HVAC zone (empty room) — resolved by enabling fan control so the shipped pause-recheck covers it"
+  thread: presence
+  status: shipped_organic
+  created: '2026-09-19'
+  updated: '2026-09-19'
+  tags: [presence, hvac, mmwave, fan-phantom, jaya, config-fix]
+  problem_solution:
+  - 'Root cause (verified 2026-09-18/19, supersedes the refuted STUCK-MOTION-FROZEN-ON-BLINDSPOT-1): the
+     ceiling-fan running in an EMPTY Jaya Bedroom induced a sustained FALSE STILL target on jaya_3 (ESPHome
+     LD2410), holding binary_sensor.jaya_bedroom_bedroom_4_occupied on 17:44-19:26 and bouncing HVAC zone_2
+     (Upstairs) back to home. jaya_3 was ALIVE (not stuck) giving genuine-but-false still detections; move
+     channel quiet; sibling Zigbee ceiling mmwave OFF throughout. Every shipped fan-defense sat out: pause-
+     recheck vetoed fan_control_off (Jaya fan_control_enabled=False, URA controlled the fan at NEITHER tier);
+     passive INVARIANT-M demotion fails-closed in no-PIR rooms (Jaya has no PIR). Falsified alternatives:
+     cross-mmWave disagreement UNRELIABLE (self-verified: overnight jaya_3-on/zigbee-off = 61.5%, the NORMAL
+     sleeping-child signature — ceiling under-detects a still body); move-channel corroborator fragile+backfires
+     (1s blips create occupancy); still_energy #6 NOT ready (recorder-excluded + per-gate needs engineering mode
+     -> forward instrumentation, days). SOLUTION APPLIED (operator, 2026-09-19): enabled fan_control_enabled=True
+     on Jaya. Now the SHIPPED pause-recheck (master on, all gates pass) will pause the fan on the next mmwave-
+     sole+fan-on episode and demote if the still-target collapses = physical fan-vs-body discrimination, no build.
+     COST accepted: URA now manages Jaya fan for comfort (fan_temp_threshold=78, fan_sleep_policy=normal) -
+     watch nighttime behavior for the child.'
+  why: 'the discrimination we needed (is this fan or a body?) is exactly what the shipped pause-recheck does by
+     stopping the fan; the only blocker was a room toggle. Reuses paid-for machinery, sidesteps every fragile
+     signal-processing path we falsified.'
+  discriminator: 'ORGANIC ACCEPTANCE (one-shot, no soak): on the next fan-on mmwave-sole episode in an empty
+     Jaya, sensor.jaya_bedroom_..._fan_recheck_last_outcome shows a demote/clear and the room drops occupied ->
+     zone_2 releases. Enable the fan_recheck diagnostic sensors (disabled_by=integration) for dashboard
+     visibility, or confirm via log. If the phantom recurs with the recheck NOT firing -> reopen.'
+  links:
+    related: [STUCK-MOTION-FROZEN-ON-BLINDSPOT-1]
+  followups:
+  - 'FAN-RECHECK-GATE-HARDENING: recheck gate keys only on room CONF_FAN_CONTROL_ENABLED, ignoring
+     _is_hvac_managing_fans() — a room with hvac_coordination_enabled=True + fan_control_enabled=False would
+     be wrongly vetoed fan_control_off. Sweep found 0 rooms in that state today (coord/fanctl move together), so
+     LATENT code gap, not live. Card if it ever bites.'
+  - 'MMWAVE-STILL-ENERGY-CORROBORATOR-#6: the parked fan-paper learning; NOT ready-to-build (contra the
+     supersession-audit claim) - still_energy is recorder-EXCLUDED + per-gate needs engineering_mode; requires
+     forward capture (phantom vs known-occupied) + per-unit fit; intra-device (fragile). Revisit only if the
+     pause-recheck route proves insufficient across the mmwave-only fan rooms.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
