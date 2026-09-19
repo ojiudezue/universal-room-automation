@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-19T18:27:41-05:00_ - _Data commit: `9077023c8ebf`_ - _last_reconciled: 2026-09-19_
+_Generated: 2026-09-19T18:40:36-05:00_ - _Data commit: `23ea5e6dfb57`_ - _last_reconciled: 2026-09-19_
 
 
 ## Columns
@@ -446,14 +446,15 @@ _created 2026-09-19_
 - **Problem / Solution:**
   - Operator reported: changing room config -> HA becomes unresponsive ("some kind of reset"). VERIFIED from logs 2026-09-19: NO core restart (no "Starting Home Assistant" banner) -> unresponsive blip, not a reset. Mechanism: options-flow cl...
 - **Why:** operator hit a live stability blip while doing exactly what we recommended (enable fan control on Jaya); the room reload path is heavier than a single-room change should require, and amplified under network load.
-- **Next:** BUILD pass 2 in flight (full 20-key REFRESHED audit + real tests). -> validator baseline-diff + 3 framing-disjoint reviews -> orchestrator mutation-verify -> ship. Gate: does a full climate-step save suppress?
+- **Next:** REVIEW: validator + A + B in flight, C queued. -> fix any findings -> orchestrator mutation-verify (re-grep REFRESHED coverage + neuter D0 seed on shipping code) -> ship + live-validate + README write-back.
 - **Tags:** reload, event-loop, config-flow, stability, tier-2db, incident
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `PLAN_2026_09_19`: PLANNING_room_config_reload_suppression.md written. Prior-art scan REUSE-only (no new infra). D2 PARTIALLY FALSIFIED during scoping: the SUPPRESSED path already short-circuits the substrate (no-diff fast-path occupancy_substrate.py:442; ...
   - `PLAN_DISPATCH_2026_09_19`: Operator APPROVED Tier-2-DB fix. ura-planner dispatched -> PLANNING_room_config_reload_suppression.md (D1 per-key live-consumer-proven allowlist extension; D2 scope substrate re-subscribe to changed room). Next: plan-review -> build -> 3...
   - `PLANREVIEW_2026_09_19`: Plan-review = FIX-REQUIRED, 6 must-fix (gate worked — caught a would-be no-op + a would-fail-validation). P1 CRIT: snapshot never seeded at setup -> first save per room per HA lifetime ALWAYS reloads even for allowlisted keys -> add D0 (...
   - `BUILD_DISPATCH_2026_09_19`: Revised plan folded all 6 must-fix; orchestrator spot-verified D0 setup location (__init__.py:1798) + P1 (only listener seeds room_last_applied_options) + P2 REFRESHED crux (_refresh_config top-of-tick coordinator.py:4934). Build dispatc...
   - `BUILD_PASS1_INCOMPLETE_2026_09_19`: Build pass 1 (59943f353) honest but INCOMPLETE: allowlisted only hvac_vacancy_hold[_night] (the 2 pre-cleared keys), deferred the REFRESHED audit for the other ~20 climate keys -> per all-or-nothing (P7), a full CLIMATE-STEP save still m...
+  - `BUILD_PASS2_DONE_2026_09_19`: Build pass 2 (6c2545f96) FINISHES it: 27-key allowlist (6 pre + 5 LIVE + 16 REFRESHED-with-coverage); only CONF_CLIMATE_ENTITY residual-excluded (structural rewire). GATE ANSWERED: a full Climate & Fans save now SUPPRESSES unless the cli...
 
 ## 🔍 Review (1)
 _under review_
