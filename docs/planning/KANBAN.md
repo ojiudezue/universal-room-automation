@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-19T18:11:38-05:00_ - _Data commit: `da2838963df6`_ - _last_reconciled: 2026-09-19_
+_Generated: 2026-09-19T18:16:56-05:00_ - _Data commit: `084b0f6a997b`_ - _last_reconciled: 2026-09-19_
 
 
 ## Columns
@@ -443,7 +443,7 @@ _created 2026-09-19_
 - **Problem / Solution:**
   - Operator reported: changing room config -> HA becomes unresponsive ("some kind of reset"). VERIFIED from logs 2026-09-19: NO core restart (no "Starting Home Assistant" banner) -> unresponsive blip, not a reset. Mechanism: options-flow cl...
 - **Why:** operator hit a live stability blip while doing exactly what we recommended (enable fan control on Jaya); the room reload path is heavier than a single-room change should require, and amplified under network load.
-- **Next:** APPROVED + planning in flight. -> plan-review -> build (Tier 2-DB) -> 3 reviews -> mutation-verify -> ship.
+- **Next:** D1 APPROVED (operator 2026-09-19), D2 confirmed PARKED (SUBSTRATE-PER-ROOM-REFRESH-1). Awaiting plan-review return -> fold findings -> build D1 (Tier 2-DB) -> 3 reviews -> mutation-verify -> ship.
 - **Tags:** reload, event-loop, config-flow, stability, tier-2db, incident
 - **Forensic keys (2):**
   - `PLAN_2026_09_19`: PLANNING_room_config_reload_suppression.md written. Prior-art scan REUSE-only (no new infra). D2 PARTIALLY FALSIFIED during scoping: the SUPPRESSED path already short-circuits the substrate (no-diff fast-path occupancy_substrate.py:442; ...

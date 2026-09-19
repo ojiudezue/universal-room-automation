@@ -26183,7 +26183,8 @@ cards:
      CM reload-suppression (project_cm_reload_suppression_cycle_stack).'
   why: 'operator hit a live stability blip while doing exactly what we recommended (enable fan control on Jaya);
      the room reload path is heavier than a single-room change should require, and amplified under network load.'
-  next: 'APPROVED + planning in flight. -> plan-review -> build (Tier 2-DB) -> 3 reviews -> mutation-verify -> ship.'
+  next: 'D1 APPROVED (operator 2026-09-19), D2 confirmed PARKED (SUBSTRATE-PER-ROOM-REFRESH-1). Awaiting
+    plan-review return -> fold findings -> build D1 (Tier 2-DB) -> 3 reviews -> mutation-verify -> ship.'
   links:
     related: [JAYA-FAN-STILL-PHANTOM-1]
 - id: SUBSTRATE-PER-ROOM-REFRESH-1
