@@ -18615,9 +18615,9 @@ cards:
   title: The harness's task-leak detector watches the wrong event loop, so it has never caught a
     leaked task — and a green suite has been over-trusted because of it
   thread: quality
-  status: pre_planning
+  status: in_progress
   created: '2026-09-15'
-  updated: '2026-09-19 03:10'
+  updated: '2026-09-19 03:45'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
@@ -18672,6 +18672,22 @@ cards:
   refs:
   - quality/tests/conftest.py (verify_cleanup override + its HONEST SCOPE docstring)
   - .venv-ha/.../pytest_homeassistant_custom_component/plugins.py:351 (upstream, same blind spot)
+  gate_2026_09_19: 'FOUR-STEP GATE PASSED, build dispatched (overnight, worktree-isolated, NOT
+    deployed). (1) VALIDITY/ground truth: STILL-REAL — read quality/tests/conftest.py:404-520 live;
+    the override is unchanged and is still a SYNC fixture resolving the loop via _ura_current_loop(),
+    and its own HONEST SCOPE docstring states the task/timer checks cannot see the per-test loop. Also
+    re-measured the suite baseline by RUNNING it: default-order collection is clean at 10,745 tests /
+    0 errors (02:06 CDT), so there is a trustworthy name-diff baseline to sweep against. (2) PRIOR
+    ART/REUSE: REUSE, not build — the fixture, the _ura_current_loop() helper, the
+    expected_lingering_tasks/timers contract and phccs get_scheduled_timer_handles + HassJob
+    cancel_on_shutdown exemption all exist at conftest.py:429-520 and are extended in place; the only
+    NEW piece is the async vantage point (an autouse async fixture), which the 09-15 drill proved is
+    the only thing that can see the real loop. (3) PARSIMONY: BUILD (recorded, unchanged). (4)
+    COST/BENEFIT: test-only, zero production blast radius, no HA restart — so this is exactly the
+    shape of work that is safe to drive unattended in an occupied house. The one real risk is the
+    false-positive cascade across ~10,745 tests (a leaked task is visible to the NEXT tests fixture),
+    which is why scoping to tasks-created-during-this-test plus a full-suite name-diff are both
+    mandatory acceptance gates in the brief rather than nice-to-haves.'
 - id: TEST-HARNESS-REAL-HA-DEFAULT-1
   DOCUMENTED_COMMAND_IS_A_TRAP_2026_09_16: 'FRESH SYMPTOM, folded in rather than carded separately
     (adjacency sweep: this card already owns "which interpreter is the harness"). Hit live during
@@ -24066,7 +24082,7 @@ cards:
   status: planned
   verified_survivor_2026_09_13: 'KEEP — verified REAL + the survivor for the whole remaining order-pollution surface. Reverse-order reproduces its exact class: production-module partial stubs (occupancy_substrate) + remaining .signals poisoners (SIGNAL_EGRESS_EXIT_BACKFILLED) + homeassistant.helpers.storage never-popped = 10 collection errors reverse / 0 default. ABSORBED SUITE-ORDER-POLLUTION-1 (storage-never-pops instance + forensics). Fix: extend _ura_const_support into a complete-module helper for signals + prod modules; acceptance = shuffle-seed collection matrix. inbox->planned.'
   created: 2026-09-12 17:10
-  updated: '2026-09-16 04:20'
+  updated: '2026-09-19 03:45'
   refinement_status: initial
   approval: unreviewed
   sibling_of:
@@ -24117,7 +24133,12 @@ cards:
   links_note_2026_09_16: 'Effectively blocked on TEST-HARNESS-REAL-HA-DEFAULT-1 for the same reason
     its parent TEST-STRATEGY-REARCH-1 is: not because the fix is unclear, but because the regression
     check that makes it safe needs a working runtime harness.'
-
+  verify_2026_09_19: 'VERIFY-BEFORE-WORK datapoint (read-only, no work started): default-order
+    collection re-run tonight at 02:06 CDT on develop = 10,745 tests collected, ZERO errors. That is
+    consistent with every prior read — the DEFAULT order has been clean throughout; this cards defect
+    is shuffle-order-only (seeds 11/22/33 -> 1/1/4 errors, 09-16) and nothing tonight changes it.
+    STILL-REAL, unchanged, and still queued behind the harness work. Recorded because a clean
+    default-order number is routinely mistaken for this card being fixed.'
 - id: BLE-HOLD-CAP-SUITE-POLLUTION-1
   title: test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution
     (passes alone/in pairs)
