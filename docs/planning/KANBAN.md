@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-19T02:19:29-05:00_ - _Data commit: `17e22f272db3`_ - _last_reconciled: 2026-09-19_
+_Generated: 2026-09-19T02:20:39-05:00_ - _Data commit: `53db3a1399e6`_ - _last_reconciled: 2026-09-19_
 
 
 ## Columns
@@ -679,7 +679,7 @@ _created 2026-08-26 11:00 · updated 2026-09-19 04:55 · refined ×1_
 
 ### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#16 · WSJF 3.2 · v8 tc6 u2 /e5_
 thread: **perimeter** - status: **waiting_operator** - approval: **implied**
-_created 2026-09-17 02:20 · updated 2026-09-17 03:05 · refined_
+_created 2026-09-17 02:20 · updated 2026-09-19 05:00 · refined_
 - **Problem / Solution:**
   - Problem: the part of the system that spots people outside the house can stop answering entirely — every outdoor camera at once — and absolutely nothing raises a hand. It has now done this three times in the last eight days, once for 30 h...
 - **Origin:** 2026-09-17 - overnight pass re-measured PERIMETER-DETECTION-WENT-DARK-1, found the outage had self-healed AND that it was the second such blackout in eight days — the recurrence is what justified the build
@@ -688,11 +688,12 @@ _created 2026-09-17 02:20 · updated 2026-09-17 03:05 · refined_
 - **Tags:** tier-2, measure-before-build, numbers-get-knobs, mutation-drill
 - **Parsimony:** [SIMPLIFY] exterior person detection has gone fleet-wide silent three times in eight days, twice for over a day, and no part of the system noticed the outage OR the recovery
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; custom_components/universal_room_automation/const.py
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `MEASURED_2026_09_17`: Read-only, HA recorder over the Samba mount (immutable=1), recorder verified live-fresh at read time. Gap analysis over every binary_sensor.*_person_occupancy_2 ON-transition across the full ~8 days of recorder retention, looking for str...
   - `prior_art_2026_09_17`: REUSE, not build — this is a structural twin of the shipped stuck-ON check and should be written as its mirror, not as new machinery. REUSE _exterior_person_sensors() (optimization.py:1941) for the camera->entity map, so the check follow...
   - `REVIEWED_2026_09_17`: BUILT, THEN BOTH REVIEWS SAID DO-NOT-SHIP — and they are right. Two framing-disjoint reviews (A local-correctness, B lifecycle/write-volume) ran in parallel and CONVERGED INDEPENDENTLY on the same HIGH, which is the strongest signal this...
   - `DEDUPE_2026_09_17`: NEW. Swept all four surfaces before minting. Board: grepped every card whose id or title carries tripwire / silence / silent / stuck / zero-fire — found the stuck-ON sibling (shipped), the two closed per-camera silence cards, and OC-STUC...
+  - `INPUT_MEASURED_2026_09_19`: THE NUMBER YOUR REDESIGN DECISION NEEDS IS NOW MEASURED, and it is worse than the cards framing assumed — which strengthens the case for the redesign rather than weakening it. This card says the built tripwire does not work because it co...
 
 ### `STUCK-MOTION-FROZEN-ON-BLINDSPOT-1` - Stuck-sensor defense is blind to a MOTION/PIR sensor frozen ON (offline holding last state) — trusted anchor + unavailable-only staleness let a phantom hold the house occupied — _#17 · WSJF 3.0 · v7 tc4 u4 /e5_
 thread: **presence** - status: **waiting_operator**

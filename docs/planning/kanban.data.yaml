@@ -25603,7 +25603,7 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-17 02:20'
-  updated: '2026-09-17 03:05'
+  updated: '2026-09-19 05:00'
   refinement_status: refined
   approval: implied
   tags:
@@ -25749,7 +25749,22 @@ cards:
     by-design exclusion list, not a silence check. Distinct problem statement from
     PERIMETER-DETECTION-WENT-DARK-1 (that card asks what broke on the host; this one asks why nothing
     noticed), so linked rather than folded in, per the retire-and-relink rule.'
-
+  INPUT_MEASURED_2026_09_19: 'THE NUMBER YOUR REDESIGN DECISION NEEDS IS NOW MEASURED, and it is
+    worse than the cards framing assumed — which strengthens the case for the redesign rather than
+    weakening it. This card says the built tripwire does not work because it counts silence in memory
+    and "the nightly config-entry reload storm resets that memory every couple of hours, so a check
+    needing 6 hours never gets there". Two corrections, one of which matters a lot: (1) it is NOT a
+    config-entry reload storm — measured tonight, the memory-wiping events are FULL HA RESTARTS (8 on
+    09-18, 1:1 with URA setups, zero restart-free reloads since 09-16; see HA-CORE-RESTART-STORM-1).
+    (2) That is worse for this design, because a restart is a normal and permanent fact of life, not a
+    bug that might get fixed out from under you: even with the restart storm solved, ordinary deploys
+    restart HA several times on an active day. So an in-memory counter needing a 6-hour unbroken window
+    is structurally unreliable, and waiting for the lifecycle churn to be fixed is NOT a viable
+    alternative to redesigning. Measured gap distribution on 09-18 (UTC restarts 01:17, 01:29, 03:16,
+    05:40, 07:09, 09:02, 15:09, 21:07): uninterrupted windows of 12m, 107m, 144m, 89m, 113m, 367m,
+    358m — only two of seven windows even reach 6 hours. The redesign should persist the silence
+    accounting (or key it off a persisted last-seen timestamp rather than an in-process counter),
+    which also makes it robust by construction instead of dependent on someone elses uptime.'
 - id: PERIMETER-ALERT-VOLUME-FATIGUE-1
   title: "Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue"
   thread: security
