@@ -9609,7 +9609,7 @@ cards:
     post-deploy criterion and it is what discriminates a working instrument from a plausible one.'
   relane_2026_09_15: 'inbox -> planned. It is STEP 2 of an operator-approved sequence and is the arc''s measurement instrument, so it is no longer raw capture. Tier 1-2, additive observability, no behaviour change — drivable without a further operator gate.'
   created: '2026-09-15'
-  updated: '2026-09-15'
+  updated: '2026-09-19 03:55'
   refinement_status: initial
   approval: unreviewed
   tags: [no-fabrication-verify, observability]
@@ -9667,6 +9667,7 @@ cards:
   - hvac_override.py:600 (INFO "ledger" comment), :2848 (INFO "Override detected")
   - hvac_fans.py:1058-1060, :1716-1720 (the durable activity_logger pattern to reuse)
   - docs/planning/PLANNING_arrester_comfort_delay.md
+  ack_reconciled_2026_09_19: 'Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: live override_detected row check still owed. So the ack is recorded as the operator having SEEN the update, and the card deliberately stays in shipped_organic with its discriminator open. Noted so a later session does not read the ack as an acceptance and close it prematurely, and does not re-raise the same question.'
 - id: HVAC-HOT-ENTRY-LATENCY-1
   seq_2026_09_15: 'STEP 5 (conditional) of HVAC-SUPPLE-SEQUENCE-1. The ONLY thing that can satisfy fast-in is the event-driven path, because HVAC_DECISION_TICK (5 min) is a hard floor no dwell value can beat. Its old arrester open-question is answered by STEP 2.'
   title: Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry dwell does
@@ -12695,7 +12696,7 @@ cards:
   status: shipped_organic
   shipped_version: v5.103.7
   created: '2026-09-15'
-  updated: '2026-09-15'
+  updated: '2026-09-19 03:55'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-15 ("We need a strong recommendation to better couple room to zone
@@ -12810,6 +12811,7 @@ cards:
   - hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset)
   - hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling)
   - hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
+  ack_reconciled_2026_09_19: 'Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: post-sensor-swap residual re-measure still owed. So the ack is recorded as the operator having SEEN the update, and the card deliberately stays in shipped_organic with its discriminator open. Noted so a later session does not read the ack as an acceptance and close it prematurely, and does not re-raise the same question.'
 - id: HVAC-PRESET-FLAP-1
   seq_2026_09_16: 'STEP 9 (closeout) of HVAC-SUPPLE-SEQUENCE-1 — superseded_by step 6 for the BUILD; survives only as the evidence ledger. It CLOSES at step 9 with a recorded disposition, not by being forgotten. Read it before any new work here; do NOT re-derive tuning recommendations from it.'
   PRECONDITION_2_CLEARED_2026_09_15: 'OPERATOR TASK DONE + RE-MEASURED. The card gated unparking on
@@ -17582,7 +17584,7 @@ cards:
     the retained ones are actually invoked on unload needs a different check.'
   thread: platform
   created: 2026-08-18 02:30
-  updated: '2026-09-15'
+  updated: '2026-09-19 03:55'
   refinement_status: refined
   problem: 'untracked background tasks — matches a known URA bug class (task leak). One hardening cycle.
     (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified
@@ -17604,6 +17606,7 @@ cards:
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL independent Tier 2 (production). Promoted inbox -> pre_planning; corrected
     mis-link.'
+  ack_reconciled_2026_09_19: 'Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the Tier-2 production hardening (async_on_unload audit + task tracking) is not built. So the ack is recorded as the operator having SEEN the update, and the card deliberately stays in shipped_organic with its discriminator open. Noted so a later session does not read the ack as an acceptance and close it prematurely, and does not re-raise the same question.'
 - id: CONFIG-SUBENTRIES-MIGRATION-1
   title: Config subentries migration (flat 34-entry -> subentries)
   status: parked
@@ -20137,7 +20140,7 @@ cards:
   status: shipped_organic
   shipped_version: v5.103.3
   created: '2026-09-16'
-  updated: '2026-09-16'
+  updated: '2026-09-19 03:55'
   refinement_status: initial
   approval: implied
   tags: [tier-2, found-during-validation, no-fabrication-verify]
@@ -20166,6 +20169,7 @@ cards:
   refs:
   - hvac_override.py async_startup_ramp_audit (temp=1, preset=0)
   - docs/planning/PLANNING_preset_hold_contract_resume_then_pin.md (R1-MEDIUM-1)
+  ack_reconciled_2026_09_19: 'Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the first-restart-after-deploy named-hold check has not been run. So the ack is recorded as the operator having SEEN the update, and the card deliberately stays in shipped_organic with its discriminator open. Noted so a later session does not read the ack as an acceptance and close it prematurely, and does not re-raise the same question.'
 - id: HVAC-MANUAL-PRESET-CONTRACT-1
   LOCKOUT_READ_2026_09_16: 'Interim lockout-telemetry read (10.8h post-v5.103.4, instrument LIVE:
     6 episodes, all wanted=home blocked_by=manual). FINDINGS: zone_1 manual%% 67.5%% — UNCHANGED from
@@ -20711,7 +20715,7 @@ cards:
   thread: hvac
   status: shipped_organic
   shipped_version: v5.103.2
-  updated: 2026-09-12 11:00
+  updated: '2026-09-19 03:55'
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL — IMPORTANT: the naive fix (add preset-restore write at each restore site) is ALREADY in code (hvac_override.py:4348 _restore_after_nudge unconditional emit_set_preset_mode, commit 0415d9b2d) and was LIVE-MEASURED INEFFECTIVE 2026-08-23 (0/10 real-preset restores took). Carrier pins back to manual (set_preset pins hold vs ''resume'' clears schedule). Remaining = one-night-one-zone CANARY (restore via preset only, skip set_temperature) + operator pin-hold-vs-resume decision. Do NOT re-attempt the naive write.'
   PRECONDITION_AND_SEVERITY_2026_08_20: 'OPERATOR AGREED this is a PRECONDITION for the calming work,
     not a sibling. Quantified from the same 48h preset series: zone 1 sat in manual from 01:45 to 16:20
@@ -21012,6 +21016,7 @@ cards:
   links:
     blocks: [HVAC-ZONE-CONDITIONING-DEMAND-1]
     context: 'blocks back-ref added during the 2026-09-15 hygiene sweep — HVAC-ZONE-CONDITIONING-DEMAND-1 declared blocked_by this card but the dependency was one-sided.'
+  ack_reconciled_2026_09_19: 'Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the numeric acceptance prediction (zone_1 manual% falling toward ~6%) is unmeasured and D2b undecided. So the ack is recorded as the operator having SEEN the update, and the card deliberately stays in shipped_organic with its discriminator open. Noted so a later session does not read the ack as an acceptance and close it prematurely, and does not re-raise the same question.'
 - id: HVAC-ROLLOVER-DURABLE-DATE-ORDERING-1
   title: The daily short-cycle sample is now saved durably but its date stamp is not — an unclean
     restart in the same tick can still double-count one day
@@ -21372,7 +21377,7 @@ cards:
     as acceptance fixture; decide rolling-24h-per-tick vs per-completed-cycle-log.
   shipped_version: v5.103.4
   created: 2026-08-20 14:15
-  updated: '2026-09-16 04:05'
+  updated: '2026-09-19 03:55'
   refinement_status: refined
   BUILD_REVIEW_2026_08_24: 'Build 1f4d36325 (branch feature/hvac-shortcycle-producer) orchestrator-verified
     (fresh base, diff=plan scope, restart-guard correct, midday-restart + guard tests present). Tier-2-DB
@@ -21765,7 +21770,7 @@ cards:
     sample_count=3 with last_updated on the new date and NO clean shutdown in between. Do NOT validate
     by grepping the new info log line — Review A established that save_baselines swallows DB errors
     internally, so that line fires even if nothing was written. Read metric_baselines directly.'
-
+  ack_reconciled_2026_09_19: 'Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: residual B (awaited save_baselines) is scoped but unbuilt. So the ack is recorded as the operator having SEEN the update, and the card deliberately stays in shipped_organic with its discriminator open. Noted so a later session does not read the ack as an acceptance and close it prematurely, and does not re-raise the same question.'
 - id: D2-CANARY-GUEST-PREDICATE-1
   title: URA's own planted tripwire is firing ~4x/min saying the guest-arming logic was re-composed —
     3300+ hits since boot, nobody notified
@@ -22260,7 +22265,7 @@ cards:
     range, fix/disable pantry adaptive-lighting automation, resolve camera_census ids (via FRIGATE-LEG-NAMING).'
   shipped_version: v5.101.1
   created: 2026-08-20 14:15
-  updated: 2026-08-23 15:45
+  updated: '2026-09-19 03:55'
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -22289,6 +22294,7 @@ cards:
   refs:
   - ha_get_system_health 2026-08-20
   - FRIGATE-LEG-NAMING-1
+  ack_reconciled_2026_09_19: 'Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the config-level fixes + re-measure are unstarted. So the ack is recorded as the operator having SEEN the update, and the card deliberately stays in shipped_organic with its discriminator open. Noted so a later session does not read the ack as an acceptance and close it prematurely, and does not re-raise the same question.'
 - id: ENVOY-PRODUCTION-STALE-1
   title: Envoy solar-production sensor read 0 kW for ~16.5h while the house was exporting 6 kW — a stale
     live sensor that URA's solar entity derives from; does any decision path trust it?
@@ -24718,7 +24724,7 @@ cards:
   status: shipped_organic
   shipped_version: v5.103.0
   created: '2026-09-12 16:30'
-  updated: '2026-09-12 16:30'
+  updated: '2026-09-19 03:55'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-12 ("Finally deliver on appliance management — we have a plan we need to refine")'
@@ -24897,7 +24903,7 @@ cards:
     inverse stayed green, restore->GREEN. The invariant hollow on the first build is now real. +3 tests, no
     new suite failures. Branch 132d8db39. SHIP-CLEAN, unmerged.
   next: 'DEPLOY-READY (batch): Option C (fe9ecb75f) + v1b (132d8db39) both ship-clean + orch-verified, unmerged. On a waking-hours restart I merge both -> develop -> one deploy.sh -> restart activates v5.102.1 + Option C + v1b together. Awaiting your restart window (or say go).'
-
+  ack_reconciled_2026_09_19: 'Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: two ship-clean commits are still unmerged and undeployed. So the ack is recorded as the operator having SEEN the update, and the card deliberately stays in shipped_organic with its discriminator open. Noted so a later session does not read the ack as an acceptance and close it prematurely, and does not re-raise the same question.'
 - id: CONFIG-FLOW-SLOW-ONBOARDING-1
   rechecked_2026_09_15: 'OVERNIGHT PASS recheck of the network-outage blocker recorded on 2026-09-13
     ("STILL LIVE and WORSE, 7053 unavailable"). MEASURED on the live recorder, 15-minute window:
