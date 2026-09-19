@@ -703,21 +703,28 @@ cards:
     occupied with no defense = the legit leak to fix. NOTE the 9/17-9/18 recorder showed house/zones/HVAC-zone-2
     all transitioning away/0 normally (no visible stuck window in that span) — but operator asserts the incident
     was real; verify the PIR leak on its MERITS (design gap) independent of pinning the exact incident timestamp.'
-  next: 'PICK, then I proceed. The build on this cards branch came back DO-NOT-SHIP from
-    review (the deliverable that wiped a whole rooms occupancy was rated CRITICAL) and the
-    producer-path trace showed the fix was aimed at the wrong entry point, so it was re-scoped
-    to a narrower consumption-side staleness gate. PICK: (A) proceed with the re-scoped
-    consumption-gate version — narrower, no room-wide wipe, Tier 2 with the full
-    framing-disjoint review set; or (B) park it until another stuck-ON motion sensor actually
-    occurs, since the live incident was a single event and the branch is preserved either way.
-    I recommend (A) only if one phantom-occupied house is evidence enough for you; otherwise
-    (B) is the honest call. -> On your pick I either dispatch the re-scoped build or park the
-    card with the branch and a revival trigger.'
+  REFUTED_2026_09_19: 'CLOSED REFUTED (operator directive: close refuted, drop leak-class). Recorder forensics
+    overturned the premise on every count. (1) The originally-named entity binary_sensor.upstairs_hall_motion_3
+    is platform=frigate (a CAMERA motion object), NOT a Zigbee PIR; camera motion does NOT feed URA occupancy
+    in the configured install (camera_census.py:508 admits person-suffix only; full-scan fallback path was
+    misgeneralized). It was also never frozen (chatters normally in recorder). My original live-snapshot
+    "frozen since 16:27" was a last_updated==last_changed misread — verify-before-asserting failure. (2) The
+    CONFIGURED Upstairs Hallway mmwave/pir (mmwavemotion_lux_temp_hum_upstairshallway_presence) was OFF the
+    whole afternoon — not the culprit. (3) ACTUAL cause: Jaya Bedroom (empty, operator-confirmed) — its radar
+    binary_sensor.jaya_3_presence held false on 17:44->19:26 (~1h42m, longest continuous ~58m due to two
+    unavailable blips) + re-fired 19:32, pulling HVAC zone_2 (Upstairs) back to home. Sibling mmwave
+    (mmwave_zigbee_jayabedroom_presence) was OFF throughout. jaya_3 is a LIVE sensor (heartbeats, recovers from
+    unavailable) giving genuine-but-FALSE detections in an empty room = radar over-sensitivity, NOT a stuck
+    sensor. Stuck-detection did not fire because (P22 continuous-on = 4h threshold; jaya never held >~58m
+    continuous) and (Jaya has ONLY two mmwave presence sensors, NO corroborator-kind sensor, so D2 corroboration
+    gate has nothing to disagree). Branch 29787cbf2 preserved but abandoned (premise dead). Follow-up = Jaya
+    radar tuning + the "why no stuck-detection" answer to operator; leak-class DROPPED (no evidence).'
+  next: 'DONE — refuted. Real cause = Jaya radar false-positive in empty room (see JAYA-RADAR follow-up).'
   thread: presence
   created: '2026-09-18'
-  updated: '2026-09-19 04:45'
-  tags: [presence, occupancy, stuck-sensor, staleness, bug-class-7, incident, do-not-ship]
-  status: waiting_operator
+  updated: '2026-09-19 05:10'
+  tags: [presence, occupancy, stuck-sensor, staleness, bug-class-7, incident, refuted]
+  status: done
   rank: {value: 7, time_criticality: 4, effort: 5}
   title: Stuck-sensor defense is blind to a MOTION/PIR sensor frozen ON (offline holding last state) — trusted anchor + unavailable-only staleness let a phantom hold the house occupied
   problem_solution:
@@ -25932,7 +25939,11 @@ cards:
 - id: FRESHNESS-FALSE-AWAY-DOWNSTREAM-1
   title: "Freshness-gate false-AWAY residuals — perimeter escalation / NM quiet-hours inversion / guest-gate cancel (daytime-only after sleep-guard)"
   thread: presence
-  status: parked
+  dropped_2026_09_19: 'DROPPED — child of STUCK-MOTION-FROZEN-ON-BLINDSPOT-1, which closed REFUTED (the whole
+    freshness-gate premise was falsified; real cause = Jaya radar false-positive, not a stuck sensor). No
+    freshness gate shipping, so these downstream residuals are moot. If a freshness/demote mechanism is ever
+    revived, re-derive the blast-radius fresh.'
+  status: done
   created: '2026-09-18'
   updated: '2026-09-18'
   tags: [presence, occupancy, freshness-gate, security, perimeter, nm, guest, blast-radius]
