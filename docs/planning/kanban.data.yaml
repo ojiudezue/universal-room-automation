@@ -18773,7 +18773,7 @@ cards:
   thread: quality
   status: review
   created: '2026-09-15'
-  updated: '2026-09-19 04:50'
+  updated: '2026-09-19 05:10'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
@@ -18859,6 +18859,17 @@ cards:
     tonight, pre-change). NEXT SESSION: read the sweep result, and if it surfaced genuinely-failing
     pre-existing tests, those are REAL leaks the detector is correctly catching — card them, do not
     paper over them with expected_lingering_tasks.'
+  BUILD_STATE_AT_PASS_END_2026_09_19: 'Two commits on fix/test-leak-detector-wrong-loop in worktree
+    .claude/worktrees/leakdetector-2026-09-19: dab01cc35 (async fixture + self-check that asserts the
+    detector fires on a deliberate leak) and d8041ac21 (restores the SYNC task/timer check for sync
+    tests, on the reasoning that the async and sync paths resolve different loops and therefore cannot
+    double-fire — a claim the next reviewer should CHECK rather than accept, since "they cannot both
+    see it" is exactly the kind of assumption this card exists because of). The builder also created a
+    second worktree, leakdetector-baseline (detached at 5eec175d4), to run the pre-change baseline for
+    an honest name-diff — good practice, worth keeping. STILL RUNNING at pass end: the full-suite
+    false-positive sweep (two full ~10.7k-test runs, baseline and after). NOTHING was merged to develop
+    and nothing was deployed. DO NOT MERGE until the name-diff reads clean or its new failures have
+    been triaged as real leaks.'
 - id: TEST-HARNESS-REAL-HA-DEFAULT-1
   DOCUMENTED_COMMAND_IS_A_TRAP_2026_09_16: 'FRESH SYMPTOM, folded in rather than carded separately
     (adjacency sweep: this card already owns "which interpreter is the harness"). Hit live during

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-19T02:20:39-05:00_ - _Data commit: `53db3a1399e6`_ - _last_reconciled: 2026-09-19_
+_Generated: 2026-09-19T02:21:00-05:00_ - _Data commit: `0e1b1b614a07`_ - _last_reconciled: 2026-09-19_
 
 
 ## Columns
@@ -447,7 +447,7 @@ _under review_
 
 ### `TEST-LEAK-DETECTOR-WRONG-LOOP-1` - The harness's task-leak detector watches the wrong event loop, so it has never caught a leaked task — and a green suite has been over-trusted because of it — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **quality** - status: **review** - approval: **explicit**
-_created 2026-09-15 · updated 2026-09-19 04:50 · initial_
+_created 2026-09-15 · updated 2026-09-19 05:10 · initial_
 - **Problem / Solution:**
   - Problem: the test harness is supposed to fail a test that walks away leaving background work running — that is the safety net for the exact bug URA keeps hitting (timers and tasks that outlive a reload). It watches the wrong thing. Each ...
 - **Origin:** 2026-09-15 - Found while implementing option A on TEST-HARNESS-REAL-HA-DEFAULT-1 — the mutation drill that was meant to confirm preserved detection instead proved detection never worked.
@@ -456,10 +456,11 @@ _created 2026-09-15 · updated 2026-09-19 04:50 · initial_
 - **Tags:** tier-2, hollow-test-anchors, no-fabrication-verify
 - **Parsimony:** [BUILD] The leak detector inspects a different event loop than the one under test, so it cannot observe leaked tasks and always passes.
 - **Refs:** quality/tests/conftest.py (verify_cleanup override + its HONEST SCOPE docstring); .venv-ha/.../pytest_homeassistant_custom_component/plugins.py:351 (upstream, same blind spot)
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `MEASURED_2026_09_15`: Proven by drill, not inferred. (1) A test that creates a never-finishing task via `asyncio.get_running_loop().create_task(asyncio.sleep(3600))` PASSES under the current fixture. (2) Instrumented the loop identity at each phase: fixture s...
   - `gate_2026_09_19`: FOUR-STEP GATE PASSED, build dispatched (overnight, worktree-isolated, NOT deployed). (1) VALIDITY/ground truth: STILL-REAL — read quality/tests/conftest.py:404-520 live; the override is unchanged and is still a SYNC fixture resolving th...
   - `BUILD_2026_09_19`: BUILT on branch fix/test-leak-detector-wrong-loop, commit dab01cc35, in the isolated worktree .claude/worktrees/leakdetector-2026-09-19. NOT merged, NOT deployed (overnight pass rule: nothing ships while the house is asleep, and this nee...
+  - `BUILD_STATE_AT_PASS_END_2026_09_19`: Two commits on fix/test-leak-detector-wrong-loop in worktree .claude/worktrees/leakdetector-2026-09-19: dab01cc35 (async fixture + self-check that asserts the detector fires on a deliberate leak) and d8041ac21 (restores the SYNC task/tim...
 
 ## ⏸️ Waiting on operator (26)
 _needs a human call — groomed first_
