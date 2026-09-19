@@ -651,10 +651,19 @@ cards:
     occupied with no defense = the legit leak to fix. NOTE the 9/17-9/18 recorder showed house/zones/HVAC-zone-2
     all transitioning away/0 normally (no visible stuck window in that span) — but operator asserts the incident
     was real; verify the PIR leak on its MERITS (design gap) independent of pinning the exact incident timestamp.'
-  next: 'PICK, then I proceed. The build on this cards branch came back DO-NOT-SHIP from review (the deliverable that wiped a whole rooms occupancy was rated CRITICAL) and the producer-path trace showed the fix was aimed at the wrong entry point, so it was re-scoped to a narrower consumption-side staleness gate. PICK: (A) proceed with the re-scoped consumption-gate version — narrower, no room-wide wipe, Tier 2 with the full framing-disjoint review set; or (B) park the whole thing until another stuck-ON PIR actually occurs, since the live incident was a single event and the branch is preserved either way. I recommend (A) only if you consider one phantom-occupied house enough evidence; otherwise (B) is the honest call. -> On your pick I either dispatch the re-scoped build or park the card with the branch and a revival trigger.'
+  next: 'PICK, then I proceed. The build on this cards branch came back DO-NOT-SHIP from
+    review (the deliverable that wiped a whole rooms occupancy was rated CRITICAL) and the
+    producer-path trace showed the fix was aimed at the wrong entry point, so it was re-scoped
+    to a narrower consumption-side staleness gate. PICK: (A) proceed with the re-scoped
+    consumption-gate version — narrower, no room-wide wipe, Tier 2 with the full
+    framing-disjoint review set; or (B) park it until another stuck-ON motion sensor actually
+    occurs, since the live incident was a single event and the branch is preserved either way.
+    I recommend (A) only if one phantom-occupied house is evidence enough for you; otherwise
+    (B) is the honest call. -> On your pick I either dispatch the re-scoped build or park the
+    card with the branch and a revival trigger.'
   thread: presence
   created: '2026-09-18'
-  updated: '2026-09-19 04:40'
+  updated: '2026-09-19 04:45'
   tags: [presence, occupancy, stuck-sensor, staleness, bug-class-7, incident, do-not-ship]
   status: waiting_operator
   rank: {value: 7, time_criticality: 4, effort: 5}
@@ -677,15 +686,17 @@ cards:
     defense assumed PIR is trustworthy (clears fast) and that a dead sensor goes unavailable - both false for a
     Zigbee dropout holding on. Presence-layer gap, NOT a v5.103.x HVAC regression (verified: house_state chain
     honored the stuck sensor correctly).'
-  next: 'TRACE the occupancy aggregation freshness handling (does any input get a last_updated-age check?);
-    design a per-kind expected-report-interval staleness gate applied to ALL occupancy inputs incl motion;
-    decide demote-vs-drop; wire to the stuck-signal NM. Tier 2 (presence trust, regression-prone). Also carry
-    the secondary observation: zone_2 did NOT get the vacancy-override zones 1 & 3 got despite no person -
-    check whether away-while-occupied trust should cover motion-only occupancy with all persons away.'
   parsimony: {problem: 'stuck PIR frozen-on holds house occupied; every defense layer misses it', verdict: BUILD, note: 'real incident; freshness gate is the fix'}
   links: {related: [HVAC-PRECOOL-NO-CONSTRAINT-POST-BOOT-1], context: 'live stuck-sensor incident 2026-09-18; NOT a today-deploy regression'}
-  LANE_FIXED_2026_09_19: 'BOARD-HYGIENE DEFECT FIXED, and it is the silent kind. This card carried NO status field at all, so the renderer could not lane it — it fell into the bucket nobody reads and was invisible to every lane view of the board while looking perfectly complete in the data file. That is the worse of the two staleness shapes (a wrong lane is a judgement error; an unseeable lane is silent). Set to waiting_operator, which is what the work actually needs: the build was reviewed DO-NOT-SHIP and re-scoped, so the next move is a human pick, not more agent work. Also rewrote the `next` from agent-verbs to an operator verb per the waiting-lane rule; the prior agent-side plan is preserved below verbatim so nothing was lost in the rewrite.'
-  prior_next_2026_09_18: 'BUILD (implied approval): verify PIR-stuck-on leak is legit + verify camera-motion-not-occupancy claim; if leak real, the built D1 corroboration-demote already targets CONF motion sensors (incl. PIR) — re-scope to PIR, drop camera D1prime/D2prime, fix the A/B review bugs, ship.'
+  LANE_FIXED_2026_09_19: 'BOARD-HYGIENE DEFECT FIXED, and it is the silent kind. This card carried
+    NO status field at all, so the renderer could not lane it — it fell into the bucket nobody reads
+    and was invisible to every lane view while looking complete in the data file. That is the worse of
+    the two staleness shapes: a wrong lane is a judgement error, an unseeable lane is silent. Set to
+    waiting_operator, which is what the work actually needs — the build was reviewed DO-NOT-SHIP and
+    re-scoped, so the next move is a human pick, not more agent work. The `next` was also rewritten
+    from agent-verbs to an operator verb per the waiting-lane rule; the prior agent-side plan is kept
+    verbatim in prior_next_2026_09_18 so nothing was lost.'
+  prior_next_2026_09_18: '''BUILD (implied approval): verify PIR-stuck-on leak is legit + verify camera-motion-not-occupancy claim; if leak real, the built D1 corroboration-demote already targets CONF motion sensors (incl. PIR) — re-scope to PIR, drop camera D1prime/D2prime, fix the A/B review bugs, ship.'''
 - id: HVAC-PRECOOL-WINDOW-TOU-DERIVED-1
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
