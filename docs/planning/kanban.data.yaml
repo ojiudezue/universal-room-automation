@@ -26147,10 +26147,18 @@ cards:
 - id: ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1
   title: "Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s"
   thread: presence
-  status: pre_planning
+  status: planned
   created: '2026-09-19'
   updated: '2026-09-19'
   tags: [reload, event-loop, config-flow, stability, tier-2db, incident]
+  PLAN_2026_09_19: 'PLANNING_room_config_reload_suppression.md written. Prior-art scan REUSE-only (no new infra).
+    D2 PARTIALLY FALSIFIED during scoping: the SUPPRESSED path already short-circuits the substrate (no-diff
+    fast-path occupancy_substrate.py:442; CONF sensor lists not in allowlist) -> D1 alone kills the stall AND
+    the house-wide substrate churn (which was a fall-through-reload symptom, not an independent cause). D2
+    descoped to log-clarity; per-room refresh_subscriptions refactor PARKED as SUBSTRATE-PER-ROOM-REFRESH-1.
+    D1 per-key LIVE/CACHED audit table left for builder to fill with real greps (no fabricated classifications;
+    default EXCLUDED; hvac_vacancy_hold[_night] flagged CACHED-suspected). Plan-review dispatched. OPERATOR CALL
+    PENDING: keep D2 parked (recommended, parsimonious) vs pull the per-room refactor into this cycle.'
   PLAN_DISPATCH_2026_09_19: 'Operator APPROVED Tier-2-DB fix. ura-planner dispatched ->
     PLANNING_room_config_reload_suppression.md (D1 per-key live-consumer-proven allowlist extension; D2 scope
     substrate re-subscribe to changed room). Next: plan-review -> build -> 3 reviews -> mutation-verify -> ship.
@@ -26178,6 +26186,28 @@ cards:
   next: 'APPROVED + planning in flight. -> plan-review -> build (Tier 2-DB) -> 3 reviews -> mutation-verify -> ship.'
   links:
     related: [JAYA-FAN-STILL-PHANTOM-1]
+- id: SUBSTRATE-PER-ROOM-REFRESH-1
+  title: "OccupancySubstrate refresh_subscriptions is house-wide; add per-room (entry_id) scope so a single-room change doesn't re-evaluate the whole claim map"
+  thread: presence
+  status: parked
+  created: '2026-09-19'
+  updated: '2026-09-19'
+  tags: [presence, substrate, reload, performance, parked]
+  problem_solution:
+  - 'Split out of ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 planning (2026-09-19). Today refresh_subscriptions
+     re-evaluates the whole house claim map; a per-room refresh_subscriptions(entry_id=...) would let a single-
+     room change touch only that room. NOT needed to fix the reload stall (D1 suppression already avoids the
+     house-wide work on the suppressed path; the substrate no-diff fast-path at occupancy_substrate.py:442
+     short-circuits), so parked per marginal-benefit. Must preserve the multi-room-claim dedup arbitration
+     (the "claimed by multiple rooms — kept first claim" logic) — a naive per-room refresh could resurrect a
+     dropped duplicate claim. Real work: refactor the claim-map rebuild to a per-entry delta.'
+  why: 'the aggressive D2 the operator named was falsified as unnecessary for the stall fix; preserved here as a
+     genuine (but lower-value) perf/cleanliness improvement rather than dropped.'
+  revisit_trigger: 'If, after D1 ships, a single-room config change still causes measurable house-wide substrate
+     work on the SUPPRESSED path, or substrate rebuild cost becomes a profiled hotspot.'
+  next: 'PARKED. Revisit if D1 leaves residual house-wide substrate work on suppressed saves.'
+  links:
+    related: [ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1]
 - id: JAYA-FAN-STILL-PHANTOM-1
   title: "Jaya Bedroom fan-induced mmWave still-phantom held Upstairs HVAC zone (empty room) — resolved by enabling fan control so the shipped pause-recheck covers it"
   thread: presence
