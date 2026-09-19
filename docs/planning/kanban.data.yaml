@@ -9,6 +9,27 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1@2026-09-19T04:12:00
+    at: '2026-09-19T04:12:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'ANOTHER OF MY ASKS WITHDRAWN — you do not need to restart anything for me. I had asked
+      you to restart Home Assistant inside your evening window and tell me, so I could catch a
+      particular error message right after start-up before it scrolled away. Pointless on two counts:
+      the house restarted eight times on its own on Friday, and I can now read the log myself. So I
+      read the most recent start-up in full — and the message is not there at all. Not for URA, not for
+      any other integration. That means either the suspect code path is not used at start-up, or the
+      warning needs a logging setting we do not have switched on, which is the same gap the restart
+      card is asking you to close with four lines of config. Either way the next step is mine, not
+      yours, and I have taken the card out of your queue. SEPARATELY, reading that log surfaced a real
+      new problem worth knowing about: URA cross-checks its own energy accounting by comparing what it
+      attributed to rooms against the whole-house measurement, and the two currently disagree by about
+      sevenfold. There is an allowance for that right after a restart, and the code assumes the gap
+      closes at midnight. It did not — the gap was unchanged after midnight, at which point the check
+      stopped excusing it and started blaming mismatched measurement units instead, which the evidence
+      does not support. The classification flipped while the number stayed the same, which is exactly
+      how you can tell the diagnosis is wrong. New card opened; the measurement to settle it is mine
+      and needs nothing from you.'
   - fid: PERIMETER-ALERT-VOLUME-FATIGUE-1@2026-09-19T04:00:00
     at: '2026-09-19T04:00:00'
     outcome: measured
@@ -24664,9 +24685,9 @@ cards:
   title: "AggregationEntity.async_added_to_hass off-loop async_create_task (house-wide, HA 2027 deprecation)"
   thread: platform
   rank: {value: 7, time_criticality: 5, effort: 5}
-  status: waiting_operator
+  status: waiting_me
   created: '2026-09-15'
-  updated: '2026-09-19 03:50'
+  updated: '2026-09-19 04:10'
   BLOCKED_2026_09_16: 'Overnight pass could not advance this card, and the reason is now concrete
     rather than a scheduling miss. The measurement this card requires is a boot traceback from the
     HA CORE LOG, and tonight ssh to the HA host was DOWN for the whole pass (no route to
@@ -24693,13 +24714,7 @@ cards:
      onto the loop, or restructure the poll); shared-base change -> Tier-2 2-framing review, not a hotfix.'
   why: thread-safety on a shared base consumed by many sensors; benign now, breaks in HA 2027; found in
     v5.103.0 live validation (README_v5.103.0 residual finding).
-  next: 'DO (two things, either order, both one-time): (1) restart HA inside your 20:00 window and
-    tell me, so I grep the core log immediately post-boot before the traceback rotates out — that
-    traceback is the only thing that names the real off-loop producer; and (2) resolve the log-reach
-    gap on OVERNIGHT-PASS-NO-LOG-REACH-1 so an unattended pass can do step 1 without you. -> with
-    the traceback in hand I fix the actual producer (marshal its dispatch onto the loop) as a Tier-2
-    change scoped to that producer, NOT a base rewrite. Impact is LOW-and-stable meanwhile: it fires
-    once at boot and is swallowed, so there is no hurry — do not restart specially for this.'
+  next: 'MINE now, not the operators (see ASK_WITHDRAWN_2026_09_19). After the durable logger block lands (HA-CORE-RESTART-STORM-1), re-read ONE boot window for the frame-helper signature; if it is still silent, settle it by reading AggregationEntity.async_added_to_hass and its call path directly instead of waiting for a warning that may never fire.'
   links:
     related: [APPLIANCE-MGMT-REFINE-1, EC-SUBSWITCH-ASYNC-WRITE-THREAD-1]
     blocked_by: [OVERNIGHT-PASS-NO-LOG-REACH-1]
@@ -24725,7 +24740,21 @@ cards:
     reload-safety, a different class). Sibling EC-SUBSWITCH is CLOSED; its @callback+threadsafe pattern applies
     only if the real producer turns out to be an executor-punted non-callback target.
   OPERATOR_WINDOW_2026_09_15: 'Operator set the restart window at 20:00 local (earlier only on explicit approval). Reason: mid-peak TOU at ask time + restart-risk aversion (see RESTART-SAFETY-DOCTRINE-1). At 20:00, restart HA and grep the core log IMMEDIATELY post-boot (the traceback rotates out fast — that is why the first attempt missed it).'
-
+  ASK_WITHDRAWN_2026_09_19: 'THE OPERATOR ASK ON THIS CARD IS WITHDRAWN — I could run it myself, and
+    I did, and it came back NEGATIVE. The card asked you to restart HA inside your evening window and
+    tell me, so I could grep the core log before the traceback rotated out. Both halves of that ask are
+    obsolete: (a) there have been EIGHT restarts since (09-18, see HA-CORE-RESTART-STORM-1), so no
+    scheduled restart was ever needed; and (b) the log route now works, so I read the boot window of
+    the most recent one directly (2026-09-18 21:13 -> 21:25, 521 severity lines). RESULT: ZERO
+    occurrences of the frame-helper signature in the whole 4.8h log — no "Detected that custom
+    integration", no "calls async_" report, no off-loop/thread warning, no frame.py line, for URA or
+    any other integration. So the off-loop async_create_task does NOT report itself at boot in the
+    current build. Two honest readings, and I cannot yet separate them: either the path is not taken
+    on a normal start, or HAs frame-helper reporting needs a log level / debug setting we do not have
+    on (the same instrumentation gap that HA-CORE-RESTART-STORM-1 exists to close). NEXT STEP IS MINE,
+    NOT YOURS: once the durable logger block lands, re-read one boot; if still silent, prove or
+    disprove the call path by reading async_added_to_hass directly rather than waiting on a warning
+    that may never come. Moving out of your queue.'
 - id: APPLIANCE-CENSUS-MULTI-ROOM-POWER-SENSOR-1
   title: "Appliance census: multi-room-same-power-sensor attribution (v1b)"
   thread: energy
@@ -25847,6 +25876,61 @@ cards:
   - 'recorder events homeassistant_stop/start (event_type_id 17/9/10) — the authoritative restart ledger'
   - 'sensor.ura_coordinator_manager_ura_setup_duration unknown->value pairs — the reload-vs-restart discriminator'
   - feedback_parent_entry_reload_watchdog_hazard
+- id: COVERAGE-RATING-FALSE-ANOMALOUS-1
+  title: The energy coverage self-check reports a false "measurement units are mismatched" alarm — its
+    real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at
+    midnight the way the code assumes
+  thread: energy
+  status: investigating
+  created: '2026-09-19 04:15'
+  updated: '2026-09-19 04:15'
+  refinement_status: initial
+  approval: unreviewed
+  rank: {value: 6, time_criticality: 3, effort: 5}
+  tags: [measure-before-build, no-fabrication-verify, falsify-first]
+  problem_solution:
+  - 'Problem: URA cross-checks its own energy accounting by comparing what it attributed to individual
+     rooms against what it measured for the whole house, and it currently disagrees with itself by
+     roughly sevenfold (the gap reads about minus 640 percent). There is a deliberate allowance for
+     this right after a restart, because the two sides re-anchor at different moments, and the code
+     says the gap will close at the next midnight. It did not close: the same gap was still there
+     after midnight, at which point the allowance expired and the check started reporting it as a
+     unit-of-measurement mismatch instead — a specific, and probably wrong, diagnosis. So there are
+     two problems stacked: a self-check that cries the wrong alarm, and a real disagreement underneath
+     it that nobody has explained. Solution: measure whether the gap is genuinely a stale-anchor
+     artifact or a real attribution error, then fix the right one — and stop the classifier asserting
+     a cause it has not established.'
+  measured_2026_09_19: 'Read from the live core log (2026-09-18 21:11 -> 2026-09-19 02:02), three
+    occurrences, rate-limited to one per hour by design so three lines is the maximum the window can
+    show: 21:56 delta_percent=-1259.04 -> INCOMPLETE ("negative inside post-restart window"), 22:56
+    delta_percent=-635.30 -> INCOMPLETE, then 00:11 delta_percent=-643.90 -> ANOMALOUS "Likely
+    unit-of-measurement mismatch ... (Bug Class #30)". THE DISCRIMINATOR IS IN THOSE THREE LINES: the
+    value barely moved between 22:56 and 00:11 (-635 -> -644) while the CLASSIFICATION flipped from
+    INCOMPLETE to ANOMALOUS. Nothing about the data changed; only the post-restart window elapsed. That
+    falsifies the assumption written into the code at aggregation.py:917-925 ("will converge at next
+    midnight re-anchor") — it crossed midnight and did not converge. Site: aggregation.py:889-940
+    (_coverage_rating epsilon band + out_of_bounds branch + the two rate-limited warnings).'
+  why: 'A self-check that reports a confident wrong cause is worse than one that says "I do not know":
+    the ANOMALOUS line names Bug Class #30 (unit mismatch) and would send the next investigator to the
+    unit-normalization work, which the evidence does not support. Meanwhile a genuine sevenfold
+    attribution disagreement is sitting unexplained behind it.'
+  next: 'MEASURE (read-only, mine, no operator input): pull the two inputs to delta_percent — the
+    attributed per-room total and the whole-house total — at the same instant, and establish which side
+    is wrong and by how much. Then decide between (a) the anchor/reset asymmetry is real and the fix is
+    to re-anchor the persisted rooms tier (or hold INCOMPLETE until both sides share an anchor), or
+    (b) the attribution itself is wrong, which is a bigger and separate cycle. EITHER WAY the
+    classifier should stop asserting unit-mismatch on evidence that cannot distinguish it — that part
+    is a Tier-1 wording/branch fix.'
+  links:
+    related: [STUCK-MOTION-FROZEN-ON-BLINDSPOT-1]
+    context: 'Surfaced 2026-09-19 in the same live-log read that withdrew the operator ask on
+      AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1 — both live in aggregation.py, but they are unrelated
+      defects (one is the energy coverage self-check, the other an off-loop task creation). Prior art
+      for the unit-mismatch story it wrongly invokes: PLANNING_energy_unit_normalization_and_attribution.md.'
+  refs:
+  - custom_components/universal_room_automation/aggregation.py:889-940 (_coverage_rating + both warnings)
+  - docs/planning/PLANNING_energy_unit_normalization_and_attribution.md
+  - 'live core log 2026-09-18 21:56 / 22:56 / 2026-09-19 00:11 (the three rate-limited lines)'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
