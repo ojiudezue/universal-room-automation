@@ -9,6 +9,21 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: RECORDER-CHURN-SWEEP-URASENSORS-1@2026-09-19T04:35:00
+    at: '2026-09-19T04:35:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'A PENDING DECISION JUST GOT A BETTER ANSWER THAN EITHER OPTION I OFFERED YOU. The
+      database-churn card asked you to choose between fixing the flapping leak sensor first or
+      sweeping a handful of URA sensors. I re-measured who is actually filling the database over the
+      last 24 hours, and the answer is neither: the Study B kiosk wall panel is writing about 401,000
+      rows a day across six of its entities — its temperature and humidity alone are roughly 72,000
+      each, which is a reading about every second. That is around 2.7 times everything URA writes put
+      together, and about 7 times the leak sensor. So the order of work should be the wall panel
+      first (almost certainly just a polling-interval setting, and entirely outside URA), the leak
+      sensor second, and the URA sweep — the thing this card was actually about — a distant third,
+      which is a good argument for not spending a cycle on it yet. Recorded on the card; your pick is
+      still yours, but it is now a pick between better options.'
   - fid: AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1@2026-09-19T04:12:00
     at: '2026-09-19T04:12:00'
     outcome: measured
@@ -22177,7 +22192,7 @@ cards:
   rank: {value: 6, time_criticality: 5, effort: 3}
   status: waiting_operator
   created: 2026-09-13 01:30
-  updated: '2026-09-19 03:50'
+  updated: '2026-09-19 04:35'
   measured_2026_09_15: 'OVERNIGHT PASS — THE MEASUREMENT THIS CARD ASKED FOR IS DONE (one-shot read-only
     query against the live HA recorder, /config/home-assistant_v2.db, 24h window). It confirms the bug
     class, REFUTES the card own ranking, and reframes the value.
@@ -22230,6 +22245,24 @@ cards:
   parsimony:
     problem: "6-9 more URA sensors churn recorder rows via per-read elapsed attrs"
     verdict: BUILD
+  REMEASURED_2026_09_19: 'THE PICK ON THIS CARD IS NOW WRONG IN BOTH OPTIONS — a bigger writer than
+    either candidate dominates, and it is not URA. Top recorder writers over the last 24h, by state-row
+    count: sensor.wall_panel_studyb_kiosk_*_humidity 72,571; the same panels temperature 72,094; its
+    illuminance 64,172; light.*_display 64,165; binary_sensor.*_proximity 64,163; light.*_led 64,160.
+    That is SIX entities on ONE device — the Study B kiosk wall panel — totalling roughly 401,000 rows
+    a day. For scale, the flapping leak sensor this card recommends fixing first
+    (binary_sensor.madronewatermonitor_low_flow_leak) is 56,467 rows/day, and ALL of URA together was
+    measured at 147,089. So one tablet is writing about 2.7x everything URA writes and about 7x the
+    leak sensor. Everything below it is small by comparison (UDM CPU 41,978, memory 39,200, a
+    detection-distance sensor 28,449, a phone distance sensor 27,506). REVISED RECOMMENDATION: option
+    (A) "fix the water monitor first" is still right in spirit — deal with the pathological
+    non-URA writer before sweeping URA sensors — but the pathological writer to deal with FIRST is the
+    Study B kiosk, not the leak sensor. A wall panel emitting a temperature and humidity reading
+    roughly every second is a polling-interval misconfiguration, fixable outside URA entirely, and it
+    is by far the cheapest row-count win available. The leak sensor is second. The URA sweep this card
+    is actually about remains third and smallest, which strengthens the case for NOT spending a cycle
+    on it yet. This does not need an operator decision to establish — it is a measurement — but which
+    of the three you want touched, and by whom, still does.'
 - id: RECORDER-BLOAT-LOGFLOOD-1
   INSTANCE_2026_09_15_watermonitor_single_entity_dominates_states: 'MEASURED on the live recorder
     (read-only, 24h window) during the overnight pass, while running the sibling card

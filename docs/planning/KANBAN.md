@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-19T02:14:07-05:00_ - _Data commit: `fb5e1e378521`_ - _last_reconciled: 2026-09-19_
+_Generated: 2026-09-19T02:15:30-05:00_ - _Data commit: `589c83546cda`_ - _last_reconciled: 2026-09-19_
 
 
 ## Columns
@@ -594,16 +594,17 @@ _created 2026-09-14 03:05 · initial_
 
 ### `RECORDER-CHURN-SWEEP-URASENSORS-1` - Sweep 6-9 more URA sensors emitting per-read elapsed timestamps (same recorder write-amp class as safety_status) — _#9 · WSJF 4.3 · v6 tc5 u2 /e3_
 thread: **config-flow** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-09-13 01:30 · updated 2026-09-19 03:50 · initial_
+_created 2026-09-13 01:30 · updated 2026-09-19 04:35 · initial_
 - **Problem / Solution:**
   - Problem: Recorder Review A (2026-09-13) re-enumerated extra_state_attributes across the package and found the safety_status churn class survives at >=6 ENABLED sites emitting a per-READ elapsed value (new states row every tick): sensor.p...
 - **Why:** Same write-amplification bug class as RECORDER-BLOAT-LOGFLOOD-1; these are the long-tail URA contributors the recorder probe predicted. Not scope of the parent fix (which targeted the 3 named last_check* sensors).
 - **Next:** PICK one — the measurement is done (see measured_2026_09_15): (A) FIX THE WATER MONITOR FIRST and defer this sweep — one flapping leak sensor writes 60,610 rows/day vs 147,089 for all of URA, and a leak detector toggling 30k times a day ...
 - **Sibling of:** RECORDER-BLOAT-LOGFLOOD-1
 - **Parsimony:** [BUILD] 6-9 more URA sensors churn recorder rows via per-read elapsed attrs
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `measured_2026_09_15`: OVERNIGHT PASS — THE MEASUREMENT THIS CARD ASKED FOR IS DONE (one-shot read-only query against the live HA recorder, /config/home-assistant_v2.db, 24h window). It confirms the bug class, REFUTES the card own ranking, and reframes the val...
   - `gate_2026_09_15`: FOUR-STEP GATE -> ESCALATE (value collapsed under measurement; not mine to close). (1) VALIDITY: STILL-REAL, five sites confirmed in source and above the tick floor. (2) PRIOR-ART: REUSE — identical fix shape to the shipped parent RECORD...
+  - `REMEASURED_2026_09_19`: THE PICK ON THIS CARD IS NOW WRONG IN BOTH OPTIONS — a bigger writer than either candidate dominates, and it is not URA. Top recorder writers over the last 24h, by state-row count: sensor.wall_panel_studyb_kiosk_*_humidity 72,571; the sa...
 
 ### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives — _#10 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **memory** - status: **waiting_operator**
