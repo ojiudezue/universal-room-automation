@@ -5074,6 +5074,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Store coordinator
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
+    # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D0: seed the last-applied-
+    # options snapshot BEFORE registering the update listener so the very
+    # first options save per HA lifetime diffs against a populated
+    # baseline (not {}). Without this, the subset test in
+    # ``_async_update_listener`` at the ROOM branch (:7686) FAILS on the
+    # first save even when the operator only toggled an allowlisted key,
+    # cascading a full ~90-entity reload. Setup and listener registration
+    # run synchronously on the single-threaded asyncio loop — no await
+    # between them — so a race is impossible (sibling comment to the CM
+    # seed at :4964).
+    _seed_room_last_applied_options(hass, entry)
     # v3.2.5: Add update listener to reload entry when options change
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
@@ -5588,6 +5599,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 coordinator._trailing_refresh_unsub = None
             # setup/unload symmetry: defensive `pop(key, None)`.
             hass.data[DOMAIN].pop(entry.entry_id, None)
+            # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D0: drop the
+            # last-applied-options snapshot on unload so a removed-and-
+            # re-added ROOM entry doesn't diff against a stale ghost.
+            # Defensive pop — the snapshot dict may not exist yet on
+            # a partial-setup failure path.
+            hass.data.get(DOMAIN, {}).get(
+                "room_last_applied_options", {},
+            ).pop(entry.entry_id, None)
 
         # Substrate re-subscribe cycle (D1): fire SIGNAL_ROOM_ENTRY_LIFECYCLE
         # so PresenceCoordinator's OccupancySubstrate.refresh_subscriptions()
@@ -6315,6 +6334,9 @@ from .const import (
     CONF_COMFORT_HUMIDITY_MAX as _CONF_COMFORT_HUMIDITY_MAX,
     CONF_FAN_CONTROL_ENABLED as _CONF_FAN_CONTROL_ENABLED,
     CONF_HUMIDITY_FAN_CONTROL_ENABLED as _CONF_HUMIDITY_FAN_CONTROL_ENABLED,
+    # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D1: climate-step LIVE keys.
+    CONF_HVAC_VACANCY_HOLD as _CONF_HVAC_VACANCY_HOLD,
+    CONF_HVAC_VACANCY_HOLD_NIGHT as _CONF_HVAC_VACANCY_HOLD_NIGHT,
     # v5.10.0 D2 — MF sleep + night suppression CM keys.
     CONF_MF_SLEEP_SUPPRESS as _CONF_MF_SLEEP_SUPPRESS,
     CONF_MF_NIGHT_SUPPRESS_MODE as _CONF_MF_NIGHT_SUPPRESS_MODE,
@@ -7170,6 +7192,35 @@ def _seed_cm_last_applied_options(hass: HomeAssistant, entry: ConfigEntry) -> No
     snapshots[entry.entry_id] = dict(entry.options)
 
 
+def _seed_room_last_applied_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Seed the per-ROOM-entry last-applied-options snapshot.
+
+    ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D0 (plan-review P1, CRITICAL).
+    Before this seed existed, ``room_last_applied_options`` was written
+    ONLY inside ``_async_update_listener`` (see :ref:`__init__.py:7677+`).
+    On the FIRST options save per room per HA lifetime the diff at the
+    listener therefore ran against ``{}`` — every present key looked
+    "changed" and the subset test against ``_ROOM_SUPPRESS_KEYS`` failed
+    even when the operator toggled only an allowlisted key, cascading a
+    full ~90-entity ROOM reload (the very stall this cycle exists to
+    prevent). Live validation immediately post-deploy runs in exactly
+    this fresh-restart state; without D0, D1's allowlist expansion is
+    guaranteed to miss on the first save.
+
+    Sibling to ``_seed_cm_last_applied_options`` and
+    ``_seed_integration_last_applied_options`` (Bug Class #27 — primary/
+    deferred mirror drift; deliberately NOT an extension). Called once
+    from the ROOM setup path BEFORE ``entry.add_update_listener(...)``
+    is registered. Cleanup on unload is done via a defensive
+    ``pop(entry.entry_id, None)`` in ``async_unload_entry`` so a
+    removed-and-re-added entry doesn't diff against a stale ghost.
+    """
+    snapshots = hass.data.setdefault(DOMAIN, {}).setdefault(
+        "room_last_applied_options", {},
+    )
+    snapshots[entry.entry_id] = dict(entry.options)
+
+
 def _seed_integration_last_applied_options(
     hass: HomeAssistant, entry: ConfigEntry,
 ) -> None:
@@ -7671,7 +7722,45 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         # comment above and AUDIT §1).
         _CONF_FAN_CONTROL_ENABLED,
         _CONF_HUMIDITY_FAN_CONTROL_ENABLED,
+        # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D1 (2026-09-19): the two
+        # HVAC per-room vacancy-hold override keys are proven LIVE at
+        # every consumer site — safe to bare-suppress.
+        #   Consumer sites (all read merged options per-call, no cache):
+        #     - binary_sensor.py:870-884  (merged.get(...) per attribute read)
+        #     - hvac_zones.py:553-594     (merged.get(...) per tick)
+        #     - hvac_zones.py:894-940     _effective_hvac_hold_seconds
+        #                                 takes override_day / override_night
+        #                                 as CALL PARAMETERS; callers pass
+        #                                 the current values per-call at
+        #                                 hvac_zones.py:1018 and
+        #                                 binary_sensor.py:894 — no setup
+        #                                 cache anywhere.
+        #   Immune to the config_flow.py:11485-11493 default-materialization
+        #   "all-or-nothing" corollary because those two keys use
+        #   `merged.pop(...)` (clearable) rather than
+        #   `Optional(default=...)`. Would flip to EXCLUDED if any consumer
+        #   ever cached these values onto a setup-time attribute — none
+        #   does today.
+        _CONF_HVAC_VACANCY_HOLD,
+        _CONF_HVAC_VACANCY_HOLD_NIGHT,
     })
+    # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D1 — honest EXCLUDED list.
+    # The remaining ~22 climate-step keys stay OUT of the allowlist
+    # (default EXCLUDED per plan §D1 taxonomy): full-site per-consumer
+    # LIVE/REFRESHED-with-coverage audit was not completed for this
+    # cycle. The known REFRESHED site for CONF_HUMIDITY_FAN_THRESHOLD
+    # (automation.py:2542 via _refresh_config) also has a LIVE site
+    # (binary_sensor.py:1080), min-wins = REFRESHED — coverage-proof
+    # deferred, key stays EXCLUDED. All-or-nothing reality
+    # (plan-review P7): because the climate options-flow submits ~20
+    # default-materialized fields on every save, a full-form climate
+    # save that includes ANY EXCLUDED key will still fall through to
+    # a full ROOM reload. This cycle's benefit is narrow: saves whose
+    # `changed_keys` are strictly the six allowlisted keys
+    # (comfort_temp_min/max, comfort_humidity_max, zone, fan_control_
+    # enabled, humidity_fan_control_enabled, hvac_vacancy_hold[_night])
+    # now suppress. Broader coverage waits on a full per-consumer-site
+    # audit — carded as a follow-up if the operator wants it.
 
     if entry_type == ENTRY_TYPE_ROOM:
         snapshots = hass.data.setdefault(DOMAIN, {}).setdefault(

@@ -294,6 +294,12 @@ def _load_init_listener_helpers():
         # switch toggles no longer full-reload the ROOM entry (~90 entities).
         "_CONF_FAN_CONTROL_ENABLED":              "fan_control_enabled",
         "_CONF_HUMIDITY_FAN_CONTROL_ENABLED":     "humidity_fan_control_enabled",
+        # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D1 (2026-09-19) — LIVE
+        # per-room HVAC vacancy-hold overrides, added to
+        # _ROOM_SUPPRESS_KEYS. Referenced by the sliced ROOM branch of
+        # _async_update_listener; stub values mirror const.py:1236-1237.
+        "_CONF_HVAC_VACANCY_HOLD":                "hvac_vacancy_hold",
+        "_CONF_HVAC_VACANCY_HOLD_NIGHT":          "hvac_vacancy_hold_night",
         # ENTRY_TYPE_ROOM (C-HIGH-3 path in _async_update_listener).
         "ENTRY_TYPE_ROOM":                        "room",
         # Session B1 — EVSE Drain-Precedence CM options keys.
