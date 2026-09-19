@@ -26209,8 +26209,18 @@ cards:
     a full Climate & Fans save now SUPPRESSES unless the climate entity id is changed. 38 mutation-anchored tests
     green. In Tier-2-DB review: validator name-diff + A (classification+REFRESHED-coverage, the crux) + B
     (D0 lifecycle+signal-chain+fall-through) dispatched; C (per-key source-mutation) holds for suite lock.'
-  next: 'REVIEW: validator + A + B in flight, C queued. -> fix any findings -> orchestrator mutation-verify
-    (re-grep REFRESHED coverage + neuter D0 seed on shipping code) -> ship + live-validate + README write-back.'
+  REVIEW_A_2026_09_19: 'A (classification+REFRESHED-coverage) = FIX-REQUIRED, 1 CRIT + 2 MED. H1 CRIT: the
+    REFRESHED-coverage proof for handle_humidity_based_fan_control is FALSE — it runs at coordinator.py:5034
+    OUTSIDE all 3 automation branches; on the manual-mode else-path (:4995) the only refresh is cover-gated
+    (:5013), so with automation-off + cover-automation-off self.config is never refreshed and the 12 humidity
+    keys go stale -> allowlisting them silently drops a config change until reload (regression on a safety cap).
+    FIX: add self._refresh_config() at top of handle_humidity_based_fan_control (mirror handle_occupancy_change
+    :922) -> makes the 12 keys genuinely REFRESHED-safe + closes skip-first gap. M1: actuator_reconciler.py:846
+    borrows unrefreshed automation.config -> route via live cfg. M2: binary_sensor.py:1025 reads entry.data
+    only (missing options) — pre-existing stale, fix in-cycle. CLEARED: 5 LIVE keys, temp-fan REFRESHED,
+    comfort-fan-veto, CONF_CLIMATE_ENTITY exclusion. Holding fix-up for B + validator (one consolidated pass).'
+  next: 'REVIEW: A done (FIX-REQ, H1 humidity-refresh). Awaiting B + validator -> consolidated fix-up + H1
+    pin test -> C mutation drill -> orchestrator mutation-verify -> ship.'
   links:
     related: [JAYA-FAN-STILL-PHANTOM-1]
 - id: SUBSTRATE-PER-ROOM-REFRESH-1
