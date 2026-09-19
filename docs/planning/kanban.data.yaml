@@ -26147,7 +26147,7 @@ cards:
 - id: ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1
   title: "Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s"
   thread: presence
-  status: planned
+  status: in_progress
   created: '2026-09-19'
   updated: '2026-09-19'
   tags: [reload, event-loop, config-flow, stability, tier-2db, incident]
@@ -26194,8 +26194,11 @@ cards:
     absent keys on submit -> all-or-nothing (one EXCLUDED key negates D1 for the whole form) -> virgin-room test.
     CORRECTION: hvac_vacancy_hold[_night] is LIVE (call-param, no cache), not cached-suspected — safest to allowlist.
     Plan revision dispatched (ura-planner). Build STILL gated on revised plan.'
-  next: 'D1+D0 APPROVED scope; plan being revised per plan-review. -> re-verify revised plan -> build (Tier 2-DB)
-    -> 3 reviews -> mutation-verify -> ship. D2 per-room refactor stays PARKED.'
+  BUILD_DISPATCH_2026_09_19: 'Revised plan folded all 6 must-fix; orchestrator spot-verified D0 setup location
+    (__init__.py:1798) + P1 (only listener seeds room_last_applied_options) + P2 REFRESHED crux (_refresh_config
+    top-of-tick coordinator.py:4934). Build dispatched (ura-builder, worktree, feature/room-config-reload-suppression).
+    pre-review-reload-suppression tag @ develop. Next: 3 framing-disjoint reviews -> orchestrator mutation-verify -> ship.'
+  next: 'BUILD in flight (D0+D1+D2-log-dedup). -> validator baseline-diff + 3 reviews -> mutation-verify -> ship.'
   links:
     related: [JAYA-FAN-STILL-PHANTOM-1]
 - id: SUBSTRATE-PER-ROOM-REFRESH-1

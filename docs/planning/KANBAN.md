@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-19T18:17:32-05:00_ - _Data commit: `113691166fcf`_ - _last_reconciled: 2026-09-19_
+_Generated: 2026-09-19T18:21:04-05:00_ - _Data commit: `bbd20b8ce26a`_ - _last_reconciled: 2026-09-19_
 
 
 ## Columns
@@ -12,8 +12,8 @@ _Generated: 2026-09-19T18:17:32-05:00_ - _Data commit: `113691166fcf`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 15 |
-| 🔨 In progress | 0 |
+| 📝 Planned | 14 |
+| 🔨 In progress | 1 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 25 |
 | ⏳ Waiting on me (Claude) | 1 |
@@ -231,7 +231,7 @@ _created 2026-09-16 · updated 2026-09-19 03:10 · initial_
   - `PER_ZONE_CORRECTED_2026_09_16`: OPERATOR: "If we did this, why per zone? It should be the same function, no?" CORRECT, and my sketch was wrong. Ask what per-zone STATE a handle would hold: entity_id is a PARAMETER; the vendor is DERIVED from the entity's platform (memo...
   - `DESIGN_SHAPE_2026_09_16`: Stateless, entity-parameterised, all three verbs plus vendor dispatch: read_hold(hass, entity_id)              -> named / anonymous / none set_preset(hass, entity_id, name, ...)  -> strategy decides clear-then-pin vs direct pin set_setpo...
 
-## 📝 Planned (15)
+## 📝 Planned (14)
 _has plan / acceptance_
 
 ### `COVERAGE-RATING-FALSE-ANOMALOUS-1` - The energy coverage self-check reports a false "measurement units are mismatched" alarm — its real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at midnight the way the code assumes — _#1 · WSJF 2.2 · v6 tc3 u2 /e5_
@@ -437,23 +437,22 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
-### `ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1` - Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s — _#15 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
-thread: **presence** - status: **planned**
+## 🔨 In progress (1)
+_being built_
+
+### `ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1` - Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s — _#1 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **presence** - status: **in_progress**
 _created 2026-09-19_
 - **Problem / Solution:**
   - Operator reported: changing room config -> HA becomes unresponsive ("some kind of reset"). VERIFIED from logs 2026-09-19: NO core restart (no "Starting Home Assistant" banner) -> unresponsive blip, not a reset. Mechanism: options-flow cl...
 - **Why:** operator hit a live stability blip while doing exactly what we recommended (enable fan control on Jaya); the room reload path is heavier than a single-room change should require, and amplified under network load.
-- **Next:** D1+D0 APPROVED scope; plan being revised per plan-review. -> re-verify revised plan -> build (Tier 2-DB) -> 3 reviews -> mutation-verify -> ship. D2 per-room refactor stays PARKED.
+- **Next:** BUILD in flight (D0+D1+D2-log-dedup). -> validator baseline-diff + 3 reviews -> mutation-verify -> ship.
 - **Tags:** reload, event-loop, config-flow, stability, tier-2db, incident
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `PLAN_2026_09_19`: PLANNING_room_config_reload_suppression.md written. Prior-art scan REUSE-only (no new infra). D2 PARTIALLY FALSIFIED during scoping: the SUPPRESSED path already short-circuits the substrate (no-diff fast-path occupancy_substrate.py:442; ...
   - `PLAN_DISPATCH_2026_09_19`: Operator APPROVED Tier-2-DB fix. ura-planner dispatched -> PLANNING_room_config_reload_suppression.md (D1 per-key live-consumer-proven allowlist extension; D2 scope substrate re-subscribe to changed room). Next: plan-review -> build -> 3...
   - `PLANREVIEW_2026_09_19`: Plan-review = FIX-REQUIRED, 6 must-fix (gate worked — caught a would-be no-op + a would-fail-validation). P1 CRIT: snapshot never seeded at setup -> first save per room per HA lifetime ALWAYS reloads even for allowlisted keys -> add D0 (...
-
-## 🔨 In progress (0)
-_being built_
-
-_(none)_
+  - `BUILD_DISPATCH_2026_09_19`: Revised plan folded all 6 must-fix; orchestrator spot-verified D0 setup location (__init__.py:1798) + P1 (only listener seeds room_last_applied_options) + P2 REFRESHED crux (_refresh_config top-of-tick coordinator.py:4934). Build dispatc...
 
 ## 🔍 Review (1)
 _under review_
