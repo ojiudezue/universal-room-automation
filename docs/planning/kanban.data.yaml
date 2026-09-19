@@ -25881,9 +25881,9 @@ cards:
     real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at
     midnight the way the code assumes
   thread: energy
-  status: investigating
+  status: planned
   created: '2026-09-19 04:15'
-  updated: '2026-09-19 04:15'
+  updated: '2026-09-19 04:25'
   refinement_status: initial
   approval: unreviewed
   rank: {value: 6, time_criticality: 3, effort: 5}
@@ -25914,13 +25914,7 @@ cards:
     the ANOMALOUS line names Bug Class #30 (unit mismatch) and would send the next investigator to the
     unit-normalization work, which the evidence does not support. Meanwhile a genuine sevenfold
     attribution disagreement is sitting unexplained behind it.'
-  next: 'MEASURE (read-only, mine, no operator input): pull the two inputs to delta_percent — the
-    attributed per-room total and the whole-house total — at the same instant, and establish which side
-    is wrong and by how much. Then decide between (a) the anchor/reset asymmetry is real and the fix is
-    to re-anchor the persisted rooms tier (or hold INCOMPLETE until both sides share an anchor), or
-    (b) the attribution itself is wrong, which is a bigger and separate cycle. EITHER WAY the
-    classifier should stop asserting unit-mismatch on evidence that cannot distinguish it — that part
-    is a Tier-1 wording/branch fix.'
+  next: 'BUILD next pass (Tier 1-2, contained): extend the existing negative-delta excuse branch at aggregation.py:905-926 to cover the local-midnight re-anchor as well as the post-restart window, and replace the unit-mismatch assertion with a statement of what was observed. Named module constant for the boundary window. Two framing-disjoint reviews per the autonomous-work rule; the test must DISCRIMINATE boundary-negative (INCOMPLETE) from mid-day-negative (still ANOMALOUS). No operator input needed.'
   links:
     related: [STUCK-MOTION-FROZEN-ON-BLINDSPOT-1]
     context: 'Surfaced 2026-09-19 in the same live-log read that withdrew the operator ask on
@@ -25931,6 +25925,38 @@ cards:
   - custom_components/universal_room_automation/aggregation.py:889-940 (_coverage_rating + both warnings)
   - docs/planning/PLANNING_energy_unit_normalization_and_attribution.md
   - 'live core log 2026-09-18 21:56 / 22:56 / 2026-09-19 00:11 (the three rate-limited lines)'
+  MEASURED_LIVE_2026_09_19: 'MECHANISM SETTLED, AND THE SCARY HALF IS EXONERATED — it is a
+    day-boundary bug in the self-check, NOT a sevenfold attribution error. Read the live sensor
+    directly (sensor.universal_room_automation_energy_coverage_delta at 02:14 CDT): whole_house 25.62
+    kWh, rooms 3.26 + zones 8.60 + house_devices 0.46 = attributed 12.32, unattributed 13.30,
+    delta_percent = +51.9, coverage_rating Incomplete, post_restart_window FALSE, baseline_anchor
+    2026-09-19. So roughly two hours after local midnight the number is positive and ordinary. Put
+    that beside the 00:11 log line (delta_percent = -643.9, ANOMALOUS) and the picture is
+    unambiguous: the huge negative delta is a LOCAL-MIDNIGHT re-anchor transient — the in-memory
+    tiers roll to the new day while the DB-persisted rooms tier still carries yesterdays full-day
+    total, so attributed briefly dwarfs whole_house — and it clears on its own within a couple of
+    hours as the new days whole-house total accumulates. CORRECTS MY OWN EARLIER READING ON THIS CARD:
+    I wrote that the gap "did not converge at midnight", which implied a real standing disagreement.
+    Wrong framing — it converges a little AFTER midnight; what is actually broken is that the code
+    only excuses the negative delta inside the post-RESTART window (aggregation.py:905-926), and the
+    midnight re-anchor is a SECOND, unguarded source of the same asymmetry. When it fires, the excuse
+    branch does not apply, so the out-of-bounds branch runs and asserts a cause it has not
+    established: "Likely unit-of-measurement mismatch ... (Bug Class #30)". That is the defect. The
+    sevenfold-disagreement hypothesis is DEAD and should not be re-investigated.'
+  SCOPE_NARROWED_2026_09_19: 'Now a small, contained fix — and NOT built tonight, deliberately.
+    Shape: treat a negative delta inside a day-boundary re-anchor window the same way the
+    post-restart window is already treated (return INCOMPLETE, log the re-anchor explanation), and
+    stop the out-of-bounds branch naming unit-mismatch on evidence that cannot distinguish it — say
+    what is observed ("attributed exceeds whole-house") and let the cause be diagnosed, per
+    no-fabrication. Extends the existing branch at aggregation.py:905-926 rather than adding a
+    mechanism. Knob: the window length wants a NAMED module constant beside the existing post-restart
+    one (module-constant rung — a safety/diagnostic bound the operator should never need to turn).
+    Acceptance must DISCRIMINATE: a negative delta just after midnight -> INCOMPLETE with the
+    re-anchor reason; a negative delta at, say, 14:00 with no restart and no boundary -> still
+    ANOMALOUS, because that WOULD be a genuine defect and must not be silenced. WHY NOT TONIGHT: a
+    test-harness build is already running in a worktree and the full suite must be run serially (the
+    pytest guard kills concurrent runs), so a second concurrent builder would poison both baselines.
+    Next pass picks this up; the brief above is complete.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
