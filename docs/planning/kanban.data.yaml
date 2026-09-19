@@ -26198,7 +26198,14 @@ cards:
     (__init__.py:1798) + P1 (only listener seeds room_last_applied_options) + P2 REFRESHED crux (_refresh_config
     top-of-tick coordinator.py:4934). Build dispatched (ura-builder, worktree, feature/room-config-reload-suppression).
     pre-review-reload-suppression tag @ develop. Next: 3 framing-disjoint reviews -> orchestrator mutation-verify -> ship.'
-  next: 'BUILD in flight (D0+D1+D2-log-dedup). -> validator baseline-diff + 3 reviews -> mutation-verify -> ship.'
+  BUILD_PASS1_INCOMPLETE_2026_09_19: 'Build pass 1 (59943f353) honest but INCOMPLETE: allowlisted only
+    hvac_vacancy_hold[_night] (the 2 pre-cleared keys), deferred the REFRESHED audit for the other ~20 climate
+    keys -> per all-or-nothing (P7), a full CLIMATE-STEP save still materializes EXCLUDED keys -> still reloads
+    -> DOES NOT FIX the incident path (operator was saving the climate step). Also tests are AST/mock not
+    mutation-anchored. Sent builder back (finish-the-job): complete per-site REFRESHED-coverage audit for all
+    ~20 keys + allowlist the safe ones + real behavioral tests. D0 seed + D2 dedup pass-1 work is sound.'
+  next: 'BUILD pass 2 in flight (full 20-key REFRESHED audit + real tests). -> validator baseline-diff + 3
+    framing-disjoint reviews -> orchestrator mutation-verify -> ship. Gate: does a full climate-step save suppress?'
   links:
     related: [JAYA-FAN-STILL-PHANTOM-1]
 - id: SUBSTRATE-PER-ROOM-REFRESH-1
