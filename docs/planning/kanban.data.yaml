@@ -26225,9 +26225,17 @@ cards:
     CM/INTEGRATION untouched; no suppressed key backs a stateful entity or gates entity creation. Non-blocking:
     B-MED-1 D2 tests hollow (grep anchors, Bug Class #62) -> add behavioral D2 test; B-LOW-1 D2 dedup keys omit
     kind -> changed same-entity conflict silently suppressed (one-token fix); B-LOW-2/3 noted no-fix.'
-  next: 'REVIEW: A=FIX-REQ (H1 CRIT), B=SHIP. Awaiting validator name-diff (owns suite) -> consolidated fix-up
-    (A-H1/M1/M2 + B-MED-1/LOW-1 + H1 pin test) -> Review C mutation drill on fixed code -> orchestrator
-    mutation-verify -> ship + live-validate + README write-back.'
+  VALIDATOR_2026_09_19: 'Validator name-diff: 39 NEW failing names, ALL test-infra debt from the diff (zero
+    application regressions). 38 = _ast_slice_guard.py keep-set not extended for the 20 new _CONF_* symbols
+    (test_part2_ec_hc_writeback.py cannot load the sliced __init__.py) — builder stubbed 2 sibling files but
+    missed this one. 1 = test_v5100_music_following.py brittle 8000-char text window pushed past by the ~20-line
+    import block. New file 38/38 pass isolated. DO-NOT-MERGE until zero-new. Both mechanical.'
+  FIXUP_DISPATCH_2026_09_19: 'Consolidated fix-up sent to builder (7 items): A-H1 (refresh atop
+    handle_humidity_based_fan_control + audit correction + pin test), A-M1 (reconciler live cfg), A-M2
+    (binary_sensor merge options), B-LOW-1 (widen D2 dedup keys w/ kind), B-MED-1 (real behavioral D2 test),
+    VAL-1 (_ast_slice_guard keep-set +20 syms), VAL-2 (widen mf 8000 window).'
+  next: 'FIX-UP in flight. -> validator re-check (zero-new vs baseline) + Review C mutation drill on fixed code
+    -> orchestrator mutation-verify (neuter H1 refresh + D0 seed on shipping code) -> ship + live-validate + README.'
   links:
     related: [JAYA-FAN-STILL-PHANTOM-1]
 - id: SUBSTRATE-PER-ROOM-REFRESH-1
