@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-20T09:31:04-05:00_ - _Data commit: `38e36a3d4547`_ - _last_reconciled: 2026-09-20_
+_Generated: 2026-09-20T10:13:43-05:00_ - _Data commit: `e64f36d8dd08`_ - _last_reconciled: 2026-09-20_
 
 
 ## Columns
@@ -1433,7 +1433,7 @@ _created 2026-09-15 · updated 2026-09-19 03:55 · initial_
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
 - **Forensic keys (56):**
-  - `DAYTIME_ACCEPTANCE_2026_09_20`: Daytime re-measure (9am-6pm CDT, 7d, live recorder, %-time-in-manual per zone): zone_2 46.4%%->10.7%% (-36pp, the money: empty-daytime lockout collapsed), zone_3 6.3%%->3.8%% (healthy), zone_1 69.6%%->50.3%% (-19pp, still high). VERDICT:...
+  - `DAYTIME_REMEASURE_RETRACTED_2026_09_20`: RETRACTED an over-claimed PASS. This manual-%% re-measure has been run MULTIPLE times and SWINGS wildly (zone_1 69.6 base -> 81.0 -> 46.0 -> 50.3 daytime; zone_2 46.4 -> 17.9 -> 50.8 -> 10.7; zone_3 6.3 -> 29.0 -> 6.8 -> 3.8) = NON-STATI...
   - `HALLWAY_RECLASSIFY_DONE_2026_09_17`: All 7 vetted transit rooms reclassified room_type->hallway, LIVE + persisted: Garage Hallway, Kitchen Hallway, Kitchen Hallway Garage, Master Hallway, Upstairs Hallway, Foyer, Guest Bedroom 2 Hallway. This ACTIVATES v5.103.7 circulation ...
   - `D5_AUDIT_2026_09_17`: Duty-cycle audit done (AUDIT_hvac_duty_cycle_protection_2026_09_17.md). CORRECTS my earlier not-coast answer: D5 runtime_exceeded fires ONLY during EC coast/shed (caps runtime 75%/ 50% of a 20min window, hvac.py:3331-3375, forces away hv...
   - `TRANSIT_ROOMS_VETTED_2026_09_17`: Operator vetted the circulation (hallway) set for the D4 reclassify: APPROVED as hallway = Garage Hallway, Kitchen Hallway, Kitchen Hallway Garage, Master Hallway, Upstairs Hallway, Foyer (operator: "No. Its transit"), Guest Bedroom 2 Ha...
