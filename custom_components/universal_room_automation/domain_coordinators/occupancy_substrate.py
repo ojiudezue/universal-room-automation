@@ -225,7 +225,14 @@ class OccupancySubstrate:
                         prior_kind = per_room[entity_id]
                         if prior_kind != kind:
                             # D2 dedup: log-once per stable key.
-                            _dk = (entity_id, room_name, kind)
+                            # B-LOW-1 fix-up (2026-09-19): include
+                            # prior_kind so a CHANGED conflict (same
+                            # entity, same room, kind flipped from
+                            # motion→mmwave or similar) still emits a
+                            # fresh WARN. Prior key
+                            # ``(entity_id, room_name, kind)`` swallowed
+                            # legitimate conflict changes.
+                            _dk = (entity_id, room_name, prior_kind, kind)
                             if _dk not in self._warned_multi_conf:
                                 self._warned_multi_conf.add(_dk)
                                 _LOGGER.warning(
@@ -244,7 +251,10 @@ class OccupancySubstrate:
                 prior = entity_to_room_kind.get(entity_id)
                 if prior is not None and prior[0] != room_name:
                     # D2 dedup: log-once per stable key.
-                    _dk = (entity_id, prior[0], room_name)
+                    # B-LOW-1 fix-up (2026-09-19): include kinds so a
+                    # CHANGED conflict on the same room-pair (kind
+                    # flipped on either side) still warns.
+                    _dk = (entity_id, prior[0], prior[1], room_name, kind)
                     if _dk not in self._warned_cross_room:
                         self._warned_cross_room.add(_dk)
                         _LOGGER.warning(

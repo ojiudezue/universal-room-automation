@@ -2458,6 +2458,20 @@ class RoomAutomation:
           D4 — wet-room (CONF_WET_ROOM) gates D2/D3 default-on and exempts
             wet-room exhausts from FAN_SLEEP_OFF.
         """
+        # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 A-H1 fix-up (2026-09-19):
+        # this handler runs at ``coordinator.py:5034`` OUTSIDE all three
+        # automation-enabled branches. On the manual-mode else-path
+        # (:4995) the only refresh is the COVER-GATED :5013 (guarded by
+        # ``_is_cover_automation_enabled()``). So when both
+        # ``_is_automation_enabled()`` AND ``_is_cover_automation_enabled()``
+        # are False, ``self.config`` is never refreshed for this tick,
+        # yet the safety-cap / spike / presence-runtime paths below all
+        # read ``self.config``. Refresh at the top of the handler,
+        # mirroring ``handle_occupancy_change`` (automation.py:922).
+        # This makes the ~12 humidity-fan CONF keys admitted to
+        # ``_ROOM_SUPPRESS_KEYS`` by the D1 allowlist expansion safe on
+        # every reachable tick, not just the master-on path.
+        self._refresh_config()
         humidity_fans = self.config.get(CONF_HUMIDITY_FANS, [])
         if not humidity_fans or humidity is None:
             return

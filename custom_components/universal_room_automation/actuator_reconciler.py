@@ -51,6 +51,7 @@ from .const import (
     CONF_FAN_CONTROL_ENABLED,
     CONF_FAN_SLEEP_POLICY,
     CONF_FAN_TEMP_THRESHOLD,
+    CONF_HVAC_COORDINATION_ENABLED,
     CONF_FAN_VACANCY_HOLD,
     CONF_FANS,
     CONF_FLAP_SENSITIVITY,
@@ -843,7 +844,21 @@ class ActuatorReconciler:
         if temperature is None:
             return None
         # Defer to HVAC coordinator if it's managing this room's fans.
-        if automation is not None and automation._is_hvac_managing_fans():
+        # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 A-M1 fix-up (2026-09-19):
+        # gate on the LIVE reconciler ``cfg`` before consulting
+        # ``automation._is_hvac_managing_fans()``, which reads
+        # ``self.config.get(CONF_HVAC_COORDINATION_ENABLED)`` — that
+        # cached attribute may be stale on the manual-mode else-path
+        # where ``_refresh_config`` did not run this tick. The
+        # reconciler's ``cfg`` (from ``self._config()``) is a fresh
+        # ``{**entry.data, **entry.options}`` merge (see :212-214). If
+        # HVAC coordination is disabled in the live config, we can
+        # short-circuit here without depending on the possibly-stale
+        # automation attribute; if it's enabled we still consult the
+        # HVAC manager for the room-fans membership check.
+        if not cfg.get(CONF_HVAC_COORDINATION_ENABLED, False):
+            pass  # room-owned fans; do not defer
+        elif automation is not None and automation._is_hvac_managing_fans():
             return None
 
         # HIGH-1 (review B): defer while the room-tier manual-off cooldown

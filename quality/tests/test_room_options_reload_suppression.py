@@ -593,37 +593,277 @@ def test_room_unload_pops_snapshot():
     ), "ROOM unload must pop entry_id from room_last_applied_options"
 
 
-def test_substrate_defines_warn_dedup_sets():
-    assert "self._warned_multi_conf: set = set()" in SUBSTRATE_SRC
-    assert "self._warned_cross_room: set = set()" in SUBSTRATE_SRC
+# ===========================================================================
+# BEHAVIORAL — OccupancySubstrate WARN dedup (D2 + B-LOW-1)
+# ===========================================================================
 
 
-def test_substrate_multi_conf_warn_gated_on_dedup_set():
-    idx = SUBSTRATE_SRC.find(
-        '"OccupancySubstrate: entity %s appears in "'
+class _FakeSubstrateEntry:
+    """Mimics the fields ``_discover_entity_map`` reads on each entry."""
+    def __init__(self, *, room_name, motion=None, mmwave=None, occupancy=None):
+        # ``_discover_entity_map`` reads ``entry.data`` and ``entry.options``
+        # and merges them — put all fields in ``data`` for simplicity.
+        self.data = {
+            "entry_type": "room",
+            "room_name": room_name,
+            "motion_sensors": list(motion or []),
+            "presence_sensors": list(mmwave or []),
+            "occupancy_sensors": list(occupancy or []),
+        }
+        self.options = {}
+
+
+class _FakeSubstrateHass:
+    def __init__(self, entries):
+        self._entries = list(entries)
+
+        class _CE:
+            def __init__(self, entries):
+                self._entries = entries
+
+            def async_entries(self, domain):
+                return list(self._entries)
+
+        self.config_entries = _CE(self._entries)
+
+
+def _make_substrate(entries):
+    """Build a bare OccupancySubstrate instance with the __init__ state
+    the WARN dedup + fast-path rely on. Bypass the full __init__ (which
+    the tests don't exercise) so nothing outside `_discover_entity_map`
+    needs mocking."""
+    from custom_components.universal_room_automation.domain_coordinators.occupancy_substrate import (  # noqa: E501
+        OccupancySubstrate,
     )
-    assert idx != -1
+    sub = object.__new__(OccupancySubstrate)
+    sub.hass = _FakeSubstrateHass(entries)
+    sub._warned_multi_conf = set()
+    sub._warned_cross_room = set()
+    return sub
+
+
+def test_d2_cross_room_conflict_warns_once_then_dedupes(caplog):
+    """Two ROOM entries claim the same entity → one WARN. Calling
+    ``_discover_entity_map`` again re-runs the walk (same shape) and
+    MUST NOT emit a second WARN.
+
+    Anchored: removing the ``_warned_cross_room`` gate in
+    ``occupancy_substrate.py`` flips this to two WARNs (test RED).
+    """
+    entries = [
+        _FakeSubstrateEntry(room_name="RoomA", motion=["binary_sensor.shared"]),
+        _FakeSubstrateEntry(room_name="RoomB", motion=["binary_sensor.shared"]),
+    ]
+    sub = _make_substrate(entries)
+
+    import logging
+    with caplog.at_level(
+        logging.WARNING,
+        logger=(
+            "custom_components.universal_room_automation."
+            "domain_coordinators.occupancy_substrate"
+        ),
+    ):
+        sub._discover_entity_map()
+        sub._discover_entity_map()
+
+    cross_warnings = [
+        r for r in caplog.records
+        if "claimed by multiple" in r.getMessage()
+    ]
+    assert len(cross_warnings) == 1, (
+        "cross-room-claim WARN must fire exactly once across two "
+        "identical discovery passes"
+    )
+
+
+def test_d2_cross_room_conflict_changed_kind_re_warns(caplog):
+    """B-LOW-1 fix-up.
+
+    First pass: RoomA claims `binary_sensor.shared` as MOTION and RoomB
+    as OCCUPANCY (kind mismatch). One WARN. Mutate RoomA to claim it as
+    MMWAVE instead; the CHANGED conflict (`prior_kind` flipped) MUST
+    fire a fresh WARN because the dedup key now includes both kinds
+    (per B-LOW-1). Anchored: reverting the dedup-key to the narrower
+    triple flips this test RED.
+    """
+    entry_a = _FakeSubstrateEntry(
+        room_name="RoomA", motion=["binary_sensor.shared"],
+    )
+    entry_b = _FakeSubstrateEntry(
+        room_name="RoomB", occupancy=["binary_sensor.shared"],
+    )
+    sub = _make_substrate([entry_a, entry_b])
+
+    import logging
+    with caplog.at_level(
+        logging.WARNING,
+        logger=(
+            "custom_components.universal_room_automation."
+            "domain_coordinators.occupancy_substrate"
+        ),
+    ):
+        sub._discover_entity_map()
+        # Reclassify RoomA's claim: motion → mmwave. Same entity, same
+        # rooms, but the kinds differ from the first pass.
+        entry_a.data["motion_sensors"] = []
+        entry_a.data["presence_sensors"] = ["binary_sensor.shared"]
+        sub._discover_entity_map()
+
+    cross_warnings = [
+        r for r in caplog.records
+        if "claimed by multiple" in r.getMessage()
+    ]
+    assert len(cross_warnings) == 2, (
+        "changed cross-room kind conflict must produce a second WARN "
+        "(B-LOW-1: dedup key includes kinds)"
+    )
+
+
+def test_d2_multi_conf_conflict_warns_once_then_dedupes(caplog):
+    """Same room lists the entity in TWO CONF slots (motion +
+    occupancy) → one precedence-WARN. A second discovery pass must
+    not re-emit.
+
+    Anchored: removing the ``_warned_multi_conf`` gate re-emits every
+    pass; the test RED-flags.
+    """
+    entry = _FakeSubstrateEntry(
+        room_name="RoomC",
+        motion=["binary_sensor.dual"],
+        occupancy=["binary_sensor.dual"],
+    )
+    sub = _make_substrate([entry])
+
+    import logging
+    with caplog.at_level(
+        logging.WARNING,
+        logger=(
+            "custom_components.universal_room_automation."
+            "domain_coordinators.occupancy_substrate"
+        ),
+    ):
+        sub._discover_entity_map()
+        sub._discover_entity_map()
+
+    multi = [
+        r for r in caplog.records
+        if "appears in multiple CONF lists" in r.getMessage()
+    ]
+    assert len(multi) == 1
+
+
+def test_d2_multi_conf_changed_kind_re_warns(caplog):
+    """B-LOW-1 for the multi-CONF case.
+
+    First pass: RoomC has entity in motion AND occupancy — precedence
+    keeps motion, drops occupancy → WARN. Mutate to motion + mmwave;
+    now precedence keeps motion, drops mmwave — a DIFFERENT conflict
+    (kind_dropped changed). Must WARN again because dedup key includes
+    (entity, room, prior_kind, kind_dropped).
+    """
+    entry = _FakeSubstrateEntry(
+        room_name="RoomC",
+        motion=["binary_sensor.dual"],
+        occupancy=["binary_sensor.dual"],
+    )
+    sub = _make_substrate([entry])
+
+    import logging
+    with caplog.at_level(
+        logging.WARNING,
+        logger=(
+            "custom_components.universal_room_automation."
+            "domain_coordinators.occupancy_substrate"
+        ),
+    ):
+        sub._discover_entity_map()
+        # Change the dropped-kind: occupancy → mmwave.
+        entry.data["occupancy_sensors"] = []
+        entry.data["presence_sensors"] = ["binary_sensor.dual"]
+        sub._discover_entity_map()
+
+    multi = [
+        r for r in caplog.records
+        if "appears in multiple CONF lists" in r.getMessage()
+    ]
+    assert len(multi) == 2, (
+        "changed multi-CONF kind conflict must produce a second WARN "
+        "(B-LOW-1: dedup key includes kinds)"
+    )
+
+
+# ===========================================================================
+# BEHAVIORAL — A-H1 humidity handler refresh coverage
+# ===========================================================================
+
+
+def test_handle_humidity_based_fan_control_refreshes_config_first():
+    """A-H1 pin test.
+
+    ``handle_humidity_based_fan_control`` runs at
+    ``coordinator.py:5034`` OUTSIDE all three automation branches, so
+    the master-on tick refresh at ``coordinator.py:4934`` does NOT
+    cover the manual-mode + cover-off path. The handler MUST refresh
+    its own ``self.config`` at the top, mirroring
+    ``handle_occupancy_change`` (``automation.py:922``).
+
+    Anchored via AST parse: neutering the ``self._refresh_config()``
+    line inside ``handle_humidity_based_fan_control`` flips this test
+    RED — the first executable statement in the handler body would no
+    longer be that call, and the assertion fails by name.
+    """
+    import ast
+    automation_src = (PKG / "automation.py").read_text()
+    tree = ast.parse(automation_src)
+    handler = None
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name == "handle_humidity_based_fan_control"
+        ):
+            handler = node
+            break
+    assert handler is not None, (
+        "handle_humidity_based_fan_control not found in automation.py"
+    )
+    # Skip the docstring if present.
+    body = list(handler.body)
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        body = body[1:]
+    assert body, "handler body empty after docstring strip"
+    first = body[0]
+    # First executable statement must be ``self._refresh_config()``.
+    assert isinstance(first, ast.Expr), (
+        "first executable statement should be a bare call expression"
+    )
+    call = first.value
+    assert isinstance(call, ast.Call), "expected a Call node"
+    func = call.func
     assert (
-        "if _dk not in self._warned_multi_conf:"
-        in SUBSTRATE_SRC[max(0, idx - 400):idx]
-    )
-
-
-def test_substrate_cross_room_warn_gated_on_dedup_set():
-    idx = SUBSTRATE_SRC.find(
-        '"OccupancySubstrate: entity %s claimed by multiple "'
-    )
-    assert idx != -1
-    assert (
-        "if _dk not in self._warned_cross_room:"
-        in SUBSTRATE_SRC[max(0, idx - 400):idx]
+        isinstance(func, ast.Attribute)
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "self"
+        and func.attr == "_refresh_config"
+    ), (
+        "handle_humidity_based_fan_control MUST call "
+        "self._refresh_config() as its first executable statement "
+        "(A-H1) — the manual-mode + cover-off tick has no other "
+        "refresh site, so the ~12 humidity keys in "
+        "_ROOM_SUPPRESS_KEYS would go stale without this"
     )
 
 
 def test_substrate_no_diff_fast_path_preserved():
     """INV-B: substrate no-diff fast-path is what makes the suppressed-
     path SIGNAL_ROOM_ENTRY_LIFECYCLE dispatch cheap. If this guard
-    disappears, INV-B is falsified."""
+    disappears, INV-B is falsified. Structural source check — the
+    guard is one line at the top of ``refresh_subscriptions``."""
     assert re.search(
         r"if not added and not removed and not reclassified:",
         SUBSTRATE_SRC,

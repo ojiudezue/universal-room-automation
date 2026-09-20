@@ -7748,16 +7748,36 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D1 (2026-09-19) — full
         # per-consumer-site audit; verdict = MIN over sites
         # (LIVE > REFRESHED > EXCLUDED). REFRESHED-with-coverage sites
-        # rely on the UNIVERSAL top-of-tick refresher at
-        # ``coordinator.py:4934`` (``self.automation._refresh_config()``,
-        # which rebinds ``self.config = {**entry.data, **entry.options}``
-        # at ``automation.py:867-869``). Every consumer read below sits
-        # DOWNSTREAM of :4934 in the same tick body (``:4939``
-        # handle_temperature_based_fan_control, ``:5034``
-        # handle_humidity_based_fan_control) — coverage proven. The
-        # ``coordinator.py:5013`` cover-gated refresh is NOT relied on
-        # by any allowlisted key here (that path is per-key, not
-        # universal — plan-review P2).
+        # rely on ONE of two refreshers:
+        #
+        #   (a) The UNIVERSAL top-of-tick refresher at
+        #       ``coordinator.py:4934`` (``self.automation._refresh_config()``,
+        #       which rebinds ``self.config =
+        #       {**entry.data, **entry.options}`` at
+        #       ``automation.py:867-869``). This covers reads reached
+        #       through the master-automation branch — specifically
+        #       ``handle_temperature_based_fan_control`` at
+        #       ``coordinator.py:4939``.
+        #   (b) The HANDLER-LOCAL refresher inside
+        #       ``handle_humidity_based_fan_control`` at
+        #       ``automation.py:~2461`` (A-H1 fix-up, 2026-09-19).
+        #       Required because that handler runs UNCONDITIONALLY at
+        #       ``coordinator.py:5034`` — OUTSIDE all three automation
+        #       branches. On the manual-mode else-path
+        #       (``coordinator.py:4995``), the only other refresh site is
+        #       the COVER-GATED :5013 (guarded by
+        #       ``_is_cover_automation_enabled()``), which is NOT
+        #       universal. Without (b) the ~12 humidity-fan keys admitted
+        #       here would strand stale on the manual-mode +
+        #       cover-off tick.
+        #
+        # (a) covers: HVAC_COORDINATION_ENABLED, COMFORT_FAN_AWAY_VETO_ENABLED,
+        # FAN_TEMP_THRESHOLD, FAN_SPEED_LOW/MED/HIGH_TEMP.
+        # (b) covers: WET_ROOM, HUMIDITY_FAN_THRESHOLD, HUMIDITY_FAN_TIMEOUT,
+        # HUMIDITY_FAN_MAX_RUNTIME, HUMIDITY_FAN_SPIKE_(ENABLED|DELTA_PCT|
+        # EMA_ALPHA_S|BASELINE_MODE), HUMIDITY_FAN_PRESENCE_RUNTIME_
+        # (ENABLED|BASE_S|PER_MIN_S|CAP_S). The ``coordinator.py:5013``
+        # cover-gated refresh is NOT relied on by any allowlisted key.
         #
         # LIVE (fresh entry.data/options per read, no cache):
         #   _CONF_HVAC_VACANCY_HOLD / _NIGHT
