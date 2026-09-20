@@ -9,6 +9,40 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: PROPERTY-GETTER-SIDE-EFFECT-TASKS-1@2026-09-20T03:35:00
+    at: '2026-09-20T03:35:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'FOUND THE REAL BUG BEHIND FOUR NIGHTS OF DEAD-END INSTRUMENTATION — and closed the card
+      that was chasing the wrong thing. Background: Home Assistant has been warning that URA starts
+      background work from the wrong place, and it pointed at one specific startup routine. I read that
+      routine line by line tonight and it is INNOCENT — it starts no background work at all, so the
+      warning had named the right FILE and the wrong LINE, which is why the hunt kept going nowhere.
+      Then I swept every place in URA that starts background work from ordinary (non-async) code — 137 of
+      them — and sorted them by whether they can genuinely run on the wrong thread. 134 cannot; they are
+      normal event handlers. THREE can, because they live inside the little functions that answer "what is
+      this sensor showing right now?" Those get called by anything that looks at the sensor. The bad one
+      is the house Safety Alert sensor: every time something READS it, it launches the routine that ACTS
+      on the alerts. The history recorder reads it. The dashboard reads it. Any automation mentioning it
+      reads it. So a safety action that should happen once per alert happens once per observer. I have
+      closed the old card as refuted (with the proof, so nobody re-chases it) and opened a new one with
+      its own plan. NOTHING CHANGED IN THE HOUSE — this was all reading.'
+  - fid: OVERNIGHT-PASS-NO-LOG-REACH-1@2026-09-20T03:40:00
+    at: '2026-09-20T03:40:00'
+    outcome: escalated
+    acknowledged: false
+    headline: 'I HAVE TO RETRACT A CLEAN BILL OF HEALTH I GAVE YOU ON THE 18TH. I closed the card about
+      the night pass not being able to read Home Assistant''s log, saying the route worked. It does not,
+      and that was the worst kind of wrong — a false all-clear quietly removes the problem from every
+      later check, and another card sat blocked on a mangled version of it for two days. What is actually
+      true, measured tonight: connecting to the machine works fine, and I can read both databases — that
+      half was right. But the command that fetches the log comes back "401: Unauthorized", which is
+      exactly the permissions problem I declared irrelevant on the 18th. There is no fallback either: the
+      log file itself no longer exists, the shell has no journal command because it is inside a container
+      rather than on the host, and the direct connector was not available tonight. So four routes, none
+      working. THE ASK is one small thing, any one of four ways (they are on the card): authorise that one
+      command, or hand me a token, or turn file logging back on. It matters beyond this card — the restart
+      mystery could largely settle itself if I could read a log, instead of needing you to edit config.'
   - fid: TEST-LEAK-DETECTOR-WRONG-LOOP-1@2026-09-20T03:05:00
     at: '2026-09-20T03:05:00'
     outcome: built-to-review
@@ -3674,10 +3708,10 @@ cards:
     routes were tried across two nights and the fourth — a token we already own — was not.'
   title: The overnight pass cannot read HA logs, so every log-based investigation silently stalls
   thread: platform
-  status: done
+  status: waiting_operator
   created: '2026-09-15 03:45'
-  updated: '2026-09-18 02:15'
-  refinement_status: initial
+  updated: '2026-09-20 03:40'
+  refinement_status: refined
   approval: unreviewed
   tags: [tier-1, no-fabrication-verify]
   problem_solution:
@@ -3704,7 +3738,35 @@ cards:
   constraints:
   - 'READ-ONLY is sufficient — the pass never needs to write via the supervisor API, so scope any
     token to the narrowest read that makes `ha core logs` work.'
-  next: 'CLOSED — no operator action needed. The log route works; see RESOLVED_2026_09_18.'
+  REOPENED_2026_09_20: 'THE 2026-09-18 "RESOLVED" IS WRONG AND I AM RETRACTING IT. That note closed
+    this card on the claim that "the log route works". It does not, and the closure was a FALSE ALL-CLEAR
+    — worse than leaving it open, because it quietly removed a real blocker from every later sweep and
+    another card (AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1) sat blocked on a mis-stated version of it for
+    two days. Measured tonight, unattended, from the Mac mini:
+      * `ssh ha` WORKS — I used it all pass for the URA DB and the recorder. So the LAN/reachability half
+        of the old diagnosis is genuinely fine and that part of RESOLVED_2026_09_18 stands.
+      * `ha core logs` returns **401: Unauthorized**. This is precisely the supervisor-token problem the
+        2026-09-18 note declared moot. It is not moot.
+      * There is no file fallback: /config/home-assistant.log does not exist (only a zero-byte
+        home-assistant.log.fault and a home-assistant.log.old from Nov 2025).
+      * There is no journald fallback either: the add-on shell has no `journalctl` (command not found) —
+        it is the add-on container, not the host.
+      * The home-assistant MCP was not connected in this session, so `ha_get_logs` was unavailable too.
+    NET: an unattended pass can reach the HOST and both DATABASES, but CANNOT read the core log by any
+    of the four routes. That is the accurate statement of the blocker, and it is narrower and more
+    actionable than either previous diagnosis — it is a supervisor AUTHORISATION problem for one command,
+    not a network problem and not a missing log.
+    NOTE ON BLAST RADIUS: this is the same gap that makes HA-CORE-RESTART-STORM-1 depend on an operator
+    editing configuration.yaml. If `ha core logs` were authorised for the unattended pass, that card
+    could largely settle itself.'
+  next: 'FIX ONE THING: make `ha core logs` work for the unattended pass. It returns 401 Unauthorized
+    from `ssh ha` (measured 2026-09-20), which is a supervisor-token authorisation problem, not a network
+    one — ssh, the URA DB and the recorder DB are all reachable. Either grant the ssh add-on a supervisor
+    token with core-log read, or expose any ONE working alternative route (a long-lived token + the
+    /api/error_log endpoint from the Mac, connecting the home-assistant MCP for headless runs, or simply
+    turning on file logging so /config/home-assistant.log exists again). Any one of the four unblocks
+    every log-read investigation; today none of them work. -> With a route, the restart-storm card and the
+    frame-helper class can be settled unattended instead of waiting on operator config edits.'
   links:
     blocks: [URA-CONFIG-ENTRY-RELOAD-STORM-1]
     context: 'URA-CONFIG-ENTRY-RELOAD-STORM-1 has debug logging ARMED on the live instance and its
@@ -24928,13 +24990,91 @@ cards:
      ~/Library/LaunchAgents/ && launchctl load ~/Library/LaunchAgents/com.phalanxmadrone.ura-overnight-pass.plist
      (then optionally launchctl start com.phalanxmadrone.ura-overnight-pass to test-fire). -> I verify via launchctl list + the log.'
   refs: [homelab-automation/scripts/overnight/ura_overnight_pass.sh, homelab-automation/launchd/com.phalanxmadrone.ura-overnight-pass.plist]
+- id: PROPERTY-GETTER-SIDE-EFFECT-TASKS-1
+  title: Three entity property getters start background work every time something reads them — including
+    one that fires safety-alert actions
+  thread: platform
+  rank: {value: 7, time_criticality: 4, effort: 5}
+  status: planned
+  created: '2026-09-20 03:30'
+  updated: '2026-09-20 03:30'
+  refinement_status: initial
+  approval: implied
+  tags: [tier-2, thread-safety, no-fabrication-verify, ha-2026-escalation]
+  problem_solution:
+  - 'Problem: in Home Assistant, a "property getter" is the little function that answers the question
+     "what is this sensor showing right now?" It is supposed to just report a value. Three of ours do
+     not — they also kick off background work as a side effect of being asked. The worst is the
+     house Safety Alert sensor: every single time anything reads it, it launches the routine that
+     ACTS on the alerts. Nothing reads a sensor once. The recorder reads it to write history, the
+     dashboard reads it to draw, any template or automation referencing it reads it too, and each of
+     those can be a different background thread. That produces two distinct problems at once. The
+     first is correctness of timing: starting work from a thread that is not the one Home Assistant
+     runs on is the exact pattern HA warns about today ("may cause crash or data corruption") and
+     turns into a hard error in a future release. The second is simpler and arguably worse: an
+     action that is supposed to happen when a condition occurs instead happens as many times as
+     someone looks at the screen. Solution: take the work out of the getters. A getter returns a
+     value and nothing else; whatever needs to happen when alerts appear moves to the place that
+     already runs on a schedule or reacts to a change, where it fires once per event rather than
+     once per read.'
+  origin:
+    date: '2026-09-20'
+    gist: Fell out of settling AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1 — that card's named method was
+      innocent, but an AST sweep of the file it blamed found the real off-loop shape.
+  why: 'Two independent harms from one shape. Thread-safety is the one HA will escalate to an error, but
+    the read-amplified actuation is live today and is the kind of defect that hides as "it fired a few
+    extra times". This is also the missing half of the frame-helper mystery that cost several nights of
+    instrumentation: the warning named the right FILE and the wrong LINE.'
+  measured_2026_09_20: 'AST sweep of custom_components/universal_room_automation/ for
+    async_create_task / async_create_background_task called from a SYNC (non-async) function: 137 sites.
+    134 are @callback handlers or timer fires, which HA invokes on the event loop — NOT this class, and
+    deliberately not in scope. Exactly three sit inside property getters, which any thread can invoke:
+    (1) aggregation.py:1286 — SafetyAlertBinarySensor.is_on calls
+    hass.async_create_task(self._process_alerts(alerts)) before returning len(alerts) > 0;
+    (2) sensor.py:1817 — a native_value getter logging a sensor_dropout memory episode
+    (already marked "untracked-ok: observational");
+    (3) sensor.py:16393 — a second native_value getter.
+    Site (1) is the one that ACTUATES and should be treated as the priority; (2) and (3) are
+    observational writes and may well be fine to leave, or to move, on a cheaper argument.'
+  constraints:
+  - 'Do NOT sweep the other 134 sites. They are @callback / timer fires that HA runs on the loop; folding
+    them in turns a three-site fix into a house-wide refactor of the dispatch layer.'
+  - 'Moving _process_alerts out of the getter CHANGES HOW OFTEN IT RUNS — that is the point, but it means
+    the acceptance criteria must pin the new trigger explicitly, not just prove the getter is clean.'
+  parked_alts:
+  - 'Marshal the existing call onto the loop (call_soon_threadsafe) and leave it in the getter — REJECTED:
+    it fixes the thread-safety half and leaves the read-amplified actuation exactly as it is.'
+  knobs: []
+  parsimony:
+    problem: Three property getters start background work per read; one of them actuates safety alerts,
+      so the action fires once per observer rather than once per event.
+    verdict: BUILD
+  next: 'Trace site (1) first: read _process_alerts and find what ALREADY reacts to safety-alert changes
+    (the safety coordinator almost certainly has a dispatch or a tick that should own this), then move the
+    call there and leave is_on a pure getter. Decide (2)/(3) separately on a cheaper argument — they are
+    observational, not actuating. Tier 2, two framing-disjoint reviews (A correctness+trigger-frequency,
+    B async/lifecycle/thread). Acceptance must state how many times the alert action fires per alert
+    event, measured, not just that the getter no longer creates a task.'
+  links:
+    related: [EC-SUBSWITCH-ASYNC-WRITE-THREAD-1, AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1]
+    context: 'EC-SUBSWITCH-ASYNC-WRITE-THREAD-1 (done, v5.97.x) is the same THREAD-SAFETY class at a
+      different site — a deferred-restore callback writing state off-loop — and its fix is the precedent
+      for marshalling, though here marshalling alone is explicitly not enough.
+      AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1 is the refuted parent: it blamed
+      AggregationEntity.async_added_to_hass, which reading the source proved creates no task at all. This
+      card is the real defect that sweep turned up, and it carries its own problem statement rather than
+      inheriting a disproven title.'
+  refs:
+  - custom_components/universal_room_automation/aggregation.py:1280-1287 (SafetyAlertBinarySensor.is_on)
+  - custom_components/universal_room_automation/sensor.py:1817
+  - custom_components/universal_room_automation/sensor.py:16393
 - id: AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1
   title: "AggregationEntity.async_added_to_hass off-loop async_create_task (house-wide, HA 2027 deprecation)"
   thread: platform
   rank: {value: 7, time_criticality: 5, effort: 5}
-  status: waiting_me
+  status: done
   created: '2026-09-15'
-  updated: '2026-09-19 04:10'
+  updated: '2026-09-20 03:30'
   BLOCKED_2026_09_16: 'Overnight pass could not advance this card, and the reason is now concrete
     rather than a scheduling miss. The measurement this card requires is a boot traceback from the
     HA CORE LOG, and tonight ssh to the HA host was DOWN for the whole pass (no route to
@@ -24947,7 +25087,7 @@ cards:
     off-loop producer remains UNIDENTIFIED. Moved investigating -> waiting_operator because the next
     action is an operator act (a restart in the approved window, plus log reach), not a measurement
     I can run — per the rule that cards must not rot in the investigating lane.'
-  refinement_status: initial
+  refinement_status: refined
   approval: implied
   tags: [tier-2]
   problem_solution:
@@ -24961,10 +25101,35 @@ cards:
      onto the loop, or restructure the poll); shared-base change -> Tier-2 2-framing review, not a hotfix.'
   why: thread-safety on a shared base consumed by many sensors; benign now, breaks in HA 2027; found in
     v5.103.0 live validation (README_v5.103.0 residual finding).
-  next: 'MINE now, not the operators (see ASK_WITHDRAWN_2026_09_19). After the durable logger block lands (HA-CORE-RESTART-STORM-1), re-read ONE boot window for the frame-helper signature; if it is still silent, settle it by reading AggregationEntity.async_added_to_hass and its call path directly instead of waiting for a warning that may never fire.'
+  settled_2026_09_20: 'CLOSED BY DIRECT SOURCE READ — the card''s own next said to settle it this way
+    if the log stayed silent, and it did. Two things happened tonight. FIRST, THE BLOCKER WAS STALE:
+    this card was blocked_by OVERNIGHT-PASS-NO-LOG-REACH-1 on the basis that an unattended pass has no
+    route to the HA host. ssh to the host worked fine all pass. What does NOT work is reaching the CORE
+    LOG from it — the add-on shell has no journalctl, /config/home-assistant.log does not exist (only a
+    zero-byte .fault and a 2025 .old), and the home-assistant MCP was not connected this session. So the
+    blocker is real but MIS-STATED; corrected on that card.
+    SECOND, THE PREMISE IS DEFINITIVELY REFUTED. Read AggregationEntity.async_added_to_hass end to end
+    (aggregation.py:979-1014): it awaits super().async_added_to_hass(), checks _get_room_coordinators,
+    and registers async_track_time_interval. It creates NO task by any name, and every call in it is
+    loop-safe and invoked by HA on the loop. The frame-helper''s attribution to this method was a
+    frame-walker artifact, exactly as INVESTIGATED_2026_09_15 suspected — now confirmed by reading the
+    code rather than inferring from a warning.
+    THE FILE, HOWEVER, WAS RIGHT. An AST sweep of all 137 async_create_task / async_create_background_task
+    call sites reachable from SYNC functions found three that sit inside PROPERTY GETTERS, which is the
+    one shape that genuinely can run off the loop (any thread reading entity state — recorder, template
+    rendering, the UI — invokes them): aggregation.py:1286 SafetyAlertBinarySensor.is_on, sensor.py:1817,
+    and sensor.py:16393 (both native_value). aggregation.py:1286 fires
+    hass.async_create_task(self._process_alerts(alerts)) on EVERY read of is_on. The other 134 sites are
+    @callback handlers and timer fires that HA runs on the loop — not this class.
+    DISPOSITION: this card is refuted-but-fertile. It closes as the record of how the misattribution
+    happened, and the real problem — side-effecting actuation from property getters — is carded
+    separately as PROPERTY-GETTER-SIDE-EFFECT-TASKS-1, which has its own problem statement and its own
+    acceptance criteria. Do not reopen this one.'
+  next: 'CLOSED 2026-09-20 (refuted). No action here. The live successor is
+    PROPERTY-GETTER-SIDE-EFFECT-TASKS-1.'
   links:
     related: [APPLIANCE-MGMT-REFINE-1, EC-SUBSWITCH-ASYNC-WRITE-THREAD-1]
-    blocked_by: [OVERNIGHT-PASS-NO-LOG-REACH-1]
+    superseded_by: PROPERTY-GETTER-SIDE-EFFECT-TASKS-1
     context: 'blocked_by OVERNIGHT-PASS-NO-LOG-REACH-1 — the only remaining measurement is a boot
       traceback in the HA core log, and an unattended pass has no route to that log, so this card
       cannot progress until log reach exists (or the operator runs the restart and hands me the log).'
