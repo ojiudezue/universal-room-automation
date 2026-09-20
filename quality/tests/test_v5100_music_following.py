@@ -1126,7 +1126,13 @@ class TestReloadSuppressionAllowlist:
         # past the old window. The window is just a text-search bound; extending
         # it does not weaken the assertion (the token is either in the source or
         # it isn't).
-        allowlist_block = src[allowlist_start:allowlist_start + 8000]
+        # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D1 (2026-09-19): the
+        # in-listener _ROOM_SUPPRESS_KEYS frozenset now carries 21
+        # extra climate-step keys + an audit block, pushing the
+        # trailing OPTIONS_RELOAD_SUPPRESS_KEYS mention (including
+        # _CONF_MF_SLEEP_SUPPRESS) beyond the prior 8000-char window.
+        # Prior precedent bumped 6000→8000 for the same reason.
+        allowlist_block = src[allowlist_start:allowlist_start + 12000]
         assert "_CONF_MF_SLEEP_SUPPRESS" in allowlist_block, (
             "CONF_MF_SLEEP_SUPPRESS must be in OPTIONS_RELOAD_SUPPRESS_KEYS "
             "so edits are pushed live via update_gate_config()"

@@ -1022,7 +1022,18 @@ class FanShouldRunBinarySensor(UniversalRoomEntity, BinarySensorEntity):
         if temp is None or not occupied:
             return False
         
-        fan_threshold = self.coordinator.entry.data.get("fan_temp_threshold", 80)
+        # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 A-M2 fix-up (2026-09-19):
+        # options-flow saves land in ``entry.options``, never merged
+        # into ``entry.data`` for ROOM entries — a bare
+        # ``entry.data.get(...)`` reads the ONBOARDING-time value and
+        # never sees an options-flow update (pre-existing stale-read).
+        # Read merged ``{**data, **options}`` like the sibling
+        # ``HumidityFanShouldRun`` at :1080 does. Makes this consumer
+        # LIVE against ``CONF_FAN_TEMP_THRESHOLD``, matching the D1
+        # allowlist verdict.
+        entry = self.coordinator.entry
+        merged = {**(entry.data or {}), **(entry.options or {})}
+        fan_threshold = merged.get("fan_temp_threshold", 80)
         return temp >= fan_threshold
 
 
