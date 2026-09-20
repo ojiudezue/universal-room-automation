@@ -12180,6 +12180,12 @@ cards:
   - hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented)
   - hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
 - id: HVAC-ZONE-CONDITIONING-DEMAND-1
+  DAYTIME_ACCEPTANCE_2026_09_20: 'Daytime re-measure (9am-6pm CDT, 7d, live recorder, %-time-in-manual
+    per zone): zone_2 46.4%%->10.7%% (-36pp, the money: empty-daytime lockout collapsed), zone_3 6.3%%->3.8%%
+    (healthy), zone_1 69.6%%->50.3%% (-19pp, still high). VERDICT: step-4 conditioning-demand ACCEPTED where
+    the mechanism can act (zones 2/3 at/below the ~6%% healthy floor). The overnight-only 46%% that read as a
+    shortfall was not comparable. zone_1 residual is NOT a step-4 defect -> it is HVAC-ZONE1-MANUAL-OSCILLATION-1
+    (Bryant native 76/69 schedule reclaims the zone ~1s after each URA write) = operator hardware/config decision.'
   HALLWAY_RECLASSIFY_DONE_2026_09_17: 'All 7 vetted transit rooms reclassified room_type->hallway,
     LIVE + persisted: Garage Hallway, Kitchen Hallway, Kitchen Hallway Garage, Master Hallway, Upstairs
     Hallway, Foyer, Guest Bedroom 2 Hallway. This ACTIVATES v5.103.7 circulation exclusion for these

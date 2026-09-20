@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-20T02:44:43-05:00_ - _Data commit: `92ed150c3842`_ - _last_reconciled: 2026-09-20_
+_Generated: 2026-09-20T09:31:04-05:00_ - _Data commit: `38e36a3d4547`_ - _last_reconciled: 2026-09-20_
 
 
 ## Columns
@@ -13,11 +13,11 @@ _Generated: 2026-09-20T02:44:43-05:00_ - _Data commit: `92ed150c3842`_ - _last_r
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 15 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 26 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🚀 Shipped (organic open) | 34 |
+| 🚀 Shipped (organic open) | 35 |
 | 🅿️ Parked | 62 |
 | ✅ Done | 185 |
 
@@ -452,28 +452,10 @@ _created 2026-09-16 · initial_
   - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
   - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1` - Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s — _#1 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
-thread: **presence** - status: **in_progress**
-_created 2026-09-19_
-- **Problem / Solution:**
-  - Operator reported: changing room config -> HA becomes unresponsive ("some kind of reset"). VERIFIED from logs 2026-09-19: NO core restart (no "Starting Home Assistant" banner) -> unresponsive blip, not a reset. Mechanism: options-flow cl...
-- **Why:** operator hit a live stability blip while doing exactly what we recommended (enable fan control on Jaya); the room reload path is heavier than a single-room change should require, and amplified under network load.
-- **Next:** FIX-UP in flight. -> validator re-check (zero-new vs baseline) + Review C mutation drill on fixed code -> orchestrator mutation-verify (neuter H1 refresh + D0 seed on shipping code) -> ship + live-validate + README.
-- **Tags:** reload, event-loop, config-flow, stability, tier-2db, incident
-- **Forensic keys (10):**
-  - `PLAN_2026_09_19`: PLANNING_room_config_reload_suppression.md written. Prior-art scan REUSE-only (no new infra). D2 PARTIALLY FALSIFIED during scoping: the SUPPRESSED path already short-circuits the substrate (no-diff fast-path occupancy_substrate.py:442; ...
-  - `PLAN_DISPATCH_2026_09_19`: Operator APPROVED Tier-2-DB fix. ura-planner dispatched -> PLANNING_room_config_reload_suppression.md (D1 per-key live-consumer-proven allowlist extension; D2 scope substrate re-subscribe to changed room). Next: plan-review -> build -> 3...
-  - `PLANREVIEW_2026_09_19`: Plan-review = FIX-REQUIRED, 6 must-fix (gate worked — caught a would-be no-op + a would-fail-validation). P1 CRIT: snapshot never seeded at setup -> first save per room per HA lifetime ALWAYS reloads even for allowlisted keys -> add D0 (...
-  - `BUILD_DISPATCH_2026_09_19`: Revised plan folded all 6 must-fix; orchestrator spot-verified D0 setup location (__init__.py:1798) + P1 (only listener seeds room_last_applied_options) + P2 REFRESHED crux (_refresh_config top-of-tick coordinator.py:4934). Build dispatc...
-  - `BUILD_PASS1_INCOMPLETE_2026_09_19`: Build pass 1 (59943f353) honest but INCOMPLETE: allowlisted only hvac_vacancy_hold[_night] (the 2 pre-cleared keys), deferred the REFRESHED audit for the other ~20 climate keys -> per all-or-nothing (P7), a full CLIMATE-STEP save still m...
-  - `BUILD_PASS2_DONE_2026_09_19`: Build pass 2 (6c2545f96) FINISHES it: 27-key allowlist (6 pre + 5 LIVE + 16 REFRESHED-with-coverage); only CONF_CLIMATE_ENTITY residual-excluded (structural rewire). GATE ANSWERED: a full Climate & Fans save now SUPPRESSES unless the cli...
-  - `REVIEW_A_2026_09_19`: A (classification+REFRESHED-coverage) = FIX-REQUIRED, 1 CRIT + 2 MED. H1 CRIT: the REFRESHED-coverage proof for handle_humidity_based_fan_control is FALSE — it runs at coordinator.py:5034 OUTSIDE all 3 automation branches; on the manual-...
-  - `REVIEW_B_2026_09_19`: B (lifecycle/signal-chain/fall-through) = SHIP (no CRIT/HIGH). D0 seed ROOM-only, ordered before listener, popped on unload, re-seeded on reload, shape-matched; suppress branch advances snapshot + single lifecycle dispatch; excluded-key ...
-  - `VALIDATOR_2026_09_19`: Validator name-diff: 39 NEW failing names, ALL test-infra debt from the diff (zero application regressions). 38 = _ast_slice_guard.py keep-set not extended for the 20 new _CONF_* symbols (test_part2_ec_hc_writeback.py cannot load the sli...
-  - `FIXUP_DISPATCH_2026_09_19`: Consolidated fix-up sent to builder (7 items): A-H1 (refresh atop handle_humidity_based_fan_control + audit correction + pin test), A-M1 (reconciler live cfg), A-M2 (binary_sensor merge options), B-LOW-1 (widen D2 dedup keys w/ kind), B-...
+_(none)_
 
 ## 🔍 Review (1)
 _under review_
@@ -908,7 +890,7 @@ _I owe something_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (34)
+## 🚀 Shipped (organic open) (35)
 _live, awaiting proof_
 
 ### `BLE-HOLD-CAP-SUITE-POLLUTION-1` - test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution (passes alone/in pairs) — _#1 · WSJF 7.5 · v5 tc8 u2 /e2 ⚠_
@@ -1450,7 +1432,8 @@ _created 2026-09-15 · updated 2026-09-19 03:55 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (55):**
+- **Forensic keys (56):**
+  - `DAYTIME_ACCEPTANCE_2026_09_20`: Daytime re-measure (9am-6pm CDT, 7d, live recorder, %-time-in-manual per zone): zone_2 46.4%%->10.7%% (-36pp, the money: empty-daytime lockout collapsed), zone_3 6.3%%->3.8%% (healthy), zone_1 69.6%%->50.3%% (-19pp, still high). VERDICT:...
   - `HALLWAY_RECLASSIFY_DONE_2026_09_17`: All 7 vetted transit rooms reclassified room_type->hallway, LIVE + persisted: Garage Hallway, Kitchen Hallway, Kitchen Hallway Garage, Master Hallway, Upstairs Hallway, Foyer, Guest Bedroom 2 Hallway. This ACTIVATES v5.103.7 circulation ...
   - `D5_AUDIT_2026_09_17`: Duty-cycle audit done (AUDIT_hvac_duty_cycle_protection_2026_09_17.md). CORRECTS my earlier not-coast answer: D5 runtime_exceeded fires ONLY during EC coast/shed (caps runtime 75%/ 50% of a 20min window, hvac.py:3331-3375, forces away hv...
   - `TRANSIT_ROOMS_VETTED_2026_09_17`: Operator vetted the circulation (hallway) set for the D4 reclassify: APPROVED as hallway = Garage Hallway, Kitchen Hallway, Kitchen Hallway Garage, Master Hallway, Upstairs Hallway, Foyer (operator: "No. Its transit"), Guest Bedroom 2 Ha...
@@ -1558,7 +1541,27 @@ _created 2026-09-12 16:30 · updated 2026-09-12 16:05 · refined_
   - `recommended_combo_2026_09_12`: Presented the most-assistive LINEAR combo for operator approval (the bold end of each proposal, resolving the conservative/aggressive variants): area-first + auto-detect-and-confirm (P2 bold) + continuous house->room ribbon (P5) + essent...
   - `planning_2026_09_12`: AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + sep...
 
-### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window — _#33 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1` - Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s — _#33 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+thread: **presence** - status: **shipped_organic**
+_created 2026-09-19_
+- **Problem / Solution:**
+  - Operator reported: changing room config -> HA becomes unresponsive ("some kind of reset"). VERIFIED from logs 2026-09-19: NO core restart (no "Starting Home Assistant" banner) -> unresponsive blip, not a reset. Mechanism: options-flow cl...
+- **Why:** operator hit a live stability blip while doing exactly what we recommended (enable fan control on Jaya); the room reload path is heavier than a single-room change should require, and amplified under network load.
+- **Next:** FIX-UP in flight. -> validator re-check (zero-new vs baseline) + Review C mutation drill on fixed code -> orchestrator mutation-verify (neuter H1 refresh + D0 seed on shipping code) -> ship + live-validate + README.
+- **Tags:** reload, event-loop, config-flow, stability, tier-2db, incident
+- **Forensic keys (10):**
+  - `PLAN_2026_09_19`: PLANNING_room_config_reload_suppression.md written. Prior-art scan REUSE-only (no new infra). D2 PARTIALLY FALSIFIED during scoping: the SUPPRESSED path already short-circuits the substrate (no-diff fast-path occupancy_substrate.py:442; ...
+  - `PLAN_DISPATCH_2026_09_19`: Operator APPROVED Tier-2-DB fix. ura-planner dispatched -> PLANNING_room_config_reload_suppression.md (D1 per-key live-consumer-proven allowlist extension; D2 scope substrate re-subscribe to changed room). Next: plan-review -> build -> 3...
+  - `PLANREVIEW_2026_09_19`: Plan-review = FIX-REQUIRED, 6 must-fix (gate worked — caught a would-be no-op + a would-fail-validation). P1 CRIT: snapshot never seeded at setup -> first save per room per HA lifetime ALWAYS reloads even for allowlisted keys -> add D0 (...
+  - `BUILD_DISPATCH_2026_09_19`: Revised plan folded all 6 must-fix; orchestrator spot-verified D0 setup location (__init__.py:1798) + P1 (only listener seeds room_last_applied_options) + P2 REFRESHED crux (_refresh_config top-of-tick coordinator.py:4934). Build dispatc...
+  - `BUILD_PASS1_INCOMPLETE_2026_09_19`: Build pass 1 (59943f353) honest but INCOMPLETE: allowlisted only hvac_vacancy_hold[_night] (the 2 pre-cleared keys), deferred the REFRESHED audit for the other ~20 climate keys -> per all-or-nothing (P7), a full CLIMATE-STEP save still m...
+  - `BUILD_PASS2_DONE_2026_09_19`: Build pass 2 (6c2545f96) FINISHES it: 27-key allowlist (6 pre + 5 LIVE + 16 REFRESHED-with-coverage); only CONF_CLIMATE_ENTITY residual-excluded (structural rewire). GATE ANSWERED: a full Climate & Fans save now SUPPRESSES unless the cli...
+  - `REVIEW_A_2026_09_19`: A (classification+REFRESHED-coverage) = FIX-REQUIRED, 1 CRIT + 2 MED. H1 CRIT: the REFRESHED-coverage proof for handle_humidity_based_fan_control is FALSE — it runs at coordinator.py:5034 OUTSIDE all 3 automation branches; on the manual-...
+  - `REVIEW_B_2026_09_19`: B (lifecycle/signal-chain/fall-through) = SHIP (no CRIT/HIGH). D0 seed ROOM-only, ordered before listener, popped on unload, re-seeded on reload, shape-matched; suppress branch advances snapshot + single lifecycle dispatch; excluded-key ...
+  - `VALIDATOR_2026_09_19`: Validator name-diff: 39 NEW failing names, ALL test-infra debt from the diff (zero application regressions). 38 = _ast_slice_guard.py keep-set not extended for the 20 new _CONF_* symbols (test_part2_ec_hc_writeback.py cannot load the sli...
+  - `FIXUP_DISPATCH_2026_09_19`: Consolidated fix-up sent to builder (7 items): A-H1 (refresh atop handle_humidity_based_fan_control + audit correction + pin test), A-M1 (reconciler live cfg), A-M2 (binary_sensor merge options), B-LOW-1 (widen D2 dedup keys w/ kind), B-...
+
+### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window — _#34 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **implied**
 _created 2026-09-08 00:10 · updated 2026-09-19 03:35 · refined ×2_
 - **Problem / Solution:**
@@ -1580,7 +1583,7 @@ _created 2026-09-08 00:10 · updated 2026-09-19 03:35 · refined ×2_
   - `fix_direction_2026_09_10`: FIX (two surfaces, this card owns #1): (1) ONSET GATE reload-resilience -- _evaluate_onset_gate must NOT release a currently-held charger on a transient enabled=False. Options: gate should distinguish "feature genuinely off" from "enable...
   - `transient_reclassified_2026_09_19`: CALCULUS CHANGED — the transient this card was holding for is now identified, and it is NOT the one assumed. The reload-resilience fix was held on operator ruling ("how can you fix what you cannot root cause") because the off-flicker was...
 
-### `APPLIANCE-MGMT-REFINE-1` - Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities — _#34 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `APPLIANCE-MGMT-REFINE-1` - Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities — _#35 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-12 16:30 · updated 2026-09-19 03:55 · initial_
 - **Problem / Solution:**
