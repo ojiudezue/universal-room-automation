@@ -432,7 +432,7 @@ def enable_event_loop_debug():
 
 
 @pytest.fixture(autouse=True)
-def verify_cleanup(expected_lingering_tasks, expected_lingering_timers):
+def verify_cleanup(request, expected_lingering_tasks, expected_lingering_timers):
     """Override phcc's leak detector — THREADS + sync-test tasks/timers.
 
     HONEST SCOPE (updated for card TEST-LEAK-DETECTOR-WRONG-LOOP-1, 2026-09-19).
@@ -450,13 +450,35 @@ def verify_cleanup(expected_lingering_tasks, expected_lingering_timers):
     detector was catching real leaks in e.g. `ExteriorTrackLinker` tests; my
     replacement must keep catching them).
 
-    On ASYNC tests the two paths do NOT double-fire: the loop resolved here
-    is a different, idle loop, so `all_tasks() - tasks_before` is empty and
-    no timer is scheduled on it. On SYNC tests the async fixture does not
-    run at all, and this path is the only detector.
+    DOUBLE-FIRE — the original claim here was WRONG, corrected 2026-09-20.
+    This fixture used to assert that on async tests the two paths "do NOT
+    double-fire, because the loop resolved here is a different, idle loop".
+    Measured and falsified: for a plain `@pytest.mark.asyncio` test with no
+    HA fixtures, `get_event_loop_policy().get_event_loop()` resolves to the
+    SAME loop the test ran on, so BOTH detectors fired and the failure text
+    "Lingering task after test" appeared twice. The duplication is cosmetic,
+    but the consequence was not: it made the async detector untestable in
+    isolation, because neutering it left the drill green — this path silently
+    covered for it.
 
-    Thread checks (process-wide, loop-agnostic) always run.
+    So ownership is now EXPLICIT rather than accidental. We ask pytest whether
+    the test function under judgement is a coroutine; if it is, the task/timer
+    checks here are SKIPPED and `_ura_async_leak_detector` — the only vantage
+    point guaranteed to see that test's loop — is the sole judge. Sync tests
+    keep the full task/timer coverage this path has always provided (the
+    baseline sync detector catches real leaks in e.g. `ExteriorTrackLinker`
+    tests; that must not regress).
+
+    Deciding from `request.function` rather than a shared flag is deliberate:
+    it carries no teardown-ordering assumption. A flag set by the async fixture
+    would be cleared at ITS teardown, which pytest may run before this one.
+
+    Thread checks (process-wide, loop-agnostic) always run, on both paths.
     """
+    # Async tests are judged by _ura_async_leak_detector alone (see docstring).
+    _test_fn = getattr(request, "function", None)
+    _is_async_test = _test_fn is not None and _asyncio.iscoroutinefunction(_test_fn)
+
     loop = _ura_current_loop()
     threads_before = frozenset(_threading.enumerate())
     tasks_before = _asyncio.all_tasks(loop) if loop is not None else set()
@@ -465,9 +487,10 @@ def verify_cleanup(expected_lingering_tasks, expected_lingering_timers):
 
     loop_after = _ura_current_loop() or loop
 
-    if loop_after is not None and not loop_after.is_closed():
-        # Lingering TASKS on the sync-visible loop (real for sync tests,
-        # empty-diff on async tests — harmless).
+    if loop_after is not None and not loop_after.is_closed() and not _is_async_test:
+        # Lingering TASKS on the sync-visible loop. Only reached for SYNC
+        # tests — async tests are judged solely by _ura_async_leak_detector,
+        # which is the only vantage point guaranteed to see their loop.
         try:
             tasks = _asyncio.all_tasks(loop_after) - tasks_before
         except Exception:
