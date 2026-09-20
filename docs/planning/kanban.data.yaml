@@ -9,6 +9,25 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: TEST-LEAK-DETECTOR-WRONG-LOOP-1@2026-09-20T05:10:00
+    at: '2026-09-20T05:10:00'
+    outcome: built-to-review
+    acknowledged: false
+    headline: 'THE TEST-HARNESS FIX IS PROVEN AND WAITING ON YOU — and it turns out to be worth more than
+      we thought. Recap: the harness is supposed to fail any test that leaves background work running,
+      and it never could. Last night''s fix made it work; tonight I found its guard was fake, fixed that,
+      and then ran the whole 10,700-test suite three times to measure what actually changes. The numbers:
+      before the fix 299 tests were failing; after it, 163. Nothing broke — the list of failures is a
+      strict subset, not a reshuffle. And my own change tonight came out EXACTLY neutral: the failing
+      list is identical before and after it, which is what you want from a fix whose job was honesty
+      rather than behaviour. The interesting part is WHY 136 failures vanished. They are almost all
+      ordinary non-async tests that the new detector does not even examine, so it is not leniency. It is
+      that the new detector CLEANS UP the leaked work at the end of each test, so one leaky test no
+      longer knocks over a string of unrelated tests that run after it. We have a long-standing complaint
+      that about 87 tests fail depending on what order they run in; a good share of that is probably this,
+      and I have noted to re-measure it against this branch. NOTHING IS DEPLOYED and nothing is blocked
+      on me — this is test-only code, but shipping it still restarts Home Assistant, so it waits for your
+      go rather than going out while you are asleep.'
   - fid: PROPERTY-GETTER-SIDE-EFFECT-TASKS-1@2026-09-20T03:35:00
     at: '2026-09-20T03:35:00'
     outcome: measured
@@ -18906,7 +18925,7 @@ cards:
   rank: {value: 7, time_criticality: 4, effort: 3}  # scored 2026-09-20: harness safety net, fix largely done
   status: review
   created: '2026-09-15'
-  updated: '2026-09-20 03:05'
+  updated: '2026-09-20 05:10'
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
@@ -18978,16 +18997,42 @@ cards:
     MUTATION DRILL NOW PASSES PROPERLY: clean = 2 passed -> neuter the async task branch = 1 failed
     (the right one) -> restore = 2 passed. The async detector is provably load-bearing in isolation
     for the first time. Collection on the branch: 10,747 tests, ZERO errors.'
-  next: 'STAYS IN REVIEW — verified and fixed tonight (see verified_2026_09_20), NOT deployed. The
-    detector itself is proven to work and its self-check now genuinely goes red under mutation, which
-    is the acceptance gate this card set for itself. Remaining before this can ship: (1) the
-    full-suite run started 2026-09-20 03:00 on the branch must show the failure set has not GROWN
-    versus the leakdetector-baseline worktree — this is the false-positive sweep the card demanded,
-    and it matters more now than before, because verify_cleanup standing down on async tests changes
-    which detector judges roughly every async test in the suite; (2) if any NEW names appear, they
-    are almost certainly real leaks the old blind detector was hiding rather than regressions — treat
-    each as a finding, not as a reason to revert. Deploy is a separate operator call; this is
-    test-only code with no runtime effect on the house.'
+  validated_2026_09_20: 'FULL-SUITE NAME-DIFF DONE — three runs, same flags, same machine, run serially
+    (pytest -p no:randomly -q --timeout=120 --tb=no -rf, failure NAMES compared, not counts):
+      * baseline a8e5be4c8 (pre-branch): 299 failing names
+      * d8041ac21 (branch before tonight): 163 failing names
+      * 3dea15826 (branch with tonight''s fix): 163 failing names
+    TWO CLEAN RESULTS.
+    (1) TONIGHT''S COMMIT IS EXACTLY NEUTRAL: diffed against d8041ac21 the failing set is IDENTICAL —
+    zero new, zero removed. That is the right outcome for a fix whose job is authority and correctness
+    of the detector rather than changing what the suite catches, and it means the double-fire
+    disambiguation (verify_cleanup standing down on async tests) did not silently drop any failure that
+    was previously being reported.
+    (2) THE BRANCH ITSELF REMOVES 136 FAILURES AND ADDS NONE. That is the false-positive sweep this card
+    demanded, and it passes emphatically: 136 names disappear between a8e5be4c8 and d8041ac21, and the
+    NEW set is EMPTY. Mechanism, and it is worth understanding rather than just banking: 134 of the 136
+    are SYNC tests, which the async detector never even runs on — so it cannot be "the new detector is
+    more lenient". What changed for them is that the async detector CANCELS leaked tasks at teardown, so
+    a task leaked by an async test no longer survives into later tests where the sync detector saw it and
+    failed them. In other words the old harness was not just blind to leaks, it was converting each leak
+    into a cascade of unrelated downstream failures. A large part of the standing "~87 order-dependent
+    failures" problem on TEST-STRATEGY-REARCH-1 is very likely this, and that card should be re-measured
+    against this branch rather than against develop.
+    HONEST LIMIT: -rf lists FAILED lines; the runs also carry 3 ERRORs (collection/setup errors in
+    test_egress_exit_backfill.py) that this capture did not include, so the comparison is over failures
+    only. The error count is the same shape in every run and none of them is new, but it was not
+    name-diffed.'
+  next: 'READY TO SHIP, OPERATOR CALL ONLY — both acceptance gates this card set for itself are now
+    met and evidenced. Gate 1 MUTATION DRILL: the self-check goes green -> RED when the async task
+    branch is neutered -> green on restore (the old self-check could not do this; see
+    verified_2026_09_20). Gate 2 FALSE-POSITIVE SWEEP: full-suite name-diff shows ZERO new failures and
+    136 removed (see validated_2026_09_20). Nothing is blocked on me. This is test-harness-only code
+    with no runtime effect on the house, so it carries none of the usual deploy risk — but it is still a
+    deploy, and a deploy restarts HA, so it waits for you rather than going out overnight. Two things
+    worth doing when it lands: re-measure TEST-STRATEGY-REARCH-1''s "~87 order-dependent failures"
+    against this branch (a large share of them look like leak-cascade, not order), and re-run
+    UNLOAD-SYMMETRY-TASK-HYGIENE-1''s five un-cancellable timers now that a detector exists that can
+    actually see them.'
   links:
     related: [TEST-HARNESS-REAL-HA-DEFAULT-1, UNLOAD-SYMMETRY-TASK-HYGIENE-1, TEST-STRATEGY-REARCH-1]
     context: 'TEST-HARNESS-REAL-HA-DEFAULT-1 is the cycle that unblocked the suite and surfaced
