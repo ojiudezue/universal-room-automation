@@ -400,6 +400,11 @@ def create_automation_config(**overrides):
 import asyncio as _asyncio  # noqa: E402
 import threading as _threading  # noqa: E402
 
+try:
+    import pytest_asyncio as _pytest_asyncio  # noqa: E402
+except ImportError:  # pragma: no cover
+    _pytest_asyncio = None  # type: ignore
+
 
 def _ura_current_loop():
     """Return the loop this test is using, or None if there genuinely is none.
@@ -427,30 +432,53 @@ def enable_event_loop_debug():
 
 
 @pytest.fixture(autouse=True)
-def verify_cleanup(expected_lingering_tasks, expected_lingering_timers):
-    """Override phcc's leak detector, keeping its checks intact.
+def verify_cleanup(request, expected_lingering_tasks, expected_lingering_timers):
+    """Override phcc's leak detector — THREADS + sync-test tasks/timers.
 
-    HONEST SCOPE — READ BEFORE TRUSTING THIS AS A LEAK DETECTOR.
-    The THREAD check below is real and active. The TASK/TIMER checks run against
-    whichever loop is resolvable at teardown, which for async tests is NOT the
-    loop the test actually ran on — pytest-asyncio 1.3 creates a fresh loop per
-    test and never installs it as the policy loop. Measured 2026-09-15: at
-    fixture setup/teardown the visible loop is `running=False debug=True` while
-    the test itself runs on a different `running=True debug=False` loop.
+    HONEST SCOPE (updated for card TEST-LEAK-DETECTOR-WRONG-LOOP-1, 2026-09-19).
 
-    THIS IS NOT A REGRESSION INTRODUCED HERE — phcc's original verify_cleanup
-    reads the loop the same way, so its task-leak detection could not have been
-    working in this configuration either, crash or no crash. Proven by drill: a
-    test that deliberately leaks a never-finishing task is NOT caught by this
-    path, whereas an autouse ASYNC fixture (which sees the real loop) catches it
-    immediately.
+    This fixture is SYNC. Its setup/teardown run OUTSIDE the per-test asyncio
+    loop pytest-asyncio 1.3 creates for `async def` tests, so for ASYNC tests
+    the task/timer check below inspects a bystander loop and cannot detect
+    leaks — that job is handled by `_ura_async_leak_detector` below, which
+    runs INSIDE the real test loop.
 
-    So this fixture's job is to stop the harness CRASHING while preserving every
-    check that can work at this vantage point. Building task/timer detection that
-    actually observes the per-test loop is separate, evidenced work — see card
-    TEST-LEAK-DETECTOR-WRONG-LOOP-1. Do not cite a green suite as evidence of
-    no task leaks until that lands.
+    For SYNC tests, though, this fixture DOES have access to whatever loop is
+    reachable via `get_event_loop_policy().get_event_loop()`, which is the
+    loop those tests actually schedule work on. So the task/timer check is
+    kept here so we do not regress sync-test leak coverage (the baseline sync
+    detector was catching real leaks in e.g. `ExteriorTrackLinker` tests; my
+    replacement must keep catching them).
+
+    DOUBLE-FIRE — the original claim here was WRONG, corrected 2026-09-20.
+    This fixture used to assert that on async tests the two paths "do NOT
+    double-fire, because the loop resolved here is a different, idle loop".
+    Measured and falsified: for a plain `@pytest.mark.asyncio` test with no
+    HA fixtures, `get_event_loop_policy().get_event_loop()` resolves to the
+    SAME loop the test ran on, so BOTH detectors fired and the failure text
+    "Lingering task after test" appeared twice. The duplication is cosmetic,
+    but the consequence was not: it made the async detector untestable in
+    isolation, because neutering it left the drill green — this path silently
+    covered for it.
+
+    So ownership is now EXPLICIT rather than accidental. We ask pytest whether
+    the test function under judgement is a coroutine; if it is, the task/timer
+    checks here are SKIPPED and `_ura_async_leak_detector` — the only vantage
+    point guaranteed to see that test's loop — is the sole judge. Sync tests
+    keep the full task/timer coverage this path has always provided (the
+    baseline sync detector catches real leaks in e.g. `ExteriorTrackLinker`
+    tests; that must not regress).
+
+    Deciding from `request.function` rather than a shared flag is deliberate:
+    it carries no teardown-ordering assumption. A flag set by the async fixture
+    would be cleared at ITS teardown, which pytest may run before this one.
+
+    Thread checks (process-wide, loop-agnostic) always run, on both paths.
     """
+    # Async tests are judged by _ura_async_leak_detector alone (see docstring).
+    _test_fn = getattr(request, "function", None)
+    _is_async_test = _test_fn is not None and _asyncio.iscoroutinefunction(_test_fn)
+
     loop = _ura_current_loop()
     threads_before = frozenset(_threading.enumerate())
     tasks_before = _asyncio.all_tasks(loop) if loop is not None else set()
@@ -459,8 +487,10 @@ def verify_cleanup(expected_lingering_tasks, expected_lingering_timers):
 
     loop_after = _ura_current_loop() or loop
 
-    if loop_after is not None and not loop_after.is_closed():
-        # Lingering TASKS.
+    if loop_after is not None and not loop_after.is_closed() and not _is_async_test:
+        # Lingering TASKS on the sync-visible loop. Only reached for SYNC
+        # tests — async tests are judged solely by _ura_async_leak_detector,
+        # which is the only vantage point guaranteed to see their loop.
         try:
             tasks = _asyncio.all_tasks(loop_after) - tasks_before
         except Exception:
@@ -504,3 +534,95 @@ def verify_cleanup(expected_lingering_tasks, expected_lingering_timers):
             or thread.name.startswith("waitpid-")
             or "_run_safe_shutdown_loop" in thread.name
         ), f"Thread leaked after test: {thread!r}"
+
+
+# ---------------------------------------------------------------------------
+# TASK + TIMER leak detection — must run INSIDE the test's own asyncio loop.
+# ---------------------------------------------------------------------------
+# Card TEST-LEAK-DETECTOR-WRONG-LOOP-1: the sync `verify_cleanup` above cannot
+# see the per-test loop pytest-asyncio 1.3 creates (measured 2026-09-15). An
+# autouse ASYNC fixture DOES run in that loop — its setup/yield/teardown all
+# execute after pytest-asyncio has entered the loop for the test. Capturing
+# `asyncio.get_running_loop()` here returns the real loop, and diffing
+# `asyncio.all_tasks()` before/after `yield` sees only tasks created DURING
+# the test (naturally per-test because the loop itself is per-test in 1.3).
+# Semantics are kept equivalent to phcc's original: task/timer leaks fail
+# unless the test opts in via `expected_lingering_tasks` /
+# `expected_lingering_timers` (in which case they WARN and are cancelled).
+# ---------------------------------------------------------------------------
+if _pytest_asyncio is not None:
+    @_pytest_asyncio.fixture(autouse=True, loop_scope="function")
+    async def _ura_async_leak_detector(
+        expected_lingering_tasks, expected_lingering_timers
+    ):
+        """Detect tasks/timers leaked into the test's own event loop."""
+        loop = _asyncio.get_running_loop()
+        tasks_before = _asyncio.all_tasks(loop)
+
+        yield
+
+        # Lingering TASKS created during this test.
+        try:
+            leaked_tasks = _asyncio.all_tasks(loop) - tasks_before
+        except Exception:
+            leaked_tasks = set()
+
+        # Exclude the async-fixture's own teardown task — pytest-asyncio wraps
+        # async fixtures in an ``async_finalizer`` coroutine that is a NEW task
+        # (distinct from the setup task), so it appears in
+        # ``all_tasks - tasks_before`` at teardown while being what is running
+        # this very code. Not a real leak.
+        _cur = _asyncio.current_task()
+        if _cur is not None:
+            leaked_tasks = {t for t in leaked_tasks if t is not _cur}
+
+        # Filter pytest-asyncio's internal fixture-finalizer wrapper tasks —
+        # any other autouse async fixture being finalized around us shows up
+        # here transiently; they are internal to the harness, not leaks.
+        def _is_harness_internal(t):
+            try:
+                coro = t.get_coro()
+                name = getattr(coro, "__qualname__", "") or repr(coro)
+            except Exception:
+                return False
+            return "_asyncgen_fixture_wrapper" in name or "async_finalizer" in name
+
+        leaked_tasks = {t for t in leaked_tasks if not _is_harness_internal(t)}
+
+        failures: list[str] = []
+        for task in leaked_tasks:
+            if expected_lingering_tasks:
+                print(f"WARNING: Lingering task after test {task!r}")
+            else:
+                failures.append(f"Lingering task after test {task!r}")
+            task.cancel()
+
+        # Lingering TIMERS — mirrors phcc's HassJob-aware exemption.
+        try:
+            from homeassistant.core import HassJob
+            from pytest_homeassistant_custom_component.plugins import (
+                get_scheduled_timer_handles,
+            )
+
+            for handle in get_scheduled_timer_handles(loop):
+                if handle.cancelled():
+                    continue
+                if expected_lingering_timers:
+                    print(f"WARNING: Lingering timer after test {handle!r}")
+                    handle.cancel()
+                    continue
+                job = None
+                if handle._args and isinstance(handle._args[-1], HassJob):
+                    job = handle._args[-1]
+                if job is not None and job.cancel_on_shutdown:
+                    continue
+                if job is not None:
+                    failures.append(f"Lingering timer after job {job!r}")
+                else:
+                    failures.append(f"Lingering timer after test {handle!r}")
+                handle.cancel()
+        except ImportError:
+            pass
+
+        if failures:
+            pytest.fail("; ".join(failures))

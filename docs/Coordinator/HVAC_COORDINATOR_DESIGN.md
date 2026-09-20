@@ -10,6 +10,17 @@
 > knob entities #46/#48/#49/#50/#51, what to watch, how to intervene,
 > and the house-zones-vs-HVAC-zones architecture note) see
 > [`HVAC_COORDINATOR_MANUAL.md`](HVAC_COORDINATOR_MANUAL.md).
+>
+> **⚠️ Design extension (2026-09, v5.103.x):** the **control strategy (§4)**
+> and **energy-constraint response (§7)** below have been substantially
+> reworked during the "make HVAC supple" arc — the duty-cap was reframed
+> from (false) compressor-protection to occupancy-gated energy-shed, the
+> old EC-constraint `pre_cool` mode was deleted (the real afternoon
+> solar-banking is `_should_energy_precool`), HVAC gained its own
+> conditioning-demand occupancy, and HVAC now pulls the EC constraint at
+> boot. **Read [`HVAC_COORDINATOR_DESIGN_EXTENSION_2026_09.md`](HVAC_COORDINATOR_DESIGN_EXTENSION_2026_09.md)
+> before trusting §4 or §7 of this document** — where they disagree, the
+> extension wins.
 
 ---
 
@@ -306,6 +317,11 @@ DEFAULT_HVAC_ZONES = {
 ---
 
 ## 4. CONTROL STRATEGY
+
+> **Extended 2026-09 (v5.103.x):** occupancy now comes from a dedicated
+> conditioning-demand signal (`hvac_occupied`), the duty-cap is
+> occupancy-gated energy-shed (not compressor protection), and hallways
+> are circulation-excluded. See the [design extension](HVAC_COORDINATOR_DESIGN_EXTENSION_2026_09.md) §1–2.
 
 ### Philosophy: Coarse vs Fine
 
@@ -687,6 +703,13 @@ FAN_ROOM_MAP = {
 ---
 
 ## 7. ENERGY CONSTRAINT RESPONSE
+
+> **Extended 2026-09 (v5.103.x):** the EC-constraint `pre_cool` mode was
+> DELETED (the real afternoon solar-banking is `_should_energy_precool`,
+> surplus-only, 10am–2pm); HVAC now **pulls** the EC constraint at boot
+> (it previously missed the fire-and-forget dispatch and stayed `None`
+> until the evening coast); `pre_cool_skip_reason` now surfaces why
+> pre-cool didn't fire. See the [design extension](HVAC_COORDINATOR_DESIGN_EXTENSION_2026_09.md) §3–5.
 
 ### HVACConstraints Data Class
 

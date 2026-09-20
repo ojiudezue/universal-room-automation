@@ -294,6 +294,33 @@ def _load_init_listener_helpers():
         # switch toggles no longer full-reload the ROOM entry (~90 entities).
         "_CONF_FAN_CONTROL_ENABLED":              "fan_control_enabled",
         "_CONF_HUMIDITY_FAN_CONTROL_ENABLED":     "humidity_fan_control_enabled",
+        # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D1 (2026-09-19) — climate-
+        # step LIVE + REFRESHED-with-coverage keys added to
+        # _ROOM_SUPPRESS_KEYS. Referenced by the sliced ROOM branch of
+        # _async_update_listener; stub values mirror const.py exactly.
+        "_CONF_HVAC_VACANCY_HOLD":                "hvac_vacancy_hold",
+        "_CONF_HVAC_VACANCY_HOLD_NIGHT":          "hvac_vacancy_hold_night",
+        "_CONF_HVAC_COORDINATION_ENABLED":        "hvac_coordination_enabled",
+        "_CONF_COMFORT_FAN_AWAY_VETO_ENABLED":    "comfort_fan_away_veto_enabled",
+        "_CONF_WET_ROOM":                         "wet_room",
+        "_CONF_BLE_HOLD_CAP_ENABLED":             "ble_hold_cap_enabled",
+        "_CONF_FAN_TEMP_THRESHOLD":               "fan_temp_threshold",
+        "_CONF_HUMIDITY_FAN_THRESHOLD":           "humidity_fan_threshold",
+        "_CONF_HUMIDITY_FAN_TIMEOUT":             "humidity_fan_timeout",
+        "_CONF_HUMIDITY_FAN_MAX_RUNTIME":         "humidity_fan_max_runtime",
+        "_CONF_HUMIDITY_FAN_SPIKE_ENABLED":       "humidity_fan_spike_enabled",
+        "_CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT":     "humidity_fan_spike_delta_pct",
+        "_CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S":   "humidity_fan_spike_ema_alpha_s",
+        "_CONF_HUMIDITY_FAN_SPIKE_BASELINE_MODE": "humidity_fan_spike_baseline_mode",
+        "_CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED": "humidity_fan_presence_runtime_enabled",
+        "_CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S":  "humidity_fan_presence_runtime_base_s",
+        "_CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S": "humidity_fan_presence_runtime_per_min_s",
+        "_CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S":   "humidity_fan_presence_runtime_cap_s",
+        "_CONF_FAN_SPEED_LOW_TEMP":               "fan_speed_low_temp",
+        "_CONF_FAN_SPEED_MED_TEMP":               "fan_speed_med_temp",
+        "_CONF_FAN_SPEED_HIGH_TEMP":              "fan_speed_high_temp",
+        "_CONF_TARGET_TEMP_HEAT":                 "target_temp_heat",
+        "_CONF_TARGET_TEMP_COOL":                 "target_temp_cool",
         # ENTRY_TYPE_ROOM (C-HIGH-3 path in _async_update_listener).
         "ENTRY_TYPE_ROOM":                        "room",
         # Session B1 — EVSE Drain-Precedence CM options keys.

@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.13
+# Universal Room Automation vv5.103.14
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -5074,6 +5074,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Store coordinator
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
+    # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D0: seed the last-applied-
+    # options snapshot BEFORE registering the update listener so the very
+    # first options save per HA lifetime diffs against a populated
+    # baseline (not {}). Without this, the subset test in
+    # ``_async_update_listener`` at the ROOM branch (:7686) FAILS on the
+    # first save even when the operator only toggled an allowlisted key,
+    # cascading a full ~90-entity reload. Setup and listener registration
+    # run synchronously on the single-threaded asyncio loop — no await
+    # between them — so a race is impossible (sibling comment to the CM
+    # seed at :4964).
+    _seed_room_last_applied_options(hass, entry)
     # v3.2.5: Add update listener to reload entry when options change
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
@@ -5588,6 +5599,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 coordinator._trailing_refresh_unsub = None
             # setup/unload symmetry: defensive `pop(key, None)`.
             hass.data[DOMAIN].pop(entry.entry_id, None)
+            # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D0: drop the
+            # last-applied-options snapshot on unload so a removed-and-
+            # re-added ROOM entry doesn't diff against a stale ghost.
+            # Defensive pop — the snapshot dict may not exist yet on
+            # a partial-setup failure path.
+            hass.data.get(DOMAIN, {}).get(
+                "room_last_applied_options", {},
+            ).pop(entry.entry_id, None)
 
         # Substrate re-subscribe cycle (D1): fire SIGNAL_ROOM_ENTRY_LIFECYCLE
         # so PresenceCoordinator's OccupancySubstrate.refresh_subscriptions()
@@ -6315,6 +6334,32 @@ from .const import (
     CONF_COMFORT_HUMIDITY_MAX as _CONF_COMFORT_HUMIDITY_MAX,
     CONF_FAN_CONTROL_ENABLED as _CONF_FAN_CONTROL_ENABLED,
     CONF_HUMIDITY_FAN_CONTROL_ENABLED as _CONF_HUMIDITY_FAN_CONTROL_ENABLED,
+    # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D1: climate-step LIVE +
+    # REFRESHED-with-coverage keys. Per-consumer-site audit lives in the
+    # audit block below the _ROOM_SUPPRESS_KEYS frozenset.
+    CONF_HVAC_VACANCY_HOLD as _CONF_HVAC_VACANCY_HOLD,
+    CONF_HVAC_VACANCY_HOLD_NIGHT as _CONF_HVAC_VACANCY_HOLD_NIGHT,
+    CONF_HVAC_COORDINATION_ENABLED as _CONF_HVAC_COORDINATION_ENABLED,
+    CONF_COMFORT_FAN_AWAY_VETO_ENABLED as _CONF_COMFORT_FAN_AWAY_VETO_ENABLED,
+    CONF_WET_ROOM as _CONF_WET_ROOM,
+    CONF_BLE_HOLD_CAP_ENABLED as _CONF_BLE_HOLD_CAP_ENABLED,
+    CONF_FAN_TEMP_THRESHOLD as _CONF_FAN_TEMP_THRESHOLD,
+    CONF_HUMIDITY_FAN_THRESHOLD as _CONF_HUMIDITY_FAN_THRESHOLD,
+    CONF_HUMIDITY_FAN_TIMEOUT as _CONF_HUMIDITY_FAN_TIMEOUT,
+    CONF_HUMIDITY_FAN_MAX_RUNTIME as _CONF_HUMIDITY_FAN_MAX_RUNTIME,
+    CONF_HUMIDITY_FAN_SPIKE_ENABLED as _CONF_HUMIDITY_FAN_SPIKE_ENABLED,
+    CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT as _CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT,
+    CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S as _CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
+    CONF_HUMIDITY_FAN_SPIKE_BASELINE_MODE as _CONF_HUMIDITY_FAN_SPIKE_BASELINE_MODE,
+    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED as _CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED,
+    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S as _CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
+    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S as _CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
+    CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S as _CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
+    CONF_FAN_SPEED_LOW_TEMP as _CONF_FAN_SPEED_LOW_TEMP,
+    CONF_FAN_SPEED_MED_TEMP as _CONF_FAN_SPEED_MED_TEMP,
+    CONF_FAN_SPEED_HIGH_TEMP as _CONF_FAN_SPEED_HIGH_TEMP,
+    CONF_TARGET_TEMP_HEAT as _CONF_TARGET_TEMP_HEAT,
+    CONF_TARGET_TEMP_COOL as _CONF_TARGET_TEMP_COOL,
     # v5.10.0 D2 — MF sleep + night suppression CM keys.
     CONF_MF_SLEEP_SUPPRESS as _CONF_MF_SLEEP_SUPPRESS,
     CONF_MF_NIGHT_SUPPRESS_MODE as _CONF_MF_NIGHT_SUPPRESS_MODE,
@@ -7170,6 +7215,35 @@ def _seed_cm_last_applied_options(hass: HomeAssistant, entry: ConfigEntry) -> No
     snapshots[entry.entry_id] = dict(entry.options)
 
 
+def _seed_room_last_applied_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Seed the per-ROOM-entry last-applied-options snapshot.
+
+    ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D0 (plan-review P1, CRITICAL).
+    Before this seed existed, ``room_last_applied_options`` was written
+    ONLY inside ``_async_update_listener`` (see :ref:`__init__.py:7677+`).
+    On the FIRST options save per room per HA lifetime the diff at the
+    listener therefore ran against ``{}`` — every present key looked
+    "changed" and the subset test against ``_ROOM_SUPPRESS_KEYS`` failed
+    even when the operator toggled only an allowlisted key, cascading a
+    full ~90-entity ROOM reload (the very stall this cycle exists to
+    prevent). Live validation immediately post-deploy runs in exactly
+    this fresh-restart state; without D0, D1's allowlist expansion is
+    guaranteed to miss on the first save.
+
+    Sibling to ``_seed_cm_last_applied_options`` and
+    ``_seed_integration_last_applied_options`` (Bug Class #27 — primary/
+    deferred mirror drift; deliberately NOT an extension). Called once
+    from the ROOM setup path BEFORE ``entry.add_update_listener(...)``
+    is registered. Cleanup on unload is done via a defensive
+    ``pop(entry.entry_id, None)`` in ``async_unload_entry`` so a
+    removed-and-re-added entry doesn't diff against a stale ghost.
+    """
+    snapshots = hass.data.setdefault(DOMAIN, {}).setdefault(
+        "room_last_applied_options", {},
+    )
+    snapshots[entry.entry_id] = dict(entry.options)
+
+
 def _seed_integration_last_applied_options(
     hass: HomeAssistant, entry: ConfigEntry,
 ) -> None:
@@ -7671,7 +7745,143 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         # comment above and AUDIT §1).
         _CONF_FAN_CONTROL_ENABLED,
         _CONF_HUMIDITY_FAN_CONTROL_ENABLED,
+        # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D1 (2026-09-19) — full
+        # per-consumer-site audit; verdict = MIN over sites
+        # (LIVE > REFRESHED > EXCLUDED). REFRESHED-with-coverage sites
+        # rely on ONE of two refreshers:
+        #
+        #   (a) The UNIVERSAL top-of-tick refresher at
+        #       ``coordinator.py:4934`` (``self.automation._refresh_config()``,
+        #       which rebinds ``self.config =
+        #       {**entry.data, **entry.options}`` at
+        #       ``automation.py:867-869``). This covers reads reached
+        #       through the master-automation branch — specifically
+        #       ``handle_temperature_based_fan_control`` at
+        #       ``coordinator.py:4939``.
+        #   (b) The HANDLER-LOCAL refresher inside
+        #       ``handle_humidity_based_fan_control`` at
+        #       ``automation.py:~2461`` (A-H1 fix-up, 2026-09-19).
+        #       Required because that handler runs UNCONDITIONALLY at
+        #       ``coordinator.py:5034`` — OUTSIDE all three automation
+        #       branches. On the manual-mode else-path
+        #       (``coordinator.py:4995``), the only other refresh site is
+        #       the COVER-GATED :5013 (guarded by
+        #       ``_is_cover_automation_enabled()``), which is NOT
+        #       universal. Without (b) the ~12 humidity-fan keys admitted
+        #       here would strand stale on the manual-mode +
+        #       cover-off tick.
+        #
+        # (a) covers: HVAC_COORDINATION_ENABLED, COMFORT_FAN_AWAY_VETO_ENABLED,
+        # FAN_TEMP_THRESHOLD, FAN_SPEED_LOW/MED/HIGH_TEMP.
+        # (b) covers: WET_ROOM, HUMIDITY_FAN_THRESHOLD, HUMIDITY_FAN_TIMEOUT,
+        # HUMIDITY_FAN_MAX_RUNTIME, HUMIDITY_FAN_SPIKE_(ENABLED|DELTA_PCT|
+        # EMA_ALPHA_S|BASELINE_MODE), HUMIDITY_FAN_PRESENCE_RUNTIME_
+        # (ENABLED|BASE_S|PER_MIN_S|CAP_S). The ``coordinator.py:5013``
+        # cover-gated refresh is NOT relied on by any allowlisted key.
+        #
+        # LIVE (fresh entry.data/options per read, no cache):
+        #   _CONF_HVAC_VACANCY_HOLD / _NIGHT
+        #     binary_sensor.py:870-884  (merged.get(...) per attr)
+        #     hvac_zones.py:553-594     (merged.get(...) per tick)
+        #     hvac_zones.py:894-940     _effective_hvac_hold_seconds
+        #                               takes overrides as CALL PARAMS;
+        #                               callers at hvac_zones.py:1018 +
+        #                               binary_sensor.py:894 pass current
+        #                               values per-call — no cache.
+        #   _CONF_BLE_HOLD_CAP_ENABLED
+        #     coordinator.py:3817       self._get_config(...) — reads
+        #                               entry.options / .data per-call
+        #                               (see :667-677).
+        #   _CONF_TARGET_TEMP_HEAT / _COOL
+        #     sensor.py:1423-1425, :1553-1556  builds merged per-call
+        #                               (self.coordinator.entry.data +
+        #                                .options) — LIVE.
+        _CONF_HVAC_VACANCY_HOLD,
+        _CONF_HVAC_VACANCY_HOLD_NIGHT,
+        _CONF_BLE_HOLD_CAP_ENABLED,
+        _CONF_TARGET_TEMP_HEAT,
+        _CONF_TARGET_TEMP_COOL,
+        #
+        # REFRESHED-with-coverage via coordinator.py:4934 (universal
+        # top-of-tick), reads inside the same tick body downstream:
+        #   _CONF_HVAC_COORDINATION_ENABLED
+        #     automation.py:1935, :2864 (self.config.get)
+        #   _CONF_COMFORT_FAN_AWAY_VETO_ENABLED
+        #     automation.py:2322        should_veto_comfort_fan(self.config, ...)
+        #     fan_veto.py:405           config.get(...) — CALL PARAM
+        #     actuator_reconciler.py:908 passes self._config() (LIVE)
+        #     hvac_fans.py:826, :1980   builds merged per-call (LIVE)
+        #   _CONF_WET_ROOM
+        #     automation.py:2522        self.config.get(...)
+        #     room_classification.py:134 merged.get(...); get_room_
+        #                               classification rebuilds merged
+        #                               every call (:120-134), no cache
+        #   _CONF_FAN_TEMP_THRESHOLD
+        #     automation.py:2182        self.config.get (from
+        #                               handle_temperature_based_fan_control
+        #                               invoked at coordinator.py:4939 —
+        #                               post-refresh)
+        #     actuator_reconciler.py:892 cfg=self._config() LIVE
+        #   _CONF_HUMIDITY_FAN_THRESHOLD
+        #     automation.py:2542        self.config.get (inside
+        #                               handle_humidity_based_fan_control
+        #                               at coordinator.py:5034 — post-
+        #                               refresh)
+        #     binary_sensor.py:1080     merged.get(...) LIVE
+        #   _CONF_HUMIDITY_FAN_TIMEOUT
+        #     automation.py:2543        self.config.get (same handler)
+        #   _CONF_HUMIDITY_FAN_MAX_RUNTIME
+        #     automation.py:2496, :2544 self.config.get (same handler)
+        #   _CONF_HUMIDITY_FAN_SPIKE_ENABLED
+        #     automation.py:2550        self.config.get (same handler)
+        #   _CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT / _EMA_ALPHA_S / _BASELINE_MODE
+        #     automation.py:2553, :2559, :2564  (same handler)
+        #   _CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED
+        #     automation.py:2630        self.config.get (same handler)
+        #   _CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S / _PER_MIN_S / _CAP_S
+        #     automation.py:2832, :2836, :2840  (same handler)
+        #   _CONF_FAN_SPEED_LOW_TEMP / _MED_TEMP / _HIGH_TEMP
+        #     automation.py:2297-2299   self.config.get (from
+        #                               handle_temperature_based_fan_control
+        #                               at coordinator.py:4939 — post-
+        #                               refresh)
+        _CONF_HVAC_COORDINATION_ENABLED,
+        _CONF_COMFORT_FAN_AWAY_VETO_ENABLED,
+        _CONF_WET_ROOM,
+        _CONF_FAN_TEMP_THRESHOLD,
+        _CONF_HUMIDITY_FAN_THRESHOLD,
+        _CONF_HUMIDITY_FAN_TIMEOUT,
+        _CONF_HUMIDITY_FAN_MAX_RUNTIME,
+        _CONF_HUMIDITY_FAN_SPIKE_ENABLED,
+        _CONF_HUMIDITY_FAN_SPIKE_DELTA_PCT,
+        _CONF_HUMIDITY_FAN_SPIKE_EMA_ALPHA_S,
+        _CONF_HUMIDITY_FAN_SPIKE_BASELINE_MODE,
+        _CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED,
+        _CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_BASE_S,
+        _CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_PER_MIN_S,
+        _CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_CAP_S,
+        _CONF_FAN_SPEED_LOW_TEMP,
+        _CONF_FAN_SPEED_MED_TEMP,
+        _CONF_FAN_SPEED_HIGH_TEMP,
     })
+    # EXCLUDED (kept out of the allowlist):
+    #   CONF_CLIMATE_ENTITY — reads at automation.py:1936/1946
+    #     (self.config, REFRESHED), coordinator.py:1204 (_get_config,
+    #     LIVE), binary_sensor_control_attrs.py:50 (_get_config, LIVE)
+    #     are individually safe, BUT the VALUE is an entity_id: changing
+    #     it structurally re-points the room to a different climate
+    #     device. This cycle stays conservative and forces a reload so
+    #     downstream comfort/HVAC wiring re-initializes cleanly.
+    #     Suppressing this key would be a separate, narrower audit
+    #     (state-tracker subscriptions, comfort-score rebind).
+    #
+    # All-or-nothing corollary (plan-review P7): the climate options-
+    # flow submits ~20 default-materialized fields per save
+    # (config_flow.py:11521+ uses ``Optional(K, default=...)``). With
+    # every climate-step field except CONF_CLIMATE_ENTITY now on the
+    # allowlist, a full Climate & Fans form save SUPPRESSES the reload
+    # UNLESS the operator actually changed CONF_CLIMATE_ENTITY (which is
+    # a structural rewire — reload is the correct behaviour).
 
     if entry_type == ENTRY_TYPE_ROOM:
         snapshots = hass.data.setdefault(DOMAIN, {}).setdefault(

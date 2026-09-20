@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "141",
+  "author": "ojiudezue",
+  "session_id": "claude_20260920_143104_ship_v5_103_14",
+  "timestamp": "2026-09-20T14:31:04Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.14 shipped: Reload suppression: room-config save no longer stalls the event loop",
+  "summary": "Reload suppression: room-config save no longer stalls the event loop",
+  "why": "Room-config saves triggered a full ROOM reload -> ~10-30s event-loop stall. RC-A: snapshot never seeded at setup so the first save per room per lifetime always fell through. RC-B: the climate step re-writes ~20 default-materialized keys, none allowlisted. Chose allowlist-extension over the parked per-room-refresh refactor because the suppressed path already hits the substrate no-diff fast-path; each key proven LIVE or REFRESHED-with-coverage per-site; climate_entity excluded as a structural rewire. Verified A(CRIT H1)+B(SHIP) + orchestrator mutation-verify (H1 behavioral RED, D0 wire-in RED) + 40 reload/226 affected tests green.",
+  "implications": "Shipped ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 at v5.103.14; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.14.md (Live criteria).",
+  "revisit_trigger": "After one threshold-only Climate&Fans save on a room: ha_get_logs(source=error_log) shows NO 'Setting up universal_room_automation' for that room entry AND no websocket 'unable to keep up (>1024 pending)'/'No PONG' line in the following 30s; a climate_entity-change save DOES still show the reload.",
+  "refs": {
+    "cards": [
+      "ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.14.md"
+    ],
+    "release_notes": "- D0: seed room options snapshot at setup (first-save no longer force-reloads). D1: 27-key climate reload-suppress allowlist (per-site LIVE/REFRESHED audit; climate_entity excluded). A-H1: humidity-handler _refresh_config so 12 humidity keys are covered on every tick. D2: substrate WARN dedup. A full Climate & Fans save now applies in place (no ~90-entity reload) unless the climate entity id changes."
+  }
+}
