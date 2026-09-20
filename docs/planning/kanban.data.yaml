@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-19'
+  last_reconciled: '2026-09-20'
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -19294,7 +19294,7 @@ cards:
   approved_by: 'operator 2026-09-18 (board approve button)'
   status: investigating
   dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
-  updated: '2026-09-19 03:10'
+  updated: '2026-09-20 05:20'
   verify_2026_09_12: 'INVESTIGATE-flagged -> re-measured (2026-09-12). Collection scale DROPPED 18->2 errors: collect-only = 10354 collected, 2 errors (test_ble_hold_cap.py + test_ble_extend_not_create.py, const ImportError unknown-location). NOT real breakage — the consts exist (const.py:575/1212) + both files pass in isolation; they fail in-suite because ~7 siblings install a stripped fake const into sys.modules at import scope (test_energy_battery.py:99, test_notification_manager.py:145, test_arbitrage_gate_d2_offbyone.py:111, ...) and conftest SUITE-HYGIENE-1 snapshot EXCLUDES the const namespace (conftest.py:28-29). 223/457 files install sys.modules stubs (~182 without pop). No pytest config (deterministic order). CHEAP TIER-1 CHILD: extend the conftest snapshot to restore-if-replaced the custom_components...const key (OR fix the ~7 siblings) -> clears both collection errors -> suite collects clean. CAUTION: this is PYTEST-SUITE-CONST-STUB-ISOLATION-1 territory (whose broad Fix-2 was REVERTED for exposing 87 order-reds) — the narrow snapshot-restore is different but must not re-expose them; verify on a full run. Parent re-arch (fake-coordinator boundary + 87+ runtime order-failures + 4-min runtime) UNCHANGED in scale, stays investigating.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
   needs_investigation: true
@@ -19318,6 +19318,17 @@ cards:
     Measure before prescribing: profile the 4min runtime (what is slow), enumerate the pollution sites
     (what monkeypatches shared module state + does not restore), and map the fake-coordinator usages.'
   knobs: ''
+  remeasured_2026_09_20: 'THE "~87 ORDER-DEPENDENT FAILURES" NUMBER NEEDS RE-TAKING, AND THE REASON IS
+    GOOD NEWS. Tonight''s full-suite name-diff on fix/test-leak-detector-wrong-loop measured 299 failing
+    names before the leak-detector fix and 163 after, with ZERO new — 136 failures simply stop happening.
+    134 of those 136 are SYNC tests, which the new async detector never inspects, so this is not the
+    detector being more permissive. The mechanism is that the new detector CANCELS tasks leaked by async
+    tests at teardown, so a leak no longer survives into later tests and knock them over. That is exactly
+    the shape of an order-dependent failure, and it means a substantial share of this card''s headline
+    number was leak-cascade, not test-ordering per se. DO NOT re-scope the re-architecture against
+    develop''s numbers — re-measure against that branch once it ships. This does NOT unblock the card:
+    it is still blocked_by TEST-HARNESS-REAL-HA-DEFAULT-1, which is a separate operator PICK. It does
+    mean the job may be materially smaller than 87 tests'' worth.'
   next: 'Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord
     boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then
     scope the re-arch (Tier 2-DB+).'
