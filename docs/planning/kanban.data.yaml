@@ -26469,7 +26469,8 @@ cards:
 - id: ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1
   title: "Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s"
   thread: presence
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.14
   created: '2026-09-19'
   updated: '2026-09-19'
   tags: [reload, event-loop, config-flow, stability, tier-2db, incident]
