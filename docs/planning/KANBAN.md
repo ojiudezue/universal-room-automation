@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-20T02:12:51-05:00_ - _Data commit: `0b39484f44f8`_ - _last_reconciled: 2026-09-19_
+_Generated: 2026-09-20T02:15:53-05:00_ - _Data commit: `f57d89e869ed`_ - _last_reconciled: 2026-09-19_
 
 
 ## Columns
@@ -477,7 +477,7 @@ _created 2026-09-19_
 ## 🔍 Review (1)
 _under review_
 
-### `TEST-LEAK-DETECTOR-WRONG-LOOP-1` - The harness's task-leak detector watches the wrong event loop, so it has never caught a leaked task — and a green suite has been over-trusted because of it — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TEST-LEAK-DETECTOR-WRONG-LOOP-1` - The harness's task-leak detector watches the wrong event loop, so it has never caught a leaked task — and a green suite has been over-trusted because of it — _#1 · WSJF 4.3 · v7 tc4 u2 /e3_
 thread: **quality** - status: **review** - approval: **explicit**
 _created 2026-09-15 · updated 2026-09-20 03:05 · refined_
 - **Problem / Solution:**
@@ -542,7 +542,7 @@ _created 2026-09-14 · updated 2026-09-19 03:50 · initial_
 - **Forensic keys (1):**
   - `gate_2026_09_15`: OVERNIGHT PASS — FOUR-STEP GATE RUN, NOT BUILT, ESCALATED. I stopped short of building this despite your explicit approval, because a measurement contradicts the premise the approval rested on. (1) VALIDITY — the CODE GAP IS REAL, confir...
 
-### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#4 · WSJF 7.0 · v8 tc4 u2 /e2_
+### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#4 · WSJF 6.0 · v8 tc2 u2 /e2_
 thread: **perimeter** - status: **waiting_operator** - approval: **blocked**
 _created 2026-09-16 03:30 · updated 2026-09-19 04:00 · refined_
 - **Problem / Solution:**
@@ -562,23 +562,7 @@ _created 2026-09-16 03:30 · updated 2026-09-19 04:00 · refined_
   - `PAGE_ATTEMPTED_2026_09_16`: Tried to page the operator directly about this (it is the one finding tonight that justified interrupting a sleeping house) and the push could NOT be delivered — Remote Control was inactive, so there was nowhere to send it. That means th...
   - `reverified_2026_09_19`: STAND-DOWN CONFIRMED AND NOW DURABLE — independent re-read tonight, 4 days after the recovery. Daily exterior person-detection ON-transitions across all person_occupancy sensors (recorder): 09-13 = 811, 09-14 = 629, 09-15 = 117 (the outa...
 
-### `PERIMETER-ALERT-VOLUME-FATIGUE-1` - Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue — _#5 · WSJF 5.7 · v8 tc7 u2 /e3_
-thread: **security** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-09-12 20:45 · updated 2026-09-19 04:00 · refined_
-- **Problem / Solution:**
-  - Problem: two independent probes surfaced a large perimeter alert load — notification_log hazard_type=exterior_person = 4662/mo (~155/day, CRITICAL 1824), and ~75 unacked CRITICAL iMessage re-pages over 7d on "Perimeter Alert Person Detec...
-- **Why:** surfaced by PERIMETER-PHANTOM-XCORR-1 (155/day, 87% single-source dominated by front_side_ptz) AND NM-REPAGE-IMG-1 (~75 unacked CRITICAL re-pages/7d). A real operator-facing quality problem, distinct from the phantom-xcorr severity quest...
-- **Next:** PICK the lever (all measured above; none is a new mechanism, and I do NOT recommend building a second rate limiter): (A) SOURCE — front_side_ptz is 42% of all alerts and peaks in daytime street hours. This is already yours on FRONT-SIDE-...
-- **Tags:** no-fabrication-verify
-- **Refs:** notification_log hazard_type=exterior_person
-- **Forensic keys (5):**
-  - `measured_2026_09_14`: ONE-SHOT READ-ONLY PROBE over the full live notification_log (5412 hazard_type=exterior_person rows, 2026-08-15 -> 2026-09-14, 31 days). The volume problem IS REAL, but the headline number this card was built on counts the wrong thing, a...
-  - `hypotheses_refuted_2026_09_14`: TWO OF MY OWN HYPOTHESES DIED IN THIS PROBE — recording them so they are not re-derived: (1) "The same physical camera double-alerts through two entity paths." Seven cameras DO expose both a `_person_detected` and a `_person_occupancy_2`...
-  - `prior_art_2026_09_14`: REUSE-or-BUILD scan before recommending anything: rate limiting for this path ALREADY EXISTS and is live — PERIMETER_ALERT_COOLDOWN_SECONDS (const.py:1570, per-camera, 300s) plus a classification-transition exemption and an in-flight dis...
-  - `repage_blind_spot_2026_09_14`: FOLLOW-UP THAT STRENGTHENS THIS CARD (found while verifying NM-REPAGE-IMG-1, same session). The 102/day figure above EXCLUDES re-pages entirely, because **re-pages are invisible to notification_log**. Verified in source: every `log_notif...
-  - `lever_A_may_be_spent_2026_09_19`: LEVER (A) HAS LARGELY FIRED ALREADY, without anyone pulling it — re-measure before choosing. This card offers SOURCE-suppression of front_side_ptz as option (A) on the grounds that it is 42%% of all exterior alerts. But that camera now p...
-
-### `ARRIVAL-DEPARTURE-NOTIFY-1` - "Oji arrived/left" notifications from egress person_id — _#6 · WSJF 5.5 · v6 tc3 u2 /e2_
+### `ARRIVAL-DEPARTURE-NOTIFY-1` - "Oji arrived/left" notifications from egress person_id — _#5 · WSJF 5.5 · v6 tc3 u2 /e2_
 thread: **notifications** - status: **waiting_operator**
 _created 2026-08-18 09:45 · updated 2026-09-19 03:50 · initial_
 - **Next:** PICK one, then I build it (Tier 1-2, consumer-only, no new producer): (A) NAMED-ONLY — notify only when the crossing carries a person_id (~1-2 buzzes/day today, silent on the other ~82pct), the simplest and the one I recommend; (B) NAMED...
@@ -596,20 +580,7 @@ _created 2026-08-18 09:45 · updated 2026-09-19 03:50 · initial_
   - `problem`: person_id is on the bus + DB row but nothing turns it into a presence notification. Lowest-risk build of the gaps. Fires when identity is present (Frigate face + Protect named face via webhook).
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `HA-CORE-RESTART-STORM-1` - Home Assistant restarted itself 8 times in 20 hours, three of them in the middle of the night, each costing about 6 minutes with the whole house offline — _#7 · WSJF 5.3 · v8 tc6 u2 /e3_
-thread: **platform** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-09-19 03:30 · initial_
-- **Problem / Solution:**
-  - Problem: the whole Home Assistant system shut down and started again 8 times between Thursday evening and Friday afternoon, and each cycle left the house with no automation at all for about six minutes. Some of those look like your own d...
-- **Why:** Six minutes of total automation downtime per event is the documented watchdog-outage blast radius, and it is the same transient that broke EV charge-onset once already (a RestoreEntity off-flicker read as feature-disabled). It also silen...
-- **Next:** DO, then ANSWER. DO: add a permanent logger block to /config/configuration.yaml so lifecycle logging survives restarts — `logger:` / `  default: warning` / `  logs:` / `    homeassistant.config_entries: debug` — and let it take effect on...
-- **Tags:** measure-before-build, no-fabrication-verify, falsify-first, watchdog-hazard
-- **Refs:** recorder events homeassistant_stop/start (event_type_id 17/9/10) — the authoritative restart ledger; sensor.ura_coordinator_manager_ura_setup_duration unknown->value pairs — the reload-vs-restart discriminator; feedback_parent_entry_reload_watchdog_hazard
-- **Forensic keys (2):**
-  - `measured_2026_09_19`: Recorder events table (homeassistant_stop/start/started), UTC: 09-18 restarts at 01:17, 01:29, 03:16, 05:40, 07:09, 09:02, 15:09, 21:07 — stop->start gap ~6 min each. Local (CDT) that is 09-17 20:17 + 20:29 + 22:16, then 09-18 00:40, 02:...
-  - `remaining_suspects`: An add-on or the supervisor core watchdog (both would restart cleanly and both log it in the supervisor journal, which needs durable capture to catch), HACS/update flows, or a deploy/tooling path firing more than once. A secondary oddity...
-
-### `FRONT-SIDE-PTZ-CHATTER-1` - front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling — _#8 · WSJF 4.7 · v7 tc5 u2 /e3_
+### `FRONT-SIDE-PTZ-CHATTER-1` - front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling — _#6 · WSJF 4.7 · v7 tc5 u2 /e3_
 thread: **perimeter** - status: **waiting_operator**
 _created 2026-09-14 00:20 · updated 2026-09-19 04:00 · refined_
 - **Problem / Solution:**
@@ -627,7 +598,7 @@ _created 2026-09-14 00:20 · updated 2026-09-19 04:00 · refined_
   - `groom_2026_09_14`: LANE FIX (overnight groom): this card sat in `investigating` while its own `next` read "OPERATOR OWNS THIS ... Nothing queued on my side" — i.e. there is no measurement left for me to run, which is the entry condition for the investigati...
   - `reverified_2026_09_19`: CARD-WAS-WRONG on one detail, and the correction matters to the question being asked. This card states front_side_ptz went to "exactly 1" person-detection a day and "stayed there for three days". Re-measured tonight: over 09-16 -> 09-19 ...
 
-### `FRIGATE-THRESHOLD-CLAIM-DISPUTED-1` - The '98-99% of detections score below 0.70' claim is DISPUTED by the operator and unverified by me — _#9 · WSJF 4.5 · v5 tc2 u2 /e2_
+### `FRIGATE-THRESHOLD-CLAIM-DISPUTED-1` - The '98-99% of detections score below 0.70' claim is DISPUTED by the operator and unverified by me — _#7 · WSJF 4.5 · v5 tc2 u2 /e2_
 thread: **perimeter** - status: **waiting_operator**
 _created 2026-09-14 03:05 · initial_
 - **Problem / Solution:**
@@ -640,6 +611,35 @@ _created 2026-09-14 03:05 · initial_
 - **Forensic keys (2):**
   - `MY_RECOMMENDATION_IS_WITHDRAWN`: I recommended sweeping seven ring cameras from threshold 0.7 to 0.6 and called it "the high-value item". THAT RECOMMENDATION IS WITHDRAWN pending verification. It rested entirely on an agent-reported figure I did not reproduce, and the o...
   - `what_would_settle_it`: A read of the Frigate host's `events` table for a recent window: per camera, the count of person events and the distribution of `top_score` (median, p90, and the fraction >= 0.70). That single query decides whether 0.7 is a sensible cut ...
+
+### `HA-CORE-RESTART-STORM-1` - Home Assistant restarted itself 8 times in 20 hours, three of them in the middle of the night, each costing about 6 minutes with the whole house offline — _#8 · WSJF 4.3 · v8 tc3 u2 /e3_
+thread: **platform** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-09-19 03:30 · initial_
+- **Problem / Solution:**
+  - Problem: the whole Home Assistant system shut down and started again 8 times between Thursday evening and Friday afternoon, and each cycle left the house with no automation at all for about six minutes. Some of those look like your own d...
+- **Why:** Six minutes of total automation downtime per event is the documented watchdog-outage blast radius, and it is the same transient that broke EV charge-onset once already (a RestoreEntity off-flicker read as feature-disabled). It also silen...
+- **Next:** DO, then ANSWER. DO: add a permanent logger block to /config/configuration.yaml so lifecycle logging survives restarts — `logger:` / `  default: warning` / `  logs:` / `    homeassistant.config_entries: debug` — and let it take effect on...
+- **Tags:** measure-before-build, no-fabrication-verify, falsify-first, watchdog-hazard
+- **Refs:** recorder events homeassistant_stop/start (event_type_id 17/9/10) — the authoritative restart ledger; sensor.ura_coordinator_manager_ura_setup_duration unknown->value pairs — the reload-vs-restart discriminator; feedback_parent_entry_reload_watchdog_hazard
+- **Forensic keys (2):**
+  - `measured_2026_09_19`: Recorder events table (homeassistant_stop/start/started), UTC: 09-18 restarts at 01:17, 01:29, 03:16, 05:40, 07:09, 09:02, 15:09, 21:07 — stop->start gap ~6 min each. Local (CDT) that is 09-17 20:17 + 20:29 + 22:16, then 09-18 00:40, 02:...
+  - `remaining_suspects`: An add-on or the supervisor core watchdog (both would restart cleanly and both log it in the supervisor journal, which needs durable capture to catch), HACS/update flows, or a deploy/tooling path firing more than once. A secondary oddity...
+
+### `PERIMETER-ALERT-VOLUME-FATIGUE-1` - Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue — _#9 · WSJF 4.3 · v6 tc5 u2 /e3_
+thread: **security** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-09-12 20:45 · updated 2026-09-19 04:00 · refined_
+- **Problem / Solution:**
+  - Problem: two independent probes surfaced a large perimeter alert load — notification_log hazard_type=exterior_person = 4662/mo (~155/day, CRITICAL 1824), and ~75 unacked CRITICAL iMessage re-pages over 7d on "Perimeter Alert Person Detec...
+- **Why:** surfaced by PERIMETER-PHANTOM-XCORR-1 (155/day, 87% single-source dominated by front_side_ptz) AND NM-REPAGE-IMG-1 (~75 unacked CRITICAL re-pages/7d). A real operator-facing quality problem, distinct from the phantom-xcorr severity quest...
+- **Next:** PICK the lever (all measured above; none is a new mechanism, and I do NOT recommend building a second rate limiter): (A) SOURCE — front_side_ptz is 42% of all alerts and peaks in daytime street hours. This is already yours on FRONT-SIDE-...
+- **Tags:** no-fabrication-verify
+- **Refs:** notification_log hazard_type=exterior_person
+- **Forensic keys (5):**
+  - `measured_2026_09_14`: ONE-SHOT READ-ONLY PROBE over the full live notification_log (5412 hazard_type=exterior_person rows, 2026-08-15 -> 2026-09-14, 31 days). The volume problem IS REAL, but the headline number this card was built on counts the wrong thing, a...
+  - `hypotheses_refuted_2026_09_14`: TWO OF MY OWN HYPOTHESES DIED IN THIS PROBE — recording them so they are not re-derived: (1) "The same physical camera double-alerts through two entity paths." Seven cameras DO expose both a `_person_detected` and a `_person_occupancy_2`...
+  - `prior_art_2026_09_14`: REUSE-or-BUILD scan before recommending anything: rate limiting for this path ALREADY EXISTS and is live — PERIMETER_ALERT_COOLDOWN_SECONDS (const.py:1570, per-camera, 300s) plus a classification-transition exemption and an in-flight dis...
+  - `repage_blind_spot_2026_09_14`: FOLLOW-UP THAT STRENGTHENS THIS CARD (found while verifying NM-REPAGE-IMG-1, same session). The 102/day figure above EXCLUDES re-pages entirely, because **re-pages are invisible to notification_log**. Verified in source: every `log_notif...
+  - `lever_A_may_be_spent_2026_09_19`: LEVER (A) HAS LARGELY FIRED ALREADY, without anyone pulling it — re-measure before choosing. This card offers SOURCE-suppression of front_side_ptz as option (A) on the grounds that it is 42%% of all exterior alerts. But that camera now p...
 
 ### `RECORDER-CHURN-SWEEP-URASENSORS-1` - Sweep 6-9 more URA sensors emitting per-read elapsed timestamps (same recorder write-amp class as safety_status) — _#10 · WSJF 4.3 · v6 tc5 u2 /e3_
 thread: **config-flow** - status: **waiting_operator** - approval: **unreviewed**
