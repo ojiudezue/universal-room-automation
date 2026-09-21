@@ -24289,10 +24289,24 @@ cards:
 - id: JEV-DECISION-CLASSIFIER-SPIKE-1
   title: "Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness"
   thread: presence
-  status: investigating
+  status: waiting_operator
   created: '2026-09-20'
   updated: '2026-09-20'
   tags: [spike, decision-classifier, jev, occupancy, measure-first, correctness, adaptiveness]
+  FINDINGS_2026_09_20: 'Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100%
+    / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom +
+    badly calibrated). Logistic-floor arms scored 100%%/88.9%% BUT that is LABEL LEAKAGE, not adaptiveness:
+    the proxy labels are derived from the same signals (persons_in_house, sensors_on) the classifier consumes,
+    so it recovers the encoded rule. Only 1 case is independently labeled (operator-confirmed Jaya empty).
+    VERDICT: INCONCLUSIVE on go/no-go. Two real takeaways: (1) code IS blind+overconfident on the phantom (real);
+    (2) on THESE cases the phantom is separable by simple signals code already has -> near-term fix may be a
+    RULE/wire-in (distrust a lone sensor when census=0), not a classifier. Heavy candidates (poorjev/jev48/Luce)
+    are MOOT to install -> same leakage; the bottleneck is INDEPENDENT LABELS, not the model. Full: jev_spike/FINDINGS.md.'
+  next: 'PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases
+    (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me
+    sourcing a disjoint truth signal (door-count / manual log). -> then I re-run the SAME committed harness
+    (code + logistic floor; heavy candidates only if the floor is beaten on independent ambiguous labels).
+    Official-Jev arm deferred (waitlist). Do NOT read the leaked 100%%/88.9%% as evidence for a build.'
   problem_solution:
   - 'Operator idea: a reusable decision-classifier (Jev-class) as ONE integration point for multiple decision
      problems (occupancy-trust, alert triage, anomaly real-vs-transient, identity fusion). Measure-first spike
