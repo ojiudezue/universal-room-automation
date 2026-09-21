@@ -1,0 +1,20 @@
+{
+  "case_id": "str",
+  "room": "str",
+  "ts": "iso",
+  "features": {
+    "room_occupied": "bool",
+    "sensors_on": "int",
+    "sensors_total": "int",
+    "persons_in_house": "int",
+    "house_state": "str",
+    "driver_sensor": "str",
+    "driver_kind": "str",
+    "sibling_disagrees": "bool",
+    "fan_on": "bool",
+    "minutes_held": "float"
+  },
+  "label": "occupied|empty",
+  "split": "works|fails",
+  "label_provenance": "str"
+}
