@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: '2026-09-20'
+  last_reconciled: 2026-09-21
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -9,6 +9,46 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'OVERNIGHT-PASS-NO-LOG-REACH-1@2026-09-21T02:30:00'
+    at: '2026-09-21T02:30:00'
+    outcome: measured
+    headline: 'I AM RETRACTING A RETRACTION — THE LOG BLACKOUT WAS NEVER REAL, AND YOU CAN IGNORE THE FIX
+      I ASKED YOU FOR. On the 20th I reopened the "overnight pass cannot read logs" card, called my own
+      earlier all-clear false, and paged you to go fix supervisor permissions. That reopen was wrong. It
+      tested four log routes, found all four dead, and never retested the ONE route the earlier note had
+      actually found working. Tonight that route answered on the first try: the hassio proxy endpoints
+      return live logs with the token we already have (core, supervisor and host logs, all HTTP 200).
+      So log reach works, needs nothing from you, and the card is closed. The three genuinely-dead
+      routes are still dead and simply do not matter. Lesson I have written onto the card: a retraction
+      is itself a claim, and I falsified the already-dead routes instead of the surviving one.'
+    acknowledged: false
+  - fid: 'HA-CORE-RESTART-STORM-1@2026-09-21T02:40:00'
+    at: '2026-09-21T02:40:00'
+    outcome: measured
+    headline: 'THE MYSTERY NIGHT-TIME RESTARTS WERE MOSTLY US DEPLOYING, AND BOTH THINGS I ASKED YOU FOR
+      ARE WITHDRAWN. I joined the restart ledger against our release tags: of 25 restarts since the 13th,
+      fifteen land 21-125 seconds after a URA release (median ~30s). Two of the three "nobody was
+      touching anything" deep-night restarts are our own deploys — 02:09 is 26 seconds after v5.103.10,
+      04:02 is 30 seconds after v5.103.11. So you do not need to add the logging config, and you do not
+      need to remember whether you were deploying on Thursday: the data answers it. The storm has also
+      stopped — 41 hours clean, no deep-night restart since the 18th. NOT AN ALL-CLEAR: 10 of the 25
+      still match no deploy, and those are the real remaining question, which I now own. Uncomfortable
+      part: four nights of instrumentation chased an initiator that a tag-versus-restart join would have
+      revealed on night one.'
+    acknowledged: false
+  - fid: 'SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1@2026-09-21T02:45:00'
+    at: '2026-09-21T02:45:00'
+    outcome: measured
+    headline: 'FOUND WHY OUR RESTART FORENSICS KEEP COMING UP EMPTY — SOMETHING IS DROWNING THE ONE LOG
+      THAT SURVIVES A RESTART. Every 10.1 seconds, like a metronome, something asks the supervisor for
+      status without a password, and the supervisor logs the refusal. That is 355 an hour, and it is now
+      85% of the entire supervisor log (1777 of 2079 lines), which squeezes its history down to under
+      five hours. That log is the only place that records who asked for a restart, so this is precisely
+      why the 10 unexplained restarts cannot be attributed — the evidence is being pushed out before we
+      read it. Nothing appears broken by the failed requests themselves; the damage is the blindness.
+      New card opened, and I cleared our own name: our face-bridge add-on is NOT it (different endpoint,
+      15s not 10s, and it does use a token). Ten third-party add-ons remain as suspects.'
+    acknowledged: false
   - fid: TEST-LEAK-DETECTOR-WRONG-LOOP-1@2026-09-20T05:10:00
     at: '2026-09-20T05:10:00'
     outcome: built-to-review
@@ -3727,9 +3767,9 @@ cards:
     routes were tried across two nights and the fourth — a token we already own — was not.'
   title: The overnight pass cannot read HA logs, so every log-based investigation silently stalls
   thread: platform
-  status: waiting_operator
+  status: done
   created: '2026-09-15 03:45'
-  updated: '2026-09-20 03:40'
+  updated: '2026-09-21 02:30'
   refinement_status: refined
   approval: unreviewed
   tags: [tier-1, no-fabrication-verify]
@@ -3778,14 +3818,10 @@ cards:
     NOTE ON BLAST RADIUS: this is the same gap that makes HA-CORE-RESTART-STORM-1 depend on an operator
     editing configuration.yaml. If `ha core logs` were authorised for the unattended pass, that card
     could largely settle itself.'
-  next: 'FIX ONE THING: make `ha core logs` work for the unattended pass. It returns 401 Unauthorized
-    from `ssh ha` (measured 2026-09-20), which is a supervisor-token authorisation problem, not a network
-    one — ssh, the URA DB and the recorder DB are all reachable. Either grant the ssh add-on a supervisor
-    token with core-log read, or expose any ONE working alternative route (a long-lived token + the
-    /api/error_log endpoint from the Mac, connecting the home-assistant MCP for headless runs, or simply
-    turning on file logging so /config/home-assistant.log exists again). Any one of the four unblocks
-    every log-read investigation; today none of them work. -> With a route, the restart-storm card and the
-    frame-helper class can be settled unattended instead of waiting on operator config edits.'
+  next: 'CLOSED 2026-09-21 — RESOLVED, no operator action. Log reach works and did all along via the
+    hassio proxy endpoints; nothing needs granting, turning on or configuring. If a future pass finds
+    itself with no logs, use these first: GET {HA_URL}/api/hassio/core/logs?lines=N (also
+    /supervisor/logs and /host/logs) with the long-lived token, which is the durable route.'
   links:
     blocks: [URA-CONFIG-ENTRY-RELOAD-STORM-1]
     context: 'URA-CONFIG-ENTRY-RELOAD-STORM-1 has debug logging ARMED on the live instance and its
@@ -3839,6 +3875,32 @@ cards:
     CONSEQUENCE FOR THE ASK: the operator''s action is now specifically about LOGS (and about ssh
     reachability), not about data access. Read-only DB probes are already unblocked and should not be
     quoted as blocked in future sessions.'
+  RESOLVED_2026_09_21: 'RESOLVED, AND THE 2026-09-20 REOPEN WAS ITSELF WRONG — I am retracting a
+    retraction, which is worth stating plainly. On 09-20 I reopened this card and called the 09-18
+    resolution a "false all-clear". That reopen tested four routes (`ha core logs`, journalctl, the
+    on-disk log file, the MCP) and found all four dead — but it never retested THE ONE ROUTE the 09-18
+    note had actually found working, the hassio proxy. So it retracted a correct finding on the strength
+    of evidence that did not bear on it, and then paged you to fix something that was not broken.
+    MEASURED TONIGHT, unattended: GET /api/hassio/core/logs -> HTTP 200 with live core log content
+    (verified by reading log lines timestamped within seconds of the request), /api/hassio/supervisor/logs
+    -> 200, /api/hassio/host/logs -> 200, all with the long-lived token from .mcp.json. A ?lines=N
+    parameter works (lines=20000 returned 269KB). The 09-18 note was right on every point, including that
+    /api/error_log is 404 on this HA version. CONFIRMED-STILL-BROKEN (so this is not a blanket all-clear):
+    `ha core logs` over ssh still returns 401, journalctl is still absent from the add-on shell, and
+    /config/home-assistant.log still does not exist (only a 0-byte .fault and a Nov-2025 .old). Those
+    three simply do not matter, because the proxy route works. PROCESS LESSON: a retraction is a claim
+    and needs the same verify-before-asserting bar as the thing it retracts — falsify the surviving
+    route, not the already-dead ones.'
+  MCP_STATUS_2026_09_21: 'Separate, still-open detail, recorded so it is not mistaken for the log gap:
+    the home-assistant MCP server genuinely does fail in this environment. ha-mcp 8.5.0 crashes at
+    startup with TypeError: AsyncConnectionPool.__init__() got an unexpected keyword argument
+    socket_options, from httpx/_transports/default.py into httpcore — a dependency-resolution collision
+    (the uv env contains BOTH httpcore 1.0.9 + httpcore2 2.13.0 and httpx 0.28.1 + httpx2 2.13.0).
+    Reproduced directly over a stdio MCP handshake. I attempted a fix (uv cache clean of
+    ha-mcp/httpx/httpcore, then relaunch) and it was INCONCLUSIVE, not successful: the cache clean timed
+    out on a uv lock held by another process, so the relaunch reused the same poisoned env and failed
+    identically. I am explicitly NOT claiming the cache clean is the fix. This is now low priority
+    because the hassio proxy is the better route anyway — the MCP is a convenience, not the dependency.'
 
 - id: URA-CONFIG-ENTRY-RELOAD-STORM-1
   MEASURED_2026_09_18: 'THREE findings, and the card is now UNBLOCKED — its blocker
@@ -26343,13 +26405,83 @@ cards:
   next: 'REVIEW: reviewers judge whether the daytime residual needs a pre-ship guard; else parked until the trigger fires.'
   links:
     depends_on: [STUCK-MOTION-FROZEN-ON-BLINDSPOT-1]
+- id: SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1
+  title: A tokenless poller hits the supervisor every 10s and floods its log, destroying our restart forensics
+  thread: platform
+  status: investigating
+  created: '2026-09-21 02:35'
+  updated: '2026-09-21 02:35'
+  refinement_status: initial
+  approval: implied
+  tags: [tier-1, measure-before-build, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: something on the system asks Home Assistant''s supervisor for status every ten seconds
+    without supplying a password, and the supervisor writes a warning line every single time it is
+    refused. Those refusals now make up about 85% of everything in the supervisor log, which pushes
+    real events out of the limited space it keeps. The practical damage is not the failed requests —
+    nothing appears to be broken by them — it is that the one log that SURVIVES a Home Assistant
+    restart, and is therefore the only place that can tell us who asked for that restart, now only
+    holds about five hours of history instead of days. We have been trying to catch a restart whose
+    cause is only recorded there. Solution: find what is doing the polling and either give it proper
+    credentials or stop it, so the supervisor log goes back to being a usable record.'
+  origin:
+    date: '2026-09-21'
+    gist: 'seen while mining the supervisor log for the restart-storm card; prior pass flagged it as
+      "worth its own look if it persists" and it has persisted'
+  why: 'This is not cosmetic log noise — it is an active loss of forensic capability, and it is
+    blocking a sibling investigation right now. HA-CORE-RESTART-STORM-1 has 10 restarts it cannot
+    attribute, and the supervisor journal is exactly where the initiator is recorded, but the ring
+    buffer cannot reach back far enough to cover them because this flood consumes it.'
+  measured_2026_09_21: 'Measured unattended via GET /api/hassio/supervisor/logs?lines=20000. The pull
+    returned 2079 lines spanning only 2026-09-20 21:21 to 2026-09-21 02:06 — under 5 hours. Level mix:
+    1777 WARNING, 276 INFO, 6 ERROR, and 1777 of the 2079 lines are the identical string
+    "[supervisor.api.middleware.security] No API token provided for /core/info" = 85% of the log.
+    Rate is metronomic at 10.1s (355/hour, verified across five consecutive hours: 355, 356, 355, 356).
+    ATTRIBUTION SO FAR, stated as elimination not conclusion: it is NOT our own tooling — grepped
+    ~/Code/homelab-automation and URA scripts/ for core/info and hassio/core, zero hits. The endpoint
+    is the SUPERVISOR API (not core), so the caller is something inside the HA host network — an
+    add-on or an integration. I have not yet named it and am not guessing.'
+  parsimony: {problem: 'A tokenless caller polls /core/info every 10.1s, consuming 85% of the supervisor
+    log and capping its retention at ~5h, which is less than the interval between the restarts we are
+    trying to attribute.', verdict: BUILD}
+  next: 'MEASURE — but the obvious route is CLOSED, so this needs a different one. Attempted and
+    FAILED tonight: the hassio proxy whitelists only the log endpoints — GET /api/hassio/addons and
+    /api/hassio/supervisor/info both return 401 with the long-lived token (measured), so I cannot
+    enumerate add-ons or read supervisor info from the Mac. Remaining routes, cheapest first: (a) check
+    whether the ssh add-on can reach the supervisor API over its internal network with its own token,
+    (b) read /config/.storage or the add-on config from the Samba mount to enumerate installed add-ons
+    offline and shortlist ones that poll core status, (c) ask the operator for a supervisor token. Do
+    NOT stop or disable add-ons to bisect — that is a live-system change on an occupied house.'
+  links:
+    blocks: [HA-CORE-RESTART-STORM-1]
+    related: [OVERNIGHT-PASS-NO-LOG-REACH-1]
+    context: 'Promoted out of HA-CORE-RESTART-STORM-1.remaining_suspects, which recorded this as a
+      secondary oddity "worth its own look if it persists" — the trigger has now fired and been
+      quantified, so it becomes its own card rather than a note. It BLOCKS that card because the
+      restart initiator is recorded in the supervisor journal and this flood is what makes the journal
+      too short to reach the unattributed restarts. Related to OVERNIGHT-PASS-NO-LOG-REACH-1 because
+      the hassio proxy route resolved there is what made this measurable at all.'
+  rank: {value: 6, time_criticality: 5, effort: 2, foundational: 4}
+  refs: ['supervisor log pull 2026-09-21 02:06 via /api/hassio/supervisor/logs?lines=20000']
+  narrowed_2026_09_21: 'ROUTE (b) WORKED and the suspect list is now enumerated, though the culprit is
+    not yet named. Over ssh, /addon_configs + /addons list eleven installed add-ons: three zigbee2mqtt
+    instances (1ff69cfe, 45df7312, 9336c2b0), evcc (49686a9f), netbird (7edd9457), cloudflared
+    (9074a9fa), aircast (a0d7b954), govee2mqtt (b9845f46), core_matter_server, core_zwave_js, and our
+    own local add-on ura_protect_face_bridge. OUR OWN ADD-ON IS EXONERATED, by direct evidence rather
+    than by analogy: bridge.py calls http://supervisor/core/api/states/{entity_id} — a DIFFERENT path
+    from the /core/info being refused — its default poll_interval_seconds is 15, not the measured 10.1s
+    beat, and it reads SUPERVISOR_TOKEN from the environment and hard-errors when it is absent
+    (bridge.py:332,340), so it would not be generating tokenless requests. Remaining suspects are the
+    ten third-party add-ons; evcc is the most plausible on behaviour (it polls HA core state
+    continuously) but I have NOT verified that and am not asserting it.'
+
 - id: HA-CORE-RESTART-STORM-1
   title: Home Assistant restarted itself 8 times in 20 hours, three of them in the middle of the
     night, each costing about 6 minutes with the whole house offline
   thread: platform
-  status: waiting_operator
+  status: investigating
   created: '2026-09-19 03:30'
-  updated: '2026-09-19 03:30'
+  updated: '2026-09-21 02:25'
   refinement_status: initial
   approval: unreviewed
   tags: [measure-before-build, no-fabrication-verify, falsify-first, watchdog-hazard]
@@ -26393,14 +26525,12 @@ cards:
   constraints:
   - 'The durable logger config needs an HA restart to take effect — do NOT apply it in the middle of
      the night in an occupied house; it costs nothing to ride along with the next deploy restart.'
-  next: 'DO, then ANSWER. DO: add a permanent logger block to /config/configuration.yaml so lifecycle
-    logging survives restarts — `logger:` / `  default: warning` / `  logs:` /
-    `    homeassistant.config_entries: debug` — and let it take effect on your NEXT deploy restart
-    (no extra restart needed just for this). ANSWER: were you deploying, updating or restarting
-    repeatedly on Thursday evening and Friday (20:17, 20:29, 22:16 then 10:09, 16:07 local)? If yes,
-    those five are explained and only the three deep-night ones (00:40, 02:09, 04:02) are the mystery,
-    which narrows the hunt a lot. -> On the config + your answer I read the initiator off the next
-    unexplained restart and fix at source.'
+  next: 'DRIVE IT — this is mine now, not yours, and both halves of the old ask are withdrawn. The
+    log-reach blocker cleared (see OVERNIGHT-PASS-NO-LOG-REACH-1), so I can read core/supervisor/host
+    logs unattended and no longer need you to add a logger: block. Your ANSWER is also already
+    answered by data: of 25 restarts since 09-13, 15 land 21-125s after a URA release tag (median
+    ~30s), including TWO of the three supposed deep-night mysteries. Residual = the 10 unmatched
+    restarts. -> I mine the supervisor log at the next unmatched restart and name the initiator.'
   links:
     parent: URA-CONFIG-ENTRY-RELOAD-STORM-1
     related: [EVSE-CHARGE-ONSET-NOT-HELD-1, CAMERA-SILENT-PRODUCER-TRIPWIRE-1]
@@ -26412,11 +26542,35 @@ cards:
       that cards calculus. CAMERA-SILENT-PRODUCER-TRIPWIRE-1 failed review because its in-memory
       silence counter is reset by these very lifecycle events — its redesign depends on how often they
       really happen, which this card measures.'
-  rank: {value: 8, time_criticality: 3, effort: 3}  # tc 6->3 2026-09-20: storm abated, 34h clean
+  rank: {value: 8, time_criticality: 2, effort: 3}  # tc 3->2 2026-09-21: 41h clean + 15/25 restarts now attributed
   refs:
   - 'recorder events homeassistant_stop/start (event_type_id 17/9/10) — the authoritative restart ledger'
   - 'sensor.ura_coordinator_manager_ura_setup_duration unknown->value pairs — the reload-vs-restart discriminator'
   - feedback_parent_entry_reload_watchdog_hazard
+  MEASURED_2026_09_21: 'THE MYSTERY IS MOSTLY DISSOLVED, AND THE CARD WAS WRONG ABOUT ITS CENTRAL
+    CLAIM. This card said the deep-night restarts happened when "nobody was touching anything". That is
+    FALSE for two of the three, and I am correcting it rather than adding a second story. Measured
+    unattended from the recorder event ledger (sqlite3 -readonly over ssh, homeassistant_stop/start
+    events) cross-joined against git release tags: of 25 restarts since 09-13, FIFTEEN land 21-125s
+    after a URA release tag (median ~30s) — a tight, non-coincidental deploy signature. The two
+    headline deep-night mysteries are OUR OWN DEPLOYS: 09-18 02:09:54 is 26s after tag v5.103.10, and
+    09-18 04:02:42 is 30s after tag v5.103.11. The third (09-18 00:40:03) follows tag v5.103.9 by 23
+    minutes — loose, so I am NOT claiming it. SECOND FINDING, the storm has STOPPED: zero restarts
+    since 09-20 09:32 (~41h clean at time of writing) and zero deep-night restarts since 09-18 04:02,
+    because deploys stopped. Each stop->started gap measured 5-6 minutes, matching the cards "about six
+    minutes" claim. RESIDUAL — and I am NOT calling this an all-clear: 10 of 25 restarts match no tag
+    (09-13 19:10, 09-14 00:09 + 02:27 + 18:49, 09-15 12:04 + 22:55, 09-16 08:28, 09-17 20:29, 09-18
+    00:40, 09-20 09:32). Those are the real remaining question and they are what I now hunt. NOTE a
+    self-inflicted lesson: four nights of instrumentation hunted an initiator that was substantially
+    our own deploy pipeline, which a tag-vs-restart join would have shown on night one.'
+  WITHDRAWN_ASK_2026_09_21: 'BOTH operator asks withdrawn. (1) The logger: block is no longer needed for
+    this card — log reach was restored via the hassio proxy endpoints, so I can read logs unattended.
+    (Confirmed separately that /config/configuration.yaml still has NO logger: block, which remains true
+    and still matters for the memory note about runtime debug arming dying on restart — but it is not
+    this cards blocker.) (2) The "were you deploying Thursday evening and Friday" question is answered by
+    the tag join: 20:17, 22:16, 10:09 and 16:07 are all deploy-matched within 40s, so yes, and you do not
+    need to recall anything.'
+
 - id: COVERAGE-RATING-FALSE-ANOMALOUS-1
   title: The energy coverage self-check reports a false "measurement units are mismatched" alarm — its
     real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at
