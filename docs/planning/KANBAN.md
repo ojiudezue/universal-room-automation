@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-21T02:11:35-05:00_ - _Data commit: `7cacc3e269f3`_ - _last_reconciled: 2026-09-21_
+_Generated: 2026-09-21T02:14:17-05:00_ - _Data commit: `175f4049a742`_ - _last_reconciled: 2026-09-21_
 
 
 ## Columns
@@ -536,7 +536,7 @@ _created 2026-09-16 03:30 · updated 2026-09-19 04:00 · refined_
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] every exterior person-detector went silent within ~24h while motion continued, and the operator-facing alerts went silent with them
 - **Refs:** binary_sensor.front_side_ptz_person_occupancy_2; binary_sensor.front_side_ptz_motion_3; notification_log hazard_type=exterior_person
-- **Forensic keys (7):**
+- **Forensic keys (8):**
   - `MEASURED_2026_09_16`: All numbers from the HA recorder over the Samba mount (read-only, immutable=1; ssh to HA was down all night). Daily ON-transition counts per binary_sensor.*_person_occupancy_2, 2026-09-13 -> 2026-09-16 local: front_side_ptz 204 / 64 / 1 ...
   - `TWO_CANDIDATE_CAUSES_NOT_YET_DISCRIMINATED`: Stated honestly because I could not settle it from here and guessing would be worse than asking. (1) FAULT on the Frigate-2 side — the object detector/ML leg stopped producing while the motion leg kept running. This fits the shape perfec...
   - `A_TRAP_TO_AVOID`: Do NOT read PERIMETER-ALERT-VOLUME-FATIGUE-1 as having resolved itself. That card measured ~155 alerts/day and asked how to cut the volume. During the outage the volume fell to 14/day, which was the producer failing rather than a fix lan...
@@ -544,6 +544,7 @@ _created 2026-09-16 03:30 · updated 2026-09-19 04:00 · refined_
   - `DEDUPE_2026_09_16`: ADJACENT, not duplicate — swept the board (all 17 FRIGATE/CAMERA/PERIMETER/ STUCK cards), docs/BACKLOG.md, and the perimeter planning/audit docs. CAMERA-ZERO-FIRE-DETECTORS-1 is the nearest prior art but is a CLOSED, per-camera card abou...
   - `PAGE_ATTEMPTED_2026_09_16`: Tried to page the operator directly about this (it is the one finding tonight that justified interrupting a sleeping house) and the push could NOT be delivered — Remote Control was inactive, so there was nowhere to send it. That means th...
   - `reverified_2026_09_19`: STAND-DOWN CONFIRMED AND NOW DURABLE — independent re-read tonight, 4 days after the recovery. Daily exterior person-detection ON-transitions across all person_occupancy sensors (recorder): 09-13 = 811, 09-14 = 629, 09-15 = 117 (the outa...
+  - `reverified_2026_09_21`: STAND-DOWN RE-VERIFIED, INDEPENDENTLY — the card asserts detection recovered on 09-15 and has been normal since, and that assertion is STILL TRUE rather than merely still written down. Queried the HA recorder read-only for daily counts o...
 
 ### `ARRIVAL-DEPARTURE-NOTIFY-1` - "Oji arrived/left" notifications from egress person_id — _#4 · WSJF 5.5 · v6 tc3 u2 /e2_
 thread: **notifications** - status: **waiting_operator**

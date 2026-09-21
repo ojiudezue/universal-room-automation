@@ -26052,6 +26052,15 @@ cards:
     for four consecutive days at its pre-outage order of magnitude, and the 09-15 dip is visible as a
     single-day anomaly rather than a new regime. Nothing here needs an emergency and nothing needs
     re-measuring; only the APPROVE on the cards remaining ask is outstanding.'
+  reverified_2026_09_21: 'STAND-DOWN RE-VERIFIED, INDEPENDENTLY — the card asserts detection recovered
+    on 09-15 and has been normal since, and that assertion is STILL TRUE rather than merely still
+    written down. Queried the HA recorder read-only for daily counts of exterior person binary_sensor
+    ON-transitions: 09-13 1686, 09-14 1495, 09-15 974, 09-16 1145, 09-17 1579, 09-18 1371, 09-19 443,
+    09-20 896. Every day non-zero and in-band, so there is no second blackout hiding behind the closed
+    one. (09-19 is the low outlier at 443 — not zero and not a blackout, but the only day worth a
+    glance if this area is revisited.) The remaining ask on this card is unaffected: APPROVE the
+    producer-silence trip-wire is a real operator decision and stays with you.'
+
 - id: CAMERA-SILENT-PRODUCER-TRIPWIRE-1
   title: Exterior person detection can go fleet-wide silent for a day at a time and nothing notices —
     build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped
