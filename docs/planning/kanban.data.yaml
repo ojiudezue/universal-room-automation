@@ -9,6 +9,40 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'TEST-HARNESS-REAL-HA-DEFAULT-1@2026-09-21T03:10:00'
+    at: '2026-09-21T03:10:00'
+    outcome: measured
+    headline: 'ANOTHER DECISION YOU CAN STOP THINKING ABOUT — THE TEST SUITE IS NOT BROKEN, AND THE A/B
+      QUESTION ANSWERED ITSELF FOUR DAYS AGO. You have been holding a PICK on how to repair a test harness
+      that was reported as erroring out of 10,560 of its 10,588 tests. I ran the suite tonight instead of
+      trusting that number: 10,555 tests PASS, 194 fail, and there are THREE errors, not ten thousand. The
+      repair I was asking permission for (option A) had already shipped on the 20th as part of the
+      leak-detector fix, so the question was moot while still sitting on your board. Card taken off your
+      queue. What remains is the ordinary, non-urgent piece of the original idea — pointing new tests at
+      the real Home Assistant environment instead of hand-built fakes — which is a normal cycle, not a
+      decision. Honest caveat on the card: I ran in fixed order, so 194 is not yet split into real bugs
+      versus order-dependent ones.'
+    acknowledged: false
+  - fid: 'TEST-STRATEGY-REARCH-1@2026-09-21T03:12:00'
+    at: '2026-09-21T03:12:00'
+    outcome: measured
+    headline: 'THE BIG TEST-STRATEGY INVESTIGATION IS UNBLOCKED AFTER SITTING STUCK, and it finally has a
+      real number to work from. It was frozen because the failures it exists to fix were hidden behind a
+      wall of harness errors. That wall is gone: 194 failures and 3 errors against 10,555 passes, with
+      collection clean. So the re-architecture can be scoped against something measurable instead of a
+      number nobody could see. One thing got WORSE and I am not burying it: the full suite now takes 6
+      minutes 1 second, against the 4 minutes on record — the slowness complaint that started this card is
+      real and growing. No action needed from you; I own the next step.'
+    acknowledged: false
+  - fid: 'TEST-LEAK-DETECTOR-WRONG-LOOP-1@2026-09-21T02:55:00'
+    at: '2026-09-21T02:55:00'
+    outcome: measured
+    headline: 'A CARD WAS ASKING FOR YOUR GO ON SOMETHING ALREADY SHIPPED. The leak-detector test fix sat
+      in the review lane labelled "READY TO SHIP, OPERATOR CALL ONLY" — but it was merged to develop on the
+      morning of the 20th with your go, and develops copy is byte-identical to the branch. Nobody moved the
+      card, so it kept presenting as a pending decision. Closed. Small process note, since this is the second
+      stale-lane case tonight: the board asked you for three things that were already done or never needed.'
+    acknowledged: false
   - fid: 'OVERNIGHT-PASS-NO-LOG-REACH-1@2026-09-21T02:30:00'
     at: '2026-09-21T02:30:00'
     outcome: measured
@@ -19278,12 +19312,12 @@ cards:
     infrastructure project" every review doc assumed
   thread: quality
   rank: {value: 8, time_criticality: 5, effort: 5}
-  status: waiting_operator
+  status: planned
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: .venv-ha exists but no pytest.ini/pyproject points the suite at it; _HA_REAL still a skip-when-absent gate. Nothing of the migration landed.'
   approval: explicit
   approved_by: operator 2026-08-23 ("We need to make this our default test harness and strategy")
   created: 2026-08-23 18:20
-  updated: '2026-09-19 03:50'
+  updated: '2026-09-21 03:10'
   refinement_status: initial
   tags:
   - measure-before-build
@@ -19318,26 +19352,13 @@ cards:
     there is NO pytest config in the repo — no pytest.ini, setup.cfg, tox.ini, or [tool.pytest]. So plugins
     autoload uncontrolled and asyncio_mode is unset. That is why the two environments diverge at all:
     under 3.9 phcc is not installed, so its autouse fixture never runs.'
-  next: 'PICK A or B — option C is now ELIMINATED BY MEASUREMENT (2026-09-15), so this is a
-    two-way call, and I recommend (A). Every dependency already matches phcc''s own declared pins
-    EXACTLY — phcc 0.13.316 (the LATEST published version), pytest 9.0.0, pytest-asyncio 1.3.0,
-    homeassistant 2026.2.3 — so there is no newer/compatible combination to move to and no
-    dependency bump can fix this. I also tried the "touch neither fixture" route twice and proved
-    it impossible (see ROOT_CAUSE_PROVEN_2026_09_15_PM): fixing enable_event_loop_debug alone just
-    moves the identical RuntimeError to verify_cleanup. So the suite cannot be restored without
-    deciding what happens to the leak detector. I recommend (A) — keep the detection, reimplement
-    it — because (B) yields a GREEN suite that silently stops catching task/timer leaks, and a
-    dishonest green is worse than the current honest red. Say "A" and I build it (test-only, one
-    file, fully reversible) and re-run the full suite to report the real failure set underneath.
-    Original options: (A) OVERRIDE BOTH phcc fixtures in
-    quality/tests/conftest.py, reimplementing verify_cleanup''s lingering-task/timer checks against the
-    loop this harness actually provides — preserves the leak detection, most code; (B) OVERRIDE BOTH,
-    with verify_cleanup reduced to a no-op — smallest change, restores the suite tonight, but SILENTLY
-    DROPS task-leak and timer-leak detection suite-wide, which I do not recommend; (C) UPGRADE/PIN the
-    dependency pair instead (phcc + pytest-asyncio) so the upstream fixtures work on Python 3.13 —
-    cleanest if a compatible pair exists, but it is a dependency bump, not a test edit. Root cause,
-    blast radius and the backed-out attempt are all recorded in measured_2026_09_15_suite_is_unrunnable.'
-
+  next: 'NO OPERATOR PICK OUTSTANDING — the A/B decision is MOOT and I have taken this card back off
+    your queue. Option (A) was "override both phcc fixtures in conftest.py", and that is exactly what
+    shipped on 09-20 via the leak-detector fix, which is now on develop. The residual is the ORIGINAL
+    strangler proposal (230 of 429 test files hand-build fake HA modules; point new tests at the real-HA
+    env and migrate old files only when a cycle already touches them) — real, but a normal planned cycle,
+    not an emergency and not a decision. Re-scope it against the freshly measured failure set before
+    building.'
   links:
     related:
     - TEST-STRATEGY-REARCH-1
@@ -19345,6 +19366,21 @@ cards:
       62%). This card removes the architecture those measurements describe. Its remaining 76 failures
       should be re-counted under the real harness BEFORE being worked individually — some will dissolve,
       exactly as the pytest-asyncio and aiosqlite installs did.
+  REFUTED_2026_09_21: 'THE CARD''S HEADLINE CLAIM IS WRONG AND I AM MARKING IT WRONG RATHER THAN ADDING
+    A SECOND STORY. The card (and its parent) asserted that the harness was broken in .venv-ha on Python
+    3.13 such that 10,560 of 10,588 tests ERROR out, and that the suite could not be restored without an
+    operator A/B decision. Measured tonight by RUNNING IT, per the rule that a recorded pass/fail count is
+    not evidence: `PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -q -p no:randomly` ->
+    **194 failed, 10555 passed, 37 skipped, 2 xfailed, 3 errors in 361s**. Collection is also clean
+    (10,787 collected, zero errors). So the harness is NOT broken — 10,555 tests execute and pass, and
+    there are THREE errors, not ten thousand. WHAT CHANGED: the leak-detector conftest override (commit
+    0294ef0ce, merged to develop 09-20 09:26) is option (A), so the fix the PICK was asking permission for
+    had already landed by the time the PICK was still being shown to the operator. CAVEAT, stated so nobody
+    over-reads this: I ran with -p no:randomly (fixed order), whereas the order-dependence claims were
+    measured under random ordering — so this run refutes "the harness is broken", and does NOT by itself
+    settle how many of the 194 are order-dependent. Runtime also moved the wrong way: 6m01s, not the ~4min
+    on record.'
+
 - id: TEST-STRATEGY-REARCH-1
   measured_2026_09_15: 'OVERNIGHT PASS — two of this card three claims re-measured by RUNNING them,
     and both moved. (1) COLLECTION IS NOW CLEAN: 10,588 tests collected, ZERO errors (the 2 residual
@@ -19365,7 +19401,7 @@ cards:
   approved_by: 'operator 2026-09-18 (board approve button)'
   status: investigating
   dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
-  updated: '2026-09-20 05:20'
+  updated: '2026-09-21 03:10'
   verify_2026_09_12: 'INVESTIGATE-flagged -> re-measured (2026-09-12). Collection scale DROPPED 18->2 errors: collect-only = 10354 collected, 2 errors (test_ble_hold_cap.py + test_ble_extend_not_create.py, const ImportError unknown-location). NOT real breakage — the consts exist (const.py:575/1212) + both files pass in isolation; they fail in-suite because ~7 siblings install a stripped fake const into sys.modules at import scope (test_energy_battery.py:99, test_notification_manager.py:145, test_arbitrage_gate_d2_offbyone.py:111, ...) and conftest SUITE-HYGIENE-1 snapshot EXCLUDES the const namespace (conftest.py:28-29). 223/457 files install sys.modules stubs (~182 without pop). No pytest config (deterministic order). CHEAP TIER-1 CHILD: extend the conftest snapshot to restore-if-replaced the custom_components...const key (OR fix the ~7 siblings) -> clears both collection errors -> suite collects clean. CAUTION: this is PYTEST-SUITE-CONST-STUB-ISOLATION-1 territory (whose broad Fix-2 was REVERTED for exposing 87 order-reds) — the narrow snapshot-restore is different but must not re-expose them; verify on a full run. Parent re-arch (fake-coordinator boundary + 87+ runtime order-failures + 4-min runtime) UNCHANGED in scale, stays investigating.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
   needs_investigation: true
@@ -19438,6 +19474,20 @@ cards:
     of 10,560 of 10,588 tests — scoping the re-arch first would be sizing a number nobody can see.
     With the link in place the eligibility filter stops offering this card while its input is not
     ready, which is the point of expressing gating as a link rather than a note.'
+  UNBLOCKED_2026_09_21: 'UNBLOCKED, and the number this card is built around finally has a fresh
+    measurement. The blocker (TEST-HARNESS-REAL-HA-DEFAULT-1) rested on the claim that the harness errored
+    out of 10,560 of 10,588 tests, which made the ~87 order-dependent failures unmeasurable. That claim is
+    REFUTED: a full run on develop tonight gave **194 failed, 10555 passed, 37 skipped, 2 xfailed, 3 errors
+    in 6m01s**, with collection clean at 10,787. The harness was restored by the leak-detector conftest
+    override that merged 09-20, so the wall of setup errors is gone and the real failure set is visible
+    again. THE RE-ARCH CAN NOW BE SCOPED against 194 failures + 3 errors rather than a number nobody could
+    see. TWO CAUTIONS before anyone sizes off this: (1) I ran -p no:randomly, so 194 is the FIXED-ORDER
+    failure count — the split between genuine defects and order-dependence still needs a random-order run
+    to separate, and that split is the whole point of this card; (2) the earlier remeasured_2026_09_20 note
+    predicted the leak-detector fix would cut failures substantially (299->163 names on the branch), and
+    194 on develop is in that neighbourhood, so the two measurements are consistent. The 3 errors are all
+    in test_egress_exit_backfill.py and are a small concrete starting point. Runtime is 6m01s, worse than
+    the 4min on record — the slowness half of this card is real and got worse.'
 
 - id: CHATTER-OBSERVE-CONTROL-D7-1
   SHADOW_RESULT_2026_08_22: 'Was `in_progress`. SHADOW HAS RUN AND ITS RESULT IS IN — and it is not a
