@@ -18994,9 +18994,9 @@ cards:
     leaked task — and a green suite has been over-trusted because of it
   thread: quality
   rank: {value: 7, time_criticality: 4, effort: 3}  # scored 2026-09-20: harness safety net, fix largely done
-  status: review
+  status: done
   created: '2026-09-15'
-  updated: '2026-09-20 05:10'
+  updated: '2026-09-21 02:55'
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
@@ -19093,17 +19093,9 @@ cards:
     test_egress_exit_backfill.py) that this capture did not include, so the comparison is over failures
     only. The error count is the same shape in every run and none of them is new, but it was not
     name-diffed.'
-  next: 'READY TO SHIP, OPERATOR CALL ONLY — both acceptance gates this card set for itself are now
-    met and evidenced. Gate 1 MUTATION DRILL: the self-check goes green -> RED when the async task
-    branch is neutered -> green on restore (the old self-check could not do this; see
-    verified_2026_09_20). Gate 2 FALSE-POSITIVE SWEEP: full-suite name-diff shows ZERO new failures and
-    136 removed (see validated_2026_09_20). Nothing is blocked on me. This is test-harness-only code
-    with no runtime effect on the house, so it carries none of the usual deploy risk — but it is still a
-    deploy, and a deploy restarts HA, so it waits for you rather than going out overnight. Two things
-    worth doing when it lands: re-measure TEST-STRATEGY-REARCH-1''s "~87 order-dependent failures"
-    against this branch (a large share of them look like leak-cascade, not order), and re-run
-    UNLOAD-SYMMETRY-TASK-HYGIENE-1''s five un-cancellable timers now that a detector exists that can
-    actually see them.'
+  next: 'CLOSED 2026-09-21 — ALREADY SHIPPED, no operator call outstanding. This card sat in the
+    review lane saying "READY TO SHIP, OPERATOR CALL ONLY" but the work had already been merged the
+    previous morning and nobody moved the card.'
   links:
     related: [TEST-HARNESS-REAL-HA-DEFAULT-1, UNLOAD-SYMMETRY-TASK-HYGIENE-1, TEST-STRATEGY-REARCH-1]
     context: 'TEST-HARNESS-REAL-HA-DEFAULT-1 is the cycle that unblocked the suite and surfaced
@@ -19156,6 +19148,14 @@ cards:
     false-positive sweep (two full ~10.7k-test runs, baseline and after). NOTHING was merged to develop
     and nothing was deployed. DO NOT MERGE until the name-diff reads clean or its new failures have
     been triaged as real leaks.'
+  verified_2026_09_21: 'VERIFY-BEFORE-WORK: ALREADY-DONE. Verified against git, not against the card:
+    commit 0294ef0ce (2026-09-20 09:26:24, "ship #3: merge leak-detector test-harness fix ... Operator
+    go 2026-09-20") is contained in develop, and `git diff fix/test-leak-detector-wrong-loop..develop --
+    quality/tests/conftest.py` is EMPTY, so develop carries the fix byte-identically. It was test-only,
+    so no HA deploy was ever required and the pending operator call was moot. Independently corroborated
+    by running tests tonight on develop: the phcc conftest override is present (conftest.py:412-426) and
+    async HA-harness tests execute normally. Lane was stale, not the work.'
+
 - id: TEST-HARNESS-REAL-HA-DEFAULT-1
   DOCUMENTED_COMMAND_IS_A_TRAP_2026_09_16: 'FRESH SYMPTOM, folded in rather than carded separately
     (adjacency sweep: this card already owns "which interpreter is the harness"). Hit live during
@@ -26570,6 +26570,13 @@ cards:
     this cards blocker.) (2) The "were you deploying Thursday evening and Friday" question is answered by
     the tag join: 20:17, 22:16, 10:09 and 16:07 are all deploy-matched within 40s, so yes, and you do not
     need to recall anything.'
+  residual_lead_2026_09_21: 'ONE OF THE 10 UNMATCHED RESTARTS HAS A CANDIDATE, found incidentally. The
+    09-20 09:32:09 restart sits ~6 minutes after commit 0294ef0ce (09-20 09:26:24), the leak-detector
+    merge shipped by the cron pass. That commit is described as test-only with no HA deploy, so IF it
+    really did trigger a restart, something in that ship path restarts HA when it should not — which is
+    worth knowing on its own. Stated as a LEAD, not a conclusion: a 6-minute gap is far looser than the
+    21-125s deploy signature, and I have not traced the path. Check the cron pass log for 09-20 09:26-09:33
+    before believing it.'
 
 - id: COVERAGE-RATING-FALSE-ANOMALOUS-1
   title: The energy coverage self-check reports a false "measurement units are mismatched" alarm — its

@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-20T22:29:43-05:00_ - _Data commit: `cdbeaf29321c`_ - _last_reconciled: 2026-09-21_
+_Generated: 2026-09-21T02:11:35-05:00_ - _Data commit: `7cacc3e269f3`_ - _last_reconciled: 2026-09-21_
 
 
 ## Columns
@@ -14,12 +14,12 @@ _Generated: 2026-09-20T22:29:43-05:00_ - _Data commit: `cdbeaf29321c`_ - _last_r
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 15 |
 | 🔨 In progress | 0 |
-| 🔍 Review | 1 |
+| 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 25 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 35 |
 | 🅿️ Parked | 62 |
-| ✅ Done | 186 |
+| ✅ Done | 187 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -53,11 +53,12 @@ _created 2026-09-19 03:30 · updated 2026-09-21 02:25 · initial_
 - **Next:** DRIVE IT — this is mine now, not yours, and both halves of the old ask are withdrawn. The log-reach blocker cleared (see OVERNIGHT-PASS-NO-LOG-REACH-1), so I can read core/supervisor/host logs unattended and no longer need you to add a l...
 - **Tags:** measure-before-build, no-fabrication-verify, falsify-first, watchdog-hazard
 - **Refs:** recorder events homeassistant_stop/start (event_type_id 17/9/10) — the authoritative restart ledger; sensor.ura_coordinator_manager_ura_setup_duration unknown->value pairs — the reload-vs-restart discriminator; feedback_parent_entry_reload_watchdog_hazard
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `measured_2026_09_19`: Recorder events table (homeassistant_stop/start/started), UTC: 09-18 restarts at 01:17, 01:29, 03:16, 05:40, 07:09, 09:02, 15:09, 21:07 — stop->start gap ~6 min each. Local (CDT) that is 09-17 20:17 + 20:29 + 22:16, then 09-18 00:40, 02:...
   - `remaining_suspects`: An add-on or the supervisor core watchdog (both would restart cleanly and both log it in the supervisor journal, which needs durable capture to catch), HACS/update flows, or a deploy/tooling path firing more than once. A secondary oddity...
   - `MEASURED_2026_09_21`: THE MYSTERY IS MOSTLY DISSOLVED, AND THE CARD WAS WRONG ABOUT ITS CENTRAL CLAIM. This card said the deep-night restarts happened when "nobody was touching anything". That is FALSE for two of the three, and I am correcting it rather than ...
   - `WITHDRAWN_ASK_2026_09_21`: BOTH operator asks withdrawn. (1) The logger: block is no longer needed for this card — log reach was restored via the hassio proxy endpoints, so I can read logs unattended. (Confirmed separately that /config/configuration.yaml still has...
+  - `residual_lead_2026_09_21`: ONE OF THE 10 UNMATCHED RESTARTS HAS A CANDIDATE, found incidentally. The 09-20 09:32:09 restart sits ~6 minutes after commit 0294ef0ce (09-20 09:26:24), the leak-detector merge shipped by the cron pass. That commit is described as test-...
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#3 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating** - approval: **explicit**
@@ -487,27 +488,10 @@ _being built_
 
 _(none)_
 
-## 🔍 Review (1)
+## 🔍 Review (0)
 _under review_
 
-### `TEST-LEAK-DETECTOR-WRONG-LOOP-1` - The harness's task-leak detector watches the wrong event loop, so it has never caught a leaked task — and a green suite has been over-trusted because of it — _#1 · WSJF 4.3 · v7 tc4 u2 /e3_
-thread: **quality** - status: **review** - approval: **explicit**
-_created 2026-09-15 · updated 2026-09-20 05:10 · refined_
-- **Problem / Solution:**
-  - Problem: the test harness is supposed to fail a test that walks away leaving background work running — that is the safety net for the exact bug URA keeps hitting (timers and tasks that outlive a reload). It watches the wrong thing. Each ...
-- **Origin:** 2026-09-15 - Found while implementing option A on TEST-HARNESS-REAL-HA-DEFAULT-1 — the mutation drill that was meant to confirm preserved detection instead proved detection never worked.
-- **Why:** This is a HOLLOW ANCHOR at harness scale. Every "suite is green" statement in this repo has implicitly claimed no task leaks, and that claim was never backed. It also explains why reload-leak defects keep reaching production despite a la...
-- **Next:** READY TO SHIP, OPERATOR CALL ONLY — both acceptance gates this card set for itself are now met and evidenced. Gate 1 MUTATION DRILL: the self-check goes green -> RED when the async task branch is neutered -> green on restore (the old sel...
-- **Tags:** tier-2, hollow-test-anchors, no-fabrication-verify
-- **Parsimony:** [BUILD] The leak detector inspects a different event loop than the one under test, so it cannot observe leaked tasks and always passes.
-- **Refs:** quality/tests/conftest.py (verify_cleanup override + its HONEST SCOPE docstring); .venv-ha/.../pytest_homeassistant_custom_component/plugins.py:351 (upstream, same blind spot)
-- **Forensic keys (6):**
-  - `MEASURED_2026_09_15`: Proven by drill, not inferred. (1) A test that creates a never-finishing task via `asyncio.get_running_loop().create_task(asyncio.sleep(3600))` PASSES under the current fixture. (2) Instrumented the loop identity at each phase: fixture s...
-  - `verified_2026_09_20`: OVERNIGHT PASS VERIFICATION of the branch fix/test-leak-detector-wrong-loop (base checked first: 29 commits behind develop, but every one of them is docs/board only — zero code or test files — so the base is effectively current). THE COR...
-  - `validated_2026_09_20`: FULL-SUITE NAME-DIFF DONE — three runs, same flags, same machine, run serially (pytest -p no:randomly -q --timeout=120 --tb=no -rf, failure NAMES compared, not counts): * baseline a8e5be4c8 (pre-branch): 299 failing names * d8041ac21 (br...
-  - `gate_2026_09_19`: FOUR-STEP GATE PASSED, build dispatched (overnight, worktree-isolated, NOT deployed). (1) VALIDITY/ground truth: STILL-REAL — read quality/tests/conftest.py:404-520 live; the override is unchanged and is still a SYNC fixture resolving th...
-  - `BUILD_2026_09_19`: BUILT on branch fix/test-leak-detector-wrong-loop, commit dab01cc35, in the isolated worktree .claude/worktrees/leakdetector-2026-09-19. NOT merged, NOT deployed (overnight pass rule: nothing ships while the house is asleep, and this nee...
-  - `BUILD_STATE_AT_PASS_END_2026_09_19`: Two commits on fix/test-leak-detector-wrong-loop in worktree .claude/worktrees/leakdetector-2026-09-19: dab01cc35 (async fixture + self-check that asserts the detector fires on a deliberate leak) and d8041ac21 (restores the SYNC task/tim...
+_(none)_
 
 ## ⏸️ Waiting on operator (25)
 _needs a human call — groomed first_
@@ -2482,8 +2466,28 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (186)
+## ✅ Done (187)
 _closed, evidence in refs_
+
+### `TEST-LEAK-DETECTOR-WRONG-LOOP-1` - The harness's task-leak detector watches the wrong event loop, so it has never caught a leaked task — and a green suite has been over-trusted because of it — _WSJF 4.3 · v7 tc4 u2 /e3_
+thread: **quality** - status: **done** - approval: **explicit**
+_created 2026-09-15 · updated 2026-09-21 02:55 · refined_
+- **Problem / Solution:**
+  - Problem: the test harness is supposed to fail a test that walks away leaving background work running — that is the safety net for the exact bug URA keeps hitting (timers and tasks that outlive a reload). It watches the wrong thing. Each ...
+- **Origin:** 2026-09-15 - Found while implementing option A on TEST-HARNESS-REAL-HA-DEFAULT-1 — the mutation drill that was meant to confirm preserved detection instead proved detection never worked.
+- **Why:** This is a HOLLOW ANCHOR at harness scale. Every "suite is green" statement in this repo has implicitly claimed no task leaks, and that claim was never backed. It also explains why reload-leak defects keep reaching production despite a la...
+- **Next:** CLOSED 2026-09-21 — ALREADY SHIPPED, no operator call outstanding. This card sat in the review lane saying "READY TO SHIP, OPERATOR CALL ONLY" but the work had already been merged the previous morning and nobody moved the card.
+- **Tags:** tier-2, hollow-test-anchors, no-fabrication-verify
+- **Parsimony:** [BUILD] The leak detector inspects a different event loop than the one under test, so it cannot observe leaked tasks and always passes.
+- **Refs:** quality/tests/conftest.py (verify_cleanup override + its HONEST SCOPE docstring); .venv-ha/.../pytest_homeassistant_custom_component/plugins.py:351 (upstream, same blind spot)
+- **Forensic keys (7):**
+  - `MEASURED_2026_09_15`: Proven by drill, not inferred. (1) A test that creates a never-finishing task via `asyncio.get_running_loop().create_task(asyncio.sleep(3600))` PASSES under the current fixture. (2) Instrumented the loop identity at each phase: fixture s...
+  - `verified_2026_09_20`: OVERNIGHT PASS VERIFICATION of the branch fix/test-leak-detector-wrong-loop (base checked first: 29 commits behind develop, but every one of them is docs/board only — zero code or test files — so the base is effectively current). THE COR...
+  - `validated_2026_09_20`: FULL-SUITE NAME-DIFF DONE — three runs, same flags, same machine, run serially (pytest -p no:randomly -q --timeout=120 --tb=no -rf, failure NAMES compared, not counts): * baseline a8e5be4c8 (pre-branch): 299 failing names * d8041ac21 (br...
+  - `gate_2026_09_19`: FOUR-STEP GATE PASSED, build dispatched (overnight, worktree-isolated, NOT deployed). (1) VALIDITY/ground truth: STILL-REAL — read quality/tests/conftest.py:404-520 live; the override is unchanged and is still a SYNC fixture resolving th...
+  - `BUILD_2026_09_19`: BUILT on branch fix/test-leak-detector-wrong-loop, commit dab01cc35, in the isolated worktree .claude/worktrees/leakdetector-2026-09-19. NOT merged, NOT deployed (overnight pass rule: nothing ships while the house is asleep, and this nee...
+  - `BUILD_STATE_AT_PASS_END_2026_09_19`: Two commits on fix/test-leak-detector-wrong-loop in worktree .claude/worktrees/leakdetector-2026-09-19: dab01cc35 (async fixture + self-check that asserts the detector fires on a deliberate leak) and d8041ac21 (restores the SYNC task/tim...
+  - `verified_2026_09_21`: VERIFY-BEFORE-WORK: ALREADY-DONE. Verified against git, not against the card: commit 0294ef0ce (2026-09-20 09:26:24, "ship #3: merge leak-detector test-harness fix ... Operator go 2026-09-20") is contained in develop, and `git diff fix/t...
 
 ### `OVERNIGHT-PASS-NO-LOG-REACH-1` - The overnight pass cannot read HA logs, so every log-based investigation silently stalls — _WSJF 10.0 · v7 tc7 u6 /e2_
 thread: **platform** - status: **done** - approval: **unreviewed**
