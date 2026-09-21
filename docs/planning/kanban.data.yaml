@@ -24286,6 +24286,36 @@ cards:
   refs:
   - DELETE-REACT-DASHBOARDS-1
   - scripts/deploy.sh:198 (ships frontend/)
+- id: JEV-DECISION-CLASSIFIER-SPIKE-1
+  title: "Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness"
+  thread: presence
+  status: investigating
+  created: '2026-09-20'
+  updated: '2026-09-20'
+  tags: [spike, decision-classifier, jev, occupancy, measure-first, correctness, adaptiveness]
+  problem_solution:
+  - 'Operator idea: a reusable decision-classifier (Jev-class) as ONE integration point for multiple decision
+     problems (occupancy-trust, alert triage, anomaly real-vs-transient, identity fusion). Measure-first spike
+     before any build. Decision under test = OCCUPANCY-TRUST (the one that cost a full cycle this session +
+     whose hand-tuned corroboration is brittle/non-stationary). 3 arms, identical inputs/labels: (1) CODE
+     baseline (current fusion+corroboration), (2) OPEN bake-off — poorjev + jev48 + Luce/OpenJev, local, behind
+     jev-local Jev-compatible endpoint, (3) OFFICIAL JEV cloud control (needs operator API key). Split the eval:
+     code-works (correctness bar — classifier must ~match code) vs code-fails (adaptiveness bar — this session
+     Jaya fan-phantom / single-sensor-frozen / mmwave-sleeper / lone-corroborator / freshness gaps — classifier
+     must beat code AND its confidence drop where ambiguous). Metrics: accuracy + ECE + latency + cost +
+     local-vs-cloud. GO/NO-GO: match code on works AND beat code on fails at acceptable cost/latency/dependency;
+     open-local preferred over cloud on ties. De-risked by existing assets: anomaly_log (labels for the sibling
+     anomaly decision), regime_detector/memory_baseline (half the features), memory_facade (feature store +
+     future self-calibration outcome ledger + per-room personalization). Plan: PLANNING_jev_decision_classifier_spike.md.'
+  why: 'operator goals a) correctness (almost as reliable as code) b) adaptiveness (works where code fails); the
+     existing anomaly engine + memory infra turn a Jev-class from a bolt-on cloud API into a locally-fed
+     self-calibrating layer using data we already collect. Spike proves or refutes before a cycle is spent.'
+  next: 'DO (operator): sign up for official Jev + drop the API key (unlocks control arm). Meanwhile (no key,
+     read-only): assemble the labeled occupancy-trust eval set (both splits) from recorder + operator-confirmed
+     episodes; build endpoint-agnostic harness + CODE arm + ECE scoring; set up poorjev/jev48/Luce behind
+     jev-local on the Mac-mini sidecar. Then the 3-way bake-off is one command.'
+  links:
+    related: [STUCK-MOTION-FROZEN-ON-BLINDSPOT-1, JAYA-FAN-STILL-PHANTOM-1, HVAC-ANOMALY-BLIND-1]
 - id: LOVELACE-AUTO-ROOM-DASHBOARD-1
   title: URA v8 + v6 Lovelace dashboards do not reflect newly-added rooms -> auto-generate room cards
     so any new room appears automatically

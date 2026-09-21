@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-20T10:13:43-05:00_ - _Data commit: `e64f36d8dd08`_ - _last_reconciled: 2026-09-20_
+_Generated: 2026-09-20T10:15:40-05:00_ - _Data commit: `2e00d405baeb`_ - _last_reconciled: 2026-09-20_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-09-20T10:13:43-05:00_ - _Data commit: `e64f36d8dd08`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 1 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 15 |
 | 🔨 In progress | 0 |
@@ -26,10 +26,19 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#1 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **investigating**
+_created 2026-09-20_
+- **Problem / Solution:**
+  - Operator idea: a reusable decision-classifier (Jev-class) as ONE integration point for multiple decision problems (occupancy-trust, alert triage, anomaly real-vs-transient, identity fusion). Measure-first spike before any build. Decision...
+- **Why:** operator goals a) correctness (almost as reliable as code) b) adaptiveness (works where code fails); the existing anomaly engine + memory infra turn a Jev-class from a bolt-on cloud API into a locally-fed self-calibrating layer using dat...
+- **Next:** DO (operator): sign up for official Jev + drop the API key (unlocks control arm). Meanwhile (no key, read-only): assemble the labeled occupancy-trust eval set (both splits) from recorder + operator-confirmed episodes; build endpoint-agno...
+- **Tags:** spike, decision-classifier, jev, occupancy, measure-first, correctness, adaptiveness
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-09-20 05:20 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
