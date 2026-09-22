@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-22T02:09:03-05:00_ - _Data commit: `75116ef25880`_ - _last_reconciled: 2026-09-21_
+_Generated: 2026-09-22T02:16:53-05:00_ - _Data commit: `2ed75b73801a`_ - _last_reconciled: 2026-09-22_
 
 
 ## Columns

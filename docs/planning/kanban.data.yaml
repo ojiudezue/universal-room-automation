@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: 2026-09-21
+  last_reconciled: 2026-09-22
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
