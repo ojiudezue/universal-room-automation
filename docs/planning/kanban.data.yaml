@@ -26897,6 +26897,38 @@ cards:
      supersession-audit claim) - still_energy is recorder-EXCLUDED + per-gate needs engineering_mode; requires
      forward capture (phantom vs known-occupied) + per-unit fit; intra-device (fragile). Revisit only if the
      pause-recheck route proves insufficient across the mmwave-only fan rooms.'
+- id: ENVOY-FLAKINESS-181243-1
+  title: "Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today"
+  thread: energy
+  status: investigating
+  created: '2026-09-21'
+  updated: '2026-09-21'
+  tags: [energy, envoy, enphase, upstream-bug, flakiness, dual-homed, incident]
+  problem_solution:
+  - 'Investigated 2026-09-21 (operator: reload envoy + why so flaky). THREE causes. (1) UPSTREAM HA BUG
+     home-assistant/core #181243 (OPEN, no fix; affects core 2026.8.3 + 2026.9.0 = our version): enphase_envoy
+     background tasks _async_try_refresh_firmware (guards only EnvoyError) + _async_fetch_and_compare_mac (no
+     guard) let RuntimeError "Session is closed" escape when the aiohttp session closes -> unretrieved
+     exceptions every 1.5-12min; when fully tripped the entry sticks in setup_in_progress, RELOAD TIMES OUT,
+     and ONLY A FULL CORE RESTART recovers. Confirmed live: a reload this session pushed the entry into exactly
+     that stuck state -> Core restart to recover. Siblings: #182789 (KeyError max_cont_gen_amps in pyenphase
+     breaks all updates), #166183 (bad data on combiner restart). (2) DEVICE TIMEOUTS: local API on
+     192.168.12.191 intermittently times out (reachable at investigation: ping 0%% loss 40ms) -> SOC=None
+     episodes. OPERATOR NOTE: Envoy is DUAL-HOMED (two network interfaces/IPs) — prime lead: is the integration
+     bound to the flakier home, or do the two homes cause routing/ARP/local-API contention? (3) CORRUPT
+     consumption_today (28409 kWh/day accumulator) -> URA cross-check 99.5%% divergence (energy.py:3022 reads it
+     LIVE). Already recorder-excluded (configuration.yaml:19) so LTS not poisoned; the cross-check warning is
+     benign (URA holds state). Not a URA defect.'
+  why: 'the week-long "envoy flaky" complaint is mostly an OPEN upstream bug with no local fix + a dual-homed
+     device-timeout angle the operator flagged; recorder-exclude already contains the stats poisoning.'
+  next: 'DO/PICK (operator): (a) TRACK #181243 — watch for the HA fix, update core when a fix version lands
+     (only real cure; unfixable on our side short of patching core). (b) INVESTIGATE dual-homed timeouts — which
+     IP the integration uses vs the second home, whether one interface is flakier / causing contention; consider
+     pinning the integration to the stable home. (c) consumption cross-check warning is benign — leave, or card
+     a URA-side clamp if the WARN volume is noisy. Immediate recovery tonight = Core restart (operator-authorized
+     2026-09-21 23:14).'
+  links:
+    related: [ENERGY-ACCOUNTING-DIVERGENCE-1]
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
