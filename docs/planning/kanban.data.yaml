@@ -9,6 +9,55 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1@2026-09-22T02:10:00'
+    at: '2026-09-22T02:10:00'
+    outcome: escalated
+    headline: 'I FOUND OUT HOW THE LOG FLOOD IS BEING GENERATED, AND THERE IS A ONE-TOGGLE FIX WORTH
+      TRYING — but it is your toggle, not mine. Recap: something asks the supervisor for status every
+      10 seconds without a password, and those refusals are now 81% of the supervisor log, squeezing
+      its history to 5.45 hours. I measured that ceiling properly tonight: asking for 20,000 lines
+      returns 2,400, so five hours is a hard wall, not a bad sample. THE NEW PART: I worked out what
+      produces that exact log line. The SSH add-on has Protection mode ON, which strips its supervisor
+      password, so any tool on the box using the `ha` command emits precisely these refusals. I proved
+      it by running one myself and then predicting my own two commands would show up in the log — they
+      did, three milliseconds apart. So the ask is: turn Protection mode OFF on the Advanced SSH & Web
+      Terminal add-on. It is one reversible switch, and our own homelab dashboard already needs it off
+      anyway. If the poller is one of these callers, 81% of that log disappears for free; if not, I
+      re-measure with the noise gone, which is a far cleaner hunt. I ALSO CLEARED TWO SUSPECTS with
+      evidence rather than reasoning: our own face-bridge add-on (different endpoint, 15s not 10s, and
+      it does use a token) and the homelab dashboard collector (it runs four commands, and only one of
+      the four endpoints ever appears). And one genuinely new fact: the polling continued without a
+      single gap through the 5-minute Core restart, so whatever it is does not depend on Home
+      Assistant being up at all. I am NOT guessing which add-on it is.'
+    acknowledged: false
+  - fid: 'HA-CORE-RESTART-STORM-1@2026-09-22T02:12:00'
+    at: '2026-09-22T02:12:00'
+    outcome: measured
+    headline: 'NO NEW RESTARTS TO INVESTIGATE — AND I NOW KNOW WHY THIS CARD CANNOT MOVE ON ITS OWN.
+      In the entire window the logs can still see, there was exactly one Home Assistant restart, and it
+      is fully accounted for: the 11:20pm Core restart you authorized to unstick the Envoy integration.
+      Zero unexplained restarts. The important finding is structural rather than reassuring: the log
+      only reaches back 5.45 hours, and the unexplained restarts we are chasing are spaced hours to six
+      hours apart, so the plan written on this card — "read the culprit off the next unexplained
+      restart" — is simply not executable at that retention. That makes the log-flood card a hard
+      blocker rather than a related annoyance, and I have linked them that way. Practical upshot: fix
+      the flood first, or this one cannot be advanced by watching. I took no build action.'
+    acknowledged: false
+  - fid: 'ENVOY-FLAKINESS-181243-1@2026-09-22T02:15:00'
+    at: '2026-09-22T02:15:00'
+    outcome: measured
+    headline: 'THE ENVOY RESTART FIXED THE SYMPTOM, NOT THE CAUSE — and I confirmed the diagnosis in
+      the actual crash text instead of taking last night word for it. Since the restart, the same
+      "Session is closed" error has fired 36 more times. The crash trace ends inside the Enphase
+      library firmware-check routine, which is exactly the known unfixed Home Assistant bug the card
+      names — so tracking that upstream fix really is the only cure, and the restart is a reset button
+      we may need again. What this costs us in practice, measured: the battery coordinator lost the
+      battery charge reading five times overnight and correctly held its previous state rather than
+      acting on nothing, so URA behaved properly — but battery strategy was running on stale numbers
+      during those gaps. Those gaps are thinning out (four in the first half hour, one since). The
+      daily-consumption number is still reporting nonsense, which stays harmless. I moved this to your
+      queue because every remaining option is a decision only you can make.'
+    acknowledged: false
   - fid: 'TEST-HARNESS-REAL-HA-DEFAULT-1@2026-09-21T03:10:00'
     at: '2026-09-21T03:10:00'
     outcome: measured
@@ -26467,10 +26516,10 @@ cards:
 - id: SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1
   title: A tokenless poller hits the supervisor every 10s and floods its log, destroying our restart forensics
   thread: platform
-  status: investigating
+  status: waiting_operator
   created: '2026-09-21 02:35'
-  updated: '2026-09-21 02:35'
-  refinement_status: initial
+  updated: '2026-09-22 02:10'
+  refinement_status: refined
   approval: implied
   tags: [tier-1, measure-before-build, no-fabrication-verify]
   problem_solution:
@@ -26503,14 +26552,20 @@ cards:
   parsimony: {problem: 'A tokenless caller polls /core/info every 10.1s, consuming 85% of the supervisor
     log and capping its retention at ~5h, which is less than the interval between the restarts we are
     trying to attribute.', verdict: BUILD}
-  next: 'MEASURE — but the obvious route is CLOSED, so this needs a different one. Attempted and
-    FAILED tonight: the hassio proxy whitelists only the log endpoints — GET /api/hassio/addons and
-    /api/hassio/supervisor/info both return 401 with the long-lived token (measured), so I cannot
-    enumerate add-ons or read supervisor info from the Mac. Remaining routes, cheapest first: (a) check
-    whether the ssh add-on can reach the supervisor API over its internal network with its own token,
-    (b) read /config/.storage or the add-on config from the Samba mount to enumerate installed add-ons
-    offline and shortlist ones that poll core status, (c) ask the operator for a supervisor token. Do
-    NOT stop or disable add-ons to bisect — that is a live-system change on an occupied house.'
+  next: 'DO (operator): turn Protection mode OFF on the Advanced SSH & Web Terminal add-on (Settings
+    -> Add-ons -> Advanced SSH & Web Terminal -> Protection mode toggle). This is a single reversible
+    toggle. WHY this is now the recommended first move rather than more hunting: I reproduced the exact
+    log signature tonight by running `ha core info` over ssh, and it 401s BECAUSE protection mode
+    strips SUPERVISOR_TOKEN — so any caller on this box using the `ha` CLI (or an equivalent tokenless
+    supervisor GET) emits precisely these lines. If the 10.1s poller is such a caller, restoring the
+    token silently stops ~81% of the supervisor log at zero code cost. It also un-breaks the homelab
+    dashboard collector, which docs/CONFIGS.md already records as REQUIRING protection mode OFF for
+    its `ha ... info` calls. -> On your toggle I re-pull the supervisor log within minutes and either
+    CLOSE this card (flood gone) or report the residual caller with the flood removed as contrast,
+    which is itself a much cleaner discriminator. IF YOU PREFER NOT TO TOGGLE: the alternative is
+    PICK (b) — give me a supervisor API token and I name the caller directly. Still NOT doing
+    unattended: stopping/disabling add-ons to bisect (live change on an occupied house), and docker
+    access is denied from the ssh add-on (measured: permission denied on /var/run/docker.sock).'
   links:
     blocks: [HA-CORE-RESTART-STORM-1]
     related: [OVERNIGHT-PASS-NO-LOG-REACH-1]
@@ -26533,6 +26588,34 @@ cards:
     (bridge.py:332,340), so it would not be generating tokenless requests. Remaining suspects are the
     ten third-party add-ons; evcc is the most plausible on behaviour (it polls HA core state
     continuously) but I have NOT verified that and am not asserting it.'
+  measured_2026_09_22: 'OVERNIGHT PASS. STILL-REAL, and three new hard facts. LOG-READ ROUTE: the
+    home-assistant MCP never finished connecting this run, so ha_get_logs was unavailable; I did NOT
+    treat that as an all-clear — I used the equivalent authenticated route the MCP wraps,
+    GET /api/hassio/{core,supervisor,host}/logs with the long-lived token, all three 200 OK
+    (/api/error_log still 404, as recorded). (1) FLOOD CONFIRMED AND SLIGHTLY WORSE: 1939 of 2400
+    lines = 80.8% of the supervisor journal; cadence re-measured at median 10.0s / mean 10.13s over
+    1593 samples. (2) THE RETENTION CEILING IS NOW MEASURED, NOT ESTIMATED: a request for lines=20000
+    returns only 2400 lines, spanning 2026-09-21 20:36 to 2026-09-22 02:03 = 5.45 hours. That is a
+    hard journal ceiling, so the ~5h figure was right and is not going to improve on its own.
+    (3) NEW DISCRIMINATOR — THE POLLER IS NOT HOME ASSISTANT CORE AND DOES NOT DEPEND ON IT. Core was
+    NOT_RUNNING from 23:20:21 to 23:25:24 (the operator-authorized Envoy-recovery restart), a 5-minute
+    outage, and across the whole 4.48h sample there were ZERO inter-poll gaps greater than 60s. A
+    caller that keeps its 10s metronome through a full core outage is an add-on or an external client
+    on the supervisor network, not core and not anything core-gated. (4) OUR ADD-ON EXONERATION
+    RE-VERIFIED at source rather than inherited from the card: bridge.py:63 targets
+    /core/api/states/{entity_id}, config.yaml sets poll_interval_seconds 15, and bridge.py:332/340
+    require SUPERVISOR_TOKEN. Clean. (5) MECHANISM NAMED BY REPRODUCTION, which is the real progress
+    here: `ha core info` over ssh returns "unauthorized: missing or invalid API token" because the
+    Advanced SSH & Web Terminal add-on has Protection mode ON, which strips SUPERVISOR_TOKEN. I
+    predicted that my own call would therefore write the flood signature, then checked — at
+    02:03:43.264 "/addons" and 02:03:43.267 "/core/info" appear 3ms apart, exactly my two commands.
+    So the signature IS a token-stripped supervisor call. STATED AS HYPOTHESIS, NOT CONCLUSION: this
+    proves the mechanism that generates these lines; it does NOT prove the 10.1s poller uses that same
+    path, and I am not asserting which add-on it is. (6) ELIMINATION: across the full 5.45h window the
+    ONLY tokenless endpoint is /core/info (1939/1939). The homelab dashboard collector is therefore
+    RULED OUT — it runs `ha host/core/supervisor/backups info`, which would leave /host/info,
+    /supervisor/info and /backups lines, and there are none. (7) docker route CLOSED: docker ps from
+    the ssh add-on returns permission denied on /var/run/docker.sock.'
 
 - id: HA-CORE-RESTART-STORM-1
   title: Home Assistant restarted itself 8 times in 20 hours, three of them in the middle of the
@@ -26540,10 +26623,25 @@ cards:
   thread: platform
   status: investigating
   created: '2026-09-19 03:30'
-  updated: '2026-09-21 02:25'
-  refinement_status: initial
+  updated: '2026-09-22 02:12'
+  refinement_status: refined
   approval: unreviewed
   tags: [measure-before-build, no-fabrication-verify, falsify-first, watchdog-hazard]
+  measured_2026_09_22: 'OVERNIGHT PASS — no new evidence was obtainable, and the REASON is the
+    finding. Supervisor journal pulled via the authenticated hassio proxy (the home-assistant MCP was
+    down this run; I used the equivalent 200-OK route rather than calling it clean — this is NOT a
+    false all-clear). The journal reaches back only to 2026-09-21 20:36, a 5.45h window, because the
+    tokenless-poll flood consumes 80.8% of it. Inside that entire window there is exactly ONE core
+    lifecycle event: NOT_RUNNING 23:20:21 -> STARTING 23:25:24 (~5 min), and it is ATTRIBUTED — it is
+    the operator-authorized Core restart taken to recover the stuck Envoy entry (see
+    ENVOY-FLAKINESS-181243-1, operator-authorized 2026-09-21 23:14). So: zero unattributed restarts
+    in the only window forensics can currently see. CONSEQUENCE FOR THIS CARD PLAN: the stated next
+    step -- "mine the supervisor log at the next unmatched restart and name the initiator" -- is not
+    executable while the journal holds 5.45h, because the unattributed restarts are spaced far wider
+    than that (measured intervals 12m-367m, and the storm has been quiet since). The dependency on
+    SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1 is therefore not incidental, it is BLOCKING: fix the flood
+    first or this card cannot be advanced by observation at all. Recording that as blocked_by rather
+    than leaving it as a soft "related", and taking no build action tonight.'
   problem_solution:
   - 'Problem: the whole Home Assistant system shut down and started again 8 times between Thursday
      evening and Friday afternoon, and each cycle left the house with no automation at all for about
@@ -26592,7 +26690,8 @@ cards:
     restarts. -> I mine the supervisor log at the next unmatched restart and name the initiator.'
   links:
     parent: URA-CONFIG-ENTRY-RELOAD-STORM-1
-    related: [EVSE-CHARGE-ONSET-NOT-HELD-1, CAMERA-SILENT-PRODUCER-TRIPWIRE-1]
+    blocked_by: [SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1]
+    related: [EVSE-CHARGE-ONSET-NOT-HELD-1, CAMERA-SILENT-PRODUCER-TRIPWIRE-1, ENVOY-FLAKINESS-181243-1]
     context: 'Spawned 2026-09-19 when URA-CONFIG-ENTRY-RELOAD-STORM-1 was refuted — the entity blips
       it was tracking turned out to be these whole-house restarts (1:1 setup ledger), so the restart
       storm inherits the live symptom while the reload card closes as the record of how to tell them
@@ -26900,10 +26999,31 @@ cards:
 - id: ENVOY-FLAKINESS-181243-1
   title: "Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today"
   thread: energy
-  status: investigating
+  status: waiting_operator
   created: '2026-09-21'
-  updated: '2026-09-21'
+  updated: '2026-09-22 02:15'
+  refinement_status: refined
+  rank: {value: 6, time_criticality: 4, effort: 3}
   tags: [energy, envoy, enphase, upstream-bug, flakiness, dual-homed, incident]
+  measured_2026_09_22: 'OVERNIGHT PASS — verify-before-work on this card, and the diagnosis is now
+    VERIFIED AT SOURCE rather than inherited from the card body. Core log pulled via the authenticated
+    hassio proxy (20000 lines, 2026-09-21 23:04 -> 2026-09-22 02:05). (1) THE RESTART WORKED, THE BUG
+    DID NOT GO AWAY: the operator-authorized 23:20 Core restart cleared the stuck setup_in_progress
+    entry, but "RuntimeError: Session is closed" has fired 36 more times since 23:04. Expected — it is
+    upstream and unfixed — but it means the recovery is symptomatic, not curative, and the entry can
+    re-stick. (2) THE EXACT PATH IS CONFIRMED, not assumed: the traceback terminates at
+    pyenphase/firmware.py:81 in _get_info -> aiohttp client.py:581, reached through tenacity retry,
+    which is precisely the _async_try_refresh_firmware leg of home-assistant/core #181243. That is the
+    firmware-refresh background task the card names, so option (a) TRACK #181243 is the correct read.
+    (3) URA-SIDE BLAST RADIUS, measured: 5 "Envoy unavailable (SOC=None) — holding current state"
+    events in energy_battery (23:12, 23:17, 23:23, 23:38, 00:58). The hold-current-state fallback is
+    behaving correctly, so no URA defect here, but battery strategy is running on stale SOC during
+    those windows. Frequency is decaying post-restart (four in the first 30 min, one since) rather
+    than steady. (4) The consumption cross-check divergence continues (Envoy today=28457.75 kWh vs our
+    lifetime delta) and remains the benign corrupt-counter symptom already recorded — it is noisy, not
+    harmful. NO BUILD TAKEN: every remaining option on this card is an operator DO/PICK (track an
+    upstream release, investigate/pin the dual-homed interface, or accept the WARN volume), and none
+    is safe to act on unattended.'
   problem_solution:
   - 'Investigated 2026-09-21 (operator: reload envoy + why so flaky). THREE causes. (1) UPSTREAM HA BUG
      home-assistant/core #181243 (OPEN, no fix; affects core 2026.8.3 + 2026.9.0 = our version): enphase_envoy
