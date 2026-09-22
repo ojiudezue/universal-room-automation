@@ -9,6 +9,26 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'TEST-SUITE-ORDER-INDEP-PRODSTUBS-1@2026-09-22T02:50:00'
+    at: '2026-09-22T02:50:00'
+    outcome: built-to-review
+    headline: 'OUR TEST SUITE LOOKS CLEAN AND ISN''T, AND I BUILT THE THING THAT CATCHES IT. The suite
+      passes its collection check perfectly in the normal order — 10,787 tests, zero errors, which is
+      what we have been reporting. I shuffled the order of the test files and it broke immediately:
+      seven errors on one shuffle, two on another, one on a third, and a DIFFERENT set of files broke
+      each time. The cause is tests that install fake stand-ins for real parts of URA at import time;
+      whichever real module gets loaded afterwards then finds pieces missing. THE PART THAT WORRIES ME
+      MOST is not the errors, it is that a broken file silently takes its own tests out of the run —
+      the totals quietly fell by 50, 99 and 7 tests. So a run can lose a hundred tests and still print
+      a big green number, which means a passing suite has been trusted more than it has earned. WHAT I
+      BUILT: a small read-only checker that runs the collection across several shuffled orders,
+      reports both the errors and the missing-test drift, and fails properly so it can be used as a
+      gate. It never runs a test and never changes anything. This was the acceptance test the card
+      already said it needed, so it is finishing a plan rather than inventing one. WHAT I DID NOT DO:
+      the actual cleanup of the offending test files — that is the bigger job, and now it is
+      verifiable. I also went back and corrected an earlier "collection is clean" note of mine that,
+      left as written, would have hidden this from every future check.'
+    acknowledged: false
   - fid: 'INTEGRATION-CAMERA-DISCOVER-STALE-1@2026-09-22T02:30:00'
     at: '2026-09-22T02:30:00'
     outcome: measured
@@ -19489,6 +19509,22 @@ cards:
     on record.'
 
 - id: TEST-STRATEGY-REARCH-1
+  measured_2026_09_22: 'OVERNIGHT PASS — the POLLUTION MAP deliverable of this investigation is now
+    partly delivered, and it CORRECTS claim (1) of measured_2026_09_15 on this same card. That entry
+    recorded "COLLECTION IS NOW CLEAN: 10,588 tests, ZERO errors" from a default-order run. That
+    observation was true and is still true (re-run tonight: 10,787 / 0 errors), but as a statement
+    about the suite''s health it is MISLEADING and I am marking it so: collection is clean ONLY in the
+    default file order. Across three shuffled orders it produced 7 / 2 / 1 collection errors on
+    different files, and silently dropped 50 / 99 / 7 tests from the totals. So the suite is not
+    order-independent, and a green count is not the evidence it appears to be — which is directly the
+    "hollow at boundaries" concern this card was opened to examine. Mechanism is import-time
+    sys.modules poisoning (partial production-module stubs), fully written up on the child card
+    TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 along with a new reproducible gate,
+    quality/tools/collect_order_matrix.py. The two cheap Tier-1 children this card''s `next` said to
+    clear FIRST are both already closed (TEST-SOURCE-MUTATION-KILL-UNSAFE-1 done,
+    TEST-LEAK-DETECTOR-WRONG-LOOP-1 done/already-merged), so that precondition is met and the
+    remaining scope really is the re-arch itself. Not started — it is Tier 2-DB+ and needs an
+    operator-gated plan, not a 2am build.'
   measured_2026_09_15: 'OVERNIGHT PASS — two of this card three claims re-measured by RUNNING them,
     and both moved. (1) COLLECTION IS NOW CLEAN: 10,588 tests collected, ZERO errors (the 2 residual
     collection errors from the 2026-09-12 verify are gone — the const-stub child shipped v5.101.0 and
@@ -24795,8 +24831,35 @@ cards:
   status: planned
   verified_survivor_2026_09_13: 'KEEP — verified REAL + the survivor for the whole remaining order-pollution surface. Reverse-order reproduces its exact class: production-module partial stubs (occupancy_substrate) + remaining .signals poisoners (SIGNAL_EGRESS_EXIT_BACKFILLED) + homeassistant.helpers.storage never-popped = 10 collection errors reverse / 0 default. ABSORBED SUITE-ORDER-POLLUTION-1 (storage-never-pops instance + forensics). Fix: extend _ura_const_support into a complete-module helper for signals + prod modules; acceptance = shuffle-seed collection matrix. inbox->planned.'
   created: 2026-09-12 17:10
-  updated: '2026-09-19 03:45'
-  refinement_status: initial
+  updated: '2026-09-22 02:50'
+  refinement_status: refined
+  rank: {value: 8, time_criticality: 4, effort: 8, foundational: 6}
+  measured_2026_09_22: 'OVERNIGHT PASS — premise RE-CONFIRMED by fresh measurement, and the card now
+    has the acceptance gate it asked for. (1) THE TRAP, restated with numbers: default-order
+    `--collect-only` is CLEAN today (10787 tests via the tests dir, 0 errors; 10697 via an explicit
+    479-file list). Shuffling the file order breaks it immediately — seeds 1/2/3 gave 7 / 2 / 1
+    collection errors, with a DIFFERENT set of files failing each time. So a single default-order run
+    is not evidence of order-independence, and any report of "collection is clean" based on one is a
+    false all-clear. (2) COUNT DRIFT IS A SIGNAL TOO, and this is new: an errored file silently drops
+    its tests, so collected counts fell to 10647 / 10598 / 10690 (drift -50 / -99 / -7). A run can
+    therefore lose ~99 tests while still printing a large green number. The gate now checks drift, not
+    just error lines. (3) MECHANISM CONFIRMED AT SOURCE — exactly the import-time sys.modules
+    poisoning this card names, in two shapes: `ImportError: cannot import name
+    SIGNAL_WEATHER_PROVIDER_CHANGED from ...domain_coordinators.signals (unknown location)` (a partial
+    stub shadowing the real module) and `IndexError: list index out of range` on `_cc.__path__[0]` in
+    test_envoy_boot_decoupling.py:128 (custom_components stubbed with an empty __path__). Both are
+    collection-time, before any test body runs. (4) DELIVERED THE ACCEPTANCE GATE (the card''s own
+    stated acceptance criterion, built because it is test-infra only with zero production risk):
+    quality/tools/collect_order_matrix.py — runs --collect-only across N shuffled seeds plus the
+    default order, reports errors AND count drift per seed, exits 1 on any divergence (verified: exits
+    1 on seed 1, 0 would require a clean matrix). Read-only, never executes a test, never writes to
+    the repo, forces PYTHONDONTWRITEBYTECODE so a stale .pyc cannot mask an import failure. Lands
+    beside the existing audit_*.py tools in quality/tools/ — REUSE of that established location, no
+    new dependency (pytest-randomly is NOT installed and was deliberately not added). (5) STILL TO DO,
+    unchanged and NOT started: extend _ura_const_support into a complete-module helper for signals +
+    production modules and migrate the remaining poisoners. The gate now makes that work verifiable;
+    it does not do it. Scored this pass (was default-scored): foundational 6 — a green suite is
+    currently over-trusted, so every test-dependent card stands on this.'
   approval: unreviewed
   sibling_of:
   - BLE-HOLD-CAP-SUITE-POLLUTION-1
@@ -24858,6 +24921,21 @@ cards:
   thread: quality
   status: shipped_organic
   shipped_version: v5.101.0
+  measured_2026_09_22: 'OVERNIGHT PASS — CORRECTING A FALSE ALL-CLEAR ON THIS CARD, which is exactly
+    the failure mode the verify-before-work rule was coined on (and this card was the coining case).
+    What shipped here IS real and still holds: default-order collection is clean, re-verified tonight
+    at 10787 tests / 0 errors. What must NOT be read from that: order-independence. Shuffling the test
+    file order produces 7 / 2 / 1 collection errors across seeds 1/2/3, with different files failing
+    each time and 50-99 tests silently dropped from the count. So the "collection now clean"
+    framing, if carried forward unqualified, again removes a live defect from every later check.
+    SCOPE RULING UNCHANGED AND CORRECT: the residual is NOT this card''s regression — it is the
+    pre-existing broader class already carded as TEST-SUITE-ORDER-INDEP-PRODSTUBS-1, exactly as this
+    card''s own build note predicted ("reverse-order 10 errors = PRE-EXISTING unrelated, out of
+    scope"; ".domain_coordinators.signals also partial-stubbed by ~20 files — defended victim-side
+    only, NOT unified, flagged as latent repeat"). Tonight''s seed-2 failure is that flagged latent
+    repeat firing: SIGNAL_WEATHER_PROVIDER_CHANGED missing from a shadowed signals module. This card
+    stays shipped_organic with its own deliverable intact; the residual stays on the sibling card,
+    which now carries a reproducible acceptance gate (quality/tools/collect_order_matrix.py).'
   reviews_done_2026_09_12: 'TIER-2 3-review done: C=SHIP (no masking/regression — +185/-0 additive, full-suite name-diff identical, victim RED-for-right-reason, helper load-bearing). A+B=FIX-REQUIRED(small), all applied @c0d6e6661: FIX-1 A1-HIGH (marker __dict__.get bypasses __getattr__ catch-all), FIX-2 (envoy calls hoisted unconditional), FIX-3 B-HIGH (2 setdefault const poisoners + ensure_ura_const), FIX-4 (ensure_ura_signals in 5 touched files). ORCHESTRATOR VERIFIED: default collection 10397/0-err, FIX-3 repro pair 32/0-err, FIX-1 __getattr__ repro returns real signal value, victims 43 pass. MERGE-READY. Larger order-indep class carded TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 (not ship-blocking). -> merges to develop in the bundled deploy on operator go.'
   built_2026_09_12: 'BUILT @ e311c428a (feature/test-const-stub-unify, worktree). ensure_ura_const()/ensure_ura_signals() helper exec-s the REAL const into any resident partial module IN PLACE (additive, idempotent). 6 poisoners + 2 victims migrated (7th poisoner defensive/safe). Collection DEFAULT order: 10397 collected, 0 errors (was: abort/2 errors); victims 43 pass; poisoner-first order clean; mutation drill = helper load-bearing. Reverse-order 10 errors = PRE-EXISTING unrelated (substrate/egress), out of scope. NOTE: .domain_coordinators.signals also partial-stubbed by ~20 files — defended victim-side only, NOT unified (flagged to Review B as latent repeat). 3 framing-disjoint reviews DISPATCHED (A helper+migration-completeness, B order-independence+signals-latent, C test-authority/no-masking). -> merges to develop after reviews, rides bundled deploy.'
   decision_B_2026_09_12: 'OPERATOR PICK = B (root-cause). Full 40-file unification, Tier-2 test-only (regression-prone shared test-infra -> framing-disjoint reviews). Built in isolated worktree off develop; merges to develop only after reviews pass, then rides the bundled deploy. Design: ONE shared helper that exec-s the REAL const source (complete module) + applies per-file overrides, registered + restored safely; migrate all 40 preserving each file intent (some may stub DIFFERENT values, not just subsets). Acceptance: collection succeeds on default AND shuffled orderings; full suite runs end-to-end; the 2 victim tests pass.'
