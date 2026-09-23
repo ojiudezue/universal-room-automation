@@ -9,6 +9,26 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'COVERAGE-EVENING-ATTRIBUTION-DRIFT-1@2026-09-23T03:30:00'
+    at: '2026-09-23T03:30:00'
+    outcome: escalated
+    headline: 'SOLVED IT IN ONE SITTING, AND IT NEEDS YOUR CALL: URA HAS BEEN USING THE WRONG
+      WHOLE-HOUSE ENERGY NUMBER. Following the evening-drift finding from earlier tonight, I traced
+      which side of the comparison was wrong. It is the whole-house side. URA is reading the Envoy
+      NET consumption sensor — grid import after solar — as if it were total house consumption. It
+      is not: 12.93 MWh lifetime versus 28.64 MWh actual. The 15.71 MWh difference is exactly the
+      solar you self-consume, and the arithmetic closes to five decimal places (production 18.30
+      minus export 2.58 equals the same 15.71), so this is established, not a theory. That is why
+      the audit goes impossible every afternoon: from about 2pm the rooms keep consuming while the
+      net figure flattens under solar. A telling detail — the matching POWER setting is already
+      pointed at the TOTAL sensor, so the two halves of the same config disagree about what they
+      mean. I did NOT change anything, because the same setting feeds two things that want opposite
+      answers: the coverage audit needs TOTAL consumption, but the whole-house COST sensor wants NET
+      (you only pay for imported power), so a straight swap would inflate your reported cost by
+      about 55%. Three options are on the card; I recommend splitting it into two settings in code,
+      which I can build to review unattended once you pick. Left you a notification in Home
+      Assistant rather than a phone buzz, since nothing here is urgent and the house is asleep.'
+    acknowledged: false
   - fid: 'COVERAGE-RATING-FALSE-ANOMALOUS-1@2026-09-23T03:05:00'
     at: '2026-09-23T03:05:00'
     outcome: built-to-review
@@ -27008,13 +27028,51 @@ cards:
     before believing it.'
 
 - id: COVERAGE-EVENING-ATTRIBUTION-DRIFT-1
+  measured_2026_09_23_mechanism_confirmed: 'SECOND MEASUREMENT, SAME NIGHT — MECHANISM CONFIRMED,
+    and it is a configuration mis-pick, not a code defect. I ran the card''s own next step (read-only,
+    recorder) and then closed it with an identity check, so this is established rather than inferred.
+    (1) WHICH SIDE MOVES: pulled the coverage sensor''s own published tier attributes across the
+    2026-09-21 episode. 07:00 -> 18:00 local, whole_house went 56.51 -> 68.96 kWh (+12.45) while the
+    attributed side went 32.62 -> 91.32 kWh (+58.70). Attribution climbed roughly 4.7x faster, and
+    whole_house nearly stalled after 13:30 (65.33 -> 68.96 over the next 4.5 hours). So it is the
+    WHOLE-HOUSE side that stops tracking, not the rooms over-counting. Crossover is at 13:30, which
+    is the solar-surplus hour. (2) THE CAUSE, read from the live config entry
+    (/config/.storage/core.config_entries) and NOT guessed: whole_house_energy_sensors is
+    [sensor.envoy_482543015950_lifetime_net_energy_consumption]. That is Envoy NET consumption —
+    grid import net of solar — not total house consumption. (3) THE IDENTITY CLOSES EXACTLY, which
+    is what makes this conclusive rather than plausible. Live values: lifetime_energy_consumption
+    28.641529 MWh (total), lifetime_net_energy_consumption 12.928345 MWh (what URA reads),
+    lifetime_energy_production 18.297794 MWh, lifetime_net_energy_production 2.584619 MWh (export).
+    Total minus net = 15.713184; production minus export = 15.713175. Those agree to five decimal
+    places, so the gap URA sees IS precisely the self-consumed solar — currently about 55% of the
+    house''s real consumption. Every afternoon that solar share grows, the net figure flattens, and
+    the parts exceed the whole. It resets overnight because there is no solar at night. (4)
+    SUPPORTING EVIDENCE THAT THIS IS A MIS-PICK, not a deliberate choice: the PAIRED power config,
+    whole_house_power_sensors, is already set to the TOTAL sensor
+    (envoy_..._current_power_consumption, 8.451 kW live) rather than the net one
+    (current_net_power_consumption, 8.495 kW). The energy and power fields disagree about which
+    quantity they mean.'
+  escalation_2026_09_23: 'WHY I DID NOT SIMPLY SWAP THE SENSOR — a genuine concept split that needs
+    an operator call. Counted the consumers of CONF_WHOLE_HOUSE_ENERGY_SENSORS
+    (aggregation.py:2956, :3048, :3062, :3480): THREE sensors read it, and two of them want opposite
+    quantities. EnergyCoverageDeltaSensor needs TOTAL consumption, because unattributed =
+    whole_house - attributed is only meaningful if whole_house is everything the house used.
+    WholeHouseCostTodaySensor multiplies the same figure by the tariff rate
+    (aggregation.py:3055-3056) — and for COST, net grid import is arguably the CORRECT basis, since
+    you only pay for what you import. So swapping the field to lifetime_energy_consumption would fix
+    the coverage audit and simultaneously inflate the reported whole-house cost by roughly 55%.
+    WholeHouseEnergySensor is the third reader and inherits whichever is chosen. That is a config
+    decision with a real trade-off and a cost-facing consequence, so it is the operator''s, not
+    mine, and it may want a CODE change (two distinct fields, total-for-coverage and net-for-cost)
+    rather than a config swap. Paged via persistent_notification rather than a phone push — the
+    house is occupied and asleep and nothing here is urgent.'
   title: Every evening the room-by-room energy totals creep past the whole-house meter and keep
     growing until midnight, and nobody has explained why
   thread: energy
-  status: investigating
+  status: waiting_operator
   created: '2026-09-23 03:10'
-  updated: '2026-09-23 03:10'
-  refinement_status: initial
+  updated: '2026-09-23 03:30'
+  refinement_status: refined
   approval: unreviewed
   tags: [measure-before-build, no-fabrication-verify, falsify-first]
   problem_solution:
@@ -27058,13 +27116,18 @@ cards:
   parsimony: {problem: 'On at least three of the last five evenings, attributed room energy exceeded
       whole-house energy by a growing margin for 6-10 consecutive hours, which is physically
       impossible and therefore means one of the two inputs is wrong.', verdict: BUILD}
-  next: 'MEASURE (autonomous, read-only, no operator input needed): over one full drift episode, pull
-    the whole-house energy sensor and each contributing room/zone/house-device sensor from the
-    recorder at the same timestamps, and find which side''s slope changes at onset. Then cross-check
-    the whole-house figure against the Envoy/utility reading for the same window — external ground
-    truth, per the card constraint. Only after that decide whether the fix is in attribution or in
-    the whole-house source.'
-  rank: {value: 6, time_criticality: 3, effort: 3}
+  next: 'PICK one — the measurement is finished and the cause is established, so nothing is left for
+    me to measure here. URA''s whole-house ENERGY figure is set to the Envoy NET sensor (grid import
+    after solar), while its whole-house POWER figure is already set to the TOTAL sensor. The net
+    figure is what makes the coverage audit go impossible every afternoon. (A) SPLIT THE FIELD IN
+    CODE — coverage reads a new total-consumption setting, cost keeps reading net. Correct for both
+    readers, Tier 2, and my recommendation; I can build it to review unattended once you say go.
+    (B) JUST SWAP THE CONFIG to lifetime_energy_consumption — one options-flow edit, fixes the
+    coverage audit tonight, but inflates your reported whole-house cost by about 55% because you
+    would then be charged for self-consumed solar. (C) LEAVE IT and instead teach the coverage audit
+    that its whole-house input is net, by subtracting self-consumed solar before comparing. Tell me
+    A, B or C.'
+  rank: {value: 7, time_criticality: 4, effort: 3}
   links:
     related: [COVERAGE-RATING-FALSE-ANOMALOUS-1]
     context: 'Same sensor and same measurement run, but the opposite verdict: COVERAGE-RATING-FALSE-
