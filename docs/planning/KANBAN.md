@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-22T02:16:53-05:00_ - _Data commit: `2ed75b73801a`_ - _last_reconciled: 2026-09-22_
+_Generated: 2026-09-22T02:17:07-05:00_ - _Data commit: `7e497b3373f5`_ - _last_reconciled: 2026-09-22_
 
 
 ## Columns
@@ -31,14 +31,15 @@ _measuring; truth not yet known_
 
 ### `HA-CORE-RESTART-STORM-1` - Home Assistant restarted itself 8 times in 20 hours, three of them in the middle of the night, each costing about 6 minutes with the whole house offline — _#1 · WSJF 4.0 · v8 tc2 u2 /e3_
 thread: **platform** - status: **investigating** - approval: **unreviewed**
-_created 2026-09-19 03:30 · updated 2026-09-22 02:12 · refined_
+_created 2026-09-19 03:30 · updated 2026-09-23 02:12 · refined_
 - **Problem / Solution:**
   - Problem: the whole Home Assistant system shut down and started again 8 times between Thursday evening and Friday afternoon, and each cycle left the house with no automation at all for about six minutes. Some of those look like your own d...
 - **Why:** Six minutes of total automation downtime per event is the documented watchdog-outage blast radius, and it is the same transient that broke EV charge-onset once already (a RestoreEntity off-flicker read as feature-disabled). It also silen...
 - **Next:** DRIVE IT — this is mine now, not yours, and both halves of the old ask are withdrawn. The log-reach blocker cleared (see OVERNIGHT-PASS-NO-LOG-REACH-1), so I can read core/supervisor/host logs unattended and no longer need you to add a l...
 - **Tags:** measure-before-build, no-fabrication-verify, falsify-first, watchdog-hazard
 - **Refs:** recorder events homeassistant_stop/start (event_type_id 17/9/10) — the authoritative restart ledger; sensor.ura_coordinator_manager_ura_setup_duration unknown->value pairs — the reload-vs-restart discriminator; feedback_parent_entry_reload_watchdog_hazard
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `measured_2026_09_23`: OVERNIGHT PASS — the storm has GONE QUIET, measured not assumed, and that materially changes this card's urgency without resolving it. Pulled the full `homeassistant_start` event series from the live recorder (ssh ha sqlite3 -readonly /c...
   - `measured_2026_09_22`: OVERNIGHT PASS — no new evidence was obtainable, and the REASON is the finding. Supervisor journal pulled via the authenticated hassio proxy (the home-assistant MCP was down this run; I used the equivalent 200-OK route rather than callin...
   - `measured_2026_09_19`: Recorder events table (homeassistant_stop/start/started), UTC: 09-18 restarts at 01:17, 01:29, 03:16, 05:40, 07:09, 09:02, 15:09, 21:07 — stop->start gap ~6 min each. Local (CDT) that is 09-17 20:17 + 20:29 + 22:16, then 09-18 00:40, 02:...
   - `remaining_suspects`: An add-on or the supervisor core watchdog (both would restart cleanly and both log it in the supervisor journal, which needs durable capture to catch), HACS/update flows, or a deploy/tooling path firing more than once. A secondary oddity...
@@ -523,7 +524,7 @@ _created 2026-08-21 18:00 · updated 2026-09-19 03:50 · initial_
 
 ### `SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1` - A tokenless poller hits the supervisor every 10s and floods its log, destroying our restart forensics — _#2 · WSJF 7.5 · v6 tc5 u4 /e2_
 thread: **platform** - status: **waiting_operator** - approval: **implied**
-_created 2026-09-21 02:35 · updated 2026-09-22 02:10 · refined_
+_created 2026-09-21 02:35 · updated 2026-09-23 02:10 · refined_
 - **Problem / Solution:**
   - Problem: something on the system asks Home Assistant's supervisor for status every ten seconds without supplying a password, and the supervisor writes a warning line every single time it is refused. Those refusals now make up about 85% o...
 - **Origin:** 2026-09-21 - seen while mining the supervisor log for the restart-storm card; prior pass flagged it as "worth its own look if it persists" and it has persisted
@@ -532,9 +533,10 @@ _created 2026-09-21 02:35 · updated 2026-09-22 02:10 · refined_
 - **Tags:** tier-1, measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] A tokenless caller polls /core/info every 10.1s, consuming 85% of the supervisor log and capping its retention at ~5h, which is less than the interval between the restarts we are trying to attribute.
 - **Refs:** supervisor log pull 2026-09-21 02:06 via /api/hassio/supervisor/logs?lines=20000
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `measured_2026_09_21`: Measured unattended via GET /api/hassio/supervisor/logs?lines=20000. The pull returned 2079 lines spanning only 2026-09-20 21:21 to 2026-09-21 02:06 — under 5 hours. Level mix: 1777 WARNING, 276 INFO, 6 ERROR, and 1777 of the 2079 lines ...
   - `narrowed_2026_09_21`: ROUTE (b) WORKED and the suspect list is now enumerated, though the culprit is not yet named. Over ssh, /addon_configs + /addons list eleven installed add-ons: three zigbee2mqtt instances (1ff69cfe, 45df7312, 9336c2b0), evcc (49686a9f), ...
+  - `measured_2026_09_23`: OVERNIGHT PASS — STILL-REAL, verified, and the operator DO has NOT been done yet. LOG-READ ROUTE (stated explicitly, no false all-clear): the home-assistant MCP again never finished connecting this run, so ha_get_logs was unavailable; I ...
   - `measured_2026_09_22`: OVERNIGHT PASS. STILL-REAL, and three new hard facts. LOG-READ ROUTE: the home-assistant MCP never finished connecting this run, so ha_get_logs was unavailable; I did NOT treat that as an all-clear — I used the equivalent authenticated r...
 
 ### `HUMIDITY-LOW-RUNG-PAGING-KNOB-1` - Make the LOW-severity humidity-band NM page null/configurable (un-knobbed rung) — _#3 · WSJF 7.0 · v3 tc2 u2 /e1_

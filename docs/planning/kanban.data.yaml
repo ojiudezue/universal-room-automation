@@ -26661,7 +26661,7 @@ cards:
   thread: platform
   status: waiting_operator
   created: '2026-09-21 02:35'
-  updated: '2026-09-22 02:10'
+  updated: '2026-09-23 02:10'
   refinement_status: refined
   approval: implied
   tags: [tier-1, measure-before-build, no-fabrication-verify]
@@ -26731,6 +26731,32 @@ cards:
     (bridge.py:332,340), so it would not be generating tokenless requests. Remaining suspects are the
     ten third-party add-ons; evcc is the most plausible on behaviour (it polls HA core state
     continuously) but I have NOT verified that and am not asserting it.'
+  measured_2026_09_23: 'OVERNIGHT PASS — STILL-REAL, verified, and the operator DO has NOT been done
+    yet. LOG-READ ROUTE (stated explicitly, no false all-clear): the home-assistant MCP again never
+    finished connecting this run, so ha_get_logs was unavailable; I used the equivalent authenticated
+    route GET /api/hassio/supervisor/logs + /api/hassio/core/logs with the long-lived token, both 200
+    OK. (1) FLOOD PERSISTS AND IS MARGINALLY WORSE: 2074 of 2534 journal lines = 81.8% are the
+    identical "No API token provided for /core/info" warning (was 80.8% on 09-22, 85% on 09-21).
+    (2) RETENTION CEILING RE-MEASURED at 5.83h — the journal spans 2026-09-22 20:11:20 to 2026-09-23
+    02:01:13 for a lines=20000 request. Essentially unchanged from the 5.45h measured on 09-22, so the
+    forensic blackout is stable, not drifting. (3) PROTECTION MODE IS STILL ON — probed directly by
+    running `ha core info` over ssh, which returned "Error: unauthorized: missing or invalid API
+    token". That is the same 401 signature as the flood, so the recommended single-toggle fix is still
+    available and still untaken; the card correctly remains waiting_operator. (4) ATTRIBUTION IS
+    STRUCTURALLY UNAVAILABLE FROM WHERE I CAN STAND, and I am recording that as a finding rather than
+    guessing: the supervisor warning line carries NO requester IP or caller identity (verified by
+    reading the raw line format), the hassio proxy exposes only the /logs paths (both
+    /api/hassio/supervisor/info and /api/hassio/addons return empty through it), and a filesystem +
+    process sweep over ssh sees only the SSH add-on container''s own namespace, so another add-on
+    doing the polling is invisible from there. A grep of /config, /root and /usr/bin for core/info,
+    `ha core info` and hassio/core found zero hits, and no cron entry, which extends the prior
+    elimination (our tooling is not the caller) to the HA box itself. NO ACTION TAKEN: the one cheap
+    discriminator left is stopping a candidate add-on to see if the flood stops, which restarts a live
+    service in an occupied house — hostile timing, operator call. UNVERIFIED LEAD, flagged as a
+    hypothesis and NOT a conclusion: the add-on inventory visible in the journal includes a "Home
+    Assistant Time Machine" add-on; a status-polling add-on is the shape of caller that fits a
+    metronomic 10s /core/info poll, but I have no evidence tying it to these requests and it should
+    not be acted on as if I did.'
   measured_2026_09_22: 'OVERNIGHT PASS. STILL-REAL, and three new hard facts. LOG-READ ROUTE: the
     home-assistant MCP never finished connecting this run, so ha_get_logs was unavailable; I did NOT
     treat that as an all-clear — I used the equivalent authenticated route the MCP wraps,
@@ -26766,10 +26792,31 @@ cards:
   thread: platform
   status: investigating
   created: '2026-09-19 03:30'
-  updated: '2026-09-22 02:12'
+  updated: '2026-09-23 02:12'
   refinement_status: refined
   approval: unreviewed
   tags: [measure-before-build, no-fabrication-verify, falsify-first, watchdog-hazard]
+  measured_2026_09_23: 'OVERNIGHT PASS — the storm has GONE QUIET, measured not assumed, and that
+    materially changes this card''s urgency without resolving it. Pulled the full
+    `homeassistant_start` event series from the live recorder
+    (ssh ha sqlite3 -readonly /config/home-assistant_v2.db, events JOIN event_types) for the last 10
+    days: 2026-09-15 x3, 09-16 x5, 09-17 x3, 09-18 x6 — then 09-19 ZERO, 09-20 ONE (09:37:54), 09-21
+    ONE (23:25:23, the operator-authorized Envoy-recovery restart already attributed on
+    ENVOY-FLAKINESS-181243-1), 09-22 ZERO and 09-23 ZERO so far. So there have been NO unattributed
+    restarts in over 50 hours, and only one unattributed restart (09-20 09:37) in the last five days,
+    against a burst of 17 in the four days 09-15..09-18. CORRECTION TO THIS CARD''S FRAMING: the title
+    and premise describe an active storm; as of tonight it is DORMANT, and I am marking the "8 restarts
+    in 20 hours, ongoing" reading as no longer current rather than leaving it to be re-read as live.
+    The defect is not refuted — the initiator of the 09-15..09-18 and 09-20 restarts is still unknown —
+    but the cost of delay has dropped, and I have confirmed rank.time_criticality is already at 2 (lowered in an earlier pass), so no re-score is needed — it is correctly priced as a cold case.
+    BLOCKED_BY RE-CONFIRMED: the supervisor journal still reaches back only 5.83h (re-measured tonight,
+    81.8% consumed by the tokenless-poll flood), and the surviving window contains ZERO core lifecycle
+    events, so there is again nothing to attribute. The blocking relationship on
+    SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1 is doubly binding now: the flood keeps the window too short,
+    AND the storm is quiet, so even a fixed window would have to wait for the next event. LOG-READ
+    ROUTE: ha_get_logs unavailable (home-assistant MCP did not connect); used the authenticated
+    /api/hassio/{core,supervisor}/logs route, both 200 OK — this is NOT a log-read all-clear by
+    omission. NO BUILD ACTION TAKEN.'
   measured_2026_09_22: 'OVERNIGHT PASS — no new evidence was obtainable, and the REASON is the
     finding. Supervisor journal pulled via the authenticated hassio proxy (the home-assistant MCP was
     down this run; I used the equivalent 200-OK route rather than calling it clean — this is NOT a
