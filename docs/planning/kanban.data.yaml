@@ -9,6 +9,24 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'PROPERTY-GETTER-SIDE-EFFECT-TASKS-1@2026-09-23T03:50:00'
+    at: '2026-09-23T03:50:00'
+    outcome: escalated
+    headline: 'TRACED THE SAFETY-ALERT SIDE EFFECT — IT IS CHURN, NOT A MISFIRE, AND THAT IS GOOD
+      NEWS. The card said the worst of the three offenders was a sensor that fires safety-alert
+      ACTIONS every time something reads it. I followed the code all the way through and it does not
+      actually fire anything: the work it schedules hits a guard and returns straight away, because
+      the Safety Coordinator took over alert response back in v3.6.0.3 and this house does run the
+      coordinator manager (confirmed against the live config, 43 rooms plus one coordinator-manager
+      entry). So no stray notifications and no stray light flashes have been happening — it is
+      wasted background tasks on a safety-adjacent path. I have corrected the card, which was
+      teaching a scarier story than the code supports. NOT FIXED TONIGHT ON PURPOSE: the obvious fix
+      is deleting the call, and that is a judgement that some alerting code is dead, on the one kind
+      of path where being wrong is expensive — dead code that is a FALLBACK is exactly what you do
+      not delete unattended. Three options on the card; I recommend deleting it, but it is your
+      call. INCIDENTAL, and you may want to know: both garages are currently flagged too hot (Garage
+      A 92.8F, Garage B 90.7F) against a hardcoded 85F threshold in that same legacy helper.'
+    acknowledged: false
   - fid: 'COVERAGE-EVENING-ATTRIBUTION-DRIFT-1@2026-09-23T03:30:00'
     at: '2026-09-23T03:30:00'
     outcome: escalated
@@ -25506,13 +25524,52 @@ cards:
      (then optionally launchctl start com.phalanxmadrone.ura-overnight-pass to test-fire). -> I verify via launchctl list + the log.'
   refs: [homelab-automation/scripts/overnight/ura_overnight_pass.sh, homelab-automation/launchd/com.phalanxmadrone.ura-overnight-pass.plist]
 - id: PROPERTY-GETTER-SIDE-EFFECT-TASKS-1
+  measured_2026_09_23: 'OVERNIGHT PASS — TRACED SITE (1) AS THE CARD ASKED, and the trace
+    MATERIALLY RE-FRAMES THIS CARD. VERDICT: STILL-REAL + CARD-WAS-WRONG about severity. Site (1) is
+    real and live, but it is NOT an actuating call in this deployment, and the card calls it "the one
+    that ACTUATES and should be treated as the priority". Correcting that here so a future session
+    does not inherit it. WHAT THE TRACE FOUND, read from source not inferred:
+    SafetyAlertBinarySensor.is_on (aggregation.py:1318-1324) calls
+    hass.async_create_task(self._process_alerts(alerts)) whenever any alert is present. But
+    _process_alerts returns IMMEDIATELY at aggregation.py:1385-1386 on the guard "if
+    self.hass.data.get(DOMAIN, {}).get(coordinator_manager) is not None: return", whose own comment
+    (v3.6.0.3) says the Safety Coordinator owns alert response and the legacy light-flashing path is
+    skipped. GROUND TRUTH THAT THE GUARD IS TAKEN ON THIS HOUSE: read /config/.storage/
+    core.config_entries on the live box — 43 room entries, 1 zone_manager, 1 integration and exactly
+    1 COORDINATOR_MANAGER entry; __init__.py:4157 assigns hass.data[DOMAIN][coordinator_manager]
+    during setup. So the scheduled coroutine reaches the guard and does nothing: no notification, no
+    light flash, no service call. CONSEQUENCE FOR THE FIX: blast radius is task churn plus an
+    untracked background task, NOT a misfiring alert action. The card''s own acceptance criterion —
+    "how many times the alert action fires per alert event, measured" — is measuring a number that is
+    currently ZERO by construction, and needs restating before any build. AND IT IS FIRING RIGHT NOW:
+    the live sensor reads binary_sensor.universal_room_automation_safety_alert = on with alert_count
+    2 (Garage A 92.84F too_hot, Garage B 90.68F too_hot), so every read of is_on while that condition
+    persists spawns another no-op task. Ongoing live condition, not hypothetical.'
+  adjacent_finding_2026_09_23: 'NOTED, NOT CARDED (adjacency sweep says fold in, not split). The
+    same legacy helper _get_alerts (aggregation.py:1340-1360+) carries hardcoded literals for its
+    alert bands — temp > 85 too_hot, temp < 55 too_cold, humidity > 70 — which is a
+    Numbers-Get-Knobs violation on its face. It is deliberately NOT being carded separately for two
+    reasons: (a) it lives inside the same dead-under-coordinator-manager legacy path this card is
+    about, so whichever option the operator picks on `next` decides its fate too; and (b) the bands
+    only reach the binary sensor''s displayed attributes now, since the actuation is guarded off, so
+    they are display thresholds rather than behavioural ones. If the operator picks option B (keep
+    the fallback), these literals become live behaviour again and MUST get named constants as part
+    of that build. Recording the dependency rather than a duplicate card. Distinct from
+    HUMIDITY-LOW-RUNG-PAGING-KNOB-1, which is about the un-knobbed LOW humidity paging rungs in
+    safety.py:2080-2085 / :2205-2217 — different file, different (live) path.'
+  escalation_2026_09_23: 'NOT BUILT UNATTENDED — this is the SAFETY alert path, and CLAUDE.md puts
+    safety-impacting logic in the always-explicit set regardless of tier. The trace makes the fix look
+    easy, and that is precisely the trap: the cheap version is to delete the async_create_task line,
+    which is defensible ONLY because the coroutine is dead under the coordinator manager. That is a
+    dead-code judgement on an alerting path, and dead-does-not-mean-delete applies most strongly when
+    the dead thing is a fallback that fires when its replacement is absent. Options on `next`.'
   title: Three entity property getters start background work every time something reads them — including
     one that fires safety-alert actions
   thread: platform
   rank: {value: 7, time_criticality: 4, effort: 5}
-  status: planned
+  status: waiting_operator
   created: '2026-09-20 03:30'
-  updated: '2026-09-20 03:30'
+  updated: '2026-09-23 03:50'
   refinement_status: initial
   approval: implied
   tags: [tier-2, thread-safety, no-fabrication-verify, ha-2026-escalation]
@@ -25564,12 +25621,19 @@ cards:
     problem: Three property getters start background work per read; one of them actuates safety alerts,
       so the action fires once per observer rather than once per event.
     verdict: BUILD
-  next: 'Trace site (1) first: read _process_alerts and find what ALREADY reacts to safety-alert changes
-    (the safety coordinator almost certainly has a dispatch or a tick that should own this), then move the
-    call there and leave is_on a pure getter. Decide (2)/(3) separately on a cheaper argument — they are
-    observational, not actuating. Tier 2, two framing-disjoint reviews (A correctness+trigger-frequency,
-    B async/lifecycle/thread). Acceptance must state how many times the alert action fires per alert
-    event, measured, not just that the getter no longer creates a task.'
+  next: 'PICK one — the trace you asked for is done and it changed the picture. The safety-alert
+    sensor spawns a background task every time it is read while an alert is active (it is active
+    right now — both garages are over 90F), and that task hits a guard and does nothing, because the
+    Safety Coordinator took over alert response back in v3.6.0.3. So it is pure churn on a safety
+    path, not a misfiring alert. (A) DELETE THE CALL — make the getter pure and drop the legacy
+    flash path, which has been unreachable on this house since the coordinator manager shipped;
+    simplest, and my recommendation, but it removes a fallback that would fire if the coordinator
+    manager were ever absent. (B) KEEP THE FALLBACK, MOVE THE TRIGGER — leave the legacy path intact
+    but drive it from the Safety Coordinator tick instead of from a property read, so nothing is
+    lost and the getter stops creating tasks. More work, no capability removed. (C) LEAVE SITE (1)
+    and only fix the two observational sites (sensor.py:1817, :16393), which are already marked
+    untracked-ok. Because this is the safety path I am not choosing for you. Whichever you pick, I
+    can build it to review unattended.'
   links:
     related: [EC-SUBSWITCH-ASYNC-WRITE-THREAD-1, AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1]
     context: 'EC-SUBSWITCH-ASYNC-WRITE-THREAD-1 (done, v5.97.x) is the same THREAD-SAFETY class at a
