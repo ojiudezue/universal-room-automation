@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: 2026-09-22
+  last_reconciled: 2026-09-23
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -9,6 +9,72 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'COVERAGE-RATING-FALSE-ANOMALOUS-1@2026-09-23T03:05:00'
+    at: '2026-09-23T03:05:00'
+    outcome: built-to-review
+    headline: 'THE ENERGY SELF-CHECK WAS CRYING WOLF AT MIDNIGHT — FIXED AND WAITING FOR A DEPLOY,
+      BUT THE MEASUREMENT FOUND A SECOND, POSSIBLY REAL PROBLEM UNDERNEATH IT. URA audits its own
+      energy bookkeeping by comparing room-by-room totals against the whole-house meter, and it had
+      been reporting a specific diagnosis ("the measurement units are mismatched") that it had not
+      actually established. I pulled ten days of history and the alarms split into two completely
+      different things. The first is a genuine false alarm: a brief, enormous spike in the first
+      hour after midnight, caused by the two sides of the comparison resetting at different moments.
+      I have fixed that — the allowance now stretches across the midnight boundary, sized at two
+      hours from the data (the spikes always end by 1:20am, and the other pattern never starts
+      before 2pm, so two hours separates them cleanly), and the alarm text no longer asserts a cause
+      it cannot prove. The second is NOT fixed and I deliberately left it shouting: on three of the
+      last five evenings the room totals crept past the whole-house meter and kept growing for six
+      to ten hours straight, which is physically impossible. That is now its own card
+      (COVERAGE-EVENING-ATTRIBUTION-DRIFT-1) with a read-only measurement as its next step. While
+      testing this I also found that the test file guarding this code had been silently skipping
+      ITSELF in every environment since it was written — it failed to import the code it tests, and
+      quietly reported a clean run instead of an error, so none of its twenty-odd checks had ever
+      actually executed. Fixed: it now runs 31 tests. The code change is committed on develop and
+      NOT deployed — deploying restarts Home Assistant, which I will not do overnight in an occupied
+      house. It needs your go.'
+    acknowledged: false
+  - fid: 'COVERAGE-EVENING-ATTRIBUTION-DRIFT-1@2026-09-23T03:10:00'
+    at: '2026-09-23T03:10:00'
+    outcome: measured
+    headline: 'NEW: ROOM ENERGY TOTALS EXCEED THE WHOLE-HOUSE METER EVERY EVENING, AND NOBODY HAS
+      EXPLAINED IT. Found while measuring something else. On 21 September the room-by-room total ran
+      10% over the whole-house figure at 2pm and drifted steadily to 59% over by 11pm — ten
+      consecutive hours — then reset overnight. Same shape on the 19th and the 22nd. Attributing
+      more energy than the house used is impossible, so one of those two numbers is wrong, and until
+      we know which, the evening coverage figure on the dashboard is not trustworthy. No action
+      taken and nothing guessed at: the next step is a read-only comparison of the whole-house
+      sensor against the individual room sensors across one full episode, plus a cross-check against
+      the utility-side reading, to find which side changes slope at 2pm. I can run that unattended.'
+    acknowledged: false
+  - fid: 'HA-CORE-RESTART-STORM-1@2026-09-23T02:12:00'
+    at: '2026-09-23T02:12:00'
+    outcome: measured
+    headline: 'THE RESTART STORM HAS STOPPED — 50 HOURS QUIET, AND THAT CHANGES WHAT THIS CARD IS. I
+      pulled every Home Assistant start event from the recorder for the last ten days. The burst was
+      real and concentrated: 17 restarts across 15-18 September, several of them in the middle of
+      the night. Since then it has gone quiet — ONE unexplained restart on the 20th, one on the 21st
+      which was your own authorized restart to recover the Envoy, and nothing at all on the 22nd or
+      so far tonight. So the house has not been dropping offline for over two days. The cause of the
+      original burst is still unidentified and I could not advance that tonight, for the reason the
+      card already names: the only log that records who asked for a restart still holds under six
+      hours of history because the tokenless poller floods it. I have marked the card as a cold case
+      rather than an active emergency, and left it blocked on that flood.'
+    acknowledged: false
+  - fid: 'SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1@2026-09-23T02:10:00'
+    at: '2026-09-23T02:10:00'
+    outcome: measured
+    headline: 'STILL WAITING ON YOU FOR A ONE-TOGGLE FIX — re-verified tonight, still real, and I
+      confirmed the toggle has not been flipped yet. The flood is now 82% of the supervisor log and
+      the log still only reaches back 5.8 hours, so restart forensics remain blind. I probed the
+      suspected cause directly and it holds: Protection mode on the Advanced SSH add-on strips the
+      credential, which is exactly why these requests are refused and logged. The ask is unchanged
+      and small: Settings -> Add-ons -> Advanced SSH & Web Terminal -> turn Protection mode OFF. I
+      also tried to name the caller without your involvement and could not, which is itself the
+      finding: the log line records no requester, the API path that would list add-ons is not
+      reachable with the token I have, and a sweep of the box only sees inside one container. The
+      one remaining test would mean stopping a live add-on to see if the noise stops, which I am not
+      doing overnight in an occupied house.'
+    acknowledged: false
   - fid: 'TEST-SUITE-ORDER-INDEP-PRODSTUBS-1@2026-09-22T02:50:00'
     at: '2026-09-22T02:50:00'
     outcome: built-to-review
@@ -19509,6 +19575,21 @@ cards:
     on record.'
 
 - id: TEST-STRATEGY-REARCH-1
+  instance_2026_09_23_hollow_module_skip: 'INSTANCE (not a new card) — a concrete case of this
+    card''s "hollow at boundaries" premise, found and fixed tonight while building
+    COVERAGE-RATING-FALSE-ANOMALOUS-1. quality/tests/test_coverage_rating_bounds.py loaded
+    aggregation.py through importlib.spec_from_file_location under a standalone module name, which
+    gives the module no parent package, so aggregation.py''s `from .const import (...)` raised
+    ImportError: attempted relative import with no known parent package — every time, in every
+    environment, not just where HA is missing. The loader caught that and returned None, and a
+    module-level pytest.skip(allow_module_level=True) then skipped the WHOLE FILE. Net effect: the
+    D3 sign/range-guard tests AND the B-H4 post-restart-window test had never executed anywhere,
+    while reading as present and reporting a clean run. Fixed by importing it as a real package
+    member (repo root added to sys.path); the file went from 1 skip to 31 passing. SCOPE OF THE
+    CLASS, measured rather than assumed: grepped the whole suite for allow_module_level=True and it
+    appears in exactly ONE file — this one. So this is a singleton, not a family, and it does NOT
+    justify a card of its own. Recorded here because it is direct evidence for this card''s premise:
+    a green suite count is not evidence that the tests behind it ran. Fixed in commit c5ea7dfc7.'
   measured_2026_09_22: 'OVERNIGHT PASS — the POLLUTION MAP deliverable of this investigation is now
     partly delivered, and it CORRECTS claim (1) of measured_2026_09_15 on this same card. That entry
     recorded "COLLECTION IS NOW CLEAN: 10,588 tests, ZERO errors" from a default-order run. That
@@ -19544,7 +19625,7 @@ cards:
   approved_by: 'operator 2026-09-18 (board approve button)'
   status: investigating
   dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
-  updated: '2026-09-21 03:10'
+  updated: '2026-09-23 03:15'
   verify_2026_09_12: 'INVESTIGATE-flagged -> re-measured (2026-09-12). Collection scale DROPPED 18->2 errors: collect-only = 10354 collected, 2 errors (test_ble_hold_cap.py + test_ble_extend_not_create.py, const ImportError unknown-location). NOT real breakage — the consts exist (const.py:575/1212) + both files pass in isolation; they fail in-suite because ~7 siblings install a stripped fake const into sys.modules at import scope (test_energy_battery.py:99, test_notification_manager.py:145, test_arbitrage_gate_d2_offbyone.py:111, ...) and conftest SUITE-HYGIENE-1 snapshot EXCLUDES the const namespace (conftest.py:28-29). 223/457 files install sys.modules stubs (~182 without pop). No pytest config (deterministic order). CHEAP TIER-1 CHILD: extend the conftest snapshot to restore-if-replaced the custom_components...const key (OR fix the ~7 siblings) -> clears both collection errors -> suite collects clean. CAUTION: this is PYTEST-SUITE-CONST-STUB-ISOLATION-1 territory (whose broad Fix-2 was REVERTED for exposing 87 order-reds) — the narrow snapshot-restore is different but must not re-expose them; verify on a full run. Parent re-arch (fake-coordinator boundary + 87+ runtime order-failures + 4-min runtime) UNCHANGED in scale, stays investigating.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
   needs_investigation: true
@@ -26926,14 +27007,133 @@ cards:
     21-125s deploy signature, and I have not traced the path. Check the cron pass log for 09-20 09:26-09:33
     before believing it.'
 
+- id: COVERAGE-EVENING-ATTRIBUTION-DRIFT-1
+  title: Every evening the room-by-room energy totals creep past the whole-house meter and keep
+    growing until midnight, and nobody has explained why
+  thread: energy
+  status: investigating
+  created: '2026-09-23 03:10'
+  updated: '2026-09-23 03:10'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [measure-before-build, no-fabrication-verify, falsify-first]
+  problem_solution:
+  - 'Problem: URA checks its own energy bookkeeping by adding up everything it attributed to
+    individual rooms and comparing that against the meter for the whole house. On several evenings
+    the room total has crept PAST the whole-house figure and then kept pulling away steadily for
+    hours — on 21 September it drifted from 10 percent over to 59 percent over between 2pm and
+    11pm, and the same shape appeared on the 19th and the 22nd. It resets overnight and starts again.
+    Attributing more energy than the house actually used is impossible, so one of the two numbers is
+    wrong, and until we know which one the coverage figure on the dashboard cannot be trusted in the
+    evening. This is NOT the midnight-boundary artifact — that one is short, enormous, and confined
+    to the first hour of the day; this is slow, moderate, and confined to the afternoon and evening.
+    Solution: work out which side is drifting. Compare the whole-house meter and the individual room
+    sensors against each other and against the utility-side reading over one full drift episode, and
+    find what starts at roughly 2pm.'
+  origin:
+    date: '2026-09-23'
+    gist: fell out of the 10-day recorder measurement run to size the midnight window on
+      COVERAGE-RATING-FALSE-ANOMALOUS-1; the ANOMALOUS samples split into two populations and only
+      one of them was the artifact that card describes
+  why: The coverage self-check is URA's only internal audit of its own energy attribution, and it is
+    the input to any claim that per-room energy numbers are trustworthy. A sustained multi-hour
+    impossible reading either means the attribution is over-counting (so per-room energy costs are
+    overstated) or the whole-house sensor is under-reading in the evening (which would matter to
+    every energy decision that consumes it). Either answer is worth having; neither is known.
+  constraints:
+  - Do NOT fix this by widening the re-anchor excuse window — that would suppress the signal rather
+    than explain it. The 120-minute window on COVERAGE-RATING-FALSE-ANOMALOUS-1 was deliberately
+    sized to leave this population ANOMALOUS.
+  - Compare against EXTERNAL ground truth (the utility/Envoy-side reading), never against another
+    internal number that shares the same attribution assumptions.
+  measured_2026_09_23: 'FIRST MEASUREMENT, which is what created this card. Ten days of recorder
+    history for sensor.universal_room_automation_energy_coverage_delta, grouped by local hour, all
+    samples rated Anomalous. Three clean episodes: 2026-09-21 14:00-23:00 (ten consecutive hours,
+    570 samples, delta_percent walking monotonically -10.0 -> -58.8); 2026-09-22 17:00-23:00 (387
+    samples, -3.9 -> -37.0); 2026-09-19 17:00-23:00 (231 samples, -7.3 -> -23.7). Monotonic, moderate
+    magnitude, afternoon onset, resets overnight. Contrast with the boundary artifact on the sibling
+    card: 00:xx only, 2-44 samples, magnitudes -706 to -9161. Different shape, different hour,
+    different magnitude — two populations, not one. NOT YET ESTABLISHED, and I am not guessing at it:
+    which side of the comparison is wrong.'
+  parsimony: {problem: 'On at least three of the last five evenings, attributed room energy exceeded
+      whole-house energy by a growing margin for 6-10 consecutive hours, which is physically
+      impossible and therefore means one of the two inputs is wrong.', verdict: BUILD}
+  next: 'MEASURE (autonomous, read-only, no operator input needed): over one full drift episode, pull
+    the whole-house energy sensor and each contributing room/zone/house-device sensor from the
+    recorder at the same timestamps, and find which side''s slope changes at onset. Then cross-check
+    the whole-house figure against the Envoy/utility reading for the same window — external ground
+    truth, per the card constraint. Only after that decide whether the fix is in attribution or in
+    the whole-house source.'
+  rank: {value: 6, time_criticality: 3, effort: 3}
+  links:
+    related: [COVERAGE-RATING-FALSE-ANOMALOUS-1]
+    context: 'Same sensor and same measurement run, but the opposite verdict: COVERAGE-RATING-FALSE-
+      ANOMALOUS-1 is a FALSE alarm being correctly suppressed, this is a possibly-REAL alarm being
+      correctly left alone. Split rather than folded in because the fixes live in different places —
+      that card fixes the classifier, this one (if it confirms) fixes a producer. The 120-minute
+      window shipped there is what keeps this population visible.'
+  refs:
+  - 'commit c5ea7dfc7 — the sibling fix, whose measurement produced this finding'
+  - 'docs/planning/PLANNING_energy_unit_normalization_and_attribution.md — prior art on the
+    unit-mismatch story the classifier used to assert'
 - id: COVERAGE-RATING-FALSE-ANOMALOUS-1
+  measured_2026_09_23: 'OVERNIGHT PASS — VERDICT STILL-REAL + CARD-WAS-WRONG-IN-SCOPE, and the
+    contained half is now BUILT and sitting in review. VALIDITY CHECK (ground truth, not the card):
+    re-read aggregation.py:889-940 on current develop — the excuse branch is untouched and no fix has
+    shipped, so the defect was real. PREMISE CORRECTED: this card reads as if the false-ANOMALOUS is
+    ONE thing, a midnight boundary artifact. It is not. I pulled 10 days of recorder history for
+    sensor.universal_room_automation_energy_coverage_delta (ssh ha sqlite3 -readonly, states JOIN
+    state_attributes, grouped by hour) and ANOMALOUS splits into TWO clearly different populations.
+    (A) MIDNIGHT SPIKES — short bursts in the 00:xx hour with huge magnitudes (09-18 -746.8, 09-19
+    -706.2, 09-20 -9161.4, 09-23 -2137.2), tailing off by 01:20 local at the latest. That is the
+    re-anchor artifact this card describes, and it is a FALSE alarm. (B) SUSTAINED EVENING DRIFT —
+    long monotonic runs that are NOT boundary-related: 09-21 14:00 to 23:00 is ten consecutive hours,
+    570 samples, delta walking steadily from -10.0 to -58.8; 09-22 17:00 to 23:00 is 387 samples from
+    -3.9 to -37.0; 09-19 17:00 to 23:00 the same shape. Population (B) is the MAJORITY of ANOMALOUS
+    samples and there is no evidence it is false — it may well be a real attribution defect. Carding
+    it separately as COVERAGE-EVENING-ATTRIBUTION-DRIFT-1 rather than folding it in, because it has
+    its own problem statement and its own fix. THE SIZING ARGUMENT FELL OUT OF THE SAME MEASUREMENT:
+    (A) ends by 01:20 (80 min) and (B) never starts before 14:00 (840 min), so a 120-minute window
+    separates them with a wide margin in both directions — the constant is measured, not picked.
+    BUILT (commit c5ea7dfc7, on develop, NOT deployed — overnight pass does not restart HA in an
+    occupied house): new rung-1 module constant COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN=120 in
+    const.py; _get_coverage_rating gains midnight_reanchor_window and the existing negative-delta
+    excuse now fires for EITHER window (>100 / None / NaN are still never excused); a new
+    _in_midnight_reanchor_window() helper reads dt_util.now() at call time so the window closes
+    without needing a tick, and fails CLOSED (returns False, i.e. keeps ANOMALOUS) on any exception;
+    extra_state_attributes publishes midnight_reanchor_window so live validation can DISCRIMINATE a
+    suppressed boundary artifact from a genuine mid-day ANOMALOUS, read once per attribute build so
+    the rating and the published flag cannot straddle the boundary and disagree. The ANOMALOUS
+    warning no longer asserts a unit-of-measurement mismatch as fact — it states what was observed
+    and names candidates, per the card''s own ask. PRIOR-ART/REUSE: the excuse branch, the rate-limit
+    global and the post_restart_window plumbing all already existed and were EXTENDED, not rebuilt
+    (aggregation.py:905-926, B-H4); the only NEW symbols are the one constant and the one helper.
+    CONSUMERS COUNTED: _get_coverage_rating has exactly ONE caller (aggregation.py:3428), verified by
+    repo-wide grep, so blast radius is this sensor''s rating attribute alone. TESTS + DRILLS:
+    31 passing in test_coverage_rating_bounds.py, 155 passing across the five aggregation-touching
+    files. Two mutation drills run and restored — reverting the excuse to post_restart-only fails 2
+    tests, and DELETING the call-site argument also fails 2 tests. That second drill was added
+    because the first version of the work passed the call-site mutation GREEN, i.e. the wire-in was
+    untested; the wire-in anchor tests exist specifically to close that. HOLLOW-ANCHOR INSTANCE FOUND
+    AND FIXED IN THE SAME COMMIT: test_coverage_rating_bounds.py loaded aggregation.py via
+    spec_from_file_location with no parent package, so its `from .const import` always raised
+    ImportError and the module-level pytest.skip silently skipped the ENTIRE FILE in every
+    environment — the D3 bounds tests AND the B-H4 post-restart test had never once executed despite
+    reading as present. Now imported as a package member: 1 skip became 31 passing. Swept the rest of
+    the suite for the same shape — `allow_module_level=True` appears in exactly ONE file (this one),
+    so it is a singleton, not a class; recorded as an instance on TEST-STRATEGY-REARCH-1 rather than
+    a new card. NOT SHIPPED — needs deploy (HA restart), which is the operator''s call.'
+  operator_note_2026_09_23: 'Not fixed and deliberately out of scope: the ANOMALOUS and INCOMPLETE
+    warnings share one rate-limit global (_COVERAGE_RATING_ANOMALOUS_LAST_WARN), so a boundary
+    INCOMPLETE line can suppress a genuine ANOMALOUS line for an hour. That is pre-existing behaviour
+    unchanged by this commit; flagging it rather than widening the cycle.'
   title: The energy coverage self-check reports a false "measurement units are mismatched" alarm — its
     real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at
     midnight the way the code assumes
   thread: energy
-  status: planned
+  status: review
   created: '2026-09-19 04:15'
-  updated: '2026-09-19 04:25'
+  updated: '2026-09-23 03:05'
   refinement_status: initial
   approval: unreviewed
   rank: {value: 6, time_criticality: 3, effort: 5}
