@@ -9,6 +9,39 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'TEST-HARNESS-REAL-HA-DEFAULT-1@2026-09-23T05:05:00'
+    at: '2026-09-23T05:05:00'
+    outcome: measured
+    headline: 'THE TEST SUITE RUNS AGAIN, AND THE REAL NUMBER IS TWICE WHAT WE THOUGHT. A week ago
+      the whole suite was effectively unrunnable — 10,560 of 10,588 tests died in setup because of a
+      Python-version problem in a third-party plugin. That is fixed, and I ran the full suite
+      tonight end to end: 10,586 passing, 194 failing, 8 minutes 27 seconds. Two things worth your
+      attention. First, 194 is roughly DOUBLE the "about 87 failures" figure that the test
+      re-architecture proposal has been sized against, so that plan needs re-costing before anyone
+      commits to it. Second, and more usefully, the failures are extremely concentrated: all 194
+      live in just 56 files out of 479, and two files alone account for over a third of them (the
+      weather-manager tests at 47, the bathroom-exhaust tests at 23). That reframes the choice — a
+      big migration of 230 files is a very different proposition from repairing a handful of files
+      that actually fail, and those two options should be priced separately. Standing caveat I am
+      not going to let slide: this is one run in the default file order, and we already proved that
+      shuffling the order breaks collection and silently drops tests, so 194 is a floor, not a
+      verdict. None of the failures are in anything I touched tonight.'
+    acknowledged: false
+  - fid: 'ENVOY-FLAKINESS-181243-1@2026-09-23T04:55:00'
+    at: '2026-09-23T04:55:00'
+    outcome: measured
+    headline: 'ENVOY RECOVERED AND HAS HELD FOR A DAY — but one of the three open questions is not
+      settled. All 37 Envoy sensors are live and updating, so the restart you authorised on Sunday
+      night did fix the stuck integration and it has stayed fixed for about 26 hours. However the
+      data cross-check that was firing before is STILL firing — the most recent one was at 2:03 this
+      morning — so that part was not caused by the stuck entry and cannot be written off as
+      collateral. Also worth recording, because it nearly became a false bug report: the Envoy
+      status sensor currently reads "stale" while every freshness number on it says everything is
+      current. I went and read the code before reporting it, and it is behaving exactly as designed
+      — a deliberate rule flips it to "stale" for an hour after any data cross-check fires, to catch
+      the case where the Envoy reports fresh-looking readings that are actually zeroed. Nothing is
+      wrong with the sensor. Noting it on the card so nobody spends an afternoon on it.'
+    acknowledged: false
   - fid: 'PERIMETER-DETECTION-WENT-DARK-1@2026-09-23T04:30:00'
     at: '2026-09-23T04:30:00'
     outcome: escalated
@@ -19473,6 +19506,32 @@ cards:
     async HA-harness tests execute normally. Lane was stale, not the work.'
 
 - id: TEST-HARNESS-REAL-HA-DEFAULT-1
+  measured_2026_09_23_full_suite_run: 'OVERNIGHT PASS — I RAN THE WHOLE SUITE, WHICH IS THE
+    MEASUREMENT THIS CARD HAS BEEN BLOCKED ON SINCE 2026-09-15. Command:
+    PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -q -p no:randomly. RESULT:
+    194 failed, 10586 passed, 36 skipped, 2 xfailed, 3 errors, in 507 seconds (8m27s). THE BLOCKER
+    IS GONE: on 09-15 this same command produced 10,560 ERRORS out of 10,588 — a 99.7% setup-error
+    rate caused by the two phcc autouse fixtures calling a bare asyncio.get_event_loop() under
+    Python 3.13. That is fixed (the leak-detector cycle shipped the conftest override on 09-20) and
+    the suite is genuinely runnable again. So this card is no longer blocked on the harness, and the
+    parent TEST-STRATEGY-REARCH-1 is no longer blocked on this card for its failure-count input.
+    THE NUMBER IS 194, NOT ~87 — correcting the estimate this card and its parent both carry. That
+    is roughly double the figure the re-architecture scoping was sized against, and it should be
+    re-sized before any plan is written. COLLECTION in the same run: 10,818 tests collected with
+    ZERO errors in default order (10,787 before tonight; the +31 are the coverage-rating tests I
+    un-skipped, see the hollow-anchor instance on the parent). REMEMBER THE STANDING CAVEAT: this is
+    ONE default-order run, and TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 has already proven that shuffling
+    the file order produces collection errors and silently drops 50-99 tests. So 194 is the
+    default-order failure count and is NOT evidence of order-independence. CONCENTRATION, which is
+    the actionable part: the 194 failures + 3 errors live in only 56 distinct files out of 479, and
+    the top of the distribution is very steep — test_v47x_weather_manager.py 47,
+    test_bathroom_exhaust_intelligence_cycle.py 23, test_identity_fusion_d2_d3_d4.py 10,
+    test_carrier_freshness.py 8, test_v4_7_18_dpm_drift_guard.py 7, then a long tail of 6-and-under.
+    Two files account for 36% of all failures. That materially changes the re-architecture argument:
+    a strangler migration sized at "230 of 429 files hand-build fake HA modules" is a much bigger
+    job than fixing the handful of files that actually fail, and the two should be costed separately
+    before anyone commits to the big one. NOT STARTED — the re-arch is Tier 2-DB+ and needs an
+    operator-gated plan, not a 5am build.'
   DOCUMENTED_COMMAND_IS_A_TRAP_2026_09_16: 'FRESH SYMPTOM, folded in rather than carded separately
     (adjacency sweep: this card already owns "which interpreter is the harness"). Hit live during
     the v5.103.4 pre-deploy gate: running the documented command produced 98 ERRORS in 0.26s on
@@ -19599,7 +19658,7 @@ cards:
   approval: explicit
   approved_by: operator 2026-08-23 ("We need to make this our default test harness and strategy")
   created: 2026-08-23 18:20
-  updated: '2026-09-21 03:10'
+  updated: '2026-09-23 05:05'
   refinement_status: initial
   tags:
   - measure-before-build
@@ -19664,6 +19723,32 @@ cards:
     on record.'
 
 - id: TEST-STRATEGY-REARCH-1
+  measured_2026_09_23_full_suite_run: 'OVERNIGHT PASS — I RAN THE WHOLE SUITE, WHICH IS THE
+    MEASUREMENT THIS CARD HAS BEEN BLOCKED ON SINCE 2026-09-15. Command:
+    PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -q -p no:randomly. RESULT:
+    194 failed, 10586 passed, 36 skipped, 2 xfailed, 3 errors, in 507 seconds (8m27s). THE BLOCKER
+    IS GONE: on 09-15 this same command produced 10,560 ERRORS out of 10,588 — a 99.7% setup-error
+    rate caused by the two phcc autouse fixtures calling a bare asyncio.get_event_loop() under
+    Python 3.13. That is fixed (the leak-detector cycle shipped the conftest override on 09-20) and
+    the suite is genuinely runnable again. So this card is no longer blocked on the harness, and the
+    parent TEST-STRATEGY-REARCH-1 is no longer blocked on this card for its failure-count input.
+    THE NUMBER IS 194, NOT ~87 — correcting the estimate this card and its parent both carry. That
+    is roughly double the figure the re-architecture scoping was sized against, and it should be
+    re-sized before any plan is written. COLLECTION in the same run: 10,818 tests collected with
+    ZERO errors in default order (10,787 before tonight; the +31 are the coverage-rating tests I
+    un-skipped, see the hollow-anchor instance on the parent). REMEMBER THE STANDING CAVEAT: this is
+    ONE default-order run, and TEST-SUITE-ORDER-INDEP-PRODSTUBS-1 has already proven that shuffling
+    the file order produces collection errors and silently drops 50-99 tests. So 194 is the
+    default-order failure count and is NOT evidence of order-independence. CONCENTRATION, which is
+    the actionable part: the 194 failures + 3 errors live in only 56 distinct files out of 479, and
+    the top of the distribution is very steep — test_v47x_weather_manager.py 47,
+    test_bathroom_exhaust_intelligence_cycle.py 23, test_identity_fusion_d2_d3_d4.py 10,
+    test_carrier_freshness.py 8, test_v4_7_18_dpm_drift_guard.py 7, then a long tail of 6-and-under.
+    Two files account for 36% of all failures. That materially changes the re-architecture argument:
+    a strangler migration sized at "230 of 429 files hand-build fake HA modules" is a much bigger
+    job than fixing the handful of files that actually fail, and the two should be costed separately
+    before anyone commits to the big one. NOT STARTED — the re-arch is Tier 2-DB+ and needs an
+    operator-gated plan, not a 5am build.'
   instance_2026_09_23_hollow_module_skip: 'INSTANCE (not a new card) — a concrete case of this
     card''s "hollow at boundaries" premise, found and fixed tonight while building
     COVERAGE-RATING-FALSE-ANOMALOUS-1. quality/tests/test_coverage_rating_bounds.py loaded
@@ -19714,7 +19799,7 @@ cards:
   approved_by: 'operator 2026-09-18 (board approve button)'
   status: investigating
   dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
-  updated: '2026-09-23 03:15'
+  updated: '2026-09-23 05:05'
   verify_2026_09_12: 'INVESTIGATE-flagged -> re-measured (2026-09-12). Collection scale DROPPED 18->2 errors: collect-only = 10354 collected, 2 errors (test_ble_hold_cap.py + test_ble_extend_not_create.py, const ImportError unknown-location). NOT real breakage — the consts exist (const.py:575/1212) + both files pass in isolation; they fail in-suite because ~7 siblings install a stripped fake const into sys.modules at import scope (test_energy_battery.py:99, test_notification_manager.py:145, test_arbitrage_gate_d2_offbyone.py:111, ...) and conftest SUITE-HYGIENE-1 snapshot EXCLUDES the const namespace (conftest.py:28-29). 223/457 files install sys.modules stubs (~182 without pop). No pytest config (deterministic order). CHEAP TIER-1 CHILD: extend the conftest snapshot to restore-if-replaced the custom_components...const key (OR fix the ~7 siblings) -> clears both collection errors -> suite collects clean. CAUTION: this is PYTEST-SUITE-CONST-STUB-ISOLATION-1 territory (whose broad Fix-2 was REVERTED for exposing 87 order-reds) — the narrow snapshot-restore is different but must not re-expose them; verify on a full run. Parent re-arch (fake-coordinator boundary + 87+ runtime order-failures + 4-min runtime) UNCHANGED in scale, stays investigating.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
   needs_investigation: true
@@ -27655,11 +27740,29 @@ cards:
      forward capture (phantom vs known-occupied) + per-unit fit; intra-device (fragile). Revisit only if the
      pause-recheck route proves insufficient across the mmwave-only fan rooms.'
 - id: ENVOY-FLAKINESS-181243-1
+  measured_2026_09_23: 'OVERNIGHT PASS — groom + verify. (1) THE OUTAGE IS OVER: all 37
+    sensor.envoy_482543015950_* entities are available and fresh (newest last_updated 07:22, oldest
+    02:39), so the operator-authorized Core restart on 2026-09-21 23:14 did recover the stuck entry
+    and it has held for about 26h. Ask (a) "track HA core #181243" is unchanged and still the only
+    real cure. (2) ASK (c) IS NOT SETTLED — the consumption cross-check is STILL FIRING
+    post-restart, so it is not an artifact of the stuck entry. Live read of
+    sensor.ura_energy_coordinator_envoy_status right now: state "stale", data_anomaly_at
+    2026-09-23T02:03:01, data_anomaly_age_seconds 1171. (3) A NEAR-MISS I AM RECORDING SO IT IS NOT
+    RE-DISCOVERED AS A BUG: that "stale" state LOOKS self-contradictory — every per-source age reads
+    8.7s, stale_sources / missing_sources / unconfigured_sources are all empty, and
+    last_reading_age_seconds is 275 against a stale_threshold_seconds of 600. I read the producer
+    before reporting it (sensor.py:14150-14180, EnergyEnvoyStatusSensor.native_value) and it is
+    CORRECT BY DESIGN: the v4.3.0 D6 data-anomaly branch returns "stale" whenever a cross-check
+    fired within the last hour, deliberately overriding the fact that the state objects themselves
+    look fresh — that branch exists precisely to catch the v4.2.28 case where the Envoy reports
+    fresh state carrying zeroed values. So there is NO defect in the status sensor; the attributes
+    and the state describe two different things and both are right. Anyone seeing "stale" with
+    all-fresh ages should read data_anomaly_age_seconds first.'
   title: "Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today"
   thread: energy
   status: waiting_operator
   created: '2026-09-21'
-  updated: '2026-09-22 02:15'
+  updated: '2026-09-23 04:55'
   refinement_status: refined
   rank: {value: 6, time_criticality: 4, effort: 3}
   tags: [energy, envoy, enphase, upstream-bug, flakiness, dual-homed, incident]
