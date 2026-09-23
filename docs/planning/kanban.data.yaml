@@ -9,6 +9,27 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'PERIMETER-DETECTION-WENT-DARK-1@2026-09-23T04:30:00'
+    at: '2026-09-23T04:30:00'
+    outcome: escalated
+    headline: 'YOUR OUTDOOR CAMERAS HAVE DETECTED NOTHING FOR SIXTY HOURS AND NOTHING TOLD YOU. This
+      is the most important thing on tonight''s list and it contradicts what this card said
+      yesterday. Since about 7pm on Sunday 20 September, eighteen of your twenty-four cameras have
+      produced zero detections — no people, no cars, nothing. Six still work, and they are the indoor
+      ones plus pool equipment. That is the fourth time in under two weeks, and the longest by far.
+      I walked it down layer by layer so you do not have to: it is NOT the cameras (all 24 are
+      capturing at full frame rate), NOT Frigate being down (the service is healthy and several of
+      the dead cameras are actively running their detector right now), NOT Home Assistant (all these
+      sensors come from the same integration, and five of them still update fine), and NOT a settings
+      difference (I compared a dead camera against a working one — identical). It is something that
+      changed ON the Frigate machine around 7pm Sunday. The next step needs you, because it means
+      looking at that machine''s logs and possibly restarting a service, which I will not do to a
+      live system unattended. I also did not buzz your phone: this has been broken for sixty hours
+      already, nothing I do at 4am shortens it, and there is a notification waiting in Home
+      Assistant. One more thing — the alarm that would have caught this within six hours is built
+      and sitting unapproved on CAMERA-SILENT-PRODUCER-TRIPWIRE-1. Sixty silent hours is the
+      argument for approving it.'
+    acknowledged: false
   - fid: 'KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1@2026-09-23T04:05:00'
     at: '2026-09-23T04:05:00'
     outcome: escalated
@@ -26344,10 +26365,10 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-16 03:30'
-  updated: '2026-09-19 04:00'
+  updated: '2026-09-23 04:30'
+  live_broken: true
   refinement_status: refined
   approval: blocked
-  live_broken: false
   tags:
   - measure-before-build
   - no-fabrication-verify
@@ -26423,17 +26444,54 @@ cards:
       durable code lesson is separate and already half-carded: a producer-silence trip-wire is the
       mirror image of CAMERA-STUCK-SENSOR-TRIPWIRE-1 stuck-ON check, and would have caught this in
       hours instead of never.'
-  next: 'READ this first, then APPROVE one thing. READ: stand down on the emergency — exterior person
-    detection came back by itself on 09-15 at about 15:00 and has been normal ever since (see
-    RE_MEASURED_2026_09_17). Last night''s card overstated it as ongoing; it was a bounded ~26h
-    outage, 09-14 13:00 to 09-15 15:00. Nothing needs doing tonight and nothing is blind right now.
-    APPROVE (the only live ask): let me build the producer-SILENCE trip-wire — the missing mirror of
-    the stuck-ON check we already shipped, which fires when a detector that normally reports goes
-    abnormally quiet. It is the one thing that would have turned this 26-hour blackout into a page on
-    the same afternoon, and its absence is why the outage AND the recovery both passed unnoticed.
-    OPTIONAL, only if you are curious: do you know whether anything changed on the Frigate 2 host
-    around 09-14? It would explain the window, but since the producer healed itself the answer no
-    longer gates anything, and I am still not touching camera config autonomously.'
+  measured_2026_09_23_FOURTH_BLACKOUT_ONGOING: 'OVERNIGHT PASS — URGENT CORRECTION. THIS CARD SAYS
+    "stand down, it healed on 09-15 and nothing is blind right now". THAT IS NOW FALSE. Exterior
+    object detection went dark AGAIN on 2026-09-20 evening and IS STILL DARK as I write this, about
+    60 hours later, with nothing having noticed. Marking the card live_broken. THE EVIDENCE CHAIN, in
+    the order I built it, each step ruling out a layer. (1) HA RECORDER, ON-transitions per day across
+    every binary_sensor.*_person_occupancy_2: 09-15 42, 09-16 317, 09-17 210, 09-18 301, 09-19 100,
+    09-20 248 across 15 cameras — then 09-21 MISSING ENTIRELY (zero rows for the whole day), 09-22 52
+    across only 4 cameras, 09-23 40 across only 2. Not a purge: 09-20 and 09-22 are both present.
+    (2) LIVE HA STATE: 12 of the 17 person_occupancy_2 entities last updated at the identical instant,
+    2026-09-22T04:23:32, and have sat frozen at "off" ever since; only 5 are still moving. (3) NOT AN
+    INTEGRATION SPLIT — checked the entity registry: all 17 belong to the SAME config entry
+    ("Frigate 2"), so this is not one integration dying while a sibling lives. (4) NOT THE CAMERAS AND
+    NOT THE FRIGATE HOST BEING DOWN — queried the Frigate API directly (read-only, /api/stats): all
+    24 cameras are enabled and capturing at normal rates (5-6 fps, zero skipped frames), and several
+    of the dark ones are running their detector RIGHT NOW (front_door_aerial det_fps 4.5, g5_bullet
+    5.4, hot_tub 4.4, ArmCrest 3.9). The host is healthy. (5) THE FAULT IS INSIDE FRIGATE''S
+    DETECTION OUTPUT, and this is the decisive read: /api/events shows 18 of the 24 cameras have
+    produced ZERO person events since 2026-09-20, last ones clustered around 19:07 that evening
+    (back_yard 09-20 19:02, hot_tub 16:59, garage_a 14:45, doorbell_lite 19:07, g5_bullet 19:07,
+    front_door_aerial 04:57, rear_ptz 13:07, utilities_ptz 18:31, ReolinkStudyBPorchPTZ 15:26,
+    madrone_g6_entry 04:57, foyer_fisheye 18:15). Exactly six cameras still work — pool_equipment,
+    upstairs_hall, playroom, family_room, staircase, stairs_top — all interior except pool_equipment,
+    and they run right up to 09-23 02:14. (6) IT IS NOT PERSON-SPECIFIC, which rules out a person
+    threshold or model problem: CAR events on the exterior cameras stop at the same moment
+    (g5_bullet and doorbell_lite both last at 09-20 17:12, utilities_ptz 16:22, rear_ptz 14:30). So
+    ALL object output from those feeds ceased together. (7) CONFIG IS NOT OBVIOUSLY THE CAUSE, stated
+    as a negative rather than a conclusion: read /api/config for a dark camera and a working one —
+    both enabled, both track person, identical person filters (threshold 0.6-0.7, min_score 0.5), no
+    zones, no motion mask, motion threshold 30 on both. Nothing in the config distinguishes them.
+    WHAT I DID NOT DO AND WHY: the remaining evidence is the Frigate HOST''s own logs and whatever
+    changed on it around 2026-09-20 19:00, which is the homelab side, not URA, and touching it means
+    restarting a service. Read-only diagnosis has gone as far as it can from here. I did not send a
+    phone push: this has already been dark for 60 hours, nothing I can do at 4am shortens that, and
+    waking an occupied house adds no action. Left a Home Assistant notification instead.'
+  next: 'DO — this is live and it is the whole exterior. Forget the earlier "stand down"; I checked
+    tonight and the cameras went dark AGAIN on Sunday evening 20 September and are STILL dark,
+    roughly sixty hours now. Eighteen of your twenty-four cameras have detected nothing at all —
+    not a person, not a car — since about 7pm that evening. Six still work, and they are the indoor
+    ones plus pool equipment. The cameras themselves are fine and Frigate is running normally: every
+    feed is capturing at full frame rate and several of the dead ones are actively running their
+    detector as I write this. So the fault is on the Frigate machine, in whatever changed there
+    around 7pm on 20 September. THE ASK: go look at the Frigate host (192.168.13.18) — its own logs
+    and whether anything was changed, restarted or updated that evening. I stopped at read-only
+    diagnosis because going further means restarting a service on a machine outside URA. SECOND ASK,
+    and this is the bigger one: this is the FOURTH time this has happened in under two weeks and the
+    fourth time nothing noticed. The alarm that would have caught it within hours is built and
+    waiting for your approval on CAMERA-SILENT-PRODUCER-TRIPWIRE-1. Sixty silent hours is the
+    argument for it.'
   links:
     related:
     - CAMERA-ZERO-FIRE-DETECTORS-1
@@ -26441,8 +26499,6 @@ cards:
     - PERIMETER-ALERT-VOLUME-FATIGUE-1
     - FRONT-SIDE-PTZ-CHATTER-1
     - FRIGATE-THRESHOLD-CLAIM-DISPUTED-1
-    blocked_by:
-    - OVERNIGHT-PASS-NO-LOG-REACH-1
     context: 'CAMERA-ZERO-FIRE-DETECTORS-1 (done) is the per-camera version of this and already
       named the reason it went unnoticed — a silent detector is indistinguishable from a calm one.
       CAMERA-STUCK-SENSOR-TRIPWIRE-1 is the MIRROR failure (stuck ON) and its duration trip-wire
@@ -26451,10 +26507,7 @@ cards:
       FRONT-SIDE-PTZ-CHATTER-1 is where this was found — its chatter vanished, and the cause was
       this, not a fix. blocked_by OVERNIGHT-PASS-NO-LOG-REACH-1 because the discriminating evidence
       is host-side logs an unattended pass cannot reach.'
-  rank:
-    value: 8
-    time_criticality: 2
-    effort: 2
+  rank: {value: 9, time_criticality: 9, effort: 2}
   RE_MEASURED_2026_09_17: 'OVERNIGHT PASS — VERIFY-BEFORE-WORK. Verdict: STILL-REAL (the outage
     happened) but CARD-WAS-WRONG on its central live claim. THE CLAIM THAT IS NOW WRONG: this card
     said the house "has been blind for ~36h" and is blind ONGOING. That is FALSE and should not be
@@ -26512,12 +26565,27 @@ cards:
     producer-silence trip-wire is a real operator decision and stays with you.'
 
 - id: CAMERA-SILENT-PRODUCER-TRIPWIRE-1
+  instance_2026_09_23_fourth_blackout: 'FOURTH BLACKOUT, AND THE LONGEST YET — this is fresh
+    evidence FOR this card, measured tonight on the sibling PERIMETER-DETECTION-WENT-DARK-1.
+    Exterior object detection has been dark since 2026-09-20 ~19:00 and is STILL dark about 60 hours
+    later: 18 of 24 Frigate cameras have produced zero person AND zero car events in that entire
+    window, while six interior-ish cameras carried on normally. Nothing raised a hand for 60 hours,
+    which is precisely the failure this card exists to catch. TWO THINGS THIS SHARPENS. (1) It
+    strengthens the value case: four undetected blackouts in under two weeks, durations now 26h, 30h
+    and 60h+. (2) It VALIDATES THE REDESIGN the reviews demanded. The rejected build counted silence
+    in memory and needed 6 continuous hours, so a reload every couple of hours starved it. This
+    episode ran 60 hours, so even the broken version would eventually have... no — it would NOT, and
+    that is the point worth recording: the memory reset every ~2h regardless of how long the real
+    silence lasted, so duration of the outage never helps. The read-it-from-the-entities-at-check-time
+    redesign would have fired on the first check after hour six. The episode is a clean acceptance
+    fixture for it: a correct implementation must flag between 2026-09-21 01:00 and 02:00, and must
+    NOT flag the six cameras that stayed healthy.'
   title: Exterior person detection can go fleet-wide silent for a day at a time and nothing notices —
     build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped
   thread: perimeter
   status: waiting_operator
   created: '2026-09-17 02:20'
-  updated: '2026-09-19 05:00'
+  updated: '2026-09-23 04:35'
   refinement_status: refined
   approval: implied
   tags:
@@ -26647,10 +26715,7 @@ cards:
       CAMERA-BY-DESIGN-SILENT-EXCLUSION-1 is the reason this check is deliberately fleet-level rather
       than per-camera: it documents cameras that are silent on purpose. CAMERA-ZERO-FIRE-DETECTORS-1
       is the per-camera chronic-silence version and is closed.'
-  rank:
-    value: 8
-    time_criticality: 6
-    effort: 5
+  rank: {value: 9, time_criticality: 9, effort: 5}
   refs:
   - custom_components/universal_room_automation/domain_coordinators/optimization.py
   - custom_components/universal_room_automation/const.py
