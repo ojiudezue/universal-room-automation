@@ -9,6 +9,25 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1@2026-09-23T04:05:00'
+    at: '2026-09-23T04:05:00'
+    outcome: escalated
+    headline: 'STOP — DO NOT DO THE KITCHEN SENSOR REVERT YET. I WENT TO CONFIRM THE SETTINGS AND
+      THEY CANNOT BE READ AT ALL. This card has been sitting at the top of your queue asking you to
+      put nine kitchen radar thresholds back to their old values. Before re-recommending that, I
+      checked the current values. All nine read "unknown" — and going back nine days in the history,
+      they have NEVER held a number, only flipped between "unknown" and "unavailable". The sensor
+      itself is working fine; presence was still detecting movement at 1:50 this morning. It is only
+      the configuration side that never reports back. That matters more than the revert: it means
+      the experiment carefully measured the RESULT (chatter got worse) while never once being able
+      to observe the SETTING it was supposedly testing — and the device dropped and reconnected at
+      least eleven times during the test window, any of which could have reset it. So the earlier
+      conclusion is not necessarily wrong, but it cannot be attributed to the change we thought we
+      made. I need one thing from you before anything else: when you set those nine values, did they
+      visibly stick in the interface, or did the boxes go blank right after? I did not write anything
+      to the device — blind-writing settings I have just proven I cannot read back is how you end up
+      with a second unattributable result.'
+    acknowledged: false
   - fid: 'PROPERTY-GETTER-SIDE-EFFECT-TASKS-1@2026-09-23T03:50:00'
     at: '2026-09-23T03:50:00'
     outcome: escalated
@@ -20029,9 +20048,9 @@ cards:
   title: 'Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study
     B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase'
   thread: presence
-  rank: {value: 6, time_criticality: 7, effort: 1}
+  rank: {value: 6, time_criticality: 5, effort: 2}
   status: waiting_operator
-  updated: '2026-09-19 03:50'
+  updated: '2026-09-23 04:05'
   verify_2026_09_12: 'APPROVED -> experiment CONCLUDED, raised-threshold hypothesis REFUTED. MEASURED (live number.*_still_threshold = Study-B stock 0,0,40,40,40,30,30,20,20 still applied 3wk; recorder OFF-episodes <25s: 409/48h on stock vs the card 94 baseline, Study-B control 15/7d calm). Stock profile did NOT calm the kitchen mmwave — arguably WORSE. Tuning exonerated. NEXT -> operator PICK: leave stock, or revert to BEFORE values 39,71,58,53,60,39,38,44,49; and the escalation ladder continues distance-gates(g7/g6)->re-aim/placement->hardware LAST. Experiment itself is done; this is now the next-step decision.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
@@ -20088,20 +20107,44 @@ cards:
     problem: a mmWave sensor chattering 724x/48h was heading for hardware replacement on a guess
     verdict: INVESTIGATE
     note: free reversible config experiment with a real control (Study B), run before spending money
-  next: 'DO, then PICK the next rung — the measurement side is finished and the card''s own
-    pre-agreed decision rule has fired, so there is nothing left for me to measure here.
-    DO: revert the nine kitchen still thresholds to the BEFORE values 39, 71, 58, 53, 60, 39, 38,
-    44, 49 on number.mmwave_lux_wifi_esphome_kitchen_g{0..8}_still_threshold. This is not a new
-    judgement — outcome (c) "chatter worsens -> revert to the BEFORE values" is the rule you and I
-    agreed when the experiment started, and it has now been confirmed on two independent windows
-    (see REMEASURED_2026_09_16). I did not do it myself because it writes to a physical device and I
-    had no route to HA tonight.
-    PICK the next rung, and note I am recommending the OPPOSITE DIRECTION from what this card used
-    to say: the card''s escalation note proposed NARROWING the distance gates, which contradicts its
-    own confirmed drop-out mechanism. (A) match the untouched control — widen max_still_distance_gate
-    6 -> 8 and raise timeout 27 -> 30 so the kitchen unit is configured like Study B, which is the
-    single most informative one-variable move left; or (B) go straight to placement (move/re-aim).
-    Hardware stays LAST and is still not justified.'
+  measured_2026_09_23: 'OVERNIGHT PASS — VERIFY-BEFORE-WORK ON THE OPERATOR ASK, and it did not
+    survive the check. I went to confirm the nine thresholds were still at their experimental values
+    before re-recommending the revert. They are not readable AT ALL. Live read of all nine
+    number.mmwave_lux_wifi_esphome_kitchen_g{0..8}_still_threshold entities: every one is "unknown".
+    Recorder history for g0_still_threshold across the last nine days contains NO numeric state
+    whatsoever — only alternating "unavailable" and "unknown", eleven transitions between 2026-09-18
+    and 2026-09-22 (09-18 x5, 09-20, 09-21 x3, 09-22 x4). The same is true of every other config
+    entity on that device (all nine move thresholds, both distance gates, timeout, light threshold,
+    and all the per-gate energy sensors went to unknown together at 2026-09-22 15:24 local and the
+    earlier history is the same shape). THE DEVICE IS NOT DEAD, which is what makes this a real
+    finding rather than an offline-node report: binary_sensor.*_presence was still toggling normally
+    tonight (on 01:50:35, off 01:51:04 local) and detection_distance reports 4.72. So the radar half
+    works and the configuration-readback half does not. WHAT THIS DOES TO THE CARD: the experiment
+    measured its DEPENDENT variable (chatter rate) carefully and never observed its INDEPENDENT
+    variable at all. There is no evidence in the recorder that the nine thresholds were ever at the
+    experimental values, that they stayed there across eleven reconnects, or that they are there now.
+    The pre-agreed decision rule ("chatter worsens -> revert") fired on an observation whose cause
+    cannot be attributed. I am NOT calling the earlier conclusion wrong — it may well be right — I am
+    recording that it is UNATTRIBUTABLE on the evidence available, which is a different and weaker
+    claim than the card currently makes. NOT ACTED ON: writing nine values to a live device
+    configuration overnight is an outward, physical change on an instrument I have just shown I
+    cannot read back, so I would not be able to verify my own write. Escalated as a question rather
+    than a DO.'
+  next: 'ANSWER a prior question first — I can no longer recommend the revert as written, because
+    tonight I could not confirm the thresholds are where the card says they are, or that they can be
+    read at all. WHAT CHANGED: all nine kitchen still-threshold entities currently read "unknown",
+    and the recorder shows they have read ONLY unknown or unavailable for the entire nine-day window
+    — they have never once held a number. The device itself is fine (presence was still toggling at
+    01:50 tonight), so this is not an offline sensor; it is that these configuration entities never
+    report their value back. QUESTION FOR YOU: when you set those nine thresholds for the experiment,
+    did the values visibly stick in the UI, or did the boxes go blank/unknown straight after? That one
+    answer decides everything. If they went blank, then the independent variable of this experiment
+    was never observable, the device reconnected at least eleven times between 18 and 22 September,
+    and we cannot say the thresholds were at the experimental values when the "chatter got worse"
+    reading was taken — in which case the revert is not a revert, it is another blind write, and the
+    experiment needs a different instrument before it means anything. If they did stick and only the
+    readback is broken, the revert is still the right move and I will write out the nine values on
+    your go.'
   refs:
   - number.mmwave_lux_wifi_esphome_kitchen_g0_still_threshold
   - binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence
