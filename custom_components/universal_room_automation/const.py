@@ -341,6 +341,22 @@ COVERAGE_EXCELLENT_THRESHOLD: Final = 10
 COVERAGE_GOOD_THRESHOLD: Final = 20
 COVERAGE_FAIR_THRESHOLD: Final = 30
 
+# Minutes after LOCAL MIDNIGHT during which a negative delta_percent is
+# treated as a tier re-anchor artifact (INCOMPLETE) rather than a
+# unit-of-measurement mismatch (ANOMALOUS).
+#
+# Rung 1 (module constant) per Numbers-Get-Knobs: this is a diagnostic
+# classification boundary, not operator policy — widening it silently
+# suppresses a real Bug Class #30 signal, so changing it should require
+# code review.
+#
+# Sized from measurement (2026-09-23, 10 days of recorder history for
+# sensor.universal_room_automation_energy_coverage_delta): midnight
+# re-anchor ANOMALOUS runs ended by 01:20 local at the latest, while the
+# separate sustained evening-drift negative pattern never began before
+# 14:00 local. 120 minutes separates the two classes with a wide margin.
+COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN: Final = 120
+
 # Coverage rating labels
 COVERAGE_RATING_EXCELLENT: Final = "Excellent"
 COVERAGE_RATING_GOOD: Final = "Good"
