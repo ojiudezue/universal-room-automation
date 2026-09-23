@@ -2083,11 +2083,22 @@ cards:
   refs:
   - docs/readmes/README_v5.99.1.md (validation error-scan)
 - id: FRONT-SIDE-PTZ-CHATTER-1
+  CONTAMINATION_WARNING_2026_09_23: 'DO NOT READ ANY CHATTER MEASUREMENT TAKEN AFTER 2026-09-20
+    19:00 AS EVIDENCE. Measured tonight on PERIMETER-DETECTION-WENT-DARK-1: exterior detection has
+    been fully dark since about 19:00 on 2026-09-20 and is STILL dark ~60h later — 18 of 24 Frigate
+    cameras have produced zero person AND zero car events in that window. front_side_ptz is one of
+    the dark ones: its combined person/motion/occupancy rows read 2 on 09-20, then 0 on 09-21 and
+    nothing since. So a chatter count taken in this window will read as ZERO CHATTER and look exactly
+    like a fix, when it is actually a dead producer. This is the same false-all-clear trap that cost
+    two days on 2026-09-18 — a silent detector is indistinguishable from a calm one. Any before/after
+    chatter comparison spanning 2026-09-20 19:00 must be discarded and re-run once the blackout is
+    resolved, and any conclusion already drawn from such a window should be treated as unproven, not
+    as a result.'
   title: front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling
   thread: perimeter
   status: waiting_operator
   created: '2026-09-14 00:20'
-  updated: '2026-09-19 04:00'
+  updated: '2026-09-23 04:45'
   refinement_status: refined
   problem_solution:
   - 'Problem: one exterior camera reports "person detected" far more than any other — it is
@@ -19792,6 +19803,17 @@ cards:
     the 4min on record — the slowness half of this card is real and got worse.'
 
 - id: CHATTER-OBSERVE-CONTROL-D7-1
+  CONTAMINATION_WARNING_2026_09_23: 'DO NOT READ ANY CHATTER MEASUREMENT TAKEN AFTER 2026-09-20
+    19:00 AS EVIDENCE. Measured tonight on PERIMETER-DETECTION-WENT-DARK-1: exterior detection has
+    been fully dark since about 19:00 on 2026-09-20 and is STILL dark ~60h later — 18 of 24 Frigate
+    cameras have produced zero person AND zero car events in that window. front_side_ptz is one of
+    the dark ones: its combined person/motion/occupancy rows read 2 on 09-20, then 0 on 09-21 and
+    nothing since. So a chatter count taken in this window will read as ZERO CHATTER and look exactly
+    like a fix, when it is actually a dead producer. This is the same false-all-clear trap that cost
+    two days on 2026-09-18 — a silent detector is indistinguishable from a calm one. Any before/after
+    chatter comparison spanning 2026-09-20 19:00 must be discarded and re-run once the blackout is
+    resolved, and any conclusion already drawn from such a window should be treated as unproven, not
+    as a result.'
   SHADOW_RESULT_2026_08_22: 'Was `in_progress`. SHADOW HAS RUN AND ITS RESULT IS IN — and it is not a
     tuning problem. Shadow mode shipped v5.85.0, T_floor was raised 1.0 -> 5.0 on 2026-08-20 to widen
     the net, and it detected NOTHING across the house. Measurement on 2026-08-21/22 explains why: the
@@ -19803,7 +19825,7 @@ cards:
   title: 'STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate)'
   rank: {value: 5, time_criticality: 3, effort: 8}
   status: waiting_operator
-  updated: '2026-09-19 03:50'
+  updated: '2026-09-23 04:45'
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: shadow mode (v5.85.0, T_floor 5.0) detected NOTHING — this house''s chatter is sustained-moderate-rate, not sub-T_floor bursts, so D7 as designed cannot fire. next -> operator: build-or-drop a RATE-based detector (pair with CHATTER-RATE-VS-BURST-GAP-1). Discriminating measurement already ran.'
   thread: diagnostics
   created: 2026-08-19 09:00
@@ -20410,12 +20432,23 @@ cards:
   - const.py:2162 FACE_MATCH_WINDOW_S
   - switch.ura_name_people_at_doors
 - id: CHATTER-RATE-VS-BURST-GAP-1
+  CONTAMINATION_WARNING_2026_09_23: 'DO NOT READ ANY CHATTER MEASUREMENT TAKEN AFTER 2026-09-20
+    19:00 AS EVIDENCE. Measured tonight on PERIMETER-DETECTION-WENT-DARK-1: exterior detection has
+    been fully dark since about 19:00 on 2026-09-20 and is STILL dark ~60h later — 18 of 24 Frigate
+    cameras have produced zero person AND zero car events in that window. front_side_ptz is one of
+    the dark ones: its combined person/motion/occupancy rows read 2 on 09-20, then 0 on 09-21 and
+    nothing since. So a chatter count taken in this window will read as ZERO CHATTER and look exactly
+    like a fix, when it is actually a dead producer. This is the same false-all-clear trap that cost
+    two days on 2026-09-18 — a silent detector is indistinguishable from a calm one. Any before/after
+    chatter comparison spanning 2026-09-20 19:00 must be discarded and re-run once the blackout is
+    resolved, and any conclusion already drawn from such a window should be treated as unproven, not
+    as a result.'
   title: The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY,
     the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events)
   thread: presence
   rank: {value: 5, time_criticality: 3, effort: 5}
   status: waiting_operator
-  updated: '2026-09-19 03:50'
+  updated: '2026-09-23 04:45'
   verify_2026_09_12: 'APPROVED -> verify-before-work gate says DON''T-BUILD-BLIND (approve authorises work, not exemption from the gate). The discriminating measurement already ran: shadow mode (v5.85.0, T_floor 5.0) detected NOTHING because this house chatter is sustained-moderate-RATE, not sub-T_floor bursts -> the impossibility/burst detector cannot fire. A RATE-based detector would be a NEW detector for a signal whose VALUE is unproven (no defined consumer action; no measured harm). PARSIMONY/COST-BENEFIT: marginal benefit does not pay for a new detector. PICK (operator): PARK with revival trigger (if sensor chatter is shown to cause real false presence/actuation, build a rate detector) — recommended; OR build a DIAGNOSTIC-ONLY rate-observation sensor (cheap, no action) if you want visibility now.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
