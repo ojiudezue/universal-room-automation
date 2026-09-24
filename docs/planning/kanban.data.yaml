@@ -9,6 +9,52 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'CAMERA-STUCK-SENSOR-TRIPWIRE-1@2026-09-24T02:20:00'
+    at: '2026-09-24T02:20:00'
+    outcome: measured
+    headline: 'THE STUCK-CAMERA ALARM WE SHIPPED DOES WORK — BUT IT IS MISSING ALMOST EVERYTHING.
+      This one had been sitting in the "shipped, waiting for proof" pile since v5.101.3, so I
+      settled it with one query instead of letting it ride. Good news first: the alarm is genuinely
+      alive in production. It logged stuck-camera events overnight, it also catches the related
+      problems it was meant to (chattering sensors, continuously-on sensors, bad duty cycles), and
+      it correctly announces when a sensor recovers. I checked that these actually get delivered
+      rather than assuming — most did. I was careful about one trap: these rows carry an "[audit]"
+      marker that looks like "logged but not sent", and the code comments say that marker can sit
+      alongside a real send, so reading the text alone would have given a false negative. Now the
+      bad news, and it is why I am not closing this: it caught TWO stuck cameras in three days
+      while SEVENTEEN camera motion sensors have been jammed in the ON position for about nineteen
+      hours. A whole-fleet jam is precisely what this alarm exists to catch and it nearly walked
+      past it. On top of that, the part that is supposed to take the bad sensor out of service is
+      still in rehearsal mode — it writes "WOULD quarantine" and does nothing. So I have sent it
+      back to review with the evidence rather than marking it done. I have not yet worked out
+      whether it is under-counting because its per-camera timers have not elapsed, because it only
+      watches some cameras, or because it collapses one fleet-wide event into a single row — that
+      is the next question and it is cheap to answer.'
+    acknowledged: false
+  - fid: 'PERIMETER-DETECTION-WENT-DARK-1@2026-09-24T02:10:00'
+    at: '2026-09-24T02:10:00'
+    outcome: measured
+    headline: 'EXTERIOR PERSON DETECTION IS DEAD RIGHT NOW, AND I FOUND OUT WHY IT IS NOT WHAT WE
+      THOUGHT. Your outdoor cameras have not reported a person in 2.6 days. The sensors are not
+      missing and not broken-unavailable — they are frozen, all reading "no person", and they all
+      froze at the same second: 23:23:32 on 21 September. They stopped during the shutdown of that
+      evening''s restart and never started again when it came back. To be sure that was real and
+      not just how restarts look, I checked: that same restart DID write fresh values for 4,924
+      other entities, so the camera ones genuinely failed to resume. The important part is what
+      this rules out. We have been carrying two possible explanations since the 16th — either
+      something broke, or someone had deliberately turned the detection sensitivity down. It
+      cannot be the sensitivity change, because the identical freeze also hit the UniFi Protect
+      cameras, which are a different system on different hardware, at the same second. A settings
+      change in one system cannot do that. So: a genuine fault, tied to the restart, across at
+      least two camera systems. Separately, seventeen camera MOTION sensors have been stuck in the
+      ON position since 07:19 on the 23rd — those feed room occupancy, so some rooms may be being
+      held "occupied" by a jammed sensor. I did not fix any of it: the repair is reloading live
+      integrations, and it is 2am with the house asleep. I sent a silent notification rather than
+      a phone alert for the same reason. One honest gap: I could not read the Home Assistant logs
+      for the days in question — the usual log tool was offline and the fallback only returns the
+      last minute — so none of this is backed by log evidence, and nobody should read it as "the
+      logs looked fine".'
+    acknowledged: false
   - fid: 'TEST-HARNESS-REAL-HA-DEFAULT-1@2026-09-23T05:05:00'
     at: '2026-09-23T05:05:00'
     outcome: measured
@@ -2754,7 +2800,7 @@ cards:
 - id: CAMERA-STUCK-SENSOR-TRIPWIRE-1
   title: No trip-wire for a camera sensor stuck ON — one sat pinned for 29.5h and nothing noticed
   thread: perimeter
-  status: shipped_organic
+  status: review
   shipped_version: v5.101.3
   BUILT_2026_09_14: >-
     BUILT @ feature/camera-stuck-sensor-tripwire — in review, not deployed.
@@ -2787,7 +2833,7 @@ cards:
     than 14 per-sensor ones. Left as a follow-up because the per-sensor wire also catches the
     chronic single-camera case that the producer check would miss.
   created: '2026-09-14 01:50'
-  updated: '2026-09-14 01:50'
+  updated: '2026-09-24 02:20'
   refinement_status: initial
   problem_solution:
   - 'Problem: a camera''s person-detection sensor got stuck reporting "person present" for 29 and
@@ -2898,6 +2944,35 @@ cards:
     related: [FRONT-SIDE-PTZ-CHATTER-1, OPTIMIZER-PAGING-PRIMITIVE-1]
     context: The 29.5h stuck period is also what inflated front_side_ptz's apparent duty cycle to 21% (4.7% excluding it) — two separate defects that were being read as one.
   refs: [custom_components/universal_room_automation/domain_coordinators/optimization.py]
+  organic_evidence_2026_09_24: 'SOAK-EXIT DISPOSITION, one-shot query against the live URA DB
+    (ssh ha sqlite3 -readonly universal_room_automation.db). VERDICT: MET-WITH-A-RESIDUAL, and the
+    residual is big enough that I am returning this to review rather than closing it. WHAT IS
+    PROVEN WORKING (primary deliverable, met): the shipped trip-wire exists and really fires — the
+    anomaly_log carries coordinator_id="stuck_signal" / metric_name="camera_stuck" rows, most
+    recently 2026-09-24T05:00:24Z and 2026-09-23T15:21Z, and notification_log carries matching
+    hazard_type="stuck_signal" rows. So the mechanism is alive in production, not dormant. It is
+    also emitting its sibling classes (chatter x17, continuous x5, dutycycle x3,
+    actuator_flap_quarantine x1 over 2 days) and producing recovery notices ("Stuck signal
+    recovered: chatter"), i.e. the discharge side works too. I checked delivery rather than
+    assuming: over 3 days the stuck_signal rows split delivered=2 (44 rows) vs delivered=0 (12
+    rows), so these are not silently swallowed. I explicitly did NOT treat the "[audit]" message
+    sentinel as proof of non-delivery — I read database.py:4134-4145, which documents that
+    "[audit]" rows can accompany a REAL send (delivered=1), so a message-text read would have been
+    a false negative. THE RESIDUAL (why this is not done): the detector is badly UNDER-COUNTING at
+    fleet scale. Tonight 17 of 19 binary_sensor.*_motion_3 entities have been pinned ON since
+    2026-09-23 07:19 local — roughly 19 hours — and the trip-wire produced only TWO camera_stuck
+    events in 3 days. A fleet-wide stuck-ON event is exactly this card''s reason to exist and it
+    was very nearly missed. Also note the quarantine arm is still SHADOW-ONLY: the notifications
+    read "WOULD quarantine sensor (shadow): Garage A / Kitchen Hallway Garage", so nothing is
+    actually being quarantined. NOT INVESTIGATED FURTHER TONIGHT (budget + no build at 02:00):
+    whether the under-count is the per-camera duration overrides not yet elapsing, the detector
+    watching only a subset of cameras, or dedup collapsing one fleet event into one row. That is
+    the next measurement, and it is cheap.'
+  sharp_problem_2026_09_24: 'The stuck-ON trip-wire fires, but it detected 2 camera_stuck events
+    while 17 camera motion sensors sat stuck ON for ~19 hours. Under-detection at fleet scale, plus
+    the quarantine arm is still shadow-only, so nothing is acted on even when it does fire.'
+  links_note_2026_09_24: 'Evidence shared with PERIMETER-DETECTION-WENT-DARK-1 — the same 17
+    stuck-ON *_motion_3 entities are the occupancy-poisoning risk recorded there.'
 - id: SEAM-TOLERANCE-PRIORITY-RULING-1
   title: "Operator ruling: a missed link is NOT catastrophic — detection still fires; do not trade suppression risk for link tolerance"
   thread: perimeter
@@ -26483,10 +26558,40 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-16 03:30'
-  updated: '2026-09-23 04:30'
+  updated: '2026-09-24 02:10'
   live_broken: true
   refinement_status: refined
   approval: blocked
+  MEASURED_2026_09_24: 'OVERNIGHT PASS — DECISIVE, and it DISCRIMINATES the two candidate causes
+    this card has carried since 09-16. Method: URA/HA recorder via ssh ha sqlite3 on
+    /config/home-assistant_v2.db, plus a live /api/states read. FRESHNESS VALIDATED FIRST: the
+    recorder is healthy — newest row 2026-09-24 02:02:12, 241,825 rows in the trailing hour — so
+    absence of rows is real signal, not a dead recorder. FINDING 1, three identical-second freeze
+    cohorts: (a) 2026-09-21 23:23:32 local — 12 Frigate binary_sensor.*_person_occupancy_2 AND ~40
+    UniFi Protect binary_sensor.*_camera_person_detected stop together and have not updated since
+    (2.6 days); live /api/states confirms they are PRESENT and reading "off", not unavailable and
+    not removed. (b) 2026-09-23 07:19-07:22 — 17 *_motion_3 entities stop, and 17 of 19 are stuck
+    in the ON state (~19h and counting). (c) 2026-09-23 14:10:53 — 5 exterior Protect
+    *_person_detected stop together. CONTROL / FALSIFICATION (this is what makes it decisive): the
+    Core restart at 2026-09-21 23:25:23 wrote rows for 4,924 entities, and thousands more wrote in
+    the following minutes, so "a restart just does not write rows" is refuted — the cohort that
+    went silent across that restart genuinely failed to resume. DISCRIMINATION: candidate (2), a
+    deliberate detector-sensitivity/threshold change, is REFUTED as the explanation — a Frigate
+    threshold edit cannot freeze UniFi Protect entities on separate hardware at the same second,
+    and cannot pin motion sensors ON. This is a FAULT, restart-coupled, spanning at least two
+    camera integrations. CORRECTION TO THIS CARD: the previous next-step asserted "the fault is on
+    the Frigate machine, in whatever changed there around 7pm on 20 September" — that claim is now
+    WRONG as a sufficient explanation, superseded by the cross-integration identical-second
+    evidence above. LOG-READ GAP, STATED EXPLICITLY, NOT AN ALL-CLEAR: ha_get_logs was unavailable
+    this run (home-assistant MCP failed to connect, CONNECTION_CLOSED). I fell back to the
+    authenticated /api/hassio/core/logs route, which returns HTTP 200 but only the last ~100 lines
+    (~1 minute of wall time, 02:01:47-02:02:44), so it CANNOT reach 09-21 or 09-23 and no
+    log-based attribution was possible. Nothing here should be read as "the logs were clean" —
+    the logs were not readable for the relevant window. NEW IMPACT NOT PREVIOUSLY ON THIS CARD:
+    the stuck-ON motion cohort is an occupancy-poisoning risk, not just a detection gap.
+    NO BUILD OR REMEDIATION ACTION TAKEN (hostile timing: 02:00, house occupied and asleep).
+    Operator paged via HA persistent_notification rather than Pushover, deliberately, because the
+    fault is 2.6 days old and does not justify waking the house at 2am.'
   tags:
   - measure-before-build
   - no-fabrication-verify
@@ -26596,20 +26701,19 @@ cards:
     restarting a service. Read-only diagnosis has gone as far as it can from here. I did not send a
     phone push: this has already been dark for 60 hours, nothing I can do at 4am shortens that, and
     waking an occupied house adds no action. Left a Home Assistant notification instead.'
-  next: 'DO — this is live and it is the whole exterior. Forget the earlier "stand down"; I checked
-    tonight and the cameras went dark AGAIN on Sunday evening 20 September and are STILL dark,
-    roughly sixty hours now. Eighteen of your twenty-four cameras have detected nothing at all —
-    not a person, not a car — since about 7pm that evening. Six still work, and they are the indoor
-    ones plus pool equipment. The cameras themselves are fine and Frigate is running normally: every
-    feed is capturing at full frame rate and several of the dead ones are actively running their
-    detector as I write this. So the fault is on the Frigate machine, in whatever changed there
-    around 7pm on 20 September. THE ASK: go look at the Frigate host (192.168.13.18) — its own logs
-    and whether anything was changed, restarted or updated that evening. I stopped at read-only
-    diagnosis because going further means restarting a service on a machine outside URA. SECOND ASK,
-    and this is the bigger one: this is the FOURTH time this has happened in under two weeks and the
-    fourth time nothing noticed. The alarm that would have caught it within hours is built and
-    waiting for your approval on CAMERA-SILENT-PRODUCER-TRIPWIRE-1. Sixty silent hours is the
-    argument for it.'
+  next: 'DO — reload the Frigate and UniFi Protect config entries (and if that does not revive
+    them, restart those integrations'' hosts). I measured this tonight and it is still live, but the
+    CAUSE IS NOT WHAT THIS CARD PREVIOUSLY SAID. Earlier this card told you the fault was on the
+    Frigate machine at 192.168.13.18; that is now known to be at best incomplete, because the same
+    freeze hit UniFi Protect, which is a different integration on different hardware, at the SAME
+    SECOND. What is actually happening: the detection entities are not missing and not unavailable —
+    they exist and are stuck. Twelve Frigate person sensors and about forty Protect camera person
+    sensors have been frozen reading "off" since 23:23:32 on 21 September, which is 2.6 days. They
+    last wrote a value in the shutdown flush of the Core restart at 23:25 that evening and never
+    wrote another one after it came back. Separately, seventeen camera motion sensors have been
+    stuck ON since 07:19 on 23 September — those feed room occupancy, so rooms may be being held
+    occupied by a sensor that is simply jammed. I did NOT reload or restart anything: doing that
+    restarts live integrations in an occupied sleeping house, which is the hostile-timing pause.'
   links:
     related:
     - CAMERA-ZERO-FIRE-DETECTORS-1
