@@ -9,6 +9,26 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1@2026-09-24T02:30:00'
+    at: '2026-09-24T02:30:00'
+    outcome: measured
+    headline: 'THE LOG FLOOD IS STILL RUNNING AND I PINNED ITS FINGERPRINT EXACTLY — IT IS WAITING
+      ON ONE TOGGLE FROM YOU. Something on the system still asks the supervisor for status every
+      ten seconds without credentials, gets refused, and the refusal is written to the log every
+      time. Tonight''s sample: 77 of the last 100 supervisor log lines are that one message, and
+      the gap between them is exactly 10.0 seconds across 77 samples — that is a machine on a
+      timer, not a glitch. Every single one hits the same address, which matches the theory this
+      card already had about what is calling. One new thing I ruled out: I searched our own homelab
+      dashboard code, the other thing on the network that polls Home Assistant, and it is NOT the
+      culprit — so it is almost certainly one of the eleven add-ons we already listed. The ask has
+      not changed and is still one reversible switch: turn Protection mode OFF on the Advanced SSH
+      & Web Terminal add-on. Then I re-check within minutes and either close this or name whatever
+      is left. I did not touch it myself — flipping add-on settings and restarting add-ons at 2am
+      in an occupied house is exactly the kind of thing I hold for you. One caveat I want to be
+      straight about: the log route only gave me the last 100 lines tonight instead of thousands,
+      so I could measure how MUCH of the log is flood but not how far back the log now reaches —
+      please do not read that silence as the retention problem having fixed itself.'
+    acknowledged: false
   - fid: 'CAMERA-STUCK-SENSOR-TRIPWIRE-1@2026-09-24T02:20:00'
     at: '2026-09-24T02:20:00'
     outcome: measured
@@ -27156,7 +27176,7 @@ cards:
   thread: platform
   status: waiting_operator
   created: '2026-09-21 02:35'
-  updated: '2026-09-23 02:10'
+  updated: '2026-09-24 02:30'
   refinement_status: refined
   approval: implied
   tags: [tier-1, measure-before-build, no-fabrication-verify]
@@ -27281,6 +27301,36 @@ cards:
     /supervisor/info and /backups lines, and there are none. (7) docker route CLOSED: docker ps from
     the ssh add-on returns permission denied on /var/run/docker.sock.'
 
+  measured_2026_09_24: 'OVERNIGHT PASS — VERIFY-BEFORE-WORK verdict: STILL-REAL, re-measured, and
+    the operator DO has still NOT been done. The flood is running right now and the numbers are
+    tighter than any previous pass. LOG-READ ROUTE, STATED EXPLICITLY (no false all-clear):
+    ha_get_logs was unavailable again this run — the home-assistant MCP failed with
+    CONNECTION_CLOSED — so I used the authenticated /api/hassio/supervisor/logs route, HTTP 200.
+    IMPORTANT LIMITATION I am recording rather than papering over: that route returned only the
+    last 100 lines this time (previous passes got thousands via ?lines=20000), so I could measure
+    the flood SHARE and CADENCE precisely but could NOT re-measure the journal''s total retention
+    window tonight. Do not read the absence of a retention number as the retention being fixed.
+    WHAT THE 100-LINE SAMPLE SHOWS (2026-09-24 01:54:35 -> 02:07:24 local, a 12.8-minute window):
+    77 of 100 lines are the flood — "WARNING [supervisor.api.middleware.security] No API token
+    provided for /core/info". So ~77% of the supervisor log is still this one message, consistent
+    with the 81.8% / 85% figures from the 09-22 and 09-23 passes. CADENCE NAILED: the median gap
+    between consecutive flood lines is EXACTLY 10.0 seconds across 77 samples — a machine poller
+    on a 10-second timer, not a human or a retry storm. ENDPOINT IS SINGULAR: all 77 hit /core/info
+    and nothing else, which continues to fit the "tokenless `ha core info` equivalent" hypothesis
+    this card already carries. NEW NEGATIVE RESULT (narrows the suspect list): I grepped the
+    homelab-automation repo — which is the other thing on this LAN that polls HA — for /core/info,
+    `ha core info`, hassio/core/info and 10-second HA poll intervals, and found NO caller in its
+    source (the only match was the rendered kanban HTML describing this very card). So the poller
+    is most likely one of the eleven installed add-ons already enumerated in narrowed_2026_09_21,
+    not our own dashboard collector. This does not change the recommended first move. THE ASK IS
+    UNCHANGED and remains a single reversible operator toggle (Protection mode OFF on Advanced SSH
+    & Web Terminal); on that toggle I re-pull and either close this card or report the residual
+    caller with the flood removed as contrast. NO ACTION TAKEN unattended: toggling add-on
+    protection mode and stopping add-ons to bisect are both operator-owned, and at 02:00 in an
+    occupied house add-on restarts are the hostile-timing pause.'
+  BLOCKING_NOTE_2026_09_24: 'Still BLOCKING HA-CORE-RESTART-STORM-1 by the same mechanism, but note
+    the storm has been dormant since 09-20, so fixing the flood now buys forensic readiness for the
+    NEXT event rather than retroactive attribution of the old ones.'
 - id: HA-CORE-RESTART-STORM-1
   title: Home Assistant restarted itself 8 times in 20 hours, three of them in the middle of the
     night, each costing about 6 minutes with the whole house offline

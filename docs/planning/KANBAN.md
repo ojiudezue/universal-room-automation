@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-23T02:24:33-05:00_ - _Data commit: `6bf27eff4b3b`_ - _last_reconciled: 2026-09-23_
+_Generated: 2026-09-24T02:07:10-05:00_ - _Data commit: `248050f562d2`_ - _last_reconciled: 2026-09-23_
 
 
 ## Columns
@@ -541,7 +541,7 @@ _created 2026-09-16 03:30 · updated 2026-09-24 02:10 · refined_
 
 ### `SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1` - A tokenless poller hits the supervisor every 10s and floods its log, destroying our restart forensics — _#2 · WSJF 7.5 · v6 tc5 u4 /e2_
 thread: **platform** - status: **waiting_operator** - approval: **implied**
-_created 2026-09-21 02:35 · updated 2026-09-23 02:10 · refined_
+_created 2026-09-21 02:35 · updated 2026-09-24 02:30 · refined_
 - **Problem / Solution:**
   - Problem: something on the system asks Home Assistant's supervisor for status every ten seconds without supplying a password, and the supervisor writes a warning line every single time it is refused. Those refusals now make up about 85% o...
 - **Origin:** 2026-09-21 - seen while mining the supervisor log for the restart-storm card; prior pass flagged it as "worth its own look if it persists" and it has persisted
@@ -550,11 +550,13 @@ _created 2026-09-21 02:35 · updated 2026-09-23 02:10 · refined_
 - **Tags:** tier-1, measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] A tokenless caller polls /core/info every 10.1s, consuming 85% of the supervisor log and capping its retention at ~5h, which is less than the interval between the restarts we are trying to attribute.
 - **Refs:** supervisor log pull 2026-09-21 02:06 via /api/hassio/supervisor/logs?lines=20000
-- **Forensic keys (4):**
+- **Forensic keys (6):**
   - `measured_2026_09_21`: Measured unattended via GET /api/hassio/supervisor/logs?lines=20000. The pull returned 2079 lines spanning only 2026-09-20 21:21 to 2026-09-21 02:06 — under 5 hours. Level mix: 1777 WARNING, 276 INFO, 6 ERROR, and 1777 of the 2079 lines ...
   - `narrowed_2026_09_21`: ROUTE (b) WORKED and the suspect list is now enumerated, though the culprit is not yet named. Over ssh, /addon_configs + /addons list eleven installed add-ons: three zigbee2mqtt instances (1ff69cfe, 45df7312, 9336c2b0), evcc (49686a9f), ...
   - `measured_2026_09_23`: OVERNIGHT PASS — STILL-REAL, verified, and the operator DO has NOT been done yet. LOG-READ ROUTE (stated explicitly, no false all-clear): the home-assistant MCP again never finished connecting this run, so ha_get_logs was unavailable; I ...
   - `measured_2026_09_22`: OVERNIGHT PASS. STILL-REAL, and three new hard facts. LOG-READ ROUTE: the home-assistant MCP never finished connecting this run, so ha_get_logs was unavailable; I did NOT treat that as an all-clear — I used the equivalent authenticated r...
+  - `measured_2026_09_24`: OVERNIGHT PASS — VERIFY-BEFORE-WORK verdict: STILL-REAL, re-measured, and the operator DO has still NOT been done. The flood is running right now and the numbers are tighter than any previous pass. LOG-READ ROUTE, STATED EXPLICITLY (no f...
+  - `BLOCKING_NOTE_2026_09_24`: Still BLOCKING HA-CORE-RESTART-STORM-1 by the same mechanism, but note the storm has been dormant since 09-20, so fixing the flood now buys forensic readiness for the NEXT event rather than retroactive attribution of the old ones.
 
 ### `HUMIDITY-LOW-RUNG-PAGING-KNOB-1` - Make the LOW-severity humidity-band NM page null/configurable (un-knobbed rung) — _#3 · WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **safety** - status: **waiting_operator** - approval: **explicit**
