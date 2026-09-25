@@ -28387,6 +28387,55 @@ cards:
     open. The long tail is where SOC actually goes stale for URA. METHOD NOTE FOR ANY FUTURE CHECK:
     query a BOUNDED window and confirm has_more=false; a 1000-row cap on a 10d request silently
     truncates and will make a still-flapping integration look like it stopped.'
+  upstream_and_ura_interaction_audit_2026_09_25: 'OPERATOR TASK: "check if there are known problems
+    with the latest version of HA and that integration, and if there are interactions with URA causing
+    it." Operator also restarting the Envoy hardware, and stated the stake: "we cannot manage the
+    energy system effectively this way." BOTH QUESTIONS ANSWERED, and the upstream one has a precise,
+    actionable result.
+
+    (1) UPSTREAM — THE FIX EXISTS, IS MERGED, AND IS ONE RELEASE AWAY. WE ARE NOT ON IT, AND UPGRADING
+    TO THE LATEST STABLE WOULD NOT HELP. Version chain, all verified via the GitHub API this session,
+    not recalled: we run core-2026.9.2 (HAOS 18.2, Python 3.14.6, per ha_get_system_health). core
+    2026.9.2 manifest pins pyenphase==4.0.3. The session-close fix is pyenphase PR #503 ("raise
+    EnvoyClientClosedError on closed session for setup, probe and update methods"), MERGED 2026-09-16,
+    released as pyenphase v4.0.5 the same day. It reached core as PR #182473 ("Bump pyenphase to
+    4.0.5"), merged to dev 2026-09-17 — WITH MILESTONE 2026.9.4. Critically: core 2026.9.3 (released
+    2026-09-18, the latest stable today) STILL PINS pyenphase==4.0.3, so updating to 2026.9.3 buys
+    NOTHING for this bug. The fix arrives in 2026.9.4, not yet released. core dev now pins 4.0.6 (PR
+    #183094, merged 2026-09-25). SO THE CORRECT ACTION IS NOT "track an open upstream bug
+    indefinitely" — that was the 09-21 read and it is now OUT OF DATE. The action is WAIT FOR 2026.9.4
+    AND UPDATE, or patch locally to bridge the gap. Note issue #181243 is still OPEN (17 comments,
+    last updated 09-16) even though its fix has merged — so ISSUE STATE WAS A MISLEADING ORACLE here,
+    and reading only the issue would have concluded "no fix exists." The library release + the core
+    manifest pin are the authoritative signals. NOT a match, checked and discarded: core #125418
+    "Envoy frequently returns Unavailable" is a 2024.9-era HTTPX-timeout issue, closed, different
+    mechanism.
+
+    (2) URA INTERACTION — EXONERATED, by the untouched-entity procedure, NOT by analogy. Three greps
+    over custom_components/universal_room_automation/: (a) NO direct network access to the Envoy —
+    zero hits for 192.168.12.191, envoy.local, pyenphase, httpx, or requests; the only
+    async_get_clientsession/aiohttp use in the package is perimeter_alert.py:3594-3604, the Frigate
+    snapshot proxy, unrelated. (b) NO service call into the enphase domain at all. (c) URA NEVER
+    RELOADS THE ENVOY CONFIG ENTRY. All reload sites were checked individually rather than counted:
+    switch.py:686/697 iterate async_entries(DOMAIN) and reload only URA''s own INTEGRATION entry;
+    hvac.py:5453 calls homeassistant.reload_config_entry but is scoped to a resolved ha_carrier entry
+    and carries an explicit guard refusing to proceed if the resolved entry is URA''s own domain.
+    URA''s entire consumption of the Envoy is PASSIVE STATE READS — hass.states.get at
+    energy.py:3022 and energy_const.py:1445 — which read the HA state machine and generate ZERO load
+    on the Envoy local API. URA cannot be causing, amplifying, or accelerating the flap.
+
+    (3) CORROBORATION FROM THE MEASUREMENT, independent of the code read: the 09-24 series flapped
+    continuously through BOTH a full charge (SOC 8->99) and a full discharge (99->10). A URA-driven
+    cause would have to be uncorrelated with URA''s own energy activity to produce that — the opposite
+    of what causal coupling looks like. Consistent with a fixed-interval background task.
+
+    (4) NON-URA CONTENTION CANDIDATE, FLAGGED NOT CONCLUDED: ha_get_system_health shows the add-on
+    "Stream mqtt from Enphase Envoy (1.0.24)" installed — a SECOND independent client holding a
+    connection to the same local Envoy — plus the separate cloud enphase_ev integration. Plausible
+    contributor to local-API contention, and it sits squarely next to the operator''s dual-homed lead
+    (HA itself is multi-homed: enp4s0 192.168.13.13 plus VLAN sub-interfaces incl. enp4s0.5
+    192.168.12.13, the Envoy''s subnet). NOT measured whether it contends — stated as a hypothesis
+    with a named next experiment, not as a cause.'
   measured_2026_09_23: 'OVERNIGHT PASS — groom + verify. (1) THE OUTAGE IS OVER: all 37
     sensor.envoy_482543015950_* entities are available and fresh (newest last_updated 07:22, oldest
     02:39), so the operator-authorized Core restart on 2026-09-21 23:14 did recover the stuck entry

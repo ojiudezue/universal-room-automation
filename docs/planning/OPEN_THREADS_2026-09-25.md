@@ -145,17 +145,84 @@ nothing but downtime.
 
 What would *actually* move it, in order of value:
 
+### ⭐ UPSTREAM STATUS — RESOLVED QUESTION: the fix exists and is ONE RELEASE away
+
+Verified via the GitHub API this session (not recalled). **This supersedes the 09-21 "no fix exists,
+track it indefinitely" read.**
+
+| Thing | Version | Date |
+|---|---|---|
+| **We run** | core **2026.9.2** → pins `pyenphase==4.0.3` | 09-11 |
+| Latest stable | core **2026.9.3** → **still pins `4.0.3`** | 09-18 |
+| The fix | pyenphase PR **#503** → released **v4.0.5** | 09-16 |
+| Fix reaches core | PR **#182473**, merged to dev, **milestone 2026.9.4** | 09-17 |
+| core dev now | pins `4.0.6` (PR #183094) | 09-25 |
+
+**Two consequences that change the decision:**
+1. **Updating to 2026.9.3 would buy nothing** — it carries the same unfixed `4.0.3`. Worth knowing
+   before anyone "just updates HA."
+2. **The fix lands in 2026.9.4, which is not yet released.** So the wait is *one patch release*, not
+   an unbounded upstream vigil.
+
+A trap worth recording: **issue #181243 is still OPEN** (17 comments) even though its fix has merged.
+Reading the issue state alone would conclude "no fix exists." The library release + the core manifest
+pin are the authoritative signals. (Also checked and discarded: core #125418 "Envoy frequently
+returns Unavailable" is a 2024.9-era HTTPX-timeout issue, closed — different mechanism.)
+
+### URA interaction — exonerated, by procedure not analogy
+
+You asked whether URA is causing this. It is not, and here is the evidence rather than an assurance:
+- **No network access to the Envoy from URA at all** — zero hits for `192.168.12.191`, `envoy.local`,
+  `pyenphase`, `httpx`, `requests`. The only `aiohttp` use in the package is the Frigate snapshot
+  proxy (`perimeter_alert.py:3594-3604`).
+- **No service call into the `enphase` domain.**
+- **URA never reloads the Envoy config entry.** Every reload site was opened individually:
+  `switch.py:686/697` iterate `async_entries(DOMAIN)` and reload only URA's own INTEGRATION entry;
+  `hvac.py:5453` does call `homeassistant.reload_config_entry` but is scoped to a resolved
+  `ha_carrier` entry *and* carries a guard refusing to proceed if the resolved entry is URA's own.
+- **URA's entire consumption is passive state reads** — `hass.states.get` at `energy.py:3022` and
+  `energy_const.py:1445`. Those read the HA state machine and put **zero load on the Envoy local API**.
+- **Independent corroboration:** 09-24 flapped straight through a full charge *and* a full discharge.
+  A URA-driven cause would have to be uncorrelated with URA's own energy activity — the opposite of
+  causal coupling.
+
+### One non-URA contention candidate — flagged, not concluded
+
+`ha_get_system_health` shows the add-on **"Stream mqtt from Enphase Envoy (1.0.24)"** installed — a
+*second* independent client holding a connection to the same local Envoy — plus the separate cloud
+`enphase_ev` integration. That sits right next to your dual-homed lead (HA itself is multi-homed:
+`enp4s0` 192.168.13.13 plus VLAN sub-interfaces including `enp4s0.5` 192.168.12.13, the Envoy's
+subnet). **I have not measured whether it actually contends** — it's a hypothesis with a named next
+experiment, not a cause.
+
+### Options, re-priced against the above
+
 | Option | Effect | Cost / risk |
 |---|---|---|
-| **A. Local core patch** — wrap the two tasks in try/except in `enphase_envoy/coordinator.py` | Converts flap-to-freeze into flap-and-recover. Targets the real cause. | Patch lives in the container; **lost on every core update** unless re-applied. Needs a re-apply hook. |
-| **B. Dual-homed pinning** (your lead — not yet investigated) | If the two interfaces cause local-API contention, pinning to the stable IP could cut the session-close rate. | Read-only investigation first; cheap. **Still un-run — say the word.** |
-| **C. Track upstream + bump core when fixed** | The real cure. | Unbounded wait; no fix merged today. |
-| **D. Nothing** | URA holds state; no actuation harm observed. | Battery SOC data is missing ~a third of the day; any future consumer of live SOC inherits the gap. |
-| **E. Host reboot** | Not indicated by the evidence (see above). | ~5min whole-house downtime for a mechanism it doesn't touch. |
+| **C′. Update to 2026.9.4 when it lands** ⭐ | **The real cure, now bounded to one patch release.** | Short wait. **Do NOT update to 2026.9.3 expecting relief** — same unfixed pin. |
+| **A. Local core patch** (wrap the two tasks / vendor `pyenphase` 4.0.5) | Closes the gap *today* instead of waiting. | Lives in the container; **lost on every core update**. Only worth it if the wait is intolerable — and it now bridges days, not months. |
+| **B. Dual-homed + second-client investigation** (your lead, now sharper) | May cut the session-close *rate* independent of the library fix; also covers the MQTT add-on. | Read-only, cheap, **still un-run**. Complements C′ rather than competing with it. |
+| **D. Nothing** | — | **Weaker than it looked this morning:** seven days, no self-recovery, and the long-tail outages (82min, 49min) are exactly when battery strategy runs on stale SOC. Your "we cannot manage the energy system effectively this way" is the correct read. |
+| **E. Host reboot** | Not indicated. | Mechanism is inside the core container; a Core restart already reaches it. |
 
-> **ANSWER — which of A / B / C / D / E?** (B is cheap and yours; A is the only one that changes
-> today's behavior):
+**My recommendation:** **C′ + B** — take the bounded wait for 2026.9.4 as the cure, and let me run B
+now (read-only, no risk) since it's the one thing that could reduce the flap rate independently *and*
+it checks the second-client hypothesis your hardware restart won't settle.
+
+> **ANSWER — which of C′ / A / B / D / E?** (multiple allowed; B costs you nothing):
 >
+> **ANSWER — want me to also set a watch so you're told the moment 2026.9.4 is available?**
+>
+
+### Note on your Envoy hardware restart
+
+Worth setting expectations: the hardware restart will clear the *current* stuck entry and any
+device-side condition, but the mechanism above is a Python exception escaping a background task
+**inside HA**, so a healthy Envoy will still be flapped by it. If flapping resumes at a similar rate
+within a day of the restart, that is the predicted outcome and confirms the library diagnosis rather
+than indicating the restart failed. I'll re-measure transitions afterward to check — that is a
+**discriminating** observation: sharply reduced rate ⇒ a device-side contributor existed; unchanged
+rate ⇒ purely the pyenphase bug.
 
 ---
 
