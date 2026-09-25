@@ -672,55 +672,47 @@ meta:
       next unexplained restart names its own culprit and I fix it at source. I also ruled out the
       obvious suspects already: nothing in your automations or scripts calls restart, nothing on the
       Mac does, and the nightly pass only reads.'
-  - fid: CAMERA-SILENT-PRODUCER-TRIPWIRE-1@2026-09-17T03:05:00
-    at: '2026-09-17T03:05:00'
-    outcome: escalated
+  - fid: HA-CORE-RESTART-STORM-1@2026-09-25T02:20:00
+    at: '2026-09-25T02:20:00'
+    outcome: parked
     acknowledged: false
-    headline: 'I BUILT THE BLACKOUT ALARM, THEN THE REVIEWS KILLED IT — and they were right, so it is
-      NOT shipping and I want your go on the redesign. The idea is sound and still worth doing: we
-      already catch an outdoor camera stuck ON shouting "person!", but we never had the opposite
-      check for the whole fleet going silent, which is exactly why three blackouts in eight days
-      passed unnoticed. I built that mirror check, tests green, and proved the tests would catch a
-      regression by deliberately breaking the check and watching four of them fail. THEN TWO
-      REVIEWERS, WORKING INDEPENDENTLY FROM DIFFERENT ANGLES, LANDED ON THE SAME FATAL FLAW — which
-      is the strongest warning this process can give. The check counts elapsed silence in memory. Your
-      system reloads itself roughly five times a night (a known open problem), and every reload wipes
-      that memory and restarts the count from zero. A check that needs six uninterrupted hours would
-      therefore never get there. It would have sat silent through BOTH real blackouts while looking
-      installed and healthy — which is worse than having no alarm at all, because you would have
-      believed it. AND ONE OF THE THREE PROBLEMS IS MINE, not the builder''s, so I want it on the
-      record: I sized the six-hour threshold by measuring "no camera reported anybody", but what got
-      built tests "every camera currently reads off". Those sound identical and are not — a sensor
-      stuck ON contributes nothing to the first measure while permanently blocking the second. So my
-      evidence did not actually validate the thing that was built. I only found that because I went
-      to check a reviewer''s claim against the database instead of taking their word for it, and the
-      number they quoted turned out to be overstated while pointing at something real. THE GOOD NEWS
-      is that one redesign fixes all of it: read how long each camera has actually been quiet from
-      the cameras themselves at the moment of checking, rather than counting it up in memory. That
-      survives the reloads by construction and makes the check match the evidence. Say go and I redo
-      it properly and put it back through both reviews.'
-  - fid: FRONT-SIDE-PTZ-CHATTER-1@2026-09-17T03:15:00
-    at: '2026-09-17T03:15:00'
+    headline: 'THE MIDNIGHT RESTARTS HAVE STOPPED, AND I AM PARKING THE HUNT RATHER THAN PRETENDING
+      IT IS SOLVED. Your house rebooted itself eight times in twenty hours last week, three of those
+      in the small hours, each one leaving you with no automation for about six minutes. Tonight I
+      re-read the system''s own restart ledger and found only two reboots in the last six days — and
+      one of those is the Envoy recovery you personally authorised on Sunday night. That is roughly
+      86 hours with no reboot at all, and five days since the last one nobody can explain. So the
+      symptom is genuinely gone. WHAT I AM NOT CLAIMING: we still do not know who asked for the ten
+      older restarts that did not line up with one of my own deploys. That question is preserved, not
+      closed. THE REASON I STOPPED RATHER THAN PUSHED ON is simple and worth you knowing, because it
+      is the honest limit of what I can do unattended: the plan on this card was "wait for the next
+      unexplained reboot, then read the log that names the culprit". There is no next unexplained
+      reboot to read. The evidence supply has dried up, so more digging tonight would have been motion
+      without information. I have written an exact revival trigger onto the card instead — the moment
+      a reboot appears that does not follow one of my releases, the card wakes itself up and I go
+      straight to the log. NOTHING WAS BUILT OR CHANGED. One more thing you should know: the log I
+      would need has got dramatically worse this week, which is the other half of why this is parked —
+      see the supervisor-flood item below.'
+  - fid: SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1@2026-09-25T02:20:00
+    at: '2026-09-25T02:20:00'
     outcome: measured
     acknowledged: false
-    headline: 'YOUR NOISIEST FRONT CAMERA STOPPED SEEING PEOPLE ALTOGETHER — and I need to know
-      whether you did that on purpose. This card was about front_side_ptz firing far too often (204
-      person-detections in a day, manufacturing false "someone is circling the house" tracks). The
-      good news on paper: that noise is completely gone. The bad news: it is gone because the camera
-      has stopped detecting people at all. One detection a day for three days straight, down from 204.
-      THE CAMERA IS WIDE AWAKE, which is how I know this is not just a quiet week — its motion
-      detection over the same days is the BUSIEST it has ever been, a record 383 events on Tuesday,
-      on the very day person detection reported one. Motion fine, people-spotting dead, same camera.
-      AND THIS IS SEPARATE FROM THE FLEET OUTAGE I reported earlier tonight: every other outdoor
-      camera recovered on Tuesday and is behaving normally. This one did not. So your front side
-      currently has effectively no person detection, three days running. THE LIKELY CAUSE IS THE
-      THING THIS CARD ASKED YOU TO DO: we asked you to apply a detection-zone crop to this camera to
-      calm it down. A crop would zero person detections while leaving motion untouched — which is
-      precisely the fingerprint, on precisely this camera, at about the right time. If that is what
-      happened, it overshot: we wanted it quieter, not blind. Tell me yes or no and I will either
-      help widen the crop or go after a genuine fault on the camera host. Please do not let anyone
-      close this card on the grounds that the chatter stopped — the noise stopped because the camera
-      stopped, which is not the win it looks like.'
+    headline: 'THE LOG THAT WOULD EXPLAIN A CRASH NOW REMEMBERS ONLY THIRTEEN MINUTES, DOWN FROM
+      ABOUT SIX HOURS — this got significantly worse and it is still waiting on a one-click action
+      from you. Something on your system asks Home Assistant''s supervisor for its status every ten
+      seconds without a password, and the supervisor writes a complaint line every single time it
+      refuses. Tonight those complaints were 77 of the last 100 lines — the same proportion as last
+      night, so the noise itself is steady. The damage is what that noise crowds out. Last Monday the
+      log still reached back about five and a half hours; on Tuesday about five and three quarters.
+      Tonight the entire log covers 01:48 to 02:01 — twelve minutes and fifty seconds. That is a
+      collapse of more than tenfold in forensic memory. WHY IT MATTERS TO YOU CONCRETELY: this is the
+      only log that survives a reboot, so it is the only place that can ever name what rebooted your
+      house. At thirteen minutes of reach, it can no longer even hold a reboot that happened half an
+      hour ago. It is the direct reason I parked the restart investigation tonight instead of
+      advancing it. I DID NOT ACT, deliberately: the fix is to turn Protection mode off on the
+      Advanced SSH add-on, which is a change to your live system that only you should make, so this
+      stays on your queue rather than mine. It is one toggle in Settings, and it buys back the ability
+      to diagnose the next outage.'
 cards:
 - id: HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1
   VALIDATED_5108_2026_09_18: 'v5.103.8 live-validated: loaded clean, zero ERROR. retreat_reason live
@@ -27176,10 +27168,24 @@ cards:
   thread: platform
   status: waiting_operator
   created: '2026-09-21 02:35'
-  updated: '2026-09-24 02:30'
+  updated: '2026-09-25 02:20'
   refinement_status: refined
   approval: implied
   tags: [tier-1, measure-before-build, no-fabrication-verify]
+  measured_2026_09_25: 'OVERNIGHT PASS — re-measured STILL-REAL and materially WORSE than the
+    09-24 reading, which raises this card''s urgency rather than leaving it flat. Pulled the
+    supervisor journal via the authenticated hassio proxy (/api/hassio/supervisor/logs, 200 OK; the
+    home-assistant MCP did not connect this run, so ha_get_logs was unavailable — the log WAS read,
+    via the proxy route, and this is explicitly not an all-clear by omission). Of the 100 lines the
+    endpoint returns, 77 are the tokenless flood ("No API token provided for /core/info") — the same
+    77/100 share measured on 09-24, so the flood itself is unchanged and persistent. The DEGRADATION
+    is in the window: those 100 lines now span 2026-09-25 01:48:26 to 02:01:15, i.e. just 12.8
+    MINUTES of history, against the ~5.45h and ~5.83h windows measured on 09-22 and 09-23. Forensic
+    reach has collapsed by more than an order of magnitude. CONSEQUENCE: the sibling restart
+    investigation is now un-advanceable by observation even for a restart that fired minutes ago, and
+    I have parked HA-CORE-RESTART-STORM-1 tonight partly on that basis. NO ACTION TAKEN — the fix
+    requires turning Protection mode OFF on the Advanced SSH add-on, which is an operator action on
+    the live instance, so this correctly stays in waiting_operator.'
   problem_solution:
   - 'Problem: something on the system asks Home Assistant''s supervisor for status every ten seconds
     without supplying a password, and the supervisor writes a warning line every single time it is
@@ -27335,12 +27341,40 @@ cards:
   title: Home Assistant restarted itself 8 times in 20 hours, three of them in the middle of the
     night, each costing about 6 minutes with the whole house offline
   thread: platform
-  status: investigating
+  status: parked
   created: '2026-09-19 03:30'
-  updated: '2026-09-23 02:12'
+  updated: '2026-09-25 02:20'
   refinement_status: refined
   approval: unreviewed
   tags: [measure-before-build, no-fabrication-verify, falsify-first, watchdog-hazard]
+  measured_2026_09_25: 'OVERNIGHT PASS — PARKED, because the investigation has run out of
+    observable evidence, not because it was resolved. Re-pulled the full restart ledger from the live
+    recorder (ssh ha sqlite3 -readonly /config/home-assistant_v2.db, events JOIN event_types, last 6
+    days): only TWO stop/start pairs exist in the whole window — 09-20 14:32:09 -> 14:37:54 UTC and
+    09-22 04:19:38 -> 04:25:23 UTC — and the second is the already-attributed operator-authorized
+    Envoy-recovery restart (ENVOY-FLAKINESS-181243-1). That means ZERO restarts of any kind in the
+    last ~86 hours and zero UNATTRIBUTED restarts since 09-20 14:32 UTC, five days ago. Each pair is
+    again a clean ~5m45s stop->start gap, consistent with the card''s original six-minute claim.
+    LOG-READ ROUTE, stated explicitly so this is not read as an all-clear by omission: the
+    home-assistant MCP did NOT connect this run (CONNECTION_CLOSED), so ha_get_logs was unavailable;
+    I used the authenticated hassio proxy instead (/api/hassio/core/logs and
+    /api/hassio/supervisor/logs, both 200 OK with real payloads), which is the same route the
+    09-22/09-23 passes used. Logs WERE read. WHY PARK RATHER THAN CONTINUE: the card''s own stated
+    next step is "mine the supervisor log at the next unmatched restart and name the initiator", and
+    there is no next unmatched restart to mine — the producer of evidence has stopped. The blocker
+    (SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1) also re-measured STILL-REAL tonight and worse than
+    before, so even if a restart fired, the window could not hold it. An investigation with no
+    executable measurement belongs in parked with a revival trigger, per the Investigating-lane exit
+    rule. NOT REFUTED: the initiator of the 10 unmatched restarts from 09-13..09-20 remains unknown,
+    and that question is preserved here rather than closed. NO BUILD ACTION TAKEN.'
+  revival_trigger: 'Revive the moment a NEW unattributed restart appears in the recorder ledger —
+    i.e. a homeassistant_stop/start pair that does NOT sit 21-125s after a URA release tag and is not
+    operator-authorized. Concretely: at any pass, run the events JOIN event_types query for
+    homeassistant_stop/start over the days since 2026-09-20 and join against git release tags; any
+    unmatched pair revives this card immediately with fresh forensic value, because the supervisor
+    journal will still be within reach of a just-fired event even at the current ~13-minute window.
+    Fixing SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1 also revives it (it makes the historical window
+    usable again rather than only the live one).'
   measured_2026_09_23: 'OVERNIGHT PASS — the storm has GONE QUIET, measured not assumed, and that
     materially changes this card''s urgency without resolving it. Pulled the full
     `homeassistant_start` event series from the live recorder
