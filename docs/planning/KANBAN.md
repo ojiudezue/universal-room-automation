@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T16:21:51-05:00_ - _Data commit: `665fd39487c0`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-25T16:41:09-05:00_ - _Data commit: `e1b7b4ae6001`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-09-25T16:21:51-05:00_ - _Data commit: `665fd39487c0`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 2 |
+| 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 16 |
 | 🔨 In progress | 0 |
@@ -26,23 +26,10 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (2)
+## 🔬 Investigating (1)
 _measuring; truth not yet known_
 
-### `ENVOY-CLOUD-FALLBACK-COVERAGE-UNVERIFIED-1` - URA has a cloud battery-SOC fallback wired and it is live right now — so is URA actually blind during Envoy outages, or did the fallback not engage? I asserted the former without checking the latter — _#1 · WSJF 4.7 · v7 tc5 u2 /e3_
-thread: **energy** - status: **investigating** - approval: **unreviewed**
-_created 2026-09-25 16:30 · initial_
-- **Problem / Solution:**
-  - Problem: I have been telling the operator that the Envoy flapping leaves the battery logic running on stale readings. But URA turns out to already have a backup reading wired up that comes from Enphase's cloud instead of the local device...
-- **Origin:** 2026-09-25 - operator asked whether the MQTT feed can publish/control; checking the control surface surfaced the cloud oracle entities and the wired fallback
-- **Why:** Decides how urgent the MQTT fast-feed consumer work actually is. If the cloud fallback already covers outages, the MQTT feed is a resolution/latency upgrade, not a rescue.
-- **Next:** MEASURE (me): read energy_battery.py's SOC resolution path to see whether the cloud fallback is consulted before emitting SOC=None, then scan the log for "holding current state" occurrences AFTER the fallback was configured. Discriminati...
-- **Tags:** energy, envoy, no-fabrication-verify, measure-before-build
-- **Parsimony:** [BUILD] A wired cloud SOC fallback may not be consulted on the path that emits SOC=None during Envoy outages.
-- **Forensic keys (1):**
-  - `evidence_2026_09_25`: WIRED, per the live CM config entry (.storage/core.config_entries): energy_cloud_battery_soc_fallback_entity = sensor.iq_battery_hacs_battery_overall_charge, energy_cloud_reserve_oracle_entity = number.iq_battery_hacs_battery_reserve, en...
-
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#1 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-09-23 05:05 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).

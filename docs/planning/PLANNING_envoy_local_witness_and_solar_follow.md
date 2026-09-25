@@ -361,3 +361,75 @@ flap rate rose after the add-on went live, or if flapping persists past 2026.9.4
 - **Q3.** Appetite for the `backup_soc` reserve witness (A4) in the same cycle as the SOC tier, or
   split? (Recommendation: same cycle — same producer, same trust question, and splitting doubles the
   review cost for one shared measurement.)
+
+---
+
+## 8. ⚠️ SYMPTOM-MATCH AUDIT — does #181243 actually explain what we see?
+
+**Operator question (2026-09-25): "confirm the native envoy integration symptoms match the identified
+bug by and large — making sure we're not waiting for something that doesn't match."**
+
+**Verdict: the ERROR SIGNATURE matches exactly. The SYMPTOM only partly matches. And the FIX WE ARE
+WAITING FOR DOES NOT CLOSE OUR FAULT PATH.** Waiting for 2026.9.4 as "the cure" is not supported.
+
+### 8.1 What matches — the error signature, exactly
+From 20 000 lines of core log (15:34-17:33 local, 2026-09-25):
+- **249x `RuntimeError: Session is closed`** and **248x `Task exception was never retrieved`**.
+- Traceback path identical to the issue's named path: `coordinator.py:201
+  _async_try_refresh_firmware` -> `envoy.setup()` -> `pyenphase/envoy.py:233` ->
+  `firmware.py:123 setup` -> `firmware.py:81 _get_info`.
+- Config entry sits in `setup_in_progress` — the issue's exact stuck state.
+- Retry cadence far more aggressive than `FIRMWARE_REFRESH_INTERVAL` (4 h): the issue reports
+  1.5-12 min; ours is a **median gap of 24 s** (p90 70 s, n=221).
+- Essentially no timeout component: of 86 `TimeoutError` lines in the window, exactly **1** is
+  attributable to pyenphase; the rest belong to wattbox / shelly / elgato / kidde / tuya_local.
+  So our Envoy fault surface is ~pure session-closed, not network timeouts.
+
+### 8.2 What does NOT match — and it is the part that costs us
+The issue's headline symptom is **terminal**: *"stops updating entirely… sits in `setup_in_progress`
+indefinitely. It does not self-recover."*
+
+**Ours self-recovers constantly.** Over the same window the battery sensor tracked a full charge
+(SOC **24 -> 96**) with roughly **10 brief dropouts in 2 hours**, each recovering on its own.
+
+That gives a **~25:1 ratio of session-closed errors (247) to actual flaps (~10)**. The session-closed
+exception therefore **cannot be the direct cause of each flap** — it fires ~25 times per flap.
+There are also **zero** `Error fetching … data` / `UpdateFailed` lines for enphase_envoy, which is the
+message a failing coordinator refresh would produce. **So the flap mechanism is NOT established by
+this evidence.** Stating that plainly rather than assuming the bug explains everything.
+
+Most likely reading of the hybrid state (entry `setup_in_progress` **while entities update**): a
+reload attempt wedged the entry in HA's bookkeeping — exactly as the issue reports ("the service call
+itself timed out and the entry stayed in `setup_in_progress`") — while the coordinator created by the
+original successful setup keeps polling. Consistent, but not proven.
+
+### 8.3 🔴 The fix does not close the escape — verified in source
+This is the decisive finding, and it inverts the recommendation in §0/§2.
+
+- pyenphase PR #503 (v4.0.5) adds `raise_on_client_closed()` pre-checks, including in
+  **`firmware.py::_get_info` — our exact failing line** — converting the raw aiohttp error into a
+  named `EnvoyClientClosedError`.
+- **But `class EnvoyClientClosedError(RuntimeError)`** (`exceptions.py:103`, v4.0.6). It subclasses
+  `RuntimeError`, **NOT `EnvoyError`** (`exceptions.py:8`).
+- HA's `_async_try_refresh_firmware` catches **`except EnvoyError`** only — and `coordinator.py` is
+  **byte-identical on 2026.9.2 and on `dev`**. `_async_fetch_and_compare_mac` still has **no
+  try/except at all** around its `interface_settings()` await, also unchanged on `dev`.
+- A GitHub search of home-assistant/core for `EnvoyClientClosedError` returns **exactly one** result:
+  PR #182473, the version bump. **No PR adds handling for it.** The only enphase_envoy PRs since
+  2026-09-10 are the 4.0.3 / 4.0.5 / 4.0.6 bumps.
+
+**Therefore: on 2026.9.4 the exception still escapes the background task.** It merely arrives with a
+better name. The "Task exception was never retrieved" spam, and whatever wedges the entry, are
+unchanged.
+
+### 8.4 Consequences
+1. **Do not treat 2026.9.4 as the cure.** The §0.1 "bounded wait of one patch release" framing was
+   wrong and is retracted here.
+2. **The local-stream work is now the primary mitigation, not a nice-to-have.** It is the only lever
+   that does not depend on an upstream fix which, as far as source shows, is not coming in 2026.9.4.
+3. **Worth contributing upstream:** comment on #181243 that the bump alone cannot fix it, because
+   `EnvoyClientClosedError` derives from `RuntimeError` rather than `EnvoyError` and the coordinator's
+   `except EnvoyError` therefore still misses it — plus `_async_fetch_and_compare_mac` remains
+   unguarded. That is a concrete, verifiable observation with file:line evidence.
+4. **Still unexplained: the flap mechanism** (§8.2). Worth its own measurement before any further
+   claim that "the Envoy problem" is one thing. Do NOT assert session-closed causes the flaps.
