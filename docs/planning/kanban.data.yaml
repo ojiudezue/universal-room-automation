@@ -27788,6 +27788,46 @@ cards:
   - 'docs/planning/PLANNING_energy_unit_normalization_and_attribution.md — prior art on the
     unit-mismatch story the classifier used to assert'
 - id: COVERAGE-RATING-FALSE-ANOMALOUS-1
+  REVIEW_A_2026_09_25: 'FRAMING A (local correctness + edge cases) — VERDICT SHIP, no CRITICAL and no
+    HIGH. Two small items recommended in-cycle per the fix-LOWs-in-cycle rule, both a few lines.
+    VERIFIED CLEAN, stated explicitly because a clean finding is worth as much as a bug here:
+    (1) BOUNDARY ARITHMETIC — dt_util.now() is datetime.now(DEFAULT_TIME_ZONE), so hour/minute are local
+    wall-clock fields and hour*60+minute < 120 is exactly local [00:00:00, 02:00:00); strict < means
+    02:00 is excluded, no off-by-one, no UTC/local confusion, and the idiom matches the pre-existing
+    _post_restart_window at :3207-3211. (2) THE NEVER-EXCUSE INVARIANT held under falsification — the
+    reviewer tabulated every input class through the 4-term and-chain at :931-936 and None, non-numeric,
+    NaN, inf and >100 each fail a guard before the negativity test, so no window value can smuggle one
+    through; the excuse branch can only downgrade ANOMALOUS to INCOMPLETE, never upgrade an in-bounds
+    value. (3) FAIL-CLOSED is genuine — except Exception returns False, BaseException still propagates,
+    and False is byte-identical to pre-change behaviour because the kwarg default at :869 is already
+    False; the published attribute also reads False, which is the safe polarity. (4) NO STRADDLE — one
+    clock read at :3417 feeds both the rating (:3437) and the attribute (:3446), and the helper has
+    exactly one call site repo-wide. (5) SUPPRESSION DISCHARGE IS STRUCTURAL, not timed: the clock is
+    re-read on every attribute build, so the window closes with no tick, no flag to clear and no restart
+    hazard (unlike _post_restart_window, which IS latched). A defect at 23:50 is NOT swallowed — it is
+    logged before 00:00 and again from 02:00. (6) CONSUMER COUNT RE-GREPPED INDEPENDENTLY rather than
+    trusted: exactly one production caller (aggregation.py:3434); no anomaly detector, NM notifier, DB
+    writer or sibling coordinator reads this rating, so blast radius really is one sensor attribute plus
+    one log line. DST WAS CHECKED WITH REAL ARITHMETIC: spring-forward is unaffected (the window only
+    uses hours 0 and 1, both of which occur), but fall-back makes hour 1 happen twice so the window
+    spans THREE real hours once a year — judged acceptable because the measured artifact clears by 01:20
+    so the first pass of hour 1 already covers it, and a duration-based window would be strictly worse
+    (it would shorten spring-forward). MEDIUM-1, THE ONE THING WORTH CHANGING: both log branches share a
+    single module-global warn throttle (_COVERAGE_RATING_ANOMALOUS_LAST_WARN at :862, stamped at both
+    :940 and :960) with a 3600s window, so the excuse branch firing at 00:05 can eat a REAL out-of-bounds
+    warning at 00:50 (repro: boot at 20:00 latches post_restart_window, excuse stamps the global at
+    00:05, re-anchor completes 00:40, genuine delta +4200 at 00:50 logs NOTHING until 01:05). The
+    returned rating is still correctly Anomalous so there is no misclassification — what is lost is the
+    log line a human would grep for, and this diff makes it likelier by adding a second daily firing
+    window. Fix = split into two globals, ~3 lines. LOW-3: the whole_house None/zero early return at
+    :3398-3409 publishes post_restart_window but NOT midnight_reanchor_window, so a consumer reading the
+    attribute unconditionally gets it absent on the no-data path — which is common at boot, exactly when
+    it matters. Fix = 1 line. LOW-1 (no fix recommended): the annual fall-back lengthening above, worth
+    a comment only. LOW-2 (pre-existing, not from this diff): -inf would be excused as negative, but
+    whole_house > 0 is already guarded at :3423 so it is unreachable. NOT VERIFIED, stated rather than
+    implied: the reviewer did not run pytest (that is framing B''s lane) and could NOT verify the
+    empirical sizing claim in const.py:352-357 from inside the review — if the artifact ever persists
+    past 02:00 the result degrades to today''s false ANOMALOUS rather than to a new failure mode.'
   measured_2026_09_23: 'OVERNIGHT PASS — VERDICT STILL-REAL + CARD-WAS-WRONG-IN-SCOPE, and the
     contained half is now BUILT and sitting in review. VALIDITY CHECK (ground truth, not the card):
     re-read aggregation.py:889-940 on current develop — the excuse branch is untouched and no fix has

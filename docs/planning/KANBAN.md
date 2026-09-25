@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T02:11:08-05:00_ - _Data commit: `50f1af76ae1a`_ - _last_reconciled: 2026-09-23_
+_Generated: 2026-09-25T02:11:55-05:00_ - _Data commit: `f7a4f5029932`_ - _last_reconciled: 2026-09-23_
 
 
 ## Columns
@@ -465,7 +465,8 @@ _created 2026-09-19 04:15 · updated 2026-09-25 02:55 · initial_
 - **Next:** REVIEWS IN FLIGHT — no operator input needed, and the old "BUILD next pass" text was STALE and is replaced. Verified on develop 2026-09-25: the build ALREADY LANDED at commit c5ea7dfc7 (COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN=120 confirmed...
 - **Tags:** measure-before-build, no-fabrication-verify, falsify-first
 - **Refs:** custom_components/universal_room_automation/aggregation.py:889-940 (_coverage_rating + both warnings); docs/planning/PLANNING_energy_unit_normalization_and_attribution.md; live core log 2026-09-18 21:56 / 22:56 / 2026-09-19 00:11 (the three rate-limited lines)
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `REVIEW_A_2026_09_25`: FRAMING A (local correctness + edge cases) — VERDICT SHIP, no CRITICAL and no HIGH. Two small items recommended in-cycle per the fix-LOWs-in-cycle rule, both a few lines. VERIFIED CLEAN, stated explicitly because a clean finding is worth...
   - `measured_2026_09_23`: OVERNIGHT PASS — VERDICT STILL-REAL + CARD-WAS-WRONG-IN-SCOPE, and the contained half is now BUILT and sitting in review. VALIDITY CHECK (ground truth, not the card): re-read aggregation.py:889-940 on current develop — the excuse branch ...
   - `operator_note_2026_09_23`: Not fixed and deliberately out of scope: the ANOMALOUS and INCOMPLETE warnings share one rate-limit global (_COVERAGE_RATING_ANOMALOUS_LAST_WARN), so a boundary INCOMPLETE line can suppress a genuine ANOMALOUS line for an hour. That is p...
   - `measured_2026_09_19`: Read from the live core log (2026-09-18 21:11 -> 2026-09-19 02:02), three occurrences, rate-limited to one per hour by design so three lines is the maximum the window can show: 21:56 delta_percent=-1259.04 -> INCOMPLETE ("negative inside...
