@@ -713,6 +713,72 @@ meta:
       Advanced SSH add-on, which is a change to your live system that only you should make, so this
       stays on your queue rather than mine. It is one toggle in Settings, and it buys back the ability
       to diagnose the next outage.'
+  - fid: PERIMETER-DETECTION-WENT-DARK-1@2026-09-25T02:35:00
+    at: '2026-09-25T02:35:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'YOUR OUTSIDE CAMERAS HAVE NOT SEEN A SINGLE PERSON IN THREE DAYS, AND THIS IS THE
+      LONGEST BLACKOUT YET — it needs about two minutes of your attention when you wake up. I measured
+      it from the recorder rather than inferring it: of your 24 exterior person detectors, sixteen have
+      not changed state in 74.7 hours, and all sixteen report that duration identical to two decimal
+      places, which means they all froze at one single instant on Monday around 1:30am rather than
+      failing one by one. Eight more froze between 43 and 50 hours ago. Twenty-two of the twenty-four
+      are stuck reading "nobody there". The camera MOTION sensors tell the same story from the other
+      direction — fifteen of seventeen have been jammed ON for 43 hours. THE ONE HEALTHY CAMERA IS THE
+      PROOF: Garage A is toggling normally, and it runs on a different platform from the rest. So this
+      is not a recorder glitch or a bad query on my side; the detection feeds themselves are frozen.
+      WHAT IT MEANS PRACTICALLY: your perimeter has effectively been unwatched since Monday. Anything
+      that depends on "is someone outside" has been reading a three-day-old answer. WHY I DID NOT FIX
+      IT: the fix is to reload the Frigate and UniFi Protect connections, or restart those machines —
+      changes to your live system in an occupied, sleeping house, which is exactly the situation where
+      I am supposed to wake you rather than act. THE PREVIOUS CAUSE STORY IS STILL WRONG and I have
+      left it marked wrong: this cannot be only the Frigate machine, because Protect is separate
+      hardware and it froze in the same second. Something upstream of both is the real suspect.'
+  - fid: CAMERA-STUCK-SENSOR-TRIPWIRE-1@2026-09-25T02:35:00
+    at: '2026-09-25T02:35:00'
+    outcome: done
+    acknowledged: false
+    headline: 'THE STUCK-CAMERA ALARM WE SHIPPED IS WORKING CORRECTLY — the reason it looked broken is
+      that it is pointed at the wrong kind of failure, and I can now prove which. Closing this card.
+      Last night I flagged that the alarm fired only twice in three days while seventeen camera sensors
+      sat jammed, and said the cause was one of three things. Tonight I checked and it is the second
+      one, and it is by design rather than a mistake: the alarm reads two specific families of camera
+      sensor, and the seventeen jammed ones belong to a third family it was never wired to look at.
+      No threshold tweak could ever have caught them. WORTH NOTING AS A PATTERN, because it is the
+      same mistake one level down: this card exists because the older health checker only ever looked
+      at ROOMS and so could not see a camera. We then built a camera checker that only looks at one
+      kind of camera sensor. THE BIGGER POINT, and it is the useful one: tonight your detector fleet is
+      not jammed ON, it is frozen OFF — twenty-two of twenty-four detectors stuck reading "nobody
+      there" for up to 74 hours. An alarm that watches for a sensor stuck ON literally cannot see a
+      feed that has gone silent. So "only two alerts" is the right answer from a correct alarm asked
+      the wrong question. THE THING THAT WOULD HAVE CAUGHT IT is the silence-detector I already built
+      and the reviews sent back for redesign — it is waiting on your go, and tonight is a 74-hour
+      argument for it. I did NOT quietly widen this card to cover that; the work lives on its own card
+      so nothing gets buried. One loose end kept on the record rather than dropped: the automatic
+      quarantine arm is still in shadow mode, so even when the alarm fires nothing is actually
+      quarantined.'
+  - fid: CAMERA-SILENT-PRODUCER-TRIPWIRE-1@2026-09-25T02:35:00
+    at: '2026-09-25T02:35:00'
+    outcome: escalated
+    acknowledged: false
+    headline: 'THE SILENCE ALARM YOU HAVE NOT APPROVED YET WOULD HAVE CAUGHT A 74-HOUR BLACKOUT — and
+      I now have a much stronger case than when I last asked. This is the fifth undetected camera
+      blackout in under three weeks: 26 hours, 30 hours, 60 hours, and now 74.7 hours with your entire
+      exterior person-detection fleet frozen. Nothing raised a hand any of those times. THE NEW
+      ARGUMENT is not just another tally mark. I verified tonight that the stuck-camera alarm we DID
+      ship cannot cover this and never could: it watches for a sensor jammed ON, while these feeds are
+      frozen OFF. The two mechanisms do not overlap at all, so this card is not a nice-to-have beside a
+      working detector — it is the only proposed thing that covers the failure mode that actually keeps
+      happening. ONE OF THE REVIEWERS OBJECTIONS HAS ALSO WEAKENED, and I want to be precise rather
+      than opportunistic about it. The reviews killed the build partly because it counted silence in
+      memory and the system was rebooting every couple of hours, wiping the count. I measured tonight
+      that the reboots have stopped — zero in the last 86 hours. I am NOT asking you to ship the
+      rejected build on that basis; the redesign the reviewers demanded is genuinely better and also
+      fixes a sizing error that was mine. What changed is that the downside risk is smaller than we
+      thought while the cost of having no detector is now measurably three days of blind perimeter.
+      I DID NOT BUILD IT TONIGHT, deliberately: two independent reviews returned do-not-ship, which is
+      a mandatory stop, and an unattended overnight pass does not get to overrule a gate you are
+      holding. Say go and I build the redesign and put it back through both reviews.'
 cards:
 - id: HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1
   VALIDATED_5108_2026_09_18: 'v5.103.8 live-validated: loaded clean, zero ERROR. retreat_reason live
@@ -2812,8 +2878,40 @@ cards:
 - id: CAMERA-STUCK-SENSOR-TRIPWIRE-1
   title: No trip-wire for a camera sensor stuck ON — one sat pinned for 29.5h and nothing noticed
   thread: perimeter
-  status: review
+  status: done
   shipped_version: v5.101.3
+  RESIDUAL_DIAGNOSED_2026_09_25: 'OVERNIGHT PASS — the residual from 09-24 is now DIAGNOSED, it is
+    NOT a defect in this trip-wire, and this card CLOSES on met-with-a-residual with the residual
+    handed to a card that already exists. The 09-24 soak-exit left one cheap question: is the
+    under-count caused by (a) per-camera duration overrides not elapsing, (b) the detector watching
+    only a subset of cameras, or (c) dedup collapsing one fleet event into one row? ANSWER: (b), and
+    it is BY CONSTRUCTION rather than by mistake. Read the resolver at
+    optimization.py:1941-1968 (`_exterior_person_sensors`): it probes exactly two entity suffixes,
+    `_person_occupancy_2` and `_person_occupancy`. The 17 entities reported stuck on 09-24 are the
+    `*_motion_3` family (device_class motion, verified from state_attributes on the live recorder), a
+    different suffix family entirely, so they are outside this detector''s target universe and no
+    threshold or dedup change here could ever catch them. That is the SAME SHAPE of blind spot this
+    card was created to fix one level up (sensor_health being ROOM-keyed), reproduced one level down
+    — worth recording as the pattern, not just the instance. (a) and (c) are RULED OUT, not merely
+    unexamined: the two camera_stuck rows carry distinct camera keys, and the latch is per-camera
+    (`_camera_stuck_fired`, optimization.py:1899-1915), so dedup cannot collapse a fleet event.
+    THE DEEPER REASON THE COUNT IS LOW, and it reframes the whole residual: tonight the person-detector
+    fleet is not stuck ON, it is FROZEN OFF. Of 24 `*person_occupancy*` entities, 16 have been pinned
+    OFF for 74.69 hours — identical to the second, i.e. frozen at one instant — and 8 more froze in a
+    42.7-50.3h cluster; only TWO (upstairs_hall_person_occupancy_2, family_room_person_occupancy) are
+    frozen ON. A stuck-ON duration trip-wire is structurally incapable of seeing a producer frozen OFF,
+    so "2 camera_stuck events in 3 days" is the CORRECT output of a correct detector pointed at the
+    wrong failure mode. The under-count was never the bug. CONSEQUENCE: the producer-level staleness
+    check that this build deliberately deferred (see THRESHOLD_EVIDENCE_2026_09_14, "CHEAPER PRIMARY
+    MECHANISM") is not optional polish — it is the only mechanism that catches the dominant real-world
+    failure, and we now have a 74-hour live proof of that. It is ALREADY CARDED as
+    CAMERA-SILENT-PRODUCER-TRIPWIRE-1 (waiting_operator, redesign awaiting APPROVE), so per the
+    retire-and-relink rule I am pointing at it rather than minting a duplicate, and I have written
+    tonight''s proof onto it. PRIMARY DELIVERABLE REMAINS MET (09-24: real camera_stuck rows in
+    anomaly_log, matching notification_log rows, delivery confirmed 44 delivered vs 12 not). NO BUILD
+    ACTION TAKEN tonight. RESIDUAL STILL OPEN AND NOT CLOSED BY THIS CARD: the quarantine arm is
+    shadow-only ("WOULD quarantine sensor (shadow)"), which is recorded on the sibling rather than
+    lost.'
   BUILT_2026_09_14: >-
     BUILT @ feature/camera-stuck-sensor-tripwire — in review, not deployed.
     NEW `camera_stuck` evaluator in the optimizer cycle. Deliberately a SEPARATE check from
@@ -2845,7 +2943,7 @@ cards:
     than 14 per-sensor ones. Left as a follow-up because the per-sensor wire also catches the
     chronic single-camera case that the producer check would miss.
   created: '2026-09-14 01:50'
-  updated: '2026-09-24 02:20'
+  updated: '2026-09-25 02:35'
   refinement_status: initial
   problem_solution:
   - 'Problem: a camera''s person-detection sensor got stuck reporting "person present" for 29 and
@@ -26570,8 +26668,33 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-16 03:30'
-  updated: '2026-09-24 02:10'
+  updated: '2026-09-25 02:35'
   live_broken: true
+  measured_2026_09_25: 'OVERNIGHT PASS — STILL LIVE, MEASURABLY WORSE, AND NOW THE LONGEST OUTAGE ON
+    RECORD. Measured read-only from the live recorder (ssh ha sqlite3 -readonly
+    /config/home-assistant_v2.db, last-state-per-entity join on states_meta with
+    coalesce(last_changed_ts, last_updated_ts)). PERSON DETECTORS: of 24 `*person_occupancy*` entities,
+    SIXTEEN have not changed state in 74.69 hours — all sixteen reporting the identical duration to two
+    decimal places, which means they froze at one single instant (~2026-09-22 01:30 local), not
+    independently. Eight more froze in a tight 42.7-50.3h cluster. Twenty-two of the twenty-four are
+    frozen reading "off"; only upstairs_hall_person_occupancy_2 and family_room_person_occupancy are
+    frozen "on". MOTION DETECTORS, same story and it confirms the freeze crosses integrations: 15 of 17
+    `binary_sensor.*_motion_3` entities (device_class motion, confirmed from state_attributes) have been
+    pinned ON for 42.7-44.0h, again in one tight cluster. The single healthy exception is
+    garage_a_motion_3 (1.8h, toggling normally, and it carries a different attribute signature — a
+    different platform), which is the control that proves the freeze is producer-side and not a recorder
+    or query artefact. SO: exterior detection has now been dark for at least 42.7 hours on every
+    integration and 74.7 hours on the bulk of the person fleet, with ZERO state transitions in that
+    entire span. This is longer than the 26h, 30h and ~60h blackouts already recorded on this card and
+    on CAMERA-SILENT-PRODUCER-TRIPWIRE-1. THE CAUSE DIAGNOSIS ON THIS CARD IS UNCHANGED AND
+    RE-CORROBORATED: entities exist and are stuck rather than unavailable, and the freeze hits Frigate
+    and UniFi Protect — different integrations on different hardware — in one instant, which is why the
+    earlier "fault on the Frigate machine at 192.168.13.18" framing stays marked incomplete. NOTHING
+    NOTICED, AGAIN: I verified separately tonight that the shipped camera_stuck trip-wire cannot see
+    this, because it watches for sensors stuck ON and this fleet is frozen OFF (full reasoning on
+    CAMERA-STUCK-SENSOR-TRIPWIRE-1). NO ACTION TAKEN — the fix is reloading live config entries or
+    restarting integration hosts in an occupied sleeping house, which is hostile timing and an operator
+    action; paged via NM instead.'
   refinement_status: refined
   approval: blocked
   MEASURED_2026_09_24: 'OVERNIGHT PASS — DECISIVE, and it DISCRIMINATES the two candidate causes
@@ -26799,6 +26922,33 @@ cards:
     producer-silence trip-wire is a real operator decision and stays with you.'
 
 - id: CAMERA-SILENT-PRODUCER-TRIPWIRE-1
+  instance_2026_09_25_fifth_blackout: 'FIFTH BLACKOUT, LONGER STILL, AND ONE OF THE THREE DO-NOT-SHIP
+    GROUNDS HAS MATERIALLY WEAKENED — measured tonight, read-only, no build action taken. THE EVIDENCE:
+    exterior detection is dark again and worse than the 60h instance recorded on 09-23. From the live
+    recorder, 16 of 24 person detectors have not changed state in 74.69 hours (identical to two decimal
+    places across all sixteen = one freeze instant, ~2026-09-22 01:30 local), 8 more froze 42.7-50.3h
+    ago, and 15 of 17 camera motion sensors have been pinned ON 42.7-44.0h. Zero transitions fleet-wide
+    for 42.7h minimum. Nothing raised a hand, for the fifth time — durations now 26h, 30h, 60h+ and
+    74.7h in under three weeks. THE NEW ARGUMENT, and it is the reason this entry matters more than
+    another tally mark: I confirmed tonight that the ALREADY-SHIPPED camera_stuck trip-wire is
+    structurally incapable of catching this, because it detects sensors stuck ON while these are frozen
+    OFF (resolver + latch read at optimization.py:1868-1968; full reasoning on
+    CAMERA-STUCK-SENSOR-TRIPWIRE-1, which I closed tonight and whose residual lands here). So this card
+    is not a nice-to-have sitting beside a working detector — it is the ONLY proposed mechanism that
+    covers the dominant observed failure mode, and the shipped detector provably does not overlap it.
+    ON THE REVIEWERS'' OBJECTION, stated carefully because I am not using this to argue for shipping the
+    rejected build: the first DO-NOT-SHIP ground was that an in-memory silence counter is reset by a
+    reload/restart every couple of hours, so a 6-hour threshold could never be reached. That premise has
+    weakened on measurement — the restart storm is dormant (zero restarts in ~86h tonight, measured on
+    HA-CORE-RESTART-STORM-1, which I parked for exactly that reason) and the reload-storm framing was
+    refuted earlier. I am NOT claiming that rehabilitates the rejected build: the redesign the reviews
+    demanded (read each camera''s actual quiet duration from the entities at check time rather than
+    counting in memory) is strictly better, survives restarts by construction, and also fixes the sizing
+    error I made — so the redesign remains the thing to build. What changed is that the risk of a
+    memory-based approach is lower than believed AND the cost of continuing to have no detector is now
+    demonstrably 74 hours of blind perimeter. THE ASK IS UNCHANGED: APPROVE the redesign. NO BUILD
+    ACTION TAKEN tonight because this card sits in waiting_operator on a mandatory post-DO-NOT-SHIP
+    pause, and the overnight pass does not override a recorded operator gate. Paged via NM.'
   instance_2026_09_23_fourth_blackout: 'FOURTH BLACKOUT, AND THE LONGEST YET — this is fresh
     evidence FOR this card, measured tonight on the sibling PERIMETER-DETECTION-WENT-DARK-1.
     Exterior object detection has been dark since 2026-09-20 ~19:00 and is STILL dark about 60 hours
@@ -26819,7 +26969,7 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-17 02:20'
-  updated: '2026-09-23 04:35'
+  updated: '2026-09-25 02:35'
   refinement_status: refined
   approval: implied
   tags:
