@@ -2309,6 +2309,18 @@ cards:
   refs:
   - docs/readmes/README_v5.99.1.md (validation error-scan)
 - id: FRONT-SIDE-PTZ-CHATTER-1
+  UNBLOCKED_2026_09_25: 'THE MEASUREMENT BLOCKER IS RESOLVED — by an operator fact, not by a probe.
+    Operator 2026-09-25: "the camera fleet is fine now. Frigate is having periodic degrades on the
+    hardware side that I am working on. The quick fix is a docker reload." That settles the question the
+    two contamination warnings below could not: the zero-chatter readings after 2026-09-20 19:00 were a
+    FLEET-WIDE FRIGATE DEGRADE, not an individual front_side_ptz fault and not a fix. The discriminating
+    test I said was unrunnable (individual fault vs fleet event) is therefore ANSWERED — fleet event —
+    without needing to re-run it. CONSEQUENCE: the 09-17 chatter evidence (21% duty, 29.5h stuck-ON,
+    3-5am peaks), which PREDATES the first freeze, stands unchallenged and is the card''s real evidence.
+    The fleet is healthy again per the operator, so a clean re-measurement IS now runnable if wanted —
+    but it is no longer needed to establish the premise, only to size the residual. Recommendation put
+    to the operator in docs/planning/OPEN_THREADS_2026-09-25.md §2a: close as fleet-attributed, or say
+    the word and I re-measure now that the producer is live.'
   CONTAMINATION_WARNING_2026_09_23: 'DO NOT READ ANY CHATTER MEASUREMENT TAKEN AFTER 2026-09-20
     19:00 AS EVIDENCE. Measured tonight on PERIMETER-DETECTION-WENT-DARK-1: exterior detection has
     been fully dark since about 19:00 on 2026-09-20 and is STILL dark ~60h later — 18 of 24 Frigate
@@ -27032,6 +27044,19 @@ cards:
     producer-silence trip-wire is a real operator decision and stays with you.'
 
 - id: CAMERA-SILENT-PRODUCER-TRIPWIRE-1
+  operator_attribution_2026_09_25: 'ROOT CAUSE SUPPLIED BY THE OPERATOR, AND IT STRENGTHENS THIS CARD
+    RATHER THAN KILLING IT. Operator 2026-09-25: "the camera fleet is fine now. Frigate is having
+    periodic degrades on the hardware side that I am working on. The quick fix is a docker reload."
+    That explains every blackout on this card — 26h, 30h, 60h+, 74.7h — as ONE recurring external cause
+    (Frigate host-side degrade), which is exactly what the single-freeze-instant signature predicted
+    (16 detectors frozen to two decimal places at one instant = one upstream event, not 16 faults). So
+    the freezes are NOT a URA defect and are owned by the operator. WHAT THIS CHANGES FOR THE CARD: the
+    value case is now SHARPER, not weaker. The remedy is a cheap 30-second docker reload that the
+    operator can run any time — the ONLY thing standing between a degrade and its fix is NOTICING, and
+    nothing notices, five times in three weeks, for up to 74 hours. This card is the noticer. Reframed:
+    it is not "detect a mysterious URA bug", it is "tell the operator to docker-reload Frigate". That
+    also supplies the acceptance oracle for free: a correct build must fire during each of the five
+    recorded blackout windows and must NOT fire on the cameras that stayed healthy through them.'
   instance_2026_09_25_fifth_blackout: 'FIFTH BLACKOUT, LONGER STILL, AND ONE OF THE THREE DO-NOT-SHIP
     GROUNDS HAS MATERIALLY WEAKENED — measured tonight, read-only, no build action taken. THE EVIDENCE:
     exterior detection is dark again and worse than the 60h instance recorded on 09-23. From the live
@@ -28315,6 +28340,33 @@ cards:
      forward capture (phantom vs known-occupied) + per-unit fit; intra-device (fragile). Revisit only if the
      pause-recheck route proves insufficient across the mmwave-only fan rooms.'
 - id: ENVOY-FLAKINESS-181243-1
+  measured_2026_09_25: 'OPERATOR HYPOTHESIS CONFIRMED — IT IS FLAPPING, AND MY EARLIER "THE OUTAGE IS
+    OVER" CLAIM WAS WRONG. Operator 2026-09-25: "please measure flakiness. I think the integration is
+    flapping." Measured, read-only, recorder: sensor.envoy_482543015950_battery, ALL state changes
+    (significant_changes_only=false), 2026-09-18 04:13 -> 2026-09-20 19:10 local. The recorder returned
+    1000 state rows in 2.6 DAYS and the row cap was hit before retention was exhausted. Availability
+    transitions per local day: 09-18 = 220, 09-19 = 324, 09-20 = 223. That is ~110-160 COMPLETE
+    down/up cycles per day, one every 5-10 minutes, all day every day. Typical outage 15s-10min;
+    longest in window ~2h20m (09-19 23:05 -> 09-20 01:25). CORRECTION, RECORDED PER
+    understanding-changes-the-card-changes: my measured_2026_09_23 entry claimed "THE OUTAGE IS OVER...
+    it has held for about 26h" and my 09-25 handoff framed the failure as frozen/dead-until-restart.
+    BOTH UNDERSTATED IT. Those were POINT-IN-TIME reads of entity freshness, and a point-in-time read
+    cannot distinguish healthy from mid-flap — I sampled the UP half of a flap and called it recovered.
+    The dominant mode is continuous flapping; the frozen entry is where a flap fails to recover, not a
+    separate failure. Any future check of this card must read a TRANSITION COUNT over a window, never a
+    current-freshness snapshot — that observation does not discriminate. CURRENT STATE 2026-09-25: entry
+    01KNYRAGVP5XESS6N8PD6BVQP2 is back in setup_in_progress (the frozen state, i.e. a flap that did not
+    recover), options still carry disable_keep_alive:true; battery sensor unavailable since 09:40:57
+    local. Live core log confirms the mechanism, repeating now: enphase_envoy/coordinator.py:201
+    _async_try_refresh_firmware -> pyenphase/envoy.py:233 setup -> firmware.py:123 setup ->
+    firmware.py:81 _get_info. Same #181243 leg as 09-22, still unfixed upstream. URA degrades correctly
+    (energy_battery holds state) — no URA defect in the loop. OPERATOR ASKED "did we say we need to
+    reboot the HA host?" — I CANNOT CONFIRM THAT AND WILL NOT INVENT IT: the record shows a Core RESTART
+    on 2026-09-21 23:14, not a host reboot, and no host-reboot decision exists on this card or in
+    memory. My read is that a host reboot is NOT indicated — the failure is a Python exception escaping
+    a task inside the core container, which a Core restart already reaches; a host reboot adds downtime
+    without touching the mechanism. Options now written up for a PICK in
+    docs/planning/OPEN_THREADS_2026-09-25.md.'
   measured_2026_09_23: 'OVERNIGHT PASS — groom + verify. (1) THE OUTAGE IS OVER: all 37
     sensor.envoy_482543015950_* entities are available and fresh (newest last_updated 07:22, oldest
     02:39), so the operator-authorized Core restart on 2026-09-21 23:14 did recover the stuck entry
@@ -28337,9 +28389,13 @@ cards:
   thread: energy
   status: waiting_operator
   created: '2026-09-21'
-  updated: '2026-09-23 04:55'
+  updated: '2026-09-25 10:05'
   refinement_status: refined
-  rank: {value: 6, time_criticality: 4, effort: 3}
+  rank: {value: 6, time_criticality: 6, effort: 3}
+  refinement:
+  - 'Operator "I think the integration is flapping" -> measured transition counts instead of freshness
+     snapshots; 220-324 transitions/day confirms flapping is the DOMINANT mode and the freeze is a
+     failed flap recovery, not a separate failure. Card''s own earlier "outage is over" claim retracted.'
   tags: [energy, envoy, enphase, upstream-bug, flakiness, dual-homed, incident]
   measured_2026_09_22: 'OVERNIGHT PASS — verify-before-work on this card, and the diagnosis is now
     VERIFIED AT SOURCE rather than inherited from the card body. Core log pulled via the authenticated
@@ -28377,7 +28433,13 @@ cards:
      benign (URA holds state). Not a URA defect.'
   why: 'the week-long "envoy flaky" complaint is mostly an OPEN upstream bug with no local fix + a dual-homed
      device-timeout angle the operator flagged; recorder-exclude already contains the stats poisoning.'
-  next: 'DO/PICK (operator): (a) TRACK #181243 — watch for the HA fix, update core when a fix version lands
+  next: 'PICK (operator): flapping now MEASURED at 110-160 down/up cycles per day (see
+     measured_2026_09_25). Choose from docs/planning/OPEN_THREADS_2026-09-25.md §3: (A) local core patch
+     wrapping the two unguarded tasks — the only option that changes today''s behavior, but is lost on
+     every core update; (B) dual-homed interface investigation (your lead, read-only, cheap, still
+     un-run — I do it on your word); (C) track #181243 upstream and bump core when fixed; (D) accept and
+     do nothing (URA holds state, no actuation harm); (E) host reboot — NOT indicated by the evidence.
+     -> On your pick I run it. Legacy option list follows. (a) TRACK #181243 — watch for the HA fix, update core when a fix version lands
      (only real cure; unfixable on our side short of patching core). (b) INVESTIGATE dual-homed timeouts — which
      IP the integration uses vs the second home, whether one interface is flakier / causing contention; consider
      pinning the integration to the stable home. (c) consumption cross-check warning is benign — leave, or card
