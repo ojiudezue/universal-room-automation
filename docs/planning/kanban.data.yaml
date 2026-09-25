@@ -2255,7 +2255,27 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-14 00:20'
-  updated: '2026-09-23 04:45'
+  updated: '2026-09-25 03:00'
+  CONTAMINATION_DEEPENED_2026_09_25: 'OVERNIGHT PASS — the contamination warning above is RE-CONFIRMED
+    and now stronger, and the practical consequence is that this card CANNOT be advanced by measurement
+    at all; your ANSWER is the only route left. Measured tonight from the live recorder (last-state-per-entity
+    join, coalesce(last_changed_ts, last_updated_ts)): binary_sensor.front_side_ptz_person_occupancy_2
+    has not changed state in 74.69 hours — the SAME duration, identical to two decimal places, as
+    fifteen other exterior person detectors, which means it froze in the same single instant as the rest
+    of the fleet rather than behaving individually. Its motion sibling front_side_ptz_motion_3 is pinned
+    ON at 42.7h, again in lockstep with fourteen other camera motion sensors. WHY THIS MATTERS FOR THE
+    QUESTION ON THIS CARD: the card''s own if-NO branch says that a NO answer would mean "this camera has
+    an individual object-detection fault that survived the fleet-wide outage everything else recovered
+    from". That test is currently UNRUNNABLE — this camera is no longer distinguishable from the fleet in
+    either family, so there is nothing individual left to observe. Any fresh chatter or detection count I
+    pull right now reads zero for EVERY camera, so it would tell us nothing about the crop and would be
+    the exact false-all-clear this card was already stamped against. I did NOT take a new chatter
+    measurement tonight for that reason, and I am explicitly NOT recording one as clean. STILL WAITING ON
+    YOU, unchanged: did you apply a detection-zone crop or mask to front_side_ptz around 09-14/15? The
+    09-17 evidence (one person-detection a day for three days while its motion detection hit a record
+    383 events) PREDATES the 09-20 and 09-22 freezes, so that observation is still valid evidence and is
+    not contaminated — it is only re-measurement that is blocked. Resolving
+    PERIMETER-DETECTION-WENT-DARK-1 is a precondition for ever re-testing this one.'
   refinement_status: refined
   problem_solution:
   - 'Problem: one exterior camera reports "person detected" far more than any other — it is
