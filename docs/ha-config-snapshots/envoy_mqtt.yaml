@@ -48,10 +48,17 @@ mqtt:
       state_class: measurement
       expire_after: 60
       device: &envoy_stream_device
+        # Identifier stays "envoy_local_stream" — deliberately DISTINCT from the
+        # native enphase_envoy integration's device identifier, so the two never
+        # collide in the device registry (same-identifier hazard, DEVICE_TREE.md).
+        # serial_number / sw_version are descriptive fields, not identifiers, so
+        # they can safely name the same physical gateway without merging devices.
         identifiers: ["envoy_local_stream"]
         name: "Envoy Stream"
         manufacturer: "Enphase"
         model: "IQ Gateway livedata (MQTT)"
+        serial_number: "482543015950"
+        sw_version: "D8.3.6087"
 
     - name: "SOC Top Level"
       unique_id: envoy_stream_soc_top_level
