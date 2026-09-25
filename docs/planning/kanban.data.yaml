@@ -28339,6 +28339,157 @@ cards:
      supersession-audit claim) - still_energy is recorder-EXCLUDED + per-gate needs engineering_mode; requires
      forward capture (phantom vs known-occupied) + per-unit fit; intra-device (fragile). Revisit only if the
      pause-recheck route proves insufficient across the mmwave-only fan rooms.'
+- id: ENVOY-STREAM-TRUST-MEASURE-1
+  title: We now have a third, much faster Envoy data source — measure whether it can be trusted
+    before anything is allowed to depend on it
+  thread: energy
+  status: investigating
+  created: '2026-09-25 18:00'
+  updated: '2026-09-25 18:00'
+  refinement_status: initial
+  approval: explicit
+  approved_by: 'operator 2026-09-25 ("MQTT can be added as a trusted local witness. Just measure for
+    its trust now and then we decide.")'
+  rank: {value: 7, time_criticality: 6, effort: 2}
+  tags: [energy, envoy, measure-before-build, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: the house now has a second way of hearing from the solar/battery gateway — a local feed
+     that updates about once a second, versus the built-in one that has been dropping out roughly a
+     third of every day. It looks better in every way, but nothing has checked whether it actually
+     tells the truth, stays fresh, and keeps working during the exact outages it is supposed to cover.
+     Trusting it on appearances would be swapping a known-flaky source for an unmeasured one.
+     Solution: leave it running for a day and then answer seven specific questions about it with
+     numbers — is it fresh, is it independent, does it agree with the sources we already have, is it
+     internally consistent, and did adding it make the existing problem worse. Only then decide
+     whether anything may rely on it.'
+  origin: {date: '2026-09-25', gist: 'operator: "MQTT can be added as a trusted local witness. Just
+    measure for its trust now and then we decide."'}
+  why: 'Measure-Before-You-Build: the feed is a new producer for a value that drives battery, TOU,
+    arbitrage and EVSE decisions. Its plausibility is not evidence.'
+  constraints:
+  - 'Read-only. No URA code, no behaviour change. Pure recorder query over data that now exists.'
+  - 'NOTHING in ENVOY-STREAM-SOC-TIER-1 or SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1 builds until this reports.'
+  - 'Window must cover >=1 full charge/discharge, >=1 overnight, and many native-integration flaps.'
+  next: 'MEASURE (me): after >=24h from 2026-09-25 18:00, run the seven criteria in
+     PLANNING_envoy_local_witness_and_solar_follow.md section 3 and write
+     docs/planning/AUDIT_envoy_mqtt_trust_measurement.md with a PASS/FAIL row each -> operator decides
+     from that table whether the dependent cards proceed.'
+  knobs: []
+  parsimony: {problem: 'A new SOC/power producer may be fresh and independent but has not been shown
+    to agree with ground truth or to survive the outages it is meant to cover.', verdict: BUILD}
+  links:
+    blocks: [ENVOY-STREAM-SOC-TIER-1, SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1]
+    related: [ENVOY-FLAKINESS-181243-1, ENVOY-MQTT-ADDON-WRONG-HOST-1]
+    context: 'Gates both dependent cycles — neither may build on an unmeasured producer. Related to
+      the flakiness card because criterion 3.6 re-measures whether this new 1 Hz local client made the
+      native integration flapping WORSE (a hypothesis that only became testable once the add-on ran).'
+  refs: [docs/planning/PLANNING_envoy_local_witness_and_solar_follow.md]
+
+- id: ENVOY-STREAM-SOC-TIER-1
+  title: The battery brain goes blind and freezes whenever both its data sources age out — give it a
+    third, local, once-a-second source so it can keep deciding
+  thread: energy
+  status: planned
+  created: '2026-09-25 18:00'
+  updated: '2026-09-25 18:00'
+  refinement_status: initial
+  approval: unreviewed
+  rank: {value: 8, time_criticality: 6, effort: 8, foundational: 7}
+  tags: [energy, envoy, tier-2db, measure-before-build, numbers-get-knobs, mutation-drill]
+  problem_solution:
+  - 'Problem: the battery logic picks its charge-level reading from a short list of sources, each with
+     a maximum age it is allowed to be. Right now the built-in local source is dead for much of the
+     day and the cloud one updates too slowly to qualify, so ALL of them age out and the system
+     correctly refuses to decide and just holds position. That is safe, but it means the house stops
+     optimising exactly when electricity decisions matter. Solution: add the new once-a-second local
+     feed as a third source, so there is almost always at least one reading fresh enough to act on —
+     without loosening any of the existing safety limits. Also use the same feed to independently
+     confirm the battery reserve setting we send through the cloud actually landed.'
+  origin: {date: '2026-09-25', gist: 'grew out of the Envoy flapping investigation once the local MQTT
+    stream was repaired and proved to carry SOC + reserve'}
+  why: 'EC manual 2.5 blind-hold is working as designed; the defect is that BOTH tiers are
+    disqualified (primary dead, cloud too slow). Tuning the thresholds would redefine stale as fresh —
+    the gap is a fast LOCAL source, which is what this adds.'
+  constraints:
+  - 'Age the new tier from the Envoy payload meters.last_update, NOT the HA entity timestamp — the
+    add-on republishing a frozen payload must NOT read as fresh. This is the invariant.'
+  - 'WITNESS ONLY for reserve. Must not become a write path (EC 2.6: local writes are
+    accepted-then-ignored on fw 8.3.x) and must not alter is_reserve_verifiable() (2.5a backout knob).'
+  - 'Do NOT remove the cloud tier — three sources is the point (enables 3-way divergence attribution).'
+  - 'Tier 2-DB minimum, likely Tier 3: new writer into the SOC resolver, a shared primitive consumed
+    by battery / TOU / arbitrage / EVSE.'
+  parked_alts:
+  - 'Raise DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S from 600s so the cloud reading qualifies — REJECTED:
+    does not make data fresher, redefines stale as fresh, and loosens a rung-1 safety bound.'
+  - 'Poll the cloud integration harder — REJECTED: its endpoints already hit Enphase 429 rate limits
+    with ~1h backoffs, so polling harder makes freshness WORSE.'
+  knobs:
+  - 'DEFAULT_SOC_LOCAL_STREAM_MAX_AGE_S (rung 1, module constant — a safety bound in the same class as
+    its two siblings; explicitly NOT an entity knob)'
+  - 'energy_local_stream_battery_soc_entity (rung 2, CM config field — REUSES the shape of the
+    existing energy_cloud_battery_soc_fallback_entity at energy_const.py:305, not a new pattern)'
+  next: 'AWAIT ENVOY-STREAM-TRUST-MEASURE-1, then APPROVE (operator): Tier-2DB-vs-Tier-3 call and
+     whether the reserve-witness deliverable ships in the same cycle -> on approval I write the plan
+     review and dispatch the build.'
+  parsimony: {problem: 'Every SOC tier can be simultaneously disqualified, leaving the EC unable to
+    decide for hours at a time, because no tier is both local and fast.', verdict: BUILD}
+  links:
+    blocked_by: [ENVOY-STREAM-TRUST-MEASURE-1]
+    related: [ENVOY-FLAKINESS-181243-1]
+    context: 'Blocked on the trust measurement — an unmeasured producer must not enter the resolver.
+      Related to the flakiness card because this is the mitigation that does NOT depend on the
+      upstream fix, which was shown not to close our fault path.'
+  refs: [docs/planning/PLANNING_envoy_local_witness_and_solar_follow.md,
+    docs/Coordinator/ENERGY_COORDINATOR_MANUAL.md]
+
+- id: SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1
+  title: Solar-following car charging steers off a grid reading that lags by a minute — point it at
+    the new once-a-second local reading instead
+  thread: energy
+  status: planned
+  created: '2026-09-25 18:00'
+  updated: '2026-09-25 18:00'
+  refinement_status: initial
+  approval: unreviewed
+  rank: {value: 5, time_criticality: 3, effort: 2}
+  tags: [energy, evse, config-only, measure-before-build]
+  problem_solution:
+  - 'Problem: when the car charges on surplus solar, the system decides how many amps to give it by
+     watching how much power is flowing to or from the grid. The reading it watches is a roughly
+     one-minute average, and we have already measured that the resulting error grows sharply the
+     faster household load changes — which is exactly when the decision matters. Solution: point it at
+     the new local reading that updates every second. The plumbing for swapping the source already
+     exists as a setting, so the first step is a configuration change with no code at all.'
+  origin: {date: '2026-09-25', gist: 'orchestrator noted the 1 Hz local grid reading would beat the
+    ~120s-p90 source solar-follow currently uses; operator: "I liked your comment there"'}
+  why: 'SOLAR_FOLLOW_GRID_FRESH_S is 180s, sized in-source as 1.5x the Emporia p90 of 120s. A 1 Hz
+    local reading is ~100x fresher on the exact signal solar-follow regulates, and per-phase L1/L2
+    becomes available which the current source cannot provide at all.'
+  constraints:
+  - 'B1 is CONFIG-ONLY via the existing CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY
+    (energy_const.py:1044). No code. Do not touch SOLAR_FOLLOW_GRID_FRESH_S in the same step.'
+  - 'One variable at a time: B1 fallback -> B2 promote to primary -> B3 retighten the constant.'
+  - 'The MQTT sensor carries expire_after:60 so it goes unavailable rather than retaining a stale
+    value — which is what _read_one_grid needs in order to fail closed.'
+  knobs:
+  - 'SOLAR_FOLLOW_GRID_FRESH_S (rung 1, existing) — B3 only, NOT in B1/B2.'
+  next: 'AWAIT ENVOY-STREAM-TRUST-MEASURE-1 (3.1 freshness + 3.5 self-consistency are the relevant
+     gates), then APPROVE (operator): B1 is a one-field config change, reversible, Tier 1 -> I set the
+     solar-follow grid fallback to sensor.envoy_stream_grid_power and measure before/after.'
+  parsimony: {problem: 'Solar-follow regulates amps from a ~1-minute-average grid reading whose error
+    is measured to grow 6.7x when load moves fast.', verdict: SIMPLIFY}
+  links:
+    blocked_by: [ENVOY-STREAM-TRUST-MEASURE-1]
+    related: [EVSE-SOLAR-FOLLOW-AMPS-1]
+    context: 'ADJACENT to EVSE-SOLAR-FOLLOW-AMPS-1 (done, shipped 2026-08-25), NOT a duplicate: that
+      card built the amp-modulation feature, this upgrades the INPUT it steers on. Its own
+      SENSOR_DELTA_MEASURED_2026_08_23 probe is the prior art that justifies this — it measured the
+      Emporia-vs-Envoy delta as TIMING SKEW not disagreement (median |delta| 241W at slow slew rising
+      to 2024W above 5000 W/min, monotone with slew = a 1-min average vs a ~19s sample). A 1 Hz source
+      collapses exactly that timing component, so this card is the natural follow-on to that finding.'
+  refs: [docs/planning/PLANNING_envoy_local_witness_and_solar_follow.md,
+    docs/planning/PLANNING_evse_solar_follow_amps.md]
+
 - id: ENVOY-MQTT-ADDON-WRONG-HOST-1
   resolved_2026_09_25: 'RESOLVED AND LIVE-VERIFIED END TO END. Sequence: operator set ENVOY_HOST to
     192.168.11.190 (Envoy ETHERNET leg — correct, and measurably better than the old address: 0.57ms,
