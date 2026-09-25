@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T14:58:04-05:00_ - _Data commit: `0c90fbaf0988`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-25T15:57:16-05:00_ - _Data commit: `d4d03551868d`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -754,9 +754,12 @@ _created 2026-09-25 10:40 · initial_
 - **Tags:** energy, envoy, config-only, no-fabrication-verify
 - **Parsimony:** [BUILD] The add-on's ENVOY_HOST is a dead address, so it publishes nothing and loops on cloud auth.
 - **Refs:** https://github.com/vk2him/Enphase-Envoy-mqtt-json; docs/planning/OPEN_THREADS_2026-09-25.md
-- **Forensic keys (2):**
+- **Forensic keys (5):**
   - `evidence_2026_09_25`: MEASURED, NOT INFERRED. The add-on options set ENVOY_HOST=192.168.13.118. From the HA host: ping 192.168.13.118 = 2 packets transmitted, 0 received, 100%% packet loss; curl https://192.168.13.118/info = http 000 (no response); and the ad...
   - `refutes`: THIS KILLS MY OWN CONTENTION HYPOTHESIS FROM EARLIER TODAY. On ENVOY-FLAKINESS-181243-1 I flagged this add-on as a candidate second local-API client contending with the integration and proposed an investigation to measure it. That hypoth...
+  - `mechanism_comparison_2026_09_25`: OPERATOR: "What does that app/add-on do differently?" READ THE ACTUAL SOURCE (envoy_to_mqtt_json.py, 468 lines, fetched from the repo this session) rather than trusting the README. With BATTERY_INSTALLED=true we would run scrape_stream_l...
+  - `caveat_fixing_this_creates_the_second_client`: HONEST CONSEQUENCE I SHOULD NOT BURY: I refuted the local-API contention hypothesis on the grounds that this add-on has never connected. That is true of the PAST seven days. But fixing ENVOY_HOST would, for the first time, create exactly...
+  - `strategic_value`: WHY THIS MATTERS BEYOND TIDINESS, given operator: "we cannot manage the energy system effectively this way." A working livedata stream would give URA a SOC and power feed that is failure-independent of #181243 and ~100x faster, which is ...
 
 ### `INTEGRATION-CAMERA-DISCOVER-STALE-1` - Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area map stale — new camera never extends room occupancy until restart — _#17 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **quality** - status: **waiting_operator** - approval: **unreviewed**

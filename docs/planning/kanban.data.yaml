@@ -28388,6 +28388,50 @@ cards:
     pointed at a dead address on a different subnet has never opened a connection to the Envoy, so it
     cannot contend for it. Recording this as a refutation rather than quietly dropping it, because
     the un-run investigation was partly justified by this hypothesis and that justification is gone.'
+  mechanism_comparison_2026_09_25: 'OPERATOR: "What does that app/add-on do differently?" READ THE
+    ACTUAL SOURCE (envoy_to_mqtt_json.py, 468 lines, fetched from the repo this session) rather than
+    trusting the README. With BATTERY_INSTALLED=true we would run scrape_stream_livedata(), and it is
+    architecturally DISJOINT from the enphase_envoy integration on every axis that matters:
+    (1) DIFFERENT HTTP STACK — synchronous `requests` in its own container process, NOT aiohttp inside
+    HA''s event loop. This is the decisive one: #181243 is an aiohttp SESSION-LIFECYCLE bug ("Session
+    is closed" escaping a background task). With no shared aiohttp session to be closed underneath it,
+    that failure mode STRUCTURALLY CANNOT OCCUR in the add-on. It is failure-independent of the bug
+    that has been costing us a third of every day.
+    (2) DIFFERENT ENDPOINT, AND FAR NARROWER — one call to /ivp/livedata/status (plus a one-time POST
+    to /ivp/livedata/stream {"enable":1} to arm the stream if sc_stream reads "disabled"). It does NOT
+    do firmware refresh and does NOT do a MAC compare — which are precisely the two background tasks
+    that ARE the bug (_async_try_refresh_firmware / _async_fetch_and_compare_mac).
+    (3) MUCH FASTER — `time.sleep(0.6)` per iteration, so ~1-1.7 reads/sec, versus the integration''s
+    60s coordinator poll. Roughly two orders of magnitude more resolution on power and SOC.
+    (4) FAILS SOFT — the whole loop is wrapped in `except requests.exceptions.RequestException` and
+    CONTINUES; on a 401 it regenerates the token and retries in place. There is no dead-until-restart
+    mode, which is the integration''s characteristic failure.
+    (5) SEPARATE PROCESS — a crash cannot take HA''s coordinator or event loop with it, and the
+    supervisor watchdog restarts it.
+    WHAT IT CANNOT DO, stated so this is not oversold: it yields power + SOC only (meters.{pv,storage,
+    grid,load}.agg_p_mw, soc, enc_agg_soc, enc_agg_energy, backup_soc). No per-inverter data, no
+    lifetime energy counters, no config/control surface. It is a COMPLEMENT to the integration, never
+    a replacement. It also still depends on the Enphase CLOUD for the bearer token at startup and on
+    every 401, so it is not cloud-independent. And it calls with verify=False (TLS verification off) —
+    normal for a local Envoy''s self-signed cert, but worth knowing.'
+  caveat_fixing_this_creates_the_second_client: 'HONEST CONSEQUENCE I SHOULD NOT BURY: I refuted the
+    local-API contention hypothesis on the grounds that this add-on has never connected. That is true
+    of the PAST seven days. But fixing ENVOY_HOST would, for the first time, create exactly the second
+    local client I hypothesised — and at ~1-1.7 requests/sec, far more often than the integration''s
+    60s poll. The README claims "negligible load on the Envoy" because livedata is a lightweight
+    streaming endpoint; I have NOT verified that claim and am not asserting it. So contention is dead
+    as an explanation of the past, but becomes a LIVE question the moment the add-on actually starts
+    working. Acceptance check if we enable it: re-measure integration transition counts before and
+    after, so we can tell whether the add-on makes the flapping worse. That is a discriminating
+    observation and it is cheap.'
+  strategic_value: 'WHY THIS MATTERS BEYOND TIDINESS, given operator: "we cannot manage the energy
+    system effectively this way." A working livedata stream would give URA a SOC and power feed that
+    is failure-independent of #181243 and ~100x faster, which is a genuine answer to the stale-SOC
+    problem rather than only waiting on 2026.9.4. BUT scope it honestly: nothing consumes /envoy/json
+    today (grepped /config — zero MQTT sensors defined), so the full chain is add-on fix -> MQTT
+    sensors -> URA consumer wiring + trust/precedence against the existing Envoy source. That is a
+    real cycle, not a config tweak, and it should be carded separately and gated on the add-on first
+    being proven to publish. Do NOT conflate the one-field fix with the consumer work.'
   constraints:
   - 'Config-only change in add-on settings. No URA code. No HA restart required — add-on restart only.'
   - 'Operator action: the add-on options page is the only place this can be set.'
