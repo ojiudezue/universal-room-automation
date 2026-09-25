@@ -90,9 +90,25 @@ before exhausting retention.
 | 2026-09-18 | **220** |
 | 2026-09-19 | **324** |
 | 2026-09-20 | **223** |
+| 2026-09-24 | **~246** (~123 down-events) |
+| 2026-09-25 | **27 down-events by 09:40** (~2.8/hr → ~67/day pace) |
 
 That is roughly **110-160 complete down/up cycles per day** — one every 5-10 minutes, all day,
-every day. Typical outage 15s-10min; longest in window ~2h20m (09-19 23:05 → 09-20 01:25).
+every day, **unbroken across seven consecutive days with no recovery period at any point.**
+
+*(The first query stopped at 09-20 only because the 1000-row API cap filled, not because the data
+ended — your challenge was right. The 09-24→now re-query returned 418 rows with `has_more=false`,
+so that window is complete, not truncated. Any future check must use a bounded window and confirm
+`has_more=false`; a row cap on a 10-day request silently truncates and makes a still-flapping
+integration look like it stopped.)*
+
+Two things the fuller window adds:
+- **Not correlated with battery activity.** 09-24 flapped continuously *through* the daytime charge
+  (SOC 8→99, 09:20-16:29) and *through* the overnight discharge (99→10, 16:29-21:13). Constant
+  background failure, consistent with a timer-driven background task — not load- or state-dependent.
+- **Outage lengths are bimodal.** The large majority are 15s-10min, but 09-24 carried two long ones
+  (15:07→16:29 = 82min; 23:02→23:51 = 49min) and the current one is open since 09:40. **The long
+  tail is where SOC actually goes stale for URA.**
 
 **This is not a rare hard failure. It is a continuous flap.** My prior handoff framed it as
 "frozen / dead-until-restart", which understated it — flapping is the dominant mode, and the freeze

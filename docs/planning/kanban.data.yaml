@@ -28367,6 +28367,26 @@ cards:
     a task inside the core container, which a Core restart already reaches; a host reboot adds downtime
     without touching the mechanism. Options now written up for a PICK in
     docs/planning/OPEN_THREADS_2026-09-25.md.'
+  measured_2026_09_25b: 'EXTENDED TO TODAY — operator: "why not check up till today?" Correct
+    challenge: my first window ENDED at 09-20 only because the 1000-row API cap filled, NOT because
+    the data ended, and I reported the range without flagging that the cap (not retention) was the
+    boundary. Re-queried 2026-09-24 00:00 -> now, same method (all state changes, no
+    significant-changes filter): 418 rows, has_more=false, so this window is COMPLETE, not truncated.
+    THE FLAPPING CONTINUES UNBROKEN TO THIS MORNING. 09-24: ~123 unavailable-transitions
+    (hand-tallied from the returned series, +/-2), i.e. ~246 total transitions — squarely in the
+    09-18/19/20 band of 220-324. 09-25 through 09:40 local: 27 down-events in ~9.7h = ~2.8/hour,
+    a ~67/day pace, with the last one at 09:40:57 which is the current outage. So the flap rate has
+    held roughly constant across SEVEN consecutive days (09-18 through 09-25) with no recovery
+    period at any point. TWO NEW OBSERVATIONS from the fuller window. (1) The flaps are NOT
+    correlated with battery activity: the 09-24 daytime charge run (SOC 8 -> 99 between 09:20 and
+    16:29) flapped continuously THROUGH the charge, and the overnight discharge (99 -> 10 between
+    16:29 and 21:13) flapped through that too. So this is not load- or state-dependent; it is
+    constant background failure, consistent with a timer-driven background task rather than anything
+    the battery is doing. (2) Outage lengths are bimodal — a large majority are 15s-10min, but
+    09-24 carried two long ones (15:07->16:29 = 82min, 23:02->23:51 = 49min) and the current one is
+    open. The long tail is where SOC actually goes stale for URA. METHOD NOTE FOR ANY FUTURE CHECK:
+    query a BOUNDED window and confirm has_more=false; a 1000-row cap on a 10d request silently
+    truncates and will make a still-flapping integration look like it stopped.'
   measured_2026_09_23: 'OVERNIGHT PASS — groom + verify. (1) THE OUTAGE IS OVER: all 37
     sensor.envoy_482543015950_* entities are available and fresh (newest last_updated 07:22, oldest
     02:39), so the operator-authorized Core restart on 2026-09-21 23:14 did recover the stuck entry
