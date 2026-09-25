@@ -186,14 +186,70 @@ You asked whether URA is causing this. It is not, and here is the evidence rathe
   A URA-driven cause would have to be uncorrelated with URA's own energy activity — the opposite of
   causal coupling.
 
-### One non-URA contention candidate — flagged, not concluded
+### ⛔ The contention hypothesis is REFUTED — and the add-on has one wrong field
 
-`ha_get_system_health` shows the add-on **"Stream mqtt from Enphase Envoy (1.0.24)"** installed — a
-*second* independent client holding a connection to the same local Envoy — plus the separate cloud
-`enphase_ev` integration. That sits right next to your dual-homed lead (HA itself is multi-homed:
-`enp4s0` 192.168.13.13 plus VLAN sub-interfaces including `enp4s0.5` 192.168.12.13, the Envoy's
-subnet). **I have not measured whether it actually contends** — it's a hypothesis with a named next
-experiment, not a cause.
+You asked me to check the MQTT add-on. Doing so **killed my own hypothesis from two hours ago.**
+
+**`ENVOY_HOST` is set to `192.168.13.118`, which does not exist.** From the HA host: ping =
+100% packet loss, `curl https://192.168.13.118/info` = no response, and the address isn't even in the
+ARP table (neighbours `.116` and `.119` are). Meanwhile `192.168.12.191` answers **HTTP 200 in 0.41s**
+and reports `sn=482543015950` — matching our `sensor.envoy_482543015950_*` namespace, so provably the
+same Envoy (`pn 800-00663-r05`, firmware **D8.3.6087**).
+
+So the add-on has been in `error` state with `watchdog: true`, restart-looping, **publishing nothing
+since install.** And therefore: **it cannot be contending for the Envoy local API, because it has
+never connected to it.** That's a refutation, not a weakening — and it removes part of the
+justification for the investigation I proposed. Carded as `ENVOY-MQTT-ADDON-WRONG-HOST-1`.
+
+**Everything else checks out against the upstream repo** (`vk2him/Enphase-Envoy-mqtt-json`):
+
+| Setting | Verdict |
+|---|---|
+| `ENVOY_HOST: 192.168.13.118` | ❌ **the one wrong field** → should be `192.168.12.191` |
+| `ENVOY_USE_HTTPS: true` | ✅ **required for us** — repo notes FW D8.3.5286+ removed the non-SSL port-80 endpoints; we're on D8.3.6087 |
+| `BATTERY_INSTALLED: true` | ✅ correct and supported (repo: FW7/FW8 only; we're FW8 with Encharge) |
+| `MQTT_HOST: 192.168.13.13` | ✅ HA itself |
+| `ENVOY_USER` / `ENVOY_USER_PASS` | ✅ correct — FW7/8 downloads a token from Enphase on every start |
+| `ENVOY_PASSWORD: "envoy.password"` | ⚠️ literal placeholder, but this field **isn't in the repo's settings table at all** — legacy/unused, harmless, not the failure |
+
+**Second-order effect worth stopping on its own:** because the token is fetched from the Enphase
+*cloud* on every start, and the watchdog restarts a failing add-on forever, this misconfiguration is
+running a **repeating cloud-auth loop against Enlighten**.
+
+> **ANSWER — fix `ENVOY_HOST` to `192.168.12.191` and restart the add-on, or remove the add-on?**
+> (it produces nothing either way today; on a fix I'll verify the topic actually publishes):
+>
+
+*(Minor, unrelated: the add-on options store the Enlighten account password in plaintext, and it's
+the same string as the MQTT and Samba passwords. Normal for add-on storage; flagging only because
+the Enlighten one is an internet-facing account.)*
+
+### The original contention candidate — now closed out
+
+Confirmed: HA is **quad-homed** — `enp4s0` 192.168.13.13 plus sub-interfaces `enp4s0.2` 192.168.15.13,
+`enp4s0.3` 192.168.8.13, `enp4s0.5` 192.168.12.13 (the Envoy's subnet). The `enphase_ev` cloud
+integration remains a separate consumer but talks to Enphase's cloud, not the local Envoy.
+
+**What I now expect the dual-homed investigation to find — asked and answered honestly:**
+
+You asked what I expect. The honest answer is **less than I implied when I proposed it**, and the
+add-on check above is why. My reasoning then was: multiple local clients + multi-homing ⇒ plausible
+local-API contention raising the session-close rate. Two of those three legs have since fallen:
+
+- The second local client **never connected** (refuted above).
+- The Envoy answers `/info` in **0.41s** from the HA host on the configured path — no sign of a
+  congested or marginal local API.
+- And you've added the strongest datum: **the Enphase app sees the Envoy fine.**
+
+So my genuine prediction is now: **I expect to find nothing actionable.** The most likely result is
+"HA routes to 192.168.12.191 via `enp4s0.5`, single path, no contention" — which changes no decision,
+because the cure is already identified and dated (2026.9.4). That makes it a **low-value** use of the
+time, and I'd be rationalising if I kept recommending it at the priority I gave it an hour ago.
+
+**Revised recommendation: drop B from the critical path.** The one thing that *would* justify running
+it is if flapping persists after 2026.9.4 lands — at that point a network-side contributor becomes
+the live hypothesis again and the investigation has a real question to answer. Parked with that
+trigger rather than dropped.
 
 ### Options, re-priced against the above
 

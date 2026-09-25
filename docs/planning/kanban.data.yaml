@@ -28339,6 +28339,71 @@ cards:
      supersession-audit claim) - still_energy is recorder-EXCLUDED + per-gate needs engineering_mode; requires
      forward capture (phantom vs known-occupied) + per-unit fit; intra-device (fragile). Revisit only if the
      pause-recheck route proves insufficient across the mmwave-only fan rooms.'
+- id: ENVOY-MQTT-ADDON-WRONG-HOST-1
+  title: The Envoy-to-MQTT add-on has been pointed at a dead IP since install, so it has never
+    published anything — one wrong field, and it also refutes the local-API contention theory
+  thread: energy
+  status: waiting_operator
+  created: '2026-09-25 10:40'
+  updated: '2026-09-25 10:40'
+  refinement_status: initial
+  approval: unreviewed
+  rank: {value: 4, time_criticality: 2, effort: 2}
+  tags: [energy, envoy, config-only, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: the add-on that is supposed to stream live Envoy data into the house over MQTT is
+     configured to talk to a machine that does not exist. It has been sitting in a permanent error
+     state, restarting forever and producing nothing, and nobody noticed because nothing depends on
+     it yet. Solution: point it at the address the Envoy actually answers on. It is a single field in
+     the add-on settings, no code involved.'
+  origin: {date: '2026-09-25', gist: 'operator: "Not sure its correctly configured. Read its repo to
+    get how to do this right."'}
+  why: 'Operator asked for a config audit against the upstream repo. Found exactly one wrong value,
+    verified by probing both addresses rather than by reading the config alone.'
+  evidence_2026_09_25: 'MEASURED, NOT INFERRED. The add-on options set ENVOY_HOST=192.168.13.118.
+    From the HA host: ping 192.168.13.118 = 2 packets transmitted, 0 received, 100%% packet loss;
+    curl https://192.168.13.118/info = http 000 (no response); and the address is absent from the
+    HA host ARP table entirely (neighbours .116 and .119 are present, .118 is not). By contrast the
+    address the enphase_envoy integration uses, 192.168.12.191, answers http 200 in 0.41s and its
+    /info reports sn=482543015950 — which matches our entity namespace sensor.envoy_482543015950_*,
+    so it is provably the same Envoy — pn 800-00663-r05, software D8.3.6087. Add-on state is "error"
+    with watchdog=true, so the supervisor has been restarting it in a loop.
+    EVERY OTHER SETTING CHECKED AGAINST THE UPSTREAM REPO (vk2him/Enphase-Envoy-mqtt-json) AND IS
+    CORRECT: ENVOY_USE_HTTPS=true is REQUIRED for us — the repo notes FW D8.3.5286+ removed the
+    non-SSL port-80 endpoints and our firmware D8.3.6087 is well past that, so this was set right.
+    BATTERY_INSTALLED=true is correct and supported (repo: battery data works on FW7/FW8, not FW5;
+    we are FW8 with Encharge). MQTT_HOST=192.168.13.13 is HA itself, correct. ENVOY_USER /
+    ENVOY_USER_PASS are the Enlighten account, which is what FW7/8 needs since the repo says a token
+    is downloaded from Enphase on every add-on start. ENVOY_PASSWORD is set to the literal
+    placeholder string "envoy.password", but that field does not appear in the repo README''s
+    settings table at all — it is a legacy/unused option for FW5-era installs, so the placeholder is
+    harmless and is NOT the failure.
+    NOTE THE SECOND-ORDER EFFECT: because the token is fetched from the Enphase CLOUD on every start,
+    and the watchdog restarts a failing add-on indefinitely, this misconfiguration produces a
+    repeating cloud-auth loop against Enlighten. That is worth stopping on its own merits even though
+    it does not touch the local Envoy.'
+  refutes: 'THIS KILLS MY OWN CONTENTION HYPOTHESIS FROM EARLIER TODAY. On ENVOY-FLAKINESS-181243-1
+    I flagged this add-on as a candidate second local-API client contending with the integration and
+    proposed an investigation to measure it. That hypothesis is now REFUTED, not weakened: a client
+    pointed at a dead address on a different subnet has never opened a connection to the Envoy, so it
+    cannot contend for it. Recording this as a refutation rather than quietly dropping it, because
+    the un-run investigation was partly justified by this hypothesis and that justification is gone.'
+  constraints:
+  - 'Config-only change in add-on settings. No URA code. No HA restart required — add-on restart only.'
+  - 'Operator action: the add-on options page is the only place this can be set.'
+  next: 'DO (operator): set the add-on ENVOY_HOST from 192.168.13.118 to 192.168.12.191 and restart
+     the add-on -> I then verify it reaches "started" and that the /envoy/json topic is actually
+     publishing (subscribe + confirm a live payload), and report whether the stream is usable as a
+     fast local SOC/power source. If you would rather the add-on stay off, say so and I will card the
+     removal instead — it is producing nothing today either way.'
+  knobs: []
+  parsimony: {problem: 'The add-on''s ENVOY_HOST is a dead address, so it publishes nothing and
+    loops on cloud auth.', verdict: BUILD}
+  links:
+    related: [ENVOY-FLAKINESS-181243-1]
+    context: 'Found while auditing the Envoy flapping investigation; refutes that card''s
+      local-API-contention hypothesis, but is NOT a cause of the flapping (which is the pyenphase bug).'
+  refs: ['https://github.com/vk2him/Enphase-Envoy-mqtt-json', docs/planning/OPEN_THREADS_2026-09-25.md]
 - id: ENVOY-FLAKINESS-181243-1
   measured_2026_09_25: 'OPERATOR HYPOTHESIS CONFIRMED — IT IS FLAPPING, AND MY EARLIER "THE OUTAGE IS
     OVER" CLAIM WAS WRONG. Operator 2026-09-25: "please measure flakiness. I think the integration is
