@@ -27882,9 +27882,53 @@ cards:
     real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at
     midnight the way the code assumes
   thread: energy
-  status: review
+  status: in_progress
   created: '2026-09-19 04:15'
-  updated: '2026-09-25 02:55'
+  updated: '2026-09-25 03:25'
+  REVIEW_B_2026_09_25: 'FRAMING B (test authority via real per-site source mutation) — VERDICT SHIP.
+    Every build claim in this lane was either confirmed or confirmed STRONGER, which is the unusual
+    outcome; the two findings are pre-existing siblings, not defects in this diff. WORKTREE HYGIENE
+    VERIFIED: two isolated worktrees under .claude/worktrees (never /tmp), git status --porcelain empty
+    in both before removal, main checkout byte-identical to session start — the unrestored-drill hazard
+    was closed properly. FIVE MUTATION DRILLS, all with PYTHONDONTWRITEBYTECODE=1 and __pycache__ purged
+    first (the known stale-.pyc false-PASS trap): (1) reverting the excuse to post_restart-only reddened
+    FOUR named tests, not the two the build claimed — the build UNDERSTATED its own coverage;
+    (2) deleting the call-site argument reddened exactly 2; (3) neutering the call site to the literal
+    False reddened the same 2; (4) forcing the helper to return True — i.e. the "suppress everything"
+    bug — reddened test_call_site_same_value_at_1500_is_anomalous, which is the proof the discriminator
+    is REAL and not tautological; (5) widening the constant 120 -> 900 reddened only the sizing test.
+    All five restored, residue clean. THE DISCRIMINATOR IS GENUINE, which was the criterion most at risk
+    of being worthless: test_call_site_same_value_at_1500_is_anomalous holds the inputs IDENTICAL
+    (whole_house=10.0, attributed=74.4, i.e. -644%) and moves ONLY the clock, so a blanket-suppression
+    bug cannot pass it. THE WIRE-IN ANCHOR IS NOT HOLLOW: the anchors drive the real
+    extra_state_attributes property on an actual EnergyCoverageDeltaSensor and assert the resulting
+    coverage_rating changes — not a source grep, not an importability check. THE SILENT-SKIP CLAIM IS
+    CONFIRMED AT THE PARENT COMMIT: at c5ea7dfc7^ the whole file reported "1 skipped" with "aggregation
+    module not importable", so the D3 bounds tests and the B-H4 post-restart test had genuinely never
+    executed; at c5ea7dfc7, 31 execute and ZERO skips remain. TIME IS INJECTED, NOT WALL-CLOCK: no
+    dt_util.now / datetime.now / utcnow anywhere in the test file, and 31/31 pass identically under TZ
+    UTC, Pacific/Kiritimati, America/Chicago and Asia/Kolkata — the wall-clock-coupled family is avoided.
+    ONE BUILD CLAIM IS UNVERIFIABLE AS STATED rather than wrong: the build said "155 passing across the
+    five aggregation-touching files" but never named the five; the reviewer''s own set of five measured
+    160 passed / 0 skipped, stable under reverse file order. HIGH FINDING, PRE-EXISTING AND NOT
+    BLOCKING THIS SHIP: the same silent-skip class is still live in three other files (10 tests never
+    executed) — carded separately as TEST-SILENT-WHOLE-FILE-SKIPS-1 and independently re-verified by the
+    orchestrator rather than taken on the reviewer''s word. LOW FINDING: the boundary test computes its
+    inside/outside times FROM the constant, so it is constant-relative and cannot by itself detect a
+    widened window (drill 5 left it green); the separate sizing assert < 840 is what caught that, so the
+    guard exists — but if that sizing test is ever relaxed, nothing behavioural backstops the constant.
+    An absolute-time assertion (15:00 must be ANOMALOUS) would be non-tautological. ENVIRONMENT NOTE for
+    the record: the 21-file sweep showed 55 pre-existing failures / 796 passed in files this commit does
+    not touch, consistent with the board''s 194F baseline and NOT caused by c5ea7dfc7.'
+  FIXUP_DISPATCHED_2026_09_25: 'Both reviews SHIP, so per the fix-LOWs-in-cycle rule I dispatched ONE
+    consolidated fix-up rather than shipping with known-cheap defects open: (a) MEDIUM-1 from review A —
+    split the shared module-global warn throttle so the excuse branch cannot eat a genuine out-of-bounds
+    warning; (b) LOW-3 from review A — publish midnight_reanchor_window on the whole_house None/zero
+    early-return so the attribute contract holds at boot; (c) the LOW from review B — add one
+    absolute-time assertion (15:00 stays ANOMALOUS) so the constant has a non-tautological behavioural
+    backstop. Deliberately NOT in scope: review A''s LOW-1 (annual DST fall-back lengthening, comment
+    only, no fix recommended) and LOW-2 (-inf, pre-existing and unreachable behind the whole_house > 0
+    guard at :3423). Still NOT DEPLOYING — that waits for the operator.'
   refinement_status: initial
   approval: unreviewed
   rank: {value: 6, time_criticality: 3, effort: 5}
@@ -28221,6 +28265,81 @@ cards:
      2026-09-21 23:14).'
   links:
     related: [ENERGY-ACCOUNTING-DIVERGENCE-1]
+- id: TEST-SILENT-WHOLE-FILE-SKIPS-1
+  title: Three test files quietly skip themselves in our environment, so 10 tests that look present
+    have never actually run
+  thread: quality
+  status: planned
+  created: '2026-09-25 03:20'
+  updated: '2026-09-25 03:20'
+  refinement_status: initial
+  approval: implied
+  tags: [tier-1, no-fabrication-verify, hollow-anchor, test-authority]
+  problem_solution:
+  - 'Problem: a test that cannot load the code it is meant to check does not fail — it politely skips,
+    reports green, and is counted as coverage we do not have. Three files do this right now and ten
+    individual tests inside them have, as far as we can tell, never executed once on this machine. The
+    reason it matters more than a normal coverage gap is that these tests READ as present: someone
+    scoping a change greps, finds a test covering the thing, and trusts it. One of the three fails for
+    exactly the reason we just fixed somewhere else, so we already know the cure. Solution: load the
+    modules the same way the fixed file now does, so the tests either run or fail loudly — never skip
+    quietly — and check what they reveal once they can actually execute.'
+  origin:
+    date: '2026-09-25'
+    gist: found by the framing-B (test-authority) reviewer of COVERAGE-RATING-FALSE-ANOMALOUS-1 while
+      sweeping for other instances of the silent-skip class that commit c5ea7dfc7 had just fixed in one file
+  why: 'A silently-skipped test is worse than a missing one, because a missing test is visible while
+    this reads as coverage and actively misleads the next person to scope work on that code. This is the
+    same class the coverage-rating commit just fixed, and the sweep proves the fix was a one-file
+    instance of a repo-wide pattern rather than a one-off.'
+  verified_2026_09_25: 'STILL-REAL, verified by the orchestrator INDEPENDENTLY rather than trusting the
+    reviewer report (the reviewer report is a hypothesis; running it is the check). Command:
+    PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=quality .venv-ha/bin/python -m pytest
+    quality/tests/test_hvac_ac_ramp_savings.py quality/tests/test_v4_6_8_rate_reconciliation.py
+    quality/tests/test_v4521_hc_device_ordering.py -q -rs. Result: 2 failed, 105 passed, 10 skipped —
+    and the ten skip reasons match the reviewer''s claim exactly, file and line. THE THREE INSTANCES:
+    (1) test_hvac_ac_ramp_savings.py, eight tests at :306/:315/:324/:332/:341/:350/:359/:370 all skipped
+    from setup_method with "could not load database module in this env" — the largest instance, and it
+    means _sum_savings_from_rows has never been exercised here. (2) test_v4_6_8_rate_reconciliation.py:63
+    skipped with literally "attempted relative import with no known parent package", which is the
+    IDENTICAL root cause commit c5ea7dfc7 just fixed, so the cure (import as a package member with the
+    repo root on sys.path) transfers verbatim. (3) test_v4521_hc_device_ordering.py:388, "button.py not
+    importable in test env". REASSURING BOUND, worth recording so this is not read as open-ended:
+    allow_module_level=True appears in exactly ONE file repo-wide (the already-fixed one), so no other
+    WHOLE-file silent skip exists by that mechanism; these three skip at class/function setup, not at
+    module level. SEPARATE PRE-EXISTING NOISE, not caused by this and not part of this card: the same
+    run showed 2 failures in test_hvac_ac_ramp_savings.py, consistent with the board''s standing 194F
+    baseline.'
+  parsimony:
+    problem: Ten tests report as present coverage while never executing, and one of the three causes is
+      the exact one we just fixed elsewhere.
+    verdict: BUILD
+  next: 'BUILD (Tier 1, contained, test-only — no production code changes). Order matters: start with
+    test_v4_6_8_rate_reconciliation.py because its cause is identical to the one already fixed at
+    c5ea7dfc7, so the fix is a transfer rather than a diagnosis. Then the database-module loader in
+    test_hvac_ac_ramp_savings.py (8 tests, the biggest win), then button.py in
+    test_v4521_hc_device_ordering.py. THE ACCEPTANCE CRITERION IS NOT "the tests pass" — it is that the
+    skips are GONE and the tests genuinely execute; a test that now runs and FAILS is a successful
+    outcome of this card, because it has surfaced a real defect that was hidden, and that failure gets
+    its own card rather than being patched away to force green. Guard against re-rot: after fixing,
+    assert the modules import rather than allowing a skip fallback, so a future environment change
+    fails loudly instead of silently reverting to skipping.'
+  links:
+    parent: TEST-STRATEGY-REARCH-1
+    related: [COVERAGE-RATING-FALSE-ANOMALOUS-1, D3-BEHAVIOURAL-COVERAGE-1, TEST-LEAK-DETECTOR-WRONG-LOOP-1]
+    context: 'TEST-STRATEGY-REARCH-1 is the parent re-architecture — a durable harness fix would remove
+      this whole class rather than patching three files, so this card is the interim concrete repair and
+      should be folded in if that re-arch lands first. COVERAGE-RATING-FALSE-ANOMALOUS-1 is where the
+      class was found and fixed once (commit c5ea7dfc7); its fix is the template for instance (2).
+      D3-BEHAVIOURAL-COVERAGE-1 and TEST-LEAK-DETECTOR-WRONG-LOOP-1 are prior members of the same
+      family — tests that read as coverage but did not exercise the thing — which is why this is carded
+      individually here rather than left as a note on the parent.'
+  rank: {value: 6, time_criticality: 3, effort: 2}
+  refs:
+  - quality/tests/test_hvac_ac_ramp_savings.py:306-370
+  - quality/tests/test_v4_6_8_rate_reconciliation.py:63
+  - quality/tests/test_v4521_hc_device_ordering.py:388
+  - feedback_hollow_test_anchors
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
