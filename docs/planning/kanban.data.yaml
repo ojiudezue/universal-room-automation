@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: 2026-09-23
+  last_reconciled: 2026-09-25
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -779,6 +779,75 @@ meta:
       I DID NOT BUILD IT TONIGHT, deliberately: two independent reviews returned do-not-ship, which is
       a mandatory stop, and an unattended overnight pass does not get to overrule a gate you are
       holding. Say go and I build the redesign and put it back through both reviews.'
+  - fid: COVERAGE-RATING-FALSE-ANOMALOUS-1@2026-09-25T03:40:00
+    at: '2026-09-25T03:40:00'
+    outcome: built-to-review
+    acknowledged: false
+    headline: 'A SELF-CHECK THAT WAS CRYING WOLF EVERY MIDNIGHT IS FIXED, REVIEWED TWICE AND READY FOR
+      YOU TO DEPLOY — nothing was deployed, because deploying restarts the house and you are asleep.
+      THE PROBLEM, in plain terms: URA cross-checks its own energy maths by comparing what it charged to
+      individual rooms against what it measured for the whole house. Just after local midnight those two
+      sides briefly disagree wildly, because the running totals roll over to the new day while the saved
+      room totals still hold yesterday''s full day. The code already forgave that after a restart, but
+      not after midnight, so every night it announced a specific and probably wrong diagnosis — "your
+      measurement units are mismatched" — about a discrepancy that clears itself within an hour or so.
+      WHAT SHIPPED TO REVIEW: the forgiveness now covers the midnight window too, sized at 120 minutes
+      from ten days of your own history (the artifact always cleared by 01:20, and the real evening
+      drift never started before 14:00, so the number sits in a wide gap rather than being picked), and
+      the alarm no longer asserts a cause it has not established — it states what it observed. BOTH
+      REVIEWS SAID SHIP. One hunted correctness and edge cases, including what happens on the two
+      clock-change nights; the other proved the tests are real by deliberately breaking the code in five
+      different places and checking the right tests went red. That second reviewer found the build had
+      UNDERSTATED its own test coverage, which is a pleasant direction to be wrong in. I THEN FIXED
+      THREE SMALL THINGS the reviews raised rather than shipping with them open, and verified the fix
+      myself instead of trusting the builder: I re-read the diff, re-ran the tests (163 pass, up from
+      160, nothing lost), and re-broke the code myself to confirm the new test actually catches the
+      problem it claims to. Worth knowing about one of the three: a shared throttle meant the harmless
+      midnight message could silently suppress a GENUINE alarm arriving 45 minutes later — the diagnosis
+      was still right, but the log line you would go looking for was being eaten. TWO MINOR ITEMS WERE
+      DELIBERATELY LEFT ALONE and are recorded as decisions, not oversights: once a year the autumn
+      clock change stretches the window to three hours (harmless, and the alternative is worse), and one
+      unreachable arithmetic edge case.'
+  - fid: TEST-SILENT-WHOLE-FILE-SKIPS-1@2026-09-25T03:45:00
+    at: '2026-09-25T03:45:00'
+    outcome: measured
+    acknowledged: false
+    headline: 'TEN TESTS THAT LOOK LIKE THEY PROTECT US HAVE NEVER ACTUALLY RUN — found by accident and
+      now carded. When a test cannot load the code it is meant to check, it does not fail. It politely
+      skips, the run still reports green, and it gets counted as safety we do not have. While reviewing
+      tonight''s energy fix I had the reviewer sweep for other places with the same defect it had just
+      repaired, and it found three more files where ten individual tests have, as far as I can tell,
+      never executed once on this machine. I RE-RAN IT MYSELF rather than believing the report, and all
+      ten skips are real, down to the file and line. WHY THIS IS WORSE THAN A PLAIN COVERAGE GAP: a
+      missing test is visible, but these READ as coverage. Someone about to change that code greps,
+      finds a test covering it, and reasonably trusts it. The biggest instance is eight tests guarding
+      an air-conditioning savings calculation. ONE PIECE OF GOOD NEWS: one of the three fails for
+      exactly the reason we just fixed in the energy file, so that cure transfers directly. And a
+      reassuring bound — the mechanism that hides an ENTIRE file this way now exists in only one place
+      repo-wide, the one already fixed, so this is not open-ended. I DELIBERATELY WROTE THE GOAL AS
+      "the skips are gone", NOT "the tests pass": if one of these starts running and immediately fails,
+      that is a success, because it has surfaced a real defect that was hidden — and it gets its own
+      card rather than being quietly patched to force green.'
+  - fid: WORKTREE-BACKLOG-PRUNE-1@2026-09-25T03:45:00
+    at: '2026-09-25T03:45:00'
+    outcome: escalated
+    acknowledged: false
+    headline: 'THE SCRATCH-COPY CLUTTER IS BACK, AND THE REAL LESSON IS THAT LAST TIME WE CLEANED IT
+      RATHER THAN FIXED IT. Every time I hand work to a sub-agent it gets its own private copy of the
+      repo so nothing collides. Those copies are supposed to be disposable. Nine days ago we pruned them
+      from 94 down; tonight, removing my own, I counted 52 again taking up 3.3 GB. So I am reopening
+      that card with a corrected problem statement: the issue is not that there are too many, it is that
+      nothing stops them piling up. TWO REASONS THIS IS MORE THAN WASTED DISK. First, the oldest copies
+      are now over 3,500 commits behind the current code — an agent that picks one up would build and
+      test against a version of URA that no longer exists, and get a GREEN result, which is worse than a
+      red one because it reads as proof. Second, and the reason I did not just delete them: 25 of the 52
+      contain unsaved work. Removing one of those destroys it with no way back, so this is explicitly
+      not a job to do blind. WHAT I WANT TO DO, and it needs your nod because it touches real work:
+      triage those 25 one at a time — save to a branch or deliberately discard — and only then sweep the
+      clean ones. The durable fix is small: have the hand-off clean up after itself when work merges
+      (I did that by hand tonight, which is precisely the step that should not depend on my remembering),
+      plus a count shown at session start so regrowth is visible instead of being noticed by accident
+      nine days later.'
 cards:
 - id: HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1
   VALIDATED_5108_2026_09_18: 'v5.103.8 live-validated: loaded clean, zero ERROR. retreat_reason live
@@ -3860,9 +3929,30 @@ cards:
 - id: WORKTREE-BACKLOG-PRUNE-1
   title: 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work
   thread: infra
-  status: done
+  status: planned
   created: '2026-09-13 21:10'
-  updated: '2026-09-16 04:30'
+  updated: '2026-09-25 03:45'
+  INSTANCE_2026_09_25_REGROWTH: 'REOPENED — this recurred, which means the 09-16 prune was a one-time
+    cleanup and not a durable fix, and that reframes the card: the problem is not "there are too many
+    worktrees" but "nothing stops them accumulating". Measured tonight while removing my own fix-up
+    worktree (a mid-turn discovery, carded per capture-first rather than left in the transcript):
+    52 worktrees under .claude/worktrees consuming 3.3 GB. The 09-16 pass took this from 94 down, and it
+    is back to 52 in nine days. TWO THINGS MAKE THIS MORE THAN DISK HYGIENE. (1) BASE STALENESS IS
+    EXTREME: the worst bases are 3542, 3539, 3537, 3513, 3513 and 3502 commits behind develop. A build
+    or suite run in one of those describes a codebase that no longer exists, and per the standing rule a
+    green suite on a stale base is worse than a red one because it reads as evidence. Any agent that
+    picks one up inherits that silently. (2) TWENTY-FIVE OF THE 52 CARRY UNCOMMITTED WORK, so this is
+    explicitly NOT a delete-blind cleanup — "dead does not mean delete" applies with force here, because
+    an uncommitted tracked change has no recoverable trace once the worktree is removed. The 09-16 card
+    already learned this (it found ~40 holding real uncommitted or unmerged work); the same hazard is
+    back at 25. NEXT IS NOT A PRUNE, or at least not only one: the durable fix is a forcing function,
+    since a manual sweep demonstrably does not hold. Candidates to weigh, cheapest first: have the
+    dispatch path remove its own worktree on successful merge (I did that manually tonight, which is
+    exactly the step that should not depend on my remembering); and a session-start or deploy-time check
+    that reports count + dirty-count + worst base staleness, so regrowth is visible rather than
+    discovered incidentally nine days later. The prune itself remains a bounded operator-reviewed batch:
+    triage each of the 25 dirty ones (commit to a salvage branch or explicitly discard) BEFORE removing
+    anything, and the clean-and-merged ones can go unattended.'
   refinement_status: initial
   problem_solution:
   - 'Problem: 94 agent worktrees have piled up under .claude/worktrees. Most are finished work
@@ -27882,9 +27972,39 @@ cards:
     real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at
     midnight the way the code assumes
   thread: energy
-  status: in_progress
+  status: review
   created: '2026-09-19 04:15'
-  updated: '2026-09-25 03:25'
+  updated: '2026-09-25 03:40'
+  FIXUP_DONE_VERIFIED_2026_09_25: 'FIX-UP COMPLETE AND INDEPENDENTLY VERIFIED BY THE ORCHESTRATOR —
+    I did not take the builder''s report on trust, which is the standing rule. Commit ca69d45c2,
+    fast-forward merged onto develop, built in an isolated worktree under .claude/worktrees (since
+    removed), NOT DEPLOYED. ALL THREE ITEMS LANDED: (a) MEDIUM-1 — a second module global
+    _COVERAGE_RATING_REANCHOR_LAST_WARN now serves the excuse branch alone; I re-grepped every
+    LAST_WARN site and confirmed the split is real and total (excuse branch reads/stamps REANCHOR at
+    :943-944, genuine out-of-bounds branch still reads/stamps ANOMALOUS at :963-964, nothing shared),
+    so a 00:05 excuse can no longer swallow a 00:50 genuine warning. (b) LOW-3 — the no-data early
+    return now publishes midnight_reanchor_window, and the builder correctly wrapped the helper call in
+    its own try/except so an unexpected raise cannot brick the attribute build on the boot path, which
+    is exactly the path that dict governs. (c) review B''s LOW — a new absolute-time test asserts a
+    negative delta at 15:00 stays ANOMALOUS without reading the constant, giving the 120-minute window a
+    non-tautological behavioural backstop. ORCHESTRATOR VERIFICATION, done personally rather than read
+    off the report: (1) read the full production diff — +21/-3 in aggregation.py, no scope creep, no
+    refactor, constant unchanged; (2) re-confirmed the never-excuse guard chain at :928-940 is
+    byte-untouched, so None/NaN/inf/>100 are still never excused under either window; (3) re-ran the
+    five aggregation-touching files MYSELF: 163 passed, 0 skipped, against the 160-passed baseline — the
+    three new tests and no losses, matching the builder''s name-diff exactly; (4) RE-RAN ONE MUTATION
+    DRILL MYSELF rather than trusting the builder''s table — reverting the throttle split to the single
+    shared global reddened exactly test_reanchor_warn_does_not_swallow_anomalous_warn (1 failed, 33
+    passed), proving that test is load-bearing and not decorative; (5) restored and verified residue is
+    ZERO via git status --porcelain, then re-ran to 34 passed, so the drill left no poison behind;
+    (6) zero-bugs gate — py_compile OK and zero conflict markers. TWO REVIEW LOWS DELIBERATELY NOT
+    FIXED, recorded so they read as decisions rather than omissions: review A LOW-1 (the annual DST
+    fall-back lengthens the window to three real hours once a year — review A explicitly recommended no
+    fix, since the artifact clears by 01:20 so the first pass of hour 1 already covers it, and a
+    duration-based window would be strictly worse) and LOW-2 (-inf excused as negative — pre-existing,
+    and unreachable behind the whole_house > 0 guard at :3423). REMAINING WORK IS YOURS ONLY: deploy.
+    Two SHIP verdicts, a verified fix-up and a green targeted suite mean this is ready, but an
+    unattended overnight pass does not restart HA in an occupied sleeping house.'
   REVIEW_B_2026_09_25: 'FRAMING B (test authority via real per-site source mutation) — VERDICT SHIP.
     Every build claim in this lane was either confirmed or confirmed STRONGER, which is the unusual
     outcome; the two findings are pre-existing siblings, not defects in this diff. WORKTREE HYGIENE
