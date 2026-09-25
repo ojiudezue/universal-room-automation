@@ -28388,6 +28388,32 @@ cards:
     pointed at a dead address on a different subnet has never opened a connection to the Envoy, so it
     cannot contend for it. Recording this as a refutation rather than quietly dropping it, because
     the un-run investigation was partly justified by this hypothesis and that justification is gone.'
+  round2_2026_09_25_https_flag_regressed: 'OPERATOR FIXED ENVOY_HOST -> 192.168.11.190 (the Envoy''s
+    ETHERNET interface; the Envoy is genuinely dual-homed) BUT THE ADD-ON STILL FAILS. Root cause found
+    and CONFIRMED IN THE LOG, not inferred. THE IP CHANGE WAS CORRECT AND IS AN IMPROVEMENT: from the
+    HA host, 192.168.11.190 answers ping 0%% loss at 0.57ms and https /info = 200 in 0.149s, versus
+    0.41s for the old 192.168.12.191 — and it routes via enp4s0.3 (192.168.8.13/22, whose /22 spans
+    192.168.8.0-192.168.11.255, so .11.190 is on-link, no gateway hop).
+    THE ACTUAL FAILURE IS A DIFFERENT FIELD: ENVOY_USE_HTTPS is now FALSE. It was TRUE when I audited
+    the add-on earlier today (recorded in evidence_2026_09_25 above), so it flipped during the edit —
+    a boolean toggle reset, not an IP problem. Predicted from source, then verified: the script builds
+    url_info at lines 100-103 honouring that flag, and line 105/90 does
+    `response_info = requests.get(url_info, verify=False)` as TOP-LEVEL MODULE CODE with NO try/except.
+    So an http:// probe against a firmware that no longer listens on port 80 is IMMEDIATELY FATAL.
+    Live probe confirms the asymmetry: https://192.168.11.190/info = 200, http://192.168.11.190/info =
+    000 (nothing listening). And the add-on log ends exactly there:
+    "requests.exceptions.ConnectionError: HTTPConnectionPool(host=''192.168.11.190'', port=80): Max
+    retries exceeded with url: /info (Caused by NewConnectionError(... [Errno 111] Connection
+    refused))" followed by s6-rc stopping services. That matches the repo''s own note that FW D8.3.5286+
+    removed the non-SSL port-80 endpoints; we run D8.3.6087.
+    SECOND LATENT BUG IN THE SCRIPT, worth knowing but NOT our failure: even if /info returned non-200
+    without raising, the else-branch never assigns serialNumber/version, and lines 113/120 read them
+    unconditionally -> NameError. So a bad /info kills the add-on on either path.
+    NOTE THE FLAG IS ONLY NEEDED FOR STARTUP: scrape_stream_livedata() at line 341 hardcodes
+    https:// regardless of the flag, as does the stream-activate POST at 353. So ENVOY_USE_HTTPS
+    governs the /info probe (and the unused production.json / stream/meter paths) — but that probe is
+    fatal, which is why the whole add-on dies.
+    FIX: set ENVOY_USE_HTTPS back to TRUE, keep ENVOY_HOST=192.168.11.190, restart the add-on.'
   mechanism_comparison_2026_09_25: 'OPERATOR: "What does that app/add-on do differently?" READ THE
     ACTUAL SOURCE (envoy_to_mqtt_json.py, 468 lines, fetched from the repo this session) rather than
     trusting the README. With BATTERY_INSTALLED=true we would run scrape_stream_livedata(), and it is
@@ -28435,7 +28461,7 @@ cards:
   constraints:
   - 'Config-only change in add-on settings. No URA code. No HA restart required — add-on restart only.'
   - 'Operator action: the add-on options page is the only place this can be set.'
-  next: 'DO (operator): set the add-on ENVOY_HOST from 192.168.13.118 to 192.168.12.191 and restart
+  next: 'DO (operator): set ENVOY_USE_HTTPS back to TRUE (it regressed to false during the host edit); keep ENVOY_HOST=192.168.11.190, which is correct and faster than the old address; restart
      the add-on -> I then verify it reaches "started" and that the /envoy/json topic is actually
      publishing (subscribe + confirm a live payload), and report whether the stream is usable as a
      fast local SOC/power source. If you would rather the add-on stay off, say so and I will card the
