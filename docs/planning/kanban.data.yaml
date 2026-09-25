@@ -28340,10 +28340,44 @@ cards:
      forward capture (phantom vs known-occupied) + per-unit fit; intra-device (fragile). Revisit only if the
      pause-recheck route proves insufficient across the mmwave-only fan rooms.'
 - id: ENVOY-MQTT-ADDON-WRONG-HOST-1
+  resolved_2026_09_25: 'RESOLVED AND LIVE-VERIFIED END TO END. Sequence: operator set ENVOY_HOST to
+    192.168.11.190 (Envoy ETHERNET leg — correct, and measurably better than the old address: 0.57ms,
+    https /info 200 in 0.149s vs 0.41s, on-link via enp4s0.3 /22), then restored ENVOY_USE_HTTPS to
+    true after it had regressed to false during that edit. Add-on now state=started; its log shows
+    "Serial number: 482543015950", "Detected Firmware version D8", token read from data/token.txt.
+    PUBLISHING CONFIRMED, not assumed: subscribed to /envoy/json and received live payloads carrying
+    connection.sc_stream="enabled" (so the Envoy livedata stream armed successfully) plus real
+    telemetry. CONSUMERS BUILT: wrote /config/packages/envoy_mqtt.yaml (via the Samba mount; ssh has
+    no write permission to /config) defining 6 mqtt sensors + 1 connectivity binary_sensor, ran the
+    supervisor core/check = "ok", then mqtt.reload — which had ZERO blast radius because there were
+    no manually-configured MQTT entities before this (grepped /config beforehand: no mqtt: key, no
+    /envoy/json consumers). All 7 entities came up live.
+    ARITHMETIC CROSS-CHECK AGAINST PHYSICS, the discriminating test that the units and signs are
+    right rather than merely plausible: solar 12455 W = house load 7528 + battery charge 4911 + grid
+    export 16 = 12455. EXACT. That validates the mW->W conversion (agg_p_mw / 1000) AND both sign
+    conventions (storage negative = charging, grid negative = exporting) in one observation; a wrong
+    unit or a flipped sign could not balance.
+    THE PAYOFF, OBSERVED SIDE BY SIDE AT THE SAME INSTANT: sensor.envoy_live_battery_soc = 88 while
+    sensor.envoy_482543015950_battery (the integration) = unavailable. The MQTT path is carrying SOC
+    through an outage that has the integration dark. That is the operator''s stated problem ("we
+    cannot manage the energy system effectively this way") answered with evidence rather than a
+    promise.
+    DESIGN NOTE — expire_after IS LOAD-BEARING and was deliberate: MQTT retains the last message
+    forever, so without expire_after a dead add-on would leave these sensors showing a FROZEN SOC
+    that looks live. That is strictly worse than the flapping we are escaping, because a stale number
+    is silently wrong while unavailable is honest. Set to 60s against a ~1s cadence.
+    ALSO CORRECTED THE UPSTREAM TEMPLATE PATTERN: the README writes `x/1000 | round(0)`, which only
+    works by an accident of Jinja precedence (filters bind tighter than arithmetic, so it parses as
+    x / (1000|round(0))). Parenthesised explicitly in our package.
+    NOT IN VERSION CONTROL: the package lives in HA config, not this repo. The "Home Assistant Version
+    Control" add-on is installed and should be picking it up — worth confirming.'
+  status_note: 'Add-on fix COMPLETE. The URA-side consumer work (trust/precedence of this fast feed
+    against the existing Envoy source) remains a SEPARATE cycle and is deliberately not folded in
+    here — see ENVOY-FAST-FEED-URA-CONSUMER-1.'
   title: The Envoy-to-MQTT add-on has been pointed at a dead IP since install, so it has never
     published anything — one wrong field, and it also refutes the local-API contention theory
   thread: energy
-  status: waiting_operator
+  status: done
   created: '2026-09-25 10:40'
   updated: '2026-09-25 10:40'
   refinement_status: initial
