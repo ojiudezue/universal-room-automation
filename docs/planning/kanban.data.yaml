@@ -27824,7 +27824,7 @@ cards:
   thread: energy
   status: review
   created: '2026-09-19 04:15'
-  updated: '2026-09-23 03:05'
+  updated: '2026-09-25 02:55'
   refinement_status: initial
   approval: unreviewed
   rank: {value: 6, time_criticality: 3, effort: 5}
@@ -27855,7 +27855,20 @@ cards:
     the ANOMALOUS line names Bug Class #30 (unit mismatch) and would send the next investigator to the
     unit-normalization work, which the evidence does not support. Meanwhile a genuine sevenfold
     attribution disagreement is sitting unexplained behind it.'
-  next: 'BUILD next pass (Tier 1-2, contained): extend the existing negative-delta excuse branch at aggregation.py:905-926 to cover the local-midnight re-anchor as well as the post-restart window, and replace the unit-mismatch assertion with a statement of what was observed. Named module constant for the boundary window. Two framing-disjoint reviews per the autonomous-work rule; the test must DISCRIMINATE boundary-negative (INCOMPLETE) from mid-day-negative (still ANOMALOUS). No operator input needed.'
+  next: 'REVIEWS IN FLIGHT — no operator input needed, and the old "BUILD next pass" text was STALE
+    and is replaced. Verified on develop 2026-09-25: the build ALREADY LANDED at commit c5ea7dfc7
+    (COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN=120 confirmed at const.py:358; the helper
+    _in_midnight_reanchor_window at aggregation.py:3232 and its wire-in at :3417/:3437/:3446 all
+    confirmed present), so the build half is ALREADY-DONE and only the review gate remains. Dispatched
+    two framing-disjoint reviews on the 2026-09-25 overnight pass: A = local correctness and edge cases
+    (midnight-window arithmetic, DST spring-forward/fall-back, the never-excuse invariant for
+    >100/None/NaN, fail-closed on exception, straddle consistency between the rating and the published
+    attribute, suppression-needs-a-discharge, and an independent re-grep of the consumer count);
+    B = test authority via real per-site source mutation (re-run both mutation drills per-site, verify
+    the wire-in anchor asserts enclosing behaviour rather than symbol existence, re-verify and then
+    SWEEP for the silent-whole-file-skip class this commit fixed, and check the boundary-vs-mid-day
+    discriminator plus wall-clock coupling). -> on two clean verdicts this is ready to DEPLOY, which
+    waits for you: an overnight pass does not restart HA in an occupied sleeping house.'
   links:
     related: [STUCK-MOTION-FROZEN-ON-BLINDSPOT-1]
     context: 'Surfaced 2026-09-19 in the same live-log read that withdrew the operator ask on

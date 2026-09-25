@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T02:03:23-05:00_ - _Data commit: `0fa2a58061a8`_ - _last_reconciled: 2026-09-23_
+_Generated: 2026-09-25T02:08:54-05:00_ - _Data commit: `ac7e2a0035f7`_ - _last_reconciled: 2026-09-23_
 
 
 ## Columns
@@ -458,11 +458,11 @@ _under review_
 
 ### `COVERAGE-RATING-FALSE-ANOMALOUS-1` - The energy coverage self-check reports a false "measurement units are mismatched" alarm — its real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at midnight the way the code assumes — _#1 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **energy** - status: **review** - approval: **unreviewed**
-_created 2026-09-19 04:15 · updated 2026-09-23 03:05 · initial_
+_created 2026-09-19 04:15 · updated 2026-09-25 02:55 · initial_
 - **Problem / Solution:**
   - Problem: URA cross-checks its own energy accounting by comparing what it attributed to individual rooms against what it measured for the whole house, and it currently disagrees with itself by roughly sevenfold (the gap reads about minus ...
 - **Why:** A self-check that reports a confident wrong cause is worse than one that says "I do not know": the ANOMALOUS line names Bug Class #30 (unit mismatch) and would send the next investigator to the unit-normalization work, which the evidence...
-- **Next:** BUILD next pass (Tier 1-2, contained): extend the existing negative-delta excuse branch at aggregation.py:905-926 to cover the local-midnight re-anchor as well as the post-restart window, and replace the unit-mismatch assertion with a st...
+- **Next:** REVIEWS IN FLIGHT — no operator input needed, and the old "BUILD next pass" text was STALE and is replaced. Verified on develop 2026-09-25: the build ALREADY LANDED at commit c5ea7dfc7 (COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN=120 confirmed...
 - **Tags:** measure-before-build, no-fabrication-verify, falsify-first
 - **Refs:** custom_components/universal_room_automation/aggregation.py:889-940 (_coverage_rating + both warnings); docs/planning/PLANNING_energy_unit_normalization_and_attribution.md; live core log 2026-09-18 21:56 / 22:56 / 2026-09-19 00:11 (the three rate-limited lines)
 - **Forensic keys (5):**
