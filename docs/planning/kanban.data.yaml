@@ -28339,6 +28339,55 @@ cards:
      supersession-audit claim) - still_energy is recorder-EXCLUDED + per-gate needs engineering_mode; requires
      forward capture (phantom vs known-occupied) + per-unit fit; intra-device (fragile). Revisit only if the
      pause-recheck route proves insufficient across the mmwave-only fan rooms.'
+- id: ENVOY-CLOUD-FALLBACK-COVERAGE-UNVERIFIED-1
+  title: URA has a cloud battery-SOC fallback wired and it is live right now — so is URA actually
+    blind during Envoy outages, or did the fallback not engage? I asserted the former without
+    checking the latter
+  thread: energy
+  status: investigating
+  created: '2026-09-25 16:30'
+  updated: '2026-09-25 16:30'
+  refinement_status: initial
+  approval: unreviewed
+  rank: {value: 7, time_criticality: 5, effort: 3}
+  tags: [energy, envoy, no-fabrication-verify, measure-before-build]
+  problem_solution:
+  - 'Problem: I have been telling the operator that the Envoy flapping leaves the battery logic
+     running on stale readings. But URA turns out to already have a backup reading wired up that
+     comes from Enphase''s cloud instead of the local device, and that backup is healthy and updating
+     right now. Either the backup is quietly covering the gaps — in which case the harm is smaller
+     than I said — or it exists but is not kicking in when it should, which is a real defect hiding
+     behind a feature that looks present. Solution: find out which, by checking whether the backup
+     reading was being used during the specific minutes the local one was dark.'
+  origin: {date: '2026-09-25', gist: 'operator asked whether the MQTT feed can publish/control;
+    checking the control surface surfaced the cloud oracle entities and the wired fallback'}
+  why: 'Decides how urgent the MQTT fast-feed consumer work actually is. If the cloud fallback
+    already covers outages, the MQTT feed is a resolution/latency upgrade, not a rescue.'
+  evidence_2026_09_25: 'WIRED, per the live CM config entry (.storage/core.config_entries):
+    energy_cloud_battery_soc_fallback_entity = sensor.iq_battery_hacs_battery_overall_charge,
+    energy_cloud_reserve_oracle_entity = number.iq_battery_hacs_battery_reserve,
+    energy_cloud_charge_from_grid_oracle_entity = switch.iq_battery_hacs_charge_battery_from_grid.
+    Defaults confirmed in source at energy_const.py:305-313. LIVE STATE NOW: the cloud SOC reads 86.0
+    (last_changed 16:12) while the local sensor.envoy_482543015950_battery is unavailable — so the
+    cloud path is demonstrably healthy DURING an outage.
+    THE CONTRADICTING EVIDENCE that makes this a real question rather than a reassurance: the
+    measured_2026_09_22 entry on ENVOY-FLAKINESS-181243-1 recorded FIVE "Envoy unavailable
+    (SOC=None) - holding current state" events in energy_battery (23:12, 23:17, 23:23, 23:38, 00:58).
+    If the cloud fallback were engaging, SOC should not have been None. Either the fallback was
+    configured after that date, or it is configured but not consulted on that code path.
+    I DO NOT KNOW WHICH, and I am not going to guess — this is exactly the producer-check the
+    Producer/Consumer rule demands and I skipped it when I asserted URA runs stale.'
+  next: 'MEASURE (me): read energy_battery.py''s SOC resolution path to see whether the cloud
+     fallback is consulted before emitting SOC=None, then scan the log for "holding current state"
+     occurrences AFTER the fallback was configured. Discriminating outcome: if fallback-era outages
+     still log SOC=None, the fallback is wired-but-not-consumed (Bug Class #53 shape) and is a real
+     defect; if they stopped, the fallback works and the MQTT feed is an upgrade not a rescue.'
+  parsimony: {problem: 'A wired cloud SOC fallback may not be consulted on the path that emits
+    SOC=None during Envoy outages.', verdict: BUILD}
+  links:
+    related: [ENVOY-FLAKINESS-181243-1, ENVOY-MQTT-ADDON-WRONG-HOST-1]
+    context: 'Decides the urgency of the MQTT fast-feed consumer work and corrects a claim I made to
+      the operator about URA being blind during flaps.'
 - id: ENVOY-MQTT-ADDON-WRONG-HOST-1
   resolved_2026_09_25: 'RESOLVED AND LIVE-VERIFIED END TO END. Sequence: operator set ENVOY_HOST to
     192.168.11.190 (Envoy ETHERNET leg — correct, and measurably better than the old address: 0.57ms,
