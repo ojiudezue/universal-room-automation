@@ -65,6 +65,14 @@ load-shedding/EVSE machinery is the more natural home for it.)
 
 ## 1. Complete field inventory — what the stream actually carries
 
+> **Naming contract (2026-09-25):** entities are `sensor.envoy_stream_*` / `binary_sensor.envoy_stream_*`,
+> grouped under a single **"Envoy Stream"** device. "stream" not "live" — the native integration's
+> entities are also live when up, so "live" would read as a judgement on the other source rather than
+> a source label; "stream" names the mechanism (`/ivp/livedata/stream`) and matches the `local_stream`
+> resolver tier in §4. Three Envoy families now coexist and must stay distinguishable:
+> `sensor.envoy_482543015950_*` (native, flaps) · `sensor.iq_battery_hacs_*` (cloud) ·
+> `sensor.envoy_stream_*` (this, local ~1 Hz).
+
 Captured from a live payload. **Every field is now bound to an entity** in
 `/config/packages/envoy_mqtt.yaml` (25 entities: 23 sensors + 2 binary sensors), except the ones
 explicitly marked *not captured* below.
@@ -72,23 +80,23 @@ explicitly marked *not captured* below.
 ### 1.1 Battery
 | Field | Live value | Entity | Note |
 |---|---|---|---|
-| `meters.enc_agg_soc` | 91 | `sensor.envoy_live_battery_soc` | Encharge aggregate SOC |
-| `meters.soc` | 91 | `sensor.envoy_live_soc_raw` | top-level SOC — **captured separately on purpose**, see §3.3 |
-| `meters.enc_agg_energy` | 36450 Wh | `sensor.envoy_live_battery_energy` | |
-| `meters.storage.agg_p_mw` | — | `sensor.envoy_live_battery_power` | −=charging, +=discharging |
-| **`meters.backup_soc`** | **10** | `sensor.envoy_live_backup_reserve` | **LOCAL WITNESS FOR THE RESERVE SETTING — see §1.6** |
-| `meters.backup_bat_mode` | 1 | `sensor.envoy_live_backup_battery_mode` | |
-| `meters.acb_agg_soc` / `_energy` | 0 / 0 | `sensor.envoy_live_acb_soc` | AC Battery — none on site; captured so a future install isn't silently missed |
+| `meters.enc_agg_soc` | 91 | `sensor.envoy_stream_battery_soc` | Encharge aggregate SOC |
+| `meters.soc` | 91 | `sensor.envoy_stream_soc_top_level` | top-level SOC — **captured separately on purpose**, see §3.3 |
+| `meters.enc_agg_energy` | 36450 Wh | `sensor.envoy_stream_battery_energy` | |
+| `meters.storage.agg_p_mw` | — | `sensor.envoy_stream_battery_power` | −=charging, +=discharging |
+| **`meters.backup_soc`** | **10** | `sensor.envoy_stream_backup_reserve` | **LOCAL WITNESS FOR THE RESERVE SETTING — see §1.6** |
+| `meters.backup_bat_mode` | 1 | `sensor.envoy_stream_backup_battery_mode` | |
+| `meters.acb_agg_soc` / `_energy` | 0 / 0 | `sensor.envoy_stream_acb_soc` | AC Battery — none on site; captured so a future install isn't silently missed |
 
 ### 1.2 Power flows (each also has per-phase A/B and apparent power in the raw payload)
 | Field | Entity |
 |---|---|
-| `meters.pv.agg_p_mw` | `sensor.envoy_live_solar_production` |
-| `meters.grid.agg_p_mw` | `sensor.envoy_live_grid_power` (+=import, −=export) |
-| `meters.load.agg_p_mw` | `sensor.envoy_live_house_load` |
-| `meters.generator.agg_p_mw` | `sensor.envoy_live_generator_power` (0 — no generator) |
-| `grid.agg_p_ph_a/b_mw` | `sensor.envoy_live_grid_power_l1` / `_l2` (live: +109 / −88 W) |
-| `load.agg_p_ph_a/b_mw` | `sensor.envoy_live_house_load_l1` / `_l2` |
+| `meters.pv.agg_p_mw` | `sensor.envoy_stream_solar_production` |
+| `meters.grid.agg_p_mw` | `sensor.envoy_stream_grid_power` (+=import, −=export) |
+| `meters.load.agg_p_mw` | `sensor.envoy_stream_house_load` |
+| `meters.generator.agg_p_mw` | `sensor.envoy_stream_generator_power` (0 — no generator) |
+| `grid.agg_p_ph_a/b_mw` | `sensor.envoy_stream_grid_power_l1` / `_l2` (live: +109 / −88 W) |
+| `load.agg_p_ph_a/b_mw` | `sensor.envoy_stream_house_load_l1` / `_l2` |
 
 **Not captured (deliberate):** `agg_s_mva` apparent-power fields for all four meters, and the
 per-phase apparent-power splits. They are real data but we have no consumer for VA, and each one is
@@ -97,18 +105,18 @@ another entity in the recorder. Trivial to add if a power-factor need appears.
 ### 1.3 Freshness — the trust instruments
 | Field | Entity | Why it matters |
 |---|---|---|
-| **`meters.last_update`** (epoch) | `sensor.envoy_live_data_timestamp`, `sensor.envoy_live_data_age` (live: **25 s**) | **This is the correct freshness oracle.** MQTT arrival time only proves the ADD-ON is alive. `last_update` proves the ENVOY's data is moving. A frozen Envoy still answering HTTP would keep the add-on publishing happily forever while `last_update` stalled — that is the exact silent-staleness trap, and this field is the discriminator. |
+| **`meters.last_update`** (epoch) | `sensor.envoy_stream_data_timestamp`, `sensor.envoy_stream_data_age` (live: **25 s**) | **This is the correct freshness oracle.** MQTT arrival time only proves the ADD-ON is alive. `last_update` proves the ENVOY's data is moving. A frozen Envoy still answering HTTP would keep the add-on publishing happily forever while `last_update` stalled — that is the exact silent-staleness trap, and this field is the discriminator. |
 
 ### 1.4 System health
 | Field | Live | Entity |
 |---|---|---|
-| `meters.main_relay_state` | 1 | `sensor.envoy_live_main_relay_state` + `binary_sensor.envoy_live_grid_connected` (**on**) — islanding / grid-connected, straight from the Envoy |
-| `meters.gen_relay_state` | 5 | `sensor.envoy_live_generator_relay_state` |
-| `meters.iqpm.total_PCU_count` | 48 | `sensor.envoy_live_microinverters_total` |
-| `meters.iqpm.running_PCU_count` | 16 | `sensor.envoy_live_microinverters_running` — fleet health; 16/48 at dusk |
-| `connection.sc_stream` | enabled | `sensor.envoy_live_stream_state` |
-| `connection.auth_state` | ok | `sensor.envoy_live_auth_state` |
-| `connection.mqtt_state` | connected | `binary_sensor.envoy_live_stream_publishing` |
+| `meters.main_relay_state` | 1 | `sensor.envoy_stream_main_relay_state` + `binary_sensor.envoy_stream_grid_connected` (**on**) — islanding / grid-connected, straight from the Envoy |
+| `meters.gen_relay_state` | 5 | `sensor.envoy_stream_generator_relay_state` |
+| `meters.iqpm.total_PCU_count` | 48 | `sensor.envoy_stream_microinverters_total` |
+| `meters.iqpm.running_PCU_count` | 16 | `sensor.envoy_stream_microinverters_running` — fleet health; 16/48 at dusk |
+| `connection.sc_stream` | enabled | `sensor.envoy_stream_stream_armed` |
+| `connection.auth_state` | ok | `sensor.envoy_stream_auth_state` |
+| `connection.mqtt_state` | connected | `binary_sensor.envoy_stream_publishing` |
 
 **Not captured (deliberate):** `counters.*` (14 Envoy-internal counters — `MqttClient_publish`,
 `rest_Status`, `SSL_Keys_Create` …), `tasks.*`, `connection.prov_state`, `meters.is_split_phase` / 
@@ -180,23 +188,23 @@ not new instrumentation.
 one overnight, and (given ~110-160/day) many integration flap events.
 
 ### 3.1 Freshness — does it stay fresh?
-`sensor.envoy_live_data_age` distribution: p50 / p95 / max, and total seconds above 60 s.
+`sensor.envoy_stream_data_age` distribution: p50 / p95 / max, and total seconds above 60 s.
 **Pass:** p95 ≤ 10 s AND max < 300 s (the primary-tier bar).
 **Fail mode it catches:** the add-on republishing a frozen Envoy payload.
 
 ### 3.2 Independence — does it survive what kills the integration?
-Cross-tabulate `sensor.envoy_live_battery_soc` availability against
+Cross-tabulate `sensor.envoy_stream_battery_soc` availability against
 `sensor.envoy_482543015950_battery` availability over the window.
 **Pass:** MQTT available ≥ 99 % of the minutes in which the integration is `unavailable`.
 **This is the whole value proposition and it must be measured, not assumed.**
 
 ### 3.3 Agreement — is it the same quantity? (Bug Class #63 guard)
 Three comparisons, because near-equality in the common case can hide a concept split:
-- `envoy_live_battery_soc` (`enc_agg_soc`) vs `envoy_live_soc_raw` (`soc`) — both read 91 now. If
+- `envoy_stream_battery_soc` (`enc_agg_soc`) vs `envoy_stream_soc_top_level` (`soc`) — both read 91 now. If
   they NEVER diverge, one is redundant; if they diverge, we must know which the EC should trust.
-- `envoy_live_battery_soc` vs `sensor.envoy_482543015950_battery` during windows where the
+- `envoy_stream_battery_soc` vs `sensor.envoy_482543015950_battery` during windows where the
   integration is UP — the real apples-to-apples test.
-- `envoy_live_battery_soc` vs cloud SOC — expected to differ by cloud lag, not by definition.
+- `envoy_stream_battery_soc` vs cloud SOC — expected to differ by cloud lag, not by definition.
 
 **Pass:** |MQTT − primary| ≤ 2 pp at p95 while both fresh, with **no systematic offset** (a constant
 bias means different quantities, not noise).
@@ -222,7 +230,7 @@ throttle the add-on (`time.sleep(0.6)` is the knob) or reconsider.
 **This is the hypothesis I refuted for the past and which only became testable today.**
 
 ### 3.7 Reserve witness
-`sensor.envoy_live_backup_reserve` vs `number.iq_battery_hacs_battery_reserve` across a reserve
+`sensor.envoy_stream_backup_reserve` vs `number.iq_battery_hacs_battery_reserve` across a reserve
 change. **Pass:** local witness converges to the cloud value, and the convergence LAG is recorded —
 that lag is the calibration for any future write-verify use.
 
@@ -252,13 +260,13 @@ through a state machine consumed by many decision sites"* fits.
   New constant `DEFAULT_SOC_LOCAL_STREAM_MAX_AGE_S` (rung 1, module constant — a safety bound, same
   class as its siblings, explicitly NOT an entity knob).
 - **A2 — Config field** `energy_local_stream_battery_soc_entity` (CM scope), defaulting to
-  `sensor.envoy_live_battery_soc`. *Prior-art check: mirrors the existing
+  `sensor.envoy_stream_battery_soc`. *Prior-art check: mirrors the existing
   `energy_cloud_battery_soc_fallback_entity` pattern at `energy_const.py:305` — REUSE the shape, do
   not invent a new one.*
 - **A3 — `soc_resolution` attribute extension:** add `local_stream_soc` + `local_stream_age_s`, and
   extend `tier` to emit `local_stream`. Keeps the existing observability contract (§4 of the manual)
   whole rather than bolting on a parallel one.
-- **A4 — Reserve local witness.** Feed `sensor.envoy_live_backup_reserve` into the write-verify
+- **A4 — Reserve local witness.** Feed `sensor.envoy_stream_backup_reserve` into the write-verify
   witness path alongside the existing local Envoy witness. **Scope fence: witness only.** It must
   NOT become a write path (§2.6 is explicit that local writes are accepted-then-ignored) and must not
   alter `is_reserve_verifiable()`'s three conditions (§2.5a) — that predicate is a documented
@@ -302,7 +310,7 @@ _read_grid_watts() -> _read_one_grid(self._grid_primary)      # "primary"
 `CONF_ENERGY_SOLAR_FOLLOW_GRID_FALLBACK_ENTITY` (`energy_const.py:1044`) already exposes the fallback
 as an operator-settable field.
 
-**So pointing solar-follow at `sensor.envoy_live_grid_power` may be a CONFIG CHANGE, not a build.**
+**So pointing solar-follow at `sensor.envoy_stream_grid_power` may be a CONFIG CHANGE, not a build.**
 
 ### Why it's a real improvement
 The 180 s threshold carries this comment in source: *"1.5x Emporia p90 (120s); tighter than 300
@@ -316,7 +324,7 @@ give at all.
 
 ### Deliverables
 - **B1 (config-only, do first):** set the solar-follow grid **fallback** to
-  `sensor.envoy_live_grid_power`, leave primary alone. Zero code. Measure before/after: excess-solar
+  `sensor.envoy_stream_grid_power`, leave primary alone. Zero code. Measure before/after: excess-solar
   decision latency, amps-change frequency, and how often `solar_follow_grid_source` reports
   `primary_stale->fallback`.
 - **B2 (gated on B1 + §3):** promote it to **primary**, demoting the current source to fallback —
@@ -352,7 +360,7 @@ with a documented sizing rationale).
 flap rate rose after the add-on went live, or if flapping persists past 2026.9.4.
 
 ## 7. Open questions for the operator
-- **Q1.** `enc_agg_soc` vs `soc` — if §3.3 shows they never diverge, drop `sensor.envoy_live_soc_raw`
+- **Q1.** `enc_agg_soc` vs `soc` — if §3.3 shows they never diverge, drop `sensor.envoy_stream_soc_top_level`
   as redundant, or keep it as a cross-check? (Recommendation: keep — it costs one recorder row and it
   is the only free consistency check we have on the local source.)
 - **Q2.** Does the cloud-cadence anomaly (§0.1/§3.4) warrant its own investigation? A cloud tier that
