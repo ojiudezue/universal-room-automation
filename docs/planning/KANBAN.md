@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T16:41:09-05:00_ - _Data commit: `e1b7b4ae6001`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-25T17:44:01-05:00_ - _Data commit: `2773a948a413`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -36,10 +36,13 @@ _created 2026-09-25 18:00 · initial_
   - Problem: the house now has a second way of hearing from the solar/battery gateway — a local feed that updates about once a second, versus the built-in one that has been dropping out roughly a third of every day. It looks better in every ...
 - **Origin:** 2026-09-25 - operator: "MQTT can be added as a trusted local witness. Just measure for its trust now and then we decide."
 - **Why:** Measure-Before-You-Build: the feed is a new producer for a value that drives battery, TOU, arbitrage and EVSE decisions. Its plausibility is not evidence.
-- **Next:** MEASURE (me): after >=24h from 2026-09-25 18:00, run the seven criteria in PLANNING_envoy_local_witness_and_solar_follow.md section 3 and write docs/planning/AUDIT_envoy_mqtt_trust_measurement.md with a PASS/FAIL row each -> operator dec...
+- **Next:** MEASURE (me): after >=24h from 2026-09-25 18:00, run the criteria in PLANNING_envoy_local_witness_and_solar_follow.md section 3 and write docs/planning/AUDIT_envoy_mqtt_trust_measurement.md with a PASS/FAIL row each. SCOPE NARROWED 2026-...
 - **Tags:** energy, envoy, measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] A new SOC/power producer may be fresh and independent but has not been shown to agree with ground truth or to survive the outages it is meant to cover.
 - **Refs:** docs/planning/PLANNING_envoy_local_witness_and_solar_follow.md
+- **Forensic keys (2):**
+  - `measured_2026_09_25_cadence_and_skew`: PARTIAL RESULT ALREADY IN, and it CORRECTS MY OWN CLAIM. I have been describing this feed as "~1 Hz, ages essentially never exceed a few seconds". Six consecutive samples of meters.last_update against the HA host clock: last_update advan...
+  - `prior_art_reduces_scope`: Operator asked whether prior measurement makes this unnecessary. PARTLY, and the reduction is recorded rather than the whole card dropped. EVSE-SOLAR-FOLLOW-AMPS-1 already measured Emporia mains vs the Envoy net-consumption CT (7,090 ali...
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating** - approval: **explicit**
@@ -272,10 +275,12 @@ _created 2026-09-25 18:00 · initial_
   - Problem: when the car charges on surplus solar, the system decides how many amps to give it by watching how much power is flowing to or from the grid. The reading it watches is a roughly one-minute average, and we have already measured t...
 - **Origin:** 2026-09-25 - orchestrator noted the 1 Hz local grid reading would beat the ~120s-p90 source solar-follow currently uses; operator: "I liked your comment there"
 - **Why:** SOLAR_FOLLOW_GRID_FRESH_S is 180s, sized in-source as 1.5x the Emporia p90 of 120s. A 1 Hz local reading is ~100x fresher on the exact signal solar-follow regulates, and per-phase L1/L2 becomes available which the current source cannot p...
-- **Next:** AWAIT ENVOY-STREAM-TRUST-MEASURE-1 (3.1 freshness + 3.5 self-consistency are the relevant gates), then APPROVE (operator): B1 is a one-field config change, reversible, Tier 1 -> I set the solar-follow grid fallback to sensor.envoy_stream...
+- **Next:** APPROVE (operator): B1 is a one-field config change, reversible, Tier 1, and its gate is already satisfied (see gate_narrowed_2026_09_25) -> on approval I set the solar-follow grid FALLBACK to sensor.envoy_stream_grid_power and measure d...
 - **Tags:** energy, evse, config-only, measure-before-build
 - **Parsimony:** [SIMPLIFY] Solar-follow regulates amps from a ~1-minute-average grid reading whose error is measured to grow 6.7x when load moves fast.
 - **Refs:** docs/planning/PLANNING_envoy_local_witness_and_solar_follow.md; docs/planning/PLANNING_evse_solar_follow_amps.md
+- **Forensic keys (1):**
+  - `gate_narrowed_2026_09_25`: B1 NO LONGER NEEDS THE FULL TRUST MEASUREMENT. The accuracy leg is pre-answered by EVSE-SOLAR-FOLLOW-AMPS-1 SENSOR_DELTA_MEASURED_2026_08_23 (Envoy CT vs Emporia, 7,090 pairs, delta = timing skew not disagreement) — and the MQTT stream r...
 
 ### `WORKTREE-BACKLOG-PRUNE-1` - 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work — _#3 · WSJF 4.5 · v4 tc3 u2 /e2_
 thread: **infra** - status: **planned**

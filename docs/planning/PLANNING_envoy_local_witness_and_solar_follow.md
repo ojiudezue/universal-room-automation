@@ -1,6 +1,9 @@
 # Envoy local witness (MQTT livedata) — trust measurement, EC action upgrade, solar-follow upgrade
 
 **Status:** planning · **Date:** 2026-09-25 · **Author:** orchestrator session
+**Board cards (bidirectional):** [[ENVOY-STREAM-TRUST-MEASURE-1]] (§3, investigating) ·
+[[ENVOY-STREAM-SOC-TIER-1]] (§4, planned) · [[SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1]] (§5, planned) ·
+context: [[ENVOY-FLAKINESS-181243-1]], [[ENVOY-MQTT-ADDON-WRONG-HOST-1]], [[EVSE-SOLAR-FOLLOW-AMPS-1]]
 **Operator framing:** *"MQTT can be added as a trusted local witness. Just measure for its trust now
 and then we decide."* — so nothing here builds until §3 returns numbers.
 
@@ -179,6 +182,23 @@ enough (~1 s, three orders of magnitude inside the 300 s bar) and failure-indepe
 ---
 
 ## 3. MEASURE FIRST — trust characterisation (the gate on everything below)
+
+> **⚠️ CADENCE + SKEW CORRECTION (measured 2026-09-25, corrects this document):** I describe the feed
+> below and in §1/§2 as "~1 Hz" with ages "essentially never exceeding a few seconds". **The payload
+> arrives at ~1 Hz, but the DATA behind it refreshes every ~5-6 s, and the Envoy clock runs ~20 s
+> behind the HA host.** Six consecutive samples: `last_update` advanced 1790376412 → 417 → 423 → 429
+> → 434 → 439 while computed age held constant at 20-21 s — constant age with an advancing timestamp
+> is clock skew, not staleness (staleness would sawtooth). **Effective reading age is ~20-26 s**, not
+> ~1 s. Still 10× inside the 300 s primary bar, so §4 is unaffected — but it would systematically
+> poison a TIGHT bound, which is exactly what §5's B3 proposes. Characterising that skew (constant?
+> drifting? survives reboot/DST?) is now a measurement deliverable.
+>
+> **Scope reduction (operator challenge, 2026-09-25):** criterion **3.5 is substantially
+> pre-answered** by `EVSE-SOLAR-FOLLOW-AMPS-1`'s `SENSOR_DELTA_MEASURED_2026_08_23` probe (Emporia vs
+> Envoy CT, 7 090 pairs, delta = timing skew not disagreement). That transfers, because this stream
+> reads the **same CTs**. Still required: **3.2 independence** (untouched by any prior work, and the
+> whole value proposition), **3.3 SOC agreement** (the prior probe was grid-power only), **3.6
+> contention**, and the skew characterisation above. The measurement is **lighter, not unnecessary**.
 
 Per *Measure Before You Build*: **no deliverable in §4 or §5 is built until this returns numbers.**
 The 25 entities are now in the recorder, so this is a read-only query over data that will exist,

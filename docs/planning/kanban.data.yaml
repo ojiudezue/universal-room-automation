@@ -28370,10 +28370,40 @@ cards:
   - 'Read-only. No URA code, no behaviour change. Pure recorder query over data that now exists.'
   - 'NOTHING in ENVOY-STREAM-SOC-TIER-1 or SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1 builds until this reports.'
   - 'Window must cover >=1 full charge/discharge, >=1 overnight, and many native-integration flaps.'
-  next: 'MEASURE (me): after >=24h from 2026-09-25 18:00, run the seven criteria in
+  measured_2026_09_25_cadence_and_skew: 'PARTIAL RESULT ALREADY IN, and it CORRECTS MY OWN CLAIM.
+    I have been describing this feed as "~1 Hz, ages essentially never exceed a few seconds". Six
+    consecutive samples of meters.last_update against the HA host clock: last_update advanced
+    1790376412 -> 417 -> 423 -> 429 -> 434 -> 439 (i.e. every ~5-6 s, NOT every 1 s), while the
+    computed age sat CONSTANT at 20-21 s. A constant age with an advancing timestamp is the signature
+    of CLOCK SKEW, not staleness — genuine staleness would sawtooth 0 -> N. So: the PAYLOAD arrives at
+    ~1 Hz, but the DATA behind it refreshes every ~5-6 s, and the Envoy clock reads ~20 s behind the HA
+    host. Effective age of a reading is therefore ~20-26 s, not ~1 s.
+    WHY THIS MATTERS RATHER THAN BEING A FOOTNOTE: any freshness gate computed from last_update carries
+    that ~20 s offset as a systematic pessimism. Harmless against the 300 s primary bar (26 s is still
+    10x inside it), but it would silently poison a TIGHT bound — precisely what
+    SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1 B3 proposes when it retightens SOLAR_FOLLOW_GRID_FRESH_S. This is
+    exactly the class of defect the trust measurement exists to catch, found on the first probe.
+    STILL TO CHARACTERISE: is the skew constant, does it drift, and does it survive an Envoy reboot or
+    a DST boundary? A drifting skew is a different and worse problem than a fixed one.'
+  next: 'MEASURE (me): after >=24h from 2026-09-25 18:00, run the criteria in
      PLANNING_envoy_local_witness_and_solar_follow.md section 3 and write
-     docs/planning/AUDIT_envoy_mqtt_trust_measurement.md with a PASS/FAIL row each -> operator decides
-     from that table whether the dependent cards proceed.'
+     docs/planning/AUDIT_envoy_mqtt_trust_measurement.md with a PASS/FAIL row each. SCOPE NARROWED
+     2026-09-25 (see prior_art_reduces_scope) -> operator decides from that table whether the
+     dependent cards proceed.'
+  prior_art_reduces_scope: 'Operator asked whether prior measurement makes this unnecessary. PARTLY,
+    and the reduction is recorded rather than the whole card dropped. EVSE-SOLAR-FOLLOW-AMPS-1 already
+    measured Emporia mains vs the Envoy net-consumption CT (7,090 aligned pairs / 7 days) and
+    established the delta is TIMING SKEW not sensor disagreement. That finding TRANSFERS, because the
+    MQTT stream reads the SAME Envoy CTs — just over a different transport. So criterion 3.5
+    (self-consistency / accuracy of the GRID reading) is substantially pre-answered and does not need
+    re-deriving; the live energy-balance check closing exactly twice (pv = load + storage + grid)
+    already corroborates the transport maps fields, units and signs correctly.
+    WHAT IS NOT COVERED and must still be measured: (a) the cadence/skew characterisation above, which
+    the prior probe could not have found because this feed did not exist; (b) 3.2 INDEPENDENCE — does
+    the feed survive the outages that kill the native integration, which is the entire value
+    proposition and is untouched by any prior work; (c) 3.3 SOC agreement — the prior probe was GRID
+    POWER only and says nothing about battery SOC, which is what ENVOY-STREAM-SOC-TIER-1 depends on;
+    (d) 3.6 contention. Net effect: the measurement is LIGHTER, not unnecessary.'
   knobs: []
   parsimony: {problem: 'A new SOC/power producer may be fresh and independent but has not been shown
     to agree with ground truth or to survive the outages it is meant to cover.', verdict: BUILD}
@@ -28473,14 +28503,28 @@ cards:
     value — which is what _read_one_grid needs in order to fail closed.'
   knobs:
   - 'SOLAR_FOLLOW_GRID_FRESH_S (rung 1, existing) — B3 only, NOT in B1/B2.'
-  next: 'AWAIT ENVOY-STREAM-TRUST-MEASURE-1 (3.1 freshness + 3.5 self-consistency are the relevant
-     gates), then APPROVE (operator): B1 is a one-field config change, reversible, Tier 1 -> I set the
-     solar-follow grid fallback to sensor.envoy_stream_grid_power and measure before/after.'
+  gate_narrowed_2026_09_25: 'B1 NO LONGER NEEDS THE FULL TRUST MEASUREMENT. The accuracy leg is
+    pre-answered by EVSE-SOLAR-FOLLOW-AMPS-1 SENSOR_DELTA_MEASURED_2026_08_23 (Envoy CT vs Emporia,
+    7,090 pairs, delta = timing skew not disagreement) — and the MQTT stream reads the SAME CTs, with
+    the live energy balance closing exactly (pv = load + storage + grid) confirming the transport maps
+    units and signs correctly. The ONLY residual gate for B1 is freshness, and the first probe has
+    already returned it: data refreshes every ~5-6 s with a constant ~20 s clock skew, so effective
+    age ~20-26 s against a 180 s bound — comfortably inside, with ~7x headroom.
+    SO B1 IS EFFECTIVELY UNBLOCKED and needs only operator approval, not a 24 h wait.
+    B2/B3 STILL WAIT: B2 promotes this to the PRIMARY source, which needs 3.2 independence (does it
+    survive the outages?) before a live actuation path depends on it. B3 is now MORE delicate than
+    written, not less — it retightens SOLAR_FOLLOW_GRID_FRESH_S, and the ~20 s skew must be
+    characterised (constant? drifting? survives reboot/DST?) before any tight bound is set, or the
+    gate misfires systematically.'
+  next: 'APPROVE (operator): B1 is a one-field config change, reversible, Tier 1, and its gate is
+     already satisfied (see gate_narrowed_2026_09_25) -> on approval I set the solar-follow grid
+     FALLBACK to sensor.envoy_stream_grid_power and measure decision latency before/after. B2/B3 stay
+     blocked on the independence + skew results.'
   parsimony: {problem: 'Solar-follow regulates amps from a ~1-minute-average grid reading whose error
     is measured to grow 6.7x when load moves fast.', verdict: SIMPLIFY}
   links:
-    blocked_by: [ENVOY-STREAM-TRUST-MEASURE-1]
-    related: [EVSE-SOLAR-FOLLOW-AMPS-1]
+    related: [EVSE-SOLAR-FOLLOW-AMPS-1, ENVOY-STREAM-TRUST-MEASURE-1]
+    blocked_by: []
     context: 'ADJACENT to EVSE-SOLAR-FOLLOW-AMPS-1 (done, shipped 2026-08-25), NOT a duplicate: that
       card built the amp-modulation feature, this upgrades the INPUT it steers on. Its own
       SENSOR_DELTA_MEASURED_2026_08_23 probe is the prior art that justifies this — it measured the
