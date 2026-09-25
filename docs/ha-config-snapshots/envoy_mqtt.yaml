@@ -1,35 +1,36 @@
-# Envoy live telemetry via MQTT
+# Envoy live telemetry via MQTT  —  COMPLETE FIELD CAPTURE
 #
 # Producer: add-on "Stream mqtt from Enphase Envoy" (13e68335_envoy_to_mqtt_json)
-#   - reads the Envoy local endpoint /ivp/livedata/status over HTTPS
-#   - publishes the raw JSON to topic /envoy/json roughly once per second
-#   - runs in its own container using synchronous `requests`, so it is NOT
-#     affected by the aiohttp "Session is closed" bug (home-assistant/core
-#     #181243) that makes the enphase_envoy integration flap.
+#   reads local https://<envoy>/ivp/livedata/status, publishes raw JSON to
+#   /envoy/json about once per second. Synchronous `requests` in its own
+#   container, so it is NOT subject to the aiohttp "Session is closed" bug
+#   (home-assistant/core #181243) that makes enphase_envoy flap.
 #
-# UNITS: the meters.*.agg_p_mw fields are MILLIWATTS. (x / 1000) -> watts.
-#   Verified against a live payload 2026-09-25: pv 12487416 -> 12487 W, with
-#   pv = load + battery_charge - grid balancing to ~0.05 kW.
+# UNITS: meters.*.agg_p_mw are MILLIWATTS -> (x / 1000) = watts.
+#        meters.*.agg_s_mva are MILLI-VOLT-AMPS -> (x / 1000) = VA.
+#        enc_agg_energy is Wh.
+# SIGNS (verified against two live payloads, balance closed both times):
+#        storage: negative = CHARGING, positive = DISCHARGING
+#        grid:    positive = IMPORTING, negative = EXPORTING
+#        Check: pv = load + storage + grid  (16:35 payload: 5016 = 6913 + ... )
 #
-# SIGNS (live payload, split-phase US, phase_count 2):
-#   storage.agg_p_mw  negative = battery CHARGING, positive = DISCHARGING
-#   grid.agg_p_mw     positive = IMPORTING,        negative = EXPORTING
+# expire_after IS LOAD-BEARING: MQTT retains the last message forever, so
+# without it a dead producer leaves a FROZEN value that looks live. 60s
+# against a ~1s cadence.
 #
-# expire_after IS LOAD-BEARING. MQTT holds the last message indefinitely, so
-# without it a dead add-on would leave these sensors showing a frozen SOC that
-# LOOKS live — strictly worse than the flapping we are trying to escape,
-# because a stale number is silently wrong while `unavailable` is honest.
-# 60s against a ~1s cadence means 60 consecutive missed messages before we
-# declare it stale.
-#
-# NOTE ON THE TEMPLATES: the upstream README writes `x/1000 | round(0)`, which
-# only works by an accident of Jinja precedence (filters bind tighter than
-# arithmetic, so it parses as x / (1000|round(0))). Parenthesised here so the
-# intent is explicit and cannot break if a filter is ever changed.
+# TRUST NOTE: `meters.last_update` is the ENVOY'S OWN data timestamp. It is the
+# correct freshness oracle — MQTT arrival time only proves the ADD-ON is alive,
+# whereas last_update proves the ENVOY's data is moving. A frozen Envoy that
+# still answers HTTP would keep the add-on publishing happily while last_update
+# stopped advancing. That is the discriminator, hence the data-age sensor.
 
 mqtt:
   sensor:
-    # --- Battery ------------------------------------------------------------
+    # ======================= BATTERY =======================
+    # Two SOC fields are published. enc_agg_soc is the Encharge aggregate;
+    # `soc` is the top-level figure. They have read identically so far
+    # (both 90) — deliberately captured SEPARATELY rather than assumed
+    # interchangeable, so any divergence becomes visible instead of hidden.
     - name: "Envoy Live Battery SOC"
       unique_id: envoy_live_battery_soc
       state_topic: "/envoy/json"
@@ -38,7 +39,16 @@ mqtt:
       device_class: battery
       state_class: measurement
       expire_after: 60
-      qos: 0
+
+    - name: "Envoy Live SOC Raw"
+      unique_id: envoy_live_soc_raw
+      state_topic: "/envoy/json"
+      value_template: "{{ value_json['meters']['soc'] }}"
+      unit_of_measurement: "%"
+      device_class: battery
+      state_class: measurement
+      entity_category: diagnostic
+      expire_after: 60
 
     - name: "Envoy Live Battery Energy"
       unique_id: envoy_live_battery_energy
@@ -48,7 +58,6 @@ mqtt:
       device_class: energy_storage
       state_class: measurement
       expire_after: 60
-      qos: 0
 
     # Positive = discharging, negative = charging.
     - name: "Envoy Live Battery Power"
@@ -59,9 +68,37 @@ mqtt:
       device_class: power
       state_class: measurement
       expire_after: 60
-      qos: 0
 
-    # --- Solar / grid / house ----------------------------------------------
+    # LOCAL WITNESS FOR THE RESERVE SETTING. This is the Envoy's own view of
+    # the backup reserve %, so it can be compared against what we believe we
+    # wrote via the cloud (number.iq_battery_hacs_battery_reserve). Reads 10
+    # today, matching the cloud oracle's 10.0.
+    - name: "Envoy Live Backup Reserve"
+      unique_id: envoy_live_backup_reserve
+      state_topic: "/envoy/json"
+      value_template: "{{ value_json['meters']['backup_soc'] }}"
+      unit_of_measurement: "%"
+      state_class: measurement
+      expire_after: 60
+
+    - name: "Envoy Live Backup Battery Mode"
+      unique_id: envoy_live_backup_bat_mode
+      state_topic: "/envoy/json"
+      value_template: "{{ value_json['meters']['backup_bat_mode'] }}"
+      entity_category: diagnostic
+      expire_after: 60
+
+    # AC Battery (ACB) aggregate — 0 on this site (Encharge only). Captured so
+    # a future ACB install is not silently missed.
+    - name: "Envoy Live ACB SOC"
+      unique_id: envoy_live_acb_soc
+      state_topic: "/envoy/json"
+      value_template: "{{ value_json['meters']['acb_agg_soc'] }}"
+      unit_of_measurement: "%"
+      entity_category: diagnostic
+      expire_after: 60
+
+    # ======================= POWER FLOWS =======================
     - name: "Envoy Live Solar Production"
       unique_id: envoy_live_solar_production
       state_topic: "/envoy/json"
@@ -70,9 +107,8 @@ mqtt:
       device_class: power
       state_class: measurement
       expire_after: 60
-      qos: 0
 
-    # Positive = importing from grid, negative = exporting.
+    # Positive = importing, negative = exporting.
     - name: "Envoy Live Grid Power"
       unique_id: envoy_live_grid_power
       state_topic: "/envoy/json"
@@ -81,7 +117,6 @@ mqtt:
       device_class: power
       state_class: measurement
       expire_after: 60
-      qos: 0
 
     - name: "Envoy Live House Load"
       unique_id: envoy_live_house_load
@@ -91,23 +126,127 @@ mqtt:
       device_class: power
       state_class: measurement
       expire_after: 60
-      qos: 0
 
-    # --- Health -------------------------------------------------------------
-    # The Envoy's own view of whether the livedata stream is armed. If this
-    # ever reads "disabled", the add-on will try to re-arm it on its next loop.
+    - name: "Envoy Live Generator Power"
+      unique_id: envoy_live_generator_power
+      state_topic: "/envoy/json"
+      value_template: "{{ ((value_json['meters']['generator']['agg_p_mw'] / 1000) | round(0)) | int(0) }}"
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      entity_category: diagnostic
+      expire_after: 60
+
+    # ----- Per-phase grid + load (split-phase L1/L2), for imbalance work -----
+    - name: "Envoy Live Grid Power L1"
+      unique_id: envoy_live_grid_power_l1
+      state_topic: "/envoy/json"
+      value_template: "{{ ((value_json['meters']['grid']['agg_p_ph_a_mw'] / 1000) | round(0)) | int(0) }}"
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      entity_category: diagnostic
+      expire_after: 60
+
+    - name: "Envoy Live Grid Power L2"
+      unique_id: envoy_live_grid_power_l2
+      state_topic: "/envoy/json"
+      value_template: "{{ ((value_json['meters']['grid']['agg_p_ph_b_mw'] / 1000) | round(0)) | int(0) }}"
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      entity_category: diagnostic
+      expire_after: 60
+
+    - name: "Envoy Live House Load L1"
+      unique_id: envoy_live_house_load_l1
+      state_topic: "/envoy/json"
+      value_template: "{{ ((value_json['meters']['load']['agg_p_ph_a_mw'] / 1000) | round(0)) | int(0) }}"
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      entity_category: diagnostic
+      expire_after: 60
+
+    - name: "Envoy Live House Load L2"
+      unique_id: envoy_live_house_load_l2
+      state_topic: "/envoy/json"
+      value_template: "{{ ((value_json['meters']['load']['agg_p_ph_b_mw'] / 1000) | round(0)) | int(0) }}"
+      unit_of_measurement: "W"
+      device_class: power
+      state_class: measurement
+      entity_category: diagnostic
+      expire_after: 60
+
+    # ======================= FRESHNESS / TRUST =======================
+    # The Envoy's own data timestamp, and its age. THIS is the trust oracle:
+    # it distinguishes "add-on alive" from "Envoy data actually moving".
+    - name: "Envoy Live Data Timestamp"
+      unique_id: envoy_live_data_timestamp
+      state_topic: "/envoy/json"
+      value_template: "{{ (value_json['meters']['last_update'] | as_datetime | as_local).isoformat() }}"
+      device_class: timestamp
+      entity_category: diagnostic
+      expire_after: 60
+
+    - name: "Envoy Live Data Age"
+      unique_id: envoy_live_data_age
+      state_topic: "/envoy/json"
+      value_template: "{{ ((now().timestamp() - value_json['meters']['last_update']) | round(0)) | int(0) }}"
+      unit_of_measurement: "s"
+      device_class: duration
+      state_class: measurement
+      entity_category: diagnostic
+      expire_after: 60
+
+    # ======================= SYSTEM HEALTH =======================
+    # Grid relay: islanding / grid-connected state, straight from the Envoy.
+    - name: "Envoy Live Main Relay State"
+      unique_id: envoy_live_main_relay_state
+      state_topic: "/envoy/json"
+      value_template: "{{ value_json['meters']['main_relay_state'] }}"
+      entity_category: diagnostic
+      expire_after: 60
+
+    - name: "Envoy Live Generator Relay State"
+      unique_id: envoy_live_gen_relay_state
+      state_topic: "/envoy/json"
+      value_template: "{{ value_json['meters']['gen_relay_state'] }}"
+      entity_category: diagnostic
+      expire_after: 60
+
+    # Microinverter fleet health — total vs currently producing.
+    - name: "Envoy Live Microinverters Total"
+      unique_id: envoy_live_pcu_total
+      state_topic: "/envoy/json"
+      value_template: "{{ value_json['meters']['iqpm']['total_PCU_count'] }}"
+      state_class: measurement
+      entity_category: diagnostic
+      expire_after: 60
+
+    - name: "Envoy Live Microinverters Running"
+      unique_id: envoy_live_pcu_running
+      state_topic: "/envoy/json"
+      value_template: "{{ value_json['meters']['iqpm']['running_PCU_count'] }}"
+      state_class: measurement
+      entity_category: diagnostic
+      expire_after: 60
+
     - name: "Envoy Live Stream State"
       unique_id: envoy_live_stream_state
       state_topic: "/envoy/json"
       value_template: "{{ value_json['connection']['sc_stream'] }}"
       entity_category: diagnostic
       expire_after: 60
-      qos: 0
+
+    - name: "Envoy Live Auth State"
+      unique_id: envoy_live_auth_state
+      state_topic: "/envoy/json"
+      value_template: "{{ value_json['connection']['auth_state'] }}"
+      entity_category: diagnostic
+      expire_after: 60
 
   binary_sensor:
-    # Explicit liveness: ON while messages are arriving, unavailable when the
-    # producer stops. Gives automations/URA something to gate trust on rather
-    # than inferring freshness from a value that may be retained.
     - name: "Envoy Live Stream Publishing"
       unique_id: envoy_live_stream_publishing
       state_topic: "/envoy/json"
@@ -118,4 +257,15 @@ mqtt:
       device_class: connectivity
       entity_category: diagnostic
       expire_after: 60
-      qos: 0
+
+    # Grid-connected per the Envoy's main relay (1 = closed = on grid).
+    - name: "Envoy Live Grid Connected"
+      unique_id: envoy_live_grid_connected
+      state_topic: "/envoy/json"
+      value_template: >-
+        {{ 'ON' if value_json['meters']['main_relay_state'] == 1 else 'OFF' }}
+      payload_on: "ON"
+      payload_off: "OFF"
+      device_class: power
+      entity_category: diagnostic
+      expire_after: 60
