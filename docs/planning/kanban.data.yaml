@@ -2419,9 +2419,23 @@ cards:
     blocked_by: [HVAC-SETHVACMODE-CHOKEPOINT-1]
     context: 'Found by the v5.103.4 interim lockout read. Explains why manual% did not move on zone_1
       (67.5% vs 69.6%). Distinct from escape (URA refuses to write) — here something WRITES manual. 2026-09-26: blocked_by W1-A because W1-B''s D0 probe (the instrument for the remaining strand-cause question) needs one clean day of W1-A climate_write rows; HVAC-W1-THERMOSTAT-DEFINITION is where the fix lands.'
-- id: HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1
-  workstream: HVAC-W2-OCCUPANCY-TRUTH
+- id: HVAC-HOLD-SIZING-ALL-ROOMS-1
+  title: Should other rooms get longer HVAC vacancy holds (like Jaya's night 5400)? Measured all 43 rooms, all hours
   status: waiting_operator
+  thread: hvac
+  workstream: HVAC-W2-OCCUPANCY-TRUTH
+  created: '2026-09-26'
+  updated: '2026-09-26 13:40'
+  sibling_of: HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1
+  origin: 'Operator 2026-09-26 after setting Jaya night hold 5400: "Should we do other rooms? Card an investigation. Config changes are cheap if it makes the house more livable".'
+  why: 'The night-sleeper probe that sized Jaya covered bedrooms at night only. Livability harm can also come from evening/day rooms where people sit still or step out briefly.'
+  measured_2026_09_26: 'scripts/probes/hvac_room_return_probe.py (new, read-only; generalises the night-sleeper probe to all rooms and hours), 7 days, return window 30 min. Rooms whose HVAC occupancy dropped then returned within 30 min, and HARM = URA wrote the room''s zone to away inside that gap (ura_activity_log preset_change): Laundry z3 returned 15 (day 11/eve 4) HARM 4, median gap 15.1 min; Kitchen Pantry z3 10 / 1; Master Bathroom z1 7 / 1; Jaya Bedroom z2 14 (night 10) / 1 (now fixed by 5400); Butler Pantry z3 3 / 1; Living Room z1 19 (evening 11) / 0; every other room <=13 returns and 0 harm. TOTAL HARM 8 events/week. Harm only occurs when the dropped room was the zone''s last occupied room; zone_3 (fewer occupants) concentrates it. Limit: undercounts if the zone was already away (no write in the gap).'
+  verdict: 'NO broad livability problem. One config change is worth it: Laundry day hold -> 1200 s (20 min) covers the ~15-min load-swap trip that caused 4 of 8 harms; cost = zone_3 conditioned up to ~20 min longer after a real laundry departure. Pantries / Master Bath are 1 event each — do not change on this evidence.'
+  next: 'APPROVE: set Laundry -> Configure -> Climate & Fans -> HVAC vacancy hold — day = 1200 (night auto >= day) -> I verify the stored option and re-run hvac_room_return_probe.py after 7 days (target: Laundry harm 4 -> 0, no new harm elsewhere).'
+- id: HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1
+  disposition_2026_09_26_groom: 'OPERATOR SET IT 2026-09-26: Jaya Bedroom (Bedroom 4) hvac_vacancy_hold_night = 5400.0 (day 60.0), .storage/core.config_entries modified_at 2026-09-26T18:21:55Z, verified stored.'
+  workstream: HVAC-W2-OCCUPANCY-TRUTH
+  status: waiting_me
   thread: hvac
   created: '2026-09-16'
   updated: '2026-09-26 10:30'
@@ -2479,7 +2493,7 @@ cards:
     now; step-4-B ships D7 + a MODEST prudent grace instead (see HVAC-ZONE-CONDITIONING-DEMAND-1
     D8_RESCOPED). This card preserves the full design so it can be uncorked fast if degradation is ever
     observed, rather than re-derived from a compacted note.'
-  next: 'DO (operator): set Jaya Bedroom (Bedroom 4) -> Configure -> Climate & Fans -> HVAC vacancy hold — night = 5400 and save -> I verify the stored option, then re-run scripts/probes/hvac_night_sleeper_probe.py after 3 nights and dispose.'
+  next: 'RE-PROBE (me) on/after 2026-09-29 evening (3 nights): ssh ha python3 - < scripts/probes/hvac_night_sleeper_probe.py; accept if Jaya night RETURNED drops no longer let zone_2 go away inside the gap; then dispose done.'
   parsimony:
     problem: night retreat is safe for the measured (healthy-redundancy) rooms but a degraded-while-occupied
       bedroom could be wrongly retreated; the full defense is unbuilt for lack of an observed instance
@@ -21080,11 +21094,12 @@ cards:
     (over-claims, doesn''t net post-restore rebound), not conservative. Acceptance decision unchanged
     (not billing-grade). No cycle.'
 - id: KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1
+  disposition_2026_09_26_groom: 'CLOSED — experiment concluded 2026-09-12 (stock thresholds did NOT calm the kitchen; tuning exonerated) and has circled since only because the threshold readback is dead: all 9 still-threshold entities read ''unknown'' again after today''s restart, so the revert can never be verified through HA. Decision: leave the device as-is; stop pursuing thresholds. Residual real problem (drop-outs of a still person) still measured today: kitchen _presence 79-154 ON/day, _still_target up to 376/day (last 24 h 41 / 78). That signal-health question lives on CHATTER-RATE-VS-BURST-GAP-1; the kitchen room itself is deliberately disabled (KITCHEN-OCCUPANCY-DEAD-1, switch.kitchen_override_vacant).'
   title: 'Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study
     B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase'
   thread: presence
   rank: {value: 6, time_criticality: 5, effort: 2}
-  status: waiting_operator
+  status: done
   updated: '2026-09-26 02:20'
   reverified_2026_09_26: 'OVERNIGHT 2026-09-26 re-verify via live HA REST. All 22 kitchen config entities (9 still, 9 move,
     both distance gates, timeout, light threshold) still read ''unknown''. Every one of them, plus
@@ -28831,10 +28846,11 @@ cards:
      and sees camera-driven occupancy anyway.'
   next: 'REVIEW (operator, low priority): decide gate-vs-document; else parked.'
 - id: ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1
+  disposition_2026_09_26_groom: 'SOAK EXIT DONE (primary criterion exercised live). The operator''s Jaya Bedroom Climate & Fans save at 2026-09-26T18:21:55Z produced NO room reload: the room''s entities (binary_sensor.jaya_bedroom_bedroom_4_dark / _automation_conflict) show zero state changes 18:15-18:25Z (a reload flips them unavailable and back), and the error_log has no ''unable to keep up'' / PONG line. Criterion 2 (climate-entity change still reloads) remains proven in-suite only.'
   disposition_2026_09_26_groom: 'SOAK EXIT HELD one step: criteria 1-3 never exercised (no room Climate & Fans save since the 09-20 ship). The operator''s pending Jaya Bedroom hvac_vacancy_hold_night 1800->5400 save IS a Climate & Fans save -> on it, check the log for NO ''Setting up universal_room_automation'' for that entry and no ''unable to keep up''/PONG timeout within 3 min, then dispose done/reopen.'
   title: "Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s"
   thread: presence
-  status: shipped_organic
+  status: done
   shipped_version: v5.103.14
   created: '2026-09-19'
   updated: '2026-09-19'
