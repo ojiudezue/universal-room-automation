@@ -20998,7 +20998,13 @@ cards:
   thread: presence
   rank: {value: 6, time_criticality: 5, effort: 2}
   status: waiting_operator
-  updated: '2026-09-23 04:05'
+  updated: '2026-09-26 02:20'
+  reverified_2026_09_26: 'OVERNIGHT 2026-09-26 re-verify via live HA REST. All 22 kitchen config entities (9 still, 9 move,
+    both distance gates, timeout, light threshold) still read ''unknown''. Every one of them, plus
+    binary_sensor.*_presence, shows last_changed 2026-09-26T07:03:01Z (02:03 CDT), so the device
+    reconnected AGAIN tonight, all together, and the readback is still dead after the reconnect. No
+    change to the ask: the operator''s answer (did the values stick in the UI?) still decides whether a
+    revert is meaningful.'
   verify_2026_09_12: 'APPROVED -> experiment CONCLUDED, raised-threshold hypothesis REFUTED. MEASURED (live number.*_still_threshold = Study-B stock 0,0,40,40,40,30,30,20,20 still applied 3wk; recorder OFF-episodes <25s: 409/48h on stock vs the card 94 baseline, Study-B control 15/7d calm). Stock profile did NOT calm the kitchen mmwave — arguably WORSE. Tuning exonerated. NEXT -> operator PICK: leave stock, or revert to BEFORE values 39,71,58,53,60,39,38,44,49; and the escalation ladder continues distance-gates(g7/g6)->re-aim/placement->hardware LAST. Experiment itself is done; this is now the next-step decision.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
@@ -27315,7 +27321,18 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-16 03:30'
-  updated: '2026-09-26 02:05'
+  updated: '2026-09-26 02:21'
+  scope_addendum_2026_09_26: 'ADDENDUM 2026-09-26 02:25, SCOPE OF THE 19:18 DROP. Method: the HA recorder gives every entity
+    whose LATEST state is ''unavailable'' and was written 00:10-00:45 UTC on 09-26, mapped to its
+    integration via core.entity_registry and core.config_entries. 713 entities total: 626 Frigate 2
+    (every Frigate entity, not just the person and motion ones), 61 SmartThings ''My home'' (TVs and
+    media, plausibly just powered off at night, so not flagged), and 26 RainBird (192.168.8.121).
+    RainBird is ALSO unreachable from HA and from the Mac right now. So TWO independent LAN devices on
+    different subnets (Frigate2 192.168.13.18 and RainBird 192.168.8.121) fell off in the operator''s
+    network-stack restart and never came back. That points at the network side (switch port / PoE / DHCP
+    lease after the UDM and core-switch restart) at least as much as at the Frigate box itself. Check
+    the port and PoE state for both on the UniFi controller. The unifi MCPs failed to connect this run
+    (uvx missing), so I could not read port state. The page was updated to say so.'
   measured_2026_09_26_FRIGATE2_HOST_OFF_NETWORK: 'OVERNIGHT PASS 2026-09-26 02:10. NEW, DIFFERENT, AND SIMPLER FAULT: THE FRIGATE2 HOST IS OFF THE
     NETWORK. This replaces the frozen-entity picture from 09-23/09-25 for tonight. Method: HA recorder
     (ssh ha sqlite3 -readonly, last row per entity), live HA /api/states over REST, and ping/ARP from
@@ -27505,11 +27522,12 @@ cards:
     restarting a service. Read-only diagnosis has gone as far as it can from here. I did not send a
     phone push: this has already been dark for 60 hours, nothing I can do at 4am shortens that, and
     waking an occupied house adds no action. Left a Home Assistant notification instead.'
-  next: 'DO: bring the Frigate2 machine (192.168.13.18) back onto the network. It has been off L2 since
-    about 19:18 CDT on 09-25: no ping, ARP incomplete. Check its power, NIC and switch port, and
-    power-cycle it if it is hung. Then I re-measure whether the Frigate detectors come back live, and
-    whether the 09-21 freeze cohort stays cleared. If it comes back and the entities are still frozen or
-    unavailable, the older ask stands: reload the Frigate config entry.'
+  next: 'DO: bring Frigate2 (192.168.13.18) AND RainBird (192.168.8.121) back onto the network. Both have
+    been off L2 since about 19:18 CDT on 09-25, when the network-stack restart ran. Check their switch
+    ports, PoE and DHCP in UniFi first (two devices on two subnets points at the network side), then
+    power-cycle the devices if needed. After that I re-measure whether the Frigate detectors come back
+    live and whether the 09-21 freeze cohort stays cleared. If Frigate2 is reachable again but its
+    entities stay frozen or unavailable, the older ask stands: reload the Frigate config entry.'
   links:
     related:
     - CAMERA-ZERO-FIRE-DETECTORS-1
@@ -28912,7 +28930,19 @@ cards:
   thread: energy
   status: investigating
   created: '2026-09-25 18:00'
-  updated: '2026-09-25 23:45'
+  updated: '2026-09-26 02:20'
+  consumption_ct_consumer_check_2026_09_26: 'OVERNIGHT 2026-09-26 02:19 re-check plus CONSUMER check on the native consumption-CT outage. STILL
+    UNAVAILABLE: current_power_consumption, energy_consumption_today, last_seven_days (+L1/L2),
+    lifetime_energy_consumption, balanced_net_power_consumption,
+    lifetime_balanced_net_energy_consumption, all last_changed 2026-09-25T23:11:30Z (the 18:11 CDT
+    restart) and none recovered. Net-consumption, production, voltage and battery are live (battery 9 at
+    07:19Z). CONSUMER CHECK, so the harm is bounded: grep of /config/.storage/core.config_entries for
+    every sensor.envoy_482543015950_* binding shows URA reads ONLY current_net_power_consumption
+    (energy_grid_import_entity), lifetime_net_energy_consumption (grid_import_sensor),
+    current_power_production (energy_envoy_entity / solar_production_sensor),
+    lifetime_net_energy_production (site/solar export) and _battery. NONE of the dead total-consumption
+    entities is bound in URA, so URA''s energy decisions are NOT affected by this outage. The mechanism
+    is still unknown and remains for run 2. Not guessed.'
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-09-25 ("MQTT can be added as a trusted local witness. Just measure for

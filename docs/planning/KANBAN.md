@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T02:18:30-05:00_ - _Data commit: `4709230a9f44`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-26T02:19:54-05:00_ - _Data commit: `77c90974a0fd`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -31,7 +31,7 @@ _measuring; truth not yet known_
 
 ### `ENVOY-STREAM-TRUST-MEASURE-1` - We now have a third, much faster Envoy data source — measure whether it can be trusted before anything is allowed to depend on it — _#1 · WSJF 9.5 · v7 tc6 u6 /e2_
 thread: **energy** - status: **investigating** - approval: **explicit**
-_created 2026-09-25 18:00 · updated 2026-09-25 23:45 · refined_
+_created 2026-09-25 18:00 · updated 2026-09-26 02:20 · refined_
 - **Problem / Solution:**
   - Problem: the house now has a second way of hearing from the solar/battery gateway — a local feed that updates about once a second, versus the built-in one that has been dropping out roughly a third of every day. It looks better in every ...
 - **Origin:** 2026-09-25 - operator: "MQTT can be added as a trusted local witness. Just measure for its trust now and then we decide."
@@ -40,8 +40,9 @@ _created 2026-09-25 18:00 · updated 2026-09-25 23:45 · refined_
 - **Tags:** energy, envoy, measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] A new SOC/power producer may be fresh and independent but has not been shown to agree with ground truth or to survive the outages it is meant to cover.
 - **Refs:** docs/planning/PLANNING_envoy_local_witness_and_solar_follow.md
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `native_status_2026_09_25_2345`: Operator: "Envoy connected. Is it still flapping?" Native enphase_envoy entry LOADED; sensor.envoy_482543015950_battery down-events: 23 between 12:08 and 21:07 CDT, 0 since 21:07 (~2.5 h, right after the Envoy reboot + network restart + ...
+  - `consumption_ct_consumer_check_2026_09_26`: OVERNIGHT 2026-09-26 02:19 re-check plus CONSUMER check on the native consumption-CT outage. STILL UNAVAILABLE: current_power_consumption, energy_consumption_today, last_seven_days (+L1/L2), lifetime_energy_consumption, balanced_net_powe...
   - `restart_boundaries_2026_09_25`: CONTAMINATED WINDOW ~18:21-20:05 CDT — operator did, in sequence: HA core 2026.9.2->2026.9.3; Envoy reboot (stream 0 at 18:39, device re-enumeration 0->48, then 48->8 with SOC 87->20 by 19:12, recovered to 46 devices / grid 11 W / batt 7...
   - `measured_2026_09_25_cadence_and_skew`: PARTIAL RESULT ALREADY IN, and it CORRECTS MY OWN CLAIM. I have been describing this feed as "~1 Hz, ages essentially never exceed a few seconds". Six consecutive samples of meters.last_update against the HA host clock: last_update advan...
   - `run1_prelim_2026_09_25`: Operator: "Do this anyway and clear its criteria for other builds as needed." Run 1 over 16:40-21:00 CDT excluding 18:21-20:15 (2.4 h clean) -> AUDIT_envoy_mqtt_trust_measurement.md. PASS: 3.1 freshness (skew-adjusted p95 3 s; plan rule ...
@@ -641,16 +642,17 @@ _needs a human call — groomed first_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
 thread: **perimeter** - status: **waiting_operator** - approval: **blocked**
-_created 2026-09-16 03:30 · updated 2026-09-26 02:05 · refined_
+_created 2026-09-16 03:30 · updated 2026-09-26 02:21 · refined_
 - **Problem / Solution:**
   - Problem: the system that spots people outside the house has gone quiet across EVERY outdoor camera at once. Two days ago the cameras between them reported a person about 470 times a day; yesterday that fell to about 40, and so far today ...
 - **Origin:** 2026-09-16 - fell out of re-measuring FRONT-SIDE-PTZ-CHATTER-1 overnight — the chatter had vanished, and checking WHY it vanished turned up a fleet-wide blackout instead of a fix
 - **Why:** exterior person detection feeds perimeter alerts, the property census, the circling/track linker and egress identity. All of them degrade silently when the producer goes quiet, which is precisely the blind spot CAMERA-ZERO-FIRE-DETECTORS...
-- **Next:** DO: bring the Frigate2 machine (192.168.13.18) back onto the network. It has been off L2 since about 19:18 CDT on 09-25: no ping, ARP incomplete. Check its power, NIC and switch port, and power-cycle it if it is hung. Then I re-measure w...
+- **Next:** DO: bring Frigate2 (192.168.13.18) AND RainBird (192.168.8.121) back onto the network. Both have been off L2 since about 19:18 CDT on 09-25, when the network-stack restart ran. Check their switch ports, PoE and DHCP in UniFi first (two d...
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] every exterior person-detector went silent within ~24h while motion continued, and the operator-facing alerts went silent with them
 - **Refs:** binary_sensor.front_side_ptz_person_occupancy_2; binary_sensor.front_side_ptz_motion_3; notification_log hazard_type=exterior_person
-- **Forensic keys (12):**
+- **Forensic keys (13):**
+  - `scope_addendum_2026_09_26`: ADDENDUM 2026-09-26 02:25, SCOPE OF THE 19:18 DROP. Method: the HA recorder gives every entity whose LATEST state is 'unavailable' and was written 00:10-00:45 UTC on 09-26, mapped to its integration via core.entity_registry and core.conf...
   - `measured_2026_09_26_FRIGATE2_HOST_OFF_NETWORK`: OVERNIGHT PASS 2026-09-26 02:10. NEW, DIFFERENT, AND SIMPLER FAULT: THE FRIGATE2 HOST IS OFF THE NETWORK. This replaces the frozen-entity picture from 09-23/09-25 for tonight. Method: HA recorder (ssh ha sqlite3 -readonly, last row per e...
   - `measured_2026_09_25`: OVERNIGHT PASS — STILL LIVE, MEASURABLY WORSE, AND NOW THE LONGEST OUTAGE ON RECORD. Measured read-only from the live recorder (ssh ha sqlite3 -readonly /config/home-assistant_v2.db, last-state-per-entity join on states_meta with coalesc...
   - `MEASURED_2026_09_24`: OVERNIGHT PASS — DECISIVE, and it DISCRIMINATES the two candidate causes this card has carried since 09-16. Method: URA/HA recorder via ssh ha sqlite3 on /config/home-assistant_v2.db, plus a live /api/states read. FRESHNESS VALIDATED FIR...
@@ -677,12 +679,13 @@ _created 2026-09-14 · updated 2026-09-19 03:50 · initial_
 
 ### `KITCHEN-MMWAVE-STILL-THRESHOLD-EXPERIMENT-1` - Kitchen mmWave chatter — LIVE EXPERIMENT running: still thresholds reverted to stock (Study B control) 2026-08-21 ~18:00; re-measure in 48h before ANY hardware purchase — _#3 · WSJF 6.5 · v6 tc5 u2 /e2_
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
-_created 2026-08-21 18:00 · updated 2026-09-23 04:05 · initial_
+_created 2026-08-21 18:00 · updated 2026-09-26 02:20 · initial_
 - **Next:** ANSWER a prior question first — I can no longer recommend the revert as written, because tonight I could not confirm the thresholds are where the card says they are, or that they can be read at all. WHAT CHANGED: all nine kitchen still-t...
 - **Tags:** live-experiment, measure-before-build, revert-values-recorded
 - **Parsimony:** [INVESTIGATE] a mmWave sensor chattering 724x/48h was heading for hardware replacement on a guess
 - **Refs:** number.mmwave_lux_wifi_esphome_kitchen_g0_still_threshold; binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence; binary_sensor.mmwave_lux_wifi_esphome_studyb_presence; KITCHEN-OCCUPANCY-DEAD-1; CHATTER-RATE-VS-BURST-GAP-1
-- **Forensic keys (10):**
+- **Forensic keys (11):**
+  - `reverified_2026_09_26`: OVERNIGHT 2026-09-26 re-verify via live HA REST. All 22 kitchen config entities (9 still, 9 move, both distance gates, timeout, light threshold) still read 'unknown'. Every one of them, plus binary_sensor.*_presence, shows last_changed 2...
   - `verify_2026_09_12`: APPROVED -> experiment CONCLUDED, raised-threshold hypothesis REFUTED. MEASURED (live number.*_still_threshold = Study-B stock 0,0,40,40,40,30,30,20,20 still applied 3wk; recorder OFF-episodes <25s: 409/48h on stock vs the card 94 baseli...
   - `disposition_2026_09_12b`: APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified): pure ESPHome-device experiment, no URA surface; 48h window expired 3wk ago. Dispose via one-shot recorder query (kitchen mmWave OFF-episodes <25s over 7d) + read the g0..g8 s...
