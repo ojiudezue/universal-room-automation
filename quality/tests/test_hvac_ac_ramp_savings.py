@@ -425,10 +425,12 @@ async def test_ac_ramp_savings_values_at_captured_rate(tmp_path):
 
     hass = StubHass(config_dir=str(tmp_path))
     db = UniversalRoomDatabase(hass)
+    # initialize() opens its own connection to create schema; must run
+    # BEFORE the worker so the two don't contend for the WAL lock.
+    ok = await db.initialize()
+    assert ok
     await db.start_write_worker()
     try:
-        ok = await db.init_db()
-        assert ok
 
         # Row A: pre-deploy shape (no `rate` key)
         await db.log_ac_ramp_event(
@@ -476,8 +478,7 @@ async def test_ac_ramp_savings_values_at_captured_rate(tmp_path):
             f"expected 0.4 kWh * $0.35 = $0.14; got {savings}"
         )
     finally:
-        if db._write_task and not db._write_task.done():
-            db._write_task.cancel()
+        await db.stop_write_worker()
 
 
 @_ha_only
@@ -494,9 +495,10 @@ async def test_ac_ramp_savings_since_windowing(tmp_path):
 
     hass = StubHass(config_dir=str(tmp_path))
     db = UniversalRoomDatabase(hass)
+    ok = await db.initialize()
+    assert ok
     await db.start_write_worker()
     try:
-        await db.init_db()
 
         # Insert one row RIGHT NOW (via the real writer)
         await db.log_ac_ramp_event(
@@ -531,5 +533,4 @@ async def test_ac_ramp_savings_since_windowing(tmp_path):
         assert n_future == 0
         assert savings_future == 0.0
     finally:
-        if db._write_task and not db._write_task.done():
-            db._write_task.cancel()
+        await db.stop_write_worker()

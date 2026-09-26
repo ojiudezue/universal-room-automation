@@ -328,21 +328,25 @@ class TestNoMagicFallback:
     """Cross-cutting: verify DEFAULT_ELECTRICITY_RATE is not 0.1."""
 
     def test_default_electricity_rate_is_not_0_1(self):
-        """DEFAULT_ELECTRICITY_RATE must be 0.15 (per const.py), never 0.1."""
-        import pathlib, importlib.util, sys
-        const_path = pathlib.Path(__file__).parents[2] / (
-            "custom_components/universal_room_automation/const.py"
+        """DEFAULT_ELECTRICITY_RATE must be 0.15 (per const.py), never 0.1.
+
+        TEST-SILENT-WHOLE-FILE-SKIPS-1 fix-up: previously the assertion body
+        was wrapped in ``except Exception: pytest.skip(...)``, which turned
+        an ``AssertionError`` into a skip — the reviewers proved that
+        forcing DEFAULT_ELECTRICITY_RATE=0.1 yielded ``1 skipped`` instead
+        of a failure. Now imports const as a real package member and
+        asserts with nothing wrapped, so a violation fails loudly.
+        """
+        import importlib
+        import pathlib
+        import sys as _sys
+        _repo = str(pathlib.Path(__file__).resolve().parents[2])
+        if _repo not in _sys.path:
+            _sys.path.insert(0, _repo)
+        mod = importlib.import_module(
+            "custom_components.universal_room_automation.const"
         )
-        spec = importlib.util.spec_from_file_location("ura_const", const_path)
-        mod = importlib.util.module_from_spec(spec)
-        # Stub typing.Final and other stdlib deps used in const.py
-        sys.modules.setdefault("homeassistant", MagicMock())
-        sys.modules.setdefault("homeassistant.const", MagicMock())
-        try:
-            spec.loader.exec_module(mod)
-            assert mod.DEFAULT_ELECTRICITY_RATE == 0.15, (
-                f"Expected 0.15 but got {mod.DEFAULT_ELECTRICITY_RATE}"
-            )
-            assert mod.DEFAULT_ELECTRICITY_RATE != 0.1
-        except Exception as exc:
-            pytest.skip(f"const.py load failed (import env issue): {exc}")
+        assert mod.DEFAULT_ELECTRICITY_RATE == 0.15, (
+            f"Expected 0.15 but got {mod.DEFAULT_ELECTRICITY_RATE}"
+        )
+        assert mod.DEFAULT_ELECTRICITY_RATE != 0.1
