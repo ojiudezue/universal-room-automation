@@ -5188,11 +5188,12 @@ cards:
   refs:
   - docs/reviews/code-review/reload_comprehensive_tier1_2.md
 - id: INTEGRATION-CAMERA-DISCOVER-STALE-1
+  disposition_2026_09_26_groom: 'CALL MADE: option (B) PARK with the standing workaround ''restart HA after adding or removing an interior camera'' — the fault only bites on camera-list edits (months apart) and option (A) costs a Tier 2-DB cycle on the live occupancy path; option (C) CONFIG-SUBENTRIES-MIGRATION-1 is the structural end-state. REVIVE if interior camera-list edits become frequent, or fold in when CONFIG-SUBENTRIES-MIGRATION-1 is planned.'
   title: Adding/removing a camera while its config-save reload is suppressed leaves the shared camera→area
     map stale — new camera never extends room occupancy until restart
   thread: quality
   rank: {value: 6, time_criticality: 3, effort: 3}
-  status: waiting_operator
+  status: parked
   updated: '2026-09-22 02:30'
   measured_2026_09_22: 'OVERNIGHT PASS — verify-before-work + the measure the card asked for. Verdict:
     STILL-REAL **and** CARD-WAS-WRONG on the mechanism, in a way that changes which fix is right.
@@ -7433,11 +7434,12 @@ cards:
   refs:
   - person_visits (URA DB)
 - id: NM-BB-CHATGUID-SELFSEND-1
+  disposition_2026_09_26_groom: 'RE-LANED: small cycle, my work. First check the installed BlueBubbles server version is >= 0.7.0 (operator was upgrading).'
   title: BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address,
     decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread
   thread: notifications
   rank: {value: 5, time_criticality: 3, effort: 3}
-  status: waiting_operator
+  status: planned
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: 0 chat_guid hits; _send_imessage builds {addresses:handle} only. Blocked on operator question: is there a non-self URA-alerts chat with a resolvable GUID?'
   created: 2026-08-26 11:00
   updated: '2026-09-19 04:55'
@@ -7477,11 +7479,7 @@ cards:
       release notes'
   why: A durable fix for the self-send footgun in NM iMessage delivery, if the recipient chats can be
     pinned by GUID. Verify NM's send path + how a chat_guid is obtained before scoping.
-  next: 'SMALL CYCLE (operator: "should be a small cycle"). Operator is upgrading to 0.7.0. (1) First
-    reproduce/confirm the self-send cause in NM send path (grep notification_manager for send_message
-    + how recipients/addresses are built). (2) Determine if a stable non-self chat_guid is resolvable
-    per recipient. (3) If yes, wire chat_guid; if the self-send has a different cause, fix that instead.
-    Do NOT assume chat_guid is the fix until (1)+(2) confirm it.'
+  next: 'BUILD (me, small): confirm BlueBubbles >= 0.7.0, reproduce the self-send cause in the NM send path, resolve a stable per-recipient chat_guid, wire send-by-GUID with address fallback.'
   refs:
   - custom_components/universal_room_automation/domain_coordinators/notification_manager.py
   - ~/Code/bluebubbles-integration-guide.md
@@ -8623,9 +8621,10 @@ cards:
     blocked_by:
     - ROUTINE-DETECTOR-NO-DISCHARGE-1
 - id: REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1
+  disposition_2026_09_26_groom: 'CALL MADE: option (B) PARK. The visible symptom (fake routine-drift anomalies) was cleared today (445 open routine-shift rows acknowledged, ROUTINE-DETECTOR-NO-DISCHARGE-1) and the rename artifact ages out of the 2-month baseline on its own. REVIVE if a new regime_shift row appears for a cell whose room was renamed in the prior 60 days.'
   title: Room renames split one room's history across two labels and manufacture fake "routine drift"
   thread: analytics
-  status: waiting_operator
+  status: parked
   created: '2026-09-14 00:45'
   updated: '2026-09-14 03:55'
   refinement_status: refined
@@ -9447,11 +9446,12 @@ cards:
     alongside live _2; fix-if-revived = tiebreak _prefer_canonical by last_updated recency not canonical
     name.'
 - id: PERIMETER-PHANTOM-XCORR-1
+  disposition_2026_09_26_groom: 'RE-LANED: the next action is a measurement (mine). BLOCKED right now: Frigate2 (192.168.13.18) is off the network since 09-25 19:18 CDT (see PERIMETER-DETECTION-WENT-DARK-1), so fresh alerts cannot be traced until it is back.'
   title: Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked
     across NVRs
   thread: security
   rank: {value: 7, time_criticality: 4, effort: 13}
-  status: waiting_operator
+  status: investigating
   updated: '2026-09-19 03:50'
   verify_2026_09_12: 'INVESTIGATE-flagged -> MEASURE complete (Tier-3, do-NOT-build-B-alone CONFIRMED). notification_log hazard_type=exterior_person 30d: 4662 alerts/mo (~155/day!), CRITICAL 1824 / HIGH 2438. Single-vs-corroborated (different cam within +/-20s): ~86.8% SINGLE-source (CRIT 91.4%, HIGH 81.2%). BUT the split is a camera-COVERAGE artifact NOT a phantom signal: single-source concentrates in structurally-uncorroboratable cams — front_side_ptz 1065/1127 (94%), pool_equipment, back_yard, hot_tub (Frigate-2-only, no overlapping cam) — and front_side_ptz is the SAME cam that caught the operator REAL garage walk-in. A blanket demote-single->LOW would floor ~87% of alerts incl. genuine approach detections. So B-alone is UNSAFE (confirms the operator fence). Real levers: A (at-detection snapshot timing) + per-camera street-masking/detection-tuning + track-linker spatial confidence for single-NVR cams; cross-NVR demote only meaningful for the few multi-NVR-overlap cams. ASIDE: 155/day exterior_person + ~75 unacked CRITICAL re-pages (NM-REPAGE) = a real ALERT-FATIGUE surface worth its own look. NEXT -> operator: this stays measure-only/parked per the Tier-3 fence; the volume/fatigue finding may deserve a separate card.'
   disposition_2026_09_12b: 'INVESTIGATE (operator board) — priority intake for the verify/measure sweep.'
@@ -13302,6 +13302,7 @@ cards:
   parsimony: {problem: 'possible house-wide self-lockout via EC offset', verdict: BUILD, note: 'investigation; read-only trace, cheap, decisive'}
   links: {related: [HVAC-PRESET-LOCKOUT-ESCAPE-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-ZONE1-MANUAL-OSCILLATION-1], context: 'D5 true-up / S14 removal 2026-09-16 / Bryant audit'}
 - id: HVAC-PRESET-LOCKOUT-ESCAPE-1
+  disposition_2026_09_26_groom: 'SUPERSEDED — CLOSED. Its three deliverables are now owned by the approved arc: D1 presets-only borrow return -> W1-B (operator accepted all 7 recommendations 2026-09-26, binding); D2 status/config coherence -> WITHDRAWN by state-of-play C20 (hold_activity also reads manual in the strands); D3 funnel logging -> W1-A (build in flight 2026-09-26). Lockout frequency confirmed real (HVAC-PRESET-LOCKOUT-TELEMETRY-1: zone_1 2-7/day). Track under HVAC-W1-THERMOSTAT-DEFINITION.'
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
   MEASUREMENT_2026_09_17: 'Gate read (v5.103.4 telemetry, ura_activity_log action=preset_change_
     locked_out, immutable snapshot): 15 episodes across 09-16/09-17 = ~6-9/day house-wide (zone_1 6,
@@ -13370,7 +13371,7 @@ cards:
     manual, so nothing ever rescues it
   rank: {value: 8, time_criticality: 6, effort: 5}
   thread: hvac
-  status: waiting_operator
+  status: done
   created: '2026-09-16'
   updated: '2026-09-26 09:30'
   refinement_status: initial
@@ -20579,6 +20580,7 @@ cards:
     on record.'
 
 - id: TEST-STRATEGY-REARCH-1
+  disposition_2026_09_26_groom: 'CALL MADE (operator 2026-09-26: ''make some calls''): option (A) CHEAP PATH FIRST. Already delivered today: cached-baseline suite_namediff.py + builder definition-of-done + targeted reviewer re-confirms (2c5a72d98). Next: card and drive the concentrated failing files (weather_manager 47, bathroom_exhaust 23 = 36% of 194) as Tier 1-2 test fixes, then re-measure and size the re-arch against what remains.'
   shipped_2026_09_26_speed_changes: 'Operator: "make the changes now to make the test strategy and fix ups
     faster. We need it for the arc". Commit 2c5a72d98 on develop: (1) scripts/suite_namediff.py — the develop
     baseline is cached in .claude/suite-cache keyed by the git tree hashes of custom_components/ + quality/ (+ pytest
@@ -20674,7 +20676,7 @@ cards:
     + hollow at boundaries)
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
-  status: waiting_operator
+  status: planned
   dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
   updated: '2026-09-26 09:45'
   measured_2026_09_26_full_suite_rerun: 'OVERNIGHT PASS 2026-09-26, VERIFY-BEFORE-WORK by RUNNING it, not trusting the 09-23 number.
@@ -20726,12 +20728,7 @@ cards:
     develop''s numbers — re-measure against that branch once it ships. This does NOT unblock the card:
     it is still blocked_by TEST-HARNESS-REAL-HA-DEFAULT-1, which is a separate operator PICK. It does
     mean the job may be materially smaller than 87 tests'' worth.'
-  next: 'PICK one: (A) CHEAP PATH FIRST, which I recommend. I card the concentrated failing files:
-    weather_manager (47) and bathroom_exhaust (23) are 36% of the 194, and the top five are 49%. I drive
-    each as a Tier-1/2 fix, then re-measure and size the re-arch against what is left. (B) COMMIT TO THE
-    RE-ARCH now: I write the Tier 2-DB+ strangler plan (real-HA harness default, retire fake-HA module
-    stubs) for plan review. (C) PARK the re-arch and keep 194F/3E as a named, frozen baseline that every
-    cycle name-diffs against. On your pick, I execute it.'
+  next: 'BUILD (me, Tier 1-2 test-only): fix test_v47x_weather_manager.py (47) and test_bathroom_exhaust_intelligence_cycle.py (23) failures, one builder at a time behind the HVAC arc builds; re-measure with scripts/suite_namediff.py; then size the re-arch.'
   refs: SUITE-ORDER-POLLUTION-1; scripts/hooks/pytest_serialize.sh; AUDIT_fan_recheck_bug_hunt.md (hollow
     class); step_chatter_review_C.md (C-CRIT); v5.8.0 incident memory (real-coord construction risk)
   pytest_restore_hook_2026_08_19: 'CONCRETE INSTANCE for the re-arch (D2-MED-1): a STEP cycle test source-mutates
@@ -23029,6 +23026,7 @@ cards:
     RESTART-SAFETY-DOCTRINE-1 because that card is about state not surviving restarts, whereas this is
     a concurrency defect in the save routine itself; linked instead.'
 - id: HVAC-ANOMALY-BLIND-1
+  disposition_2026_09_26_groom: 'Stale next rewritten (residual B already shipped).'
   disposition_2026_09_26_groom: 'SOAK EXIT: residual B SHIPPED (save_baselines after the per-zone record_observation loop, hvac.py:4782, on develop and live). Residual A remains and needs an operator PICK (RESIDUAL_A_ESCALATED_2026_09_16): what the sensor should SAY while metrics are unfed, and shared-detector vs hvac-only fix. Observed 2026-09-26: zero hvac rows in anomaly_log over the last 3 days — consistent with the detector still being partly blind.'
   workstream: HVAC-W4-ARC-CLOSURE
   MEASURED_2026_09_16: 'RESIDUAL B CONFIRMED — MECHANISM FOUND, and it is review finding B4 from
@@ -23546,16 +23544,7 @@ cards:
     trade, and state whether per-metric minimum_samples or one-sided detection is in scope. Two reviews
     already killed one producer here; a third guess is not worth the round trip. ** D2 metrics_silent
     is UNAFFECTED and still shippable after the B3 five-line reorder.'
-  next: 'RESIDUAL B — BUILD (gate passed, see RESIDUAL_B_FIX_SCOPED_2026_09_16): add the awaited
-    save_baselines() after the per-zone record_observation loop in _emit_and_reset_short_cycles so
-    the daily observation survives an unclean restart. Tier 1 surface (one call site, one existing
-    method) but driven with two framing-disjoint reviews per the autonomous-work rule; the test must
-    be mutation-anchored (delete the call -> a specific test goes red). Left in `review` overnight,
-    NOT deployed — a deploy restarts HA in an occupied sleeping house.
-    RESIDUAL A — still NOT buildable autonomously and now escalated: see
-    RESIDUAL_A_ESCALATED_2026_09_16. It needs an operator PICK on what the sensor should SAY (an
-    operator-facing semantics call) and on whether the fix lands in the shared detector (helps all 5
-    anomaly coordinators, tiers the change up) or hvac-only (narrow).'
+  next: 'PICK (residual A, RESIDUAL_A_ESCALATED_2026_09_16): (1) what the HVAC anomaly sensor should SAY while 3 of its 5 metrics have no data — e.g. state ''partial'' naming the unfed metrics, vs keep ''nominal'' with an attribute; (2) fix in the shared detector (all 5 coordinators, Tier 2-DB) vs hvac-only (narrow). -> I plan + build. Residual B (save_baselines) is shipped; 0 hvac anomaly rows in the last 3 days.'
   RESIDUAL_A_ESCALATED_2026_09_16: 'Residual A stays UNBUILT and is now an explicit operator
     decision rather than an open question, because tonight''s measurement supplied the last missing
     fact and the remaining choices are both operator-facing. GATE_2026_09_15 already established
@@ -24008,10 +23997,11 @@ cards:
   - 'GROOM 2026-09-11: VERDICT ADJACENT residual of CARRIER-STALE-POLL-REFRESH-1. Promoted inbox -> pre_planning;
     cleared stale batch + sibling_of; linked.'
 - id: RECORDER-CHURN-SWEEP-URASENSORS-1
+  disposition_2026_09_26_groom: 'CALL MADE: option (A) — defer the URA sensor sweep; the flapping water-leak monitor (60,610 rows/day vs 147,089 for all of URA) is the bigger write source and a fault on its own merits (tracked under RECORDER-BLOAT-LOGFLOOD-1). REVIVE after RECORDER-BLOAT''s config fixes land and a re-measure still shows URA elapsed-timestamp sensors as a top write source.'
   title: "Sweep 6-9 more URA sensors emitting per-read elapsed timestamps (same recorder write-amp class as safety_status)"
   thread: config-flow
   rank: {value: 6, time_criticality: 5, effort: 3}
-  status: waiting_operator
+  status: parked
   created: 2026-09-13 01:30
   updated: '2026-09-19 04:35'
   measured_2026_09_15: 'OVERNIGHT PASS — THE MEASUREMENT THIS CARD ASKED FOR IS DONE (one-shot read-only
@@ -26633,6 +26623,7 @@ cards:
      (then optionally launchctl start com.phalanxmadrone.ura-overnight-pass to test-fire). -> I verify via launchctl list + the log.'
   refs: [homelab-automation/scripts/overnight/ura_overnight_pass.sh, homelab-automation/launchd/com.phalanxmadrone.ura-overnight-pass.plist]
 - id: PROPERTY-GETTER-SIDE-EFFECT-TASKS-1
+  disposition_2026_09_26_groom: 'CALL MADE: option (B) KEEP THE FALLBACK, MOVE THE TRIGGER — safety path, so no capability is removed: drive the legacy alert-flash path from the Safety Coordinator tick instead of a property read; also fix the two observational sites (sensor.py:1817, :16393). Tier 2 (safety path).'
   measured_2026_09_23: 'OVERNIGHT PASS — TRACED SITE (1) AS THE CARD ASKED, and the trace
     MATERIALLY RE-FRAMES THIS CARD. VERDICT: STILL-REAL + CARD-WAS-WRONG about severity. Site (1) is
     real and live, but it is NOT an actuating call in this deployment, and the card calls it "the one
@@ -26676,7 +26667,7 @@ cards:
     one that fires safety-alert actions
   thread: platform
   rank: {value: 7, time_criticality: 4, effort: 5}
-  status: waiting_operator
+  status: planned
   created: '2026-09-20 03:30'
   updated: '2026-09-23 03:50'
   refinement_status: initial
@@ -26730,19 +26721,7 @@ cards:
     problem: Three property getters start background work per read; one of them actuates safety alerts,
       so the action fires once per observer rather than once per event.
     verdict: BUILD
-  next: 'PICK one — the trace you asked for is done and it changed the picture. The safety-alert
-    sensor spawns a background task every time it is read while an alert is active (it is active
-    right now — both garages are over 90F), and that task hits a guard and does nothing, because the
-    Safety Coordinator took over alert response back in v3.6.0.3. So it is pure churn on a safety
-    path, not a misfiring alert. (A) DELETE THE CALL — make the getter pure and drop the legacy
-    flash path, which has been unreachable on this house since the coordinator manager shipped;
-    simplest, and my recommendation, but it removes a fallback that would fire if the coordinator
-    manager were ever absent. (B) KEEP THE FALLBACK, MOVE THE TRIGGER — leave the legacy path intact
-    but drive it from the Safety Coordinator tick instead of from a property read, so nothing is
-    lost and the getter stops creating tasks. More work, no capability removed. (C) LEAVE SITE (1)
-    and only fix the two observational sites (sensor.py:1817, :16393), which are already marked
-    untracked-ok. Because this is the safety path I am not choosing for you. Whichever you pick, I
-    can build it to review unattended.'
+  next: 'BUILD (me, Tier 2, 2 framing-disjoint reviews): move the safety-alert legacy flash trigger out of the property getter into the Safety Coordinator tick; make the getter pure; fix sensor.py:1817 and :16393. Queued behind the HVAC arc builds (one builder at a time).'
   links:
     related: [EC-SUBSWITCH-ASYNC-WRITE-THREAD-1, AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1]
     context: 'EC-SUBSWITCH-ASYNC-WRITE-THREAD-1 (done, v5.97.x) is the same THREAD-SAFETY class at a
@@ -27061,6 +27040,7 @@ cards:
   next: 'DEPLOY-READY (batch): Option C (fe9ecb75f) + v1b (132d8db39) both ship-clean + orch-verified, unmerged. On a waking-hours restart I merge both -> develop -> one deploy.sh -> restart activates v5.102.1 + Option C + v1b together. Awaiting your restart window (or say go).'
   ack_reconciled_2026_09_19: 'Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: two ship-clean commits are still unmerged and undeployed. So the ack is recorded as the operator having SEEN the update, and the card deliberately stays in shipped_organic with its discriminator open. Noted so a later session does not read the ack as an acceptance and close it prematurely, and does not re-raise the same question.'
 - id: CONFIG-FLOW-SLOW-ONBOARDING-1
+  disposition_2026_09_26_groom: 'RE-LANED: the next action is mine (instrumentation), not an operator decision.'
   rechecked_2026_09_15: 'OVERNIGHT PASS recheck of the network-outage blocker recorded on 2026-09-13
     ("STILL LIVE and WORSE, 7053 unavailable"). MEASURED on the live recorder, 15-minute window:
     614 DISTINCT entities wrote an `unavailable` state, out of 2,174 distinct entities writing any
@@ -27075,7 +27055,7 @@ cards:
   title: "Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding"
   thread: config-flow
   rank: {value: 6, time_criticality: 4, effort: 5}
-  status: waiting_operator
+  status: planned
   SUPERSEDES_ALL_BELOW_2026_09_14: >-
     READ THIS FIRST. Every dated entry below that names "reload storm" as the cause is a PRIOR
     HYPOTHESIS, NOT a finding — kept for history per the mark-wrong-do-not-delete rule, not to be
@@ -27128,10 +27108,7 @@ cards:
     retracted outage claim: restart was deliberate, transients were its expected consequence, and
     the house healed. Do NOT log this restart as evidence in URA-CONFIG-ENTRY-RELOAD-STORM-1 — it
     is operator-initiated and would contaminate that card's reload-trigger hunt.
-  next: >-
-    -> then I re-measure z2m + Shelly on a SETTLED instance (age-distribution, not raw counts)
-    to get a trustworthy verdict on whether the earlier Zigbee event actually cleared, and ship
-    the config-flow timing instrumentation to pin the remaining slowness.
+  next: 'BUILD (me, Tier 1): per-async_step duration logging on config_flow steps + heavy helpers, so the next room setup pins where the minutes go; then fix root cause.'
   root_cause_found_2026_09_13: 'ROOT CAUSE = live mass DEVICE OUTAGE, not URA/onboarding. Operator re-clicked Add-Entry -> same dialog; live capture at that instant: optimization.py logged boot_storm_signature 27/43 rooms unavailable (frac=0.63); house-wide UNAVAILABLE entity count = 6132 (ha_search state_filter). First entity is a raw Zigbee IEEE (0xa4c1382e60e05225). MQTT broker (Mosquitto) = LOADED, but no ZHA integration -> Zigbee via zigbee2mqtt ADD-ON; z2m devices unavailable while broker up => the z2m add-on or Zigbee coordinator dongle is DOWN (stopped publishing -> availability topic offline). Scale (6132) implies broader network event too (Shelly was 614-down earlier tonight). URA HEALTHY: all 46 entries loaded incl Foyer. The config-flow slow + cannot-add-UI dialog (UnknownHandler) are COLLATERAL: 6000+ flapping entities saturate the event loop -> handler resolution starves + steps crawl. NOT the onboarding ranking code (confirmed sub-second) and not primarily the reload storm. RESOLUTION: operator recovers z2m add-on + Zigbee coordinator + network; config flow becomes responsive once devices return. Onboarding step-count adds only marginal overhead under NORMAL load -> instrumentation (eb2f73094) still worth deploying to quantify the baseline, but this is NOT an urgent onboarding regression. Log levels reverted to WARNING.'
   live_diag_armed_2026_09_13: 'Foyer-window (22:00-23:15) log mine INCONCLUSIVE: zero blocking-call warnings, only sparse cover-update stalls ~1h later; reload/setup events are INFO and URA ran at WARNING so a storm would not show. ARMED no-deploy live diagnostic via logger.set_level: homeassistant.config_entries=debug, homeassistant.setup=info, custom_components.universal_room_automation=info. NEXT: operator does one Add-Entry/add-room -> read reload/setup events live to confirm reload-storm-during-flow (vs flow-side cost). REVERT log levels after capture. Fuller per-step ms still needs the instrumentation deploy (eb2f73094).'
   symptom2_cannot_add_2026_09_13: 'SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (config_entries.py:2868/3475) — HA could not resolve URA config-flow handler at click time. config_flow:true (manifest OK) and async_step_user is CLEAN (routes to entry_type menu / integration_config; onboarding added NO abort path here). UnknownHandler at click = URA transiently degraded/reloading (handler resolution times out on a stalled loop) = SAME reload-storm root cause as the slowness. REFRAME: onboarding did NOT introduce this dialog; it is a reload-storm symptom (storm stall windows widened). Onboarding likely only WORSENED the slowness (4 added steps x stalled loop). REAL FIX for both = the reload storm (separate high-pri). Workaround: transient — retry Add after the reload window. Confirm when dialog appears: check URA integration state (loaded vs not_loaded/setup_retry) + reload logs at that instant.'
@@ -27210,10 +27187,11 @@ cards:
     scope (P1+P2+P5 deliver most of the >=50% alone).'
   refs: [custom_components/universal_room_automation/config_flow.py, custom_components/universal_room_automation/__init__.py, docs/planning/AUDIT_first_run_onboarding.md]
 - id: HUMIDITY-LOW-RUNG-PAGING-KNOB-1
+  disposition_2026_09_26_groom: 'CALL MADE: option (A) DROP — 0 humidity pages in 30 days and 0 basement rooms, so there is nothing to silence. REVIVE if a LOW-severity humidity-band NM page actually fires and is unwanted.'
   title: "Make the LOW-severity humidity-band NM page null/configurable (un-knobbed rung)"
   thread: safety
   rank: {value: 3, time_criticality: 2, effort: 1}
-  status: waiting_operator
+  status: parked
   created: '2026-09-14'
   updated: '2026-09-19 03:50'
   refinement_status: refined
@@ -27407,6 +27385,7 @@ cards:
     context: 'Spawned from WATCHDOG-INERT-1 (D1 caught it). Same class as STUCK-SENSOR-1 (stuck-signal).'
   refs: [anomaly_log metric_name=camera_stuck]
 - id: PERIMETER-DETECTION-WENT-DARK-1
+  disposition_2026_09_26_groom: 'RE-CHECKED 2026-09-26 13:25 CDT: Frigate2 192.168.13.18 and RainBird 192.168.8.121 both still fail ping from the Mac — still off the network since the 09-25 network-stack restart. Exterior person detection is therefore degraded again right now. Highest-priority operator DO in this lane.'
   title: Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on
     its own — nothing noticed either the outage or the recovery
   thread: perimeter
@@ -28461,6 +28440,7 @@ cards:
     before believing it.'
 
 - id: COVERAGE-EVENING-ATTRIBUTION-DRIFT-1
+  disposition_2026_09_26_groom: 'CALL MADE: option (A) SPLIT THE FIELD — coverage reads a new whole-house TOTAL-consumption setting, cost keeps reading NET; correct for both readers. (B) would inflate reported cost ~55%; (C) teaches the audit a subtraction that duplicates what the total sensor already measures. Adjacent to COVERAGE-RATING-FALSE-ANOMALOUS-1 (shipped v5.103.15).'
   measured_2026_09_23_mechanism_confirmed: 'SECOND MEASUREMENT, SAME NIGHT — MECHANISM CONFIRMED,
     and it is a configuration mis-pick, not a code defect. I ran the card''s own next step (read-only,
     recorder) and then closed it with an identity check, so this is established rather than inferred.
@@ -28502,7 +28482,7 @@ cards:
   title: Every evening the room-by-room energy totals creep past the whole-house meter and keep
     growing until midnight, and nobody has explained why
   thread: energy
-  status: waiting_operator
+  status: planned
   created: '2026-09-23 03:10'
   updated: '2026-09-23 03:30'
   refinement_status: refined
@@ -28549,17 +28529,7 @@ cards:
   parsimony: {problem: 'On at least three of the last five evenings, attributed room energy exceeded
       whole-house energy by a growing margin for 6-10 consecutive hours, which is physically
       impossible and therefore means one of the two inputs is wrong.', verdict: BUILD}
-  next: 'PICK one — the measurement is finished and the cause is established, so nothing is left for
-    me to measure here. URA''s whole-house ENERGY figure is set to the Envoy NET sensor (grid import
-    after solar), while its whole-house POWER figure is already set to the TOTAL sensor. The net
-    figure is what makes the coverage audit go impossible every afternoon. (A) SPLIT THE FIELD IN
-    CODE — coverage reads a new total-consumption setting, cost keeps reading net. Correct for both
-    readers, Tier 2, and my recommendation; I can build it to review unattended once you say go.
-    (B) JUST SWAP THE CONFIG to lifetime_energy_consumption — one options-flow edit, fixes the
-    coverage audit tonight, but inflates your reported whole-house cost by about 55% because you
-    would then be charged for self-consumed solar. (C) LEAVE IT and instead teach the coverage audit
-    that its whole-house input is net, by subtracting self-consumed solar before comparing. Tell me
-    A, B or C.'
+  next: 'BUILD (me, Tier 2): add a whole-house total-consumption energy setting (options flow) read only by the coverage audit; cost path unchanged on the NET sensor. Queued behind the HVAC arc builds.'
   rank: {value: 7, time_criticality: 4, effort: 3}
   links:
     related: [COVERAGE-RATING-FALSE-ANOMALOUS-1]
