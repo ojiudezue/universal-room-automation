@@ -2889,7 +2889,9 @@ class OverrideArrester:
             self._compromise_active.clear()
             # A-F5 review HIGH FIX 2 — lifecycle: clear suppression on
             # disable so a stale TTL window doesn't survive an arrester
-            # disable (which would silently swallow events for ≤5s).
+            # disable (which would silently swallow events for up to
+            # SUPPRESS_TTL_SECONDS (15 s, temp-kind) or
+            # SUPPRESS_TTL_SECONDS_PRESET (120 s, preset-kind)).
             self._suppressed_until.clear()
             self._suppress_kind.clear()
         _LOGGER.info("Override Arrester %s", "enabled" if value else "disabled (passive mode)")
