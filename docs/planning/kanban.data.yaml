@@ -1836,6 +1836,44 @@ cards:
   next: 'BUILD (me, Tier 2 — touches the shared retreat gate, 2 framing-disjoint reviews + mutation drill): change is_zone_hvac_established (hvac_zones.py:1043) to all() over rooms with a LOADED config entry; replace test_f1_disabled_room_leaves_zone_unestablished_round5 with its inverse + a discriminating test that a zone whose ONLY live room is unseen stays unestablished; keep the diag trip-wire as a one-line attr.'
   parsimony: {problem: 'a disabled room silently disables conditioning-demand for its whole zone', verdict: BUILD, note: 'scope the gate to live rooms (operator rule); trip-wire only as a diag'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'residual of the round-5 F1 all() revert'}
+- id: HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1
+  title: A room that is reloading is briefly treated as "empty" by HVAC paths that bypass the shared retreat check
+  thread: hvac
+  status: planned
+  created: '2026-09-26 02:15'
+  updated: '2026-09-26 02:15'
+  refinement_status: initial
+  approval: unreviewed
+  rank: {value: 6, time_criticality: 4, effort: 3}
+  tags: [hvac, tier-2, pre-existing, found-in-review]
+  problem_solution:
+  - 'Problem: while a room is reloading, HVAC fills in a placeholder that says "nobody here" for it. The main
+     retreat decisions now ignore that placeholder (v5.103.15 work), but three other paths still read raw
+     zone occupancy and act on it: the coast-mode duty-cycle limiter can push an occupied zone to away for one
+     tick; the stale-occupancy failsafe can miscount and force away for one tick; and a zone''s
+     "continuously occupied since" clock resets. Solution: route those readers through the same shared
+     retreat check (the coast limiter defers when the zone is not cleared to retreat), and stop the
+     placeholder from resetting the occupancy clock.'
+  origin: {date: '2026-09-26', gist: 'Reviewers B and D of HVAC-DEGRADED-ROOM-TRIPWIRE-1 (independently) — pre-existing, out of that cycle''s scope by plan rule'}
+  why: 'Same invariant as the retreat gate (match zone occupancy; a reloading room must not read as empty) on
+    the paths that bypass it. Two reviewers converged on the D5 site independently.'
+  evidence:
+  - 'D5 coast occupancy defer hvac.py:2278-2296 reads raw any_room_hvac_occupied — repro (Reviewer D F3): EC
+     coast, zone runtime_exceeded, home_evening, zone_1=[Office occupied, Study empty], Office reloads -> fused
+     False -> D5 forces away for one tick, next tick home. Also retreats an all-dead zone under coast.'
+  - 'D6 stale failsafe presence.py:2148-2157 Source-4 room count drops by the reloading room -> one-tick
+     stale_occupancy away + stuck-signal NM (Reviewer D F6).'
+  - 'hvac_zones.py:746-754 continuous_occupied_since reset by the synthetic empty (Reviewer B) — effect: stale
+     failsafe / optimizer stuck-occupancy fire later (safe direction).'
+  - 'zone.rooms frozen at discovery; rooms added to a zone mid-session are not counted until restart (Reviewer D F7).'
+  links:
+    related: [HVAC-DEGRADED-ROOM-TRIPWIRE-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1]
+    context: 'HVAC-DEGRADED-ROOM-TRIPWIRE-1 fixed the retreat chokepoint; this card covers the readers that bypass
+      it. HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 built the D5 occupancy gate on the raw fused read.'
+  next: 'Plan (Tier 2): D5 defer on `not self._zone_conditioning_retreat_ok(zone)`; D6 Source-4 excludes
+     coordinator-absent rooms; continuous_occupied_since ignores synthetic rooms. Belongs in W2 (occupancy truth).'
+  parsimony: {problem: 'paths that bypass the shared retreat check act on a reloading room''s placeholder empty', verdict: BUILD}
+
 - id: HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1
   status: planned
   thread: hvac
