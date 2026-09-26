@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T21:03:34-05:00_ - _Data commit: `386155581269`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-25T21:10:15-05:00_ - _Data commit: `3e719630d808`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -48,18 +48,19 @@ _created 2026-09-25 18:00 · updated 2026-09-25 21:10 · refined_
 
 ### `HVAC-ZONE1-MANUAL-OSCILLATION-1` - MECHANISM FOUND — zone_1's re-manual is the Bryant's own 76/69 schedule reclaiming the zone ~1s after every URA preset write (either re-asserted by the thermostat, or handed to it by URA's own resume-then-pin); the resulting write-fight also fires ~45 false "someone grabbed the thermostat" pages a day — _#2 · WSJF 3.4 · v8 tc7 u2 /e5_
 thread: **hvac** - status: **investigating**
-_created 2026-09-16 · updated 2026-09-25 21:40 · refined_
+_created 2026-09-16 · updated 2026-09-25 21:20 · refined_
 - **Problem / Solution:**
   - Problem: the v5.103.4 lockout telemetry shows zone_1 (climate.thermostat_bryant_wifi_studyb_zone_1) flapping manual<->away ~20+x/evening, often within seconds. URA's away writes LAND (vacancy path bypasses the manual guard, 28.3% away) b...
 - **Why:** This is the ACTUAL dominant reason zone_1 sits 67.5% manual — not resume-then-pin failing to land (it lands) and not escape (rare). Found by the interim lockout read. Until the re-manual producer is known, any further preset-write work o...
-- **Next:** MEASURE (me): once the operator gives the removal time, split zone_1 manual-entry setpoint pairs before/after it (24 h clean after, excluding restarts); then take option (A) stop-the-paging regardless (recommended 09-17), and dispose (B)...
+- **Next:** MEASURE (me): (1) grep automations.yaml/scripts.yaml on the Samba mount for templated zone_1 writers; (2) align each post-11:39 manual entry against URA's preceding preset_change in ura_activity_log (does manual follow URA writes at a fi...
 - **Tags:** hvac, measure-first, producer-check, found-during-validation
 - **Parsimony:** [BUILD] the Bryant thermostat re-asserts a 76/69 hold seconds after every URA preset write to zone_1, so URA and the thermostat fight continuously and URA narrates each lap as a HIGH-severity human override (~45 false pages/day)
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `MANUAL_PERSISTS_EVIDENCE_2026_09_17`: Causation probe corroborates the mystery re-manual writer: zone_3 shows 27 manual preset episodes post-v5.103.2, ~121s median dwell — named holds are NOT uniformly durable, manual is re-asserted at ~2min cadence. Either the pin is not fu...
   - `MEASURED_2026_09_17`: OVERNIGHT PASS — MEASUREMENT RUN, MECHANISM CONFIRMED. The three-way discriminator this card asked for is settled, and the answer is (a): the Bryant thermostat re-asserts its OWN hold. It is not a URA writer and it is not resume-then-pin...
   - `OLD_next_superseded`: MEASURE (clean 24h read available ~09:45 CDT 2026-09-17): on climate.thermostat_bryant_wifi_studyb_zone_1, trace every transition INTO manual with the preceding URA action + any concurrent set_temperature/ set_preset/set_hvac_mode from U...
   - `operator_answer_2026_09_25`: ANSWER received (operator 2026-09-25): "I removed most schedules from Zone 1's therm as a test." -> the thermostat-side schedule WAS live (confirms MEASURED_2026_09_17 mechanism (a)). Removal time not yet known. First read (recorder, 7 d...
+  - `schedule_removal_measured_2026_09_25`: DATED FROM THE RECORDER (operator did not recall): Bryant next_activity_time on zone_1 cycled 06:00/08:00/18:00/22:00 until 2026-09-20 11:39 CDT, then reads only 06:00 (zones 2/3 still run 4-entry schedules). Remaining schedule per opera...
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#3 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating** - approval: **explicit**

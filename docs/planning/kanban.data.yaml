@@ -1904,7 +1904,7 @@ cards:
   status: investigating
   thread: hvac
   created: '2026-09-16'
-  updated: '2026-09-25 21:40'
+  updated: '2026-09-25 21:20'
   refinement_status: refined
   tags: [hvac, measure-first, producer-check, found-during-validation]
   title: MECHANISM FOUND — zone_1's re-manual is the Bryant's own 76/69 schedule reclaiming the zone ~1s
@@ -1993,9 +1993,27 @@ cards:
     Discriminator for the test: after the removal time, manual entries landing on a stable pair URA does not
     write (76/70) should go to ~0; if they persist, a remaining schedule ("most", not all) or another writer
     still reclaims. Also need: is 76/70 or 78/70 a URA-written range (check zone_1 home preset range).'
-  next: 'MEASURE (me): once the operator gives the removal time, split zone_1 manual-entry setpoint pairs
-     before/after it (24 h clean after, excluding restarts); then take option (A) stop-the-paging regardless
-     (recommended 09-17), and dispose (B) — moot if the reclaim stops.'
+  schedule_removal_measured_2026_09_25: 'DATED FROM THE RECORDER (operator did not recall): Bryant
+    next_activity_time on zone_1 cycled 06:00/08:00/18:00/22:00 until 2026-09-20 11:39 CDT, then reads only
+    06:00 (zones 2/3 still run 4-entry schedules). Remaining schedule per operator screenshot: daily 6 AM
+    Home 70-76 — i.e. the 76/70 pair IS the Bryant Home comfort profile. BEFORE (55 h) vs AFTER (130 h):
+    preset flips 40.8 -> 43.2/day; ->manual 13.9 -> 15.9/day; fast take-back (<10 s) 2.6 -> 2.4/day; manual
+    44% -> 26% of time. So the removal did NOT stop the reclaim — it CHANGED ITS SHAPE: post-change manual
+    entries arrive at a ~25-min cadence overnight at 76/70 after sleep, and ~25-35-min midday at 78/70 after
+    home. WRITER NOT IDENTIFIED. Ruled out: (1) URA — ura_activity_log shows no URA write before them; URA
+    books them as override_detected then preset_change_locked_out; (2) HA automations — the only plain
+    reference, automation.zone_1_motion_based_hvac_control, is OFF (last fired 2025-09-11); 10 automations/1
+    script were unscannable (YAML/timeouts) so a TEMPLATED reference is not excluded. Recorder context cannot
+    discriminate (every transition, URA-caused or not, arrives via the integration with no user/parent).
+    Leading hypothesis, UNVERIFIED: thermostat/cloud-side (Bryant hold semantics or Carrier cloud re-assert).
+    Also 21:05: all 3 thermostats were unavailable 20:24-21:15 (ha_carrier loaded but dead after the network
+    restart); reloaded entry 01JP3X64D7ADRCXBDA5RMBS1CT, recovered 21:15.'
+  next: 'MEASURE (me): (1) grep automations.yaml/scripts.yaml on the Samba mount for templated zone_1
+     writers; (2) align each post-11:39 manual entry against URA''s preceding preset_change in
+     ura_activity_log (does manual follow URA writes at a fixed lag = device-side hold semantics, or arrive
+     independently = another writer?); (3) read the Bryant sleep/home comfort-profile values. THEN PICK with
+     operator: option (A) stop-the-paging is still worth doing regardless (29 override_detected on zone_1
+     since 09-20).'
   rank: {value: 8, time_criticality: 7, effort: 5}
   parsimony:
     problem: the Bryant thermostat re-asserts a 76/69 hold seconds after every URA preset write to
