@@ -991,3 +991,150 @@ async def test_d9_hold_fused_empty_conjunct_load_bearing():
         f"room must let compose-away emit set_temperature; got "
         f"{hass.services.calls!r}"
     )
+
+
+@pytest.fixture
+def expected_lingering_timers() -> bool:
+    """`async_setup` schedules a 5-min decision tick + 60-s excursion
+    sweep + a 60-s egress-gate release call_later. Those are legitimate
+    long-lived timers the coordinator would own for its whole lifetime;
+    they show as leaks under phcc's task/timer detector because this
+    test doesn't run a shutdown path. Opt in so leak detector WARNs +
+    cancels them instead of failing the test.
+    """
+    return True
+
+
+@pytest.mark.asyncio
+async def test_drain_call_site_in_async_setup_fires_nm(expected_lingering_timers):
+    """FIX-UP round 5 item 3 (N1) — wire-in for the SETUP-path drain at
+    hvac.py:1262 (`await self._drain_hvac_degraded_room_events()`
+    immediately after the initial `self._zone_manager.update_room_
+    conditions(...)`). Drives the real `HVACCoordinator.async_setup`
+    with a ROOM config entry already disabled_by=USER; the classifier
+    marks it EXCLUDED "disabled_by_user" during setup's initial
+    `update_room_conditions`, and the drain at :1262 fires the
+    `hvac_degraded_room` NM.
+
+    Uses a spy on `_drain_hvac_degraded_room_events` so we can assert
+    the call happened via the SETUP path even when a downstream setup
+    step raises AFTER the drain (accepted expectation, not exception
+    swallowing — the drain runs at :1262 well before any storm of
+    optional collaborators). Then asserts the NM captured a
+    `hvac_degraded_room` for the disabled room.
+
+    Discriminating mutation: comment out
+    `await self._drain_hvac_degraded_room_events()` at hvac.py:1262 →
+    drain spy count = 0 AND NM captures nothing → RED.
+    """
+    _purge_shim_modules()
+
+    # Extend runtime_harness StubBus to tolerate the `event_filter`
+    # kwarg that HA's `async_track_state_change_event` passes through
+    # (surface widened in HA 2024.x). Save-restore around the test.
+    from runtime_harness import StubBus
+    _orig_listen = StubBus.async_listen
+
+    def _tolerant_listen(self, event_type, listener, *args, **kwargs):
+        return _orig_listen(self, event_type, listener)
+    StubBus.async_listen = _tolerant_listen
+    try:
+        from runtime_harness import (
+            build_smoke_hass, make_zone_manager_entry,
+            make_coordinator_manager_entry, StubConfigEntry, StubHass,
+        )
+        from custom_components.universal_room_automation.const import (
+            CONF_ENTRY_TYPE, CONF_ROOM_NAME, DOMAIN, ENTRY_TYPE_ROOM,
+        )
+        from custom_components.universal_room_automation.domain_coordinators.hvac import (
+            HVACCoordinator,
+        )
+        from homeassistant.config_entries import (
+            ConfigEntryDisabler, ConfigEntryState,
+        )
+
+        # ROOM config entry — disabled by user, so classifier tags it
+        # EXCLUDED "disabled_by_user" on the very first producer pass.
+        room_entry = StubConfigEntry(
+            entry_id="e_r_dis",
+            entry_type=ENTRY_TYPE_ROOM,
+            data={CONF_ROOM_NAME: "r_dis"},
+            options={},
+        )
+        # HVAC-DEGRADED-ROOM-TRIPWIRE-1 classifier reads .state /
+        # .disabled_by off the raw config entry — attach them directly.
+        room_entry.state = ConfigEntryState.NOT_LOADED
+        room_entry.disabled_by = ConfigEntryDisabler.USER
+
+        # ZM entry with a single zone whose zone_rooms references the
+        # disabled ROOM entry's entry_id (so `async_discover_zones`
+        # binds r_dis into zone_1.rooms).
+        zm_entry = make_zone_manager_entry(zones={
+            "Test Zone": {
+                "zone_thermostat": "climate.test_zone_1",
+                "zone_rooms": ["e_r_dis"],
+            },
+        })
+        cm_entry = make_coordinator_manager_entry()
+        hass = StubHass(config_entries=[cm_entry, zm_entry, room_entry])
+
+        coord = HVACCoordinator(hass)
+        _nm_calls: list = []
+
+        class _NM:
+            async def async_notify(_self, **kw):
+                _nm_calls.append(kw)
+        hass.data.setdefault(DOMAIN, {})["notification_manager"] = _NM()
+
+        # Spy on the drain so we can attribute the fire to the setup
+        # path even if downstream setup steps raise later.
+        _spy = {"calls": 0}
+        _real_drain = coord._drain_hvac_degraded_room_events
+
+        async def _spy_drain():
+            _spy["calls"] += 1
+            return await _real_drain()
+        coord._drain_hvac_degraded_room_events = _spy_drain
+
+        # Drive the SETUP path. The smoke harness carries no DB / no
+        # AC-ramp / no EgressManager — those degrade gracefully; a
+        # later collaborator MAY raise after the drain has already
+        # fired at :1262. We expect no raise on this smoke fixture
+        # (probed 2026-09-26); if a raise is introduced later it will
+        # fail this test loudly — no swallowing.
+        await coord.async_setup()
+
+        # Yield the loop so any queued activity-log tasks the drain
+        # scheduled can run before we assert.
+        for _ in range(4):
+            await asyncio.sleep(0)
+
+        # async_setup calls the drain TWICE: once at line 1262
+        # (immediately after the initial `update_room_conditions`) and
+        # once via the initial `await self._async_decision_cycle()` at
+        # line 1371 (which routes to `_run_decision_cycle` and its
+        # drain at line 1659). Assert count >= 2 so removing EITHER
+        # site individually reds this test — deleting the 1262 drain
+        # drops the count to 1 (the 1659 drain still fires via the
+        # initial decision cycle).
+        assert _spy["calls"] >= 2, (
+            "SETUP-path wire-in: `_drain_hvac_degraded_room_events` "
+            "MUST be awaited by async_setup at BOTH line 1262 (post-"
+            "initial-`update_room_conditions`) and line 1659 (via "
+            "initial `_async_decision_cycle` → `_run_decision_cycle`). "
+            f"Got spy count {_spy['calls']} — one of the two call "
+            "sites is missing."
+        )
+        hazards = [c.get("hazard_type") for c in _nm_calls]
+        assert "hvac_degraded_room" in hazards, (
+            f"SETUP-path wire-in: expected hvac_degraded_room NM for "
+            f"the disabled room via the setup drain; got {_nm_calls!r}"
+        )
+        # And the location is the room name.
+        locs = [c.get("location") for c in _nm_calls if c.get("hazard_type") == "hvac_degraded_room"]
+        assert "r_dis" in locs, (
+            f"expected location=r_dis on the hvac_degraded_room NM; "
+            f"got locations {locs!r}"
+        )
+    finally:
+        StubBus.async_listen = _orig_listen
