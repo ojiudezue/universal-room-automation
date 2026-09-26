@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T23:36:09-05:00_ - _Data commit: `2701f00d6756`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-25T23:41:57-05:00_ - _Data commit: `f2a3299b20d2`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -171,16 +171,17 @@ _created 2026-09-15 · updated 2026-09-19 03:10 · initial_
 
 ### `HVAC-W1-THERMOSTAT-DEFINITION` - W1 — One thermostat definition per brand: how URA writes, borrows/returns, and reads a thermostat, discovered in detail and applied everywhere — _#6 · WSJF 2.1 · v10 tc8 u9 /e13_
 thread: **hvac** - status: **pre_planning** - approval: **explicit**
-_created 2026-09-26 02:40 · updated 2026-09-26 06:45 · initial_
+_created 2026-09-26 02:40 · updated 2026-09-26 07:30 · initial_
 - **Problem / Solution:**
   - Problem: every place in URA that touches a thermostat does its own thing — three kinds of write, some funnelled and some not, most never recorded, returns done the old way, and URA believes a lagging "manual" report from the Carrier inte...
 - **Origin:** 2026-09-26 - operator approved the 4-workstream consolidation of the HVAC arc (see HVAC-SUPPLE-SEQUENCE-1 RESEQUENCE_PROPOSAL_2026_09_26)
 - **Why:** Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.
 - **Next:** Stage A (behaviour-neutral, Tier 2-DB): all three write verbs through funnels + one durable row per write + the 7 raw set_hvac_mode sites migrated. Stage B (Tier 3, operator go needed): brand definition interface; Carrier definition (cle...
 - **Tags:** hvac, workstream
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `planning_dispatched_2026_09_26`: Operator: "Cant we start the other pieces of the arc now? Planning?" Two planners dispatched (opus-5.5, read state-of-play first): Stage A -> docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md (Tier 2-DB, behaviour-neutral: a...
   - `integration_plan_2026_09_26`: Operator: "we could even plan all of it so its lego pieces fit together or at least the w1 and w2." -> after the 4 piece-plans land (W1-A, W1-B+Carrier discovery, W2 fast path, W2 night-sleeper + placeholder readers), the orchestrator wr...
+  - `plans_2026_09_26`: Plans landed: W1-A PLANNING_hvac_w1a_thermostat_write_governance.md (+AM-A1 activity-log dedup would drop rows, AM-A2 measure write rates); W1-B THERMOSTAT_DEFINITION_CARRIER_BRYANT.md (7 UNVERIFIED) + PLANNING_hvac_w1b_thermostat_defini...
   - `children`: HVAC-PRESET-WRITE-STRATEGY-1
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -426,17 +427,18 @@ _updated 2026-09-26 02:40_
 
 ### `HVAC-W2-OCCUPANCY-TRUTH` - W2 — HVAC knows who is really in each zone, fast enough and at night — _#8 · WSJF 2.8 · v9 tc7 u6 /e8_
 thread: **hvac** - status: **planned** - approval: **explicit**
-_created 2026-09-26 02:40 · updated 2026-09-26 06:30 · initial_
+_created 2026-09-26 02:40 · updated 2026-09-26 07:30 · initial_
 - **Problem / Solution:**
   - Problem: HVAC's picture of zone occupancy is wrong in specific, measured ways — a failed room blocked its zone (fix in flight), a reloading room reads as empty on paths that bypass the shared check, radars lose a still sleeper once the f...
 - **Origin:** 2026-09-26 - operator approved the 4-workstream consolidation of the HVAC arc (see HVAC-SUPPLE-SEQUENCE-1 RESEQUENCE_PROPOSAL_2026_09_26)
 - **Why:** Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.
 - **Next:** Order: live-room gate (building, v5.103.15) -> occupancy fast path (designed in 82620357a, never built; the real hot-entry lever — dwell alone cannot beat the 5-min tick) -> night still-sleeper hold -> placeholder readers -> guest-as-per...
 - **Tags:** hvac, workstream
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `override_switches_2026_09_26`: Operator: "try to understand what happens to HVAC occupancy when a room is forced vacant or forced occupied ... I don't think you considered this." Traced (state-of-play §9c): the per-room Override Occupied/Vacant switches set the room's...
   - `operator_decisions_2026_09_26`: Override switches: "Leave it as is but document in state of play for HVAC so it surfaces" -> NOT a hard HVAC input; documented state-of-play §9c. Fast path scope: "The HVAC signaling from rooms that is more immediate I expect to shave th...
   - `fast_path_planning_2026_09_26`: Fast-path plan dispatched -> docs/planning/PLANNING_hvac_w2_occupancy_fast_path.md (scope = shave the 5-min tick only; rate limiter sized from measured rising-edge rates; dwell-expiry follow-up question; build after v5.103.15 merges).
+  - `plans_2026_09_26`: Plans landed: fast path PLANNING_hvac_w2_occupancy_fast_path.md (D0 rate probe gate); night-sleeper + placeholder readers PLANNING_hvac_w2_night_sleeper_and_placeholder_readers.md (D-A0 probe running). Seams in PLANNING_hvac_arc_w1_w2_in...
   - `children`: HVAC-DEGRADED-ROOM-TRIPWIRE-1
 
 ### `ENVOY-STREAM-SOC-TIER-1` - The battery brain goes blind and freezes whenever both its data sources age out — give it a third, local, fast (~5-6s) source so it can keep deciding — _#9 · WSJF 2.6 · v8 tc6 u7 /e8_
