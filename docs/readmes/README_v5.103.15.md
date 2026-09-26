@@ -1,4 +1,4 @@
-# v5.103.15 — HVAC zones decide on the rooms that are actually running (live-room establishment)
+# v5.103.15 — HVAC zones decide on the rooms that are actually running (live-room establishment) + energy coverage self-check stops false unit-mismatch alarms
 
 **Card:** `HVAC-DEGRADED-ROOM-TRIPWIRE-1` (workstream `HVAC-W2-OCCUPANCY-TRUTH`) · Tier 2-DB (shared retreat gate consumed by row-1 / D7 / D9 / F4 row-10 across every zone) · plan `docs/planning/PLANNING_hvac_live_room_establishment.md` (REV 2) · read-first `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md`
 
@@ -30,6 +30,14 @@ Today no URA room entry is disabled or failing (43 room entries, all LOADED), so
 - **Verify:** zone preset-change rate for the 24 h after deploy stays within the prior week's band (zone_3 9–33/day), i.e. no new flapping.
 - **Verify:** zero `UnboundLocalError` / URA ERROR in the log after restart; no `hvac_degraded_room` NM (none expected — no failed rooms).
 - **In-suite only (reason: no failed room exists live):** excluded-room establishment, sticky SETUP_RETRY, entry-removed alert, Zone-Intelligence-off decision cycle.
+
+---
+
+## Also shipping: `COVERAGE-RATING-FALSE-ANOMALOUS-1` (already on develop, reviewed + orchestrator-verified 2026-09-25)
+**Problem.** URA's energy coverage self-check (room-attributed vs whole-house measured) disagreed with itself by roughly sevenfold after restarts; the code assumed the gap closes at the next local midnight re-anchor, it did not, and once the post-restart allowance expired the check asserted a specific (unproven) "unit mismatch" diagnosis.
+**Fix** (`aggregation.py` `_get_coverage_rating` + warnings; commits `c5ea7dfc7`, `ca69d45c2`): a negative delta is excused across the local-midnight re-anchor as well as post-restart (`COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN = 120`, rung-1 constant, sized from 10 days of recorder history); the warning no longer asserts unit-mismatch as fact; the excuse and genuine out-of-bounds warnings have separate throttles; the window attribute is published on the no-data path; an absolute-time backstop bounds the excuse.
+**Reviews:** A (local correctness) SHIP; B (test authority, 5 mutation drills) SHIP; fix-up folded MEDIUM-1 + LOWs; orchestrator re-ran 163 passed / 0 skipped and its own mutation drill (red then restored).
+**Live Validation (prospective):** after restart and across the next local midnight, no "unit mismatch" warning line for coverage; the coverage-rating sensor shows the re-anchor window attribute; a genuine out-of-bounds (if any) still warns on its own throttle.
 
 ## Rollback
 Revert the feature merge; no schema, config, or entity-registry changes (diagnostic attributes only).
