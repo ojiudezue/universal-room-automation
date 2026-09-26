@@ -162,9 +162,15 @@ def _log_deferred_write(
 
 # HVAC-MANUAL-PRESET-CONTRACT-1 D2a. The integration exposes a special
 # "resume" preset that calls `resume_schedule`, clearing the hold entirely
-# (ha_carrier/climate.py:405-409). It is NOT a destination — the operator
-# does not use the Bryant schedule — it is the only way to clear an
-# anonymous hold so a NAMED one can be pinned.
+# (ha_carrier/climate.py:405-409). It is NOT a destination — it is the only
+# way to clear an anonymous hold so a NAMED one can be pinned.
+# CORRECTED 2026-09-26 (operator): the Bryant thermostats DO still run
+# their own schedules — zone_1 reduced to a single 06:00 Home entry
+# (since 2026-09-20 11:39), zones 2 and 3 still on 4-entry schedules. The
+# working assumption is that those schedules are being reduced so URA is
+# the only controller; until then, "resume" briefly hands the zone to a
+# live vendor schedule before the pin lands. See
+# docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md §5/§10.
 PRESET_RESUME: Final = "resume"
 
 # The value a raw-setpoint write leaves in `hold_activity`: a hold with no

@@ -84,3 +84,4 @@ dashboard-v3/playwright/.cache/
 .venv-ha/
 docs/planning/backups/
 .venv-test/
+.claude/suite-cache/

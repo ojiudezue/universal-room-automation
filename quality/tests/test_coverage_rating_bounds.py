@@ -20,6 +20,10 @@ _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 _CC = os.path.join(_REPO, "custom_components")
 if _CC not in sys.path:
     sys.path.insert(0, _CC)
+# Repo root too, so `custom_components.universal_room_automation.aggregation`
+# resolves as a real package (see _load_agg — relative imports need a parent).
+if _REPO not in sys.path:
+    sys.path.insert(0, _REPO)
 
 
 # Minimal HA stubs so aggregation.py imports cleanly.
@@ -40,12 +44,36 @@ _stub_ha()
 
 
 def _load_agg():
+    """Import aggregation.py AS A PACKAGE MEMBER.
+
+    COVERAGE-RATING-FALSE-ANOMALOUS-1 fixed a hollow anchor here. The
+    previous implementation used ``spec_from_file_location`` with a
+    standalone module name, which gives the module no parent package, so
+    aggregation.py's ``from .const import (...)`` raised
+    ``ImportError: attempted relative import with no known parent
+    package`` — every time, in every environment. ``_load_agg`` caught
+    that and returned None, and the module-level ``pytest.skip`` then
+    silently skipped the ENTIRE file. The D3 bounds tests and the B-H4
+    post-restart test therefore never executed anywhere despite reading
+    as present and passing.
+
+    The real package import works because ``custom_components`` is on
+    sys.path (set above). The file-location path is kept only as a
+    fallback, and the skip below is now a genuine no-HA guard rather
+    than an unconditional one.
+    """
+    try:
+        import importlib
+
+        return importlib.import_module(
+            "custom_components.universal_room_automation.aggregation"
+        )
+    except Exception:
+        pass
     path = os.path.join(
         _REPO, "custom_components", "universal_room_automation", "aggregation.py",
     )
     spec = importlib.util.spec_from_file_location("_ura_agg_bounds_test", path)
-    # Aggregation has heavy imports; if it fails (no HA), we fall back to
-    # extracting the function via direct text exec.
     try:
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
@@ -159,3 +187,309 @@ def test_high_in_bounds_is_incomplete():
 def test_exactly_100_is_incomplete():
     # 100% delta = 100% unaccounted = INCOMPLETE (still in-bounds).
     assert _rating(100.0) == _RATING_INCOMPLETE
+
+
+# ---------------------------------------------------------------------------
+# COVERAGE-RATING-FALSE-ANOMALOUS-1 — midnight re-anchor window
+#
+# Live evidence (recorder, 2026-09-19): delta_percent -635.30 at 22:56 rated
+# INCOMPLETE (post-restart window open) and -643.90 at 00:11 rated ANOMALOUS.
+# The value barely moved; only the window closed. These tests pin that the
+# excuse now survives the midnight boundary, AND that it does not leak into
+# the sustained evening-drift pattern that must keep its ANOMALOUS signal.
+# ---------------------------------------------------------------------------
+
+
+def test_midnight_reanchor_window_negative_is_incomplete():
+    """The 00:11 case: negative delta just after midnight → INCOMPLETE."""
+    assert _rating(-643.90, midnight_reanchor_window=True) == _RATING_INCOMPLETE
+
+
+def test_midnight_window_and_post_restart_window_are_independent_excuses():
+    """Either window alone is sufficient; neither is required."""
+    assert _rating(-50.0, post_restart_window=True) == _RATING_INCOMPLETE
+    assert _rating(-50.0, midnight_reanchor_window=True) == _RATING_INCOMPLETE
+    assert (
+        _rating(-50.0, post_restart_window=True, midnight_reanchor_window=True)
+        == _RATING_INCOMPLETE
+    )
+
+
+def test_evening_drift_outside_window_stays_anomalous():
+    """DISCRIMINATING case — the fix must NOT silence the real pattern.
+
+    Measured 2026-09-21/22: a negative delta growing monotonically from
+    ~14:00 to ~23:00 local (-10 → -58). That is outside both windows, so
+    both flags are False and it must still rate ANOMALOUS. If this test
+    passes only because the window flag happens to be False at test time,
+    it is doing its job — the flag is an argument, not a clock read.
+    """
+    for observed in (-3.9, -10.0, -23.6, -37.0, -58.8):
+        assert (
+            _rating(
+                observed,
+                post_restart_window=False,
+                midnight_reanchor_window=False,
+            )
+            == _RATING_ANOMALOUS
+        ), f"evening-drift value {observed} must stay ANOMALOUS"
+
+
+def test_midnight_window_does_not_excuse_above_100():
+    """The window excuses NEGATIVE deltas only, never >100."""
+    assert _rating(1e6, midnight_reanchor_window=True) == _RATING_ANOMALOUS
+    assert _rating(150.0, midnight_reanchor_window=True) == _RATING_ANOMALOUS
+
+
+def test_midnight_window_does_not_excuse_none_or_nan():
+    assert _rating(None, midnight_reanchor_window=True) == _RATING_ANOMALOUS
+    assert (
+        _rating(float("nan"), midnight_reanchor_window=True)
+        == _RATING_ANOMALOUS
+    )
+
+
+def test_midnight_window_constant_separates_the_two_patterns():
+    """The constant must sit above the measured artifact tail (01:20 = 80
+    minutes) and well below the earliest measured evening-drift onset
+    (14:00 = 840 minutes). This is the sizing argument, pinned."""
+    from custom_components.universal_room_automation.const import (
+        COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN,
+    )
+
+    assert COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN > 80
+    assert COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN < 840
+
+
+# ---------------------------------------------------------------------------
+# WIRE-IN ANCHOR — the call site, not just the helper.
+#
+# Required by the wire-in-anchor rule: a mutation drill that DELETED the
+# `midnight_reanchor_window=self._in_midnight_reanchor_window()` argument at
+# the extra_state_attributes() call site left every helper-level test above
+# green. These tests drive the enclosing method so that deletion goes red.
+# ---------------------------------------------------------------------------
+
+
+def _coverage_sensor_at(local_dt, *, whole_house, attributed,
+                        post_restart_window=False):
+    """Build an EnergyCoverageDeltaSensor with its inputs pinned.
+
+    __init__ needs a real hass/ConfigEntry, so the instance is created
+    without it and only the attributes extra_state_attributes() reads are
+    supplied. ``dt_util.now`` is patched IN THE AGGREGATION MODULE so the
+    production window helper reads the simulated local time.
+    """
+    sensor = object.__new__(_agg.EnergyCoverageDeltaSensor)
+    sensor._post_restart_window = post_restart_window
+    sensor._whole_house_scope = "today"
+    sensor._scope_mismatch_warning = None
+    sensor._get_whole_house_energy = lambda: whole_house
+    sensor._get_rooms_total_energy = lambda: attributed
+    sensor._get_zones_total_energy = lambda: 0.0
+    sensor._get_house_devices_total_energy = lambda: 0.0
+    return sensor
+
+
+class _FrozenNow:
+    def __init__(self, dt):
+        self._dt = dt
+
+    def now(self):
+        return self._dt
+
+
+def _attrs_at(monkeypatch, local_dt, **kwargs):
+    import datetime as _datetime
+
+    real_dt_util = _agg.dt_util
+    frozen = _FrozenNow(local_dt)
+
+    class _Shim:
+        def __getattr__(self, name):
+            if name == "now":
+                return frozen.now
+            return getattr(real_dt_util, name)
+
+    monkeypatch.setattr(_agg, "dt_util", _Shim())
+    sensor = _coverage_sensor_at(local_dt, **kwargs)
+    assert isinstance(local_dt, _datetime.datetime)
+    # extra_state_attributes is a @property, not a method.
+    return sensor.extra_state_attributes
+
+
+def test_call_site_midnight_window_yields_incomplete(monkeypatch):
+    """00:11 local, attribution exceeds whole-house → INCOMPLETE."""
+    import datetime
+
+    attrs = _attrs_at(
+        monkeypatch,
+        datetime.datetime(2026, 9, 19, 0, 11),
+        whole_house=10.0,
+        attributed=74.4,  # delta_percent = -644%
+    )
+    assert attrs["coverage_rating"] == _RATING_INCOMPLETE
+    assert attrs["midnight_reanchor_window"] is True
+
+
+def test_call_site_same_value_at_1500_is_anomalous(monkeypatch):
+    """DISCRIMINATOR — identical inputs, only the clock differs.
+
+    This is the pair the live evidence describes in reverse: the value
+    must not decide the rating on its own. Outside the window the same
+    -644% still rates ANOMALOUS, so the fix cannot be silencing the
+    signal generally.
+    """
+    import datetime
+
+    attrs = _attrs_at(
+        monkeypatch,
+        datetime.datetime(2026, 9, 19, 15, 0),
+        whole_house=10.0,
+        attributed=74.4,
+    )
+    assert attrs["coverage_rating"] == _RATING_ANOMALOUS
+    assert attrs["midnight_reanchor_window"] is False
+
+
+def test_call_site_window_closes_at_the_constant(monkeypatch):
+    """Just inside vs just outside COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN."""
+    import datetime
+
+    from custom_components.universal_room_automation.const import (
+        COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN as _W,
+    )
+
+    inside = datetime.datetime(2026, 9, 19) + datetime.timedelta(minutes=_W - 1)
+    outside = datetime.datetime(2026, 9, 19) + datetime.timedelta(minutes=_W)
+
+    assert (
+        _attrs_at(monkeypatch, inside, whole_house=10.0, attributed=74.4)[
+            "coverage_rating"
+        ]
+        == _RATING_INCOMPLETE
+    )
+    assert (
+        _attrs_at(monkeypatch, outside, whole_house=10.0, attributed=74.4)[
+            "coverage_rating"
+        ]
+        == _RATING_ANOMALOUS
+    )
+
+
+def test_call_site_healthy_positive_delta_unaffected_inside_window(monkeypatch):
+    """No-op path: a normal positive delta rates the same inside the window."""
+    import datetime
+
+    attrs = _attrs_at(
+        monkeypatch,
+        datetime.datetime(2026, 9, 19, 0, 30),
+        whole_house=10.0,
+        attributed=8.0,  # delta_percent = 20% -> Fair boundary
+    )
+    assert attrs["coverage_rating"] == _RATING_FAIR
+
+
+# ---------------------------------------------------------------------------
+# COVERAGE-RATING-FALSE-ANOMALOUS-1 fix-up pass — three new anchors.
+# ---------------------------------------------------------------------------
+
+
+def test_reanchor_warn_does_not_swallow_anomalous_warn(monkeypatch, caplog):
+    """MEDIUM-1: split throttles — an excuse-branch WARN must NOT throttle
+    the genuine-anomalous-branch WARN. Pre-fix, both branches shared a
+    single module global and the excuse fire at 00:05 would swallow the
+    ANOMALOUS fire at 00:50 for the next hour. Post-fix, the branches
+    carry independent 3600s throttles.
+    """
+    import logging
+
+    # Zero both throttles so this test's first calls in each branch fire.
+    _agg._COVERAGE_RATING_ANOMALOUS_LAST_WARN = 0.0
+    _agg._COVERAGE_RATING_REANCHOR_LAST_WARN = 0.0
+
+    caplog.set_level(logging.WARNING, logger=_agg._LOGGER.name)
+
+    # 1) Fire the re-anchor "excuse" branch (negative delta inside window).
+    caplog.clear()
+    assert _rating(-50.0, midnight_reanchor_window=True) == _RATING_INCOMPLETE
+    excuse_msgs = [r.message for r in caplog.records
+                   if "re-anchor window" in r.message]
+    assert len(excuse_msgs) == 1, (
+        f"excuse branch should warn once; got {excuse_msgs}"
+    )
+
+    # 2) Immediately fire the genuine-anomalous branch (>100). It must
+    #    log despite the excuse-branch stamp being fresh.
+    caplog.clear()
+    assert _rating(500.0) == _RATING_ANOMALOUS
+    anom_msgs = [r.message for r in caplog.records
+                 if "outside every re-anchor window" in r.message]
+    assert len(anom_msgs) == 1, (
+        "anomalous branch must NOT be throttled by the excuse-branch "
+        f"stamp; got records={[r.message for r in caplog.records]}"
+    )
+
+
+def test_no_data_path_publishes_midnight_reanchor_window(monkeypatch):
+    """LOW-3: the no-data early-return dict must publish
+    ``midnight_reanchor_window`` so a consumer's attribute read has the
+    same shape as the normal path. Pre-fix the key was absent."""
+    import datetime
+
+    # whole_house=None triggers the early return.
+    sensor = object.__new__(_agg.EnergyCoverageDeltaSensor)
+    sensor._post_restart_window = False
+    sensor._whole_house_scope = "today"
+    sensor._scope_mismatch_warning = None
+    sensor._get_whole_house_energy = lambda: None
+    sensor._get_rooms_total_energy = lambda: 0.0
+    sensor._get_zones_total_energy = lambda: 0.0
+    sensor._get_house_devices_total_energy = lambda: 0.0
+
+    # Pin time INSIDE the midnight re-anchor window so the truthful call
+    # to the helper returns True — proves the key comes from the helper
+    # and not a hardcoded False.
+    frozen = _FrozenNow(datetime.datetime(2026, 9, 19, 0, 11))
+    real_dt_util = _agg.dt_util
+
+    class _Shim:
+        def __getattr__(self, name):
+            if name == "now":
+                return frozen.now
+            return getattr(real_dt_util, name)
+
+    monkeypatch.setattr(_agg, "dt_util", _Shim())
+
+    attrs = sensor.extra_state_attributes
+    assert "midnight_reanchor_window" in attrs, (
+        "no-data path must publish midnight_reanchor_window "
+        f"(keys={sorted(attrs)})"
+    )
+    assert attrs["midnight_reanchor_window"] is True
+    assert attrs["coverage_rating"] == "No data"
+
+
+def test_absolute_15_00_negative_delta_is_anomalous_backstop(monkeypatch):
+    """Reviewer-B LOW: an ABSOLUTE-time behavioural backstop for
+    COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN that does NOT read the constant.
+
+    ``test_call_site_window_closes_at_the_constant`` above is
+    constant-relative and stays green under a widening mutation
+    (120 -> 900) — only the sizing assert catches that. This test is
+    independent of the constant: at 15:00 local, a very negative
+    delta_percent must rate ANOMALOUS. If the constant is ever
+    accidentally widened past ~14h so that 15:00 falls INSIDE the window,
+    this test goes red — protecting the invariant even if the sizing
+    assert is later relaxed.
+    """
+    import datetime
+
+    attrs = _attrs_at(
+        monkeypatch,
+        datetime.datetime(2026, 9, 19, 15, 0),
+        whole_house=10.0,
+        attributed=200.0,  # delta_percent = -1900%
+    )
+    assert attrs["coverage_rating"] == _RATING_ANOMALOUS
+    assert attrs["midnight_reanchor_window"] is False

@@ -1,8 +1,12 @@
 ---
 name: ura-reviewer
 description: Adversarial code reviewer for URA change branches. Runs one framing-disjoint pass (A local-correctness / B async-lifecycle-race / C test-authority-via-mutation / D adversarial-completeness) against a cycle branch before ship. Produces a structured SHIP / FIX-REQUIRED verdict with file:line evidence and, for D, legal-config repros.
-model: claude-opus-5
+model: claude-opus-5-5
 ---
+
+## MANDATORY FIRST STEP FOR HVAC WORK
+If the task touches HVAC in any way (hvac*.py, thermostats, presets, borrows/excursions, nudges/AC ramp, arrester, HVAC occupancy/zones), read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` COMPLETELY before doing anything else, and state in your output that you did. Do not re-assert any claim in its §10 corrections ledger. If code contradicts the doc, the code wins — report the contradiction.
+
 
 # URA Reviewer Agent
 
@@ -30,6 +34,11 @@ Read the branch in your worktree (`git checkout <branch>`); diff base is `git di
 - **A — local correctness.** Arithmetic, clamps, allocation, unit/sign handling, per-site. Produce a truth table over the invariant's inputs. Ignore tests/lifecycle.
 - **B — async / lifecycle / race / restart.** Untracked background tasks (async_call_later supersession + teardown cancel), timer/listener unsub, pop-before-await ordering, reentrancy, cross-coordinator interactions, restart/RestoreEntity safety, byte-identical on the no-op path.
 - **C — test authority via REAL per-site source mutation.** NOT an aggregate monkeypatch. Neuter ONE load-bearing site in production source → run the suite → confirm a SPECIFIC named test fails → restore. `PYTHONDONTWRITEBYTECODE=1` + clear `__pycache__` before every run (pyc-staleness gives a false PASS). A site whose neuter leaves the suite GREEN is untested = a finding. You are usually the ONLY reviewer running pytest — own it serially (the guard KILLS concurrent runs). Produce the site × test × RED-on-neuter table; every GREEN row is a finding. Leave the tree clean.
+  **Speed rules (2026-09-26 — v5.103.15 spent ~68 serial pytest processes on re-confirms):** each drill runs ONLY the
+  cycle's test files + the test files of the mutated module (`--files`-scope), never the full suite. To re-confirm a
+  batch of GREEN rows after a fix-up, run ALL the rows' target tests in ONE pytest process per mutation, or better,
+  apply one mutation, run the targeted set once, restore, next — do not re-run unchanged rows. The full-suite name-diff
+  is the validator's job via `scripts/suite_namediff.py` (cached baseline), not yours.
 - **D — adversarial completeness / diff-blind.** State the cycle's load-bearing invariant in FALSIFIABLE form ("under X, Y can never happen in ANY reachable path"), then BREAK it. Re-enumerate the ENTIRE surface including pre-existing code (real leaks predate the diff). Every flagged leak needs a concrete **legal-config reachable repro** (the exact values + state that trigger it). Confirm any "deferred/non-goal" sibling is genuinely untouched, not silently broken.
 
 ## Bug classes to weigh (docs/QUALITY_CONTEXT.md)

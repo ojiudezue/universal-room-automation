@@ -1,0 +1,27 @@
+{
+  "format_version": "2.1",
+  "author": "ojiudezue",
+  "session_id": "claude_20260925_envoy_hvac_forensic",
+  "entry_id": "144",
+  "timestamp": "2026-09-26T03:00:00Z",
+  "type": "correction",
+  "weight": "critical",
+  "title": "Zone-1 manual strands are URA trusting a status-lagged Carrier 'manual' after a borrow returns \u2014 not the Bryant schedule, and URA was wrongly exonerated",
+  "summary": "Attribution of 88 zone_1 manual entries after the 09-20 schedule removal: ~70 were URA's own AC nudge borrows (start/restore), but those last 2-5 min and always return; the 24.9 h of strand time is 4 holds of 1.5-11 h that begin 5-14 min AFTER a borrow returned successfully, when ha_carrier reports preset_mode=manual while hold_activity still names a preset (sometimes with the nudge's stale setpoints). URA books it as a human override (zero delta), the arrester declines, S1 locks itself out, and infinite_holds keeps it.",
+  "why": "Verified in ha_carrier source: preset_mode comes from the STATUS feed (periodic poll, lags; climate.py:158-172), hold_activity from the CONFIG feed (prompt; :261), setpoints from the status-named activity (:230). The earlier 'not URA' conclusion rested on ura_activity_log, which by construction never records set_temperature \u2014 ac_ramp_events held the evidence all along.",
+  "implications": "Supersedes entry 143's claim that the residual is the Bryant native-schedule reclaim, and the 09-17 diagnosis. Fix belongs in W1 (read coherence: manual counts as a person only when config hold_activity agrees; presets-only returns). Nudges stay ON (operator). Every thermostat write must be durably logged at the funnel so 'did URA write?' is one query.",
+  "revisit_trigger": "Revisit if a strand occurs where hold_activity == manual (a genuine hold) \u2014 then the coherence rule is insufficient.",
+  "refs": {
+    "cards": [
+      "HVAC-ZONE1-MANUAL-OSCILLATION-1",
+      "HVAC-PRESET-LOCKOUT-ESCAPE-1",
+      "HVAC-W1-THERMOSTAT-DEFINITION"
+    ],
+    "docs": [
+      "docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md"
+    ],
+    "supersedes": [
+      "143"
+    ]
+  }
+}

@@ -1,8 +1,12 @@
 ---
 name: ura-builder
 description: Implements features and fixes bugs in the URA integration. Use for any code changes to custom_components/universal_room_automation/ and quality/tests/. Carries the institutional muscle memory — wire-in anchors, mutation-anchored tests, worktree isolation, the real hot-file caution levels.
-model: claude-opus-5
+model: claude-opus-5-5
 ---
+
+## MANDATORY FIRST STEP FOR HVAC WORK
+If the task touches HVAC in any way (hvac*.py, thermostats, presets, borrows/excursions, nudges/AC ramp, arrester, HVAC occupancy/zones), read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` COMPLETELY before doing anything else, and state in your output that you did. Do not re-assert any claim in its §10 corrections ledger. If code contradicts the doc, the code wins — report the contradiction.
+
 
 # URA Builder Agent
 
@@ -54,10 +58,35 @@ A call site is NOT the helper. Three cycles in a row shipped neuter-deletable wi
 - **No `_tou=None` / mock-only hollow fixtures** where the real object is the thing under test.
 - **`PYTHONDONTWRITEBYTECODE=1` and clear `__pycache__` before every mutation run** — a stale `.pyc` gives a false PASS (mutation pyc-staleness).
 
+## Definition of done — the checklist that ends fix-up rounds (learned v5.103.15, 2026-09-26)
+That cycle took SIX fix-up rounds; every one was an item below the first build could have delivered. Before you
+report a build or fix-up, ALL of these must be true — check them off in your report:
+1. **Every load-bearing site has a behavioural test that goes RED when that ONE site is neutered** — conditions of a
+   compound guard count separately (drop each conjunct: `a and b and c` = three drills). Test each variable on its own;
+   a discriminator that changes two variables at once proves neither.
+2. **Every call site is anchored, not just the helper** — each place a new helper/drain/emit is CALLED from (setup
+   path AND per-tick path are different sites).
+3. **No drive helper swallows exceptions** (`try/except: pass` around the code under test hid a crash that fired on
+   every tick when a legal switch was off). Tests `await` directly.
+4. **Every local read at loop level is initialised at the top of the loop** (not only inside a branch) — and there is a
+   test with the branch's gating switch OFF.
+5. **Enumerations pin exact values** (e.g. each `ConfigEntryState` → its exact class), not just "is one of".
+6. **Boundaries use hardcoded literals** (grace−1 s / grace / grace+1 s), never the imported constant (a test that imports
+   the constant moves with a mutation of it).
+7. **No new source-text greps; if your change breaks an existing source-grep test, convert it to a behavioural one**
+   (don't widen its window).
+8. **No permanent `sys.modules` surgery.** Any purge/stub is scoped (fixture/context manager) and RESTORED afterwards —
+   an import-time purge broke 27 tests in OTHER files in the full run.
+9. **Existing hand-made stubs of modules you changed are updated** (grep `quality/tests` for stubs of every module
+   whose imports you changed).
+10. **Order-robustness checked:** your test files pass when run after the files that share their stubs (both orders).
+11. **No `git stash`**, ever (shared across worktrees). Use a temp commit or a temp worktree.
+
 ## Running tests
 ```bash
 export PYTHONDONTWRITEBYTECODE=1
-PYTHONPATH=quality python3 -m pytest quality/tests/<file>.py -q -p no:cacheprovider
+# MUST be .venv-ha/bin/python (bare python3 is 3.9 without phcc → false red suite)
+PYTHONPATH=quality /Users/okosisi/Code/universal-room-automation/.venv-ha/bin/python -m pytest quality/tests/<file>.py -q -p no:cacheprovider
 ```
 - Run the **cycle file + directly-relevant siblings** only.
 - **Do NOT run the full suite** — the orchestrator owns the single serial full-suite **name-diff** (the pytest guard KILLS concurrent runs; a killed source-mutating run corrupts the tree). Baselines are **name-diffs, not count-diffs** (counts are order-dependent; ~61 pre-existing failures are the known flake families).

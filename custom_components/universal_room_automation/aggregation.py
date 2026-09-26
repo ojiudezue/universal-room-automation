@@ -127,6 +127,7 @@ from .const import (
     COVERAGE_EXCELLENT_THRESHOLD,
     COVERAGE_GOOD_THRESHOLD,
     COVERAGE_FAIR_THRESHOLD,
+    COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN,
     COVERAGE_RATING_EXCELLENT,
     COVERAGE_RATING_GOOD,
     COVERAGE_RATING_FAIR,
@@ -859,12 +860,17 @@ def _get_delta_description(delta_type: str, delta_value: float, highest_name: st
 
 
 _COVERAGE_RATING_ANOMALOUS_LAST_WARN: float = 0.0
+# Separate throttle for the boot/midnight re-anchor "excuse" branch so a
+# firing at 00:05 cannot swallow a genuinely out-of-bounds WARNING at 00:50
+# (COVERAGE-RATING-FALSE-ANOMALOUS-1 review, MEDIUM-1).
+_COVERAGE_RATING_REANCHOR_LAST_WARN: float = 0.0
 
 
 def _get_coverage_rating(
     delta_percent: float | None,
     *,
     post_restart_window: bool = False,
+    midnight_reanchor_window: bool = False,
 ) -> str:
     """Get coverage rating from delta percentage.
 
@@ -883,8 +889,31 @@ def _get_coverage_rating(
     rest of the day. Surface that as INCOMPLETE (not ANOMALOUS) and
     swap the WARNING text to name boot-time re-anchoring instead of
     misattributing to unit drift.
+
+    COVERAGE-RATING-FALSE-ANOMALOUS-1 (midnight re-anchor): the B-H4
+    docstring above claimed the post-restart negative delta "will
+    converge at next midnight re-anchor". Measurement falsified that.
+    Live recorder evidence 2026-09-19: delta_percent was -635.30 at
+    22:56 (INCOMPLETE, post-restart window open) and -643.90 at 00:11
+    (ANOMALOUS) — the value barely moved while the CLASSIFICATION
+    flipped, purely because the post-restart window closed at midnight.
+    The in-memory tiers re-anchor LAZILY, on the next read of each
+    sensor, so the asymmetry survives the midnight boundary by up to an
+    hour or so. ``midnight_reanchor_window`` extends the same excuse
+    across that boundary.
+
+    Deliberately NOT suppressed: the separate sustained evening-drift
+    pattern (negative delta growing monotonically from ~14:00 through
+    ~23:00, measured on 09-19, 09-21 and 09-22) falls outside the
+    window and still rates ANOMALOUS. That pattern is a candidate REAL
+    defect and must keep its signal.
+
+    The ANOMALOUS warning no longer asserts a unit-of-measurement
+    mismatch as fact — it states what was observed and names Bug Class
+    #30 as the leading candidate, since the attribution-exceeds-total
+    signature has more than one possible cause.
     """
-    global _COVERAGE_RATING_ANOMALOUS_LAST_WARN
+    global _COVERAGE_RATING_ANOMALOUS_LAST_WARN, _COVERAGE_RATING_REANCHOR_LAST_WARN
     # Epsilon band first (positive bias only — clearly out-of-bounds is
     # still ANOMALOUS even in the post-restart window).
     if (
@@ -904,22 +933,27 @@ def _get_coverage_rating(
         # Post-restart asymmetry path: negative deltas in the boot-window
         # are expected and DO NOT indicate unit-of-measurement drift.
         if (
-            post_restart_window
+            (post_restart_window or midnight_reanchor_window)
             and isinstance(delta_percent, (int, float))
             and delta_percent == delta_percent
             and delta_percent < 0
         ):
             try:
                 _now_mono = time.monotonic()
-                if _now_mono - _COVERAGE_RATING_ANOMALOUS_LAST_WARN >= 3600.0:
-                    _COVERAGE_RATING_ANOMALOUS_LAST_WARN = _now_mono
+                if _now_mono - _COVERAGE_RATING_REANCHOR_LAST_WARN >= 3600.0:
+                    _COVERAGE_RATING_REANCHOR_LAST_WARN = _now_mono
                     _LOGGER.warning(
                         "Coverage rating: delta_percent=%s negative inside "
-                        "post-restart window — in-memory tiers re-anchored at "
-                        "boot while rooms tier carries the full-day persisted "
-                        "value. Returning INCOMPLETE; will converge at next "
-                        "midnight re-anchor.",
+                        "the tier re-anchor window (post_restart=%s, "
+                        "midnight=%s) — in-memory tiers re-anchor lazily "
+                        "while the rooms tier carries the full-day persisted "
+                        "value. Returning INCOMPLETE rather than ANOMALOUS; "
+                        "expected to clear within %s minutes of local "
+                        "midnight as each sensor is re-read.",
                         delta_percent,
+                        post_restart_window,
+                        midnight_reanchor_window,
+                        COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN,
                     )
             except Exception:
                 pass
@@ -929,11 +963,18 @@ def _get_coverage_rating(
             if _now_mono - _COVERAGE_RATING_ANOMALOUS_LAST_WARN >= 3600.0:
                 _COVERAGE_RATING_ANOMALOUS_LAST_WARN = _now_mono
                 _LOGGER.warning(
-                    "Coverage rating: delta_percent=%s out of bounds; "
-                    "returning ANOMALOUS. Likely unit-of-measurement mismatch "
-                    "between attributed tiers and whole-house tier "
-                    "(Bug Class #30).",
+                    "Coverage rating: delta_percent=%s is out of the 0-100 "
+                    "band and outside every re-anchor window "
+                    "(post_restart=%s, midnight=%s); returning ANOMALOUS. "
+                    "Observed, not diagnosed: the attributed tiers and the "
+                    "whole-house tier disagree by this much. Candidate "
+                    "causes include a unit-of-measurement mismatch "
+                    "(Bug Class #30) and the sustained evening attribution "
+                    "drift tracked on COVERAGE-RATING-FALSE-ANOMALOUS-1; "
+                    "this line does not distinguish between them.",
                     delta_percent,
+                    post_restart_window,
+                    midnight_reanchor_window,
                 )
         except Exception:
             pass
@@ -3192,6 +3233,28 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
         """
         return dt_util.now().date()
 
+    def _in_midnight_reanchor_window(self) -> bool:
+        """True inside the first N minutes of the local day.
+
+        COVERAGE-RATING-FALSE-ANOMALOUS-1. The in-memory tiers re-anchor
+        LAZILY (``_maybe_reclassify_at_midnight`` only flags entries;
+        the re-classify happens on each sensor's next read), so a
+        negative delta_percent persists across the midnight boundary and
+        used to flip from INCOMPLETE to ANOMALOUS with no change in the
+        underlying value. Returning True here keeps the existing
+        re-anchor excuse alive across that boundary.
+
+        Read from ``dt_util.now()`` at call time rather than cached, so
+        the window closes on its own without depending on a tick.
+        """
+        try:
+            _now_local = dt_util.now()
+        except Exception:
+            return False
+        return (
+            _now_local.hour * 60 + _now_local.minute
+        ) < COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN
+
     def _today_delta_kwh(self, sensor_id: str, current_kwh: float) -> float:
         """Return today-scoped delta for an assumed-cumulative sensor.
 
@@ -3338,6 +3401,16 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
         house_devices_total = self._get_house_devices_total_energy()
 
         if whole_house is None or whole_house == 0:
+            # LOW-3 (COVERAGE-RATING-FALSE-ANOMALOUS-1 review): the no-data
+            # path must publish the same discriminator attributes as the
+            # normal path. This dict is built at boot before energy sensors
+            # read, so this is the DEFAULT shape a consumer sees. Helper is
+            # fail-closed, but wrap defensively so an unexpected raise in
+            # attribute-build cannot brick the sensor.
+            try:
+                _in_mid = self._in_midnight_reanchor_window()
+            except Exception:
+                _in_mid = False
             return {
                 "whole_house": whole_house,
                 "rooms_total": rooms_total,
@@ -3347,9 +3420,16 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
                 "whole_house_scope": self._whole_house_scope,
                 "scope_mismatch_warning": self._scope_mismatch_warning,
                 "post_restart_window": self._post_restart_window,
+                "midnight_reanchor_window": _in_mid,
                 "baseline_anchor": str(self._today_local()),
                 "note": "Configure whole house energy sensor",
             }
+
+        # Read the window ONCE. Two separate reads could straddle the
+        # boundary and disagree, so the rating would say INCOMPLETE while
+        # the published attribute said False — breaking the very
+        # live-validation discrimination the attribute exists for.
+        in_midnight_window = self._in_midnight_reanchor_window()
 
         attributed = rooms_total + zones_total + house_devices_total
         unattributed = whole_house - attributed
@@ -3369,10 +3449,16 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
             "coverage_rating": _get_coverage_rating(
                 delta_percent,
                 post_restart_window=self._post_restart_window,
+                midnight_reanchor_window=in_midnight_window,
             ),
             "whole_house_scope": self._whole_house_scope,
             "scope_mismatch_warning": self._scope_mismatch_warning,
             "post_restart_window": self._post_restart_window,
+            # Exposed so live validation can DISCRIMINATE a suppressed
+            # boundary artifact from a genuine mid-day ANOMALOUS: an
+            # INCOMPLETE with this False and post_restart_window False
+            # is NOT the re-anchor excuse firing.
+            "midnight_reanchor_window": in_midnight_window,
             "baseline_anchor": str(self._today_local()),
         }
 

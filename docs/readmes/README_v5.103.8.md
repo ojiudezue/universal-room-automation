@@ -104,6 +104,21 @@ CM entry (precedent: `_zero_migration_done`).
 - [ ] After HA restart mid-coast, `since` restores from the pre-restart
       transition ts (resume-if-same).
 
+## Live Validation — Validated 2026-09-25 (write-back)
+
+Deployed 2026-09-17 22:16 CDT. Evidence gathered read-only from the HA recorder (7 days, from 09-18 04:12 CDT), the URA DB `ura_activity_log`, and `.storage/core.config_entries`. Times are CDT unless marked Z.
+
+| # | Criterion | Verdict | Observed evidence |
+|---|---|---|---|
+| 1 | `binary_sensor.<room>_hvac_occupied` visible and enabled for every room; `established` matches zone establishment | **PASS** (presence), equality not independently computed | 43 `binary_sensor.*_hvac_occupied` entities are recording states for 43 URA rooms (disabled entities do not record). The CM option `hvac_occupied_registry_enable_migration_done: True`. `established` is present on all 43: 40 `True`, 3 `False` (Garage A, Garage B, Patio — `source: idle`; these rooms have no `climate_entity`). The value was not compared against `is_zone_hvac_established()` directly, because that is an internal function. |
+| 2 | Per-room `CONF_HVAC_VACANCY_HOLD=300` on one room is reflected in `hvac_vacancy_hold_s` | **NOT-EXERCISED** | Only Jaya Bedroom carries overrides (`hvac_vacancy_hold: 60`, `_night: 1800`, entry modified 09-19 23:03Z). These equal the bedroom table defaults (`ROOM_TYPE_HVAC_HOLD` 60 / `_NIGHT` 1800), so the reading is non-discriminating: the attribute reads 60 by day and 1800 at night, the same as Master Bedroom. |
+| 3 | The form rejects `day=600, night=300` with `hvac_hold_night_below_day` | **IN-SUITE-ONLY** | This needs a live options-form submission, which was not performed. |
+| 4 | `retreat_reason` matches the activity-log reason for the last S1 write | **PASS** | zone_3: `sensor.ura_hvac_coordinator_hvac_zone_preset_zone_3` has `retreat_reason: house_state_transition`, `retreat_reason_at: 2026-09-26T02:09:27.975425Z`, and the activity row at `02:09:27.975444Z` has `reason: house_state_transition`. zone_2: `energy_shed_cap_reached` at `00:32:57.817249Z`, matching the row at `00:32:57.817280Z`. zone_1 shows `soft_nudge_preset_restore`, a non-S1 path that has no activity row by design. |
+| 5 | On an EC transition to `coast`, `energy_constraint_since` is populated and `duration_s` increments | **PASS** | `sensor.ura_hvac_coordinator_mode` went to `coast` at 09-18 16:00:50 with `energy_constraint_since: 2026-09-18T21:00:36Z`; `energy_constraint_duration_s` rose 160 → 1134 at a ~30 s cadence. Each of the 8 daily coast entries (16:00) and returns to normal (20:00) from 09-18 to 09-25 carries a fresh `since` stamp. |
+| 6 | After a restart mid-coast, `since` resumes (resume-if-same) | **PASS ×2** | 09-18 restart (stop 16:07:32): `since` stayed `21:00:36Z`, duration 404 → 636 after boot. 09-25 restart (stop 18:05:35): `since` stayed `21:00:43Z`, duration 7470 → 7722. The same resume behaviour holds for `normal` across the 09-25 20:38/20:52 CM entity reloads. |
+
+**Method + limits.** Criteria 2 and 3 need operator UI actions that have not happened. Dismissed boot transients: `not_initialized`/`unavailable` rows on the Mode sensor during restarts and CM reloads. **Verdicts: 4 PASS · 1 NOT-EXERCISED · 1 IN-SUITE-ONLY · 0 FAIL.**
+
 ## Explicitly NOT in this cycle
 
 - `CONF_HVAC_ZONE_ENTRY_DWELL` removal (P5) — separate cycle.

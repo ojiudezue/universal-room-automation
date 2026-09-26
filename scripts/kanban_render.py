@@ -1182,7 +1182,11 @@ def _render_card_html(c: dict, pending: dict[str, list[dict]] | None = None) -> 
     nxt = _first_line(c.get("next", ""))
 
     ap_class = f" ap-{approval}" if approval in ("explicit", "implied", "unreviewed", "blocked") else ""
-    out = [f'<details class="card{ap_class}" data-id="{_h(cid)}" draggable="true"><summary>']
+    # WAITING-OP-INSTRUCTIONS-1: render the operator decision-queue cards OPEN so their free-form
+    # instruction box (the operator's steering channel) is visible on the nightly board without
+    # needing to expand each card. Other lanes stay collapsed.
+    _open = " open" if str(c.get("status", "")) == "waiting_operator" else ""
+    out = [f'<details class="card{ap_class}"{_open} data-id="{_h(cid)}" draggable="true"><summary>']
     out.append(f'<span class="id">{_h(cid)}</span>')
     _badge_txt = _wsjf_badge_text(c)
     if _badge_txt:

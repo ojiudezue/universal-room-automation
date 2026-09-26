@@ -40,6 +40,120 @@ HVAC_PY = os.path.join(ROOT, "domain_coordinators", "hvac.py")
 HVAC_FANS_PY = os.path.join(ROOT, "domain_coordinators", "hvac_fans.py")
 
 
+# ---------------------------------------------------------------------------
+# Behavioural drive fixture for the night-trust rewrites (2026-09-26).
+# Shared with test_writer_b_removal_and_reason_ledger.py's rewrites; both
+# files' hollow rfind()-anchored tests were reddened by the
+# HVAC-DEGRADED-ROOM-TRIPWIRE-1 round-3 addition of a third
+# `preset_change_suppressed` emit (row-1 transient-room-hold). The
+# behavioural drive avoids the anchor drift entirely by observing the
+# actual side effects on hass.services / activity_logger.
+# ---------------------------------------------------------------------------
+
+
+class _CaptureActivityLogger:
+    """Fake activity_logger. Captures each `.log(**kw)` call."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    async def log(self, **kwargs):
+        self.calls.append(dict(kwargs))
+
+
+def _build_night_trust_fixture():
+    """Real HVACCoordinator wired so the night-trust branch fires for
+    `zone_1`. Returns (hass, coord, zone).
+
+    Setup: house=sleep; zone_1 has zone_persons=["person.a"], person.a
+    state="home"; zone unestablished (rooms present, none in _hvac_seen);
+    preset_manager forced to return "away" for sleep so
+    `effective_preset == "away"` gate is satisfied. Heat_cool enforcer
+    is suppressed (zone.hvac_mode = "heat_cool"). D5 disabled to avoid
+    interference.
+    """
+    # Behavioral drives need the real homeassistant package + the shared
+    # smoke-hass harness at quality/tests/runtime_harness.py.
+    _here = os.path.dirname(__file__)
+    _repo_root = os.path.abspath(os.path.join(_here, "..", ".."))
+    if _repo_root not in sys.path:
+        sys.path.insert(0, _repo_root)
+    if _here not in sys.path:
+        sys.path.insert(0, _here)
+
+    # Defense-in-depth: purge the module-top shim modules this file
+    # installed via setdefault (they were needed for the D1 fan-controller
+    # source-grep tests). Real modules — those with __file__ under the
+    # real ura tree OR under site-packages — are LEFT ALONE. In the
+    # natural pytest discovery order the sibling behavioural files load
+    # real HA first and this purge is a no-op; when this file happens to
+    # collect first (ad-hoc ordering) the purge clears the shims so the
+    # real imports below succeed.
+    _real_ura_path = os.path.abspath(os.path.join(
+        _here, "..", "..", "custom_components", "universal_room_automation",
+    ))
+    _shim_prefixes = (
+        "homeassistant",
+        "custom_components.universal_room_automation",
+    )
+    for _k in [k for k in list(sys.modules) if any(
+        k == p or k.startswith(p + ".") for p in _shim_prefixes
+    )]:
+        _mod = sys.modules[_k]
+        _file = getattr(_mod, "__file__", None)
+        if _file:
+            _abs = os.path.abspath(_file)
+            if _real_ura_path in _abs or "site-packages" in _abs:
+                continue
+        # types.ModuleType stub — drop it.
+        del sys.modules[_k]
+
+    from runtime_harness import build_smoke_hass
+    from custom_components.universal_room_automation.const import DOMAIN
+    from custom_components.universal_room_automation.domain_coordinators.hvac import (
+        HVACCoordinator,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.hvac_zones import (
+        ZoneState,
+    )
+
+    hass = build_smoke_hass(zones_count=3)
+    coord = HVACCoordinator(hass)
+    zm = coord.zone_manager
+    for i, zid in enumerate(("zone_1", "zone_2", "zone_3"), 1):
+        zm._zones[zid] = ZoneState(
+            zone_id=zid, zone_name=f"Zone {i}",
+            climate_entity=f"climate.test_zone_{i}",
+            rooms=[],
+        )
+    coord._house_state = "sleep"
+    coord._energy_constraint_mode = "normal"
+    coord.set_d5_enabled(False)
+    for z in zm.zones.values():
+        z.hvac_mode = "heat_cool"
+        z.preset_mode = "home"
+    zone = zm.zones["zone_1"]
+    zone.zone_persons = ["person.a"]
+    zone.rooms = ["r_x"]  # not in _hvac_seen -> unestablished
+    coord._preset_manager.get_preset_for_house_state = lambda _s: "away"
+    hass.states.async_set("person.a", "home")
+    hass.data.setdefault(DOMAIN, {})["activity_logger"] = _CaptureActivityLogger()
+    return hass, coord, zone
+
+
+async def _run_apply(coord, ticks: int = 1):
+    """Drive `_apply_house_state_presets` `ticks` times and yield the
+    event loop between/after so `hass.async_create_task(activity_logger.
+    log(...))` coroutines actually run before assertions."""
+    import asyncio
+    for _ in range(ticks):
+        await coord._apply_house_state_presets()
+        # Let the scheduled activity_logger tasks run before the caller
+        # asserts on them.
+        for _ in range(4):
+            await asyncio.sleep(0)
+
+
 def _read(path: str) -> str:
     with open(path) as f:
         return f.read()
@@ -321,43 +435,34 @@ class TestD2PresetGuardSourceShape:
         # _LOGGER.info on suppression so live validation can grep for it
         assert "Suppressing" in hvac_src and "during sleep" in hvac_src
 
-    def test_guard_uses_continue_to_skip_write(self, hvac_src: str):
+    def test_guard_uses_continue_to_skip_write(self):
         """Guard must continue the loop so set_preset_mode is never dispatched.
 
-        B-M2 (2026-08-06 fix-up): re-anchor tightly. The Writer-B removal
-        cycle inserted a synthetic `preset_change_suppressed` activity_logger
-        row inside the trust body, which had bumped the trust-predicate
-        anchor window to 4200 chars — wide enough that a future guard
-        removal could still find a `continue` from an unrelated branch.
-        Re-anchor on the suppressed-row emit itself (`preset_change_suppressed`
-        action literal, which lives INSIDE the trust body) and take a narrow
-        ~800 char trailing window so the `continue` must live within the
-        trust predicate's own body.
+        REWRITTEN 2026-09-26 as BEHAVIOURAL (memory
+        `feedback_hollow_test_anchors`). The previous rfind() + 1200-char
+        source-window grep landed on the WRONG `preset_change_suppressed`
+        emit after the HVAC-DEGRADED-ROOM-TRIPWIRE-1 round-3 fix-up added
+        a THIRD emit (row-1 transient-room-hold at hvac.py:2579) —
+        proving the anchor was hollow. This drives the real
+        `_apply_house_state_presets` with a night-trust-triggering
+        fixture (house=sleep, zone_persons=["person.a"], person.a=home,
+        target_preset forced to "away", zone unestablished) and asserts
+        NO climate.set_preset_mode landed on that zone. The mutation
+        drill (delete the trust body's `continue` at hvac.py:2553) reds
+        this test: without `continue`, the loop falls through to the
+        preset-write step and emits `away`.
         """
-        # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2): a second
-        # `preset_change_suppressed` emit was added for the D5
-        # occupancy-defer ledger row. Anchor on the LAST occurrence
-        # (the night-trust body's emit), where the trust-body
-        # `continue` still lives. The D5 defer branch deliberately
-        # DOES NOT `continue` (it falls through so the D-b2 gate's
-        # no-write semantics stand).
-        anchor = '"preset_change_suppressed"'
-        idx = hvac_src.rfind(anchor)
-        if idx < 0:
-            idx = hvac_src.rfind("'preset_change_suppressed'")
-        assert idx >= 0, (
-            "Suppressed-row anchor (`preset_change_suppressed`) missing — "
-            "the trust body's activity_logger emit was removed or renamed"
-        )
-        # ~1200-char window: covers the suppressed-row activity_logger.log
-        # kwargs + closing brackets + the `continue`. Measured 1100 chars
-        # between anchor and continue on the 2026-08-06 fix-up commit; a
-        # 100-char headroom absorbs cosmetic reformatting without swallowing
-        # any unrelated `continue`.
-        window = hvac_src[idx : idx + 1200]
-        assert "continue" in window, (
-            "Trust predicate must continue the loop within its own body; "
-            "guard removal regression."
+        import asyncio
+        _hass, coord, zone = _build_night_trust_fixture()
+        asyncio.run(_run_apply(coord, ticks=1))
+        writes = [
+            c for c in _hass.services.calls
+            if c[0] == "climate" and c[1] == "set_preset_mode"
+            and c[2].get("entity_id") == zone.climate_entity
+        ]
+        assert writes == [], (
+            f"Trust predicate must `continue` and skip the preset write; "
+            f"got {writes!r}"
         )
 
 
@@ -552,19 +657,14 @@ _dc = types.ModuleType("custom_components.universal_room_automation.domain_coord
 _dc.__path__ = [os.path.join(_ura_path, "domain_coordinators")]
 sys.modules.setdefault("custom_components.universal_room_automation.domain_coordinators", _dc)
 
-_dc_signals = types.ModuleType(
-    "custom_components.universal_room_automation.domain_coordinators.signals"
-)
-for sig in [
-    "SIGNAL_ENERGY_CONSTRAINT", "SIGNAL_HOUSE_STATE_CHANGED",
-    "SIGNAL_PERSON_ARRIVING", "SIGNAL_SAFETY_HAZARD",
-]:
-    setattr(_dc_signals, sig, f"ura_{sig.lower()}")
-_dc_signals.EnergyConstraint = MagicMock()
-sys.modules.setdefault(
-    "custom_components.universal_room_automation.domain_coordinators.signals",
-    _dc_signals,
-)
+# FIX-UP round 4 (2026-09-26): removed the hand-picked `.signals` shim.
+# `signals.py` has NO HA dependencies (pure dataclasses + str constants);
+# stubbing it made later hvac.py imports fail with
+# `cannot import name 'SIGNAL_ZM_ZONES_UPDATED' ...` because the shim
+# carried only 4 of the ~30 real signal names. Letting the real module
+# import here is cheap and unblocks any sibling test that lazily imports
+# hvac.py at test-run time (test_hvac_d5_reframe / test_hvac_live_room_
+# hold_wire_in / the round-4 night-trust behavioural drives below).
 
 for _mod_name in [
     "custom_components.universal_room_automation.domain_coordinators.hvac_override",
