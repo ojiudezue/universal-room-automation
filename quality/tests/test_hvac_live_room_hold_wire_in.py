@@ -786,7 +786,35 @@ def _seed_zone_transient_and_occupied(coord, zone_id: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_row1_hold_H2e_transient_conjunct_load_bearing():
+def _pin_aware_clock(monkeypatch):
+    """FIX-UP round 8 (2026-09-26): pin an AWARE utcnow/now on the
+    dt_util references that hvac.py + hvac_zones.py actually hold.
+
+    Earlier files (test_ac_ramp_pipeline_hardening, test_carrier_
+    freshness, test_fan_*, …) leak monkey-patches of
+    `homeassistant.util.dt.utcnow` / `.now` that return NAIVE
+    datetimes and never restore. Those leaks corrupt production
+    `now = dt_util.utcnow()` in hvac.py, breaking the
+    `(now - zone.last_occupied_time)` subtract in the H2e tests and
+    the naive/aware TypeError-guard the diag test asserts. Monkeypatch
+    here is auto-restored at teardown so our fix does not spread.
+    Returns the pinned tz-aware datetime callers can use to plant
+    consistent times on the zone.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac as _hvac_mod,
+        hvac_zones as _hz_mod,
+    )
+    _pinned = _dt(2026, 9, 26, 12, 0, 0, tzinfo=_tz.utc)
+    for _mod in (_hvac_mod, _hz_mod):
+        monkeypatch.setattr(_mod.dt_util, "utcnow", lambda: _pinned)
+        monkeypatch.setattr(_mod.dt_util, "now", lambda: _pinned)
+    return _pinned
+
+
+@pytest.mark.asyncio
+async def test_row1_hold_H2e_transient_conjunct_load_bearing(monkeypatch):
     """FIX-UP round 5 item 1 (HIGH H2e). Discriminator for the
     `_transient_blocked_row1 and` conjunct at hvac.py:2090. With ALL
     rooms LIVE + established + fused-empty + past vacancy grace, the
@@ -795,8 +823,14 @@ async def test_row1_hold_H2e_transient_conjunct_load_bearing():
     live zone and suppresses the write. Assertion changes ONE
     variable (the mutation itself) — the fixture is a single legal
     configuration.
+
+    Round-8: `_pin_aware_clock(monkeypatch)` pins an AWARE utcnow on
+    hvac.dt_util + hvac_zones.dt_util so leaked-naive-clock pollution
+    from earlier files can't false-fail the `now - last_occupied_time`
+    subtract inside row-1.
     """
     coord, hass = _make_coord()
+    _pinned = _pin_aware_clock(monkeypatch)
     coord._house_state = "home_day"
     coord._energy_constraint_mode = "normal"
     coord.set_d5_enabled(False)
@@ -812,9 +846,10 @@ async def test_row1_hold_H2e_transient_conjunct_load_bearing():
     zone.vacancy_sweep_enabled = False
     zone.vacancy_sweep_done = True
     # Past vacancy grace: last_occupied_time older than grace_minutes.
+    # Use the SAME pinned aware clock so the production subtract is
+    # tz-consistent regardless of any leaked module-level utcnow patch.
     from datetime import timedelta as _td
-    from homeassistant.util import dt as _dt_util
-    zone.last_occupied_time = _dt_util.utcnow() - _td(
+    zone.last_occupied_time = _pinned - _td(
         minutes=coord._vacancy_grace + 5,
     )
     hass.services.calls.clear()
@@ -828,9 +863,10 @@ async def test_row1_hold_H2e_transient_conjunct_load_bearing():
 
 
 @pytest.mark.asyncio
-async def test_row1_hold_H2e_transient_conjunct_load_bearing_sleep_target():
+async def test_row1_hold_H2e_transient_conjunct_load_bearing_sleep_target(monkeypatch):
     """FIX-UP round 5 item 1 (HIGH H2e) — sleep-target twin."""
     coord, hass = _make_coord()
+    _pinned = _pin_aware_clock(monkeypatch)
     coord._house_state = "sleep"
     coord._energy_constraint_mode = "normal"
     coord.set_d5_enabled(False)
@@ -842,8 +878,7 @@ async def test_row1_hold_H2e_transient_conjunct_load_bearing_sleep_target():
     zone.vacancy_sweep_enabled = False
     zone.vacancy_sweep_done = True
     from datetime import timedelta as _td
-    from homeassistant.util import dt as _dt_util
-    zone.last_occupied_time = _dt_util.utcnow() - _td(
+    zone.last_occupied_time = _pinned - _td(
         minutes=coord._vacancy_grace + 5,
     )
     # Force target_preset to "sleep" for house_state=sleep.

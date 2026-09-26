@@ -908,21 +908,32 @@ def test_sticky_prune_re_added_room_returns_live():
     )
 
 
-def test_diag_poisoned_naive_datetime_surfaces_none_and_non_empty_rows():
+def test_diag_poisoned_naive_datetime_surfaces_none_and_non_empty_rows(monkeypatch):
     """FIX-UP round 5 item 10 (LOW). Replace round-3 vacuous version:
     with a poisoned naive datetime in `_room_non_loaded_since`, the
     diag helper MUST surface `transient_rooms` NON-empty AND its
     `seconds_non_loaded` field MUST be None (guard swallowed the
     TypeError). If the guard is removed, the whole zone status attr
     breaks.
+
+    Round-8 (2026-09-26): pin an AWARE production clock on
+    `hvac_zones.dt_util.utcnow` so a leaked-naive-utcnow patch from
+    an earlier file in the pytest process cannot make the production
+    subtract succeed against my planted NAIVE value (which then
+    yields `seconds_non_loaded=51377.7` instead of None). monkeypatch
+    auto-restores at test teardown so this fix does not spread.
     """
+    _pinned_aware = datetime(2026, 9, 26, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(_hvac_zones.dt_util, "utcnow", lambda: _pinned_aware)
+    monkeypatch.setattr(_hvac_zones.dt_util, "now", lambda: _pinned_aware)
     entries = [_FakeEntry("r_x", state=ConfigEntryState.NOT_LOADED)]
     zm = _mk_zm(entries=entries)
     zone = ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.z1")
     zone.rooms = ["r_x"]
     zm._zones["z1"] = zone
     zm.update_room_conditions(house_state="home_day")
-    # Poison: naive datetime (tz-aware utcnow can't subtract from it).
+    # Poison: naive datetime (tz-aware production utcnow can't subtract
+    # from it → guard catches TypeError → seconds_non_loaded = None).
     zm._room_non_loaded_since["r_x"] = datetime(2026, 9, 26, 3, 0, 0)
     attrs = zm.get_zone_status_attrs("z1")
     trs = attrs["transient_rooms"]
