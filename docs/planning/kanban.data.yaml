@@ -1891,7 +1891,7 @@ cards:
   rank: {value: 7, time_criticality: 5, effort: 5}
   thread: hvac
   created: '2026-09-17'
-  updated: '2026-09-26 04:00'
+  updated: '2026-09-26 05:30'
   tags: [hvac, no-soak, trip-wire, safety-gate-residual]
   operator_decision_2026_09_25: 'Operator: "This also seems wrong. WTF?" — the trip-wire-instead-of-fix
     framing is REJECTED. It was the operator''s ROUND-4 decision (09-17) to scope establishment to rooms with
@@ -1926,6 +1926,13 @@ cards:
   operator_decision_2026_09_26_failed_room: 'Operator picked option (a): "The room does not count to decisions and acts
     like its not defined in URA." Matches the fix-up default (excluded room contributes nothing; zone decides on its
     remaining live rooms immediately, no extra vacancy grace).'
+  review_round2_2026_09_26: 'Fix-up 3e707612b + wire-in round 9374b2361 (row-1 hold restructured to suppress only the
+    preset write; D5 shed clears it). Focused re-review: FIX-REQUIRED — HIGH UnboundLocalError: _row1_hold_write
+    assigned only under `if zi:` (hvac.py:2002/2056) but read at loop level (:2533) -> with Zone Intelligence OFF every
+    decision cycle raises (orchestrator-verified). Pre-existing sibling on develop: _d3_skipped_this_tick same shape.
+    The wire-in tests missed it because their drive helper SWALLOWED exceptions. Also: hold too broad (blocks
+    house-state away/vacation + pre-arrival writes for a tick), D5-clear untested, D9 negative test lacks a positive twin.
+    Round-2 suite run stopped (moot). Round 3 dispatched.'
   title: One broken room switches off HVAC occupancy for its whole zone — count only the rooms that are
     actually running
   problem_solution:
