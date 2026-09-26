@@ -164,11 +164,11 @@ lockout, arrester, S1 — trusts `preset_mode`**, which is the lagging field (§
 | `set_preset_mode("resume")` → `resume_schedule`, then forced refresh | `climate.py:405-416` |
 | `set_temperature(...)` → rewrites the **MANUAL activity profile** setpoints **and** sets `hold=MANUAL` | `climate.py:467-537` |
 | `hold_until` = `None` (infinite) when `infinite_holds` option is True — **live: True** | `climate.py:383-396`; config entry options |
-| **Local PATCH** service `ha_carrier.set_activity_setpoint`: edits the CURRENT activity's setpoints **in place, no hold** (`set_config_activity`), does not touch hold/status activity | `climate.py:91-103`, `:539-600`, `services.yaml`; files dated **2026-09-24 21:48**. **Provenance UNVERIFIED** (not in URA git history); **URA does not use it** (0 references). Caveat: it mutates the named profile (e.g. "home") itself |
+| **Upstream service** `ha_carrier.set_activity_setpoint` (NOT a local patch — added upstream by #427, Evan Weaver, 2026-08-31, `4d833486`; ships in v2.28.4 installed via HACS from `dahlb/ha_carrier` @285f915, so HACS updates keep it; the in-file word "PATCH" is the upstream author's): edits the CURRENT activity's setpoints **in place, no hold** (`set_config_activity`), does not touch hold/status activity. URA does not use it (candidate for W1: a no-hold nudge — but it mutates the named comfort profile itself, so an interrupted nudge leaves the profile changed; W1 must own restore/verification). Related upstream #408 (`c3b1ec07`, 2026-07-04): "read climate set points from config activity, not stale status" — the origin of the setpoint-vs-preset source split in §5 | `climate.py:91-103`, `:539-600` |
 | `manual` is in `preset_modes` on all 3 zones (restoring `manual` is legal) | `PLANNING_hvac_governed_excursion.md` rev-6 note (live-verified 2026-08-21) |
 | After a borrow returns, a later poll can deliver `preset_mode=manual` while `hold_activity` = home/sleep, sometimes with stale nudge setpoints; lasts until a vacancy/away write | recorder traces 09-21 12:53, 09-22 01:19, 09-24 19:57, 09-25 14:22 (§9.1). **Whether the physical thermostat was in manual: UNVERIFIED** |
 | Remaining Bryant schedule on zone_1: one daily **6 AM Home 70–76** (operator screenshot 2026-09-25); others removed **2026-09-20 11:39 CDT** (dated from `next_activity_time` in recorder). Zones 2/3 still run 4-entry schedules (06/08/17-18/22). With infinite holds, a schedule only acts when no hold is active | recorder `next_activity_time` |
-| Code comment "the operator does not use the Bryant schedule" (`hvac_setpoint.py:164-167`) | **WRONG** as of 09-20 (schedules existed; a 6 AM entry remains) — §10 |
+| Code comment "the operator does not use the Bryant schedule" (`hvac_setpoint.py:164-167`) | **SUPERSEDED 2026-09-26** — comment corrected in code. **WORKING ASSUMPTION (operator 2026-09-26):** Bryant schedules still exist (zone_1 reduced to one 06:00 Home entry; zones 2/3 untouched for now); intent is to reduce them so ONLY URA controls. Until then `resume` briefly hands a zone to a live vendor schedule before a pin lands — §10 C12 |
 
 ---
 
@@ -262,6 +262,22 @@ v5.103.14 main criteria unexercised; zone rooms frozen at discovery (added-room 
 
 ---
 
+## 9b. Operator decisions & facts recorded 2026-09-26 (binding)
+
+| Topic | Decision / fact | Source |
+|---|---|---|
+| Failed / disabled / removed room (live-room gate, v5.103.15) | **Option (a):** the room does not count toward any decision — it acts as if it is not defined in URA; the zone decides on its remaining live rooms immediately (no extra vacancy grace). "Failed" = the ROOM config entry is disabled, SETUP_ERROR / MIGRATION_ERROR / SETUP_RETRY, stuck loading/unloading > 300 s, or deleted. A failed SENSOR inside a running room is NOT this (that is W2 night-trust). | operator: "The room does not count to decisions and acts like its not defined in URA." |
+| Bryant schedules | Still present (zone_1 reduced to 06:00 Home; zones 2/3 untouched). Working assumption: reduce them so only URA controls. | operator 2026-09-26 |
+| AC ramp | ON (`hvac_ac_ramp_master_enabled: True` live); nudges stay ON. | operator 2026-09-26: "AC RAMP is on"; "We're not turning off nudges" |
+| `ha_carrier.set_activity_setpoint` | Upstream feature #427, not local; account for it in W1 design. | GitHub `dahlb/ha_carrier` history, verified 2026-09-26 |
+
+### 9c. Room Override Occupied / Override Vacant vs HVAC occupancy (NOT previously considered — operator 2026-09-26)
+Per-room switches `switch.<room>_override_occupied` / `_override_vacant` (`switch.py:4935-5010`, mutually exclusive, RestoreEntity — they SURVIVE restarts). Consumer: room coordinator only (`coordinator.py:2884-2890`, applied at `:4791-4811`) — sets `data[STATE_OCCUPIED]` True/False with `occupancy_source="override"`. HVAC reads that same value (`hvac_zones.py:647` `data.get("occupied")`) into the D1 producer (`_compute_hvac_occupied`, `hvac_zones.py:966-1035`). Consequences (code-derived; not yet live-tested):
+- **Override Occupied → HVAC-occupied** on the rising edge, EXCEPT hallway-typed rooms: circulation exclusion forces `hvac_occupied=False` regardless (`hvac_zones.py:~655-665`), so forcing a hallway occupied does nothing for HVAC.
+- **Override Vacant is NOT immediate for HVAC:** it is a falling edge, so the per-room-type **tail-hold** arms (`_effective_hvac_hold_seconds`, D8 night hold for bedrooms) and the zone keeps conditioning for the tail + vacancy grace (10 min live) + up to one 5-min tick.
+- Because the switches restore across restarts, a forgotten Override Occupied holds its zone occupied indefinitely; whether the D6 stale-occupancy failsafe (8 h) then forces `away` against an explicit operator override is UNVERIFIED — check before W2.
+- OPEN DESIGN QUESTION (W2): should an operator override be a HARD input to HVAC (vacant = immediately HVAC-vacant, skipping the tail; occupied = occupied for any room type, exempt from the stale failsafe)?
+
 ## 10. CORRECTIONS LEDGER — claims that were WRONG (do not re-assert)
 
 | # | Wrong claim (when) | Truth | Evidence |
@@ -277,11 +293,13 @@ v5.103.14 main criteria unexercised; zone rooms frozen at discovery (added-room 
 | C9 | "step-4-B (conditioning demand) is unshipped; night-trust fails review" (09-17 handoff memo) | Shipped v5.103.7 (daytime debounce LIVE, setpoint corrector DORMANT) with reset-only backstop | README v5.103.7; `f88f4bc84` |
 | C10 | "HVAC decisions run on ~5-min tick" was stated earlier as an assumption, then verified | Verified correct — kept here so it is not re-litigated | §2 |
 | C11 | "v5.103.7 set zone entry dwell to 0" (plan D5) | Migration rewrote only an exact 3; install stored 5.0 → dwell stayed 5 until operator set 2 (09-26) | `__init__.py:785-800`; README v5.103.7 write-back row 2 FAIL |
-| C12 | Code comment "operator does not use the Bryant schedule" | Schedules existed until 09-20; a 6 AM Home entry remains on zone_1; zones 2/3 still scheduled | `hvac_setpoint.py:164-167` vs §5 |
+| C12 | Code comment "operator does not use the Bryant schedule" (SUPERSEDED + corrected in code 2026-09-26) | Schedules existed until 09-20; a 6 AM Home entry remains on zone_1; zones 2/3 still scheduled | `hvac_setpoint.py:164-167` vs §5 |
 | C13 | "the borrow return writes setpoints then preset" (framed as the primitive's behaviour, 09-25) | The primitive writes nothing; each SITE writes (a)→(b)→(c) itself — the ordering lives in N copies | `hvac_excursion.py:886-888` |
 | C14 | Enphase/"stream SOC 52 untrustworthy" and similar non-HVAC corrections | See energy docs / `project_session_pickup_2026_09_23` | — |
 
 ---
+
+| C15 | "The installed ha_carrier is locally PATCHED (set_activity_setpoint); a HACS update would wipe it" (fork report + orchestrator, 2026-09-26) | It is upstream code: PR #427 (Evan Weaver, 2026-08-31), in v2.28.4 as installed from `dahlb/ha_carrier`; the file's "PATCH" comment is upstream's own wording | `gh api repos/dahlb/ha_carrier` history; HACS record `.storage/hacs.repositories` |
 
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 
