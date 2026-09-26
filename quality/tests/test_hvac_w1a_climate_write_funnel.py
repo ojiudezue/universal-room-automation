@@ -15,7 +15,7 @@ import json
 import os
 import sys
 import types
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -499,6 +499,125 @@ async def test_pin_retry_success_after_pin_failure_logs_retry_row():
     verdicts = [json.loads(r["details_json"])["wire_ok"] for r in db.rows]
     assert sites == ["S1+resume", "S1+pin", "S1+pin_retry"]
     assert verdicts == [True, False, True]
+
+
+@pytest.mark.asyncio
+async def test_row_timestamp_is_issue_time_not_return_time():
+    """B-MEDIUM: a blocking wire call that advances the wall clock during
+    the await must produce a row whose `timestamp` == the ISSUE time
+    (captured before the await), not the RETURN time. Otherwise a
+    ha_carrier that updates HA state before returning would make URA's
+    own writes look external."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac_setpoint,
+    )
+    db = _FakeDB()
+    hass = _FakeHass(
+        states_map={"climate.z1": _FakeState(preset_mode="home")},
+        db=db,
+    )
+    tick = {"t": datetime(2026, 9, 26, 0, 0, 0, tzinfo=timezone.utc)}
+
+    def _fake_now():
+        return tick["t"]
+    # Monkeypatch the bound dt_util on the funnel module.
+    orig = hvac_setpoint.dt_util.utcnow
+    hvac_setpoint.dt_util.utcnow = _fake_now
+
+    orig_call = hass.services.async_call
+
+    async def _slow(domain, service, data, blocking=False):
+        # Advance the clock during the wire await — mimics ha_carrier's
+        # HA-state-update-then-return pattern.
+        tick["t"] += timedelta(seconds=5)
+        await orig_call(domain, service, data, blocking=blocking)
+    hass.services.async_call = _slow
+
+    try:
+        await hvac_setpoint.emit_set_hvac_mode(
+            hass, "climate.z1", "off",
+            site="X", zone_id="z", reason="r", blocking=True,
+        )
+        await _drain(hass)
+        assert len(db.rows) == 1
+        ts = db.rows[0]["timestamp"]
+        # timestamp is the ISSUE time (00:00:00), NOT the RETURN time
+        # (00:00:05).
+        assert ts == datetime(2026, 9, 26, 0, 0, 0, tzinfo=timezone.utc).isoformat()
+    finally:
+        hvac_setpoint.dt_util.utcnow = orig
+
+
+@pytest.mark.asyncio
+async def test_preset_mode_cancelled_error_still_schedules_row_and_reraises():
+    """A-LOW-2: emit_set_preset_mode catches BaseException on the RESUME
+    path (in the resume-then-pin flow) so a CancelledError still
+    schedules a `+resume` row before re-raising. Drill: revert
+    `except BaseException` on the resume path back to
+    `except Exception` -> the CancelledError propagates uncaught and
+    no row is scheduled -> RED."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac_setpoint,
+    )
+    db = _FakeDB()
+    # Anonymous manual hold + resume in preset_modes → resume-then-pin
+    # path triggers; the resume await is the first wire call.
+    state = _FakeState(
+        preset_mode="manual",
+        preset_modes=("home", "manual", "resume"),
+        hold_activity="manual",
+    )
+    hass = _FakeHass(states_map={"climate.z1": state}, db=db)
+
+    async def _cancel(*a, **kw):
+        raise asyncio.CancelledError("cancel me")
+    hass.services.async_call = _cancel
+
+    with pytest.raises(asyncio.CancelledError):
+        await hvac_setpoint.emit_set_preset_mode(
+            hass, "climate.z1", "home",
+            site="S1", zone_id="z", reason="r", blocking=False,
+        )
+    await _drain(hass)
+    # At least one row landed (the +resume row) with wire_ok=False.
+    assert len(db.rows) >= 1
+    d = json.loads(db.rows[0]["details_json"])
+    assert d["wire_ok"] is False
+    assert d["exc"] == "CancelledError"
+
+
+@pytest.mark.asyncio
+async def test_pin_after_failed_resume_labelled_plus_pin():
+    """A-LOW-3: when a resume was ATTEMPTED (even if it raised), the pin
+    row must be `+pin`, never bare `<site>`."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac_setpoint,
+    )
+    db = _FakeDB()
+    state = _FakeState(
+        preset_mode="manual",
+        preset_modes=("home", "manual", "resume"),
+        hold_activity="manual",
+    )
+    hass = _FakeHass(states_map={"climate.z1": state}, db=db)
+    call_n = {"n": 0}
+
+    async def _picky(domain, service, data, blocking=False):
+        call_n["n"] += 1
+        if call_n["n"] == 1:
+            raise RuntimeError("resume fail")
+        hass._call_log.append((domain, service, dict(data), blocking))
+    hass.services.async_call = _picky
+
+    ok = await hvac_setpoint.emit_set_preset_mode(
+        hass, "climate.z1", "home",
+        site="S1", zone_id="z", reason="r", blocking=False,
+    )
+    await _drain(hass)
+    sites = [json.loads(r["details_json"])["site"] for r in db.rows]
+    # Resume attempted-and-failed → row +resume with wire_ok=False;
+    # pin fires with site LABELLED +pin (A-LOW-3), NOT bare "S1".
+    assert sites == ["S1+resume", "S1+pin"]
 
 
 @pytest.mark.asyncio

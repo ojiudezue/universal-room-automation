@@ -23,9 +23,20 @@ ROOT = Path(__file__).resolve().parents[2]
 URA_DIR = ROOT / "custom_components" / "universal_room_automation"
 FUNNEL_FILE = "hvac_setpoint.py"
 
-# DYNAMIC_DOMAIN_ALLOWLIST is imported from the code by module basename.
-# See hvac_const.py DYNAMIC_DOMAIN_ALLOWLIST for the source of truth.
-_ALLOWLIST = frozenset({"optimization.py"})
+# DYNAMIC_DOMAIN_ALLOWLIST is imported from production (single source of
+# truth in hvac_const.py) — a hand copy would silently drift on additions.
+def _load_allowlist():
+    import sys
+    _q = Path(__file__).resolve().parents[1]
+    if str(_q) not in sys.path:
+        sys.path.insert(0, str(_q))
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac_const,
+    )
+    return frozenset(hvac_const.DYNAMIC_DOMAIN_ALLOWLIST)
+
+
+_ALLOWLIST = _load_allowlist()
 
 
 # --------------------------------------------------------------------------

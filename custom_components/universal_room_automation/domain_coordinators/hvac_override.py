@@ -3405,6 +3405,9 @@ class OverrideArrester:
                     site="S3_compromise",
                     zone_id=zone_id,
                     reason="normal_override_compromise",
+                    excursion_id=(
+                        _cmp_token.excursion_id if _cmp_token else None
+                    ),
                 )
                 if _s3_written:
                     self.suppress(zone.climate_entity, kind="temp")
@@ -3558,6 +3561,9 @@ class OverrideArrester:
                 site="S4_revert",
                 zone_id=zone_id,
                 reason="severe_override_revert",
+                excursion_id=(
+                    _cmp_token.excursion_id if _cmp_token else None
+                ),
             )
             if _s4_written or _mode_wrote:
                 self.suppress(zone.climate_entity, kind="preset")
@@ -4448,6 +4454,9 @@ class OverrideArrester:
                     site="S5_nudge_start",
                     zone_id=zone_id,
                     reason="soft_nudge_start",
+                    excursion_id=(
+                        _ex_token.excursion_id if _ex_token else None
+                    ),
                 )
                 if _s5_written:
                     self.suppress(zone.climate_entity, kind="temp")
@@ -4607,6 +4616,11 @@ class OverrideArrester:
         # FIX B1: kind="temp" (see suppress() docstring).
         self.suppress(zone.climate_entity, kind="temp")
 
+        # HVAC-W1-A F6: forward the borrow token's excursion_id so the
+        # climate_write row carries provenance.
+        _nudge_tok = self._nudge_excursion_tokens.get(zone_id)
+        _nudge_eid = _nudge_tok.excursion_id if _nudge_tok else None
+
         try:
             # ARREST-COMFORT-1 §3.7 S6: ALLOW (restoration path).
             # HVAC-W1-A F3: required site/zone_id/reason kwargs added.
@@ -4620,6 +4634,7 @@ class OverrideArrester:
                 site="S6_nudge_restore_setpoint",
                 zone_id=zone_id,
                 reason="soft_nudge_setpoint_restore",
+                excursion_id=_nudge_eid,
             )
         except Exception as e:
             _LOGGER.error(
@@ -4665,6 +4680,7 @@ class OverrideArrester:
                     site="S7_nudge_restore_preset",
                     zone_id=zone_id,
                     reason="soft_nudge_preset_restore",
+                    excursion_id=_nudge_eid,
                 )
                 _LOGGER.info(
                     "Soft nudge restore on %s: preset -> %s "
@@ -5845,6 +5861,9 @@ class OverrideArrester:
                     site="S8_cancel_nudge_restore",
                     zone_id=zone_id,
                     reason="cancel_nudge_restore",
+                    excursion_id=(
+                        _cancel_token.excursion_id if _cancel_token else None
+                    ),
                 )
             except Exception as e:
                 _LOGGER.error(
@@ -5870,6 +5889,9 @@ class OverrideArrester:
                         site="S8_cancel_nudge_preset_restore",
                         zone_id=zone_id,
                         reason="cancel_nudge_preset_restore",
+                        excursion_id=(
+                            _cancel_token.excursion_id if _cancel_token else None
+                        ),
                     )
                     _LOGGER.info(
                         "cancel_nudge preset restore on %s -> %s "

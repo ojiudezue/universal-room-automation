@@ -271,7 +271,17 @@ narrowed rule, which still catches "`hass.services.async_call(some_var, 'set_hva
 
 The test reports each failure as `<file>:<lineno>: <message>` so a developer can find it.
 
-**F5 also delivers (D5-b, coordinator.py):** extend the refusal at `coordinator.py:1107-1123` from three literal verbs to `domain == "climate"` refuses ALL services. Chained routes via `automation.trigger` / `scene.turn_on` / `script.turn_on` / `homeassistant.turn_on` remain a documented open gap (AUDIT §1b tail) — Stage A closes only the direct-climate-domain hole.
+**F5 also delivers (D5-b, coordinator.py):** extend the refusal at `coordinator.py:1107-1123` from three literal verbs to `domain == "climate"` refuses ALL services.
+
+**A-LOW-1 note (fix-up round 3):** D5-b's broadening to `domain == "climate"` now
+also refuses `climate.turn_on` / `climate.turn_off` / `climate.set_fan_mode` /
+`climate.set_swing_mode` on non-zone climate entities via an AI rule. This is
+intended per D5-b: any URA-originated climate write must pass through the emit
+funnels; the chained-route escape (automation.trigger / scene / script /
+homeassistant.turn_on) remains the documented open gap. Zero climate AI rules
+are configured today (live probe). README should call this out so operators
+adding a climate AI rule see the refusal, not a mysterious no-op.
+ Chained routes via `automation.trigger` / `scene.turn_on` / `script.turn_on` / `homeassistant.turn_on` remain a documented open gap (AUDIT §1b tail) — Stage A closes only the direct-climate-domain hole.
 
 **Acceptance (D5):**
 - **Test:** run the completeness lint on develop-HEAD-plus-Stage-A → PASSES.
@@ -318,8 +328,8 @@ For every migrated site AND for the funnel row-schedule helper, mutate ONE thing
 Replace the rev-1 ±5 % cross-tab with per-site joins on the URA DB, run at 1 h and 24 h post-restart. All queries against `/config/universal_room_automation/data/universal_room_automation.db` via `ssh ha "python3 -"`.
 
 1. **Nudge start ↔ S5 row (±5 s):** for every `ac_ramp_events.kind='nudge_started'` since restart, there must be exactly one `climate_write` row with `json_extract(details_json,'$.site')='S5_nudge_start'` on the same zone within [event_ts-5s, event_ts+5s]. Zero misses acceptance; any miss = falsification.
-2. **Nudge restored ↔ S6 + S7 (+resume if triggered):** for every `nudge_restored`, exactly one `S6_nudge_restore_setpoint` row AND one `S7_nudge_restore_preset` row on the same zone within ±5 s; if `_needs_resume_first` fired, additionally one `S7_nudge_restore_preset+resume`.
-3. **S1 preset flips ↔ `preset_change`:** for every `ura_activity_log` row with `action='preset_change'` since restart, exactly one paired `action='climate_write'` row with `site` starting `S1_` (± the same second — same code path emits both synchronously).
+2. **Nudge restored ↔ S6 + S7 (prefix-match on `+resume` / `+pin` / `+pin_retry`):** for every `nudge_restored`, exactly one `S6_nudge_restore_setpoint` row on the same zone within ±5 s, plus AT LEAST ONE row whose `site` starts with `S7_nudge_restore_preset` (allowing `+resume`, `+pin`, and `+pin_retry` suffixes to appear as additional rows when the resume-then-pin path fired). Extra rows in the S7 family are expected on Bryant zones sitting on an anonymous manual hold. (fix-up round 3, per B-MEDIUM: use prefix-match, not exact-match.)
+3. **S1 preset flips ↔ `preset_change`:** for every `ura_activity_log` row with `action='preset_change'` since restart, at least one paired `action='climate_write'` row whose `site` STARTS WITH `S1_` (`+resume` / `+pin` / `+pin_retry` sub-labels welcome — see B-MEDIUM), same code path emits both synchronously.
 4. **`hvac_excursion_events` ↔ site rows:** for every non-nudge excursion event since restart, at least one `climate_write` row from the matching site (S3/S11/S12/S13/egress) with the same `excursion_id` in `details_json`.
 5. **`excursion_id` correlation (F6):** for a 24 h sample, `climate_write` rows whose `site` starts `S5_`, `S6_`, or `S7_` carry an `excursion_id` matching an `ac_ramp_events.excursion_id` on the same zone at the same second.
 6. **Bypass bound (F7):** query the HA recorder for `climate.*` `preset_mode`/`temperature`/`hvac_mode` changes since restart. For each recorder change with no `climate_write` row on that entity in the prior 90 s (accommodating Carrier's C16 30-min-poll + 5-min post-write guard by the LOOSER side), classify as `external_or_bypass`. Compute daily count. Baseline: same query on the pre-ship day. Acceptance: post-ship `external_or_bypass` count ≤ pre-ship baseline + 10 % (any increase = a URA bypass that Stage A missed; investigate before README write-back closes).

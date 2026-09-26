@@ -176,6 +176,7 @@ def _schedule_climate_write_row(
     ts_returned: float,
     wire_ok: bool,
     exc: str | None,
+    issued_wallclock: str | None = None,
 ) -> None:
     """Fire-and-forget schedule of ONE `climate_write` ledger row.
 
@@ -218,7 +219,12 @@ def _schedule_climate_write_row(
             "ts_returned": float(ts_returned),
         }
         details_json = json.dumps(payload, default=str)
-        timestamp = dt_util.utcnow().isoformat()
+        # B-MEDIUM: use the wall-clock ISSUE time as the row timestamp so
+        # a blocking wire call that only returns after ha_carrier already
+        # updated HA state does not make URA's own write look external
+        # (§7 provenance query #6). Falls back to now() if the caller
+        # didn't stamp one (defensive; every funnel stamps).
+        timestamp = issued_wallclock or dt_util.utcnow().isoformat()
         description = (
             f"{verb} zone={zone_id} site={site} reason={reason}"
         )
@@ -427,6 +433,10 @@ async def emit_set_temperature(
     # HVAC-W1-A INV-A: snapshot BEFORE the wire await (F6).
     _values_before = _snapshot_climate_state(hass, entity_id)
     _ts_issued = time.monotonic()
+    # B-MEDIUM: wall-clock ISSUE time — used as the row timestamp so a
+    # blocking call that returns after ha_carrier has already updated HA
+    # state doesn't make URA's own write look external.
+    _issued_wall = dt_util.utcnow().isoformat()
     _wire_ok = False
     _exc_name: str | None = None
     try:
@@ -451,6 +461,7 @@ async def emit_set_temperature(
             ts_returned=time.monotonic(),
             wire_ok=False,
             exc=_exc_name,
+            issued_wallclock=_issued_wall,
         )
         raise
     _schedule_climate_write_row(
@@ -468,6 +479,7 @@ async def emit_set_temperature(
         ts_returned=time.monotonic(),
         wire_ok=_wire_ok,
         exc=None,
+        issued_wallclock=_issued_wall,
     )
     return True
 
@@ -540,14 +552,20 @@ async def emit_set_preset_mode(
     # use. Nothing awaitable and failure-prone may sit between them, and
     # the resume is NOT issued unless we are about to pin.
     # ==================================================================
+    # HVAC-W1-A A-LOW-3 (fix-up round 3): label the pin `+pin` whenever
+    # a resume was ATTEMPTED — even if the resume raised — so a stranded
+    # zone rooted in a resume-then-failed-pin is greppable as `+pin`,
+    # not as the bare site name. Track "resume attempted" separately
+    # from "resume succeeded".
+    _resume_attempted = False
     _resumed = False
     if _needs_resume_first(hass, entity_id, preset_mode):
+        _resume_attempted = True
         # HVAC-W1-A INV-A: snapshot + row PER ATTEMPTED WIRE CALL (F11).
-        # Resume row is scheduled BETWEEN the resume-await and the pin-await
-        # so a failed pin never races the resume row (F2 discriminator).
         _resume_data = {"entity_id": entity_id, "preset_mode": PRESET_RESUME}
         _resume_before = _snapshot_climate_state(hass, entity_id)
         _resume_ts_issued = time.monotonic()
+        _resume_wall = dt_util.utcnow().isoformat()
         _resume_ok = False
         _resume_exc: str | None = None
         try:
@@ -559,35 +577,59 @@ async def emit_set_preset_mode(
             )
             _resumed = True
             _resume_ok = True
-        except Exception as _re:  # noqa: BLE001
-            # Fail-forward: if the CLEAR fails we still attempt the pin.
-            # Worst case is the pre-existing behaviour (name discarded).
+        except BaseException as _re:  # noqa: BLE001 — CancelledError still logs
+            # Fail-forward on regular Exceptions; re-raise BaseException
+            # (Cancelled/KeyboardInterrupt) AFTER scheduling the row.
             _resume_exc = type(_re).__name__
             _LOGGER.debug(
                 "resume-then-pin: resume failed for %s; pinning anyway",
                 entity_id, exc_info=True,
             )
-        _schedule_climate_write_row(
-            hass,
-            verb="set_preset_mode",
-            entity_id=entity_id,
-            site=f"{site}+resume",
-            zone_id=zone_id,
-            reason=reason,
-            blocking=True,
-            excursion_id=excursion_id,
-            values_before=_resume_before,
-            values_after=dict(_resume_data),
-            ts_issued=_resume_ts_issued,
-            ts_returned=time.monotonic(),
-            wire_ok=_resume_ok,
-            exc=_resume_exc,
-        )
+            _schedule_climate_write_row(
+                hass,
+                verb="set_preset_mode",
+                entity_id=entity_id,
+                site=f"{site}+resume",
+                zone_id=zone_id,
+                reason=reason,
+                blocking=True,
+                excursion_id=excursion_id,
+                values_before=_resume_before,
+                values_after=dict(_resume_data),
+                ts_issued=_resume_ts_issued,
+                ts_returned=time.monotonic(),
+                wire_ok=False,
+                exc=_resume_exc,
+                issued_wallclock=_resume_wall,
+            )
+            if not isinstance(_re, Exception):
+                raise
+        else:
+            _schedule_climate_write_row(
+                hass,
+                verb="set_preset_mode",
+                entity_id=entity_id,
+                site=f"{site}+resume",
+                zone_id=zone_id,
+                reason=reason,
+                blocking=True,
+                excursion_id=excursion_id,
+                values_before=_resume_before,
+                values_after=dict(_resume_data),
+                ts_issued=_resume_ts_issued,
+                ts_returned=time.monotonic(),
+                wire_ok=_resume_ok,
+                exc=None,
+                issued_wallclock=_resume_wall,
+            )
 
     _pin_data = {"entity_id": entity_id, "preset_mode": preset_mode}
-    _pin_site = f"{site}+pin" if _resumed else site
+    # A-LOW-3: label `+pin` when the resume was ATTEMPTED (attempted-then-
+    # failed included), so provenance queries partition cleanly.
+    _pin_site = f"{site}+pin" if _resume_attempted else site
     _pin_before = _snapshot_climate_state(hass, entity_id)
     _pin_ts_issued = time.monotonic()
+    _pin_wall = dt_util.utcnow().isoformat()
     try:
         await hass.services.async_call(
             "climate",
@@ -595,9 +637,7 @@ async def emit_set_preset_mode(
             _pin_data,
             blocking=blocking,
         )
-    except Exception as _pin_exc:  # noqa: BLE001
-        # INVARIANT I3 — "the zone is never left following the vendor
-        # schedule". See original block below; retry semantics unchanged.
+    except BaseException as _pin_exc:  # noqa: BLE001 — CancelledError logs too
         _schedule_climate_write_row(
             hass,
             verb="set_preset_mode",
@@ -613,11 +653,17 @@ async def emit_set_preset_mode(
             ts_returned=time.monotonic(),
             wire_ok=False,
             exc=type(_pin_exc).__name__,
+            issued_wallclock=_pin_wall,
         )
+        # For non-Exception BaseException (Cancelled/KI), do not retry —
+        # re-raise now.
+        if not isinstance(_pin_exc, Exception):
+            raise
         if _resumed:
             _retry_data = {"entity_id": entity_id, "preset_mode": preset_mode}
             _retry_before = _snapshot_climate_state(hass, entity_id)
             _retry_ts_issued = time.monotonic()
+            _retry_wall = dt_util.utcnow().isoformat()
             _retry_ok = False
             _retry_exc: str | None = None
             try:
@@ -632,7 +678,7 @@ async def emit_set_preset_mode(
                     "resume-then-pin: pin retry succeeded for %s (%s)",
                     entity_id, preset_mode,
                 )
-            except Exception as _re:  # noqa: BLE001
+            except BaseException as _re:  # noqa: BLE001
                 _retry_exc = type(_re).__name__
                 _LOGGER.error(
                     "resume-then-pin: CLEARED the hold on %s but could not "
@@ -640,6 +686,26 @@ async def emit_set_preset_mode(
                     "schedule with no hold until the next write",
                     entity_id, preset_mode, exc_info=True,
                 )
+                _schedule_climate_write_row(
+                    hass,
+                    verb="set_preset_mode",
+                    entity_id=entity_id,
+                    site=f"{site}+pin_retry",
+                    zone_id=zone_id,
+                    reason=reason,
+                    blocking=True,
+                    excursion_id=excursion_id,
+                    values_before=_retry_before,
+                    values_after=dict(_retry_data),
+                    ts_issued=_retry_ts_issued,
+                    ts_returned=time.monotonic(),
+                    wire_ok=False,
+                    exc=_retry_exc,
+                    issued_wallclock=_retry_wall,
+                )
+                if not isinstance(_re, Exception):
+                    raise
+                raise _pin_exc from None
             _schedule_climate_write_row(
                 hass,
                 verb="set_preset_mode",
@@ -654,7 +720,8 @@ async def emit_set_preset_mode(
                 ts_issued=_retry_ts_issued,
                 ts_returned=time.monotonic(),
                 wire_ok=_retry_ok,
-                exc=_retry_exc,
+                exc=None,
+                issued_wallclock=_retry_wall,
             )
             if _retry_ok:
                 _capture_preset_reason(hass, zone_id, reason)
@@ -675,6 +742,7 @@ async def emit_set_preset_mode(
         ts_returned=time.monotonic(),
         wire_ok=True,
         exc=None,
+        issued_wallclock=_pin_wall,
     )
     _capture_preset_reason(hass, zone_id, reason)
     return True
@@ -707,6 +775,7 @@ async def emit_set_hvac_mode(
     service_data = {"entity_id": entity_id, "hvac_mode": hvac_mode}
     _values_before = _snapshot_climate_state(hass, entity_id)
     _ts_issued = time.monotonic()
+    _issued_wall = dt_util.utcnow().isoformat()
     try:
         await hass.services.async_call(
             "climate", "set_hvac_mode", service_data, blocking=blocking,
@@ -727,6 +796,7 @@ async def emit_set_hvac_mode(
             ts_returned=time.monotonic(),
             wire_ok=False,
             exc=type(_wire_exc).__name__,
+            issued_wallclock=_issued_wall,
         )
         raise
     _schedule_climate_write_row(
@@ -744,5 +814,6 @@ async def emit_set_hvac_mode(
         ts_returned=time.monotonic(),
         wire_ok=True,
         exc=None,
+        issued_wallclock=_issued_wall,
     )
     return True

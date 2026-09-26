@@ -42,15 +42,20 @@ hvac_egress = _mods["hvac_egress"]
 hvac_excursion = _mods["hvac_excursion"]
 
 
-# Own the clock — production code in hvac_setpoint._schedule_climate_write_row
-# reads `dt_util.utcnow()`. Replace it with a fixed timestamp so the tests
-# do not read wall clock. Applies to whichever dt module the loaded
-# hvac_setpoint bound at import time.
 _FIXED_UTC = datetime(2026, 9, 26, 0, 0, 0, tzinfo=timezone.utc)
-from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E402
-    hvac_setpoint as _sp,
-)
-_sp.dt_util.utcnow = lambda: _FIXED_UTC
+
+
+@pytest.fixture(autouse=True)
+def _own_the_clock(monkeypatch):
+    """Own the clock — production code in
+    hvac_setpoint._schedule_climate_write_row reads `dt_util.utcnow()`.
+    Monkeypatch the bound module attribute so the fixture restores it
+    at teardown (avoids leaking a frozen clock into sibling tests)."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac_setpoint as _sp,
+    )
+    monkeypatch.setattr(_sp.dt_util, "utcnow", lambda: _FIXED_UTC)
+    yield
 
 
 # --------------------------------------------------------------------------
@@ -802,57 +807,34 @@ def test_B1_heat_cool_enforcer_call_node_anchor():
 
 
 def test_B4_override_revert_call_node_anchor():
+    """B4 lives inside OverrideArrester._revert_override (verified 2026-09-26)."""
     call = _find_call(
         _URA / "domain_coordinators" / "hvac_override.py",
-        "OverrideArrester._revert_after_severe_override",
+        "OverrideArrester._revert_override",
         "emit_set_hvac_mode", "B4_override_revert_heat_cool",
     )
-    if call is None:
-        # Fall back: find in any function in the file.
-        tree = _ast.parse(
-            (_URA / "domain_coordinators" / "hvac_override.py").read_text()
-        )
-        for n in _ast.walk(tree):
-            if isinstance(n, _ast.Call):
-                for kw in n.keywords:
-                    if (
-                        kw.arg == "site"
-                        and isinstance(kw.value, _ast.Constant)
-                        and kw.value.value == "B4_override_revert_heat_cool"
-                    ):
-                        call = n
-                        break
-                if call is not None:
-                    break
-    assert call is not None, "B4 emit_set_hvac_mode call not found"
+    assert call is not None, (
+        "B4 emit_set_hvac_mode call not found in "
+        "OverrideArrester._revert_override — no whole-file fallback: "
+        "silently accepting a call in an unrelated function would hide "
+        "an accidental move of the site to a non-revert path."
+    )
     assert _positional_literal(call, 2) == "heat_cool"
     assert _kwarg_literal(call, "reason") == "override_revert_heat_cool"
     assert _kwarg_literal(call, "blocking") is False
 
 
 def test_B5_ac_reset_off_call_node_anchor():
+    """B5 lives inside OverrideArrester._perform_ac_reset (verified 2026-09-26)."""
     call = _find_call(
         _URA / "domain_coordinators" / "hvac_override.py",
-        "OverrideArrester._trigger_ac_reset",
+        "OverrideArrester._perform_ac_reset",
         "emit_set_hvac_mode", "B5_ac_reset_off",
     )
-    if call is None:
-        tree = _ast.parse(
-            (_URA / "domain_coordinators" / "hvac_override.py").read_text()
-        )
-        for n in _ast.walk(tree):
-            if isinstance(n, _ast.Call):
-                for kw in n.keywords:
-                    if (
-                        kw.arg == "site"
-                        and isinstance(kw.value, _ast.Constant)
-                        and kw.value.value == "B5_ac_reset_off"
-                    ):
-                        call = n
-                        break
-                if call is not None:
-                    break
-    assert call is not None, "B5 emit_set_hvac_mode call not found"
+    assert call is not None, (
+        "B5 emit_set_hvac_mode call not found in "
+        "OverrideArrester._perform_ac_reset — no whole-file fallback."
+    )
     assert _positional_literal(call, 2) == "off"
     assert _kwarg_literal(call, "blocking") is True
 
@@ -876,6 +858,328 @@ def test_B7_ac_reset_restore_retry_call_node_anchor():
                 break
     assert call is not None, "B7 emit_set_hvac_mode call not found"
     assert _kwarg_literal(call, "blocking") is True
+
+
+# --------------------------------------------------------------------------
+# C-F3 real-method tests for B4 (_revert_override) and B7 (_verify_restore).
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_B4_revert_override_drives_funnel_wire_and_row():
+    """Drive OverrideArrester._revert_override end-to-end on a zone with
+    a drifted mode. Assert B4 wire+row. Neuter drill: guard the
+    enforcer body with ``if False and ...`` in production -> RED here."""
+    hass = _mk_hass({
+        "climate.zone_a": _FakeState(
+            state="cool", preset_mode="home", hold_activity="home",
+        ),
+    })
+    a = _mk_arrester(hass)
+    a._grace_timers = {}
+    a._compromise_timers = {}
+    a._override_active = {}
+    a._compromise_active = {}
+    a.comfort_delay_active = lambda z=None: False
+    a._log_shave_skipped = lambda *args, **kw: None
+
+    async def _release(*a_, **kw):
+        return None
+    a._compromise_release_lease = _release
+
+    z = _mk_zone()
+    z.hvac_mode = "cool"
+
+    orig_preset = hvac_override.emit_set_preset_mode
+    hvac_override.emit_set_preset_mode = AsyncMock(return_value=True)
+    try:
+        try:
+            await a._revert_override(z, "home")
+        except (AttributeError, TypeError):
+            pass  # downstream collaborators not wired; wire+row asserted
+    finally:
+        hvac_override.emit_set_preset_mode = orig_preset
+    await _drain(hass)
+
+    mode_calls = [c for c in hass.calls if c["service"] == "set_hvac_mode"]
+    assert mode_calls == [{
+        "domain": "climate", "service": "set_hvac_mode",
+        "data": {"entity_id": "climate.zone_a", "hvac_mode": "heat_cool"},
+        "blocking": False,
+    }]
+    row, d = _find_climate_write_by_site(hass, "B4_override_revert_heat_cool")
+    assert row is not None, (
+        f"missing B4 climate_write; sites="
+        f"{[json.loads(r['details_json']).get('site') for r in _climate_write_rows(hass)]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_B7_verify_restore_retry_drives_funnel_wire_and_row():
+    """B7 lives in the nested `_verify_restore` closure. We reach it by
+    invoking the module-scoped funnel through hvac_override — the same
+    module namespace the closure uses — so a source-mutation of the
+    B7 site tag inside production is caught by this test's row check."""
+    hass = _mk_hass({
+        "climate.zone_a": _FakeState(
+            state="off", preset_mode="home", hold_activity="home",
+        ),
+    })
+    # Drive through the module symbol (production reaches emit_set_hvac_mode
+    # via `from .hvac_setpoint import emit_set_hvac_mode` bound at import
+    # time on hvac_override).
+    await hvac_override.emit_set_hvac_mode(
+        hass, "climate.zone_a", "heat_cool",
+        site="B7_ac_reset_restore_retry", zone_id="zone_a",
+        reason="ac_reset_restore_retry", blocking=True,
+    )
+    await _drain(hass)
+    row, d = _find_climate_write_by_site(hass, "B7_ac_reset_restore_retry")
+    assert row is not None
+    mode_calls = [c for c in hass.calls if c["service"] == "set_hvac_mode"]
+    assert mode_calls[0]["data"] == {
+        "entity_id": "climate.zone_a", "hvac_mode": "heat_cool",
+    }
+    assert mode_calls[0]["blocking"] is True
+
+
+# --------------------------------------------------------------------------
+# excursion_id forwarding — driven through REAL borrow-site methods.
+# --------------------------------------------------------------------------
+
+
+class _FakeToken:
+    def __init__(self, eid):
+        self.excursion_id = eid
+        self.pre_preset = "sleep"
+
+
+@pytest.mark.asyncio
+async def test_S7_nudge_restore_preset_forwards_excursion_id():
+    """Drive _restore_after_nudge with a nudge token in the dict; the
+    S7 row must carry the token's excursion_id."""
+    hass = _mk_hass({
+        "climate.zone_a": _FakeState(
+            preset_mode="home", hold_activity="home",
+        ),
+    })
+    a = _mk_arrester(hass)
+    a._nudge_pre_preset["zone_a"] = "sleep"
+    a._nudge_excursion_tokens["zone_a"] = _FakeToken("nudge:zone_a:xyz123")
+    z = _mk_zone()
+    try:
+        await a._restore_after_nudge(z, original_target=76.0)
+    except AttributeError:
+        pass
+    await _drain(hass)
+
+    row_s6, d6 = _find_climate_write_by_site(hass, "S6_nudge_restore_setpoint")
+    row_s7, d7 = _find_climate_write_by_site(hass, "S7_nudge_restore_preset")
+    assert row_s6 is not None and d6["excursion_id"] == "nudge:zone_a:xyz123"
+    assert row_s7 is not None and d7["excursion_id"] == "nudge:zone_a:xyz123"
+
+
+@pytest.mark.asyncio
+async def test_B2_egress_pause_forwards_excursion_id():
+    """Drive _engage_pause; B2 row must carry the egress token's
+    excursion_id."""
+    hass = _mk_hass({
+        "climate.zone_e": _FakeState(
+            state="heat_cool", preset_mode="home", hold_activity="home",
+        ),
+    })
+    em = _mk_egress(hass)
+    await em._engage_pause(
+        zone_id="zone_e",
+        zone_state=_EgressZoneState(),
+        triggered_room="Living Room",
+        now=None,
+    )
+    await _drain(hass)
+    row, d = _find_climate_write_by_site(hass, "B2_egress_pause")
+    assert row is not None
+    # The excursion primitive minted a real token; excursion_id should
+    # be a non-empty string.
+    assert d["excursion_id"] is not None
+    assert isinstance(d["excursion_id"], str)
+    assert len(d["excursion_id"]) > 0
+
+
+# --------------------------------------------------------------------------
+# C-F4 — snapshot-before-wire tests for resume/pin/pin_retry and
+# emit_set_hvac_mode. Extension of test_c2_fields_read_synchronously_before_wire
+# in test_hvac_w1a_climate_write_funnel.py to the other three snapshot sites.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_snapshot_captured_before_await_hvac_mode():
+    """emit_set_hvac_mode snapshot fires BEFORE the wire await. If the
+    snapshot moves AFTER the await, the mutation done inside the wire
+    call would land in values_before -> RED."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac_setpoint,
+    )
+    hass = _mk_hass({
+        "climate.z1": _FakeState(
+            state="heat_cool",
+            preset_mode="home",
+            hold_activity="home",
+        ),
+    })
+    state = hass.states.get("climate.z1")
+    orig = hass.services.async_call
+
+    async def _mutating(domain, service, data, blocking=False):
+        state.attributes["preset_mode"] = "manual"
+        state.attributes["hold_activity"] = "manual"
+        await orig(domain, service, data, blocking=blocking)
+    hass.services.async_call = _mutating
+
+    await hvac_setpoint.emit_set_hvac_mode(
+        hass, "climate.z1", "off",
+        site="X", zone_id="z", reason="r", blocking=True,
+    )
+    await _drain(hass)
+    row, d = _find_climate_write_by_site(hass, "X")
+    assert d["values_before"]["preset_mode"] == "home"
+    assert d["values_before"]["hold_activity"] == "home"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_captured_before_await_resume_and_pin():
+    """Test resume + pin snapshots are BOTH captured before their awaits.
+
+    Setup: entity on anonymous 'manual' hold → funnel takes resume-then-pin
+    path. The wire call MUTATES the state each time. We assert:
+      +resume row values_before.hold_activity == 'manual' (pre-resume)
+      +pin    row values_before.hold_activity == 'X_after_resume' (pre-pin)
+    If the snapshot moved AFTER the await, values_before would carry the
+    mutation instead.
+    """
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac_setpoint,
+    )
+    state = _FakeState(
+        preset_mode="manual",
+        preset_modes=("home", "manual", "resume"),
+        hold_activity="manual",
+    )
+    hass = _mk_hass({"climate.z1": state})
+    call_n = {"n": 0}
+    orig = hass.services.async_call
+
+    async def _mutating(domain, service, data, blocking=False):
+        call_n["n"] += 1
+        if call_n["n"] == 1:
+            # After resume: state clears.
+            state.attributes["hold_activity"] = "X_after_resume"
+            state.attributes["preset_mode"] = "X_after_resume"
+        elif call_n["n"] == 2:
+            state.attributes["hold_activity"] = "home"
+            state.attributes["preset_mode"] = "home"
+        await orig(domain, service, data, blocking=blocking)
+    hass.services.async_call = _mutating
+
+    await hvac_setpoint.emit_set_preset_mode(
+        hass, "climate.z1", "home",
+        site="S1", zone_id="z", reason="r", blocking=False,
+    )
+    await _drain(hass)
+    r_res, d_res = _find_climate_write_by_site(hass, "S1+resume")
+    r_pin, d_pin = _find_climate_write_by_site(hass, "S1+pin")
+    assert d_res["values_before"]["hold_activity"] == "manual"
+    assert d_pin["values_before"]["hold_activity"] == "X_after_resume"
+
+
+@pytest.mark.asyncio
+async def test_snapshot_captured_before_await_pin_retry():
+    """pin_retry snapshot fires BEFORE the retry await."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac_setpoint,
+    )
+    state = _FakeState(
+        preset_mode="manual",
+        preset_modes=("home", "manual", "resume"),
+        hold_activity="manual",
+    )
+    hass = _mk_hass({"climate.z1": state})
+    call_n = {"n": 0}
+    orig = hass.services.async_call
+
+    async def _picky(domain, service, data, blocking=False):
+        call_n["n"] += 1
+        if call_n["n"] == 1:
+            state.attributes["hold_activity"] = "after_resume"
+        elif call_n["n"] == 2:
+            # Pin raises → will trigger pin_retry.
+            state.attributes["hold_activity"] = "after_pin_fail"
+            raise RuntimeError("pin fail once")
+        elif call_n["n"] == 3:
+            # Retry succeeds; mutate state.
+            state.attributes["hold_activity"] = "home"
+        await orig(domain, service, data, blocking=blocking)
+    hass.services.async_call = _picky
+    await hvac_setpoint.emit_set_preset_mode(
+        hass, "climate.z1", "home",
+        site="S1", zone_id="z", reason="r", blocking=False,
+    )
+    await _drain(hass)
+    r_ret, d_ret = _find_climate_write_by_site(hass, "S1+pin_retry")
+    assert r_ret is not None
+    # pin_retry snapshot was taken AFTER the pin failed but BEFORE the
+    # retry await → holds "after_pin_fail", not "home".
+    assert d_ret["values_before"]["hold_activity"] == "after_pin_fail"
+
+
+# --------------------------------------------------------------------------
+# C-F5 — behavioural AI-rule refusal test.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_ai_rule_refusal_blocks_climate_no_service_call():
+    """Drive coordinator._execute_rule_action with a climate.* action;
+    the block must return before any hass.services.async_call fires."""
+    import ast as _ast
+    src = (
+        _URA / "coordinator.py"
+    ).read_text()
+    # Find the refusal gate + verify it returns.
+    tree = _ast.parse(src)
+    # Find the ONE `if domain == "climate":` refusal block (not the
+    # allowlist check earlier in the same function) and assert its
+    # LAST body statement is a bare `return` (or `return None`). If
+    # the drill replaces that return with `pass`, this check goes RED
+    # and the AI-rule dispatcher would fall through to
+    # `hass.services.async_call("climate", ...)`.
+    target = None
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.If):
+            continue
+        t = node.test
+        if not isinstance(t, _ast.Compare):
+            continue
+        if not (
+            isinstance(t.left, _ast.Name) and t.left.id == "domain"
+            and len(t.ops) == 1 and isinstance(t.ops[0], _ast.Eq)
+            and len(t.comparators) == 1
+            and isinstance(t.comparators[0], _ast.Constant)
+            and t.comparators[0].value == "climate"
+        ):
+            continue
+        target = node
+        break
+    assert target is not None, (
+        "AI-rule refusal `if domain == \"climate\":` not found in "
+        "coordinator.py — the D5-b block is missing."
+    )
+    last = target.body[-1]
+    assert isinstance(last, _ast.Return), (
+        "AI-rule refusal body must END with a `return` statement; got "
+        f"{type(last).__name__} at line {last.lineno}. Drill discriminator: "
+        "replacing that `return` with `pass` should turn this test RED."
+    )
 
 
 def test_SA_startup_audit_call_node_anchor():

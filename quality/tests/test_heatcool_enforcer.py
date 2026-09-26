@@ -166,11 +166,27 @@ def _load_hvac_module():
     # hvac_setpoint: SUITE-HYGIENE-2 — hvac.py imports the setpoint chokepoint
     # helpers. Standalone we must stub them; in-suite a sibling loader (e.g.
     # test_freeze_floor) may install a real one, but our own stub is fine.
+    async def _stub_emit_set_hvac_mode(hass, entity_id, hvac_mode, *,
+                                       site, zone_id, reason, blocking,
+                                       excursion_id=None):
+        # HVAC-W1-A: forward to hass.services so tests that assert on
+        # captured service calls still see the write. Record site tags
+        # so B1 anchor tests can assert on the site name.
+        await hass.services.async_call(
+            "climate", "set_hvac_mode",
+            {"entity_id": entity_id, "hvac_mode": hvac_mode},
+            blocking=blocking,
+        )
+        if not hasattr(hass, "_w1a_sites"):
+            hass._w1a_sites = []
+        hass._w1a_sites.append(site)
+        return True
     _stub_module(
         "ura_hvac_pkg.domain_coordinators.hvac_setpoint",
         apply_setpoint_guards=lambda *a, **kw: None,
         emit_set_preset_mode=lambda *a, **kw: None,
         emit_set_temperature=lambda *a, **kw: None,
+        emit_set_hvac_mode=_stub_emit_set_hvac_mode,
     )
 
     # signals: permissive — every SIGNAL_* import resolves to a sentinel str.
@@ -300,6 +316,9 @@ async def test_cool_drift_is_enforced_to_heat_cool():
     coord = _make_coord(zones={"zone_1": z}, heat_cool_capable={"climate.zone_1"})
     await coord._apply_house_state_presets()
     assert _set_hvac_modes(coord) == ["heat_cool"]
+    # HVAC-W1-A B1: the enforcer routed through emit_set_hvac_mode with
+    # the B1 site tag. The stub records it on hass._w1a_sites.
+    assert getattr(coord.hass, "_w1a_sites", []) == ["B1_heat_cool_enforcer"]
     # Suppress handshake fired, and (success path) no unsuppress.
     assert "climate.zone_1" in coord._override_arrester.suppressed
     assert "climate.zone_1" not in coord._override_arrester.unsuppressed

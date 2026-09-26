@@ -19,8 +19,13 @@ Bug-class mitigations:
 - #14: user-tunable scalars (threshold_s, resume_delay_s, manual_grace_s,
   cooldown_s, enabled) snapshotted at top of async_tick; live setters write
   for the next tick.
-- #19: no fire-and-forget hass.async_create_task in this module; service
-  calls are awaited under the held lock.
+- #19: service calls in this module are awaited under the held lock.
+  (CORRECTION 2026-09-26, HVAC-W1-A: this module's own emissions are
+  still awaited, but the emit_set_hvac_mode / emit_set_preset_mode
+  funnels internally schedule the durable `climate_write` row via
+  ``hass.async_create_task`` in fire-and-forget mode — that is by
+  design and is safe: the funnel captures/serialises its own arguments
+  before scheduling, and the row-write is idempotent.)
 - #21: rehydrate parses ISO strings via dt_util.parse_datetime, never
   datetime.fromisoformat.
 - #23: NM dispatch gated on `not hvac.observation_mode` at the dispatch
@@ -688,6 +693,7 @@ class EgressManager:
                     zone_id=zone_id,
                     reason="egress_pause",
                     blocking=True,
+                    excursion_id=(_et.excursion_id if _et else None),
                 )
                 if _s15_guard is not None and hasattr(_s15_guard, "mark_committed"):
                     _s15_guard.mark_committed()
@@ -778,6 +784,11 @@ class EgressManager:
         # contract, mode-fail still attempts preset restore; the return
         # records restore_ok=False with trigger_detail='mode_restore_failed'.
         _mode_ok = False
+        # HVAC-W1-A F6: forward the egress-borrow token's excursion_id
+        # into both wire writes so the climate_write rows carry
+        # provenance.
+        _resume_et = getattr(self, "_egress_excursion_tokens", {}).get(zone_id)
+        _resume_eid = _resume_et.excursion_id if _resume_et else None
         try:
             # HVAC-W1-A B3: egress resume saved mode.
             await emit_set_hvac_mode(
@@ -788,6 +799,7 @@ class EgressManager:
                 zone_id=zone_id,
                 reason="egress_resume",
                 blocking=True,
+                excursion_id=_resume_eid,
             )
             _mode_ok = True
         except Exception:
@@ -809,6 +821,7 @@ class EgressManager:
                     site="egress_resume",  # ALLOW (restoration)
                     zone_id=zone_id,
                     reason="egress_resume",
+                    excursion_id=_resume_eid,
                 )
                 _preset_ok = True
             except Exception:
