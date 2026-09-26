@@ -410,6 +410,98 @@ async def test_resume_then_pin_schedules_two_rows_in_order():
 
 
 @pytest.mark.asyncio
+async def test_emit_set_temperature_wire_raises_propagates_and_logs_row():
+    """Row-helper drill coverage: raise-path in emit_set_temperature."""
+    db = _FakeDB()
+    hass = _FakeHass(
+        states_map={"climate.z1": _FakeState(preset_mode="home")},
+        db=db,
+        raise_on_call=RuntimeError("boom_temp"),
+    )
+    with pytest.raises(RuntimeError, match="boom_temp"):
+        await hvac_setpoint.emit_set_temperature(
+            hass, "climate.z1",
+            target_temp_low=70, target_temp_high=76,
+            site="S5_nudge_start", zone_id="zone_1",
+            reason="nudge", blocking=False,
+        )
+    await _drain(hass)
+    assert len(db.rows) == 1
+    d = json.loads(db.rows[0]["details_json"])
+    assert d["wire_ok"] is False
+    assert d["exc"] == "RuntimeError"
+    assert d["site"] == "S5_nudge_start"
+
+
+@pytest.mark.asyncio
+async def test_resume_then_pin_pin_failure_logs_pin_row_with_wire_ok_false():
+    """Row-helper drill coverage: pin-raise-path in emit_set_preset_mode."""
+    db = _FakeDB()
+    state = _FakeState(
+        preset_mode="manual",
+        preset_modes=("home", "manual", "resume"),
+        hold_activity="manual",
+    )
+    hass = _FakeHass(states_map={"climate.z1": state}, db=db)
+
+    call_count = {"n": 0}
+    orig = hass.services.async_call
+
+    async def _picky(domain, service, data, blocking=False):
+        # Let resume through, fail the pin, fail the retry.
+        call_count["n"] += 1
+        hass._call_log.append((domain, service, dict(data), blocking))
+        if call_count["n"] >= 2:
+            raise RuntimeError("boom_pin")
+
+    hass.services.async_call = _picky
+    with pytest.raises(RuntimeError, match="boom_pin"):
+        await hvac_setpoint.emit_set_preset_mode(
+            hass, "climate.z1", "home",
+            site="S1", zone_id="zone_1", reason="rz", blocking=False,
+        )
+    await _drain(hass)
+    # Three rows: +resume (ok), +pin (fail), +pin_retry (fail).
+    sites = [json.loads(r["details_json"])["site"] for r in db.rows]
+    assert sites == ["S1+resume", "S1+pin", "S1+pin_retry"]
+    verdicts = [json.loads(r["details_json"])["wire_ok"] for r in db.rows]
+    assert verdicts == [True, False, False]
+
+
+@pytest.mark.asyncio
+async def test_pin_retry_success_after_pin_failure_logs_retry_row():
+    """Row-helper drill coverage: pin_retry SUCCESS-path."""
+    db = _FakeDB()
+    state = _FakeState(
+        preset_mode="manual",
+        preset_modes=("home", "manual", "resume"),
+        hold_activity="manual",
+    )
+    hass = _FakeHass(states_map={"climate.z1": state}, db=db)
+
+    call_count = {"n": 0}
+
+    async def _picky(domain, service, data, blocking=False):
+        call_count["n"] += 1
+        hass._call_log.append((domain, service, dict(data), blocking))
+        # Resume ok, pin fails, retry succeeds.
+        if call_count["n"] == 2:
+            raise RuntimeError("boom_pin_once")
+
+    hass.services.async_call = _picky
+    ok = await hvac_setpoint.emit_set_preset_mode(
+        hass, "climate.z1", "home",
+        site="S1", zone_id="zone_1", reason="rz", blocking=False,
+    )
+    await _drain(hass)
+    assert ok is True
+    sites = [json.loads(r["details_json"])["site"] for r in db.rows]
+    verdicts = [json.loads(r["details_json"])["wire_ok"] for r in db.rows]
+    assert sites == ["S1+resume", "S1+pin", "S1+pin_retry"]
+    assert verdicts == [True, False, True]
+
+
+@pytest.mark.asyncio
 async def test_no_resume_route_uses_bare_site_name():
     db = _FakeDB()
     # No anonymous hold → direct pin, no resume, site stays bare.

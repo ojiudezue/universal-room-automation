@@ -248,6 +248,18 @@ Sites `<caller>+resume`, `<caller>+pin`, `<caller>+pin_retry` recorded per D2 ab
 **Acceptance (D4):** covered by `test_resume_then_pin_schedules_two_rows_in_order`, `test_resume_row_scheduled_after_pin_await_returns`, and the F7 live JOIN.
 
 ### D5 — AST completeness lint (F1, F5)
+
+**Build-time narrowing accepted by the orchestrator 2026-09-26 (fix-up round 1):** rule (2)
+non-literal-domain flags ONLY when the service verb is a `climate` verb literal. Rationale:
+URA has ~40 pre-existing legitimate dynamic-domain callers targeting fan / cover / notify /
+media_player (`hvac.py:3813`, `hvac_predict.py:1292`, `hvac_fans.py`, `music_following.py`,
+`perimeter_alert.py`, `energy.py`, `manager.py`, `notification_manager.py`, etc.) — none of
+which can reach a climate service without also naming a climate verb. Flagging every
+non-literal-domain call would demand an allowlist explosion and add zero safety over the
+narrowed rule, which still catches "`hass.services.async_call(some_var, 'set_hvac_mode',
+...)`". The load-bearing invariant (no path from URA to `climate.*` outside
+`hvac_setpoint.py`) is preserved.
+
 `quality/tests/test_hvac_climate_write_funnel_completeness.py`. Python AST walk over `custom_components/universal_room_automation/`; FAILS on any Call node meeting:
 
 1. **Any of these call shapes:** `hass.services.async_call(...)`, `self.hass.services.async_call(...)`, `services.async_call(...)`, `hass.services.call(...)`, `hass.async_add_executor_job(hass.services.call, ...)`, or `hass.loop.run_in_executor(None, hass.services.call, ...)` (F5: executor-wrapped equivalents).
