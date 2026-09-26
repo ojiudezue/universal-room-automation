@@ -71,7 +71,7 @@ Consequences:
 - The **occupancy fast path was DESIGNED, never built**: commit `82620357a` names `HVAC_DECISION_TICK=5min` as "a hard
   floor on fast-in ... needs event-driven path"; `HVAC-SUPPLE-SEQUENCE-1` step 5 lists it as conditional. It lives in W2.
 - Carrier cloud refresh after a write takes **42–79 s** (`hvac_override.py:147-150`); arrester temp-suppression is
-  **5 s for temperature writes** (`SUPPRESS_TTL_SECONDS`, `hvac_override.py:129`, deliberately short so a human at the dial is still seen, `:141-146`) and **120 s for preset writes** (`SUPPRESS_TTL_SECONDS_PRESET`, `:153`) — see C17 — URA's own write echoes that arrive later are booked as overrides.
+  **15 s for temperature writes** (`SUPPRESS_TTL_SECONDS`, `hvac_override.py:133`, raised 5 -> 15 by HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1, 2026-09-26; measured Carrier echo lag 5.3-7.5 s, human-manual floor > 60 s) and **120 s for preset writes** (`SUPPRESS_TTL_SECONDS_PRESET`) — see C17, C23 — URA's own write echoes that arrive later than the window are still booked as overrides.
 
 ---
 
@@ -215,7 +215,7 @@ lockout, arrester, S1 — trusts `preset_mode`**, which is the lagging field (§
 | Operator-immune hold (`CONF_HVAC_ARRESTER_IMMUNE_PERSONS`) sunset: next_activity / durable house state / 4 h | `hvac_const.py:189-198`; `hvac_override.py:713-811` | sunset hands back to the arrester — does NOT clear the hold (`:727-729`) |
 | Temp Arrester Override switch (live off), max 6 h | `hvac_const.py:205`; `switch.py:2429-2468` | same — hands back only |
 | Comfort Grace (live **20 min**; default 30) | `hvac_const.py:452-456` | grant expiry writes nothing (`hvac_override.py:2694-2716`) |
-| Suppression windows: temp 5 s / preset 120 s vs Carrier observed 42–79 s (schedule: 30-min poll + 5-min post-write guard, C16) | `hvac_override.py:129`, `:147-150`; preset-window pass-through `:2455-2466` | URA's own late echo → `override_detected` |
+| Suppression windows: temp 15 s (raised from 5 by HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1, 2026-09-26) / preset 120 s vs Carrier observed 42–79 s (schedule: 30-min poll + 5-min post-write guard, C16) | `hvac_override.py:133`, `:173`; preset-window pass-through `:2468-2482` | URA's own late echo → `override_detected` — for kind="temp" only past 15 s, but for kind="preset" the mid-window passthrough books a fresh transition INTO `manual` at ANY time inside the 120 s window (the restore-echo residual, W1-B problem 1) |
 | **Net:** no timeout releases the lockout; a URA-caused or stale `manual` at zero delta is **never reclaimed** except by a forced-away write | — | operator 2026-09-25: *"Without that knob, why would we not override? arrester is an override."* |
 
 ---
@@ -375,6 +375,15 @@ disagreement began 00:45 CDT when the cloud `hold_activity` flipped to `sleep` i
 co-occurrence, causation UNVERIFIED. (c) NEW MECHANISM: 24/52 `override_detected` rows since 09-19 are Carrier's echo of
 URA's own nudge, 5.3–7.5 s after the write (past the 5 s temp suppression, `hvac_override.py:133`/`:2440-2450`), shown as
 a whole-degree value; 22 of 24 followed by a lockout — card `HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1`.
+**FIXED for nudge-start / compromise / pre-cool echoes (~28 of ~35, operator-approved
+simplest fix, build 2026-09-26):** `SUPPRESS_TTL_SECONDS` raised **5 -> 15 s**
+(`hvac_override.py:133`), 2x the measured 7.5 s max echo lag, still far below the
+> 60 s genuine-human-manual floor and Carrier's 42-79 s cloud refresh. Residuals
+-> **W1-B problem 1**: restore echoes under kind="preset" (mid-window passthrough
+books a fresh transition INTO `manual`), late echoes > 15 s under kind="temp",
+and post-restore manual strands (§9.1). The value-matched last-write record from
+the plan is part of W1-B. Accepted trade-off: a human preset -> manual within
+15 s of a URA temp write (kind="temp") is not booked.
 
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 

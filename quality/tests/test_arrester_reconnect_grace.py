@@ -363,7 +363,9 @@ class TestReconnectGrace:
         assert ENT_1 in arrester._suppressed_until
 
         # 2. Carrier cloud fault lands the reconnect INSIDE the window
-        #    (1s later, well under SUPPRESS_TTL_SECONDS=5).
+        #    (1s later, well under SUPPRESS_TTL_SECONDS_PRESET=120 —
+        #    step 1 opened suppression with kind="preset", so the active
+        #    window is the preset TTL, not SUPPRESS_TTL_SECONDS).
         fake_clock.advance(1.0)
         arrester._handle_climate_change(_mk_event(
             ENT_1,
