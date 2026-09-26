@@ -28691,12 +28691,19 @@ cards:
      forward capture (phantom vs known-occupied) + per-unit fit; intra-device (fragile). Revisit only if the
      pause-recheck route proves insufficient across the mmwave-only fan rooms.'
 - id: ENVOY-STREAM-TRUST-MEASURE-1
+  native_status_2026_09_25_2345: 'Operator: "Envoy connected. Is it still flapping?" Native enphase_envoy entry LOADED;
+    sensor.envoy_482543015950_battery down-events: 23 between 12:08 and 21:07 CDT, 0 since 21:07 (~2.5 h, right after the
+    Envoy reboot + network restart + core update) — too short to call; count over the run-2 window. EC back on
+    tier primary_envoy. NEW: all native CONSUMPTION-CT entities unavailable since the 18:11 restart
+    (current_power_consumption, energy_consumption_today / last_seven_days (+L1/L2), balanced_net_power_consumption,
+    lifetime_energy_consumption, lifetime_balanced_net_energy_consumption) while net-consumption, production,
+    storage CT and battery are live. Mechanism unknown — investigate with run 2, do not guess.'
   title: We now have a third, much faster Envoy data source — measure whether it can be trusted
     before anything is allowed to depend on it
   thread: energy
   status: investigating
   created: '2026-09-25 18:00'
-  updated: '2026-09-25 21:10'
+  updated: '2026-09-25 23:45'
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-09-25 ("MQTT can be added as a trusted local witness. Just measure for
