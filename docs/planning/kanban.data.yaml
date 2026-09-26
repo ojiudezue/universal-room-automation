@@ -3763,9 +3763,10 @@ cards:
     context: Same operator ratification; this is the one piece of that input I did NOT apply, because the notation is ambiguous.
   refs: [docs/planning/VALIDATE_exterior_camera_seams.md]
 - id: TOU-FILE-TOGGLE-AND-LOUD-FAILURE-1
+  disposition_2026_09_26_groom: 'SOAK EXIT DONE. README_v5.101.2 validation D5 PASS: tou_file_status=ok exposed on sensor.ura_energy_coordinator_tou_period. The rejected-file alert path is proven in-suite only (it would need a deliberately broken live file) — accepted.'
   title: Make the TOU file opt-in with a toggle, and make a rejected file LOUD instead of a log line
   thread: energy
-  status: shipped_organic
+  status: done
   shipped_version: v5.101.2
   BUILT_2026_09_14: >-
     BUILT @ feature/tou-file-toggle-loud (e5a0e5796), merged into release/v5.101.2-integration.
@@ -3841,9 +3842,10 @@ cards:
   refs:
   - custom_components/universal_room_automation/domain_coordinators/energy_tou.py
 - id: TOU-FILE-NO-RATE-VALIDATION-1
+  disposition_2026_09_26_groom: 'SOAK EXIT DONE. README_v5.101.2 validation D4 PASS: the operator''s real tou_rates.json loads under the strict validator (import_rate 0.043481, no fallback); still live 2026-09-26.'
   title: A typo in the TOU rate file silently yields 0.0 rates — no validation of rates or hours
   thread: energy
-  status: shipped_organic
+  status: done
   shipped_version: v5.101.2
   BUILT_2026_09_14: >-
     BUILT by a worktree-isolated builder @ feature/tou-file-validation, commit 85d19e6b1 — in
@@ -3927,9 +3929,10 @@ cards:
   - custom_components/universal_room_automation/domain_coordinators/energy_tou.py:99
   - docs/planning/PLANNING_exterior_seam_file_injection.md
 - id: TOU-RATE-FILE-KEY-UNWIRED-1
+  disposition_2026_09_26_groom: 'SOAK EXIT DONE. README_v5.101.2 validation D3 PASS (rate_source resolves the configured path); still live after the 2026-09-26 restart: sensor.ura_energy_coordinator_tou_rate=0.043481 off_peak/summer.'
   title: CONF_ENERGY_TOU_RATE_FILE is declared but never read — the TOU file path is hardcoded
   thread: energy
-  status: shipped_organic
+  status: done
   shipped_version: v5.101.2
   created: '2026-09-13 23:30'
   updated: '2026-09-13 23:30'
@@ -4221,9 +4224,10 @@ cards:
   - custom_components/universal_room_automation/const.py:1942
   - quality/tests/perimeter/test_seam_graph_invariants.py
 - id: CAMERA-SEAM-VALIDATION-1
+  disposition_2026_09_26_groom: 'RE-LANED (review task, not shipped). REVIEW: tick/strike the 27 seams in docs/planning/VALIDATE_exterior_camera_seams.md + ANSWER Q1-Q3 -> I apply the accepted edits to EXTERIOR_ADJACENCY_GRAPH.'
   title: Exterior camera seams (handoff points) listed for operator validation — 12 cameras, 27 seams
   thread: perimeter
-  status: shipped_organic
+  status: waiting_operator
   shipped_version: v5.101.2
   UNHELD_2026_09_14: >-
     HOLD LIFTED — the operator answered all three blocking questions. (1) Ring order: resolved by
@@ -8793,6 +8797,7 @@ cards:
     context: Found by the same consumer check; independent of the discharge defect — fixing discharge will not make this notify.
   refs: [custom_components/universal_room_automation/domain_coordinators/notification_manager.py:5036]
 - id: ROUTINE-DETECTOR-NO-DISCHARGE-1
+  disposition_2026_09_26_groom: 'DONE 2026-09-26. The per-cell discharge shipped (6c10145c0, regime_detector.py:498-530) but only fires on a cell''s TRANSITION back to stable (old_counter>0); all 48 cells were already stable, so the 462 legacy rows (445 with recovery_at NULL, oldest 2026-05-15) were stranded and never discharged. No new regime_shift row since 2026-09-08 (no accumulation). Cleared the legacy backlog via the designed manual path: pressed button.ura_coordinator_manager_acknowledge_routine_changes at 18:20:30Z -> anomaly_log bayesian.routine_shift unrecovered 445 -> 0 (verified). Future episodes discharge automatically.'
   FIXUP_2026_09_14_HOUSEHOLD_SENSOR: >-
     SHIPPED v5.101.3 WAS INCOMPLETE — caught by live validation, not by tests.
     There are TWO routine-status sensors with TWO separate queries
@@ -8835,7 +8840,7 @@ cards:
     button.ura_coordinator_manager_acknowledge_routine_changes AFTER this ships, so it cannot
     silently re-accumulate.
   thread: presence
-  status: shipped_organic
+  status: done
   shipped_version: v5.101.4
   updated: '2026-09-12 17:00'
   operator_decision_2026_09_12: 'DECISION (operator): build BOTH — (1) the care dashboard in ura-v8, Presence tab (the ROUTINE-CARE-DASHBOARD-1 surface), AND (2) AUTO-DECAY: auto-clear a routine_shift anomaly if unacknowledged after 2 WEEKS (set recovery_at = timestamp + 14d; a Numbers-Get-Knobs constant). This is discharge design option A (time-TTL) + the dashboard. Unblocks ROUTINE-CARE-DASHBOARD-1. NEXT: plan the 14d-TTL auto-decay (reuse recovery_at) + the ura-v8 presence-tab care surface.'
@@ -10385,10 +10390,11 @@ cards:
     tracks a DROP decision, not a shipped feature. UN-WATCHABLE by HA recorder. Next step per card: confirm
     drop is recorded in planning doc and close.'
 - id: EV-SENSOR-CLEANUP-1
+  disposition_2026_09_26_groom: 'RE-LANED (residual never built; wrongly stamped shipped by v5.101.0). Verified 2026-09-26: no per-plug power entity config exists (grep CONF_*PLUG*POWER / plug_power_entity = none). Residual Tier 1: optional per-plug power entity in _plug_config wired to the Emporia garage circuit, keeping the 1440 W estimate as fallback.'
   title: 'EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real
     power (Emporia) so Moes sockets read measured not the 1440W estimate'
   thread: energy
-  status: shipped_organic
+  status: planned
   ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). Primary deliverable DONE + on develop @9f983c073 (EnergyEVChargeRateGarage{A,B}Sensor, sensor.py:330-331/10395+, sourced from ev_status per-bay power, fail-closed None). RESIDUAL (separate tail, not blocking): optional per-plug power entity wired to the Emporia garage circuit — keep carded. Moves review->shipped_organic when deploy.sh runs.'
   updated: 2026-09-12 12:40
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: dupes removed (ed37feb95) + per-plug power_entity added (d98d31877) — the stated next is DONE. Actually-open = the operator reversal: re-add + populate sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b} (do not exist in source today). REWRITE next to the reversal.'
@@ -15717,9 +15723,10 @@ cards:
   - '2026-08-23 watch-pass: README_v5.75.2 L2=PASS — zero CRITICAL dispatches post-boot; 326-row historical
     resurection structurally closed. H1 confirmed.'
 - id: SAFEWORD-WINDOW-1
+  disposition_2026_09_26_groom: 'RE-LANED (never built; wrongly in shipped_organic). Operator decision pending: APPROVE the scoped shape (perimeter-only, ''duke Nh'' syntax, 3 h cap) -> Tier 2 build.'
   title: Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed)
   thread: notifications
-  status: shipped_organic
+  status: waiting_operator
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) ALREADY-DONE — operator ask MOOT: ''duke Nh'' perimeter-only silence window shipped v5.75.2 (a8d8d9b0d) in the exact scoped shape (perimeter-only, Nh syntax, 3h cap, life-safety never blanketed). Moved off waiting_operator; only organic H1 (first real ''duke Nh'' reply) remains.'
   relane_2026_09_10: Not a soak -> WAITING_OPERATOR. You confirm the scoped shape (perimeter-only, 3h
@@ -15772,10 +15779,11 @@ cards:
   resolution_2026_08_17: 'Operator confirmed 2026-08-17: security images ARE arriving. The prune-audit
     "active fail" read was wrong — feature works. Closed.'
 - id: ROOM-NAME-UNIQUE-1
+  disposition_2026_09_26_groom: 'RE-LANED (was wrongly stamped shipped by the v5.101.0 --cards list). VERIFIED 2026-09-26: the CREATE-time guard shipped (config_flow.py:1375-1388, room_name_exists), but the RENAME path — options-flow basic_setup write-through at config_flow.py:10379 — has NO uniqueness check, which is exactly this card''s title. Tier 1 build: reuse the same case-insensitive trimmed check excluding the entry itself, error room_name_exists; behavioural test driving the options step with a colliding name. Queued behind the W1-A build (one builder runs pytest at a time).'
   title: Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold
     into one occupancy bucket)
   thread: presence
-  status: shipped_organic
+  status: planned
   shipped_version: v5.101.0
   ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (room_name_exists guard in async_step_room_setup config_flow.py:1122/1129 + strings.json:465). Moves review->shipped_organic at deploy.'
   updated: 2026-09-12 11:40
@@ -17284,10 +17292,11 @@ cards:
     empty house (no populated per-person rows); L5/L6 organic. Side-effect: census source_agreement now
     both_agree (was single_source).'
 - id: AWAY-BLOCK-1
+  disposition_2026_09_26_groom: 'SOAK EXIT DONE. Operator dispositioned all recs 2026-08-13 (rec 1 operator-owned, DO NOT RAISE AGAIN; recs 2/3 parked with triggers); root fixes shipped (STUCK-SENSOR-1, v5.75.0/v5.78.0). Discriminator ''one real all-away transition'' met: 2026-09-26 the house reached away (decision_log context house_state=away from ~09:54 CDT; zones retreated vacant_past_grace). Parked recs keep their own revival triggers.'
   title: House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop;
     both away paths structurally blocked
   thread: presence
-  status: shipped_organic
+  status: done
   updated: 2026-09-12 11:00
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) MOOT->shipped_organic: operator already dispositioned all recs 2026-08-13 (rec1 ''DO NOT RAISE AGAIN''; rec2/3 parked w/ triggers); root fixes shipped (STUCK-SENSOR-1 duty-flag a55557b9e; v5.75.0/v5.78.0). Card now holds the incident record. Discriminator: one real all-away transition. Deeper work in PATH-ALPHA-DENOM-1/GAP-A-CENSUS-HOLE-1.'
   relane_2026_09_10: Not a soak -> WAITING_OPERATOR. You pick; orchestrator recommends 1+2 together (config
@@ -19066,6 +19075,7 @@ cards:
   - 'GROOM 2026-09-11: VERDICT REAL feature, framing STALE (unaware of its own v3 plan + BACKLOG B5).
     Promoted inbox -> pre_planning; linked plan; next rewritten.'
 - id: UNLOAD-SYMMETRY-TASK-HYGIENE-1
+  disposition_2026_09_26_groom: 'RE-LANED (tech-debt hardening, never built). Tier 2: audit async_on_unload coverage + track background tasks.'
   SHIPPED_5103_5_2026_09_16: 'Shipped v5.103.5, live-validated: clean load, zero ERROR, name-diff
     byte-identical (305==305). Behavior-neutral. shipped_organic; discriminator = at next reload no
     async_call_later exceptions + bounded ComplianceTracker retention (one-shot check, dispose next
@@ -19099,7 +19109,7 @@ cards:
     CLEARED (PASS): __init__.py:1618 (once-per-setup), hvac.py:1210 (per-instance re-armed),
     owner routing disjoint, teardown idempotent. Awaiting Review B before a consolidated fix-up.'
   title: Setup/unload symmetry + tracked background tasks (tech-debt hardening)
-  status: shipped_organic
+  status: planned
   shipped_version: v5.103.5
   AUDIT_2026_09_15: 'AUDIT DONE — and it DE-SCOPES this card by ~96%. Built a reusable AST audit,
     quality/tools/audit_listener_cleanup.py (REUSE of the audit_shadow_imports.py walker skeleton
@@ -23019,6 +23029,7 @@ cards:
     RESTART-SAFETY-DOCTRINE-1 because that card is about state not surviving restarts, whereas this is
     a concurrency defect in the save routine itself; linked instead.'
 - id: HVAC-ANOMALY-BLIND-1
+  disposition_2026_09_26_groom: 'SOAK EXIT: residual B SHIPPED (save_baselines after the per-zone record_observation loop, hvac.py:4782, on develop and live). Residual A remains and needs an operator PICK (RESIDUAL_A_ESCALATED_2026_09_16): what the sensor should SAY while metrics are unfed, and shared-detector vs hvac-only fix. Observed 2026-09-26: zero hvac rows in anomaly_log over the last 3 days — consistent with the detector still being partly blind.'
   workstream: HVAC-W4-ARC-CLOSURE
   MEASURED_2026_09_16: 'RESIDUAL B CONFIRMED — MECHANISM FOUND, and it is review finding B4 from
     2026-08-23 which said "card it" and never got carded. The discriminating probe this card
@@ -23242,7 +23253,7 @@ cards:
     and egress_pause_frequency are both event-driven accumulators over rare events, which per RESTART-SAFETY-DOCTRINE-1
     is the hazard class that stays structurally inert; wire them only with an explicit statement of expected
     samples-per-day, or leave them declared-and-suppressed.'
-  status: shipped_organic
+  status: waiting_operator
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: short_cycle_rate now wired (hvac.py:4077). NARROW to the 2 still-unproduced metrics: comfort_deviation_hours (no call site, :4160) + egress_pause_frequency (0 hits). 4/5 wired.'
   relane_2026_09_10: Not a soak -> PRE-PLANNING. Plan the short-cycle producer carrying measured distributions
     as acceptance fixture; decide rolling-24h-per-tick vs per-completed-cycle-log.
@@ -24074,6 +24085,7 @@ cards:
     on it yet. This does not need an operator decision to establish — it is a measurement — but which
     of the three you want touched, and by whom, still does.'
 - id: RECORDER-BLOAT-LOGFLOOD-1
+  disposition_2026_09_26_groom: 'RE-LANED (operator-side config, never a URA ship). DO: fix the Sonoff number range + the pantry adaptive-lighting automation (config-level, outside URA) -> I re-measure recorder growth.'
   INSTANCE_2026_09_15_watermonitor_single_entity_dominates_states: 'MEASURED on the live recorder
     (read-only, 24h window) during the overnight pass, while running the sibling card
     RECORDER-CHURN-SWEEP-URASENSORS-1 probe. Filed here as an INSTANCE rather than a new card: same
@@ -24146,7 +24158,7 @@ cards:
   title: 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log
     floods
   thread: platform
-  status: shipped_organic
+  status: waiting_operator
   shipready_2026_09_13: 'SHIP-READY @ 39b2a525d (feature/recorder-attr-churn). A/B=SHIP (no must-fix; no consumers anywhere incl all 20 dashboards; last_reported validated as live-freshness substitute, historical-tick trace intentionally traded away = the 675k rows bought back). Cleanups done: test truth-in-labeling rename + doc-drift struck (4 docs). Suite baseline unchanged. -> bundled deploy v5.101.1 pending operator checkpoint. Additional 6-9 churn sites carded RECORDER-CHURN-SWEEP-URASENSORS-1.'
   reviewA_2026_09_13: 'Recorder Review A (removal-completeness) = SHIP, no must-fix: 3 removals complete, state values stable, no consumers. Found 6-9 ADDITIONAL enabled churn sites (same class) -> carded RECORDER-CHURN-SWEEP-URASENSORS-1. Nits: test_safety_status_no_churn_across_two_reads is AST-scan not behavioral (rename), README_v4.6.2:59/BACKLOG:807 attr-list doc drift. Awaiting Review B (hidden-consumers).'
   measured_2026_09_13: 'MEASURED (read-only live). 31GB confirmed, purge_keep_days=7, ~7.4M state rows/day, span ~7.8d. CORRECTION: /config is a 457GB NVMe at 28% used (316GB free) — NOT space-constrained; flash-life 51%% UNVERIFIED (smartctl needs root). So this is WRITE-AMPLIFICATION hygiene, not a space crisis. The 3 floods decompose: (1) URA-OWNED bug — sensor.ura_safety_coordinator_safety_status churns last_check=utcnow().isoformat() in recorded attrs (sensor.py:6544) -> 675k rows/wk despite 4 distinct states; NO consumer reads it. FIX BUILDING (feature/recorder-attr-churn, _unrecorded_attributes; + sibling audit :15052/:15086 last_check_at, security.py:2463). (2+3) EXTERNAL telemetry tail (kiosk wall_panel_studyb_*, iphone_*_unfiltered_distance_to_*, invisoutlet_*, outlet_lux_pir_mmwave_*, phalanxudmpro_*_utilization, binary_sensor.madronewatermonitor_low_flow_leak) -> OPERATOR-SIDE recorder exclude globs in configuration.yaml (NOT URA code; exclude block already exists, extend it). One-time reclaim: recorder.purge repack:true OR the URA VACUUM button after excludes land.'
@@ -27142,9 +27154,10 @@ cards:
     problem: "config flow slow post-onboarding; cause unproven (auto-detect ruled out; reload-storm suspected)"
     verdict: INVESTIGATE
 - id: ONBOARDING-SIMPLIFY-1
+  disposition_2026_09_26_groom: 'RE-LANED (never built; wrongly stamped shipped by v5.101.0). Still a planning task: trace + document the first-run path and every field, then propose >=50% reduction for operator review.'
   title: "Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load"
   thread: config-flow
-  status: shipped_organic
+  status: pre_planning
   live_validated_2026_09_12: 'DEPLOYED v5.101.0 + live-validated post-restart. L1 PASS (45/45 URA entries loaded, ZERO ERROR logs — only normal boot WARNINGs), L2 PASS (one INTEGRATION entry, existing rooms untouched). L3-L6 operator-action-gated (manifest on next add-room/fresh-install) — code live + in-suite verified; README_v5.101.0 carries the Validated table. HACS installed_version=v5.101.0. Cycle closed pending organic add-room observation.'
   shipped_version: v5.101.0
   updated: '2026-09-12 16:05'
@@ -28840,6 +28853,7 @@ cards:
      and sees camera-driven occupancy anyway.'
   next: 'REVIEW (operator, low priority): decide gate-vs-document; else parked.'
 - id: ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1
+  disposition_2026_09_26_groom: 'SOAK EXIT HELD one step: criteria 1-3 never exercised (no room Climate & Fans save since the 09-20 ship). The operator''s pending Jaya Bedroom hvac_vacancy_hold_night 1800->5400 save IS a Climate & Fans save -> on it, check the log for NO ''Setting up universal_room_automation'' for that entry and no ''unable to keep up''/PONG timeout within 3 min, then dispose done/reopen.'
   title: "Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s"
   thread: presence
   status: shipped_organic
