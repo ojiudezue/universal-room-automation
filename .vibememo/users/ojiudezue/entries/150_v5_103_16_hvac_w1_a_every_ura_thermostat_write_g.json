@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "150",
+  "author": "ojiudezue",
+  "session_id": "claude_20260926_201456_ship_v5_103_16",
+  "timestamp": "2026-09-26T20:14:56Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.16 shipped: HVAC W1-A: every URA thermostat write goes through one of three funnels and leaves a durable climate_write row",
+  "summary": "HVAC W1-A: every URA thermostat write goes through one of three funnels and leaves a durable climate_write row",
+  "why": "Every 'who changed this thermostat?' question (zone_1 manual strands, the 9.7 away/home feed split, zone_2's overnight manual 70) had to be reconstructed by inference because URA never recorded what it sent. Stage B must decide which Carrier feed confirms a write, and C22 showed neither feed is always right \u2014 that decision needs ground truth about URA's own writes first. Stage A is behaviour-neutral so it can ship ahead of that decision.",
+  "implications": "Shipped HVAC-SETHVACMODE-CHOKEPOINT-1 at v5.103.16; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.16.md (Live criteria).",
+  "revisit_trigger": "climate_write rows: borrow-site rows carry non-null excursion_id matching hvac_excursion_events/ac_ramp_events; every preset_change has a row whose site starts S1_; external-or-bypass recorder changes <= pre-ship baseline +10%.",
+  "refs": {
+    "cards": [
+      "HVAC-SETHVACMODE-CHOKEPOINT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.16.md"
+    ],
+    "release_notes": "HVAC-SETHVACMODE-CHOKEPOINT-1 (W1 Stage A, behaviour-neutral): new emit_set_hvac_mode funnel; the 7 raw set_hvac_mode sites migrated byte-identically; one climate_write row per attempted wire call (site, zone, reason, borrow excursion_id, values_before read before the write, exact values_after, wire_ok, issue time); AI rules may not write any climate service; AST lint + required-kwarg guard. See docs/readmes/README_v5.103.16.md."
+  }
+}

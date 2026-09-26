@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.15
+# Universal Room Automation vv5.103.16
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -1104,10 +1104,12 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # that ships, an AI rule that wants to bypass this block
         # deliberately can do so through a chained action; the block only
         # stops the accidental direct call.
-        _CLIMATE_BLOCKED_SERVICES = {
-            "set_temperature", "set_preset_mode", "set_hvac_mode",
-        }
-        if domain == "climate" and service in _CLIMATE_BLOCKED_SERVICES:
+        # HVAC-W1-A D5-b (2026-09-26): expanded from 3 verbs to ALL
+        # `climate.*` services. INV-A requires every URA-originated
+        # climate write to pass through the emit_set_* funnels;
+        # AI-rules must not be able to reach the climate domain
+        # directly, regardless of which service they name.
+        if domain == "climate":
             rule_id = action.get("rule_id") or "<unknown>"
             _LOGGER.warning(
                 "[%s] AI rule %s blocked: direct climate.%s bypasses HVAC "

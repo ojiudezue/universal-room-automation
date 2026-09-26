@@ -202,7 +202,8 @@ def test_F2_revert_uses_token_snapshot_not_caller_arg(monkeypatch):
     assert tok.pre_preset == "home"
     calls = []
     async def _capture(hass, entity, preset, *, blocking, gate=None,
-                       site=None, zone_id=None, reason=None):
+                       site=None, zone_id=None, reason=None,
+                       excursion_id=None):
         calls.append(preset)
         return True
     hvac_override.emit_set_preset_mode = _capture

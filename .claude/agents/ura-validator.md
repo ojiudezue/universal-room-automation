@@ -30,6 +30,11 @@ python3 scripts/suite_namediff.py --branch-dir <worktree> --dry-run  # shows key
 - The script uses `.venv-ha/bin/python`, `PYTHONDONTWRITEBYTECODE=1`, purges `__pycache__`, parses FAILED/ERROR names,
   prints NEW/GONE, exits 1 on NEW. It WAITS for any other running pytest instead of colliding (the command-text guard
   cannot see it). The branch worktree must be committed under `custom_components/`/`quality/` (it refuses otherwise).
+- **Pre-merge gate = full name-diff PLUS an isolated run** (`--files <every quality/tests file that imports a
+  production module the branch changed> --isolate`). The full run cannot see a test that passes only because an
+  earlier file loaded the real module (W1-A 2026-09-26: test_heatcool_enforcer failed alone, invisible in the full run).
+  Find the file set with `git diff --name-only $(git merge-base develop HEAD)..HEAD -- custom_components` then grep
+  quality/tests for those module names.
 - **Targeted vs full policy:** test-only fix rounds → targeted run of the changed test files plus the test files of any
   touched production module. Production-code fix rounds and the PRE-MERGE gate → full name-diff. Never run a full
   suite "just to be safe" between test-only rounds.

@@ -23,13 +23,22 @@ Plan: rev 1 (planner on opus-5) → orchestrator hand-check AM-1 CRITICAL (the r
 - Other readers of a reloading room's placeholder empty (carded above).
 - Occupancy fast path (W2 next), thermostat definition (W1), override-switch semantics (left as-is by operator).
 
-## Live Validation (prospective — to be written back post-restart)
-Today no URA room entry is disabled or failing (43 room entries, all LOADED), so the discriminating live signal is **no change** plus correct diagnostics:
-- **Verify:** every `sensor.ura_hvac_coordinator_zone_{n}_status` shows `live_rooms` == the zone's rooms, `excluded_rooms == []`, `transient_rooms == []`, `coordinator_absent_rooms == []` once boot settles.
-- **Verify (discriminating):** during the post-deploy restart, zones read `transient_rooms` non-empty while rooms load and **no zone retreats to away** in that window (recorder: no `vacant_past_grace` preset change between restart and all rooms LOADED).
-- **Verify:** zone preset-change rate for the 24 h after deploy stays within the prior week's band (zone_3 9–33/day), i.e. no new flapping.
-- **Verify:** zero `UnboundLocalError` / URA ERROR in the log after restart; no `hvac_degraded_room` NM (none expected — no failed rooms).
-- **In-suite only (reason: no failed room exists live):** excluded-room establishment, sticky SETUP_RETRY, entry-removed alert, Zone-Intelligence-off decision cycle.
+## Live Validation — Validated 2026-09-26 (HACS v5.103.15 installed, HA restarted 17:49:46Z)
+
+Pre-deploy gate: full-suite name-diff (`scripts/suite_namediff.py`, branch `be9f441e0` vs develop cached baseline) **0 NEW** failing names; merged tree differs from the tested tree by one comment-only hunk in `hvac_setpoint.py`; PR #587 carries the code.
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | Zone diagnostics after boot settles | **PASS** | `sensor.ura_hvac_coordinator_zone_{1,2,3}_status` at 12:53:58 CDT: `live_rooms` 12 / 14 / 14 (all zone rooms), `excluded_rooms` `[]`, `transient_rooms` `[]`, `coordinator_absent_rooms` `[]` on all three |
+| 2 | No zone retreats to away because of the restart | **PASS** | zones 2 and 3 were already `away` on every row from 11:30 to 12:46 CDT (pre-restart) and stayed away; zone 1 came up `home`. No transition into away attributable to the boot window. `transient_rooms` was never observed non-empty — rooms loaded before the first sampled state, so the transient path itself is proven in-suite, not live |
+| 3 | No `UnboundLocalError` / URA ERROR after restart | **PASS** | error_log after restart: zero ERROR lines from `universal_room_automation`; URA lines are boot WARNINGs only (sensors unavailable → 60 s hold, Envoy unavailable, census cameras unavailable). ERRORs present are other integrations (Shelly, habluetooth, MQTT, Roborock, Denon) |
+| 4 | No degraded-room NM | **PASS** | no `degraded` log line; no room excluded, so none expected |
+| 5 | 24 h preset-change rate within prior band | **PENDING (evaluate 2026-09-27)** | see finding below — zone 1 was already flapping on v5.103.14, so this criterion must be judged against that pre-existing rate, not the zone-3 band |
+| 6 | Coverage: no "unit mismatch" warning across local midnight; window attribute published | **PENDING (evaluate after 2026-09-27 00:00 CDT)** | cannot be observed before the next re-anchor |
+
+**In-suite only (no failed room exists live):** excluded-room establishment, sticky SETUP_RETRY, entry-removed alert, Zone-Intelligence-off decision cycle, transient-room hold.
+
+**Finding surfaced during validation (pre-existing, not caused by this release):** from 08:54 to 12:49 CDT the zone 1 thermostat flipped home ↔ away ~46 times. URA wrote only `away` (reason `vacant_past_grace`) every 10 minutes; the thermostat's config feed (`hold_activity`) read `away` throughout while its status feed (`preset_mode`) kept reporting `home`, so URA kept re-issuing. Recorded on `HVAC-ZONE1-MANUAL-OSCILLATION-1` (`finding_2026_09_26_away_feed_split`); belongs to W1-B (which feed confirms a write).
 
 ---
 
