@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T18:13:09-05:00_ - _Data commit: `90c511b824b3`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T18:19:38-05:00_ - _Data commit: `f27ff9b60b5b`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-09-26T18:13:09-05:00_ - _Data commit: `90c511b824b3`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 6 |
+| 🔬 Investigating | 7 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 24 |
 | 🔨 In progress | 1 |
@@ -26,7 +26,7 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (6)
+## 🔬 Investigating (7)
 _measuring; truth not yet known_
 
 ### `ENVOY-STREAM-TRUST-MEASURE-1` - We now have a third, much faster Envoy data source — measure whether it can be trusted before anything is allowed to depend on it — _#1 · WSJF 9.5 · v7 tc6 u6 /e2_
@@ -100,7 +100,15 @@ thread: **presence** - status: **investigating**
 _created 2026-09-26 · updated 2026-09-26 18:40_
 - **Next:** VERIFY (me): read Receiving Room config (motion/presence sensors), each sensor's live state + battery/availability + 7-day ON count, and Bermuda area history for that room -> if dead, operator DO (battery / re-pair / replace) with a card...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#6 · WSJF 1.0 · v7 tc4 u2 /e13_
+### `HVAC-WRITE-CONFIRMATION-ORACLE-1` - Which Carrier feed confirms that a URA write took? (problem 6, decoupled from W1-B) — measurement-only investigation — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **investigating**
+_created 2026-09-26 · updated 2026-09-26 19:05_
+- **Next:** MEASURE (me): (1) operator controlled test in the Carrier app (change zone 2 or 3 by hand at a noted time; also pick a named preset; also press resume) — requested; (2) re-run the episode probe stratified by hold_until "" vs None (cloud-...
+- **Forensic keys (2):**
+  - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
+  - `evidence`: State-of-play §9.7, C22, C23: zone_1 cloud status reads home while cloud hold_activity reads away on a named hold (reproduced after 2 Carrier reloads, hold_until None = cloud-sourced); physical evidence says the device is away. zone_2 20...
+
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#7 · WSJF 1.0 · v7 tc4 u2 /e13_
 thread: **security** - status: **investigating** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-19 03:50 · refined_
 - **Problem / Solution:**
