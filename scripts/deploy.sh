@@ -176,6 +176,19 @@ if [[ -n "$CARDS" ]]; then
     echo "ERROR: refusing to deploy — unknown card ID(s) above." >&2
     exit 1
   fi
+  # Every --cards ID must be named in this release's README. v5.101.0 stamped
+  # 7 cards shipped_organic that its README never mentioned (4 were never built),
+  # which hid unbuilt work in the organic lane for two weeks (groom 2026-09-26).
+  _readme="$SCRIPT_DIR/../docs/readmes/README_v${VERSION}.md"
+  _unlisted=""
+  for _cid in ${CARDS//,/ }; do
+    grep -qF "$_cid" "$_readme" 2>/dev/null || _unlisted="$_unlisted $_cid"
+  done
+  if [[ -n "$_unlisted" ]]; then
+    echo "ERROR: refusing to deploy — card(s) not named in $_readme:$_unlisted" >&2
+    echo "  A card marked shipped must be described in the release README." >&2
+    exit 1
+  fi
   echo "==> BOARD-CURRENCY-1: cards to reconcile after push: $CARDS"
 else
   echo "==> BOARD-CURRENCY-1: --no-cards (pure-docs release) — no board write will occur"
