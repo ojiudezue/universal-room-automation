@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T23:03:11-05:00_ - _Data commit: `36e0e5b7fe96`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-25T23:35:30-05:00_ - _Data commit: `797d01fd8b62`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -170,15 +170,16 @@ _created 2026-09-15 · updated 2026-09-19 03:10 · initial_
 
 ### `HVAC-W1-THERMOSTAT-DEFINITION` - W1 — One thermostat definition per brand: how URA writes, borrows/returns, and reads a thermostat, discovered in detail and applied everywhere — _#6 · WSJF 2.1 · v10 tc8 u9 /e13_
 thread: **hvac** - status: **pre_planning** - approval: **explicit**
-_created 2026-09-26 02:40 · updated 2026-09-26 06:30 · initial_
+_created 2026-09-26 02:40 · updated 2026-09-26 06:45 · initial_
 - **Problem / Solution:**
   - Problem: every place in URA that touches a thermostat does its own thing — three kinds of write, some funnelled and some not, most never recorded, returns done the old way, and URA believes a lagging "manual" report from the Carrier inte...
 - **Origin:** 2026-09-26 - operator approved the 4-workstream consolidation of the HVAC arc (see HVAC-SUPPLE-SEQUENCE-1 RESEQUENCE_PROPOSAL_2026_09_26)
 - **Why:** Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.
 - **Next:** Stage A (behaviour-neutral, Tier 2-DB): all three write verbs through funnels + one durable row per write + the 7 raw set_hvac_mode sites migrated. Stage B (Tier 3, operator go needed): brand definition interface; Carrier definition (cle...
 - **Tags:** hvac, workstream
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `planning_dispatched_2026_09_26`: Operator: "Cant we start the other pieces of the arc now? Planning?" Two planners dispatched (opus-5.5, read state-of-play first): Stage A -> docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md (Tier 2-DB, behaviour-neutral: a...
+  - `integration_plan_2026_09_26`: Operator: "we could even plan all of it so its lego pieces fit together or at least the w1 and w2." -> after the 4 piece-plans land (W1-A, W1-B+Carrier discovery, W2 fast path, W2 night-sleeper + placeholder readers), the orchestrator wr...
   - `children`: HVAC-PRESET-WRITE-STRATEGY-1
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_

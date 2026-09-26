@@ -1808,11 +1808,17 @@ cards:
     Stage B -> discovery doc docs/Coordinator/THERMOSTAT_DEFINITION_CARRIER_BRYANT.md then
     docs/planning/PLANNING_hvac_w1b_thermostat_definition.md (Tier 3: 2 plan reviews + operator checkpoint). Builds
     sequence after v5.103.15 merges (hvac.py overlap).'
+  integration_plan_2026_09_26: 'Operator: "we could even plan all of it so its lego pieces fit together or at least the w1
+    and w2." -> after the 4 piece-plans land (W1-A, W1-B+Carrier discovery, W2 fast path, W2 night-sleeper +
+    placeholder readers), the orchestrator writes docs/planning/PLANNING_hvac_arc_w1_w2_integration.md: the seams
+    between pieces (funnel API <- definition; definition read-model -> lockout/arrester; fast path -> more cycles ->
+    write log measures the cloud call rate; night hold <- live-room classifier), one dependency/order graph, shared
+    invariants, and conflicts resolved BEFORE any build.'
   title: 'W1 — One thermostat definition per brand: how URA writes, borrows/returns, and reads a thermostat, discovered in detail and applied everywhere'
   thread: hvac
   status: pre_planning
   created: '2026-09-26 02:40'
-  updated: '2026-09-26 06:30'
+  updated: '2026-09-26 06:45'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-26 ("The workstreams are approved. Recard.")'
