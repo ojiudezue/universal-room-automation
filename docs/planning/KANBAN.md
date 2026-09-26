@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T20:39:48-05:00_ - _Data commit: `2cb58521cf49`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-25T21:03:34-05:00_ - _Data commit: `386155581269`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -10,12 +10,12 @@ _Generated: 2026-09-25T20:39:48-05:00_ - _Data commit: `2cb58521cf49`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 2 |
+| 🔬 Investigating | 3 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 17 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
-| ⏸️ Waiting on operator | 28 |
+| ⏸️ Waiting on operator | 27 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 35 |
 | 🅿️ Parked | 63 |
@@ -26,7 +26,7 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (2)
+## 🔬 Investigating (3)
 _measuring; truth not yet known_
 
 ### `ENVOY-STREAM-TRUST-MEASURE-1` - We now have a third, much faster Envoy data source — measure whether it can be trusted before anything is allowed to depend on it — _#1 · WSJF 9.5 · v7 tc6 u6 /e2_
@@ -46,7 +46,22 @@ _created 2026-09-25 18:00 · updated 2026-09-25 21:10 · refined_
   - `run1_prelim_2026_09_25`: Operator: "Do this anyway and clear its criteria for other builds as needed." Run 1 over 16:40-21:00 CDT excluding 18:21-20:15 (2.4 h clean) -> AUDIT_envoy_mqtt_trust_measurement.md. PASS: 3.1 freshness (skew-adjusted p95 3 s; plan rule ...
   - `prior_art_reduces_scope`: Operator asked whether prior measurement makes this unnecessary. PARTLY, and the reduction is recorded rather than the whole card dropped. EVSE-SOLAR-FOLLOW-AMPS-1 already measured Emporia mains vs the Envoy net-consumption CT (7,090 ali...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `HVAC-ZONE1-MANUAL-OSCILLATION-1` - MECHANISM FOUND — zone_1's re-manual is the Bryant's own 76/69 schedule reclaiming the zone ~1s after every URA preset write (either re-asserted by the thermostat, or handed to it by URA's own resume-then-pin); the resulting write-fight also fires ~45 false "someone grabbed the thermostat" pages a day — _#2 · WSJF 3.4 · v8 tc7 u2 /e5_
+thread: **hvac** - status: **investigating**
+_created 2026-09-16 · updated 2026-09-25 21:40 · refined_
+- **Problem / Solution:**
+  - Problem: the v5.103.4 lockout telemetry shows zone_1 (climate.thermostat_bryant_wifi_studyb_zone_1) flapping manual<->away ~20+x/evening, often within seconds. URA's away writes LAND (vacancy path bypasses the manual guard, 28.3% away) b...
+- **Why:** This is the ACTUAL dominant reason zone_1 sits 67.5% manual — not resume-then-pin failing to land (it lands) and not escape (rare). Found by the interim lockout read. Until the re-manual producer is known, any further preset-write work o...
+- **Next:** MEASURE (me): once the operator gives the removal time, split zone_1 manual-entry setpoint pairs before/after it (24 h clean after, excluding restarts); then take option (A) stop-the-paging regardless (recommended 09-17), and dispose (B)...
+- **Tags:** hvac, measure-first, producer-check, found-during-validation
+- **Parsimony:** [BUILD] the Bryant thermostat re-asserts a 76/69 hold seconds after every URA preset write to zone_1, so URA and the thermostat fight continuously and URA narrates each lap as a HIGH-severity human override (~45 false pages/day)
+- **Forensic keys (4):**
+  - `MANUAL_PERSISTS_EVIDENCE_2026_09_17`: Causation probe corroborates the mystery re-manual writer: zone_3 shows 27 manual preset episodes post-v5.103.2, ~121s median dwell — named holds are NOT uniformly durable, manual is re-asserted at ~2min cadence. Either the pin is not fu...
+  - `MEASURED_2026_09_17`: OVERNIGHT PASS — MEASUREMENT RUN, MECHANISM CONFIRMED. The three-way discriminator this card asked for is settled, and the answer is (a): the Bryant thermostat re-asserts its OWN hold. It is not a URA writer and it is not resume-then-pin...
+  - `OLD_next_superseded`: MEASURE (clean 24h read available ~09:45 CDT 2026-09-17): on climate.thermostat_bryant_wifi_studyb_zone_1, trace every transition INTO manual with the preceding URA action + any concurrent set_temperature/ set_preset/set_hvac_mode from U...
+  - `operator_answer_2026_09_25`: ANSWER received (operator 2026-09-25): "I removed most schedules from Zone 1's therm as a test." -> the thermostat-side schedule WAS live (confirms MEASURED_2026_09_17 mechanism (a)). Removal time not yet known. First read (recorder, 7 d...
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#3 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-09-23 05:05 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
@@ -536,7 +551,7 @@ _created 2026-09-19 04:15 · updated 2026-09-25 03:40 · initial_
   - `MEASURED_LIVE_2026_09_19`: MECHANISM SETTLED, AND THE SCARY HALF IS EXONERATED — it is a day-boundary bug in the self-check, NOT a sevenfold attribution error. Read the live sensor directly (sensor.universal_room_automation_energy_coverage_delta at 02:14 CDT): who...
   - `SCOPE_NARROWED_2026_09_19`: Now a small, contained fix — and NOT built tonight, deliberately. Shape: treat a negative delta inside a day-boundary re-anchor window the same way the post-restart window is already treated (return INCOMPLETE, log the re-anchor explanat...
 
-## ⏸️ Waiting on operator (28)
+## ⏸️ Waiting on operator (27)
 _needs a human call — groomed first_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
@@ -788,21 +803,7 @@ _created 2026-09-07 00:30 · updated 2026-09-22 02:30 · refined_
   - `measured_2026_09_22`: OVERNIGHT PASS — verify-before-work + the measure the card asked for. Verdict: STILL-REAL **and** CARD-WAS-WRONG on the mechanism, in a way that changes which fix is right. (1) PREMISE CONFIRMED at source: CONF_CAMERA_PERSON_ENTITIES rea...
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, LOW exposure (12-cam house list, months apart): _cameras_by_area built once at discover (__init__.py:2316), consumed live (coordinator.py:3670); census invalidate ...
 
-### `HVAC-ZONE1-MANUAL-OSCILLATION-1` - MECHANISM FOUND — zone_1's re-manual is the Bryant's own 76/69 schedule reclaiming the zone ~1s after every URA preset write (either re-asserted by the thermostat, or handed to it by URA's own resume-then-pin); the resulting write-fight also fires ~45 false "someone grabbed the thermostat" pages a day — _#17 · WSJF 3.4 · v8 tc7 u2 /e5_
-thread: **hvac** - status: **waiting_operator**
-_created 2026-09-16 · updated 2026-09-17 02:35 · refined_
-- **Problem / Solution:**
-  - Problem: the v5.103.4 lockout telemetry shows zone_1 (climate.thermostat_bryant_wifi_studyb_zone_1) flapping manual<->away ~20+x/evening, often within seconds. URA's away writes LAND (vacancy path bypasses the manual guard, 28.3% away) b...
-- **Why:** This is the ACTUAL dominant reason zone_1 sits 67.5% manual — not resume-then-pin failing to land (it lands) and not escape (rare). Found by the interim lockout read. Until the re-manual producer is known, any further preset-write work o...
-- **Next:** ANSWER, then PICK — the measurement is done (see MEASURED_2026_09_17) and only you can supply the missing half. ANSWER: does the Bryant thermostat for zone_1 (Entertainment + Master Suite) have a schedule or comfort profile of its own — ...
-- **Tags:** hvac, measure-first, producer-check, found-during-validation
-- **Parsimony:** [BUILD] the Bryant thermostat re-asserts a 76/69 hold seconds after every URA preset write to zone_1, so URA and the thermostat fight continuously and URA narrates each lap as a HIGH-severity human override (~45 false pages/day)
-- **Forensic keys (3):**
-  - `MANUAL_PERSISTS_EVIDENCE_2026_09_17`: Causation probe corroborates the mystery re-manual writer: zone_3 shows 27 manual preset episodes post-v5.103.2, ~121s median dwell — named holds are NOT uniformly durable, manual is re-asserted at ~2min cadence. Either the pin is not fu...
-  - `MEASURED_2026_09_17`: OVERNIGHT PASS — MEASUREMENT RUN, MECHANISM CONFIRMED. The three-way discriminator this card asked for is settled, and the answer is (a): the Bryant thermostat re-asserts its OWN hold. It is not a URA writer and it is not resume-then-pin...
-  - `OLD_next_superseded`: MEASURE (clean 24h read available ~09:45 CDT 2026-09-17): on climate.thermostat_bryant_wifi_studyb_zone_1, trace every transition INTO manual with the preceding URA action + any concurrent set_temperature/ set_preset/set_hvac_mode from U...
-
-### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#18 · WSJF 3.3 · v5 tc3 u2 /e3_
+### `NM-BB-CHATGUID-SELFSEND-1` - BlueBubbles v0.7.0 adds send-by-chat-GUID — lets NM target a chat by GUID instead of address, decoupling alert sends from the iMessage account so URA stops messaging the operator's own thread — _#17 · WSJF 3.3 · v5 tc3 u2 /e3_
 thread: **notifications** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-26 11:00 · updated 2026-09-19 04:55 · refined ×1_
 - **Problem / Solution:**
@@ -818,7 +819,7 @@ _created 2026-08-26 11:00 · updated 2026-09-19 04:55 · refined ×1_
   - `ACCURACY_NOTE`: Orchestrator over-restated the operator hypothesis as documented fact on first pass; corrected. v0.7.0 notes = send-by-chat-GUID + README rewrite + lodash bump. No self-send claim.
   - `STATIC_HALF_ANSWERED_2026_09_19`: Step (1) of this cards next is DONE — read, not guessed, and it changes what the fix is. THE SEND PATH HAS NO ADDRESS-BUILDING LOGIC AT ALL. _send_imessage (notification_manager.py:2256-2296) passes `addresses: <handle>` straight through...
 
-### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#19 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#18 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **planning** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-18 02:45 · updated 2026-09-19 03:50 · initial_
 - **Problem / Solution:**
@@ -831,7 +832,7 @@ _created 2026-08-18 02:45 · updated 2026-09-19 03:50 · initial_
   - `lane_note_2026_08_28`: ROADMAP_v12.md now written (2026-08-28) — the roadmap-refresh half is discharged. What remains is operator green-light on scope/priority for the room-to-room AGENTIC layer, which v12 names as the next-MINOR-capability track. Hence waitin...
   - `audit_ledger_2026_08_18`: AUDIT_roadmap_undone_worthwhile.md now provides the "already shipped" ledger for the roadmap rewrite: mark ROADMAP v9/v10/v11 + VISION_v7 + ROADMAP_REMAINING as HISTORICAL; most v3.22 "future" shipped under other names (arbitrage hardeni...
 
-### `PROPERTY-GETTER-SIDE-EFFECT-TASKS-1` - Three entity property getters start background work every time something reads them — including one that fires safety-alert actions — _#20 · WSJF 2.6 · v7 tc4 u2 /e5_
+### `PROPERTY-GETTER-SIDE-EFFECT-TASKS-1` - Three entity property getters start background work every time something reads them — including one that fires safety-alert actions — _#19 · WSJF 2.6 · v7 tc4 u2 /e5_
 thread: **platform** - status: **waiting_operator** - approval: **implied**
 _created 2026-09-20 03:30 · updated 2026-09-23 03:50 · initial_
 - **Problem / Solution:**
@@ -848,7 +849,7 @@ _created 2026-09-20 03:30 · updated 2026-09-23 03:50 · initial_
   - `escalation_2026_09_23`: NOT BUILT UNATTENDED — this is the SAFETY alert path, and CLAUDE.md puts safety-impacting logic in the always-explicit set regardless of tier. The trace makes the fix look easy, and that is precisely the trap: the cheap version is to del...
   - `measured_2026_09_20`: AST sweep of custom_components/universal_room_automation/ for async_create_task / async_create_background_task called from a SYNC (non-async) function: 137 sites. 134 are @callback handlers or timer fires, which HA invokes on the event l...
 
-### `REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1` - Room renames split one room's history across two labels and manufacture fake "routine drift" — _#21 · WSJF 2.4 · v7 tc3 u2 /e5_
+### `REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1` - Room renames split one room's history across two labels and manufacture fake "routine drift" — _#20 · WSJF 2.4 · v7 tc3 u2 /e5_
 thread: **analytics** - status: **waiting_operator**
 _created 2026-09-14 00:45 · updated 2026-09-14 03:55 · refined_
 - **Problem / Solution:**
@@ -866,7 +867,7 @@ _created 2026-09-14 00:45 · updated 2026-09-14 03:55 · refined_
   - `fix_option_assessment_2026_09_14`: MARGINAL-BENEFIT DECOMPOSITION of the two options this card proposed, plus a third the measurement suggests: (a) ROBUST — rename-aware room-identity key. Correct, but it is a real build against the baseline store to fix one rename affect...
   - `gate_2026_09_14`: AMBIGUOUS AT THE COST/BENEFIT STEP -> escalated rather than guessed, per the autonomy gate. The honest read is that (c) is cheap and precise but the artifact self-heals, so "build the narrow suppressor" and "park until the next rename" a...
 
-### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#22 · WSJF 2.4 · v6 tc4 u2 /e5_
+### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#21 · WSJF 2.4 · v6 tc4 u2 /e5_
 thread: **config-flow** - status: **waiting_operator** - approval: **explicit**
 _created 2026-09-13 01:00 · updated 2026-09-19 03:50 · initial_
 - **Problem / Solution:**
@@ -888,7 +889,7 @@ _created 2026-09-13 01:00 · updated 2026-09-19 03:50 · initial_
   - `symptom2_cannot_add_2026_09_13`: SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (conf...
   - `instrumented_2026_09_13`: INSTRUMENTATION BUILT @ eb2f73094 (feature/config-flow-timing). Class decorator instrument_flow wraps all 44 ConfigFlow + 56 OptionsFlow async_step_* handlers (HA-dispatch-safe, verified vs data_entry_flow.py:483/568); logs WARNING ENTER...
 
-### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events) — _#23 · WSJF 2.0 · v5 tc3 u2 /e5_
+### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events) — _#22 · WSJF 2.0 · v5 tc3 u2 /e5_
 thread: **presence** - status: **waiting_operator** - approval: **explicit**
 _created 2026-08-21 17:40 · updated 2026-09-23 04:45 · initial_
 - **Next:** Decide whether a RATE-based sensor-health signal is worth building at all — decompose the benefit before speccing (marginal-benefit duty). Cheapest version may be a diagnostic-only transitions-per-hour surface with NO automatic action, l...
@@ -906,7 +907,7 @@ _created 2026-08-21 17:40 · updated 2026-09-23 04:45 · initial_
   - `THE_DESIGN_TENSION_READ_THIS_BEFORE_FIXING`: DO NOT simply add a rate threshold to the existing detector. The impossibility framing was chosen ON PURPOSE so the detector could QUARANTINE-ALWAYS WITH NO CORROBORATOR GATE (chatter_detector.py:8 — "quarantine-ALWAYS on a physics viola...
   - `SECOND_FINDING_WRONG_LEG_WATCHED`: The detector registers over "the room blind-time-gated tier-1 entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,...
 
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#24 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#23 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-19 03:50_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -925,7 +926,7 @@ _updated 2026-09-19 03:50_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped) — _#25 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped) — _#24 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
 _updated 2026-09-19 03:50_
 - **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
@@ -937,7 +938,7 @@ _updated 2026-09-19 03:50_
   - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
   - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real...
 
-### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#26 · WSJF 1.2 · v5 tc3 u2 /e8_
+### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#25 · WSJF 1.2 · v5 tc3 u2 /e8_
 thread: **diagnostics** - status: **waiting_operator**
 _created 2026-08-19 09:00 · updated 2026-09-23 04:45 · refined_
 - **Next:** APPROVE building D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) as a SHADOW-FIRST ship. NOTE: approving STARTS a hard 2-day forcing gate (flip to acting within 2 days of shadow deploy or declare moot).
@@ -950,7 +951,7 @@ _created 2026-08-19 09:00 · updated 2026-09-23 04:45 · refined_
   - `build_2026_08_19`: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
   - `reviews_2026_08_19`: D7 TIER-3 REVIEWS: A+D SHIP-WITH-FIX, B+C DO-NOT-SHIP — INDEPENDENTLY CONVERGED on the HIGH. Boot-safety CLEAN (no repeat of the v5.84.0 import-shadow incident class). HIGH: act->shadow/off mode-flip leaves stale chatter exclusions (occu...
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#27 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#26 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-22 02:32_
 - **Problem / Solution:**
@@ -962,7 +963,7 @@ _created 2026-09-20 · updated 2026-09-22 02:32_
   - `groom_2026_09_22`: Scored during the overnight groom — it was the only waiting_operator card still running on tier+link defaults (the ⚠ default-scored tripwire). value 5: a research spike, real upside on occupancy-trust correctness but no live defect ridin...
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#28 · WSJF 1.0 · v7 tc4 u2 /e13_
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#27 · WSJF 1.0 · v7 tc4 u2 /e13_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-19 03:50 · refined_
 - **Problem / Solution:**

@@ -1901,10 +1901,10 @@ cards:
     uniformly durable, manual is re-asserted at ~2min cadence. Either the pin is not fully effective
     on-device or the Bryant native schedule/an operator/a URA writer re-manuals. Still the measure-
     first target; clean 24h read to identify the producer.'
-  status: waiting_operator
+  status: investigating
   thread: hvac
   created: '2026-09-16'
-  updated: '2026-09-17 02:35'
+  updated: '2026-09-25 21:40'
   refinement_status: refined
   tags: [hvac, measure-first, producer-check, found-during-validation]
   title: MECHANISM FOUND — zone_1's re-manual is the Bryant's own 76/69 schedule reclaiming the zone ~1s
@@ -1984,24 +1984,18 @@ cards:
     (which one) re-manuals; (c) resume-then-pin resume leaves manual. THEN fix at the identified producer.
     SUPERSEDED 2026-09-17: this measurement has been RUN and the answer is (a). Kept only as the record
     of what was asked; do not re-run it.'
-  next: 'ANSWER, then PICK — the measurement is done (see MEASURED_2026_09_17) and only you can supply
-    the missing half. ANSWER: does the Bryant thermostat for zone_1 (Entertainment + Master Suite) have
-    a schedule or comfort profile of its own — on the thermostat itself or in the Bryant/Carrier app —
-    that holds 76 cool / 69 heat? Everything turns on this. It is the value the zone lands on within a
-    second or two of every write URA makes, and I have no way to see the vendor schedule from here. It
-    also decides something bigger than this card: URA''s resume-then-pin escape hatch is built on the
-    written assumption that you do NOT use the Bryant schedule, and if you do, that assumption is
-    wrong and the escape hatch is handing your zone to a live competitor every time it fires. If the
-    answer is yes, the clean fix is almost certainly to disable the thermostat-side schedule so URA is
-    the only scheduler, which ends the write-fight at its source. PICK how URA should behave in the meantime, because both options are
-    defensible and this one is yours: (A) STOP THE PAGING ONLY — keep the loop but stop treating a
-    re-assertion that arrives seconds after our own write as a human override, which kills roughly 45
-    false HIGH pages a day and is the smaller, safer change; (B) STOP THE FIGHT — have URA back off
-    zone_1 when it detects the thermostat re-asserting, which stops the 78-writes-in-3-days loop but
-    means conceding the zone to the vendor schedule until you disable it. My recommendation is to
-    disable the thermostat-side schedule AND take (A), since (A) is worth doing regardless of the
-    answer. I have not touched HVAC code — this is cost-and-comfort logic on a shared coordinator and
-    wants your call plus a Tier-3-grade review, not an overnight build.'
+  operator_answer_2026_09_25: 'ANSWER received (operator 2026-09-25): "I removed most schedules from Zone 1''s
+    therm as a test." -> the thermostat-side schedule WAS live (confirms MEASURED_2026_09_17 mechanism (a)).
+    Removal time not yet known. First read (recorder, 7 d, manual-entry setpoint pairs): the 09-17 signature
+    76/69 is ABSENT 09-18..09-25; a different stable pair 76/70 recurs (09-20 x7, 09-21 x13, 09-25 x11) plus
+    78/70 (09-25 x11). Zone_1 preset changes/day 5/52/44/56/23/37/20/63 — NOT an acceptance signal
+    (non-stationary, see DAYTIME_REMEASURE_RETRACTED). 09-25 is contaminated by the HA/Envoy/network restarts.
+    Discriminator for the test: after the removal time, manual entries landing on a stable pair URA does not
+    write (76/70) should go to ~0; if they persist, a remaining schedule ("most", not all) or another writer
+    still reclaims. Also need: is 76/70 or 78/70 a URA-written range (check zone_1 home preset range).'
+  next: 'MEASURE (me): once the operator gives the removal time, split zone_1 manual-entry setpoint pairs
+     before/after it (24 h clean after, excluding restarts); then take option (A) stop-the-paging regardless
+     (recommended 09-17), and dispose (B) — moot if the reclaim stops.'
   rank: {value: 8, time_criticality: 7, effort: 5}
   parsimony:
     problem: the Bryant thermostat re-asserts a 76/69 hold seconds after every URA preset write to
