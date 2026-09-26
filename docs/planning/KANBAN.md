@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T21:10:15-05:00_ - _Data commit: `3e719630d808`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-25T21:15:43-05:00_ - _Data commit: `dc7c7779c806`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -10,9 +10,9 @@ _Generated: 2026-09-25T21:10:15-05:00_ - _Data commit: `3e719630d808`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 3 |
+| 🔬 Investigating | 4 |
 | 🧭 Pre-planning | 12 |
-| 📝 Planned | 17 |
+| 📝 Planned | 16 |
 | 🔨 In progress | 0 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 27 |
@@ -26,7 +26,7 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (3)
+## 🔬 Investigating (4)
 _measuring; truth not yet known_
 
 ### `ENVOY-STREAM-TRUST-MEASURE-1` - We now have a third, much faster Envoy data source — measure whether it can be trusted before anything is allowed to depend on it — _#1 · WSJF 9.5 · v7 tc6 u6 /e2_
@@ -62,7 +62,25 @@ _created 2026-09-16 · updated 2026-09-25 21:20 · refined_
   - `operator_answer_2026_09_25`: ANSWER received (operator 2026-09-25): "I removed most schedules from Zone 1's therm as a test." -> the thermostat-side schedule WAS live (confirms MEASURED_2026_09_17 mechanism (a)). Removal time not yet known. First read (recorder, 7 d...
   - `schedule_removal_measured_2026_09_25`: DATED FROM THE RECORDER (operator did not recall): Bryant next_activity_time on zone_1 cycled 06:00/08:00/18:00/22:00 until 2026-09-20 11:39 CDT, then reads only 06:00 (zones 2/3 still run 4-entry schedules). Remaining schedule per opera...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#3 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#3 · WSJF 3.2 · v8 tc6 u2 /e5_
+thread: **hvac** - status: **investigating** - approval: **implied**
+_created 2026-09-16 · updated 2026-09-25 21:45 · initial_
+- **Problem / Solution:**
+  - Problem: when a zone's thermostat is sitting on a hand-set temperature, URA deliberately does not overwrite it — the reasoning being that a person set it, so a different part of the system should handle putting it back. But URA's own ene...
+- **Origin:** 2026-09-16 - Operator asked "is that continue a bug?" while reviewing the lockout telemetry site
+- **Why:** THIS IS PROBABLY THE BIGGER HALF OF THE DEFECT, and it explains the v5.103.2 measurement. resume-then-pin fixes "URA writes a preset and the cloud discards the name". The lockout is a DIFFERENT failure: URA never attempts the write at al...
+- **Next:** GATED ON TELEMETRY, deliberately — do not build on the hypothesis. The lockout telemetry shipped alongside this card records every refusal with what URA wanted. FIRST question it answers: are lockouts frequent on zone_1? If yes the diagn...
+- **Tags:** tier-2db, no-fabrication-verify, found-during-validation
+- **Parsimony:** [BUILD] URA refuses to re-preset a zone in manual even when URA itself caused the manual, and the component expected to handle it deliberately ignores URA-caused cases.
+- **Refs:** hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented); hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
+- **Forensic keys (5):**
+  - `MEASUREMENT_2026_09_17`: Gate read (v5.103.4 telemetry, ura_activity_log action=preset_change_ locked_out, immutable snapshot): 15 episodes across 09-16/09-17 = ~6-9/day house-wide (zone_1 6, zone_2 4, zone_3 5). MODEST harm, not constant. DISCRIMINATOR still op...
+  - `DOWNGRADED_2026_09_16`: Lockout telemetry (10.8h) shows escape is REAL but RARE (2 lockouts in 10.8h, occupied/home path only) — NOT the dominant zone_1 residual. The dominant residual is a manual<->away oscillation (mystery re-manual writer) — see HVAC-ZONE1-M...
+  - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
+  - `operator_challenge_2026_09_25`: Operator: "Why won't it? We have a knob that says, don't override till next change, and that knob times out. Check on it. Without that knob, why would we not override? I mean arrester is an override." -> the premise that URA must never o...
+  - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#4 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **investigating** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-09-23 05:05 · refined_
 - **Next:** Investigation-first read-only audit (no tier): the ~9000-test suite whole — pollution map, fake-coord boundary, run time. Clear the 2 cheap Tier-1 children (const-stub, source-mutation-kill) FIRST, then scope the re-arch (Tier 2-DB+).
@@ -85,7 +103,52 @@ _created 2026-08-19 07:45 · updated 2026-09-23 05:05 · refined_
 ## 🧭 Pre-planning (12)
 _idea being decomposed_
 
-### `HVAC-PRESET-WRITE-STRATEGY-1` - How to write a preset successfully is vendor-specific, and that knowledge is hardcoded in a shared chokepoint every thermostat write passes through — _#1 · WSJF 2.8 · v5 tc3 u6 /e5 ⚠_
+### `HVAC-PRECOOL-WINDOW-TOU-DERIVED-1` - Path A pre-cool window is summer-hardcoded [10,14) — not responsive to shoulder/winter TOU peaks (same phase-blindness we just deleted) — _#1 · WSJF 3.0 · v8 tc5 u2 /e5_
+thread: **hvac** - status: **pre_planning** - approval: **explicit**
+_created 2026-09-18 · updated 2026-09-25 21:45_
+- **Problem / Solution:**
+  - Problem (operator 2026-09-18): _should_energy_precool gates on hour in [ENERGY_PRECOOL_HOUR_START=10, PEAK_HOUR_START=14) (hvac_const.py:143 + hvac_predict.py:52) - a FIXED 10am-2pm window anchored to a 2pm summer peak. TOU peak windows ...
+- **Why:** Corrects my (assistant) wrong claim that the window constants are structural/no-gap. Seasonal peak responsiveness is real; the constants make Path A summer-only-correct. Related to the phase-aware theme of the deleted EC branch.
+- **Next:** Scope: replace the fixed [10,14) hour gate with a peak-relative window derived from the TOU next- transition; keep a knob for the lead hours. Measure-first: check shoulder/winter peak times vs the fixed window before building. Tier 2 (de...
+- **Tags:** hvac, precool, tou, seasonal, phase-aware
+- **Parsimony:** [BUILD] summer-hardcoded pre-cool window, phase-blind to shoulder/winter
+- **Forensic keys (1):**
+  - `operator_priority_2026_09_25`: Operator 2026-09-25: "these all seem high value". value raised to 8.
+
+### `HVAC-EQUIPMENT-HEALTH-OBSERVABILITY-1` - HVAC equipment-health observability + closed-loop tuning from the Bryant ODU/IDU telemetry (ONE workstream, not a card flurry) — _#2 · WSJF 3.0 · v8 tc5 u2 /e5_
+thread: **hvac** - status: **pre_planning**
+_created 2026-09-17 · updated 2026-09-25 21:45_
+- **Problem / Solution:**
+  - Problem: ha_carrier already publishes a rich per-thermostat refrigeration + air-handler telemetry stream URA does not consume - ODU Status (off/Stage 1-5 + suction/discharge pressure&temp, suction_superheat, outdoor_coil_temp, line_volta...
+- **Why:** Surfaced 2026-09-17 out of the Bryant duty-cycle audit (the ODU Var/stage signal) + live reads (sensor.thermostat_bryant_wifi_*_odu_status/idu_status/filter_remaining, sensor.office_b_odu_status= Stage 5 with full refrigerant telemetry)....
+- **Next:** MEASURE-FIRST pass (read-only, gates everything): (1) theory-of-not-great-state = hard physical limits for this equipment/refrigerant (superheat floodback floor, discharge ceiling, static-pressure airflow limit ~>0.8in, line-voltage brow...
+- **Tags:** hvac, safety-coordinator, anomaly, telemetry, carrier, measure-first, closed-loop, workstream
+- **Parsimony:** [BUILD] rich HVAC health+duty telemetry unconsumed; open-loop energy claims
+- **Forensic keys (3):**
+  - `DOC_2026_09_17`: Possibilities written up in priority order (P1 health-anomaly -> SC/anomaly->NM; P2 reset-vs-nudge -> maybe kill resets; P3 closed-loop energy attribution+tuning; P4 re-ground D5 on stage) + measurements catalog + theory-of-not-great-sta...
+  - `operator_priority_2026_09_25`: Operator 2026-09-25: "these all seem high value". value raised to 8.
+  - `SUB_IDEAS_2026_09_17`: Checklist inside this one workstream (do NOT mint separate cards): (a) compressor/ refrigerant health anomaly (superheat/discharge/suction) -> SC+anomaly->NM; (b) airflow/dirty-filter (static_pressure + filter_remaining cross-corroborate...
+
+### `HVAC-GUEST-AS-ZONE-PERSON-1` - A guest in an occupied guest room should count as that zone's "person" — today a zone with no assigned residents loses three protections entirely — _#3 · WSJF 3.0 · v8 tc5 u2 /e5_
+thread: **hvac** - status: **pre_planning** - approval: **explicit**
+_created 2026-08-20 15:10 · updated 2026-09-25 21:45 · initial_
+- **Problem / Solution:**
+  - Problem: several safeguards that stop a zone being set to "away" while people are in it only work when named household members are assigned to that zone. One zone has no one assigned, so all of those safeguards are switched off for it — ...
+- **Why:** OPERATOR IDEA (verbatim 2026-08-20): "One way to partially fix the away is if room is occupied and guest is armed from the rooms is_guest flag. Guest bedroom 1 is a guest room. So technically the guest is the home person IFF they are act...
+- **Next:** DEFERRED behind HVAC-PRESET-FLAP-1 calming per operator. When picked up: verify the per-room is_guest flag name and its existing consumers (institutional-context grep) BEFORE proposing anything; then design the liveness/decay contract ex...
+- **Tags:** no-fabrication-verify, institutional-context
+- **Parsimony:** [SIMPLIFY] zones with no assigned person silently lose three occupancy protections, and a guest room in such a zone is unprotected while genuinely occupied
+- **Refs:** hvac.py:1788-1795; aggregation.py:4017-4019, 4152-4154; memory feedback_suppression_needs_discharge
+- **Forensic keys (7):**
+  - `seq_2026_09_15`: STEP 5 (conditional) of HVAC-SUPPLE-SEQUENCE-1. NOT a prerequisite for measuring spurious-away — that was my error; this derives a person FROM room occupancy and so cannot witness its own input. Build only if the step-5 re-measure still ...
+  - `operator_priority_2026_09_25`: Operator 2026-09-25: "these all seem high value". value raised to 8.
+  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py:2086 night away-suppression iterates zone.zone_persons only (0 guest_person hits). Do the card's own sleep-veto verification first.
+  - `OPERATOR_DESIGN_INPUT_OCCUPANCY_GATE_2026_08_20`: OPERATOR, on how to stop the synthetic guest from pinning the zone: "We have to gate the person on occupancy for this fix. Guest mode flips on if a room is continuously occupied for 30m. But that might not be enough for the night. We nee...
+  - `OPERATOR_CONSTRAINTS_2026_08_20`: Two constraints from the operator that narrow this substantially and should be treated as spec, not preference. (1) APPLIES ONLY IF THE ZONE HAS NO ASSIGNED PERSON — operator: "IFF that zone does not have a person assigned. moot if it do...
+  - `THE_HARD_PART`: The operator's own caveat is the whole design problem: "IFF they are actually around and dont decay." A synthetic person that never decays would pin a zone `home` forever after one transit blip in the guest bedroom — strictly worse than ...
+  - `RELATIONSHIP`: STRATEGIC counterpart to HVAC-PRESET-FLAP-1's TACTICAL calming. Operator scoped this turn explicitly: "But lets focus on calming any hvac zone that doesnt have a person attached." So the flap tuning goes first; this is the general fix fo...
+
+### `HVAC-PRESET-WRITE-STRATEGY-1` - How to write a preset successfully is vendor-specific, and that knowledge is hardcoded in a shared chokepoint every thermostat write passes through — _#4 · WSJF 2.8 · v5 tc3 u6 /e5 ⚠_
 thread: **hvac** - status: **pre_planning** - approval: **explicit**
 _created 2026-09-16 · updated 2026-09-19 03:10 · initial_
 - **Problem / Solution:**
@@ -102,7 +165,7 @@ _created 2026-09-16 · updated 2026-09-19 03:10 · initial_
   - `DESIGN_DETECT_VS_SPECIFY_2026_09_16`: OPERATOR: "Give thought to how an operator might specify their integration's mechanism or we can detect it." The question splits, and the two halves have DIFFERENT answers — that split is the whole design.
   - `MITIGATED_NOT_SOLVED_2026_09_16`: A capability gate shipped WITH D2a as the cheap half: the resume-then-pin path now fires only when the entity itself advertises `resume` among its preset_modes, so a non-Carrier thermostat falls through to the pre-existing direct-pin beh...
 
-### `NIGHT-LIGHT-ACTION-SELECTOR-1` - Night lights have no actuation policy of their own — they ride on the regular lights' entry action, so "none" silently means two different things — _#2 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+### `NIGHT-LIGHT-ACTION-SELECTOR-1` - Night lights have no actuation policy of their own — they ride on the regular lights' entry action, so "none" silently means two different things — _#5 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **lights** - status: **pre_planning** - approval: **explicit**
 _created 2026-09-15 · updated 2026-09-19 03:10 · initial_
 - **Problem / Solution:**
@@ -116,7 +179,7 @@ _created 2026-09-15 · updated 2026-09-19 03:10 · initial_
 - **Forensic keys (1):**
   - `INSTITUTIONAL_CONTEXT_2026_09_15`: Prior-art scan run before proposing (CLAUDE.md Institutional-Context-First). NEW — nothing equivalent exists. - const.py:876-886 holds FIVE night-light constants (CONF_NIGHT_LIGHTS, CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS/_COLOR, CONF_NIGHT_LI...
 
-### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-09-12 10:00_
 - **Origin:** 2026-08-08 - operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION YET - thoughts requested.
@@ -128,7 +191,7 @@ _updated 2026-09-12 10:00_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-08-31 18:20 · updated 2026-09-12 11:15 · refined ×4_
 - **Problem / Solution:**
@@ -145,7 +208,7 @@ _created 2026-08-31 18:20 · updated 2026-09-12 11:15 · refined ×4_
   - `build_review_2026_09_01`: BUILT (feature/ble-hold-cap @ f086e75e4) + 3 build-reviews: A SHIP, B SHIP, C FIX-REQUIRED. Core cap logic solidly anchored (all decision gates RED-on-neuter). Gaps: C-HIGH-1 NM wire-in neuter-deletable (add call-site anchor); C-MED-2 P2...
   - `refinement_2026_09_01`: Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body- corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on BLE-extend-since-last-body (independent of sleep) a...
 
-### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **pre_planning**
 _created 2026-08-18 02:30 · updated 2026-09-12 11:15 · refined_
 - **Next:** NOT greenfield — ready Tier 2-DB v3 spec exists (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md supersedes v1.1/v2; BACKLOG B5: P7 strictness, D2 options-flow, D8 Rainbird kill switch). Run marginal-benefit decomposition AGAINST that plan's...
@@ -154,7 +217,7 @@ _created 2026-08-18 02:30 · updated 2026-09-12 11:15 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1` - When today's Solcast is transiently unknown at offset 0, the target-day resolver returns tomorrow's class so the multi-day broadening leg pairs tomorrow with tomorrow (n=1) — a silent duplicate that contributes nothing; affects BOTH the arbitrage gate AND the shipped drain path identically — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1` - When today's Solcast is transiently unknown at offset 0, the target-day resolver returns tomorrow's class so the multi-day broadening leg pairs tomorrow with tomorrow (n=1) — a silent duplicate that contributes nothing; affects BOTH the arbitrage gate AND the shipped drain path identically — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **pre_planning** - approval: **unreviewed**
 _created 2026-08-26 03:10 · updated 2026-09-12 11:15 · refined_
 - **Problem / Solution:**
@@ -166,30 +229,7 @@ _created 2026-08-26 03:10 · updated 2026-09-12 11:15 · refined_
 - **Forensic keys (1):**
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: energy_battery.py:2695-2703 offset<=0 + today-unknown + no cache returns (classify_tomorrow_solar(),0); callers do classify_solar_day_n(0+1)=tomorrow again -> self...
 
-### `HVAC-EQUIPMENT-HEALTH-OBSERVABILITY-1` - HVAC equipment-health observability + closed-loop tuning from the Bryant ODU/IDU telemetry (ONE workstream, not a card flurry) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **pre_planning**
-_created 2026-09-17_
-- **Problem / Solution:**
-  - Problem: ha_carrier already publishes a rich per-thermostat refrigeration + air-handler telemetry stream URA does not consume - ODU Status (off/Stage 1-5 + suction/discharge pressure&temp, suction_superheat, outdoor_coil_temp, line_volta...
-- **Why:** Surfaced 2026-09-17 out of the Bryant duty-cycle audit (the ODU Var/stage signal) + live reads (sensor.thermostat_bryant_wifi_*_odu_status/idu_status/filter_remaining, sensor.office_b_odu_status= Stage 5 with full refrigerant telemetry)....
-- **Next:** MEASURE-FIRST pass (read-only, gates everything): (1) theory-of-not-great-state = hard physical limits for this equipment/refrigerant (superheat floodback floor, discharge ceiling, static-pressure airflow limit ~>0.8in, line-voltage brow...
-- **Tags:** hvac, safety-coordinator, anomaly, telemetry, carrier, measure-first, closed-loop, workstream
-- **Parsimony:** [BUILD] rich HVAC health+duty telemetry unconsumed; open-loop energy claims
-- **Forensic keys (2):**
-  - `DOC_2026_09_17`: Possibilities written up in priority order (P1 health-anomaly -> SC/anomaly->NM; P2 reset-vs-nudge -> maybe kill resets; P3 closed-loop energy attribution+tuning; P4 re-ground D5 on stage) + measurements catalog + theory-of-not-great-sta...
-  - `SUB_IDEAS_2026_09_17`: Checklist inside this one workstream (do NOT mint separate cards): (a) compressor/ refrigerant health anomaly (superheat/discharge/suction) -> SC+anomaly->NM; (b) airflow/dirty-filter (static_pressure + filter_remaining cross-corroborate...
-
-### `HVAC-PRECOOL-WINDOW-TOU-DERIVED-1` - Path A pre-cool window is summer-hardcoded [10,14) — not responsive to shoulder/winter TOU peaks (same phase-blindness we just deleted) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **pre_planning** - approval: **explicit**
-_created 2026-09-18 · updated 2026-09-19 03:10_
-- **Problem / Solution:**
-  - Problem (operator 2026-09-18): _should_energy_precool gates on hour in [ENERGY_PRECOOL_HOUR_START=10, PEAK_HOUR_START=14) (hvac_const.py:143 + hvac_predict.py:52) - a FIXED 10am-2pm window anchored to a 2pm summer peak. TOU peak windows ...
-- **Why:** Corrects my (assistant) wrong claim that the window constants are structural/no-gap. Seasonal peak responsiveness is real; the constants make Path A summer-only-correct. Related to the phase-aware theme of the deleted EC branch.
-- **Next:** Scope: replace the fixed [10,14) hour gate with a peak-relative window derived from the TOU next- transition; keep a knob for the lead hours. Measure-first: check shoulder/winter peak times vs the fixed window before building. Tier 2 (de...
-- **Tags:** hvac, precool, tou, seasonal, phase-aware
-- **Parsimony:** [BUILD] summer-hardcoded pre-cool window, phase-blind to shoulder/winter
-
-### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **pre_planning** - approval: **explicit**
 _updated 2026-09-19 03:10_
 - **Problem / Solution:**
@@ -216,24 +256,6 @@ _updated 2026-09-19 03:10_
   - `suffix_migration_finding_2026_08_17`: OPERATOR CONFIRMED: the Frigate1->Frigate2 migration WAS done; this aspect was missed. VERIFIED against the live registry (/Users/okosisi/ha-config/.storage/core.entity_registry — note CLAUDE.md documents a STALE path /Users/ojiudezue/.....
   - `scope_clarification_2026_08_17`: Operator scope check 2026-08-17: "Isn't cycle 2 about interior accuracy? The exterior was a bonus? Or does cycle 1 fix that?" — CONFIRMED. Cycle 1 (CENSUS-GHOST-DEDUP-1) fixes GUEST MODE, not the interior count (its D1 clamp is a no-op w...
   - `d3_dashboards_done_2026_08_18`: D3 (P12) exterior dashboards DONE (display-only, no producer change): composed card (deduped headline + G1 naive-floor fallback [never 0 when floor>0] + divergence badge) added to HA ura-v6 (Presence/Census Cross-Confirmation), ura-v8 (S...
-
-### `HVAC-GUEST-AS-ZONE-PERSON-1` - A guest in an occupied guest room should count as that zone's "person" — today a zone with no assigned residents loses three protections entirely — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **pre_planning** - approval: **explicit**
-_created 2026-08-20 15:10 · updated 2026-09-19 03:10 · initial_
-- **Problem / Solution:**
-  - Problem: several safeguards that stop a zone being set to "away" while people are in it only work when named household members are assigned to that zone. One zone has no one assigned, so all of those safeguards are switched off for it — ...
-- **Why:** OPERATOR IDEA (verbatim 2026-08-20): "One way to partially fix the away is if room is occupied and guest is armed from the rooms is_guest flag. Guest bedroom 1 is a guest room. So technically the guest is the home person IFF they are act...
-- **Next:** DEFERRED behind HVAC-PRESET-FLAP-1 calming per operator. When picked up: verify the per-room is_guest flag name and its existing consumers (institutional-context grep) BEFORE proposing anything; then design the liveness/decay contract ex...
-- **Tags:** no-fabrication-verify, institutional-context
-- **Parsimony:** [SIMPLIFY] zones with no assigned person silently lose three occupancy protections, and a guest room in such a zone is unprotected while genuinely occupied
-- **Refs:** hvac.py:1788-1795; aggregation.py:4017-4019, 4152-4154; memory feedback_suppression_needs_discharge
-- **Forensic keys (6):**
-  - `seq_2026_09_15`: STEP 5 (conditional) of HVAC-SUPPLE-SEQUENCE-1. NOT a prerequisite for measuring spurious-away — that was my error; this derives a person FROM room occupancy and so cannot witness its own input. Build only if the step-5 re-measure still ...
-  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py:2086 night away-suppression iterates zone.zone_persons only (0 guest_person hits). Do the card's own sleep-veto verification first.
-  - `OPERATOR_DESIGN_INPUT_OCCUPANCY_GATE_2026_08_20`: OPERATOR, on how to stop the synthetic guest from pinning the zone: "We have to gate the person on occupancy for this fix. Guest mode flips on if a room is continuously occupied for 30m. But that might not be enough for the night. We nee...
-  - `OPERATOR_CONSTRAINTS_2026_08_20`: Two constraints from the operator that narrow this substantially and should be treated as spec, not preference. (1) APPLIES ONLY IF THE ZONE HAS NO ASSIGNED PERSON — operator: "IFF that zone does not have a person assigned. moot if it do...
-  - `THE_HARD_PART`: The operator's own caveat is the whole design problem: "IFF they are actually around and dont decay." A synthetic person that never decays would pin a zone `home` forever after one transit blip in the guest bedroom — strictly worse than ...
-  - `RELATIONSHIP`: STRATEGIC counterpart to HVAC-PRESET-FLAP-1's TACTICAL calming. Operator scoped this turn explicitly: "But lets focus on calming any hvac zone that doesnt have a person attached." So the flap tuning goes first; this is the general fix fo...
 
 ### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#11 · WSJF 1.8 · v8 tc4 u2 /e8_
 thread: **optimization** - status: **pre_planning** - approval: **explicit**
@@ -269,7 +291,7 @@ _created 2026-09-16 · updated 2026-09-19 03:10 · initial_
   - `PER_ZONE_CORRECTED_2026_09_16`: OPERATOR: "If we did this, why per zone? It should be the same function, no?" CORRECT, and my sketch was wrong. Ask what per-zone STATE a handle would hold: entity_id is a PARAMETER; the vendor is DERIVED from the entity's platform (memo...
   - `DESIGN_SHAPE_2026_09_16`: Stateless, entity-parameterised, all three verbs plus vendor dispatch: read_hold(hass, entity_id)              -> named / anonymous / none set_preset(hass, entity_id, name, ...)  -> strategy decides clear-then-pin vs direct pin set_setpo...
 
-## 📝 Planned (17)
+## 📝 Planned (16)
 _has plan / acceptance_
 
 ### `TEST-SILENT-WHOLE-FILE-SKIPS-1` - Three test files quietly skip themselves in our environment, so 10 tests that look present have never actually run — _#1 · WSJF 5.5 · v6 tc3 u2 /e2_
@@ -286,7 +308,20 @@ _created 2026-09-25 03:20 · initial_
 - **Forensic keys (1):**
   - `verified_2026_09_25`: STILL-REAL, verified by the orchestrator INDEPENDENTLY rather than trusting the reviewer report (the reviewer report is a hypothesis; running it is the check). Command: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=quality .venv-ha/bin/python -m ...
 
-### `WORKTREE-BACKLOG-PRUNE-1` - 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work — _#2 · WSJF 4.5 · v4 tc3 u2 /e2_
+### `HVAC-SETHVACMODE-CHOKEPOINT-1` - Add emit_set_hvac_mode chokepoint + migrate the 7 raw set_hvac_mode bypass sites (close the only verb-scoped write gap — 2 of 3 verbs are funnelled, set_hvac_mode is not) — _#2 · WSJF 4.6 · v9 tc6 u8 /e5_
+thread: **hvac** - status: **planned**
+_created 2026-09-16 · updated 2026-09-25 21:45_
+- **Problem / Solution:**
+  - Problem: the write-path inventory (AUDIT_thermostat_write_paths_2026_09_16) found set_preset_mode (10/10) and set_temperature (11/11) fully route through the hvac_setpoint funnels, but set_hvac_mode has NO chokepoint — 7 raw sites bypass...
+- **Why:** Phase 1 of HVAC-THERMOSTAT-ABSTRACTION-1, split out because it is mechanical Tier 2 (one verb, 7 sites) vs the full ZoneThermostat API (Phase 2, parked). Closes the only real chokepoint gap. NOTE the inventory's caution: this does NOT fi...
+- **Next:** GATED: run AFTER the zone_1 oscillation producer is identified (HVAC-ZONE1-MANUAL-OSCILLATION-1, clean 24h read ~09:45 CDT 09-17) so Phase 1 does not over-fit to a writer that is either already funnelled or cloud-side. Then: add emit_set...
+- **Tags:** hvac, tier-2, chokepoint, do-robust-fix, gated-on-measurement
+- **Parsimony:** [BUILD] 25% of URA climate writes (all set_hvac_mode) bypass any chokepoint; the other 2 verbs are fully funnelled
+- **Forensic keys (2):**
+  - `PROVENANCE_LINK_2026_09_17`: Phase-1 (govern the 3rd verb) is the prerequisite for the provenance invariant on HVAC-THERMOSTAT-ABSTRACTION-1: you cannot classify manual as URA-vs-external until ALL write verbs route through the governed path that stamps provenance. ...
+  - `operator_priority_2026_09_25`: Operator: "Biggest lever." Raised to top of the HVAC queue. Its gate (identify zone_1's re-manual writer) is not a hard dependency any more — the writer is a set_temperature/preset-side phenomenon, not set_hvac_mode — so the gate is lifted.
+
+### `WORKTREE-BACKLOG-PRUNE-1` - 94 agent worktrees accumulated — ~54 merged-and-clean, ~40 hold real uncommitted or unmerged work — _#3 · WSJF 4.5 · v4 tc3 u2 /e2_
 thread: **infra** - status: **planned**
 _created 2026-09-13 21:10 · updated 2026-09-25 03:45 · initial_
 - **Problem / Solution:**
@@ -303,7 +338,7 @@ _created 2026-09-13 21:10 · updated 2026-09-25 03:45 · initial_
   - `branch_cleanup_done_2026_09_14`: DONE. 355 branches deleted, 413 -> 58. Used `git branch -d` (which REFUSES anything not fully merged) on top of the three-check bar, so the tool itself was the final guard rather than my classification. ONE REFUSED: feature/household-rou...
   - `MEASURED_2026_09_16`: Fresh numbers, captured while cleaning up after tonight's build rather than as a separate errand (DUPLICATE of this card, so recorded here instead of minting a second one): 48 worktrees still registered under .claude/worktrees, totalling...
 
-### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#3 · WSJF 3.4 · v8 tc5 u4 /e5_
+### `TEST-HARNESS-REAL-HA-DEFAULT-1` - Make the real-HA venv the default test harness — the blocker is ONE plugin fixture, not the "large infrastructure project" every review doc assumed — _#4 · WSJF 3.4 · v8 tc5 u4 /e5_
 thread: **quality** - status: **planned** - approval: **explicit**
 _created 2026-08-23 18:20 · updated 2026-09-23 05:05 · initial_
 - **Problem / Solution:**
@@ -322,7 +357,37 @@ _created 2026-08-23 18:20 · updated 2026-09-23 05:05 · initial_
   - `THE_BLOCKER_NAMED_2026_08_23`: Every review doc calls this "a large infrastructure project" because switching appeared to break everything: the full suite under the real-HA venv gives 1 passed / 26 skipped / 9,733 ERRORS. IT IS NOT THE TESTS. Individually they pass un...
   - `REFUTED_2026_09_21`: THE CARD'S HEADLINE CLAIM IS WRONG AND I AM MARKING IT WRONG RATHER THAN ADDING A SECOND STORY. The card (and its parent) asserted that the harness was broken in .venv-ha on Python 3.13 such that 10,560 of 10,588 tests ERROR out, and tha...
 
-### `ENVOY-STREAM-SOC-TIER-1` - The battery brain goes blind and freezes whenever both its data sources age out — give it a third, local, fast (~5-6s) source so it can keep deciding — _#4 · WSJF 2.6 · v8 tc6 u7 /e8_
+### `HVAC-HOT-ENTRY-LATENCY-1` - Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry dwell does not care how hot the room is — _#5 · WSJF 3.2 · v9 tc5 u2 /e5_
+thread: **hvac** - status: **planned** - approval: **needs_operator**
+_updated 2026-09-25 21:45_
+- **Origin:** 2026-08-20 - Operator asked why zone 2 was not being arrested. I gave two wrong answers — that the equipment was idle and that URA had written the manual itself. Operator refuted both ("The equipment is not idle", "I think a human did th...
+- **Next:** APPROVE or PICK the responsiveness scope -> then I build it under HVAC-PRESET-FLAP-1 (whose other preconditions still gate it). The choice: (A) TEMPERATURE-CONDITIONAL DWELL — collapse the 5-minute entry dwell toward ~1 tick when the zon...
+- **Tags:** measure-before-build, operator-corrected-me
+- **Forensic keys (10):**
+  - `seq_2026_09_15`: STEP 5 (conditional) of HVAC-SUPPLE-SEQUENCE-1. The ONLY thing that can satisfy fast-in is the event-driven path, because HVAC_DECISION_TICK (5 min) is a hard floor no dwell value can beat. Its old arrester open-question is answered by S...
+  - `operator_priority_2026_09_25`: Operator 2026-09-25: "high value". value raised to 9.
+  - `relane_2026_09_15`: waiting_operator -> planned, and its A/B PICK is WITHDRAWN from the operator queue. The sequence answers it: the responsiveness decision is deferred to STEP 5, after the step-4 re-measure, so asking now would be asking the operator to ch...
+  - `DISPOSITION_2026_09_15`: Verified STILL-REAL and split, because the card was carrying two different problems and neither could move while they were fused. PIECE 1 — the responsiveness defect (a flat 5-minute entry dwell that ignores how hot the room is) is REAL ...
+  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py:2047 zone entry dwell is flat _zone_entry_dwell, no temperature term (0 hot_entry hits). Needs operator approval to scope temp-aware bypass.
+  - `evidence`: RECONSTRUCTED FROM climate.up_hallway_zone_2 ATTRIBUTE HISTORY, 19:45-22:20 CDT. 19:45 preset `away`, 68/80, cooling then idle. Room climbs to 80F. ~20:18 Jaya enters (zone_2_status continuous_occupied_hours 1.8 as of 22:06 back-computes...
+  - `CORRECTION_NOT_UNAIDED_2026_08_21`: MY "RESOLVED ON ITS OWN" CLAIM WAS WRONG — operator: "It didn't recover unaided. I got tired of wasting time and money and intervened via the Bryant app." The DB confirms the operator's account and refines it. ura_activity_log has exactl...
+  - `ARRESTER_IS_UNAUDITABLE_2026_08_21`: THE LEDGER I PROMISED DOES NOT EXIST — answering the open question is blocked, not pending. Pulled the DB directly on the HA host over ssh (the Samba mount cannot open it: WAL). Findings: (a) The HVAC coordinator's ENTIRE action vocabula...
+  - `root_cause`: A RESPONSIVENESS failure, not an arrester failure. The zone was legitimately `away` with the away ceiling at 80F. Jaya arrived at ~20:18 into an 80F room. zone_entry_dwell is 5.0 minutes = exactly one decision tick, so the EARLIEST URA c...
+  - `open_question`: DID THE ARRESTER DETECT THE OVERRIDE? UNRESOLVED — do not let the next session assume either way. The 20:20:39 away->manual transition is the arrester's documented trigger (hvac_override.py:2069-2071), yet the Upstairs zone still reports...
+
+### `HVAC-DEGRADED-ROOM-TRIPWIRE-1` - One broken room switches off HVAC occupancy for its whole zone — count only the rooms that are actually running — _#6 · WSJF 2.8 · v7 tc5 u2 /e5_
+thread: **hvac** - status: **planned**
+_created 2026-09-17 · updated 2026-09-25 21:45_
+- **Problem / Solution:**
+  - Problem: before URA lets a zone drop to "away", it waits until it has heard from every room in that zone. A room that is disabled or failing to load never reports, so the zone never qualifies and keeps heating or cooling empty space fore...
+- **Why:** Operator round-4 decision (09-17), re-affirmed 09-25: HVAC must match occupancy in the zone. The round-5 all(zone.rooms) revert is SUPERSEDED — it was an orchestrator override of that decision. The earlier why ("all() is the safe gate; s...
+- **Next:** BUILD (me, Tier 2 — touches the shared retreat gate, 2 framing-disjoint reviews + mutation drill): change is_zone_hvac_established (hvac_zones.py:1043) to all() over rooms with a LOADED config entry; replace test_f1_disabled_room_leaves_...
+- **Tags:** hvac, no-soak, trip-wire, safety-gate-residual
+- **Parsimony:** [BUILD] a disabled room silently disables conditioning-demand for its whole zone
+- **Forensic keys (1):**
+  - `operator_decision_2026_09_25`: Operator: "This also seems wrong. WTF?" — the trip-wire-instead-of-fix framing is REJECTED. It was the operator's ROUND-4 decision (09-17) to scope establishment to rooms with a LIVE entry; the round-4 build implemented that WRONGLY as a...
+
+### `ENVOY-STREAM-SOC-TIER-1` - The battery brain goes blind and freezes whenever both its data sources age out — give it a third, local, fast (~5-6s) source so it can keep deciding — _#7 · WSJF 2.6 · v8 tc6 u7 /e8_
 thread: **energy** - status: **planned** - approval: **unreviewed**
 _created 2026-09-25 18:00 · updated 2026-09-25 20:10 · refined ×2_
 - **Problem / Solution:**
@@ -334,7 +399,7 @@ _created 2026-09-25 18:00 · updated 2026-09-25 20:10 · refined ×2_
 - **Parsimony:** [BUILD] Every SOC tier can be simultaneously disqualified, leaving the EC unable to decide for hours at a time, because no tier is both local and fast.
 - **Refs:** docs/planning/PLANNING_envoy_local_witness_and_solar_follow.md; docs/Coordinator/ENERGY_COORDINATOR_MANUAL.md
 
-### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#5 · WSJF 2.2 · v8 tc4 u6 /e8_
+### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#8 · WSJF 2.2 · v8 tc4 u6 /e8_
 thread: **quality** - status: **planned** - approval: **unreviewed**
 _created 2026-09-12 17:10 · updated 2026-09-22 02:50 · refined_
 - **Problem / Solution:**
@@ -350,7 +415,7 @@ _created 2026-09-12 17:10 · updated 2026-09-22 02:50 · refined_
   - `links_note_2026_09_16`: Effectively blocked on TEST-HARNESS-REAL-HA-DEFAULT-1 for the same reason its parent TEST-STRATEGY-REARCH-1 is: not because the fix is unclear, but because the regression check that makes it safe needs a working runtime harness.
   - `verify_2026_09_19`: VERIFY-BEFORE-WORK datapoint (read-only, no work started): default-order collection re-run tonight at 02:06 CDT on develop = 10,745 tests collected, ZERO errors. That is consistent with every prior read — the DEFAULT order has been clean...
 
-### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#6 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
+### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#9 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **explicit**
 _created 2026-09-15 · initial_
 - **Problem / Solution:**
@@ -374,7 +439,7 @@ _created 2026-09-15 · initial_
   - `WITNESS_CORRECTION_2026_09_15`: I told the operator the spurious-away metric might need the guest/person work first. THAT WAS WRONG and the correction reorders the sequence. HVAC-GUEST-AS-ZONE-PERSON-1 derives a zone person FROM ROOM OCCUPANCY — the very signal we are ...
   - `SEQUENCE_2026_09_15`: Six steps. Each names its exit GATE; do not start step N+1 until step N's gate is met. Steps 1-3 change no HVAC behaviour, which is deliberate — they make the rest provable.
 
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-08-21 10:05_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -392,7 +457,7 @@ _updated 2026-08-21 10:05_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#8 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-12 17:00_
 - **Problem / Solution:**
@@ -405,24 +470,7 @@ _created 2026-08-19 13:40 · updated 2026-09-12 17:00_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-### `HVAC-HOT-ENTRY-LATENCY-1` - Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry dwell does not care how hot the room is — _#9 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **planned** - approval: **needs_operator**
-_updated 2026-09-15_
-- **Origin:** 2026-08-20 - Operator asked why zone 2 was not being arrested. I gave two wrong answers — that the equipment was idle and that URA had written the manual itself. Operator refuted both ("The equipment is not idle", "I think a human did th...
-- **Next:** APPROVE or PICK the responsiveness scope -> then I build it under HVAC-PRESET-FLAP-1 (whose other preconditions still gate it). The choice: (A) TEMPERATURE-CONDITIONAL DWELL — collapse the 5-minute entry dwell toward ~1 tick when the zon...
-- **Tags:** measure-before-build, operator-corrected-me
-- **Forensic keys (9):**
-  - `seq_2026_09_15`: STEP 5 (conditional) of HVAC-SUPPLE-SEQUENCE-1. The ONLY thing that can satisfy fast-in is the event-driven path, because HVAC_DECISION_TICK (5 min) is a hard floor no dwell value can beat. Its old arrester open-question is answered by S...
-  - `relane_2026_09_15`: waiting_operator -> planned, and its A/B PICK is WITHDRAWN from the operator queue. The sequence answers it: the responsiveness decision is deferred to STEP 5, after the step-4 re-measure, so asking now would be asking the operator to ch...
-  - `DISPOSITION_2026_09_15`: Verified STILL-REAL and split, because the card was carrying two different problems and neither could move while they were fused. PIECE 1 — the responsiveness defect (a flat 5-minute entry dwell that ignores how hot the room is) is REAL ...
-  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py:2047 zone entry dwell is flat _zone_entry_dwell, no temperature term (0 hot_entry hits). Needs operator approval to scope temp-aware bypass.
-  - `evidence`: RECONSTRUCTED FROM climate.up_hallway_zone_2 ATTRIBUTE HISTORY, 19:45-22:20 CDT. 19:45 preset `away`, 68/80, cooling then idle. Room climbs to 80F. ~20:18 Jaya enters (zone_2_status continuous_occupied_hours 1.8 as of 22:06 back-computes...
-  - `CORRECTION_NOT_UNAIDED_2026_08_21`: MY "RESOLVED ON ITS OWN" CLAIM WAS WRONG — operator: "It didn't recover unaided. I got tired of wasting time and money and intervened via the Bryant app." The DB confirms the operator's account and refines it. ura_activity_log has exactl...
-  - `ARRESTER_IS_UNAUDITABLE_2026_08_21`: THE LEDGER I PROMISED DOES NOT EXIST — answering the open question is blocked, not pending. Pulled the DB directly on the HA host over ssh (the Samba mount cannot open it: WAL). Findings: (a) The HVAC coordinator's ENTIRE action vocabula...
-  - `root_cause`: A RESPONSIVENESS failure, not an arrester failure. The zone was legitimately `away` with the away ceiling at 80F. Jaya arrived at ~20:18 into an 80F room. zone_entry_dwell is 5.0 minutes = exactly one decision tick, so the EARLIEST URA c...
-  - `open_question`: DID THE ARRESTER DETECT THE OVERRIDE? UNRESOLVED — do not let the next session assume either way. The 20:20:39 away->manual transition is the arrester's documented trigger (hvac_override.py:2069-2071), yet the Upstairs zone still reports...
-
-### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break) — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1` - Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing parity break) — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-31 19:05 · updated 2026-09-15 · initial_
 - **Problem / Solution:**
@@ -437,7 +485,7 @@ _created 2026-08-31 19:05 · updated 2026-09-15 · initial_
   - `VERIFIED_2026_09_15`: STILL-REAL, re-confirmed by direct source read this session (not by trusting the 09-12 sweep). automation.py:974 returns early when the entry light action is NONE, and the sleep/night-light branch does not run until :991 — so the canonic...
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: automation.py:970 early-returns on action==NONE before sleep branch; reconciler sleep branch keys only on (sleep and night_lights). Sibling NIGHT-LIGHT-NO-OFF-PATH...
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-15 02:50_
 - **Problem / Solution:**
@@ -452,28 +500,6 @@ _updated 2026-09-15 02:50_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, blocker CLEARED: EXTERIOR-GUEST-EGRESS-1 D1 shipped v5.81.0. No 'reinforce' code exists. Run the measure-before-build gap probe (fraction of egress crossings NOT r...
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
-
-### `HVAC-SETHVACMODE-CHOKEPOINT-1` - Add emit_set_hvac_mode chokepoint + migrate the 7 raw set_hvac_mode bypass sites (close the only verb-scoped write gap — 2 of 3 verbs are funnelled, set_hvac_mode is not) — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **planned**
-_created 2026-09-16_
-- **Problem / Solution:**
-  - Problem: the write-path inventory (AUDIT_thermostat_write_paths_2026_09_16) found set_preset_mode (10/10) and set_temperature (11/11) fully route through the hvac_setpoint funnels, but set_hvac_mode has NO chokepoint — 7 raw sites bypass...
-- **Why:** Phase 1 of HVAC-THERMOSTAT-ABSTRACTION-1, split out because it is mechanical Tier 2 (one verb, 7 sites) vs the full ZoneThermostat API (Phase 2, parked). Closes the only real chokepoint gap. NOTE the inventory's caution: this does NOT fi...
-- **Next:** GATED: run AFTER the zone_1 oscillation producer is identified (HVAC-ZONE1-MANUAL-OSCILLATION-1, clean 24h read ~09:45 CDT 09-17) so Phase 1 does not over-fit to a writer that is either already funnelled or cloud-side. Then: add emit_set...
-- **Tags:** hvac, tier-2, chokepoint, do-robust-fix, gated-on-measurement
-- **Parsimony:** [BUILD] 25% of URA climate writes (all set_hvac_mode) bypass any chokepoint; the other 2 verbs are fully funnelled
-- **Forensic keys (1):**
-  - `PROVENANCE_LINK_2026_09_17`: Phase-1 (govern the 3rd verb) is the prerequisite for the provenance invariant on HVAC-THERMOSTAT-ABSTRACTION-1: you cannot classify manual as URA-vs-external until ALL write verbs route through the governed path that stamps provenance. ...
-
-### `HVAC-DEGRADED-ROOM-TRIPWIRE-1` - A zone with a permanently-disabled/setup_retry room never establishes (is_zone_hvac_established all()) -> conditioning-demand feature INERT for that zone, silently — _#13 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **planned**
-_created 2026-09-17_
-- **Problem / Solution:**
-  - Problem: step-4-B gates retreat on is_zone_hvac_established = all(rooms readable). A room stuck disabled / setup_retry is never in _hvac_seen -> zone never establishes -> the whole conditioning- demand debounce is inert for that zone, wi...
-- **Why:** Left as the deliberate residual of the round-5 F1 revert (any->all). all() is the safe gate; the cost is silent inertness on a degraded zone. Surface it rather than trade safety for coverage.
-- **Next:** Add a trip-wire: on each cycle, if a zone has a room whose coordinator has been absent > N ticks, emit once to NM / set a diag flag. Reuse the stuck-signal watchdog pattern. Tier 1-2.
-- **Tags:** hvac, no-soak, trip-wire, safety-gate-residual
-- **Parsimony:** [BUILD] a disabled room silently disables conditioning-demand for its whole zone
 
 ### `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1` - BLOCKER on enabling guest_mode_actuation — F2 compose-away throttle bypass is unconditional (12 set_temperature/hr/zone to Carrier cloud) — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **planned**
@@ -506,23 +532,6 @@ _created 2026-09-16_
 - **Next:** PLAN FIRST (Tier 2-DB, plan-reviewed before build — the residual skipped its plan review and failed 3 code reviews on exactly the under-scoped consumer count). Enumerate ALL readers of drain_targets / peak_buffer_target / inclement floor...
 - **Tags:** energy, tier-2db, bug-class-53, needs-plan-review
 - **Parsimony:** [BUILD] three ordering invariants are validated at save time + anomaly-flagged at runtime but their ~25 live decision readers still read raw, so an inverted slider flips a gate
-
-### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _#17 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
-thread: **hvac** - status: **planned** - approval: **implied**
-_created 2026-09-16 · initial_
-- **Problem / Solution:**
-  - Problem: when a zone's thermostat is sitting on a hand-set temperature, URA deliberately does not overwrite it — the reasoning being that a person set it, so a different part of the system should handle putting it back. But URA's own ene...
-- **Origin:** 2026-09-16 - Operator asked "is that continue a bug?" while reviewing the lockout telemetry site
-- **Why:** THIS IS PROBABLY THE BIGGER HALF OF THE DEFECT, and it explains the v5.103.2 measurement. resume-then-pin fixes "URA writes a preset and the cloud discards the name". The lockout is a DIFFERENT failure: URA never attempts the write at al...
-- **Next:** GATED ON TELEMETRY, deliberately — do not build on the hypothesis. The lockout telemetry shipped alongside this card records every refusal with what URA wanted. FIRST question it answers: are lockouts frequent on zone_1? If yes the diagn...
-- **Tags:** tier-2db, no-fabrication-verify, found-during-validation
-- **Parsimony:** [BUILD] URA refuses to re-preset a zone in manual even when URA itself caused the manual, and the component expected to handle it deliberately ignores URA-caused cases.
-- **Refs:** hvac_preset.py:202-217 (should_change_preset), hvac.py (the refusal continue, now instrumented); hvac_override.py:185 (_suppress_kind provenance tag, ~5s TTL, counter-only consumer)
-- **Forensic keys (4):**
-  - `MEASUREMENT_2026_09_17`: Gate read (v5.103.4 telemetry, ura_activity_log action=preset_change_ locked_out, immutable snapshot): 15 episodes across 09-16/09-17 = ~6-9/day house-wide (zone_1 6, zone_2 4, zone_3 5). MODEST harm, not constant. DISCRIMINATOR still op...
-  - `DOWNGRADED_2026_09_16`: Lockout telemetry (10.8h) shows escape is REAL but RARE (2 lockouts in 10.8h, occupied/home path only) — NOT the dominant zone_1 residual. The dominant residual is a manual<->away oscillation (mystery re-manual writer) — see HVAC-ZONE1-M...
-  - `seq_2026_09_16`: STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".
-  - `THE_MECHANISM_2026_09_16`: should_change_preset (hvac_preset.py:202-217) returns False when current_preset == "manual", with the rationale "Don't fight manual — that's the arrester's job". The `continue` at the call site is CORRECT for the already-at-target case a...
 
 ## 🔨 In progress (0)
 _being built_
@@ -1530,7 +1539,7 @@ _created 2026-08-20 14:15 · updated 2026-09-19 03:55 · initial_
 
 ### `HVAC-ZONE-CONDITIONING-DEMAND-1` - HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC its own dwell-vs-transit derivation instead of tuning a knob that cannot win — _#30 · WSJF 1.8 · v5 tc3 u6 /e8 ⚠_
 thread: **hvac** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-15 · updated 2026-09-19 03:55 · initial_
+_created 2026-09-15 · updated 2026-09-25 21:45 · initial_
 - **Problem / Solution:**
   - Problem: the signal HVAC uses to decide whether a zone is occupied was designed for a different job — switching lights on and off. That job needs a generous hold so a light never blinks off on someone standing still, so the room layer ke...
 - **Origin:** 2026-09-15 - Operator challenged the dwell explanation, then asked for a deep recommendation on room-to-zone coupling for HVAC rather than another knob turn
@@ -1539,7 +1548,7 @@ _created 2026-09-15 · updated 2026-09-19 03:55 · initial_
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Parsimony:** [BUILD] HVAC consumes an occupancy signal smoothed for lighting, so transit is indistinguishable from dwelling and the 1-tick dwell guard sits downstream of a 6-8 minute smoother it cannot overcome.
 - **Refs:** hvac.py:2049-2059 (dwell gate), hvac_zones.py:562-566 (session start/reset); hvac_const.py:13 (HVAC_DECISION_TICK = 5 min — the fast-in ceiling); hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
-- **Forensic keys (56):**
+- **Forensic keys (57):**
   - `DAYTIME_REMEASURE_RETRACTED_2026_09_20`: RETRACTED an over-claimed PASS. This manual-%% re-measure has been run MULTIPLE times and SWINGS wildly (zone_1 69.6 base -> 81.0 -> 46.0 -> 50.3 daytime; zone_2 46.4 -> 17.9 -> 50.8 -> 10.7; zone_3 6.3 -> 29.0 -> 6.8 -> 3.8) = NON-STATI...
   - `HALLWAY_RECLASSIFY_DONE_2026_09_17`: All 7 vetted transit rooms reclassified room_type->hallway, LIVE + persisted: Garage Hallway, Kitchen Hallway, Kitchen Hallway Garage, Master Hallway, Upstairs Hallway, Foyer, Guest Bedroom 2 Hallway. This ACTIVATES v5.103.7 circulation ...
   - `D5_AUDIT_2026_09_17`: Duty-cycle audit done (AUDIT_hvac_duty_cycle_protection_2026_09_17.md). CORRECTS my earlier not-coast answer: D5 runtime_exceeded fires ONLY during EC coast/shed (caps runtime 75%/ 50% of a 20min window, hvac.py:3331-3375, forces away hv...
@@ -1591,6 +1600,7 @@ _created 2026-09-15 · updated 2026-09-19 03:55 · initial_
   - `SIMPLIFIED_2026_09_15`: OPERATOR: "The decoupling has to be simple and elegant. Not complicate machinery." CORRECT, and my DESIGN_2026_09_15 five-part proposal is WITHDRAWN as over-built — it added five moving parts (new signal type, sensor-kind weighting, even...
   - `PRIOR_ART_TO_REUSE_2026_09_15`: OPERATOR: "I do not want to redo fusion or any strong primitive we have already." Agreed, and it is now a hard precondition on step 1 rather than a hope. Verified to EXIST this session (grep, file:line) — every one of these is REUSE, and...
   - `SUCCESS_DEFINED_UP_FRONT_2026_09_15`: OPERATOR: "We need to define success early so we know we solved it. That should be about fitting like a glove with evidence and saving net $. A supple HVAC should save $ over months and years." Success is therefore TWO metrics that must ...
+  - `correction_2026_09_25`: I (orchestrator) told the operator tonight that night retreat was "built, switched off" and that the night-protection breadth was "a policy call only you can make, currently anyone-in-house". BOTH WRONG — read from the stale 09-17 memory...
   - `MECHANISM_VERIFIED_2026_09_15`: Read from source this session, not inherited. - zone_entry_dwell gate hvac.py:2049-2059 requires zone.any_room_occupied AND current_session_start older than dwell_minutes, else `continue` (keep current preset). It carries `effective_pres...
   - `THE_BINDING_CONSTRAINT`: NAMED HERE FOR THE FIRST TIME, and it reframes the whole problem: the 5-minute decision tick is a HARD FLOOR on "react quickly to someone being there if its hot". Even at dwell=0 the worst-case latency to act is a full tick. The founding...
   - `DESIGN_2026_09_15`: Five parts, ordered by blast radius. (1) HVAC-OWNED DERIVATION — add a zone-level "conditioning demand" signal; HVAC consumes it INSTEAD of any_room_occupied. Room automation keeps reading the existing signal untouched, so lights carry n...

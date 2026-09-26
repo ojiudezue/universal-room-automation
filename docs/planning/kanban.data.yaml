@@ -1409,10 +1409,12 @@ cards:
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
   status: pre_planning
+  rank: {value: 8, time_criticality: 5, effort: 5}
   thread: hvac
   created: '2026-09-18'
-  updated: '2026-09-19 03:10'
+  updated: '2026-09-25 21:45'
   tags: [hvac, precool, tou, seasonal, phase-aware]
+  operator_priority_2026_09_25: 'Operator 2026-09-25: "these all seem high value". value raised to 8.'
   title: Path A pre-cool window is summer-hardcoded [10,14) — not responsive to shoulder/winter TOU peaks (same phase-blindness we just deleted)
   problem_solution:
   - 'Problem (operator 2026-09-18): _should_energy_precool gates on hour in [ENERGY_PRECOOL_HOUR_START=10,
@@ -1639,10 +1641,12 @@ cards:
     CLEARED by operator but deferred (passive-first). Data gap found: no nudge/ramp-named rows for zone_1
     -> first sub-probe = locate nudge logging.'
   status: pre_planning
+  rank: {value: 8, time_criticality: 5, effort: 5}
   thread: hvac
   created: '2026-09-17'
-  updated: '2026-09-17'
+  updated: '2026-09-25 21:45'
   tags: [hvac, safety-coordinator, anomaly, telemetry, carrier, measure-first, closed-loop, workstream]
+  operator_priority_2026_09_25: 'Operator 2026-09-25: "these all seem high value". value raised to 8.'
   title: HVAC equipment-health observability + closed-loop tuning from the Bryant ODU/IDU telemetry (ONE workstream, not a card flurry)
   problem_solution:
   - 'Problem: ha_carrier already publishes a rich per-thermostat refrigeration + air-handler telemetry
@@ -1792,23 +1796,32 @@ cards:
 
 - id: HVAC-DEGRADED-ROOM-TRIPWIRE-1
   status: planned
+  rank: {value: 7, time_criticality: 5, effort: 5}
   thread: hvac
   created: '2026-09-17'
-  updated: '2026-09-17'
+  updated: '2026-09-25 21:45'
   tags: [hvac, no-soak, trip-wire, safety-gate-residual]
-  title: A zone with a permanently-disabled/setup_retry room never establishes (is_zone_hvac_established
-    all()) -> conditioning-demand feature INERT for that zone, silently
+  operator_decision_2026_09_25: 'Operator: "This also seems wrong. WTF?" — the trip-wire-instead-of-fix
+    framing is REJECTED. It was the operator''s ROUND-4 decision (09-17) to scope establishment to rooms with
+    a LIVE entry; the round-4 build implemented that WRONGLY as any(), and in round 5 the orchestrator
+    (me) reverted to all(zone.rooms) instead of fixing the implementation — overriding an operator decision
+    on my own adjudication. Correct build of the operator rule: established iff ALL rooms whose ROOM config
+    entry is LOADED have been seen by the D1 producer; disabled / setup_retry / not-loaded rooms are
+    EXCLUDED from the set (not counted as unreadable-hence-blocking). A zone of only dead rooms stays
+    unestablished (never retreats). The trip-wire is kept only as a secondary diag, not as the fix.'
+  title: One broken room switches off HVAC occupancy for its whole zone — count only the rooms that are
+    actually running
   problem_solution:
-  - 'Problem: step-4-B gates retreat on is_zone_hvac_established = all(rooms readable). A room stuck
-    disabled / setup_retry is never in _hvac_seen -> zone never establishes -> the whole conditioning-
-    demand debounce is inert for that zone, with no signal. Benign direction (never wrongly retreats)
-    but silent. Solution: a code TRIP-WIRE (No-Soak) that detects a zone with a chronically-unreadable
-    room and surfaces it (NM / an anomaly / a diag attr) — NOT a relaxation of the all() gate.'
-  why: 'Left as the deliberate residual of the round-5 F1 revert (any->all). all() is the safe gate;
-    the cost is silent inertness on a degraded zone. Surface it rather than trade safety for coverage.'
-  next: 'Add a trip-wire: on each cycle, if a zone has a room whose coordinator has been absent > N ticks,
-    emit once to NM / set a diag flag. Reuse the stuck-signal watchdog pattern. Tier 1-2.'
-  parsimony: {problem: 'a disabled room silently disables conditioning-demand for its whole zone', verdict: BUILD, note: 'small trip-wire; do NOT relax the gate'}
+  - 'Problem: before URA lets a zone drop to "away", it waits until it has heard from every room in that
+     zone. A room that is disabled or failing to load never reports, so the zone never qualifies and keeps
+     heating or cooling empty space forever, silently. Solution: only wait on rooms that are actually
+     running; a disabled room is left out of the count rather than blocking the whole zone. A zone whose
+     rooms are all dead still never retreats.'
+  why: 'Operator round-4 decision (09-17), re-affirmed 09-25: HVAC must match occupancy in the zone. The
+    round-5 all(zone.rooms) revert is SUPERSEDED — it was an orchestrator override of that decision. The
+    earlier why ("all() is the safe gate; surface it rather than trade safety for coverage") is WRONG.'
+  next: 'BUILD (me, Tier 2 — touches the shared retreat gate, 2 framing-disjoint reviews + mutation drill): change is_zone_hvac_established (hvac_zones.py:1043) to all() over rooms with a LOADED config entry; replace test_f1_disabled_room_leaves_zone_unestablished_round5 with its inverse + a discriminating test that a zone whose ONLY live room is unseen stays unestablished; keep the diag trip-wire as a one-line attr.'
+  parsimony: {problem: 'a disabled room silently disables conditioning-demand for its whole zone', verdict: BUILD, note: 'scope the gate to live rooms (operator rule); trip-wire only as a diag'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'residual of the round-5 F1 all() revert'}
 - id: HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1
   status: planned
@@ -1861,10 +1874,14 @@ cards:
     invariant on HVAC-THERMOSTAT-ABSTRACTION-1: you cannot classify manual as URA-vs-external until ALL
     write verbs route through the governed path that stamps provenance. See that card PROVENANCE_INVARIANT.'
   status: planned
+  rank: {value: 9, time_criticality: 6, effort: 5, foundational: 8}
   thread: hvac
   created: '2026-09-16'
-  updated: '2026-09-16'
+  updated: '2026-09-25 21:45'
   tags: [hvac, tier-2, chokepoint, do-robust-fix, gated-on-measurement]
+  operator_priority_2026_09_25: 'Operator: "Biggest lever." Raised to top of the HVAC queue. Its gate (identify
+    zone_1''s re-manual writer) is not a hard dependency any more — the writer is a set_temperature/preset-side
+    phenomenon, not set_hvac_mode — so the gate is lifted.'
   title: Add emit_set_hvac_mode chokepoint + migrate the 7 raw set_hvac_mode bypass sites (close the only
     verb-scoped write gap — 2 of 3 verbs are funnelled, set_hvac_mode is not)
   problem_solution:
@@ -10694,8 +10711,10 @@ cards:
   ack_reconciled_2026_09_19: 'Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: live override_detected row check still owed. So the ack is recorded as the operator having SEEN the update, and the card deliberately stays in shipped_organic with its discriminator open. Noted so a later session does not read the ack as an acceptance and close it prematurely, and does not re-raise the same question.'
 - id: HVAC-HOT-ENTRY-LATENCY-1
   seq_2026_09_15: 'STEP 5 (conditional) of HVAC-SUPPLE-SEQUENCE-1. The ONLY thing that can satisfy fast-in is the event-driven path, because HVAC_DECISION_TICK (5 min) is a hard floor no dwell value can beat. Its old arrester open-question is answered by STEP 2.'
+  operator_priority_2026_09_25: 'Operator 2026-09-25: "high value". value raised to 9.'
   title: Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry dwell does
     not care how hot the room is
+  rank: {value: 9, time_criticality: 5, effort: 5}
   thread: hvac
   status: planned
   relane_2026_09_15: 'waiting_operator -> planned, and its A/B PICK is WITHDRAWN from the operator queue. The sequence answers it: the responsiveness decision is deferred to STEP 5, after the step-4 re-measure, so asking now would be asking the operator to choose on speculation. It also stops squatting in the decision queue, which should only hold things actually waiting on a human.'
@@ -10718,7 +10737,7 @@ cards:
     approval: needs_operator. It needs an operator scope call, not an agent guess. Moved to
     waiting_operator with an operator-verb next.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py:2047 zone entry dwell is flat _zone_entry_dwell, no temperature term (0 hot_entry hits). Needs operator approval to scope temp-aware bypass.'
-  updated: '2026-09-15'
+  updated: '2026-09-25 21:45'
   approval: needs_operator
   tags:
   - measure-before-build
@@ -12848,12 +12867,18 @@ cards:
     valid small fix for the occupied/home lockout once the oscillation is understood. Re-confirm
     frequency on the clean 24h read (~09:45 CDT 09-17).'
   seq_2026_09_16: 'STEP 5 of HVAC-SUPPLE-SEQUENCE-1 — blocked_by the telemetry (4c). Probably the BIGGER half of the original defect and DISJOINT from resume-then-pin: that fixed "the write does not land", this is "the write is never attempted".'
+  operator_challenge_2026_09_25: 'Operator: "Why won''t it? We have a knob that says, don''t override till next
+    change, and that knob times out. Check on it. Without that knob, why would we not override? I mean arrester
+    is an override." -> the premise that URA must never overwrite an anonymous manual hold is CHALLENGED.
+    Investigating the hold knob + its timeout + the lockout gate + the arrester relationship (Explore dispatch
+    2026-09-25); the card is re-scoped on that answer, not built on the old premise.'
   title: URA refuses to write a preset to a zone in `manual` — including when URA itself caused the
     manual, so nothing ever rescues it
+  rank: {value: 8, time_criticality: 6, effort: 5}
   thread: hvac
-  status: planned
+  status: investigating
   created: '2026-09-16'
-  updated: '2026-09-16'
+  updated: '2026-09-25 21:45'
   refinement_status: initial
   approval: implied
   tags: [tier-2db, no-fabrication-verify, found-during-validation]
@@ -13723,13 +13748,21 @@ cards:
     power sensors, and the existing degree-day inputs). Capture the pre-change baseline as part of
     step 1, BEFORE any build — per measure-before-build and the Tier-2-DB pre-deploy snapshot rule.
     Without it the post-ship comparison is impossible and the whole cycle becomes unfalsifiable.'
+  correction_2026_09_25: 'I (orchestrator) told the operator tonight that night retreat was "built, switched off"
+    and that the night-protection breadth was "a policy call only you can make, currently anyone-in-house".
+    BOTH WRONG — read from the stale 09-17 memory. The operator decided RESET-ONLY in round 4 and it shipped
+    LIVE in v5.103.7: _zone_conditioning_retreat_ok (hvac.py:3830) = established AND fused-empty; person-trust
+    only covers the unestablished post-reload gap. Operator restated the principle 09-25: "The point of this is
+    to match occupancy in zone. Forcing comfort because anyone is home is against that." Night retreat at the
+    PRESET layer is live; only the SETPOINT layer (D9 compose-away behind guest_mode_actuation / Custom Preset
+    Ranges) is dormant, gated on HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 + HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1.'
   title: HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC
     its own dwell-vs-transit derivation instead of tuning a knob that cannot win
   thread: hvac
   status: shipped_organic
   shipped_version: v5.103.7
   created: '2026-09-15'
-  updated: '2026-09-19 03:55'
+  updated: '2026-09-25 21:45'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-15 ("We need a strong recommendation to better couple room to zone
@@ -20317,8 +20350,10 @@ cards:
   - 'GROOM 2026-09-11: VERDICT REAL adjacent-independent Tier 1 audit. Promoted inbox -> pre_planning.'
 - id: HVAC-GUEST-AS-ZONE-PERSON-1
   seq_2026_09_15: 'STEP 5 (conditional) of HVAC-SUPPLE-SEQUENCE-1. NOT a prerequisite for measuring spurious-away — that was my error; this derives a person FROM room occupancy and so cannot witness its own input. Build only if the step-5 re-measure still justifies it.'
+  operator_priority_2026_09_25: 'Operator 2026-09-25: "these all seem high value". value raised to 8.'
   title: A guest in an occupied guest room should count as that zone's "person" — today a zone with no
     assigned residents loses three protections entirely
+  rank: {value: 8, time_criticality: 5, effort: 5}
   thread: hvac
   status: pre_planning
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py:2086 night away-suppression iterates zone.zone_persons only (0 guest_person hits). Do the card''s own sleep-veto verification first.'
@@ -20361,7 +20396,7 @@ cards:
     membership BEFORE scoping. Do not build against the three-protections framing until that is checked
     — the framing came from my reading, not from a test.'
   created: 2026-08-20 15:10
-  updated: '2026-09-19 03:10'
+  updated: '2026-09-25 21:45'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
