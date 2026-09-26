@@ -69,7 +69,7 @@ Consequences:
 - The **occupancy fast path was DESIGNED, never built**: commit `82620357a` names `HVAC_DECISION_TICK=5min` as "a hard
   floor on fast-in ... needs event-driven path"; `HVAC-SUPPLE-SEQUENCE-1` step 5 lists it as conditional. It lives in W2.
 - Carrier cloud refresh after a write takes **42–79 s** (`hvac_override.py:147-150`); arrester temp-suppression is
-  only **5 s** (`hvac_override.py:129`) — URA's own write echoes that arrive later are booked as overrides.
+  **5 s for temperature writes** (`SUPPRESS_TTL_SECONDS`, `hvac_override.py:129`, deliberately short so a human at the dial is still seen, `:141-146`) and **120 s for preset writes** (`SUPPRESS_TTL_SECONDS_PRESET`, `:153`) — see C17 — URA's own write echoes that arrive later are booked as overrides.
 
 ---
 
@@ -198,7 +198,7 @@ lockout, arrester, S1 — trusts `preset_mode`**, which is the lagging field (§
 | Operator-immune hold (`CONF_HVAC_ARRESTER_IMMUNE_PERSONS`) sunset: next_activity / durable house state / 4 h | `hvac_const.py:189-198`; `hvac_override.py:713-811` | sunset hands back to the arrester — does NOT clear the hold (`:727-729`) |
 | Temp Arrester Override switch (live off), max 6 h | `hvac_const.py:205`; `switch.py:2429-2468` | same — hands back only |
 | Comfort Grace (live **20 min**; default 30) | `hvac_const.py:452-456` | grant expiry writes nothing (`hvac_override.py:2694-2716`) |
-| Suppression windows: temp 5 s vs Carrier refresh 42–79 s | `hvac_override.py:129`, `:147-150`; preset-window pass-through `:2455-2466` | URA's own late echo → `override_detected` |
+| Suppression windows: temp 5 s / preset 120 s vs Carrier observed 42–79 s (schedule: 30-min poll + 5-min post-write guard, C16) | `hvac_override.py:129`, `:147-150`; preset-window pass-through `:2455-2466` | URA's own late echo → `override_detected` |
 | **Net:** no timeout releases the lockout; a URA-caused or stale `manual` at zero delta is **never reclaimed** except by a forced-away write | — | operator 2026-09-25: *"Without that knob, why would we not override? arrester is an override."* |
 
 ---
@@ -305,6 +305,8 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 | C15 | "The installed ha_carrier is locally PATCHED (set_activity_setpoint); a HACS update would wipe it" (fork report + orchestrator, 2026-09-26) | It is upstream code: PR #427 (Evan Weaver, 2026-08-31), in v2.28.4 as installed from `dahlb/ha_carrier`; the file's "PATCH" comment is upstream's own wording | `gh api repos/dahlb/ha_carrier` history; HACS record `.storage/hacs.repositories` |
 
 | C16 | "Carrier refresh is 42-79 s" (used as if it were the integration's schedule) | That is URA's *observed* effective window. ha_carrier's schedule is `DEFAULT_UPDATE_INTERVAL_MINUTES=30`, full reconcile every 120 min, and a **5-min post-write guard** that re-asserts the written activity/setpoints if the cloud reverts them (`ha_carrier/const.py:46-59`, `carrier_data_update_coordinator.py:168-296`). How that guard composes with URA's 5-s suppression and with back-to-back nudge/restore writes is UNVERIFIED and a candidate strand mechanism — see `THERMOSTAT_DEFINITION_CARRIER_BRYANT.md` §9 | source, verified 2026-09-26 |
+
+| C17 | "Arrester suppression is only 5 s" (§2/§7, and copied into the W1-B plan) | Two windows: `SUPPRESS_TTL_SECONDS = 5` for temperature writes (kept short on purpose for human detection) and `SUPPRESS_TTL_SECONDS_PRESET = 120` for preset writes | `hvac_override.py:129`, `:141-146`, `:153` (W1-B build-prediction review, verified 2026-09-26) |
 
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 
