@@ -1,7 +1,7 @@
 # HVAC — Architecture State of Play (READ FIRST)
 
 **Status:** forensic snapshot of `develop` @`5072deaaf` (2026-09-26 ~02:30 CDT) + live HA reads the same night.
-**W1-A Stage A built 2026-09-26 on `feature/hvac-w1a-write-governance` (behaviour-neutral write governance) — see §4.1 (new `emit_set_hvac_mode` funnel), §4.3 (`climate_write` ledger row).
+**W1-A Stage A SHIPPED v5.103.16 2026-09-26 (behaviour-neutral write governance; live-validated, `docs/readmes/README_v5.103.16.md`) — see §4.1 (new `emit_set_hvac_mode` funnel), §4.3 (`climate_write` ledger row).
 **Scope:** everything URA does with the thermostats — decide, write, borrow/return, read back — and the occupancy
 model that drives it. Covers releases v5.103.0 → v5.103.15 (v5.103.15 shipped + live-validated 2026-09-26).
 **Owner rule:** the operator (2026-09-26): *"every agent used in the rest of the arc reads [this] first completely
@@ -117,7 +117,7 @@ Consequences:
 |---|---|---|
 | `emit_set_temperature` | `hvac_setpoint.py:223-279` | freeze / comfort-delay gate, site/zone/reason plumbing. **Logs nothing durable** (only a `comfort_delay_deferred_write` row when a gate defers, `:108-159`) |
 | `emit_set_preset_mode` | `hvac_setpoint.py:282-410` | **resume-then-pin** (v5.103.2): if the entity lists `resume` in `preset_modes` and `hold_activity == "manual"`, send `resume` then pin, with one retry (`:317-410`); capability check not vendor check (`:199-212`). D6 reason capture (`zone_id`+`reason` kwargs). Logs nothing durable itself |
-| `emit_set_hvac_mode` | `hvac_setpoint.py` (W1-A Stage A, feature branch 2026-09-26) | Behaviour-neutral: NO gate, NO transform; required kwargs `site` / `zone_id` / `reason` / `blocking` (F3, F10); optional `excursion_id` forwarded from borrow tokens. Schedules ONE `climate_write` row per attempted wire call. Migrated the 7 raw sites (B1–B7). |
+| `emit_set_hvac_mode` | `hvac_setpoint.py` (W1-A Stage A, shipped v5.103.16) | Behaviour-neutral: NO gate, NO transform; required kwargs `site` / `zone_id` / `reason` / `blocking` (F3, F10); optional `excursion_id` forwarded from borrow tokens. Schedules ONE `climate_write` row per attempted wire call. Migrated the 7 raw sites (B1–B7). |
 
 ### 4.2 Write sites (verified by Explore audit 2026-09-25 against develop; spot-checked)
 | Site | Verb(s) | Via funnel | Durable record |
