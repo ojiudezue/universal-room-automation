@@ -65,7 +65,7 @@ before doing a damned thing — to prevent drift and avoid compaction-driven err
 | **Room / zone occupancy change** | **none** | Dispatcher subscriptions are only HOUSE_STATE, ENERGY_CONSTRAINT, PERSON_ARRIVING, SAFETY_HAZARD, ZM_ZONES_UPDATED (`hvac.py:1131-1213`). The only state listeners are climate entities (arrester `hvac_override.py:1996`, short-cycle `hvac.py:4232`) and covers. |
 
 Consequences:
-- **Entry latency = up to one 5-min tick + zone entry dwell (live 2 min).** A hot-room entry can take ~7 min to act.
+- **Entry latency = 5–10 min when no session is running (C18).** The first tick that sees occupancy also STARTS the dwell clock (`current_session_start = now`, `hvac_zones.py:714-716`), so it always hits the dwell skip (`hvac.py:2362-2365`); the switch lands on the NEXT tick. Dwell < 5 min therefore does not shorten entry latency at all; only an occupancy-triggered cycle + a dwell-expiry follow-up does.
 - The **occupancy fast path was DESIGNED, never built**: commit `82620357a` names `HVAC_DECISION_TICK=5min` as "a hard
   floor on fast-in ... needs event-driven path"; `HVAC-SUPPLE-SEQUENCE-1` step 5 lists it as conditional. It lives in W2.
 - Carrier cloud refresh after a write takes **42–79 s** (`hvac_override.py:147-150`); arrester temp-suppression is
@@ -249,7 +249,7 @@ defer `hvac.py:2271-2289` can force an occupied zone away for one tick (and retr
 Source-4 count `presence.py:2148-2157`; `continuous_occupied_since` reset `hvac_zones.py:746-754`. Card
 `HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1`.
 
-**9.5 Hot entry latency** — 5-min tick + dwell (§2). No occupancy-triggered cycle exists.
+**9.5 Hot entry latency** — 5–10 min (§2, C18): first observing tick starts dwell and skips; action on the next tick. No occupancy-triggered cycle exists.
 
 **9.6 Broken-room gate** — develop's `all(zone.rooms)` lets one disabled/failed room block its zone from ever retreating
 (round-5 orchestrator override of the operator's round-4 rule). Fix in flight v5.103.15 (§11).
@@ -307,6 +307,8 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 | C16 | "Carrier refresh is 42-79 s" (used as if it were the integration's schedule) | That is URA's *observed* effective window. ha_carrier's schedule is `DEFAULT_UPDATE_INTERVAL_MINUTES=30`, full reconcile every 120 min, and a **5-min post-write guard** that re-asserts the written activity/setpoints if the cloud reverts them (`ha_carrier/const.py:46-59`, `carrier_data_update_coordinator.py:168-296`). How that guard composes with URA's 5-s suppression and with back-to-back nudge/restore writes is UNVERIFIED and a candidate strand mechanism — see `THERMOSTAT_DEFINITION_CARRIER_BRYANT.md` §9 | source, verified 2026-09-26 |
 
 | C17 | "Arrester suppression is only 5 s" (§2/§7, and copied into the W1-B plan) | Two windows: `SUPPRESS_TTL_SECONDS = 5` for temperature writes (kept short on purpose for human detection) and `SUPPRESS_TTL_SECONDS_PRESET = 120` for preset writes | `hvac_override.py:129`, `:141-146`, `:153` (W1-B build-prediction review, verified 2026-09-26) |
+
+| C18 | "Hot entry takes up to one tick + dwell, ~7 min" | 5–10 min: the observing tick starts the dwell clock and always skips; the preset write lands on the next tick | `hvac_zones.py:714-716`, `hvac.py:2362-2365` (W2-1 plan review, verified 2026-09-26) |
 
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 
