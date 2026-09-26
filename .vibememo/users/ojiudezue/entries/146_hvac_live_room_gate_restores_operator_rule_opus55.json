@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "author": "ojiudezue",
+  "session_id": "claude_20260925_envoy_hvac_forensic",
+  "entry_id": "146",
+  "timestamp": "2026-09-26T04:40:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Live-room establishment restores the operator's round-4 rule the orchestrator overrode in round 5; failed room = not defined in URA",
+  "summary": "v5.103.15 (in review) computes zone establishment over rooms actually running: disabled / setup_error / migration_error / setup_retry / removed rooms are excluded and count toward nothing (operator option a); loading rooms block outright; live rooms must be LOADED, coordinator-present and seen; failed exclusion is sticky until LOADED; a zone blocked only by a reloading room and empty holds its preset (safety force-away still writes).",
+  "why": "Round 5 reverted the operator's live-rooms decision to all(zone.rooms) on the orchestrator's own adjudication instead of fixing round 4's any() bug. The opus-5 planner's formula let a reloading, previously-seen room satisfy establishment (the exact cold-retreat hazard); hand-check + opus-5.5 plan review caught it. Operator then moved planner/builder/reviewer to claude-opus-5-5 ('5 often built the wrong thing').",
+  "implications": "Never overturn an operator decision by adjudication \u2014 fix the implementation. Hand-check any opus-5 output. Call-site wire-in anchors are mandatory (a tested helper is not a tested call site \u2014 the fix-up was sent back once for this).",
+  "revisit_trigger": "Revisit if a zone is observed retreating while any of its rooms is loading.",
+  "refs": {
+    "cards": [
+      "HVAC-DEGRADED-ROOM-TRIPWIRE-1",
+      "HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_hvac_live_room_establishment.md"
+    ]
+  }
+}

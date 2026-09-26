@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "author": "ojiudezue",
+  "session_id": "claude_20260925_envoy_hvac_forensic",
+  "entry_id": "147",
+  "timestamp": "2026-09-26T02:00:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Envoy: upstream fix does not close our path; MQTT local stream is trusted-independent but can read FRESH-yet-WRONG after an Envoy reboot; Emporia stays solar-follow primary permanently",
+  "summary": "EnvoyClientClosedError subclasses RuntimeError, not EnvoyError, so HA's handler still leaks it \u2014 the 'wait for 2026.9.4' plan is retracted. The MQTT stream measured stream-up 99.78% of native-down time (run 1, 2.4 h clean). During the operator's Envoy reboot it reported a PARTIAL fleet (devices 48->8) so SOC read 87->20 with the battery ~90% \u2014 fresh timestamps, wrong value. Operator ruled Emporia the permanent solar-follow primary ('I trust emporia more period'); stream = fallback only.",
+  "why": "Freshness alone is insufficient for a SOC tier: completeness (all 8 battery units) and a physical slew bound are required. Trust over speed was an explicit operator ruling even though the Emporia/Envoy gap is mostly the 1-min average lagging.",
+  "implications": "ENVOY-STREAM-SOC-TIER-1 must carry the device-completeness + slew guard; B2/B3 (stream as primary, tighter freshness) are dropped, do not re-propose. Trust run 2 due >= 2026-09-26 20:15 over a clean 24 h window.",
+  "revisit_trigger": "Revisit the stream-as-SOC-tier only after run 2 closes stream-vs-native agreement and the reserve witness.",
+  "refs": {
+    "cards": [
+      "ENVOY-STREAM-TRUST-MEASURE-1",
+      "ENVOY-STREAM-SOC-TIER-1",
+      "SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1"
+    ],
+    "docs": [
+      "docs/planning/AUDIT_envoy_mqtt_trust_measurement.md"
+    ]
+  }
+}

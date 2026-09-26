@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "author": "ojiudezue",
+  "session_id": "claude_20260925_envoy_hvac_forensic",
+  "entry_id": "145",
+  "timestamp": "2026-09-26T04:30:00Z",
+  "type": "decision",
+  "weight": "critical",
+  "title": "HVAC arc consolidated into 4 workstreams behind a mandatory read-first state-of-play doc; W1 is one thermostat definition per BRAND",
+  "summary": "Operator approved W1 thermostat definition (per-brand strategy owning write, borrow/return and READ \u2014 not per zone; Carrier first, generic default, Nest when testable), W2 occupancy truth (occupancy fast path first \u2014 designed in 82620357a, never built; scope = shave the 5-min tick only), W3 energy-aware, W4 closure. docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md was written from a forensic review of v5.103.0-.14 + code, and is now mandatory complete reading (CLAUDE.md 5b + all ura-* agent definitions).",
+  "why": "The session made ~15 wrong HVAC claims from stale memos, READMEs and partial greps (e.g. step-4-B 'unshipped' \u2014 it shipped v5.103.7 with reset-only night protection the operator decided in round 4; '1-min occupancy tick' \u2014 the fast path was never built). Operator: prevent drift and compaction-driven errors; 'problems before cards' and consolidate 'or we will never get done'.",
+  "implications": "Any HVAC plan/build/review starts by reading the state-of-play doc; its \u00a710 corrections ledger must never be re-asserted; every HVAC ship updates it. Room Override Occupied/Vacant stay as-is (not hard HVAC inputs; documented \u00a79c). ha_carrier.set_activity_setpoint is an UPSTREAM no-hold service (#427), usable by W1 with restore ownership.",
+  "revisit_trigger": "Revisit the W1 staging (A behaviour-neutral funnel+logging, B brand definition, Tier 3) if Stage A's write log shows a different dominant strand cause.",
+  "refs": {
+    "cards": [
+      "HVAC-W1-THERMOSTAT-DEFINITION",
+      "HVAC-W2-OCCUPANCY-TRUTH",
+      "HVAC-W3-ENERGY-AWARE",
+      "HVAC-W4-ARC-CLOSURE"
+    ],
+    "docs": [
+      "docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md"
+    ]
+  }
+}
