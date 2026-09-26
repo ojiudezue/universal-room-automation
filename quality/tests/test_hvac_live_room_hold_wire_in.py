@@ -36,35 +36,77 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 
+_SHIM_PREFIXES = (
+    "homeassistant",
+    "custom_components.universal_room_automation",
+)
+_REAL_URA_PATH = os.path.abspath(os.path.join(
+    _HERE, "..", "..", "custom_components", "universal_room_automation",
+))
+
+
+def _shim_keys():
+    return [
+        k for k in list(sys.modules)
+        if any(k == p or k.startswith(p + ".") for p in _SHIM_PREFIXES)
+    ]
+
+
 def _purge_shim_modules():
-    """FIX-UP round 5 item 11 (2026-09-26): purge module-top HA / ura
-    shim modules installed by sibling test files (e.g. test_v4713's
-    module-level MagicMock BaseCoordinator). Real modules — those with
-    `__file__` under the real ura tree or under site-packages — are
-    LEFT ALONE. Called at IMPORT TIME here (before pytest.importorskip)
-    AND again inside `_make_coord` before HVACCoordinator is loaded, so
-    the file is robust to any collection order.
+    """FIX-UP round 6 (2026-09-26): purge sys.modules entries whose
+    `__file__` is neither under the real ura source tree nor under
+    site-packages (i.e. hand-built `types.ModuleType` shims installed by
+    sibling test files' module-tops). Real modules are LEFT ALONE.
+
+    Called ONLY from inside the module-scoped `_scoped_shim_purge`
+    fixture and the `_make_coord` helper — NEVER at import time. Round
+    5 called this at import time and permanently deleted the sys.modules
+    state that sibling test files (e.g. test_opt_meta_boot_transient,
+    test_optimization_coordinator, test_runtime_smoke, test_solar_
+    follow_amps, test_solar_follow_idle_dereserve) inherited from
+    earlier collections in the full-suite run — reddening them by
+    order-pollution.
     """
-    _real_ura_path = os.path.abspath(os.path.join(
-        _HERE, "..", "..", "custom_components", "universal_room_automation",
-    ))
-    _shim_prefixes = (
-        "homeassistant",
-        "custom_components.universal_room_automation",
-    )
-    for _k in [k for k in list(sys.modules) if any(
-        k == p or k.startswith(p + ".") for p in _shim_prefixes
-    )]:
-        _mod = sys.modules[_k]
-        _file = getattr(_mod, "__file__", None)
-        if _file:
-            _abs = os.path.abspath(_file)
-            if _real_ura_path in _abs or "site-packages" in _abs:
+    for k in _shim_keys():
+        mod = sys.modules[k]
+        f = getattr(mod, "__file__", None)
+        if f:
+            fp = os.path.abspath(f)
+            if _REAL_URA_PATH in fp or "site-packages" in fp:
                 continue
-        del sys.modules[_k]
+        del sys.modules[k]
 
 
-_purge_shim_modules()
+@pytest.fixture(autouse=True, scope="module")
+def _scoped_shim_purge():
+    """Module-scoped snapshot/restore of the sys.modules subset this
+    file mutates.
+
+    Snapshot captures the state BEFORE any test in this module runs
+    (baseline may already include shims installed by earlier-collected
+    sibling files). Then the module's tests are free to purge shims and
+    load real modules via `_make_coord`. On module teardown, sys.modules
+    is RESTORED to the baseline exactly:
+      - keys present in baseline get their original value back
+        (shim or real, whichever was there); and
+      - keys ABSENT from baseline (i.e. real modules loaded during
+        the tests) are DELETED.
+    Sibling tests that run later in the same pytest process therefore
+    see the exact same `sys.modules` state as if this file never ran.
+    """
+    baseline = {k: sys.modules[k] for k in _shim_keys()}
+    try:
+        yield
+    finally:
+        current = set(_shim_keys())
+        # Restore or delete every key we may have touched.
+        for k, v in baseline.items():
+            if sys.modules.get(k) is not v:
+                sys.modules[k] = v
+        for k in current - set(baseline):
+            # Loaded during the tests but wasn't there before → drop.
+            sys.modules.pop(k, None)
+
 
 from runtime_harness import build_smoke_hass  # noqa: E402
 
