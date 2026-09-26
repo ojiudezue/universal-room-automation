@@ -367,6 +367,15 @@ zone_1 (post-borrow manual strands) followed HOLD 21 vs STATUS 1. Neither feed i
 case, NOT proven): trust `hold_activity` unless a genuine human override is detected, then trust the status payload.
 This is W1-B D0 input; a controlled operator app-change test is requested.
 
+**C23 (2026-09-26 evening) — WRONG: parts of C22.** (a) "`hold_activity` is right on named-vs-named": 155 of zone_1's 165
+`(home, away)` minutes had `hold_until==''` = ha_carrier's OPTIMISTIC LOCAL copy of URA's write (`climate.py:431-433`), not a
+cloud value (`None`); the device was physically away, but the hold feed was echoing URA, not independently confirming.
+(b) "a human set cool 70 at 00:45": the human set 70 at **19:17 CDT 09-25** (both feeds `manual`, agreeing, 5.5 h); the
+disagreement began 00:45 CDT when the cloud `hold_activity` flipped to `sleep` in the same second as a URA zone_3 write —
+co-occurrence, causation UNVERIFIED. (c) NEW MECHANISM: 24/52 `override_detected` rows since 09-19 are Carrier's echo of
+URA's own nudge, 5.3–7.5 s after the write (past the 5 s temp suppression, `hvac_override.py:133`/`:2440-2450`), shown as
+a whole-degree value; 22 of 24 followed by a lockout — card `HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1`.
+
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 
 | Seq | Workstream / step | Problems (§9) | Tier / gate |
