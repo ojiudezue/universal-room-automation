@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T22:37:50-05:00_ - _Data commit: `116702ea1194`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-25T22:44:58-05:00_ - _Data commit: `ac9d450dc0ce`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -411,15 +411,16 @@ _updated 2026-09-26 02:40_
 
 ### `HVAC-W2-OCCUPANCY-TRUTH` - W2 — HVAC knows who is really in each zone, fast enough and at night — _#8 · WSJF 2.8 · v9 tc7 u6 /e8_
 thread: **hvac** - status: **planned** - approval: **explicit**
-_created 2026-09-26 02:40 · updated 2026-09-26 04:00 · initial_
+_created 2026-09-26 02:40 · updated 2026-09-26 04:30 · initial_
 - **Problem / Solution:**
   - Problem: HVAC's picture of zone occupancy is wrong in specific, measured ways — a failed room blocked its zone (fix in flight), a reloading room reads as empty on paths that bypass the shared check, radars lose a still sleeper once the f...
 - **Origin:** 2026-09-26 - operator approved the 4-workstream consolidation of the HVAC arc (see HVAC-SUPPLE-SEQUENCE-1 RESEQUENCE_PROPOSAL_2026_09_26)
 - **Why:** Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.
 - **Next:** Order: live-room gate (building, v5.103.15) -> occupancy fast path (designed in 82620357a, never built; the real hot-entry lever — dwell alone cannot beat the 5-min tick) -> night still-sleeper hold -> placeholder readers -> guest-as-per...
 - **Tags:** hvac, workstream
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `override_switches_2026_09_26`: Operator: "try to understand what happens to HVAC occupancy when a room is forced vacant or forced occupied ... I don't think you considered this." Traced (state-of-play §9c): the per-room Override Occupied/Vacant switches set the room's...
+  - `operator_decisions_2026_09_26`: Override switches: "Leave it as is but document in state of play for HVAC so it surfaces" -> NOT a hard HVAC input; documented state-of-play §9c. Fast path scope: "The HVAC signaling from rooms that is more immediate I expect to shave th...
   - `children`: HVAC-DEGRADED-ROOM-TRIPWIRE-1
 
 ### `ENVOY-STREAM-SOC-TIER-1` - The battery brain goes blind and freezes whenever both its data sources age out — give it a third, local, fast (~5-6s) source so it can keep deciding — _#9 · WSJF 2.6 · v8 tc6 u7 /e8_

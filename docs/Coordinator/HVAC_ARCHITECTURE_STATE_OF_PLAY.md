@@ -276,7 +276,10 @@ Per-room switches `switch.<room>_override_occupied` / `_override_vacant` (`switc
 - **Override Occupied → HVAC-occupied** on the rising edge, EXCEPT hallway-typed rooms: circulation exclusion forces `hvac_occupied=False` regardless (`hvac_zones.py:~655-665`), so forcing a hallway occupied does nothing for HVAC.
 - **Override Vacant is NOT immediate for HVAC:** it is a falling edge, so the per-room-type **tail-hold** arms (`_effective_hvac_hold_seconds`, D8 night hold for bedrooms) and the zone keeps conditioning for the tail + vacancy grace (10 min live) + up to one 5-min tick.
 - Because the switches restore across restarts, a forgotten Override Occupied holds its zone occupied indefinitely; whether the D6 stale-occupancy failsafe (8 h) then forces `away` against an explicit operator override is UNVERIFIED — check before W2.
-- OPEN DESIGN QUESTION (W2): should an operator override be a HARD input to HVAC (vacant = immediately HVAC-vacant, skipping the tail; occupied = occupied for any room type, exempt from the stale failsafe)?
+- **DECIDED 2026-09-26 — LEAVE AS IS** (operator: "Leave it as is but document in state of play for HVAC so it surfaces"). Overrides are NOT a hard HVAC input: Override Vacant still rides the per-room tail-hold + vacancy grace + tick; Override Occupied is still ignored for hallway rooms. Anyone reasoning about "why did the zone keep cooling after I forced the room vacant" starts here. Revisit only on an operator ask.
+
+### 9d. W2 occupancy fast path — scope decided 2026-09-26
+Operator: "The HVAC signaling from rooms that is more immediate I expect to shave the 5m tick only for now." Scope: a room/zone HVAC-occupancy change triggers a (rate-limited, per-zone) decision cycle so HVAC no longer waits up to one `HVAC_DECISION_TICK` (5 min). NOTHING ELSE changes in that cycle — no dwell change (entry dwell stays 2 min), no hold/grace/tail change, no new retreat semantics, no override semantics. Rate limit exists because the 5-min tick is a Carrier cloud call-rate bound (`hvac_const.py:11-13`).
 
 ## 10. CORRECTIONS LEDGER — claims that were WRONG (do not re-assert)
 

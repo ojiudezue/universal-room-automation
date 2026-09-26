@@ -1828,11 +1828,15 @@ cards:
     tick. Switches survive restarts; interaction with the 8 h stale-occupancy failsafe UNVERIFIED. Design question for
     this workstream: make an operator override a HARD HVAC input (vacant = immediately vacant, occupied = occupied for
     any room type, exempt from the stale failsafe).'
+  operator_decisions_2026_09_26: 'Override switches: "Leave it as is but document in state of play for HVAC so it
+    surfaces" -> NOT a hard HVAC input; documented state-of-play §9c. Fast path scope: "The HVAC signaling from rooms
+    that is more immediate I expect to shave the 5m tick only for now" -> a room/zone HVAC-occupancy change triggers a
+    rate-limited per-zone decision cycle; no dwell/hold/grace/override changes in that cycle (state-of-play §9d).'
   title: 'W2 — HVAC knows who is really in each zone, fast enough and at night'
   thread: hvac
   status: planned
   created: '2026-09-26 02:40'
-  updated: '2026-09-26 04:00'
+  updated: '2026-09-26 04:30'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-26 ("The workstreams are approved. Recard.")'
