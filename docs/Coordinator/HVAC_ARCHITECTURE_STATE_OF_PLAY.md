@@ -282,7 +282,10 @@ setpoints except for the ~5–8 min post-write guard window (C21). Mirror image 
 disagree and URA trusts the status feed. **Physical truth = AWAY (verified 13:10):** operator app shows "Holding Away
 68–80, Idle"; blower_rpm 0 from 08:57 for 4 h while zone temp rose 76→80 °F (a real home/76 would have cooled). The
 status-feed `home` readings are false; harm is write churn only (~57 writes/day). `hvac_action`/`conditioning` on this
-entity are useless (cooling on every row). Schedule change will not fix it. Card `HVAC-ZONE1-MANUAL-OSCILLATION-1` `finding_2026_09_26_away_feed_split`; decision belongs to W1-B
+entity are useless (cooling on every row). Schedule change will not fix it. **Integration reload 13:20:02 (operator) did NOT fix it:** the first FRESH read after the reload (13:20:03) was
+`preset_mode=home` 70–76 with `hold_activity=away`, and the flap resumed (away 13:23 → home 13:29 → away 13:32 → home 13:39).
+So the false `home` comes from the Carrier cloud STATUS payload itself, not a stale HA copy — for Bryant, URA must confirm
+writes from `hold_activity` (W1-B). Card `HVAC-ZONE1-MANUAL-OSCILLATION-1` `finding_2026_09_26_away_feed_split`; decision belongs to W1-B
 (which feed confirms a write).
 
 ## 9b. Operator decisions & facts recorded 2026-09-26 (binding)
