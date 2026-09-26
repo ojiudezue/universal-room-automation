@@ -2081,10 +2081,10 @@ cards:
     context: 'Found by the v5.103.4 interim lockout read. Explains why manual% did not move on zone_1
       (67.5% vs 69.6%). Distinct from escape (URA refuses to write) — here something WRITES manual.'
 - id: HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1
-  status: parked
+  status: pre_planning
   thread: hvac
   created: '2026-09-16'
-  updated: '2026-09-25 22:50'
+  updated: '2026-09-25 23:50'
   tags: [hvac, parked-with-trigger, night-trust, suppression-discharge, do-not-retire]
   possible_trigger_2026_09_25: 'README v5.103.7 INV-1 write-back found 2 suspect night retreats: zone_2 went
     away at 02:47 (09-24) and 02:09 (09-25) with Jaya home; her bedroom last read occupied 02:10 / 01:30 (past
@@ -2092,6 +2092,19 @@ cards:
     mmWave dropped a still sleeper past the hold — recorder cannot discriminate. If a discriminator (e.g. BLE
     room + bedroom mmWave raw still-energy, or door contact) shows she was in bed, this card''s revival trigger
     ("observed degradation") has FIRED. Measure that before uncorking.'
+  TRIGGER_FIRED_2026_09_25: 'Revival trigger ("observed degradation") FIRED, measured. Both zone_2 night retreats
+    (09-24 02:47, 09-25 02:09) were a still sleeper lost by radar, not an empty room: Jaya''s phone
+    (device_tracker.iphone_jaya_bermuda_tracker home; sensor.iphone_jaya_area flickering Jaya Bedroom<->Bathroom,
+    distance a stationary ~2-6 ft) never moved all night. Sequence both nights: fan.fanswitch_treat_wifi_jayabedroom
+    switched OFF (01:31 / 01:36) -> binary_sensor.jaya_3_presence (Seeed) dropped 1 min later (01:32 / 01:37) ->
+    binary_sensor.mmwave_zigbee_jayabedroom_presence only blipped (micro-movements) -> gaps exceeded the 30-min D8
+    night hold -> zone_2 retreated. Operator 2026-09-25: "She has 2 radars x-cutting the room ... usually its
+    about her being in school and the fan keeping void occupancy" — here the reverse: fan-off removed the phantom
+    and exposed that neither radar holds a still sleeper. Sensor health at 23:30: Zigbee radar UNAVAILABLE since
+    19:32; sensor.seeedstudio_mmwave_kit_047d34_existence_energy unavailable through both nights. Candidate
+    corroborators for a night hold: stationary in-suite BLE (area in the room''s suite + low distance variance) and
+    radar micro-blips (any blip within the hold restarts it). Principle constraint (operator): zone-scoped occupancy
+    only — NOT "anyone home".'
   title: The FULL 2-6am degradation-defense leniency for night HVAC retreat (200min, 4 discharge paths) —
     parked, uncork if a real occupied-bedroom sensor-degradation is observed
   problem_solution:
