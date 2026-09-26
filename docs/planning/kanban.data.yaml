@@ -2195,6 +2195,19 @@ cards:
       ZoneThermostat API) stays on the parent card, parked.'
 - id: HVAC-ZONE1-MANUAL-OSCILLATION-1
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
+  finding_2026_09_26_away_feed_split: 'NEW SHAPE, found during v5.103.15 live validation (predates that
+    deploy, on v5.103.14). From 08:54 to 12:49 CDT zone_1 climate flipped home(76/70) <-> away(80/68) ~46 times.
+    URA decision_log shows ONLY away writes (preset_change, reason vacant_past_grace, house_state away, old_preset
+    home) every 10 min on the tick (:x0:4x) - 27 since 08:00 CDT; no excursion rows, no ac_ramp rows. The CONFIG
+    feed hold_activity reads away CONTINUOUSLY (hold_until empty, next_activity_time 06:00) while the STATUS feed
+    preset_mode reads home with home setpoints most of the time; each URA write shows away for ~5-8 min (ha_carrier
+    post-write guard, state-of-play C21) then a refresh shows home again. So the flap is URA re-issuing an away that
+    the status feed never confirms (config/status split, the mirror of the C20 manual strands). One physical clue:
+    at 12:48 zone_1 hvac_action=cooling at 79F - consistent with the thermostat actually running home 76, not away
+    80, but a single reading, UNVERIFIED. Cost: ~6 preset writes/h (2 API calls each) and possibly zone_1 never
+    actually retreating. OPEN QUESTION FOR OPERATOR: what does the Carrier app/thermostat show for zone 1 right now
+    while house is away - Away hold, or Home? That answer decides whether URA should trust hold_activity (config)
+    or preset_mode (status) as the confirmation signal - a W1-B thermostat-definition decision.'
   MANUAL_PERSISTS_EVIDENCE_2026_09_17: 'Causation probe corroborates the mystery re-manual writer:
     zone_3 shows 27 manual preset episodes post-v5.103.2, ~121s median dwell — named holds are NOT
     uniformly durable, manual is re-asserted at ~2min cadence. Either the pin is not fully effective

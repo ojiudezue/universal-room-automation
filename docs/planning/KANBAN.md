@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T09:39:59-05:00_ - _Data commit: `5fd7b59eb7ec`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T12:49:12-05:00_ - _Data commit: `88a6ced461a5`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -14,10 +14,10 @@ _Generated: 2026-09-26T09:39:59-05:00_ - _Data commit: `5fd7b59eb7ec`_ - _last_r
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 19 |
 | 🔨 In progress | 1 |
-| 🔍 Review | 2 |
+| 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 29 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🚀 Shipped (organic open) | 32 |
+| 🚀 Shipped (organic open) | 34 |
 | 🅿️ Parked | 61 |
 | ✅ Done | 193 |
 
@@ -57,8 +57,9 @@ _created 2026-09-16 · updated 2026-09-26 02:07 · refined_
 - **Next:** WAIT (me, blocked): once W1-A (HVAC-SETHVACMODE-CHOKEPOINT-1) ships and has logged one clean day of climate_write rows, run W1-B's D0 read-only probe (PLANNING_hvac_w1b_thermostat_definition.md section 3). Then record the strand-cause di...
 - **Tags:** hvac, measure-first, producer-check, found-during-validation
 - **Parsimony:** [BUILD] the Bryant thermostat re-asserts a 76/69 hold seconds after every URA preset write to zone_1, so URA and the thermostat fight continuously and URA narrates each lap as a HIGH-severity human override (~45 false pages/day)
-- **Forensic keys (12):**
+- **Forensic keys (13):**
   - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
+  - `finding_2026_09_26_away_feed_split`: NEW SHAPE, found during v5.103.15 live validation (predates that deploy, on v5.103.14). From 08:54 to 12:49 CDT zone_1 climate flipped home(76/70) <-> away(80/68) ~46 times. URA decision_log shows ONLY away writes (preset_change, reason ...
   - `MANUAL_PERSISTS_EVIDENCE_2026_09_17`: Causation probe corroborates the mystery re-manual writer: zone_3 shows 27 manual preset episodes post-v5.103.2, ~121s median dwell — named holds are NOT uniformly durable, manual is re-asserted at ~2min cadence. Either the pin is not fu...
   - `verified_2026_09_26_overnight`: OVERNIGHT PASS 2026-09-26, VERIFY-BEFORE-WORK. Verdict: CARD-WAS-WRONG on its title and next, STILL-REAL on the problem. After reading HVAC_ARCHITECTURE_STATE_OF_PLAY.md in full, I checked this card against it. (1) The title still said t...
   - `next_superseded_2026_09_26`: MEASURE (me): (1) across all 3 zones, count post-borrow manual reports where preset_mode=manual but hold_activity != manual, and those whose setpoints equal a URA borrow's excursion values; (2) read ha_carrier's preset_mode derivation (c...
@@ -597,47 +598,10 @@ _created 2026-09-25 03:20 · updated 2026-09-26 02:12 · initial_
   - `gate_2026_09_26`: OVERNIGHT 2026-09-26 FOUR-STEP GATE. (1) VALIDITY: STILL-REAL. Re-ran the 3 files on develop @660bd8ada: 2 failed, 105 passed, 10 skipped, and the ten skip reasons are identical to the card. (2) PRIOR ART: REUSE the c5ea7dfc7 fix (import...
   - `verified_2026_09_25`: STILL-REAL, verified by the orchestrator INDEPENDENTLY rather than trusting the reviewer report (the reviewer report is a hypothesis; running it is the check). Command: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=quality .venv-ha/bin/python -m ...
 
-## 🔍 Review (2)
+## 🔍 Review (0)
 _under review_
 
-### `HVAC-DEGRADED-ROOM-TRIPWIRE-1` - One broken room switches off HVAC occupancy for its whole zone — count only the rooms that are actually running — _#1 · WSJF 2.8 · v7 tc5 u2 /e5_
-thread: **hvac** - status: **review**
-_created 2026-09-17 · updated 2026-09-26 09:10_
-- **Problem / Solution:**
-  - Problem: before URA lets a zone drop to "away", it waits until it has heard from every room in that zone. A room that is disabled or failing to load never reports, so the zone never qualifies and keeps heating or cooling empty space fore...
-- **Why:** Operator round-4 decision (09-17), re-affirmed 09-25: HVAC must match occupancy in the zone. The round-5 all(zone.rooms) revert is SUPERSEDED — it was an orchestrator override of that decision. The earlier why ("all() is the safe gate; s...
-- **Next:** BUILD (me, Tier 2 — touches the shared retreat gate, 2 framing-disjoint reviews + mutation drill): change is_zone_hvac_established (hvac_zones.py:1043) to all() over rooms with a LOADED config entry; replace test_f1_disabled_room_leaves_...
-- **Tags:** hvac, no-soak, trip-wire, safety-gate-residual
-- **Parsimony:** [BUILD] a disabled room silently disables conditioning-demand for its whole zone
-- **Forensic keys (8):**
-  - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
-  - `operator_decision_2026_09_25`: Operator: "This also seems wrong. WTF?" — the trip-wire-instead-of-fix framing is REJECTED. It was the operator's ROUND-4 decision (09-17) to scope establishment to rooms with a LIVE entry; the round-4 build implemented that WRONGLY as a...
-  - `operator_go_2026_09_25`: Operator: "Maddening. do it now. Plan and build. ... no corners cut." Explicit go. Tier: regression-prone (shared retreat gate consumed by row-1 / D7 / D9 / F4 across every zone) -> standing policy = Tier 2-DB (3 framing-disjoint reviews...
-  - `progress_2026_09_26`: Plan PLANNING_hvac_live_room_establishment.md: rev 1 by ura-planner (ran on opus-5) -> orchestrator hand-check found AM-1 CRITICAL (rev-1 D2 formula let a reloading, previously-seen room satisfy establishment = the cold-retreat hazard) +...
-  - `review_round1_2026_09_26`: Build 5664b3fb3 (12/12 mutation drills RED->GREEN). Reviews: A SHIP (3 LOW: DST wall-clock grace, unguarded diag attrs, deleted room silently transient); B FIX-REQUIRED (NM dedup drops 2nd room - missing location; zone already away brief...
-  - `operator_decision_2026_09_26_failed_room`: Operator picked option (a): "The room does not count to decisions and acts like its not defined in URA." Matches the fix-up default (excluded room contributes nothing; zone decides on its remaining live rooms immediately, no extra vacanc...
-  - `review_round2_2026_09_26`: Fix-up 3e707612b + wire-in round 9374b2361 (row-1 hold restructured to suppress only the preset write; D5 shed clears it). Focused re-review: FIX-REQUIRED — HIGH UnboundLocalError: _row1_hold_write assigned only under `if zi:` (hvac.py:2...
-  - `review_C_2026_09_26`: Validator round 4 @91e6f9559: CLEAN (0 NEW names, 3 GONE). Reviewer C (41 real per-site source mutations): FIX-REQUIRED — green-under-mutation: HIGH row-1 hold transient conjunct hvac.py:2090 (dropping it makes every empty zone hold — fu...
-
-### `COVERAGE-RATING-FALSE-ANOMALOUS-1` - The energy coverage self-check reports a false "measurement units are mismatched" alarm — its real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at midnight the way the code assumes — _#2 · WSJF 2.2 · v6 tc3 u2 /e5_
-thread: **energy** - status: **review** - approval: **unreviewed**
-_created 2026-09-19 04:15 · updated 2026-09-25 03:40 · initial_
-- **Problem / Solution:**
-  - Problem: URA cross-checks its own energy accounting by comparing what it attributed to individual rooms against what it measured for the whole house, and it currently disagrees with itself by roughly sevenfold (the gap reads about minus ...
-- **Why:** A self-check that reports a confident wrong cause is worse than one that says "I do not know": the ANOMALOUS line names Bug Class #30 (unit mismatch) and would send the next investigator to the unit-normalization work, which the evidence...
-- **Next:** REVIEWS IN FLIGHT — no operator input needed, and the old "BUILD next pass" text was STALE and is replaced. Verified on develop 2026-09-25: the build ALREADY LANDED at commit c5ea7dfc7 (COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN=120 confirmed...
-- **Tags:** measure-before-build, no-fabrication-verify, falsify-first
-- **Refs:** custom_components/universal_room_automation/aggregation.py:889-940 (_coverage_rating + both warnings); docs/planning/PLANNING_energy_unit_normalization_and_attribution.md; live core log 2026-09-18 21:56 / 22:56 / 2026-09-19 00:11 (the three rate-limited lines)
-- **Forensic keys (9):**
-  - `REVIEW_A_2026_09_25`: FRAMING A (local correctness + edge cases) — VERDICT SHIP, no CRITICAL and no HIGH. Two small items recommended in-cycle per the fix-LOWs-in-cycle rule, both a few lines. VERIFIED CLEAN, stated explicitly because a clean finding is worth...
-  - `measured_2026_09_23`: OVERNIGHT PASS — VERDICT STILL-REAL + CARD-WAS-WRONG-IN-SCOPE, and the contained half is now BUILT and sitting in review. VALIDITY CHECK (ground truth, not the card): re-read aggregation.py:889-940 on current develop — the excuse branch ...
-  - `operator_note_2026_09_23`: Not fixed and deliberately out of scope: the ANOMALOUS and INCOMPLETE warnings share one rate-limit global (_COVERAGE_RATING_ANOMALOUS_LAST_WARN), so a boundary INCOMPLETE line can suppress a genuine ANOMALOUS line for an hour. That is p...
-  - `FIXUP_DONE_VERIFIED_2026_09_25`: FIX-UP COMPLETE AND INDEPENDENTLY VERIFIED BY THE ORCHESTRATOR — I did not take the builder's report on trust, which is the standing rule. Commit ca69d45c2, fast-forward merged onto develop, built in an isolated worktree under .claude/wo...
-  - `REVIEW_B_2026_09_25`: FRAMING B (test authority via real per-site source mutation) — VERDICT SHIP. Every build claim in this lane was either confirmed or confirmed STRONGER, which is the unusual outcome; the two findings are pre-existing siblings, not defects...
-  - `FIXUP_DISPATCHED_2026_09_25`: Both reviews SHIP, so per the fix-LOWs-in-cycle rule I dispatched ONE consolidated fix-up rather than shipping with known-cheap defects open: (a) MEDIUM-1 from review A — split the shared module-global warn throttle so the excuse branch ...
-  - `measured_2026_09_19`: Read from the live core log (2026-09-18 21:11 -> 2026-09-19 02:02), three occurrences, rate-limited to one per hour by design so three lines is the maximum the window can show: 21:56 delta_percent=-1259.04 -> INCOMPLETE ("negative inside...
-  - `MEASURED_LIVE_2026_09_19`: MECHANISM SETTLED, AND THE SCARY HALF IS EXONERATED — it is a day-boundary bug in the self-check, NOT a sevenfold attribution error. Read the live sensor directly (sensor.universal_room_automation_energy_coverage_delta at 02:14 CDT): who...
-  - `SCOPE_NARROWED_2026_09_19`: Now a small, contained fix — and NOT built tonight, deliberately. Shape: treat a negative delta inside a day-boundary re-anchor window the same way the post-restart window is already treated (return INCOMPLETE, log the re-anchor explanat...
+_(none)_
 
 ## ⏸️ Waiting on operator (29)
 _needs a human call — groomed first_
@@ -1131,7 +1095,7 @@ _I owe something_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (32)
+## 🚀 Shipped (organic open) (34)
 _live, awaiting proof_
 
 ### `BLE-HOLD-CAP-SUITE-POLLUTION-1` - test_ble_hold_cap fails in certain full-suite orderings — pre-existing order-dependent pollution (passes alone/in pairs) — _#1 · WSJF 7.5 · v5 tc8 u2 /e2 ⚠_
@@ -1331,7 +1295,26 @@ _created 2026-08-20 14:15 · updated 2026-09-26 02:40 · refined ×3_
   - `BUILT_TO_REVIEW_2026_09_16`: Residual B is BUILT and sitting in review on branch feature/hvac-daily-baseline-persist (merged to develop for integration; NOT deployed — a deploy restarts HA and the house is occupied and asleep, which is the contract's hostile-timing ...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: residual B (awaited save_baselines) is scoped b...
 
-### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer) — _#12 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+### `HVAC-DEGRADED-ROOM-TRIPWIRE-1` - One broken room switches off HVAC occupancy for its whole zone — count only the rooms that are actually running — _#12 · WSJF 2.8 · v7 tc5 u2 /e5_
+thread: **hvac** - status: **shipped_organic**
+_created 2026-09-17 · updated 2026-09-26 09:10_
+- **Problem / Solution:**
+  - Problem: before URA lets a zone drop to "away", it waits until it has heard from every room in that zone. A room that is disabled or failing to load never reports, so the zone never qualifies and keeps heating or cooling empty space fore...
+- **Why:** Operator round-4 decision (09-17), re-affirmed 09-25: HVAC must match occupancy in the zone. The round-5 all(zone.rooms) revert is SUPERSEDED — it was an orchestrator override of that decision. The earlier why ("all() is the safe gate; s...
+- **Next:** BUILD (me, Tier 2 — touches the shared retreat gate, 2 framing-disjoint reviews + mutation drill): change is_zone_hvac_established (hvac_zones.py:1043) to all() over rooms with a LOADED config entry; replace test_f1_disabled_room_leaves_...
+- **Tags:** hvac, no-soak, trip-wire, safety-gate-residual
+- **Parsimony:** [BUILD] a disabled room silently disables conditioning-demand for its whole zone
+- **Forensic keys (8):**
+  - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
+  - `operator_decision_2026_09_25`: Operator: "This also seems wrong. WTF?" — the trip-wire-instead-of-fix framing is REJECTED. It was the operator's ROUND-4 decision (09-17) to scope establishment to rooms with a LIVE entry; the round-4 build implemented that WRONGLY as a...
+  - `operator_go_2026_09_25`: Operator: "Maddening. do it now. Plan and build. ... no corners cut." Explicit go. Tier: regression-prone (shared retreat gate consumed by row-1 / D7 / D9 / F4 across every zone) -> standing policy = Tier 2-DB (3 framing-disjoint reviews...
+  - `progress_2026_09_26`: Plan PLANNING_hvac_live_room_establishment.md: rev 1 by ura-planner (ran on opus-5) -> orchestrator hand-check found AM-1 CRITICAL (rev-1 D2 formula let a reloading, previously-seen room satisfy establishment = the cold-retreat hazard) +...
+  - `review_round1_2026_09_26`: Build 5664b3fb3 (12/12 mutation drills RED->GREEN). Reviews: A SHIP (3 LOW: DST wall-clock grace, unguarded diag attrs, deleted room silently transient); B FIX-REQUIRED (NM dedup drops 2nd room - missing location; zone already away brief...
+  - `operator_decision_2026_09_26_failed_room`: Operator picked option (a): "The room does not count to decisions and acts like its not defined in URA." Matches the fix-up default (excluded room contributes nothing; zone decides on its remaining live rooms immediately, no extra vacanc...
+  - `review_round2_2026_09_26`: Fix-up 3e707612b + wire-in round 9374b2361 (row-1 hold restructured to suppress only the preset write; D5 shed clears it). Focused re-review: FIX-REQUIRED — HIGH UnboundLocalError: _row1_hold_write assigned only under `if zi:` (hvac.py:2...
+  - `review_C_2026_09_26`: Validator round 4 @91e6f9559: CLEAN (0 NEW names, 3 GONE). Reviewer C (41 real per-site source mutations): FIX-REQUIRED — green-under-mutation: HIGH row-1 hold transient conjunct hvac.py:2090 (dropping it makes every empty zone hold — fu...
+
+### `ROUTINE-DETECTOR-NO-DISCHARGE-1` - RegimeDetector math is faithful but the product fails its own acceptance criterion (no discharge, dead-letter ack, INFO near-noise, no consumer) — _#13 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
 _created 2026-08-19 13:15 · updated 2026-09-12 17:00 · refined_
 - **Problem / Solution:**
@@ -1348,7 +1331,7 @@ _created 2026-08-19 13:15 · updated 2026-09-12 17:00 · refined_
   - `MEASURED_2026_09_14`: ORCHESTRATOR-VERIFIED (I re-ran every query and read the live sensors myself). VERDICT SPLIT, and the live consequence is worse than the card assumed. REFUTED (detector side): regime_cell_state.unacknowledged_consecutive DOES discharge —...
   - `design_pick_evidence_2026_09_14`: The measurement discriminates the A/B/C pick below. (C) KEEP HUMAN-ACK-ONLY is REFUTED BY OUTCOME — it is what ships today, and in four months the button was pressed ZERO times while 462 events piled up and the house sensor latched on th...
 
-### `HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1` - The startup ramp audit writes setpoints and restores no preset, so every restart drops zones into an anonymous hold — _#13 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+### `HVAC-BOOT-RAMP-AUDIT-STRANDS-PRESET-1` - The startup ramp audit writes setpoints and restores no preset, so every restart drops zones into an anonymous hold — _#14 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **hvac** - status: **shipped_organic** - approval: **implied**
 _created 2026-09-16 · updated 2026-09-26 02:40 · initial_
 - **Problem / Solution:**
@@ -1366,7 +1349,7 @@ _created 2026-09-16 · updated 2026-09-26 02:40 · initial_
   - `VERIFIED_2026_09_16`: Static: async_startup_ramp_audit (hvac_override.py) has temp=1, preset=0 — one setpoint emission, no preset restore. Live: zone_3 went away|away -> manual|manual at 01:17:04, seconds after the 01:12 restart, on the zone that is 93.7% nam...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the first-restart-after-deploy named-hold check...
 
-### `HVAC-MANUAL-PRESET-CONTRACT-1` - Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is zones sitting in manual for hours; do the sanctioned excursions return? — _#14 · WSJF 2.2 · v5 tc3 u10 /e8 ⚠_
+### `HVAC-MANUAL-PRESET-CONTRACT-1` - Design spec says control the thermostats via PRESETS, never raw manual setpoints — reality is zones sitting in manual for hours; do the sanctioned excursions return? — _#15 · WSJF 2.2 · v5 tc3 u10 /e8 ⚠_
 thread: **hvac** - status: **shipped_organic** - approval: **unreviewed**
 _created 2026-08-20 14:40 · updated 2026-09-26 02:40 · reframed_architectural_root_
 - **Problem / Solution:**
@@ -1429,7 +1412,27 @@ _created 2026-08-20 14:40 · updated 2026-09-26 02:40 · reframed_architectural_
   - `disposition_2026_08_25`: CONFIRMED buildable (audit no longer gating). Mechanism proven: (1) should_change_preset self-lockout (hvac_preset.py:214-219 returns False on manual); (2) banking — a sanctioned excursion — provably does NOT restore (BORROW finding: 0 e...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the numeric acceptance prediction (zone_1 manua...
 
-### `EC-SOC-LADDER-XVALIDATE-1` - No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity and oscillate EV pause/resume; the parked fix's trigger has now fired — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `COVERAGE-RATING-FALSE-ANOMALOUS-1` - The energy coverage self-check reports a false "measurement units are mismatched" alarm — its real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at midnight the way the code assumes — _#16 · WSJF 2.2 · v6 tc3 u2 /e5_
+thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
+_created 2026-09-19 04:15 · updated 2026-09-25 03:40 · initial_
+- **Problem / Solution:**
+  - Problem: URA cross-checks its own energy accounting by comparing what it attributed to individual rooms against what it measured for the whole house, and it currently disagrees with itself by roughly sevenfold (the gap reads about minus ...
+- **Why:** A self-check that reports a confident wrong cause is worse than one that says "I do not know": the ANOMALOUS line names Bug Class #30 (unit mismatch) and would send the next investigator to the unit-normalization work, which the evidence...
+- **Next:** REVIEWS IN FLIGHT — no operator input needed, and the old "BUILD next pass" text was STALE and is replaced. Verified on develop 2026-09-25: the build ALREADY LANDED at commit c5ea7dfc7 (COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN=120 confirmed...
+- **Tags:** measure-before-build, no-fabrication-verify, falsify-first
+- **Refs:** custom_components/universal_room_automation/aggregation.py:889-940 (_coverage_rating + both warnings); docs/planning/PLANNING_energy_unit_normalization_and_attribution.md; live core log 2026-09-18 21:56 / 22:56 / 2026-09-19 00:11 (the three rate-limited lines)
+- **Forensic keys (9):**
+  - `REVIEW_A_2026_09_25`: FRAMING A (local correctness + edge cases) — VERDICT SHIP, no CRITICAL and no HIGH. Two small items recommended in-cycle per the fix-LOWs-in-cycle rule, both a few lines. VERIFIED CLEAN, stated explicitly because a clean finding is worth...
+  - `measured_2026_09_23`: OVERNIGHT PASS — VERDICT STILL-REAL + CARD-WAS-WRONG-IN-SCOPE, and the contained half is now BUILT and sitting in review. VALIDITY CHECK (ground truth, not the card): re-read aggregation.py:889-940 on current develop — the excuse branch ...
+  - `operator_note_2026_09_23`: Not fixed and deliberately out of scope: the ANOMALOUS and INCOMPLETE warnings share one rate-limit global (_COVERAGE_RATING_ANOMALOUS_LAST_WARN), so a boundary INCOMPLETE line can suppress a genuine ANOMALOUS line for an hour. That is p...
+  - `FIXUP_DONE_VERIFIED_2026_09_25`: FIX-UP COMPLETE AND INDEPENDENTLY VERIFIED BY THE ORCHESTRATOR — I did not take the builder's report on trust, which is the standing rule. Commit ca69d45c2, fast-forward merged onto develop, built in an isolated worktree under .claude/wo...
+  - `REVIEW_B_2026_09_25`: FRAMING B (test authority via real per-site source mutation) — VERDICT SHIP. Every build claim in this lane was either confirmed or confirmed STRONGER, which is the unusual outcome; the two findings are pre-existing siblings, not defects...
+  - `FIXUP_DISPATCHED_2026_09_25`: Both reviews SHIP, so per the fix-LOWs-in-cycle rule I dispatched ONE consolidated fix-up rather than shipping with known-cheap defects open: (a) MEDIUM-1 from review A — split the shared module-global warn throttle so the excuse branch ...
+  - `measured_2026_09_19`: Read from the live core log (2026-09-18 21:11 -> 2026-09-19 02:02), three occurrences, rate-limited to one per hour by design so three lines is the maximum the window can show: 21:56 delta_percent=-1259.04 -> INCOMPLETE ("negative inside...
+  - `MEASURED_LIVE_2026_09_19`: MECHANISM SETTLED, AND THE SCARY HALF IS EXONERATED — it is a day-boundary bug in the self-check, NOT a sevenfold attribution error. Read the live sensor directly (sensor.universal_room_automation_energy_coverage_delta at 02:14 CDT): who...
+  - `SCOPE_NARROWED_2026_09_19`: Now a small, contained fix — and NOT built tonight, deliberately. Shape: treat a negative delta inside a day-boundary re-anchor window the same way the post-restart window is already treated (return INCOMPLETE, log the re-anchor explanat...
+
+### `EC-SOC-LADDER-XVALIDATE-1` - No cross-field validation on the EC SOC ladder — inverted operator sliders can flip a gate polarity and oscillate EV pause/resume; the parked fix's trigger has now fired — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **unreviewed**
 _created 2026-08-24 16:45 · updated 2026-09-12 10:30 · initial_
 - **Problem / Solution:**
@@ -1451,7 +1454,7 @@ _created 2026-08-24 16:45 · updated 2026-09-12 10:30 · initial_
   - `operator_refine_2026_09_09`: Operator: VALIDATE NEEDS AN ACTION — detection alone is useless; if the ladder does not make sense, then WHAT? Proposed (to confirm in plan): reject at the SOURCE — a config-flow/options validation error at save time that names the speci...
   - `build_2026_09_09`: BUILT on feature/energy-validate-staleness (e68a0af66). Save-time ladder validation in async_step_coordinator_energy + runtime guard (_check_threshold_ladder -> rate-limited threshold_ladder_violation anomaly) + safely_ordered_ladder() a...
 
-### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#18 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **notifications** - status: **shipped_organic** - approval: **operator_proposed**
 _updated 2026-09-12 11:00_
 - **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
@@ -1465,7 +1468,7 @@ _updated 2026-09-12 11:00_
   - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
   - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
 
-### `AWAY-BLOCK-1` - House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `AWAY-BLOCK-1` - House held home_day 2h with everyone away — fan->mmWave->occupancy->fan self-sustaining loop; both away paths structurally blocked — _#19 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
 _updated 2026-09-12 11:00_
 - **Origin:** 2026-08-13 - operator: "why not trust that signal and send the house to away mode? What are we getting wrong about this inability to transition?"
@@ -1478,7 +1481,7 @@ _updated 2026-09-12 11:00_
   - `operator_dispositions_2026_08_13`: Rec 1: OPERATOR-OWNED — the existing Zigbee sensor is hallway-placed; operator adds a physical sensor himself. DO NOT RAISE AGAIN (explicit instruction); when new sensors appear in room configs, silently verify D2 arms. Rec 2: PARKED (ad...
   - `reconcile_2026_08_16`: Root fixes SHIPPED v5.75.0 (fan duty-flag exclusion + room-name write-through). Deeper structural causes are in flight as PATH-ALPHA-DENOM-1 (H3 over-reach) + GAP-A-CENSUS-HOLE-1 (census half) + Gap-B guard. This card holds the incident ...
 
-### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket) — _#18 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket) — _#20 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
 _updated 2026-09-12 11:40_
 - **Origin:** 2026-08-14 - ROOM-NAME-DESYNC-1 Review C adversarial find (D-MED-1): rename Room A to an existing Room B name — zero validation; _room_to_zone dict + ZonePresenceTracker.room_names + substrate bucket keys all name-keyed -> silent overwri...
@@ -1490,7 +1493,7 @@ _updated 2026-09-12 11:40_
   - `disposition_2026_09_12_built`: BUILT 2026-09-12 (Tier-1, overnight autonomous). Added create-time duplicate-room-name guard in async_step_room_setup (config_flow.py:1114-1135), mirroring the existing zone_name_exists guard: case-insensitive + whitespace-trimmed compar...
   - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
 
-### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate — _#19 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate — _#21 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **implied**
 _updated 2026-09-12 12:40 · refined ×3_
 - **Origin:** 2026-08-16 - Operator: "repair if not functional dupes; if so remove" + "dead emporia — which ones?" -> AUDIT_ev_sensor_surface.md (60105933a).
@@ -1505,7 +1508,7 @@ _updated 2026-09-12 12:40 · refined ×3_
   - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#20 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ARRESTER-CLOUDFLAP-FALSEPOS-1` - A Carrier cloud timeout books a phantom thermostat "override" — the arrester counts a human that was never there — _#22 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **shipped_organic** - approval: **unreviewed**
 _created 2026-08-20 14:15 · updated 2026-09-12 14:55 · refined_
 - **Problem / Solution:**
@@ -1525,7 +1528,7 @@ _created 2026-08-20 14:15 · updated 2026-09-12 14:55 · refined_
   - `CORRECTION_2026_08_20_operator`: PARTIAL CORRECTION. I attributed override #3's "counted but never entered grace" to the temp_arrester_override suppression AND implied the suppression itself was suspicious. OPERATOR: "I did use the arrester override this am, just turned...
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + planning docs. Same CLASS as BATTERY-RESERVE-CLOUD-ORACLE-FLAP-1 (inbox) — "cloud oracle flap pollutes URA's own diagnostics" — but a different oracle (Carrier climate vs Enphase battery) and a different consumer (arrester ...
 
-### `JAYA-FAN-STILL-PHANTOM-1` - Jaya Bedroom fan-induced mmWave still-phantom held Upstairs HVAC zone (empty room) — resolved by enabling fan control so the shipped pause-recheck covers it — _#21 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `JAYA-FAN-STILL-PHANTOM-1` - Jaya Bedroom fan-induced mmWave still-phantom held Upstairs HVAC zone (empty room) — resolved by enabling fan control so the shipped pause-recheck covers it — _#23 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **shipped_organic**
 _created 2026-09-19_
 - **Problem / Solution:**
@@ -1536,7 +1539,7 @@ _created 2026-09-19_
   - `discriminator`: ORGANIC ACCEPTANCE (one-shot, no soak): on the next fan-on mmwave-sole episode in an empty Jaya, sensor.jaya_bedroom_..._fan_recheck_last_outcome shows a demote/clear and the room drops occupied -> zone_2 releases. Enable the fan_recheck...
   - `followups`: FAN-RECHECK-GATE-HARDENING: recheck gate keys only on room CONF_FAN_CONTROL_ENABLED, ignoring _is_hvac_managing_fans() — a room with hvac_coordination_enabled=True + fan_control_enabled=False would be wrongly vetoed fan_control_off. Swee...
 
-### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Setup/unload symmetry + tracked background tasks (tech-debt hardening) — _#22 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Setup/unload symmetry + tracked background tasks (tech-debt hardening) — _#24 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **shipped_organic**
 _created 2026-08-18 02:30 · updated 2026-09-19 03:55 · refined_
 - **Next:** Tier 2 production hardening: audit async_on_unload coverage + track background tasks (reload-safety + task-leak). Independent of the test cluster.
@@ -1550,7 +1553,7 @@ _created 2026-08-18 02:30 · updated 2026-09-19 03:55 · refined_
   - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the Tier-2 production hardening (async_on_unloa...
 
-### `RECORDER-BLOAT-LOGFLOOD-1` - 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log floods — _#23 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `RECORDER-BLOAT-LOGFLOOD-1` - 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log floods — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **shipped_organic** - approval: **unreviewed**
 _created 2026-08-20 14:15 · updated 2026-09-19 03:55 · initial_
 - **Problem / Solution:**
@@ -1571,7 +1574,7 @@ _created 2026-08-20 14:15 · updated 2026-09-19 03:55 · initial_
   - `ADJACENCY_SWEEP_2026_08_20`: Swept board + BACKLOG.md. FRIGATE-LEG-NAMING-1 (inbox) covers the Frigate live/dead leg naming inconsistency and is the likely home for the camera_census garage_a/garage_b flood — fold that flood in there rather than duplicating. The MQT...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the config-level fixes + re-measure are unstart...
 
-### `HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1` - v5.103.7 shipped the conditioning-demand debounce with NO operator control (hold is module-constant only) + incomplete observability (D2 entity disabled-by-default, no `established` attr) — _#24 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1` - v5.103.7 shipped the conditioning-demand debounce with NO operator control (hold is module-constant only) + incomplete observability (D2 entity disabled-by-default, no `established` attr) — _#26 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **shipped_organic**
 _created 2026-09-17 · updated 2026-09-26 02:40_
 - **Problem / Solution:**
@@ -1590,7 +1593,7 @@ _created 2026-09-17 · updated 2026-09-26 02:40_
   - `PLAN_REVISED_READY_2026_09_17`: Revision addresses all 6 blocking + 4 advisory; orchestrator-validated additive Tier-2. D1/D2 room climate step (config_flow.py:11419); D6 chokepoint hook (all 11 sites); D3 registry migration for 43 existing; D7 collapsed to since/durat...
   - `PLAN_REVIEW_2026_09_17`: Plan review = FIX-REQUIRED-IN-PLAN, 6 blocking. Caught pre-build: P1(CRIT) D1/D2 config step points at CM house-wide step (config_flow.py:5836/:5885) NOT the per-room step (:3412/climate) -> knob would be house-wide, per-room resolver co...
 
-### `HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1` - Make "why did this zone retreat?" LIVE-LEGIBLE — the preset REASON (vacancy/coast-duty/house-state) + coast state are invisible, so aways are unattributable at a glance (confused operator AND assistant) — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-AWAY-ATTRIBUTION-LEGIBILITY-1` - Make "why did this zone retreat?" LIVE-LEGIBLE — the preset REASON (vacancy/coast-duty/house-state) + coast state are invisible, so aways are unattributable at a glance (confused operator AND assistant) — _#27 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **shipped_organic**
 _created 2026-09-17 · updated 2026-09-26 02:40_
 - **Problem / Solution:**
@@ -1604,7 +1607,7 @@ _created 2026-09-17 · updated 2026-09-26 02:40_
   - `VALIDATED_5108_2026_09_18`: v5.103.8 live-validated: loaded clean, zero ERROR. retreat_reason live on zone preset sensor (house_state_transition + retreat_reason_at). Coast dwell attrs (energy_constraint_mode/since/duration_s) live on 10-Mode. All 43 hvac_occupied ...
   - `FOLDED_INTO_v5_103_8_2026_09_17`: BEING HANDLED in the same cycle as HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 (one combined plan PLANNING_hvac_demand_knobs_and_observability.md, build @9be22f498, 2 reviews + consolidated fix-up in flight). This cards deliverables = D5 retreat_re...
 
-### `HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1` - D5 duty-cycle is occupancy-blind (forces OCCUPIED zones away during coast/shed) + its runtime_exceeded name falsely implies Bryant compressor protection — _#26 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1` - D5 duty-cycle is occupancy-blind (forces OCCUPIED zones away during coast/shed) + its runtime_exceeded name falsely implies Bryant compressor protection — _#28 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **shipped_organic**
 _created 2026-09-17 · updated 2026-09-26 02:40_
 - **Problem / Solution:**
@@ -1623,7 +1626,7 @@ _created 2026-09-17 · updated 2026-09-26 02:40_
   - `CHECKPOINT_DEFAULTS_2026_09_18`: Operator: dont hold it + finish this tail (superseding the earlier dismiss). Proceeding on RECOMMENDED defaults: (1) SHED>OCCUPANCY>COAST-DUTY (shed still forces occupied away; occupancy defers ONLY under coast — matches D3 shed-dominate...
   - `PLAN_2026_09_18`: Plan PLANNING_hvac_d5_reframe_occupancy_gate.md. INV-D5-GATE: under coast, no occupied zone (any_room_hvac_occupied) is forced to away by D5; under shed, byte-identical pre- cycle. Tier 2-DB (presence<->HVAC<->EC ripple; shared-primitive...
 
-### `ARRESTER-LEDGER-INVISIBLE-1` - The HVAC override arrester keeps its ledger in INFO log lines, on a log that only records WARNING and above — so every arrest it makes is invisible after the fact — _#27 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ARRESTER-LEDGER-INVISIBLE-1` - The HVAC override arrester keeps its ledger in INFO log lines, on a log that only records WARNING and above — so every arrest it makes is invisible after the fact — _#29 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **shipped_organic** - approval: **unreviewed**
 _created 2026-09-15 · updated 2026-09-26 02:40 · initial_
 - **Problem / Solution:**
@@ -1643,7 +1646,7 @@ _created 2026-09-15 · updated 2026-09-26 02:40 · initial_
   - `ADJACENCY_SWEEP_2026_09_15`: NEW (not duplicate). Swept all four surfaces. (1) Board: the four arrester cards are each a distinct BEHAVIOUR defect (boot-window blindness, cloud-flap false positive, sunset-on-away, comfort delay) — none is about the decisions being u...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: live override_detected row check still owed. So...
 
-### `HVAC-ZONE-CONDITIONING-DEMAND-1` - HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC its own dwell-vs-transit derivation instead of tuning a knob that cannot win — _#28 · WSJF 1.8 · v5 tc3 u6 /e8 ⚠_
+### `HVAC-ZONE-CONDITIONING-DEMAND-1` - HVAC reads the room-automation occupancy signal, which is smoothed for lights — give HVAC its own dwell-vs-transit derivation instead of tuning a knob that cannot win — _#30 · WSJF 1.8 · v5 tc3 u6 /e8 ⚠_
 thread: **hvac** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-15 · updated 2026-09-26 02:40 · initial_
 - **Problem / Solution:**
@@ -1714,7 +1717,7 @@ _created 2026-09-15 · updated 2026-09-26 02:40 · initial_
   - `DUMMY_PERSON_REJECTED_2026_09_15`: OPERATOR ASKED: "Zone 3 has no zone persons because its a guest wing. Should we stub a dummy?" RECOMMENDATION: NO. The three gates (night-trust away-suppression hvac.py:1788-1795, sleep veto aggregation.py:4017-4019, non-sleep person-hom...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: post-sensor-swap residual re-measure still owed...
 
-### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#29 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#31 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **config-flow** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-12 16:30 · updated 2026-09-12 16:05 · refined_
 - **Problem / Solution:**
@@ -1744,7 +1747,7 @@ _created 2026-09-12 16:30 · updated 2026-09-12 16:05 · refined_
   - `recommended_combo_2026_09_12`: Presented the most-assistive LINEAR combo for operator approval (the bold end of each proposal, resolving the conservative/aggressive variants): area-first + auto-detect-and-confirm (P2 bold) + continuous house->room ribbon (P5) + essent...
   - `planning_2026_09_12`: AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + sep...
 
-### `ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1` - Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s — _#30 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1` - Room-config SAVE triggers full ~90-entity ROOM reload + house-wide substrate re-subscribe -> event-loop stall -> HA unresponsive ~10-30s — _#32 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **presence** - status: **shipped_organic**
 _created 2026-09-19_
 - **Problem / Solution:**
@@ -1764,7 +1767,7 @@ _created 2026-09-19_
   - `VALIDATOR_2026_09_19`: Validator name-diff: 39 NEW failing names, ALL test-infra debt from the diff (zero application regressions). 38 = _ast_slice_guard.py keep-set not extended for the 20 new _CONF_* symbols (test_part2_ec_hc_writeback.py cannot load the sli...
   - `FIXUP_DISPATCH_2026_09_19`: Consolidated fix-up sent to builder (7 items): A-H1 (refresh atop handle_humidity_based_fan_control + audit correction + pin test), A-M1 (reconciler live cfg), A-M2 (binary_sensor merge options), B-LOW-1 (widen D2 dedup keys w/ kind), B-...
 
-### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window — _#31 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `EVSE-CHARGE-ONSET-NOT-HELD-1` - Charge-onset (set to 1am) did NOT hold either charger last night — L2 charged at full 11.6kW from 21:02 draining the house battery 46%->9%; L1 also ran in-window — _#33 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **implied**
 _created 2026-09-08 00:10 · updated 2026-09-19 03:35 · refined ×2_
 - **Problem / Solution:**
@@ -1786,7 +1789,7 @@ _created 2026-09-08 00:10 · updated 2026-09-19 03:35 · refined ×2_
   - `fix_direction_2026_09_10`: FIX (two surfaces, this card owns #1): (1) ONSET GATE reload-resilience -- _evaluate_onset_gate must NOT release a currently-held charger on a transient enabled=False. Options: gate should distinguish "feature genuinely off" from "enable...
   - `transient_reclassified_2026_09_19`: CALCULUS CHANGED — the transient this card was holding for is now identified, and it is NOT the one assumed. The reload-resilience fix was held on operator ruling ("how can you fix what you cannot root cause") because the off-flicker was...
 
-### `APPLIANCE-MGMT-REFINE-1` - Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities — _#32 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `APPLIANCE-MGMT-REFINE-1` - Deliver appliance management — refine the existing v3 plan + widen to practical home-automation opportunities — _#34 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-12 16:30 · updated 2026-09-19 03:55 · initial_
 - **Problem / Solution:**
