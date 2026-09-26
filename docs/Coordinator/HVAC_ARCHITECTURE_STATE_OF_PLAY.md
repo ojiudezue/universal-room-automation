@@ -385,6 +385,16 @@ and post-restore manual strands (§9.1). The value-matched last-write record fro
 the plan is part of W1-B. Accepted trade-off: a human preset -> manual within
 15 s of a URA temp write (kind="temp") is not booked.
 
+**C24 (2026-09-26 night) — WRONG: "HVAC occupancy is a separate, FASTER clock; a transit drops ~1 min after the person
+leaves."** `_compute_hvac_occupied` (`hvac_zones.py:1048-1123`) *"rides grace-held STATE_OCCUPIED + per-room tail. Kind is NOT
+consulted"*; its input is the room's lighting `data.get("occupied")` (`:717`). HVAC occupancy decouples hallways (excluded),
+release tails and the zone trust gate — but it ARMS on the lighting rising edge and HOLDS through the lighting occupancy
+timeout (~300 s typical) + tail. So a 10 s transit keeps a room HVAC-occupied ~5 min + tail. WHY (step-4-B plan
+`PLANNING_hvac_zone_conditioning_demand.md:30,:119`, CRIT-1): reading raw kinds live would drop a still/sleeping body on a
+radar blip → retreat on an occupied room; transit was handled only by hallway exclusion; *"within-room kind discrimination
+is Stage B, deferred"* — the operator's intended faster HVAC clock is that unbuilt Stage B. A CRIT-1-safe Stage B consults
+raw evidence ONLY at the arming edge (arm iff raw presence persisted ≥ N s), keeping the robust hold after arming.
+
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 
 | Seq | Workstream / step | Problems (§9) | Tier / gate |

@@ -1,3 +1,5 @@
+> **SUPERSEDED 2026-09-26 by `PLANNING_hvac_entry_dwell_hvac_clock.md`.** This plan gated on the LIGHTING clock (`_became_occupied_time` / `zone.any_room_occupied`) — the very denomination HVAC occupancy was built to escape (state-of-play §3.2 DENOMINATION DEFECT, card `HVAC-ENTRY-DWELL-ROOM-CLOCK-1` `reframe_2026_09_26`). Kept for history; do not build.
+
 # PLANNING — HVAC-ENTRY-DWELL-ROOM-CLOCK-1
 
 **Tier:** 2-DB (elevated per standing policy for regression-prone HVAC preset-decision changes;

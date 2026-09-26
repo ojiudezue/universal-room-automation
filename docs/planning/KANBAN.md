@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T17:04:01-05:00_ - _Data commit: `db6d5f3a8104`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T17:04:19-05:00_ - _Data commit: `4efc8cd85ab2`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -625,12 +625,13 @@ _created 2026-09-26 · updated 2026-09-26 16:10_
 - **Forensic keys (1):**
   - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
 
-### `HVAC-ENTRY-DWELL-ROOM-CLOCK-1` - Move the zone entry dwell onto the HVAC-occupancy clock (room HVAC-arm onset) — it still reads the LIGHTING clock HVAC occupancy was built to avoid — _#21 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-ENTRY-DWELL-ROOM-CLOCK-1` - Build step-4-B STAGE B — arm HVAC occupancy only on persisted raw evidence (CRIT-1-safe, arming-edge only) so brief transits stop flipping zones; replaces the entry dwell — _#21 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **planned**
 _created 2026-09-26 · updated 2026-09-26 17:30_
 - **Why:** hvac_zones.py:783-788 sets zone.current_session_start = now when a decision tick FIRST sees lighting occupancy, so any dwell > 0 costs a whole extra tick (C18: 2 min dwell -> 5-10 min entry). With the clock at the room's real occupancy s...
-- **Next:** MEASURE (me) after 3 occupied days with dwell 0: flap rate (S1 home/sleep write then vacant_past_grace away within 20 min, from climate_write) and entry latency. Only if flaps are material: re-plan the dwell on the HVAC clock (ura-planne...
-- **Forensic keys (3):**
+- **Next:** MEASURE (me) with dwell 0 after >= 3 occupied days: zone flip rate (S1 home/sleep write then vacant_past_grace away within 20 min) and, per flip, the arming room's raw presence-evidence duration (recorder) — the Stage-B N threshold. If f...
+- **Forensic keys (4):**
+  - `stage_b_finding_2026_09_26`: Orchestrator verified hvac_zones.py:1062/:717: HVAC occupancy RIDES the lighting grace-held STATE_OCCUPIED + tail (kind not consulted, CRIT-1) — it is not a faster clock; a transit holds ~5 min (room occupancy timeout) + tail. So any ons...
   - `hallway_note_2026_09_26`: Operator: "That clock also respects our hallway exclusions." Verified: the HVAC producer forces hvac_occupied False for hallways (hvac_zones.py:650-665, arm_source hallway_excluded; 0 on-rows across 7 hallways in 7 d), so an HVAC-clock d...
   - `reframe_2026_09_26`: Operator: "Room clock is not good for HVAC. We built a separate HVAC occupied to decouple it ... one for turning things off, another for activating HVAC." Correct. The first plan (docs/planning/PLANNING_hvac_entry_dwell_room_clock.md) us...
   - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
