@@ -281,6 +281,77 @@ def test_lint_recognises_executor_wrapping():
     assert _is_climate_literal(dom)
 
 
+def _required_kw_only(funnel_name: str) -> set[str]:
+    """Read the required keyword-only args off the live funnel definition
+    (so the check stays correct if the signature changes)."""
+    import inspect
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac_setpoint,
+    )
+    fn = getattr(hvac_setpoint, funnel_name)
+    sig = inspect.signature(fn)
+    return {
+        name for name, p in sig.parameters.items()
+        if p.kind is inspect.Parameter.KEYWORD_ONLY
+        and p.default is inspect.Parameter.empty
+    }
+
+
+def test_every_production_funnel_call_supplies_required_kwargs():
+    """AST completeness: every PRODUCTION call of the three emit funnels
+    supplies every currently-required keyword-only argument.
+
+    Reads the required set from the function definitions (via inspect on
+    hvac_setpoint), so if the signature changes the test tracks
+    automatically. Scope: production code under
+    ``custom_components/universal_room_automation/`` — test files are
+    intentionally excluded (the F3 TypeError discriminator lives in the
+    tests). Per-site drill: remove ``site=`` from any production call →
+    this test goes RED.
+    """
+    funnels = {
+        name: _required_kw_only(name)
+        for name in ("emit_set_hvac_mode", "emit_set_preset_mode",
+                     "emit_set_temperature")
+    }
+    violations: list[str] = []
+    n_calls = 0
+    for path in _iter_py_files():
+        # Skip the funnel definitions themselves.
+        if path.name == FUNNEL_FILE:
+            continue
+        try:
+            tree = ast.parse(path.read_text(), filename=str(path))
+        except SyntaxError:
+            continue
+        rel = str(path.relative_to(URA_DIR))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            fname = (
+                func.id if isinstance(func, ast.Name)
+                else (func.attr if isinstance(func, ast.Attribute) else "")
+            )
+            if fname not in funnels:
+                continue
+            n_calls += 1
+            supplied = {kw.arg for kw in node.keywords if kw.arg}
+            missing = funnels[fname] - supplied
+            if missing:
+                violations.append(
+                    f"{rel}:{node.lineno}: {fname} missing required "
+                    f"kwarg(s) {sorted(missing)}"
+                )
+    assert n_calls > 0, (
+        "sanity: expected to find production funnel call sites"
+    )
+    assert not violations, (
+        "production funnel call sites missing required kwargs:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_grep_belt_smoke():
     """Multiline grep belt — climate service calls only inside the funnel.
 

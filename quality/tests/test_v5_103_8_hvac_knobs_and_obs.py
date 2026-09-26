@@ -489,6 +489,7 @@ def test_emit_set_preset_mode_populates_last_reason_by_zone_on_success():
             "climate.zone_1",
             "away",
             blocking=False,
+            site="test_d6_last_reason_by_zone",
             zone_id="zone_1",
             reason="energy_shed_cap_reached",
         )
