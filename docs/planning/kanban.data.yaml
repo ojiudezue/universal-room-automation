@@ -2382,7 +2382,7 @@ cards:
   status: waiting_operator
   thread: hvac
   created: '2026-09-16'
-  updated: '2026-09-26 08:00'
+  updated: '2026-09-26 10:30'
   tags: [hvac, parked-with-trigger, night-trust, suppression-discharge, do-not-retire]
   possible_trigger_2026_09_25: 'README v5.103.7 INV-1 write-back found 2 suspect night retreats: zone_2 went
     away at 02:47 (09-24) and 02:09 (09-25) with Jaya home; her bedroom last read occupied 02:10 / 01:30 (past
@@ -2413,6 +2413,12 @@ cards:
     genuine night exits; her real exits are after 07:30 on the day hold). OUT OF SCOPE FOUND: 3 zone_2 retreats of
     15-30 min 06:14-07:00 in home_day with Jaya still in her suite (morning, day hold) — carded below as a residual.
     HVAC occupancy producer lags the room by 25 s-4 min (runs per decision cycle) — relevant to W2 fast path.'
+  operator_approved_2026_09_26: 'Operator: "approved" (Jaya Bedroom hvac_vacancy_hold_night 1800 -> 5400 s). The knob is
+    options-form only (Jaya Bedroom (Bedroom 4) -> Configure -> Climate & Fans -> "HVAC vacancy hold — night", seconds,
+    0-7200; day stays 60; night must be >= day). Room climate-step saves are reload-suppressed since v5.103.14. Code
+    build (A-1) PARKED with revival triggers. Waste bound: a genuine night exit from her room to another zone keeps zone_2
+    on its sleep preset up to 60 min longer than today (0 such exits in 7.8 nights); if the house goes away/vacation the
+    preset follows the house state (HOUSE_STATE_PRESET_MAP hvac_const.py:1016) regardless of the hold.'
   title: The FULL 2-6am degradation-defense leniency for night HVAC retreat (200min, 4 discharge paths) —
     parked, uncork if a real occupied-bedroom sensor-degradation is observed
   problem_solution:
@@ -2431,7 +2437,7 @@ cards:
     now; step-4-B ships D7 + a MODEST prudent grace instead (see HVAC-ZONE-CONDITIONING-DEMAND-1
     D8_RESCOPED). This card preserves the full design so it can be uncorked fast if degradation is ever
     observed, rather than re-derived from a compacted note.'
-  next: 'APPROVE (operator): set Jaya Bedroom hvac_vacancy_hold_night 1800 -> 5400 s (a room climate-step setting, reversible) and PARK the W2-2A code build with revival triggers (a genuine night exit held >30 min, or a re-probe showing a second affected bedroom) -> I apply it via the room options flow and re-run the probe after 3 nights.'
+  next: 'DO (operator): set Jaya Bedroom (Bedroom 4) -> Configure -> Climate & Fans -> HVAC vacancy hold — night = 5400 and save -> I verify the stored option, then re-run scripts/probes/hvac_night_sleeper_probe.py after 3 nights and dispose.'
   parsimony:
     problem: night retreat is safe for the measured (healthy-redundancy) rooms but a degraded-while-occupied
       bedroom could be wrongly retreated; the full defense is unbuilt for lack of an observed instance

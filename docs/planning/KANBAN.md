@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T02:19:54-05:00_ - _Data commit: `77c90974a0fd`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-26T02:21:30-05:00_ - _Data commit: `eeacaddfb8aa`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -1001,18 +1001,19 @@ _created 2026-08-21 17:40 · updated 2026-09-23 04:45 · initial_
 
 ### `HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1` - The FULL 2-6am degradation-defense leniency for night HVAC retreat (200min, 4 discharge paths) — parked, uncork if a real occupied-bedroom sensor-degradation is observed — _#23 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **waiting_operator**
-_created 2026-09-16 · updated 2026-09-26 08:00_
+_created 2026-09-16 · updated 2026-09-26 10:30_
 - **Problem / Solution:**
   - Problem: HVAC Option B (HVAC-ZONE-CONDITIONING-DEMAND-1 D7) retreats an empty zone to away at night on fused room occupancy. If a bedroom's multi-sensor redundancy degrades WHILE OCCUPIED (a sensor dies mid-sleep), its fused signal could...
 - **Why:** CARDED-NOT-RETIRED per operator ("Do not lose the p2-3 from compaction. Card and link it, do not retire it in case we need to uncork it"). This was briefly elevated to P1-required on the basis that Ziri proved silent redundancy degradati...
-- **Next:** APPROVE (operator): set Jaya Bedroom hvac_vacancy_hold_night 1800 -> 5400 s (a room climate-step setting, reversible) and PARK the W2-2A code build with revival triggers (a genuine night exit held >30 min, or a re-probe showing a second ...
+- **Next:** DO (operator): set Jaya Bedroom (Bedroom 4) -> Configure -> Climate & Fans -> HVAC vacancy hold — night = 5400 and save -> I verify the stored option, then re-run scripts/probes/hvac_night_sleeper_probe.py after 3 nights and dispose.
 - **Tags:** hvac, parked-with-trigger, night-trust, suppression-discharge, do-not-retire
 - **Parsimony:** [PARK] night retreat is safe for the measured (healthy-redundancy) rooms but a degraded-while-occupied bedroom could be wrongly retreated; the full defense is unbuilt for lack of an observed instance
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
   - `possible_trigger_2026_09_25`: README v5.103.7 INV-1 write-back found 2 suspect night retreats: zone_2 went away at 02:47 (09-24) and 02:09 (09-25) with Jaya home; her bedroom last read occupied 02:10 / 01:30 (past the 30-min D8 night hold) and re-occupied at 02:56 / ...
   - `TRIGGER_FIRED_2026_09_25`: Revival trigger ("observed degradation") FIRED, measured. Both zone_2 night retreats (09-24 02:47, 09-25 02:09) were a still sleeper lost by radar, not an empty room: Jaya's phone (device_tracker.iphone_jaya_bermuda_tracker home; sensor....
   - `D_A0_MEASURED_2026_09_26`: D-A0 probe (scripts/probes/hvac_night_sleeper_probe.py, 7.8 nights, 6 bedroom rooms): 26 night drops, 16 returned <=90 min, 13 with a zone person stationary in-suite (spread 0.4-1.3 ft) — ALL 13 returned (max 55.6 min), 0 of 9 genuine ex...
+  - `operator_approved_2026_09_26`: Operator: "approved" (Jaya Bedroom hvac_vacancy_hold_night 1800 -> 5400 s). The knob is options-form only (Jaya Bedroom (Bedroom 4) -> Configure -> Climate & Fans -> "HVAC vacancy hold — night", seconds, 0-7200; day stays 60; night must ...
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#24 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
