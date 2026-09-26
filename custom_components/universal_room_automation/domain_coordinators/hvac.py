@@ -2026,34 +2026,45 @@ class HVACCoordinator(BaseCoordinator):
                 else:
                     zone_vacant_past_grace = False
 
-                # HVAC-DEGRADED-ROOM-TRIPWIRE-1 FIX-UP item 2 (2026-09-26):
-                # If the zone is unestablished ONLY because a sibling room
-                # is transient (loading/reloading) AND the fused HVAC
-                # signal is empty, HOLD the zone's current preset for this
-                # tick (no preset write in either direction) instead of
-                # falling back to the house-state target. Rationale: the
-                # operator rule is "match occupancy IN THE ZONE" — a
-                # sibling-room reload must not force the whole zone back
-                # to `home` when it's actually empty. If any live room is
-                # hvac-occupied, normal flow (target_preset) proceeds.
+                # HVAC-DEGRADED-ROOM-TRIPWIRE-1 FIX-UP item 2 (2026-09-26,
+                # RESTRUCTURED per orchestrator fix-up round 2):
+                # `_row1_hold_write` is set when the zone is unestablished
+                # ONLY because a sibling room is transient AND the fused
+                # HVAC signal is empty. It SUPPRESSES the eventual preset
+                # write, NOT the safety paths. D6 stale-sensor cannot fire
+                # here (it requires fused-occupied). D5 shed/coast still
+                # runs — if it force-aways for energy-shed, it CLEARS
+                # `_row1_hold_write` so the safety-directed write proceeds.
+                # If nothing else forces away, we HOLD (no write in either
+                # direction), matching the operator rule "match occupancy
+                # IN THE ZONE" during a sibling-room reload.
                 try:
                     _fused_empty = not bool(
                         getattr(zone, "any_room_hvac_occupied", False)
                     )
                 except Exception:  # noqa: BLE001
                     _fused_empty = False
-                _transient_blocked = self._zone_manager.is_zone_transient_blocked(
-                    zone_id
+                _is_tb_row1 = getattr(
+                    self._zone_manager, "is_zone_transient_blocked", None,
                 )
-                if _transient_blocked and _fused_empty:
+                try:
+                    _transient_blocked_row1 = (
+                        bool(_is_tb_row1(zone_id)) if callable(_is_tb_row1) else False
+                    )
+                except Exception:  # noqa: BLE001
+                    _transient_blocked_row1 = False
+                _row1_hold_write = _transient_blocked_row1 and _fused_empty
+                if _row1_hold_write:
                     _LOGGER.debug(
-                        "HVAC row-1 hold: zone %s transient-blocked + fused-empty — "
-                        "preserving current preset (no write)",
+                        "HVAC row-1 hold: zone %s transient-blocked + fused-empty "
+                        "— will suppress preset write unless a safety path "
+                        "(D5 shed / D6 stale) forces away",
                         zone_id,
                     )
-                    continue
-
-                if zone_vacant_past_grace and target_preset in ("home", "sleep"):
+                    # Suppress the row-1 vacancy-grace override: with the
+                    # hold armed, we do NOT flip effective_preset to away
+                    # for "past grace"; safety paths below decide.
+                elif zone_vacant_past_grace and target_preset in ("home", "sleep"):
                     effective_preset = "away"
 
                     # HVAC-ZONE-CONDITIONING-DEMAND-1 fix-up round 2
@@ -2371,6 +2382,14 @@ class HVACCoordinator(BaseCoordinator):
                                 )
                         else:
                             effective_preset = "away"
+                            # HVAC-DEGRADED-ROOM-TRIPWIRE-1 FIX-UP item 2
+                            # (2026-09-26): D5 shed/coast force-away is a
+                            # SAFETY-adjacent energy-shed response. If we
+                            # had armed the row-1 hold, clear it now so
+                            # the shed-directed write proceeds; the hold
+                            # only suppresses the row-1-vacancy write,
+                            # not a safety-directed one.
+                            _row1_hold_write = False
                 # Expose per-zone D3-skip flag for the sensor attribute (D3).
                 try:
                     self._d3_skipped_current_tick[zone_id] = bool(_d3_skipped_this_tick)
@@ -2504,6 +2523,15 @@ class HVACCoordinator(BaseCoordinator):
                             )
                         )
                     continue
+
+            # HVAC-DEGRADED-ROOM-TRIPWIRE-1 FIX-UP item 2 (2026-09-26,
+            # RESTRUCTURED): if row-1 hold is armed AND no safety path
+            # (D5 shed / D6 stale) cleared it above, HOLD the preset —
+            # no write in either direction. D6 cannot fire under
+            # fused-empty; D5 clears the hold in its force-away branch;
+            # night-trust (D7) above already `continue`s independently.
+            if _row1_hold_write:
+                continue
 
             # --- Determine if preset change is needed ---
             # Bypass should_change_preset() manual guard for vacancy (RH3 fix)
@@ -3009,10 +3037,14 @@ class HVACCoordinator(BaseCoordinator):
                     )
                 except Exception:  # noqa: BLE001
                     _fused_empty_dpm = False
-                if (
-                    self._zone_manager.is_zone_transient_blocked(zone_id)
-                    and _fused_empty_dpm
-                ):
+                _is_tb = getattr(
+                    self._zone_manager, "is_zone_transient_blocked", None,
+                )
+                try:
+                    _transient_blocked_dpm = bool(_is_tb(zone_id)) if callable(_is_tb) else False
+                except Exception:  # noqa: BLE001
+                    _transient_blocked_dpm = False
+                if _transient_blocked_dpm and _fused_empty_dpm:
                     _LOGGER.debug(
                         "HVAC D9 hold: zone %s transient-blocked + fused-empty — "
                         "skipping compose-away tick",
