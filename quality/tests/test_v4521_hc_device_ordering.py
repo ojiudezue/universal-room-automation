@@ -373,20 +373,19 @@ def test_ac_ramp_button_prefix_helper_per_zone():
     Controls-cluster Force/Cancel growth (20/22, 30/32, 40/42) and
     the CONFIG-cluster fixed 95 for clear_lockout.
     """
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "_ura_button_test", PKG / "button.py",
+    # TEST-SILENT-WHOLE-FILE-SKIPS-1: import button.py AS A PACKAGE MEMBER
+    # so its relative imports resolve. The prior spec_from_file_location
+    # gave the module no parent package, so any relative import raised and
+    # the whole test silently skipped (same hollow-anchor pattern fixed in
+    # commit c5ea7dfc7 for test_coverage_rating_bounds.py). Silent skip is
+    # replaced with a hard failure so a future env break screams loudly.
+    import importlib
+    import sys as _sys
+    if str(REPO_ROOT) not in _sys.path:
+        _sys.path.insert(0, str(REPO_ROOT))
+    module = importlib.import_module(
+        "custom_components.universal_room_automation.button"
     )
-    # Skip if import would trigger an HA dependency we don't have in
-    # the test env. Falling back to AST inspection of the constants is
-    # sufficient for the source-grep gate; this helper just tightens
-    # the contract when imports succeed.
-    try:
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-    except Exception:
-        pytest.skip("button.py not importable in test env")
-        return
 
     specs = module._AC_RAMP_BUTTON_SPECS
     fn = module._ac_ramp_prefix
