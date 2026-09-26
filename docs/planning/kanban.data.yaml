@@ -20536,6 +20536,15 @@ cards:
     on record.'
 
 - id: TEST-STRATEGY-REARCH-1
+  shipped_2026_09_26_speed_changes: 'Operator: "make the changes now to make the test strategy and fix ups
+    faster. We need it for the arc". Commit 2c5a72d98 on develop: (1) scripts/suite_namediff.py — the develop
+    baseline is cached in .claude/suite-cache keyed by the git tree hashes of custom_components/ + quality/ (+ pytest
+    config), so docs/board commits never force a re-run (v5.103.15 re-ran the ~8 min baseline on every name-diff);
+    waits for other pytest instead of colliding; --files targeted mode. (2) ura-validator: targeted runs for test-only
+    rounds, full name-diff only for production-code rounds and the pre-merge gate. (3) ura-builder: 11-item definition
+    of done built from the six v5.103.15 fix-up rounds (per-conjunct drills, call-site anchors, no exception-swallowing
+    helpers, loop-top local init, no permanent sys.modules purges, no git stash). (4) ura-reviewer C: drills run
+    targeted files only; re-confirms are batched in one process. The structural re-arch (this card) remains open.'
   measured_2026_09_23_full_suite_run: 'OVERNIGHT PASS — I RAN THE WHOLE SUITE, WHICH IS THE
     MEASUREMENT THIS CARD HAS BEEN BLOCKED ON SINCE 2026-09-15. Command:
     PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -q -p no:randomly. RESULT:

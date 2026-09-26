@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T09:09:53-05:00_ - _Data commit: `122aaf1a342b`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T09:39:59-05:00_ - _Data commit: `5fd7b59eb7ec`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -1052,7 +1052,8 @@ _updated 2026-09-19 03:50_
 thread: **platform** - status: **waiting_operator** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-09-26 09:45 · refined_
 - **Next:** PICK one: (A) CHEAP PATH FIRST, which I recommend. I card the concentrated failing files: weather_manager (47) and bathroom_exhaust (23) are 36% of the 194, and the top five are 49%. I drive each as a Tier-1/2 fix, then re-measure and si...
-- **Forensic keys (16):**
+- **Forensic keys (17):**
+  - `shipped_2026_09_26_speed_changes`: Operator: "make the changes now to make the test strategy and fix ups faster. We need it for the arc". Commit 2c5a72d98 on develop: (1) scripts/suite_namediff.py — the develop baseline is cached in .claude/suite-cache keyed by the git tr...
   - `measured_2026_09_23_full_suite_run`: OVERNIGHT PASS — I RAN THE WHOLE SUITE, WHICH IS THE MEASUREMENT THIS CARD HAS BEEN BLOCKED ON SINCE 2026-09-15. Command: PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -q -p no:randomly. RESULT: 194 failed, 10586 passed...
   - `instance_2026_09_23_hollow_module_skip`: INSTANCE (not a new card) — a concrete case of this card's "hollow at boundaries" premise, found and fixed tonight while building COVERAGE-RATING-FALSE-ANOMALOUS-1. quality/tests/test_coverage_rating_bounds.py loaded aggregation.py throu...
   - `measured_2026_09_22`: OVERNIGHT PASS — the POLLUTION MAP deliverable of this investigation is now partly delivered, and it CORRECTS claim (1) of measured_2026_09_15 on this same card. That entry recorded "COLLECTION IS NOW CLEAN: 10,588 tests, ZERO errors" fr...
