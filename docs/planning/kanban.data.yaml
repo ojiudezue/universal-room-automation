@@ -1918,12 +1918,27 @@ cards:
     uniformly durable, manual is re-asserted at ~2min cadence. Either the pin is not fully effective
     on-device or the Bryant native schedule/an operator/a URA writer re-manuals. Still the measure-
     first target; clean 24h read to identify the producer.'
-  status: investigating
+  status: waiting_operator
   thread: hvac
   created: '2026-09-16'
-  updated: '2026-09-25 21:20'
+  updated: '2026-09-25 22:30'
   refinement_status: refined
   tags: [hvac, measure-first, producer-check, found-during-validation]
+  MECHANISM_CORRECTED_2026_09_25: 'THE 09-17 DIAGNOSIS WAS WRONG IN ITS KEY PREMISE. It said "URA never
+    writes a temperature here — the only write action URA logs against zone_1 is preset_change". That was read
+    off ura_activity_log, which by construction NEVER records set_temperature (Explore audit 2026-09-25:
+    emit_set_temperature/emit_set_preset_mode log nothing; the AC ramp/nudge path records only to
+    ac_ramp_events). Attribution of every zone_1 manual entry since the 09-20 11:39 schedule removal (88)
+    against ac_ramp_events (URA DB): ~53 within 0-90 s of URA nudge_started (soft-nudge raises
+    target_high +1.5F via raw set_temperature -> Carrier forces a MANUAL hold; sleep 75->76.5 rounds to the
+    76/70 overnight signature, home 76->77.5 -> 78/70 midday), ~15 land ~180-190 s after nudge_restored (the
+    restore is ALSO a raw set_temperature; ~3 min = Carrier refresh lag), ~3 after hard_reset. ~17 remain:
+    mostly step-down sequences 78->76->74 within a minute shortly after URA set away (09-20 14:30, 09-21
+    08:24, 09-24 16:43, 09-25 18:12) = most likely a HUMAN cooling a zone URA had declared empty. Pre-removal
+    (55 h): 14/32 were nudges. So: the Bryant schedule was ONE writer (removal cut manual 44%->26%); URA''s own
+    AC soft-nudge (switch.ura_hvac_coordinator_26_ac_nudge = ON) is now the DOMINANT one, and URA then books
+    its own write as override_detected and locks itself out (preset_change_locked_out). The ~45 false pages/day
+    were largely URA paging about itself.'
   title: MECHANISM FOUND — zone_1's re-manual is the Bryant's own 76/69 schedule reclaiming the zone ~1s
     after every URA preset write (either re-asserted by the thermostat, or handed to it by URA's own
     resume-then-pin); the resulting write-fight also fires ~45 false "someone grabbed the thermostat"
@@ -2025,12 +2040,7 @@ cards:
     Leading hypothesis, UNVERIFIED: thermostat/cloud-side (Bryant hold semantics or Carrier cloud re-assert).
     Also 21:05: all 3 thermostats were unavailable 20:24-21:15 (ha_carrier loaded but dead after the network
     restart); reloaded entry 01JP3X64D7ADRCXBDA5RMBS1CT, recovered 21:15.'
-  next: 'MEASURE (me): (1) grep automations.yaml/scripts.yaml on the Samba mount for templated zone_1
-     writers; (2) align each post-11:39 manual entry against URA''s preceding preset_change in
-     ura_activity_log (does manual follow URA writes at a fixed lag = device-side hold semantics, or arrive
-     independently = another writer?); (3) read the Bryant sleep/home comfort-profile values. THEN PICK with
-     operator: option (A) stop-the-paging is still worth doing regardless (29 override_detected on zone_1
-     since 09-20).'
+  next: 'PICK (operator): the dominant zone_1 manual writer is URA''s own AC soft-nudge. Options: (A) turn the nudge OFF (switch.ura_hvac_coordinator_26_ac_nudge) — instant, reversible, stops ~80% of zone_1 manual + the self-pages; (B) keep the nudge but make it hold-safe: nudge + restore through the preset path (or tag its manual as URA-owned so the lockout/arrester reclaim it); (C) both — A now, B as a build. My recommendation: C. -> on your pick I flip the switch / card the build and re-measure zone_1 manual entries 24 h later.'
   rank: {value: 8, time_criticality: 7, effort: 5}
   parsimony:
     problem: the Bryant thermostat re-asserts a 76/69 hold seconds after every URA preset write to
@@ -12872,13 +12882,23 @@ cards:
     is an override." -> the premise that URA must never overwrite an anonymous manual hold is CHALLENGED.
     Investigating the hold knob + its timeout + the lockout gate + the arrester relationship (Explore dispatch
     2026-09-25); the card is re-scoped on that answer, not built on the old premise.'
+  hypothesis_confirmed_2026_09_25: 'CONFIRMED with numbers: ~70 of 88 zone_1 manual holds since 09-20 were
+    written by URA itself (AC soft-nudge start/restore/reset, raw set_temperature -> Carrier manual), after
+    which should_change_preset refuses (hvac_preset.py:212-217 "Don''t fight manual — that''s the arrester''s
+    job") and S1 logs preset_change_locked_out (hvac.py:2484-2539). The arrester never reclaims them: it only
+    reverts when setpoints moved >= 1F (hvac_const.py:531-532; hvac_override.py:3187-3203) and a hold sitting
+    at the preset''s own setpoints has ~0 delta. No knob timeout releases the lockout: Temp Arrester Override
+    (6 h max), immune-person hold (next_activity/4 h), Comfort Grace (30 min) all only hand back to the
+    arrester, which declines on zero delta (hvac_override.py:727-729). Operator challenge stands: a manual hold
+    that is URA-caused OR has aged past the hold knob should be overridden. Answers operator Q "why won''t
+    it?": because nothing in the code distinguishes "human hold we respect" from "stale/URA hold nobody owns".'
   title: URA refuses to write a preset to a zone in `manual` — including when URA itself caused the
     manual, so nothing ever rescues it
   rank: {value: 8, time_criticality: 6, effort: 5}
   thread: hvac
-  status: investigating
+  status: planned
   created: '2026-09-16'
-  updated: '2026-09-25 21:45'
+  updated: '2026-09-25 22:30'
   refinement_status: initial
   approval: implied
   tags: [tier-2db, no-fabrication-verify, found-during-validation]
