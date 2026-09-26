@@ -9,6 +9,17 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'SOAK-EXIT-SWEEP-2026-09-26@2026-09-26T02:19:51'
+    at: '2026-09-26T02:19:51'
+    outcome: done
+    headline: 'Cleared the three oldest "shipped, waiting to be proven" cards by checking each one directly.
+      (1) The unexpected-person sensor now uses the de-duplicated count. The house history shows it
+      staying quiet where the old rule would have falsely fired, and nothing sends alerts from it
+      today. (2) The stale-import safety checker still finds zero problems. (3) The old off-phase
+      thermostat hold is really gone from the code. All three closed. Two small leftovers are noted on
+      the cards for later: whether the daytime unexpected-person hits were real visitors, and an
+      unused HVAC setting name.'
+    acknowledged: false
   - fid: 'HA-CORE-RESTART-STORM-1@2026-09-26T02:18:23'
     at: '2026-09-26T02:18:23'
     outcome: done
@@ -19695,7 +19706,7 @@ cards:
     ADDENDUM 2 (T1)
 - id: UNEXPECTED-PERSON-IS-ON-DEDUP-MIGRATE-1
   title: URAUnexpectedPersonSensor.is_on uses naive camera>ble substrate — ALERT path, dedup it
-  status: shipped_organic
+  status: done
   shipped_version: v5.101.0
   ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (binary_sensor.py:1591 is_on -> result.house.unidentified_count > 0). Moves review->shipped_organic at deploy.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL (verbatim): binary_sensor.py:1572 still ''return self._camera_total > self._ble_total'' (naive). Now UNBLOCKED — parent GUEST-COUNT-DEDUP-MIGRATE-1 shipped v5.83.0. Ready to build.'
@@ -19722,7 +19733,20 @@ cards:
     (fires less = fewer false unexpected-person alerts). status review.'
   thread: security
   created: 2026-08-18 14:40
-  updated: 2026-09-11 16:16
+  updated: '2026-09-26 02:19'
+  soak_exit_2026_09_26: 'SOAK-EXIT DISPOSED 2026-09-26 (overnight, one-shot query): DONE. Discriminator: the deduped
+    behaviour must be observable live, meaning the sensor stays OFF where the old naive camera>BLE rule
+    would fire, and fires where the census holds an unidentified person. HA recorder,
+    binary_sensor.universal_room_automation_unexpected_person_detected, last 10 days, grouped on its
+    camera_total/ble_total attributes. 6 rows were OFF with camera 3 > BLE 2, so the naive rule would
+    have alerted and the dedup suppressed it (PASS). 115 rows were ON with camera <= BLE, so the sensor
+    now follows house.unidentified_count and not the naive difference (PASS). Code:
+    binary_sensor.py:1799 returns result.house.unidentified_count > 0. CONSUMERS: no URA code outside
+    binary_sensor.py reads this entity, and URA notification_log has 0 unexpected/guest rows in 10 days,
+    so today it is effectively a display/diagnostic surface, not an NM alert path. RESIDUAL NOT CARDED
+    HERE: whether the daytime ON episodes (09-18 08:26-19:30, 09-25 09:26-12:33) were real visitors is a
+    census-accuracy question that belongs to CENSUS-ACCURACY-1. No ground truth was available
+    overnight.'
   threshold_status: PROVISIONAL — operator to confirm the >=0.9 confidence gate before build
   sequence: 2
   confidence_gate: '>=0.9 for egress person_id used as CORROBORATION. This is a live ALERT path (drives
@@ -19745,8 +19769,7 @@ cards:
   origin: 2026-08-18 guest-count-dedup planning surfaced the is_on alert-path naive-substrate use
   constraints: Own producer/consumer analysis — it drives the sensor core state + has an NM/alert consumer
     surface. Consider consolidating with GUEST-COUNT-DEDUP-MIGRATE-1 or sequencing right after. Tier 2-DB.
-  next: Producer/consumer check on is_on NM alert consumers first, then migrate is_on to house.unidentified_count>0
-    (with/after the parent). Tier 2 (ALERT trust path).
+  next: 'none: closed 2026-09-26 (soak exit).'
   refs: binary_sensor.py:1540-1560; PLANNING_guest_count_dedup_migrate.md (adjacent finding)
   links:
     depends_on:
@@ -20741,7 +20764,7 @@ cards:
     clean; no harm, but a rule to codify.'
 - id: SHADOW-IMPORT-AUDIT-1
   title: Audit function-local const imports that shadow module-level names (v5.84.0 incident class)
-  status: shipped_organic
+  status: done
   shipped_version: v5.101.0
   ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (presence.py/energy.py shadow-import fixes + quality/tools/audit_shadow_imports.py + test). Moves review->shipped_organic at deploy.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: count is 319 function-local const imports (not ~8); audit never run (0 SHADOW-IMPORT commits); no lint/CI config exists at all. Cheap Tier-1, class recurred 3x.'
@@ -20765,7 +20788,12 @@ cards:
     the component stays CLEAN. Audit re-run CLEAN; both modules import under .venv-ha. status review.'
   thread: platform
   created: 2026-08-19 10:20
-  updated: 2026-09-11 16:20
+  updated: '2026-09-26 02:19'
+  soak_exit_2026_09_26: 'SOAK-EXIT DISPOSED 2026-09-26: DONE. Discriminator: the shipped AST trip-wire still finds zero
+    use-before-local-import shadows on current develop. Ran ''.venv-ha/bin/python
+    quality/tools/audit_shadow_imports.py'' on develop @4709230a9, which printed ''CLEAN: no
+    use-before-local-import shadow found (Bug Class #34)''. The two real shadows it found at build time
+    (presence.py async_setup, energy.py _save_evse_state) remain fixed.'
   refinement_status: refined
   problem: 'v5.84.0 shipped an UnboundLocalError: a function-local `from ..const import CONF_ENTRY_TYPE`
     inside _run_inference shadowed the module-level import for the WHOLE function, and a moved reference
@@ -20774,8 +20802,7 @@ cards:
     pattern (presence.py has ~8 such local const imports). py_compile does not catch it; only runtime
     does.'
   origin: 2026-08-19 v5.84.0 presence startup incident (fixed v5.84.1)
-  next: 'Tier 1 audit: grep presence.py (~8 local imports) + repo for function-local const imports shadowing
-    module-level names; optional F823/pylint CI rule. Runtime-only (py_compile misses it).'
+  next: 'none: closed 2026-09-26 (soak exit).'
   refs: presence.py:5944/6955; TEST-STRATEGY-REARCH-1
   links:
     related:
@@ -21733,9 +21760,17 @@ cards:
   title: S14 off-phase ceiling hold has no exit and blocks its own — give it an ending (operator chose
     option (a) 2026-08-21), preferably by making it a borrow kind
   thread: hvac
-  status: shipped_organic
+  status: done
   shipped_version: v5.103.3
-  updated: 2026-09-12 11:00
+  updated: '2026-09-26 02:19'
+  soak_exit_2026_09_26: 'SOAK-EXIT DISPOSED 2026-09-26: DONE. The operator chose REMOVE (option A) on 09-16, superseding the
+    08-21 ''give it an ending'' decision, and it shipped in v5.103.3. HVAC state of play section 12 also
+    records S14 as removed in v5.103.3. Discriminator: no S14 writer remains. grep of custom_components/
+    for _apply_duty_off_phase returns 0 hits, and ura_activity_log had zero off-phase rows ever
+    (COSTED_2026_09_16). The stale next (scope S14 as a borrow kind) is superseded by the removal.
+    KEEP+DOCUMENT residual, not deleted: CONF_HVAC_OFFPHASE_HONESTY_ENABLED (hvac_const.py:507) and its
+    comment (:482) are now unreferenced anywhere in custom_components/ or quality/. Flagged for the HVAC
+    W4 closure sweep (HVAC-W4-ARC-CLOSURE), not removed overnight.'
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py _apply_duty_off_phase writes a RAW setpoint via emit_set_temperature, zero begin/return_excursion — no lease-expiry ending. Operator-chosen fix (make S14 a borrow kind w/ off-phase-remaining duration) unbuilt. Tier 2-DB.'
   created: 2026-08-21 10:20
   refinement_status: initial
@@ -21834,9 +21869,7 @@ cards:
       it. You can address that fix after the borrow work is done." So this is SEQUENCED AFTER the borrow
       primitive, NOT GATED ON IT: it does not block, and it must not be folded into that cycle. Migrate
       as a kind rather than hand-rolling a second restore path.'
-  next: 'Scope S14 as a borrow kind: bounded-timer ending, one-shot-per-off-phase (discriminating acceptance),
-    Number duration knob, restart behaviour; INVERT test_ceiling_held_until_next_preset_transition. Gate
-    cleared 2026-08-25.'
+  next: 'none: closed 2026-09-26 (soak exit). Orphan const residual is handed to HVAC-W4-ARC-CLOSURE.'
   refs:
   - hvac.py:2972-2983
   - hvac_preset.py:202
