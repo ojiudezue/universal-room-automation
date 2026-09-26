@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T22:27:13-05:00_ - _Data commit: `5072deaaf6e6`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-25T22:31:20-05:00_ - _Data commit: `71968174b06b`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-09-25T22:27:13-05:00_ - _Data commit: `5072deaaf6e6`_ - _last_r
 | 🔬 Investigating | 3 |
 | 🧭 Pre-planning | 13 |
 | 📝 Planned | 20 |
-| 🔨 In progress | 1 |
-| 🔍 Review | 1 |
+| 🔨 In progress | 0 |
+| 🔍 Review | 2 |
 | ⏸️ Waiting on operator | 28 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 35 |
@@ -597,28 +597,31 @@ _created 2026-09-16_
 - **Tags:** energy, tier-2db, bug-class-53, needs-plan-review
 - **Parsimony:** [BUILD] three ordering invariants are validated at save time + anomaly-flagged at runtime but their ~25 live decision readers still read raw, so an inverted slider flips a gate
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
+_(none)_
+
+## 🔍 Review (2)
+_under review_
+
 ### `HVAC-DEGRADED-ROOM-TRIPWIRE-1` - One broken room switches off HVAC occupancy for its whole zone — count only the rooms that are actually running — _#1 · WSJF 2.8 · v7 tc5 u2 /e5_
-thread: **hvac** - status: **in_progress**
-_created 2026-09-17 · updated 2026-09-26 02:40_
+thread: **hvac** - status: **review**
+_created 2026-09-17 · updated 2026-09-26 03:30_
 - **Problem / Solution:**
   - Problem: before URA lets a zone drop to "away", it waits until it has heard from every room in that zone. A room that is disabled or failing to load never reports, so the zone never qualifies and keeps heating or cooling empty space fore...
 - **Why:** Operator round-4 decision (09-17), re-affirmed 09-25: HVAC must match occupancy in the zone. The round-5 all(zone.rooms) revert is SUPERSEDED — it was an orchestrator override of that decision. The earlier why ("all() is the safe gate; s...
 - **Next:** BUILD (me, Tier 2 — touches the shared retreat gate, 2 framing-disjoint reviews + mutation drill): change is_zone_hvac_established (hvac_zones.py:1043) to all() over rooms with a LOADED config entry; replace test_f1_disabled_room_leaves_...
 - **Tags:** hvac, no-soak, trip-wire, safety-gate-residual
 - **Parsimony:** [BUILD] a disabled room silently disables conditioning-demand for its whole zone
-- **Forensic keys (4):**
+- **Forensic keys (5):**
   - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
   - `operator_decision_2026_09_25`: Operator: "This also seems wrong. WTF?" — the trip-wire-instead-of-fix framing is REJECTED. It was the operator's ROUND-4 decision (09-17) to scope establishment to rooms with a LIVE entry; the round-4 build implemented that WRONGLY as a...
   - `operator_go_2026_09_25`: Operator: "Maddening. do it now. Plan and build. ... no corners cut." Explicit go. Tier: regression-prone (shared retreat gate consumed by row-1 / D7 / D9 / F4 across every zone) -> standing policy = Tier 2-DB (3 framing-disjoint reviews...
   - `progress_2026_09_26`: Plan PLANNING_hvac_live_room_establishment.md: rev 1 by ura-planner (ran on opus-5) -> orchestrator hand-check found AM-1 CRITICAL (rev-1 D2 formula let a reloading, previously-seen room satisfy establishment = the cold-retreat hazard) +...
+  - `review_round1_2026_09_26`: Build 5664b3fb3 (12/12 mutation drills RED->GREEN). Reviews: A SHIP (3 LOW: DST wall-clock grace, unguarded diag attrs, deleted room silently transient); B FIX-REQUIRED (NM dedup drops 2nd room - missing location; zone already away brief...
 
-## 🔍 Review (1)
-_under review_
-
-### `COVERAGE-RATING-FALSE-ANOMALOUS-1` - The energy coverage self-check reports a false "measurement units are mismatched" alarm — its real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at midnight the way the code assumes — _#1 · WSJF 2.2 · v6 tc3 u2 /e5_
+### `COVERAGE-RATING-FALSE-ANOMALOUS-1` - The energy coverage self-check reports a false "measurement units are mismatched" alarm — its real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at midnight the way the code assumes — _#2 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **energy** - status: **review** - approval: **unreviewed**
 _created 2026-09-19 04:15 · updated 2026-09-25 03:40 · initial_
 - **Problem / Solution:**
