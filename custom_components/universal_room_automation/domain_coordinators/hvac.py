@@ -66,6 +66,7 @@ from .hvac_predict import HVACPredictor
 from .hvac_preset import PresetManager
 from .hvac_setpoint import (
     apply_setpoint_guards,
+    emit_set_hvac_mode,
     emit_set_preset_mode,
     emit_set_temperature,
 )
@@ -1936,13 +1937,14 @@ class HVACCoordinator(BaseCoordinator):
             ):
                 self._override_arrester.suppress(zone.climate_entity)
                 try:
-                    await self.hass.services.async_call(
-                        "climate",
-                        "set_hvac_mode",
-                        {
-                            "entity_id": zone.climate_entity,
-                            "hvac_mode": "heat_cool",
-                        },
+                    # HVAC-W1-A B1: heat_cool enforcer drift revert.
+                    await emit_set_hvac_mode(
+                        self.hass,
+                        zone.climate_entity,
+                        "heat_cool",
+                        site="B1_heat_cool_enforcer",
+                        zone_id=zone_id,
+                        reason="heat_cool_enforcer_drift_revert",
                         blocking=True,
                     )
                     _LOGGER.info(

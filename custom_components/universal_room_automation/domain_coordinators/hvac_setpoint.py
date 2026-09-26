@@ -35,12 +35,19 @@ The caller keeps its own ``suppress()`` / arrester handshake around this call.
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 from typing import Any, Callable, Final
 
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
-from .hvac_const import FREEZE_FLOOR, MIN_DEADBAND
+from .hvac_const import (
+    CLIMATE_WRITE_LOG_IMPORTANCE,
+    FREEZE_FLOOR,
+    MIN_DEADBAND,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -103,6 +110,143 @@ def apply_setpoint_guards(
         high = low + MIN_DEADBAND
 
     return low, high
+
+
+# ==========================================================================
+# HVAC-W1-THERMOSTAT-DEFINITION Stage A (behaviour-neutral write governance)
+#
+# INV-A: every URA-originated wire-level `climate` service call issues
+# exactly one `climate_write` row-schedule call before the funnel returns
+# or raises. See docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md.
+# The row-schedule is fire-and-forget via `hass.async_create_task` — NEVER
+# awaited, NEVER raises, NEVER alters wire-call raise/swallow/return
+# semantics (F2, F11, F14).
+# ==========================================================================
+
+
+def _snapshot_climate_state(
+    hass: HomeAssistant, entity_id: str,
+) -> dict[str, Any]:
+    """Read `preset_mode` / `hold_activity` / setpoints / mode SYNCHRONOUSLY
+    from the live climate state (F6 — captured BEFORE the wire await so a
+    late echo cannot corrupt `values_before`).
+
+    Absent keys are recorded as ``None`` (F6 "null-with-key when absent").
+    Never raises — a state-read failure yields all-null.
+    """
+    out: dict[str, Any] = {
+        "preset_mode": None,
+        "hold_activity": None,
+        "target_low": None,
+        "target_high": None,
+        "hvac_mode": None,
+    }
+    try:
+        state = hass.states.get(entity_id)
+        if state is None:
+            return out
+        attrs = state.attributes or {}
+        out["preset_mode"] = attrs.get("preset_mode")
+        out["hold_activity"] = attrs.get("hold_activity")
+        tl = attrs.get("target_temp_low")
+        th = attrs.get("target_temp_high")
+        out["target_low"] = float(tl) if tl is not None else None
+        out["target_high"] = float(th) if th is not None else None
+        out["hvac_mode"] = state.state
+    except Exception:  # noqa: BLE001 — defensive; snapshot never raises
+        _LOGGER.debug(
+            "climate_write snapshot failed for %s", entity_id, exc_info=True,
+        )
+    return out
+
+
+def _schedule_climate_write_row(
+    hass: HomeAssistant,
+    *,
+    verb: str,
+    entity_id: str,
+    site: str,
+    zone_id: str,
+    reason: str,
+    blocking: bool,
+    excursion_id: str | None,
+    values_before: dict[str, Any],
+    values_after: dict[str, Any],
+    ts_issued: float,
+    ts_returned: float,
+    wire_ok: bool,
+    exc: str | None,
+) -> None:
+    """Fire-and-forget schedule of ONE `climate_write` ledger row.
+
+    Bypasses `ActivityLogger.log` (F4): direct-calls `database.log_activity`
+    so there is NO dedup, NO `SIGNAL_ACTIVITY_LOGGED` dispatch, and NO
+    `ura_action` HA-event fire — two identical writes 1 s apart land as
+    two rows.
+
+    Guarded exactly like `_log_deferred_write` (F14): a missing/absent
+    `hass.data[DOMAIN]["database"]` degrades to a debug log; this helper
+    NEVER raises. Scheduled via `hass.async_create_task` (F2): NEVER
+    awaited — a slow DB write cannot back-pressure the wire path.
+    """
+    try:
+        from ..const import DOMAIN  # local: avoid cycle at import time
+        db = (
+            hass.data.get(DOMAIN, {}).get("database")
+            if hasattr(hass, "data") else None
+        )
+    except Exception:  # noqa: BLE001 — defensive
+        db = None
+    if db is None:
+        _LOGGER.debug(
+            "climate_write row skipped (no database) verb=%s site=%s zone=%s",
+            verb, site, zone_id,
+        )
+        return
+    try:
+        payload = {
+            "verb": verb,
+            "site": site,
+            "reason": reason,
+            "blocking": bool(blocking),
+            "wire_ok": bool(wire_ok),
+            "exc": exc,
+            "excursion_id": excursion_id,
+            "values_before": values_before,
+            "values_after": values_after,
+            "ts_issued": float(ts_issued),
+            "ts_returned": float(ts_returned),
+        }
+        details_json = json.dumps(payload, default=str)
+        timestamp = dt_util.utcnow().isoformat()
+        description = (
+            f"{verb} zone={zone_id} site={site} reason={reason}"
+        )
+        # Fire-and-forget: NEVER awaited (F2). A DB stall cannot delay
+        # the wire path.
+        _coro = db.log_activity(
+            timestamp=timestamp,
+            coordinator="hvac",
+            action="climate_write",
+            room=None,
+            zone=zone_id or None,
+            importance=CLIMATE_WRITE_LOG_IMPORTANCE,
+            description=description,
+            details_json=details_json,
+            entity_id=entity_id,
+        )
+        # Duck-check: MagicMock-shaped test doubles return non-coroutines
+        # from log_activity; scheduling those would leak a non-awaitable
+        # onto the loop. In production `log_activity` is an async def and
+        # this check is a no-op.
+        import inspect  # local — cheap, avoids top-level cycle
+        if inspect.iscoroutine(_coro):
+            hass.async_create_task(_coro)
+    except Exception:  # noqa: BLE001 — defensive
+        _LOGGER.debug(
+            "climate_write row schedule failed verb=%s site=%s",
+            verb, site, exc_info=True,
+        )
 
 
 def _log_deferred_write(
@@ -235,9 +379,10 @@ async def emit_set_temperature(
     freeze_active: bool = False,
     blocking: bool = False,
     gate: Callable[[], bool] | None = None,
-    site: str = "",
-    zone_id: str = "",
-    reason: str = "",
+    site: str,
+    zone_id: str,
+    reason: str,
+    excursion_id: str | None = None,
 ) -> bool:
     """Emit a `climate.set_temperature` after the freeze-floor + deadband guards.
 
@@ -279,8 +424,50 @@ async def emit_set_temperature(
     if high is not None:
         service_data["target_temp_high"] = high
 
-    await hass.services.async_call(
-        "climate", "set_temperature", service_data, blocking=blocking,
+    # HVAC-W1-A INV-A: snapshot BEFORE the wire await (F6).
+    _values_before = _snapshot_climate_state(hass, entity_id)
+    _ts_issued = time.monotonic()
+    _wire_ok = False
+    _exc_name: str | None = None
+    try:
+        await hass.services.async_call(
+            "climate", "set_temperature", service_data, blocking=blocking,
+        )
+        _wire_ok = True
+    except BaseException as _wire_exc:  # noqa: BLE001 — re-raised below
+        _exc_name = type(_wire_exc).__name__
+        _schedule_climate_write_row(
+            hass,
+            verb="set_temperature",
+            entity_id=entity_id,
+            site=site,
+            zone_id=zone_id,
+            reason=reason,
+            blocking=blocking,
+            excursion_id=excursion_id,
+            values_before=_values_before,
+            values_after=dict(service_data),
+            ts_issued=_ts_issued,
+            ts_returned=time.monotonic(),
+            wire_ok=False,
+            exc=_exc_name,
+        )
+        raise
+    _schedule_climate_write_row(
+        hass,
+        verb="set_temperature",
+        entity_id=entity_id,
+        site=site,
+        zone_id=zone_id,
+        reason=reason,
+        blocking=blocking,
+        excursion_id=excursion_id,
+        values_before=_values_before,
+        values_after=dict(service_data),
+        ts_issued=_ts_issued,
+        ts_returned=time.monotonic(),
+        wire_ok=_wire_ok,
+        exc=None,
     )
     return True
 
@@ -292,9 +479,10 @@ async def emit_set_preset_mode(
     *,
     blocking: bool = False,
     gate: Callable[[], bool] | None = None,
-    site: str = "",
-    zone_id: str = "",
-    reason: str = "",
+    site: str,
+    zone_id: str,
+    reason: str,
+    excursion_id: str | None = None,
 ) -> bool:
     """ARREST-COMFORT-1 Cycle A D6: preset-write chokepoint.
 
@@ -354,63 +542,207 @@ async def emit_set_preset_mode(
     # ==================================================================
     _resumed = False
     if _needs_resume_first(hass, entity_id, preset_mode):
+        # HVAC-W1-A INV-A: snapshot + row PER ATTEMPTED WIRE CALL (F11).
+        # Resume row is scheduled BETWEEN the resume-await and the pin-await
+        # so a failed pin never races the resume row (F2 discriminator).
+        _resume_data = {"entity_id": entity_id, "preset_mode": PRESET_RESUME}
+        _resume_before = _snapshot_climate_state(hass, entity_id)
+        _resume_ts_issued = time.monotonic()
+        _resume_ok = False
+        _resume_exc: str | None = None
         try:
             await hass.services.async_call(
                 "climate",
                 "set_preset_mode",
-                {"entity_id": entity_id, "preset_mode": PRESET_RESUME},
+                _resume_data,
                 blocking=True,
             )
             _resumed = True
-        except Exception:  # noqa: BLE001
+            _resume_ok = True
+        except Exception as _re:  # noqa: BLE001
             # Fail-forward: if the CLEAR fails we still attempt the pin.
             # Worst case is the pre-existing behaviour (name discarded).
+            _resume_exc = type(_re).__name__
             _LOGGER.debug(
                 "resume-then-pin: resume failed for %s; pinning anyway",
                 entity_id, exc_info=True,
             )
+        _schedule_climate_write_row(
+            hass,
+            verb="set_preset_mode",
+            entity_id=entity_id,
+            site=f"{site}+resume",
+            zone_id=zone_id,
+            reason=reason,
+            blocking=True,
+            excursion_id=excursion_id,
+            values_before=_resume_before,
+            values_after=dict(_resume_data),
+            ts_issued=_resume_ts_issued,
+            ts_returned=time.monotonic(),
+            wire_ok=_resume_ok,
+            exc=_resume_exc,
+        )
 
+    _pin_data = {"entity_id": entity_id, "preset_mode": preset_mode}
+    _pin_site = f"{site}+pin" if _resumed else site
+    _pin_before = _snapshot_climate_state(hass, entity_id)
+    _pin_ts_issued = time.monotonic()
     try:
         await hass.services.async_call(
             "climate",
             "set_preset_mode",
-            {"entity_id": entity_id, "preset_mode": preset_mode},
+            _pin_data,
             blocking=blocking,
         )
-    except Exception:  # noqa: BLE001
+    except Exception as _pin_exc:  # noqa: BLE001
         # INVARIANT I3 — "the zone is never left following the vendor
-        # schedule". Found by the adversarial build review, and it is the
-        # one way this fix could CAUSE the harm it exists to prevent:
-        # if the clear succeeded and the pin then fails (a cloud 504, a
-        # momentarily unavailable entity, any service error — all observed
-        # on this integration), the zone sits on the Bryant schedule with
-        # NO hold, indefinitely, because nothing else re-pins it.
-        #
-        # Having cleared the hold we OWE the zone a pin. Retry once, then
-        # surface at ERROR: a zone released to a schedule the operator does
-        # not use is not a debug-level event, and the ledger/log is the only
-        # way anyone would ever find out.
+        # schedule". See original block below; retry semantics unchanged.
+        _schedule_climate_write_row(
+            hass,
+            verb="set_preset_mode",
+            entity_id=entity_id,
+            site=_pin_site,
+            zone_id=zone_id,
+            reason=reason,
+            blocking=blocking,
+            excursion_id=excursion_id,
+            values_before=_pin_before,
+            values_after=dict(_pin_data),
+            ts_issued=_pin_ts_issued,
+            ts_returned=time.monotonic(),
+            wire_ok=False,
+            exc=type(_pin_exc).__name__,
+        )
         if _resumed:
+            _retry_data = {"entity_id": entity_id, "preset_mode": preset_mode}
+            _retry_before = _snapshot_climate_state(hass, entity_id)
+            _retry_ts_issued = time.monotonic()
+            _retry_ok = False
+            _retry_exc: str | None = None
             try:
                 await hass.services.async_call(
                     "climate",
                     "set_preset_mode",
-                    {"entity_id": entity_id, "preset_mode": preset_mode},
+                    _retry_data,
                     blocking=True,
                 )
+                _retry_ok = True
                 _LOGGER.warning(
                     "resume-then-pin: pin retry succeeded for %s (%s)",
                     entity_id, preset_mode,
                 )
-                _capture_preset_reason(hass, zone_id, reason)
-                return True
-            except Exception:  # noqa: BLE001
+            except Exception as _re:  # noqa: BLE001
+                _retry_exc = type(_re).__name__
                 _LOGGER.error(
                     "resume-then-pin: CLEARED the hold on %s but could not "
                     "pin %s after a retry — zone is following the thermostat "
                     "schedule with no hold until the next write",
                     entity_id, preset_mode, exc_info=True,
                 )
+            _schedule_climate_write_row(
+                hass,
+                verb="set_preset_mode",
+                entity_id=entity_id,
+                site=f"{site}+pin_retry",
+                zone_id=zone_id,
+                reason=reason,
+                blocking=True,
+                excursion_id=excursion_id,
+                values_before=_retry_before,
+                values_after=dict(_retry_data),
+                ts_issued=_retry_ts_issued,
+                ts_returned=time.monotonic(),
+                wire_ok=_retry_ok,
+                exc=_retry_exc,
+            )
+            if _retry_ok:
+                _capture_preset_reason(hass, zone_id, reason)
+                return True
         raise
+    _schedule_climate_write_row(
+        hass,
+        verb="set_preset_mode",
+        entity_id=entity_id,
+        site=_pin_site,
+        zone_id=zone_id,
+        reason=reason,
+        blocking=blocking,
+        excursion_id=excursion_id,
+        values_before=_pin_before,
+        values_after=dict(_pin_data),
+        ts_issued=_pin_ts_issued,
+        ts_returned=time.monotonic(),
+        wire_ok=True,
+        exc=None,
+    )
     _capture_preset_reason(hass, zone_id, reason)
+    return True
+
+
+# ==========================================================================
+# HVAC-W1-A D1: emit_set_hvac_mode (third funnel).
+# ==========================================================================
+
+
+async def emit_set_hvac_mode(
+    hass: HomeAssistant,
+    entity_id: str,
+    hvac_mode: str,
+    *,
+    site: str,
+    zone_id: str,
+    reason: str,
+    blocking: bool,
+    excursion_id: str | None = None,
+) -> bool:
+    """Central chokepoint for `climate.set_hvac_mode` writes.
+
+    Behaviour-neutral: NO gate, NO transform. Wraps ONE
+    ``hass.services.async_call("climate", "set_hvac_mode", ...)`` and
+    schedules ONE `climate_write` row per attempted wire call (F11).
+    Never swallows / never modifies wire-call raise semantics (F11).
+    Required kwargs: `site`, `zone_id`, `reason`, `blocking` (F3, F10).
+    """
+    service_data = {"entity_id": entity_id, "hvac_mode": hvac_mode}
+    _values_before = _snapshot_climate_state(hass, entity_id)
+    _ts_issued = time.monotonic()
+    try:
+        await hass.services.async_call(
+            "climate", "set_hvac_mode", service_data, blocking=blocking,
+        )
+    except BaseException as _wire_exc:  # noqa: BLE001 — re-raised below
+        _schedule_climate_write_row(
+            hass,
+            verb="set_hvac_mode",
+            entity_id=entity_id,
+            site=site,
+            zone_id=zone_id,
+            reason=reason,
+            blocking=blocking,
+            excursion_id=excursion_id,
+            values_before=_values_before,
+            values_after=dict(service_data),
+            ts_issued=_ts_issued,
+            ts_returned=time.monotonic(),
+            wire_ok=False,
+            exc=type(_wire_exc).__name__,
+        )
+        raise
+    _schedule_climate_write_row(
+        hass,
+        verb="set_hvac_mode",
+        entity_id=entity_id,
+        site=site,
+        zone_id=zone_id,
+        reason=reason,
+        blocking=blocking,
+        excursion_id=excursion_id,
+        values_before=_values_before,
+        values_after=dict(service_data),
+        ts_issued=_ts_issued,
+        ts_returned=time.monotonic(),
+        wire_ok=True,
+        exc=None,
+    )
     return True

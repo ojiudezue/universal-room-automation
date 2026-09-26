@@ -41,7 +41,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from ..const import DOMAIN
-from .hvac_setpoint import emit_set_preset_mode
+from .hvac_setpoint import emit_set_hvac_mode, emit_set_preset_mode
 
 
 # HVAC-GOVERNED-EXCURSION-1 fix-up r3 (2026-08-21): the 9 egress tests
@@ -679,10 +679,14 @@ class EgressManager:
                 # ARREST-COMFORT-1 D2-LOW-3 fix-up (2026-08-10): egress
                 # pause is deliberately UNGATED by comfort-delay grace
                 # (safety > comfort during an open egress window).
-                await self._hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {"entity_id": thermostat, "hvac_mode": "off"},
+                # HVAC-W1-A B2: egress pause "off".
+                await emit_set_hvac_mode(
+                    self._hass,
+                    thermostat,
+                    "off",
+                    site="B2_egress_pause",
+                    zone_id=zone_id,
+                    reason="egress_pause",
                     blocking=True,
                 )
                 if _s15_guard is not None and hasattr(_s15_guard, "mark_committed"):
@@ -775,10 +779,14 @@ class EgressManager:
         # records restore_ok=False with trigger_detail='mode_restore_failed'.
         _mode_ok = False
         try:
-            await self._hass.services.async_call(
-                "climate",
-                "set_hvac_mode",
-                {"entity_id": thermostat, "hvac_mode": saved_mode},
+            # HVAC-W1-A B3: egress resume saved mode.
+            await emit_set_hvac_mode(
+                self._hass,
+                thermostat,
+                saved_mode,
+                site="B3_egress_resume",
+                zone_id=zone_id,
+                reason="egress_resume",
                 blocking=True,
             )
             _mode_ok = True

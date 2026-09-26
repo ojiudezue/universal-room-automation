@@ -131,6 +131,18 @@ def _load_egress_module():
         )
         return True
     hvac_setpoint.emit_set_preset_mode = _emit_set_preset_mode
+
+    # HVAC-W1-A: third funnel (behaviour-neutral stub for this harness).
+    async def _emit_set_hvac_mode(hass, entity_id, hvac_mode, *,
+                                  site, zone_id, reason, blocking,
+                                  excursion_id=None):
+        await hass.services.async_call(
+            "climate", "set_hvac_mode",
+            {"entity_id": entity_id, "hvac_mode": hvac_mode},
+            blocking=blocking,
+        )
+        return True
+    hvac_setpoint.emit_set_hvac_mode = _emit_set_hvac_mode
     sys.modules["ura_egress_pkg.domain_coordinators.hvac_setpoint"] = hvac_setpoint
 
     # Stub hvac_zones (iter_canonical_hvac_zones monkey-patched per test).

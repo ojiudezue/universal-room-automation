@@ -1,6 +1,7 @@
 # HVAC — Architecture State of Play (READ FIRST)
 
 **Status:** forensic snapshot of `develop` @`5072deaaf` (2026-09-26 ~02:30 CDT) + live HA reads the same night.
+**W1-A Stage A built 2026-09-26 on `feature/hvac-w1a-write-governance` (behaviour-neutral write governance) — see §4.1 (new `emit_set_hvac_mode` funnel), §4.3 (`climate_write` ledger row).
 **Scope:** everything URA does with the thermostats — decide, write, borrow/return, read back — and the occupancy
 model that drives it. Covers releases v5.103.0 → v5.103.15 (v5.103.15 shipped + live-validated 2026-09-26).
 **Owner rule:** the operator (2026-09-26): *"every agent used in the rest of the arc reads [this] first completely
@@ -116,7 +117,7 @@ Consequences:
 |---|---|---|
 | `emit_set_temperature` | `hvac_setpoint.py:223-279` | freeze / comfort-delay gate, site/zone/reason plumbing. **Logs nothing durable** (only a `comfort_delay_deferred_write` row when a gate defers, `:108-159`) |
 | `emit_set_preset_mode` | `hvac_setpoint.py:282-410` | **resume-then-pin** (v5.103.2): if the entity lists `resume` in `preset_modes` and `hold_activity == "manual"`, send `resume` then pin, with one retry (`:317-410`); capability check not vendor check (`:199-212`). D6 reason capture (`zone_id`+`reason` kwargs). Logs nothing durable itself |
-| `emit_set_hvac_mode` | **does not exist** | 7 raw `set_hvac_mode` sites bypass (card `HVAC-SETHVACMODE-CHOKEPOINT-1`) |
+| `emit_set_hvac_mode` | `hvac_setpoint.py` (W1-A Stage A, feature branch 2026-09-26) | Behaviour-neutral: NO gate, NO transform; required kwargs `site` / `zone_id` / `reason` / `blocking` (F3, F10); optional `excursion_id` forwarded from borrow tokens. Schedules ONE `climate_write` row per attempted wire call. Migrated the 7 raw sites (B1–B7). |
 
 ### 4.2 Write sites (verified by Explore audit 2026-09-25 against develop; spot-checked)
 | Site | Verb(s) | Via funnel | Durable record |
@@ -136,7 +137,22 @@ Consequences:
 | Egress pause/resume `hvac_egress.py:683/779/795` | mode + preset | mode **no** | `hvac_excursion_events` |
 | Optimizer `optimization.py:3546` (shadow by default) | any | — | `actuated` row, no entity_id |
 
-### 4.3 Logging coverage — the answer to "do we record everything?": **NO**
+### 4.3 Logging coverage — the answer to "do we record everything?": **YES post W1-A Stage A** (feature branch; ships next)
+
+W1-A Stage A (behaviour-neutral) adds ONE `climate_write` row per attempted wire call in
+`ura_activity_log` (action = `climate_write`, importance = `notable` → 30-d retention;
+bypasses `ActivityLogger` dedup / signal / bus event per F4 so two identical writes 1 s
+apart land as two rows). Row carries: `verb` / `site` / `zone_id` / `entity_id` / `reason`
+/ `blocking` / `wire_ok` / `exc` / `excursion_id` / `values_before` (`preset_mode`,
+`hold_activity`, setpoints, mode — captured SYNCHRONOUSLY before the wire await, F6) /
+`values_after` (exact `service_data` sent, F12) / `ts_issued` / `ts_returned`. AI-rule
+refusal expanded from 3 verbs to ALL `climate` services (D5-b). `optimization.py` shadow
+climate actions remain OUT via `DYNAMIC_DOMAIN_ALLOWLIST` (reviewed escape, carded for
+later). AST completeness lint (`test_hvac_climate_write_funnel_completeness.py`) enforces
+no raw `climate` service call outside `hvac_setpoint.py`.
+
+Pre-W1-A picture (for the reader tracing an older strand):
+
 | Question | Where to look |
 |---|---|
 | Did URA change a preset? | `ura_activity_log` action `preset_change` (+ `preset_change_locked_out`, `override_detected`) |

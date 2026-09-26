@@ -1264,3 +1264,27 @@ CARRIER_BLIND_CORROBORATION_KW_THRESHOLD: Final = AC_ACTIVELY_COOLING_KW_MIN
 # ha_carrier config-entry domain (as registered by the ha_carrier custom
 # integration; the ONLY entry URA is permitted to reload for this feature).
 CARRIER_INTEGRATION_DOMAIN: Final = "ha_carrier"
+
+
+# ==========================================================================
+# HVAC-W1-THERMOSTAT-DEFINITION Stage A (behaviour-neutral write governance)
+# ==========================================================================
+#
+# Rung 1 (module constant — change requires review): retention window for
+# the per-wire-write ledger. `info` = 7 d, `notable`/`critical` = 30 d
+# (database.py:5827-5834). Diagnosis of a stranded-manual episode needs
+# ≥30 d for recurrence analysis across weeks.
+CLIMATE_WRITE_LOG_IMPORTANCE: Final = "notable"
+
+# Rung 1: files whose `climate` service calls are ALLOWED to bypass the
+# emit_set_* funnels (INV-A exclusion). Every entry is a REVIEWED escape
+# hatch — additions carry a `reason` and an owning card id so future
+# audits can find them. Stage A: only optimizer shadow actions
+# (optimization.py:3546 / :3688) are excluded, carded for later routing.
+DYNAMIC_DOMAIN_ALLOWLIST: Final = frozenset({"optimization.py"})
+DYNAMIC_DOMAIN_ALLOWLIST_REASONS: Final = {
+    "optimization.py": (
+        "optimizer-shadow-actions-carded-for-later-routing "
+        "(HVAC-SETHVACMODE-CHOKEPOINT-1 scope_added_2026_09_25_record_every_write)"
+    ),
+}

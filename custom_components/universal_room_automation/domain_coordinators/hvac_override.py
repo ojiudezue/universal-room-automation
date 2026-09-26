@@ -115,7 +115,11 @@ from .hvac_const import (
     OVERRIDE_SEVERE_GRACE_MINUTES,
 )
 from .energy_billing import _get_effective_rate_kwh
-from .hvac_setpoint import emit_set_preset_mode, emit_set_temperature
+from .hvac_setpoint import (
+    emit_set_hvac_mode,
+    emit_set_preset_mode,
+    emit_set_temperature,
+)
 from .hvac_zones import ZoneManager, ZoneState
 
 _LOGGER = logging.getLogger(__name__)
@@ -3516,13 +3520,14 @@ class OverrideArrester:
             if zone.hvac_mode != "heat_cool" and self._supports_heat_cool(
                 zone.climate_entity
             ):
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {
-                        "entity_id": zone.climate_entity,
-                        "hvac_mode": "heat_cool",
-                    },
+                # HVAC-W1-A B4: override revert heat_cool.
+                await emit_set_hvac_mode(
+                    self.hass,
+                    zone.climate_entity,
+                    "heat_cool",
+                    site="B4_override_revert_heat_cool",
+                    zone_id=zone_id,
+                    reason="override_revert_heat_cool",
                     blocking=False,
                 )
                 _mode_wrote = True
@@ -3885,10 +3890,14 @@ class OverrideArrester:
 
         # Turn off
         try:
-            await self.hass.services.async_call(
-                "climate",
-                "set_hvac_mode",
-                {"entity_id": zone.climate_entity, "hvac_mode": "off"},
+            # HVAC-W1-A B5: AC reset OFF.
+            await emit_set_hvac_mode(
+                self.hass,
+                zone.climate_entity,
+                "off",
+                site="B5_ac_reset_off",
+                zone_id=zone_id,
+                reason="ac_reset_off",
                 blocking=True,
             )
         except Exception as e:
@@ -4003,10 +4012,14 @@ class OverrideArrester:
         )
 
         try:
-            await self.hass.services.async_call(
-                "climate",
-                "set_hvac_mode",
-                {"entity_id": climate_entity, "hvac_mode": target_mode},
+            # HVAC-W1-A B6: AC reset restore.
+            await emit_set_hvac_mode(
+                self.hass,
+                climate_entity,
+                target_mode,
+                site="B6_ac_reset_restore",
+                zone_id=zone_id,
+                reason="ac_reset_restore",
                 blocking=True,
             )
         except Exception as e:
@@ -4038,10 +4051,14 @@ class OverrideArrester:
                     zone_name, target_mode, actual_mode, attempt,
                 )
                 try:
-                    await self.hass.services.async_call(
-                        "climate",
-                        "set_hvac_mode",
-                        {"entity_id": climate_entity, "hvac_mode": target_mode},
+                    # HVAC-W1-A B7: AC reset restore retry.
+                    await emit_set_hvac_mode(
+                        self.hass,
+                        climate_entity,
+                        target_mode,
+                        site="B7_ac_reset_restore_retry",
+                        zone_id=zone_id,
+                        reason="ac_reset_restore_retry",
                         blocking=True,
                     )
                 except Exception as exc:
@@ -4592,6 +4609,7 @@ class OverrideArrester:
 
         try:
             # ARREST-COMFORT-1 §3.7 S6: ALLOW (restoration path).
+            # HVAC-W1-A F3: required site/zone_id/reason kwargs added.
             await emit_set_temperature(
                 self.hass,
                 zone.climate_entity,
@@ -4599,6 +4617,9 @@ class OverrideArrester:
                 target_temp_high=original_target,
                 freeze_active=self._freeze_active(),
                 blocking=False,
+                site="S6_nudge_restore_setpoint",
+                zone_id=zone_id,
+                reason="soft_nudge_setpoint_restore",
             )
         except Exception as e:
             _LOGGER.error(
@@ -4635,11 +4656,13 @@ class OverrideArrester:
                 # kwargs, `_capture_preset_reason` short-circuits on
                 # empty zone_id and the sensor keeps the stale prior
                 # reason.
+                # HVAC-W1-A F3: add required site kwarg.
                 await emit_set_preset_mode(
                     self.hass,
                     zone.climate_entity,
                     pre_preset,
                     blocking=True,
+                    site="S7_nudge_restore_preset",
                     zone_id=zone_id,
                     reason="soft_nudge_preset_restore",
                 )

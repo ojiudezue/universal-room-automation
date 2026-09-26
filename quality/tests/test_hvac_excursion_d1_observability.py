@@ -509,8 +509,10 @@ class TestSettledSampleWireIn:
         assert "AC_NUDGE_RESTORE_SETTLE_DELAY_S" in hvac_override_src
 
         idx = hvac_override_src.find("async def _restore_after_nudge")
-        # 12000 covers the post-restore telemetry + settled-callback block.
-        body = hvac_override_src[idx: idx + 12000]
+        # 12500 covers the post-restore telemetry + settled-callback
+        # block (bumped from 12000 for HVAC-W1-A S6/S7 required-kwarg
+        # additions widening the function).
+        body = hvac_override_src[idx: idx + 12500]
 
         # Scheduler: async_call_later using the NAMED constant, not a literal.
         assert "AC_NUDGE_RESTORE_SETTLE_DELAY_S" in body, (
