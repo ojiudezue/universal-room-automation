@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "142",
+  "author": "ojiudezue",
+  "session_id": "claude_20260923_jev_spike_verdict",
+  "timestamp": "2026-09-23T04:00:00Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "Jev decision-classifier spike: INCONCLUSIVE via label leakage; parked pending independent labels",
+  "summary": "Measure-first spike to test whether a reusable calibrated decision-classifier (a 'jev class') should be built into URA, evaluated on occupancy-trust. First harness run returned meaningless 100%/88.9% because labels were derived from the classifier's own inputs (persons_in_house/sensors_on) = label leakage. Verdict: INCONCLUSIVE; the bottleneck is an independent truth source, not the model.",
+  "why": "Operator hypothesis was a single reusable decide() primitive solving multiple decision problems 'almost as reliable as code' + adaptive where hand-tuned code is brittle. We ran measure-first (no URA change) per Measure-Before-You-Build. Occupancy-trust chosen because its hand-tuned corroboration is brittle+non-stationary (the freshness-gate/Jaya-phantom arc). The run self-refuted: labels came from the same signals the arms consume, so accuracy measured tautology, not skill. Correct conclusion is that you cannot benchmark correctness OR adaptiveness without labels disjoint from the feature vector. Official Jev arm deferred (API waitlist).",
+  "implications": "JEV-DECISION-CLASSIFIER-SPIKE-1 sits waiting_operator. No build justified yet; do NOT re-run the current leaky harness. Any future build still goes through the advisory, kill-switched, code-owns-threshold, deterministic-fallback design as a separate cycle. Plan+assets: docs/planning/PLANNING_jev_decision_classifier_spike.md and docs/planning/jev_spike/.",
+  "revisit_trigger": "Operator supplies independent occupancy labels (or approves a disjoint truth source: recorder ground-truth + operator-confirmed empty/occupied episodes, e.g. Jaya empty 2026-09-18 17:44-19:26) NOT derived from persons_in_house/sensors_on -> re-run the endpoint-agnostic harness (CODE arm + open bake-off poorjev/jev48/Luce). Build only if an arm matches CODE on the code-works split AND beats it on the code-fails split at acceptable latency/cost.",
+  "refs": {
+    "cards": [
+      "JEV-DECISION-CLASSIFIER-SPIKE-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_jev_decision_classifier_spike.md",
+      "docs/planning/jev_spike/FINDINGS.md"
+    ],
+    "release_notes": ""
+  }
+}

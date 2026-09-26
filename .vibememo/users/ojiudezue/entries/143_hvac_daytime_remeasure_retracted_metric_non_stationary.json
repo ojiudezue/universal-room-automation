@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "143",
+  "author": "ojiudezue",
+  "session_id": "claude_20260923_hvac_remeasure_retraction",
+  "timestamp": "2026-09-23T05:00:00Z",
+  "type": "correction",
+  "weight": "significant",
+  "title": "HVAC conditioning-demand daytime re-measure RETRACTED: manual-% metric is non-stationary, do-not-rerun",
+  "summary": "I claimed a daytime re-measure PASS on the HVAC conditioning-demand acceptance. Operator flagged the numbers as familiar/already-refuted. Retracted: the manual-% metric is non-stationary (zone_1 swung 46/81/50/50.3 across measures) and the acceptance target zone_1->~6% FALSIFIES rather than confirms. The metric must not be re-run as an acceptance signal.",
+  "why": "The daytime manual-% is not a stable estimator of the thing the cycle changed, so repeated measures produce different values and any single 'PASS' is measurement noise, not evidence. Confirming against it is a disjoint-framing violation (co-occurrence, not falsification). The residual is real but different: the Bryant native-schedule reclaim, which needs an operator decision, not another remeasure.",
+  "implications": "Do NOT re-run the daytime manual-% remeasure as acceptance for the conditioning-demand arc. The night-trust step (step-4-B on feature/hvac-conditioning-demand) still fails review (D9 defeats backstop at setpoint layer; throttle strands; establishment permanently-off on disabled room) -> DECOUPLE recommended + backstop-breadth operator policy call pending. Zone tonnage keyed by NUMBER: 1=4-ton, 2&3=3-ton; operator is oracle.",
+  "revisit_trigger": "Blocked on operator's Bryant native-schedule decision (HVAC-ZONE1-MANUAL-OSCILLATION-1) and the night-trust backstop-breadth policy call. If acceptance for this arc is re-attempted, pick a STATIONARY discriminator that separates the fix from a plausible different failure - not the manual-% metric.",
+  "refs": {
+    "cards": [
+      "HVAC-ZONE1-MANUAL-OSCILLATION-1"
+    ],
+    "docs": [
+      "project_session_pickup_2026_09_23.md"
+    ],
+    "release_notes": ""
+  }
+}
