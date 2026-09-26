@@ -2153,7 +2153,8 @@ cards:
   PROVENANCE_LINK_2026_09_17: 'Phase-1 (govern the 3rd verb) is the prerequisite for the provenance
     invariant on HVAC-THERMOSTAT-ABSTRACTION-1: you cannot classify manual as URA-vs-external until ALL
     write verbs route through the governed path that stamps provenance. See that card PROVENANCE_INVARIANT.'
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.16
   rank: {value: 9, time_criticality: 6, effort: 5, foundational: 8}
   thread: hvac
   created: '2026-09-16'
