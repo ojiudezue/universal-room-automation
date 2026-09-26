@@ -18,17 +18,24 @@ Failure COUNTS are order-dependent (the suite has ~61 pre-existing failures — 
 ## Serialise — you own the suite
 The pytest guard **KILLS** concurrent full-suite runs (it does not queue), and a killed source-mutating run can corrupt the tree. Run **ONE** full suite at a time; do not launch while a reviewer's mutation pass or another suite is running.
 
-## Run
+## Run — ALWAYS via the cached name-diff script (2026-09-26)
 ```bash
-export PYTHONDONTWRITEBYTECODE=1
-find . -name __pycache__ -type d -prune -exec rm -rf {} +   # pyc-staleness gives false PASS
-# MUST be .venv-ha/bin/python — bare `python3` is 3.9 without phcc and yields a
-# red suite on green code (`fixture 'expected_lingering_tasks' not found`).
-PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -q -p no:cacheprovider > /tmp/suite.txt 2>&1
+python3 scripts/suite_namediff.py --branch-dir <worktree>            # full name-diff (pre-merge gate)
+python3 scripts/suite_namediff.py --branch-dir <worktree> --files quality/tests/a.py quality/tests/b.py   # targeted
+python3 scripts/suite_namediff.py --branch-dir <worktree> --dry-run  # shows keys + what is cached
 ```
-Then extract failing names: `grep '^FAILED' /tmp/suite.txt | sed 's/FAILED //' | sort`.
-- Note: `pytest | sort > file` yields empty (redirect raw, sort after). A `Py_FinalizeEx` hang at the end is a known harness quirk, not a failure.
-- Compare the failing-name set against the pre-cycle baseline (tag `pre-review-*` or the named baseline the orchestrator gives). The discriminating check: any NEW name in a cycle-touched area (energy/hvac/etc.) is a suspect — run it ISOLATED; passes-isolated-fails-in-suite = order-dependent flake (report as such), fails-isolated = real regression.
+- The develop BASELINE is cached in `.claude/suite-cache/<key>.json`, keyed by the git tree hashes of
+  `custom_components/` + `quality/` (+ pytest config). Docs/board/vibememo commits do not change the key, so a
+  baseline is run once and reused until develop's CODE changes. Never re-run develop by hand.
+- The script uses `.venv-ha/bin/python`, `PYTHONDONTWRITEBYTECODE=1`, purges `__pycache__`, parses FAILED/ERROR names,
+  prints NEW/GONE, exits 1 on NEW. It WAITS for any other running pytest instead of colliding (the command-text guard
+  cannot see it). The branch worktree must be committed under `custom_components/`/`quality/` (it refuses otherwise).
+- **Targeted vs full policy:** test-only fix rounds → targeted run of the changed test files plus the test files of any
+  touched production module. Production-code fix rounds and the PRE-MERGE gate → full name-diff. Never run a full
+  suite "just to be safe" between test-only rounds.
+- Triage each NEW name: run it ISOLATED; passes-isolated-fails-in-suite = order-dependent flake (report as such),
+  fails-isolated = real regression. A `Py_FinalizeEx` hang at the end is a known harness quirk.
+- Manual fallback (only if the script is broken — say so): `PYTHONPATH=quality .venv-ha/bin/python -m pytest quality/tests/ -q -p no:cacheprovider > <scratch>/suite.txt 2>&1`, then `grep -E '^(FAILED|ERROR)'`.
 
 ## Live validation mode (post-deploy)
 When asked to validate a running HA instance: read the target entities/attributes (via the home-assistant MCP or SSH), scan logs for new URA ERRORs, confirm the acceptance criterion's OBSERVABLE (an entity attr value / DB row), and cite the authoritative signal actually used — never "looks fine". Sentinels/None where a real value is expected = payload shape broken.
