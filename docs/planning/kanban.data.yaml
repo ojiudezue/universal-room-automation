@@ -12951,13 +12951,31 @@ cards:
     presets-only return (the snapshot preset carries its own setpoints; the return''s preceding raw setpoint write
     is itself a manual-inducing write) + a post-return ownership window + a coherence check before treating
     manual as human. Cover every borrow kind, not only nudges.'
+  SOURCE_VERIFIED_2026_09_26_status_vs_config: 'Verified in ha_carrier source (/config/custom_components/ha_carrier/climate.py):
+    preset_mode is built from the STATUS feed (_preset_mode :158-172, current_status_activity), which the
+    integration''s own comment (:222-229) says is refreshed only by the periodic full poll and lets status go stale;
+    hold_activity is built from the CONFIG feed (:261-269), updated promptly on writes; target setpoints are read
+    from the activity the status names (:230) — so a lagging status of "manual" displays the MANUAL activity
+    profile''s setpoints, which still carry the last raw write (the nudge''s 78/70). A raw set_temperature rewrites
+    the manual activity profile AND sets hold_activity=manual (:468-534). Operator Q 2026-09-26: "bug? shouldn''t
+    trust it? Maybe the borrow should be updated to our new understanding of how to write to carrier? Did we make
+    a class or function?" ANSWERS: (1) bug — URA treats status-derived preset_mode==manual as a human hold even
+    when config hold_activity names a preset; (2) the borrow (Aug, HVAC-GOVERNED-EXCURSION-1) predates the v5.103.2
+    resume-then-pin knowledge (emit_set_preset_mode, hvac_setpoint.py:163-218) and still returns via raw setpoints
+    THEN preset; (3) the per-zone thermostat class is only carded (HVAC-THERMOSTAT-ABSTRACTION-1,
+    HVAC-PRESET-WRITE-STRATEGY-1), not built.
+    RE-SCOPED FIX (Tier 3 — preset writes on every zone, comfort+cost): D1 borrow RETURN is presets-only when the
+    snapshot preset is a named profile (no preceding raw setpoint write), for EVERY excursion kind; D2 a manual
+    report is treated as a human hold only when config hold_activity == manual too — status/config disagreement
+    within a post-write window is URA''s echo -> re-assert the snapshot preset; D3 every URA thermostat write logs one
+    durable row at the funnel (see HVAC-SETHVACMODE-CHOKEPOINT-1 scope_added). Nudges stay ON.'
   title: URA refuses to write a preset to a zone in `manual` — including when URA itself caused the
     manual, so nothing ever rescues it
   rank: {value: 8, time_criticality: 6, effort: 5}
   thread: hvac
-  status: planned
+  status: waiting_operator
   created: '2026-09-16'
-  updated: '2026-09-25 23:30'
+  updated: '2026-09-26 00:05'
   refinement_status: initial
   approval: implied
   tags: [tier-2db, no-fabrication-verify, found-during-validation]
@@ -12994,16 +13012,7 @@ cards:
     problem: URA refuses to re-preset a zone in manual even when URA itself caused the manual, and
       the component expected to handle it deliberately ignores URA-caused cases.
     verdict: BUILD
-  next: 'GATED ON TELEMETRY, deliberately — do not build on the hypothesis. The lockout telemetry
-    shipped alongside this card records every refusal with what URA wanted. FIRST question it
-    answers: are lockouts frequent on zone_1? If yes the diagnosis is confirmed and this is the
-    next fix; if they are rare then the residual is elsewhere and this card is wrong. THEN build:
-    extend the provenance tag (_suppress_kind, hvac_override.py:185 — exists today but carries a
-    ~5s TTL and is consulted only by a counter) so should_change_preset can escape a manual hold
-    URA itself induced. Operator has already ruled that reverting deliberate HUMAN adjustments is
-    intended, so the policy question is settled; only the provenance lifetime is open.
-    ACCEPTANCE must DISCRIMINATE: a URA-induced manual is escaped, a HUMAN-induced manual is still
-    left alone. A test that only proves the first would pass with the guard removed entirely.'
+  next: 'APPROVE (operator): Tier-3 cycle D1 presets-only borrow return + D2 status/config coherence before treating manual as human + D3 funnel logging -> on go I plan (with the two framing-disjoint Tier-3 plan reviews), build in a worktree, run 4 reviews incl. adversarial completeness, and checkpoint with you before deploy.'
   links:
     related: [HVAC-MANUAL-PRESET-CONTRACT-1, HVAC-SUPPLE-SEQUENCE-1]
     context: 'HVAC-MANUAL-PRESET-CONTRACT-1 (v5.103.2) fixed the write-does-not-land half; this is
