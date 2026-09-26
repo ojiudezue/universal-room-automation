@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T16:28:40-05:00_ - _Data commit: `0ff055b880a9`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T16:30:15-05:00_ - _Data commit: `aef6817aa899`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -693,7 +693,7 @@ _created 2026-09-26 02:40 · updated 2026-09-26 11:00 · initial_
   - Problem: every place in URA that touches a thermostat does its own thing — three kinds of write, some funnelled and some not, most never recorded, returns done the old way, and URA believes a lagging "manual" report from the Carrier inte...
 - **Origin:** 2026-09-26 - operator approved the 4-workstream consolidation of the HVAC arc (see HVAC-SUPPLE-SEQUENCE-1 RESEQUENCE_PROPOSAL_2026_09_26)
 - **Why:** Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.
-- **Next:** Stage A (behaviour-neutral, Tier 2-DB): all three write verbs through funnels + one durable row per write + the 7 raw set_hvac_mode sites migrated. Stage B (Tier 3, operator go needed): brand definition interface; Carrier definition (cle...
+- **Next:** Order: nudge-echo fix -> (dwell-clock fix if operator parks the W2 fast path) -> W1-B REV 4 (problems 1-5; fold plan-review #1/#2 findings; borrow-lock scope decision deferred to the re-plan) -> Tier-3 plan reviews -> operator go.
 - **Tags:** hvac, workstream
 - **Forensic keys (7):**
   - `disposition_2026_09_26_groom`: Stage A build in flight 2026-09-26 (feature/hvac-w1a-write-governance). Stage B (W1-B, Tier 3) gated on W1-A live 1 day + D0 probe + Tier-3 plan re-review + operator go. New input for Stage B: state-of-play §9.7 (zone_1 status feed repor...
