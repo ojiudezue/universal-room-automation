@@ -115,7 +115,11 @@ from .hvac_const import (
     OVERRIDE_SEVERE_GRACE_MINUTES,
 )
 from .energy_billing import _get_effective_rate_kwh
-from .hvac_setpoint import emit_set_preset_mode, emit_set_temperature
+from .hvac_setpoint import (
+    emit_set_hvac_mode,
+    emit_set_preset_mode,
+    emit_set_temperature,
+)
 from .hvac_zones import ZoneManager, ZoneState
 
 _LOGGER = logging.getLogger(__name__)
@@ -3401,6 +3405,9 @@ class OverrideArrester:
                     site="S3_compromise",
                     zone_id=zone_id,
                     reason="normal_override_compromise",
+                    excursion_id=(
+                        _cmp_token.excursion_id if _cmp_token else None
+                    ),
                 )
                 if _s3_written:
                     self.suppress(zone.climate_entity, kind="temp")
@@ -3507,6 +3514,10 @@ class OverrideArrester:
         # FIX B1: kind="preset" so genuine mid-window user manual is
         # still caught (only "temp" suppression blocks manual passthrough).
 
+        # HVAC-W1-A F6 (fix-up round 4): look up _cmp_token BEFORE B4 so
+        # its excursion_id can be forwarded into the mode-write row.
+        # Same token also drives S4 below.
+        _cmp_token = self._compromise_excursion_tokens.get(zone_id)
         try:
             # v4.7.32: re-assert heat_cool whenever the mode has drifted from it
             # (off OR a single mode like cool/heat) — not just "off". The operator
@@ -3516,14 +3527,18 @@ class OverrideArrester:
             if zone.hvac_mode != "heat_cool" and self._supports_heat_cool(
                 zone.climate_entity
             ):
-                await self.hass.services.async_call(
-                    "climate",
-                    "set_hvac_mode",
-                    {
-                        "entity_id": zone.climate_entity,
-                        "hvac_mode": "heat_cool",
-                    },
+                # HVAC-W1-A B4: override revert heat_cool.
+                await emit_set_hvac_mode(
+                    self.hass,
+                    zone.climate_entity,
+                    "heat_cool",
+                    site="B4_override_revert_heat_cool",
+                    zone_id=zone_id,
+                    reason="override_revert_heat_cool",
                     blocking=False,
+                    excursion_id=(
+                        _cmp_token.excursion_id if _cmp_token else None
+                    ),
                 )
                 _mode_wrote = True
                 _LOGGER.info(
@@ -3536,7 +3551,6 @@ class OverrideArrester:
             # The two can disagree — the token is taken at compromise
             # begin_excursion time (what the wire held); `original_preset`
             # is the caller's intended value which may have drifted.
-            _cmp_token = self._compromise_excursion_tokens.get(zone_id)
             _revert_preset = (
                 _cmp_token.pre_preset if _cmp_token is not None
                 and _cmp_token.pre_preset
@@ -3553,6 +3567,9 @@ class OverrideArrester:
                 site="S4_revert",
                 zone_id=zone_id,
                 reason="severe_override_revert",
+                excursion_id=(
+                    _cmp_token.excursion_id if _cmp_token else None
+                ),
             )
             if _s4_written or _mode_wrote:
                 self.suppress(zone.climate_entity, kind="preset")
@@ -3885,10 +3902,14 @@ class OverrideArrester:
 
         # Turn off
         try:
-            await self.hass.services.async_call(
-                "climate",
-                "set_hvac_mode",
-                {"entity_id": zone.climate_entity, "hvac_mode": "off"},
+            # HVAC-W1-A B5: AC reset OFF.
+            await emit_set_hvac_mode(
+                self.hass,
+                zone.climate_entity,
+                "off",
+                site="B5_ac_reset_off",
+                zone_id=zone_id,
+                reason="ac_reset_off",
                 blocking=True,
             )
         except Exception as e:
@@ -4003,10 +4024,14 @@ class OverrideArrester:
         )
 
         try:
-            await self.hass.services.async_call(
-                "climate",
-                "set_hvac_mode",
-                {"entity_id": climate_entity, "hvac_mode": target_mode},
+            # HVAC-W1-A B6: AC reset restore.
+            await emit_set_hvac_mode(
+                self.hass,
+                climate_entity,
+                target_mode,
+                site="B6_ac_reset_restore",
+                zone_id=zone_id,
+                reason="ac_reset_restore",
                 blocking=True,
             )
         except Exception as e:
@@ -4038,10 +4063,14 @@ class OverrideArrester:
                     zone_name, target_mode, actual_mode, attempt,
                 )
                 try:
-                    await self.hass.services.async_call(
-                        "climate",
-                        "set_hvac_mode",
-                        {"entity_id": climate_entity, "hvac_mode": target_mode},
+                    # HVAC-W1-A B7: AC reset restore retry.
+                    await emit_set_hvac_mode(
+                        self.hass,
+                        climate_entity,
+                        target_mode,
+                        site="B7_ac_reset_restore_retry",
+                        zone_id=zone_id,
+                        reason="ac_reset_restore_retry",
                         blocking=True,
                     )
                 except Exception as exc:
@@ -4431,6 +4460,9 @@ class OverrideArrester:
                     site="S5_nudge_start",
                     zone_id=zone_id,
                     reason="soft_nudge_start",
+                    excursion_id=(
+                        _ex_token.excursion_id if _ex_token else None
+                    ),
                 )
                 if _s5_written:
                     self.suppress(zone.climate_entity, kind="temp")
@@ -4590,8 +4622,14 @@ class OverrideArrester:
         # FIX B1: kind="temp" (see suppress() docstring).
         self.suppress(zone.climate_entity, kind="temp")
 
+        # HVAC-W1-A F6: forward the borrow token's excursion_id so the
+        # climate_write row carries provenance.
+        _nudge_tok = self._nudge_excursion_tokens.get(zone_id)
+        _nudge_eid = _nudge_tok.excursion_id if _nudge_tok else None
+
         try:
             # ARREST-COMFORT-1 §3.7 S6: ALLOW (restoration path).
+            # HVAC-W1-A F3: required site/zone_id/reason kwargs added.
             await emit_set_temperature(
                 self.hass,
                 zone.climate_entity,
@@ -4599,6 +4637,10 @@ class OverrideArrester:
                 target_temp_high=original_target,
                 freeze_active=self._freeze_active(),
                 blocking=False,
+                site="S6_nudge_restore_setpoint",
+                zone_id=zone_id,
+                reason="soft_nudge_setpoint_restore",
+                excursion_id=_nudge_eid,
             )
         except Exception as e:
             _LOGGER.error(
@@ -4635,13 +4677,16 @@ class OverrideArrester:
                 # kwargs, `_capture_preset_reason` short-circuits on
                 # empty zone_id and the sensor keeps the stale prior
                 # reason.
+                # HVAC-W1-A F3: add required site kwarg.
                 await emit_set_preset_mode(
                     self.hass,
                     zone.climate_entity,
                     pre_preset,
                     blocking=True,
+                    site="S7_nudge_restore_preset",
                     zone_id=zone_id,
                     reason="soft_nudge_preset_restore",
+                    excursion_id=_nudge_eid,
                 )
                 _LOGGER.info(
                     "Soft nudge restore on %s: preset -> %s "
@@ -5822,6 +5867,9 @@ class OverrideArrester:
                     site="S8_cancel_nudge_restore",
                     zone_id=zone_id,
                     reason="cancel_nudge_restore",
+                    excursion_id=(
+                        _cancel_token.excursion_id if _cancel_token else None
+                    ),
                 )
             except Exception as e:
                 _LOGGER.error(
@@ -5847,6 +5895,9 @@ class OverrideArrester:
                         site="S8_cancel_nudge_preset_restore",
                         zone_id=zone_id,
                         reason="cancel_nudge_preset_restore",
+                        excursion_id=(
+                            _cancel_token.excursion_id if _cancel_token else None
+                        ),
                     )
                     _LOGGER.info(
                         "cancel_nudge preset restore on %s -> %s "

@@ -976,6 +976,11 @@ class HVACPredictor:
                         return bool(self._override_arrester.comfort_delay_active(z))
                     except Exception:  # noqa: BLE001
                         return False
+                # HVAC-W1-A F6: forward the banking token's excursion_id.
+                _s11_bt = getattr(
+                    self, "_banking_excursion_tokens", {}
+                ).get(zone_id)
+                _s11_eid = _s11_bt.excursion_id if _s11_bt else None
                 _s11_written = await emit_set_temperature(
                     self.hass,
                     zone.climate_entity,
@@ -987,6 +992,7 @@ class HVACPredictor:
                     site="S11_release_banked",
                     zone_id=zone_id,
                     reason="banking_release",
+                    excursion_id=_s11_eid,
                 )
                 _release_ok = bool(_s11_written)
                 _release_detail = (
@@ -1045,6 +1051,7 @@ class HVACPredictor:
                             site="S11_release_banked_preset",
                             zone_id=zone_id,
                             reason="banking_release",
+                            excursion_id=_bt.excursion_id if _bt else None,
                         )
                     except Exception as _bp:  # noqa: BLE001
                         _LOGGER.warning(
@@ -1168,6 +1175,7 @@ class HVACPredictor:
                     site="S12_pre_cool",
                     zone_id=zone.zone_id,
                     reason=reason,
+                    excursion_id=(_bt.excursion_id if _bt else None),
                 )
                 if not _s12_written:
                     if self._override_arrester:
@@ -1456,6 +1464,7 @@ class HVACPredictor:
                         site="S13_pre_heat",
                         zone_id=zone.zone_id,
                         reason="pre_heat",
+                        excursion_id=(_pt.excursion_id if _pt else None),
                     )
                     if not _s13_written:
                         if self._override_arrester:
@@ -1518,6 +1527,7 @@ class HVACPredictor:
                     site="S13_preheat_return",
                     zone_id=zone_id,
                     reason="preheat_boundary",
+                    excursion_id=(tok.excursion_id if tok else None),
                 )
                 # Plan §3 row 12: update _last_emitted_range so the DPM
                 # throttle at hvac.py:2252-2255 doesn't re-strand the
@@ -1565,6 +1575,7 @@ class HVACPredictor:
                         site="S13_preheat_return_preset",
                         zone_id=zone_id,
                         reason="preheat_boundary",
+                        excursion_id=(tok.excursion_id if tok else None),
                     )
             except Exception as _rex:  # noqa: BLE001
                 _LOGGER.warning(
