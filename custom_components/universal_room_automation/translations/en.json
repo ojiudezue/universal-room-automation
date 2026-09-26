@@ -528,12 +528,14 @@
       "no_occupancy_sensors": "At least one occupancy sensor (motion, presence, or combined) is required",
       "zone_name_exists": "A zone with this name already exists",
       "room_name_exists": "A room with this name already exists",
+      "name_required": "Name is required.",
       "zone_name_contains_plus": "Zone name must not contain ' + ' (reserved as canonical merge separator)",
       "unknown": "An unknown error occurred. Please check logs for details."
     },
     "abort": {
       "not_supported": "This action is not supported",
       "migration_failed": "Migration failed. Please check logs.",
+      "room_name_exists": "A room with this name already exists",
       "reconfigure_use_options": "Use 'Configure' from the three-dot menu to modify settings.",
       "coordinator_not_ready": "Coordinator setup is coming in a future update.",
       "coordinator_use_options": "Domain coordinators are configured via the Coordinator Manager device. Click Configure on the Coordinator Manager entry.",
@@ -2050,6 +2052,7 @@
       "cover_and_vacancy_combined": "Two settings need fixing: Cover Open Temp must be at least 3°F below Cover Close Temp, AND Energy-Saving Zone Vacancy Delay must be ≤ the normal Zone Vacancy Delay.",
       "confirm_name_mismatch": "That doesn't match the zone name. Type the zone name exactly to confirm removal.",
       "name_required": "Name is required.",
+      "room_name_exists": "A room with this name already exists",
       "entity_already_claimed": "One or more of the selected entities is already claimed by another appliance record. Remove it from the other record first, or pick different entities.",
       "no_entities": "Add at least one entity (power, energy, control, or state) to this appliance."
     },

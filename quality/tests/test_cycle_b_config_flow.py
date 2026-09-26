@@ -938,7 +938,24 @@ class TestRoomNameUniqueGuard:
                 user_input={CONF_ROOM_NAME: "   ", CONF_ROOM_TYPE: "generic"}
             )
         assert result["type"] == "form"
-        assert result["errors"]["base"] == "room_name_exists"
+        # Fix-up round 1 item 2: blank/whitespace name uses name_required
+        # (distinct from a duplicate). Keeps create+rename paths consistent.
+        assert result["errors"]["base"] == "name_required"
+
+    @pytest.mark.asyncio
+    async def test_create_trims_stored_name(self):
+        """Fix-up round 1 item 3: stored name is trimmed."""
+        flow = _make_config_flow()
+        sentinel = {"type": "form", "step_id": "room_class"}
+        with patch.object(
+            flow, "_get_all_room_entries", return_value=[]
+        ), patch.object(
+            flow, "async_step_room_class", AsyncMock(return_value=sentinel)
+        ):
+            await flow.async_step_room_setup(
+                user_input={CONF_ROOM_NAME: "  Kitchen  ", CONF_ROOM_TYPE: "generic"}
+            )
+        assert flow._data.get(CONF_ROOM_NAME) == "Kitchen"
 
     @pytest.mark.asyncio
     async def test_unique_name_proceeds_to_sensors(self):
@@ -1053,3 +1070,116 @@ class TestRoomNameUniqueRenameGuard:
         assert call.kwargs["data"][CONF_ROOM_NAME] == "Study"
         # title write-through
         assert call.kwargs["title"] == "Study"
+
+
+# ---------------------------------------------------------------------------
+# Fix-up round 1: strings coverage, blank-name key, trimming, TOCTOU race
+# ---------------------------------------------------------------------------
+
+
+class TestStringsErrorKeyCoverage:
+    """Every errors["base"] key the options basic_setup can emit MUST have
+    a matching translation under options.error (and analogously for the
+    create path under config.error)."""
+
+    @pytest.mark.asyncio
+    async def test_options_basic_setup_error_keys_are_translated(self):
+        import json, pathlib
+        root = pathlib.Path(__file__).resolve().parents[2] / "custom_components" / "universal_room_automation"
+        strings = json.loads((root / "strings.json").read_text())
+        en = json.loads((root / "translations" / "en.json").read_text())
+        # Emissible from async_step_basic_setup rename guard:
+        emitted = {"name_required", "room_name_exists"}
+        for label, doc in (("strings.json", strings), ("en.json", en)):
+            missing = emitted - set(doc.get("options", {}).get("error", {}).keys())
+            assert not missing, f"{label} options.error missing: {missing}"
+
+    @pytest.mark.asyncio
+    async def test_create_path_error_keys_are_translated(self):
+        import json, pathlib
+        root = pathlib.Path(__file__).resolve().parents[2] / "custom_components" / "universal_room_automation"
+        strings = json.loads((root / "strings.json").read_text())
+        en = json.loads((root / "translations" / "en.json").read_text())
+        emitted = {"name_required", "room_name_exists"}
+        for label, doc in (("strings.json", strings), ("en.json", en)):
+            missing = emitted - set(doc.get("config", {}).get("error", {}).keys())
+            assert not missing, f"{label} config.error missing: {missing}"
+
+
+class TestRenameBlankAndTrim:
+    """Fix-up round 1 items 2 + 3 on the rename path."""
+
+    def _flow(self, own_name="Office"):
+        flow = _make_options_flow(
+            data={CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM, CONF_ROOM_NAME: own_name}
+        )
+        flow.async_abort = lambda reason: {"type": "abort", "reason": reason}
+        return flow
+
+    @pytest.mark.asyncio
+    async def test_rename_blank_name_uses_name_required(self):
+        flow = self._flow(own_name="Office")
+        flow.hass.config_entries.async_update_entry = MagicMock()
+        with patch.object(flow, "_get_all_room_entries", return_value=[]), \
+             patch.object(flow, "_get_existing_zones", return_value=set()):
+            result = await flow.async_step_basic_setup(
+                user_input={CONF_ROOM_NAME: "   "}
+            )
+        assert result["type"] == "form"
+        assert result["errors"]["base"] == "name_required"
+        flow.hass.config_entries.async_update_entry.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rename_trims_written_name_and_title(self):
+        flow = self._flow(own_name="Office")
+        others = [_RoomEntryWithId("Office", flow._config_entry.entry_id)]
+        flow.hass.config_entries.async_update_entry = MagicMock()
+        with patch.object(flow, "_get_all_room_entries", return_value=others), \
+             patch.object(flow, "_get_existing_zones", return_value=set()), \
+             patch.object(_cf, "_sync_room_zone_to_zm", return_value=False):
+            result = await flow.async_step_basic_setup(
+                user_input={CONF_ROOM_NAME: "  Study  "}
+            )
+        assert result["type"] == "abort"
+        call = flow.hass.config_entries.async_update_entry.call_args
+        assert call.kwargs["data"][CONF_ROOM_NAME] == "Study"
+        assert call.kwargs["title"] == "Study"
+
+
+class TestRoomSummaryTOCTOURecheck:
+    """Fix-up round 1 item 4: race guard right before async_create_entry."""
+
+    def _flow(self):
+        flow = _make_config_flow()
+        flow._data = {
+            CONF_ROOM_NAME: "Office",
+            CONF_ROOM_TYPE: "generic",
+        }
+        flow._integration_entry_id = "int_entry"
+        flow._mint_house_now = AsyncMock(return_value=None)
+        flow.async_abort = lambda reason: {"type": "abort", "reason": reason}
+        flow.async_create_entry = MagicMock(
+            return_value={"type": "create_entry", "title": "Office"}
+        )
+        return flow
+
+    @pytest.mark.asyncio
+    async def test_race_at_room_summary_aborts_with_room_name_exists(self):
+        flow = self._flow()
+        # Colliding entry appears BETWEEN room_setup and room_summary submit.
+        colliding = [_RoomEntryWithId("Office", "other_entry")]
+        with patch.object(flow, "_get_all_room_entries", return_value=colliding):
+            result = await flow.async_step_room_summary(user_input={})
+        assert result["type"] == "abort"
+        assert result["reason"] == "room_name_exists"
+        flow.async_create_entry.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_race_at_room_summary_creates_entry(self):
+        flow = self._flow()
+        # Only self-like entries in the registry (none actually — flow hasn't
+        # created its own yet); no collision.
+        with patch.object(flow, "_get_all_room_entries", return_value=[]):
+            result = await flow.async_step_room_summary(user_input={})
+        assert result["type"] == "create_entry"
+        flow.async_create_entry.assert_called_once()

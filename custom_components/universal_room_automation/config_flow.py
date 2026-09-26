@@ -1401,14 +1401,17 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             # async_step_zone_setup). Case-insensitive, whitespace-trimmed —
             # duplicate room names collide downstream (title, zone-rooms
             # write-through, entity slugs) exactly as duplicate zone names do.
-            room_name = user_input.get(CONF_ROOM_NAME, "").strip()
+            room_name = (user_input.get(CONF_ROOM_NAME) or "").strip()
             if not room_name:
-                errors["base"] = "room_name_exists"
+                errors["base"] = "name_required"
             elif _room_name_collides(self._get_all_room_entries(), room_name):
                 errors["base"] = "room_name_exists"
 
             if not errors:
+                # Store the TRIMMED name so " Kitchen " persists as "Kitchen"
+                # (title/entity slugs consume this string verbatim).
                 self._data.update(user_input)
+                self._data[CONF_ROOM_NAME] = room_name
                 # ONBOARDING-SIMPLIFY-1 (D3): essentials-only room_setup —
                 # occupancy timeout is auto-derived from room TYPE (was a
                 # visible schema field pre-cycle; now deferred to Options).
@@ -1754,6 +1757,19 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             for _k, _v in room_type_seed.items():
                 if _k not in self._data:
                     self._data[_k] = _v
+
+            # ROOM-NAME-UNIQUE-1 fix-up: TOCTOU re-check right before
+            # entry creation — another concurrent flow (or an accepted
+            # rename in the options flow) may have registered a colliding
+            # name after room_setup was submitted. Abort the wizard with
+            # the same error key so the operator sees a coherent message.
+            _final_name = (self._data.get(CONF_ROOM_NAME) or "").strip()
+            if _room_name_collides(self._get_all_room_entries(), _final_name):
+                _LOGGER.info(
+                    "Room create aborted (race): name=%r collided at "
+                    "create time", _final_name,
+                )
+                return self.async_abort(reason="room_name_exists")
 
             room_data = {
                 CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
@@ -2876,13 +2892,25 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             # but its old integration-mint + seed loop were duplicated
             # here. Keeping ONE producer avoids drift.
 
+            # ROOM-NAME-UNIQUE-1 fix-up: TOCTOU re-check (mirrors
+            # async_step_room_summary at :1763). This step is marked
+            # unreached from the essentials chain (see T6 comment above),
+            # but guarding the create keeps the invariant local.
+            _final_name = (self._data.get(CONF_ROOM_NAME) or "").strip()
+            if _room_name_collides(self._get_all_room_entries(), _final_name):
+                _LOGGER.info(
+                    "Room create aborted (race): name=%r collided at "
+                    "create time (notifications step)", _final_name,
+                )
+                return self.async_abort(reason="room_name_exists")
+
             # Create room entry linked to integration
             room_data = {
                 CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
                 CONF_INTEGRATION_ENTRY_ID: self._integration_entry_id,
                 **self._data
             }
-            
+
             return self.async_create_entry(
                 title=self._data[CONF_ROOM_NAME],
                 data=room_data,
@@ -10376,12 +10404,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             if CONF_ROOM_NAME in user_input:
                 proposed = (user_input.get(CONF_ROOM_NAME) or "").strip()
                 if not proposed:
-                    errors["base"] = "room_name_exists"
+                    errors["base"] = "name_required"
                 elif _room_name_collides(
                     self._get_all_room_entries(), proposed,
                     exclude_entry_id=self._config_entry.entry_id,
                 ):
                     errors["base"] = "room_name_exists"
+                else:
+                    # Persist the TRIMMED name (title + downstream slugs
+                    # consume this verbatim; keep create + rename paths
+                    # consistent).
+                    user_input[CONF_ROOM_NAME] = proposed
         if user_input is not None and not errors:
             # ROOM-NAME-DESYNC-1 D1 site 1: rename must write through to
             # entry.data (not just entry.options) so every downstream
