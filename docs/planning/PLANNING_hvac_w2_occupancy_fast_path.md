@@ -1,5 +1,8 @@
 # PLANNING — W2 HVAC Occupancy Fast Path (shave the 5-min tick) — REV 4
 
+**STATUS 2026-09-26 (evening): PARKED by operator.** REV 4 failed its second plan review (4 HIGH). Replaced by setting the zone entry dwell to 0 (removes C18's second tick with no code; `hvac.py:2442` guard `dwell_minutes > 0`). Revive if measured entry latency p90 > 5 min or hot-entry complaints — see card HVAC-W2-OCCUPANCY-TRUTH.
+
+
 **Card:** `HVAC-W2-OCCUPANCY-TRUTH` (child: `HVAC-HOT-ENTRY-LATENCY-1`).
 **Workstream:** W2 (Occupancy Truth), operator-approved 4-workstream HVAC arc.
 **Design origin:** commit `82620357a`; prior context `docs/planning/PLANNING_hvac_zone_conditioning_demand.md` + `docs/planning/PROPOSAL_hvac_conditioning_demand_2026_09_16.md`.

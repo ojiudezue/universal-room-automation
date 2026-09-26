@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T16:30:15-05:00_ - _Data commit: `aef6817aa899`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T16:32:46-05:00_ - _Data commit: `27053eebb0c6`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -419,7 +419,7 @@ _created 2026-09-26 02:40 · updated 2026-09-26 07:30 · initial_
   - Problem: HVAC's picture of zone occupancy is wrong in specific, measured ways — a failed room blocked its zone (fix in flight), a reloading room reads as empty on paths that bypass the shared check, radars lose a still sleeper once the f...
 - **Origin:** 2026-09-26 - operator approved the 4-workstream consolidation of the HVAC arc (see HVAC-SUPPLE-SEQUENCE-1 RESEQUENCE_PROPOSAL_2026_09_26)
 - **Why:** Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.
-- **Next:** W2-1 fast path: D0 part 1 running (docs/planning/AUDIT_hvac_fast_path_rate_2026_09_26.md) -> D0 part 2 after 2026-09-27 15:25 CDT (1 day of climate_write rows) -> if fail-out does not fire, size the constants and dispatch the build -> Ti...
+- **Next:** MEASURE (me) after >= 3 occupied days (house empty until 2026-09-27): (a) entry latency = room occupied rising edge -> S1 climate_write (preset home/sleep) on that zone, per zone-cold entry; (b) flap rate = S1 home/sleep write followed b...
 - **Tags:** hvac, workstream
 - **Forensic keys (6):**
   - `disposition_2026_09_26_groom`: 2026-09-26 16:20: builder correctly REFUSED the fast-path dispatch — plan §9 gates the BUILD (not only the merge) on W1-A live >= 1 day because D0 must size HVAC_FAST_PATH_MIN_INTERVAL_S / _GLOBAL_MIN_INTERVAL_S / _SLA_S / FAST_PATH_DWEL...
