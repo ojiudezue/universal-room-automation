@@ -2214,6 +2214,13 @@ cards:
     actually retreating. OPEN QUESTION FOR OPERATOR: what does the Carrier app/thermostat show for zone 1 right now
     while house is away - Away hold, or Home? That answer decides whether URA should trust hold_activity (config)
     or preset_mode (status) as the confirmation signal - a W1-B thermostat-definition decision.'
+  finding_2026_09_26_C22_neither_feed_always_right: 'Operator: "We gotta be sure." Physical-evidence probe (scripts/probes/
+    carrier_feed_truth_episodes.py, 7 d, 3 zones, blower+temperature vs each feed''s cooling setpoint, 2F differential guard),
+    pooled decisive minutes: named-vs-named (z1 status home/hold away) HOLD 85 vs STATUS 5; status-manual z2 (human set cool 70
+    09-26 00:45, arrester override row) STATUS 506 vs HOLD 4 (hold read sleep for 8.5 h while zone cooled to 71-74F); status-manual
+    z1 (post-borrow strands) HOLD 21 vs STATUS 1. RETRACTS the earlier ''confirm from hold_activity'' conclusion (state-of-play
+    C22). Candidate rule (n=1 per case): trust hold_activity unless a genuine human override is detected, then trust status.
+    Needs a controlled test: operator changes a zone by hand in the app at a noted time.'
   finding_2026_09_26_reload_does_not_fix: 'Operator reloaded the Carrier integration 13:20:02 CDT believing it fixed the flap.
     It did not: first fresh read after reload 13:20:03 = preset_mode home 70-76 with hold_activity away; flap resumed away
     13:23:36 -> home 13:29:16 -> away 13:32:36 -> home 13:39:23. The false home is in the Carrier cloud STATUS payload itself

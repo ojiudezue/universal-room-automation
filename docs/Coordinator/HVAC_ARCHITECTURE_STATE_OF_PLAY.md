@@ -284,8 +284,8 @@ disagree and URA trusts the status feed. **Physical truth = AWAY (verified 13:10
 status-feed `home` readings are false; harm is write churn only (~57 writes/day). `hvac_action`/`conditioning` on this
 entity are useless (cooling on every row). Schedule change will not fix it. **Integration reload 13:20:02 (operator) did NOT fix it:** the first FRESH read after the reload (13:20:03) was
 `preset_mode=home` 70–76 with `hold_activity=away`, and the flap resumed (away 13:23 → home 13:29 → away 13:32 → home 13:39).
-So the false `home` comes from the Carrier cloud STATUS payload itself, not a stale HA copy — for Bryant, URA must confirm
-writes from `hold_activity` (W1-B). Card `HVAC-ZONE1-MANUAL-OSCILLATION-1` `finding_2026_09_26_away_feed_split`; decision belongs to W1-B
+So the false `home` comes from the Carrier cloud STATUS payload itself, not a stale HA copy. **BUT see C22: `hold_activity`
+is NOT universally right either — do not hard-code it as the confirmation oracle.** Card `HVAC-ZONE1-MANUAL-OSCILLATION-1` `finding_2026_09_26_away_feed_split`; decision belongs to W1-B
 (which feed confirms a write).
 
 ## 9b. Operator decisions & facts recorded 2026-09-26 (binding)
@@ -341,6 +341,15 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 | C20 | "Zone 1 strands = URA trusting a status-lagged `manual` while `hold_activity` names a preset" (entry 144, §9.1, 2026-09-25/26) | In all 5 strands `hold_activity` is ALSO `manual` (same second in 3/5, ≤5 min in 2/5) and stays manual for hours — real Carrier-side manual holds created right after URA's return; the status/config coherence rule is withdrawn | recorder zone_1 preset_mode + hold_activity across 09-20/21/22/24/25 strands (verified 2026-09-26 after the W1-B completeness review showed hold_activity authority was unproven in source) |
 
 | C21 | "Carrier re-applies any write the cloud reverts, for 5 min" (orchestrator, 2026-09-26) | The guard rewrites only HA's local copy of status activity + setpoints (not `hold_activity`) and sends nothing to the cloud — it hides a cloud revert from HA for up to 5 min, which fits strands becoming visible 5–14 min after URA's return | `carrier_data_update_coordinator.py:162-296, 430-432` (verified 2026-09-26) |
+
+**C22 (2026-09-26 afternoon) — WRONG: "URA must confirm Bryant writes from `hold_activity`."** Physical-evidence probe
+(`scripts/probes/carrier_feed_truth_episodes.py`, 7 d, 3 zones; blower/temperature vs the two feeds' cooling setpoints,
+2 °F differential guard), pooled decisive minutes: named-vs-named disagreement (zone_1 status home / hold away): device
+followed HOLD 85 vs STATUS 5. Status=`manual`: zone_2 (a human set cool 70 at 00:45 on 09-26, arrester logged the
+override) followed STATUS 506 vs HOLD 4 — `hold_activity` read `sleep` for 8.5 h while the zone cooled to 71–74 °F;
+zone_1 (post-borrow manual strands) followed HOLD 21 vs STATUS 1. Neither feed is always right. Candidate rule (n=1 per
+case, NOT proven): trust `hold_activity` unless a genuine human override is detected, then trust the status payload.
+This is W1-B D0 input; a controlled operator app-change test is requested.
 
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 
