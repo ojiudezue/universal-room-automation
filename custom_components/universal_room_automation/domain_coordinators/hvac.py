@@ -1252,6 +1252,9 @@ class HVACCoordinator(BaseCoordinator):
         # Initial zone update
         self._zone_manager.update_all_zones()
         self._zone_manager.update_room_conditions(house_state=self._house_state)
+        # HVAC-DEGRADED-ROOM-TRIPWIRE-1 REV-2 D3/F9: drain async NM events
+        # queued by the sync producer (per-boot debounced inside ZM).
+        await self._drain_hvac_degraded_room_events()
 
         # Discover fans and covers
         fan_rooms = self._fan_controller.discover_fans()
@@ -1645,6 +1648,10 @@ class HVACCoordinator(BaseCoordinator):
         # Update zone states
         self._zone_manager.update_all_zones()
         self._zone_manager.update_room_conditions(house_state=self._house_state)
+        # HVAC-DEGRADED-ROOM-TRIPWIRE-1 REV-2 D3/F9: async NM emission
+        # from the coordinator (never from the sync gate — no
+        # create_task from a sync tick path).
+        await self._drain_hvac_degraded_room_events()
 
         # CARRIER-STALE-POLL-REFRESH-1 D1: per-tick Carrier freshness check.
         # Wire-in anchors (fix-up round 2026-09-09, C-HIGH-2):
@@ -3131,6 +3138,57 @@ class HVACCoordinator(BaseCoordinator):
         task = self.hass.async_create_task(self._async_decision_cycle())
         self._pending_tasks.add(task)
         task.add_done_callback(self._pending_tasks.discard)
+
+    async def _drain_hvac_degraded_room_events(self) -> None:
+        """Emit NM notes for rooms newly classified EXCLUDED this pass.
+
+        HVAC-DEGRADED-ROOM-TRIPWIRE-1 REV-2 D3/F9 (2026-09-26). The sync
+        `is_zone_hvac_established` gate MUST NEVER dispatch NM (no
+        `create_task` from a sync tick path — untracked background task
+        class). The ZoneManager queues (room_name, reason) events
+        inside `_classify_all_rooms` and this async coordinator method
+        drains them right after `update_room_conditions` returns.
+        Per-boot debounce lives inside ZoneManager
+        (`_excluded_ever_notified`); each room fires at most one NM per
+        HVACCoordinator lifetime.
+        """
+        try:
+            events = self._zone_manager.drain_degraded_events()
+        except Exception:  # noqa: BLE001
+            return
+        if not events:
+            return
+        try:
+            from ..const import DOMAIN
+            nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+            if nm is None:
+                return
+            from .base import Severity
+            for room_name, reason in events:
+                try:
+                    await nm.async_notify(
+                        coordinator_id="hvac",
+                        severity=Severity.MEDIUM,
+                        title="HVAC room degraded",
+                        message=(
+                            f"HVAC live-room establishment: room "
+                            f"'{room_name}' classified EXCLUDED "
+                            f"(reason={reason}). Its zone's establishment "
+                            f"is now computed over the remaining live "
+                            f"rooms; a zone consisting only of excluded "
+                            f"rooms will never retreat."
+                        ),
+                        hazard_type="hvac_degraded_room",
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "HVAC degraded-room NM emit failed for %s",
+                        room_name, exc_info=True,
+                    )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "HVAC degraded-room drain failed", exc_info=True,
+            )
 
     async def _notify_temp_arrester_override_ended(self, reason: str) -> None:
         """LOW NM note when Temp Arrester Override auto-sunsets.
