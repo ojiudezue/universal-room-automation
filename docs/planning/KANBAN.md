@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T16:26:21-05:00_ - _Data commit: `42ed0dd38826`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T16:28:40-05:00_ - _Data commit: `0ff055b880a9`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -629,11 +629,12 @@ _created 2026-09-26 · updated 2026-09-26 16:10_
 thread: **hvac** - status: **planned**
 _created 2026-09-26 · updated 2026-09-26 16:55_
 - **Next:** PLAN (me): ura-planner writes the plan (value-matched echo window + measured lag distribution over all nudges/temp writes) -> plan review -> build -> 3 reviews -> ship. Recommended to run BEFORE W1-B problem 1: it likely removes most zon...
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
   - `measured_2026_09_26`: ura_activity_log + ac_ramp_events since 2026-09-19: 52 override_detected rows; 24 (46%) land 5.3-7.5 s after a URA nudge_started on the SAME zone (zone_1 17, zone_2 5, zone_3 2); 22 of the 24 are followed by preset_change_locked_out with...
   - `mechanism`: hvac_override.py:2419-2468 _is_genuine_manual: after a URA temp write the arrester suppresses for SUPPRESS_TTL_SECONDS=5 (hvac_override.py:133, kind="temp"); once the window expires (now >= until) the next change is treated as GENUINE. C...
   - `correction`: This also corrects the ARRESTER-CLOUDFLAP-FALSEPOS-1 disposition: the 09-25 16:45:36 zone_1+zone_3 "+2F human raise" was URA's own nudges (76->77.5, 78->79.5) echoed at 7.2-7.5 s, not a person.
+  - `w1a_consumer_gap_2026_09_26`: Operator asked "I assume the arrester is now using w1-a?". WRITES: yes — hvac_override.py has 14 emit_set_* funnel calls and 0 raw climate calls. READS: no — override detection uses its own time-only suppression dict (_suppressed_until, ...
   - `proposed_fix`: Value-matched echo recognition: a change that arrives within an echo window after a URA write AND whose setpoints equal what URA wrote after display rounding (+-0.5 F, round-half-up to the entity's whole-degree display) is URA's echo, no...
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#22 · WSJF 1.5 · v9 tc8 u2 /e13_
