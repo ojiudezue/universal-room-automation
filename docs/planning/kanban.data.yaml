@@ -28345,11 +28345,19 @@ cards:
   thread: energy
   status: investigating
   created: '2026-09-25 18:00'
-  updated: '2026-09-25 18:00'
-  refinement_status: initial
+  updated: '2026-09-25 20:10'
+  refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-09-25 ("MQTT can be added as a trusted local witness. Just measure for
     its trust now and then we decide.")'
+  restart_boundaries_2026_09_25: 'CONTAMINATED WINDOW ~18:21-20:05 CDT — operator did, in sequence: HA
+    core 2026.9.2->2026.9.3; Envoy reboot (stream 0 at 18:39, device re-enumeration 0->48, then
+    48->8 with SOC 87->20 by 19:12, recovered to 46 devices / grid 11 W / batt 7.0 kW by 20:04);
+    network stack restart (core switches + UDM). HAOS update requested but host still reports 18.2,
+    uptime 11d at 20:05 — NOT applied. Measurement window must start AFTER all of these settle
+    (and after any pending HAOS reboot); do not mix this window into the contention / independence
+    comparison. It IS valid evidence for the partial-fleet failure mode (see ENVOY-STREAM-SOC-TIER-1
+    device-completeness constraint).'
   rank: {value: 7, time_criticality: 6, effort: 2}
   tags: [energy, envoy, measure-before-build, no-fabrication-verify]
   problem_solution:
@@ -28417,12 +28425,12 @@ cards:
 
 - id: ENVOY-STREAM-SOC-TIER-1
   title: The battery brain goes blind and freezes whenever both its data sources age out — give it a
-    third, local, once-a-second source so it can keep deciding
+    third, local, fast (~5-6s) source so it can keep deciding
   thread: energy
   status: planned
   created: '2026-09-25 18:00'
-  updated: '2026-09-25 18:00'
-  refinement_status: initial
+  updated: '2026-09-25 20:10'
+  refinement_status: refined
   approval: unreviewed
   rank: {value: 8, time_criticality: 6, effort: 8, foundational: 7}
   tags: [energy, envoy, tier-2db, measure-before-build, numbers-get-knobs, mutation-drill]
@@ -28448,6 +28456,19 @@ cards:
   - 'Do NOT remove the cloud tier — three sources is the point (enables 3-way divergence attribution).'
   - 'Tier 2-DB minimum, likely Tier 3: new writer into the SOC resolver, a shared primitive consumed
     by battery / TOU / arbitrage / EVSE.'
+  - 'DEVICE-COMPLETENESS GUARD (observed 2026-09-25 18:39-20:04, operator-initiated Envoy restart):
+    after a reboot the Envoy re-enumerates devices and the stream reports a PARTIAL fleet — a missing
+    battery unit counts as ZERO energy, so aggregate SOC read 0 -> 87 -> 20 while the real battery sat
+    ~95% (battery_energy fell in ~4.1 kWh per-unit steps in lockstep with the device count 48 -> 8).
+    The payload was FRESH (timestamp advancing), so the freshness invariant alone does NOT catch it.
+    The tier must be disqualified unless the reporting battery-unit count equals the expected fleet
+    (8 IQ units), and must reject non-physical SOC slew (60pp in 12 min at ~221 W).'
+  refinement:
+  - 'Freshness (meters.last_update) was stated as THE invariant -> a live Envoy reboot produced fresh
+    but WRONG SOC (partial device count), so freshness is necessary but not sufficient; added the
+    device-completeness + slew guard as a second invariant. Discriminating evidence: SPAN grid legs
+    (6.4+7.6 kW) confirmed the grid import the stream reported, while cloud per-unit SOC stayed 94-96%.'
+  - 'Title claimed once-a-second -> measured ~5-6s cadence + ~20s clock skew; title corrected.'
   parked_alts:
   - 'Raise DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S from 600s so the cloud reading qualifies — REJECTED:
     does not make data fresher, redefines stale as fresh, and loosens a rung-1 safety bound.'

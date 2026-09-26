@@ -31,7 +31,7 @@ _measuring; truth not yet known_
 
 ### `ENVOY-STREAM-TRUST-MEASURE-1` - We now have a third, much faster Envoy data source — measure whether it can be trusted before anything is allowed to depend on it — _#1 · WSJF 9.5 · v7 tc6 u6 /e2_
 thread: **energy** - status: **investigating** - approval: **explicit**
-_created 2026-09-25 18:00 · initial_
+_created 2026-09-25 18:00 · updated 2026-09-25 20:10 · refined_
 - **Problem / Solution:**
   - Problem: the house now has a second way of hearing from the solar/battery gateway — a local feed that updates about once a second, versus the built-in one that has been dropping out roughly a third of every day. It looks better in every ...
 - **Origin:** 2026-09-25 - operator: "MQTT can be added as a trusted local witness. Just measure for its trust now and then we decide."
@@ -40,7 +40,8 @@ _created 2026-09-25 18:00 · initial_
 - **Tags:** energy, envoy, measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] A new SOC/power producer may be fresh and independent but has not been shown to agree with ground truth or to survive the outages it is meant to cover.
 - **Refs:** docs/planning/PLANNING_envoy_local_witness_and_solar_follow.md
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `restart_boundaries_2026_09_25`: CONTAMINATED WINDOW ~18:21-20:05 CDT — operator did, in sequence: HA core 2026.9.2->2026.9.3; Envoy reboot (stream 0 at 18:39, device re-enumeration 0->48, then 48->8 with SOC 87->20 by 19:12, recovered to 46 devices / grid 11 W / batt 7...
   - `measured_2026_09_25_cadence_and_skew`: PARTIAL RESULT ALREADY IN, and it CORRECTS MY OWN CLAIM. I have been describing this feed as "~1 Hz, ages essentially never exceed a few seconds". Six consecutive samples of meters.last_update against the HA host clock: last_update advan...
   - `prior_art_reduces_scope`: Operator asked whether prior measurement makes this unnecessary. PARTLY, and the reduction is recorded rather than the whole card dropped. EVSE-SOLAR-FOLLOW-AMPS-1 already measured Emporia mains vs the Envoy net-consumption CT (7,090 ali...
 
@@ -318,9 +319,9 @@ _created 2026-08-23 18:20 · updated 2026-09-23 05:05 · initial_
   - `THE_BLOCKER_NAMED_2026_08_23`: Every review doc calls this "a large infrastructure project" because switching appeared to break everything: the full suite under the real-HA venv gives 1 passed / 26 skipped / 9,733 ERRORS. IT IS NOT THE TESTS. Individually they pass un...
   - `REFUTED_2026_09_21`: THE CARD'S HEADLINE CLAIM IS WRONG AND I AM MARKING IT WRONG RATHER THAN ADDING A SECOND STORY. The card (and its parent) asserted that the harness was broken in .venv-ha on Python 3.13 such that 10,560 of 10,588 tests ERROR out, and tha...
 
-### `ENVOY-STREAM-SOC-TIER-1` - The battery brain goes blind and freezes whenever both its data sources age out — give it a third, local, once-a-second source so it can keep deciding — _#5 · WSJF 2.6 · v8 tc6 u7 /e8_
+### `ENVOY-STREAM-SOC-TIER-1` - The battery brain goes blind and freezes whenever both its data sources age out — give it a third, local, fast (~5-6s) source so it can keep deciding — _#5 · WSJF 2.6 · v8 tc6 u7 /e8_
 thread: **energy** - status: **planned** - approval: **unreviewed**
-_created 2026-09-25 18:00 · initial_
+_created 2026-09-25 18:00 · updated 2026-09-25 20:10 · refined ×2_
 - **Problem / Solution:**
   - Problem: the battery logic picks its charge-level reading from a short list of sources, each with a maximum age it is allowed to be. Right now the built-in local source is dead for much of the day and the cloud one updates too slowly to ...
 - **Origin:** 2026-09-25 - grew out of the Envoy flapping investigation once the local MQTT stream was repaired and proved to carry SOC + reserve
