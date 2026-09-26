@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T16:42:37-05:00_ - _Data commit: `5ab53b7b1b1b`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T16:57:30-05:00_ - _Data commit: `50087e512ea6`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -625,12 +625,13 @@ _created 2026-09-26 · updated 2026-09-26 16:10_
 - **Forensic keys (1):**
   - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
 
-### `HVAC-ENTRY-DWELL-ROOM-CLOCK-1` - Start the zone entry-dwell clock at the room's real occupancy start (not the tick that noticed it) so a 1-min dwell filters brief transits at almost no latency cost — _#21 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-ENTRY-DWELL-ROOM-CLOCK-1` - Move the zone entry dwell onto the HVAC-occupancy clock (room HVAC-arm onset) — it still reads the LIGHTING clock HVAC occupancy was built to avoid — _#21 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **planned**
 _created 2026-09-26 · updated 2026-09-26 17:30_
 - **Why:** hvac_zones.py:783-788 sets zone.current_session_start = now when a decision tick FIRST sees lighting occupancy, so any dwell > 0 costs a whole extra tick (C18: 2 min dwell -> 5-10 min entry). With the clock at the room's real occupancy s...
-- **Next:** PLAN (me, Tier 2-DB — HVAC preset decision logic): ura-planner writes a short plan: session start = min(room occupied-since) over the zone's currently lighting-occupied rooms (verify the source value, restart/RestoreEntity behaviour, a r...
-- **Forensic keys (1):**
+- **Next:** MEASURE (me) after 3 occupied days with dwell 0: flap rate (S1 home/sleep write then vacant_past_grace away within 20 min, from climate_write) and entry latency. Only if flaps are material: re-plan the dwell on the HVAC clock (ura-planne...
+- **Forensic keys (2):**
+  - `reframe_2026_09_26`: Operator: "Room clock is not good for HVAC. We built a separate HVAC occupied to decouple it ... one for turning things off, another for activating HVAC." Correct. The first plan (docs/planning/PLANNING_hvac_entry_dwell_room_clock.md) us...
   - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#22 · WSJF 1.5 · v9 tc8 u2 /e13_
