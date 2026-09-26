@@ -304,6 +304,8 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 
 | C15 | "The installed ha_carrier is locally PATCHED (set_activity_setpoint); a HACS update would wipe it" (fork report + orchestrator, 2026-09-26) | It is upstream code: PR #427 (Evan Weaver, 2026-08-31), in v2.28.4 as installed from `dahlb/ha_carrier`; the file's "PATCH" comment is upstream's own wording | `gh api repos/dahlb/ha_carrier` history; HACS record `.storage/hacs.repositories` |
 
+| C16 | "Carrier refresh is 42-79 s" (used as if it were the integration's schedule) | That is URA's *observed* effective window. ha_carrier's schedule is `DEFAULT_UPDATE_INTERVAL_MINUTES=30`, full reconcile every 120 min, and a **5-min post-write guard** that re-asserts the written activity/setpoints if the cloud reverts them (`ha_carrier/const.py:46-59`, `carrier_data_update_coordinator.py:168-296`). How that guard composes with URA's 5-s suppression and with back-to-back nudge/restore writes is UNVERIFIED and a candidate strand mechanism — see `THERMOSTAT_DEFINITION_CARRIER_BRYANT.md` §9 | source, verified 2026-09-26 |
+
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 
 | Seq | Workstream / step | Problems (§9) | Tier / gate |
