@@ -41,9 +41,10 @@ before doing a damned thing — to prevent drift and avoid compaction-driven err
   `conditioning_retreat_ok` = *established AND fused-empty* (reset-only backstop). Night retreat of empty zones at the
   **preset** layer is LIVE; the **setpoint** layer (D9 compose-away / Custom Preset Ranges) is DORMANT
   (`switch.ura_hvac_coordinator_guest_mode_actuation` = off).
-- **Biggest live defect (measured §9.1):** after a borrow returns correctly, `ha_carrier` later reports a
-  status-lagged `preset_mode=manual` (sometimes with stale nudge setpoints); URA books it as a human override,
-  the arrester declines (zero delta), S1 locks itself out, and — with infinite holds — the zone strands 1.5–11 h.
+- **Biggest live defect (measured §9.1, corrected C20):** after a URA borrow returns, a genuine manual hold appears on the
+  Carrier side (both status and config feeds read manual) at URA's own values; URA books it as a human override at zero
+  delta, the arrester declines, S1 locks itself out, and `infinite_holds` keeps it — 1.5–11 h strands. Most likely
+  cause: the return's raw setpoint write + a discarded/reverted named pin (UNVERIFIED).
 - **Observability gap:** `ura_activity_log` records preset writes but **never** `set_temperature` or `set_hvac_mode`;
   borrow/nudge writes live only in `ac_ramp_events` / `hvac_excursion_events` / INFO logs (§4.3). This gap caused a
   wrong exoneration of URA (§10).
@@ -229,11 +230,18 @@ lockout, arrester, S1 — trusts `preset_mode`**, which is the lagging field (§
 (recorder + `ac_ramp_events`, 2026-09-25): 88 entries into manual. Nudge-start n=48 median **2.0 min** (always exits to
 home/sleep); nudge-restore n=15 median **5.1 min**; together 2.9 h — **the borrow works**. Long holds: 4 strands after a
 *successful* return (09-21 12:53 **448 min**, 09-22 01:19 **661 min**, 09-24 19:57 **273 min**, 09-25 14:22 **88 min**)
-— each shows `preset_mode=manual` with `hold_activity` = home/sleep and stale or unchanged setpoints, booked as
-`override_detected` (09-24/25 logged "76->76"), then `preset_change_locked_out`; 1 failed restore (09-20 17:33,
-`restore_ok=0`, 115 min); 2 human step-downs (74/68, ~2 h, no URA event). Mechanism = §5 status-vs-config split + §7
-lockout + infinite holds. Fix direction (W1): presets-only returns; manual counts as human only if CONFIG
-`hold_activity == manual`; URA-owned/stale holds reclaimable.
+— **CORRECTED 2026-09-26 (C20):** in every strand the CONFIG feed (`hold_activity`) ALSO reads `manual` — same second as
+the status in 3 of 5, within 5 min in the other 2 — and stays manual for hours (09-22 strand: 410/417 samples
+manual/manual). These are **genuine manual holds on the Carrier side created right after URA's own borrow return**, NOT a
+status-lag misread. URA books each as `override_detected` at ~zero delta (09-24/25 logged "76->76"), the arrester declines,
+S1 logs `preset_change_locked_out`, and `infinite_holds` keeps it. 1 failed restore (09-20 17:33, `restore_ok=0`, 115 min);
+2 human step-downs (74/68, ~2 h, no URA event). Leading hypothesis (UNVERIFIED): the return's raw setpoint write creates
+an anonymous manual hold, and the following named pin is discarded or reverted (a named pin over an anonymous hold is
+discarded unless `resume` clears it first; the funnel decides whether to resume from `hold_activity`, which may not yet
+reflect the just-written manual hold; ha_carrier's shared post-write guard can be wiped early — C16). Fix direction (W1-B):
+**presets-only returns** (a return never creates a manual hold), and a manual hold that appears right after URA's own write
+at URA's written values is **URA-owned by provenance** → reclaim, never while a borrow is live. The "trust config
+`hold_activity`" coherence rule is WITHDRAWN — its premise is false for these strands.
 
 **9.2 URA cannot see its own setpoint/mode writes** (§4.3) — made every diagnosis on this surface fragile.
 
@@ -315,6 +323,8 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 | C18 | "Hot entry takes up to one tick + dwell, ~7 min" | 5–10 min: the observing tick starts the dwell clock and always skips; the preset write lands on the next tick | `hvac_zones.py:714-716`, `hvac.py:2362-2365` (W2-1 plan review, verified 2026-09-26) |
 
 | C19 | "Jaya's radar dropped because the fan switched off" (09-25 session) | URA marked the room vacant FIRST (01:25:53 / 01:31:18), then turned the fan off because it was vacant; the radars lost a still sleeper | `ura_activity_log` Jaya Bedroom rows (W2-2 plan review, verified 2026-09-26) |
+
+| C20 | "Zone 1 strands = URA trusting a status-lagged `manual` while `hold_activity` names a preset" (entry 144, §9.1, 2026-09-25/26) | In all 5 strands `hold_activity` is ALSO `manual` (same second in 3/5, ≤5 min in 2/5) and stays manual for hours — real Carrier-side manual holds created right after URA's return; the status/config coherence rule is withdrawn | recorder zone_1 preset_mode + hold_activity across 09-20/21/22/24/25 strands (verified 2026-09-26 after the W1-B completeness review showed hold_activity authority was unproven in source) |
 
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 

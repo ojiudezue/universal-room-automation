@@ -1,0 +1,27 @@
+{
+  "format_version": "2.1",
+  "entry_id": "148",
+  "author": "ojiudezue",
+  "session_id": "claude_20260925_envoy_hvac_forensic",
+  "timestamp": "2026-09-26T09:30:00Z",
+  "type": "pivot",
+  "weight": "critical",
+  "title": "Zone-1 strands are REAL Carrier manual holds created after URA's return \u2014 the status-lag misread (144) is wrong",
+  "summary": "The W1-B completeness review showed the source never proves hold_activity is authoritative. The recorder settles it: in all 5 strands hold_activity also reads manual (same second as status in 3/5, within 5 min in 2/5) and stays manual for hours. These are genuine Carrier-side manual holds appearing right after URA's own borrow return, not URA misreading a lagging status.",
+  "why": "Entry 144 generalised from the first few minutes of each strand (status manual, config still named) to the whole strand; the config feed flips too and the hold persists across Carrier's 2-hour full reconciles, which a pure status lag could not survive.",
+  "implications": "W1-B keeps presets-only returns (a return must never create a manual hold) and drops the status/config coherence rule; a manual hold that appears right after URA's own write at URA's values is URA-owned by provenance and is reclaimed \u2014 never while a borrow is live. Leading cause (UNVERIFIED): the return's raw setpoint write + a discarded/reverted named pin (pin over an anonymous hold is discarded unless resume clears it; ha_carrier's shared post-write guard can be wiped early).",
+  "revisit_trigger": "W1-A write rows capture preset_mode + hold_activity at write time; if a strand shows config named while status manual for its whole duration, the status-lag mechanism returns.",
+  "refs": {
+    "cards": [
+      "HVAC-ZONE1-MANUAL-OSCILLATION-1",
+      "HVAC-PRESET-LOCKOUT-ESCAPE-1",
+      "HVAC-W1-THERMOSTAT-DEFINITION"
+    ],
+    "docs": [
+      "docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md"
+    ],
+    "supersedes": [
+      "144"
+    ]
+  }
+}

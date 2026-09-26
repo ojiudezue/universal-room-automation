@@ -1819,11 +1819,18 @@ cards:
     PLANNING_hvac_w1b_thermostat_definition.md (Tier 3, INV-W1B, 6 operator questions); integration
     PLANNING_hvac_arc_w1_w2_integration.md (seams C1-C7). Plan reviews running: W1-A x1, W1-B x2 (completeness +
     build-prediction). New fact: ha_carrier 5-min post-write re-assert guard (state of play C16).'
+  CORRECTION_2026_09_26_real_manual_holds: 'The status-lag mechanism recorded 2026-09-25/26 is WRONG for the strands: in
+    all 5 zone_1 strands hold_activity (config feed) ALSO reads manual — same second as status in 3/5, <=5 min in 2/5 — and
+    stays manual for hours (09-22: 410/417 samples). They are genuine Carrier-side manual holds created right after URA''s
+    own borrow return. The status/config coherence rule is WITHDRAWN. Fix direction: presets-only returns (never create a
+    manual hold on return) + reclaim manual holds that are URA-owned by PROVENANCE (URA''s own recent write at URA''s values),
+    never while a borrow is live. Leading cause UNVERIFIED: raw setpoint write + discarded/reverted named pin. State of play
+    C20; vibememo 148.'
   title: 'W1 — One thermostat definition per brand: how URA writes, borrows/returns, and reads a thermostat, discovered in detail and applied everywhere'
   thread: hvac
   status: pre_planning
   created: '2026-09-26 02:40'
-  updated: '2026-09-26 07:30'
+  updated: '2026-09-26 09:30'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-26 ("The workstreams are approved. Recard.")'
@@ -2117,7 +2124,7 @@ cards:
   status: investigating
   thread: hvac
   created: '2026-09-16'
-  updated: '2026-09-26 02:40'
+  updated: '2026-09-26 09:30'
   refinement_status: refined
   tags: [hvac, measure-first, producer-check, found-during-validation]
   MECHANISM_CORRECTED_2026_09_25: 'THE 09-17 DIAGNOSIS WAS WRONG IN ITS KEY PREMISE. It said "URA never
@@ -2152,6 +2159,13 @@ cards:
     closes, not the nudge. UNPROVEN: whether the physical thermostat was ever in manual; why ha_carrier serves
     stale values (websocket vs REST merge is a guess). Nudges stay ON (operator 2026-09-25: "We''re not turning off
     nudges").'
+  CORRECTION_2026_09_26_real_manual_holds: 'The status-lag mechanism recorded 2026-09-25/26 is WRONG for the strands: in
+    all 5 zone_1 strands hold_activity (config feed) ALSO reads manual — same second as status in 3/5, <=5 min in 2/5 — and
+    stays manual for hours (09-22: 410/417 samples). They are genuine Carrier-side manual holds created right after URA''s
+    own borrow return. The status/config coherence rule is WITHDRAWN. Fix direction: presets-only returns (never create a
+    manual hold on return) + reclaim manual holds that are URA-owned by PROVENANCE (URA''s own recent write at URA''s values),
+    never while a borrow is live. Leading cause UNVERIFIED: raw setpoint write + discarded/reverted named pin. State of play
+    C20; vibememo 148.'
   title: MECHANISM FOUND — zone_1's re-manual is the Bryant's own 76/69 schedule reclaiming the zone ~1s
     after every URA preset write (either re-asserted by the thermostat, or handed to it by URA's own
     resume-then-pin); the resulting write-fight also fires ~45 false "someone grabbed the thermostat"
@@ -13188,13 +13202,20 @@ cards:
     report is treated as a human hold only when config hold_activity == manual too — status/config disagreement
     within a post-write window is URA''s echo -> re-assert the snapshot preset; D3 every URA thermostat write logs one
     durable row at the funnel (see HVAC-SETHVACMODE-CHOKEPOINT-1 scope_added). Nudges stay ON.'
+  CORRECTION_2026_09_26_real_manual_holds: 'The status-lag mechanism recorded 2026-09-25/26 is WRONG for the strands: in
+    all 5 zone_1 strands hold_activity (config feed) ALSO reads manual — same second as status in 3/5, <=5 min in 2/5 — and
+    stays manual for hours (09-22: 410/417 samples). They are genuine Carrier-side manual holds created right after URA''s
+    own borrow return. The status/config coherence rule is WITHDRAWN. Fix direction: presets-only returns (never create a
+    manual hold on return) + reclaim manual holds that are URA-owned by PROVENANCE (URA''s own recent write at URA''s values),
+    never while a borrow is live. Leading cause UNVERIFIED: raw setpoint write + discarded/reverted named pin. State of play
+    C20; vibememo 148.'
   title: URA refuses to write a preset to a zone in `manual` — including when URA itself caused the
     manual, so nothing ever rescues it
   rank: {value: 8, time_criticality: 6, effort: 5}
   thread: hvac
   status: waiting_operator
   created: '2026-09-16'
-  updated: '2026-09-26 02:40'
+  updated: '2026-09-26 09:30'
   refinement_status: initial
   approval: implied
   tags: [tier-2db, no-fabrication-verify, found-during-validation]

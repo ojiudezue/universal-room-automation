@@ -35,7 +35,7 @@ A Home Assistant custom integration running ~43 rooms across 5 house zones and 3
 ## The HVAC reset (2026-09-25/26)
 
 Two nights of wrong claims — about 15, each now in a corrections ledger — forced a forensic restart. The findings:
-- **Zone 1's strands** were URA trusting a status-lagged `manual` from the Carrier integration after its own borrow returned correctly: `preset_mode` comes from the slow status poll, `hold_activity` from the prompt config feed. URA then locked itself out, and infinite holds kept it there — ~25 h over 5 days. [144](users/ojiudezue/entries/144_hvac_zone1_strands_are_status_lag_selflockout_not_bryant.json)
+- **Zone 1's strands** are genuine Carrier-side manual holds appearing right after URA's own borrow return (both feeds read manual — the "status-lag" reading [144] was corrected by [148](users/ojiudezue/entries/148_zone1_strands_real_manual_holds_not_status_lag.json)); URA books them as human overrides and locks itself out, and infinite holds keep them — ~25 h over 5 days. [144](users/ojiudezue/entries/144_hvac_zone1_strands_are_status_lag_selflockout_not_bryant.json)
 - **URA had been wrongly cleared** because its activity log never records temperature writes.
 - **The occupancy fast path** — HVAC reacting to occupancy between 5-min ticks — was designed and never built.
 
@@ -43,7 +43,7 @@ The operator consolidated ~25 cards into four workstreams: **W1** one thermostat
 
 ## Open questions
 
-- W1 Stage A's write log: does it confirm the status-lag lockout as the dominant strand cause before the Tier-3 brand definition is built?
+- W1 Stage A's write log: does it confirm the return-created manual hold (raw setpoint + discarded pin) as the dominant strand cause before the Tier-3 brand definition is built?
 - Night still-sleeper corroboration (in-suite BLE, radar micro-blips) without regressing to "anyone home".
 - Reducing zones 2/3's Bryant schedules so URA is the only controller.
 - Envoy stream as a third SOC tier: pending trust run 2 plus a device-completeness guard.
