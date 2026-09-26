@@ -449,43 +449,42 @@ class TestNightTrustSuppressedRow:
             "night-trust branch must log a `preset_change_suppressed` activity row"
         )
 
-    def test_suppressed_row_is_episode_gated(self, apply_presets_src: str):
-        """B-M1 (2026-08-06 fix-up): suppressed row emit MUST be episode-gated.
+    def test_suppressed_row_is_episode_gated(self):
+        """B-M1: suppressed row emit MUST be episode-gated.
 
-        Without gating, a standing night-trust suppression emits ~480 rows
-        per zone per night (30s tick × 8h). The gate reuses the existing
-        per-(zone_id, house_state) `_night_trust_logged` cache: emit ONLY
-        on the first fire of the episode (i.e. when adding to the set).
-
-        We anchor on the `first_fire` local and require the
-        `preset_change_suppressed` activity_logger.log call to be gated on
-        it. Mutation drill: deleting `first_fire and` from the guard turns
-        this test RED. (See fix-up ledger row `B-M1-mutation`.)
+        REWRITTEN 2026-09-26 as BEHAVIOURAL (memory
+        `feedback_hollow_test_anchors`). Previous rfind()+400-char
+        source-window landed on the wrong emit after HVAC-DEGRADED-
+        ROOM-TRIPWIRE-1 added a third `preset_change_suppressed` site.
+        This drives `_apply_house_state_presets` TWICE with the same
+        night-trust-triggering fixture (house_state unchanged between
+        ticks) and asserts EXACTLY ONE `preset_change_suppressed`
+        activity_logger row for that zone. Mutation drill: delete
+        `first_fire and ` from the gate at hvac.py:2529 → second tick
+        emits a second row → this test reds.
         """
-        assert "first_fire" in apply_presets_src, (
-            "episode gate: `first_fire` local must be introduced in the "
-            "night-trust branch to gate the synthetic suppressed row"
+        import asyncio
+        from custom_components.universal_room_automation.const import DOMAIN
+        # Use the shared fixture from the sister test file.
+        import sys, os as _os
+        _here = _os.path.dirname(__file__)
+        if _here not in sys.path:
+            sys.path.insert(0, _here)
+        from test_v4713_sleep_state_zone_presence_trust import (
+            _build_night_trust_fixture, _run_apply,
         )
-        # The activity_logger call for preset_change_suppressed MUST live
-        # inside a branch predicated on `first_fire`. We locate the
-        # `action="preset_change_suppressed"` anchor and walk back to find
-        # a governing `if first_fire` in the preceding ~400 chars.
-        # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2): a second
-        # `preset_change_suppressed` emit was added for the D5
-        # occupancy-defer ledger row. Anchor on the LAST occurrence
-        # (the night-trust one — the target of this test).
-        anchor = 'action="preset_change_suppressed"'
-        idx = apply_presets_src.rfind(anchor)
-        if idx < 0:
-            anchor = "action='preset_change_suppressed'"
-            idx = apply_presets_src.rfind(anchor)
-        assert idx >= 0, "preset_change_suppressed anchor missing"
-        pre_window = apply_presets_src[max(0, idx - 400) : idx]
-        assert "first_fire" in pre_window, (
-            "suppressed activity_logger emit must be gated on `first_fire` "
-            "(episode gate) — without the gate the row emits every tick "
-            "(~480/night/zone). Mutation drill: deleting `first_fire and` "
-            "from the guard MUST fail this test."
+        hass, coord, zone = _build_night_trust_fixture()
+        asyncio.run(_run_apply(coord, ticks=2))
+        al = hass.data[DOMAIN]["activity_logger"]
+        suppressed = [
+            c for c in al.calls
+            if c.get("action") == "preset_change_suppressed"
+            and c.get("zone") == zone.zone_id
+        ]
+        assert len(suppressed) == 1, (
+            f"episode gate: exactly ONE preset_change_suppressed row per "
+            f"episode, not per tick; got {len(suppressed)} rows "
+            f"({[c.get('details') for c in suppressed]!r})"
         )
 
     def test_suppressed_row_description_omits_home_persons(
@@ -519,24 +518,49 @@ class TestNightTrustSuppressedRow:
             "for correlation, omitted from description for dedup stability)"
         )
 
-    def test_suppressed_row_details_carry_reason_and_inputs(
-        self, apply_presets_src: str
-    ):
-        """The suppressed row's details must carry reason + input bools."""
-        # D-b2 note: use rfind to target the night-trust suppressed
-        # row, not the D5-occupancy-defer suppressed row.
-        idx = apply_presets_src.rfind("preset_change_suppressed")
-        assert idx >= 0
-        # 1500 char window covers the log() call + kwargs.
-        window = apply_presets_src[idx : idx + 1500]
-        for key in (
-            "'reason'",
-            "'night_trust_suppressed'",
-            "'zone_vacant_past_grace'",
-            "'energy_shed_cap_reached'",
-        ):
-            assert key in window, (
-                f"night-trust suppressed row details missing `{key}`"
+    def test_suppressed_row_details_carry_reason_and_inputs(self):
+        """The suppressed row's details must carry reason + input bools.
+
+        REWRITTEN 2026-09-26 as BEHAVIOURAL (memory
+        `feedback_hollow_test_anchors`). Previous rfind()+1500-char
+        source-window landed on the row-1 transient-room-hold emit
+        after HVAC-DEGRADED-ROOM-TRIPWIRE-1. Drives the real night-
+        trust branch and asserts the emitted row's `details` dict
+        carries reason="night_trust_suppressed" AND the two input keys
+        (`zone_vacant_past_grace`, `energy_shed_cap_reached`). Mutation
+        drills: (a) change the reason literal at hvac.py:2545 to
+        anything else → this test reds; (b) drop either input key from
+        the details dict → this test reds.
+        """
+        import asyncio
+        from custom_components.universal_room_automation.const import DOMAIN
+        import sys, os as _os
+        _here = _os.path.dirname(__file__)
+        if _here not in sys.path:
+            sys.path.insert(0, _here)
+        from test_v4713_sleep_state_zone_presence_trust import (
+            _build_night_trust_fixture, _run_apply,
+        )
+        hass, coord, zone = _build_night_trust_fixture()
+        asyncio.run(_run_apply(coord, ticks=1))
+        al = hass.data[DOMAIN]["activity_logger"]
+        suppressed = [
+            c for c in al.calls
+            if c.get("action") == "preset_change_suppressed"
+            and c.get("zone") == zone.zone_id
+        ]
+        assert len(suppressed) == 1, (
+            f"expected 1 night-trust suppressed row for {zone.zone_id}; "
+            f"got {len(suppressed)}"
+        )
+        details = suppressed[0].get("details") or {}
+        assert details.get("reason") == "night_trust_suppressed", (
+            f"reason must be 'night_trust_suppressed'; got {details!r}"
+        )
+        for key in ("zone_vacant_past_grace", "energy_shed_cap_reached"):
+            assert key in details, (
+                f"night-trust suppressed row details missing `{key}`; got "
+                f"{details!r}"
             )
 
 

@@ -120,6 +120,10 @@ def _load_helper():
     hvac_const.CONF_ZONE_VACANCY_SWEEP_ENABLED = "vacancy_sweep_enabled"
     hvac_const.CONF_ZONE_PERSONS = "zone_persons"
     hvac_const.CONF_ZONE_CAMERAS = "zone_cameras"
+    # HVAC-DEGRADED-ROOM-TRIPWIRE-1 (2026-09-26): hvac_zones now imports
+    # this grace-window constant at module load. The stub must carry it
+    # or `spec.loader.exec_module` raises ImportError.
+    hvac_const.HVAC_LIVE_ROOM_TRANSIENT_GRACE_S = 300
 
     sys.modules["ura_zd_pkg"] = pkg
     sys.modules["ura_zd_pkg.const"] = const
