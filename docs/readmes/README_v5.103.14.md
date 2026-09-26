@@ -24,5 +24,18 @@ Plan-reviewed (6 must-fix folded: D0 seeding, REFRESHED taxonomy, INV-B restated
 - **Verify:** `sensor.<room>` climate/humidity behavior unchanged after an in-place-applied save (config read live/next-tick).
 - **Zero URA ERROR** post-restart.
 
+## Live Validation — Validated 2026-09-25 (write-back)
+
+Released 2026-09-20 14:31Z; the HA restart onto it ran 09:32–09:37 CDT on 09-20. The installed `manifest.json` reads `v5.103.14`. Evidence: `.storage/core.config_entries` `modified_at`, HA `system_log`/`error_log` via MCP, and the recorder.
+
+| # | Criterion | Verdict | Observed evidence |
+|---|---|---|---|
+| 1 | A Climate & Fans save with only threshold changes does not reload the room and causes no websocket backlog | **NOT-YET-EXERCISED** | No URA room entry has a `modified_at` after the 09-20 09:37 boot. The latest room change is Jaya Bedroom at 09-19 23:03Z, which predates the deploy and is the reported incident itself. Since v5.103.14, the only URA entry modified is the Coordinator Manager (09-26 01:52Z), which is outside this cycle's room-suppression scope. |
+| 2 | Changing `CONF_CLIMATE_ENTITY` still reloads (fall-through preserved) | **NOT-YET-EXERCISED** | No such save has happened. Proof is in-suite only. |
+| 3 | Room climate/humidity behaviour is unchanged after a save applied in place | **NOT-YET-EXERCISED** | No in-place save has happened. The A-H1 refresh is proven in-suite (`test_handle_humidity_based_fan_control_refreshes_config_first`, mutation-verified). |
+| 4 | Zero URA ERROR after restart | **PASS (limited window)** | `system_log` for the current boot (since 09-25 18:11, still on v5.103.14): 6 URA entries, all WARNING, **0 ERROR**. The error_log window has no URA `ERROR` line. The first v5.103.14 boot's logs (09-20) are not retained (HAOS journald, no log file). |
+
+**Method + limits.** The discriminating event, an operator room-options save, has not happened since the deploy. The next one should be checked for no `Setting up universal_room_automation` line for that entry and no `unable to keep up` / PONG timeout within 30 s. Also observed but outside this cycle: CM-owned entities went `unavailable` at 09-25 20:38:06 and 20:52:12. That is consistent with a CM entry reload (CM `modified_at` 01:52:12Z = 20:52:12 CDT), and CM reload suppression is a separate surface. **Verdicts: 1 PASS (limited) · 3 NOT-YET-EXERCISED · 0 FAIL.**
+
 ## Rollback
 `git revert` the merge — additive (a new setup seed + allowlist entries + a handler-local refresh + log dedup); no schema/persistence change.

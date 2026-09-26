@@ -98,6 +98,19 @@ was fixing. Any re-introduction must fire **once per off-phase, not per tick**.
       already off. The `duty_cycle_off_phase` attribute should now read False.
 - [ ] No new URA ERROR; no `resume-then-pin: CLEARED … could not pin` lines.
 
+## Live Validation — Validated 2026-09-25 (write-back)
+
+Deployed 2026-09-16 08:14 CDT. The recorder window (from 09-18 04:12) covers 5 restarts: 09-18 10:09, 09-18 16:07, 09-20 09:32, 09-21 23:19, and 09-25 18:05. Evidence: `climate.*` `preset_mode`/`hold_activity` from 10 min before each stop to 25 min after, joined against URA `ura_activity_log`.
+
+| # | Criterion | Verdict | Observed evidence |
+|---|---|---|---|
+| 1 | D1: a zone on a named hold before the restart is on the same named hold after boot | **PASS** | 09-18 10:09: zone_2 `home`→`home`, zone_3 `away`→`away`. 09-18 16:07: zone_3 `away` held. 09-21 23:19: zone_1 `sleep`, zone_2 `sleep`, zone_3 `away` all held through boot (next change 23:38). 09-25 18:05: all three `away` held through boot. There was no boot stranding of the 09-16 `away → manual` kind. Exception: zone_1 read `manual` at 18:12:47, about 1 min after `homeassistant_start`. It coincides with `pre_arrival` rows for zone_1 at 18:12:05–18:12:21, so a pre-arrival setpoint write is the likely cause, not the ramp-audit (not proven). Limit: the recorder does not show whether an in-flight nudge (the specific D1 path) existed at each restart. |
+| 2 | D1 negative: a zone genuinely in `manual` stays `manual` (no invented preset) | **INCONCLUSIVE** | Supporting: at the 09-20 09:32 restart, zone_1 was `manual` before and after boot, and URA logged `preset_change_locked_out` ("zone is in an anonymous manual hold") at 09:37:07, so it invented no preset. It became `away` at 09:39:10 with no URA activity row (not attributed). Not attributed: at the 09-18 10:09 restart, zone_1 was `manual` (since 10:03) and became `home` at 10:13:06 during boot with no URA activity row. That fits D1 correctly restoring a pre-nudge preset (if the 10:03 manual was a nudge) or it could be something else. Historical `hvac_excursion_state` rows are not kept. |
+| 3 | D2: no behaviour change; `duty_cycle_off_phase` reads False | **As-expected (attribute absent)** | 0 `state_attributes` rows since 09-18 contain `duty_cycle_off_phase`. The flag was removed from the zone sensor (per D2 above), so "absent" replaces "reads False". There is no S14 kill-switch or offset-Number entity in `states_meta`. |
+| 4 | No URA ERROR; no `resume-then-pin: CLEARED` lines | **PARTIAL** | Current boot only (since 09-25 18:11): 0 URA ERROR in `system_log`, and no `resume-then-pin` line in the latest 2000-line `error_log` window. Earlier boots' logs are not retained. |
+
+The "still pending" zone_1 manual-% prediction below was **not met** and was later retracted as non-stationary; see the v5.103.2 write-back. **Verdicts: 1 PASS · 1 INCONCLUSIVE · 1 as-expected · 1 PARTIAL · 0 FAIL.**
+
 **Still pending from v5.103.2:** the numeric prediction — zone 1's manual
 occupancy falling from 69.6% toward ~6% over 24h. That is the acceptance test
 for the whole arc, and if it does not move, the mechanism is wrong and the cycle
