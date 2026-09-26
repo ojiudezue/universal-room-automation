@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T17:20:39-05:00_ - _Data commit: `9e045bda4faf`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T17:30:41-05:00_ - _Data commit: `025ed8464827`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -705,7 +705,8 @@ _created 2026-09-26 02:40 · updated 2026-09-26 11:00 · initial_
 - **Why:** Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.
 - **Next:** Order: nudge-echo fix -> (dwell-clock fix if operator parks the W2 fast path) -> W1-B REV 4 (problems 1-5; fold plan-review #1/#2 findings; borrow-lock scope decision deferred to the re-plan) -> Tier-3 plan reviews -> operator go.
 - **Tags:** hvac, workstream
-- **Forensic keys (7):**
+- **Forensic keys (8):**
+  - `operator_go_2026_09_26`: Operator 2026-09-26 ~18:15 CDT: "Finish plan review and start. You have my go" + "unless something unexpected comes up". GO covers W1-B REV 4 plan reviews -> build -> reviews -> DEPLOY without the Tier-3 pre-deploy operator checkpoint, U...
   - `disposition_2026_09_26_groom`: Stage A build in flight 2026-09-26 (feature/hvac-w1a-write-governance). Stage B (W1-B, Tier 3) gated on W1-A live 1 day + D0 probe + Tier-3 plan re-review + operator go. New input for Stage B: state-of-play §9.7 (zone_1 status feed repor...
   - `planning_dispatched_2026_09_26`: Operator: "Cant we start the other pieces of the arc now? Planning?" Two planners dispatched (opus-5.5, read state-of-play first): Stage A -> docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md (Tier 2-DB, behaviour-neutral: a...
   - `integration_plan_2026_09_26`: Operator: "we could even plan all of it so its lego pieces fit together or at least the w1 and w2." -> after the 4 piece-plans land (W1-A, W1-B+Carrier discovery, W2 fast path, W2 night-sleeper + placeholder readers), the orchestrator wr...
