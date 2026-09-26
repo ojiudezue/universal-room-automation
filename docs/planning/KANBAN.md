@@ -2,14 +2,8 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T07:12:21-05:00_ - _Data commit: `912742e7d513`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-26T07:17:28-05:00_ - _Data commit: `0d3d6d120201`_ - _last_reconciled: 2026-09-26_
 
-
-> ## ⚠️ STALE - board has not been reconciled against newer work
->
-> - newest README README_v5.103.15.md (2026-09-26) is newer than last_reconciled (2026-09-25)
->
-> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
