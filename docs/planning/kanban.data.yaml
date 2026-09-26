@@ -1928,10 +1928,10 @@ cards:
     uniformly durable, manual is re-asserted at ~2min cadence. Either the pin is not fully effective
     on-device or the Bryant native schedule/an operator/a URA writer re-manuals. Still the measure-
     first target; clean 24h read to identify the producer.'
-  status: waiting_operator
+  status: investigating
   thread: hvac
   created: '2026-09-16'
-  updated: '2026-09-25 22:30'
+  updated: '2026-09-25 23:30'
   refinement_status: refined
   tags: [hvac, measure-first, producer-check, found-during-validation]
   MECHANISM_CORRECTED_2026_09_25: 'THE 09-17 DIAGNOSIS WAS WRONG IN ITS KEY PREMISE. It said "URA never
@@ -1949,6 +1949,23 @@ cards:
     AC soft-nudge (switch.ura_hvac_coordinator_26_ac_nudge = ON) is now the DOMINANT one, and URA then books
     its own write as override_detected and locks itself out (preset_change_locked_out). The ~45 false pages/day
     were largely URA paging about itself.'
+  MECHANISM_REFINED_2026_09_25_BY_DURATION: 'CORRECTS MECHANISM_CORRECTED_2026_09_25 (count != time). By COUNT the
+    nudge dominates (~70/88 manual entries), but those are the BORROW WORKING: the nudge begins a governed
+    excursion (EXCURSION_KIND.NUDGE, hvac_override.py:4396), writes through emit_set_temperature (:4423), and the
+    return restores the snapshot preset through emit_set_preset_mode (:4640); it is traceable in ac_ramp_events
+    (excursion_id nudge:zone_1:*). Measured durations since 09-20 11:39: nudge-start manual n=48 median 2.0 min
+    (always exits to home/sleep), nudge-restore n=15 median 5.1 min; together 2.9 h of 130 h. The TIME is in 6 long
+    holds (24.9 h + 6.5 h human): 2 human step-downs (74/68, no URA event); 1 borrow restore FAILED (09-20 17:33,
+    restore_ok=0, settled manual, 115 min); 4 strands AFTER A SUCCESSFUL borrow return (09-21 12:53 448 min, 09-22
+    01:19 661 min, 09-24 19:57 273 min, 09-25 14:22 88 min). In each, the recorder shows the restore landing
+    (preset=home/sleep at the snapshot setpoints), then 5-14 min later ha_carrier reports an INCOHERENT state —
+    preset_mode=manual while hold_activity=home/sleep — twice carrying the STALE nudge setpoints (78/70, 76/70)
+    and once the unchanged home values (manual, hold=home, 76/70). URA books override_detected (09-24/09-25 logged
+    "temp_high 76->76" = zero delta), the arrester declines on zero delta, S1 locks out, and nothing reclaims
+    until a vacancy/away write. So the defect is URA TRUSTING an incoherent/stale manual report after a borrow
+    closes, not the nudge. UNPROVEN: whether the physical thermostat was ever in manual; why ha_carrier serves
+    stale values (websocket vs REST merge is a guess). Nudges stay ON (operator 2026-09-25: "We''re not turning off
+    nudges").'
   title: MECHANISM FOUND — zone_1's re-manual is the Bryant's own 76/69 schedule reclaiming the zone ~1s
     after every URA preset write (either re-asserted by the thermostat, or handed to it by URA's own
     resume-then-pin); the resulting write-fight also fires ~45 false "someone grabbed the thermostat"
@@ -2050,7 +2067,7 @@ cards:
     Leading hypothesis, UNVERIFIED: thermostat/cloud-side (Bryant hold semantics or Carrier cloud re-assert).
     Also 21:05: all 3 thermostats were unavailable 20:24-21:15 (ha_carrier loaded but dead after the network
     restart); reloaded entry 01JP3X64D7ADRCXBDA5RMBS1CT, recovered 21:15.'
-  next: 'PICK (operator): the dominant zone_1 manual writer is URA''s own AC soft-nudge. Options: (A) turn the nudge OFF (switch.ura_hvac_coordinator_26_ac_nudge) — instant, reversible, stops ~80% of zone_1 manual + the self-pages; (B) keep the nudge but make it hold-safe: nudge + restore through the preset path (or tag its manual as URA-owned so the lockout/arrester reclaim it); (C) both — A now, B as a build. My recommendation: C. -> on your pick I flip the switch / card the build and re-measure zone_1 manual entries 24 h later.'
+  next: 'MEASURE (me): (1) across all 3 zones, count post-borrow manual reports where preset_mode=manual but hold_activity != manual, and those whose setpoints equal a URA borrow''s excursion values; (2) read ha_carrier''s preset_mode derivation (custom_components/ha_carrier/climate.py) to see how manual is computed vs hold_activity; (3) then scope the fix on HVAC-PRESET-LOCKOUT-ESCAPE-1: a post-return ownership window + a coherence check (manual whose hold_activity is a named preset, or whose setpoints equal URA''s own recent write, is URA''s echo -> re-assert the snapshot preset, not a human hold).'
   rank: {value: 8, time_criticality: 7, effort: 5}
   parsimony:
     problem: the Bryant thermostat re-asserts a 76/69 hold seconds after every URA preset write to
@@ -12914,13 +12931,20 @@ cards:
     arrester, which declines on zero delta (hvac_override.py:727-729). Operator challenge stands: a manual hold
     that is URA-caused OR has aged past the hold knob should be overridden. Answers operator Q "why won''t
     it?": because nothing in the code distinguishes "human hold we respect" from "stale/URA hold nobody owns".'
+  mechanism_evidence_2026_09_25: 'The concrete strand shape (see HVAC-ZONE1-MANUAL-OSCILLATION-1
+    MECHANISM_REFINED_2026_09_25_BY_DURATION): a borrow returns correctly, then ha_carrier reports preset=manual with
+    hold_activity still a named preset and setpoints that are stale URA nudge values or unchanged — URA books it as a
+    human override at zero delta and locks itself out for 1.5-11 h. Fix direction consistent with the operator:
+    presets-only return (the snapshot preset carries its own setpoints; the return''s preceding raw setpoint write
+    is itself a manual-inducing write) + a post-return ownership window + a coherence check before treating
+    manual as human. Cover every borrow kind, not only nudges.'
   title: URA refuses to write a preset to a zone in `manual` — including when URA itself caused the
     manual, so nothing ever rescues it
   rank: {value: 8, time_criticality: 6, effort: 5}
   thread: hvac
   status: planned
   created: '2026-09-16'
-  updated: '2026-09-25 22:30'
+  updated: '2026-09-25 23:30'
   refinement_status: initial
   approval: implied
   tags: [tier-2db, no-fabrication-verify, found-during-validation]
