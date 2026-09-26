@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "URA Runtime Architecture",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/ojiudezue/universal-room-automation.git",
+      "provider": "github",
+      "link_mode": "local-only",
+      "revision": "e1c7bf46c8335f695a65434739f3712f9ebe87c2"
+    },
+    "viewBox": [1384, 580]
+  },
+  "components": [
+    { "id": "cameras", "type": "external", "label": "Cameras", "sublabel": "Frigate · Protect", "pos": [40, 120], "size": [150, 58] },
+    { "id": "sensors", "type": "external", "label": "Room Sensors", "sublabel": "motion · mmWave · lux", "pos": [40, 250], "size": [150, 58] },
+    { "id": "ble", "type": "external", "label": "BLE Presence", "sublabel": "Bermuda", "pos": [40, 380], "size": [150, 58] },
+    { "id": "ha_core", "type": "backend", "label": "Home Assistant Core", "sublabel": "state · dispatcher", "pos": [40, 500], "size": [150, 58] },
+
+    { "id": "person", "type": "backend", "label": "Person Coordinator", "sublabel": "identity · census", "pos": [230, 120], "size": [150, 58], "sources": [ { "path": "custom_components/universal_room_automation/__init__.py", "line": 2734, "label": "PersonTrackingCoordinator" } ] },
+    { "id": "substrate", "type": "backend", "label": "Occupancy Substrate", "sublabel": "per-room fusion", "pos": [230, 250], "size": [150, 58], "sources": [ { "path": "custom_components/universal_room_automation/domain_coordinators/occupancy_substrate.py" } ] },
+
+    { "id": "presence", "type": "backend", "label": "Presence Coordinator", "sublabel": "room→zone→house", "pos": [420, 120], "size": [150, 58], "sources": [ { "path": "custom_components/universal_room_automation/__init__.py", "line": 3284, "label": "PresenceCoordinator" } ] },
+    { "id": "rooms", "type": "backend", "label": "Room Coordinators", "sublabel": "fused occupancy", "pos": [420, 250], "size": [150, 58], "sources": [ { "path": "custom_components/universal_room_automation/__init__.py", "line": 5007, "label": "UniversalRoomCoordinator" } ] },
+    { "id": "cm", "type": "backend", "label": "Coordinator Manager", "sublabel": "parent → Zones → Rooms", "pos": [420, 500], "size": [150, 58], "sources": [ { "path": "custom_components/universal_room_automation/domain_coordinators/manager.py", "line": 389, "label": "register_coordinator" } ] },
+
+    { "id": "house_state", "type": "backend", "label": "House-State Machine", "sublabel": "home · away · sleep", "pos": [610, 250], "size": [150, 58], "sources": [ { "path": "custom_components/universal_room_automation/domain_coordinators/house_state.py" } ] },
+    { "id": "signals", "type": "messagebus", "label": "Signal Bus", "sublabel": "SIGNAL_* dispatcher", "pos": [610, 380], "size": [150, 58], "sources": [ { "path": "custom_components/universal_room_automation/domain_coordinators/signals.py" } ] },
+    { "id": "db", "type": "database", "label": "URA DB / Recorder", "sublabel": "WAL · one writer", "pos": [610, 500], "size": [150, 58], "sources": [ { "path": "custom_components/universal_room_automation/database.py" } ] },
+
+    { "id": "energy", "type": "backend", "label": "Energy Coordinator", "sublabel": "reserve · TOU · arbitrage", "pos": [800, 120], "size": [150, 58], "sources": [ { "path": "custom_components/universal_room_automation/__init__.py", "line": 3742, "label": "EnergyCoordinator" } ] },
+    { "id": "hvac", "type": "backend", "label": "HVAC Coordinator", "sublabel": "presets · excursions", "pos": [800, 250], "size": [150, 58], "sources": [ { "path": "custom_components/universal_room_automation/__init__.py", "line": 3856, "label": "HVACCoordinator" } ] },
+    { "id": "safety", "type": "backend", "label": "Safety Coordinator", "sublabel": "smoke/CO · locks", "pos": [800, 400], "size": [150, 58], "sources": [ { "path": "custom_components/universal_room_automation/__init__.py", "line": 3315, "label": "SafetyCoordinator" } ] },
+    { "id": "diagnostics", "type": "backend", "label": "Diagnostics / Anomaly", "sublabel": "trip-wires → NM", "pos": [800, 500], "size": [150, 58], "sources": [ { "path": "custom_components/universal_room_automation/domain_coordinators/coordinator_diagnostics.py", "line": 862, "label": "AnomalyDetector" } ] },
+
+    { "id": "setpoint", "type": "security", "label": "Governed-Write Chokepoint", "sublabel": "hvac_setpoint.emit_set_*", "pos": [990, 250], "size": [170, 58], "sources": [ { "path": "custom_components/universal_room_automation/domain_coordinators/hvac_setpoint.py", "label": "emit_set_temperature" } ] },
+
+    { "id": "solcast", "type": "cloud", "label": "Solcast", "sublabel": "solar forecast", "pos": [1210, 40], "size": [150, 58] },
+    { "id": "enphase", "type": "cloud", "label": "Enphase / Envoy", "sublabel": "battery · solar", "pos": [1210, 120], "size": [150, 58] },
+    { "id": "carrier", "type": "cloud", "label": "Bryant / Carrier", "sublabel": "ha_carrier", "pos": [1210, 250], "size": [150, 58] }
+  ],
+  "boundaries": [
+    { "kind": "security-group", "label": "URA integration — config-entry owned (CM → Zones → Rooms)", "wraps": ["person", "substrate", "cm", "presence", "rooms", "house_state", "signals", "db", "energy", "hvac", "safety", "diagnostics", "setpoint"], "pad": 18 },
+    { "kind": "region", "label": "Cloud — WAN / trust boundary", "wraps": ["solcast", "enphase", "carrier"], "pad": 16 }
+  ],
+  "connections": [
+    { "from": "sensors", "to": "substrate", "label": "raw signal", "variant": "emphasis", "labelAt": [210, 322] },
+    { "from": "substrate", "to": "rooms", "label": "fused occupancy", "variant": "emphasis", "labelAt": [400, 322] },
+    { "from": "rooms", "to": "house_state", "label": "occupancy roll-up", "variant": "emphasis", "labelAt": [590, 236] },
+    { "from": "house_state", "to": "hvac", "label": "SIGNAL_HOUSE_STATE_CHANGED", "variant": "emphasis", "labelAt": [780, 322] },
+    { "from": "hvac", "to": "setpoint", "label": "governed set", "variant": "emphasis", "labelAt": [975, 322] },
+    { "from": "setpoint", "to": "carrier", "label": "cloud write", "variant": "emphasis", "labelAt": [1185, 322] },
+
+    { "from": "cameras", "to": "person", "label": "person / face", "labelAt": [210, 196] },
+    { "from": "person", "to": "presence", "label": "identity", "labelAt": [400, 196] },
+    { "from": "ble", "to": "substrate", "label": "room BLE", "fromSide": "right", "toSide": "bottom", "labelAt": [178, 330] },
+    { "from": "presence", "to": "rooms", "label": "trust / fusion", "labelAt": [500, 214] },
+
+    { "from": "enphase", "to": "energy" },
+    { "from": "solcast", "to": "energy" },
+    { "from": "energy", "to": "hvac", "label": "reserve / load signals", "variant": "dashed", "labelAt": [875, 214] },
+
+    { "from": "safety", "to": "hvac", "label": "safety veto", "variant": "security", "labelAt": [872, 350] },
+
+    { "from": "house_state", "to": "signals", "label": "publishes state", "variant": "dashed", "labelAt": [685, 340] },
+    { "from": "signals", "to": "hvac", "variant": "dashed", "fromSide": "right", "toSide": "bottom" },
+
+    { "from": "ha_core", "to": "cm", "label": "config entries", "labelAt": [305, 482] },
+    { "from": "cm", "to": "rooms", "label": "registers coordinators", "variant": "dashed", "labelAt": [500, 410] },
+    { "from": "rooms", "to": "db", "label": "persist events", "variant": "dashed", "labelAt": [560, 430] },
+    { "from": "diagnostics", "to": "db", "label": "anomaly rows", "variant": "dashed", "labelAt": [780, 478] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Primary path — occupancy → actuation", "items": ["Sensors → Occupancy Substrate → Room Coordinators (fused occupancy)", "House-State broadcasts; HVAC decides; write via governed chokepoint", "Chokepoint writes Bryant/Carrier Infinity cloud through ha_carrier"] },
+    { "dot": "violet", "title": "Coordinators (config-entry owned)", "items": ["CM constructs, registers, and sequences the domain coordinators", "Presence / Person — fusion, trust hierarchy, identity + census", "HVAC (zone+room), Energy (house: reserve/TOU), Safety (veto)"] },
+    { "dot": "amber", "title": "Trust & latency boundaries", "items": ["HA-core / local devices sit outside the URA integration box", "URA owns its config-entry tree: CM → Zones → Rooms", "Carrier / Enphase / Solcast are cloud = WAN latency boundary"] },
+    { "dot": "emerald", "title": "Shared primitives & infra", "items": ["Signal Bus (SIGNAL_* dispatcher) is the inter-coordinator glue", "Governed-write chokepoint: one guard for all thermostat writes", "URA DB: WAL + one serialized write queue; anomaly → NM trip-wires"] }
+  ]
+}
