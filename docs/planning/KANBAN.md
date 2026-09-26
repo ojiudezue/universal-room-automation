@@ -2,8 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T02:21:30-05:00_ - _Data commit: `eeacaddfb8aa`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-26T07:12:21-05:00_ - _Data commit: `912742e7d513`_ - _last_reconciled: 2026-09-25_
 
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.103.15.md (2026-09-26) is newer than last_reconciled (2026-09-25)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -156,18 +162,19 @@ _created 2026-09-15 · updated 2026-09-19 03:10 · initial_
 
 ### `HVAC-W1-THERMOSTAT-DEFINITION` - W1 — One thermostat definition per brand: how URA writes, borrows/returns, and reads a thermostat, discovered in detail and applied everywhere — _#6 · WSJF 2.1 · v10 tc8 u9 /e13_
 thread: **hvac** - status: **pre_planning** - approval: **explicit**
-_created 2026-09-26 02:40 · updated 2026-09-26 09:30 · initial_
+_created 2026-09-26 02:40 · updated 2026-09-26 11:00 · initial_
 - **Problem / Solution:**
   - Problem: every place in URA that touches a thermostat does its own thing — three kinds of write, some funnelled and some not, most never recorded, returns done the old way, and URA believes a lagging "manual" report from the Carrier inte...
 - **Origin:** 2026-09-26 - operator approved the 4-workstream consolidation of the HVAC arc (see HVAC-SUPPLE-SEQUENCE-1 RESEQUENCE_PROPOSAL_2026_09_26)
 - **Why:** Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.
 - **Next:** Stage A (behaviour-neutral, Tier 2-DB): all three write verbs through funnels + one durable row per write + the 7 raw set_hvac_mode sites migrated. Stage B (Tier 3, operator go needed): brand definition interface; Carrier definition (cle...
 - **Tags:** hvac, workstream
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `planning_dispatched_2026_09_26`: Operator: "Cant we start the other pieces of the arc now? Planning?" Two planners dispatched (opus-5.5, read state-of-play first): Stage A -> docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md (Tier 2-DB, behaviour-neutral: a...
   - `integration_plan_2026_09_26`: Operator: "we could even plan all of it so its lego pieces fit together or at least the w1 and w2." -> after the 4 piece-plans land (W1-A, W1-B+Carrier discovery, W2 fast path, W2 night-sleeper + placeholder readers), the orchestrator wr...
   - `plans_2026_09_26`: Plans landed: W1-A PLANNING_hvac_w1a_thermostat_write_governance.md (+AM-A1 activity-log dedup would drop rows, AM-A2 measure write rates); W1-B THERMOSTAT_DEFINITION_CARRIER_BRYANT.md (7 UNVERIFIED) + PLANNING_hvac_w1b_thermostat_defini...
   - `CORRECTION_2026_09_26_real_manual_holds`: The status-lag mechanism recorded 2026-09-25/26 is WRONG for the strands: in all 5 zone_1 strands hold_activity (config feed) ALSO reads manual — same second as status in 3/5, <=5 min in 2/5 — and stays manual for hours (09-22: 410/417 s...
+  - `operator_decisions_2026_09_26_w1b`: Operator: "Accept recs" on all 7 W1-B questions — recorded as binding in PLANNING_hvac_w1b_thermostat_definition.md (nudges stay set_temperature; schedules reduced by operator, no guard; reclaim delay 1 tick + kill switch; N>=10 / 10-min...
   - `children`: HVAC-PRESET-WRITE-STRATEGY-1
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_

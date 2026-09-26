@@ -1891,11 +1891,16 @@ cards:
     manual hold on return) + reclaim manual holds that are URA-owned by PROVENANCE (URA''s own recent write at URA''s values),
     never while a borrow is live. Leading cause UNVERIFIED: raw setpoint write + discarded/reverted named pin. State of play
     C20; vibememo 148.'
+  operator_decisions_2026_09_26_w1b: 'Operator: "Accept recs" on all 7 W1-B questions — recorded as binding in
+    PLANNING_hvac_w1b_thermostat_definition.md (nudges stay set_temperature; schedules reduced by operator, no guard;
+    reclaim delay 1 tick + kill switch; N>=10 / 10-min falsifier + replay gate; no Nest; timing values rung-1; Q7 YES —
+    reclaim a human hold to S1 target on Temp-Override / immune expiry). W1-B build still gated on W1-A live + D0 +
+    Tier-3 plan re-review + operator go.'
   title: 'W1 — One thermostat definition per brand: how URA writes, borrows/returns, and reads a thermostat, discovered in detail and applied everywhere'
   thread: hvac
   status: pre_planning
   created: '2026-09-26 02:40'
-  updated: '2026-09-26 09:30'
+  updated: '2026-09-26 11:00'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-26 ("The workstreams are approved. Recard.")'
