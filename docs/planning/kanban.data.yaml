@@ -1795,11 +1795,11 @@ cards:
     ok. Now a loadable skill. NOT wired into URA / not run against the repo. Update = re-pull+copy.'
 
 - id: HVAC-DEGRADED-ROOM-TRIPWIRE-1
-  status: planned
+  status: in_progress
   rank: {value: 7, time_criticality: 5, effort: 5}
   thread: hvac
   created: '2026-09-17'
-  updated: '2026-09-25 21:45'
+  updated: '2026-09-25 23:00'
   tags: [hvac, no-soak, trip-wire, safety-gate-residual]
   operator_decision_2026_09_25: 'Operator: "This also seems wrong. WTF?" — the trip-wire-instead-of-fix
     framing is REJECTED. It was the operator''s ROUND-4 decision (09-17) to scope establishment to rooms with
@@ -1809,6 +1809,10 @@ cards:
     entry is LOADED have been seen by the D1 producer; disabled / setup_retry / not-loaded rooms are
     EXCLUDED from the set (not counted as unreadable-hence-blocking). A zone of only dead rooms stays
     unestablished (never retreats). The trip-wire is kept only as a secondary diag, not as the fix.'
+  operator_go_2026_09_25: 'Operator: "Maddening. do it now. Plan and build. ... no corners cut." Explicit go.
+    Tier: regression-prone (shared retreat gate consumed by row-1 / D7 / D9 / F4 across every zone) -> standing
+    policy = Tier 2-DB (3 framing-disjoint reviews) + ONE plan review before build + live validation + README
+    write-back. Plan: docs/planning/PLANNING_hvac_live_room_establishment.md (ura-planner dispatched 2026-09-25).'
   title: One broken room switches off HVAC occupancy for its whole zone — count only the rooms that are
     actually running
   problem_solution:
