@@ -665,3 +665,273 @@ def test_is_zone_transient_blocked_helper():
     coords[entries[1].entry_id] = _RC()
     zm.update_room_conditions(house_state="home_day")
     assert zm.is_zone_transient_blocked("z1") is False
+
+
+# ---------------------------------------------------------------------------
+# FIX-UP round 5 (2026-09-26) — Reviewer C mutation coverage (ZM-side)
+# ---------------------------------------------------------------------------
+
+
+def test_coordinator_absent_this_pass_is_reset_per_producer_pass():
+    """FIX-UP round 5 item 4 (MED Z:609). Pass 1: coordinator absent →
+    room in `_coordinator_absent_this_pass` → zone unestablished.
+    Pass 2: coordinator present → set must be REBUILT so the room is
+    NOT in it → zone establishes. Mutation: delete the `self.
+    _coordinator_absent_this_pass = set()` reset at hvac_zones.py:609
+    → the stale membership persists across passes → zone STAYS
+    unestablished → RED.
+    """
+    entries = [_FakeEntry("r_x", state=ConfigEntryState.LOADED)]
+    # Pass 1: no coordinator registered.
+    zm = _mk_zm(entries=entries, coordinators={})
+    zone = ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.z1")
+    zone.rooms = ["r_x"]
+    zm._zones["z1"] = zone
+    zm._hvac_seen.add("r_x")
+    zm.update_room_conditions(house_state="home_day")
+    assert "r_x" in zm._coordinator_absent_this_pass
+    assert zm.is_zone_hvac_established("z1") is False
+
+    # Pass 2: coordinator becomes present. Rebuild the map on hass.data.
+    from custom_components.universal_room_automation.const import DOMAIN
+
+    class _RC:
+        def __init__(self):
+            self.data = {"occupied": False, "temperature": None, "humidity": None}
+    zm.hass.data[DOMAIN][entries[0].entry_id] = _RC()
+    zm.update_room_conditions(house_state="home_day")
+    assert "r_x" not in zm._coordinator_absent_this_pass
+    assert zm.is_zone_hvac_established("z1") is True
+
+
+def test_room_entry_by_name_reset_per_pass_detects_deleted_entry():
+    """FIX-UP round 5 item 4 (MED Z:606). `_room_entry_by_name` MUST be
+    rebuilt every pass so a mid-session entry deletion is detected as
+    `entry_removed`. Mutation: remove the `self._room_entry_by_name =
+    {}` reset at hvac_zones.py:606 → stale mapping keeps the deleted
+    entry → classifier NEVER sees it as removed → RED.
+    """
+    entries = [_FakeEntry("r_gone", state=ConfigEntryState.LOADED)]
+    zm = _mk_zm(entries=entries)
+    zone = ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.z1")
+    zone.rooms = ["r_gone"]
+    zm._zones["z1"] = zone
+    zm.update_room_conditions(house_state="home_day")
+    # Pass 1: room LOADED, classified `live`.
+    assert zm._room_hvac_class["r_gone"][0] == "live"
+
+    # Delete the entry from the fixture — subsequent passes see 0 entries.
+    entries.clear()
+    zm.update_room_conditions(house_state="home_day")
+    assert zm._room_hvac_class["r_gone"] == ("excluded", "entry_removed")
+
+
+def test_every_config_entry_state_pinned_classification():
+    """FIX-UP round 5 item 5 (MED). Pin EXACT classification per
+    ConfigEntryState so dropping SETUP_ERROR or MIGRATION_ERROR (or
+    SETUP_RETRY) from `_IMMEDIATE_EXCLUDE` at hvac_zones.py:1159-1161
+    goes RED.
+    """
+    _EXPECTED = {
+        "SETUP_ERROR": "excluded",
+        "MIGRATION_ERROR": "excluded",
+        "SETUP_RETRY": "excluded",
+        "NOT_LOADED": "transient",
+        "SETUP_IN_PROGRESS": "transient",
+        "UNLOAD_IN_PROGRESS": "transient",
+        "FAILED_UNLOAD": "transient",
+        "LOADED": "live",
+    }
+    for member in list(ConfigEntryState):
+        entries = [_FakeEntry("r_x", state=member)]
+        zm = _mk_zm(entries=entries)
+        zone = ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.z1")
+        zone.rooms = ["r_x"]
+        zm._zones["z1"] = zone
+        zm.update_room_conditions(house_state="home_day")
+        kind, _ = zm._room_hvac_class["r_x"]
+        expected = _EXPECTED.get(member.name)
+        if expected is None:
+            # Future HA member — spec is "transient (fail-closed)".
+            assert kind == "transient", (
+                f"unknown ConfigEntryState.{member.name} must be TRANSIENT "
+                f"(fail-closed); got {kind!r}"
+            )
+        else:
+            assert kind == expected, (
+                f"ConfigEntryState.{member.name}: expected {expected!r} "
+                f"kind; got {kind!r}"
+            )
+
+
+def test_grace_boundary_at_grace_minus_one_and_plus_one():
+    """FIX-UP round 5 item 6 (MED). Grace boundary pinned to the
+    contract value 300 s AND to inclusive `>=`. HARDCODED values so
+    mutating the constant (300→61) actually discriminates. Three
+    assertions:
+
+    - At 299 s (< 300): TRANSIENT. Mutation `300→61` → at 299 s the
+      room is EXCLUDED → RED.
+    - At EXACTLY 300 s: EXCLUDED (inclusive). Mutation `>=` → `>` →
+      at exactly 300 s it stays TRANSIENT → RED.
+    - At 301 s (> 300): EXCLUDED. Sanity anchor.
+    """
+    entries = [_FakeEntry("r_x", state=ConfigEntryState.NOT_LOADED)]
+    zm = _mk_zm(entries=entries)
+    zone = ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.z1")
+    zone.rooms = ["r_x"]
+    zm._zones["z1"] = zone
+
+    # Seed _room_non_loaded_since at NOW.
+    p1, p2 = _patched_now(NOW)
+    with p1, p2:
+        zm.update_room_conditions(house_state="home_day")
+    assert zm._room_hvac_class["r_x"][0] == "transient"
+
+    # Contract: grace is 300 s. Constant mutation 300→61 makes 299 s
+    # EXCLUDED (61 <= 299), reddening this assertion.
+    p1, p2 = _patched_now(NOW + timedelta(seconds=299))
+    with p1, p2:
+        zm.update_room_conditions(house_state="home_day")
+    assert zm._room_hvac_class["r_x"][0] == "transient", (
+        f"at 299s the room must be TRANSIENT (contract grace=300); got "
+        f"{zm._room_hvac_class['r_x']!r} — did the constant change?"
+    )
+
+    # At EXACTLY 300 s: inclusive boundary. `>=` → `>` mutation leaves
+    # this TRANSIENT and reds the assertion.
+    p1, p2 = _patched_now(NOW + timedelta(seconds=300))
+    with p1, p2:
+        zm.update_room_conditions(house_state="home_day")
+    assert zm._room_hvac_class["r_x"][0] == "excluded", (
+        f"at EXACTLY 300s the room must be EXCLUDED (inclusive `>=`); "
+        f"got {zm._room_hvac_class['r_x']!r} — did the comparator "
+        f"flip to `>`?"
+    )
+
+    # At 301 s: sanity.
+    p1, p2 = _patched_now(NOW + timedelta(seconds=301))
+    with p1, p2:
+        zm.update_room_conditions(house_state="home_day")
+    assert zm._room_hvac_class["r_x"][0] == "excluded"
+
+    # Belt: assert the constant itself is still 300 (so the drill
+    # can catch a constant-only mutation directly).
+    assert HVAC_LIVE_ROOM_TRANSIENT_GRACE_S == 300, (
+        f"HVAC_LIVE_ROOM_TRANSIENT_GRACE_S contract is 300 s; got "
+        f"{HVAC_LIVE_ROOM_TRANSIENT_GRACE_S}"
+    )
+
+
+def test_unknown_future_config_entry_state_transient_then_excluded_after_grace():
+    """FIX-UP round 5 item 7 (LOW). Inject a stub state whose `.name`
+    is not in any known class → treated as TRANSIENT with a
+    `unknown:<name>` reason. After the grace window it ages out to
+    EXCLUDED with `unknown_state_past_grace:<name>`. Mutations of
+    hvac_zones.py:1285 (either branch of the unknown-state block)
+    should red these assertions.
+    """
+    class _Stub:
+        name = "SOME_FUTURE_STATE_2027"
+
+    class _Entry:
+        def __init__(self):
+            self.entry_id = "e_r_x"
+            self.state = _Stub()
+            self.disabled_by = None
+            self.data = {
+                CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+                CONF_ROOM_NAME: "r_x",
+            }
+            self.options: dict = {}
+    zm = _mk_zm(entries=[_Entry()])
+    zone = ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.z1")
+    zone.rooms = ["r_x"]
+    zm._zones["z1"] = zone
+
+    p1, p2 = _patched_now(NOW)
+    with p1, p2:
+        zm.update_room_conditions(house_state="home_day")
+    kind, reason = zm._room_hvac_class["r_x"]
+    assert kind == "transient" and reason.startswith("unknown:"), (
+        f"unknown future state must classify TRANSIENT; got "
+        f"({kind!r}, {reason!r})"
+    )
+
+    p1, p2 = _patched_now(
+        NOW + timedelta(seconds=HVAC_LIVE_ROOM_TRANSIENT_GRACE_S + 1)
+    )
+    with p1, p2:
+        zm.update_room_conditions(house_state="home_day")
+    kind, reason = zm._room_hvac_class["r_x"]
+    assert kind == "excluded" and reason.startswith(
+        "unknown_state_past_grace:"
+    ), (
+        f"unknown future state past grace must classify EXCLUDED; got "
+        f"({kind!r}, {reason!r})"
+    )
+
+
+def test_sticky_prune_re_added_room_returns_live():
+    """FIX-UP round 5 item 8 (LOW). A room excluded sticky (SETUP_ERROR),
+    then removed entirely, then re-added under the same name in a
+    LOADED entry — must classify LIVE (sticky bit did not carry over).
+    Mutation: delete the prune at hvac_zones.py:1175 → the stale
+    sticky bit persists → the re-added room classifies EXCLUDED
+    `sticky_failed` → RED.
+    """
+    entries = [_FakeEntry("r_reappear", state=ConfigEntryState.SETUP_ERROR)]
+    zm = _mk_zm(entries=entries)
+    zone = ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.z1")
+    zone.rooms = ["r_reappear"]
+    zm._zones["z1"] = zone
+    zm.update_room_conditions(house_state="home_day")
+    assert zm._room_hvac_class["r_reappear"] == ("excluded", "setup_error")
+    assert "r_reappear" in zm._sticky_failed_rooms
+
+    # Remove the entry entirely.
+    entries.clear()
+    zm.update_room_conditions(house_state="home_day")
+    # Now re-add with LOADED under the same name.
+    entries.append(_FakeEntry("r_reappear", state=ConfigEntryState.LOADED))
+    # Register a coordinator so it's not coordinator-absent.
+    from custom_components.universal_room_automation.const import DOMAIN
+
+    class _RC:
+        def __init__(self):
+            self.data = {"occupied": False, "temperature": None, "humidity": None}
+    zm.hass.data[DOMAIN][entries[0].entry_id] = _RC()
+    zm.update_room_conditions(house_state="home_day")
+    assert zm._room_hvac_class["r_reappear"] == ("live", "loaded"), (
+        f"re-added LOADED room must classify LIVE (sticky pruned); got "
+        f"{zm._room_hvac_class['r_reappear']!r}"
+    )
+
+
+def test_diag_poisoned_naive_datetime_surfaces_none_and_non_empty_rows():
+    """FIX-UP round 5 item 10 (LOW). Replace round-3 vacuous version:
+    with a poisoned naive datetime in `_room_non_loaded_since`, the
+    diag helper MUST surface `transient_rooms` NON-empty AND its
+    `seconds_non_loaded` field MUST be None (guard swallowed the
+    TypeError). If the guard is removed, the whole zone status attr
+    breaks.
+    """
+    entries = [_FakeEntry("r_x", state=ConfigEntryState.NOT_LOADED)]
+    zm = _mk_zm(entries=entries)
+    zone = ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.z1")
+    zone.rooms = ["r_x"]
+    zm._zones["z1"] = zone
+    zm.update_room_conditions(house_state="home_day")
+    # Poison: naive datetime (tz-aware utcnow can't subtract from it).
+    zm._room_non_loaded_since["r_x"] = datetime(2026, 9, 26, 3, 0, 0)
+    attrs = zm.get_zone_status_attrs("z1")
+    trs = attrs["transient_rooms"]
+    assert len(trs) == 1, (
+        f"transient_rooms must include the poisoned entry (non-empty); "
+        f"got {trs!r}"
+    )
+    assert trs[0]["name"] == "r_x"
+    assert trs[0]["seconds_non_loaded"] is None, (
+        f"guarded arithmetic MUST surface None on a naive-datetime "
+        f"subtract; got {trs[0]!r}"
+    )

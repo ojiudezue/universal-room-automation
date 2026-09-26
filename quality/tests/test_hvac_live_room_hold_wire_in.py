@@ -35,12 +35,50 @@ _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+
+def _purge_shim_modules():
+    """FIX-UP round 5 item 11 (2026-09-26): purge module-top HA / ura
+    shim modules installed by sibling test files (e.g. test_v4713's
+    module-level MagicMock BaseCoordinator). Real modules — those with
+    `__file__` under the real ura tree or under site-packages — are
+    LEFT ALONE. Called at IMPORT TIME here (before pytest.importorskip)
+    AND again inside `_make_coord` before HVACCoordinator is loaded, so
+    the file is robust to any collection order.
+    """
+    _real_ura_path = os.path.abspath(os.path.join(
+        _HERE, "..", "..", "custom_components", "universal_room_automation",
+    ))
+    _shim_prefixes = (
+        "homeassistant",
+        "custom_components.universal_room_automation",
+    )
+    for _k in [k for k in list(sys.modules) if any(
+        k == p or k.startswith(p + ".") for p in _shim_prefixes
+    )]:
+        _mod = sys.modules[_k]
+        _file = getattr(_mod, "__file__", None)
+        if _file:
+            _abs = os.path.abspath(_file)
+            if _real_ura_path in _abs or "site-packages" in _abs:
+                continue
+        del sys.modules[_k]
+
+
+_purge_shim_modules()
+
 from runtime_harness import build_smoke_hass  # noqa: E402
 
 
 def _make_coord():
     """Real HVACCoordinator on a 3-zone smoke_hass — same shape as
     test_hvac_d5_reframe_and_occupancy_gate._make_coord."""
+    # FIX-UP round 5 item 11: purge shim modules AGAIN at test-run time
+    # (sibling test files' collection may have installed MagicMock
+    # stubs for e.g. `custom_components.universal_room_automation.
+    # domain_coordinators.base` — HVACCoordinator inherits from
+    # BaseCoordinator; a MagicMock base class raises at class-body
+    # evaluation of the real hvac.py).
+    _purge_shim_modules()
     from custom_components.universal_room_automation.domain_coordinators.hvac import (  # noqa: E402
         HVACCoordinator,
     )
@@ -581,5 +619,375 @@ async def test_d9_positive_twin_writes_when_no_transient_sibling():
         "positive twin: D9 compose-away MUST emit set_temperature "
         "when no sibling is transient (proves the negative test's "
         "assertion is discriminating). Got "
+        f"{hass.services.calls!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# FIX-UP round 5 (2026-09-26) — Reviewer C mutation coverage
+# ---------------------------------------------------------------------------
+
+
+def _seed_zone_all_live_and_empty(coord, zone_id: str) -> None:
+    """All rooms LIVE + established + fused-empty (any_room_hvac_occupied
+    False). Used for the item-1 discriminator: dropping the
+    `_transient_blocked_row1 and` conjunct arms the hold on this
+    empty-but-fully-live zone."""
+    from homeassistant.config_entries import ConfigEntryState
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_TYPE, CONF_ROOM_NAME, DOMAIN, ENTRY_TYPE_ROOM,
+    )
+    zm = coord.zone_manager
+    zone = zm._zones[zone_id]
+    zone.rooms = ["r_a", "r_b"]
+
+    class _Entry:
+        def __init__(self, rn):
+            self.entry_id = f"e_{rn}"
+            self.data = {
+                CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+                CONF_ROOM_NAME: rn,
+            }
+            self.options = {}
+            self.state = ConfigEntryState.LOADED
+            self.disabled_by = None
+
+    entries = [_Entry("r_a"), _Entry("r_b")]
+
+    class _CEs:
+        def async_entries(_self, _dom):
+            return list(entries)
+    coord.hass.config_entries = _CEs()
+
+    class _RC:
+        def __init__(self):
+            self.data = {
+                "occupied": False, "temperature": None, "humidity": None,
+            }
+    coord.hass.data.setdefault(DOMAIN, {})[entries[0].entry_id] = _RC()
+    coord.hass.data.setdefault(DOMAIN, {})[entries[1].entry_id] = _RC()
+    zm._hvac_seen.update(["r_a", "r_b"])
+    zm.update_room_conditions(house_state="home_day")
+    assert zm.is_zone_transient_blocked(zone_id) is False
+
+
+def _seed_zone_transient_and_occupied(coord, zone_id: str) -> None:
+    """Transient sibling + a LIVE hvac_occupied room. Used for the
+    item-2 discriminator: dropping the `_fused_empty and` conjunct arms
+    the hold even though the zone has a real occupant."""
+    from homeassistant.config_entries import ConfigEntryState
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_TYPE, CONF_ROOM_NAME, DOMAIN, ENTRY_TYPE_ROOM,
+    )
+    zm = coord.zone_manager
+    zone = zm._zones[zone_id]
+    zone.rooms = ["r_live_occ", "r_reload"]
+
+    class _Entry:
+        def __init__(self, rn, state):
+            self.entry_id = f"e_{rn}"
+            self.data = {
+                CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+                CONF_ROOM_NAME: rn,
+            }
+            self.options = {}
+            self.state = state
+            self.disabled_by = None
+
+    entries = [
+        _Entry("r_live_occ", ConfigEntryState.LOADED),
+        _Entry("r_reload", ConfigEntryState.SETUP_IN_PROGRESS),
+    ]
+
+    class _CEs:
+        def async_entries(_self, _dom):
+            return list(entries)
+    coord.hass.config_entries = _CEs()
+
+    class _RC:
+        def __init__(self, occupied):
+            self.data = {
+                "occupied": occupied, "temperature": None, "humidity": None,
+            }
+    coord.hass.data.setdefault(DOMAIN, {})[entries[0].entry_id] = _RC(True)
+    zm._hvac_seen.update(["r_live_occ", "r_reload"])
+    zm.update_room_conditions(house_state="home_day")
+    # Sanity: transient-blocked, and fused-OCCUPIED (live room armed).
+    assert zm.is_zone_transient_blocked(zone_id) is True
+
+
+@pytest.mark.asyncio
+async def test_row1_hold_H2e_transient_conjunct_load_bearing():
+    """FIX-UP round 5 item 1 (HIGH H2e). Discriminator for the
+    `_transient_blocked_row1 and` conjunct at hvac.py:2090. With ALL
+    rooms LIVE + established + fused-empty + past vacancy grace, the
+    row-1 vacancy override MUST fire (writes preset=away). Under the
+    mutation that drops the conjunct, the hold arms on this fully-
+    live zone and suppresses the write. Assertion changes ONE
+    variable (the mutation itself) — the fixture is a single legal
+    configuration.
+    """
+    coord, hass = _make_coord()
+    coord._house_state = "home_day"
+    coord._energy_constraint_mode = "normal"
+    coord.set_d5_enabled(False)
+    for _z in coord.zone_manager.zones.values():
+        _z.hvac_mode = "heat_cool"
+        _z.preset_mode = "home"
+    _seed_zone_all_live_and_empty(coord, "zone_1")
+    zone = coord.zone_manager.zones["zone_1"]
+    # Disable the row-1 vacancy sweep so `_execute_vacancy_sweep` (which
+    # walks per-room coordinators and reads config_entry.data — not
+    # present on our smoke `_RC` mock) isn't invoked. Sweep behaviour is
+    # orthogonal to the preset-write assertion under test.
+    zone.vacancy_sweep_enabled = False
+    zone.vacancy_sweep_done = True
+    # Past vacancy grace: last_occupied_time older than grace_minutes.
+    from datetime import timedelta as _td
+    from homeassistant.util import dt as _dt_util
+    zone.last_occupied_time = _dt_util.utcnow() - _td(
+        minutes=coord._vacancy_grace + 5,
+    )
+    hass.services.calls.clear()
+    await _drive_apply_presets(coord)
+    writes = _preset_writes(hass, zone.climate_entity, preset="away")
+    assert writes, (
+        f"H2e: all-live + established + past-grace zone must emit "
+        f"preset=away (row-1 vacancy override); got "
+        f"{hass.services.calls!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_row1_hold_H2e_transient_conjunct_load_bearing_sleep_target():
+    """FIX-UP round 5 item 1 (HIGH H2e) — sleep-target twin."""
+    coord, hass = _make_coord()
+    coord._house_state = "sleep"
+    coord._energy_constraint_mode = "normal"
+    coord.set_d5_enabled(False)
+    for _z in coord.zone_manager.zones.values():
+        _z.hvac_mode = "heat_cool"
+        _z.preset_mode = "sleep"
+    _seed_zone_all_live_and_empty(coord, "zone_1")
+    zone = coord.zone_manager.zones["zone_1"]
+    zone.vacancy_sweep_enabled = False
+    zone.vacancy_sweep_done = True
+    from datetime import timedelta as _td
+    from homeassistant.util import dt as _dt_util
+    zone.last_occupied_time = _dt_util.utcnow() - _td(
+        minutes=coord._vacancy_grace + 5,
+    )
+    # Force target_preset to "sleep" for house_state=sleep.
+    coord._preset_manager.get_preset_for_house_state = lambda _s: "sleep"
+    hass.services.calls.clear()
+    await _drive_apply_presets(coord)
+    writes = _preset_writes(hass, zone.climate_entity, preset="away")
+    assert writes, (
+        f"H2e sleep-target: all-live + established + past-grace must "
+        f"still emit preset=away; got {hass.services.calls!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_row1_hold_H2d_fused_empty_conjunct_load_bearing():
+    """FIX-UP round 5 item 2 (HIGH H2d). Discriminator for the
+    `_fused_empty and` conjunct at hvac.py:2091. Zone has a transient
+    sibling AND a LIVE hvac_occupied room; zone currently `away`;
+    target_preset=home. Under baseline, hold does NOT arm (fused not
+    empty) → preset=home writes. Mutation drops `_fused_empty and` →
+    hold arms on a fused-OCCUPIED zone → home suppressed.
+    """
+    coord, hass = _make_coord()
+    coord._house_state = "home_day"
+    coord._energy_constraint_mode = "normal"
+    coord.set_d5_enabled(False)
+    for _z in coord.zone_manager.zones.values():
+        _z.hvac_mode = "heat_cool"
+        _z.preset_mode = "away"
+    _seed_zone_transient_and_occupied(coord, "zone_1")
+    zone = coord.zone_manager.zones["zone_1"]
+    hass.services.calls.clear()
+    await _drive_apply_presets(coord)
+    writes = _preset_writes(hass, zone.climate_entity, preset="home")
+    assert writes, (
+        f"H2d: transient sibling + live hvac-occupied room must fire "
+        f"preset=home (occupancy wins over transient-block); got "
+        f"{hass.services.calls!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_drain_call_site_in_run_decision_cycle_fires_nm():
+    """FIX-UP round 5 item 3 (MED N2). Wire-in for the drain call at
+    hvac.py:1659 (`await self._drain_hvac_degraded_room_events()` after
+    the per-tick `update_room_conditions`). A room that was LOADED at
+    tick 1 flips to disabled_by=USER before tick 2 → the classifier
+    enqueues a degraded event, the drain fires the NM.
+
+    Discriminating mutation: comment out the drain at ~1659 → nm.calls
+    empty → RED.
+    """
+    coord, hass = _make_coord()
+    # Wire a capturing NM.
+    from custom_components.universal_room_automation.const import DOMAIN
+    _nm_calls: list = []
+
+    class _NM:
+        async def async_notify(_self, **kw):
+            _nm_calls.append(kw)
+    coord.hass.data.setdefault(DOMAIN, {})["notification_manager"] = _NM()
+
+    from homeassistant.config_entries import (
+        ConfigEntryDisabler, ConfigEntryState,
+    )
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_TYPE, CONF_ROOM_NAME, ENTRY_TYPE_ROOM,
+    )
+    zm = coord.zone_manager
+    zone = zm._zones["zone_1"]
+    zone.rooms = ["r_x"]
+
+    class _Entry:
+        def __init__(self):
+            self.entry_id = "e_r_x"
+            self.data = {
+                CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+                CONF_ROOM_NAME: "r_x",
+            }
+            self.options = {}
+            self.state = ConfigEntryState.LOADED
+            self.disabled_by = None
+    entry = _Entry()
+
+    class _CEs:
+        def async_entries(_self, _dom):
+            return [entry]
+    coord.hass.config_entries = _CEs()
+
+    class _RC:
+        def __init__(self):
+            self.data = {"occupied": False, "temperature": None, "humidity": None}
+    coord.hass.data.setdefault(DOMAIN, {})[entry.entry_id] = _RC()
+    # Tick 1: room LOADED — populate _hvac_seen, no NM.
+    zm.update_room_conditions(house_state="home_day")
+    _nm_calls.clear()
+    # Now disable the room and drive one decision cycle end-to-end.
+    entry.disabled_by = ConfigEntryDisabler.USER
+    entry.state = ConfigEntryState.NOT_LOADED
+    # Drive the enclosing `_run_decision_cycle` — this exercises the
+    # ~1659 drain call site. `_run_decision_cycle` runs update_room_
+    # conditions then awaits _drain_hvac_degraded_room_events.
+    try:
+        await coord._run_decision_cycle()
+    except Exception:  # noqa: BLE001
+        # Downstream collaborators may fault on the smoke harness; the
+        # drain runs BEFORE most of them.
+        pass
+    for _ in range(4):
+        await asyncio.sleep(0)
+    kinds = [c.get("hazard_type") for c in _nm_calls]
+    assert "hvac_degraded_room" in kinds, (
+        f"Decision-cycle drain wire-in: expected hvac_degraded_room NM "
+        f"for disabled room; got {_nm_calls!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_hold_ledger_row_episode_gated_and_shape():
+    """FIX-UP round 5 item 9. Row-1 transient-room-hold ledger row
+    (hvac.py:2561-2600) must (a) emit exactly once per episode, (b)
+    carry action=preset_change_suppressed + reason=transient_room_hold.
+
+    Mutation drills:
+      - remove `if self._row1_hold_logged_episode.get(zone_id) != _ep`
+        → 2 rows across 2 ticks.
+      - change `"reason": "transient_room_hold"` → wrong reason → RED.
+    """
+    coord, hass = _make_coord()
+    coord._house_state = "home_day"
+    coord._energy_constraint_mode = "normal"
+    coord.set_d5_enabled(False)
+    for _z in coord.zone_manager.zones.values():
+        _z.hvac_mode = "heat_cool"
+        _z.preset_mode = "away"
+    _seed_zone_with_transient_sibling(coord, "zone_1")
+    zone = coord.zone_manager.zones["zone_1"]
+
+    # Inject a capturing activity_logger.
+    from custom_components.universal_room_automation.const import DOMAIN
+    _al_calls: list = []
+
+    class _AL:
+        async def log(_self, **kw):
+            _al_calls.append(kw)
+    coord.hass.data.setdefault(DOMAIN, {})["activity_logger"] = _AL()
+
+    hass.services.calls.clear()
+    await _drive_apply_presets(coord)
+    for _ in range(4):
+        await asyncio.sleep(0)
+    await _drive_apply_presets(coord)
+    for _ in range(4):
+        await asyncio.sleep(0)
+
+    hold_rows = [
+        c for c in _al_calls
+        if c.get("action") == "preset_change_suppressed"
+        and c.get("zone") == "zone_1"
+        and (c.get("details") or {}).get("reason") == "transient_room_hold"
+    ]
+    assert len(hold_rows) == 1, (
+        f"expected exactly ONE transient_room_hold ledger row across 2 "
+        f"ticks (episode-gated); got {len(hold_rows)} rows "
+        f"({[c.get('details') for c in hold_rows]!r})"
+    )
+    details = hold_rows[0].get("details") or {}
+    assert details.get("reason") == "transient_room_hold"
+    assert details.get("target_preset") == "home"
+
+
+@pytest.mark.asyncio
+async def test_d9_hold_fused_empty_conjunct_load_bearing():
+    """FIX-UP round 5 item 9 D9 companion. The D9 HOLD at
+    hvac.py:3128 requires BOTH `_transient_blocked_dpm AND
+    _fused_empty_dpm`. Discriminator: transient sibling + LIVE
+    hvac_occupied room → fused not empty → D9 hold does NOT arm →
+    set_temperature writes. Mutation: drop `and _fused_empty_dpm`
+    → hold arms on occupied zone → write suppressed.
+    """
+    coord, hass = _make_coord()
+    coord._house_state = "home_day"
+    coord._guest_mode_actuation_enabled = True
+    coord._freeze_active = False
+    coord._last_emitted_range = {}
+    if getattr(coord, "_override_arrester", None) is not None:
+        arr = coord._override_arrester
+        arr._corrective_writes_suppressed = lambda _zid: False
+        arr.suppress = lambda *_a, **_kw: None
+        arr.unsuppress = lambda *_a, **_kw: None
+    from custom_components.universal_room_automation.const import DOMAIN
+    ec = types.SimpleNamespace(_dynamic_preset_overrides={"zone_1": []})
+    manager = types.SimpleNamespace(coordinators={"energy": ec})
+    coord.hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = manager
+    _seed_zone_transient_and_occupied(coord, "zone_1")
+    zone = coord.zone_manager.zones["zone_1"]
+    hass.services.calls.clear()
+    try:
+        await coord._async_apply_preset_overrides()
+    except Exception:  # noqa: BLE001
+        # Down-stream collaborators may fault on the smoke harness
+        # AFTER the load-bearing D9 hold-vs-continue decision has been
+        # made; the observation surface (set_temperature calls) is
+        # already captured before that. This is not exception-swallowing
+        # of the assertion under test.
+        pass
+    setpoint_writes = [
+        c for c in hass.services.calls
+        if c[0] == "climate" and c[1] == "set_temperature"
+        and c[2].get("entity_id") == zone.climate_entity
+    ]
+    assert setpoint_writes, (
+        f"D9 fused-empty conjunct: transient sibling + live-occupied "
+        f"room must let compose-away emit set_temperature; got "
         f"{hass.services.calls!r}"
     )
