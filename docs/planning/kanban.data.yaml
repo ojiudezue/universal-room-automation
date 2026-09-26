@@ -12737,12 +12737,23 @@ cards:
     human, URA-owned/stale holds reclaimable), then measure, then occupancy truth (night still-sleeper,
     hot entry), then the dormant setpoint layer, then energy/guest extras. Consolidation into ~4 workstreams
     to be applied to the board AFTER the operator rules — do not re-card from this note.'
+  refinement_2026_09_26_abstraction: 'Operator: "Did you forget that we wanted an extra abstraction so we could
+    define how Nest writes, how Bryant writes (Carrier)... Then all the things we proposed will work generically for
+    other operators" -> W1 is NOT a "Carrier strategy"; it is the THERMOSTAT DEFINITION abstraction
+    (HVAC-THERMOSTAT-ABSTRACTION-1 per-zone handle owning write/borrow/return/READ, + HVAC-PRESET-WRITE-STRATEGY-1
+    per-brand strategy). Carrier/Bryant is the first implementation (ClearThenPin preset writes, presets-only
+    returns, status-vs-config coherence on reads); a generic DirectPin default covers well-behaved integrations;
+    a Nest strategy is written when there is a Nest to test against (interface ready, no speculative vendor code).
+    Also corrected 2026-09-26: HVAC does NOT react to occupancy on a 1-min tick — HVAC_DECISION_TICK = 5 min
+    (hvac_const.py:13, cloud call-rate bound); ad-hoc cycles fire only on house-state change (hvac.py:3131),
+    pre-arrival (:4002) and boot-settle release (:1545), NOT on room occupancy. Entry latency = up to one tick +
+    dwell. The lever for hot entry is an occupancy-triggered cycle (event-driven fast path), not the dwell value.'
   title: The ordered plan for making HVAC supple — six steps, each with a gate, run to completion
     rather than cherry-picked
   thread: hvac
   status: planned
   created: '2026-09-15'
-  updated: '2026-09-26 01:00'
+  updated: '2026-09-26 01:30'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-15 ("We should define sequence now. We have some related work and
