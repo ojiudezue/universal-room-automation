@@ -1802,11 +1802,17 @@ cards:
     ok. Now a loadable skill. NOT wired into URA / not run against the repo. Update = re-pull+copy.'
 
 - id: HVAC-W1-THERMOSTAT-DEFINITION
+  planning_dispatched_2026_09_26: 'Operator: "Cant we start the other pieces of the arc now? Planning?" Two planners
+    dispatched (opus-5.5, read state-of-play first): Stage A -> docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md
+    (Tier 2-DB, behaviour-neutral: all 3 verbs through funnels + one durable row per write, write-volume measured first);
+    Stage B -> discovery doc docs/Coordinator/THERMOSTAT_DEFINITION_CARRIER_BRYANT.md then
+    docs/planning/PLANNING_hvac_w1b_thermostat_definition.md (Tier 3: 2 plan reviews + operator checkpoint). Builds
+    sequence after v5.103.15 merges (hvac.py overlap).'
   title: 'W1 — One thermostat definition per brand: how URA writes, borrows/returns, and reads a thermostat, discovered in detail and applied everywhere'
   thread: hvac
-  status: planned
+  status: pre_planning
   created: '2026-09-26 02:40'
-  updated: '2026-09-26 02:40'
+  updated: '2026-09-26 06:30'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-26 ("The workstreams are approved. Recard.")'
@@ -1832,11 +1838,14 @@ cards:
     surfaces" -> NOT a hard HVAC input; documented state-of-play §9c. Fast path scope: "The HVAC signaling from rooms
     that is more immediate I expect to shave the 5m tick only for now" -> a room/zone HVAC-occupancy change triggers a
     rate-limited per-zone decision cycle; no dwell/hold/grace/override changes in that cycle (state-of-play §9d).'
+  fast_path_planning_2026_09_26: 'Fast-path plan dispatched -> docs/planning/PLANNING_hvac_w2_occupancy_fast_path.md
+    (scope = shave the 5-min tick only; rate limiter sized from measured rising-edge rates; dwell-expiry follow-up
+    question; build after v5.103.15 merges).'
   title: 'W2 — HVAC knows who is really in each zone, fast enough and at night'
   thread: hvac
   status: planned
   created: '2026-09-26 02:40'
-  updated: '2026-09-26 04:30'
+  updated: '2026-09-26 06:30'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-26 ("The workstreams are approved. Recard.")'
