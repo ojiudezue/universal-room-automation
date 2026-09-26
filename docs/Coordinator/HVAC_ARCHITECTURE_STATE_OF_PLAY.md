@@ -238,11 +238,15 @@ lockout + infinite holds. Fix direction (W1): presets-only returns; manual count
 **9.2 URA cannot see its own setpoint/mode writes** (§4.3) — made every diagnosis on this surface fragile.
 
 **9.3 Night still-sleeper lost by radar (Jaya, zone_2).** 09-24 02:47 and 09-25 02:09 zone_2 retreated with Jaya home:
-her phone (`sensor.iphone_jaya_area`, Bermuda) stationary in-suite all night; `fan.fanswitch_treat_wifi_jayabedroom`
-off at 01:31 / 01:36 → `binary_sensor.jaya_3_presence` off one minute later → only micro-blips on
-`binary_sensor.mmwave_zigbee_jayabedroom_presence` → gaps > 30-min D8 hold. Zigbee radar **unavailable since
-2026-09-25 19:32**; `sensor.seeedstudio_mmwave_kit_047d34_existence_energy` unavailable both nights. Card
-`HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1` (trigger fired). Constraint: zone-scoped only, never "anyone home".
+her phone (`sensor.iphone_jaya_area`, Bermuda) stationary in-suite all night. **Sequence corrected 2026-09-26 (C19):**
+URA marked the room VACANT first (09-24 01:25:53, 09-25 01:31:18 — `ura_activity_log`), and only THEN turned
+`fan.fanswitch_treat_wifi_jayabedroom` off because the room was vacant (01:31:03 "(vacant, 83°F)", 01:36:38) — the fan
+was a consequence, not the trigger. The radars simply lost a still sleeper. Night gaps 32.6 / 45.9 / 54.4 min vs the
+30-min D8 hold; probe (7.8 nights, `scripts/probes/hvac_night_sleeper_probe.py`) found only Jaya's room affected, 13/13
+stationary-in-suite episodes returned (max 55.6 min), 0/9 genuine exits stationary. **Fix path: per-room
+`hvac_vacancy_hold_night` knob for Jaya Bedroom (awaiting operator approval); code build parked.** Zigbee radar
+**unavailable since 2026-09-25 19:32**; `sensor.seeedstudio_mmwave_kit_047d34_existence_energy` unavailable both nights.
+Card `HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1`. Constraint: zone-scoped only, never "anyone home".
 
 **9.4 Readers that act on a reloading room's synthetic "empty"** (pre-existing; reviewers B+D of v5.103.15): D5 coast
 defer `hvac.py:2271-2289` can force an occupied zone away for one tick (and retreat an all-dead zone under coast); D6
@@ -309,6 +313,8 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 | C17 | "Arrester suppression is only 5 s" (§2/§7, and copied into the W1-B plan) | Two windows: `SUPPRESS_TTL_SECONDS = 5` for temperature writes (kept short on purpose for human detection) and `SUPPRESS_TTL_SECONDS_PRESET = 120` for preset writes | `hvac_override.py:129`, `:141-146`, `:153` (W1-B build-prediction review, verified 2026-09-26) |
 
 | C18 | "Hot entry takes up to one tick + dwell, ~7 min" | 5–10 min: the observing tick starts the dwell clock and always skips; the preset write lands on the next tick | `hvac_zones.py:714-716`, `hvac.py:2362-2365` (W2-1 plan review, verified 2026-09-26) |
+
+| C19 | "Jaya's radar dropped because the fan switched off" (09-25 session) | URA marked the room vacant FIRST (01:25:53 / 01:31:18), then turned the fan off because it was vacant; the radars lost a still sleeper | `ura_activity_log` Jaya Bedroom rows (W2-2 plan review, verified 2026-09-26) |
 
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 
