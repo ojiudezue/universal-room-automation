@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T15:14:56-05:00_ - _Data commit: `54bd8edf8fb1`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T15:35:45-05:00_ - _Data commit: `22e9f20d805f`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -418,9 +418,10 @@ _created 2026-09-26 02:40 · updated 2026-09-26 07:30 · initial_
   - Problem: HVAC's picture of zone occupancy is wrong in specific, measured ways — a failed room blocked its zone (fix in flight), a reloading room reads as empty on paths that bypass the shared check, radars lose a still sleeper once the f...
 - **Origin:** 2026-09-26 - operator approved the 4-workstream consolidation of the HVAC arc (see HVAC-SUPPLE-SEQUENCE-1 RESEQUENCE_PROPOSAL_2026_09_26)
 - **Why:** Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.
-- **Next:** Order: live-room gate (building, v5.103.15) -> occupancy fast path (designed in 82620357a, never built; the real hot-entry lever — dwell alone cannot beat the 5-min tick) -> night still-sleeper hold -> placeholder readers -> guest-as-per...
+- **Next:** W2-1 fast path: D0 part 1 running (docs/planning/AUDIT_hvac_fast_path_rate_2026_09_26.md) -> D0 part 2 after 2026-09-27 15:25 CDT (1 day of climate_write rows) -> if fail-out does not fire, size the constants and dispatch the build -> Ti...
 - **Tags:** hvac, workstream
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `disposition_2026_09_26_groom`: 2026-09-26 16:20: builder correctly REFUSED the fast-path dispatch — plan §9 gates the BUILD (not only the merge) on W1-A live >= 1 day because D0 must size HVAC_FAST_PATH_MIN_INTERVAL_S / _GLOBAL_MIN_INTERVAL_S / _SLA_S / FAST_PATH_DWEL...
   - `override_switches_2026_09_26`: Operator: "try to understand what happens to HVAC occupancy when a room is forced vacant or forced occupied ... I don't think you considered this." Traced (state-of-play §9c): the per-room Override Occupied/Vacant switches set the room's...
   - `operator_decisions_2026_09_26`: Override switches: "Leave it as is but document in state of play for HVAC so it surfaces" -> NOT a hard HVAC input; documented state-of-play §9c. Fast path scope: "The HVAC signaling from rooms that is more immediate I expect to shave th...
   - `fast_path_planning_2026_09_26`: Fast-path plan dispatched -> docs/planning/PLANNING_hvac_w2_occupancy_fast_path.md (scope = shave the 5-min tick only; rate limiter sized from measured rising-edge rates; dwell-expiry follow-up question; build after v5.103.15 merges).
