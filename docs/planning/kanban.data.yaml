@@ -12376,7 +12376,11 @@ cards:
   thread: platform
   status: done
   shipped_version: v5.100.9
-  updated: 2026-09-11 19:20
+  updated: '2026-09-26 02:11'
+  residual_2026_09_26: 'RESIDUAL CARDED 2026-09-26: the audit half of this card''s own next (convert the other in-place
+    source-writing tests) was never done. A live in-place mutation of energy.py was observed during the
+    2026-09-26 overnight suite run. The residual is now TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1. This
+    card stays done (primary delivered).'
   approval: explicit
   tags:
   - unrestored-drill

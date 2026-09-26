@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T02:05:39-05:00_ - _Data commit: `465f5e2ee736`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-26T02:11:38-05:00_ - _Data commit: `01ccc7a9e8fa`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -2752,6 +2752,17 @@ _created 2026-08-26 02:20 · updated 2026-09-26 02:40 · refined_
 ## ✅ Done (188)
 _closed, evidence in refs_
 
+### `TEST-SOURCE-MUTATION-KILL-UNSAFE-1` - A test writes production source with only a `finally` to restore it — a hard kill leaves the repo mutated on disk, and the concurrency guard is exactly what delivers hard kills — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **platform** - status: **done** - approval: **explicit**
+_updated 2026-09-26 02:11 · refined_
+- **Origin:** 2026-08-21 - Surfaced by the D1 observability agent as an ancillary observation it was right to flag: "the test suite mutated custom_components/.../energy_pool_owners.py (prune_participant True->False) during runs — hollow-test / write-b...
+- **Next:** Tier 1: rewrite test_owner_registry_mutation_matrix.py:58 to mutate a tmp copy (option a), then audit the 20+ source-writing tests. Standalone (operator kept it cheap).
+- **Tags:** unrestored-drill, test-strategy
+- **Parsimony:** [BUILD] A test writes production source with only a `finally` to restore it — a hard kill leaves the repo mutated on disk, and t
+- **Forensic keys (2):**
+  - `residual_2026_09_26`: RESIDUAL CARDED 2026-09-26: the audit half of this card's own next (convert the other in-place source-writing tests) was never done. A live in-place mutation of energy.py was observed during the 2026-09-26 overnight suite run. The residu...
+  - `mechanism`: CONFIRMED. quality/tests/test_owner_registry_mutation_matrix.py writes PRODUCTION SOURCE — line 58 `path.write_text(mutated, encoding="utf-8")` against custom_components/universal_room_automation/... — and restores it in a `finally` at l...
+
 ### `ENVOY-MQTT-ADDON-WRONG-HOST-1` - The Envoy-to-MQTT add-on has been pointed at a dead IP since install, so it has never published anything — one wrong field, and it also refutes the local-API contention theory — _WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **energy** - status: **done** - approval: **unreviewed**
 _created 2026-09-25 10:40 · initial_
@@ -3918,16 +3929,6 @@ _created 2026-09-11 19:20 · updated 2026-09-11 20:10 · refined ×2_
 - **Next:** CLOSED not-a-defect. Fence recorded: never bound the attain rate to solar horizon.
 - **Tags:** no-fabrication-verify, measure-before-build, tier-2, tier-2db
 - **Refs:** energy_battery.py:4074 (unbounded) vs :2933-2954 (ladder bounds)
-
-### `TEST-SOURCE-MUTATION-KILL-UNSAFE-1` - A test writes production source with only a `finally` to restore it — a hard kill leaves the repo mutated on disk, and the concurrency guard is exactly what delivers hard kills — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **platform** - status: **done** - approval: **explicit**
-_updated 2026-09-11 19:20 · refined_
-- **Origin:** 2026-08-21 - Surfaced by the D1 observability agent as an ancillary observation it was right to flag: "the test suite mutated custom_components/.../energy_pool_owners.py (prune_participant True->False) during runs — hollow-test / write-b...
-- **Next:** Tier 1: rewrite test_owner_registry_mutation_matrix.py:58 to mutate a tmp copy (option a), then audit the 20+ source-writing tests. Standalone (operator kept it cheap).
-- **Tags:** unrestored-drill, test-strategy
-- **Parsimony:** [BUILD] A test writes production source with only a `finally` to restore it — a hard kill leaves the repo mutated on disk, and t
-- **Forensic keys (1):**
-  - `mechanism`: CONFIRMED. quality/tests/test_owner_registry_mutation_matrix.py writes PRODUCTION SOURCE — line 58 `path.write_text(mutated, encoding="utf-8")` against custom_components/universal_room_automation/... — and restores it in a `finally` at l...
 
 ### `HVAC-TICK-LITERAL-1` - HVAC decision cycle is a hardcoded 5-min literal — the quantum that makes zone_entry_dwell=3 structurally inert and grace_constrained=5 the minimum expressible value — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **done** - approval: **explicit**
