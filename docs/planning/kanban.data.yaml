@@ -28495,13 +28495,22 @@ cards:
 
 - id: SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1
   title: Solar-following car charging steers off a grid reading that lags by a minute — point it at
-    the new once-a-second local reading instead
+    the new fast (~5-6s) local reading instead
   thread: energy
-  status: planned
+  status: waiting_operator
   created: '2026-09-25 18:00'
-  updated: '2026-09-25 18:00'
-  refinement_status: initial
-  approval: unreviewed
+  updated: '2026-09-25 20:15'
+  refinement_status: refined
+  approval: explicit
+  approved_by: 'operator 2026-09-25 ("Approved") — B1 only: set the solar-follow grid FALLBACK to
+    sensor.envoy_stream_grid_power. B2/B3 still gated.'
+  b1_verification_2026_09_25: 'Pre-apply checks: stream unit W (controller accepts W/kW,
+    energy_pool.py:4597-4602); sign positive=import (stream +13970 W matched SPAN legs 6.4+7.6 kW during
+    the 19:1x peak import); freshness via last_reported <=180s (energy_pool.py:4603-4616) — stream
+    last_reported advances every ~5-6s. Field is NOT in the reload-suppression allowlist, so saving
+    the Energy options step reloads the CM entry (normal; NOT the parent entry). Controller reads the
+    value at construction (energy.py:558-565), so the reload is what applies it. Primary stays Emporia
+    sensor.mains_vue_3_power_minute_average; the fallback only engages when Emporia is stale.'
   rank: {value: 5, time_criticality: 3, effort: 2}
   tags: [energy, evse, config-only, measure-before-build]
   problem_solution:
@@ -28537,10 +28546,11 @@ cards:
     written, not less — it retightens SOLAR_FOLLOW_GRID_FRESH_S, and the ~20 s skew must be
     characterised (constant? drifting? survives reboot/DST?) before any tight bound is set, or the
     gate misfires systematically.'
-  next: 'APPROVE (operator): B1 is a one-field config change, reversible, Tier 1, and its gate is
-     already satisfied (see gate_narrowed_2026_09_25) -> on approval I set the solar-follow grid
-     FALLBACK to sensor.envoy_stream_grid_power and measure decision latency before/after. B2/B3 stay
-     blocked on the independence + skew results.'
+  next: 'DO (operator): URA -> Coordinator Manager -> Configure -> Energy -> set "solar follow grid
+     fallback entity" to sensor.envoy_stream_grid_power and save (UI, because an API resubmit of that
+     large form would re-send every other energy field) -> I verify the stored option + the
+     solar_follow_grid_source attribute after the CM reload, then close B1. B2/B3 stay blocked on the
+     independence + skew results.'
   parsimony: {problem: 'Solar-follow regulates amps from a ~1-minute-average grid reading whose error
     is measured to grow 6.7x when load moves fast.', verdict: SIMPLIFY}
   links:
