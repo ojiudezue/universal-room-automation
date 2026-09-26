@@ -525,16 +525,17 @@ _being built_
 
 ### `HVAC-DEGRADED-ROOM-TRIPWIRE-1` - One broken room switches off HVAC occupancy for its whole zone — count only the rooms that are actually running — _#1 · WSJF 2.8 · v7 tc5 u2 /e5_
 thread: **hvac** - status: **in_progress**
-_created 2026-09-17 · updated 2026-09-25 23:00_
+_created 2026-09-17 · updated 2026-09-26 00:40_
 - **Problem / Solution:**
   - Problem: before URA lets a zone drop to "away", it waits until it has heard from every room in that zone. A room that is disabled or failing to load never reports, so the zone never qualifies and keeps heating or cooling empty space fore...
 - **Why:** Operator round-4 decision (09-17), re-affirmed 09-25: HVAC must match occupancy in the zone. The round-5 all(zone.rooms) revert is SUPERSEDED — it was an orchestrator override of that decision. The earlier why ("all() is the safe gate; s...
 - **Next:** BUILD (me, Tier 2 — touches the shared retreat gate, 2 framing-disjoint reviews + mutation drill): change is_zone_hvac_established (hvac_zones.py:1043) to all() over rooms with a LOADED config entry; replace test_f1_disabled_room_leaves_...
 - **Tags:** hvac, no-soak, trip-wire, safety-gate-residual
 - **Parsimony:** [BUILD] a disabled room silently disables conditioning-demand for its whole zone
-- **Forensic keys (2):**
+- **Forensic keys (3):**
   - `operator_decision_2026_09_25`: Operator: "This also seems wrong. WTF?" — the trip-wire-instead-of-fix framing is REJECTED. It was the operator's ROUND-4 decision (09-17) to scope establishment to rooms with a LIVE entry; the round-4 build implemented that WRONGLY as a...
   - `operator_go_2026_09_25`: Operator: "Maddening. do it now. Plan and build. ... no corners cut." Explicit go. Tier: regression-prone (shared retreat gate consumed by row-1 / D7 / D9 / F4 across every zone) -> standing policy = Tier 2-DB (3 framing-disjoint reviews...
+  - `progress_2026_09_26`: Plan PLANNING_hvac_live_room_establishment.md: rev 1 by ura-planner (ran on opus-5) -> orchestrator hand-check found AM-1 CRITICAL (rev-1 D2 formula let a reloading, previously-seen room satisfy establishment = the cold-retreat hazard) +...
 
 ## 🔍 Review (1)
 _under review_

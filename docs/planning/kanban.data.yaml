@@ -1799,7 +1799,7 @@ cards:
   rank: {value: 7, time_criticality: 5, effort: 5}
   thread: hvac
   created: '2026-09-17'
-  updated: '2026-09-25 23:00'
+  updated: '2026-09-26 00:40'
   tags: [hvac, no-soak, trip-wire, safety-gate-residual]
   operator_decision_2026_09_25: 'Operator: "This also seems wrong. WTF?" — the trip-wire-instead-of-fix
     framing is REJECTED. It was the operator''s ROUND-4 decision (09-17) to scope establishment to rooms with
@@ -1813,6 +1813,15 @@ cards:
     Tier: regression-prone (shared retreat gate consumed by row-1 / D7 / D9 / F4 across every zone) -> standing
     policy = Tier 2-DB (3 framing-disjoint reviews) + ONE plan review before build + live validation + README
     write-back. Plan: docs/planning/PLANNING_hvac_live_room_establishment.md (ura-planner dispatched 2026-09-25).'
+  progress_2026_09_26: 'Plan PLANNING_hvac_live_room_establishment.md: rev 1 by ura-planner (ran on opus-5) ->
+    orchestrator hand-check found AM-1 CRITICAL (rev-1 D2 formula let a reloading, previously-seen room satisfy
+    establishment = the cold-retreat hazard) + AM-2 (2 HA states unclassified) -> adversarial plan review
+    (opus-5.5) FIX-PLAN-FIRST F1-F13 (no conditioning_demand sensor exists -> real surface is
+    get_zone_status_attrs/zone_{n}_status; missed consumers binary_sensor.py:914 + hvac_override.py:2319;
+    coordinator-presence conjunct; SETUP_RETRY excluded immediately because the grace dict is per-HA-start and a
+    restart storm would keep the fix inert; NM from the async producer only) -> REV 2 folded in place @891099c97.
+    Build dispatched to ura-builder (opus-5.5) in worktree .claude/worktrees/hvac-live-room-establishment on
+    feature/hvac-live-room-establishment.'
   title: One broken room switches off HVAC occupancy for its whole zone — count only the rooms that are
     actually running
   problem_solution:
