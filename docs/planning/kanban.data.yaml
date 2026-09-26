@@ -20606,13 +20606,25 @@ cards:
     before then would be sizing a number nobody can see. The 4-minute runtime claim, at least, is
     CONFIRMED: the full run took 249s even while erroring out of almost every test. THIS CARD IS
     BLOCKED ON ITS OWN CHILD — it is not ready for the re-arch audit it asks for.'
+  INSTANCE_2026_09_26_v5103_15_cost: 'Operator: "My sense is the test suite is a major source of slowness? Warranted?"
+    Measured on the v5.103.15 cycle: one full suite run ~8 min (develop 470 s, branch 499 s; ~10.8k tests, ~195
+    pre-existing failures on develop). Each name-diff = develop + branch = ~17 min plus setup; this cycle ran 5 (~85-90
+    min). Reviewer C per-site mutation pass ~2 h (41 mutations; the broad re-confirm of every green row across 68 HVAC
+    files dominated). Builder fix rounds 7-20 min each x6. VALUE: the full runs caught real regressions twice (round 1:
+    11 NEW = stale hand-stub + a 1500-char source-grep test; round 3: 3 NEW source-anchor breaks). WASTE: (1) the develop
+    baseline is re-run on every name-diff although develop''s code tree never changed (docs-only commits) — cache the
+    failing-name list keyed by the hash of custom_components/ + quality/ -> halves every name-diff; (2) ~195 standing
+    failures force name-diffs instead of pass/fail and generate order-pollution noise; (3) full suite after test-only
+    fix rounds (targeted + one pre-merge full run would do); (4) Reviewer C broad re-confirms run serially — parallelise
+    across processes (read-only, different files); (5) order pollution (module-level MagicMock stubs) keeps producing
+    false REDs (see TEST-SUITE-ORDER-INDEP-PRODSTUBS-1).'
   title: Investigate + possibly re-architect the automated test strategy (never examined; slow + collides
     + hollow at boundaries)
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
   status: waiting_operator
   dedupe_2026_09_13: 'KEEP (broad umbrella). Collection-order children now resolved/assigned: CONST-STUB=DONE (v5.101.0), PRODSTUBS-1=active. REARCH retains the distinct scope: ~87 order-dependent RUNTIME failures (not collection), ~4-min full-suite runtime, the hollow _FakeRoomCoord boundary that let integration bugs ship, AND the carved-out INSTANCE_2026_08_26_WALLCLOCK EVSE wall-clock-coupled test family (from SUITE-ORDER-POLLUTION-1).'
-  updated: '2026-09-26 02:11'
+  updated: '2026-09-26 09:45'
   measured_2026_09_26_full_suite_rerun: 'OVERNIGHT PASS 2026-09-26, VERIFY-BEFORE-WORK by RUNNING it, not trusting the 09-23 number.
     Command: PYTHONPATH=quality PYTHONDONTWRITEBYTECODE=1 .venv-ha/bin/python -m pytest quality/tests/
     -q -p no:randomly on develop @ba2dcb9ee. RESULT: 194 failed, 10589 passed, 36 skipped, 2 xfailed, 3
