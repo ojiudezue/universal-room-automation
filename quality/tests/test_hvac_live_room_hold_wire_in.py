@@ -114,16 +114,43 @@ from runtime_harness import build_smoke_hass  # noqa: E402
 def _make_coord():
     """Real HVACCoordinator on a 3-zone smoke_hass — same shape as
     test_hvac_d5_reframe_and_occupancy_gate._make_coord."""
-    # FIX-UP round 5 item 11: purge shim modules AGAIN at test-run time
-    # (sibling test files' collection may have installed MagicMock
-    # stubs for e.g. `custom_components.universal_room_automation.
-    # domain_coordinators.base` — HVACCoordinator inherits from
-    # BaseCoordinator; a MagicMock base class raises at class-body
-    # evaluation of the real hvac.py).
+    # FIX-UP round 5 item 11 + round 7 (polluter =
+    # test_arrester_comfort_delay.py): purge shims AND — ONLY IF
+    # HVACCoordinator was loaded against a shim `.base` (BaseCoordinator
+    # frozen to `object` by test_arrester_comfort_delay's
+    # `_ensure_hvac_module_loaded`) — force-reload `domain_coordinators.
+    # hvac`, `.base`, `.hvac_override`, `.hvac_zones`, `.hvac_setpoint`,
+    # `.hvac_const` so HVACCoordinator's class body re-resolves against
+    # the REAL base. Other `.hvac_*` modules are LEFT ALONE so sibling
+    # tests that keep Python references into them are unaffected.
+    #
+    # Why the narrow re-load: round 6 (blanket `del sys.modules[dc.*]`)
+    # broke test_arrester_comfort_delay.py::TestCH1LedgerEmit::test_S3_
+    # defer_emits_ledger_row when arrester's tests ran AFTER wire-in
+    # in the same process — arrester's `from .hvac_setpoint import
+    # _log_deferred_write` monkey-patch target no longer matched the
+    # symbol reached via the cached arrester-side module reference.
+    # The narrow re-load below only reloads what HVACCoordinator's
+    # __bases__ demands, and leaves arrester's setpoint reference
+    # intact via the scoped-fixture teardown restore.
     _purge_shim_modules()
     from custom_components.universal_room_automation.domain_coordinators.hvac import (  # noqa: E402
         HVACCoordinator,
     )
+    # Detect the polluted class (BaseCoordinator resolved to bare
+    # `object`) and re-load a MINIMAL set of modules to fix it.
+    _needs_reload = HVACCoordinator.__mro__[1:] == (object,)
+    if _needs_reload:
+        _minimal = (
+            "custom_components.universal_room_automation.domain_coordinators.base",
+            "custom_components.universal_room_automation.domain_coordinators.hvac",
+        )
+        for _k in _minimal:
+            sys.modules.pop(_k, None)
+        from custom_components.universal_room_automation.domain_coordinators.hvac import (  # noqa: E402
+            HVACCoordinator as _HVACCoordinator_reloaded,
+        )
+        HVACCoordinator = _HVACCoordinator_reloaded  # noqa: F811
     from custom_components.universal_room_automation.domain_coordinators.hvac_zones import (  # noqa: E402
         ZoneState,
     )
