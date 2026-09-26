@@ -544,6 +544,31 @@ def _sync_room_zone_to_zm(hass, room_entry, old_zone: str | None = None) -> bool
 
 
 # =============================================================================
+# ROOM-NAME-UNIQUE-1: shared duplicate-name check for CREATE + RENAME paths.
+# Case-insensitive, whitespace-trimmed. `exclude_entry_id` lets the options
+# (rename) path skip the room being renamed so renaming to your OWN name or
+# a case-only variant of it is allowed.
+# =============================================================================
+def _room_name_collides(room_entries, name: str, exclude_entry_id: str | None = None) -> bool:
+    """Return True iff `name` (trimmed, case-insensitive) matches ANOTHER room.
+
+    `room_entries` is the iterable of room config entries produced by
+    `_get_all_room_entries()` on either flow class (create + rename share
+    the same collision predicate).
+    """
+    needle = (name or "").strip().lower()
+    if not needle:
+        return False
+    for entry in room_entries:
+        if exclude_entry_id is not None and getattr(entry, "entry_id", None) == exclude_entry_id:
+            continue
+        other = (entry.data.get(CONF_ROOM_NAME, "") or "").strip().lower()
+        if other == needle:
+            return True
+    return False
+
+
+# =============================================================================
 # Bathroom-exhaust intelligence cycle — climate-fans form validation
 # =============================================================================
 def _validate_climate_fans_form(user_input: dict) -> str | None:
@@ -1379,13 +1404,8 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             room_name = user_input.get(CONF_ROOM_NAME, "").strip()
             if not room_name:
                 errors["base"] = "room_name_exists"
-            else:
-                existing_names = [
-                    e.data.get(CONF_ROOM_NAME, "").strip().lower()
-                    for e in self._get_all_room_entries()
-                ]
-                if room_name.lower() in existing_names:
-                    errors["base"] = "room_name_exists"
+            elif _room_name_collides(self._get_all_room_entries(), room_name):
+                errors["base"] = "room_name_exists"
 
             if not errors:
                 self._data.update(user_input)
@@ -10346,7 +10366,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_basic_setup(self, user_input=None):
         """Reconfigure basic setup."""
+        errors: dict[str, str] = {}
         if user_input is not None:
+            # ROOM-NAME-UNIQUE-1: reject a rename whose CONF_ROOM_NAME
+            # (trimmed, case-insensitive) matches ANOTHER room entry.
+            # Renaming to your own name / case-only variant is allowed
+            # (exclude_entry_id skips self). Blank name mirrors the
+            # create-path behaviour (same error key).
+            if CONF_ROOM_NAME in user_input:
+                proposed = (user_input.get(CONF_ROOM_NAME) or "").strip()
+                if not proposed:
+                    errors["base"] = "room_name_exists"
+                elif _room_name_collides(
+                    self._get_all_room_entries(), proposed,
+                    exclude_entry_id=self._config_entry.entry_id,
+                ):
+                    errors["base"] = "room_name_exists"
+        if user_input is not None and not errors:
             # ROOM-NAME-DESYNC-1 D1 site 1: rename must write through to
             # entry.data (not just entry.options) so every downstream
             # reader — presence tracker (presence.py:2864-2876,
@@ -10541,6 +10577,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="basic_setup",
             data_schema=data_schema,
+            errors=errors,
             description_placeholders={"name": "Reconfigure basic setup"},
         )
 

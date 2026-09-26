@@ -958,3 +958,98 @@ class TestRoomNameUniqueGuard:
         assert result is sentinel
         # The new name was captured into the working data.
         assert flow._data.get(CONF_ROOM_NAME) == "Office"
+
+
+# ---------------------------------------------------------------------------
+# ROOM-NAME-UNIQUE-1 — rename-time (options flow) duplicate room-name guard
+# ---------------------------------------------------------------------------
+
+
+class _RoomEntryWithId:
+    """Fake room entry with entry_id (rename path excludes self by id)."""
+
+    def __init__(self, name, entry_id):
+        self.data = {CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM, CONF_ROOM_NAME: name}
+        self.entry_id = entry_id
+
+
+class TestRoomNameUniqueRenameGuard:
+    """async_step_basic_setup must reject a rename that collides with another room."""
+
+    def _flow(self, own_name="Office"):
+        flow = _make_options_flow(
+            data={CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM, CONF_ROOM_NAME: own_name}
+        )
+        # The FakeOptionsFlow base in this harness doesn't provide
+        # async_abort — stub it to the shape HA returns.
+        flow.async_abort = lambda reason: {"type": "abort", "reason": reason}
+        return flow
+
+    @pytest.mark.asyncio
+    async def test_rename_collision_reshows_form_and_no_write(self):
+        flow = self._flow(own_name="Office")
+        others = [
+            _RoomEntryWithId("Office", flow._config_entry.entry_id),  # self
+            _RoomEntryWithId("Living Room", "other_id"),
+        ]
+        flow.hass.config_entries.async_update_entry = MagicMock()
+        with patch.object(flow, "_get_all_room_entries", return_value=others), \
+             patch.object(flow, "_get_existing_zones", return_value=set()):
+            result = await flow.async_step_basic_setup(
+                user_input={CONF_ROOM_NAME: "  living room  "}
+            )
+        assert result["type"] == "form"
+        assert result["step_id"] == "basic_setup"
+        assert result["errors"]["base"] == "room_name_exists"
+        flow.hass.config_entries.async_update_entry.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rename_to_own_name_is_accepted(self):
+        flow = self._flow(own_name="Office")
+        others = [_RoomEntryWithId("Office", flow._config_entry.entry_id)]
+        flow.hass.config_entries.async_update_entry = MagicMock()
+        with patch.object(flow, "_get_all_room_entries", return_value=others), \
+             patch.object(flow, "_get_existing_zones", return_value=set()), \
+             patch.object(_cf, "_sync_room_zone_to_zm", return_value=False):
+            result = await flow.async_step_basic_setup(
+                user_input={CONF_ROOM_NAME: "Office"}
+            )
+        assert result["type"] == "abort"
+        assert result["reason"] == "reconfigure_successful"
+        flow.hass.config_entries.async_update_entry.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_rename_case_change_of_own_name_is_accepted(self):
+        flow = self._flow(own_name="Office")
+        others = [_RoomEntryWithId("Office", flow._config_entry.entry_id)]
+        flow.hass.config_entries.async_update_entry = MagicMock()
+        with patch.object(flow, "_get_all_room_entries", return_value=others), \
+             patch.object(flow, "_get_existing_zones", return_value=set()), \
+             patch.object(_cf, "_sync_room_zone_to_zm", return_value=False):
+            result = await flow.async_step_basic_setup(
+                user_input={CONF_ROOM_NAME: "  OFFICE  "}
+            )
+        assert result["type"] == "abort"
+        flow.hass.config_entries.async_update_entry.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_rename_to_free_name_is_written_through(self):
+        flow = self._flow(own_name="Office")
+        others = [
+            _RoomEntryWithId("Office", flow._config_entry.entry_id),
+            _RoomEntryWithId("Living Room", "other_id"),
+        ]
+        flow.hass.config_entries.async_update_entry = MagicMock()
+        with patch.object(flow, "_get_all_room_entries", return_value=others), \
+             patch.object(flow, "_get_existing_zones", return_value=set()), \
+             patch.object(_cf, "_sync_room_zone_to_zm", return_value=False):
+            result = await flow.async_step_basic_setup(
+                user_input={CONF_ROOM_NAME: "Study"}
+            )
+        assert result["type"] == "abort"
+        assert result["reason"] == "reconfigure_successful"
+        call = flow.hass.config_entries.async_update_entry.call_args
+        # data write-through (join-key field on entry.data)
+        assert call.kwargs["data"][CONF_ROOM_NAME] == "Study"
+        # title write-through
+        assert call.kwargs["title"] == "Study"
