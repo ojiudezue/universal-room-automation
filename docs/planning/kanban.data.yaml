@@ -28345,7 +28345,7 @@ cards:
   thread: energy
   status: investigating
   created: '2026-09-25 18:00'
-  updated: '2026-09-25 20:10'
+  updated: '2026-09-25 21:10'
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-09-25 ("MQTT can be added as a trusted local witness. Just measure for
@@ -28393,11 +28393,21 @@ cards:
     exactly the class of defect the trust measurement exists to catch, found on the first probe.
     STILL TO CHARACTERISE: is the skew constant, does it drift, and does it survive an Envoy reboot or
     a DST boundary? A drifting skew is a different and worse problem than a fixed one.'
-  next: 'MEASURE (me): after >=24h from 2026-09-25 18:00, run the criteria in
-     PLANNING_envoy_local_witness_and_solar_follow.md section 3 and write
-     docs/planning/AUDIT_envoy_mqtt_trust_measurement.md with a PASS/FAIL row each. SCOPE NARROWED
-     2026-09-25 (see prior_art_reduces_scope) -> operator decides from that table whether the
-     dependent cards proceed.'
+  run1_prelim_2026_09_25: 'Operator: "Do this anyway and clear its criteria for other builds as needed."
+    Run 1 over 16:40-21:00 CDT excluding 18:21-20:15 (2.4 h clean) -> AUDIT_envoy_mqtt_trust_measurement.md.
+    PASS: 3.1 freshness (skew-adjusted p95 3 s; plan rule p95<=10 s is unmeetable given the ~20 s skew —
+    reword to skew+10 s), 3.2 INDEPENDENCE (stream up 99.78% of the 8,243 s native was down), 3.5
+    self-consistency (p95 residual 0.02%). Also: enc_agg_soc == soc_top_level every sample (redundant);
+    stream SOC corroborated by integrated battery power (~21 vs 24.7 kWh) while the cloud sat frozen at
+    94.9 for 2.5 h. FINDING 3.4: cloud value-change gaps p50 669 s > its own 600 s tier bound. OPEN:
+    3.3b stream-vs-native (native dead -> n=0), 3.6 contention (09-25 confounded), 3.7 reserve witness
+    (no change in window; EC changes reserve 6-10x/day so it resolves organically). Probe bugs found and
+    fixed before trusting numbers: reserve-convergence matched None==None, cadence straddled the
+    exclusion, cloud comparison included 2 h-stale values.'
+  next: 'MEASURE (me): rerun scripts/probes/envoy_stream_trust_probe.py at >= 2026-09-26 20:15 CDT with
+     START=1790385300 (24 h clean, excluding any further restart incl. the pending HAOS 18.3), close
+     3.3b/3.6/3.7, write Run 2 into the audit. 3.3b REQUIRES the native integration to be back up (it is
+     hung in setup_in_progress as of 21:05). Then hand ENVOY-STREAM-SOC-TIER-1 its gate verdict.'
   prior_art_reduces_scope: 'Operator asked whether prior measurement makes this unnecessary. PARTLY,
     and the reduction is recorded rather than the whole card dropped. EVSE-SOLAR-FOLLOW-AMPS-1 already
     measured Emporia mains vs the Envoy net-consumption CT (7,090 aligned pairs / 7 days) and
@@ -28499,7 +28509,7 @@ cards:
   thread: energy
   status: shipped_organic
   created: '2026-09-25 18:00'
-  updated: '2026-09-25 20:45'
+  updated: '2026-09-25 21:00'
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-09-25 ("Approved") — B1 only: set the solar-follow grid FALLBACK to
@@ -28546,6 +28556,12 @@ cards:
     written, not less — it retightens SOLAR_FOLLOW_GRID_FRESH_S, and the ~20 s skew must be
     characterised (constant? drifting? survives reboot/DST?) before any tight bound is set, or the
     gate misfires systematically.'
+  operator_decision_2026_09_25: 'B2 (promote the stream to PRIMARY) and B3 (retighten
+    SOLAR_FOLLOW_GRID_FRESH_S) are DROPPED, not deferred. Operator: "No need to revisit. I trust emporia
+    more period. backup is fine." Emporia sensor.mains_vue_3_power_minute_average is the permanent primary
+    (now also stored explicitly in options, 01:52Z); the stream is the fallback only. Context kept for the
+    record: the ~0.5 kW Emporia-vs-Envoy gap is mostly the 1-min average lagging (SENSOR_DELTA_MEASURED_2026_08_23),
+    so speed favoured the stream — the operator ruled on trust, not speed. Do not re-propose the swap.'
   b1_applied_2026_09_25: 'Operator set it via UI (picker needed a search-select, paste did not bind).
     Verified in live .storage/core.config_entries: CM entry 01KJEC3FYPYAGBQKZWC94CR8GR options
     energy_solar_follow_grid_fallback_entity = sensor.envoy_stream_grid_power (modified 01:38Z). PRIMARY
@@ -28555,8 +28571,8 @@ cards:
     reload: night, no EV charging).'
   next: 'VALIDATE at the first solar-surplus EV charge: ev_charging_status.solar_follow_grid_source must
      read primary while Emporia is fresh and fallback ONLY when Emporia is stale (discriminator: fallback
-     while the stream is unavailable = failure). Dispose done/reopen per Soak Exit. B2/B3 remain blocked
-     on ENVOY-STREAM-TRUST-MEASURE-1.'
+     while the stream is unavailable = failure). Dispose done/reopen per Soak Exit. Nothing further on
+     this card after that — B2/B3 dropped by operator.'
   parsimony: {problem: 'Solar-follow regulates amps from a ~1-minute-average grid reading whose error
     is measured to grow 6.7x when load moves fast.', verdict: SIMPLIFY}
   links:
@@ -28859,7 +28875,7 @@ cards:
   thread: energy
   status: waiting_operator
   created: '2026-09-21'
-  updated: '2026-09-25 10:05'
+  updated: '2026-09-25 21:10'
   refinement_status: refined
   rank: {value: 6, time_criticality: 6, effort: 3}
   refinement:
@@ -28903,6 +28919,13 @@ cards:
      benign (URA holds state). Not a URA defect.'
   why: 'the week-long "envoy flaky" complaint is mostly an OPEN upstream bug with no local fix + a dual-homed
      device-timeout angle the operator flagged; recorder-exclude already contains the stats poisoning.'
+  INSTANCE_2026_09_25_setup_hang: 'NEW FAILURE SHAPE, distinct from the self-recovering flaps: after the
+    HA core update 2026.9.3 + Envoy reboot + core-switch/UDM restart, the enphase_envoy entry
+    (01KNYRAGVP5XESS6N8PD6BVQP2) sat in setup_in_progress from ~18:21 with ZERO log lines, while the
+    configured host 192.168.11.190 answered https /info 200 in 0.2 s and the MQTT add-on read the same
+    Envoy fine. homeassistant.reload_config_entry at 21:05 timed out (queued behind the hung setup).
+    A setup that never returns and never logs = a missing timeout somewhere in setup, not a network
+    fault. Recovery needs a core restart / host reboot.'
   next: 'PICK (operator): flapping now MEASURED at 110-160 down/up cycles per day (see
      measured_2026_09_25). Choose from docs/planning/OPEN_THREADS_2026-09-25.md §3: (A) local core patch
      wrapping the two unguarded tasks — the only option that changes today''s behavior, but is lost on

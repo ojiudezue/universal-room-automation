@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T20:09:20-05:00_ - _Data commit: `3c15f5a3b540`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-25T20:39:48-05:00_ - _Data commit: `2cb58521cf49`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -31,18 +31,19 @@ _measuring; truth not yet known_
 
 ### `ENVOY-STREAM-TRUST-MEASURE-1` - We now have a third, much faster Envoy data source — measure whether it can be trusted before anything is allowed to depend on it — _#1 · WSJF 9.5 · v7 tc6 u6 /e2_
 thread: **energy** - status: **investigating** - approval: **explicit**
-_created 2026-09-25 18:00 · updated 2026-09-25 20:10 · refined_
+_created 2026-09-25 18:00 · updated 2026-09-25 21:10 · refined_
 - **Problem / Solution:**
   - Problem: the house now has a second way of hearing from the solar/battery gateway — a local feed that updates about once a second, versus the built-in one that has been dropping out roughly a third of every day. It looks better in every ...
 - **Origin:** 2026-09-25 - operator: "MQTT can be added as a trusted local witness. Just measure for its trust now and then we decide."
 - **Why:** Measure-Before-You-Build: the feed is a new producer for a value that drives battery, TOU, arbitrage and EVSE decisions. Its plausibility is not evidence.
-- **Next:** MEASURE (me): after >=24h from 2026-09-25 18:00, run the criteria in PLANNING_envoy_local_witness_and_solar_follow.md section 3 and write docs/planning/AUDIT_envoy_mqtt_trust_measurement.md with a PASS/FAIL row each. SCOPE NARROWED 2026-...
+- **Next:** MEASURE (me): rerun scripts/probes/envoy_stream_trust_probe.py at >= 2026-09-26 20:15 CDT with START=1790385300 (24 h clean, excluding any further restart incl. the pending HAOS 18.3), close 3.3b/3.6/3.7, write Run 2 into the audit. 3.3b...
 - **Tags:** energy, envoy, measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] A new SOC/power producer may be fresh and independent but has not been shown to agree with ground truth or to survive the outages it is meant to cover.
 - **Refs:** docs/planning/PLANNING_envoy_local_witness_and_solar_follow.md
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `restart_boundaries_2026_09_25`: CONTAMINATED WINDOW ~18:21-20:05 CDT — operator did, in sequence: HA core 2026.9.2->2026.9.3; Envoy reboot (stream 0 at 18:39, device re-enumeration 0->48, then 48->8 with SOC 87->20 by 19:12, recovered to 46 devices / grid 11 W / batt 7...
   - `measured_2026_09_25_cadence_and_skew`: PARTIAL RESULT ALREADY IN, and it CORRECTS MY OWN CLAIM. I have been describing this feed as "~1 Hz, ages essentially never exceed a few seconds". Six consecutive samples of meters.last_update against the HA host clock: last_update advan...
+  - `run1_prelim_2026_09_25`: Operator: "Do this anyway and clear its criteria for other builds as needed." Run 1 over 16:40-21:00 CDT excluding 18:21-20:15 (2.4 h clean) -> AUDIT_envoy_mqtt_trust_measurement.md. PASS: 3.1 freshness (skew-adjusted p95 3 s; plan rule ...
   - `prior_art_reduces_scope`: Operator asked whether prior measurement makes this unnecessary. PARTLY, and the reduction is recorded rather than the whole card dropped. EVSE-SOLAR-FOLLOW-AMPS-1 already measured Emporia mains vs the Envoy net-consumption CT (7,090 ali...
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#2 · WSJF 1.5 · v9 tc8 u2 /e13_
@@ -653,18 +654,19 @@ _created 2026-09-14 00:20 · updated 2026-09-25 03:00 · refined_
 
 ### `ENVOY-FLAKINESS-181243-1` - Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today — _#7 · WSJF 4.7 · v6 tc6 u2 /e3_
 thread: **energy** - status: **waiting_operator**
-_created 2026-09-21 · updated 2026-09-25 10:05 · refined ×1_
+_created 2026-09-21 · updated 2026-09-25 21:10 · refined ×1_
 - **Problem / Solution:**
   - Investigated 2026-09-21 (operator: reload envoy + why so flaky). THREE causes. (1) UPSTREAM HA BUG home-assistant/core #181243 (OPEN, no fix; affects core 2026.8.3 + 2026.9.0 = our version): enphase_envoy background tasks _async_try_refr...
 - **Why:** the week-long "envoy flaky" complaint is mostly an OPEN upstream bug with no local fix + a dual-homed device-timeout angle the operator flagged; recorder-exclude already contains the stats poisoning.
 - **Next:** PICK (operator): flapping now MEASURED at 110-160 down/up cycles per day (see measured_2026_09_25). Choose from docs/planning/OPEN_THREADS_2026-09-25.md §3: (A) local core patch wrapping the two unguarded tasks — the only option that cha...
 - **Tags:** energy, envoy, enphase, upstream-bug, flakiness, dual-homed, incident
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `measured_2026_09_25`: OPERATOR HYPOTHESIS CONFIRMED — IT IS FLAPPING, AND MY EARLIER "THE OUTAGE IS OVER" CLAIM WAS WRONG. Operator 2026-09-25: "please measure flakiness. I think the integration is flapping." Measured, read-only, recorder: sensor.envoy_482543...
   - `measured_2026_09_25b`: EXTENDED TO TODAY — operator: "why not check up till today?" Correct challenge: my first window ENDED at 09-20 only because the 1000-row API cap filled, NOT because the data ended, and I reported the range without flagging that the cap (...
   - `upstream_and_ura_interaction_audit_2026_09_25`: OPERATOR TASK: "check if there are known problems with the latest version of HA and that integration, and if there are interactions with URA causing it." Operator also restarting the Envoy hardware, and stated the stake: "we cannot manag...
   - `measured_2026_09_23`: OVERNIGHT PASS — groom + verify. (1) THE OUTAGE IS OVER: all 37 sensor.envoy_482543015950_* entities are available and fresh (newest last_updated 07:22, oldest 02:39), so the operator-authorized Core restart on 2026-09-21 23:14 did recov...
   - `measured_2026_09_22`: OVERNIGHT PASS — verify-before-work on this card, and the diagnosis is now VERIFIED AT SOURCE rather than inherited from the card body. Core log pulled via the authenticated hassio proxy (20000 lines, 2026-09-21 23:04 -> 2026-09-22 02:05...
+  - `INSTANCE_2026_09_25_setup_hang`: NEW FAILURE SHAPE, distinct from the self-recovering flaps: after the HA core update 2026.9.3 + Envoy reboot + core-switch/UDM restart, the enphase_envoy entry (01KNYRAGVP5XESS6N8PD6BVQP2) sat in setup_in_progress from ~18:21 with ZERO l...
 
 ### `FRIGATE-THRESHOLD-CLAIM-DISPUTED-1` - The '98-99% of detections score below 0.70' claim is DISPUTED by the operator and unverified by me — _#8 · WSJF 4.5 · v5 tc2 u2 /e2_
 thread: **perimeter** - status: **waiting_operator**
@@ -1086,7 +1088,7 @@ _created 2026-09-17_
 
 ### `SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1` - Solar-following car charging steers off a grid reading that lags by a minute — point it at the new fast (~5-6s) local reading instead — _#7 · WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-25 18:00 · updated 2026-09-25 20:45 · refined_
+_created 2026-09-25 18:00 · updated 2026-09-25 21:00 · refined_
 - **Problem / Solution:**
   - Problem: when the car charges on surplus solar, the system decides how many amps to give it by watching how much power is flowing to or from the grid. The reading it watches is a roughly one-minute average, and we have already measured t...
 - **Origin:** 2026-09-25 - orchestrator noted the 1 Hz local grid reading would beat the ~120s-p90 source solar-follow currently uses; operator: "I liked your comment there"
@@ -1095,9 +1097,10 @@ _created 2026-09-25 18:00 · updated 2026-09-25 20:45 · refined_
 - **Tags:** energy, evse, config-only, measure-before-build
 - **Parsimony:** [SIMPLIFY] Solar-follow regulates amps from a ~1-minute-average grid reading whose error is measured to grow 6.7x when load moves fast.
 - **Refs:** docs/planning/PLANNING_envoy_local_witness_and_solar_follow.md; docs/planning/PLANNING_evse_solar_follow_amps.md
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `b1_verification_2026_09_25`: Pre-apply checks: stream unit W (controller accepts W/kW, energy_pool.py:4597-4602); sign positive=import (stream +13970 W matched SPAN legs 6.4+7.6 kW during the 19:1x peak import); freshness via last_reported <=180s (energy_pool.py:460...
   - `gate_narrowed_2026_09_25`: B1 NO LONGER NEEDS THE FULL TRUST MEASUREMENT. The accuracy leg is pre-answered by EVSE-SOLAR-FOLLOW-AMPS-1 SENSOR_DELTA_MEASURED_2026_08_23 (Envoy CT vs Emporia, 7,090 pairs, delta = timing skew not disagreement) — and the MQTT stream r...
+  - `operator_decision_2026_09_25`: B2 (promote the stream to PRIMARY) and B3 (retighten SOLAR_FOLLOW_GRID_FRESH_S) are DROPPED, not deferred. Operator: "No need to revisit. I trust emporia more period. backup is fine." Emporia sensor.mains_vue_3_power_minute_average is th...
   - `b1_applied_2026_09_25`: Operator set it via UI (picker needed a search-select, paste did not bind). Verified in live .storage/core.config_entries: CM entry 01KJEC3FYPYAGBQKZWC94CR8GR options energy_solar_follow_grid_fallback_entity = sensor.envoy_stream_grid_po...
 
 ### `TOU-FILE-NO-RATE-VALIDATION-1` - A typo in the TOU rate file silently yields 0.0 rates — no validation of rates or hours — _#8 · WSJF 4.7 · v8 tc4 u2 /e3_
