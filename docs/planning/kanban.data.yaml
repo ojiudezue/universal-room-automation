@@ -9,6 +9,25 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'HA-CORE-RESTART-STORM-1@2026-09-26T02:18:23'
+    at: '2026-09-26T02:18:23'
+    outcome: done
+    headline: 'Closed the restart-storm investigation. In the last 6 days Home Assistant restarted only three
+      times, and each has an owner: one release, one Envoy-recovery restart, and your core update last
+      evening. None is unexplained. The mystery restarts from 09-13 to 09-20 can no longer be traced
+      because their logs are gone, and that is recorded as a known gap. The card reopens if an
+      unexplained restart ever appears again.'
+    acknowledged: false
+  - fid: 'SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1@2026-09-26T02:18:22'
+    at: '2026-09-26T02:18:22'
+    outcome: done
+    headline: 'The every-10-seconds noise flooding the system log has STOPPED on its own. There were none in
+      the last 45 minutes, against 77 of the last 100 log lines two nights ago. It was not the toggle
+      I asked you for: protection mode is still on. I proved the log still records the message by
+      triggering one myself, and it showed up. So whatever was polling went away, most likely during
+      last evening''s restarts (not proven). Card closed and your toggle is no longer needed for it.
+      It will reopen automatically if the flood comes back.'
+    acknowledged: false
   - fid: 'TEST-STRATEGY-REARCH-1@2026-09-26T02:11:36'
     at: '2026-09-26T02:11:36'
     outcome: escalated
@@ -27938,9 +27957,27 @@ cards:
 - id: SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1
   title: A tokenless poller hits the supervisor every 10s and floods its log, destroying our restart forensics
   thread: platform
-  status: waiting_operator
+  status: done
   created: '2026-09-21 02:35'
-  updated: '2026-09-25 02:20'
+  updated: '2026-09-26 02:18'
+  resolved_2026_09_26: 'OVERNIGHT PASS 2026-09-26 — VERIFY-BEFORE-WORK: ALREADY-RESOLVED (flood gone), but NOT by the fix
+    this card asked for. EVIDENCE: supervisor log via the authenticated hassio proxy
+    (/api/hassio/supervisor/logs, 200 OK). The home-assistant MCP was down this run (CONNECTION_CLOSED),
+    so the log was read via the proxy, and this is a real read, not an all-clear by omission. The 100
+    returned lines span 01:27:14 to 02:12:31, a 45-minute window, and contain ZERO "No API token
+    provided" lines. On 09-25 the same query returned 77 of 100 such lines in a 12.8-minute window, at
+    one line every 10.0 s. POSITIVE CONTROL, so the absence is not a logging change: I ran one tokenless
+    `ha core info` over ssh at 02:17:45, and a re-pull showed exactly ONE new "No API token provided for
+    /core/info" line at 02:17:45.191. So the signature still gets logged, and the 10 s poller has simply
+    stopped. ATTRIBUTION: the operator did NOT turn Protection mode off. `$SUPERVISOR_TOKEN` is still
+    absent in the SSH add-on and `ha core info` still 401s. The poller stopped for an unknown reason,
+    most plausibly during the 09-25 evening core update, Envoy reboot and network-stack restart (a
+    restarted add-on or client that no longer polls). This is NOT PROVEN. CONSEQUENCE: forensic reach
+    restored, since the supervisor log now spans ~50 min rather than ~13 min, and
+    HA-CORE-RESTART-STORM-1''s blocked_by is cleared. The operator DO (toggle protection mode) is
+    WITHDRAWN as no longer needed for this card. The homelab dashboard collector''s own need for it
+    (docs/CONFIGS.md) is separate. REOPEN TRIGGER: any pass that sees >=5 "No API token provided" lines
+    in one 100-line supervisor pull that were not caused by the pass itself.'
   refinement_status: refined
   approval: implied
   tags: [tier-1, measure-before-build, no-fabrication-verify]
@@ -27988,20 +28025,8 @@ cards:
   parsimony: {problem: 'A tokenless caller polls /core/info every 10.1s, consuming 85% of the supervisor
     log and capping its retention at ~5h, which is less than the interval between the restarts we are
     trying to attribute.', verdict: BUILD}
-  next: 'DO (operator): turn Protection mode OFF on the Advanced SSH & Web Terminal add-on (Settings
-    -> Add-ons -> Advanced SSH & Web Terminal -> Protection mode toggle). This is a single reversible
-    toggle. WHY this is now the recommended first move rather than more hunting: I reproduced the exact
-    log signature tonight by running `ha core info` over ssh, and it 401s BECAUSE protection mode
-    strips SUPERVISOR_TOKEN — so any caller on this box using the `ha` CLI (or an equivalent tokenless
-    supervisor GET) emits precisely these lines. If the 10.1s poller is such a caller, restoring the
-    token silently stops ~81% of the supervisor log at zero code cost. It also un-breaks the homelab
-    dashboard collector, which docs/CONFIGS.md already records as REQUIRING protection mode OFF for
-    its `ha ... info` calls. -> On your toggle I re-pull the supervisor log within minutes and either
-    CLOSE this card (flood gone) or report the residual caller with the flood removed as contrast,
-    which is itself a much cleaner discriminator. IF YOU PREFER NOT TO TOGGLE: the alternative is
-    PICK (b) — give me a supervisor API token and I name the caller directly. Still NOT doing
-    unattended: stopping/disabling add-ons to bisect (live change on an occupied house), and docker
-    access is denied from the ssh add-on (measured: permission denied on /var/run/docker.sock).'
+  next: 'none. Closed 2026-09-26: flood absent (0/100 lines over 45 min, with a positive control), and cause
+    of cessation unattributed. See resolved_2026_09_26 for the reopen trigger.'
   links:
     blocks: [HA-CORE-RESTART-STORM-1]
     related: [OVERNIGHT-PASS-NO-LOG-REACH-1]
@@ -28113,9 +28138,24 @@ cards:
   title: Home Assistant restarted itself 8 times in 20 hours, three of them in the middle of the
     night, each costing about 6 minutes with the whole house offline
   thread: platform
-  status: parked
+  status: done
   created: '2026-09-19 03:30'
-  updated: '2026-09-25 02:20'
+  updated: '2026-09-26 02:18'
+  disposed_2026_09_26: 'OVERNIGHT PASS 2026-09-26: REVIVAL TRIGGER CHECKED, both clauses. (1) The flood-fix clause FIRED:
+    SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1 is closed because the flood stopped, so the supervisor window
+    is ~50 min again. (2) The unmatched-restart clause did NOT fire. The restart ledger (ssh ha sqlite3
+    -readonly, events JOIN event_types, homeassistant_stop/start, last 7 days) has exactly three pairs.
+    09-20 09:32:09 -> 09:37:54 CDT is 56 s after tag v5.103.14 (09:31:13), so it is a release. 09-21
+    23:19:38 -> 23:25:23 is the operator-authorized Envoy-recovery restart. 09-25 18:05:35 -> 18:11:30
+    is the operator''s HA core 2026.9.2 -> 2026.9.3 update (ENVOY-STREAM-TRUST-MEASURE-1
+    restart_boundaries). So there are ZERO unattributed restarts in the six days since 09-20, and the
+    storm this card tracked has not recurred. DISPOSITION: DONE, dispose-don''t-watch. The live symptom
+    is gone. The 10 historical unmatched restarts (09-13 to 09-20) are now PERMANENTLY unattributable,
+    because their supervisor log lines aged out long ago and the recorder carries no initiator. That is
+    recorded as a known gap, not an open task. REOPEN TRIGGER (unchanged in substance): any
+    homeassistant_stop/start pair that is neither 21-125 s after a URA release tag nor
+    operator-authorized. At that point the supervisor journal is within reach again, so mine it
+    immediately.'
   refinement_status: refined
   approval: unreviewed
   tags: [measure-before-build, no-fabrication-verify, falsify-first, watchdog-hazard]
