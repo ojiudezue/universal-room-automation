@@ -2463,6 +2463,17 @@ cards:
   correction_2026_09_26: 'Operator: the sensor was physically MOVED to the Exercise Room when Ziri moved out; MQTT friendly name updated but the HA entity_id still says gameroom. So Exercise Room is CORRECT; Game Room''s claim is the stale one, and because Game Room is loaded first the substrate keeps Game Room''s claim.'
   why: 'Exercise Room config presence_sensors = [binary_sensor.mmwave_zigbee_gameroom_presence] (the Game Room radar). The substrate already ignores the duplicate, so live behaviour is unaffected, but any code path that reads the room config directly (not the substrate) would treat Game Room presence as Exercise Room presence. The room''s own sensors work but are rarely triggered (7 d: rgbw motion 2 ON, hobeian presence 9 ON) — low use, not dead.'
   next: 'VERIFY (me) at the next HA restart (planned with the next deploy): boot log has NO ''claimed by multiple rooms'' WARNING for binary_sensor.mmwave_zigbee_gameroom_presence, and Exercise Room occupancy follows that radar. Then close done.'
+- id: HVAC-FAST-PATH-FAN-WARM-EDGES-1
+  title: Per-room comfort/night fans still wait for the 5-min tick on a warm-zone occupancy edge (W2 fast path is zone-cold only by design)
+  status: parked
+  thread: hvac
+  workstream: HVAC-W2-OCCUPANCY-TRUTH
+  created: '2026-09-26'
+  updated: '2026-09-26 17:10'
+  origin: 'W2 fast-path REV 3 (docs/planning/PLANNING_hvac_w2_occupancy_fast_path.md §7) — planner verdict: the fan controller (hvac.py:1764 -> hvac_fans.py:495, reads room_cond.occupied at hvac_fans.py:761/997/1207/1255-1260/1334) is the ONLY decision-cycle consumer that benefits from warm-zone rising edges; the zone-cold gate deliberately leaves them on the periodic tick (median wait 142-181 s, D0).'
+  why: 'Scoped out per operator 2026-09-26 "shave the 5m tick only" (HVAC occupancy response = presets). Fan latency on warm-zone entry is unchanged from today, not worse.'
+  revival_trigger: 'Revive if an operator complaint or measurement shows a comfort/night fan starting noticeably late in an already-occupied zone, or if fan latency becomes an explicit goal. Cheapest version then: a fan-only fast path that runs the fan controller, not the whole decision cycle.'
+  next: 'PARKED — no action until the revival trigger fires.'
 - id: HVAC-HOLD-SIZING-ALL-ROOMS-1
   disposition_2026_09_26_groom: 'CORRECTION 2026-09-26 13:55 (operator asked ''what''s up with the laundry?''; I checked the raw timeline before acting). The Laundry recommendation (day hold 1200) is WITHDRAWN. Laundry has ONE sensor (Matter RGBW light PIR, no mmWave). Timeline 09-19 16:13:36 motion ON 25 s -> hvac_occupied turns ON only at 16:18:04 with no new motion; 09-20 15:17:59/15:18:44 motion blips -> hvac_occupied ON 15:21:59; 15:50:54 motion -> ON 15:52:03. i.e. HVAC occupancy registers brief (20-45 s) visits 1-4 min AFTER the person left — the 5-min decision-tick latency (state-of-play C18). The probe used hvac_occupied as its presence truth, which is exactly the lagged signal, so its ''drop->return'' episodes are mostly tick-catch-up artifacts (also why the median gap sits at ~15 min in many unrelated rooms). A longer hold would condition zone_3 for pass-throughs. VERDICT: no hold changes on this evidence; the livability lever is the W2 occupancy fast path (react on room state change, not the 5-min tick). Jaya 5400 unaffected (sized from BLE-in-suite + radar during gaps, not hvac_occupied).'
   title: Should other rooms get longer HVAC vacancy holds (like Jaya's night 5400)? Measured all 43 rooms, all hours
