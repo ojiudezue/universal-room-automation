@@ -1882,6 +1882,12 @@ cards:
   operator_priority_2026_09_25: 'Operator: "Biggest lever." Raised to top of the HVAC queue. Its gate (identify
     zone_1''s re-manual writer) is not a hard dependency any more — the writer is a set_temperature/preset-side
     phenomenon, not set_hvac_mode — so the gate is lifted.'
+  scope_added_2026_09_25_record_every_write: 'Operator: "Do we record everything?" — NO. ura_activity_log
+    records no climate.set_temperature from ANY caller and no set_hvac_mode; 20+ URA write sites land only in
+    ac_ramp_events / hvac_excursion_events / INFO logs (Explore audit 2026-09-25). That gap is what let a 09-17
+    diagnosis wrongly exonerate URA. ADJACENT, folded here (same surface — the funnels): when all three verbs
+    route through funnels, the FUNNEL writes one durable row per actual write (verb, zone, site, values,
+    reason), so "did URA write?" is one query. This is what makes the chokepoint the biggest lever.'
   title: Add emit_set_hvac_mode chokepoint + migrate the 7 raw set_hvac_mode bypass sites (close the only
     verb-scoped write gap — 2 of 3 verbs are funnelled, set_hvac_mode is not)
   problem_solution:
