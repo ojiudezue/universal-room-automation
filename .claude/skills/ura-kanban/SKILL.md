@@ -998,6 +998,15 @@ verdict is only trustworthy if the earlier steps passed. Record each step's find
    `next` already shipped gets re-scoped to the real residual. Also re-verify the card's premise:
    an agent-reported "reversal" or "still-open" is a hypothesis — confirm the commit / code exists
    (don't trust the report). Reaching ALREADY-DONE here is a success, not a skipped build.
+1b. **Config-first — can a SETTING fix it instead of code? (operator-coined 2026-09-26).** Before any plan or
+   build, check whether the problem is solved by a configuration change: a live knob (Number / Select / Switch
+   entity), an options-flow field, a room/zone config value, an HA-side setting (integration options, device
+   config, a schedule), or a documented operator action. Enumerate the relevant knobs with their live values
+   (read them — do not recall them). If a setting fixes it, do/propose that and record why code is unnecessary.
+   Evidence it pays: 2026-09-26 the entry-wait fix was a knob (dwell 2 -> 0, `hvac.py:2442` guard) not code; the
+   vacancy grace was a knob (10 -> 5); a planned fix (override-expiry reclaim) was refuted by data before any code.
+   Operator: *"before we write any new code we should check to make sure it won't be fixed by a config change -
+   across the board (and skills)."*
 2. **Prior-art / reuse scan (REUSE-or-BUILD, cite file:line).** Before proposing to BUILD any new
    mechanism (constant, helper, sensor, signal, producer, state), scan URA's prior art — code,
    plans, analysis/memory — and record a REUSE-or-BUILD verdict per piece with the existing symbol

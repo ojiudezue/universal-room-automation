@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T17:04:19-05:00_ - _Data commit: `4efc8cd85ab2`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T17:20:39-05:00_ - _Data commit: `9e045bda4faf`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-09-26T17:04:19-05:00_ - _Data commit: `4efc8cd85ab2`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 5 |
+| 🔬 Investigating | 6 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 24 |
 | 🔨 In progress | 1 |
@@ -26,7 +26,7 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (5)
+## 🔬 Investigating (6)
 _measuring; truth not yet known_
 
 ### `ENVOY-STREAM-TRUST-MEASURE-1` - We now have a third, much faster Envoy data source — measure whether it can be trusted before anything is allowed to depend on it — _#1 · WSJF 9.5 · v7 tc6 u6 /e2_
@@ -95,7 +95,18 @@ _created 2026-09-26 · updated 2026-09-26 14:30_
   - `window`: START 2026-09-26 14:20 CDT (19:20Z; last departure person.oji_udezue not_home 14:15:45 CDT; house_state away, all 4 persons not_home verified). END = first person.* -> home (read from recorder). Exclude the 15 min after START and the pre...
   - `preregistered`: Registered BEFORE looking at window data. (1) Rooms occupied / hvac_occupied by modality (mmWave/PIR/camera/BLE) -> each = phantom source (CHATTER-RATE-VS-BURST-GAP-1, kitchen mmWave, STUCK-SENSOR, BLE bleed). (2) census/unidentified cou...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#5 · WSJF 1.0 · v7 tc4 u2 /e13_
+### `HVAC-OCCUPANCY-HOLD-CHAINED-AFTER-LIGHT-TIMEOUT-1` - BUG — HVAC occupancy's 60 s hold starts only AFTER the full lighting timeout (~5 min), so rooms stay HVAC-occupied ~6 min after the last motion instead of the intended ~1 min — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **investigating**
+_created 2026-09-26 · updated 2026-09-26 22:40_
+- **Next:** MEASURE (me, read-only probe): per non-hallway room, daytime (home_day/home_evening) distribution of raw-evidence gaps (time between consecutive motion/presence/occupancy ON events) WHILE the room was genuinely occupied (bounded by a lat...
+- **Forensic keys (5):**
+  - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
+  - `intent_vs_execution`: INTENT (README_v5.103.7 D1): HVAC occupancy = per-room tail-hold (ROOM_TYPE_HVAC_HOLD bedroom/common 60 s, media 120 s, hallway 0), "the sole hold source". EXECUTION: _compute_hvac_occupied (hvac_zones.py:1048-1123) rides STATE_OCCUPIED ...
+  - `consequences`: Transits hold a room HVAC-occupied ~6 min (flip empty zones to home); zones retreat ~5 min later than intended (energy); the entry-dwell work was chasing this (two dwell plans superseded, state-of-play C24).
+  - `why_it_was_built_this_way`: Step-4-B CRIT-1 (PLANNING_hvac_zone_conditioning_demand.md:30,:119): reading raw kinds LIVE would drop a still/sleeping body on a radar blip. Riding the grace-held STATE_OCCUPIED gave robustness — and silently imported the lighting timeout.
+  - `proposed_fix`: Release HVAC occupancy on LAST RAW EVIDENCE + tail: hvac_occupied stays True while now - last_evidence_time < tail (the room already records last evidence: _last_motion_time, updated on motion / mmWave / occupancy fires, coordinator.py ~...
+
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#6 · WSJF 1.0 · v7 tc4 u2 /e13_
 thread: **security** - status: **investigating** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-19 03:50 · refined_
 - **Problem / Solution:**

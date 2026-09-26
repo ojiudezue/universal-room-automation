@@ -451,6 +451,14 @@ Trigger: any shipped new capability with downstream reach. Skip for pure hotfixe
 value. The audit doc goes in `docs/planning/AUDIT_*_supersession_and_consumers.md`; findings
 become cards; the delete-candidate list waits for validation.
 
+## Config-First — check settings before writing code (operator-coined 2026-09-26)
+
+Before planning or building ANY code change, check whether a configuration change solves it: live knobs
+(Number/Select/Switch entities — read their live values), options-flow fields, room/zone config, HA-side
+integration/device settings, or a documented operator action. If a setting fixes it, do that (or propose it) and
+record why code is unnecessary. This is step 1b of the ura-kanban build gate. Why: on 2026-09-26 three planned
+changes turned out to be a knob turn, a knob turn, and a non-problem refuted by data.
+
 ## Numbers Get Knobs — placement ladder (operator-coined 2026-07-16)
 
 Any behavioral number (threshold, duration, window, gate value) gets a
