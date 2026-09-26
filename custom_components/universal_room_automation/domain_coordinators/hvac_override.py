@@ -3514,6 +3514,10 @@ class OverrideArrester:
         # FIX B1: kind="preset" so genuine mid-window user manual is
         # still caught (only "temp" suppression blocks manual passthrough).
 
+        # HVAC-W1-A F6 (fix-up round 4): look up _cmp_token BEFORE B4 so
+        # its excursion_id can be forwarded into the mode-write row.
+        # Same token also drives S4 below.
+        _cmp_token = self._compromise_excursion_tokens.get(zone_id)
         try:
             # v4.7.32: re-assert heat_cool whenever the mode has drifted from it
             # (off OR a single mode like cool/heat) — not just "off". The operator
@@ -3532,6 +3536,9 @@ class OverrideArrester:
                     zone_id=zone_id,
                     reason="override_revert_heat_cool",
                     blocking=False,
+                    excursion_id=(
+                        _cmp_token.excursion_id if _cmp_token else None
+                    ),
                 )
                 _mode_wrote = True
                 _LOGGER.info(
@@ -3544,7 +3551,6 @@ class OverrideArrester:
             # The two can disagree — the token is taken at compromise
             # begin_excursion time (what the wire held); `original_preset`
             # is the caller's intended value which may have drifted.
-            _cmp_token = self._compromise_excursion_tokens.get(zone_id)
             _revert_preset = (
                 _cmp_token.pre_preset if _cmp_token is not None
                 and _cmp_token.pre_preset

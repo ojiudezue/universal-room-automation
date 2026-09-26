@@ -980,6 +980,50 @@ async def test_S7_nudge_restore_preset_forwards_excursion_id():
 
 
 @pytest.mark.asyncio
+async def test_B4_override_revert_forwards_excursion_id():
+    """Drive _revert_override with a compromise token in the dict; the
+    B4 (heat_cool mode) row must carry the token's excursion_id
+    (fix-up round 4, re-review LOW).
+    Drill: remove `excursion_id=(_cmp_token...)` from the B4 emit -> RED."""
+    hass = _mk_hass({
+        "climate.zone_a": _FakeState(
+            state="cool", preset_mode="home", hold_activity="home",
+        ),
+    })
+    a = _mk_arrester(hass)
+    a._grace_timers = {}
+    a._compromise_timers = {}
+    a._override_active = {}
+    a._compromise_active = {}
+    a.comfort_delay_active = lambda z=None: False
+    a._log_shave_skipped = lambda *args, **kw: None
+    a._compromise_excursion_tokens["zone_a"] = _FakeToken(
+        "compromise:zone_a:b4tok"
+    )
+
+    async def _release(*a_, **kw):
+        return None
+    a._compromise_release_lease = _release
+
+    z = _mk_zone()
+    z.hvac_mode = "cool"
+
+    orig_preset = hvac_override.emit_set_preset_mode
+    hvac_override.emit_set_preset_mode = AsyncMock(return_value=True)
+    try:
+        try:
+            await a._revert_override(z, "home")
+        except (AttributeError, TypeError):
+            pass
+    finally:
+        hvac_override.emit_set_preset_mode = orig_preset
+    await _drain(hass)
+    row, d = _find_climate_write_by_site(hass, "B4_override_revert_heat_cool")
+    assert row is not None
+    assert d["excursion_id"] == "compromise:zone_a:b4tok"
+
+
+@pytest.mark.asyncio
 async def test_B2_egress_pause_forwards_excursion_id():
     """Drive _engage_pause; B2 row must carry the egress token's
     excursion_id."""

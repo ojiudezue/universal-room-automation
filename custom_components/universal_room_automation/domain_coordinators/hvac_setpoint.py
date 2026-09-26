@@ -582,7 +582,9 @@ async def emit_set_preset_mode(
             # (Cancelled/KeyboardInterrupt) AFTER scheduling the row.
             _resume_exc = type(_re).__name__
             _LOGGER.debug(
-                "resume-then-pin: resume failed for %s; pinning anyway",
+                "resume-then-pin: resume failed for %s; pinning anyway "
+                "on regular Exception, otherwise (Cancelled/KeyboardInterrupt) "
+                "re-raising after scheduling the row",
                 entity_id, exc_info=True,
             )
             _schedule_climate_write_row(

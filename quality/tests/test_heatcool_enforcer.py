@@ -309,16 +309,43 @@ def _set_hvac_modes(coord):
 
 
 @pytest.mark.asyncio
-async def test_cool_drift_is_enforced_to_heat_cool():
+async def test_cool_drift_is_enforced_to_heat_cool(monkeypatch):
     """The reported live bug: a heat_cool-capable zone drifted to 'cool' with
-    its preset unchanged → enforcer issues set_hvac_mode=heat_cool."""
+    its preset unchanged → enforcer issues set_hvac_mode=heat_cool.
+
+    HVAC-W1-A B1 (fix-up round 4, order-independent): monkeypatch the
+    ``emit_set_hvac_mode`` symbol on the loaded hvac module (`hvac.py`
+    binds it via ``from .hvac_setpoint import emit_set_hvac_mode``) with
+    a recorder that FORWARDS the wire call and CAPTURES the site tag.
+    Full-suite-order safe: works whether an earlier file loaded the
+    real hvac_setpoint or this file's stub."""
     z = _FakeZone("zone_1", "cool", "climate.zone_1")
     coord = _make_coord(zones={"zone_1": z}, heat_cool_capable={"climate.zone_1"})
+
+    mod = _load_hvac_module()
+    real_emit = mod.emit_set_hvac_mode
+    seen: list[str] = []
+
+    async def _recorder(hass, entity_id, hvac_mode, *,
+                        site, zone_id, reason, blocking,
+                        excursion_id=None):
+        seen.append(site)
+        # Forward to whichever emit_set_hvac_mode is bound (real or stub);
+        # both invoke hass.services.async_call so the wire assertion below
+        # still holds.
+        return await real_emit(
+            hass, entity_id, hvac_mode,
+            site=site, zone_id=zone_id, reason=reason,
+            blocking=blocking, excursion_id=excursion_id,
+        )
+    monkeypatch.setattr(mod, "emit_set_hvac_mode", _recorder)
+
     await coord._apply_house_state_presets()
     assert _set_hvac_modes(coord) == ["heat_cool"]
     # HVAC-W1-A B1: the enforcer routed through emit_set_hvac_mode with
-    # the B1 site tag. The stub records it on hass._w1a_sites.
-    assert getattr(coord.hass, "_w1a_sites", []) == ["B1_heat_cool_enforcer"]
+    # the B1 site tag. Drill: guarding the enforcer body with
+    # `if False and (...)` -> `seen` is empty -> RED.
+    assert seen == ["B1_heat_cool_enforcer"]
     # Suppress handshake fired, and (success path) no unsuppress.
     assert "climate.zone_1" in coord._override_arrester.suppressed
     assert "climate.zone_1" not in coord._override_arrester.unsuppressed
