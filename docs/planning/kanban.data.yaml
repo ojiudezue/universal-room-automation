@@ -1987,7 +1987,8 @@ cards:
 
 - id: HVAC-DEGRADED-ROOM-TRIPWIRE-1
   workstream: HVAC-W2-OCCUPANCY-TRUTH
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.15
   rank: {value: 7, time_criticality: 5, effort: 5}
   thread: hvac
   created: '2026-09-17'
@@ -28614,7 +28615,8 @@ cards:
     real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at
     midnight the way the code assumes
   thread: energy
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.15
   created: '2026-09-19 04:15'
   updated: '2026-09-25 03:40'
   FIXUP_DONE_VERIFIED_2026_09_25: 'FIX-UP COMPLETE AND INDEPENDENTLY VERIFIED BY THE ORCHESTRATOR —

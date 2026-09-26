@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "149",
+  "author": "ojiudezue",
+  "session_id": "claude_20260926_174912_ship_v5_103_15",
+  "timestamp": "2026-09-26T17:49:12Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.15 shipped: HVAC zones establish on live rooms only; coverage self-check stops false unit-mismatch alarms",
+  "summary": "HVAC zones establish on live rooms only; coverage self-check stops false unit-mismatch alarms",
+  "why": "Operator ruled 2026-09-17 and again 2026-09-26 that a failed room counts toward nothing and acts as if not defined in URA; round 5 had reverted to all(zone.rooms), so a single failed room silently pinned its zone to conditioning empty space forever. Establishment is now computed over live rooms, with a reloading room blocking outright so a restart cannot cold-retreat a zone. Coverage: the midnight re-anchor assumption was measured false over 10 days of recorder history, so the excuse window was widened and the unproven unit-mismatch diagnosis removed.",
+  "implications": "Shipped HVAC-DEGRADED-ROOM-TRIPWIRE-1, COVERAGE-RATING-FALSE-ANOMALOUS-1 at v5.103.15; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.15.md (Live criteria).",
+  "revisit_trigger": "If any zone shows excluded_rooms non-empty or a transient_room_hold ledger row appears outside a restart, re-examine classification; if coverage warns out-of-bounds outside the re-anchor window, re-probe the recorder.",
+  "refs": {
+    "cards": [
+      "HVAC-DEGRADED-ROOM-TRIPWIRE-1",
+      "COVERAGE-RATING-FALSE-ANOMALOUS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.15.md"
+    ],
+    "release_notes": "HVAC-DEGRADED-ROOM-TRIPWIRE-1: a disabled/failing/removed room no longer blocks its HVAC zone from retreating; a reloading room blocks establishment and holds the occupancy-only switch back to home/sleep for that tick; one WARN+NM per excluded room; zone status diagnostics; latent UnboundLocalError with Zone Intelligence off fixed. COVERAGE-RATING-FALSE-ANOMALOUS-1: negative coverage delta excused across the local-midnight re-anchor; warning no longer asserts unit mismatch. See docs/readmes/README_v5.103.15.md."
+  }
+}
