@@ -15858,11 +15858,12 @@ cards:
   resolution_2026_08_17: 'Operator confirmed 2026-08-17: security images ARE arriving. The prune-audit
     "active fail" read was wrong — feature works. Closed.'
 - id: ROOM-NAME-UNIQUE-1
+  disposition_2026_09_26_groom: 'BUILT + REVIEWED + MERGED to develop 2026-09-26 (67ec0fd1a): build 8d0a855c1 + fix-up eebe92784; reviews A/B findings all fixed; gates full 0 NEW + isolated 66 files 0 NEW. README_v5.103.17.md written.'
   disposition_2026_09_26_groom: 'RE-LANED (was wrongly stamped shipped by the v5.101.0 --cards list). VERIFIED 2026-09-26: the CREATE-time guard shipped (config_flow.py:1375-1388, room_name_exists), but the RENAME path — options-flow basic_setup write-through at config_flow.py:10379 — has NO uniqueness check, which is exactly this card''s title. Tier 1 build: reuse the same case-insensitive trimmed check excluding the entry itself, error room_name_exists; behavioural test driving the options step with a colliding name. Queued behind the W1-A build (one builder runs pytest at a time).'
   title: Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold
     into one occupancy bucket)
   thread: presence
-  status: planned
+  status: review
   shipped_version: v5.101.0
   ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (room_name_exists guard in async_step_room_setup config_flow.py:1122/1129 + strings.json:465). Moves review->shipped_organic at deploy.'
   updated: 2026-09-12 11:40
@@ -15888,7 +15889,7 @@ cards:
   fix_sketch: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision
     (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing
     sanity note meanwhile.
-  next: Small cycle after v5.75.0; consider folding into the next config-flow-touching batch.
+  next: 'DEPLOY (me) as v5.103.17 tomorrow (bundled, avoiding a second restart during W1-A''s first live day), then live-validate per the README.'
 - id: PWA-CONTROL-LIST-1
   title: Per-room controllable-entities attr so the PWA stops slugify-guessing actuators (AV-Closet-Shelly
     problem)
