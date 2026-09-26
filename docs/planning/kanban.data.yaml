@@ -28497,9 +28497,9 @@ cards:
   title: Solar-following car charging steers off a grid reading that lags by a minute — point it at
     the new fast (~5-6s) local reading instead
   thread: energy
-  status: waiting_operator
+  status: shipped_organic
   created: '2026-09-25 18:00'
-  updated: '2026-09-25 20:15'
+  updated: '2026-09-25 20:45'
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-09-25 ("Approved") — B1 only: set the solar-follow grid FALLBACK to
@@ -28546,11 +28546,17 @@ cards:
     written, not less — it retightens SOLAR_FOLLOW_GRID_FRESH_S, and the ~20 s skew must be
     characterised (constant? drifting? survives reboot/DST?) before any tight bound is set, or the
     gate misfires systematically.'
-  next: 'DO (operator): URA -> Coordinator Manager -> Configure -> Energy -> set "solar follow grid
-     fallback entity" to sensor.envoy_stream_grid_power and save (UI, because an API resubmit of that
-     large form would re-send every other energy field) -> I verify the stored option + the
-     solar_follow_grid_source attribute after the CM reload, then close B1. B2/B3 stay blocked on the
-     independence + skew results.'
+  b1_applied_2026_09_25: 'Operator set it via UI (picker needed a search-select, paste did not bind).
+    Verified in live .storage/core.config_entries: CM entry 01KJEC3FYPYAGBQKZWC94CR8GR options
+    energy_solar_follow_grid_fallback_entity = sensor.envoy_stream_grid_power (modified 01:38Z). PRIMARY
+    key is ABSENT from options by design -> ec.get default DEFAULT_SOLAR_FOLLOW_GRID_ENTITY =
+    sensor.mains_vue_3_power_minute_average (energy.py:558-561, energy_const.py:1045); the blank UI field
+    is display-only, not a missing primary. solar_follow_grid_source = unknown at 20:40 CDT (no tick since
+    reload: night, no EV charging).'
+  next: 'VALIDATE at the first solar-surplus EV charge: ev_charging_status.solar_follow_grid_source must
+     read primary while Emporia is fresh and fallback ONLY when Emporia is stale (discriminator: fallback
+     while the stream is unavailable = failure). Dispose done/reopen per Soak Exit. B2/B3 remain blocked
+     on ENVOY-STREAM-TRUST-MEASURE-1.'
   parsimony: {problem: 'Solar-follow regulates amps from a ~1-minute-average grid reading whose error
     is measured to grow 6.7x when load moves fast.', verdict: SIMPLIFY}
   links:
