@@ -16,6 +16,9 @@ Usage:
   --files   targeted mode: run only these test files on both sides (cached by
             key + file list). Use for test-only fix rounds; the full run stays
             the pre-merge gate.
+  --isolate with --files: run EACH file in its own pytest process (union of failures). Catches a
+            test that passes in suite order only because an earlier file loaded the real module
+            (W1-A 2026-09-26: test_heatcool_enforcer broke in isolation, invisible to the full run).
   --dry-run print the keys and whether each side is cached; run nothing.
 
 Exit codes: 0 = no NEW failing names; 1 = NEW failing names; 2 = usage/infra error.
@@ -89,7 +92,14 @@ def wait_for_turn() -> None:
         waited += 20
 
 
-def run_suite(cwd: Path, files: list[str] | None) -> tuple[set[str], dict]:
+def run_suite(cwd: Path, files: list[str] | None, isolate: bool = False) -> tuple[set[str], dict]:
+    if isolate and files:
+        allnames, secs = set(), 0.0
+        for f in files:
+            n, m = run_suite(cwd, [f])
+            allnames |= n
+            secs += m["seconds"]
+        return allnames, {"seconds": round(secs, 1), "summary": f"isolated x{len(files)}", "returncode": 0}
     for d in cwd.rglob("__pycache__"):
         shutil.rmtree(d, ignore_errors=True)
     env = dict(os.environ, PYTHONPATH="quality", PYTHONDONTWRITEBYTECODE="1")
@@ -110,7 +120,7 @@ def run_suite(cwd: Path, files: list[str] | None) -> tuple[set[str], dict]:
     return names, {"seconds": dur, "summary": tail[0], "returncode": r.returncode}
 
 
-def cached_or_run(key: str, cwd_factory, files, label: str) -> tuple[set[str], dict, bool]:
+def cached_or_run(key: str, cwd_factory, files, label: str, isolate: bool = False) -> tuple[set[str], dict, bool]:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     f = CACHE_DIR / f"{key}.json"
     if f.exists():
@@ -119,7 +129,7 @@ def cached_or_run(key: str, cwd_factory, files, label: str) -> tuple[set[str], d
     cwd, cleanup = cwd_factory()
     try:
         print(f"[suite_namediff] running {label} suite in {cwd} …", flush=True)
-        names, meta = run_suite(cwd, files)
+        names, meta = run_suite(cwd, files, isolate)
     finally:
         cleanup()
     f.write_text(json.dumps({"failing": sorted(names), "meta": meta}, indent=1))
@@ -132,6 +142,7 @@ def main() -> int:
     ap.add_argument("--base-ref", default="develop")
     ap.add_argument("--files", nargs="*")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--isolate", action="store_true")
     a = ap.parse_args()
 
     bdir = Path(a.branch_dir).resolve()
@@ -140,8 +151,9 @@ def main() -> int:
         return 2
     branch_ref = sh(["git", "rev-parse", "HEAD"], cwd=bdir)
     base_ref = sh(["git", "rev-parse", a.base_ref], cwd=REPO)
-    bkey = tree_key(base_ref, a.files)
-    rkey = tree_key(branch_ref, a.files)
+    extra = (a.files or []) + (["--isolate"] if a.isolate else [])
+    bkey = tree_key(base_ref, extra or None)
+    rkey = tree_key(branch_ref, extra or None)
 
     if a.dry_run:
         for lbl, k in (("base", bkey), ("branch", rkey)):
@@ -155,15 +167,15 @@ def main() -> int:
         sh(["git", "worktree", "add", "--detach", str(wt), base_ref], cwd=REPO)
         return wt, lambda: sh(["git", "worktree", "remove", "--force", str(wt)], cwd=REPO, check=False)
 
-    base_names, base_meta, base_hit = cached_or_run(bkey, base_factory, a.files, "baseline")
-    br_names, br_meta, br_hit = cached_or_run(rkey, lambda: (bdir, lambda: None), a.files, "branch")
+    base_names, base_meta, base_hit = cached_or_run(bkey, base_factory, a.files, "baseline", a.isolate)
+    br_names, br_meta, br_hit = cached_or_run(rkey, lambda: (bdir, lambda: None), a.files, "branch", a.isolate)
 
     new = sorted(br_names - base_names)
     gone = sorted(base_names - br_names)
     report = {
         "base": {"ref": base_ref[:10], "key": bkey, "cached": base_hit, **base_meta, "failing": len(base_names)},
         "branch": {"ref": branch_ref[:10], "key": rkey, "cached": br_hit, **br_meta, "failing": len(br_names)},
-        "new": new, "gone": gone, "mode": "targeted" if a.files else "full",
+        "new": new, "gone": gone, "mode": ("isolated" if a.isolate else "targeted") if a.files else "full",
     }
     print(json.dumps(report, indent=1))
     print(f"[suite_namediff] {'CLEAN' if not new else 'REGRESSION'}: {len(new)} NEW, {len(gone)} GONE "
