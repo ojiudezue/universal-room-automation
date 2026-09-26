@@ -2208,6 +2208,16 @@ cards:
     actually retreating. OPEN QUESTION FOR OPERATOR: what does the Carrier app/thermostat show for zone 1 right now
     while house is away - Away hold, or Home? That answer decides whether URA should trust hold_activity (config)
     or preset_mode (status) as the confirmation signal - a W1-B thermostat-definition decision.'
+  finding_2026_09_26_away_feed_split_RESOLVED: 'PHYSICAL TRUTH = AWAY (13:10 CDT). Two disjoint checks: (1) operator
+    Carrier-app screenshots 12:58 and 13:05 show Zone 1 Holding Away 68-80, Idle; (2) recorder: blower_rpm last non-zero
+    08:57 (just after the first URA away write at 08:54) and 0 for the next 4 h while current_temperature rose 76->80F -
+    a thermostat actually at home (cool 76) would have cooled. So the thermostat retreated and stayed retreated; the
+    STATUS-feed preset_mode=home readings are false (likely the schedule 06:00 Home period, next_activity_time 06:00).
+    Harm = write churn only (~57 away writes today, 2 Carrier API calls each), not comfort/energy. hvac_action and
+    conditioning are useless on this entity (cooling/active_cool on every row incl. blower 0). Schedule change will not
+    fix it (operator app forbids zero schedule entries; changing the entry to Away mirrors the flap when occupied).
+    Fix = W1-B: confirm writes from hold_activity (CONFIG feed). Caveat to reconcile in W1-B: in the C20 manual strands
+    hold_activity ALSO read manual, so verify hold_activity is the right oracle for that case too.'
   MANUAL_PERSISTS_EVIDENCE_2026_09_17: 'Causation probe corroborates the mystery re-manual writer:
     zone_3 shows 27 manual preset episodes post-v5.103.2, ~121s median dwell — named holds are NOT
     uniformly durable, manual is re-asserted at ~2min cadence. Either the pin is not fully effective

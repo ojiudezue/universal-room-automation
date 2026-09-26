@@ -279,8 +279,10 @@ v5.103.15 validation; pre-existing on v5.103.14). 08:54–12:49 CDT: ~46 home↔
 `climate.thermostat_bryant_wifi_studyb_zone_1`. `decision_log` shows only URA `away` writes (`vacant_past_grace`, house
 away) on the tick; `hold_activity` (CONFIG feed) = `away` continuously; `preset_mode` (STATUS feed) = `home` with home
 setpoints except for the ~5–8 min post-write guard window (C21). Mirror image of the C20 manual strands: the two feeds
-disagree and URA trusts the status feed. Physical truth UNVERIFIED (one clue: cooling at 79 °F at 12:48, consistent
-with home 76). Card `HVAC-ZONE1-MANUAL-OSCILLATION-1` `finding_2026_09_26_away_feed_split`; decision belongs to W1-B
+disagree and URA trusts the status feed. **Physical truth = AWAY (verified 13:10):** operator app shows "Holding Away
+68–80, Idle"; blower_rpm 0 from 08:57 for 4 h while zone temp rose 76→80 °F (a real home/76 would have cooled). The
+status-feed `home` readings are false; harm is write churn only (~57 writes/day). `hvac_action`/`conditioning` on this
+entity are useless (cooling on every row). Schedule change will not fix it. Card `HVAC-ZONE1-MANUAL-OSCILLATION-1` `finding_2026_09_26_away_feed_split`; decision belongs to W1-B
 (which feed confirms a write).
 
 ## 9b. Operator decisions & facts recorded 2026-09-26 (binding)

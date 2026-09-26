@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T12:49:12-05:00_ - _Data commit: `88a6ced461a5`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T12:56:51-05:00_ - _Data commit: `852e573791a6`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -57,9 +57,10 @@ _created 2026-09-16 · updated 2026-09-26 02:07 · refined_
 - **Next:** WAIT (me, blocked): once W1-A (HVAC-SETHVACMODE-CHOKEPOINT-1) ships and has logged one clean day of climate_write rows, run W1-B's D0 read-only probe (PLANNING_hvac_w1b_thermostat_definition.md section 3). Then record the strand-cause di...
 - **Tags:** hvac, measure-first, producer-check, found-during-validation
 - **Parsimony:** [BUILD] the Bryant thermostat re-asserts a 76/69 hold seconds after every URA preset write to zone_1, so URA and the thermostat fight continuously and URA narrates each lap as a HIGH-severity human override (~45 false pages/day)
-- **Forensic keys (13):**
+- **Forensic keys (14):**
   - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
   - `finding_2026_09_26_away_feed_split`: NEW SHAPE, found during v5.103.15 live validation (predates that deploy, on v5.103.14). From 08:54 to 12:49 CDT zone_1 climate flipped home(76/70) <-> away(80/68) ~46 times. URA decision_log shows ONLY away writes (preset_change, reason ...
+  - `finding_2026_09_26_away_feed_split_RESOLVED`: PHYSICAL TRUTH = AWAY (13:10 CDT). Two disjoint checks: (1) operator Carrier-app screenshots 12:58 and 13:05 show Zone 1 Holding Away 68-80, Idle; (2) recorder: blower_rpm last non-zero 08:57 (just after the first URA away write at 08:54...
   - `MANUAL_PERSISTS_EVIDENCE_2026_09_17`: Causation probe corroborates the mystery re-manual writer: zone_3 shows 27 manual preset episodes post-v5.103.2, ~121s median dwell — named holds are NOT uniformly durable, manual is re-asserted at ~2min cadence. Either the pin is not fu...
   - `verified_2026_09_26_overnight`: OVERNIGHT PASS 2026-09-26, VERIFY-BEFORE-WORK. Verdict: CARD-WAS-WRONG on its title and next, STILL-REAL on the problem. After reading HVAC_ARCHITECTURE_STATE_OF_PLAY.md in full, I checked this card against it. (1) The title still said t...
   - `next_superseded_2026_09_26`: MEASURE (me): (1) across all 3 zones, count post-borrow manual reports where preset_mode=manual but hold_activity != manual, and those whose setpoints equal a URA borrow's excursion values; (2) read ha_carrier's preset_mode derivation (c...
