@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T22:00:17-05:00_ - _Data commit: `63571ea81138`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-25T22:06:42-05:00_ - _Data commit: `54ad21fe5a15`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -404,14 +404,14 @@ _created 2026-09-12 17:10 · updated 2026-09-22 02:50 · refined_
 
 ### `HVAC-SUPPLE-SEQUENCE-1` - The ordered plan for making HVAC supple — six steps, each with a gate, run to completion rather than cherry-picked — _#8 · WSJF 2.0 · v5 tc3 u8 /e8 ⚠_
 thread: **hvac** - status: **planned** - approval: **explicit**
-_created 2026-09-15 · initial_
+_created 2026-09-15 · updated 2026-09-26 01:00 · initial_
 - **Problem / Solution:**
   - Problem: the HVAC work is spread across half a dozen cards that each look independently buildable, but they are not — several of them cannot be MEASURED until others land, so building them in the wrong order produces changes nobody can p...
 - **Why:** Per the finish-the-job rule: decomposing this arc is a commitment to complete it, not a menu. And per measure-before-build: the middle of this sequence is a behaviour change to live comfort and spend, so the instrumentation and baseline ...
 - **Next:** DEPLOY STEP 4c (HVAC-PRESET-LOCKOUT-TELEMETRY-1, built on develop) — it gates steps 5-8 because it is the instrument that answers WHY zone_1 only reached 46.0%% against a ~6%% target, and without it step 4 would be judged on a number nob...
 - **Tags:** measure-before-build, tier-2db, sequence
 - **Parsimony:** [BUILD] Related HVAC cards are order-dependent for MEASUREMENT, not just for code, so building them in the wrong order yields changes nobody can prove helped.
-- **Forensic keys (13):**
+- **Forensic keys (14):**
   - `COAST_OBSERVABILITY_ADDED_2026_09_17`: Added HVAC-COAST-OBSERVABILITY-1 to the arc BOTTOM (operator: "add it to our HVAC arc at the bottom, although we can resequence"). Tier-1 additive sensor exposing EC coast/shed (energy_constraint_mode) — feasible, signal+property already...
   - `ARC_RECOMPOSED_NO_FAKE_GATES_2026_09_16`: Operator: "recompose the full arc with old and new. Put in problem/solution and link purpose... put it in proper sequence with no fake gates." The prior step-numbered lists implied a CHAIN. Most of this arc is NOT a chain. Only FOUR edge...
   - `OPERATOR_RECALL_RECONCILED_2026_09_16`: The operator recited the sequence from memory as five rows (1 CONTRACT planned, 2 LEDGER planned, 4 CONDITIONING-DEMAND pre_planning blocked-by-1, 5 GUEST-AS-ZONE-PERSON pre_planning blocked-by-4, 5 HOT-ENTRY-LATENCY planned blocked-by-4).
@@ -423,6 +423,7 @@ _created 2026-09-15 · initial_
   - `TUNABILITY_REMEASURED_2026_09_16`: OPERATOR CHALLENGED the "zone 1 tunable ~9 of 24 hours" figure I had been repeating: "We have to verify if this is right and a legit blocker or not." It was a 2026-08-20 number, ~4 weeks old, and I had never re-verified it. RE-MEASURED o...
   - `RESUME_PLACEMENT_2026_09_16`: OPERATOR ASKED: "Where does resume fall in this sequence?" ANSWER: resume-then-pin IS STEP 1'S BUILD — not a new step. Step 1 was always "make preset restores actually take"; as of 2026-09-16 we know WHY they do not (a named hold cannot ...
   - `seq_2026_09_15`: THIS CARD IS THE ORDER. Steps 1-3 change no behaviour (attribution, instrument, baseline); step 4 is the live change; steps 5-6 dispose and close.
+  - `RESEQUENCE_PROPOSAL_2026_09_26`: Operator asked (2026-09-26): after the live-room build, (a) govern all thermostat writes, (b) force nudges/borrows/excursions onto the new primitive — pro/con; list the new arc sequence problems-first with biggest problems + unlocks, and...
   - `WITNESS_CORRECTION_2026_09_15`: I told the operator the spurious-away metric might need the guest/person work first. THAT WAS WRONG and the correction reorders the sequence. HVAC-GUEST-AS-ZONE-PERSON-1 derives a zone person FROM ROOM OCCUPANCY — the very signal we are ...
   - `SEQUENCE_2026_09_15`: Six steps. Each names its exit GATE; do not start step N+1 until step N's gate is met. Steps 1-3 change no HVAC behaviour, which is deliberate — they make the rest provable.
 

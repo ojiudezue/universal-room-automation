@@ -12728,12 +12728,21 @@ cards:
     checkpoint at pre-deploy. Writing Tier-3 thermostat code without the plan review would be a
     process violation; the plan is the correct next artifact.'
   seq_2026_09_15: 'THIS CARD IS THE ORDER. Steps 1-3 change no behaviour (attribution, instrument, baseline); step 4 is the live change; steps 5-6 dispose and close.'
+  RESEQUENCE_PROPOSAL_2026_09_26: 'Operator asked (2026-09-26): after the live-room build, (a) govern all thermostat
+    writes, (b) force nudges/borrows/excursions onto the new primitive — pro/con; list the new arc sequence
+    problems-first with biggest problems + unlocks, and consolidate "or we will never get done". Proposal
+    given in chat (PENDING operator decision): one staged THERMOSTAT WRITE GOVERNANCE workstream — Stage A
+    behaviour-neutral (all 3 verbs through funnels + one durable row per write), Stage B Carrier write+read
+    strategy (presets-only returns for every borrow kind, status/config coherence before treating manual as
+    human, URA-owned/stale holds reclaimable), then measure, then occupancy truth (night still-sleeper,
+    hot entry), then the dormant setpoint layer, then energy/guest extras. Consolidation into ~4 workstreams
+    to be applied to the board AFTER the operator rules — do not re-card from this note.'
   title: The ordered plan for making HVAC supple — six steps, each with a gate, run to completion
     rather than cherry-picked
   thread: hvac
   status: planned
   created: '2026-09-15'
-  updated: '2026-09-15'
+  updated: '2026-09-26 01:00'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-15 ("We should define sequence now. We have some related work and
