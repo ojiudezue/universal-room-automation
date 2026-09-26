@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T16:32:46-05:00_ - _Data commit: `27053eebb0c6`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T16:40:55-05:00_ - _Data commit: `c29c3220aa17`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -12,7 +12,7 @@ _Generated: 2026-09-26T16:32:46-05:00_ - _Data commit: `27053eebb0c6`_ - _last_r
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 5 |
 | 🧭 Pre-planning | 11 |
-| 📝 Planned | 24 |
+| 📝 Planned | 25 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 20 |
@@ -315,7 +315,7 @@ _created 2026-09-12 16:30 · updated 2026-09-12 16:05 · refined_
   - `recommended_combo_2026_09_12`: Presented the most-assistive LINEAR combo for operator approval (the bold end of each proposal, resolving the conservative/aggressive variants): area-first + auto-detect-and-confirm (P2 bold) + continuous house->room ribbon (P5) + essent...
   - `planning_2026_09_12`: AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + sep...
 
-## 📝 Planned (24)
+## 📝 Planned (25)
 _has plan / acceptance_
 
 ### `COVERAGE-EVENING-ATTRIBUTION-DRIFT-1` - Every evening the room-by-room energy totals creep past the whole-house meter and keep growing until midnight, and nobody has explained why — _#1 · WSJF 4.3 · v7 tc4 u2 /e3_
@@ -637,7 +637,15 @@ _created 2026-09-26 · updated 2026-09-26 16:55_
   - `w1a_consumer_gap_2026_09_26`: Operator asked "I assume the arrester is now using w1-a?". WRITES: yes — hvac_override.py has 14 emit_set_* funnel calls and 0 raw climate calls. READS: no — override detection uses its own time-only suppression dict (_suppressed_until, ...
   - `proposed_fix`: Value-matched echo recognition: a change that arrives within an echo window after a URA write AND whose setpoints equal what URA wrote after display rounding (+-0.5 F, round-half-up to the entity's whole-degree display) is URA's echo, no...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#22 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `HVAC-ENTRY-DWELL-ROOM-CLOCK-1` - Start the zone entry-dwell clock at the room's real occupancy start (not the tick that noticed it) so a 1-min dwell filters brief transits at almost no latency cost — _#22 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **planned**
+_created 2026-09-26 · updated 2026-09-26 17:30_
+- **Why:** hvac_zones.py:783-788 sets zone.current_session_start = now when a decision tick FIRST sees lighting occupancy, so any dwell > 0 costs a whole extra tick (C18: 2 min dwell -> 5-10 min entry). With the clock at the room's real occupancy s...
+- **Next:** PLAN (me, Tier 2-DB — HVAC preset decision logic): ura-planner writes a short plan: session start = min(room occupied-since) over the zone's currently lighting-occupied rooms (verify the source value, restart/RestoreEntity behaviour, a r...
+- **Forensic keys (1):**
+  - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
+
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#23 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-09-26 09:45 · refined_
 - **Next:** BUILD (me, Tier 1-2 test-only): fix test_v47x_weather_manager.py (47) and test_bathroom_exhaust_intelligence_cycle.py (23) failures, one builder at a time behind the HVAC arc builds; re-measure with scripts/suite_namediff.py; then size t...
@@ -661,7 +669,7 @@ _created 2026-08-19 07:45 · updated 2026-09-26 09:45 · refined_
   - `BLOCKED_LINK_2026_09_16`: Recorded the dependency as a real blocked_by link instead of leaving it as prose in measured_2026_09_15. This parent asks for a re-arch scoped to ~87 order-dependent RUNTIME failures, and those failures are currently unmeasurable because...
   - `UNBLOCKED_2026_09_21`: UNBLOCKED, and the number this card is built around finally has a fresh measurement. The blocker (TEST-HARNESS-REAL-HA-DEFAULT-1) rested on the claim that the harness errored out of 10,560 of 10,588 tests, which made the ~87 order-depend...
 
-### `HVAC-W3-ENERGY-AWARE` - W3 — HVAC spends energy at the right times — _#23 · WSJF 1.4 · v6 tc3 u2 /e8_
+### `HVAC-W3-ENERGY-AWARE` - W3 — HVAC spends energy at the right times — _#24 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **hvac** - status: **planned** - approval: **explicit**
 _created 2026-09-26 02:40 · initial_
 - **Problem / Solution:**
@@ -673,7 +681,7 @@ _created 2026-09-26 02:40 · initial_
 - **Forensic keys (1):**
   - `children`: HVAC-PRECOOL-WINDOW-TOU-DERIVED-1
 
-### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#24 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#25 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **energy** - status: **planned** - approval: **implied**
 _created 2026-09-16_
 - **Problem / Solution:**
