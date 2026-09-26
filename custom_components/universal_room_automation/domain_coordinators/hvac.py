@@ -476,6 +476,11 @@ class HVACCoordinator(BaseCoordinator):
         # whenever the house_state changes.
         self._night_trust_logged: set[tuple[str, str]] = set()
         self._night_trust_logged_state: str = ""
+        # HVAC-DEGRADED-ROOM-TRIPWIRE-1 fix-up round 3 (item 8, 2026-09-26):
+        # episode-gate for the row-1 transient-room hold's durable log row.
+        # Keyed (zone_id, house_state, target_preset); reset implicitly on
+        # ZoneManager rebuild (coordinator lifetime).
+        self._row1_hold_logged_episode: dict[str, tuple[str, str]] = {}
 
         # Decision cycle tracking
         self._last_evaluate: str = ""
@@ -1988,6 +1993,21 @@ class HVACCoordinator(BaseCoordinator):
             # `stale_occupancy` instead of `house_state_transition` when the
             # coordinator forces "away" against a still-any_room_occupied zone.
             stale_occupancy = False
+            # HVAC-DEGRADED-ROOM-TRIPWIRE-1 fix-up round 3 (2026-09-26,
+            # item 1): hoist EVERY per-zone per-tick local that is read
+            # OUTSIDE the `if zi:` block to the loop top. Previous shape
+            # assigned these three only inside `if zi:` (~2225, ~2232,
+            # ~2056 for `_row1_hold_write`) but read them at
+            # loop-level (~2666, ~2686, ~2533) — with Zone Intelligence
+            # OFF (switch.ura_hvac_zone_intelligence off, a legal operator
+            # setting) every tick raised UnboundLocalError and aborted
+            # `_async_decision_cycle` at hvac.py:1742 (no try) — skipping
+            # energy / AC-reset / fans / covers / predictor / signals /
+            # save. Pre-existing sibling bug on develop for the D3/D5
+            # flags; the row-1 hold made a HIGH out of it.
+            _d3_skipped_this_tick = False
+            _d5_occupancy_deferred_this_tick = False
+            _row1_hold_write = False
 
             # HVAC-ZONE-CONDITIONING-DEMAND-1 D6 (doc-only, 2026-09-16):
             # retreat semantics on the preset-flip path (row 1) + the D6
@@ -2053,7 +2073,24 @@ class HVACCoordinator(BaseCoordinator):
                     )
                 except Exception:  # noqa: BLE001
                     _transient_blocked_row1 = False
-                _row1_hold_write = _transient_blocked_row1 and _fused_empty
+                # FIX-UP round 3 item 3 (2026-09-26): scope the HOLD to the
+                # OCCUPANCY layer. Arm ONLY when the write would be an
+                # occupancy-driven un-retreat (target=home/sleep and the
+                # zone is not being pre-arrival conditioned and the house
+                # is not in a genuine away/vacation transition). This
+                # lets house-state-driven away/vacation/sleep transitions
+                # AND pre-arrival writes land on the same tick even while
+                # a sibling room reloads.
+                _row1_hold_eligible = (
+                    target_preset in ("home", "sleep")
+                    and zone_id not in self._pre_arrival_zones
+                    and self._house_state not in ("away", "vacation")
+                )
+                _row1_hold_write = (
+                    _transient_blocked_row1
+                    and _fused_empty
+                    and _row1_hold_eligible
+                )
                 if _row1_hold_write:
                     _LOGGER.debug(
                         "HVAC row-1 hold: zone %s transient-blocked + fused-empty "
@@ -2216,21 +2253,12 @@ class HVACCoordinator(BaseCoordinator):
                 # Shed dominates comfort (rev-2 H3 falsification #6). BOTH
                 # this site AND the D1 grant read via the SAME accessor —
                 # the single-accessor invariant (planning §8).
-                # Fix-up A-HIGH-2: per-tick flag — set ONLY when the D3
-                # guard actually SKIPS a forced-away this tick. The S1
-                # relabel below reads this flag so a legitimate non-away
-                # write (occupant home, house-state transition,
-                # effective_preset="comfort") is not silently re-labeled
-                # `comfort_delay_active` whenever both runtime_exceeded
-                # and comfort_delay_active happen to be true.
-                _d3_skipped_this_tick = False
-                # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b2): per-tick
-                # occupancy-gate defer flag. Set True below when we
-                # skip the D5 force-away because the zone is fused-
-                # occupied under coast (shed still dominates — S14
-                # removal invariant: NEVER route a raw setpoint write
-                # here; leave the zone at its current preset).
-                _d5_occupancy_deferred_this_tick = False
+                # Fix-up A-HIGH-2 + D-b2: per-tick flags hoisted to loop
+                # top (fix-up round 3, item 1). Both `_d3_skipped_this_
+                # tick` and `_d5_occupancy_deferred_this_tick` are read
+                # unconditionally below (reason ladder ~2666/2686); an
+                # `if zi:`-scoped reset would leave them unbound on the
+                # zi-off path. See loop-top declaration.
                 # B1 (fix-up): clear the throttle map for this zone when
                 # runtime_exceeded is no longer set — the operator's
                 # runtime accumulator dropped below the cap; the S14
@@ -2531,6 +2559,56 @@ class HVACCoordinator(BaseCoordinator):
             # fused-empty; D5 clears the hold in its force-away branch;
             # night-trust (D7) above already `continue`s independently.
             if _row1_hold_write:
+                # FIX-UP round 3 item 8 (2026-09-26): episode-gated
+                # durable log so a held write is diagnosable (previously
+                # only a DEBUG line). Mirror of the D5-defer / D7 night-
+                # trust `preset_change_suppressed` pattern: one row per
+                # (zone, house_state, target_preset) episode, not per
+                # tick. Reason "transient_room_hold" so the ledger can
+                # be filtered.
+                _ep = (self._house_state, target_preset)
+                if (
+                    self._row1_hold_logged_episode.get(zone_id) != _ep
+                    and activity_logger is not None
+                ):
+                    self._row1_hold_logged_episode[zone_id] = _ep
+                    try:
+                        self.hass.async_create_task(
+                            activity_logger.log(
+                                coordinator="hvac",
+                                action="preset_change_suppressed",
+                                description=(
+                                    f"{zone.zone_name} preset write "
+                                    f"held: sibling room reloading "
+                                    f"(target={target_preset}, house="
+                                    f"{self._house_state})"
+                                ),
+                                zone=zone_id,
+                                importance="notable",
+                                entity_id=zone.climate_entity,
+                                details={
+                                    "old_preset": zone.preset_mode,
+                                    "new_preset": zone.preset_mode,
+                                    "house_state": self._house_state,
+                                    "reason": "transient_room_hold",
+                                    "target_preset": target_preset,
+                                    "energy_shed_cap_reached": bool(
+                                        zone.runtime_exceeded,
+                                    ),
+                                    "any_room_hvac_occupied": bool(
+                                        getattr(
+                                            zone, "any_room_hvac_occupied",
+                                            False,
+                                        )
+                                    ),
+                                },
+                            )
+                        )
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "row-1 transient-room-hold ledger write failed",
+                            exc_info=True,
+                        )
                 continue
 
             # --- Determine if preset change is needed ---
@@ -3025,12 +3103,15 @@ class HVACCoordinator(BaseCoordinator):
                 # oracle so the preset-layer preserve is never defeated
                 # at the setpoint layer.
                 _rc_ready = bool(getattr(zone, "room_conditions", None))
-                # HVAC-DEGRADED-ROOM-TRIPWIRE-1 FIX-UP item 2 (2026-09-26):
-                # if the zone is transient-blocked (a sibling room is
-                # loading/reloading) AND fused-empty, do NOT compose-away
-                # here — hold the current setpoints for this tick. Matches
-                # the row-1 preset-flip HOLD above so the setpoint layer
-                # doesn't push the zone to `away` on a sibling reload.
+                # HVAC-DEGRADED-ROOM-TRIPWIRE-1 FIX-UP item 2 (2026-09-26,
+                # comment corrected round 3 item 5): if the zone is
+                # transient-blocked (a sibling room is loading/reloading)
+                # AND fused-empty, HOLD the setpoint write for this tick
+                # — a raw baseline/freeze-floor DPM write while a sibling
+                # room is reloading would strand the zone at the
+                # `target_preset` baseline the whole cycle. This is a
+                # setpoint-layer hold; the `else` branch below (~compose-
+                # away when established+empty) never runs on this tick.
                 try:
                     _fused_empty_dpm = not bool(
                         getattr(zone, "any_room_hvac_occupied", False)

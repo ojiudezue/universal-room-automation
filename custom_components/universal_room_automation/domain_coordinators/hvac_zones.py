@@ -1160,15 +1160,19 @@ class ZoneManager:
             "MIGRATION_ERROR": "migration_error",
             "SETUP_RETRY": "setup_retry",
         }
-        # FIX-UP item 1: these reasons make the room STICKY-FAILED — it
-        # stays EXCLUDED through subsequent transient states (HA retry
-        # cycles it back into SETUP_IN_PROGRESS every ~80s) until we
-        # observe a real LOADED transition.
-        _STICKY_REASONS = {"setup_error", "migration_error", "setup_retry"}
         _TRANSIENT = {
             "NOT_LOADED", "SETUP_IN_PROGRESS", "UNLOAD_IN_PROGRESS",
             "FAILED_UNLOAD",
         }
+        # FIX-UP round 3 item 7 (2026-09-26): prune sticky-failed rooms
+        # whose config entry no longer exists so a removed-and-re-added
+        # room isn't permanently sticky. Once a name is no longer in
+        # `_room_entry_by_name` it will be handled below as "entry_removed"
+        # (excluded) — and if a fresh entry ever appears with the same
+        # name and LOADED, the sticky bit must not carry over.
+        _stale_sticky = self._sticky_failed_rooms - set(self._room_entry_by_name)
+        if _stale_sticky:
+            self._sticky_failed_rooms -= _stale_sticky
         # FIX-UP item 3: rooms that appear in some zone.rooms but no
         # config entry exists for them any more (mid-session removal) are
         # EXCLUDED immediately with reason "entry_removed" and get one
@@ -1439,38 +1443,48 @@ class ZoneManager:
             return False
 
     def is_zone_hvac_established(self, zone_id: str) -> bool:
-        """Fused-signal establishment check (fix-up round 5, 2026-09-17).
+        """Live-room establishment check (HVAC-DEGRADED-ROOM-TRIPWIRE-1,
+        REV-2 D2, 2026-09-26).
 
-        A zone is HVAC-ESTABLISHED iff EVERY room in `zone.rooms` has
-        been observed by the D1 producer at least once since ZoneManager
-        construction (present in `_hvac_seen`). Round-5 orchestrator
-        adjudication reverted the round-4 `any` relaxation back to
-        `all`: `any` would let the zone retreat on the rooms it can't
-        read (a disabled / setup_retry room whose true state is
-        unknown), and "never retreats on an unreadable room" is the
-        safer failure mode for a conditioning decision.
+        A zone is HVAC-ESTABLISHED iff, after classifying every
+        `zone.rooms` entry into LIVE / TRANSIENT / EXCLUDED
+        (`_classify_all_rooms`):
+        - `transient` is empty (any loading/reloading sibling BLOCKS —
+          F-INV-A: a room reload's stale `_hvac_seen` entry must not
+          satisfy the gate); AND
+        - `live` is non-empty (F-INV-C: an all-dead zone stays
+          UNESTABLISHED); AND
+        - every LIVE room is coordinator-present on the latest producer
+          pass (`_coordinator_absent_this_pass`) AND has been observed
+          by the D1 producer at least once (`_hvac_seen`).
 
-        Known residual (carded, not fixed here — TRIP-WIRE approach):
-        a zone with a permanently-disabled room never reaches
-        established and therefore never retreats. Benign (wrong
-        direction is never wrong) but leaves the feature INERT for
-        that zone. The right fix is a code trip-wire that surfaces the
-        degraded room (per No-Soak), NOT a relaxation of this gate.
+        EXCLUDED rooms (disabled / setup_error / migration_error /
+        sticky-failed / entry-removed / transient past grace) LEAVE
+        the denominator — a zone with a permanently-disabled room can
+        still establish and retreat on its remaining LIVE rooms. This
+        supersedes the round-5 `all(zone.rooms in _hvac_seen)` rule
+        that left the feature INERT for any zone with a single
+        permanently-degraded room.
 
-        Reload-window rationale (softened per operator round-5): this
-        function alone does NOT close the reload cold-retreat window —
-        establishment happens in the same synchronous pass as the D1
-        producer's first read on setup, so `_hvac_seen` gets populated
-        essentially in the same tick. The real reload-safety anchor is
-        in `__init__.py`'s HVACCoordinator setup path
-        (`await coordinator.async_config_entry_first_refresh()` at
-        approximately `__init__.py:4959-4962` — awaiting first-refresh
-        before publishing the coordinator to consumers). This function
-        is a defensive OR-condition on top of that.
+        Reload-window rationale: the invariant is defended layered —
+        transient rooms BLOCK for `HVAC_LIVE_ROOM_TRANSIENT_GRACE_S`
+        (300s) after first non-LOADED observation; the coordinator
+        awaits `async_config_entry_first_refresh` before publishing
+        (`__init__.py:4959-4962`); an entry that cannot be classified
+        is TRANSIENT (fail-CLOSED for retreat).
+
+        Fallback: if `update_room_conditions` has not run yet
+        (`_hvac_classification_ready is False` — unit tests seeding
+        `_hvac_seen` directly), fall back to the round-5
+        `all(r in _hvac_seen)` semantics so existing test contracts
+        hold until the first producer pass.
 
         Callers (row-1, D7, D9, F4 row-10) use this via
         `conditioning_retreat_ok` — the single retreat authorization
-        helper.
+        helper. Row-1 additionally consults
+        `is_zone_transient_blocked` to hold the current preset (no
+        write) during the reload window instead of falling back to
+        the house-state target.
         """
         zone = self._zones.get(zone_id)
         if zone is None:

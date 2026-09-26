@@ -168,10 +168,12 @@ def _seed_zone_all_live_and_occupied(coord, zone_id: str) -> None:
 
 
 async def _drive_apply_presets(coord):
-    try:
-        await coord._apply_house_state_presets()
-    except Exception:  # noqa: BLE001
-        pass
+    # FIX-UP round 3 item 2 (2026-09-26): DO NOT swallow exceptions —
+    # a raised exception during the drive is a real production defect
+    # (e.g. UnboundLocalError on the zi=off path) and must fail the
+    # test. The prior try/except silently masked the HIGH bug at
+    # item 1 (row-1 hold's `_row1_hold_write` unbound with ZI off).
+    await coord._apply_house_state_presets()
 
 
 def _preset_writes(hass, entity_id: str, preset: str | None = None) -> list:
@@ -277,10 +279,10 @@ async def test_d9_compose_away_hold_no_setpoint_write_on_transient_blocked_empty
     zone = coord.zone_manager.zones["zone_1"]
 
     hass.services.calls.clear()
-    try:
-        await coord._async_apply_preset_overrides()
-    except Exception:  # noqa: BLE001
-        pass
+    # FIX-UP round 3 item 2: no exception swallowing — a raise here is
+    # a real defect (unbound locals / missing collaborator) and must
+    # fail the test.
+    await coord._async_apply_preset_overrides()
 
     setpoint_writes = [
         c for c in hass.services.calls
@@ -363,3 +365,221 @@ async def test_nm_location_two_rooms_two_distinct_calls():
     msgs = [c.get("message", "") for c in nm.calls]
     assert any("zone_1" in m for m in msgs)
     assert any("zone_2" in m for m in msgs)
+
+
+# ---------------------------------------------------------------------------
+# FIX-UP round 3 (2026-09-26)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_row1_zi_off_no_unbound_local_and_writes_target_preset():
+    """FIX-UP round 3 item 1 (HIGH). With Zone Intelligence OFF (a
+    legal operator setting via switch.ura_hvac_zone_intelligence),
+    every per-zone per-tick local declared inside the `if zi:` block
+    used to raise UnboundLocalError when read at loop level
+    (`_row1_hold_write` @ ~2533, `_d3_skipped_this_tick` @ ~2666,
+    `_d5_occupancy_deferred_this_tick` @ ~2686). That aborted
+    `_async_decision_cycle` without a try/except.
+
+    Discriminator: drive `_apply_house_state_presets` with zi=False;
+    the method MUST NOT raise, AND the target preset write MUST
+    still land. Mutation: revert the loop-top hoist for
+    `_row1_hold_write` → the drive raises UnboundLocalError.
+    """
+    coord, hass = _make_coord()
+    coord._zone_intelligence_enabled = False  # zi OFF
+    coord._house_state = "home_day"
+    coord._energy_constraint_mode = "normal"
+    coord.set_d5_enabled(False)
+    for _z in coord.zone_manager.zones.values():
+        _z.hvac_mode = "heat_cool"
+        _z.preset_mode = "away"
+    # No exception swallowing — a raise here fails the test.
+    await coord._apply_house_state_presets()
+    # Target preset for home_day is `home`. With zi off, the row-1
+    # override doesn't run at all; the emit path still fires because
+    # should_change_preset("away","home") is True.
+    zone = coord.zone_manager.zones["zone_1"]
+    writes = _preset_writes(hass, zone.climate_entity, preset="home")
+    assert writes, (
+        f"zi=off must still emit target_preset=home for "
+        f"{zone.climate_entity}; got {hass.services.calls!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_row1_hold_scope_house_state_away_still_writes_away():
+    """FIX-UP round 3 item 3. HOLD is scoped to the OCCUPANCY layer:
+    when the house state transitions to `away`, the away preset must
+    still land even while a sibling room is reloading.
+
+    Discriminating: force the fixture's preset manager to return
+    "home" for house_state="away" so the `target_preset in
+    ("home","sleep")` check would NOT save us — only the
+    `_house_state not in ("away","vacation")` conjunct keeps the
+    hold from arming on this away transition. Mutation: drop that
+    conjunct → the "home" write is held → this test reds.
+    """
+    coord, hass = _make_coord()
+    coord._house_state = "away"
+    coord._energy_constraint_mode = "normal"
+    coord.set_d5_enabled(False)
+    for _z in coord.zone_manager.zones.values():
+        _z.hvac_mode = "heat_cool"
+        _z.preset_mode = "sleep"  # different from "home" so should_change_preset is True
+    # Force target_preset="home" while _house_state="away" — an
+    # atypical mapping that discriminates on the away-conjunct.
+    orig = coord._preset_manager.get_preset_for_house_state
+    coord._preset_manager.get_preset_for_house_state = lambda _s: "home"
+    try:
+        _seed_zone_with_transient_sibling(coord, "zone_1")
+        zone = coord.zone_manager.zones["zone_1"]
+        hass.services.calls.clear()
+        await coord._apply_house_state_presets()
+        writes = _preset_writes(hass, zone.climate_entity, preset="home")
+        assert writes, (
+            f"house_state=away must NOT arm the hold (regardless of what "
+            f"target_preset resolves to); got {hass.services.calls!r}"
+        )
+    finally:
+        coord._preset_manager.get_preset_for_house_state = orig
+
+
+@pytest.mark.asyncio
+async def test_row1_hold_scope_pre_arrival_zone_still_writes_home():
+    """FIX-UP round 3 item 3. Pre-arrival zones are excluded from the
+    HOLD: with `zone_id in self._pre_arrival_zones`, the target preset
+    (home) must still land even while a sibling reloads.
+    Mutation: drop the `zone_id not in self._pre_arrival_zones`
+    conjunct → the pre-arrival write is held.
+    """
+    coord, hass = _make_coord()
+    coord._house_state = "home_day"
+    coord._energy_constraint_mode = "normal"
+    coord.set_d5_enabled(False)
+    for _z in coord.zone_manager.zones.values():
+        _z.hvac_mode = "heat_cool"
+        _z.preset_mode = "away"
+    _seed_zone_with_transient_sibling(coord, "zone_1")
+    coord._pre_arrival_zones = {"zone_1"}
+    zone = coord.zone_manager.zones["zone_1"]
+    hass.services.calls.clear()
+    await coord._apply_house_state_presets()
+    writes = _preset_writes(hass, zone.climate_entity, preset="home")
+    assert writes, (
+        f"pre-arrival zone must still fire target_preset=home; got "
+        f"{hass.services.calls!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_d5_shed_clears_hold_and_forces_away():
+    """FIX-UP round 3 item 4 — D5 clear wire-in. Under EC coast with
+    runtime_exceeded and D5 enabled, the shed force-away path
+    (hvac.py ~2378) CLEARS the row-1 hold and writes away for the
+    transient-blocked + fused-empty zone. Discriminator: delete the
+    `_row1_hold_write = False` clear (~2392) → the write is held →
+    no set_preset_mode(away) lands.
+    """
+    coord, hass = _make_coord()
+    coord._house_state = "home_day"
+    coord._energy_constraint_mode = "coast"
+    coord.set_d5_enabled(True)
+    # Full 20-min window, cap 50% → 600s. Set runtime past cap.
+    coord.set_duty_cycle_window_minutes(20)
+    coord.set_duty_cycle_coast_pct(50)
+    for _z in coord.zone_manager.zones.values():
+        _z.hvac_mode = "heat_cool"
+        _z.preset_mode = "home"
+    _seed_zone_with_transient_sibling(coord, "zone_1")
+    zone = coord.zone_manager.zones["zone_1"]
+    zone.runtime_exceeded = True  # D5 branch precondition.
+    hass.services.calls.clear()
+    await coord._apply_house_state_presets()
+    writes = _preset_writes(hass, zone.climate_entity, preset="away")
+    assert writes, (
+        f"D5 shed/coast force-away MUST clear the row-1 hold and land "
+        f"a safety-directed away write even on a transient-blocked + "
+        f"fused-empty zone; got {hass.services.calls!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_d9_positive_twin_writes_when_no_transient_sibling():
+    """FIX-UP round 3 item 5 — discriminator for the D9 HOLD negative
+    test. With guest_mode_actuation ON and NO transient sibling (all
+    LIVE + fused-empty → compose-away), a set_temperature write DOES
+    land. Deleting the `if _transient_blocked_dpm and _fused_empty_dpm:
+    continue` at hvac.py ~3131 would make the negative test pass
+    trivially; this positive twin proves the D9 emit path is
+    actually reachable in the fixture.
+    """
+    coord, hass = _make_coord()
+    coord._house_state = "home_day"
+    coord._guest_mode_actuation_enabled = True
+    coord._freeze_active = False
+    coord._last_emitted_range = {}
+    if getattr(coord, "_override_arrester", None) is not None:
+        arr = coord._override_arrester
+        arr._corrective_writes_suppressed = lambda _zid: False
+        arr.suppress = lambda *_a, **_kw: None
+        arr.unsuppress = lambda *_a, **_kw: None
+    from custom_components.universal_room_automation.const import DOMAIN
+    ec = types.SimpleNamespace(_dynamic_preset_overrides={"zone_1": []})
+    manager = types.SimpleNamespace(coordinators={"energy": ec})
+    coord.hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = manager
+
+    # All LIVE, both empty → compose-away path reachable.
+    from homeassistant.config_entries import ConfigEntryState
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_TYPE, CONF_ROOM_NAME, ENTRY_TYPE_ROOM,
+    )
+    zm = coord.zone_manager
+    zone = zm._zones["zone_1"]
+    zone.rooms = ["r_a", "r_b"]
+
+    class _Entry:
+        def __init__(self, rn):
+            self.entry_id = f"e_{rn}"
+            self.data = {
+                CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+                CONF_ROOM_NAME: rn,
+            }
+            self.options = {}
+            self.state = ConfigEntryState.LOADED
+            self.disabled_by = None
+
+    entries = [_Entry("r_a"), _Entry("r_b")]
+
+    class _CEs:
+        def async_entries(_self, _dom):
+            return list(entries)
+
+    coord.hass.config_entries = _CEs()
+
+    class _RC:
+        def __init__(self):
+            self.data = {
+                "occupied": False, "temperature": None, "humidity": None,
+            }
+    coord.hass.data.setdefault(DOMAIN, {})[entries[0].entry_id] = _RC()
+    coord.hass.data.setdefault(DOMAIN, {})[entries[1].entry_id] = _RC()
+    zm._hvac_seen.update(["r_a", "r_b"])
+    zm.update_room_conditions(house_state="home_day")
+    assert zm.is_zone_transient_blocked("zone_1") is False
+
+    hass.services.calls.clear()
+    await coord._async_apply_preset_overrides()
+
+    setpoint_writes = [
+        c for c in hass.services.calls
+        if c[0] == "climate" and c[1] == "set_temperature"
+        and c[2].get("entity_id") == zone.climate_entity
+    ]
+    assert setpoint_writes, (
+        "positive twin: D9 compose-away MUST emit set_temperature "
+        "when no sibling is transient (proves the negative test's "
+        "assertion is discriminating). Got "
+        f"{hass.services.calls!r}"
+    )
