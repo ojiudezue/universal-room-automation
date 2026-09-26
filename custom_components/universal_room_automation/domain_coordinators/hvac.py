@@ -2026,6 +2026,33 @@ class HVACCoordinator(BaseCoordinator):
                 else:
                     zone_vacant_past_grace = False
 
+                # HVAC-DEGRADED-ROOM-TRIPWIRE-1 FIX-UP item 2 (2026-09-26):
+                # If the zone is unestablished ONLY because a sibling room
+                # is transient (loading/reloading) AND the fused HVAC
+                # signal is empty, HOLD the zone's current preset for this
+                # tick (no preset write in either direction) instead of
+                # falling back to the house-state target. Rationale: the
+                # operator rule is "match occupancy IN THE ZONE" — a
+                # sibling-room reload must not force the whole zone back
+                # to `home` when it's actually empty. If any live room is
+                # hvac-occupied, normal flow (target_preset) proceeds.
+                try:
+                    _fused_empty = not bool(
+                        getattr(zone, "any_room_hvac_occupied", False)
+                    )
+                except Exception:  # noqa: BLE001
+                    _fused_empty = False
+                _transient_blocked = self._zone_manager.is_zone_transient_blocked(
+                    zone_id
+                )
+                if _transient_blocked and _fused_empty:
+                    _LOGGER.debug(
+                        "HVAC row-1 hold: zone %s transient-blocked + fused-empty — "
+                        "preserving current preset (no write)",
+                        zone_id,
+                    )
+                    continue
+
                 if zone_vacant_past_grace and target_preset in ("home", "sleep"):
                     effective_preset = "away"
 
@@ -2970,6 +2997,28 @@ class HVACCoordinator(BaseCoordinator):
                 # oracle so the preset-layer preserve is never defeated
                 # at the setpoint layer.
                 _rc_ready = bool(getattr(zone, "room_conditions", None))
+                # HVAC-DEGRADED-ROOM-TRIPWIRE-1 FIX-UP item 2 (2026-09-26):
+                # if the zone is transient-blocked (a sibling room is
+                # loading/reloading) AND fused-empty, do NOT compose-away
+                # here — hold the current setpoints for this tick. Matches
+                # the row-1 preset-flip HOLD above so the setpoint layer
+                # doesn't push the zone to `away` on a sibling reload.
+                try:
+                    _fused_empty_dpm = not bool(
+                        getattr(zone, "any_room_hvac_occupied", False)
+                    )
+                except Exception:  # noqa: BLE001
+                    _fused_empty_dpm = False
+                if (
+                    self._zone_manager.is_zone_transient_blocked(zone_id)
+                    and _fused_empty_dpm
+                ):
+                    _LOGGER.debug(
+                        "HVAC D9 hold: zone %s transient-blocked + fused-empty — "
+                        "skipping compose-away tick",
+                        zone_id,
+                    )
+                    continue
                 _compose_away = _rc_ready and self._zone_conditioning_retreat_ok(zone)
                 if _compose_away:
                     zone_target_preset = "away"
@@ -3165,18 +3214,33 @@ class HVACCoordinator(BaseCoordinator):
                 return
             from .base import Severity
             for room_name, reason in events:
+                # FIX-UP item 4: NM dedup key is
+                # `coordinator_id:title:location` (notification_manager
+                # .py:3792). Pass `location=room_name` so two rooms
+                # excluded in the same pass emit two distinct notes;
+                # include the zone name(s) in the message body so the
+                # operator sees which zone(s) lost this room.
+                zone_names: list[str] = []
+                try:
+                    for _z in self._zone_manager.zones.values():
+                        if room_name in (getattr(_z, "rooms", []) or []):
+                            zone_names.append(_z.zone_name)
+                except Exception:  # noqa: BLE001
+                    zone_names = []
+                _zn = ", ".join(zone_names) if zone_names else "(no HVAC zone)"
                 try:
                     await nm.async_notify(
                         coordinator_id="hvac",
                         severity=Severity.MEDIUM,
+                        location=room_name,
                         title="HVAC room degraded",
                         message=(
                             f"HVAC live-room establishment: room "
-                            f"'{room_name}' classified EXCLUDED "
-                            f"(reason={reason}). Its zone's establishment "
-                            f"is now computed over the remaining live "
-                            f"rooms; a zone consisting only of excluded "
-                            f"rooms will never retreat."
+                            f"'{room_name}' (zone {_zn}) classified "
+                            f"EXCLUDED (reason={reason}). Its zone's "
+                            f"establishment is now computed over the "
+                            f"remaining live rooms; a zone consisting "
+                            f"only of excluded rooms will never retreat."
                         ),
                         hazard_type="hvac_degraded_room",
                     )

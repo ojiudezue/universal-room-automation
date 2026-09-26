@@ -514,3 +514,154 @@ def test_room_established_attr_false_while_sibling_room_reloading():
         "Any transient sibling must block the whole zone's established "
         "flag — F-INV-A."
     )
+
+
+# ---------------------------------------------------------------------------
+# FIX-UP round (2026-09-26)
+# ---------------------------------------------------------------------------
+
+
+def test_setup_retry_stays_excluded_across_setup_in_progress_cycle():
+    """FIX-UP item 1: HA cycles SETUP_RETRY -> SETUP_IN_PROGRESS ->
+    SETUP_RETRY every ~80 s. A room excluded for SETUP_RETRY must STAY
+    excluded through the SETUP_IN_PROGRESS phase (sticky) so the sibling
+    zone doesn't oscillate between transient-blocked and retreatable.
+    Only an observed LOADED transition clears stickiness.
+    """
+    entries = [_FakeEntry("r_x", state=ConfigEntryState.SETUP_RETRY)]
+    zm = _mk_zm(entries=entries)
+    zone = ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.z1")
+    zone.rooms = ["r_x"]
+    zm._zones["z1"] = zone
+
+    # Pass 1: SETUP_RETRY -> excluded (immediate).
+    zm.update_room_conditions(house_state="home_day")
+    assert zm._room_hvac_class["r_x"] == ("excluded", "setup_retry")
+
+    # Pass 2: HA flips to SETUP_IN_PROGRESS mid-retry. Without stickiness
+    # this would become TRANSIENT and BLOCK the zone (flap).
+    entries[0].state = ConfigEntryState.SETUP_IN_PROGRESS
+    zm.update_room_conditions(house_state="home_day")
+    assert zm._room_hvac_class["r_x"] == ("excluded", "sticky_failed")
+
+    # Pass 3: back to SETUP_RETRY — still excluded.
+    entries[0].state = ConfigEntryState.SETUP_RETRY
+    zm.update_room_conditions(house_state="home_day")
+    assert zm._room_hvac_class["r_x"][0] == "excluded"
+
+    # Pass 4: real LOADED — stickiness clears.
+    entries[0].state = ConfigEntryState.LOADED
+    zm.update_room_conditions(house_state="home_day")
+    assert zm._room_hvac_class["r_x"] == ("live", "loaded")
+    assert "r_x" not in zm._sticky_failed_rooms
+
+
+def test_entry_removed_room_excluded_and_emits_nm():
+    """FIX-UP item 3: a room in zone.rooms with no matching config entry
+    is EXCLUDED with reason `entry_removed` and enqueues a degraded
+    event (one-shot, debounced).
+    """
+    # No config entry for r_gone, but it's in zone.rooms.
+    entries = [_FakeEntry("r_live", state=ConfigEntryState.LOADED)]
+    zm = _mk_zm(entries=entries)
+    zone = ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.z1")
+    zone.rooms = ["r_live", "r_gone"]
+    zm._zones["z1"] = zone
+    zm.update_room_conditions(house_state="home_day")
+    assert zm._room_hvac_class["r_gone"] == ("excluded", "entry_removed")
+    events = zm.drain_degraded_events()
+    assert ("r_gone", "entry_removed") in events
+
+
+def test_unzoned_excluded_room_does_not_emit_nm():
+    """FIX-UP item 5: a room not in any HVAC zone may be classified but
+    must NOT enqueue a degraded event."""
+    entries = [_FakeEntry("r_off", disabled_by=ConfigEntryDisabler.USER)]
+    zm = _mk_zm(entries=entries)
+    # No zones at all — the room is unzoned.
+    zm.update_room_conditions(house_state="home_day")
+    assert zm._room_hvac_class["r_off"][0] == "excluded"
+    assert zm.drain_degraded_events() == []
+
+
+def test_grace_clock_uses_utcnow_dst_safe():
+    """FIX-UP item 6: `_room_non_loaded_since` seed + compare use
+    dt_util.utcnow() (UTC monotonic), not dt_util.now() (local). Patch
+    only utcnow: a room crossing the grace boundary in UTC excludes as
+    expected regardless of the local-clock value (DST hazard).
+    """
+    entries = [_FakeEntry("r_x", state=ConfigEntryState.NOT_LOADED)]
+    zm = _mk_zm(entries=entries)
+    zone = ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.z1")
+    zone.rooms = ["r_x"]
+    zm._zones["z1"] = zone
+
+    # Patch ONLY utcnow — local now() left untouched.
+    with patch.object(_hvac_zones.dt_util, "utcnow", return_value=NOW):
+        zm.update_room_conditions(house_state="home_day")
+    assert "r_x" in zm._room_non_loaded_since
+    with patch.object(
+        _hvac_zones.dt_util,
+        "utcnow",
+        return_value=NOW + timedelta(
+            seconds=HVAC_LIVE_ROOM_TRANSIENT_GRACE_S + 1,
+        ),
+    ):
+        zm.update_room_conditions(house_state="home_day")
+    assert zm._room_hvac_class["r_x"][0] == "excluded"
+
+
+def test_diag_attrs_guarded_against_poisoned_naive_datetime():
+    """FIX-UP item 7: three new get_zone_status_attrs keys are wrapped
+    so a poisoned entry in `_room_non_loaded_since` (naive datetime →
+    TypeError on subtract from a tz-aware utcnow) yields [] on
+    seconds_non_loaded rather than raising and breaking the whole
+    zone status sensor. Also asserts `coordinator_absent_rooms`
+    appears.
+    """
+    entries = [_FakeEntry("r_x", state=ConfigEntryState.NOT_LOADED)]
+    zm = _mk_zm(entries=entries)
+    zone = ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.z1")
+    zone.rooms = ["r_x"]
+    zm._zones["z1"] = zone
+    zm.update_room_conditions(house_state="home_day")
+    # Poison: replace the tz-aware ts with a naive one.
+    zm._room_non_loaded_since["r_x"] = datetime(2026, 9, 26, 3, 0, 0)
+    attrs = zm.get_zone_status_attrs("z1")
+    # Live/excluded/transient/coord-absent attrs render.
+    assert "live_rooms" in attrs
+    assert "excluded_rooms" in attrs
+    assert "transient_rooms" in attrs
+    assert "coordinator_absent_rooms" in attrs
+    # transient_rooms present but seconds_non_loaded surfaces None
+    # (guarded), never raises.
+    for item in attrs["transient_rooms"]:
+        assert "seconds_non_loaded" in item
+
+
+def test_is_zone_transient_blocked_helper():
+    """FIX-UP item 2 (helper only, ZM-side): returns True iff the zone
+    has any TRANSIENT room; consumed by hvac.py row-1 / D9 to hold the
+    current preset instead of retreating to the house-state baseline.
+    """
+    entries = [
+        _FakeEntry("r_ok", state=ConfigEntryState.LOADED),
+        _FakeEntry("r_reload", state=ConfigEntryState.SETUP_IN_PROGRESS),
+    ]
+
+    class _RC:
+        def __init__(self):
+            self.data = {"occupied": False, "temperature": None, "humidity": None}
+    coords = {entries[0].entry_id: _RC()}
+    zm = _mk_zm(entries=entries, coordinators=coords)
+    zone = ZoneState(zone_id="z1", zone_name="Z1", climate_entity="c.z1")
+    zone.rooms = ["r_ok", "r_reload"]
+    zm._zones["z1"] = zone
+    zm.update_room_conditions(house_state="home_day")
+    assert zm.is_zone_transient_blocked("z1") is True
+
+    # Once the reload completes -> LOADED, transient-block clears.
+    entries[1].state = ConfigEntryState.LOADED
+    coords[entries[1].entry_id] = _RC()
+    zm.update_room_conditions(house_state="home_day")
+    assert zm.is_zone_transient_blocked("z1") is False

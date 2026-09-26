@@ -245,13 +245,18 @@ class ZoneManager:
         # Producer diagnostics: last-known room_type per room and the source
         # of arm-attribution ("edge" / "held" / "tail" / "hallway_excluded").
         self._hvac_arm_source: dict[str, str] = {}
-        # HVAC-ZONE-CONDITIONING-DEMAND-1 D-HIGH-1 fix-up (2026-09-17):
-        # `_hvac_seen` tracks rooms for which the D1 producer has produced
-        # a value AT LEAST ONCE since ZoneManager construction. A zone is
-        # HVAC-ESTABLISHED iff all its `zone.rooms` are in `_hvac_seen`.
-        # An unestablished zone must NOT drive a night-trust retreat
-        # (D7/row-1 fail-open) — the ~5x/night CM reload otherwise wipes
-        # in-memory D1 state, releases boot-settle on the reload path, and
+        # HVAC-ZONE-CONDITIONING-DEMAND-1 D-HIGH-1 fix-up (2026-09-17,
+        # SUPERSEDED by HVAC-DEGRADED-ROOM-TRIPWIRE-1 2026-09-26):
+        # `_hvac_seen` still tracks rooms for which the D1 producer has
+        # produced a value AT LEAST ONCE since ZoneManager construction.
+        # A zone is HVAC-ESTABLISHED iff every LIVE room (per the
+        # `_classify_all_rooms` denominator — LOADED, coordinator-present,
+        # NOT sticky-failed / disabled / entry-removed / transient) is in
+        # `_hvac_seen`. Rooms classified EXCLUDED leave the denominator;
+        # TRANSIENT rooms BLOCK outright. An unestablished zone must NOT
+        # drive a night-trust retreat (D7/row-1 fail-open) — the
+        # ~5x/night CM reload otherwise wipes in-memory D1 state,
+        # releases boot-settle on the reload path, and
         # `last_occupied_time` seeded past-grace causes a first-tick
         # retreat of a sleeping bedroom.
         self._hvac_seen: set[str] = set()
@@ -282,6 +287,16 @@ class ZoneManager:
         self._excluded_ever_notified: set[str] = set()
         self._hvac_classification_ready: bool = False
         self._unknown_state_warned: set[str] = set()
+        # FIX-UP item 1 (sticky failed exclusion): once a room enters
+        # SETUP_ERROR / MIGRATION_ERROR / SETUP_RETRY it STAYS excluded
+        # through subsequent SETUP_IN_PROGRESS phases (HA retry cycle:
+        # SETUP_RETRY -> SETUP_IN_PROGRESS -> SETUP_RETRY every ~80s).
+        # Only an observed LOADED transition clears it.
+        self._sticky_failed_rooms: set[str] = set()
+        # FIX-UP item 5: only emit degraded WARN+NM for rooms that belong
+        # to at least one HVAC zone — classification runs over ALL ROOM
+        # entries but hallway-only / unzoned rooms must not alert.
+        self._rooms_in_any_zone: set[str] = set()
 
     @property
     def zones(self) -> dict[str, ZoneState]:
@@ -636,7 +651,17 @@ class ZoneManager:
         # HVAC-DEGRADED-ROOM-TRIPWIRE-1 (2026-09-26): classify every ROOM
         # entry once per pass BEFORE the per-zone loop so the sync
         # `is_zone_hvac_established` gate can read a coherent snapshot.
-        self._classify_all_rooms(now)
+        # REV-2 fix-up item 6: grace-window clock is UTC (dt_util.utcnow())
+        # — DST-safe. Local `now` above is kept for the tail machinery.
+        # REV-2 fix-up item 5: pre-compute rooms-in-any-zone so classifier
+        # only emits WARN+NM for rooms that actually belong to an HVAC
+        # zone.
+        rooms_in_zones: set[str] = set()
+        for _z in self._zones.values():
+            for _r in getattr(_z, "rooms", []) or []:
+                rooms_in_zones.add(_r)
+        self._rooms_in_any_zone = rooms_in_zones
+        self._classify_all_rooms(dt_util.utcnow())
         for zone in self._zones.values():
             zone.room_conditions.clear()
             for room_name in zone.rooms:
@@ -799,41 +824,13 @@ class ZoneManager:
             # / `transient_rooms` include the reason for operator diag
             # visibility. `transient_rooms` also reports seconds-non-
             # loaded so a stuck reload is directly observable.
-            "live_rooms": (
-                self._live_zone_rooms(zone)
-                if self._hvac_classification_ready
-                else list(zone.rooms)
-            ),
-            "excluded_rooms": (
-                [
-                    {"name": r, "reason": self._room_hvac_class.get(r, ("", ""))[1]}
-                    for r in self._classify_zone_rooms(zone)[0]
-                ]
-                if self._hvac_classification_ready
-                else []
-            ),
-            "transient_rooms": (
-                [
-                    {
-                        "name": r,
-                        "state": self._room_hvac_class.get(r, ("", ""))[1],
-                        "seconds_non_loaded": (
-                            round(
-                                (
-                                    dt_util.utcnow()
-                                    - self._room_non_loaded_since[r]
-                                ).total_seconds(),
-                                1,
-                            )
-                            if r in self._room_non_loaded_since
-                            else None
-                        ),
-                    }
-                    for r in self._classify_zone_rooms(zone)[1]
-                ]
-                if self._hvac_classification_ready
-                else []
-            ),
+            # FIX-UP item 7: wrap each of the four live-room diag keys
+            # in try/except returning [] so a poisoned classifier / naive
+            # datetime never breaks the zone status sensor.
+            "live_rooms": self._safe_diag_live_rooms(zone),
+            "excluded_rooms": self._safe_diag_excluded_rooms(zone),
+            "transient_rooms": self._safe_diag_transient_rooms(zone),
+            "coordinator_absent_rooms": self._safe_diag_coord_absent_rooms(zone),
             "occupied_rooms": zone.occupied_rooms,
             "avg_temperature": (
                 round(zone.avg_temperature, 1)
@@ -1163,10 +1160,25 @@ class ZoneManager:
             "MIGRATION_ERROR": "migration_error",
             "SETUP_RETRY": "setup_retry",
         }
+        # FIX-UP item 1: these reasons make the room STICKY-FAILED — it
+        # stays EXCLUDED through subsequent transient states (HA retry
+        # cycles it back into SETUP_IN_PROGRESS every ~80s) until we
+        # observe a real LOADED transition.
+        _STICKY_REASONS = {"setup_error", "migration_error", "setup_retry"}
         _TRANSIENT = {
             "NOT_LOADED", "SETUP_IN_PROGRESS", "UNLOAD_IN_PROGRESS",
             "FAILED_UNLOAD",
         }
+        # FIX-UP item 3: rooms that appear in some zone.rooms but no
+        # config entry exists for them any more (mid-session removal) are
+        # EXCLUDED immediately with reason "entry_removed" and get one
+        # WARN+NM (debounced).
+        for zroom in self._rooms_in_any_zone:
+            if zroom in self._room_entry_by_name:
+                continue
+            self._room_hvac_class[zroom] = ("excluded", "entry_removed")
+            self._room_non_loaded_since.pop(zroom, None)
+            self._maybe_emit_degraded(zroom, "entry_removed")
         for room_name, entry in self._room_entry_by_name.items():
             # disabled_by wins over state.
             try:
@@ -1204,16 +1216,33 @@ class ZoneManager:
             if state is _CES.LOADED or state_name == "LOADED":
                 self._room_hvac_class[room_name] = ("live", "loaded")
                 self._room_non_loaded_since.pop(room_name, None)
+                # FIX-UP item 1: an observed LOADED transition is the
+                # ONLY way a sticky-failed room returns to live.
+                self._sticky_failed_rooms.discard(room_name)
                 continue
 
             if state_name in _IMMEDIATE_EXCLUDE:
                 reason = _IMMEDIATE_EXCLUDE[state_name]
                 self._room_hvac_class[room_name] = ("excluded", reason)
                 self._room_non_loaded_since.pop(room_name, None)
+                # FIX-UP item 1: mark sticky so a subsequent
+                # SETUP_IN_PROGRESS phase of the HA retry cycle does NOT
+                # flip us back to TRANSIENT (which would make the zone
+                # transient-blocked and flap).
+                self._sticky_failed_rooms.add(room_name)
                 self._maybe_emit_degraded(room_name, reason)
                 continue
 
             if state_name in _TRANSIENT:
+                # FIX-UP item 1: sticky-failed rooms stay EXCLUDED
+                # through the HA retry cycle's SETUP_IN_PROGRESS phase;
+                # only a real LOADED observation clears stickiness.
+                if room_name in self._sticky_failed_rooms:
+                    self._room_hvac_class[room_name] = (
+                        "excluded", "sticky_failed",
+                    )
+                    self._room_non_loaded_since.pop(room_name, None)
+                    continue
                 first = self._room_non_loaded_since.setdefault(room_name, now)
                 elapsed = (now - first).total_seconds()
                 if elapsed >= HVAC_LIVE_ROOM_TRANSIENT_GRACE_S:
@@ -1261,7 +1290,13 @@ class ZoneManager:
         once. The HVACCoordinator drains `_pending_degraded_events`
         after the sync producer returns (async NM emission, per REV-2
         D3 / F9 — the sync gate must NEVER create_task).
+
+        FIX-UP item 5: only emit for rooms that belong to at least one
+        HVAC zone — unzoned / hallway-only rooms are classified but must
+        not surface a "hvac degraded room" alert.
         """
+        if room_name not in self._rooms_in_any_zone:
+            return
         if room_name in self._excluded_ever_notified:
             return
         self._excluded_ever_notified.add(room_name)
@@ -1312,6 +1347,96 @@ class ZoneManager:
         """Return the LIVE subset of `zone.rooms` (see _classify_zone_rooms)."""
         _e, _t, live = self._classify_zone_rooms(zone)
         return live
+
+    # FIX-UP item 7 (2026-09-26): guarded diag helpers so a poisoned
+    # naive datetime in `_room_non_loaded_since` or a classifier fault
+    # never breaks the zone status sensor. Each helper returns [] on
+    # exception; the zone status sensor keeps rendering.
+    def _safe_diag_live_rooms(self, zone: ZoneState) -> list[str]:
+        try:
+            if self._hvac_classification_ready:
+                return self._live_zone_rooms(zone)
+            return list(zone.rooms)
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _safe_diag_excluded_rooms(self, zone: ZoneState) -> list[dict]:
+        try:
+            if not self._hvac_classification_ready:
+                return []
+            return [
+                {
+                    "name": r,
+                    "reason": self._room_hvac_class.get(r, ("", ""))[1],
+                }
+                for r in self._classify_zone_rooms(zone)[0]
+            ]
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _safe_diag_transient_rooms(self, zone: ZoneState) -> list[dict]:
+        try:
+            if not self._hvac_classification_ready:
+                return []
+            out: list[dict] = []
+            _now = dt_util.utcnow()
+            for r in self._classify_zone_rooms(zone)[1]:
+                seconds_non_loaded: float | None
+                try:
+                    first = self._room_non_loaded_since.get(r)
+                    if first is None:
+                        seconds_non_loaded = None
+                    else:
+                        seconds_non_loaded = round(
+                            (_now - first).total_seconds(), 1,
+                        )
+                except Exception:  # noqa: BLE001
+                    # Poisoned entry (e.g. naive datetime) — surface
+                    # None rather than break the whole attribute.
+                    seconds_non_loaded = None
+                out.append({
+                    "name": r,
+                    "state": self._room_hvac_class.get(r, ("", ""))[1],
+                    "seconds_non_loaded": seconds_non_loaded,
+                })
+            return out
+        except Exception:  # noqa: BLE001
+            return []
+
+    def _safe_diag_coord_absent_rooms(self, zone: ZoneState) -> list[str]:
+        """FIX-UP item 7 (Rev D F5): rooms whose coordinator was absent on
+        the latest producer pass. Distinguishes LOADED-but-coordinator-
+        absent (a real F4 hazard) from entry-state degradation."""
+        try:
+            absent = self._coordinator_absent_this_pass
+            return [r for r in zone.rooms if r in absent]
+        except Exception:  # noqa: BLE001
+            return []
+
+    def is_zone_transient_blocked(self, zone_id: str) -> bool:
+        """FIX-UP item 2: True iff the zone has at least one TRANSIENT
+        room (loading / reloading / unloading within the grace window).
+
+        Callers (row-1 preset flip, D9 compose-away) use this to HOLD
+        the current preset when the ONLY reason establishment is False
+        is a transient sibling — matching the operator rule "match
+        occupancy IN THE ZONE" during the reload window instead of
+        retreating to the house-state baseline on a sibling room's
+        reload.
+
+        Fail-CLOSED (returns False) on any lookup exception so the
+        no-hold path is the default.
+        """
+        try:
+            if not self._hvac_classification_ready:
+                return False
+            zone = self._zones.get(zone_id)
+            if zone is None:
+                return False
+            _e, transient, _l = self._classify_zone_rooms(zone)
+            return bool(transient)
+        except Exception:  # noqa: BLE001
+            return False
 
     def is_zone_hvac_established(self, zone_id: str) -> bool:
         """Fused-signal establishment check (fix-up round 5, 2026-09-17).
