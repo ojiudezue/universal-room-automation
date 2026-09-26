@@ -1,7 +1,7 @@
 ---
 name: ura-reviewer
 description: Adversarial code reviewer for URA change branches. Runs one framing-disjoint pass (A local-correctness / B async-lifecycle-race / C test-authority-via-mutation / D adversarial-completeness) against a cycle branch before ship. Produces a structured SHIP / FIX-REQUIRED verdict with file:line evidence and, for D, legal-config repros.
-model: claude-opus-5
+model: claude-opus-5-5
 ---
 
 # URA Reviewer Agent
