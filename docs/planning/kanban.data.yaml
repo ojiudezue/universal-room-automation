@@ -2063,8 +2063,14 @@ cards:
   status: parked
   thread: hvac
   created: '2026-09-16'
-  updated: '2026-09-16'
+  updated: '2026-09-25 22:50'
   tags: [hvac, parked-with-trigger, night-trust, suppression-discharge, do-not-retire]
+  possible_trigger_2026_09_25: 'README v5.103.7 INV-1 write-back found 2 suspect night retreats: zone_2 went
+    away at 02:47 (09-24) and 02:09 (09-25) with Jaya home; her bedroom last read occupied 02:10 / 01:30 (past
+    the 30-min D8 night hold) and re-occupied at 02:56 / 02:25. Consistent with EITHER she left the room OR
+    mmWave dropped a still sleeper past the hold — recorder cannot discriminate. If a discriminator (e.g. BLE
+    room + bedroom mmWave raw still-energy, or door contact) shows she was in bed, this card''s revival trigger
+    ("observed degradation") has FIRED. Measure that before uncorking.'
   title: The FULL 2-6am degradation-defense leniency for night HVAC retreat (200min, 4 discharge paths) —
     parked, uncork if a real occupied-bedroom sensor-degradation is observed
   problem_solution:
@@ -10728,6 +10734,12 @@ cards:
 - id: HVAC-HOT-ENTRY-LATENCY-1
   seq_2026_09_15: 'STEP 5 (conditional) of HVAC-SUPPLE-SEQUENCE-1. The ONLY thing that can satisfy fast-in is the event-driven path, because HVAC_DECISION_TICK (5 min) is a hard floor no dwell value can beat. Its old arrester open-question is answered by STEP 2.'
   operator_priority_2026_09_25: 'Operator 2026-09-25: "high value". value raised to 9.'
+  entry_dwell_finding_2026_09_25: 'README v5.103.7 write-back: the D5 migration was meant to set the zone
+    entry dwell to 0 (per-room tail-hold as sole hold source) but only rewrites an exact legacy 3; this install
+    stores hvac_zone_entry_dwell = 5.0 (CM options, verified live) and number.ura_hvac_coordinator_zone_entry_dwell
+    = 5 at every boot since 09-18. So a 5-minute entry dwell is STILL LIVE on every zone — the exact delay this
+    card is about. Cheapest first move is an operator knob turn (5 -> 0 or a smaller value), which may make the
+    temperature-conditional build unnecessary: re-measure hot-entry latency after the turn before building.'
   title: Occupant walked into an 80F zone and beat URA to the thermostat by 3 minutes — entry dwell does
     not care how hot the room is
   rank: {value: 9, time_criticality: 5, effort: 5}
@@ -10753,7 +10765,7 @@ cards:
     approval: needs_operator. It needs an operator scope call, not an agent guess. Moved to
     waiting_operator with an operator-verb next.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py:2047 zone entry dwell is flat _zone_entry_dwell, no temperature term (0 hot_entry hits). Needs operator approval to scope temp-aware bypass.'
-  updated: '2026-09-25 21:45'
+  updated: '2026-09-25 22:50'
   approval: needs_operator
   tags:
   - measure-before-build
