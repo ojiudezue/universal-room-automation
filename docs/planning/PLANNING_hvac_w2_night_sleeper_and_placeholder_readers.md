@@ -1,522 +1,526 @@
 # PLANNING — HVAC W2: night still-sleeper hold + reloading-room placeholder readers
 
-**Workstream:** HVAC-W2-OCCUPANCY-TRUTH (see kanban L1834).
-**Scope of THIS plan:** two of the five W2 children — HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1
-(Piece A) and HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1 (Piece B) — plus a scope-check on
+**Revision:** rev 2 (2026-09-26). Rev 1 got FIX-PLAN-FIRST on both pieces; rev 2 restructures
+Piece A around the D-A0 probe result (knob-turn IS the fix; code build parks with revival
+triggers) and folds all Piece B plan-review findings (F15–F20). Change log at the bottom.
+
+**Workstream:** HVAC-W2-OCCUPANCY-TRUTH (kanban L1834).
+**Scope of THIS plan:** two W2 children — HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1
+(Piece A) and HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1 (Piece B) — plus scope-check on
 HVAC-GUEST-AS-ZONE-PERSON-1 (Piece C).
-**Not in scope:** HVAC-DEGRADED-ROOM-TRIPWIRE-1 (v5.103.15, in review), W2 fast path
-(`PLANNING_hvac_w2_occupancy_fast_path.md`), HVAC-HOT-ENTRY-LATENCY-1, HVAC-GUEST-AS-ZONE-PERSON-1
-build (Piece C only recommends whether it belongs here or later).
-**Read first:** `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` — completely; this plan
-assumes it and cites into it. Operator principle (binding): **HVAC matches occupancy IN THE ZONE
-— never "anyone home"** (§9c/§9d/§11).
-**Sequence:** builds start ONLY after (i) v5.103.15 live-room establishment merges to `develop`
-and (ii) the W2 fast path lands or its plan reviews confirm no `hvac.py` overlap with these two
-pieces. Flag: `hvac.py` overlap with Piece B (D5 site `~2278-2296`) and with the fast-path's
-per-zone rate-limited cycle dispatch.
+**Not in scope:** HVAC-DEGRADED-ROOM-TRIPWIRE-1 (v5.103.15, in review), W2 fast path,
+HVAC-HOT-ENTRY-LATENCY-1, Piece C build.
+**Read first:** `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` — completely, including
+C16 (Carrier poll cadence), C17 (preset suppression 120 s / temp 5 s), C18 (hot entry 5–10
+min), C19 (corrected §9.3 — URA marked Jaya's room VACANT FIRST at 01:25:53 / 01:31:18; fan
+turned off in consequence, not as trigger). Operator principle (binding): **HVAC matches
+occupancy IN THE ZONE — never "anyone home"**.
+**Sequence:** builds start ONLY after (i) v5.103.15 merges to `develop` and (ii) the W2
+fast-path plan reviews confirm no `hvac.py` overlap with Piece B's D5 / F8 / F9 / row-10 sites
+and no producer-pass ordering conflict.
 
 ---
 
 ## Institutional context verified
 
 ### Design docs
-- `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` — read in full. Load-bearing sections:
-  §2 (5-min tick, no occupancy-triggered cycle), §3.1 room producer + D8 night tail-hold
-  (`const.py:1230-1242` bedroom/media 30 min), §3.2 shared retreat gate
-  `conditioning_retreat_ok` + reset-only backstop (`hvac_zones.py:1085`;
-  `hvac.py:3830 _zone_conditioning_retreat_ok`) and the list of readers that BYPASS it
-  (§3.2 last row), §7 lockout mechanics, §9.3 the Jaya-night finding, §9.4 the three placeholder
-  readers, §9b (failed room = not defined in URA), §9c (override switches — LEAVE AS IS),
-  §9d (fast-path scope = shave the tick only), §11 approved arc.
-- `docs/planning/PLANNING_hvac_live_room_establishment.md` — the v5.103.15 branch introduces the
-  live-room classifier this plan REUSES: `is_zone_transient_blocked`,
-  `_coordinator_absent_this_pass`, `excluded = not defined` (feature/hvac-live-room-establishment).
-- `docs/planning/PLANNING_hvac_w2_occupancy_fast_path.md` — dispatched; overlap flagged below.
-- `docs/planning/PLANNING_hvac_zone_conditioning_demand.md` — origin of D7/D8 and the parked
-  full 200-min/4-discharge machinery preserved on the night-leniency card.
+- `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` — read in full, incl. C16–C19 and
+  the corrected §9.3 fan narrative. Load-bearing: §2 (5-min tick; §C18 hot-entry latency
+  5–10 min), §3.1 producer + D8 night hold (`const.py:1230-1242`), §3.2 shared retreat gate
+  (`hvac_zones.py:1085`; delegate `hvac.py:3830`) + bypassing readers list, §7 lockout
+  mechanics (C17 preset window 120 s), §9.3 REWRITTEN (fan = consequence; per-room knob is
+  the fix path), §9.4 placeholder readers, §9b (failed room = not defined), §9c (override
+  switches unchanged), §9d (fast-path shaves the 5-min tick only), §10 C16–C19, §11 arc.
+- `docs/planning/PLANNING_hvac_live_room_establishment.md` — v5.103.15 classifier this plan
+  REUSES: `is_zone_transient_blocked`, `_coordinator_absent_this_pass`,
+  `excluded = not defined` (operator option (a)).
+- `docs/planning/PLANNING_hvac_w2_occupancy_fast_path.md` — dispatched; overlap flagged.
+- `docs/planning/PLANNING_hvac_zone_conditioning_demand.md` — origin of D7/D8 and the
+  preserved full 200-min/4-discharge machinery.
 
 ### Kanban cards (read in full)
-- **HVAC-W2-OCCUPANCY-TRUTH** (L1834) — parent, order, operator decisions 2026-09-26.
-- **HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1** (L2261) — Piece A. TRIGGER_FIRED_2026_09_25
-  documents Jaya nights 09-24/09-25, corroborator candidates (stationary in-suite BLE + radar
-  micro-blips), and the zone-scoped-only constraint. Full 200-min/4-discharge design preserved
-  on the card for reference — this plan does NOT propose that machinery outright; it lets the
-  probe pick.
-- **HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1** (L1965) — Piece B. Evidence: D5 coast defer
-  `hvac.py:2278-2296` (Reviewer D F3), D6 stale-failsafe `presence.py:2148-2157` (F6),
-  `continuous_occupied_since` `hvac_zones.py:746-754` (Reviewer B), zone.rooms frozen at
-  discovery (F7). `next` sketches the fix; this plan lifts it into acceptance criteria.
-- **HVAC-GUEST-AS-ZONE-PERSON-1** (L20648) — Piece C. Operator constraints 2026-08-20:
-  (1) applies ONLY if zone has no assigned person (today zone_3 only), (2) VERIFY the sleep-latch
-  actually reads zone_persons vs occupancy BEFORE building. Two-stage arm + post-sleep-onset
-  recheck design captured on the card. Suppression-needs-a-discharge is unresolved.
-- **HVAC-DEGRADED-ROOM-TRIPWIRE-1** (L1903) — the v5.103.15 in-flight cycle whose classifier
-  Piece B REUSES.
+- **HVAC-W2-OCCUPANCY-TRUTH** (L1834) — parent, ordering, operator decisions 2026-09-26.
+- **HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1** (L2261) — Piece A. TRIGGER_FIRED_2026_09_25;
+  full 200-min/4-discharge machinery preserved on the card (probe rejects it — see A0).
+- **HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1** (L1965) — Piece B. Evidence: D5
+  `hvac.py:2278-2296`, D6 `presence.py:2148-2157`, `continuous_occupied_since`
+  `hvac_zones.py:746-754`, F7 (zone.rooms frozen at discovery).
+- **HVAC-GUEST-AS-ZONE-PERSON-1** (L20648) — Piece C.
+- **HVAC-DEGRADED-ROOM-TRIPWIRE-1** (L1903) — v5.103.15 in-flight; classifier reused by B.
 
 ### Memory bodies pulled
-- `feedback_suppression_needs_discharge` — every hold Piece A introduces must name what
-  re-arms it, what discharges it, and its restart/boot behaviour.
-- `feedback_measure_before_build` — Piece A is empirically gated; measurement probe is D1.
-- `feedback_extend_existing_never_rebuild` — REUSE the v5.103.15 classifier, do not duplicate.
-- `feedback_verification_needs_disjoint_framings`, `feedback_falsify_before_asserting` —
-  acceptance criteria discriminate the fix from a plausible different failure.
-- `feedback_tier2plus_prior_art_scan` — REUSE/BUILD verdict per proposed piece, below.
-- `feedback_coincidental_equality_masks_concept_split` — night-hold extension must not
-  silently equal a house-wide "anyone home" gate.
+- `feedback_suppression_needs_discharge` — every hold names re-arm + discharge + restart.
+- `feedback_measure_before_build` — D-A0 done; Piece A restructured accordingly.
+- `feedback_marginal_benefit_pushback` — knob-turn dominates the code build on the data.
+- `feedback_extend_existing_never_rebuild` — Piece B rewires onto v5.103.15; Piece A
+  extends existing hold knob.
+- `feedback_falsify_before_asserting` — INV-A1 rewritten to be falsifiable against the
+  producer's actual behaviour (occupancy-driven retreat only); INV-B3 rewritten.
+- `feedback_tier2plus_prior_art_scan` — REUSE/BUILD verdicts below (person→room binding is
+  REUSED, not NEW).
+- `feedback_coincidental_equality_masks_concept_split` — Piece C recommendation.
 
-### Prior-art scan (REUSED/NEW per proposed piece, file:line)
+### Prior-art scan — REUSE/BUILD per proposed piece (file:line)
 
-Piece A — night still-sleeper hold:
-- **REUSED — in-suite BLE / person→room binding:** `CONF_ZONE_PERSONS` + BLE room mapping
-  (Bermuda), the `ble_persons` config surface, `occupancy_source="override"` BLE anchor. Grep
-  targets to re-run at build: `zone_persons`, `ble_room`, `bermuda`, `iphone_.*_area`,
-  `iphone_.*_distance`, `_stationary`. Live entities present tonight:
-  `device_tracker.iphone_jaya_bermuda_tracker`, `sensor.iphone_jaya_area`,
-  `sensor.iphone_jaya_distance` (evidence card).
-- **REUSED — radar micro-blip source:** the same D1 producer inputs
-  (`binary_sensor.jaya_3_presence`, `binary_sensor.mmwave_zigbee_jayabedroom_presence`) already
-  feed `RoomCondition.hvac_occupied` (`hvac_zones.py:988`). No new sensor.
-- **REUSED — per-room-type night hold knob:** `ROOM_TYPE_HVAC_HOLD_NIGHT` (`const.py:1230-1242`)
-  and per-room overrides `CONF_HVAC_VACANCY_HOLD_NIGHT` (`_effective_hvac_hold_seconds`
-  `hvac_zones.py:894`). New behaviour extends the existing hold; it does NOT invent a second
-  timer.
-- **REUSED — night-window / house-state:** existing house-state `home_night` + the existing
-  D7 night-trust gate site (`hvac.py:2403`). Do not invent a new time window.
-- **REUSED — fused/established gates:** `conditioning_retreat_ok` (`hvac_zones.py:1085`);
-  Piece A hooks the extension INSIDE the tail-hold, so the gate contract is unchanged.
-- **NEW — "stationary in-suite BLE" predicate:** derived helper on the room, e.g.
-  `is_bedroom_person_stationary_in_suite(room, window_s, distance_var_ft)`. NEW because grep
-  should confirm no existing helper combines person↔room binding + distance variance + dwell.
-  If grep finds one (e.g. inside `presence.py` or `person_coordinator.py`), REUSE it.
-- **NEW — radar micro-blip tail-restart:** a "any raw source blip within the hold restarts
-  the tail" behaviour. NEW as a *rule* but implemented by extending the existing tail-hold
-  arm site in `hvac_zones.py` — no new timer surface.
+Piece A (knob-turn baseline + PARKED code design):
+- **REUSED — per-room night-hold knob:** `CONF_HVAC_VACANCY_HOLD_NIGHT` (v5.103.8), effective
+  at `_effective_hvac_hold_seconds` (`hvac_zones.py:894`), applied in the tail-hold path
+  around `hvac_zones.py:643`. Options-flow range **0–7200 s** (`config_flow.py:11739`). This
+  is the WHOLE Piece A baseline: raise Jaya Bedroom from live 1800 s to 5400 s (pending
+  operator approval).
+- **REUSED — night hold table:** `ROOM_TYPE_HVAC_HOLD_NIGHT` (`const.py:1230-1242`) — the
+  per-room override multiplies this baseline. Unchanged.
+- **REUSED — night window:** `FAN_TRUST_STATES = ("home_night","sleep","waking")`
+  (`hvac_const.py:881`). Piece A (if built) uses this exact set — not a new time window.
+  Probe reference window 22:00–08:00 covers all three.
+- **REUSED — person→room binding:** `PersonCoordinator.get_room_occupants`
+  (`person_coordinator.py:1554`); trust helpers `trustworthy_persons_in_room`
+  (`_ble_corroboration.py:67`) and `phone_trustworthy` (`_ble_corroboration.py:34`). **No new
+  binding config.** Includes the phone-left-behind gate via `phone_trustworthy`.
+- **REUSED — radar-blip tail-restart is EXISTING producer behaviour**, not a corroborator.
+  `_compute_hvac_occupied` (`hvac_zones.py:966-1035`) rides room `STATE_OCCUPIED`: raw blip
+  → room on; held-room clears tail (`source="held"`) and re-tails on fall; post-release
+  rising edge re-arms (`source="edge"`). Verified in probe (09-24 room on 01:58:27 →
+  hvac_occupied on 02:01:54; 09-25 02:25:43 → 02:29:51). **Corroborator (b) dropped.**
+- **NEW (only in the PARKED code build) — "still_sleeper" arm_source and a suite-BLE
+  stationarity predicate.** Not built at ship; kept in the parked design.
 
-Piece B — placeholder readers:
+**Explicit corrections to rev-1 prior-art claims:**
+- Rev-1 said "`occupancy_source='override'` BLE anchor". WRONG. §9c: `override` is the
+  manual per-room Override Occupied/Vacant switch, NOT a BLE anchor. Dropped from spec.
+
+Piece B (rewire only; no new predicates):
 - **REUSED — shared retreat gate:** `_zone_conditioning_retreat_ok` (`hvac.py:3830`) via
-  `conditioning_retreat_ok` (`hvac_zones.py:1085`). This is the exact call `next` on the card
-  cites for D5.
-- **REUSED — v5.103.15 live-room classifier:** `is_zone_transient_blocked`,
-  `_coordinator_absent_this_pass`, `excluded = not defined` (feature branch
-  `feature/hvac-live-room-establishment`). D6 Source-4 uses `_coordinator_absent_this_pass`
-  to EXCLUDE reloading/absent rooms from the room count.
-- **REUSED — synthetic-empty flag:** the coordinator-absent placeholder path
-  (`hvac_zones.py:616-641`). `continuous_occupied_since` checks that flag rather than resetting
-  when the room's `hvac_occupied` transitions to False on a synthetic row.
-- **NEW — none.** Every fix is a rewire onto existing predicates.
+  `conditioning_retreat_ok` (`hvac_zones.py:1085`).
+- **REUSED — established gate for D6:** `is_zone_hvac_established`
+  (`hvac_zones.py:1043`, symbol resolved). C7 named D6 as a **sanctioned exception** to the
+  shared-gate rule; D6 stays raw at the presence.py producer, and instead the **hvac.py
+  consumer call site** gates on `self._zone_manager.is_zone_hvac_established(zone_id)`.
+  presence.py is UNTOUCHED.
+- **REUSED — v5.103.15 classifier:** `is_zone_transient_blocked`,
+  `_coordinator_absent_this_pass`, `excluded = not defined`.
+- **REUSED — synthetic-empty placeholder path:** `hvac_zones.py:616-641`.
+- **NEW — none.** Every fix is a rewire onto existing predicates + one new distinct D5 defer
+  reason `energy_shed_cap_deferred_unestablished` for logging clarity.
 
-Piece C — scope check only:
-- **VERIFY-FIRST (operator 2026-08-20 constraint on the card):** does the sleep-veto path
-  (`aggregation.py:4017-4019`) actually gate on zone_persons or on real zone occupancy? If the
-  latter, one of the three protections in the card's premise is already there and the card
-  scope shrinks. This verification is NOT in W2's other pieces and is a prerequisite before
-  scoping.
+Piece C:
+- **VERIFY-FIRST citations corrected (rev-2):** real sleep-veto site is
+  `aggregation.py:4298-4382`; non-sleep person-home bias is `aggregation.py:4424-4522`
+  (rev-1 cited stale line numbers `:4017-4019` / `:4152-4154`). Verify-first stands.
 
 ### Code locations surveyed
-- `custom_components/universal_room_automation/domain_coordinators/hvac.py` — §2 tick sites
-  (`:1356-1547`), D5 duty-cycle occupancy defer (`:2271-2289`), D6 stale-failsafe reader
-  (`:2063`), retreat-gate delegate (`:3830`), pre-arrival (`:4002`).
-- `.../domain_coordinators/hvac_zones.py` — producer (`:966-1035`), tail-hold
-  (`_effective_hvac_hold_seconds` `:894`), synthetic-empty (`:616-641`),
-  `continuous_occupied_since` (`:746-754`), retreat gate (`:1085`).
-- `.../domain_coordinators/presence.py` — D6 Source-4 room count (`:2148-2157`).
-- `custom_components/universal_room_automation/const.py` — night-hold table (`:1230-1242`).
-- Live evidence entities (card): `sensor.iphone_jaya_area`, `sensor.iphone_jaya_distance`,
-  `device_tracker.iphone_jaya_bermuda_tracker`, `binary_sensor.jaya_3_presence`,
-  `binary_sensor.mmwave_zigbee_jayabedroom_presence`,
-  `fan.fanswitch_treat_wifi_jayabedroom`.
+- `custom_components/universal_room_automation/domain_coordinators/hvac.py` — tick
+  (`:1356-1547`), D5 duty-cycle occupancy defer (`:2271-2289`), D6 stale-failsafe consumer
+  (`:2063`), retreat delegate (`:3830`), F8 pre-cool (`hvac_predict.py:583`), F9 pre-heat
+  (`hvac_predict.py:1386`), row-10 arrester comfort-delay raw fallback
+  (`hvac_override.py:2336`).
+- `.../hvac_zones.py` — producer (`:966-1035`), tail-hold (`:894` / apply site ~`:643`),
+  `continuous_occupied_since` (`:746-754`), synthetic-empty (`:616-641`),
+  `is_zone_hvac_established` (`:1043`), retreat gate (`:1085`), zone-status attrs (`:751`).
+- `.../presence.py` — D6 Source-4 producer (`:2148-2157`) — **not touched by Piece B**.
+- `.../person_coordinator.py:1554`, `_ble_corroboration.py:34,:67`.
+- `const.py:1230-1242`, `hvac_const.py:881`, `config_flow.py:11739`.
+- Aggregation: `aggregation.py:4298-4382`, `:4424-4522` (Piece C).
 
 ---
 
-## Falsifiable invariants (state them up front — reviewer D must falsify these)
+## Piece A — night still-sleeper (RESTRUCTURED per D-A0)
 
-- **INV-A1 (night still-sleeper):** for every home_night interval in which a bedroom-typed room's
-  bound zone_person is stationary in-suite (per the chosen corroborator), the zone containing
-  that room does not retreat.
-- **INV-A2 (zone scope):** the night hold NEVER extends because of a person stationary in a
-  DIFFERENT zone. The gate is per-room→per-zone; it MUST NOT read house-wide `anyone home`.
-- **INV-A3 (degrade safely):** if the corroborator input is stale, unavailable, or the person
-  binding is missing, Piece A becomes a no-op — behaviour reverts to the current 30-min D8
-  hold. A missing signal MUST NOT extend the hold.
-- **INV-A4 (discharge):** the extended hold has a named backstop discharge (house-state exit
-  from `home_night`; a hard cap; restart). A person leaving the suite must release the hold
-  within one hold cycle.
-- **INV-B1 (placeholder never trusts empty):** on ANY path that today reads
-  `zone.any_room_hvac_occupied` raw and MAY drive the zone toward away, a room whose
-  coordinator is absent (synthetic-empty) MUST be excluded from that reader OR the reader must
-  route through `_zone_conditioning_retreat_ok`. No new path may act on a synthetic empty.
-- **INV-B2 (continuity):** `continuous_occupied_since` (`hvac_zones.py:746-754`) MUST NOT reset
-  when the only reason a room's `hvac_occupied` fell to False is the synthetic-empty
-  placeholder.
-- **INV-B3 (byte-identical on the healthy path):** when no room in the zone is
-  coordinator-absent this pass, Piece B's decisions are byte-identical to develop
-  post-v5.103.15.
+### A-0 Ship path (recommended, zero code): raise Jaya Bedroom `hvac_vacancy_hold_night`
 
-Reviewer D's sole job: state each invariant in falsifiable form and BREAK it with a
-legal-config reachable repro.
+The measurement (probe, 7.8 nights) shows Jaya Bedroom is the ONLY affected bedroom; sleep-state
+retreats had needed-extension gaps of **32.6 / 45.9 / 54.4 min** (`ura_activity_log`; probe max
+55.6 min in gap-window). All 13 stationary-in-suite episodes returned within 56 min; 0/9
+STAYED (genuine-exit) episodes were stationary in-suite.
 
----
+**The knob is already the correct rung.** Per-room `CONF_HVAC_VACANCY_HOLD_NIGHT` is
+options-flow (`config_flow.py:11739`, range 0–7200 s) — legitimately operator-tunable, not a
+safety bound. Existing consumer: `_effective_hvac_hold_seconds` (`hvac_zones.py:894`),
+applied in the tail-hold branch around `hvac_zones.py:643`. Zone-scoped by construction (the
+knob lives on the room; only Jaya's room's tail lengthens).
 
-## Piece A — night still-sleeper hold
+**Recommendation (operator decision required before turning it):**
+`switch.<...jaya_bedroom>` `hvac_vacancy_hold_night`: **1800 → 5400 s** (90 min). Rationale:
+covers max measured 55.6 min gap + one 5-min tick + margin, well under the 7200-s ceiling.
 
-### A0 — MEASURE FIRST (deliverable D-A0, mandatory before any A build)
+**Cost, measured:** conditioning zone_2 up to ~60 extra minutes after a genuine night exit.
+Probe: **zero genuine night exits** in 7.8 nights (every real Jaya morning departure landed
+in the `home_day` table, ≥07:30, where the night hold does not apply). Cost realised = 0.
 
-Cheap one-shot read-only probe over the HA recorder (`/config/home-assistant_v2.db`) via
-`ssh ha "python3 -" < probe.py`. Window: 7 days. Per bedroom-typed room in every zone:
+**Discharge (per suppression-needs-a-discharge):** the knob is the existing tail-hold — house
+state exits `FAN_TRUST_STATES` → day hold takes over (60 s); person leaves during night → tail
+expires normally after 5400 s; restart → tail-hold state rebuilds from D1 producer. Nothing
+new to discharge.
 
-1. Enumerate night-window episodes where the zone's `hvac_occupied` (from
-   `binary_sensor.<room>_<room>_hvac_occupied` OR the fused zone signal
-   `sensor.ura_hvac_coordinator_zone_{n}_status` `any_room_hvac_occupied`) dropped between
-   02:00–06:00 while a zone-bound person's BLE `sensor.iphone_<name>_area` reported the room
-   or its bathroom sibling, AND `sensor.iphone_<name>_distance` variance stayed low
-   (thresholds to fit; provisional ≤3 ft over ≥10 min).
-2. For each such episode, count raw radar micro-blips (any state transition on either raw
-   presence source) inside the drop gap.
-3. Cross-cut by room, by night, by which sensor was UNAVAILABLE.
-4. Also count episodes where BLE was ABSENT / stationary variance is NOT computable — to size
-   the safe-degrade case (INV-A3).
+**Acceptance (A-0):**
+- **Live:** re-run `scripts/probes/hvac_night_sleeper_probe.py --days 8` two weeks after the
+  knob change. **Pass** = zero zone_2 retreats during `sleep`/`home_night`/`waking` on nights
+  Jaya was stationary in-suite. **Fail** = any such retreat (revives Piece A build).
+- **Live (discriminator):** on any night Jaya's phone is genuinely `not_home` before 22:00,
+  zone_2 must retreat within (5400 s + 5-min tick) of the last room drop.
+- **README write-back:** the observed (post-knob) retreat-rate table replaces the current
+  09-24/09-25 anchor row.
+- **No soak.** This is a one-shot re-probe, not a "watch for a week".
 
-Output written to `docs/planning/AUDIT_hvac_night_still_sleeper_probe_2026_XX_XX.md`. Numbers
-required BEFORE A1 scoping:
+### A-1 PARKED code build — design preserved, revival triggers explicit
 
-| Number | Why it matters |
-|---|---|
-| `N_episodes` (drops with a stationary in-suite person) | sizes the problem; if <2 in 7 d, Piece A drops to PARK-with-trigger |
-| Median gap length | tells us whether the current 30-min D8 hold + a small extension solves it, or whether the full 200-min machinery is needed |
-| `N_episodes with ≥1 radar micro-blip in the gap` | picks between corroborator (b) radar-blip-restarts-tail vs (a) BLE-only |
-| `N_episodes with BLE absent/degraded` | proves INV-A3 is reachable + sizes the no-op fraction |
-| Sign convention on `distance` (ft vs m) | verifies the stationary threshold |
+**Status:** PARKED. Do not build unless a revival trigger fires. This section carries the
+design (with rev-1 review findings folded) so a future cycle can uncork it fast without
+re-deriving.
 
-### A1 — Design (evaluated with A0 numbers)
+**Revival triggers (either):**
+1. A genuine night exit (Jaya `not_home` or Bermuda area outside the suite union) is followed
+   by a zone_2 hold > 30 min while the room reads vacant (i.e. the longer 5400-s knob costs
+   real comfort/energy in the wild).
+2. A re-probe (any bedroom, any zone) shows a second affected room with sleeper retreats
+   under the new baseline — the class is not Jaya-only.
 
-Three options to compare AGAINST THE NUMBERS. Pick ONE with a written margin argument
-(`feedback_marginal_benefit_pushback`); do not build the fancier when the simpler captures
-most of the benefit.
+**Design (constraints for revival, non-negotiable):**
 
-- **(a) BLE-only extension.** If the bound zone_person is stationary in the room's suite,
-  extend the per-room night tail-hold up to a cap. Reuses `_effective_hvac_hold_seconds`
-  (`hvac_zones.py:894`) — add a night-time bonus term keyed on the new BLE-stationary
-  predicate. Zone-scoped by construction (person→room binding).
-- **(b) Radar-blip-restarts-tail.** Any raw presence blip (either radar) within the hold
-  restarts the tail. Cheap, no BLE dependency, but does nothing when radars flatline (the
-  09-24/09-25 pattern with `mmwave_zigbee` unavailable and Seeed silent). Likely dominated by
-  (a) on the measured data.
-- **(c) Both, AND-ed.** Extension arms on (a); blips restart on (b). Reviewer must justify
-  each ingredient with margin.
+- **Person→room binding:** `PersonCoordinator.get_room_occupants`
+  (`person_coordinator.py:1554`) + REUSE `_ble_corroboration.trustworthy_persons_in_room`
+  (`:67`) and `phone_trustworthy` (`:34`). NO new binding config. Phone-left-behind gate
+  provided by `phone_trustworthy`; a phone that hasn't moved in ≥ N min while stationary
+  score is high is not trustworthy (existing semantics).
+- **Freshness source INDEPENDENT of value change.** A frozen Bermuda `*_area` (unchanged for
+  hours) yields distance variance 0 — that is NOT stationary, that is a stuck sensor. Use the
+  entity `last_updated` / `last_reported` from the recorder / state machine, not the value.
+  A stationary predicate MUST require: `phone_trustworthy` True AND area last_updated within
+  freshness window AND distance last_updated within freshness window AND distance pstdev ≤
+  threshold over the dwell.
+- **Window:** exactly `FAN_TRUST_STATES` (`hvac_const.py:881`) —
+  `("home_night","sleep","waking")`. Probe reference window 22:00–08:00. No new time window.
+- **Suite union for area.** Bermuda flaps Bedroom↔Bathroom continuously (rev-1 discriminator
+  would have failed the 09-24 anchor at 93 % Bathroom, 7 % Bedroom). Suite = room + all
+  scanner areas configured for that room (existing per-room config).
+- **Blip corroborator (b) is DROPPED.** Rev-1's option (b) is already existing producer
+  behaviour (`hvac_zones.py:966-1035` `source="held"`/`"edge"`). No new blip rule.
+- **Extension is per-pass in the tail-EXPIRED branch of `_compute_hvac_occupied`**
+  (`hvac_zones.py:~1010-1020`), NOT baked in at the falling edge. On each pass, if the tail
+  would expire AND the still-sleeper predicate is True AND the room has NOT been released
+  since last arm, hold `hvac_occupied=True` for this pass; set attr `arm_source="still_sleeper"`.
+- **Never re-arm a released room** (C6 hazard). Once the predicate goes False (person left
+  the suite / freshness lost / house-state exit), the room is RELEASED; a subsequent True
+  predicate in the same night does NOT re-extend until the room next transitions on→off
+  through a real occupancy edge.
+- **Cap:** `HVAC_NIGHT_STILL_SLEEPER_MAX_EXTENSION_MIN = 90` (module const, `hvac_const.py`;
+  matches probe max + margin).
+- **Dwell:** 10 min stationarity before arming (probe: Jaya in-suite well before every drop).
+- **State surface:** REUSE the existing per-room diagnostic entity
+  `binary_sensor.<room>_<room>_hvac_occupied` (`binary_sensor.py:745`); expose
+  `arm_source="still_sleeper"` + `still_sleeper_remaining_s` as attrs. **No new entity.**
+- **Shadow-attribute-first with actuation gated.** Ship the predicate + `arm_source` attr
+  first WITHOUT touching `hvac_occupied` (shadow mode). Kill-switch entity
+  `switch.ura_hvac_coordinator_night_still_sleeper_hold` (RestoreEntity, default OFF)
+  toggles actuation on. Two-stage roll-out.
+- **D6 interaction:** the still-sleeper extension keeps the room's `hvac_occupied` True, so
+  D6 Source-4 counts it. This is intended (a still-sleeper IS occupancy). Piece B's D6 gate
+  is orthogonal (it excludes coordinator-absent rooms, not still-sleeper rooms).
+- **Discharge (explicit; suppression-needs-a-discharge):** (1) `phone_trustworthy` False /
+  freshness lost; (2) area leaves suite union; (3) house-state exits `FAN_TRUST_STATES`;
+  (4) `HVAC_NIGHT_STILL_SLEEPER_MAX_EXTENSION_MIN` cap; (5) restart — extension state is NOT
+  persisted, next producer pass re-evaluates from scratch (**restart gap: after a restart the
+  extension is dormant until the room next goes off→on and the predicate arms; this is
+  intentional fail-closed**).
 
-Chosen corroborator (**provisional, gated on A0**): **(a) BLE stationary in-suite with (b) as
-tail-restart if A0 shows radar blips inside the gap on ≥50% of episodes.** Reasoning: (a)
-directly witnesses the failure mode (Jaya phone stationary through both nights while radars
-lost her); (b) is cheap insurance when raw blips exist.
+**Invariants (falsifiable) for the parked design:**
+- **INV-A1 (reworded, falsifiable):** during `FAN_TRUST_STATES`, no zone retreats to `away`
+  driven by that zone's fused occupancy becoming False when a bound zone_person is
+  trustworthy-in-suite (per the predicate above) at the retreat instant. Non-occupancy-driven
+  retreats (safety, EC coast, D5 shed) are OUT OF SCOPE for INV-A1.
+- **INV-A2 (zone scope):** still-sleeper extension in room R affects only R's zone. No
+  house-wide read.
+- **INV-A3 (degrade safely):** if any predicate input is stale/unavailable/absent, extension
+  does not arm. Behaviour reverts to the raised knob baseline.
+- **INV-A4 (discharge):** the five discharges above cover every reachable state; no path can
+  hold a released room extended.
 
-### A2 — Knob ladder (Numbers Get Knobs)
-
+**Knob ladder (parked build):**
 | Knob | Rung | Why |
 |---|---|---|
-| `HVAC_NIGHT_STILL_SLEEPER_MAX_EXTENSION_MIN` | Module const (`hvac_const.py`) | Safety cap on how long the hold may extend past D8. Change requires review. |
-| `HVAC_NIGHT_STILL_SLEEPER_DISTANCE_VARIANCE_FT` | Module const | Definition of "stationary"; couples to sensor characteristics. |
-| `HVAC_NIGHT_STILL_SLEEPER_DWELL_MIN` | Module const | How long BLE must be in-suite before arming. |
-| `switch.ura_hvac_coordinator_night_still_sleeper_hold` | Switch entity (RestoreEntity) | Live kill-switch. Default: **OFF at first ship**; flipped ON after A0 + one clean night. |
-| Per-room override: `CONF_HVAC_NIGHT_STILL_SLEEPER_ENABLE` | Options flow | Per-bedroom disable if a room's BLE is unreliable. |
+| `HVAC_NIGHT_STILL_SLEEPER_MAX_EXTENSION_MIN=90` | Module const | Safety cap; changes require review |
+| `HVAC_NIGHT_STILL_SLEEPER_DISTANCE_STD_FT=3.0` | Module const | Couples to sensor physics |
+| `HVAC_NIGHT_STILL_SLEEPER_DWELL_MIN=10` | Module const | Anti-flap window |
+| `HVAC_NIGHT_STILL_SLEEPER_FRESHNESS_MAX_S` | Module const | Independent-freshness gate |
+| `switch.ura_hvac_coordinator_night_still_sleeper_hold` | Switch entity (RestoreEntity, default OFF) | Live kill-switch; shadow→actuation gate |
+| Per-room `CONF_HVAC_NIGHT_STILL_SLEEPER_ENABLE` | Options flow | Per-bedroom disable |
 
-Discharge (INV-A4): (1) house-state exits `home_night`; (2) BLE stationary predicate goes
-False (person left the suite); (3) `MAX_EXTENSION_MIN` cap; (4) restart clears in-memory
-extension state (fail-closed to D8).
+**Acceptance (revival build; discriminating, evidence-row based):**
+- **Sensor:** `binary_sensor.<room>_<room>_hvac_occupied` attrs
+  `arm_source in {"tail","edge","held","hallway_excluded","still_sleeper"}`,
+  `still_sleeper_remaining_s`, `discharge_reason` on release.
+- **Discriminating (evidence-row) test set:** each test asserts the presence/absence of an
+  `arm_source="still_sleeper"` transition AND (for the actuation half) the
+  presence/absence of a `ura_activity_log` `preset_change`/`preset_change_suppressed` row
+  keyed by zone + reason. NOT "count rows".
+  - `test_still_sleeper_holds_zone_when_ble_stationary_suite_union` — 09-24 Jaya anchor
+    replay (93 % Bathroom): PASS = extension arms.
+  - `test_still_sleeper_rejects_out_of_suite_area` — area = hallway/other room: FAIL to arm.
+  - `test_still_sleeper_rejects_frozen_sensor` — area value unchanged for freshness window +
+    distance last_updated stale: FAIL to arm (INV-A3).
+  - `test_still_sleeper_rejects_phone_left_behind` — `phone_trustworthy` False: FAIL to arm.
+  - `test_still_sleeper_does_not_re_arm_released_room` — arm → release → predicate True
+    again mid-window: does NOT re-arm (C6).
+  - `test_still_sleeper_zone_scope` — arm on zone_2 room does not affect zone_1/zone_3.
+  - `test_still_sleeper_discharges_on_fan_trust_state_exit` — house exits `FAN_TRUST_STATES`
+    → release within one pass.
+  - `test_still_sleeper_cap_releases_at_max_extension` — cap fires; discharge_reason=`cap`.
+  - `test_still_sleeper_restart_clears_extension` — restart mid-arm: next pass unarmed.
+  - `test_still_sleeper_shadow_mode_writes_attr_but_not_hvac_occupied` — actuation switch OFF.
+  - `test_still_sleeper_actuation_mode_extends_hvac_occupied` — actuation switch ON.
+- **Wire-in / neuter drill:** each of the above tests must FAIL RED when the corresponding
+  production predicate branch is neutered in source; restore, re-verify GREEN.
+- **Live:** the D-A0 re-probe (A-0 acceptance) also serves the build: zero sleeper retreats
+  on any bedroom. One-shot. No soak.
 
-### A3 — Wire-in anchors (mandatory per `feedback_wire_in_anchor_mandatory`)
-
-- **Enclosing behavioural anchor:** an integration test drives the D1 producer through a
-  simulated night: person BLE stationary in-suite, both radars silent for 45 min → assert
-  `zone.hvac_occupied` remains True and preset does NOT flip at row-1 (`hvac.py:2013`).
-- **Call-neuter drill:** temporarily neuter the BLE-stationary predicate in production source
-  → the anchor test FAILS. Restore, re-verify GREEN. Repeat for the tail-restart branch if
-  built.
-- **Cross-cut mutation:** flip the person→room binding to a DIFFERENT zone's room → the hold
-  MUST NOT extend the wrong zone (INV-A2).
-- **Degrade drill:** set BLE `unavailable` → hold reverts to 30-min D8 (INV-A3).
-
-### A4 — Acceptance criteria (must discriminate; `feedback_falsify_before_asserting`)
-
-- **Sensor:** new `binary_sensor.<room>_<room>_hvac_night_still_sleeper_hold` reports the
-  extension state with attributes (`ble_area`, `distance_ft`, `distance_variance_ft`,
-  `blip_count`, `extension_remaining_s`, `discharge_reason` on release).
-- **Verify (unit):** night simulation above.
-- **Verify (discriminating):** a night with the person's BLE showing the room's *sibling
-  bathroom* only, distance high-variance → NO extension. This distinguishes "sleeping" from
-  "moving through the suite".
-- **Verify (degrade):** BLE unavailable → extension never arms; behaviour == pre-Piece-A.
-- **Verify (zone scope, INV-A2):** stationary in-suite person in zone_2 does NOT hold zone_1
-  or zone_3 (drive a probe with zone_1 empty at 02:30).
-- **Live:** re-run the A0 probe query 7 nights post-deploy. Every drop episode over the
-  window either (i) has the BLE stationary predicate False at drop time (real vacancy) or
-  (ii) shows the extension armed and the zone did NOT retreat. Any counter-example is a bug.
-- **Live:** repeat the Jaya-night query specifically — 02:00–06:00 zone_2 with Jaya BLE
-  stationary. Expected: zero retreats over the observation window.
-- **Test:** `test_hvac_night_still_sleeper_holds_when_ble_stationary_zone_scoped`,
-  `test_hvac_night_still_sleeper_does_not_arm_on_sibling_bathroom_only`,
-  `test_hvac_night_still_sleeper_degrades_to_d8_on_ble_unavailable`,
-  `test_hvac_night_still_sleeper_does_not_leak_across_zones`,
-  `test_hvac_night_still_sleeper_restart_forgets_extension`.
-
-### A5 — Non-goals
+**A-1 non-goals:**
 - No "anyone home" gate. Ever.
-- No inference of house-wide guest/resident state from this predicate.
-- No new time window; uses existing `home_night`.
-- No change to D7 night-trust suppression or D8 base hold.
-- Does not build the full 200-min/4-discharge machinery preserved on the card unless A0
-  numbers argue for it (they likely will not; document either way).
+- No new time window.
+- No change to D7/D8.
+- Does not build the parked 200-min/4-discharge machinery (probe rules it out).
+- No re-derivation of the sleep-veto in HVAC (that lives in aggregation.py; Piece C).
 
-### A6 — Tier and reviews
-- **Tier 2-DB** (three framing-disjoint reviews) — regression-prone (touches the tail-hold in
-  the shared retreat gate's producer path; consumer set = every zone at night). Framings:
-  A = local correctness (BLE predicate, distance variance, dwell arithmetic);
-  B = state-machine integrity + discharge coverage + restart + degrade paths;
-  C = new-surface authority (switch/sensor/config knobs round-trip through options flow +
-  RestoreEntity; test fixtures drive production).
-- Plan-review pass BEFORE build (Tier 2 plan rule) with mandatory prior-art re-grep of the
-  BLE / stationary / distance-variance surface.
+**A-1 tier and reviews (only if revived):** Tier 2-DB with plan review; framings A=local
+correctness of predicate + freshness independence + C6 no-re-arm; B=state machine + shadow→
+actuation + restart + discharge coverage; C=surfaces + fixture authority + adversarial
+completeness (re-enumerate every writer of `arm_source`).
 
 ---
 
-## Piece B — placeholder readers (D5, D6, continuous-occupied)
+## Piece B — placeholder readers (rev-2, findings F15–F20 folded)
 
-### B1 — Rewire the three bypassing readers (deliverable D-B1)
+### B-1 D6 gated at the hvac.py consumer (F15)
 
-Every fix REUSES the v5.103.15 classifier landed on `feature/hvac-live-room-establishment`.
-No new predicate.
+**Change:** at the D6 stale-failsafe consumer in `hvac.py:2063`, gate the raw
+`any_room_hvac_occupied` read on
+`self._zone_manager.is_zone_hvac_established(zone_id)` (existing predicate,
+`hvac_zones.py:1043`). If not established, D6 defers (no `stale_occupancy` away, no
+stuck-signal NM).
 
-1. **D5 coast occupancy defer (`hvac.py:2278-2296`).** Replace the raw
-   `zone.any_room_hvac_occupied` read with the shared retreat check:
-   *defer coast-away when `not self._zone_conditioning_retreat_ok(zone)`*. This is exactly the
-   call sketched in the card's `next`.
-2. **D6 stale-failsafe Source-4 room count (`presence.py:2148-2157`).** Exclude rooms whose
-   coordinator is absent this pass (v5.103.15 `_coordinator_absent_this_pass`) from the count.
-   Also apply the v5.103.15 "excluded (failed/disabled/removed) = not defined" rule (§9b) —
-   an excluded room contributes zero, matching the operator's option (a) choice.
-3. **`continuous_occupied_since` (`hvac_zones.py:746-754`).** Do NOT reset the clock when the
-   only reason `hvac_occupied` flipped False is the synthetic-empty placeholder. Detect via
-   the synthetic-empty flag (`hvac_zones.py:616-641`); on synthetic rows, hold the previous
-   value.
-4. **zone.rooms frozen at discovery (Reviewer D F7).** Note only — not fixed here. Card
-   `HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1` acknowledges this as a separate F7 concern;
-   fixing it means resolving `zone.rooms` at each producer pass, which crosses the fast-path's
-   territory. Leave as a follow-up card (see §Deferred below).
+`presence.py:2148-2157` is UNTOUCHED. This preserves C7's sanctioned exception (D6 is the
+one reader that legitimately runs on the raw producer signal at the producer tier); the
+gate lives at the HVAC consumer.
 
-### B2 — Wire-in anchors
+**Distinct log reason:** the D6 defer path emits reason `stale_failsafe_deferred_unestablished`
+in `ura_activity_log` (`hvac.py` action stream), distinct from any existing D6 reason —
+required for the acceptance oracle below.
 
-- **D5 anchor:** integration test — EC coast, zone runtime_exceeded, home_evening,
-  `zone_1=[Office occupied, Study empty]`, Office coordinator reloads → assert D5 does NOT
-  force away. Repeat with an all-dead zone under coast → assert D5 does NOT retreat it (INV-B1).
-- **D6 anchor:** integration test — Source-4 count with 1 of 3 rooms coordinator-absent →
-  count reads 2, no one-tick stale_occupancy away, no stuck-signal NM.
-- **Continuity anchor:** unit test — a room flips to synthetic-empty for one pass →
-  `continuous_occupied_since` unchanged.
-- **Neuter drill:** revert each rewire one at a time in production source → the anchor test
-  for that site FAILS RED; restore, re-verify GREEN. A site whose neuter leaves the suite
+### B-2 D5 coast defer via shared gate (from rev-1, kept)
+
+At `hvac.py:2278-2296`, replace the raw fused-occupancy read with the shared retreat check:
+defer when `not self._zone_conditioning_retreat_ok(zone)`. **Distinct D5 defer reason
+`energy_shed_cap_deferred_unestablished`** (F17) — required by the acceptance oracle.
+
+### B-3 Continuity clock — narrowed gate (F16)
+
+At `hvac_zones.py:746-754`, `continuous_occupied_since` holds its previous value (does NOT
+reset) ONLY when the room is under a v5.103.15 transient block OR a LIVE room's coordinator
+is coordinator-absent this pass. **Never hold for an EXCLUDED (failed/disabled/removed)
+room** — an excluded room's clock would otherwise freeze forever (§9b: excluded acts as if
+not defined). Concretely: hold iff `is_zone_transient_blocked(room)` OR
+(`_coordinator_absent_this_pass(room)` AND NOT `is_room_excluded(room)`). Excluded rooms
+follow the normal reset path.
+
+**Deliberation on dropping B-3 entirely:** the continuity clock's downstream consumers are
+the stale-occupancy failsafe (D6, now gated by B-1) and optimizer stuck-occupancy
+telemetry. B-1 already prevents D6 from acting on a synthetic empty; the residual value of
+B-3 is the optimizer telemetry not spuriously resetting during a reload. Cost of B-3 is
+one narrow conditional. **Kept, with the F16 narrower gate**; if a reviewer prefers to
+drop it entirely on the grounds that B-1 covers the only load-bearing consumer, that is a
+legal simplification and this plan does not oppose it — reviewer C to decide.
+
+### B-4 Per-site disposition table (F18) — enumerate now, do not defer to reviewers
+
+Every raw reader of `any_room_hvac_occupied` / the synthetic-empty flag / the fused signal
+on a decision path (grepped in this planning pass; symbols resolved per F20 — reviewer
+re-greps to confirm):
+
+| Site | Symbol / role | Disposition | Reason |
+|---|---|---|---|
+| D5 coast defer (`hvac.py:2278-2296`) | `_maybe_defer_energy_shed_cap` | **FIX** (B-2) — route through `_zone_conditioning_retreat_ok`; reason `energy_shed_cap_deferred_unestablished` | Reviewer D F3 repro |
+| D6 stale-failsafe consumer (`hvac.py:2063`) | stale_occupancy consumer | **FIX** (B-1) — gate on `is_zone_hvac_established(zone_id)`; reason `stale_failsafe_deferred_unestablished` | one-tick away + stuck-NM |
+| `continuous_occupied_since` (`hvac_zones.py:746-754`) | continuity clock producer | **FIX** (B-3, narrowed) | reset on synthetic-empty poisons D6 / optimizer |
+| **F8 pre-cool** (`hvac_predict.py:583`) | pre-cool eligibility read | **JUSTIFY (no fix)** | pre-cool DRIVES conditioning UP (adds comfort), never toward away; a false-empty here causes at worst one skipped pre-cool tick, which the next tick corrects. Fail-safe direction. |
+| **F9 pre-heat** (`hvac_predict.py:1386`) | pre-heat eligibility read | **JUSTIFY (no fix)** | same as F8, opposite verb. Skipped-tick self-corrects. |
+| `last_occupied_time` (producer bookkeeping in `hvac_zones.py`) | timestamp only | **JUSTIFY (no fix)** | display / analytics only; not a decision input. |
+| `zone_presence_state` display (`hvac.py:4190-4191`) | UI / diagnostic | **JUSTIFY (no fix)** | display-only per §3.2 bypass list; not a trust decision. |
+| `ura_activity_log` detail fields | logging only | **JUSTIFY (no fix)** | writes reflect the decision; do not drive it. |
+| **row-10 arrester comfort-delay raw fallback** (`hvac_override.py:2336`) | tri-state guard fallback (`:2304-2340`) | **JUSTIFY (no fix)** — but ADD an assertion test | tri-state guard already handles the None case (§3.2); raw fallback fires only when the delegate is unavailable. Add a test that with the delegate available the raw path is NEVER taken. |
+| **F7 zone.rooms frozen at discovery** | producer construction | **DEFER (own card)** | crosses fast-path territory; separate scope. |
+
+Reviewer C's job is to re-grep and add any missed site to this table with a disposition —
+NOT to enumerate from scratch (F18: do not defer enumeration to reviewers).
+
+### B-5 Invariants (rev-2)
+
+- **INV-B1 (retained):** no reader on a decision path that could drive a zone toward `away`
+  acts on a synthetic-empty. Fixed sites: D5, D6. Justified sites: F8, F9, row-10 (with
+  test).
+- **INV-B2 (narrowed):** `continuous_occupied_since` does not reset while a room is
+  transient-blocked or a LIVE room is coordinator-absent this pass. Excluded rooms follow
+  normal reset semantics.
+- **INV-B3 (REWORDED — F17):** **when the zone is established, Piece B's decisions are
+  byte-identical to develop post-v5.103.15.** (Rev-1 said "healthy path" which was
+  ambiguous — a zone can be unhealthy-but-established, and Piece B intentionally changes
+  behaviour on the unestablished path. Byte-identity is only defensible on established.)
+
+### B-6 Wire-in anchors + neuter drills
+
+- **D5 anchor (F19-conformant):** integration test sets `switch.ura_ec_coast_active` (or
+  equivalent) ON, drives `zone_runtime_exceeded=True` on zone_1, `home_evening`,
+  zone_1=[Office occupied, Study empty], reload Office coordinator. Assert: NO
+  `preset_change` to `away` in `ura_activity_log` during the unestablished window; a
+  `preset_change_suppressed` (or the distinct-reason equivalent) row appears with reason
+  `energy_shed_cap_deferred_unestablished`.
+- **D6 anchor:** unestablished zone (Office reloading) + otherwise-eligible stale window →
+  no `stale_occupancy` `preset_change`; a suppressed row with reason
+  `stale_failsafe_deferred_unestablished`.
+- **Continuity anchor:** unit — room transient-blocked one pass →
+  `sensor.ura_hvac_coordinator_zone_{n}_status` attr `continuous_occupied_hours` does not
+  reset. Excluded room → clock resets normally.
+- **Row-10 anchor:** delegate available → assert raw fallback branch is not entered
+  (instrument via a debug counter or a mutation-drill on the raw branch that MUST leave the
+  test green).
+- **Neuter drill (per site):** revert each fix in production source → the corresponding
+  test above FAILS RED; restore, re-verify GREEN. A site whose neuter leaves the suite
   green is an untested site.
-- **Byte-identical drill (INV-B3):** run the healthy-path integration suite (no coordinator
-  absent this pass) → results identical to develop post-v5.103.15.
+- **INV-B3 drill:** on an established zone with no coordinator-absent rooms this pass, an
+  integration suite diff against develop post-v5.103.15 is EMPTY.
 
-### B3 — Knob ladder
-- **No new knobs.** Fixes are behaviour-preserving rewires onto existing predicates.
+### B-7 Acceptance criteria (F19 — real surfaces + real oracles)
 
-### B4 — Acceptance criteria
+- **Surfaces (real, not invented):**
+  - `sensor.ura_hvac_coordinator_zone_{n}_status` attrs
+    `continuous_occupied_hours`, `coordinator_absent_rooms`, `transient_rooms`
+    (existing per §3.2 / `hvac_zones.py:751`).
+  - `ura_activity_log` rows: `preset_change`, `preset_change_suppressed` (existing;
+    §4.2 S1 site).
+- **Oracle:** `ura_activity_log` `preset_change` vs `preset_change_suppressed` presence +
+  reason, keyed by zone_id + timestamp window around the drive event. Do NOT use
+  `hvac_excursion_events` (borrows are unrelated).
+- **Live:** post-deploy, force a coordinator reload on a live room in zone_1 during coast
+  conditions and confirm (a) no `preset_change` to `away`, (b) a `preset_change_suppressed`
+  with reason `energy_shed_cap_deferred_unestablished`, (c) `continuous_occupied_hours`
+  unchanged for the affected zone.
 
-- **Verify (D5):** Reviewer D F3 repro no longer forces away.
-- **Verify (D6):** stale-failsafe count in `sensor.ura_presence_zone_{n}_source4_room_count`
-  (or its actual name — verify at build) matches loaded-and-present room count.
-- **Verify (continuity):** `sensor.ura_zone_{n}_continuous_occupied_since` does not reset on
-  a coordinator reload of a sibling room.
-- **Verify (INV-B3 byte-identity):** integration suite diff vs develop post-v5.103.15 on the
-  healthy path = empty.
-- **Test:** `test_d5_coast_defers_when_zone_not_cleared_to_retreat`,
-  `test_d5_coast_does_not_retreat_all_dead_zone`,
-  `test_d6_source4_excludes_coordinator_absent_rooms`,
-  `test_continuous_occupied_ignores_synthetic_empty`.
-- **Live:** post-deploy, force a room reload on zone_1 and confirm no one-tick D5 away, no
-  stuck-signal NM on D6, no `continuous_occupied_since` reset in the recorder.
-- **Live:** query `hvac_excursion_events` + `ac_ramp_events` for one week — no unexplained
-  one-tick away/reset transitions correlated with room reloads.
+### B-8 Non-goals
+- Not touching `presence.py` (C7 sanctioned exception preserved).
+- Not resolving F7.
+- Not changing the retreat gate itself.
+- No behaviour change on the established path (INV-B3).
 
-### B5 — Non-goals
-- Not resolving F7 (zone.rooms frozen at discovery); carded separately.
-- Not changing the shared retreat gate itself (that shipped in v5.103.15).
-- No behaviour change on the healthy path (INV-B3).
-
-### B6 — Tier and reviews
-- **Tier 2-DB** (three framing-disjoint reviews) — regression-prone (touches D5 duty-cycle,
-  D6 stale failsafe, and the shared continuity clock; cross-coordinator with presence.py).
-  Framings:
-  A = correctness of each rewire + edge cases (coordinator-absent-on-boot, all-dead zone);
-  B = cross-coordinator integrity (presence D6 Source-4 semantics preserved; no double-emit),
-  restart, and byte-identity on the healthy path;
-  C = adversarial completeness — re-enumerate EVERY reader of `any_room_hvac_occupied` and
-  the synthetic-empty flag across the codebase (grep, do not trust the card's list) and
-  verify each is either fixed or explicitly justified as safe.
-- Plan-review pass BEFORE build.
+### B-9 Tier and reviews
+- **Tier 2-DB.** Framings:
+  A = local correctness (each rewire, distinct reasons, B-3 narrowed gate);
+  B = cross-coordinator integrity (D6 semantics preserved via consumer-side gate;
+  optimizer telemetry; restart; INV-B3 byte-identity on established);
+  C = adversarial completeness — re-grep every reader of the fused signal / synthetic-empty
+  flag / continuity clock and add any missed row to B-4's table with a disposition. Also
+  decide B-3 keep-vs-drop.
+- Plan-review pass before build (already this rev-2).
 
 ---
 
-## Piece C — HVAC-GUEST-AS-ZONE-PERSON-1 scope check
+## Piece C — HVAC-GUEST-AS-ZONE-PERSON-1 scope check (rev-2)
 
-**Recommendation: DO NOT include in this plan. Sequence AFTER Pieces A + B.** Reasons:
+**Recommendation stands: DO NOT include in this plan. Sequence AFTER Piece B and Piece A's
+A-0 knob turn.** Reasons unchanged from rev-1, with corrected citations:
 
-1. **Operator prerequisite unresolved.** The card carries an explicit verify-first
-   (2026-08-20): confirm whether the sleep-veto (`aggregation.py:4017-4019`) already gates on
-   real zone occupancy vs `zone_persons` membership. That verification is a prerequisite; it
-   may shrink or kill the card. It is not W2's other pieces' work.
-2. **Coincidental-equality hazard.** A guest predicate that "counts an occupied guest room as
-   the zone's person" is at risk of the exact coincidental-equality smell
-   (`feedback_coincidental_equality_masks_concept_split`) between "in-zone occupancy" and
-   "in-zone identity". Piece A introduces a person-binding predicate; Piece C would layer a
-   *synthetic* person on top. Building them together tempts sharing plumbing that must stay
-   disjoint (INV-A2 depends on real person→room binding; Piece C would supply a synthetic
-   binding that MUST NOT feed Piece A's night hold, or a random guest-room blip could pin a
-   whole zone at comfort overnight — worse than today).
-3. **Suppression-needs-a-discharge is unresolved on Piece C.** The card documents a two-stage
-   arm + post-sleep-onset recheck design but leaves the discharge contract open. That is a
-   standalone design pass, not a Piece-A/B rider.
-4. **Blast radius fits its own cycle.** Piece C touches three inert suppressions
-   (`hvac.py:1788-1795`, `aggregation.py:4017-4019`, `aggregation.py:4152-4154`) + pre-arrival
-   routing (`hvac.py:3267-3273`). It is Tier 2-DB in its own right and deserves independent
-   framings.
+1. **Operator verify-first (2026-08-20).** Verify whether the sleep-veto at
+   `aggregation.py:4298-4382` and the non-sleep person-home bias at `:4424-4522` gate on
+   real occupancy vs `zone_persons` membership. (Rev-1's `:4017-4019` / `:4152-4154`
+   citations were STALE — corrected here.) The verification may shrink or kill the card.
+2. **Coincidental-equality hazard.** Piece C would supply a synthetic person; INV-A2 depends
+   on real person→room binding. Keep the plumbing disjoint.
+3. **Suppression-needs-a-discharge unresolved on the card.**
+4. **Blast radius fits its own Tier 2-DB cycle.**
 
-**Proposed sequence:** Piece B → Piece A → verify-first on `aggregation.py:4017-4019` →
-Piece C planning cycle (separate doc) if the verification confirms the gap. This preserves
-the operator-approved W2 order (parent `next`: live-room gate → fast path → night hold →
-placeholder readers → guest-as-person) and only reorders A/B for build efficiency (B is
-smaller and unblocks nothing else, so it should ride the review pipeline in parallel with
-Piece A's measurement probe).
+**Proposed sequence:** Piece B → Piece A A-0 (knob turn) → verify-first on
+`aggregation.py:4298-4382` and `:4424-4522` → Piece C planning cycle (separate doc) if the
+verification confirms the gap.
 
 ---
 
 ## Sequencing (build order)
 
 1. v5.103.15 merges to `develop`.
-2. W2 fast-path plan lands OR its reviews confirm no `hvac.py` overlap with Piece B's D5 site
-   or with any producer-pass ordering Piece B depends on. **Flag: reviewer must diff
-   fast-path's dispatched cycle against Piece B's D5 rewire — they touch neighbouring code and
-   share the assumption that a producer pass has just run.**
-3. **Piece B build** (Tier 2-DB) — smaller, no measurement gate. Ships first.
-4. **Piece A — D-A0 probe** (read-only). Numbers go into an AUDIT doc.
-5. **Piece A design pick** (a / b / c) with margin justification. Plan-review pass.
-6. **Piece A build** (Tier 2-DB). Ships with switch OFF by default; flip ON after one clean
-   night + live probe re-run.
-7. Piece C: verify-first, then a separate planning cycle.
+2. W2 fast-path plan reviews confirm no overlap with Piece B's D5 / D6 / F8 / F9 / row-10
+   sites and no producer-pass ordering conflict.
+3. **Piece B build** (Tier 2-DB, three framings, per-site disposition table pre-populated).
+4. **Piece A A-0 knob turn** on operator approval (Jaya Bedroom
+   `hvac_vacancy_hold_night` 1800 → 5400 s). No code.
+5. Two-week re-probe write-back (A-0 acceptance).
+6. Piece A A-1 build stays PARKED unless a revival trigger fires.
+7. Piece C verify-first → separate plan.
 
 ## Deferred items (accounted for, not silently dropped)
 
-- **F7 (zone.rooms frozen at discovery)** — carded on
-  HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1 evidence; needs its own card + plan. Not fixed by
-  Piece B.
-- **Full 200-min/4-discharge night machinery** — preserved on
-  HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1; unbuilt unless A0 numbers argue for it.
-- **Jaya Zigbee radar hardware repair** (unavailable since 2026-09-25 19:32) — physical, not
-  in this plan; parent card `next` notes it.
-- **Piece C build** — see §Piece C recommendation.
+- **F7 (zone.rooms frozen at discovery)** — own card follow-up on B evidence.
+- **Full 200-min/4-discharge machinery** — probe rejects (max need 55.6 min); preserved on
+  HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1 for the historical record.
+- **Piece A code build** — PARKED with explicit revival triggers.
+- **Morning residual** (3 zone_2 retreats 06:14–07:00 during `home_day` outside
+  FAN_TRUST_STATES) — separate card if operator cares about early-morning comfort; not in
+  W2 scope.
+- **Jaya Zigbee radar hardware repair** — physical, not in this plan.
+- **Piece C build** — separate cycle.
 
-## Return summary (per orchestrator ask)
+## Return summary (rev-2)
 
-- **Measured numbers:** NONE yet — D-A0 is the measurement gate; probe design is spec'd in
-  A0 (7-day recorder read of night drops with stationary in-suite BLE + radar micro-blips
-  per bedroom-typed room per zone). The A1 design pick is gated on those numbers.
-- **Chosen corroborator (provisional):** (a) BLE stationary in-suite as the primary
-  arm; (b) radar micro-blip tail-restart added ONLY if A0 shows radar blips in ≥50% of drop
-  gaps. Zone-scoped by person→room binding; degrades to today's D8 when BLE is unavailable.
-- **Invariants:** INV-A1..A4 (night hold), INV-B1..B3 (placeholder readers) — stated
-  falsifiably above; reviewer D must break them with legal-config reachable repros.
-- **Tiers:** Piece A = Tier 2-DB (3 framings + plan review + live re-probe write-back);
-  Piece B = Tier 2-DB (3 framings + plan review + byte-identity healthy-path drill); Piece C
-  = out of scope for this plan (own Tier 2-DB cycle after verify-first).
+- **Measured numbers:** 6 sleep-state sleeper drops in 7.8 nights (5 caused zone_2 retreat);
+  needed-extension gaps 32.6 / 45.9 / 54.4 min (ura_activity_log), probe max 55.6 min;
+  0/26 non-returning blips in gaps; 13/13 stationary-in-suite episodes returned; 0/9
+  STAYED (genuine-exit) episodes were stationary in-suite; distance in ft, stationary
+  std 0.4–1.3 ft. Jaya-only on this data; Master 3 drops (0 sleeper), Ziri away all week,
+  guest bedrooms 0.
+- **Chosen corroborator:** (a) BLE stationary in-suite (suite union), std ≤ 3 ft, with
+  independent freshness gate (last_updated on area + distance) and `phone_trustworthy`.
+  Corroborator (b) DROPPED — it already exists in the D1 producer.
+- **Ship path (recommended):** knob turn only — Jaya Bedroom
+  `hvac_vacancy_hold_night` 1800 → 5400 s. Code build PARKED with revival triggers.
+- **Invariants:** INV-A1 reworded to occupancy-driven retreat only, restart gap stated;
+  INV-A2/A3/A4 kept; INV-B1 kept; INV-B2 narrowed (no hold for excluded rooms); INV-B3
+  reworded to "when the zone is established → byte-identical to develop post-v5.103.15".
+- **Tiers:** Piece A A-0 = no-tier (operator knob turn + re-probe); A-1 = Tier 2-DB (only
+  if revived); Piece B = Tier 2-DB (three framings + plan review + neuter drill per fixed
+  site + INV-B3 byte-identity drill on established); Piece C = own Tier 2-DB cycle after
+  verify-first.
 
 ---
 
-## D-A0 RESULTS (measured 2026-09-26)
+## Change log — findings → sections (rev-1 → rev-2)
 
-**Probe:** `scripts/probes/hvac_night_sleeper_probe.py` (read-only; rerun:
-`ssh ha "python3 - --days 8 [--verbose]" < scripts/probes/hvac_night_sleeper_probe.py`). Recorder window
-**2026-09-18 04:18 → 2026-09-25 23:44 CDT** (≈7.8 nights; the 09-17/18 night is morning-only; 09-25/26 is in
-progress). Drops = `binary_sensor.<room>_<room>_hvac_occupied` on→off with drop time in 22:00–08:00. Gap =
-[drop, min(return, drop+90 min)]. "Stationary in-suite" = Bermuda `*_area` in the room's suite (room + en-suite /
-scanner areas) ≥ 90 % of the gap AND pstdev(`*_distance`) ≤ 3 ft. Zone-away = zone climate `preset_mode` or
-`hold_activity` == `away` inside the gap. Room/sensor/zone/person mapping pinned from `.storage/core.config_entries`
-(bedroom-typed: Jaya Bedroom, Ziri Bedroom, Upstairs Guestroom [z2]; Master Bedroom [z1]; Guest Bedroom 1,
-Guest Bedroom 1 Closet [z3, no zone_persons]).
-
-**Anchor validation — PASS.** 09-24: fan off 01:31:04 → `jaya_3_presence` off 01:32:01; raw silence 02:02:54 →
-02:56:56 (54 min); room occupied off 02:11:04; D1 tail 02:12:04 → 02:41:54; `hvac_occupied` off 02:42:07;
-**zone_2 away 02:47**. 09-25: fan off 01:36:38 → `jaya_3_presence` off 01:37:12; Zigbee radar silent 01:23:04 →
-02:25:42 (63 min); `hvac_occupied` off 02:04:57; **zone_2 away 02:09**. Jaya's phone in-suite 100 %, distance std
-0.5 ft both nights.
-
-### Per-room table
-
-| Room (zone) | drops | returned ≤90 | stayed | stationary in-suite | stat → zone away | non-returning blips | BLE all-degraded |
-|---|---|---|---|---|---|---|---|
-| Jaya Bedroom (z2) | 17 | 14 | 3 | **12** | **8** | 0 | 7 (all = Jaya not_home / morning departure) |
-| Ziri Bedroom (z2) | 6 | 0 | 5 (+1 censored) | 0 | 0 | 0 | 6 (Ziri `not_home` all window) |
-| Upstairs Guestroom (z2) | 0 | – | – | – | – | – | – |
-| Master Bedroom (z1) | 3 | 2 | 1 | 1 (2.6-min blip, house `away`) | 0 | 0 | 2 |
-| Guest Bedroom 1 / Closet (z3) | 0 / 0 | – | – | – | – | – | – |
-| **TOTAL** | **26** | **16** | **9** | **13** | **8** | **0 (0 %)** | 15 |
-
-**Jaya still-sleeper episodes by house state** (stationary in-suite at drop):
-
-| House state (hold table) | episodes | zone_2 went away | away duration (min) | return gaps (min) |
-|---|---|---|---|---|
-| `sleep` (night table, D8 30 min) — **Piece A scope** | **6** (09-20 01:58, 04:58; 09-21 01:33; 09-24 01:56, 02:42; 09-25 02:04) | **5** | 45.1, 50.1, 35.2, 6.0, 20.0 | 50.1, 55.6, 40.1, 5.0, 15.3, 24.9 → **median 32.5, max 55.6** |
-| `home_day` (day table, 60 s) — 06:14–07:59 | 5 | 3 | 30.0, 15.1, 25.0 | 5.3, 30.0, 5.0, 25.0, 25.0 |
-| `away` (house) | 1 | 0 | – | 0.1 |
-
-### The plan's required numbers
-
-| Number | Measured |
+| Piece-A findings | Section(s) touched |
 |---|---|
-| `N_episodes` (night-table drops with stationary in-suite person) | **6 in 7.8 nights** (5 caused a zone_2 retreat) → above the <2 PARK line; Piece A proceeds |
-| Median gap | **32.5 min** (sleep-state), max **55.6 min**; all 13 stationary episodes returned within 56 min. Needed extension ≈ gap + ≤5-min tick → a **60–90 min cap suffices; the 200-min / 4-discharge machinery is NOT warranted** |
-| `N_episodes with ≥1 radar micro-blip in the gap` | **0 / 26 (0 %)** non-returning blips. Every raw blip inside a gap ENDED it |
-| `N_episodes with BLE absent/degraded` | 15 / 26 all-degraded — every one is a person `not_home` / morning departure / Ziri away all week; **0 stationary episodes lost to BLE failure**. Night availability while home: area unknown/unavailable **jaya 1 %, ezinne 1 %, oji 8 %** (ziri: 0 h home) |
-| Distance units | **ft** (`unit_of_measurement: ft`, positive). Stationary episodes: std **0.4–1.3 ft**, range 2.0–7.5 ft → ≤3 ft std threshold has ~2× headroom; a range-based threshold would need ≥8 ft |
-| Discrimination | **0 / 9 STAYED (genuine-exit) episodes were stationary in-suite; 13 / 13 stationary episodes returned** — the BLE predicate separated sleepers from exits perfectly on this sample |
+| Knob is baseline + recommendation (1800 → 5400 s) | A-0 (new); Ship path; Return summary |
+| Code build becomes PARKED with explicit revival triggers | A-1 (new); Deferred items |
+| Person→room via `PersonCoordinator.get_room_occupants` (:1554) + REUSE `_ble_corroboration` (:34, :67) — no new binding config | Prior-art scan; A-1 predicate |
+| `override` is NOT a BLE anchor (§9c) | Prior-art scan (explicit correction to rev-1) |
+| Extension per-pass in tail-EXPIRED branch, never at falling edge, never re-arm released room (C6) | A-1 design |
+| Window = `FAN_TRUST_STATES` (`hvac_const.py:881`); probe 22:00–08:00 | A-1 design |
+| Freshness INDEPENDENT of value change (frozen sensor ≠ stationary) | A-1 design; INV-A3 |
+| `phone_trustworthy` gate (phone-left-behind) | A-1 design |
+| Drop option (b) — blips already re-arm via STATE_OCCUPIED | Prior-art scan; A-1 design |
+| INV-A1 reworded (occupancy-driven retreat only); restart gap stated | A-1 invariants |
+| D6 interaction | A-1 design |
+| Shadow-attribute-first with actuation gated by switch | A-1 design; knob ladder |
+| State on existing `hvac_occupied` entity as `arm_source="still_sleeper"` | A-1 design |
+| Discriminating evidence-row acceptance; no soak | A-1 acceptance; A-0 acceptance |
 
-### Findings that change the plan
+| Piece-B findings | Section(s) touched |
+|---|---|
+| F15 gate D6 at `hvac.py` consumer on `is_zone_hvac_established(zone_id)`; presence.py untouched (C7 sanctioned exception) | B-1; Prior-art scan |
+| F16 continuity clock holds only for transient-blocked or LIVE coordinator-absent; NEVER for excluded rooms; weigh dropping B-3 | B-3; B-9 (reviewer C decides drop) |
+| F17 reword INV-B3 ("zone established → byte-identical"); distinct D5 defer reason `energy_shed_cap_deferred_unestablished` | B-2; B-5; B-6; B-7 |
+| F18 per-site disposition table pre-populated (F8, F9, last_occupied_time, zone_presence_state display, activity-log detail, row-10 raw fallback) — no deferring enumeration | B-4 |
+| F19 real surfaces only (`sensor.ura_hvac_coordinator_zone_{n}_status` attrs + `ura_activity_log preset_change` / `preset_change_suppressed`); D5 test sets coast + runtime_exceeded | B-6; B-7 |
+| F20 resolve lines by symbol | B-4 (symbols named); B-1 (`is_zone_hvac_established` at `:1043`); across code-locations survey |
 
-1. **Corroborator (b) already exists in code — it is not NEW.** `_compute_hvac_occupied`
-   (`hvac_zones.py:966-1035`) rides the room's grace-held `STATE_OCCUPIED`: a raw blip lifts room occupancy, a
-   held room clears the tail (`source="held"`) and re-tails on the next fall; after release a rising edge re-arms
-   (`source="edge"`). Measured: 09-24 room on 01:58:27 → `hvac_occupied` on 02:01:54; 09-25 room on 02:25:43 → on
-   02:29:51. The failure mode is the ABSENCE of any blip for ≥ D8 + room grace — which a blip-restart rule cannot
-   touch. The plan's Prior-art line "NEW — radar micro-blip tail-restart" should read REUSED/EXISTING.
-2. **The D1 producer only runs on the decision cycle** (`update_room_conditions` called at `hvac.py:1254`,
-   `hvac.py:1647`), so `hvac_occupied` lags the room by 25 s–4 min. Relevant to the W2 fast path (§9d), not to
-   Piece A.
-3. **Bermuda flaps Bedroom↔Bathroom continuously while Jaya sleeps.** Bedroom-only share of the six sleep gaps:
-   0.48, 0.20, 0.88, 0.24, **0.07** (09-24 02:42 anchor), 0.21 — 12–137 area flips per gap. The predicate MUST use
-   the suite union. **A4's discriminating criterion "BLE showing the sibling bathroom only … → NO extension" would
-   reject the anchor episode** (93 % "Jaya Bathroom"). Replace it with a discriminator that uses distance variance or
-   an out-of-suite area (e.g. hallway/other room), not "bathroom only".
-4. **Morning residual outside Piece A scope:** 3 zone_2 retreats (15–30 min) with Jaya stationary in-suite
-   during `home_day` 06:14–07:00 (day table, 60-s bedroom hold). A5 scopes Piece A to `home_night`; these stay
-   uncovered. Candidate for a separate card if the operator cares about early-morning comfort.
-5. Master Bedroom and guest bedrooms show no still-sleeper problem (3 / 0 / 0 night drops, none a sleeper
-   retreat). The problem is **Jaya-specific** on this data (Ziri was away all window — Ziri's room is unmeasured
-   for sleepers).
+| Piece-C findings | Section(s) touched |
+|---|---|
+| Sleep-veto real citation `aggregation.py:4298-4382`, non-sleep `:4424-4522` (rev-1 `:4017-4019` / `:4152-4154` were stale) | Piece C; Institutional-context (aggregation surveyed); Deferred items |
+| Recommendation stands (DO NOT include; sequence after B + A-0) | Piece C |
 
-### Recommendation (per A1 decision rule)
-
-- **Corroborator: (a) BLE stationary in-suite ONLY, suite-union area, std ≤ 3 ft.** Do **not** add (b): blips
-  appear in **0 %** of drop gaps (rule threshold 50 %), and blip-restart is existing producer behaviour anyway.
-  Option (c) is dominated.
-- **Cap:** `HVAC_NIGHT_STILL_SLEEPER_MAX_EXTENSION_MIN = 90` (measured max need ≈ 61 min incl. one tick; 90 gives
-  margin and matches the probe horizon). Dwell: Jaya is in-suite well before every drop; a 10-min dwell is safe.
-- **Marginal-benefit pushback (surface to the operator before building):** the simplest version is a **knob
-  turn with zero code** — raise Jaya Bedroom's existing per-room `CONF_HVAC_VACANCY_HOLD_NIGHT` (live
-  `hvac_vacancy_hold_night: 1800`) to 5400 s (legal: options-flow range 0–7200 s, `config_flow.py:11739`). On the measured data it captures all 5 sleep-state retreats, and
-  its cost — conditioning zone_2 up to 60 extra min after a genuine night exit — measured **zero occurrences** in
-  7.8 nights (every genuine Jaya exit was ≥ 07:30 on the day table, where the night hold does not apply;
-  `FAN_TRUST_STATES = (home_night, sleep, waking)` `hvac_const.py:881`). Piece A's margin over the knob is
-  BLE discrimination of night exits that did not happen in the sample, plus generality to other bedrooms that
-  showed no problem. Recommendation: apply the knob turn now (operator decision; zone-scoped by construction, so it
-  honours "never anyone home"), and PARK the Piece A build with revival trigger "a genuine night exit held a zone
-  > 30 min, OR a second bedroom shows sleeper retreats in a re-probe". If the operator prefers the build anyway,
-  build (a) only, with the cap above.
+| Cross-cutting | |
+|---|---|
+| Re-read C16 (Carrier poll 30-min + 5-min post-write guard), C17 (preset suppression 120 s / temp 5 s), C18 (hot entry 5–10 min), C19 (fan is consequence, not trigger — Jaya narrative corrected) | Read-first note; §9.3 basis for A-0 |
