@@ -62,12 +62,12 @@ before doing a damned thing — to prevent drift and avoid compaction-driven err
 | Periodic tick, 5 min | `hvac.py:1356-1360` `async_track_time_interval(..., HVAC_DECISION_TICK)`; const `hvac_const.py:13` | "rung-1 module const, cloud API call-rate bound — change requires review" |
 | Initial cycle at start | `hvac.py:1363` | |
 | Boot-settle release kick (1 s) | `hvac.py:1539-1547` `async_call_later(..., 1, self._async_decision_cycle)` | only when boot-settle suppressed ≥1 cycle |
-| House-state change | `hvac.py:3131` (`_handle_house_state_changed`, subscribed `hvac.py:1131`) | |
-| Pre-arrival | `hvac.py:4002` (`_handle_person_arriving`, subscribed `hvac.py:1187`) | |
+| House-state change | `hvac.py:3260` (`_handle_house_state_changed`, subscribed `hvac.py:1140`; lines re-verified 2026-09-26 after v5.103.16) | |
+| Pre-arrival | `hvac.py:4186` (`_handle_person_arriving`, subscribed `hvac.py:1196`) | |
 | **Room / zone occupancy change** | **none** | Dispatcher subscriptions are only HOUSE_STATE, ENERGY_CONSTRAINT, PERSON_ARRIVING, SAFETY_HAZARD, ZM_ZONES_UPDATED (`hvac.py:1131-1213`). The only state listeners are climate entities (arrester `hvac_override.py:1996`, short-cycle `hvac.py:4232`) and covers. |
 
 Consequences:
-- **Entry latency = 5–10 min when no session is running (C18).** The first tick that sees occupancy also STARTS the dwell clock (`current_session_start = now`, `hvac_zones.py:714-716`), so it always hits the dwell skip (`hvac.py:2362-2365`); the switch lands on the NEXT tick. Dwell < 5 min therefore does not shorten entry latency at all; only an occupancy-triggered cycle + a dwell-expiry follow-up does.
+- **Entry latency = 5–10 min when no session is running (C18).** The first tick that sees occupancy also STARTS the dwell clock (`current_session_start = now`, `hvac_zones.py:786`), so it always hits the dwell skip (`hvac.py:2438-2451`, inside `_apply_house_state_presets`); the switch lands on the NEXT tick. Dwell < 5 min therefore does not shorten entry latency at all; only an occupancy-triggered cycle + a dwell-expiry follow-up does.
 - The **occupancy fast path was DESIGNED, never built**: commit `82620357a` names `HVAC_DECISION_TICK=5min` as "a hard
   floor on fast-in ... needs event-driven path"; `HVAC-SUPPLE-SEQUENCE-1` step 5 lists it as conditional. It lives in W2.
 - Carrier cloud refresh after a write takes **42–79 s** (`hvac_override.py:147-150`); arrester temp-suppression is
@@ -350,7 +350,7 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 
 | C17 | "Arrester suppression is only 5 s" (§2/§7, and copied into the W1-B plan) | Two windows: `SUPPRESS_TTL_SECONDS = 5` for temperature writes (kept short on purpose for human detection) and `SUPPRESS_TTL_SECONDS_PRESET = 120` for preset writes | `hvac_override.py:129`, `:141-146`, `:153` (W1-B build-prediction review, verified 2026-09-26) |
 
-| C18 | "Hot entry takes up to one tick + dwell, ~7 min" | 5–10 min: the observing tick starts the dwell clock and always skips; the preset write lands on the next tick | `hvac_zones.py:714-716`, `hvac.py:2362-2365` (W2-1 plan review, verified 2026-09-26) |
+| C18 | "Hot entry takes up to one tick + dwell, ~7 min" | 5–10 min: the observing tick starts the dwell clock and always skips; the preset write lands on the next tick | `hvac_zones.py:786`, `hvac.py:2438-2451` (W2-1 plan review, verified 2026-09-26; lines refreshed after v5.103.16) |
 
 | C19 | "Jaya's radar dropped because the fan switched off" (09-25 session) | URA marked the room vacant FIRST (01:25:53 / 01:31:18), then turned the fan off because it was vacant; the radars lost a still sleeper | `ura_activity_log` Jaya Bedroom rows (W2-2 plan review, verified 2026-09-26) |
 
