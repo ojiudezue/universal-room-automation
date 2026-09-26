@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T15:35:45-05:00_ - _Data commit: `22e9f20d805f`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T15:38:15-05:00_ - _Data commit: `85e49f512251`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -14,12 +14,12 @@ _Generated: 2026-09-26T15:35:45-05:00_ - _Data commit: `22e9f20d805f`_ - _last_r
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 24 |
 | 🔨 In progress | 1 |
-| 🔍 Review | 1 |
+| 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 20 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 4 |
 | 🅿️ Parked | 66 |
-| ✅ Done | 222 |
+| ✅ Done | 223 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -704,24 +704,10 @@ _created 2026-09-26 02:40 · updated 2026-09-26 11:00 · initial_
   - `operator_decisions_2026_09_26_w1b`: Operator: "Accept recs" on all 7 W1-B questions — recorded as binding in PLANNING_hvac_w1b_thermostat_definition.md (nudges stay set_temperature; schedules reduced by operator, no guard; reclaim delay 1 tick + kill switch; N>=10 / 10-min...
   - `children`: HVAC-PRESET-WRITE-STRATEGY-1
 
-## 🔍 Review (1)
+## 🔍 Review (0)
 _under review_
 
-### `TEST-SILENT-WHOLE-FILE-SKIPS-1` - Three test files quietly skip themselves in our environment, so 10 tests that look present have never actually run — _#1 · WSJF 5.5 · v6 tc3 u2 /e2_
-thread: **quality** - status: **review** - approval: **implied**
-_created 2026-09-25 03:20 · updated 2026-09-26 02:12 · initial_
-- **Problem / Solution:**
-  - Problem: a test that cannot load the code it is meant to check does not fail — it politely skips, reports green, and is counted as coverage we do not have. Three files do this right now and ten individual tests inside them have, as far a...
-- **Origin:** 2026-09-25 - found by the framing-B (test-authority) reviewer of COVERAGE-RATING-FALSE-ANOMALOUS-1 while sweeping for other instances of the silent-skip class that commit c5ea7dfc7 had just fixed in one file
-- **Why:** A silently-skipped test is worse than a missing one, because a missing test is visible while this reads as coverage and actively misleads the next person to scope work on that code. This is the same class the coverage-rating commit just ...
-- **Next:** MERGE GATE (me): after the W1-A builder finishes (one pytest runner at a time), check out the branch in a worktree and run scripts/suite_namediff.py --branch-dir <wt> (full — test-only changes can still pollute sibling files, cf. v5.103....
-- **Tags:** tier-1, no-fabrication-verify, hollow-anchor, test-authority
-- **Parsimony:** [BUILD] Ten tests report as present coverage while never executing, and one of the three causes is the exact one we just fixed elsewhere.
-- **Refs:** quality/tests/test_hvac_ac_ramp_savings.py:306-370; quality/tests/test_v4_6_8_rate_reconciliation.py:63; quality/tests/test_v4521_hc_device_ordering.py:388; feedback_hollow_test_anchors
-- **Forensic keys (3):**
-  - `disposition_2026_09_26_groom`: RE-LANED in_progress -> review: built (7b4556ee9) + review fix-ups (6ca4881da) on test/silent-whole-file-skips-1, 3 test files, test-only, NOT merged.
-  - `gate_2026_09_26`: OVERNIGHT 2026-09-26 FOUR-STEP GATE. (1) VALIDITY: STILL-REAL. Re-ran the 3 files on develop @660bd8ada: 2 failed, 105 passed, 10 skipped, and the ten skip reasons are identical to the card. (2) PRIOR ART: REUSE the c5ea7dfc7 fix (import...
-  - `verified_2026_09_25`: STILL-REAL, verified by the orchestrator INDEPENDENTLY rather than trusting the reviewer report (the reviewer report is a hypothesis; running it is the check). Command: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=quality .venv-ha/bin/python -m ...
+_(none)_
 
 ## ⏸️ Waiting on operator (20)
 _needs a human call — groomed first_
@@ -2092,7 +2078,7 @@ _created 2026-08-26 02:20 · updated 2026-09-26 02:40 · refined_
   - `DESCOPE_DECISION_2026_08_26`: Operator chose (B) DESCOPE. D1 (auto-release sweep + stale-boot banking release + HIGH-1) SPLIT OUT to a fresh clean build on feature/hvac-excursion-d1-only (building now, with the B3 re-entrancy guard + C-4 discriminating HIGH-1 tests +...
   - `status_note`: D1 split to HVAC-EXCURSION-D1-BANKING-RELEASE (feature/hvac-excursion-d1-only); this card = D2/D3/D4 park.
 
-## ✅ Done (222)
+## ✅ Done (223)
 _closed, evidence in refs_
 
 ### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _WSJF 3.2 · v8 tc6 u2 /e5_
@@ -2582,6 +2568,22 @@ _created 2026-09-19 03:30 · updated 2026-09-26 02:18 · refined_
   - `MEASURED_2026_09_21`: THE MYSTERY IS MOSTLY DISSOLVED, AND THE CARD WAS WRONG ABOUT ITS CENTRAL CLAIM. This card said the deep-night restarts happened when "nobody was touching anything". That is FALSE for two of the three, and I am correcting it rather than ...
   - `WITHDRAWN_ASK_2026_09_21`: BOTH operator asks withdrawn. (1) The logger: block is no longer needed for this card — log reach was restored via the hassio proxy endpoints, so I can read logs unattended. (Confirmed separately that /config/configuration.yaml still has...
   - `residual_lead_2026_09_21`: ONE OF THE 10 UNMATCHED RESTARTS HAS A CANDIDATE, found incidentally. The 09-20 09:32:09 restart sits ~6 minutes after commit 0294ef0ce (09-20 09:26:24), the leak-detector merge shipped by the cron pass. That commit is described as test-...
+
+### `TEST-SILENT-WHOLE-FILE-SKIPS-1` - Three test files quietly skip themselves in our environment, so 10 tests that look present have never actually run — _WSJF 5.5 · v6 tc3 u2 /e2_
+thread: **quality** - status: **done** - approval: **implied**
+_created 2026-09-25 03:20 · updated 2026-09-26 02:12 · initial_
+- **Problem / Solution:**
+  - Problem: a test that cannot load the code it is meant to check does not fail — it politely skips, reports green, and is counted as coverage we do not have. Three files do this right now and ten individual tests inside them have, as far a...
+- **Origin:** 2026-09-25 - found by the framing-B (test-authority) reviewer of COVERAGE-RATING-FALSE-ANOMALOUS-1 while sweeping for other instances of the silent-skip class that commit c5ea7dfc7 had just fixed in one file
+- **Why:** A silently-skipped test is worse than a missing one, because a missing test is visible while this reads as coverage and actively misleads the next person to scope work on that code. This is the same class the coverage-rating commit just ...
+- **Next:** MERGE GATE (me): after the W1-A builder finishes (one pytest runner at a time), check out the branch in a worktree and run scripts/suite_namediff.py --branch-dir <wt> (full — test-only changes can still pollute sibling files, cf. v5.103....
+- **Tags:** tier-1, no-fabrication-verify, hollow-anchor, test-authority
+- **Parsimony:** [BUILD] Ten tests report as present coverage while never executing, and one of the three causes is the exact one we just fixed elsewhere.
+- **Refs:** quality/tests/test_hvac_ac_ramp_savings.py:306-370; quality/tests/test_v4_6_8_rate_reconciliation.py:63; quality/tests/test_v4521_hc_device_ordering.py:388; feedback_hollow_test_anchors
+- **Forensic keys (3):**
+  - `disposition_2026_09_26_groom`: RE-LANED in_progress -> review: built (7b4556ee9) + review fix-ups (6ca4881da) on test/silent-whole-file-skips-1, 3 test files, test-only, NOT merged.
+  - `gate_2026_09_26`: OVERNIGHT 2026-09-26 FOUR-STEP GATE. (1) VALIDITY: STILL-REAL. Re-ran the 3 files on develop @660bd8ada: 2 failed, 105 passed, 10 skipped, and the ten skip reasons are identical to the card. (2) PRIOR ART: REUSE the c5ea7dfc7 fix (import...
+  - `verified_2026_09_25`: STILL-REAL, verified by the orchestrator INDEPENDENTLY rather than trusting the reviewer report (the reviewer report is a hypothesis; running it is the check). Command: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=quality .venv-ha/bin/python -m ...
 
 ### `TEST-SOURCE-MUTATION-KILL-UNSAFE-1` - A test writes production source with only a `finally` to restore it — a hard kill leaves the repo mutated on disk, and the concurrency guard is exactly what delivers hard kills — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **done** - approval: **explicit**

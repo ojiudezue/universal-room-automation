@@ -29661,11 +29661,12 @@ cards:
   links:
     related: [ENERGY-ACCOUNTING-DIVERGENCE-1]
 - id: TEST-SILENT-WHOLE-FILE-SKIPS-1
+  disposition_2026_09_26_groom: 'MERGED to develop 2026-09-26 (test-only, no deploy). Gate on the branch with current develop merged in: full name-diff 0 NEW / 2 GONE and isolated per-file run 0 NEW / 2 GONE — test_hvac_ac_ramp_savings::test_ac_ramp_savings_since_windowing and ::test_ac_ramp_savings_values_at_captured_rate were failing on develop and now pass.'
   disposition_2026_09_26_groom: 'RE-LANED in_progress -> review: built (7b4556ee9) + review fix-ups (6ca4881da) on test/silent-whole-file-skips-1, 3 test files, test-only, NOT merged.'
   title: Three test files quietly skip themselves in our environment, so 10 tests that look present
     have never actually run
   thread: quality
-  status: review
+  status: done
   created: '2026-09-25 03:20'
   updated: '2026-09-26 02:12'
   gate_2026_09_26: 'OVERNIGHT 2026-09-26 FOUR-STEP GATE. (1) VALIDITY: STILL-REAL. Re-ran the 3 files on develop
