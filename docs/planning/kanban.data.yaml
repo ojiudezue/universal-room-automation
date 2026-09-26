@@ -29438,9 +29438,17 @@ cards:
   title: Three test files quietly skip themselves in our environment, so 10 tests that look present
     have never actually run
   thread: quality
-  status: planned
+  status: in_progress
   created: '2026-09-25 03:20'
-  updated: '2026-09-25 03:20'
+  updated: '2026-09-26 02:12'
+  gate_2026_09_26: 'OVERNIGHT 2026-09-26 FOUR-STEP GATE. (1) VALIDITY: STILL-REAL. Re-ran the 3 files on develop
+    @660bd8ada: 2 failed, 105 passed, 10 skipped, and the ten skip reasons are identical to the card.
+    (2) PRIOR ART: REUSE the c5ea7dfc7 fix (import as a package member with the repo root on sys.path)
+    for rate_reconciliation, and look for existing conftest or helper loaders before writing any new
+    one. (3) PARSIMONY: BUILD, test-only. (4) COST/BENEFIT: no production change and no ingredient risk,
+    so the only cost is a review pass. Dispatched ura-builder in worktree
+    .claude/worktrees/overnight-skips-0926 on branch test/silent-whole-file-skips-1. Full-suite
+    name-diff is run centrally by the orchestrator.'
   refinement_status: initial
   approval: implied
   tags: [tier-1, no-fabrication-verify, hollow-anchor, test-authority]
