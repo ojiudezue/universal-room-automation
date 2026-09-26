@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T15:47:49-05:00_ - _Data commit: `6b9fc32d56b9`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T15:49:18-05:00_ - _Data commit: `c43bd25f0d69`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -999,11 +999,13 @@ _created 2026-08-21 17:40 · updated 2026-09-23 04:45 · initial_
   - `THE_DESIGN_TENSION_READ_THIS_BEFORE_FIXING`: DO NOT simply add a rate threshold to the existing detector. The impossibility framing was chosen ON PURPOSE so the detector could QUARANTINE-ALWAYS WITH NO CORROBORATOR GATE (chatter_detector.py:8 — "quarantine-ALWAYS on a physics viola...
   - `SECOND_FINDING_WRONG_LEG_WATCHED`: The detector registers over "the room blind-time-gated tier-1 entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,...
 
-### `EXERCISE-ROOM-PRESENCE-MISCONFIG-1` - Exercise Room lists the GAME ROOM mmWave as its presence sensor — wrong room; remove it — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EXERCISE-ROOM-PRESENCE-MISCONFIG-1` - Moved mmWave (still named gameroom) is claimed by BOTH Game Room and Exercise Room — Game Room wins, so Exercise Room loses its radar and Game Room gets phantom presence; remove it from Game Room — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-26 · updated 2026-09-26 16:50_
 - **Why:** Exercise Room config presence_sensors = [binary_sensor.mmwave_zigbee_gameroom_presence] (the Game Room radar). The substrate already ignores the duplicate, so live behaviour is unaffected, but any code path that reads the room config dir...
-- **Next:** DO (operator, 1 field): Exercise Room -> Configure -> occupancy sensors -> remove binary_sensor.mmwave_zigbee_gameroom_presence from presence sensors -> I verify the boot WARNING is gone on the next restart.
+- **Next:** DO (operator, 1 field): Game Room -> Configure -> occupancy sensors -> remove binary_sensor.mmwave_zigbee_gameroom_presence from Game Room presence sensors (leave Exercise Room as is). Optional cosmetic: rename the HA entity_id (MQTT fri...
+- **Forensic keys (1):**
+  - `correction_2026_09_26`: Operator: the sensor was physically MOVED to the Exercise Room when Ziri moved out; MQTT friendly name updated but the HA entity_id still says gameroom. So Exercise Room is CORRECT; Game Room's claim is the stale one, and because Game Ro...
 
 ### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#18 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
