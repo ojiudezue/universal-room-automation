@@ -428,3 +428,95 @@ Piece A's measurement probe).
 - **Tiers:** Piece A = Tier 2-DB (3 framings + plan review + live re-probe write-back);
   Piece B = Tier 2-DB (3 framings + plan review + byte-identity healthy-path drill); Piece C
   = out of scope for this plan (own Tier 2-DB cycle after verify-first).
+
+---
+
+## D-A0 RESULTS (measured 2026-09-26)
+
+**Probe:** `scripts/probes/hvac_night_sleeper_probe.py` (read-only; rerun:
+`ssh ha "python3 - --days 8 [--verbose]" < scripts/probes/hvac_night_sleeper_probe.py`). Recorder window
+**2026-09-18 04:18 → 2026-09-25 23:44 CDT** (≈7.8 nights; the 09-17/18 night is morning-only; 09-25/26 is in
+progress). Drops = `binary_sensor.<room>_<room>_hvac_occupied` on→off with drop time in 22:00–08:00. Gap =
+[drop, min(return, drop+90 min)]. "Stationary in-suite" = Bermuda `*_area` in the room's suite (room + en-suite /
+scanner areas) ≥ 90 % of the gap AND pstdev(`*_distance`) ≤ 3 ft. Zone-away = zone climate `preset_mode` or
+`hold_activity` == `away` inside the gap. Room/sensor/zone/person mapping pinned from `.storage/core.config_entries`
+(bedroom-typed: Jaya Bedroom, Ziri Bedroom, Upstairs Guestroom [z2]; Master Bedroom [z1]; Guest Bedroom 1,
+Guest Bedroom 1 Closet [z3, no zone_persons]).
+
+**Anchor validation — PASS.** 09-24: fan off 01:31:04 → `jaya_3_presence` off 01:32:01; raw silence 02:02:54 →
+02:56:56 (54 min); room occupied off 02:11:04; D1 tail 02:12:04 → 02:41:54; `hvac_occupied` off 02:42:07;
+**zone_2 away 02:47**. 09-25: fan off 01:36:38 → `jaya_3_presence` off 01:37:12; Zigbee radar silent 01:23:04 →
+02:25:42 (63 min); `hvac_occupied` off 02:04:57; **zone_2 away 02:09**. Jaya's phone in-suite 100 %, distance std
+0.5 ft both nights.
+
+### Per-room table
+
+| Room (zone) | drops | returned ≤90 | stayed | stationary in-suite | stat → zone away | non-returning blips | BLE all-degraded |
+|---|---|---|---|---|---|---|---|
+| Jaya Bedroom (z2) | 17 | 14 | 3 | **12** | **8** | 0 | 7 (all = Jaya not_home / morning departure) |
+| Ziri Bedroom (z2) | 6 | 0 | 5 (+1 censored) | 0 | 0 | 0 | 6 (Ziri `not_home` all window) |
+| Upstairs Guestroom (z2) | 0 | – | – | – | – | – | – |
+| Master Bedroom (z1) | 3 | 2 | 1 | 1 (2.6-min blip, house `away`) | 0 | 0 | 2 |
+| Guest Bedroom 1 / Closet (z3) | 0 / 0 | – | – | – | – | – | – |
+| **TOTAL** | **26** | **16** | **9** | **13** | **8** | **0 (0 %)** | 15 |
+
+**Jaya still-sleeper episodes by house state** (stationary in-suite at drop):
+
+| House state (hold table) | episodes | zone_2 went away | away duration (min) | return gaps (min) |
+|---|---|---|---|---|
+| `sleep` (night table, D8 30 min) — **Piece A scope** | **6** (09-20 01:58, 04:58; 09-21 01:33; 09-24 01:56, 02:42; 09-25 02:04) | **5** | 45.1, 50.1, 35.2, 6.0, 20.0 | 50.1, 55.6, 40.1, 5.0, 15.3, 24.9 → **median 32.5, max 55.6** |
+| `home_day` (day table, 60 s) — 06:14–07:59 | 5 | 3 | 30.0, 15.1, 25.0 | 5.3, 30.0, 5.0, 25.0, 25.0 |
+| `away` (house) | 1 | 0 | – | 0.1 |
+
+### The plan's required numbers
+
+| Number | Measured |
+|---|---|
+| `N_episodes` (night-table drops with stationary in-suite person) | **6 in 7.8 nights** (5 caused a zone_2 retreat) → above the <2 PARK line; Piece A proceeds |
+| Median gap | **32.5 min** (sleep-state), max **55.6 min**; all 13 stationary episodes returned within 56 min. Needed extension ≈ gap + ≤5-min tick → a **60–90 min cap suffices; the 200-min / 4-discharge machinery is NOT warranted** |
+| `N_episodes with ≥1 radar micro-blip in the gap` | **0 / 26 (0 %)** non-returning blips. Every raw blip inside a gap ENDED it |
+| `N_episodes with BLE absent/degraded` | 15 / 26 all-degraded — every one is a person `not_home` / morning departure / Ziri away all week; **0 stationary episodes lost to BLE failure**. Night availability while home: area unknown/unavailable **jaya 1 %, ezinne 1 %, oji 8 %** (ziri: 0 h home) |
+| Distance units | **ft** (`unit_of_measurement: ft`, positive). Stationary episodes: std **0.4–1.3 ft**, range 2.0–7.5 ft → ≤3 ft std threshold has ~2× headroom; a range-based threshold would need ≥8 ft |
+| Discrimination | **0 / 9 STAYED (genuine-exit) episodes were stationary in-suite; 13 / 13 stationary episodes returned** — the BLE predicate separated sleepers from exits perfectly on this sample |
+
+### Findings that change the plan
+
+1. **Corroborator (b) already exists in code — it is not NEW.** `_compute_hvac_occupied`
+   (`hvac_zones.py:966-1035`) rides the room's grace-held `STATE_OCCUPIED`: a raw blip lifts room occupancy, a
+   held room clears the tail (`source="held"`) and re-tails on the next fall; after release a rising edge re-arms
+   (`source="edge"`). Measured: 09-24 room on 01:58:27 → `hvac_occupied` on 02:01:54; 09-25 room on 02:25:43 → on
+   02:29:51. The failure mode is the ABSENCE of any blip for ≥ D8 + room grace — which a blip-restart rule cannot
+   touch. The plan's Prior-art line "NEW — radar micro-blip tail-restart" should read REUSED/EXISTING.
+2. **The D1 producer only runs on the decision cycle** (`update_room_conditions` called at `hvac.py:1254`,
+   `hvac.py:1647`), so `hvac_occupied` lags the room by 25 s–4 min. Relevant to the W2 fast path (§9d), not to
+   Piece A.
+3. **Bermuda flaps Bedroom↔Bathroom continuously while Jaya sleeps.** Bedroom-only share of the six sleep gaps:
+   0.48, 0.20, 0.88, 0.24, **0.07** (09-24 02:42 anchor), 0.21 — 12–137 area flips per gap. The predicate MUST use
+   the suite union. **A4's discriminating criterion "BLE showing the sibling bathroom only … → NO extension" would
+   reject the anchor episode** (93 % "Jaya Bathroom"). Replace it with a discriminator that uses distance variance or
+   an out-of-suite area (e.g. hallway/other room), not "bathroom only".
+4. **Morning residual outside Piece A scope:** 3 zone_2 retreats (15–30 min) with Jaya stationary in-suite
+   during `home_day` 06:14–07:00 (day table, 60-s bedroom hold). A5 scopes Piece A to `home_night`; these stay
+   uncovered. Candidate for a separate card if the operator cares about early-morning comfort.
+5. Master Bedroom and guest bedrooms show no still-sleeper problem (3 / 0 / 0 night drops, none a sleeper
+   retreat). The problem is **Jaya-specific** on this data (Ziri was away all window — Ziri's room is unmeasured
+   for sleepers).
+
+### Recommendation (per A1 decision rule)
+
+- **Corroborator: (a) BLE stationary in-suite ONLY, suite-union area, std ≤ 3 ft.** Do **not** add (b): blips
+  appear in **0 %** of drop gaps (rule threshold 50 %), and blip-restart is existing producer behaviour anyway.
+  Option (c) is dominated.
+- **Cap:** `HVAC_NIGHT_STILL_SLEEPER_MAX_EXTENSION_MIN = 90` (measured max need ≈ 61 min incl. one tick; 90 gives
+  margin and matches the probe horizon). Dwell: Jaya is in-suite well before every drop; a 10-min dwell is safe.
+- **Marginal-benefit pushback (surface to the operator before building):** the simplest version is a **knob
+  turn with zero code** — raise Jaya Bedroom's existing per-room `CONF_HVAC_VACANCY_HOLD_NIGHT` (live
+  `hvac_vacancy_hold_night: 1800`) to 5400 s (legal: options-flow range 0–7200 s, `config_flow.py:11739`). On the measured data it captures all 5 sleep-state retreats, and
+  its cost — conditioning zone_2 up to 60 extra min after a genuine night exit — measured **zero occurrences** in
+  7.8 nights (every genuine Jaya exit was ≥ 07:30 on the day table, where the night hold does not apply;
+  `FAN_TRUST_STATES = (home_night, sleep, waking)` `hvac_const.py:881`). Piece A's margin over the knob is
+  BLE discrimination of night exits that did not happen in the sample, plus generality to other bedrooms that
+  showed no problem. Recommendation: apply the knob turn now (operator decision; zone-scoped by construction, so it
+  honours "never anyone home"), and PARK the Piece A build with revival trigger "a genuine night exit held a zone
+  > 30 min, OR a second bedroom shows sleeper retreats in a re-probe". If the operator prefers the build anyway,
+  build (a) only, with the cap above.
