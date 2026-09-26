@@ -1820,11 +1820,19 @@ cards:
   next: 'Stage A (behaviour-neutral, Tier 2-DB): all three write verbs through funnels + one durable row per write + the 7 raw set_hvac_mode sites migrated. Stage B (Tier 3, operator go needed): brand definition interface; Carrier definition (clear-then-pin preset writes, presets-only returns for EVERY borrow kind, status/config coherence before treating manual as a person, URA-made/stale holds reclaimable, hold timeouts that actually release, no-op-write suppression, last-sent record owned by the funnel). One definition per brand, NOT per zone — per-thermostat runtime state stays keyed by entity/zone where it already lives (verify in the state-of-play doc). Nudges stay ON.'
 
 - id: HVAC-W2-OCCUPANCY-TRUTH
+  override_switches_2026_09_26: 'Operator: "try to understand what happens to HVAC occupancy when a room is forced
+    vacant or forced occupied ... I don''t think you considered this." Traced (state-of-play §9c): the per-room Override
+    Occupied/Vacant switches set the room''s STATE_OCCUPIED, which HVAC reads (hvac_zones.py:647). Override Occupied
+    -> HVAC-occupied, EXCEPT hallway rooms (circulation exclusion ignores it). Override Vacant is NOT immediate for
+    HVAC: it arms the per-room tail-hold, so the zone keeps conditioning for tail + 10-min grace + up to a 5-min
+    tick. Switches survive restarts; interaction with the 8 h stale-occupancy failsafe UNVERIFIED. Design question for
+    this workstream: make an operator override a HARD HVAC input (vacant = immediately vacant, occupied = occupied for
+    any room type, exempt from the stale failsafe).'
   title: 'W2 — HVAC knows who is really in each zone, fast enough and at night'
   thread: hvac
   status: planned
   created: '2026-09-26 02:40'
-  updated: '2026-09-26 02:40'
+  updated: '2026-09-26 04:00'
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-26 ("The workstreams are approved. Recard.")'
@@ -1879,7 +1887,7 @@ cards:
   rank: {value: 7, time_criticality: 5, effort: 5}
   thread: hvac
   created: '2026-09-17'
-  updated: '2026-09-26 03:30'
+  updated: '2026-09-26 04:00'
   tags: [hvac, no-soak, trip-wire, safety-gate-residual]
   operator_decision_2026_09_25: 'Operator: "This also seems wrong. WTF?" — the trip-wire-instead-of-fix
     framing is REJECTED. It was the operator''s ROUND-4 decision (09-17) to scope establishment to rooms with
@@ -1911,6 +1919,9 @@ cards:
     1703 — production fine, test is a hollow anchor). Fix-up round dispatched (9 items, each test + mutation).
     Operator policy default applied: excluded (failed/disabled/removed) room counts as empty (option a), reversible
     in one place — operator asked "what does failed mean", answered; no override given.'
+  operator_decision_2026_09_26_failed_room: 'Operator picked option (a): "The room does not count to decisions and acts
+    like its not defined in URA." Matches the fix-up default (excluded room contributes nothing; zone decides on its
+    remaining live rooms immediately, no extra vacancy grace).'
   title: One broken room switches off HVAC occupancy for its whole zone — count only the rooms that are
     actually running
   problem_solution:

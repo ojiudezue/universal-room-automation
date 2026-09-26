@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-25T22:31:20-05:00_ - _Data commit: `71968174b06b`_ - _last_reconciled: 2026-09-25_
+_Generated: 2026-09-25T22:37:50-05:00_ - _Data commit: `116702ea1194`_ - _last_reconciled: 2026-09-25_
 
 
 ## Columns
@@ -411,14 +411,15 @@ _updated 2026-09-26 02:40_
 
 ### `HVAC-W2-OCCUPANCY-TRUTH` - W2 — HVAC knows who is really in each zone, fast enough and at night — _#8 · WSJF 2.8 · v9 tc7 u6 /e8_
 thread: **hvac** - status: **planned** - approval: **explicit**
-_created 2026-09-26 02:40 · initial_
+_created 2026-09-26 02:40 · updated 2026-09-26 04:00 · initial_
 - **Problem / Solution:**
   - Problem: HVAC's picture of zone occupancy is wrong in specific, measured ways — a failed room blocked its zone (fix in flight), a reloading room reads as empty on paths that bypass the shared check, radars lose a still sleeper once the f...
 - **Origin:** 2026-09-26 - operator approved the 4-workstream consolidation of the HVAC arc (see HVAC-SUPPLE-SEQUENCE-1 RESEQUENCE_PROPOSAL_2026_09_26)
 - **Why:** Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.
 - **Next:** Order: live-room gate (building, v5.103.15) -> occupancy fast path (designed in 82620357a, never built; the real hot-entry lever — dwell alone cannot beat the 5-min tick) -> night still-sleeper hold -> placeholder readers -> guest-as-per...
 - **Tags:** hvac, workstream
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `override_switches_2026_09_26`: Operator: "try to understand what happens to HVAC occupancy when a room is forced vacant or forced occupied ... I don't think you considered this." Traced (state-of-play §9c): the per-room Override Occupied/Vacant switches set the room's...
   - `children`: HVAC-DEGRADED-ROOM-TRIPWIRE-1
 
 ### `ENVOY-STREAM-SOC-TIER-1` - The battery brain goes blind and freezes whenever both its data sources age out — give it a third, local, fast (~5-6s) source so it can keep deciding — _#9 · WSJF 2.6 · v8 tc6 u7 /e8_
@@ -607,19 +608,20 @@ _under review_
 
 ### `HVAC-DEGRADED-ROOM-TRIPWIRE-1` - One broken room switches off HVAC occupancy for its whole zone — count only the rooms that are actually running — _#1 · WSJF 2.8 · v7 tc5 u2 /e5_
 thread: **hvac** - status: **review**
-_created 2026-09-17 · updated 2026-09-26 03:30_
+_created 2026-09-17 · updated 2026-09-26 04:00_
 - **Problem / Solution:**
   - Problem: before URA lets a zone drop to "away", it waits until it has heard from every room in that zone. A room that is disabled or failing to load never reports, so the zone never qualifies and keeps heating or cooling empty space fore...
 - **Why:** Operator round-4 decision (09-17), re-affirmed 09-25: HVAC must match occupancy in the zone. The round-5 all(zone.rooms) revert is SUPERSEDED — it was an orchestrator override of that decision. The earlier why ("all() is the safe gate; s...
 - **Next:** BUILD (me, Tier 2 — touches the shared retreat gate, 2 framing-disjoint reviews + mutation drill): change is_zone_hvac_established (hvac_zones.py:1043) to all() over rooms with a LOADED config entry; replace test_f1_disabled_room_leaves_...
 - **Tags:** hvac, no-soak, trip-wire, safety-gate-residual
 - **Parsimony:** [BUILD] a disabled room silently disables conditioning-demand for its whole zone
-- **Forensic keys (5):**
+- **Forensic keys (6):**
   - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
   - `operator_decision_2026_09_25`: Operator: "This also seems wrong. WTF?" — the trip-wire-instead-of-fix framing is REJECTED. It was the operator's ROUND-4 decision (09-17) to scope establishment to rooms with a LIVE entry; the round-4 build implemented that WRONGLY as a...
   - `operator_go_2026_09_25`: Operator: "Maddening. do it now. Plan and build. ... no corners cut." Explicit go. Tier: regression-prone (shared retreat gate consumed by row-1 / D7 / D9 / F4 across every zone) -> standing policy = Tier 2-DB (3 framing-disjoint reviews...
   - `progress_2026_09_26`: Plan PLANNING_hvac_live_room_establishment.md: rev 1 by ura-planner (ran on opus-5) -> orchestrator hand-check found AM-1 CRITICAL (rev-1 D2 formula let a reloading, previously-seen room satisfy establishment = the cold-retreat hazard) +...
   - `review_round1_2026_09_26`: Build 5664b3fb3 (12/12 mutation drills RED->GREEN). Reviews: A SHIP (3 LOW: DST wall-clock grace, unguarded diag attrs, deleted room silently transient); B FIX-REQUIRED (NM dedup drops 2nd room - missing location; zone already away brief...
+  - `operator_decision_2026_09_26_failed_room`: Operator picked option (a): "The room does not count to decisions and acts like its not defined in URA." Matches the fix-up default (excluded room contributes nothing; zone decides on its remaining live rooms immediately, no extra vacanc...
 
 ### `COVERAGE-RATING-FALSE-ANOMALOUS-1` - The energy coverage self-check reports a false "measurement units are mismatched" alarm — its real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at midnight the way the code assumes — _#2 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **energy** - status: **review** - approval: **unreviewed**
