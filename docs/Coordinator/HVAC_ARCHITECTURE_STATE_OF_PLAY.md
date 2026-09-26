@@ -1,8 +1,9 @@
 # HVAC — Architecture State of Play (READ FIRST)
 
 **Status:** forensic snapshot of `develop` @`5072deaaf` (2026-09-26 ~02:30 CDT) + live HA reads the same night.
+**W1-A Stage A SHIPPED v5.103.16 2026-09-26 (behaviour-neutral write governance; live-validated, `docs/readmes/README_v5.103.16.md`) — see §4.1 (new `emit_set_hvac_mode` funnel), §4.3 (`climate_write` ledger row).
 **Scope:** everything URA does with the thermostats — decide, write, borrow/return, read back — and the occupancy
-model that drives it. Covers releases v5.103.0 → v5.103.14 and the in-flight v5.103.15 branch.
+model that drives it. Covers releases v5.103.0 → v5.103.15 (v5.103.15 shipped + live-validated 2026-09-26).
 **Owner rule:** the operator (2026-09-26): *"every agent used in the rest of the arc reads [this] first completely
 before doing a damned thing — to prevent drift and avoid compaction-driven errors."*
 
@@ -48,7 +49,7 @@ before doing a damned thing — to prevent drift and avoid compaction-driven err
 - **Observability gap:** `ura_activity_log` records preset writes but **never** `set_temperature` or `set_hvac_mode`;
   borrow/nudge writes live only in `ac_ramp_events` / `hvac_excursion_events` / INFO logs (§4.3). This gap caused a
   wrong exoneration of URA (§10).
-- **In flight:** v5.103.15 live-room establishment (`feature/hvac-live-room-establishment`, reviews in progress).
+- **Shipped 2026-09-26:** v5.103.15 live-room establishment (merge `a961d8870`, release v5.103.15; live validation 4 PASS / 2 pending — `docs/readmes/README_v5.103.15.md`).
 - **Approved arc (§11):** W1 thermostat-definition abstraction (per-BRAND strategy) → W2 occupancy truth → W3 energy
   HVAC → W4 closure.
 
@@ -91,7 +92,7 @@ Consequences:
 | Piece | Site | Semantics |
 |---|---|---|
 | `zone.any_room_hvac_occupied` (fused) | producer; exposed `hvac_zones.py:751` on `sensor.ura_hvac_coordinator_zone_{n}_status` | OR over rooms' `hvac_occupied` |
-| `is_zone_hvac_established(zone_id)` | `hvac_zones.py:1043` (all at `:1083`) | develop: **every room in `zone.rooms` in `_hvac_seen`** (round-5 revert `f88f4bc84`). v5.103.15 branch changes this (§11 W2, §10) |
+| `is_zone_hvac_established(zone_id)` | `hvac_zones.py:1043` (all at `:1083`) | **v5.103.15 (live):** no transient (loading) room, ≥1 live room, and every live room LOADED + coordinator-present + seen; excluded rooms (disabled / SETUP_ERROR / MIGRATION_ERROR / SETUP_RETRY / removed / transient ≥ 300 s, sticky until LOADED) count toward nothing. Replaced the round-5 `all(zone.rooms)` revert `f88f4bc84` |
 | `conditioning_retreat_ok(zone)` | `hvac_zones.py:1085`; delegate `HVACCoordinator._zone_conditioning_retreat_ok` `hvac.py:3830` | **established AND fused-empty**; person-trust only covers the *unestablished* post-reload gap (**reset-only backstop**, operator round-4 decision 2026-09-17). Never raises; fail-closed |
 | Consumers of the gate | row-1 preset flip `hvac.py:2013`; D7 night-trust `hvac.py:2403`; D9 compose-away `hvac.py:2966`; F4 row-10 arrester comfort-delay **direct** `hvac_override.py:2319` (tri-state guard `:2304-2340`, raw fallback `:2336`) | all trust decisions |
 | Consumers of establishment directly | `conditioning_retreat_ok` (`hvac_zones.py:1112`); `binary_sensor.py:914` (display) | `hvac.py:3820-3826 _is_zone_hvac_established` has **zero callers** (dead) |
@@ -116,7 +117,7 @@ Consequences:
 |---|---|---|
 | `emit_set_temperature` | `hvac_setpoint.py:223-279` | freeze / comfort-delay gate, site/zone/reason plumbing. **Logs nothing durable** (only a `comfort_delay_deferred_write` row when a gate defers, `:108-159`) |
 | `emit_set_preset_mode` | `hvac_setpoint.py:282-410` | **resume-then-pin** (v5.103.2): if the entity lists `resume` in `preset_modes` and `hold_activity == "manual"`, send `resume` then pin, with one retry (`:317-410`); capability check not vendor check (`:199-212`). D6 reason capture (`zone_id`+`reason` kwargs). Logs nothing durable itself |
-| `emit_set_hvac_mode` | **does not exist** | 7 raw `set_hvac_mode` sites bypass (card `HVAC-SETHVACMODE-CHOKEPOINT-1`) |
+| `emit_set_hvac_mode` | `hvac_setpoint.py` (W1-A Stage A, shipped v5.103.16) | Behaviour-neutral: NO gate, NO transform; required kwargs `site` / `zone_id` / `reason` / `blocking` (F3, F10); optional `excursion_id` forwarded from borrow tokens. Schedules ONE `climate_write` row per attempted wire call. Migrated the 7 raw sites (B1–B7). |
 
 ### 4.2 Write sites (verified by Explore audit 2026-09-25 against develop; spot-checked)
 | Site | Verb(s) | Via funnel | Durable record |
@@ -136,7 +137,22 @@ Consequences:
 | Egress pause/resume `hvac_egress.py:683/779/795` | mode + preset | mode **no** | `hvac_excursion_events` |
 | Optimizer `optimization.py:3546` (shadow by default) | any | — | `actuated` row, no entity_id |
 
-### 4.3 Logging coverage — the answer to "do we record everything?": **NO**
+### 4.3 Logging coverage — the answer to "do we record everything?": **YES post W1-A Stage A** (feature branch; ships next)
+
+W1-A Stage A (behaviour-neutral) adds ONE `climate_write` row per attempted wire call in
+`ura_activity_log` (action = `climate_write`, importance = `notable` → 30-d retention;
+bypasses `ActivityLogger` dedup / signal / bus event per F4 so two identical writes 1 s
+apart land as two rows). Row carries: `verb` / `site` / `zone_id` / `entity_id` / `reason`
+/ `blocking` / `wire_ok` / `exc` / `excursion_id` / `values_before` (`preset_mode`,
+`hold_activity`, setpoints, mode — captured SYNCHRONOUSLY before the wire await, F6) /
+`values_after` (exact `service_data` sent, F12) / `ts_issued` / `ts_returned`. AI-rule
+refusal expanded from 3 verbs to ALL `climate` services (D5-b). `optimization.py` shadow
+climate actions remain OUT via `DYNAMIC_DOMAIN_ALLOWLIST` (reviewed escape, carded for
+later). AST completeness lint (`test_hvac_climate_write_funnel_completeness.py`) enforces
+no raw `climate` service call outside `hvac_setpoint.py`.
+
+Pre-W1-A picture (for the reader tracing an older strand):
+
 | Question | Where to look |
 |---|---|
 | Did URA change a preset? | `ura_activity_log` action `preset_change` (+ `preset_change_locked_out`, `override_detected`) |
@@ -264,7 +280,7 @@ Source-4 count `presence.py:2148-2157`; `continuous_occupied_since` reset `hvac_
 **9.5 Hot entry latency** — 5–10 min (§2, C18): first observing tick starts dwell and skips; action on the next tick. No occupancy-triggered cycle exists.
 
 **9.6 Broken-room gate** — develop's `all(zone.rooms)` lets one disabled/failed room block its zone from ever retreating
-(round-5 orchestrator override of the operator's round-4 rule). Fix in flight v5.103.15 (§11).
+(round-5 orchestrator override of the operator's round-4 rule). FIXED v5.103.15 (shipped 2026-09-26).
 
 **9.7 Custom Preset Ranges blocked** by two write-governance defects (unconditional throttle bypass; restore writers
 don't update `_last_emitted_range` `hvac.py:521`).
@@ -273,6 +289,20 @@ don't update `_last_emitted_range` `hvac.py:521`).
 v5.103.14 main criteria unexercised; zone rooms frozen at discovery (added-room not counted until restart).
 
 ---
+
+**9.7 Zone 1 away never confirmed by the status feed — URA re-writes away every 10 min** (found 2026-09-26 during
+v5.103.15 validation; pre-existing on v5.103.14). 08:54–12:49 CDT: ~46 home↔away flips on
+`climate.thermostat_bryant_wifi_studyb_zone_1`. `decision_log` shows only URA `away` writes (`vacant_past_grace`, house
+away) on the tick; `hold_activity` (CONFIG feed) = `away` continuously; `preset_mode` (STATUS feed) = `home` with home
+setpoints except for the ~5–8 min post-write guard window (C21). Mirror image of the C20 manual strands: the two feeds
+disagree and URA trusts the status feed. **Physical truth = AWAY (verified 13:10):** operator app shows "Holding Away
+68–80, Idle"; blower_rpm 0 from 08:57 for 4 h while zone temp rose 76→80 °F (a real home/76 would have cooled). The
+status-feed `home` readings are false; harm is write churn only (~57 writes/day). `hvac_action`/`conditioning` on this
+entity are useless (cooling on every row). Schedule change will not fix it. **Integration reload 13:20:02 (operator) did NOT fix it:** the first FRESH read after the reload (13:20:03) was
+`preset_mode=home` 70–76 with `hold_activity=away`, and the flap resumed (away 13:23 → home 13:29 → away 13:32 → home 13:39).
+So the false `home` comes from the Carrier cloud STATUS payload itself, not a stale HA copy. **BUT see C22: `hold_activity`
+is NOT universally right either — do not hard-code it as the confirmation oracle.** Card `HVAC-ZONE1-MANUAL-OSCILLATION-1` `finding_2026_09_26_away_feed_split`; decision belongs to W1-B
+(which feed confirms a write).
 
 ## 9b. Operator decisions & facts recorded 2026-09-26 (binding)
 
@@ -316,7 +346,7 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 
 | C15 | "The installed ha_carrier is locally PATCHED (set_activity_setpoint); a HACS update would wipe it" (fork report + orchestrator, 2026-09-26) | It is upstream code: PR #427 (Evan Weaver, 2026-08-31), in v2.28.4 as installed from `dahlb/ha_carrier`; the file's "PATCH" comment is upstream's own wording | `gh api repos/dahlb/ha_carrier` history; HACS record `.storage/hacs.repositories` |
 
-| C16 | "Carrier refresh is 42-79 s" (used as if it were the integration's schedule) | That is URA's *observed* effective window. ha_carrier's schedule is `DEFAULT_UPDATE_INTERVAL_MINUTES=30`, full reconcile every 120 min, and a **5-min post-write guard** that re-asserts the written activity/setpoints if the cloud reverts them (`ha_carrier/const.py:46-59`, `carrier_data_update_coordinator.py:168-296`). How that guard composes with URA's 5-s suppression and with back-to-back nudge/restore writes is UNVERIFIED and a candidate strand mechanism — see `THERMOSTAT_DEFINITION_CARRIER_BRYANT.md` §9 | source, verified 2026-09-26 |
+| C16 | "Carrier refresh is 42-79 s" (used as if it were the integration's schedule) | That is URA's *observed* effective window. ha_carrier's schedule is `DEFAULT_UPDATE_INTERVAL_MINUTES=30`, full reconcile every 120 min, and a **5-min post-write guard** that, when a websocket message reverts a written zone, overwrites HA's LOCAL copy (status activity + setpoints; never `hold_activity`) back to the written values — it sends NOTHING to the cloud (`_reassert_control` docstring: "Does not read the API"), so it MASKS a cloud revert in HA for up to 5 min; a full read ends every guard ("A full read is authoritative", `carrier_data_update_coordinator.py:430-432`) (`ha_carrier/const.py:46-59`, `carrier_data_update_coordinator.py:168-296`). How that guard composes with URA's 5-s suppression and with back-to-back nudge/restore writes is UNVERIFIED and a candidate strand mechanism — see `THERMOSTAT_DEFINITION_CARRIER_BRYANT.md` §9 | source, verified 2026-09-26 |
 
 | C17 | "Arrester suppression is only 5 s" (§2/§7, and copied into the W1-B plan) | Two windows: `SUPPRESS_TTL_SECONDS = 5` for temperature writes (kept short on purpose for human detection) and `SUPPRESS_TTL_SECONDS_PRESET = 120` for preset writes | `hvac_override.py:129`, `:141-146`, `:153` (W1-B build-prediction review, verified 2026-09-26) |
 
@@ -326,11 +356,22 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 
 | C20 | "Zone 1 strands = URA trusting a status-lagged `manual` while `hold_activity` names a preset" (entry 144, §9.1, 2026-09-25/26) | In all 5 strands `hold_activity` is ALSO `manual` (same second in 3/5, ≤5 min in 2/5) and stays manual for hours — real Carrier-side manual holds created right after URA's return; the status/config coherence rule is withdrawn | recorder zone_1 preset_mode + hold_activity across 09-20/21/22/24/25 strands (verified 2026-09-26 after the W1-B completeness review showed hold_activity authority was unproven in source) |
 
+| C21 | "Carrier re-applies any write the cloud reverts, for 5 min" (orchestrator, 2026-09-26) | The guard rewrites only HA's local copy of status activity + setpoints (not `hold_activity`) and sends nothing to the cloud — it hides a cloud revert from HA for up to 5 min, which fits strands becoming visible 5–14 min after URA's return | `carrier_data_update_coordinator.py:162-296, 430-432` (verified 2026-09-26) |
+
+**C22 (2026-09-26 afternoon) — WRONG: "URA must confirm Bryant writes from `hold_activity`."** Physical-evidence probe
+(`scripts/probes/carrier_feed_truth_episodes.py`, 7 d, 3 zones; blower/temperature vs the two feeds' cooling setpoints,
+2 °F differential guard), pooled decisive minutes: named-vs-named disagreement (zone_1 status home / hold away): device
+followed HOLD 85 vs STATUS 5. Status=`manual`: zone_2 (a human set cool 70 at 00:45 on 09-26, arrester logged the
+override) followed STATUS 506 vs HOLD 4 — `hold_activity` read `sleep` for 8.5 h while the zone cooled to 71–74 °F;
+zone_1 (post-borrow manual strands) followed HOLD 21 vs STATUS 1. Neither feed is always right. Candidate rule (n=1 per
+case, NOT proven): trust `hold_activity` unless a genuine human override is detected, then trust the status payload.
+This is W1-B D0 input; a controlled operator app-change test is requested.
+
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 
 | Seq | Workstream / step | Problems (§9) | Tier / gate |
 |---|---|---|---|
-| 0 | **v5.103.15 live-room establishment** (in review) — establishment over rooms actually running: excluded = disabled / SETUP_ERROR / MIGRATION_ERROR / SETUP_RETRY; transient (loading) rooms BLOCK; live rooms must be LOADED + coordinator-present + seen; all-dead zone never retreats. Plan `docs/planning/PLANNING_hvac_live_room_establishment.md` REV 2 | 9.6 | Tier 2-DB + mandatory D; fix-up pending (reviewers B/D: failed-room sticky exclusion, hold preset while transient-blocked & fused-empty, deleted-room exclusion, NM `location`, UTC grace clock) |
+| 0 | **v5.103.15 live-room establishment** (SHIPPED 2026-09-26) — establishment over rooms actually running: excluded = disabled / SETUP_ERROR / MIGRATION_ERROR / SETUP_RETRY; transient (loading) rooms BLOCK; live rooms must be LOADED + coordinator-present + seen; all-dead zone never retreats. Plan `docs/planning/PLANNING_hvac_live_room_establishment.md` REV 2 | 9.6 | Tier 2-DB + mandatory D; fix-up pending (reviewers B/D: failed-room sticky exclusion, hold preset while transient-blocked & fused-empty, deleted-room exclusion, NM `location`, UTC grace clock) |
 | 1 | **W1-A Thermostat I/O governance, behaviour-neutral:** all 3 verbs through funnels (add `emit_set_hvac_mode`, migrate the 7 raw sites); ONE durable row per actual write (verb, zone, site, values, reason) | 9.2, part of 9.1 | Tier 2-DB |
 | 2 | **W1-B Thermostat definition (per-BRAND strategy):** a simple generic interface — how to *hold a named preset*, *borrow & return*, *read the observed hold* — with the brand's behaviour **discovered and defined in detail** (Carrier/Bryant first: resume-then-pin; presets-only returns for EVERY borrow kind; manual counts as human only when CONFIG `hold_activity == manual`; URA-owned/stale holds reclaimable; knob timeouts actually release; funnel skips no-op writes and owns `_last_emitted_range`). Generic default = direct pin; **Nest strategy only when a Nest is available to test.** Runtime state stays per thermostat ENTITY (it already is: `_last_emitted_range` `hvac.py:521`, `_suppressed_until` `hvac_override.py:235`, `_nudge_pre_preset` `:262`, `_override_active` `:205`, excursion `_rows` `hvac_excursion.py:201` — all keyed by zone_id/entity); **no per-zone handle class is needed** — one definition per brand + existing per-entity state. Evaluate the local `set_activity_setpoint` no-hold patch (§5) as a nudge write that creates no hold — provenance must be verified first | 9.1, 9.7 blockers | **Tier 3** — operator go required |
 | 3 | Measure one clean day on the W1-A write log: stranded-manual minutes by cause, before/after | — | read-only |

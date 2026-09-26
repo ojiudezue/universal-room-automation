@@ -505,31 +505,62 @@ class TestSettledSampleWireIn:
     def test_restore_after_nudge_imports_and_schedules_settled_timer(
         self, hvac_override_src,
     ):
-        # Import present.
+        """AST anchor (converted from a source-window grep 2026-09-26 for
+        HVAC-W1-A fix-up round 1): parse `_restore_after_nudge`, walk
+        its body, and assert the load-bearing calls are present in
+        that specific method (regardless of where they land in bytes).
+
+        Behavioural equivalent of the prior grep: any source-widening
+        edit is invisible; any deletion of the load-bearing lines
+        inside `_restore_after_nudge` fails this test.
+        """
+        import ast as _ast
         assert "AC_NUDGE_RESTORE_SETTLE_DELAY_S" in hvac_override_src
+        tree = _ast.parse(hvac_override_src)
 
-        idx = hvac_override_src.find("async def _restore_after_nudge")
-        # 12000 covers the post-restore telemetry + settled-callback block.
-        body = hvac_override_src[idx: idx + 12000]
+        target = None
+        for cls in _ast.walk(tree):
+            if isinstance(cls, _ast.ClassDef):
+                for fn in cls.body:
+                    if isinstance(fn, _ast.AsyncFunctionDef) and \
+                       fn.name == "_restore_after_nudge":
+                        target = fn
+                        break
+            if target is not None:
+                break
+        assert target is not None, "_restore_after_nudge not found"
 
-        # Scheduler: async_call_later using the NAMED constant, not a literal.
-        assert "AC_NUDGE_RESTORE_SETTLE_DELAY_S" in body, (
+        found_settle_const = False
+        found_timer_reg = False
+        found_settled_update = False
+        found_restore_ok_none = False
+        for node in _ast.walk(target):
+            if isinstance(node, _ast.Name) and \
+               node.id == "AC_NUDGE_RESTORE_SETTLE_DELAY_S":
+                found_settle_const = True
+            if isinstance(node, _ast.Subscript) and \
+               isinstance(node.value, _ast.Attribute) and \
+               node.value.attr == "_nudge_settled_timers":
+                found_timer_reg = True
+            if isinstance(node, _ast.Attribute) and \
+               node.attr == "update_ac_ramp_restore_settled":
+                found_settled_update = True
+            if isinstance(node, _ast.keyword) and node.arg == "restore_ok" \
+               and isinstance(node.value, _ast.Constant) \
+               and node.value.value is None:
+                found_restore_ok_none = True
+        assert found_settle_const, (
             "delayed settled callback must use the named constant"
         )
-        # Handle stored on the per-zone timer dict for cancel-safety.
-        assert "_nudge_settled_timers[zone_id]" in body, (
-            "settled timer handle must be registered for teardown cancel"
+        assert found_timer_reg, (
+            "settled timer handle must be registered on _nudge_settled_timers"
         )
-        # DAO call must be the settled-update helper (not another INSERT).
-        assert "update_ac_ramp_restore_settled" in body, (
-            "settled verdict must be UPDATE-ed onto the existing row, "
-            "not inserted as a new one"
+        assert found_settled_update, (
+            "settled verdict must be UPDATE-ed via update_ac_ramp_restore_settled"
         )
-        # Immediate row must be inserted with restore_ok=None so the
-        # settled UPDATE has a NULL to fill.
-        assert "restore_ok=None," in body, (
-            "immediate INSERT must leave restore_ok NULL for the settled "
-            "callback to fill"
+        assert found_restore_ok_none, (
+            "immediate INSERT must leave restore_ok NULL "
+            "(restore_ok=None kwarg)"
         )
 
     def test_settled_timer_dict_initialised_and_torn_down(

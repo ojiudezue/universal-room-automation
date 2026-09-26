@@ -965,23 +965,18 @@ def test_reset_only_backstop_unestablished_denies_retreat():
     assert zm.conditioning_retreat_ok(zone) is False
 
 
-def test_f1_disabled_room_leaves_zone_unestablished_round5():
-    """Fix-up round 5 (orchestrator adjudication, 2026-09-17):
-    round-4 `any` semantics was REVERTED. Under the round-5 `all`
-    contract, a zone with a permanently-disabled room (still in
-    `zone.rooms` but its coordinator is None → never iterated past
-    the `if coordinator is None: continue` gate in
-    `update_room_conditions` → never added to `_hvac_seen`) stays
-    permanently UNESTABLISHED.
+def test_f1_disabled_room_excluded_zone_establishes_from_live_rooms():
+    """HVAC-DEGRADED-ROOM-TRIPWIRE-1 (2026-09-26): REPLACES the round-5
+    round-only-all test. Under the live-room denominator, a zone whose
+    disabled room is EXCLUDED (leaves the denominator) establishes on
+    its remaining live rooms. The full behavioural assertion (with
+    real ConfigEntryDisabler / ConfigEntryState) lives in
+    test_hvac_live_room_establishment.py; this file preserves a
+    lightweight seed-based mirror using the classifier's public API.
 
-    Consequence: the zone will never retreat. Wrong direction is
-    never wrong (retreat safety intact) but the feature is INERT
-    for that zone. Carded as a TRIP-WIRE follow-up
-    (HVAC-DEGRADED-ROOM-TRIPWIRE-1) — a code trip-wire per No-Soak
-    surfaces the degraded room; the gate stays strict.
-
-    Mutation drill: swap `all` -> `any` -> this test asserts red
-    (zone would incorrectly establish from the live room alone).
+    Mutation drill: neuter `_live_zone_rooms` to `return list(zone.rooms)`
+    (round-5 behaviour) — the sibling test in
+    test_hvac_live_room_establishment.py reds.
     """
     m = _zm_module()
     zm = m.ZoneManager(MagicMock())
@@ -989,12 +984,17 @@ def test_f1_disabled_room_leaves_zone_unestablished_round5():
     zone.rooms = ["r_live", "r_disabled"]
     zm._zones["z_mix"] = zone
 
-    # Only the live room's producer has run.
+    # Seed classifier directly — no producer pass needed for the
+    # denominator invariant test.
+    zm._hvac_classification_ready = True
+    zm._room_hvac_class["r_live"] = ("live", "loaded")
+    zm._room_hvac_class["r_disabled"] = ("excluded", "disabled_by_user")
     zm._hvac_seen.add("r_live")
-    assert zm.is_zone_hvac_established("z_mix") is False, (
-        "Round-5 `all` contract: a zone with a disabled room MUST NOT "
-        "establish from its live rooms alone — never retreats on an "
-        "unreadable room. Mutation `all`->`any` reds this assertion."
+    # `r_live` present + not coordinator-absent -> zone establishes on
+    # the live-room denominator alone.
+    assert zm.is_zone_hvac_established("z_mix") is True, (
+        "Live-room denominator: excluded rooms must leave the "
+        "denominator, so the zone establishes from `r_live` alone."
     )
 
 

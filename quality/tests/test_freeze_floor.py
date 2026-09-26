@@ -513,7 +513,7 @@ async def test_emit_floors_low_during_freeze():
     hass = _CapHass()
     await sp.emit_set_temperature(
         hass, "climate.z", target_temp_low=47, target_temp_high=60,
-        freeze_active=True, blocking=True,
+        freeze_active=True, blocking=True, site="test", zone_id="z", reason="t",
     )
     assert hass.calls[0]["data"]["target_temp_low"] == 50
     assert hass.calls[0]["blocking"] is True
@@ -525,7 +525,7 @@ async def test_emit_inactive_byte_identical():
     hass = _CapHass()
     await sp.emit_set_temperature(
         hass, "climate.z", target_temp_low=47, target_temp_high=60,
-        freeze_active=False,
+        freeze_active=False, site="test", zone_id="z", reason="t",
     )
     assert hass.calls[0]["data"]["target_temp_low"] == 47
     assert hass.calls[0]["data"]["target_temp_high"] == 60
@@ -537,7 +537,7 @@ async def test_emit_above_floor_unchanged():
     hass = _CapHass()
     await sp.emit_set_temperature(
         hass, "climate.z", target_temp_low=53, target_temp_high=60,
-        freeze_active=True,
+        freeze_active=True, site="test", zone_id="z", reason="t",
     )
     assert hass.calls[0]["data"]["target_temp_low"] == 53
 
@@ -548,7 +548,7 @@ async def test_emit_deadband_never_inverts():
     hass = _CapHass()
     await sp.emit_set_temperature(
         hass, "climate.z", target_temp_low=47, target_temp_high=49,
-        freeze_active=True,
+        freeze_active=True, site="test", zone_id="z", reason="t",
     )
     data = hass.calls[0]["data"]
     assert data["target_temp_low"] == 50
@@ -906,6 +906,9 @@ class _LazyFreezePredictor:
             target_temp_high=70,
             freeze_active=self._coord.freeze_active,
             blocking=False,
+            site="test_predict_emit",
+            zone_id="zone_1",
+            reason="predict_freeze",
         )
 
 

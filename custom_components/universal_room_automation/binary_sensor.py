@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.14
+# Universal Room Automation vv5.103.16
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -900,8 +900,13 @@ class HVACOccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
             pass
 
         # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D4 (v5.103.8): expose
-        # zone-level HVAC-established gate. False until every room in
-        # the zone has been observed by the D1 producer at least once.
+        # zone-level HVAC-established gate. Under HVAC-DEGRADED-ROOM-
+        # TRIPWIRE-1 (2026-09-26) this reads False whenever ANY sibling
+        # room in the zone is TRANSIENT (loading/reloading) — the whole
+        # zone's `established` attr moves in lockstep. EXCLUDED rooms
+        # (disabled / setup_error / sticky_failed / entry_removed) leave
+        # the denominator; establishment then decides over the remaining
+        # LIVE rooms.
         try:
             room_name_local = self.coordinator.entry.data.get("room_name", "")
             zone_id_for_room: str | None = None

@@ -711,3 +711,15 @@ mutation + replay), the enumerated 10-site coverage, and the D0 findings. Explic
 9. Post-deploy disposition query at N≥10 non-nudge return episodes per zone (§7).
 
 **No soak.** The ship gate is a disposition query, not a calendar watch.
+
+---
+
+## Operator decisions — 2026-09-26 ("Accept recs") — BINDING
+1. `set_activity_setpoint` NOT adopted this cycle — nudges stay on `set_temperature`.
+2. No in-code schedule-boundary guard — the operator reduces the zone 2/3 Bryant schedules (working assumption: only URA controls).
+3. Reclaim DELAY for a URA-owned manual hold with no live borrow = 1 tick (same-tick eligible), plus a separate kill switch.
+4. Ship-gate disposition: N ≥ 10 exercised return episodes per zone, 10-min falsifier window; pre-deploy gate = replay.
+5. No Nest stub.
+6. `POST_WRITE_INTERCEPT_S` / `PRESET_TTL_S` (and sibling timing values) are Rung 1 module constants.
+7. On Temp-Arrester-Override / immune-person expiry, URA reclaims the HUMAN hold to S1's current target preset (not a snapshot); Comfort Grace is not part of D3.
+

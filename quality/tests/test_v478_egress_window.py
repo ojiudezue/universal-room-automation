@@ -131,6 +131,18 @@ def _load_egress_module():
         )
         return True
     hvac_setpoint.emit_set_preset_mode = _emit_set_preset_mode
+
+    # HVAC-W1-A: third funnel (behaviour-neutral stub for this harness).
+    async def _emit_set_hvac_mode(hass, entity_id, hvac_mode, *,
+                                  site, zone_id, reason, blocking,
+                                  excursion_id=None):
+        await hass.services.async_call(
+            "climate", "set_hvac_mode",
+            {"entity_id": entity_id, "hvac_mode": hvac_mode},
+            blocking=blocking,
+        )
+        return True
+    hvac_setpoint.emit_set_hvac_mode = _emit_set_hvac_mode
     sys.modules["ura_egress_pkg.domain_coordinators.hvac_setpoint"] = hvac_setpoint
 
     # Stub hvac_zones (iter_canonical_hvac_zones monkey-patched per test).
@@ -935,27 +947,95 @@ def test_v478_nm_dispatch_gated_at_call_site(egress_src):
 # ===========================================================================
 
 
-def test_v478_fixup_A_H1_room_condition_captured_without_coordinator(zones_src):
+def test_v478_fixup_A_H1_room_condition_captured_without_coordinator():
     """A-H1 (Bug Class #43): ZoneManager.update_room_conditions must STILL
     append a RoomCondition for a room whose coordinator hasn't booted yet,
     so EgressManager sees the egress window state on the first tick
     post-restart. The append path must use entry meta (window_sensor +
     is_egress_window) even when coordinator is None.
+
+    Rewritten 2026-09-26 (HVAC-DEGRADED-ROOM-TRIPWIRE-1 fix-up item 9):
+    the previous 1500-char source-window grep for `is_egress_window`
+    stopped working when a comment block pushed the token past the
+    window (production was fine — the anchor was hollow). Replaced with
+    a behavioural drive of the REAL ZoneManager: seed a ROOM entry with
+    a window_sensor + CONF_IS_EGRESS_WINDOW=True, register NO
+    coordinator in hass.data (the coordinator-None branch), call
+    update_room_conditions, and assert the appended RoomCondition
+    carries is_egress_window from entry meta.
     """
-    # Source-grep: the coordinator-None branch contains a RoomCondition
-    # append (not just `continue`).
-    upd_start = zones_src.find("def update_room_conditions")
-    assert upd_start >= 0
-    upd_end = zones_src.find("\n    def ", upd_start + 1)
-    body = zones_src[upd_start:upd_end if upd_end > 0 else len(zones_src)]
-    # The None branch now appends, not just continues.
-    none_branch_idx = body.find("if coordinator is None:")
-    assert none_branch_idx >= 0
-    none_branch_body = body[none_branch_idx:none_branch_idx + 1500]
-    assert "zone.room_conditions.append" in none_branch_body, \
-        "coordinator-None branch must still append a RoomCondition with " \
-        "window state (A-H1 Bug Class #43)"
-    assert "is_egress_window" in none_branch_body
+    # Ensure the repo root is importable so the real package loads
+    # without HA stubs mutating sys.modules — mirrors
+    # test_hvac_live_room_establishment.py.
+    _repo_root = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..")
+    )
+    if _repo_root not in sys.path:
+        sys.path.insert(0, _repo_root)
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_TYPE,
+        CONF_IS_EGRESS_WINDOW,
+        CONF_ROOM_NAME,
+        CONF_WINDOW_SENSORS,
+        DOMAIN as _DOMAIN,
+        ENTRY_TYPE_ROOM,
+    )
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac_zones as _hz,
+    )
+
+    class _Entry:
+        def __init__(self):
+            self.entry_id = "e_r_no_coord"
+            self.state = None  # classifier tolerates None as unknown
+            self.disabled_by = None
+            self.data = {
+                CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+                CONF_ROOM_NAME: "r_no_coord",
+                CONF_WINDOW_SENSORS: "binary_sensor.window_r_no_coord",
+                CONF_IS_EGRESS_WINDOW: True,
+            }
+            self.options = {}
+
+    entry = _Entry()
+
+    class _CEs:
+        def async_entries(_self, _dom):
+            return [entry]
+
+    hass = MagicMock()
+    hass.config_entries = _CEs()
+    # No coordinator registered under entry.entry_id -> takes the
+    # `coordinator is None` branch in update_room_conditions.
+    hass.data = {_DOMAIN: {}}
+
+    class _States:
+        def get(_self, _eid):
+            st = MagicMock()
+            st.state = "off"
+            return st
+
+    hass.states = _States()
+
+    zm = _hz.ZoneManager(hass)
+    zone = _hz.ZoneState(
+        zone_id="z1", zone_name="Z1", climate_entity="climate.z1",
+    )
+    zone.rooms = ["r_no_coord"]
+    zm._zones["z1"] = zone
+
+    zm.update_room_conditions(house_state="home_day")
+
+    assert len(zone.room_conditions) == 1, \
+        "coordinator-None branch MUST still append a RoomCondition (A-H1)"
+    rc = zone.room_conditions[0]
+    assert rc.room_name == "r_no_coord"
+    assert rc.window_sensor == "binary_sensor.window_r_no_coord"
+    # CONF_IS_EGRESS_WINDOW=True + window_sensor set -> is_egress_window
+    # carries through as True (v4.7.8 fix-up C-L4 rule).
+    assert rc.is_egress_window is True
+    # Producer takes the synthetic-empty branch: hvac_occupied False.
+    assert rc.hvac_occupied is False
 
 
 def test_v478_fixup_A_H2_startup_audit_skips_paused_zones(override_src):
