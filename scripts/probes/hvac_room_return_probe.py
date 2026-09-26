@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """HVAC room drop-and-return probe (all rooms, all hours) — READ-ONLY.
-Card: HVAC-HOLD-SIZING-ALL-ROOMS-1. Generalises hvac_night_sleeper_probe.py (bedrooms/night only).
+Card: HVAC-HOLD-SIZING-ALL-ROOMS-1. KNOWN FLAW (2026-09-26): uses the lagged hvac_occupied as presence truth, so "returns" include 5-min-tick catch-up artifacts — re-base on raw sensors before trusting. Generalises hvac_night_sleeper_probe.py (bedrooms/night only).
     ssh ha "python3 - [--days 7] [--ret 30]" < scripts/probes/hvac_room_return_probe.py
 For each room's binary_sensor.*_hvac_occupied: episodes on->off followed by on within --ret minutes
 (RETURNED = person likely never left). HARM = URA wrote preset away to that room's zone (ura_activity_log

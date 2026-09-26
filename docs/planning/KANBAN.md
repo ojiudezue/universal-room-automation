@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T13:24:01-05:00_ - _Data commit: `4dc8f8db7d21`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-26T13:26:35-05:00_ - _Data commit: `f23ebb20b1a3`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -10,12 +10,12 @@ _Generated: 2026-09-26T13:24:01-05:00_ - _Data commit: `4dc8f8db7d21`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 3 |
+| 🔬 Investigating | 4 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 23 |
 | 🔨 In progress | 2 |
 | 🔍 Review | 1 |
-| ⏸️ Waiting on operator | 21 |
+| ⏸️ Waiting on operator | 20 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 3 |
 | 🅿️ Parked | 66 |
@@ -26,7 +26,7 @@ _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (3)
+## 🔬 Investigating (4)
 _measuring; truth not yet known_
 
 ### `ENVOY-STREAM-TRUST-MEASURE-1` - We now have a third, much faster Envoy data source — measure whether it can be trusted before anything is allowed to depend on it — _#1 · WSJF 9.5 · v7 tc6 u6 /e2_
@@ -73,7 +73,18 @@ _created 2026-09-16 · updated 2026-09-26 02:07 · refined_
   - `operator_answer_2026_09_25`: ANSWER received (operator 2026-09-25): "I removed most schedules from Zone 1's therm as a test." -> the thermostat-side schedule WAS live (confirms MEASURED_2026_09_17 mechanism (a)). Removal time not yet known. First read (recorder, 7 d...
   - `schedule_removal_measured_2026_09_25`: DATED FROM THE RECORDER (operator did not recall): Bryant next_activity_time on zone_1 cycled 06:00/08:00/18:00/22:00 until 2026-09-20 11:39 CDT, then reads only 06:00 (zones 2/3 still run 4-entry schedules). Remaining schedule per opera...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#3 · WSJF 1.0 · v7 tc4 u2 /e13_
+### `HVAC-HOLD-SIZING-ALL-ROOMS-1` - Should other rooms get longer HVAC vacancy holds (like Jaya's night 5400)? Measured all 43 rooms, all hours — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **investigating**
+_created 2026-09-26 · updated 2026-09-26 13:40_
+- **Why:** The night-sleeper probe that sized Jaya covered bedrooms at night only. Livability harm can also come from evening/day rooms where people sit still or step out briefly.
+- **Next:** FIX THE PROBE (me, read-only): re-base hvac_room_return_probe.py on RAW presence/motion/BLE per room (the room's configured sensors) instead of hvac_occupied, and count 'person present per raw sensors while the zone was written away'. Re...
+- **Forensic keys (4):**
+  - `disposition_2026_09_26_groom`: CORRECTION 2026-09-26 13:55 (operator asked 'what's up with the laundry?'; I checked the raw timeline before acting). The Laundry recommendation (day hold 1200) is WITHDRAWN. Laundry has ONE sensor (Matter RGBW light PIR, no mmWave). Tim...
+  - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
+  - `measured_2026_09_26`: scripts/probes/hvac_room_return_probe.py (new, read-only; generalises the night-sleeper probe to all rooms and hours), 7 days, return window 30 min. Rooms whose HVAC occupancy dropped then returned within 30 min, and HARM = URA wrote the...
+  - `verdict`: NO broad livability problem. One config change is worth it: Laundry day hold -> 1200 s (20 min) covers the ~15-min load-swap trip that caused 4 of 8 harms; cost = zone_3 conditioned up to ~20 min longer after a real laundry departure. Pa...
+
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#4 · WSJF 1.0 · v7 tc4 u2 /e13_
 thread: **security** - status: **investigating** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-19 03:50 · refined_
 - **Problem / Solution:**
@@ -709,7 +720,7 @@ _created 2026-09-25 03:20 · updated 2026-09-26 02:12 · initial_
   - `gate_2026_09_26`: OVERNIGHT 2026-09-26 FOUR-STEP GATE. (1) VALIDITY: STILL-REAL. Re-ran the 3 files on develop @660bd8ada: 2 failed, 105 passed, 10 skipped, and the ten skip reasons are identical to the card. (2) PRIOR ART: REUSE the c5ea7dfc7 fix (import...
   - `verified_2026_09_25`: STILL-REAL, verified by the orchestrator INDEPENDENTLY rather than trusting the reviewer report (the reviewer report is a hypothesis; running it is the check). Command: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=quality .venv-ha/bin/python -m ...
 
-## ⏸️ Waiting on operator (21)
+## ⏸️ Waiting on operator (20)
 _needs a human call — groomed first_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
@@ -999,17 +1010,7 @@ _created 2026-08-21 17:40 · updated 2026-09-23 04:45 · initial_
   - `THE_DESIGN_TENSION_READ_THIS_BEFORE_FIXING`: DO NOT simply add a rate threshold to the existing detector. The impossibility framing was chosen ON PURPOSE so the detector could QUARANTINE-ALWAYS WITH NO CORROBORATOR GATE (chatter_detector.py:8 — "quarantine-ALWAYS on a physics viola...
   - `SECOND_FINDING_WRONG_LEG_WATCHED`: The detector registers over "the room blind-time-gated tier-1 entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,...
 
-### `HVAC-HOLD-SIZING-ALL-ROOMS-1` - Should other rooms get longer HVAC vacancy holds (like Jaya's night 5400)? Measured all 43 rooms, all hours — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **waiting_operator**
-_created 2026-09-26 · updated 2026-09-26 13:40_
-- **Why:** The night-sleeper probe that sized Jaya covered bedrooms at night only. Livability harm can also come from evening/day rooms where people sit still or step out briefly.
-- **Next:** APPROVE: set Laundry -> Configure -> Climate & Fans -> HVAC vacancy hold — day = 1200 (night auto >= day) -> I verify the stored option and re-run hvac_room_return_probe.py after 7 days (target: Laundry harm 4 -> 0, no new harm elsewhere).
-- **Forensic keys (3):**
-  - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
-  - `measured_2026_09_26`: scripts/probes/hvac_room_return_probe.py (new, read-only; generalises the night-sleeper probe to all rooms and hours), 7 days, return window 30 min. Rooms whose HVAC occupancy dropped then returned within 30 min, and HARM = URA wrote the...
-  - `verdict`: NO broad livability problem. One config change is worth it: Laundry day hold -> 1200 s (20 min) covers the ~15-min load-swap trip that caused 4 of 8 harms; cost = zone_3 conditioned up to ~20 min longer after a real laundry departure. Pa...
-
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#18 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#17 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-19 03:50_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -1028,7 +1029,7 @@ _updated 2026-09-19 03:50_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped) — _#19 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped) — _#18 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
 _updated 2026-09-19 03:50_
 - **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
@@ -1040,7 +1041,7 @@ _updated 2026-09-19 03:50_
   - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
   - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real...
 
-### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#20 · WSJF 1.2 · v5 tc3 u2 /e8_
+### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#19 · WSJF 1.2 · v5 tc3 u2 /e8_
 thread: **diagnostics** - status: **waiting_operator**
 _created 2026-08-19 09:00 · updated 2026-09-23 04:45 · refined_
 - **Next:** APPROVE building D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) as a SHADOW-FIRST ship. NOTE: approving STARTS a hard 2-day forcing gate (flip to acting within 2 days of shadow deploy or declare moot).
@@ -1053,7 +1054,7 @@ _created 2026-08-19 09:00 · updated 2026-09-23 04:45 · refined_
   - `build_2026_08_19`: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
   - `reviews_2026_08_19`: D7 TIER-3 REVIEWS: A+D SHIP-WITH-FIX, B+C DO-NOT-SHIP — INDEPENDENTLY CONVERGED on the HIGH. Boot-safety CLEAN (no repeat of the v5.84.0 import-shadow incident class). HIGH: act->shadow/off mode-flip leaves stale chatter exclusions (occu...
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#21 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#20 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-22 02:32_
 - **Problem / Solution:**
