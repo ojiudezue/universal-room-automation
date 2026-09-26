@@ -7,7 +7,7 @@ Related: `HVAC-ZONE-CONDITIONING-DEMAND-1` (round-4 decision 2026-09-17;
 correction 2026-09-25). Round-5 commit that this plan reverses in effect:
 `f88f4bc84`.
 
-Tier: **Tier 2-DB** (regression-prone by standing policy).
+Tier: **Tier 2-DB** (regression-prone by standing policy). **REV 2 (2026-09-26)** — plan review returned FIX-PLAN-FIRST (F1-F13); all findings folded in below. Where this document and the original rev-1 text disagree, the REV 2 text wins.
 Plan-review: **ONE plan review before build dispatch** (Tier 2-DB rule).
 
 ---
@@ -98,16 +98,16 @@ Every proposed piece scanned across code / plans / analysis:
 
 | Proposed piece | Verdict | Cite |
 |---|---|---|
-| "Is this ROOM config entry LOADED?" helper | **REUSED** — `aggregation.py:385 _integration_entry_is_loaded(entry)` already does the ConfigEntryState.LOADED test with a graceful fallback for mocked HA. Extend the same pattern (do NOT duplicate the function; either import it or lift the two-line body into hvac_zones.py behind an obvious name). | `aggregation.py:385-394` |
-| `entry_id -> room_name` mapping | **REUSED** — `hvac_zones.py:303-309 entry_id_to_room_name` is built at the top of `update_room_conditions`. Same shape needed here; reuse the existing dict. | `hvac_zones.py:303` |
+| "Is this ROOM config entry LOADED?" helper | **REUSED pattern** — `aggregation.py:385-394 _integration_entry_is_loaded(entry)`. NOTE (REV 2, F7): it returns **True on enum-import failure** (fail-open for "loaded"). Here "loaded" means "counted live", which BLOCKS retreat — so the fallback is fail-CLOSED for retreat, the correct direction. This is load-bearing: pinned by `test_live_rooms_blocks_when_state_enum_unavailable`. | `aggregation.py:385-394` |
+| `room_name -> entry` mapping | **EXTEND (REV 2, F6)** — `entry_id_to_room_name` (`hvac_zones.py:304-309`) is a LOCAL inside `update_room_conditions`, not stored on `self`. Build the reverse `room_name -> ConfigEntry` map in that same loop and store it as `self._room_entry_by_name`; `_live_zone_rooms` reads that field; a room absent from it is TRANSIENT (blocks, fail-closed). | `hvac_zones.py:304-309` |
 | Coordinator-absent tolerance on the D1 producer | **REUSED** — `hvac_zones.py:616-641` already appends a synthetic `RoomCondition(occupied=False, hvac_occupied=False)` on `coordinator is None` (v4.7.8 A-H1, Bug Class #43). We do NOT change producer behaviour; we only change what `_hvac_seen` means. | `hvac_zones.py:616` |
 | `_hvac_seen` set | **REUSED** — declared `hvac_zones.py:256`, populated at `:665` (hallway) and `:988` (dwelling D1). Keep the writer surface unchanged. | `hvac_zones.py:256/665/988` |
-| Establishment gate (`is_zone_hvac_established`) | **EXTEND** existing (`hvac_zones.py:1043`) — change denominator from `zone.rooms` to `live_rooms(zone)`; keep `all(...)` quantifier. NO new gate function; NO new callers. | `hvac_zones.py:1043` |
-| Unified retreat authorisation (`conditioning_retreat_ok` + `_zone_conditioning_retreat_ok`) | **REUSED** unchanged (`hvac_zones.py:1085`, `hvac.py:3830`) — this is the single retreat chokepoint feeding row-1 (`hvac.py:2013`), D7 (`:2403`), D9 compose-away (`:2966`), F4 row-10 (arrester). Zero call-site changes. | `hvac_zones.py:1085` / `hvac.py:2013/2403/2966/3830` |
+| Establishment gate (`is_zone_hvac_established`) | **EXTEND** existing (`hvac_zones.py:1043`) — see REV-2 D2. Callers (REV 2, F2 — the rev-1 list missed one): `conditioning_retreat_ok` (`hvac_zones.py:1112`) AND **`binary_sensor.py:914`** (`HVACOccupiedBinarySensor` per-room `established` diag attr, v5.103.8) — display, inherits the change intentionally. `hvac.py:3820-3826 _is_zone_hvac_established` is a delegate with ZERO callers (dead; out of scope, do not touch). | `hvac_zones.py:1043`, `binary_sensor.py:911-916` |
+| Unified retreat authorisation (`conditioning_retreat_ok` + `_zone_conditioning_retreat_ok`) | **REUSED** unchanged (`hvac_zones.py:1085`, `hvac.py:3830`) — feeds row-1 (`hvac.py:2013`), D7 (`:2403`), D9 compose-away (`:2966`) via the delegate, AND F4 row-10 arrester which calls `zm.conditioning_retreat_ok` DIRECTLY at **`hvac_override.py:2319`** inside a tri-state guard (`:2304-2340`) that falls back to a raw `any_room_hvac_occupied` read at `:2336` on a non-bool (REV 2, F3). Zero call-site changes; Reviewer B traces the tri-state fallback. | `hvac_zones.py:1085` / `hvac.py:2013/2403/2966/3830` / `hvac_override.py:2304-2340` |
 | SETUP_RETRY grace timer (transient→permanent reclassification) | **NEW** — no equivalent found after grep of `hvac_zones.py`, `hvac*.py`, `coordinator.py`, `__init__.py`. One `dict[room_name, first_non_loaded_ts]` tracked on ZoneManager. Justification: the operator hazard note demands "bounded window" for setup_retry before excluding. | (none) |
 | Grace-window number | **NEW knob** — see Numbers-get-Knobs section (rung: module constant, `hvac_const.py`). Kill-switch by setting to a large sentinel. |  |
-| Diagnostic attribute naming excluded rooms | **NEW diag** on an existing sensor — `sensor.<zone>_hvac_conditioning_demand` (the D1/D7/D9 debug sensor that already exposes zone establishment). No new entity. | `sensor.py` (D1-D9 debug sensor grepped separately during build) |
-| Trip-wire (log/NM ping when a room is reclassified permanent) | **NEW** — one WARN log line + one NM notification via existing NM channel. No new NM template; reuse "hvac degraded" bucket. |  |
+| Diagnostic attribute naming excluded rooms | **NEW attrs on an existing surface (REV 2, F1)** — no `conditioning_demand` sensor exists (grep: 0 hits). Extend `ZoneManager.get_zone_status_attrs` (`hvac_zones.py:720-770`, already carries `any_room_hvac_occupied` at `:751`), which feeds `HVACZoneStatusSensor.extra_state_attributes` (`sensor.py:12220`, `:12255-12266`), entity `sensor.ura_hvac_coordinator_zone_{n}_status`. No sensor.py change. | `hvac_zones.py:720-770` |
+| Trip-wire (log/NM ping when a room is reclassified excluded) | **NEW (REV 2, F9)** — no "hvac degraded" bucket exists. Shape: `await nm.async_notify(coordinator_id="hvac", severity=Severity.MEDIUM, hazard_type="hvac_degraded_room", title=..., message=...)` as at `hvac.py:3142-3159`. Emitted from the ASYNC producer, never the sync gate — see REV-2 D3. | `hvac.py:3142-3159`, `hvac.py:305-306` |
 
 Result: **1 code change (establishment denominator)** + **1 small
 helper (live_rooms)** + **1 new state field (grace-window timer)** +
@@ -135,15 +135,13 @@ minimum surface consistent with the operator rule.
 
 **INVARIANT.** For every zone Z, define
 `live_rooms(Z) = { r in Z.rooms | live(r) }` where `live(r)` is TRUE iff
-r's ROOM config entry is in HA state `LOADED` **or** has been in a
-transient state (`SETUP_IN_PROGRESS`, `SETUP_RETRY`, `NOT_LOADED`,
-`UNLOAD_IN_PROGRESS`) continuously for **less than
-`HVAC_LIVE_ROOM_SETUP_RETRY_GRACE_S`** since ZoneManager first observed
-it non-LOADED. Then:
+r's ROOM config entry is in HA state `LOADED` (REV 2: classification per the
+REV-2 table below — transient rooms BLOCK establishment outright; excluded rooms leave the denominator). Then:
 
 > A zone Z retreats (row-1 / D7 / D9 / F4 row-10) at time T only if
-> `live_rooms(Z, T) ≠ ∅` AND for every r in `live_rooms(Z, T)`,
-> `r ∈ _hvac_seen`, AND `Z.any_room_hvac_occupied is False`.
+> `transient_rooms(Z, T) = ∅` AND `live_rooms(Z, T) ≠ ∅` AND for every r in `live_rooms(Z, T)`:
+> r's entry is LOADED, r's room coordinator was present on the latest producer pass, and
+> `r ∈ _hvac_seen` — AND `Z.any_room_hvac_occupied is False`.
 
 Two falsifiable corollaries (Reviewer D must break each with a legal
 config repro):
@@ -211,8 +209,7 @@ Room is COUNTED LIVE (still blocks establishment) iff:
   `test_live_zone_rooms_includes_setup_retry_within_grace`,
   `test_live_zone_rooms_excludes_setup_retry_past_grace`,
   `test_live_zone_rooms_all_dead_returns_empty`.
-- **Live:** on the restarted install, `sensor.<zone>_hvac_
-  conditioning_demand` attribute `live_rooms` equals `zone.rooms`
+- **Live:** on the restarted install, `sensor.ura_hvac_coordinator_zone_{n}_status` attribute `live_rooms` equals `zone.rooms`
   (no disabled rooms exist today per live-install grep). If any room
   is temporarily NOT_LOADED at boot, its exclusion timestamp is set
   and the diag `live_rooms` list contracts, then expands once the
@@ -220,18 +217,22 @@ Room is COUNTED LIVE (still blocks establishment) iff:
 
 ### D2 — Rewire `is_zone_hvac_established` denominator
 
-Change `hvac_zones.py:1083` from
-`all(r in self._hvac_seen for r in rooms)` to
-`live = self._live_zone_rooms(zone); return bool(live) and all(r in self._hvac_seen for r in live)`.
+**REV 2 (F10 — the rev-1 formula `bool(live) and all(r in _hvac_seen for r in live)` FALSIFIED F-INV-A; see AM-1 and F4).**
+Change `hvac_zones.py:1083` to, in order:
+1. `excluded, transient, live = self._classify_zone_rooms(zone)` (see REV-2 classification below).
+2. If `transient` is non-empty → return **False** (a room that is loading/reloading BLOCKS establishment outright; it is never satisfied by a stale seen-flag).
+3. If `live` is empty → return **False** (F-INV-C).
+4. Return `all(r in self._hvac_seen and r not in self._coordinator_absent_this_pass for r in live)` — every live room must be LOADED, have a present room coordinator on the latest producer pass, AND be in `_hvac_seen` (F4 conjunct).
 
 Keep `all()`. Keep the reset-only backstop in
 `conditioning_retreat_ok` unchanged. `bool(live)` enforces F-INV-C.
 
 #### Acceptance Criteria — D2
 - **Verify (discriminating):** for Z with rooms = [r_live, r_disabled],
-  after the D1 producer has processed r_live once,
-  `is_zone_hvac_established(Z)` returns True (was False under
-  round-5). For Z with all rooms disabled, returns False (safety).
+  where r_live's entry is LOADED, its coordinator is present on the latest pass,
+  and the D1 producer has processed it once, `is_zone_hvac_established(Z)` returns
+  True (was False under round-5). Same Z while r_live's coordinator is absent on the
+  latest pass → False. For Z with all rooms disabled → False (safety).
 - **Test:** REPLACE `test_f1_disabled_room_leaves_zone_unestablished_
   round5` with its inverse
   `test_f1_disabled_room_excluded_zone_establishes_from_live_rooms`.
@@ -250,8 +251,9 @@ Keep `all()`. Keep the reset-only backstop in
 
 ### D3 — Diagnostic attribute (trip-wire demoted to diag)
 
-Extend the existing D1/D7/D9 debug sensor for each zone (identified
-during build via `grep sensor.py hvac_conditioning`) with attributes:
+**REV 2 (F1):** Extend `ZoneManager.get_zone_status_attrs` (`hvac_zones.py:720-770`), which feeds
+`HVACZoneStatusSensor.extra_state_attributes` (`sensor.py:12255-12266`), entity
+`sensor.ura_hvac_coordinator_zone_{n}_status`, alongside `any_room_hvac_occupied` (`:751`), with attributes:
 - `live_rooms: list[str]` — the current LIVE set.
 - `excluded_rooms: list[{name, reason}]` — one of
   `disabled_by_user | disabled_by_integration | setup_error |
@@ -259,23 +261,27 @@ during build via `grep sensor.py hvac_conditioning`) with attributes:
 - `transient_rooms: list[{name, state, seconds_non_loaded}]` — rooms
   still inside the grace window.
 
-Fire a single WARN log line + NM notification (existing "hvac
-degraded" bucket) the first time a room transitions from
-transient→excluded (i.e. crosses the grace boundary). Debounce: once
-per (zone, room, boot).
+**REV 2 (F9):** detect the transient→excluded crossing inside the ASYNC producer `update_room_conditions`,
+NEVER inside the sync gate `is_zone_hvac_established` (no `create_task` from a sync tick path — untracked
+background task class). ZoneManager has no NM handle: the producer records crossing events and the
+`HVACCoordinator` emits them after the producer returns — one WARN + one `await nm.async_notify(
+coordinator_id="hvac", severity=Severity.MEDIUM, hazard_type="hvac_degraded_room", ...)` following the shape
+at `hvac.py:3142-3159` (callback wiring pattern: `set_on_defer_notify`, `hvac.py:305-306`). Debounce key
+`(zone_id, room_name)` for the ZoneManager's lifetime. Also emit for rooms excluded IMMEDIATELY (disabled /
+SETUP_ERROR / MIGRATION_ERROR / SETUP_RETRY) the first time they are observed.
 
 #### Acceptance Criteria — D3
 - **Verify:** attribute round-trips after restart (RestoreEntity not
   required — attrs are derived).
 - **Test:** `test_diag_reports_excluded_disabled_room` and
   `test_transient_to_permanent_emits_one_warn_and_nm`.
-- **Live:** `ha_get_state sensor.<zone>_hvac_conditioning_demand`
+- **Live:** `ha_get_state sensor.ura_hvac_coordinator_zone_{n}_status`
   after restart shows `excluded_rooms == []` and `live_rooms ==
   zone.rooms` on the current install (no disabled rooms).
 
 ### D4 — Grace-window knob
 
-Add `HVAC_LIVE_ROOM_SETUP_RETRY_GRACE_S = 300` to `hvac_const.py`.
+Add `HVAC_LIVE_ROOM_TRANSIENT_GRACE_S = 300` to `hvac_const.py` (REV 2, F5: renamed — it no longer governs SETUP_RETRY). **The grace window is per-HA-start by construction (in-memory on a ZoneManager built once per HVACCoordinator, `hvac.py:241`) and is deliberately NOT persisted:** with SETUP_RETRY excluded immediately, the remaining transient states (NOT_LOADED / SETUP_IN_PROGRESS / UNLOAD_IN_PROGRESS / FAILED_UNLOAD) are passed through in seconds by a healthy boot or reload and cannot legitimately outlive one; a restart storm therefore cannot keep a genuinely failed room (which sits in SETUP_RETRY / SETUP_ERROR) blocking its zone.
 
 **Numbers-get-knobs — rung: module constant.** Rationale: this is a
 safety-bound tuning; changing it should REQUIRE a code review because
@@ -288,8 +294,7 @@ the round-5 conservative behaviour for transient rooms only (permanent
 disabled_by still excluded — that path does not consult the timer).
 
 #### Acceptance Criteria — D4
-- **Verify:** default 300 s; grep confirms exactly ONE definition and
-  ONE reader (in `_live_zone_rooms`).
+- **Verify:** default 300 s (REV 2, F11: the rev-1 grep criterion was a hollow anchor and is removed — the parametrised boundary test below plus the mutation row are the proof).
 - **Test:** parametrised test asserting behaviour at grace-1 s
   (INCLUDES) and grace+1 s (EXCLUDES) using an injected clock.
 
@@ -326,8 +331,10 @@ Four call sites, all trust-decisions (not display):
 - `hvac.py:2966` — D9 compose-away.
 - F4 row-10 arrester `comfort_delay_active` — grepped during build.
 
-Zero call-site changes. All four consumers inherit the denominator
-change transparently. Trust vs display: all four are trust
+- **`hvac_override.py:2319`** — F4 row-10 arrester calls `zm.conditioning_retreat_ok` DIRECTLY inside a tri-state guard (`:2304-2340`) with a raw `any_room_hvac_occupied` fallback at `:2336` (REV 2, F3).
+- **`binary_sensor.py:914`** — `HVACOccupiedBinarySensor` per-room `established` attribute calls `is_zone_hvac_established` directly (display). Under REV-2 D2, every room's `established` attr in a zone reads False while ANY sibling room is transient — intended, and pinned by `test_room_established_attr_false_while_sibling_room_reloading` (REV 2, F2).
+
+Zero call-site changes. All consumers inherit the establishment change transparently. Trust vs display: all four are trust
 (actuation-gating). The diag attribute (D3) is the only display
 consumer of the new producer output — pure display, cannot influence
 retreat.
@@ -380,6 +387,13 @@ go RED for each:
 | `disabled_by is not None` predicate | remove | `test_live_zone_rooms_excludes_disabled_by_user` reds |
 | `_room_non_loaded_since.pop` on LOADED | remove | new `test_transient_room_recovers_after_load_clears_grace` reds |
 | WARN + NM emission | comment out | `test_transient_to_permanent_emits_one_warn_and_nm` reds |
+| REV-2 D2 step 2 (transient blocks) / AM-1 | revert to rev-1 formula `bool(live) and all(r in _hvac_seen for r in live)` | `test_reloading_room_previously_seen_blocks_establishment` reds |
+| REV-2 D2 step 4 coordinator-present conjunct (F4) | drop `r not in self._coordinator_absent_this_pass` | `test_loaded_entry_absent_coordinator_blocks_establishment` reds |
+| `_coordinator_absent_this_pass.add` in the coordinator-None branch (F4) | remove the add | `test_loaded_entry_absent_coordinator_blocks_establishment` reds |
+| Classification map (AM-2 / F5) | drop one state (e.g. SETUP_RETRY) from the map | `test_every_config_entry_state_is_classified` reds |
+| SETUP_RETRY immediate exclusion (F5) | reclassify SETUP_RETRY as transient | `test_setup_retry_room_excluded_immediately` reds |
+| enum-unavailable fallback (F7) | make the fallback return "not loaded" | `test_live_rooms_blocks_when_state_enum_unavailable` reds |
+| binary_sensor established attr (F2) | none — behaviour inherited; pin it | `test_room_established_attr_false_while_sibling_room_reloading` must pass and must red under the rev-1 formula |
 
 Every mutation is source-swap (not aggregate monkeypatch). Restore
 after each; run `find . -name '__pycache__' -type d -prune -exec rm
@@ -409,9 +423,17 @@ Add:
 - `test_transient_room_recovers_after_load_clears_grace`
 - `test_transient_to_permanent_emits_one_warn_and_nm`
 - `test_diag_reports_excluded_disabled_room`
+- (REV 2) `test_reloading_room_previously_seen_blocks_establishment`
+- (REV 2) `test_loaded_entry_absent_coordinator_blocks_establishment`
+- (REV 2) `test_every_config_entry_state_is_classified`
+- (REV 2) `test_setup_retry_room_excluded_immediately`
+- (REV 2) `test_live_rooms_blocks_when_state_enum_unavailable`
+- (REV 2) `test_room_established_attr_false_while_sibling_room_reloading`
+- (REV 2) `test_excluded_room_nm_emitted_from_async_producer_not_sync_gate`
 
-All new tests use an injected clock and an inline `ConfigEntryState`
-fixture (do NOT hand-copy the enum — import from HA).
+REMOVED in REV 2 (F5 reclassified SETUP_RETRY as immediately excluded): `test_live_zone_rooms_includes_setup_retry_within_grace` and `test_live_zone_rooms_excludes_setup_retry_past_grace` — replace with the same pair for `NOT_LOADED` (`test_live_zone_rooms_blocks_not_loaded_within_grace`, `test_live_zone_rooms_excludes_not_loaded_past_grace`), and update the grace-window mutation rows to name those tests.
+
+All new tests (REV 2, F13) patch `homeassistant.util.dt.utcnow` as imported by `hvac_zones` (the module calls `dt_util.utcnow()` directly at `:417/:486/:805`; there is no clock seam — use `unittest.mock.patch` on that attribute, not freezegun) and import `ConfigEntryState` from HA (never hand-copied).
 
 ---
 
@@ -546,3 +568,21 @@ channel/bucket used, with file:line — no "identified during build".
 is pre-existing; AM-1 neutralises its effect on the retreat gate for transient rooms. Reviewer D must still
 check whether any OTHER consumer of `any_room_hvac_occupied` (not via `conditioning_retreat_ok`) acts on that
 synthetic empty during a room reload.
+
+
+## REV 2 binding deltas (2026-09-26) — from plan review F1-F13, orchestrator-verified
+
+**Classification (supersedes AM-2 — F5):**
+| Class | States | Effect |
+|---|---|---|
+| EXCLUDED immediately | `disabled_by is not None` (any state), `SETUP_ERROR`, `MIGRATION_ERROR`, **`SETUP_RETRY`** | leaves the denominator; one WARN+NM on first observation |
+| TRANSIENT | `NOT_LOADED`, `SETUP_IN_PROGRESS`, `UNLOAD_IN_PROGRESS`, `FAILED_UNLOAD`, any unknown future member (+1 WARN), room absent from `_room_entry_by_name` | BLOCKS establishment; after `HVAC_LIVE_ROOM_TRANSIENT_GRACE_S` continuous → EXCLUDED (+WARN+NM) |
+| LIVE | `LOADED` | counts only if coordinator present on the latest pass AND in `_hvac_seen` |
+
+Why SETUP_RETRY is immediate (F5): HA enters it only after a setup attempt raised `ConfigEntryNotReady` — it is evidence of failure, and the grace dict is per-HA-start (not persisted), so a room stuck in SETUP_RETRY would otherwise re-arm a fresh grace at every restart and keep the fix INERT exactly during a restart storm (memory `project_reload_storm_refuted_restart_storm_live`).
+
+**Coordinator-presence conjunct (supersedes AM-1's entry-state-only rule — F4):** the hazard is driven by `coordinator is None` in the D1 producer, which can be true while the entry already reads LOADED. In `update_room_conditions`, the coordinator-None branch (the synthetic-empty `RoomCondition` path, `hvac_zones.py:616-641`) must add the room to a pass-scoped set `self._coordinator_absent_this_pass` (rebuilt at the start of each pass) before its `continue`; REV-2 D2 step 4 treats membership as blocking. Entry-state classification is the belt; coordinator presence is the braces.
+
+**AM-5 consumer list (F8) — Reviewer B must state per site whether the synthetic-empty during a room reload is acted on:** `hvac.py:2056` (row-4 fused read), `:2272`, `:2739-2741`, `:4190-4191`; `hvac_override.py:2336` (row-10 tri-state fallback); `hvac_predict.py:583` (F8), `:1386` (F9); `hvac_zones.py:701` (internal), `:751` (diag). Scope: this cycle fixes the retreat gate; any OTHER site that acts on the synthetic empty is recorded as a finding and carded, not silently widened into this build.
+
+**Reviews (Tier 2-DB + mandatory D):** A data-integrity/retreat-chokepoint preservation (byte-identical when every room is LOADED+present, which is today's live state); B cross-consumer trace incl. the F8 list and the `hvac_override.py:2304-2340` tri-state fallback; C per-site source mutation per the drill table; D adversarial completeness over the whole retreat surface including pre-existing code, with legal-sequence repros (room reload mid-night, slow room at boot, restart storm with a SETUP_RETRY room, disabled→re-enabled room, zone whose only live room is transient).
