@@ -2100,6 +2100,32 @@ cards:
     MANUALLY (tarball -> ~/.claude/skills/archify/, NOT the npx installer). doctor 15/15 ok; validate
     ok. Now a loadable skill. NOT wired into URA / not run against the repo. Update = re-pull+copy.'
 
+- id: HVAC-S10-DPM-VS-S1-1
+  title: 'S10 DPM raw setpoint write vs S1 preset write — race resolution before D9 enablement'
+  thread: hvac
+  status: planned
+  tier: tier-2
+  workstream: HVAC-W1-THERMOSTAT-DEFINITION
+  blocked_by: [HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1]
+  added_2026_09_27: 'Operator constraint: option (a) must not add a new EXCURSION_KIND or logic inside begin_excursion without a ruling ("not baked into borrow"); prefer (b)-style reads at S1.'
+  problem_solution:
+  - 'Problem: S10 DPM (hvac.py:3217) is a raw setpoint writer with no excursion row. Under Alt A (W1-B REV 7),
+    S1 may write over manual whenever no Alt-A gate is armed. Once switch.ura_hvac_coordinator_guest_mode_actuation
+    is enabled (D9), S10 and S1 will fight every 5-min tick on empty night zones: S10 writes custom preset ranges
+    (leaving Carrier in manual with the range setpoints); no gate (e) arms (no begin_excursion); S1 sees manual
+    + no gate + effective_preset=away and writes away, undoing S10 before D9 can compose the next tick.
+    Solution: EITHER (a) wrap S10 write in a begin_excursion(kind=DPM) with a short duration_s so gate (e) arms;
+    OR (b) extend gate (e) to read a per-tick _s10_write_this_tick flag set by S10 and cleared at cycle entry.
+    Neither adds funnel logic. D9 is dormant today (state-of-play §3.3, guest_mode_actuation off since 09-18),
+    so no live fight — this card gates on D9 enablement.'
+  origin: {date: '2026-09-27', gist: 'W1-B REV-7 non-goal — explicit exclusion this cycle, deferred fix'}
+  why: 'Blocks D9 enablement; without it Custom Preset Ranges storms Carrier every 5 min in empty night zones.'
+  next: 'Plan (Tier 2, one framing-disjoint review). Sibling of HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1;
+    coordinate both fixes before flipping guest_mode_actuation on.'
+  links:
+    related: [HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1, HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1, HVAC-W1-THERMOSTAT-DEFINITION]
+    context: 'Non-goal in W1-B; blocks D9. Both S10 and S1 are URA writers, so this is not a human-interaction issue.'
+  parsimony: {problem: 'S10 and S1 fight every tick on empty night zones once D9 enabled', verdict: BUILD, note: 'gate on D9 enablement'}
 - id: HVAC-W1-THERMOSTAT-DEFINITION
   rev5_2026_09_27: 'REV 5 committed 3ed9afda1: S1 manual guard replaced (Alt A, 4 gates: person-protected / arrester grace-compromise / arrester disabled=passive / live borrow row via _row_present_and_fresh). BORROW_LOCK collapsed into gate (e) (verified no window where nudge/compromise timers live without a fresh row). Provenance, reclaim delay, kill switch DROPPED; problem 4 closed-by-A. Operator constraint: nothing added to borrow code or emit_* funnels. Guard marked SUPERSEDED in state-of-play §9e + §10 C25 and bannered in 15 docs. NEXT: two Tier-3 plan reviews (completeness + build-prediction), reviewers read corrected state-of-play first, then build.'
   operator_decision_2026_09_27_manual_guard: 'APPROVED (operator): replace the v3.8.0 S1 manual guard (hvac_preset.py:214-216 "Don''t fight manual — that''s the arrester''s job"; design doc HVAC_COORDINATOR_DESIGN.md:934 "respect user") with: S1 may write over manual UNLESS (a) Temp Arrester Override active, (b) an immune-person hold is active, (c) the arrester is actively handling a genuine override for the zone (grace/compromise window), (d) arrester passive mode (pending verification of what passive promises). Operator: "Its outdated design. We know a lot more. We didn''t even know borrows would come back as manual then." Note (a) and (b) are near-identical today (operator is the only detectable immune person) but stay GENERALIZED. This replaces problem 1''s provenance machinery (URA-owned recognition, STRAND_WINDOW_S, learned profiles, D0 strand gate).'
