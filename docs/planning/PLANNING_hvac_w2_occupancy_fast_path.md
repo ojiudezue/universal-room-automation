@@ -1,5 +1,7 @@
 # PLANNING — W2 HVAC Occupancy Fast Path (shave the 5-min tick) — REV 4
 
+> **⚠️ SUPERSEDED DESIGN PREMISE (2026-09-27).** This document cites the S1 manual guard (`should_change_preset` refusing to write over `manual` — "Don't fight manual — that's the arrester's job", `hvac_preset.py:202-217`, v3.8.0) as design intent or as a load-bearing fact. The operator superseded that rule on 2026-09-27; W1-B replaces it with four gates (person-protected hold / arrester grace-compromise / arrester disabled / live borrow row). **Do not derive new designs from this doc's reasoning about the guard** — read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` §9e and §10 C25 first. NOTE (parked plan): its `should_change_preset` predicate references assume the old guard; re-check against §9e if revived.
+
 **STATUS 2026-09-26 (evening): PARKED by operator.** REV 4 failed its second plan review (4 HIGH). Replaced by setting the zone entry dwell to 0 (removes C18's second tick with no code; `hvac.py:2442` guard `dwell_minutes > 0`). Revive if measured entry latency p90 > 5 min or hot-entry complaints — see card HVAC-W2-OCCUPANCY-TRUTH.
 
 

@@ -1,5 +1,7 @@
 # Session Handoff — 2026-08-20 (verification round)
 
+> **⚠️ SUPERSEDED DESIGN PREMISE (2026-09-27).** This document cites the S1 manual guard (`should_change_preset` refusing to write over `manual` — "Don't fight manual — that's the arrester's job", `hvac_preset.py:202-217`, v3.8.0) as design intent or as a load-bearing fact. The operator superseded that rule on 2026-09-27; W1-B replaces it with four gates (person-protected hold / arrester grace-compromise / arrester disabled / live borrow row). **Do not derive new designs from this doc's reasoning about the guard** — read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` §9e and §10 C25 first.
+
 **Supersedes** `SESSION_HANDOFF_2026-08-20.md` (written 00:20 today, **now partly WRONG** — see §2).
 Board is source of truth (`docs/planning/kanban.data.yaml` → `KANBAN.md`); this doc carries the
 narrative, the **corrections**, and the open decisions.

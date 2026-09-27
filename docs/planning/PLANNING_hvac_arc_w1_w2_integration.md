@@ -1,5 +1,7 @@
 # PLANNING — HVAC arc W1 + W2 integration (the seams between the pieces)
 
+> **⚠️ SUPERSEDED DESIGN PREMISE (2026-09-27).** This document cites the S1 manual guard (`should_change_preset` refusing to write over `manual` — "Don't fight manual — that's the arrester's job", `hvac_preset.py:202-217`, v3.8.0) as design intent or as a load-bearing fact. The operator superseded that rule on 2026-09-27; W1-B replaces it with four gates (person-protected hold / arrester grace-compromise / arrester disabled / live borrow row). **Do not derive new designs from this doc's reasoning about the guard** — read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` §9e and §10 C25 first.
+
 *Orchestrator, 2026-09-26. READ `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` COMPLETELY FIRST.* Operator: "plan all of it so its lego pieces fit together or at least the w1 and w2." This doc owns the **contracts between** the piece-plans; each piece-plan owns its internals. Where a piece-plan conflicts with this doc, this doc wins and the piece-plan is amended.
 
 | Piece | Plan | Tier | Status |

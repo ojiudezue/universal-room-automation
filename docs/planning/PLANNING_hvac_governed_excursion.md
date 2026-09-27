@@ -1,5 +1,7 @@
 # PLANNING — Governed Thermostat Excursion Primitive (D2 + D3) — REV 6
 
+> **⚠️ SUPERSEDED DESIGN PREMISE (2026-09-27).** This document cites the S1 manual guard (`should_change_preset` refusing to write over `manual` — "Don't fight manual — that's the arrester's job", `hvac_preset.py:202-217`, v3.8.0) as design intent or as a load-bearing fact. The operator superseded that rule on 2026-09-27; W1-B replaces it with four gates (person-protected hold / arrester grace-compromise / arrester disabled / live borrow row). **Do not derive new designs from this doc's reasoning about the guard** — read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` §9e and §10 C25 first. NOTE: the rev-6 lease-gate strip was justified by the guard protecting borrows; under §9e that protection is the S1-side read of the borrow registry (gate e), not a revived lease.
+
 **Card:** `HVAC-GOVERNED-EXCURSION-1`
 **Tier:** **3** — delicate shared-primitive; invariant-critical; cost + comfort ripple; Bug Class #53 (one missed site defeats the guarantee).
 **Scope of this document:** D2 (primitive) + D3 (migration). D1 (observability columns on `ac_ramp_events` + settled callback) already shipped v5.86.0 and is an INPUT.

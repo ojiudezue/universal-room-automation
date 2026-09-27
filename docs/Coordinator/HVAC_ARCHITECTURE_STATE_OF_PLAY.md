@@ -2,6 +2,7 @@
 
 **Status:** forensic snapshot of `develop` @`5072deaaf` (2026-09-26 ~02:30 CDT) + live HA reads the same night.
 **W1-A Stage A SHIPPED v5.103.16 2026-09-26 (behaviour-neutral write governance; live-validated, `docs/readmes/README_v5.103.16.md`) — see §4.1 (new `emit_set_hvac_mode` funnel), §4.3 (`climate_write` ledger row).
+**⚠️ 2026-09-27 DESIGN CHANGE — the S1 "Don't fight manual — that's the arrester's job" guard (v3.8.0, `hvac_preset.py:202-217`) is SUPERSEDED (operator-approved) and is being replaced in W1-B. Read §9e before anything else in §6, §7 or §9.1.** Until W1-B ships, the old guard is still the RUNNING code; the docs that cite it as design intent are marked superseded.
 **Scope:** everything URA does with the thermostats — decide, write, borrow/return, read back — and the occupancy
 model that drives it. Covers releases v5.103.0 → v5.103.15 (v5.103.15 shipped + live-validated 2026-09-26).
 **Owner rule:** the operator (2026-09-26): *"every agent used in the rest of the arc reads [this] first completely
@@ -196,7 +197,7 @@ lockout, arrester, S1 — trusts `preset_mode`**, which is the lagging field (§
 | Primitive: `begin_excursion` snapshots pre-preset + pre-setpoints, persists `hvac_excursion_state` row | `hvac_excursion.py:766` |
 | `return_excursion` is **bookkeeping only** — drops row, logs outcome, surfaces restore failure (`[GOVERNED BORROW RESTORE FAILED]` + per-episode NM latch). **It performs NO wire writes: each call site emits its own (a) set_temperature → (b) set_preset_mode → (c) set_hvac_mode** | `hvac_excursion.py:871-1040` (docstring `:886-888`) |
 | Kinds: NUDGE, COMPROMISE, BANKING, PREHEAT, EGRESS_PAUSE (`HARD_RESET_PRESET_ASSERT` deliberately absent) | `hvac_excursion.py:94-104` |
-| Lease gate **stripped** (rev-6, 4× DO-NOT-SHIP: a stuck lease with no discharge is worse than the lockout it replaced) — do not rebuild it as designed | `PLANNING_hvac_governed_excursion.md` rev-6 banner |
+| Lease gate **stripped** (rev-6, 4× DO-NOT-SHIP: a stuck lease with no discharge is worse than the lockout it replaced) — do not rebuild it as designed. **2026-09-27:** its stated reason was that the S1 manual guard "protects [borrows] TODAY". With that guard superseded (§9e), W1-B replaces it with ONE S1-side READ of the existing borrow registry (`_row_present_and_fresh`, `hvac_excursion.py:562`), whose discharge is the row's own `stale_ts` bound + sweep + boot audit — no new lease, no change to borrow code | `PLANNING_hvac_governed_excursion.md` rev-6 banner; §9e |
 | Boot audit clears NUDGE/BANKING rows (NUDGE restores snapshot preset first) | `hvac_excursion.py:175+` (`async_startup_excursion_audit`) |
 | Soft nudge: `check_ac_reset` each cycle (`hvac.py:1745`); start S5 raises `target_high += nudge_size` (live **1.5 °F**) for `nudge_duration` (live **2 min**; const default 5); restore S6 raw setpoints → S7 snapshot preset (unconditional, blocking); settled verdict at `AC_NUDGE_RESTORE_SETTLE_DELAY_S = 180` (`hvac_const.py:672`) | `hvac_override.py:4339-4440`, `:4580-4650` |
 | Nudge cadence ~25 min (hold + 240 s eval delay + samples) — matches observed overnight/midday rhythm | `hvac_const.py:665`; live eval delay 240 |
@@ -210,13 +211,13 @@ lockout, arrester, S1 — trusts `preset_mode`**, which is the lagging field (§
 
 | Mechanism | Site | Effect on a manual hold sitting at the preset's own setpoints |
 |---|---|---|
-| S1 refuses to write a preset over `manual`: "Don't fight manual — that's the arrester's job" | `hvac_preset.py:212-217`; S1 logs `preset_change_locked_out` `hvac.py:2484-2539`; only bypass = forced vacancy/runtime away `:2481-2483` | locked out until the zone leaves manual |
+| S1 refuses to write a preset over `manual`: "Don't fight manual — that's the arrester's job" — **SUPERSEDED 2026-09-27 (§9e); still the running code until W1-B ships** | `hvac_preset.py:212-217`; S1 logs `preset_change_locked_out` `hvac.py:2484-2539`; only bypass = forced vacancy/runtime away `:2481-2483` | locked out until the zone leaves manual |
 | Arrester reverts only if setpoints moved ≥ `OVERRIDE_NORMAL_DELTA` 1 °F (severe 3 °F); +1 °F under coast | `hvac_const.py:531-532`; `hvac_override.py:3187-3203` | delta ≈ 0 → "within tolerance" → no revert |
 | Operator-immune hold (`CONF_HVAC_ARRESTER_IMMUNE_PERSONS`) sunset: next_activity / durable house state / 4 h | `hvac_const.py:189-198`; `hvac_override.py:713-811` | sunset hands back to the arrester — does NOT clear the hold (`:727-729`) |
 | Temp Arrester Override switch (live off), max 6 h | `hvac_const.py:205`; `switch.py:2429-2468` | same — hands back only |
 | Comfort Grace (live **20 min**; default 30) | `hvac_const.py:452-456` | grant expiry writes nothing (`hvac_override.py:2694-2716`) |
 | Suppression windows: temp 15 s (raised from 5 by HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1, 2026-09-26) / preset 120 s vs Carrier observed 42–79 s (schedule: 30-min poll + 5-min post-write guard, C16) | `hvac_override.py:133`, `:173`; preset-window pass-through `:2468-2482` | URA's own late echo → `override_detected` — for kind="temp" only past 15 s, but for kind="preset" the mid-window passthrough books a fresh transition INTO `manual` at ANY time inside the 120 s window (the restore-echo residual, W1-B problem 1) |
-| **Net:** no timeout releases the lockout; a URA-caused or stale `manual` at zero delta is **never reclaimed** except by a forced-away write | — | operator 2026-09-25: *"Without that knob, why would we not override? arrester is an override."* |
+| **Net (running code until W1-B):** no timeout releases the lockout; a URA-caused or stale `manual` at zero delta is **never reclaimed** except by a forced-away write. **Root cause (2026-09-27):** the guard assumed the arrester handles every manual, but the arrester declines URA-caused manuals at ~zero delta — so nobody owns them. W1-B fixes this at S1 (§9e) | — | operator 2026-09-25: *"Without that knob, why would we not override? arrester is an override."* |
 
 ---
 
@@ -255,8 +256,10 @@ S1 logs `preset_change_locked_out`, and `infinite_holds` keeps it. 1 failed rest
 an anonymous manual hold, and the following named pin is discarded or reverted (a named pin over an anonymous hold is
 discarded unless `resume` clears it first; the funnel decides whether to resume from `hold_activity`, which may not yet
 reflect the just-written manual hold; ha_carrier's shared post-write guard can be wiped early — C16). Fix direction (W1-B):
-**presets-only returns** (a return never creates a manual hold), and a manual hold that appears right after URA's own write
-at URA's written values is **URA-owned by provenance** → reclaim, never while a borrow is live. The "trust config
+**presets-only returns** (a return never creates a manual hold), and ~~a manual hold that appears right after URA's own write
+at URA's written values is **URA-owned by provenance** → reclaim~~ (**provenance DROPPED 2026-09-27** — replaced by the S1
+guard replacement in §9e, which reclaims any manual unless a person-protection hold, arrester grace/compromise, a disabled
+arrester, or a live borrow says otherwise). The "trust config
 `hold_activity`" coherence rule is WITHDRAWN — its premise is false for these strands.
 
 **9.2 URA cannot see its own setpoint/mode writes** (§4.3) — made every diagnosis on this surface fragile.
@@ -322,6 +325,24 @@ Per-room switches `switch.<room>_override_occupied` / `_override_vacant` (`switc
 
 ### 9d. W2 occupancy fast path — scope decided 2026-09-26
 Operator: "The HVAC signaling from rooms that is more immediate I expect to shave the 5m tick only for now." Scope: a room/zone HVAC-occupancy change triggers a (rate-limited, per-zone) decision cycle so HVAC no longer waits up to one `HVAC_DECISION_TICK` (5 min). NOTHING ELSE changes in that cycle — no dwell change (entry dwell stays 2 min), no hold/grace/tail change, no new retreat semantics, no override semantics. Rate limit exists because the 5-min tick is a Carrier cloud call-rate bound (`hvac_const.py:11-13`).
+
+### 9e. S1 manual guard SUPERSEDED — decided 2026-09-27 (binding)
+
+**The old rule.** `should_change_preset` (`hvac_preset.py:202-217`, v3.8.0, 2026-03-07): if the zone reads `manual`, S1 never writes a preset — "Don't fight manual — that's the arrester's job." Written before borrows existed and before we knew a raw setpoint write comes back from Carrier as a `manual` hold.
+
+**Why it is wrong now.** Operator 2026-09-27: *"Its outdated design. We know a lot more. We didn't even know borrows would come back as manual then."* Measured consequences: every URA-caused manual (borrow returns, nudge echoes, compromises) locked S1 out, because the arrester declines manuals at ~zero delta (§7) — nobody owned them (§9.1 strands 88–661 min; 22/22 echo lockouts, v5.103.17). The guard also became an UNDOCUMENTED dependency: it was the only thing stopping S1 from writing over live borrows, which is why the governed-excursion lease gate was stripped as "zero value" (2026-08-21).
+
+**The replacement (W1-B REV 5, Alt A, `PLANNING_hvac_w1b_thermostat_definition.md` §5.P1).** S1 takes a zone out of `manual` to its target preset UNLESS one of four gates holds for that zone:
+- **(a/b) person-protected hold:** Temp Arrester Override switch ON, OR any immune-person hold active (generalised over all immune persons).
+- **(c) arrester grace / compromise** in flight for the zone (`_override_active` / `_compromise_timers`).
+- **(d) arrester DISABLED ("passive mode"):** `switch.ura_hvac_coordinator_override_arrester` OFF — the arrester still books `override_detected` (`mode=passive`) but never reverts (`hvac_override.py:2897`, `:3172-3186`; README_v3.9.0), so S1 must keep respecting manual. Operator normally runs the arrester ON.
+- **(e) live borrow row** for the zone (`hvac_excursion._row_present_and_fresh`, all five kinds), bounded by the row's own `stale_ts` (duration + `EXCURSION_LEASE_SLACK_S`). Verified: every nudge/compromise timer is preceded by its `begin_excursion`, so the row covers the whole timer window.
+
+**Operator constraint:** the rule lives ONLY at the S1 decision site (plus the arrester's existing detection path reading gate (e) for the nudge-wins booking). Nothing added to borrow code (`begin_excursion` / `return_excursion`) or to the `emit_*` funnels; resume-then-pin is a Carrier quirk and stays.
+
+**What it makes unnecessary:** W1-B provenance / URA-owned-manual machinery + strand gate (dropped); the separate BORROW_LOCK (collapsed into gate (e)); former problem 4 (TAO/immune sunset reclaim — closed free: gate (a/b) drops, S1 reclaims next tick); after live validation — `hvac_excursion.py:629-650` HIGH-1 skip + parked D3 (DELETE), lockout ledger → `preset_change_deferred` (KEEP+WIRE), cards HVAC-PRESET-LOCKOUT-ESCAPE-1 + HVAC-ZONE1-MANUAL-OSCILLATION-1 (close). Cost: ~160 extra Carrier writes/day (nudge-return reclaims via resume-then-pin), covered by 120 s preset-kind suppression.
+
+**Doc hygiene:** every plan/design doc/README that cites the old guard as design intent carries a `SUPERSEDED 2026-09-27` banner pointing here. Do not re-derive designs from them.
 
 ## 10. CORRECTIONS LEDGER — claims that were WRONG (do not re-assert)
 
@@ -395,13 +416,21 @@ radar blip → retreat on an occupied room; transit was handled only by hallway 
 is Stage B, deferred"* — the operator's intended faster HVAC clock is that unbuilt Stage B. A CRIT-1-safe Stage B consults
 raw evidence ONLY at the arming edge (arm iff raw presence persisted ≥ N s), keeping the robust hold after arming.
 
+**C25 (2026-09-27) — WRONG DESIGN PREMISE: "S1 must not fight `manual` — that's the arrester's job" (v3.8.0,
+`hvac_preset.py:202-217`), and its downstream corollaries "fighting an operator-set manual is the arrester's job, not the
+excursion's" (`hvac_predict.py:1559-1560`) and "the lease gate has zero value because the manual lockout protects
+borrows" (`hvac_excursion.py:6-16`).** The arrester only handles manuals it books as a genuine human change at ≥ 1 °F
+delta; URA-caused manuals (borrow returns, echoes, compromises) fall through, so the guard locked URA out of its own zones
+(§9.1). And "protects borrows" meant the guard was an undocumented safety dependency. SUPERSEDED by §9e; do not cite the
+old guard as design intent, and do not remove it without the four §9e gates.
+
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 
 | Seq | Workstream / step | Problems (§9) | Tier / gate |
 |---|---|---|---|
 | 0 | **v5.103.15 live-room establishment** (SHIPPED 2026-09-26) — establishment over rooms actually running: excluded = disabled / SETUP_ERROR / MIGRATION_ERROR / SETUP_RETRY; transient (loading) rooms BLOCK; live rooms must be LOADED + coordinator-present + seen; all-dead zone never retreats. Plan `docs/planning/PLANNING_hvac_live_room_establishment.md` REV 2 | 9.6 | Tier 2-DB + mandatory D; fix-up pending (reviewers B/D: failed-room sticky exclusion, hold preset while transient-blocked & fused-empty, deleted-room exclusion, NM `location`, UTC grace clock) |
 | 1 | **W1-A Thermostat I/O governance, behaviour-neutral:** all 3 verbs through funnels (add `emit_set_hvac_mode`, migrate the 7 raw sites); ONE durable row per actual write (verb, zone, site, values, reason) | 9.2, part of 9.1 | Tier 2-DB |
-| 2 | **W1-B Thermostat definition (per-BRAND strategy)** — REV 4 scope (operator 2026-09-26): problems 1 (presets-only returns + provenance/URA-owned reclaim w/ decision-3 delay + kill switch), 2 (borrow lock: nudges + compromises only, 10-min cap; a human change ends the borrow with no return write), 3 (per-brand definition + generic default), 5 (reclaim delay + kill switch). Problem 4 (TAO/immune-expiry reclaim) PARKED on data; problem 6 (which feed confirms a write) DECOUPLED to `HVAC-WRITE-CONFIRMATION-ORACLE-1`. The withdrawn rule "manual counts as human only when CONFIG `hold_activity == manual`" (C20/C23) is NOT used. Plan `docs/planning/PLANNING_hvac_w1b_thermostat_definition.md`; nudge-start echoes fixed separately (v5.103.17) | 9.1, 9.5 | Tier 3; operator GO through deploy unless unexpected |
+| 2 | **W1-B Thermostat definition (per-BRAND strategy)** — **REV 5 scope (2026-09-27, commit `3ed9afda1`):** problem 1 = presets-only returns + **S1 manual-guard replacement (§9e, four gates)** — provenance, reclaim delay and kill switch DROPPED; problem 2 = borrows protected by gate (e) (registry row, `stale_ts` cap), **nudge wins** over a human change during the nudge (ruling 13), compromise UI max 15 min (ruling 14); problem 3 (per-brand definition + generic default). Problem 4 (TAO/immune-expiry reclaim) CLOSED by §9e; problem 6 (which feed confirms a write) DECOUPLED to `HVAC-WRITE-CONFIRMATION-ORACLE-1`. The withdrawn rule "manual counts as human only when CONFIG `hold_activity == manual`" (C20/C23) is NOT used. Plan `docs/planning/PLANNING_hvac_w1b_thermostat_definition.md`; nudge-start echoes fixed separately (v5.103.17) | 9.1, 9.5 | Tier 3; operator GO through deploy unless unexpected |
 | 3 | Measure one clean day on the W1-A write log: stranded-manual minutes by cause, before/after | — | read-only |
 | 4 | **W2 Occupancy truth:** night still-sleeper hold (in-suite stationary BLE + radar micro-blips extend the hold; zone-scoped), Jaya radar repair (physical), occupancy-triggered decision cycle (fast path, `82620357a`), hot entry, reloading-room placeholder readers, guest-as-zone-person | 9.3, 9.4, 9.5 | Tier 2-DB each |
 | 5 | Enable Custom Preset Ranges (D9) once W1-B removed its blockers | 9.7 | Tier 2 |
