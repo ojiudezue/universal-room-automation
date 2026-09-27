@@ -118,6 +118,15 @@ class TestProcessSensorJunkFloor:
         hist = coord._rate_detector._history[ENTITY]
         assert [v for _, v in hist] == [47.0]
 
+    @pytest.mark.asyncio
+    async def test_floor_boundary_value_is_recorded(self):
+        """5.0 is plausible (floor is exclusive) — it IS recorded."""
+        coord = _coord()
+        coord._numeric_sensors[ENTITY] = "humidity"
+        await coord._process_sensor(ENTITY, "5.0")
+        hist = coord._rate_detector._history[ENTITY]
+        assert [v for _, v in hist] == [5.0]
+
 
 class TestZoneChipJunkFloor:
     def test_junk_humidity_does_not_trip_or_drift(self):
@@ -130,7 +139,64 @@ class TestZoneChipJunkFloor:
         assert len(tripping) == 1
         assert "humidity 20%" in tripping[0][1]
 
+    def test_chip_floor_boundary_still_trips(self):
+        """5.0 is plausible (floor is exclusive) and < 25 → trips."""
+        tripping, _ = evaluate_zone_chip([_room(5.0)], zone_is_outdoor=False)
+        assert len(tripping) == 1
+        assert "humidity 5%" in tripping[0][1]
+
     def test_chip_floor_zero_disables(self, monkeypatch):
         monkeypatch.setattr(safety_mod, "HUMIDITY_PLAUSIBLE_MIN_PCT", 0)
         tripping, _ = evaluate_zone_chip([_room(0.0)], zone_is_outdoor=False)
         assert len(tripping) == 1
+
+
+# ---------------------------------------------------------------------------
+# Whole-house SafetyAlertBinarySensor._get_alerts (aggregation.py)
+# ---------------------------------------------------------------------------
+
+
+def _house_alert_sensor(monkeypatch, humidity):
+    """Bare SafetyAlertBinarySensor wired to one fake room coordinator."""
+    import sys
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from test_zone_safety_alert import _install_aggregation_mocks
+
+    _install_aggregation_mocks()
+    stale = sys.modules.get("custom_components.universal_room_automation.aggregation")
+    if stale is not None and not hasattr(stale, "SafetyAlertBinarySensor"):
+        del sys.modules["custom_components.universal_room_automation.aggregation"]
+    from custom_components.universal_room_automation import aggregation
+    from custom_components.universal_room_automation.const import (
+        STATE_HUMIDITY,
+    )
+
+    room = SimpleNamespace(
+        entry=SimpleNamespace(data={"room_name": "Living Room"}, options={}),
+        data={STATE_HUMIDITY: humidity},
+    )
+    monkeypatch.setattr(aggregation, "_get_room_coordinators", lambda hass: [room])
+    inst = object.__new__(aggregation.SafetyAlertBinarySensor)
+    inst.hass = MagicMock()
+    inst.hass.states.get.return_value = None
+    return inst
+
+
+class TestHouseSafetyAlertJunkFloor:
+    def test_junk_humidity_no_house_alert(self, monkeypatch):
+        inst = _house_alert_sensor(monkeypatch, 0.0)
+        assert [a for a in inst._get_alerts() if a["type"] == "humidity"] == []
+
+    def test_real_low_humidity_house_alert_too_dry(self, monkeypatch):
+        inst = _house_alert_sensor(monkeypatch, 20.0)
+        hum = [a for a in inst._get_alerts() if a["type"] == "humidity"]
+        assert len(hum) == 1
+        assert hum[0]["issue"] == "too_dry"
+
+    def test_house_alert_floor_boundary_still_too_dry(self, monkeypatch):
+        inst = _house_alert_sensor(monkeypatch, 5.0)
+        hum = [a for a in inst._get_alerts() if a["type"] == "humidity"]
+        assert len(hum) == 1
+        assert hum[0]["issue"] == "too_dry"
