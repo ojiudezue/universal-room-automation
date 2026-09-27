@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: 2026-09-26
+  last_reconciled: 2026-09-27
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -2713,7 +2713,8 @@ cards:
 - id: HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1
   disposition_2026_09_26_groom: 'BUILT 1ca21dddb (feature/echo-ttl): SUPPRESS_TTL_SECONDS 5 -> 15 (operator-approved simplest fix; value-matched last-write record deferred to W1-B). Review A SHIP: covers all 24 S5 nudge-start echoes + 3 S3 compromise + 1 S12 pre-cool echo (~28 of ~35 URA self-caused false overrides); added human blind time only ~0.3-2.5 s per write (after the echo lands a human touch is manual->manual, never booked), ~30 s/day zone_1; named-preset human changes never booked either way. Review B SHIP-WITH-RESIDUAL, causal chain proven: echo booked -> _handle_normal_override (NM medium alert, _override_active, 5-min grace) -> +300 s S3 compromise raw set_temperature creates the Carrier manual hold -> +591-597 s tick logs preset_change_locked_out (22/22) -> +600 s S4 revert. Nudge restore itself completed 22/24. Fix removes the chain: ~22 lockouts, ~24 false NM alerts, ~48 Carrier writes per week. RESIDUALS (W1-B problem 1, value-matched last-write record): post-restore zero-delta manual strands (8 rows incl. §9.1 long strands 264779/268232/269742); restore echoes booked under kind=preset pass-through (263659/263713/267239); late echoes 32 s/42 s; S12 pre-cool window stamped before the wire write (263356 at 15.8 s, unverified).'
   title: The arrester books Carrier's echo of URA's OWN nudge as a human override (46% of override_detected), then URA locks itself out — the main zone_1 lockout mechanism
-  status: waiting_operator
+  status: shipped_organic
+  shipped_version: v5.103.17
   thread: hvac
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
   created: '2026-09-26'
@@ -16163,8 +16164,8 @@ cards:
   title: Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold
     into one occupancy bucket)
   thread: presence
-  status: waiting_operator
-  shipped_version: v5.101.0
+  status: shipped_organic
+  shipped_version: v5.103.17
   ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (room_name_exists guard in async_step_room_setup config_flow.py:1122/1129 + strings.json:465). Moves review->shipped_organic at deploy.'
   updated: '2026-09-27 02:40'
   verify_2026_09_27: 'VERIFIED (overnight 2026-09-27): still NOT deployed (HA manifest reads v5.103.16). README_v5.103.17 is written and names this card. "Tomorrow" in the old next (09-12) is long stale. The one remaining step is the deploy, which is an operator-timed restart, so moved review -> waiting_operator.'
