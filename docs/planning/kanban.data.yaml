@@ -9,6 +9,16 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'WIFI-ACTUATOR-FLEET-FLAP-1@2026-09-27T02:10:48'
+    at: '2026-09-27T02:10:48'
+    outcome: measured
+    headline: 'New finding: about 100 Wi-Fi lights, switches and plugs (Shelly, Tuya, Sonoff, LIFX…) drop offline roughly 30 times a day each, even on days with no HA restart. A light command sent during a dropout does nothing. Carded; Im now checking (read-only) whether they cluster on one access point, which would make it a network fix, not code.'
+    acknowledged: false
+  - fid: 'RECEIVING-ROOM-MOTION-DEAD-1@2026-09-27T02:10:47'
+    at: '2026-09-27T02:10:47'
+    outcome: done
+    headline: 'Receiving Room motion sensor is NOT dead. Its online (its light readings update all day), and it did fire the one time this week someone clearly used the room (Thursday 11:25, alongside a 1.5 kW load on that rooms outlets). The room is just rarely used; its lights were never switched on all week. Closed.'
+    acknowledged: false
   - fid: 'PERIMETER-DETECTION-WENT-DARK-1@2026-09-27T02:05:03'
     at: '2026-09-27T02:05:03'
     outcome: escalated
@@ -934,6 +944,44 @@ meta:
       plus a count shown at session start so regrowth is visible instead of being noticed by accident
       nine days later.'
 cards:
+- id: WIFI-ACTUATOR-FLEET-FLAP-1
+  title: About 80 Wi-Fi lights, switches and plugs keep dropping offline dozens of times a day, so a light command can land while the device is gone
+  thread: presence
+  status: investigating
+  created: '2026-09-27 02:50'
+  updated: '2026-09-27 02:50'
+  refinement_status: initial
+  approval: implied
+  tags: [measure-before-build, audit-first, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: many of the house''s Wi-Fi light switches, dimmers and plugs (Shelly, Tuya, Sonoff and others) are not steadily online. They drop to "unavailable" and come back, typically every 20-60 minutes, all day. A turn-on or turn-off that URA sends during one of those gaps does nothing, which looks like "the automation broke" when the device was just away. Solution: first find out whether this is one bad access point or area (fixable on the network side, no code), and check whether URA''s existing re-apply-on-return logic already covers the missed commands; only then decide if anything in URA needs to change.'
+  origin:
+    date: '2026-09-27'
+    gist: 'Mid-run discovery in the 2026-09-27 overnight pass while verifying RECEIVING-ROOM-MOTION-DEAD-1: both Receiving Room light actuators showed 38-96 unavailable events per day, and a fleet query showed it is house-wide.'
+  why: 'CLAUDE.md troubleshooting already says a dead actuator masquerades as a URA regression. This measures that the "dead" state is not rare: it is chronic and cyclic for ~80 Wi-Fi devices. That turns a troubleshooting note into a standing reliability cost.'
+  measured_2026_09_27: 'One-shot, read-only (recorder states x core.entity_registry/device_registry), over 3 CLEAN days with no HA restart (09-22 00:00 to 09-25 00:00 CDT): 1,104 devices logged at least one unavailable; 263 logged 10 or more (median 92 per device over 3 days, about 30 a day). By manufacturer: Enphase 68 (the known Envoy flapping, ENVOY-FLAKINESS-181243-1), Frigate 24 (the Frigate freeze and outage, PERIMETER-DETECTION-WENT-DARK-1), Rain Bird 23 (chronic Wi-Fi flapper, see APPLIANCE-COST-DEFERRAL-1), Ubiquiti 22 (cameras and APs themselves), then the Wi-Fi actuator fleet: Shelly 41, Tuya 19, Olibra 12, Havells 10, Sonoff 9, AC Infinity 6, LIFX 6, TP-Link 3. Worst actuator: Dining2 Shelly 2PM Gen4, 446 unavailable events in 3 days. Receiving Room switch_shelly1pmgen4: 38-56 a day on normal days. So, after removing the already-carded Enphase/Frigate/RainBird, about 100 Wi-Fi actuator devices flap chronically. NOT yet measured: which AP each one hangs off (UniFi MCPs failed to connect, uvx not on PATH), and whether any URA command actually landed in a gap.'
+  constraints:
+  - 'Network-side first. Do not build URA retry or reload machinery before the AP/area correlation is known. A bad AP is an operator fix with zero code.'
+  - 'URA already has mitigations: sensor.<room>_unavailable_entities now lists actuators (sensor.py:1983 unavailable_actuators), and automation.py has an ActuatorReconciler. Check their coverage before proposing anything new (BACKLOG "Offline-actuator visibility + recovery" D1/D2/D3).'
+  parked_alts:
+  - 'D3 reload-as-recovery from the BACKLOG item: rejected for now. A reload does not help a device that is off Wi-Fi, and with ~100 flappers an auto-reload would be a storm.'
+  refinement: []
+  knobs: []
+  rank:
+    value: 5
+    time_criticality: 3
+    effort: 2
+  parsimony:
+    problem: About 100 Wi-Fi actuator devices go unavailable ~30 times a day each on days with no HA restart.
+    verdict: MEASURE (not yet gated)
+  next: 'MEASURE (me): (1) map the ~100 flapping Wi-Fi actuators to their UniFi AP and signal (net-ops agent or the unifi MCP once uvx is on PATH): one AP or area means a network fix, an operator DO; (2) count URA light commands in the last 7 days that were sent while the target was unavailable, and whether the ActuatorReconciler re-applied them on return. Then escalate: network DO for the operator, or close as mitigated.'
+  links:
+    related: [ENVOY-FLAKINESS-181243-1, PERIMETER-DETECTION-WENT-DARK-1, APPLIANCE-COST-DEFERRAL-1, RECEIVING-ROOM-MOTION-DEAD-1, OC-STUCK-SENSOR-GENERALIZE-1]
+    context: 'Enphase, Frigate and RainBird are the non-actuator flappers in the same measurement and already have their own cards, so they are excluded here. RECEIVING-ROOM-MOTION-DEAD-1 is where this was spotted. OC-STUCK-SENSOR-GENERALIZE-1 is the sensor-side fleet-health surface; this card is the actuator side.'
+  refs:
+  - docs/BACKLOG.md "Offline-actuator visibility + recovery" (2026-06-30)
+  - custom_components/universal_room_automation/sensor.py:1983
+  adjacency_sweep_2026_09_27: 'Swept: board titles and why fields (fleet, wifi, AP, network, unavailable): no duplicate. DIMMER-REBOOT-1 (done) was one Shelly rebooting; ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1 (done) was URA''s own selects. BACKLOG: "Offline-actuator visibility + recovery" is ADJACENT: that item was one outage event plus its D1 visibility / D2 reconcile mitigations, and D1 looks shipped (sensor.py:1983). B-2026-08-04-2 fleet rot covers SENSORS, not actuators. No PLANNING/AUDIT doc found on Wi-Fi fleet availability. Verdict: NEW, linked.'
 - id: HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1
   disposition_2026_09_26_groom: 'SOAK EXIT DONE. v5.103.8 shipped the knob (CONF_HVAC_VACANCY_HOLD[_NIGHT], room options Climate Backstop) + retreat_reason + coast dwell attrs, live-validated 09-18. Discriminator met: retreat reasons flow on real episodes since 09-18: house_state_transition 224, vacant_past_grace 202, energy_shed_cap_deferred_occupied 6, runtime_exceeded 4, energy_shed_cap_reached 3, stale_occupancy 2. Residual (D5 entry-dwell tombstone removal) is a 1-line cleanup — folded into the next HVAC build brief, no card.'
   workstream: HVAC-W4-ARC-CLOSURE
@@ -2542,12 +2590,13 @@ cards:
   next: 'PARKED. Revive if: (a) measured zone flip/entry data after people return shows transits materially flipping zones (then the lever is a CRIT-1-safe arming-edge gate, card HVAC-ENTRY-DWELL-ROOM-CLOCK-1), or (b) energy analysis shows late retreats cost materially; then per-room-type tails from the audit table, sized together with the vacancy grace.'
 - id: RECEIVING-ROOM-MOTION-DEAD-1
   title: Receiving Room motion sensor looks dead — 2 ON events in 7 days while a phone reported a person in that room
-  status: investigating
+  status: done
   thread: presence
   created: '2026-09-26'
-  updated: '2026-09-26 18:40'
+  updated: '2026-09-27 02:45'
+  verified_2026_09_27: 'OVERNIGHT 2026-09-27, VERDICT: REFUTED (sensor not dead; the room is low-traffic). Evidence: (1) Config: the rooms only motion/presence input is binary_sensor.occupancy_lux_temp_humidity_hobeian_receiving_presence (HOBEIAN Zigbee mmWave via MQTT), timeout 300 s, scanner_areas [receiving_room]. (2) The device is ONLINE: its illuminance sensor updates all day (0 at night, 20-500 lux in daylight, hundreds of rows), battery 100, sensitivity 3, fading_time 30. (3) The 2 ON events in 7 days (09-25 11:25 and 11:46) line up with the one clear sign of a human in the room this week: a 1.2-1.5 kW load on the rooms plug circuit at 09-25 11:00-12:00. So it fires when someone is there. (4) The rooms lights (dimmer_shellyplus_wifi_receiving2 and switch_shelly1pmgen4_wifi_receivingroom) were never switched ON in 7 days. Nobody used the room at night. The phone that "reported a person there" is room-level BLE, which is noisy near a shared wall; it is not ground truth. Not measured, and left open as a cheap follow-up if it matters: whether sensitivity 3 misses a still person. SIDE FINDING: both Receiving Room light actuators drop to unavailable 38-96 times a DAY (Wi-Fi). Measuring that across the house found it is fleet-wide, so it was carded as WIFI-ACTUATOR-FLEET-FLAP-1 and not kept here.'
   origin: 'Found by the raw-evidence gap probe 2026-09-26 (AUDIT_hvac_raw_evidence_gaps_2026_09_26.md, could-not-measure section).'
-  next: 'VERIFY (me): read Receiving Room config (motion/presence sensors), each sensor''s live state + battery/availability + 7-day ON count, and Bermuda area history for that room -> if dead, operator DO (battery / re-pair / replace) with a card update; if alive, record the room as low-traffic and close.'
+  next: 'NONE - refuted. The sensor is alive; the room is simply rarely used. Fleet-wide finding carried to WIFI-ACTUATOR-FLEET-FLAP-1.'
 - id: HVAC-WRITE-CONFIRMATION-ORACLE-1
   title: Which Carrier feed confirms that a URA write took? (problem 6, decoupled from W1-B) — measurement-only investigation
   status: investigating

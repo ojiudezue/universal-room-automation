@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-26T18:20:24-05:00_ - _Data commit: `740965644d7f`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-27T02:05:11-05:00_ - _Data commit: `6b8a3e1599fc`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -19,7 +19,7 @@ _Generated: 2026-09-26T18:20:24-05:00_ - _Data commit: `740965644d7f`_ - _last_r
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 4 |
 | 🅿️ Parked | 68 |
-| ✅ Done | 224 |
+| ✅ Done | 225 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -29,7 +29,22 @@ _(none)_
 ## 🔬 Investigating (6)
 _measuring; truth not yet known_
 
-### `HVAC-ZONE1-MANUAL-OSCILLATION-1` - zone_1 sits in manual for hours because a genuine Carrier manual hold forms right after URA's own borrow return and URA then locks itself out. The Bryant-schedule mechanism in the old title was REFUTED (state of play C2 and C20). The hold's exact cause is still unverified and is measured by W1-B's D0 probe. — _#1 · WSJF 3.4 · v8 tc7 u2 /e5_
+### `WIFI-ACTUATOR-FLEET-FLAP-1` - About 80 Wi-Fi lights, switches and plugs keep dropping offline dozens of times a day, so a light command can land while the device is gone — _#1 · WSJF 5.0 · v5 tc3 u2 /e2_
+thread: **presence** - status: **investigating** - approval: **implied**
+_created 2026-09-27 02:50 · initial_
+- **Problem / Solution:**
+  - Problem: many of the house's Wi-Fi light switches, dimmers and plugs (Shelly, Tuya, Sonoff and others) are not steadily online. They drop to "unavailable" and come back, typically every 20-60 minutes, all day. A turn-on or turn-off that ...
+- **Origin:** 2026-09-27 - Mid-run discovery in the 2026-09-27 overnight pass while verifying RECEIVING-ROOM-MOTION-DEAD-1: both Receiving Room light actuators showed 38-96 unavailable events per day, and a fleet query showed it is house-wide.
+- **Why:** CLAUDE.md troubleshooting already says a dead actuator masquerades as a URA regression. This measures that the "dead" state is not rare: it is chronic and cyclic for ~80 Wi-Fi devices. That turns a troubleshooting note into a standing re...
+- **Next:** MEASURE (me): (1) map the ~100 flapping Wi-Fi actuators to their UniFi AP and signal (net-ops agent or the unifi MCP once uvx is on PATH): one AP or area means a network fix, an operator DO; (2) count URA light commands in the last 7 day...
+- **Tags:** measure-before-build, audit-first, no-fabrication-verify
+- **Parsimony:** [MEASURE (not yet gated)] About 100 Wi-Fi actuator devices go unavailable ~30 times a day each on days with no HA restart.
+- **Refs:** docs/BACKLOG.md "Offline-actuator visibility + recovery" (2026-06-30); custom_components/universal_room_automation/sensor.py:1983
+- **Forensic keys (2):**
+  - `measured_2026_09_27`: One-shot, read-only (recorder states x core.entity_registry/device_registry), over 3 CLEAN days with no HA restart (09-22 00:00 to 09-25 00:00 CDT): 1,104 devices logged at least one unavailable; 263 logged 10 or more (median 92 per devi...
+  - `adjacency_sweep_2026_09_27`: Swept: board titles and why fields (fleet, wifi, AP, network, unavailable): no duplicate. DIMMER-REBOOT-1 (done) was one Shelly rebooting; ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1 (done) was URA's own selects. BACKLOG: "Offline-actuator...
+
+### `HVAC-ZONE1-MANUAL-OSCILLATION-1` - zone_1 sits in manual for hours because a genuine Carrier manual hold forms right after URA's own borrow return and URA then locks itself out. The Bryant-schedule mechanism in the old title was REFUTED (state of play C2 and C20). The hold's exact cause is still unverified and is measured by W1-B's D0 probe. — _#2 · WSJF 3.4 · v8 tc7 u2 /e5_
 thread: **hvac** - status: **investigating**
 _created 2026-09-16 · updated 2026-09-26 02:07 · refined_
 - **Problem / Solution:**
@@ -57,7 +72,7 @@ _created 2026-09-16 · updated 2026-09-26 02:07 · refined_
   - `operator_answer_2026_09_25`: ANSWER received (operator 2026-09-25): "I removed most schedules from Zone 1's therm as a test." -> the thermostat-side schedule WAS live (confirms MEASURED_2026_09_17 mechanism (a)). Removal time not yet known. First read (recorder, 7 d...
   - `schedule_removal_measured_2026_09_25`: DATED FROM THE RECORDER (operator did not recall): Bryant next_activity_time on zone_1 cycled 06:00/08:00/18:00/22:00 until 2026-09-20 11:39 CDT, then reads only 06:00 (zones 2/3 still run 4-entry schedules). Remaining schedule per opera...
 
-### `HVAC-HOLD-SIZING-ALL-ROOMS-1` - Should other rooms get longer HVAC vacancy holds (like Jaya's night 5400)? Measured all 43 rooms, all hours — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-HOLD-SIZING-ALL-ROOMS-1` - Should other rooms get longer HVAC vacancy holds (like Jaya's night 5400)? Measured all 43 rooms, all hours — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **investigating**
 _created 2026-09-26 · updated 2026-09-26 13:40_
 - **Why:** The night-sleeper probe that sized Jaya covered bedrooms at night only. Livability harm can also come from evening/day rooms where people sit still or step out briefly.
@@ -68,18 +83,13 @@ _created 2026-09-26 · updated 2026-09-26 13:40_
   - `measured_2026_09_26`: scripts/probes/hvac_room_return_probe.py (new, read-only; generalises the night-sleeper probe to all rooms and hours), 7 days, return window 30 min. Rooms whose HVAC occupancy dropped then returned within 30 min, and HARM = URA wrote the...
   - `verdict`: NO broad livability problem. One config change is worth it: Laundry day hold -> 1200 s (20 min) covers the ~15-min load-swap trip that caused 4 of 8 harms; cost = zone_3 conditioned up to ~20 min longer after a real laundry departure. Pa...
 
-### `NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26` - Natural experiment — house empty ~24 h (2026-09-26 14:16 CDT until first person returns); anything URA attributes to a person is a false positive — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26` - Natural experiment — house empty ~24 h (2026-09-26 14:16 CDT until first person returns); anything URA attributes to a person is a false positive — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **investigating**
 _created 2026-09-26 · updated 2026-09-26 14:30_
 - **Next:** MEASURE (me) after the first person returns: write + run scripts/probes/empty_house_experiment_probe.py over the window, record results per pre-registered item, then dispose each touched card with the evidence.
 - **Forensic keys (2):**
   - `window`: START 2026-09-26 14:20 CDT (19:20Z; last departure person.oji_udezue not_home 14:15:45 CDT; house_state away, all 4 persons not_home verified). END = first person.* -> home (read from recorder). Exclude the 15 min after START and the pre...
   - `preregistered`: Registered BEFORE looking at window data. (1) Rooms occupied / hvac_occupied by modality (mmWave/PIR/camera/BLE) -> each = phantom source (CHATTER-RATE-VS-BURST-GAP-1, kitchen mmWave, STUCK-SENSOR, BLE bleed). (2) census/unidentified cou...
-
-### `RECEIVING-ROOM-MOTION-DEAD-1` - Receiving Room motion sensor looks dead — 2 ON events in 7 days while a phone reported a person in that room — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **investigating**
-_created 2026-09-26 · updated 2026-09-26 18:40_
-- **Next:** VERIFY (me): read Receiving Room config (motion/presence sensors), each sensor's live state + battery/availability + 7-day ON count, and Bermuda area history for that room -> if dead, operator DO (battery / re-pair / replace) with a card...
 
 ### `HVAC-WRITE-CONFIRMATION-ORACLE-1` - Which Carrier feed confirms that a URA write took? (problem 6, decoupled from W1-B) — measurement-only investigation — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **investigating**
@@ -2132,8 +2142,15 @@ _created 2026-08-26 02:20 · updated 2026-09-26 02:40 · refined_
   - `DESCOPE_DECISION_2026_08_26`: Operator chose (B) DESCOPE. D1 (auto-release sweep + stale-boot banking release + HIGH-1) SPLIT OUT to a fresh clean build on feature/hvac-excursion-d1-only (building now, with the B3 re-entrancy guard + C-4 discriminating HIGH-1 tests +...
   - `status_note`: D1 split to HVAC-EXCURSION-D1-BANKING-RELEASE (feature/hvac-excursion-d1-only); this card = D2/D3/D4 park.
 
-## ✅ Done (224)
+## ✅ Done (225)
 _closed, evidence in refs_
+
+### `RECEIVING-ROOM-MOTION-DEAD-1` - Receiving Room motion sensor looks dead — 2 ON events in 7 days while a phone reported a person in that room — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **done**
+_created 2026-09-26 · updated 2026-09-27 02:45_
+- **Next:** NONE - refuted. The sensor is alive; the room is simply rarely used. Fleet-wide finding carried to WIFI-ACTUATOR-FLEET-FLAP-1.
+- **Forensic keys (1):**
+  - `verified_2026_09_27`: OVERNIGHT 2026-09-27, VERDICT: REFUTED (sensor not dead; the room is low-traffic). Evidence: (1) Config: the rooms only motion/presence input is binary_sensor.occupancy_lux_temp_humidity_hobeian_receiving_presence (HOBEIAN Zigbee mmWave ...
 
 ### `ENVOY-STREAM-TRUST-MEASURE-1` - We now have a third, much faster Envoy data source — measure whether it can be trusted before anything is allowed to depend on it — _WSJF 9.5 · v7 tc6 u6 /e2_
 thread: **energy** - status: **done** - approval: **explicit**
