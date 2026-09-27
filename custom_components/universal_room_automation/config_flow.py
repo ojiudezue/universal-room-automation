@@ -6103,7 +6103,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_HVAC_COMPROMISE_MINUTES, DEFAULT_COMPROMISE_MINUTES),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=5, max=120, step=5,
+                    # HVAC W1-B D4a (ruling 14): max 120 -> 15
+                    # (HVAC_COMPROMISE_MINUTES_MAX). A stored value above
+                    # the ceiling is clamped on read at the decision
+                    # consumer (`_read_hvac_compromise_minutes`).
+                    min=5, max=15, step=5,
                     unit_of_measurement="min",
                     mode=selector.NumberSelectorMode.SLIDER,
                 )

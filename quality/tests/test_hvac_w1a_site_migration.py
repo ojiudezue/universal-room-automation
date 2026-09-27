@@ -252,7 +252,9 @@ async def test_S6_nudge_restore_setpoint_wire_and_row():
         f"{[json.loads(r['details_json'])['site'] for r in _climate_write_rows(hass)]}"
     )
     assert d["verb"] == "set_temperature"
-    assert d["reason"] == "soft_nudge_setpoint_restore"
+    # HVAC W1-B D2.4: no snapshot preset (None) = HUMAN_MANUAL -> the raw
+    # setpoint restore fires with the `human_manual_` reason prefix (C1).
+    assert d["reason"] == "human_manual_soft_nudge_setpoint_restore"
     assert d["wire_ok"] is True
 
 
@@ -975,7 +977,9 @@ async def test_S7_nudge_restore_preset_forwards_excursion_id():
 
     row_s6, d6 = _find_climate_write_by_site(hass, "S6_nudge_restore_setpoint")
     row_s7, d7 = _find_climate_write_by_site(hass, "S7_nudge_restore_preset")
-    assert row_s6 is not None and d6["excursion_id"] == "nudge:zone_a:xyz123"
+    # HVAC W1-B D2.4: the token snapshot is NAMED ("sleep") -> presets-only
+    # return: NO S6 raw setpoint row; the S7 pin carries the excursion_id.
+    assert row_s6 is None, "named snapshot: S6 raw setpoint restore must be dropped"
     assert row_s7 is not None and d7["excursion_id"] == "nudge:zone_a:xyz123"
 
 

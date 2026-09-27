@@ -358,7 +358,36 @@ FACE_ARRIVAL_COOLDOWN_SECONDS: Final = 60
 # ============================================================================
 
 DEFAULT_MAX_SLEEP_OFFSET: Final = 1.5  # F
-DEFAULT_COMPROMISE_MINUTES: Final = 30
+# HVAC W1-B D4a (ruling 14, 2026-09-27): compromise default 30 -> 15 min and a
+# named UI/read ceiling. RUNG 1 (module constant, review-required) — the cap
+# bounds how long a compromise borrow (gate (e) row, S3) can hold a zone
+# before S4 reverts; longer than the cap is a footgun, not a preference.
+DEFAULT_COMPROMISE_MINUTES: Final = 15
+HVAC_COMPROMISE_MINUTES_MAX: Final = 15
+
+
+def _read_hvac_compromise_minutes(options: dict) -> int:
+    """W1-B D4a: CLAMP-ON-READ for the compromise minutes option.
+
+    Single install (no migration): a stored value above the ceiling is
+    clamped at the ONE decision consumer (`__init__.py` HVACCoordinator
+    construction). Reversible, idempotent. Malformed values fall back to
+    the default.
+    """
+    try:
+        raw = int(options.get(CONF_HVAC_COMPROMISE_MINUTES, DEFAULT_COMPROMISE_MINUTES))
+    except (TypeError, ValueError):
+        raw = DEFAULT_COMPROMISE_MINUTES
+    return min(HVAC_COMPROMISE_MINUTES_MAX, raw)
+
+
+# HVAC W1-B §5.P5 — S1 reclaim-rate anomaly trip-wire. RUNG 1 (module
+# constant, review-required): more than N S1 manual write-throughs on ONE
+# zone inside the window means something keeps re-creating a manual hold
+# faster than S1 reclaims it (a fight), which is a defect to surface, not a
+# knob to tune. Kill-switch: N <= 0 disables the trip-wire.
+S1_RECLAIM_RATE_LIMIT_N: Final = 3
+S1_RECLAIM_RATE_WINDOW_S: Final = 30 * 60  # seconds; 30 minutes
 DEFAULT_AC_RESET_TIMEOUT: Final = 10  # minutes
 DEFAULT_FAN_ACTIVATION_DELTA: Final = 2.0  # F
 DEFAULT_FAN_HYSTERESIS: Final = 1.5  # F

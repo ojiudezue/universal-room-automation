@@ -11,6 +11,7 @@ v3.17.0: Zone Intelligence — vacancy management, duty cycle, stale failsafe,
 from __future__ import annotations
 
 import asyncio
+import time
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -34,6 +35,11 @@ from .hvac_const import (
     HVAC_DECISION_TICK,
     COMFORT_SOC_FLOOR_PCT,
     COMFORT_GRACE_MIN,
+    # HVAC W1-B: P2 classifier thresholds + §5.P5 reclaim-rate trip-wire.
+    OVERRIDE_NORMAL_DELTA,
+    OVERRIDE_COAST_TOLERANCE_BONUS,
+    S1_RECLAIM_RATE_LIMIT_N,
+    S1_RECLAIM_RATE_WINDOW_S,
     CONF_HVAC_ARRESTER_ENABLED,
     DEFAULT_ARRESTER_ENABLED,
     DEFAULT_MAX_OCCUPANCY_HOURS,
@@ -162,7 +168,8 @@ class HVACCoordinator(BaseCoordinator):
         self,
         hass: HomeAssistant,
         max_sleep_offset: float = 1.5,
-        compromise_minutes: int = 30,
+        # HVAC W1-B D4a (M11): default 30 -> 15 (HVAC_COMPROMISE_MINUTES_MAX).
+        compromise_minutes: int = 15,
         ac_reset_timeout: int = 10,
         fan_activation_delta: float = 2.0,
         fan_hysteresis: float = 1.5,
@@ -253,6 +260,10 @@ class HVACCoordinator(BaseCoordinator):
             enabled=arrester_enabled,
         )
         self._override_arrester.ac_reset_enabled = ac_reset_enabled
+        # HVAC W1-B §5.P1 (Also-1): PresetManager is built before the
+        # arrester, so the S1 manual-rule gates are injected here. Until
+        # this line runs `should_change_preset` fails CLOSED on `manual`.
+        self._preset_manager.set_arrester(self._override_arrester)
         # Arrester Operator-Immunity: seed immune-persons list. Options-flow
         # edits refresh via set_immune_persons() from the options update
         # handler (mirrors the CM options-write-back pattern).
@@ -429,6 +440,8 @@ class HVACCoordinator(BaseCoordinator):
         # Tier 1 review CRITICAL-1: wire backref so banking release path
         # sources the TRUE baseline from `_last_emitted_range`.
         self._predictor.set_hvac_coord(self)
+        # HVAC W1-B gate (e): BANKING / PREHEAT tokens live on the predictor.
+        self._preset_manager.set_predictor(self._predictor)
         # feature/freeze-floor: arrester reads freeze_active off HC for the
         # setpoint chokepoint (mirror of the predictor backref above).
         self._override_arrester.set_hvac_coord(self)
@@ -442,6 +455,19 @@ class HVACCoordinator(BaseCoordinator):
             enabled=egress_pause_enabled,
         )
         self._egress_manager.set_hvac_coord(self)
+        # HVAC W1-B gate (e): EGRESS_PAUSE token / paused state.
+        self._preset_manager.set_egress_manager(self._egress_manager)
+
+        # HVAC W1-B D2.1 (M7 / N9a): zones S1 wrote THIS decision cycle.
+        # Reset at cycle ENTRY (`_run_decision_cycle`); consumed by the
+        # arrester's soft-nudge dispatch so a nudge never starts on a zone
+        # whose preset write is still settling.
+        self._zones_written_this_cycle: set[str] = set()
+        # HVAC W1-B §5.P5: per-zone monotonic timestamps of S1 manual
+        # write-throughs inside S1_RECLAIM_RATE_WINDOW_S + per-zone NM latch
+        # (fires once per episode; discharges when the rate drops below N).
+        self._s1_reclaim_ts: dict[str, list[float]] = {}
+        self._s1_reclaim_rate_latched: set[str] = set()
 
         # v4.0.15: Fan control toggle
         self._fan_control_enabled: bool = fan_control_enabled
@@ -595,19 +621,23 @@ class HVACCoordinator(BaseCoordinator):
         # display-only counter surfaced on HVAC diagnostics + read via
         # getattr in sensor.py (line ~12673). Pre-arrival dispatch is
         # driven by person state on live signals, not by this count.
-        # HVAC-PRESET-LOCKOUT-TELEMETRY-1: per-zone lockout episode start, and
-        # a daily count of episodes. Measures how often URA is REFUSED a preset
-        # write because the zone sits in an anonymous manual hold.
+        # HVAC-PRESET-LOCKOUT-TELEMETRY-1 -> HVAC W1-B §5.P1 (Also-3): per-zone
+        # DEFERRAL episode start and a daily count of episodes (renamed from
+        # `preset_lockouts_today`). Under Alt A a refusal is a DEFERRAL with a
+        # named gate — a legitimate holder (person-protected hold / arrester
+        # window / arrester disabled / live borrow) — not a lockout. Per-gate
+        # breakdown in `_preset_deferrals_by_gate`.
         self._preset_lockout_since: dict[str, Any] = {}
-        self._preset_lockouts_today = _DailyCounter(
-            name="hvac.preset_lockouts_today",
+        self._preset_deferrals_today = _DailyCounter(
+            name="hvac.preset_deferrals_today",
             persist=False,
             reason=(
-                "display/diagnostic counter; a lockout episode is re-detected "
+                "display/diagnostic counter; a deferral episode is re-detected "
                 "on the next decision tick after a restart, so resetting to 0 "
                 "loses only the running day's tally, not the condition"
             ),
         )
+        self._preset_deferrals_by_gate: dict[str, int] = {}
         self._pre_arrival_triggers_today = _DailyCounter(
             name="hvac.pre_arrival_triggers_today",
             persist=False,
@@ -1086,6 +1116,10 @@ class HVACCoordinator(BaseCoordinator):
                 _LOGGER.warning(
                     "HVAC: Failed to restore short-cycle counter: %s", e,
                 )
+        # HVAC W1-B D-P1 / D-P1a (N8): rehydrate the arrester's persisted
+        # records HERE — in the `async_setup` load path, BEFORE the first
+        # decision cycle below — so gate (a/b) is armed on S1's first tick.
+        await self._rehydrate_arrester_state(stored)
         self._install_short_cycle_listeners()
 
         # v3.18.5: Build person-zone map from zone configs
@@ -1606,9 +1640,141 @@ class HVACCoordinator(BaseCoordinator):
         async with self._decision_cycle_lock:
             await self._run_decision_cycle()
 
+    def _note_s1_reclaim(self, zone_id: str, zone_name: str, reason: str) -> None:
+        """HVAC W1-B §5.P5 — S1 reclaim-rate anomaly trip-wire.
+
+        More than `S1_RECLAIM_RATE_LIMIT_N` manual write-throughs on ONE
+        zone inside `S1_RECLAIM_RATE_WINDOW_S` means something keeps
+        re-creating a manual hold faster than S1 reclaims it (a fight) ->
+        one MEDIUM NM `s1_reclaim_rate_high` per episode. Discharge: the
+        rate drops back to <= N inside the window (latch clears; a later
+        burst notifies again). N <= 0 disables. Never raises.
+        """
+        try:
+            if S1_RECLAIM_RATE_LIMIT_N <= 0:
+                return
+            now_m = time.monotonic()
+            hist = self._s1_reclaim_ts.setdefault(zone_id, [])
+            hist.append(now_m)
+            cutoff = now_m - float(S1_RECLAIM_RATE_WINDOW_S)
+            hist[:] = [t for t in hist if t >= cutoff]
+            count = len(hist)
+            if count > S1_RECLAIM_RATE_LIMIT_N:
+                if zone_id in self._s1_reclaim_rate_latched:
+                    return
+                self._s1_reclaim_rate_latched.add(zone_id)
+                nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+                if nm is None:
+                    return
+                from .base import Severity  # noqa: PLC0415
+                self.hass.async_create_task(nm.async_notify(
+                    coordinator_id="hvac",
+                    severity=Severity.MEDIUM,
+                    title=f"HVAC S1 reclaim rate high: {zone_name}",
+                    message=(
+                        f"S1 took {zone_name} out of manual {count} times in the "
+                        f"last {S1_RECLAIM_RATE_WINDOW_S // 60} min (limit "
+                        f"{S1_RECLAIM_RATE_LIMIT_N}); something keeps re-creating "
+                        f"a manual hold (last reason={reason})."
+                    ),
+                    hazard_type="s1_reclaim_rate_high",
+                ))
+            else:
+                self._s1_reclaim_rate_latched.discard(zone_id)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("s1 reclaim-rate trip-wire failed", exc_info=True)
+
+    async def _rehydrate_arrester_state(self, stored: Any) -> None:
+        """HVAC W1-B D-P1 + D-P1a boot restore from `_zone_state_store`.
+
+        * `__immune_holds` -> `arrester.rehydrate_immune_holds` (ruling 17).
+        * `__tao_state` -> restore Temp Arrester Override ON iff
+          `now < expires_at` (decision 46, option (ii)); OFF otherwise.
+          The coordinator sets the ARRESTER internals (the boolean gate
+          (a/b) reads) and the switch UI follows the dispatcher signal —
+          one atomic seam, never a switch-ON / arrester-False window.
+        * Emits ONE `tao_restore_evaluated` ledger row with
+          `decision in {restore_on, restore_off_expired, no_persisted_state}`
+          (C-P1E). Never raises.
+        """
+        arr = self._override_arrester
+        if arr is None:
+            return
+        data = stored if isinstance(stored, dict) else {}
+        try:
+            arr.rehydrate_immune_holds(data.get("__immune_holds") or {})
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("HVAC: immune-hold rehydration failed", exc_info=True)
+
+        tao = data.get("__tao_state") or {}
+        if not isinstance(tao, dict):
+            tao = {}
+        persisted_expires = tao.get("expires_at")
+        persisted_started = tao.get("started_ts")
+        expires_at = None
+        started_at = None
+        try:
+            expires_at = (
+                dt_util.parse_datetime(str(persisted_expires)) if persisted_expires else None
+            )
+            started_at = (
+                dt_util.parse_datetime(str(persisted_started)) if persisted_started else None
+            )
+        except Exception:  # noqa: BLE001
+            expires_at = None
+        now = dt_util.now()
+        if expires_at is not None and expires_at.tzinfo is None:
+            expires_at = dt_util.as_local(expires_at.replace(tzinfo=dt_util.UTC))
+        if started_at is not None and started_at.tzinfo is None:
+            started_at = dt_util.as_local(started_at.replace(tzinfo=dt_util.UTC))
+        if expires_at is not None and now < expires_at:
+            try:
+                arr.restore_temp_arrester_override(started_at or now)
+                decision = "restore_on"
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("HVAC: TAO restore failed", exc_info=True)
+                decision = "restore_failed"
+        elif expires_at is not None:
+            decision = "restore_off_expired"
+        else:
+            decision = "no_persisted_state"
+        _LOGGER.info(
+            "HVAC: Temp Arrester Override boot evaluation: %s (expires_at=%s)",
+            decision, persisted_expires,
+        )
+        try:
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is not None:
+                import json as _json  # noqa: PLC0415
+                _coro = db.log_activity(
+                    timestamp=dt_util.utcnow().isoformat(),
+                    coordinator="hvac",
+                    action="tao_restore_evaluated",
+                    room=None,
+                    zone=None,
+                    importance="notable",
+                    description=f"tao_restore_evaluated decision={decision}",
+                    details_json=_json.dumps({
+                        "tao_persisted_started_ts": persisted_started,
+                        "tao_persisted_expires_at": persisted_expires,
+                        "decision": decision,
+                        "now": now.isoformat(),
+                    }, default=str),
+                    entity_id=None,
+                )
+                import inspect as _inspect  # noqa: PLC0415
+                if _inspect.iscoroutine(_coro):
+                    self.hass.async_create_task(_coro)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("tao_restore_evaluated ledger row failed", exc_info=True)
+
     async def _run_decision_cycle(self) -> None:
         """Inner decision cycle logic (called under lock)."""
         now = dt_util.now()
+        # HVAC W1-B D2.1 (N9a): same-tick set resets at cycle ENTRY, not at
+        # cycle end — an exception anywhere below cannot leave a zone
+        # marked "written" into the next tick.
+        self._zones_written_this_cycle = set()
 
         # Daily reset check
         today = now.date().isoformat()
@@ -1626,7 +1792,8 @@ class HVACCoordinator(BaseCoordinator):
             # internal UTC clock.
             self._vacancy_sweeps_today.rollover_if_needed()
             self._pre_arrival_triggers_today.rollover_if_needed()
-            self._preset_lockouts_today.rollover_if_needed()
+            self._preset_deferrals_today.rollover_if_needed()
+            self._preset_deferrals_by_gate = {}
             # CARRIER-STALE-POLL-REFRESH-1: roll day-scoped safety cap +
             # release the D3 suppress-for-day flag on the local-day hinge.
             self._carrier_reloads_today.rollover_if_needed()
@@ -1804,21 +1971,49 @@ class HVACCoordinator(BaseCoordinator):
         self._zone_state_save_counter += 1
         if self._zone_state_save_counter >= 5:
             self._zone_state_save_counter = 0
-            try:
-                snapshot = self._zone_manager.get_state_snapshot()
-                snapshot["__person_zone_map"] = self._person_zone_map
-                # HVAC-ANOMALY-BLIND-1 D2: persist short-cycle counter so
-                # a mid-day restart preserves accumulated per-zone counts
-                # and the rollover guard can distinguish "same day" from
-                # "new day" against the tracker's OWN date (not the
-                # RAM-only _last_daily_reset).
-                snapshot["__short_cycles_today"] = {
-                    "date": self._short_cycles_today_date,
-                    "counts": dict(self._short_cycles_today),
-                }
-                await self._zone_state_store.async_save(snapshot)
-            except Exception as e:
-                _LOGGER.warning("HVAC: Failed to save zone state: %s", e)
+            await self.async_save_zone_state()
+
+    # ------------------------------------------------------------------
+    # HVAC W1-B D-P1 / D-P1a — ONE snapshot builder for every save site
+    # ------------------------------------------------------------------
+    def _build_zone_state_snapshot(self) -> dict:
+        """Zone state + every side-key, so no save site can drop a key.
+
+        Side-keys: `__person_zone_map` (v3.18.5), `__short_cycles_today`
+        (HVAC-ANOMALY-BLIND-1 D2), `__immune_holds` (W1-B D-P1, ruling 17),
+        `__tao_state` (W1-B D-P1a, decision 46).
+        """
+        snapshot = self._zone_manager.get_state_snapshot()
+        snapshot["__person_zone_map"] = self._person_zone_map
+        # HVAC-ANOMALY-BLIND-1 D2: persist short-cycle counter so a mid-day
+        # restart preserves accumulated per-zone counts and the rollover
+        # guard can distinguish "same day" from "new day" against the
+        # tracker's OWN date (not the RAM-only _last_daily_reset).
+        snapshot["__short_cycles_today"] = {
+            "date": self._short_cycles_today_date,
+            "counts": dict(self._short_cycles_today),
+        }
+        arr = self._override_arrester
+        snapshot["__immune_holds"] = arr.export_immune_holds() if arr else {}
+        snapshot["__tao_state"] = (
+            arr.export_tao_state() if arr else {"started_ts": None, "expires_at": None}
+        )
+        return snapshot
+
+    async def async_save_zone_state(self) -> None:
+        """Persist the zone-state snapshot (periodic / shutdown / arrester)."""
+        try:
+            await self._zone_state_store.async_save(self._build_zone_state_snapshot())
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.warning("HVAC: Failed to save zone state: %s", e)
+
+    def schedule_zone_state_save(self, reason: str = "") -> None:
+        """Non-blocking save request (arrester stamp/sunset/TAO paths)."""
+        try:
+            self.hass.async_create_task(self.async_save_zone_state())
+            _LOGGER.debug("HVAC: zone-state save scheduled (%s)", reason)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("HVAC: zone-state save schedule failed", exc_info=True)
 
     async def evaluate(
         self,
@@ -2620,64 +2815,82 @@ class HVACCoordinator(BaseCoordinator):
             # under-count every later lockout).
             if zone.preset_mode != "manual":
                 self._preset_lockout_since.pop(zone_id, None)
+            # HVAC W1-B §5.P1 — the S1 manual rule (Alt A, four gates).
+            # `should_change_preset` now reads the gates for a `manual`
+            # zone (person-protected hold / arrester window / arrester
+            # disabled / live borrow) and refuses ONLY while one is armed;
+            # otherwise S1 takes the zone out of `manual` on this tick
+            # (C-P1A). A refusal is a DEFERRAL with a named gate, recorded
+            # once per episode as `preset_change_deferred` (KEEP+WIRE of the
+            # old `preset_change_locked_out` row).
+            _deferred_reason: str | None = None
+            _deferred_snapshot: dict = {}
             if zi and (zone_vacant_past_grace or zone.runtime_exceeded) and effective_preset == "away":
                 if zone.preset_mode == "away":
                     continue  # Already away
-            elif not self._preset_manager.should_change_preset(
-                zone.preset_mode, effective_preset
-            ):
-                # HVAC-PRESET-LOCKOUT-TELEMETRY-1 — measure the ACTUAL harm.
-                #
-                # WHY: "% of time a zone reads manual" is only a PROXY. What we
-                # care about is whether URA can CONTROL the zone — i.e. how
-                # often it decides a preset and is refused. That refusal
-                # happens exactly here, and until now it was SILENT:
-                # should_change_preset is a pure two-string function with no
-                # logger and no counter, so a zone could be locked out for
-                # hours with nothing recorded.
-                #
-                # DISCRIMINATING: the two False cases are NOT the same.
-                #   preset_mode == effective_preset -> already at target, a
-                #       benign no-op; recording it would drown the signal.
-                #   preset_mode == "manual"         -> LOCKOUT: URA wanted a
-                #       different preset and was refused. This is the harm.
-                # Only the second is recorded.
-                #
-                # EDGE-TRIGGERED, not per-tick: at a 5-minute cadence a
-                # per-tick row would be ~288/zone/day and the ledger would
-                # become unreadable. One row when a lockout EPISODE begins,
-                # carrying what URA wanted; the episode ends when the zone
-                # leaves manual (cleared below on the success path).
+                # M3 / N9b: the vacancy/runtime bypass skips the manual rule
+                # for `away` — but it must still respect a person-protected
+                # hold (a/b, incl. restart-restored TAO) and a live borrow
+                # (e). Gates (c) and (d) do NOT block the bypass (an empty
+                # zone going away is not fighting a grace, and a passive
+                # arrester does not own an empty zone).
                 if zone.preset_mode == "manual":
-                    _lk = self._preset_lockout_since.get(zone_id)
-                    if _lk is None:
-                        self._preset_lockout_since[zone_id] = dt_util.utcnow()
-                        self._preset_lockouts_today.increment()
-                        if activity_logger is not None:
-                            try:
-                                self.hass.async_create_task(
-                                    activity_logger.log(
-                                        coordinator="hvac",
-                                        action="preset_change_locked_out",
-                                        description=(
-                                            f"{zone.zone_name} wanted preset "
-                                            f"{effective_preset} but the zone is "
-                                            f"in an anonymous manual hold"
-                                        ),
-                                        importance="info",
-                                        zone=zone_id,
-                                        entity_id=zone.climate_entity,
-                                        details={
-                                            "wanted": effective_preset,
-                                            "blocked_by": "manual",
-                                        },
-                                    )
+                    _vb = self._preset_manager.manual_guard_verdict(zone_id)
+                    _vs = _vb.get("gate_snapshot", {})
+                    if _vs.get("a_b"):
+                        _deferred_reason = "vacancy_bypass_deferred:person_protected_hold"
+                    elif _vs.get("e"):
+                        _deferred_reason = "vacancy_bypass_deferred:active_borrow"
+                    _deferred_snapshot = _vs
+            elif not self._preset_manager.should_change_preset(
+                zone.preset_mode, effective_preset, zone_id=zone_id,
+            ):
+                if zone.preset_mode == "manual":
+                    _v = self._preset_manager.last_manual_verdict(zone_id) or {}
+                    _deferred_reason = _v.get("reason") or "unknown"
+                    _deferred_snapshot = _v.get("gate_snapshot", {}) or {}
+                else:
+                    continue  # already at target: benign no-op, never recorded
+            if _deferred_reason is not None:
+                # EDGE-TRIGGERED, not per-tick: one row when a deferral
+                # EPISODE begins (per zone), carrying what URA wanted and
+                # which gate refused; the episode ends when the zone leaves
+                # manual (cleared above). Per-gate daily breakdown feeds
+                # diagnostics.
+                _lk = self._preset_lockout_since.get(zone_id)
+                if _lk is None:
+                    self._preset_lockout_since[zone_id] = dt_util.utcnow()
+                    self._preset_deferrals_today.increment()
+                    _gate_key = _deferred_reason.split(":")[-1]
+                    self._preset_deferrals_by_gate[_gate_key] = (
+                        self._preset_deferrals_by_gate.get(_gate_key, 0) + 1
+                    )
+                    if activity_logger is not None:
+                        try:
+                            self.hass.async_create_task(
+                                activity_logger.log(
+                                    coordinator="hvac",
+                                    action="preset_change_deferred",
+                                    description=(
+                                        f"{zone.zone_name} wanted preset "
+                                        f"{effective_preset}; zone is in manual "
+                                        f"and deferred by {_deferred_reason}"
+                                    ),
+                                    importance="info",
+                                    zone=zone_id,
+                                    entity_id=zone.climate_entity,
+                                    details={
+                                        "wanted": effective_preset,
+                                        "reason": _deferred_reason,
+                                        "gate_snapshot": _deferred_snapshot,
+                                    },
                                 )
-                            except Exception:  # noqa: BLE001
-                                _LOGGER.debug(
-                                    "preset lockout ledger write failed",
-                                    exc_info=True,
-                                )
+                            )
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug(
+                                "preset deferral ledger write failed",
+                                exc_info=True,
+                            )
                 continue
 
             # Reason-ledger derivation (Writer-B removal cycle 2026-08-06):
@@ -2770,9 +2983,37 @@ class HVACCoordinator(BaseCoordinator):
             ):
                 preset_change_reason = "energy_shed_cap_deferred_occupied"
 
-            # Suppress arrester for URA-initiated changes
+            # Suppress arrester for URA-initiated changes.
+            # HVAC W1-B §5.P3 (M4): kind="preset" (120 s window) — S1 is a
+            # PRESET write; its Carrier echo (resume -> pin -> refresh)
+            # lands well past the 15 s temp window and was booked as a
+            # fresh override.
             if self._override_arrester:
-                self._override_arrester.suppress(zone.climate_entity)
+                self._override_arrester.suppress(zone.climate_entity, kind="preset")
+
+            # HVAC W1-B P2 (N4): classify a manual write-through BEFORE the
+            # wire call from the arrester's in-memory last detection for
+            # this manual episode. sub_delta_human := a booked detection
+            # whose |delta_f| is under the revert threshold (+1 F in coast);
+            # zero_delta_ura := no booked detection in this episode (the
+            # URA-caused strand class). Reason ladder untouched; no NM.
+            _manual_class = "not_manual"
+            _last_det: dict | None = None
+            if zone.preset_mode == "manual":
+                _manual_class = "zero_delta_ura"
+                try:
+                    if self._override_arrester is not None:
+                        _last_det = self._override_arrester.last_detection_for(
+                            zone.climate_entity,
+                        )
+                except Exception:  # noqa: BLE001
+                    _last_det = None
+                if _last_det is not None and _last_det.get("delta_f") is not None:
+                    _thr = float(OVERRIDE_NORMAL_DELTA) + (
+                        float(OVERRIDE_COAST_TOLERANCE_BONUS) if _last_det.get("coast") else 0.0
+                    )
+                    if abs(float(_last_det["delta_f"])) < _thr:
+                        _manual_class = "sub_delta_human"
 
             # Execute the service call directly
             #
@@ -2813,7 +3054,14 @@ class HVACCoordinator(BaseCoordinator):
                         )
                     except Exception:  # noqa: BLE001
                         return False
-                _s1_written = await emit_set_preset_mode(
+                # HVAC W1-B D1 (C5): S1 writes through the per-brand
+                # strategy. `hold_preset` routes into the SAME funnel
+                # (resume-then-pin untouched) and adds the strategy-layer
+                # no-op: SKIPPED_ALREADY_CORRECT = zero service calls.
+                from .hvac_strategy import strategy_for, WriteStatus  # noqa: PLC0415
+                _s1_result = await strategy_for(
+                    self.hass, zone.climate_entity,
+                ).hold_preset(
                     self.hass,
                     zone.climate_entity,
                     effective_preset,
@@ -2823,13 +3071,33 @@ class HVACCoordinator(BaseCoordinator):
                     zone_id=zone_id,
                     reason=preset_change_reason,
                 )
-                if not _s1_written:
+                if _s1_result.status is WriteStatus.SKIPPED_ALREADY_CORRECT:
+                    _LOGGER.debug(
+                        "HVAC: S1 no-op on %s (%s already sent and observed)",
+                        zone.zone_name, effective_preset,
+                    )
+                    if self._override_arrester:
+                        self._override_arrester.unsuppress(zone.climate_entity)
+                    continue
+                if _s1_result.status is WriteStatus.FAILED:
+                    raise RuntimeError(
+                        f"S1 strategy write failed: {_s1_result.reason} "
+                        f"{_s1_result.exc or ''}".strip()
+                    )
+                if _s1_result.status is not WriteStatus.APPLIED:
                     # Deferred by comfort-grace — do NOT log the "Set
                     # preset" line nor emit the preset_change activity
                     # row; the deferred-write ledger row has already
                     # been logged by the chokepoint. Skip the compliance
                     # + decision-log tail below.
                     continue
+                # HVAC W1-B D2.1: this zone was written this tick — the
+                # arrester's soft-nudge dispatch skips it until next tick.
+                self._zones_written_this_cycle.add(zone_id)
+                # HVAC W1-B §5.P5: reclaim-rate trip-wire on manual
+                # write-throughs only.
+                if zone.preset_mode == "manual":
+                    self._note_s1_reclaim(zone_id, zone.zone_name, preset_change_reason)
                 _LOGGER.info(
                     "HVAC: Set %s preset %s -> %s (house_state=%s%s)",
                     zone.zone_name, zone.preset_mode, effective_preset,
@@ -2885,6 +3153,21 @@ class HVACCoordinator(BaseCoordinator):
                                     else getattr(zone, "any_room_occupied", False)
                                 ),
                                 "home_persons": main_row_home_persons,
+                                # HVAC W1-B P2 (N4) + C-P1B/C-P1D: the
+                                # manual-episode class and the gate
+                                # snapshot at write time. Lives on S1's
+                                # OWN row (the funnel's `climate_write`
+                                # payload is untouched — operator
+                                # constraint); the falsifiers join this
+                                # row to the `climate_write` row by
+                                # zone + timestamp.
+                                "manual_class": _manual_class,
+                                "gate_snapshot": (
+                                    (self._preset_manager.last_manual_verdict(zone_id) or {})
+                                    .get("gate_snapshot", {})
+                                    if zone.preset_mode == "manual" else {}
+                                ),
+                                "last_detection": _last_det,
                             },
                         )
                     )
@@ -5207,18 +5490,9 @@ class HVACCoordinator(BaseCoordinator):
         # v3.18.2: Save zone state on shutdown
         try:
             if self._zone_manager:
-                snapshot = self._zone_manager.get_state_snapshot()
-                snapshot["__person_zone_map"] = self._person_zone_map
-                # HVAC-ANOMALY-BLIND-1 D2: persist short-cycle counter so
-                # a mid-day restart preserves accumulated per-zone counts
-                # and the rollover guard can distinguish "same day" from
-                # "new day" against the tracker's OWN date (not the
-                # RAM-only _last_daily_reset).
-                snapshot["__short_cycles_today"] = {
-                    "date": self._short_cycles_today_date,
-                    "counts": dict(self._short_cycles_today),
-                }
-                await self._zone_state_store.async_save(snapshot)
+                await self._zone_state_store.async_save(
+                    self._build_zone_state_snapshot()
+                )
                 _LOGGER.info("HVAC: Zone state saved on shutdown")
         except Exception as e:
             _LOGGER.warning("HVAC: Failed to save zone state on shutdown: %s", e)

@@ -97,6 +97,9 @@ def _make():
     p.hass = hass
     p._freeze_active = MagicMock(return_value=False)
     hvac_predict.emit_set_temperature = AsyncMock(return_value=True)
+    # HVAC W1-B D2.4 / N5: with a NAMED snapshot the preset pin IS the
+    # restore, so the fixture must supply that collaborator too.
+    hvac_predict.emit_set_preset_mode = AsyncMock(return_value=True)
     hvac_predict.async_call_later = MagicMock(return_value=lambda: None)
     return p, zone
 

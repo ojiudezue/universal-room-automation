@@ -579,6 +579,33 @@ def _row_present_and_fresh(zone_id: str) -> bool:
     return True
 
 
+def is_borrow_active(zone_id: str) -> bool:
+    """HVAC W1-B gate (e) — PURE READ: is a non-stale borrow row live?
+
+    Same predicate as ``_row_present_and_fresh`` MINUS the side effect:
+    NO ``_reap_stale`` (no row pop, no DB clear, no ``stale_excursion_row``
+    NM). The S1 decision site reads this every tick; a tick-side reader
+    must never mutate the registry. Reaping stays with ``begin_excursion``
+    / the sweep / the boot audit (operator constraint 2026-09-27: nothing
+    added to borrow code).
+    """
+    tok = _rows.get(zone_id)
+    if tok is None:
+        return False
+    return _now() < tok.stale_ts()
+
+
+def excursion_id_for(zone_id: str) -> Optional[str]:
+    """HVAC W1-B (N5) — PURE READ: excursion_id of the live borrow row, or
+    None. Used by S11 for self-exclusion (a banking release must not treat
+    its OWN row as a foreign borrow). No side effects.
+    """
+    tok = _rows.get(zone_id)
+    if tok is None or _now() >= tok.stale_ts():
+        return None
+    return tok.excursion_id
+
+
 def _reap_stale(zone_id: str, tok: ExcursionToken) -> None:
     """Delete a stale row + emit the low-severity NM notice."""
     elapsed = _now() - tok.started_ts

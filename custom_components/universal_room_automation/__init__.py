@@ -3815,6 +3815,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         CONF_HVAC_ZONE_ENTRY_DWELL,
                         DEFAULT_MAX_SLEEP_OFFSET,
                         DEFAULT_COMPROMISE_MINUTES,
+                        _read_hvac_compromise_minutes,
                         DEFAULT_AC_RESET_TIMEOUT,
                         DEFAULT_FAN_ACTIVATION_DELTA,
                         DEFAULT_FAN_HYSTERESIS,
@@ -3858,9 +3859,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         max_sleep_offset=float(cm_config.get(
                             CONF_HVAC_MAX_SLEEP_OFFSET, DEFAULT_MAX_SLEEP_OFFSET
                         )),
-                        compromise_minutes=int(cm_config.get(
-                            CONF_HVAC_COMPROMISE_MINUTES, DEFAULT_COMPROMISE_MINUTES
-                        )),
+                        # HVAC W1-B D4a: CLAMP-ON-READ (sole decision
+                        # consumer) — stored > HVAC_COMPROMISE_MINUTES_MAX
+                        # reads as the ceiling.
+                        compromise_minutes=_read_hvac_compromise_minutes(cm_config),
                         ac_reset_timeout=int(cm_config.get(
                             CONF_HVAC_AC_RESET_TIMEOUT, DEFAULT_AC_RESET_TIMEOUT
                         )),
