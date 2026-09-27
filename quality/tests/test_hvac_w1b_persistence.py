@@ -266,6 +266,8 @@ async def test_tao_persistence_clear_on_off(mods):
     coord, hass = _coord_with_store(mods)
     arr = coord._override_arrester
     arr.set_temp_arrester_override(True)
+    await H.drain(hass)  # the ON save has landed with expires_at set
+    assert coord._zone_state_store.saves[-1]["__tao_state"]["expires_at"] is not None
     arr.set_temp_arrester_override(False)
     await H.drain(hass)
     assert coord._zone_state_store.saves[-1]["__tao_state"] == {"started_ts": None, "expires_at": None}
@@ -276,9 +278,13 @@ async def test_tao_persistence_clear_on_sunset(mods):
     coord, hass = _coord_with_store(mods)
     arr = coord._override_arrester
     arr.set_temp_arrester_override(True)
+    await H.drain(hass)  # the ON save has landed with expires_at set
+    assert coord._zone_state_store.saves[-1]["__tao_state"]["expires_at"] is not None
+    n_before = len(coord._zone_state_store.saves)
     arr._temp_arrester_override_started_ts = H.local_now() - timedelta(seconds=21601)
     assert arr.sunset_temp_arrester_override("max_age_or_boundary") is True
     await H.drain(hass)
+    assert len(coord._zone_state_store.saves) > n_before, "sunset must schedule its own save"
     assert coord._zone_state_store.saves[-1]["__tao_state"] == {"started_ts": None, "expires_at": None}
 
 
