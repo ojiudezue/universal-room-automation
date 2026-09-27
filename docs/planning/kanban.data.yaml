@@ -9,6 +9,26 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'PERIMETER-DETECTION-WENT-DARK-1@2026-09-27T02:05:03'
+    at: '2026-09-27T02:05:03'
+    outcome: escalated
+    headline: 'Frigate2 camera server is STILL off the network (~31 h, no ping, no ports), so the Frigate half of outdoor person detection is blind; UniFi Protect still works. Correction: I had said the sprinkler controller dropped off too, pointing at the network; wrong — it has been flickering on weak Wi-Fi all along. So the fault is most likely the Frigate2 box or its own port. DO: check its power/link/PoE.'
+    acknowledged: false
+  - fid: 'ENVOY-FLAKINESS-181243-1@2026-09-27T02:05:02'
+    at: '2026-09-27T02:05:02'
+    outcome: measured
+    headline: 'The built-in solar gateway connection has mostly stopped dropping out: from 110-160 drops a day last week to 15 on Saturday, right after your Friday-evening gateway reboot + network restart + HA update (cant tell which one fixed it). I now suggest PICK (D): accept it and keep measuring instead of patching HA core.'
+    acknowledged: false
+  - fid: 'ENVOY-STREAM-SOC-TIER-1@2026-09-27T02:05:01'
+    at: '2026-09-27T02:05:01'
+    outcome: escalated
+    headline: 'The "use the local feed as a battery-level source" build is now unblocked by the measurement, but it feeds battery-reserve decisions (money + safety), so it waits for you: APPROVE the review tier (I recommend the strictest, Tier 3) and whether the reserve-witness piece ships with it. The ignore-readings-after-reboot rule is written onto the card as a must.'
+    acknowledged: false
+  - fid: 'ENVOY-STREAM-TRUST-MEASURE-1@2026-09-27T02:05:00'
+    at: '2026-09-27T02:05:00'
+    outcome: measured
+    headline: 'Finished checking whether the new fast local battery/solar feed can be trusted (28.7 clean hours). It matches the built-in reading to within 1 point, kept working through 99% of the built-in feeds outages (the one gap was the gateway rebooting itself), and it sees battery-reserve changes before the cloud does. One real catch: right after a gateway reboot it briefly reports the battery as EMPTY (0%) for ~36 s, so anything that uses it must ignore the first readings after a reconnect. Card closed. Also fixed a bug in my own measuring script that had made the reserve look broken.'
+    acknowledged: false
   - fid: 'SOAK-EXIT-SWEEP-2026-09-26@2026-09-26T02:19:51'
     at: '2026-09-26T02:19:51'
     outcome: done
@@ -19199,7 +19219,8 @@ cards:
 - id: APPLIANCE-COST-DEFERRAL-1
   title: Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip
   status: pre_planning
-  updated: 2026-09-12 11:15
+  updated: '2026-09-27 02:25'
+  input_health_2026_09_27: 'Found by the 2026-09-27 overnight pass (while checking PERIMETER-DETECTION-WENT-DARK-1): the RainBird controller (192.168.8.121) is a chronic Wi-Fi flapper. Every rain_bird entity alternates unavailable/available about every 5-30 min (56 unavailable rows over 40 h, flapping already on 09-25 02:00), ping RTT 253 ms. Any RainBird start-deferral or skip this card builds must tolerate the controller being unreachable at the moment it tries to act, or fix the controller Wi-Fi first (DO for the operator: move the AP or the controller). Recorded here because this card is the only URA consumer of RainBird; no separate card minted.'
   disposition_2026_09_12_sweep4: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit decomposition vs the simplest deliverable (single-appliance ThinQ deferral) before committing — NOT an overnight quick fix.'
   thread: energy
   created: 2026-08-18 02:30
@@ -27535,7 +27556,8 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-16 03:30'
-  updated: '2026-09-26 02:21'
+  updated: '2026-09-27 02:25'
+  correction_2026_09_27_rainbird: 'CARD-WAS-WRONG, CORRECTED 2026-09-27 02:20. I used RainBird (192.168.8.121) as a second device that fell off in the 09-25 network restart, and inferred a network-side common cause. That was wrong. The recorder shows RainBird has been flapping between unavailable and available all along, including BEFORE the restart: 5 unavailable transitions in the 02:00 hour on 09-25, and 56 unavailable / 55 available rows over the last 40 h. Tonight it answers ping 5/5 (253 ms, a weak-Wi-Fi signature). The two earlier fails were catching it in a down phase. So RainBird is a separate, chronic Wi-Fi flapper, not evidence for a shared fault, and the network-side hypothesis loses its only corroboration. Frigate2 is the only device that went dark and stayed dark, which points at the Frigate2 box or its own port. LOG-READ GAP (not an all-clear): the home-assistant MCP failed to connect again this run, so ha_get_logs was unavailable and no log read is claimed. This rests on ping/ARP/port and recorder evidence only. The UniFi MCPs also failed (uvx not on PATH), so switch-port/PoE state is still unread.'
   scope_addendum_2026_09_26: 'ADDENDUM 2026-09-26 02:25, SCOPE OF THE 19:18 DROP. Method: the HA recorder gives every entity
     whose LATEST state is ''unavailable'' and was written 00:10-00:45 UTC on 09-26, mapped to its
     integration via core.entity_registry and core.config_entries. 713 entities total: 626 Frigate 2
@@ -27736,12 +27758,7 @@ cards:
     restarting a service. Read-only diagnosis has gone as far as it can from here. I did not send a
     phone push: this has already been dark for 60 hours, nothing I can do at 4am shortens that, and
     waking an occupied house adds no action. Left a Home Assistant notification instead.'
-  next: 'DO: bring Frigate2 (192.168.13.18) AND RainBird (192.168.8.121) back onto the network. Both have
-    been off L2 since about 19:18 CDT on 09-25, when the network-stack restart ran. Check their switch
-    ports, PoE and DHCP in UniFi first (two devices on two subnets points at the network side), then
-    power-cycle the devices if needed. After that I re-measure whether the Frigate detectors come back
-    live and whether the 09-21 freeze cohort stays cleared. If Frigate2 is reachable again but its
-    entities stay frozen or unavailable, the older ask stands: reload the Frigate config entry.'
+  next: 'DO: bring Frigate2 (192.168.13.18) back. It is STILL off the network as of 02:01 CDT 09-27, about 31 h now: no ping, ARP incomplete from the Mac, ports 5000/8971/22 closed, and every Frigate2 entity (sensor.frigate_status_2 and all *_person_occupancy) has been unavailable with no other state since the 09-25 19:18 drop. Look at the box itself first: power, NIC link light, its switch port and PoE in UniFi. The RainBird lead is withdrawn (see correction_2026_09_27). -> once it answers ping, I re-measure detector liveness and close or re-scope this card.'
   links:
     related:
     - CAMERA-ZERO-FIRE-DETECTORS-1
@@ -29138,9 +29155,10 @@ cards:
   title: We now have a third, much faster Envoy data source — measure whether it can be trusted
     before anything is allowed to depend on it
   thread: energy
-  status: investigating
+  status: done
   created: '2026-09-25 18:00'
-  updated: '2026-09-26 02:20'
+  updated: '2026-09-27 02:15'
+  run2_final_2026_09_27: 'OVERNIGHT PASS 2026-09-27 02:02, RUN 2 FINAL (written into AUDIT_envoy_mqtt_trust_measurement.md). Window 09-25 20:15 -> 09-27 02:02 CDT, 28.7 h clean after excluding two HA core restarts that landed inside it (09-26 12:50 and 15:19, recorder_runs 1138/1139). RESULTS: 3.1 freshness PASS (skew-adjusted p95 4 s); 3.2 independence 98.65% of 20,552 s native-down time, the whole shortfall is ONE 277 s episode at 23:09 where the Envoy itself re-enumerated (microinverter count 0->32 over 2 min) so it is a source outage, not a transport failure -> PASS on transport; 3.3b stream vs native SOC n=1382, mean 0.00 pp, p95 1 pp -> PASS; 3.4 cloud value-change gaps p50 947 s (72% over its own 600 s bound); 3.5 PASS; 3.6 contention: native down-events/day fell from 109-163 (09-19..24) to 52 (09-25) and 15 (09-26), confounded by the operator''s 09-25 Envoy reboot + network restart + core update, but adding the stream clearly did NOT make it worse; 3.7 reserve witness PASS, 10/10 matched, stream LEADS cloud by 1-32 s. PROBE BUG FOUND AND FIXED before trusting 3.7: it only searched for a stream match AFTER the cloud change, so it reported 8/10 as never converged; fixed to +/-300 s either direction (REL_WIN_S). NEW HAZARD 3.8: when the Envoy came back at 23:14:11 the stream published SOC=0 and reserve 0 then 30 for 36 s before the true values (36 / 10). Second live instance of the partial-fleet failure -> binding constraint on ENVOY-STREAM-SOC-TIER-1. VERDICT: CONFIRMED trustworthy as a SOC/reserve witness with a post-reconnect gate. Closed done; the build lives on ENVOY-STREAM-SOC-TIER-1 (existing card, no new card minted).'
   consumption_ct_consumer_check_2026_09_26: 'OVERNIGHT 2026-09-26 02:19 re-check plus CONSUMER check on the native consumption-CT outage. STILL
     UNAVAILABLE: current_power_consumption, energy_consumption_today, last_seven_days (+L1/L2),
     lifetime_energy_consumption, balanced_net_power_consumption,
@@ -29211,10 +29229,7 @@ cards:
     (no change in window; EC changes reserve 6-10x/day so it resolves organically). Probe bugs found and
     fixed before trusting numbers: reserve-convergence matched None==None, cadence straddled the
     exclusion, cloud comparison included 2 h-stale values.'
-  next: 'MEASURE (me): rerun scripts/probes/envoy_stream_trust_probe.py at >= 2026-09-26 20:15 CDT with
-     START=1790385300 (24 h clean, excluding any further restart incl. the pending HAOS 18.3), close
-     3.3b/3.6/3.7, write Run 2 into the audit. 3.3b REQUIRES the native integration to be back up (it is
-     hung in setup_in_progress as of 21:05). Then hand ENVOY-STREAM-SOC-TIER-1 its gate verdict.'
+  next: 'NONE - measurement complete. Gate verdict handed to ENVOY-STREAM-SOC-TIER-1 (cleared to plan, with the post-reconnect junk gate as a binding constraint).'
   prior_art_reduces_scope: 'Operator asked whether prior measurement makes this unnecessary. PARTLY,
     and the reduction is recorded rather than the whole card dropped. EVSE-SOLAR-FOLLOW-AMPS-1 already
     measured Emporia mains vs the Envoy net-consumption CT (7,090 aligned pairs / 7 days) and
@@ -29244,9 +29259,11 @@ cards:
   title: The battery brain goes blind and freezes whenever both its data sources age out — give it a
     third, local, fast (~5-6s) source so it can keep deciding
   thread: energy
-  status: planned
+  status: waiting_operator
   created: '2026-09-25 18:00'
-  updated: '2026-09-25 20:10'
+  updated: '2026-09-27 02:15'
+  unblocked_2026_09_27: 'OVERNIGHT 2026-09-27: blocker ENVOY-STREAM-TRUST-MEASURE-1 closed done with Run 2 (AUDIT_envoy_mqtt_trust_measurement.md). Every criterion this card needed now has a number: 3.1 PASS, 3.2 PASS on transport, 3.3b PASS (p95 1 pp vs native), 3.5 PASS, 3.7 PASS. Moved planned -> waiting_operator because the next step is the operator tier call the card already named; not auto-built (overnight pass is bounded; this is Tier-3-class and cost-affecting).'
+  binding_constraint_3_8_2026_09_27: 'BINDING CONSTRAINT from Run 2 criterion 3.8, observed live 09-26 23:14:11: when the Envoy re-enumerates (reboot), the stream publishes SOC=0 and backup_reserve 0 then 30 for ~36 s before true values (SOC 36, reserve 10). The plan MUST gate stream SOC/reserve on (a) microinverter/device count back at fleet size OR a settle window after unavailable->value, and (b) never accept a 0 that directly follows unavailable. A test must feed that exact sequence (unavailable, 0, 36) and assert the tier is not taken on the 0.'
   refinement_status: refined
   approval: unreviewed
   rank: {value: 8, time_criticality: 6, effort: 8, foundational: 7}
@@ -29296,13 +29313,11 @@ cards:
     its two siblings; explicitly NOT an entity knob)'
   - 'energy_local_stream_battery_soc_entity (rung 2, CM config field — REUSES the shape of the
     existing energy_cloud_battery_soc_fallback_entity at energy_const.py:305, not a new pattern)'
-  next: 'AWAIT ENVOY-STREAM-TRUST-MEASURE-1, then APPROVE (operator): Tier-2DB-vs-Tier-3 call and
-     whether the reserve-witness deliverable ships in the same cycle -> on approval I write the plan
-     review and dispatch the build.'
+  next: 'APPROVE (operator): (1) the tier - I recommend Tier 3, because this puts a new source into the battery-reserve decision path (cost-and-safety; one missed site = silent loss), and (2) whether the reserve-witness deliverable ships in the same cycle (3.7 now passes, stream leads cloud by 1-32 s, so it can). -> on approval I write the plan, run the tiered plan review, and dispatch the build; nothing builds before your word.'
   parsimony: {problem: 'Every SOC tier can be simultaneously disqualified, leaving the EC unable to
     decide for hours at a time, because no tier is both local and fast.', verdict: BUILD}
   links:
-    blocked_by: [ENVOY-STREAM-TRUST-MEASURE-1]
+    blocked_by: []
     related: [ENVOY-FLAKINESS-181243-1]
     context: 'Blocked on the trust measurement — an unmeasured producer must not enter the resolver.
       Related to the flakiness card because this is the mitigation that does NOT depend on the
@@ -29682,7 +29697,8 @@ cards:
   thread: energy
   status: waiting_operator
   created: '2026-09-21'
-  updated: '2026-09-25 21:10'
+  updated: '2026-09-27 02:20'
+  measured_2026_09_27_rate_collapse: 'OVERNIGHT 2026-09-27 02:02, from envoy_stream_trust_probe.py 3.6 (native sensor.envoy_482543015950_battery -> unavailable transitions per local day, recorder): 09-19 122, 09-20 134, 09-21 140, 09-22 163, 09-23 109, 09-24 120, 09-25 52, 09-26 15, 09-27 4 (partial). CONFOUNDED: the operator did four things on the evening of 09-25 (Envoy reboot, core/UDM network-stack restart, core 2026.9.2->2026.9.3, MQTT add-on live), so which one fixed it cannot be separated from this data. The upstream analysis (EnvoyClientClosedError not caught) is NOT refuted by this: the unguarded path can still fire, it is just firing ~10x less. Recommendation moved to (D) accept + re-measure; see next.'
   refinement_status: refined
   rank: {value: 6, time_criticality: 6, effort: 3}
   refinement:
@@ -29733,18 +29749,7 @@ cards:
     Envoy fine. homeassistant.reload_config_entry at 21:05 timed out (queued behind the hung setup).
     A setup that never returns and never logs = a missing timeout somewhere in setup, not a network
     fault. Recovery needs a core restart / host reboot.'
-  next: 'PICK (operator): flapping now MEASURED at 110-160 down/up cycles per day (see
-     measured_2026_09_25). Choose from docs/planning/OPEN_THREADS_2026-09-25.md §3: (A) local core patch
-     wrapping the two unguarded tasks — the only option that changes today''s behavior, but is lost on
-     every core update; (B) dual-homed interface investigation (your lead, read-only, cheap, still
-     un-run — I do it on your word); (C) track #181243 upstream and bump core when fixed; (D) accept and
-     do nothing (URA holds state, no actuation harm); (E) host reboot — NOT indicated by the evidence.
-     -> On your pick I run it. Legacy option list follows. (a) TRACK #181243 — watch for the HA fix, update core when a fix version lands
-     (only real cure; unfixable on our side short of patching core). (b) INVESTIGATE dual-homed timeouts — which
-     IP the integration uses vs the second home, whether one interface is flakier / causing contention; consider
-     pinning the integration to the stable home. (c) consumption cross-check warning is benign — leave, or card
-     a URA-side clamp if the WARN volume is noisy. Immediate recovery tonight = Core restart (operator-authorized
-     2026-09-21 23:14).'
+  next: 'PICK (operator), with new data: flapping fell from 109-163 down-events a day (09-19..24) to 52 on 09-25 and 15 on 09-26 (4 so far on 09-27 by 02:00). That was the first full day after your 09-25 Envoy reboot + network-stack restart + core 2026.9.3. I now recommend (D) ACCEPT + re-measure: no patch while the rate is ~10x lower. The local stream now covers native outages anyway (Run 2: up for 98.65% of native-down time, and the whole gap was one Envoy reboot). If the rate climbs back over ~100/day, re-open (A)/(B). Alternatives unchanged: (A) local core patch, (B) dual-homed interface investigation, (C) track upstream. -> on your pick I run it; on (D) I close this card with the recorder query as the trip-wire definition.'
   links:
     related: [ENERGY-ACCOUNTING-DIVERGENCE-1]
 - id: TEST-SILENT-WHOLE-FILE-SKIPS-1
