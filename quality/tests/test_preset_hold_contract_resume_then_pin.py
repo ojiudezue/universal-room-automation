@@ -122,14 +122,15 @@ def _ttl_consts():
     return out
 
 
-def test_temp_ttl_is_unchanged():
-    """The temp window must STAY short.
-
-    kind="temp" is the only suppression that swallows a genuine human manual
-    flip. Lengthening it would blind the independent witness the spurious-away
-    metric depends on.
+def test_temp_ttl_covers_carrier_echo_but_stays_below_human_floor():
+    """HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1 (2026-09-26): the temp window
+    was RAISED 5 -> 15 s to cover Carrier's echo of URA's own nudge (measured
+    5.3-7.5 s post-write; 22/24 followed by a lockout). 15 s = 2x the measured
+    max echo lag and stays well below the > 60 s genuine-human-manual floor
+    and the 42-79 s Carrier cloud refresh window, so the spurious-away metric's
+    independent witness (HVAC-SUPPLE-SEQUENCE-1) stays observable.
     """
-    assert _ttl_consts()["SUPPRESS_TTL_SECONDS"] == 5
+    assert _ttl_consts()["SUPPRESS_TTL_SECONDS"] == 15
 
 
 def test_preset_ttl_spans_the_measured_refresh_window():

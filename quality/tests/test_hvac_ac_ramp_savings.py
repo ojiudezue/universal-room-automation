@@ -263,45 +263,44 @@ class TestNoDoubleCount:
 
 
 def _load_pure_helper():
-    # Import via source-load to avoid pulling `.const` (which imports HA).
-    import importlib.util
-    import pathlib
-    import sys
-    import types
+    """Return `_sum_savings_from_rows` from the real database module.
 
-    root = pathlib.Path("custom_components/universal_room_automation")
-    # Provide a stub for `.const` so `from .const import ...` succeeds.
-    pkg_name = "_ura_test_pkg"
-    if pkg_name not in sys.modules:
-        pkg = types.ModuleType(pkg_name)
-        pkg.__path__ = [str(root)]
-        sys.modules[pkg_name] = pkg
-        const_stub = types.ModuleType(f"{pkg_name}.const")
-        const_stub.DATABASE_NAME = "x.db"
-        const_stub.MIN_DATA_DAYS_PREDICTION = 7
-        sys.modules[f"{pkg_name}.const"] = const_stub
-    mod_name = f"{pkg_name}.database"
-    spec = importlib.util.spec_from_file_location(
-        mod_name, root / "database.py",
+    TEST-SILENT-WHOLE-FILE-SKIPS-1: the prior implementation loaded
+    database.py via ``spec_from_file_location`` under a synthetic package
+    ``_ura_test_pkg`` with only ``.const`` stubbed. Any other relative
+    import inside database.py raised, the loader returned None, and every
+    test in the 8-test pure class silently skipped in every env — the exact
+    hollow-anchor pattern fixed in commit c5ea7dfc7 for
+    test_coverage_rating_bounds.py. Fix: import as a real package member
+    with repo root on sys.path. HA is installed in the test env so the real
+    package import works. The silent skip fallback is REMOVED so any future
+    env break fails loudly instead of skipping.
+    """
+    import importlib
+    import pathlib
+    import sys as _sys
+    _repo = str(pathlib.Path(__file__).resolve().parents[2])
+    if _repo not in _sys.path:
+        _sys.path.insert(0, _repo)
+    mod = importlib.import_module(
+        "custom_components.universal_room_automation.database"
     )
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[mod_name] = mod
-    try:
-        spec.loader.exec_module(mod)
-    except Exception:
-        # If the module can't load in this env (missing HA-only imports),
-        # fall back to a textual copy of the helper — the DAO grep test
-        # above still binds the source contract.
-        return None
-    return getattr(mod, "_sum_savings_from_rows", None)
+    helper = getattr(mod, "_sum_savings_from_rows", None)
+    if helper is None:
+        raise AssertionError(
+            "_sum_savings_from_rows missing from database module "
+            "(pure helper contract broken)"
+        )
+    return helper
 
 
 class TestSumSavingsFromRowsPure:
 
     def setup_method(self):
+        # TEST-SILENT-WHOLE-FILE-SKIPS-1: _load_pure_helper now raises on
+        # env failure rather than returning None. The silent-skip guard
+        # that hid all 8 tests in every env is removed.
         self.helper = _load_pure_helper()
-        if self.helper is None:
-            pytest.skip("could not load database module in this env")
 
     def test_effective_none_or_zero_is_skipped(self):
         rows = [
@@ -426,10 +425,12 @@ async def test_ac_ramp_savings_values_at_captured_rate(tmp_path):
 
     hass = StubHass(config_dir=str(tmp_path))
     db = UniversalRoomDatabase(hass)
+    # initialize() opens its own connection to create schema; must run
+    # BEFORE the worker so the two don't contend for the WAL lock.
+    ok = await db.initialize()
+    assert ok
     await db.start_write_worker()
     try:
-        ok = await db.init_db()
-        assert ok
 
         # Row A: pre-deploy shape (no `rate` key)
         await db.log_ac_ramp_event(
@@ -477,8 +478,7 @@ async def test_ac_ramp_savings_values_at_captured_rate(tmp_path):
             f"expected 0.4 kWh * $0.35 = $0.14; got {savings}"
         )
     finally:
-        if db._write_task and not db._write_task.done():
-            db._write_task.cancel()
+        await db.stop_write_worker()
 
 
 @_ha_only
@@ -495,9 +495,10 @@ async def test_ac_ramp_savings_since_windowing(tmp_path):
 
     hass = StubHass(config_dir=str(tmp_path))
     db = UniversalRoomDatabase(hass)
+    ok = await db.initialize()
+    assert ok
     await db.start_write_worker()
     try:
-        await db.init_db()
 
         # Insert one row RIGHT NOW (via the real writer)
         await db.log_ac_ramp_event(
@@ -532,5 +533,4 @@ async def test_ac_ramp_savings_since_windowing(tmp_path):
         assert n_future == 0
         assert savings_future == 0.0
     finally:
-        if db._write_task and not db._write_task.done():
-            db._write_task.cancel()
+        await db.stop_write_worker()

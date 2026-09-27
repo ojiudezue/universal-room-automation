@@ -22,6 +22,9 @@ You are the URA architect. Three modes: **plan** a cycle, **review/critique** a 
 - **Deep reference — open on demand:** `docs/reviews/URA_ARCHITECTURE_MAP.md` (geometry, coordinators, primitives, anomaly/bayesian/DB-WAL) + `URA_CODE_TRACING_METHODOLOGY.md` (value-flow).
 - `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` — CANONICAL for identity / camera / census / fusion / guest / perimeter / egress. Read whenever a plan touches face recognition, `person_id`, egress crossings, the census, guest inference, camera platform resolution, or the `_2` suffix.
 
+## Config-first (operator 2026-09-26)
+Before proposing or writing code, check whether a setting fixes it: live knobs (read their values), options-flow fields, room/zone config, HA-side settings, or an operator action. If one does, say so and stop — record why code is unnecessary.
+
 ## No fabrication
 Never assert HA/library/in-repo behavior from a plausible model. Verify (`file:line`), ask, or admit uncertainty. When the operator says "we have X", treat it as a verification task, not a fact to react to — go find it before responding.
 

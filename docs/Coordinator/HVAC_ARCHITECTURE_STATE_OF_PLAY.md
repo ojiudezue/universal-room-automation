@@ -1,7 +1,7 @@
 # HVAC — Architecture State of Play (READ FIRST)
 
 **Status:** forensic snapshot of `develop` @`5072deaaf` (2026-09-26 ~02:30 CDT) + live HA reads the same night.
-**W1-A Stage A built 2026-09-26 on `feature/hvac-w1a-write-governance` (behaviour-neutral write governance) — see §4.1 (new `emit_set_hvac_mode` funnel), §4.3 (`climate_write` ledger row).
+**W1-A Stage A SHIPPED v5.103.16 2026-09-26 (behaviour-neutral write governance; live-validated, `docs/readmes/README_v5.103.16.md`) — see §4.1 (new `emit_set_hvac_mode` funnel), §4.3 (`climate_write` ledger row).
 **Scope:** everything URA does with the thermostats — decide, write, borrow/return, read back — and the occupancy
 model that drives it. Covers releases v5.103.0 → v5.103.15 (v5.103.15 shipped + live-validated 2026-09-26).
 **Owner rule:** the operator (2026-09-26): *"every agent used in the rest of the arc reads [this] first completely
@@ -62,16 +62,16 @@ before doing a damned thing — to prevent drift and avoid compaction-driven err
 | Periodic tick, 5 min | `hvac.py:1356-1360` `async_track_time_interval(..., HVAC_DECISION_TICK)`; const `hvac_const.py:13` | "rung-1 module const, cloud API call-rate bound — change requires review" |
 | Initial cycle at start | `hvac.py:1363` | |
 | Boot-settle release kick (1 s) | `hvac.py:1539-1547` `async_call_later(..., 1, self._async_decision_cycle)` | only when boot-settle suppressed ≥1 cycle |
-| House-state change | `hvac.py:3131` (`_handle_house_state_changed`, subscribed `hvac.py:1131`) | |
-| Pre-arrival | `hvac.py:4002` (`_handle_person_arriving`, subscribed `hvac.py:1187`) | |
+| House-state change | `hvac.py:3260` (`_handle_house_state_changed`, subscribed `hvac.py:1140`; lines re-verified 2026-09-26 after v5.103.16) | |
+| Pre-arrival | `hvac.py:4186` (`_handle_person_arriving`, subscribed `hvac.py:1196`) | |
 | **Room / zone occupancy change** | **none** | Dispatcher subscriptions are only HOUSE_STATE, ENERGY_CONSTRAINT, PERSON_ARRIVING, SAFETY_HAZARD, ZM_ZONES_UPDATED (`hvac.py:1131-1213`). The only state listeners are climate entities (arrester `hvac_override.py:1996`, short-cycle `hvac.py:4232`) and covers. |
 
 Consequences:
-- **Entry latency = 5–10 min when no session is running (C18).** The first tick that sees occupancy also STARTS the dwell clock (`current_session_start = now`, `hvac_zones.py:714-716`), so it always hits the dwell skip (`hvac.py:2362-2365`); the switch lands on the NEXT tick. Dwell < 5 min therefore does not shorten entry latency at all; only an occupancy-triggered cycle + a dwell-expiry follow-up does.
+- **Entry latency = 5–10 min when no session is running (C18).** The first tick that sees occupancy also STARTS the dwell clock (`current_session_start = now`, `hvac_zones.py:786`), so it always hits the dwell skip (`hvac.py:2438-2451`, inside `_apply_house_state_presets`); the switch lands on the NEXT tick. Dwell < 5 min therefore does not shorten entry latency at all; only an occupancy-triggered cycle + a dwell-expiry follow-up does. **UPDATE 2026-09-26 evening:** dwell set to **0** (operator); the skip is guarded by `dwell_minutes > 0` (`hvac.py:2442`), so the first observing tick now acts — entry latency = wait to next tick (avg ~2.5, worst 5 min). The W2-1 fast path is PARKED.
 - The **occupancy fast path was DESIGNED, never built**: commit `82620357a` names `HVAC_DECISION_TICK=5min` as "a hard
   floor on fast-in ... needs event-driven path"; `HVAC-SUPPLE-SEQUENCE-1` step 5 lists it as conditional. It lives in W2.
 - Carrier cloud refresh after a write takes **42–79 s** (`hvac_override.py:147-150`); arrester temp-suppression is
-  **5 s for temperature writes** (`SUPPRESS_TTL_SECONDS`, `hvac_override.py:129`, deliberately short so a human at the dial is still seen, `:141-146`) and **120 s for preset writes** (`SUPPRESS_TTL_SECONDS_PRESET`, `:153`) — see C17 — URA's own write echoes that arrive later are booked as overrides.
+  **15 s for temperature writes** (`SUPPRESS_TTL_SECONDS`, `hvac_override.py:133`, raised 5 -> 15 by HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1, 2026-09-26; measured Carrier echo lag 5.3-7.5 s, human-manual floor > 60 s) and **120 s for preset writes** (`SUPPRESS_TTL_SECONDS_PRESET`) — see C17, C23 — URA's own write echoes that arrive later than the window are still booked as overrides.
 
 ---
 
@@ -97,8 +97,8 @@ Consequences:
 | Consumers of the gate | row-1 preset flip `hvac.py:2013`; D7 night-trust `hvac.py:2403`; D9 compose-away `hvac.py:2966`; F4 row-10 arrester comfort-delay **direct** `hvac_override.py:2319` (tri-state guard `:2304-2340`, raw fallback `:2336`) | all trust decisions |
 | Consumers of establishment directly | `conditioning_retreat_ok` (`hvac_zones.py:1112`); `binary_sensor.py:914` (display) | `hvac.py:3820-3826 _is_zone_hvac_established` has **zero callers** (dead) |
 | Readers that BYPASS the gate (read fused signal raw) | D5 energy-shed occupancy defer `hvac.py:2271-2289`; D6 stale failsafe `hvac.py:2063` + `presence.py:2148-2157`; `hvac.py:2739-2741` ledger, `:4190-4191` presence display; `hvac_predict.py:583` (pre-cool F8), `:1386` (pre-heat F9); `hvac_zones.py:746-754` `continuous_occupied_since` | see §9.4 (carded `HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1`) |
-| Zone entry dwell | `hvac.py:2355-2368` — skips preset change while a zone's **lighting** session (`zone.any_room_occupied`, `current_session_start`) is younger than dwell; not for pre-arrival; not when target is away | **LIVE value 2 min** (operator 2026-09-26; stored option `hvac_zone_entry_dwell: 2`). v5.103.7 D5 meant default 0 but only migrated an exact 3; install had 5 |
-| Vacancy grace | option `hvac_vacancy_grace_minutes: 10` (const default 15, `hvac_const.py:374`); constrained `5` | LIVE |
+| Zone entry dwell | `hvac.py:2438-2451` (inside `_apply_house_state_presets`) — skips preset change while a zone's **LIGHTING** session (`zone.any_room_occupied`, `current_session_start`, `hvac_zones.py:783-788` "NO-SWAP") is younger than dwell; not for pre-arrival; not when target is away | **LIVE value 0 min** (operator 2026-09-26 evening; guard `dwell_minutes > 0` disables the skip). **DENOMINATION DEFECT (operator 2026-09-26):** the dwell still reads the LIGHTING clock — the one HVAC occupancy was built to be independent of; any future dwell must use the HVAC-occupancy clock (room arm onset), see card HVAC-ENTRY-DWELL-ROOM-CLOCK-1 |
+| Vacancy grace | knob 48 `number.ura_hvac_coordinator_48_zone_vacancy_delay_minutes` = **10** live (const default 15, `hvac_const.py:374`); knob 49 energy-saving = **5** | LIVE (verified 2026-09-26). Sizing probe `scripts/probes/hvac_vacancy_grace_probe.py`: 10→5 saves ~8 h/week empty-zone conditioning with ~no added quick returns |
 
 ### 3.3 Live vs dormant
 | Layer | State | Gate |
@@ -117,7 +117,7 @@ Consequences:
 |---|---|---|
 | `emit_set_temperature` | `hvac_setpoint.py:223-279` | freeze / comfort-delay gate, site/zone/reason plumbing. **Logs nothing durable** (only a `comfort_delay_deferred_write` row when a gate defers, `:108-159`) |
 | `emit_set_preset_mode` | `hvac_setpoint.py:282-410` | **resume-then-pin** (v5.103.2): if the entity lists `resume` in `preset_modes` and `hold_activity == "manual"`, send `resume` then pin, with one retry (`:317-410`); capability check not vendor check (`:199-212`). D6 reason capture (`zone_id`+`reason` kwargs). Logs nothing durable itself |
-| `emit_set_hvac_mode` | `hvac_setpoint.py` (W1-A Stage A, feature branch 2026-09-26) | Behaviour-neutral: NO gate, NO transform; required kwargs `site` / `zone_id` / `reason` / `blocking` (F3, F10); optional `excursion_id` forwarded from borrow tokens. Schedules ONE `climate_write` row per attempted wire call. Migrated the 7 raw sites (B1–B7). |
+| `emit_set_hvac_mode` | `hvac_setpoint.py` (W1-A Stage A, shipped v5.103.16) | Behaviour-neutral: NO gate, NO transform; required kwargs `site` / `zone_id` / `reason` / `blocking` (F3, F10); optional `excursion_id` forwarded from borrow tokens. Schedules ONE `climate_write` row per attempted wire call. Migrated the 7 raw sites (B1–B7). |
 
 ### 4.2 Write sites (verified by Explore audit 2026-09-25 against develop; spot-checked)
 | Site | Verb(s) | Via funnel | Durable record |
@@ -215,7 +215,7 @@ lockout, arrester, S1 — trusts `preset_mode`**, which is the lagging field (§
 | Operator-immune hold (`CONF_HVAC_ARRESTER_IMMUNE_PERSONS`) sunset: next_activity / durable house state / 4 h | `hvac_const.py:189-198`; `hvac_override.py:713-811` | sunset hands back to the arrester — does NOT clear the hold (`:727-729`) |
 | Temp Arrester Override switch (live off), max 6 h | `hvac_const.py:205`; `switch.py:2429-2468` | same — hands back only |
 | Comfort Grace (live **20 min**; default 30) | `hvac_const.py:452-456` | grant expiry writes nothing (`hvac_override.py:2694-2716`) |
-| Suppression windows: temp 5 s / preset 120 s vs Carrier observed 42–79 s (schedule: 30-min poll + 5-min post-write guard, C16) | `hvac_override.py:129`, `:147-150`; preset-window pass-through `:2455-2466` | URA's own late echo → `override_detected` |
+| Suppression windows: temp 15 s (raised from 5 by HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1, 2026-09-26) / preset 120 s vs Carrier observed 42–79 s (schedule: 30-min poll + 5-min post-write guard, C16) | `hvac_override.py:133`, `:173`; preset-window pass-through `:2468-2482` | URA's own late echo → `override_detected` — for kind="temp" only past 15 s, but for kind="preset" the mid-window passthrough books a fresh transition INTO `manual` at ANY time inside the 120 s window (the restore-echo residual, W1-B problem 1) |
 | **Net:** no timeout releases the lockout; a URA-caused or stale `manual` at zero delta is **never reclaimed** except by a forced-away write | — | operator 2026-09-25: *"Without that knob, why would we not override? arrester is an override."* |
 
 ---
@@ -350,7 +350,7 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 
 | C17 | "Arrester suppression is only 5 s" (§2/§7, and copied into the W1-B plan) | Two windows: `SUPPRESS_TTL_SECONDS = 5` for temperature writes (kept short on purpose for human detection) and `SUPPRESS_TTL_SECONDS_PRESET = 120` for preset writes | `hvac_override.py:129`, `:141-146`, `:153` (W1-B build-prediction review, verified 2026-09-26) |
 
-| C18 | "Hot entry takes up to one tick + dwell, ~7 min" | 5–10 min: the observing tick starts the dwell clock and always skips; the preset write lands on the next tick | `hvac_zones.py:714-716`, `hvac.py:2362-2365` (W2-1 plan review, verified 2026-09-26) |
+| C18 | "Hot entry takes up to one tick + dwell, ~7 min" | 5–10 min: the observing tick starts the dwell clock and always skips; the preset write lands on the next tick | `hvac_zones.py:786`, `hvac.py:2438-2451` (W2-1 plan review, verified 2026-09-26; lines refreshed after v5.103.16) |
 
 | C19 | "Jaya's radar dropped because the fan switched off" (09-25 session) | URA marked the room vacant FIRST (01:25:53 / 01:31:18), then turned the fan off because it was vacant; the radars lost a still sleeper | `ura_activity_log` Jaya Bedroom rows (W2-2 plan review, verified 2026-09-26) |
 
@@ -367,13 +367,41 @@ zone_1 (post-borrow manual strands) followed HOLD 21 vs STATUS 1. Neither feed i
 case, NOT proven): trust `hold_activity` unless a genuine human override is detected, then trust the status payload.
 This is W1-B D0 input; a controlled operator app-change test is requested.
 
+**C23 (2026-09-26 evening) — WRONG: parts of C22.** (a) "`hold_activity` is right on named-vs-named": 155 of zone_1's 165
+`(home, away)` minutes had `hold_until==''` = ha_carrier's OPTIMISTIC LOCAL copy of URA's write (`climate.py:431-433`), not a
+cloud value (`None`); the device was physically away, but the hold feed was echoing URA, not independently confirming.
+(b) "a human set cool 70 at 00:45": the human set 70 at **19:17 CDT 09-25** (both feeds `manual`, agreeing, 5.5 h); the
+disagreement began 00:45 CDT when the cloud `hold_activity` flipped to `sleep` in the same second as a URA zone_3 write —
+co-occurrence, causation UNVERIFIED. (c) NEW MECHANISM: 24/52 `override_detected` rows since 09-19 are Carrier's echo of
+URA's own nudge, 5.3–7.5 s after the write (past the 5 s temp suppression, `hvac_override.py:133`/`:2440-2450`), shown as
+a whole-degree value; 22 of 24 followed by a lockout — card `HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1`.
+**FIXED for nudge-start / compromise / pre-cool echoes (~28 of ~35, operator-approved
+simplest fix, build 2026-09-26):** `SUPPRESS_TTL_SECONDS` raised **5 -> 15 s**
+(`hvac_override.py:133`), 2x the measured 7.5 s max echo lag, still far below the
+> 60 s genuine-human-manual floor and Carrier's 42-79 s cloud refresh. Residuals
+-> **W1-B problem 1**: restore echoes under kind="preset" (mid-window passthrough
+books a fresh transition INTO `manual`), late echoes > 15 s under kind="temp",
+and post-restore manual strands (§9.1). The value-matched last-write record from
+the plan is part of W1-B. Accepted trade-off: a human preset -> manual within
+15 s of a URA temp write (kind="temp") is not booked.
+
+**C24 (2026-09-26 night) — WRONG: "HVAC occupancy is a separate, FASTER clock; a transit drops ~1 min after the person
+leaves."** `_compute_hvac_occupied` (`hvac_zones.py:1048-1123`) *"rides grace-held STATE_OCCUPIED + per-room tail. Kind is NOT
+consulted"*; its input is the room's lighting `data.get("occupied")` (`:717`). HVAC occupancy decouples hallways (excluded),
+release tails and the zone trust gate — but it ARMS on the lighting rising edge and HOLDS through the lighting occupancy
+timeout (~300 s typical) + tail. So a 10 s transit keeps a room HVAC-occupied ~5 min + tail. WHY (step-4-B plan
+`PLANNING_hvac_zone_conditioning_demand.md:30,:119`, CRIT-1): reading raw kinds live would drop a still/sleeping body on a
+radar blip → retreat on an occupied room; transit was handled only by hallway exclusion; *"within-room kind discrimination
+is Stage B, deferred"* — the operator's intended faster HVAC clock is that unbuilt Stage B. A CRIT-1-safe Stage B consults
+raw evidence ONLY at the arming edge (arm iff raw presence persisted ≥ N s), keeping the robust hold after arming.
+
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 
 | Seq | Workstream / step | Problems (§9) | Tier / gate |
 |---|---|---|---|
 | 0 | **v5.103.15 live-room establishment** (SHIPPED 2026-09-26) — establishment over rooms actually running: excluded = disabled / SETUP_ERROR / MIGRATION_ERROR / SETUP_RETRY; transient (loading) rooms BLOCK; live rooms must be LOADED + coordinator-present + seen; all-dead zone never retreats. Plan `docs/planning/PLANNING_hvac_live_room_establishment.md` REV 2 | 9.6 | Tier 2-DB + mandatory D; fix-up pending (reviewers B/D: failed-room sticky exclusion, hold preset while transient-blocked & fused-empty, deleted-room exclusion, NM `location`, UTC grace clock) |
 | 1 | **W1-A Thermostat I/O governance, behaviour-neutral:** all 3 verbs through funnels (add `emit_set_hvac_mode`, migrate the 7 raw sites); ONE durable row per actual write (verb, zone, site, values, reason) | 9.2, part of 9.1 | Tier 2-DB |
-| 2 | **W1-B Thermostat definition (per-BRAND strategy):** a simple generic interface — how to *hold a named preset*, *borrow & return*, *read the observed hold* — with the brand's behaviour **discovered and defined in detail** (Carrier/Bryant first: resume-then-pin; presets-only returns for EVERY borrow kind; manual counts as human only when CONFIG `hold_activity == manual`; URA-owned/stale holds reclaimable; knob timeouts actually release; funnel skips no-op writes and owns `_last_emitted_range`). Generic default = direct pin; **Nest strategy only when a Nest is available to test.** Runtime state stays per thermostat ENTITY (it already is: `_last_emitted_range` `hvac.py:521`, `_suppressed_until` `hvac_override.py:235`, `_nudge_pre_preset` `:262`, `_override_active` `:205`, excursion `_rows` `hvac_excursion.py:201` — all keyed by zone_id/entity); **no per-zone handle class is needed** — one definition per brand + existing per-entity state. Evaluate the local `set_activity_setpoint` no-hold patch (§5) as a nudge write that creates no hold — provenance must be verified first | 9.1, 9.7 blockers | **Tier 3** — operator go required |
+| 2 | **W1-B Thermostat definition (per-BRAND strategy)** — REV 4 scope (operator 2026-09-26): problems 1 (presets-only returns + provenance/URA-owned reclaim w/ decision-3 delay + kill switch), 2 (borrow lock: nudges + compromises only, 10-min cap; a human change ends the borrow with no return write), 3 (per-brand definition + generic default), 5 (reclaim delay + kill switch). Problem 4 (TAO/immune-expiry reclaim) PARKED on data; problem 6 (which feed confirms a write) DECOUPLED to `HVAC-WRITE-CONFIRMATION-ORACLE-1`. The withdrawn rule "manual counts as human only when CONFIG `hold_activity == manual`" (C20/C23) is NOT used. Plan `docs/planning/PLANNING_hvac_w1b_thermostat_definition.md`; nudge-start echoes fixed separately (v5.103.17) | 9.1, 9.5 | Tier 3; operator GO through deploy unless unexpected |
 | 3 | Measure one clean day on the W1-A write log: stranded-manual minutes by cause, before/after | — | read-only |
 | 4 | **W2 Occupancy truth:** night still-sleeper hold (in-suite stationary BLE + radar micro-blips extend the hold; zone-scoped), Jaya radar repair (physical), occupancy-triggered decision cycle (fast path, `82620357a`), hot entry, reloading-room placeholder readers, guest-as-zone-person | 9.3, 9.4, 9.5 | Tier 2-DB each |
 | 5 | Enable Custom Preset Ranges (D9) once W1-B removed its blockers | 9.7 | Tier 2 |

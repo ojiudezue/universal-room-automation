@@ -1,20 +1,175 @@
-# PLANNING — W2 HVAC Occupancy Fast Path (shave the 5-min tick) — REV 2
+# PLANNING — W2 HVAC Occupancy Fast Path (shave the 5-min tick) — REV 4
+
+**STATUS 2026-09-26 (evening): PARKED by operator.** REV 4 failed its second plan review (4 HIGH). Replaced by setting the zone entry dwell to 0 (removes C18's second tick with no code; `hvac.py:2442` guard `dwell_minutes > 0`). Revive if measured entry latency p90 > 5 min or hot-entry complaints — see card HVAC-W2-OCCUPANCY-TRUTH.
+
 
 **Card:** `HVAC-W2-OCCUPANCY-TRUTH` (child: `HVAC-HOT-ENTRY-LATENCY-1`).
 **Workstream:** W2 (Occupancy Truth), operator-approved 4-workstream HVAC arc.
 **Design origin:** commit `82620357a`; prior context `docs/planning/PLANNING_hvac_zone_conditioning_demand.md` + `docs/planning/PROPOSAL_hvac_conditioning_demand_2026_09_16.md`.
 **Operator scope (binding, §9d):** *"shave the 5-min tick only for now."* NO dwell / hold / grace / tail / override / retreat-semantics change; whole-house cycle preserved.
-**Sequencing:** BUILD AFTER `feature/hvac-live-room-establishment` (v5.103.15) merges AND AFTER W1-A has been live ≥ 1 day (needed for the empirical write-rate baseline the limiter acceptance depends on — see §8 + §5.D0).
+**Sequencing:** BUILD AFTER `feature/hvac-live-room-establishment` (v5.103.15) merges AND AFTER W1-A has been live ≥ 3 days (REV 4: F9 margin rule needs ≥3-day baseline).
 
-REV 2 folds FIX-PLAN-FIRST review findings 1-12 in place. Change log at bottom.
+REV 2 folded FIX-PLAN-FIRST review findings 1-12. REV 3 folded the D0 measurement
+(`docs/planning/AUDIT_hvac_fast_path_rate_2026_09_26.md`) and the orchestrator's
+marginal-benefit decision to keep global limiter as DENY. REV 4 folds the plan-review
+FIX-PLAN-FIRST findings F1-F15 (orchestrator decisions per each). Change log at bottom.
+
+---
+
+## REV 4 DELTA (what changed vs REV 3, plan-review-driven)
+
+Orchestrator decisions on plan-review findings F1-F15:
+
+- **F1 (HIGH) — Dwell follow-up guarded + capped.** Schedule a follow-up ONLY when the
+  dwell skip is BLOCKING a real preset change: i.e. `effective_preset != zone.preset_mode`
+  AND `should_change_preset` would allow the write. Place the scheduler INSIDE
+  `_apply_house_state_presets` immediately BEFORE the `continue` at **hvac.py:2451** (not
+  in `_run_decision_cycle`). Add a per-zone follow-up rate cap
+  `HVAC_FAST_PATH_DWELL_FOLLOWUPS_PER_ZONE_PER_HOUR = 6` (rung-1 module const; why: caps
+  a runaway dwell-skip loop on an oscillating room to at most one per 10 min average per
+  zone; well above the D0 zone-cold cold-edge rate of ≤ 2/day/zone). See §4.4.
+- **F2 (HIGH) — Non-periodic S1 write-loop restricted to origin_zones; producer runs for
+  ALL zones (bounded drift ≤ 1 tick, accepted).** `_async_decision_cycle` /
+  `_run_decision_cycle` take a new keyword `origin_zones: set[str] | None`. On
+  `trigger ∈ {fast_path, fast_path_dwell_followup}` the S1 preset-write loop
+  (`_apply_house_state_presets`, iterating `zone_id`) SKIPS zones not in `origin_zones`
+  — those zones are evaluated read-only (producer runs, decision computed, but NO
+  `emit_set_preset_mode` / `emit_set_temperature` / `emit_set_hvac_mode` call is issued).
+  For periodic ticks and every other trigger, `origin_zones = None` = "all zones" (today's
+  behaviour). The producer (`update_room_conditions`, `hvac.py:1656`, iterates all rooms
+  by design — no per-zone entry point) runs on every non-periodic cycle for ALL zones —
+  sibling zones therefore have their tail_start / last_occupied_time /
+  continuous_occupied_since / current_session_start updated at the fast-path cadence too.
+  This is a strict refinement (finer-grained truth of the same observations, never new
+  writes since S1 is origin-gated), so the sibling-zone drift vs "produce only on the
+  periodic tick" is bounded by ≤ 1 periodic-tick interval (300 s) — the same envelope
+  siblings live in today. Choice justification vs "only run producer for origin_zones":
+  producer has no per-zone entry point in current code (`hvac_zones.py:523` iterates all
+  rooms), so origin-only production would require a producer refactor (out of scope by
+  §9d — "shave the 5-min tick only"). All-zones production preserves today's producer
+  contract exactly and keeps §9d clean (no producer semantics change).
+- **F3 (HIGH) — §4.7 skip set is ONLY {fast_path, fast_path_dwell_followup}.** Other
+  triggers — `periodic`, house-state (`hvac.py:3131`), pre-arrival (`hvac.py:4004`), boot
+  kick (`hvac.py:1553`), setup cycle (`hvac.py:1372`) — stay periodic-classified and run
+  the full site list. The `trigger` enum literal for the boot-kick and setup cycle is
+  `"periodic"` (they DO expect the full site set). Predictor row in §4.7 hardened:
+  **count-coupled + event payload → SKIP on non-periodic (definitive; verified against
+  `hvac.py:1784`).**
+- **F4 — Zone-cold gate reads `zone.any_room_hvac_occupied`, not a sibling loop.** The
+  fused signal is the authoritative "zone-cold" test (`hvac_zones.py:751`, exposed on
+  `sensor.ura_hvac_coordinator_zone_{n}_status`). Race-freedom: HA runs on a single event
+  loop; the handler reads the coordinator's last-computed fused value at
+  `state_changed` dispatch time, and any concurrent producer update happens on the same
+  loop (never truly concurrent). Worst-case misjudgment = one redundant fast-path cycle
+  (which S1 write-loop then finds nothing to do in — accepted) or one edge falling back
+  to the periodic tick (accepted per §REV 3 DELTA #2). This replaces the REV 3 gate 3b
+  sibling-set lookup — one atomic read instead of a set comprehension over `_hvac_armed`.
+- **F5 — Periodic ticks that hit the lock ALSO set `_fast_path_rerun_requested`.** The
+  trailing rerun runs as `"periodic"` when a periodic cycle was dropped (not always as
+  `"fast_path"`); track the CLASSIFICATION of the DROPPED trigger. Order of gates
+  updated: **lock / rerun gate ahead of global DENY** — a periodic cycle should never
+  be denied by the global limiter (it's the backstop), and a rerun request predates the
+  limiter decision.
+- **F6 — Origin_zones threading + rerun tracking + `_tearing_down`.** Origin zones flow
+  through `_async_decision_cycle(_now=None, *, trigger="periodic", origin_zones=None)`
+  → `_run_decision_cycle(trigger, origin_zones)`. Trailing reruns exempt from BOTH
+  limiters AND tracked in `_pending_tasks`. New `self._tearing_down: bool` flag set
+  synchronously at the top of `async_teardown`; checked by state-change handler,
+  dwell-followup callback, and rerun scheduler — each returns immediately if
+  `_tearing_down`. `async_teardown` DRAINS `self._fast_path_state_unsub` and all entries
+  of `self._fast_path_pending_dwell` BEFORE its first `await` (so no callback fires
+  against a half-torn-down coordinator).
+- **F7 — Dwell follow-up pops its dict entry BEFORE dispatch.** Dispatched follow-up:
+  `self._fast_path_pending_dwell.pop(zone_id, None)` then `hass.async_create_task(...)`.
+  Wire-in `test_dwell_followup_rearms_after_fire` — after one follow-up fires, another
+  dwell-skip on the same zone must schedule a fresh follow-up.
+- **F8 — Follow-up rows carry `origin_trigger`; D3 pass criterion uses LIVE dwell.**
+  When the follow-up runs and produces a `preset_change` row, the row's details dict
+  carries `trigger="fast_path_dwell_followup"` AND `origin_trigger` ∈
+  `{"fast_path","periodic","house_state","pre_arrival"}` (the trigger that scheduled the
+  follow-up). D3 pass criterion (Live):
+  - `p90(edge → preset_change_ts) ≤ hvac_zone_entry_dwell(live seconds) + FAST_PATH_DWELL_SLACK_S + HVAC_FAST_PATH_SLA_S` — dwell read from the LIVE `number.ura_hvac_coordinator_zone_entry_dwell` (state of play §3.2 — value has legitimately been retuned by the operator: current live = 2 minutes = 120 s), NOT a compile-time constant.
+  - AND **≥ 90 %** of zone-cold hot entries have `origin_trigger="fast_path"` (i.e. the fast-path handler saw them; the residual ≤ 10 % is the periodic-tick backstop path for G-denied cold edges).
+- **F9 — Corrected W1-A query, ≥ 3-day margin, attributable criterion.** Baseline query
+  (audit §7 corrected):
+  ```
+  SELECT date(timestamp, 'unixepoch', 'localtime') AS d,
+         json_extract(details_json, '$.zone_id')  AS zone,
+         json_extract(details_json, '$.verb')     AS verb,
+         COUNT(*) AS n
+  FROM ura_activity_log
+  WHERE action = 'climate_write'
+    AND timestamp >= ?
+  GROUP BY d, zone, verb ORDER BY d, zone, verb;
+  ```
+  Column name `details_json` (verify at build dispatch against W1-A's writer). Margin
+  computation needs ≥ **3** full days of baseline; margin = `max(daily_delta_pct)` over
+  the baseline days. Add **attributable ship criterion**: `fast_path_preset_change_rows_per_day
+  ≤ zone_cold_edges_per_day_from_D0` per zone (D0 §2 has the numbers). If the fast path is
+  writing more preset changes than there are zone-cold edges, something is wrong.
+- **F10 — In-code hard ceiling + parked-DEFER recorder query.**
+  - Hard ceiling: `HVAC_FAST_PATH_MAX_PER_ZONE_PER_HOUR = 15` (rung-1 module const; why: 15 = ~2.5× the p95-day per-zone zone-cold edge rate D0 §3.1 headline 2/day/zone worst — a safety brake that fires only if something is fundamentally wrong upstream; well below the L=60 s theoretical ceiling of 60/hour). On breach, emit ONE NM ("HVAC fast-path rate ceiling tripped on zone Z"), then FALL BACK TO TICK-ONLY for that zone until next daily rollover (skip fast-path fires; periodic tick unaffected). Counter `fast_path_ceiling_tripped_total`; ceiling state per-zone in `_fast_path_ceiling_tripped_until: dict[str, datetime]`.
+  - Parked-DEFER revival query (recorder / ura DB):
+    ```
+    SELECT date(timestamp, 'unixepoch', 'localtime') AS d,
+           json_extract(details_json, '$.zone_id') AS zone,
+           COUNT(*) AS denies
+    FROM ura_activity_log
+    WHERE action = 'fast_path_global_deny'  -- if you emit a debug row; else read the counter attribute daily snapshot
+    GROUP BY d, zone;
+    ```
+    Revival trigger: `denies/day > 3` on a 7-day rolling avg per zone (§7).
+- **F11 — File:line citations refreshed** against `develop @ c1c555291` (current tip).
+  Notable updates: dwell skip is `hvac.py:2451` (was cited variously as :2362-2365 in
+  REV 2/3 — reviewer's audit); setup initial cycle `hvac.py:1372`; boot kick
+  `hvac.py:1553`; count-coupled check_ac_reset call `hvac.py:1760`; fan controller call
+  `hvac.py:1764`; predictor update `hvac.py:1784`.
+- **F12 — `zm.zones` read live** (not cached at listener rebuild — zones dict is a live
+  reference on `ZoneManager`).
+- **F13 — ONE `SIGNAL_ROOM_ENTRY_LIFECYCLE` subscription** covers `options_updated`
+  paths (URA fires the lifecycle signal from its own options-updated handling — verified
+  against `signals.py:199` producers). Drop the separate options_updated subscription.
+- **F14 — Thread `trigger` all the way to the `preset_change` write.** The trigger label
+  must land in `_ura_activity_log_preset_change` details dict (`hvac.py:2716-2748`) — not
+  just in an in-memory counter. Give `HVAC_FAST_PATH_SLA_S` a live consumer:
+  `last_fast_path_edge_to_start_s: float | None` attribute on the coordinator, exposed on
+  the existing `sensor.ura_hvac_coordinator_status` sensor (the sensor that also carries
+  the counters in F14/F15). Rerun arithmetic corrected: **~1.5/day** (p95 cycle proxy 27.6
+  s / 300 s tick × 16.6 zone-cold edges/day × 1 rerun each ≈ 1.5). REV 3 had ~0.7/day —
+  wrong. Boot-suppressed counter unified: keep only `_fast_path_boot_suppressed_total`
+  (removed the `_fast_path_boot_suppressed_count` alias).
+- **F15 — `AnomalyDetector.record_observation`** is the correct method (not `observe`).
+  Mutation drills: neuter the RETURN, not just the CALL (a returned-None mutation catches
+  callers that rely on side effects too). Replace `test_periodic_cycle_byte_identical_to_develop`
+  with `test_periodic_cycle_call_sequence_unchanged` (assert the ordered list of major
+  call sites is identical; behavioural output equivalence is hard to assert cleanly).
+
+Also updates:
+- Recomputed load per REV 4 gates: base fast-path ~15.6/day + dwell follow-ups
+  (**gated by F1 — most zone-cold entries land on a zone whose preset would change, so
+  ~15/day scheduled**) + trailing reruns ~1.5/day (F14 correction) = **~32/day**
+  non-periodic cycles, +11 % over 288 periodic ticks. Load envelope unchanged.
+- INV conjunct (3) REWRITTEN TRUTHFULLY per F2: non-periodic cycles run the producer
+  for all zones (bounded drift ≤ 1 periodic tick) and S1 preset-writes ONLY for zones
+  in `origin_zones`; the "byte-identical to develop" claim is REPLACED with
+  "preset-write output for zones ∉ origin_zones is identical to what a periodic tick at
+  the same wallclock would produce."
+
+**Card `HVAC-FAST-PATH-FAN-WARM-EDGES-1`** minted by orchestrator on the board
+2026-09-26 as the escape hatch for the warm-edge fan-latency trade-off (§4.7, §7).
 
 ---
 
 ## 0. MANDATORY READ CONFIRMATION
 
-Planner re-read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` completely including the new **C16 (Carrier 30-min schedule + 120-min reconcile + 5-min post-write guard, ha_carrier/const.py:46-59)**, **C17 (two suppression windows: `SUPPRESS_TTL_SECONDS=5` for temperature, `SUPPRESS_TTL_SECONDS_PRESET=120` for preset — `hvac_override.py:129`, `:141-146`, `:153`)**, and **C18 (hot-entry latency is 5-10 min, not ~7: the observing tick STARTS the dwell clock via `hvac_zones.py:714-716` and always skips at `hvac.py:2362-2365`; the preset write lands on the NEXT tick)**. C6 amendment aligned. The integration doc `docs/Coordinator/THERMOSTAT_DEFINITION_CARRIER_BRYANT.md` §9 (Carrier post-write guard × URA suppression interaction) is UNVERIFIED per C16 and out of scope for this plan.
+Planner re-read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` completely (W1-A
+Stage A SHIPPED v5.103.16 2026-09-26, §10 C1–C22 including C18 hot-entry mechanism and
+C20 zone_1 borrow-return strand class) AND `docs/planning/PLANNING_hvac_arc_w1_w2_integration.md`
+(C1–C7 binding). Integration doc `docs/Coordinator/THERMOSTAT_DEFINITION_CARRIER_BRYANT.md`
+§9 (Carrier post-write guard × URA suppression) is UNVERIFIED per C16 and out of scope.
 
-**C18 reframes this whole design.** The dwell-expiry follow-up is NOT a corner case; it is the main hot-entry path (§4.4, §5.D3).
+**C18 reframes this whole design.** The dwell-expiry follow-up is NOT a corner case; it is
+the main hot-entry path (§4.4, §5.D3).
 
 ---
 
@@ -22,20 +177,23 @@ Planner re-read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` completely
 
 ### 1.1 Prior-art scan — REUSE-or-BUILD per proposed piece
 
-| Proposed piece | Verdict | Existing symbol (file:line) |
+| Proposed piece | Verdict | Existing symbol (file:line, refreshed per F11) |
 |---|---|---|
-| Decision-cycle trigger dispatch | **REUSE pattern** | `hass.async_create_task(self._async_decision_cycle())` tracked in `_pending_tasks` — house-state at `hvac.py:3131-3133`, pre-arrival at `hvac.py:4002-4004`, boot-settle kickoff at `hvac.py:1539-1547` via `async_call_later` unsub'd on `_unsub_listeners`. Re-entrancy guard `self._decision_cycle_lock` at `hvac.py:1592-1598` (finding 5: drops triggers today — §4.5). |
-| Per-room rising-edge source | **REUSE entity** | `binary_sensor.{entry_id}_occupied` — registry-resolved via `homeassistant.helpers.entity_registry.async_get_entity_id("binary_sensor", DOMAIN, f"{entry_id}_occupied")`. NOT the `hvac_occupied` sensor (that's a lazy mirror that only updates when the room coordinator pushes — same producer, same lag). |
-| Armed-gate replay in the D0 probe | **REUSE producer state** | `zm._hvac_armed[room]` (`hvac_zones.py:241`, `:990`, `:994`, `:1026`, `:1038`); tail-hold tables at `const.py:1219-1224` (day) and `:1230-1242` (night). D0 replays these offline (finding 3). |
-| Trigger dedup / re-entrancy trailing rerun | **NEW (one flag)** | `self._fast_path_rerun_requested: bool` — flip on trigger when lock held, drop-and-rerun after lock releases. Prior art is `_pending_tasks` set (lifecycle only, not coalesce). |
-| Per-zone rate limiter | **NEW module const + dict** | `HVAC_FAST_PATH_MIN_INTERVAL_S` in `hvac_const.py` (rung-1, cloud-call-rate protective, sibling to `HVAC_DECISION_TICK` at `:11-13`). State `self._fast_path_last_run_at: dict[str, datetime]`. Stamped ONLY when a cycle actually runs (finding 5). |
-| Global min-interval between non-periodic cycles | **NEW module const** | `HVAC_FAST_PATH_GLOBAL_MIN_INTERVAL_S` (finding 8) — house-wide floor between any two non-periodic cycles regardless of zone. |
-| Dwell-expiry follow-up | **REUSE pattern (main path per C18)** | `async_call_later` + per-zone dedup dict `self._fast_path_pending_dwell: dict[str, unsub]`; unsubs cancelled in `async_teardown` from the per-zone dict — NOT appended to `_unsub_listeners` (finding 7, avoid double-unsub `helpers/event.py:441-447`). |
-| `trigger` classification through the cycle | **NEW arg + REUSED skip-guards** | Thread `trigger: Literal["periodic","boot_settle_kick","house_state","pre_arrival","fast_path","fast_path_dwell_followup"]` through `_async_decision_cycle(_now=None, *, trigger="periodic")` → `_run_decision_cycle(trigger)`. On non-periodic, SKIP the count-coupled call sites (§4.7). |
-| Trigger classification recorded | **REUSE surfaces** | Put `trigger` into (a) the existing `preset_change` `ura_activity_log` details dict (`hvac.py:2716-2748`), (b) an existing HVAC coordinator sensor's attributes (in-memory counters). NO new sensor and NO new per-cycle DB writer (finding 2 — `sensor.ura_hvac_coordinator_decision_cycle` does NOT exist; retracted). |
-| Storm trip-wire | **REUSE** | `AnomalyDetector` at `hvac.py:1485-1501` — add a `fast_path_trigger_rate` metric (per-zone, LOCAL-day bucket like `short_cycle_rate`). NM fires only on the trip-wire (finding 9), no per-denial NM. |
-| Listener rebuild on room lifecycle | **REUSE pattern** | `SIGNAL_ROOM_ENTRY_LIFECYCLE` (`signals.py:199`); presence pattern at `presence.py:2624-2651`; store the state-change unsub on a dedicated attribute (`self._fast_path_state_unsub`), release-then-reassign — single unsub, no `_unsub_listeners` append (finding 7). Also rebuild on `options_updated`. |
-| Latency oracle | **REUSE** | `ura_activity_log` `preset_change` row time (`hvac.py:2716-2748`); OR when W1-A ships, the durable per-write row from W1-A. NOT recorder `preset_mode` (Carrier status-lagged per §5 and C16). Finding 10. |
+| Decision-cycle trigger dispatch | **REUSE pattern** | `hass.async_create_task(self._async_decision_cycle())` tracked in `_pending_tasks` — house-state at `hvac.py:3131-3133`, pre-arrival at `hvac.py:4002-4004`, boot-settle kickoff at `hvac.py:1553` via `async_call_later`, setup initial at `hvac.py:1372`. Re-entrancy guard `self._decision_cycle_lock` at `hvac.py:1592-1598`. |
+| Per-room rising-edge source | **REUSE entity** | `binary_sensor.{entry_id}_occupied` — registry-resolved via `async_get_entity_id("binary_sensor", DOMAIN, f"{entry_id}_occupied")`. NOT the `hvac_occupied` sensor (lazy mirror, same producer, same lag). |
+| Zone-cold gate | **REUSE fused signal** (F4) | `zone.any_room_hvac_occupied` on `ZoneManager.zones[zone_id]` — the fused OR set by the producer at `hvac_zones.py:751`. Atomic read, single-event-loop = race-free. |
+| Trigger dedup / re-entrancy trailing rerun | **NEW (one flag)** | `self._fast_path_rerun_requested: str | None` — stores the CLASSIFICATION of the dropped trigger (`"periodic"` for a dropped tick, else the non-periodic label) so the rerun replays the right kind (F5). |
+| Per-zone rate limiter | **NEW module const + dict** | `HVAC_FAST_PATH_MIN_INTERVAL_S` in `hvac_const.py` (rung-1, cloud-call-rate protective). State `self._fast_path_last_run_at: dict[str, datetime]`. |
+| Global min-interval between non-periodic cycles | **NEW module const** | `HVAC_FAST_PATH_GLOBAL_MIN_INTERVAL_S` — DENY on collision; periodic tick is the backstop discharge (§4.3). DEFER alternative parked (§7). |
+| Dwell-expiry follow-up | **REUSE pattern (main path per C18)** | `async_call_later` + per-zone dedup dict `self._fast_path_pending_dwell`. F1-gated: only scheduled when a real change is blocked; F7: pops dict entry before dispatch. Cancelled in `async_teardown` BEFORE first await (F6). |
+| Per-zone follow-up rate cap | **NEW module const + counter** | `HVAC_FAST_PATH_DWELL_FOLLOWUPS_PER_ZONE_PER_HOUR` (rung-1; F1). Sliding-window counter in `_fast_path_followup_bucket[zone_id]: deque[datetime]`. |
+| Non-periodic hard ceiling | **NEW module const** | `HVAC_FAST_PATH_MAX_PER_ZONE_PER_HOUR` (rung-1; F10). |
+| `trigger` + `origin_zones` classification through the cycle | **NEW args + REUSED skip-guards** | `_async_decision_cycle(_now=None, *, trigger="periodic", origin_zones=None)` → `_run_decision_cycle(trigger, origin_zones)`. On `trigger ∈ {fast_path, fast_path_dwell_followup}` the S1 preset-write loop `_apply_house_state_presets` skips zones ∉ origin_zones (F2). Count-coupled sites skipped per §4.7 (F3). |
+| Trigger classification recorded | **REUSE surfaces** | Put `trigger` (and `origin_trigger` for follow-ups, F8) into the existing `preset_change` details dict (`hvac.py:2716-2748`). Threaded ALL THE WAY to the write, not just to counters (F14). |
+| Storm trip-wire | **REUSE** | `AnomalyDetector.record_observation` (F15 — verified correct method name) at `hvac.py:1485-1501` — add `fast_path_trigger_rate` metric per-zone LOCAL-day bucket. NM only on the trip-wire (finding 9). |
+| Listener rebuild on room lifecycle | **REUSE pattern (one signal, F13)** | `SIGNAL_ROOM_ENTRY_LIFECYCLE` (`signals.py:199`); URA options_updated flows through this signal, so ONE subscription is enough. Presence pattern at `presence.py:2624-2651`. Store the state-change unsub on `self._fast_path_state_unsub`, release-then-reassign (finding 7). |
+| Live SLA consumer sensor | **REUSE sensor** (F14) | `sensor.ura_hvac_coordinator_status` — carries counters + `last_fast_path_edge_to_start_s: float | None`. |
+| Latency oracle | **REUSE** | `ura_activity_log preset_change` row (`hvac.py:2716-2748`) — trigger + origin_trigger in details (F8). W1-A `climate_write` rows for the write-rate baseline (F9). |
 
 ### 1.2 Prior planning docs consulted
 
@@ -43,60 +201,64 @@ Planner re-read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` completely
 - `docs/planning/PROPOSAL_hvac_conditioning_demand_2026_09_16.md`
 - `docs/planning/PLANNING_hvac_live_room_establishment.md` REV 2 (v5.103.15 in flight — §9 overlap)
 - `docs/planning/PLANNING_hvac_governed_excursion.md` rev-6 (trigger routes through `_async_decision_cycle`, not `_run_decision_cycle`)
-- W1-A plan (naming per §11 arc) — sequenced BEFORE this cycle for the write-rate baseline
+- `docs/planning/PLANNING_hvac_arc_w1_w2_integration.md` (C1–C7 contracts binding this cycle)
+- `docs/planning/AUDIT_hvac_fast_path_rate_2026_09_26.md` (D0 probe — REV 3 input; §7 corrected query per F9)
 
 ### 1.3 Memory + design docs read
 
-- `feedback_wire_in_anchor_mandatory.md`, `feedback_suppression_needs_discharge.md`, `feedback_measure_before_build.md`, `feedback_marginal_benefit_pushback.md`, `feedback_tier2plus_prior_art_scan.md`, `feedback_mutation_verification_pycache_staleness.md`, `feedback_falsify_before_asserting.md`, `project_reload_storm_refuted_restart_storm_live.md`, `project_incident_v5_8_0_setup_recursion.md`.
-- `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` (C16-C18 folded — see §0).
+- `feedback_wire_in_anchor_mandatory.md`, `feedback_suppression_needs_discharge.md`, `feedback_measure_before_build.md`, `feedback_marginal_benefit_pushback.md`, `feedback_tier2plus_prior_art_scan.md`, `feedback_mutation_verification_pycache_staleness.md`, `feedback_falsify_before_asserting.md`, `project_reload_storm_refuted_restart_storm_live.md`, `project_incident_v5_8_0_setup_recursion.md`, `feedback_no_fabrication.md`.
+- `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` (C16-C22 folded — see §0). W1-A Stage A SHIPPED v5.103.16.
 
-### 1.4 Code locations surveyed
+### 1.4 Code locations surveyed (refreshed per F11 against develop @ c1c555291)
 
-- `hvac.py`: subscribe block :1131-1213; periodic timer :1355-1363; boot-settle :1510-1552; `_async_decision_cycle` :1564-1598 (re-entrancy guard :1592, boot-settle early-return :1580); `_run_decision_cycle` :1600-1700; `_check_carrier_freshness` :1649; anomaly observations :1783; zone dwell :2355-2368; preset_change activity-log :2716-2748; `_handle_house_state_changed` :3096-3133; `_handle_person_arriving` :3990-4004.
+- `hvac.py`: subscribe block :1131-1213; periodic timer :1355-1369; setup initial cycle :1372; boot-settle kick :1553; `_async_decision_cycle` :1564-1598 (re-entrancy guard :1592-1598, boot-settle early-return :1580); `_run_decision_cycle` :1600-1789 (update_room_conditions :1656; check_carrier_freshness :1670; egress tick :1696; check_ac_reset :1760; fan controller :1764; cover controller :1767; predictor update :1784; anomaly observation :1783); `_apply_house_state_presets` :2013+ **with dwell-skip `continue` at :2451** (F11 correction); preset_change activity-log :2716-2748; `_handle_house_state_changed` :3096-3133; `_handle_person_arriving` :3990-4004.
+- `hvac_fans.py`: `FanController.update` :495, reads `room_cond.occupied` at :761 (SAME source as the fast-path trigger — the only warm-edge consumer that would benefit).
 - `hvac_override.py`: `check_ac_reset` count-coupling `:3805-3815` (`kwh_samples_above_threshold += 1` vs `_sustained_samples`); suppression windows `:129`, `:141-146`, `:153` (C17).
-- `hvac_zones.py`: `update_room_conditions` :523; `_hvac_armed` :241/990; hallway exclusion :650-665; **`current_session_start = now` at :714-716 (C18 mechanism)**; hallway-excluded seen :988; `is_zone_hvac_established` :1043.
+- `hvac_zones.py`: `update_room_conditions` :523 (iterates all rooms — no per-zone entry point); `_hvac_armed` :241/990; hallway exclusion :650-665; `current_session_start = now` at :714-716 (C18 mechanism); fused `any_room_hvac_occupied` set at :751; `is_zone_hvac_established` :1043.
 - `hvac_const.py`: `HVAC_DECISION_TICK` :11-13.
 - `const.py`: `ROOM_TYPE_HVAC_HOLD` :1219-1224 (day), `ROOM_TYPE_HVAC_HOLD_NIGHT` :1230-1242 (night).
-- `binary_sensor.py`: `HVACOccupiedBinarySensor` :745; slug + zone-lookup pattern :906-919.
-- `signals.py`: full read — only `SIGNAL_ROOM_ENTRY_LIFECYCLE` :199 is relevant.
+- `binary_sensor.py`: `HVACOccupiedBinarySensor` :745.
+- `signals.py`: `SIGNAL_ROOM_ENTRY_LIFECYCLE` :199 (covers options_updated via URA's own re-emit — F13).
 
 ---
 
-## 2. Falsifiable invariant (rev 2, per findings 1 + 11)
+## 2. Falsifiable invariant (REV 4 — zone-cold; origin_zones write scope; producer drift bounded)
 
-**INV:** *"For every HVAC-occupancy rising edge on a live, non-hallway room R (ROOM entry LOADED, coordinator present, `zm._hvac_armed[R]` NOT already True at event time) belonging to an HVAC zone Z:*
-1. *`_run_decision_cycle` STARTS within `HVAC_FAST_PATH_SLA_S` of the source `state_changed` event, unless denied by the per-zone or global limiter (denials do NOT drop the observation — the periodic 5-min tick discharges);*
-2. *When R's zone Z would be preset-flipped by that cycle but is dwell-blocked by `hvac.py:2362-2365`, a follow-up cycle is scheduled at `zone.current_session_start + zone_entry_dwell + FAST_PATH_DWELL_SLACK_S` (per-zone dedup), and the follow-up cycle is EXEMPT from the per-zone limiter (per-zone dedup already bounds it);*
-3. *On a non-periodic cycle (`trigger != "periodic"`), the count-coupled side effects enumerated in §4.7 are SKIPPED (or proven time-based). The periodic-tick behavioural output for every other zone is byte-identical to `develop`;*
-4. *Every fast-path subscription, per-zone timer, and pending follow-up is cancelled inside `async_teardown` (no orphan callbacks, no writes after unload); the state-change unsub is single-owned on `self._fast_path_state_unsub` (no double-unsub);*
-5. *`_fast_path_last_run_at[Z]` is stamped ONLY when a cycle actually runs — not on rate-limited denials, boot-settle early returns, or re-entrancy skips (which set `_fast_path_rerun_requested` and produce one trailing rerun after lock release)."*
+**INV:** *"For every HVAC-occupancy rising edge on a live, non-hallway room R (ROOM entry
+LOADED, coordinator present, `zm._hvac_armed[R]` NOT already True at event time) belonging
+to an HVAC zone Z that is currently zone-cold (`zone.any_room_hvac_occupied is False`,
+F4):*
+1. *`_run_decision_cycle` STARTS within `HVAC_FAST_PATH_SLA_S` of the source `state_changed` event, UNLESS denied by the per-zone limiter (D0: 0/114 zone-cold denials in 7 d), OR denied by the global limiter (D0: ~1/day), OR gated by the F10 hard-ceiling fallback for zone Z. A DENIED zone-cold edge is discharged by the NEXT periodic 5-min tick (backstop); no zone-cold edge is dropped without a discharge path.*
+2. *When R's zone Z would be preset-flipped by that cycle but is dwell-blocked at `hvac.py:2451` AND (`effective_preset != zone.preset_mode` AND `should_change_preset(zone,effective_preset)` is True), a follow-up cycle is scheduled at `zone.current_session_start + (zone_entry_dwell_live_seconds) + FAST_PATH_DWELL_SLACK_S` (per-zone dedup; per-zone rate cap `HVAC_FAST_PATH_DWELL_FOLLOWUPS_PER_ZONE_PER_HOUR`, F1). The follow-up cycle carries `origin_zones={Z}` and is EXEMPT from BOTH the per-zone AND the global limiter.*
+3. *On a `trigger ∈ {fast_path, fast_path_dwell_followup}` cycle with `origin_zones = O`: (a) the producer (`update_room_conditions`) runs for ALL zones — sibling-zone producer state is REFRESHED with today's `now`, refining the same observations (never new writes); the sibling-zone drift vs a "producer only on the periodic tick" world is bounded by ≤ HVAC_DECISION_TICK (300 s), the same envelope siblings live in today. (b) The S1 preset-write loop (`_apply_house_state_presets`) skips zones ∉ O — the preset/setpoint/mode WRITES for zones ∉ O are IDENTICAL to what the next periodic tick would produce, evaluated at the periodic-tick wallclock. (c) The count-coupled sites in §4.7 are SKIPPED (or proven time-based per the table). Other triggers (`periodic`, `house_state`, `pre_arrival`, boot-kick, setup) are treated as `origin_zones=None` (all zones) and run the full site list.*
+4. *Every fast-path subscription and per-zone dwell timer is DRAINED in `async_teardown` BEFORE its first await (F6). The handler, dwell-followup callback, and rerun scheduler each check `self._tearing_down` and return immediately if set. The state-change unsub is single-owned on `self._fast_path_state_unsub`.*
+5. *`_fast_path_last_run_at[Z]` and `_fast_path_last_run_at_any_zone` are stamped ONLY when a cycle actually runs — not on denials, boot-settle early returns, hard-ceiling fallback, or re-entrancy skips (which set `_fast_path_rerun_requested` to the DROPPED trigger label, F5, and produce one trailing rerun after lock release, running WITH that trigger label).*
+6. *Hot-entry latency (zone-cold edge → `ura_activity_log preset_change` row with `origin_trigger="fast_path"`): p90 ≤ `hvac_zone_entry_dwell_live_seconds + FAST_PATH_DWELL_SLACK_S + HVAC_FAST_PATH_SLA_S` (F8) for the class in §5 D3, AND at least 90 % of zone-cold entries have `origin_trigger="fast_path"`.*
 
-Discriminating observations (finding 10): under the fix, the **share of hot entries** — zone away, `any_room_hvac_occupied` False, no active session — whose *first* `ura_activity_log preset_change` row lands within **250 s** of the source `binary_sensor.{entry_id}_occupied` rising edge rises from ≈0 (today, C18 mechanism guarantees it can't) to ≈all, and those rows carry `trigger=fast_path_dwell_followup` in their details dict. Any hot entry with edge→write > 300 s post-fix and no rate-limit denial in the same window is a defect.
-
-The "changes WHEN, not WHAT" claim and the "sibling zones quiescent" claim from rev 1 are **STRUCK** — the count-coupled side effects (§4.7) make untriggered whole-house cycles NOT behaviour-neutral in general; the fix is the `trigger`-gated skip.
+Discriminating observations: today, zone-cold hot entries have edge→write p50 300–600 s
+(C18). Under the fix, the p90 target uses the LIVE dwell number (currently 120 s → target
+≈ 120 + 2 + 45 = 167 s). The `origin_trigger` field on the `preset_change` row is the
+label that discriminates "the fast path handled this" from "the periodic tick handled this".
 
 ---
 
-## 3. D0 — Measure before you build (READ-ONLY, ~30 min) — REV 2 per finding 3
+## 3. D0 — Measure before you build — DONE 2026-09-26
 
-**Purpose:** size the per-zone limiter empirically; produce the pre-W2-1 write-rate baseline the limiter acceptance depends on (finding 8); characterise cycle-duration percentiles for SLA sizing (finding 11).
+**Result:** `docs/planning/AUDIT_hvac_fast_path_rate_2026_09_26.md`. Probe:
+`scripts/probes/hvac_fast_path_d0_probe.py`. Window 165.2 h MAIN with 5 restarts
+excluded, 33 rooms in scope, variant S as the recommended basis.
 
-**Primary signal:** rising edges per **room** on `binary_sensor.{entry_id}_occupied` — resolve entity_ids from the entity registry for every non-disabled ROOM entry whose CONF_ROOM_TYPE != HALLWAY and whose room is a member of some HVAC `zone.rooms` (skip rooms in no HVAC zone; §4.6). This is the direct trigger source.
+**Headline (unchanged from REV 3):** 472 trigger-eligible edges (68.6/day); 114
+zone-cold (16.6/day, 24 %); zone-cold burst p95 = 1 in every zone; zone-cold min in-zone
+gap 646 s (per-zone L up to 300 s denies 0/114); global G=20 DENY denies ~7/week
+zone-cold (~1/day, accepted per §REV 3 DELTA #2); cycle-END proxy p95 27.6 s.
 
-**Armed-gate replay (offline):** for each rising edge on room R, decide whether it would arm the D1 producer by replaying `zm._hvac_armed` — apply the per-room-type tail from `ROOM_TYPE_HVAC_HOLD` (day) / `ROOM_TYPE_HVAC_HOLD_NIGHT` (night), keyed on the recorded house-state at edge time. A rising edge landing INSIDE the tail window from the prior vacancy is NOT a fast-path candidate (the room is still armed from the tail; no state change to trigger on). Emit "trigger-eligible edges" per zone per day.
+**Sizing rule (REV 4):** `HVAC_FAST_PATH_MIN_INTERVAL_S = 60` (0/114 zone-cold denied);
+`HVAC_FAST_PATH_GLOBAL_MIN_INTERVAL_S = 20` (~1/day zone-cold falls back to periodic
+tick — accepted); `HVAC_FAST_PATH_SLA_S = 45`; `FAST_PATH_DWELL_SLACK_S = 2`;
+`HVAC_FAST_PATH_DWELL_FOLLOWUPS_PER_ZONE_PER_HOUR = 6` (F1); `HVAC_FAST_PATH_MAX_PER_ZONE_PER_HOUR = 15` (F10).
 
-**Additional signals:**
-- Per-zone daily trigger-eligible edge count (median / p95 / max) — sizes `HVAC_FAST_PATH_MIN_INTERVAL_S`.
-- Inter-edge gap p50 / p95 / p99 per zone (seconds).
-- Bursts-per-5-min p95 per zone.
-- **Cycle-duration percentiles** (finding 11): from `ura_activity_log` and any coordinator timing rows, extract per-cycle wall-time p50/p95/p99. `HVAC_FAST_PATH_SLA_S` sized so p95 cycle duration + queuing headroom fits (SLA is "cycle STARTS within X s", so completion drives sizing separately).
-- **Pre-W2-1 climate-write baseline** (finding 8): per-zone `climate_write` rows/day from W1-A's durable log across a ≥ 1-day post-W1-A window. This is the acceptance yardstick — the fast path is not allowed to raise the per-zone write count materially.
-
-**Report:** `docs/planning/AUDIT_hvac_fast_path_rate_2026_09_26.md`, committed before D2 dispatch.
-
-**Sizing rule:** `HVAC_FAST_PATH_MIN_INTERVAL_S` chosen so at p99 zone burst the limiter denies < 10% of trigger-eligible edges per zone. Starting proposal 60 s pending measurement. `HVAC_FAST_PATH_GLOBAL_MIN_INTERVAL_S` sized so aggregate non-periodic cycles ≤ ~1 per 20 s house-wide (protects the cycle from becoming the load).
-
-**Fail-out:** if the trigger-eligible rate on any zone is high enough that the sized limiter would deny > 10% AND the periodic tick already covers >90% of them, stop — the fast path's marginal benefit is thin against its ingredient risk (marginal-benefit pushback).
+**Fail-out (REV 2 formula) did not fire on the zone-cold denominator.** Build proceeds.
 
 ---
 
@@ -104,252 +266,465 @@ The "changes WHEN, not WHAT" claim and the "sibling zones quiescent" claim from 
 
 ### 4.1 Trigger source
 
-`async_track_state_change_event` on the filtered set of `binary_sensor.{entry_id}_occupied` entity_ids (registry-resolved, finding 6). Filter set built at setup from all **non-disabled** ROOM entries; hallway flag and zone-membership are re-checked at EVENT TIME (source of truth may change between rebuilds).
+`async_track_state_change_event` on the filtered set of `binary_sensor.{entry_id}_occupied`
+entity_ids (registry-resolved). Filter set built at setup from all non-disabled ROOM
+entries; hallway flag and zone-membership re-checked at EVENT TIME (`zm.zones` read live
+per F12).
 
-**Rising-edge classification (finding 6):** old-state `"off"` → new-state `"on"` ONLY. `unknown` / `unavailable` / `None` on either side is NOT a rising edge — those are lifecycle noise. The rising-edge test is stricter than rev 1 (which admitted unknown→on); the strict form matches the room coordinator's steady-state emit pattern and rejects reload-storm artifacts.
+**Rising-edge classification:** strict `"off"` → `"on"` only. D0 measured only 1 non-off→on
+transition in 7 d (audit §1) — noise negligible.
 
-**Per-event gating (all short-circuit, in this order):**
-1. Room is a member of some HVAC `zone.rooms` — else skip.
-2. Room's `CONF_ROOM_TYPE != ROOM_TYPE_HALLWAY` — else skip (circulation-excluded rooms cannot be HVAC-occupied per `hvac_zones.py:650-665`; triggering would just waste a cycle).
-3. `zm._hvac_armed.get(room_name) is not True` — if already armed, the D1 producer's state won't change on this edge; a cycle is redundant.
-4. Not inside boot-settle (`_boot_settle_done`) — if suppressed, count in an in-memory `_fast_path_boot_suppressed_count` for observability; do NOT stamp `_fast_path_last_run_at[Z]` (finding 5).
-5. Per-zone limiter: `now - _fast_path_last_run_at.get(Z, min) >= HVAC_FAST_PATH_MIN_INTERVAL_S` — else deny (in-memory counter, `debug` log; NO per-denial NM per finding 9).
-6. Global limiter: `now - _fast_path_last_run_at_any_zone >= HVAC_FAST_PATH_GLOBAL_MIN_INTERVAL_S` — else deny (same counters).
-7. Re-entrancy: if `_decision_cycle_lock.locked()`, set `_fast_path_rerun_requested = True` (finding 5) and return — after the current cycle releases the lock, run ONE trailing cycle (see §4.5).
+**Per-event gating (all short-circuit, in this order — REV 4 updated per F4, F5, F10):**
+1. `self._tearing_down` — return (F6).
+2. Room is a member of some HVAC `zone.rooms` — else skip.
+3. Room's `CONF_ROOM_TYPE != ROOM_TYPE_HALLWAY` — else skip.
+4. `zm._hvac_armed.get(room_name) is not True` — if already armed, D1 producer state won't change.
+5. **Zone-cold gate (F4):** `zone.any_room_hvac_occupied is False` — else skip and increment `_fast_path_warm_zone_gated_total`. Uses the fused signal on `ZoneManager.zones[zone_id]` (`hvac_zones.py:751`), not a sibling loop.
+6. Not inside boot-settle — if suppressed, increment `_fast_path_boot_suppressed_total` (F15 unified name), do NOT stamp last-run.
+7. **F10 hard-ceiling fallback:** if `now < _fast_path_ceiling_tripped_until.get(Z, min)`, skip and increment `fast_path_ceiling_gated_total`.
+8. **F5 lock/rerun gate — AHEAD of global DENY:** if `_decision_cycle_lock.locked()`, set `_fast_path_rerun_requested = trigger` (the DROPPED trigger label — F5) and return.
+9. Per-zone limiter (DENY, counter `fast_path_rate_limited_total`). D0: 0/114 zone-cold hit.
+10. Global limiter (DENY, counter `fast_path_global_rate_limited_total`). ~1/day zone-cold falls back to next tick.
+11. Update F10 sliding-window sample. If breach, set `_fast_path_ceiling_tripped_until[Z] = next_local_midnight`, emit ONE NM, return (this fires BEFORE the dispatch so the tripping cycle is denied).
 
-If all pass, dispatch via `hass.async_create_task(self._async_decision_cycle(trigger="fast_path"))`, tracked in `_pending_tasks`.
+If all pass, dispatch via
+`hass.async_create_task(self._async_decision_cycle(trigger="fast_path", origin_zones={zone_id}))`,
+tracked in `_pending_tasks`.
+
+**F4 race-freedom.** Read of `zone.any_room_hvac_occupied` is single-loop atomic. Even if
+a sibling's `_hvac_armed` is about to flip in the same tick, either (a) the sibling's
+state_changed callback ran first and the fused signal reflects it (we skip — correct),
+or (b) it runs after ours (we fire — one redundant cycle, no incorrect writes because S1
+is origin-gated). No misclassification loses a preset outcome.
 
 ### 4.2 Rising-edge only (unchanged)
 
-Argument in rev 1 stands: retreat gate needs fused-empty AND ≥ 10-min vacancy grace; a ≤ 5-min falling-edge lag is invisible. Falling edges continue to ride the tick.
+Falling edges ride the periodic tick — retreat needs fused-empty AND ≥ 10-min vacancy
+grace; ≤ 5-min falling-edge lag is invisible.
 
-### 4.3 Rate limiter — per-zone + global
+### 4.3 Rate limiter — per-zone + global (REV 3 DENY; REV 4 order + ceiling)
 
-**Constants (`hvac_const.py`, rung 1; sibling comment to `HVAC_DECISION_TICK`, "cloud API call-rate protective bound — change requires review"):**
-- `HVAC_FAST_PATH_MIN_INTERVAL_S` — per-zone floor (sized from D0).
-- `HVAC_FAST_PATH_GLOBAL_MIN_INTERVAL_S` — house-wide floor between any two non-periodic cycles (finding 8).
-- `HVAC_FAST_PATH_SLA_S` — target trigger→cycle-START latency (tests + observability). Sized from D0 cycle-duration percentiles + queuing headroom.
-- `FAST_PATH_DWELL_SLACK_S` — 2 s. Slack past `current_session_start + zone_entry_dwell` (protects against wall-clock coupling at the edge).
+**Constants (`hvac_const.py`, rung 1; sibling comment to `HVAC_DECISION_TICK`):**
+
+| Const | Value | Why (rung 1 = cloud-rate protective / policy — change requires review) |
+|---|---|---|
+| `HVAC_FAST_PATH_MIN_INTERVAL_S` | 60 | Per-zone floor. D0 §6.1: 0/114 zone-cold denied at any L ≤ 300 s; 60 s is a meaningful cloud-rate cap >> HA loop lateness. |
+| `HVAC_FAST_PATH_GLOBAL_MIN_INTERVAL_S` | 20 | House-wide floor. D0 §6.2: G=20 caps at ≤ 1 non-periodic cycle per 20 s; ~1 zone-cold edge/day falls back to periodic tick (accepted per §REV 3 DELTA #2). |
+| `HVAC_FAST_PATH_SLA_S` | 45 | Trigger→cycle-START target. D0 §6.3 proxy p95 27.6 s + 17 s headroom. Comment MUST note proxy method + absolute-duration unmeasured. Live consumer: `last_fast_path_edge_to_start_s` attr on `sensor.ura_hvac_coordinator_status` (F14). |
+| `FAST_PATH_DWELL_SLACK_S` | 2 | Wall-clock slack past dwell edge. |
+| `HVAC_FAST_PATH_DWELL_FOLLOWUPS_PER_ZONE_PER_HOUR` | 6 | F1 per-zone follow-up cap. Caps a runaway dwell-skip loop to ≤ 1 per 10 min per zone; well above the D0 zone-cold rate (max 2/day/zone). |
+| `HVAC_FAST_PATH_MAX_PER_ZONE_PER_HOUR` | 15 | F10 hard ceiling. ~2.5× the p95-day per-zone zone-cold edge rate; kill-switch, not throttle. On breach: one NM + tick-only fallback for that zone until midnight. |
 
 **State (on `HVACCoordinator`):**
-- `self._fast_path_last_run_at: dict[str, datetime]` — per zone_id, stamped ONLY when a cycle actually runs (finding 5). Never on denials, boot-settle early returns, re-entrancy skips.
-- `self._fast_path_last_run_at_any_zone: datetime | None` — global counterpart, same stamping rule.
-- `self._fast_path_rerun_requested: bool` — trailing-rerun flag (finding 5).
-- `self._fast_path_pending_dwell: dict[str, CALLBACK_TYPE]` — per-zone `async_call_later` unsubs; cancelled from this dict in `async_teardown`, NOT via `_unsub_listeners` (finding 7 — helpers/event.py:441-447 raises on double-unsub).
-- Counters exposed as attributes on an existing HVAC sensor (finding 2): `fast_path_triggers_total`, `fast_path_rate_limited_total`, `fast_path_global_rate_limited_total`, `fast_path_skipped_reentrant_total`, `fast_path_boot_suppressed_total`, `fast_path_dwell_followups_scheduled_total`, `fast_path_dwell_followups_ran_total`, `fast_path_dwell_followups_coalesced_total`. Reset on daily rollover using the existing `_last_daily_reset` hinge at `hvac.py:1606`.
+- `self._fast_path_last_run_at: dict[str, datetime]`
+- `self._fast_path_last_run_at_any_zone: datetime | None`
+- `self._fast_path_rerun_requested: str | None` — F5: the DROPPED trigger label, or `None`.
+- `self._fast_path_pending_dwell: dict[str, CALLBACK_TYPE]`
+- `self._fast_path_followup_bucket: dict[str, collections.deque[datetime]]` — sliding-hour window for F1 cap.
+- `self._fast_path_ceiling_bucket: dict[str, collections.deque[datetime]]` — sliding-hour window for F10.
+- `self._fast_path_ceiling_tripped_until: dict[str, datetime]` — per-zone tick-only fallback until LOCAL midnight.
+- `self._tearing_down: bool = False` — F6.
+- Counters exposed on `sensor.ura_hvac_coordinator_status` (F14): `fast_path_triggers_total`, `fast_path_rate_limited_total`, `fast_path_global_rate_limited_total`, `fast_path_ceiling_gated_total`, `fast_path_ceiling_tripped_total`, `fast_path_skipped_reentrant_total`, `fast_path_boot_suppressed_total` (F15 unified), `fast_path_dwell_followups_scheduled_total`, `fast_path_dwell_followups_ran_total`, `fast_path_dwell_followups_coalesced_total`, `fast_path_dwell_followups_rate_capped_total` (F1), `fast_path_warm_zone_gated_total`. Plus `last_fast_path_edge_to_start_s: float | None` gauge (F14). Reset on daily rollover.
 
-**Restart survival:** no persistence — a restart legitimately reopens the limiter; the next periodic tick and any real edge will re-establish the stamp. Suppression discharge = the periodic timer.
+**Restart survival:** none of the pending dicts persist. Backstop = periodic tick.
 
-**Boot-settle:** on `_async_decision_cycle` early-return at `hvac.py:1580` (boot-settle suppressed), the fast-path code path (which called it) MUST NOT stamp `_fast_path_last_run_at[Z]` (finding 5). Achieved by classifying the return path via `trigger` — see §4.5.
+**Discharge map (per "suppression needs a discharge"):**
+- Per-zone `L` DENY: next periodic 5-min tick.
+- Global `G` DENY: next periodic 5-min tick (~1/day, accepted).
+- F10 ceiling: next LOCAL midnight OR restart (whichever first).
+- Re-entrancy skip: trailing rerun in §4.5 (running with the DROPPED trigger label, F5).
+- Boot-settle early-return: boot-settle kick (`hvac.py:1553`) + next periodic tick.
+- F1 dwell-followup cap: next periodic 5-min tick.
 
-### 4.4 Dwell-expiry follow-up — the MAIN hot-entry path (finding 4, C18)
+### 4.4 Dwell-expiry follow-up — the MAIN hot-entry path (REV 4: F1 gated + capped, F7 popped)
 
-Per C18, EVERY observing tick that first sees `any_room_occupied` starts `current_session_start = now` (`hvac_zones.py:714-716`) and then hits the dwell skip (`hvac.py:2362-2365`). This is true for the periodic tick AND for a fast-path trigger. Without a follow-up, both cycles do exactly zero preset work; the preset lands on the NEXT tick, which today can be up to 5 min later — that's the 5-10 min hot-entry latency C18 records.
+**Placement:** the scheduler lives INSIDE `_apply_house_state_presets`, BEFORE the
+`continue` at **hvac.py:2451** (F1). NOT in `_run_decision_cycle`.
 
-**Rule (rewritten, finding 4):** whenever `_run_decision_cycle` takes the dwell-skip branch at `hvac.py:2362-2365` for zone Z, IF no follow-up is pending for Z, register `async_call_later(hass, remaining_s + FAST_PATH_DWELL_SLACK_S, _fast_path_dwell_followup(Z))`. Store the unsub in `self._fast_path_pending_dwell[Z]`. **Schedule regardless of `trigger`** — this shaves periodic ticks that hit dwell too, not just fast-path ones.
+**Gate (F1):** schedule ONLY when all of:
+- The dwell skip is being taken (the existing `if` branch at :2442-2450).
+- `effective_preset != zone.preset_mode` (the SKIP is blocking a real preset change).
+- `should_change_preset(zone, effective_preset)` returns True (S1 would actually write if not dwell-blocked).
+- No follow-up pending for Z (`Z not in self._fast_path_pending_dwell`).
+- F1 rate cap: `len(followup_bucket[Z] within last 3600 s) < HVAC_FAST_PATH_DWELL_FOLLOWUPS_PER_ZONE_PER_HOUR` — else increment `fast_path_dwell_followups_rate_capped_total`, do NOT schedule.
 
-**Follow-up cycle is EXEMPT from the per-zone limiter** (finding 4) — per-zone dedup already bounds volume to at most one follow-up per zone per dwell window. It is still subject to the global limiter, and to boot-settle / lock re-entrancy (which will produce the `_fast_path_rerun_requested` trailing behaviour, §4.5).
+**Schedule:**
+```
+remaining = (dwell_minutes * 60) - (now - zone.current_session_start).total_seconds()
+delay = max(0.5, remaining + FAST_PATH_DWELL_SLACK_S)
+origin_trigger = trigger  # capture the trigger that scheduled this (F8)
+unsub = async_call_later(hass, delay, partial(self._fast_path_dwell_followup, zone_id, origin_trigger))
+self._fast_path_pending_dwell[zone_id] = unsub
+self._fast_path_followup_bucket[zone_id].append(now)
+```
 
-**Dedup + coalesce:** if a second dwell-skip lands for Z while a follow-up is pending, do nothing; counter `fast_path_dwell_followups_coalesced_total` increments.
+**Fire (F7):**
+```
+async def _fast_path_dwell_followup(self, zone_id, origin_trigger, _now):
+    if self._tearing_down: return
+    self._fast_path_pending_dwell.pop(zone_id, None)   # F7: pop BEFORE dispatch
+    task = self.hass.async_create_task(
+        self._async_decision_cycle(
+            trigger="fast_path_dwell_followup",
+            origin_zones={zone_id},
+            _origin_trigger=origin_trigger,           # forwarded to preset_change row (F8)
+        )
+    )
+    self._pending_tasks.add(task)                     # F6 rerun/tracking discipline
+    task.add_done_callback(self._pending_tasks.discard)
+```
 
-**Teardown-safe:** follow-up unsubs are stored in `_fast_path_pending_dwell` and cancelled from that dict in `async_teardown`. NOT appended to `_unsub_listeners` (finding 7).
+**Follow-up exempt from BOTH L and G** (§4.3 rule): per-zone dedup + F1 cap already
+bound volume; exemption recovers the 5/114 follow-up losses D0 §6.2 measured at DENY.
 
-### 4.5 Re-entrancy — trailing rerun (finding 5)
+**F7 rearm:** because we pop the dict entry BEFORE dispatch, a subsequent dwell-skip on
+the same zone (e.g. a second edge lands after the follow-up fires but before its next
+periodic tick) can schedule a fresh follow-up. Test: `test_dwell_followup_rearms_after_fire`.
 
-Today's guard at `hvac.py:1592-1596` DROPS the trigger. Rev-2 rule:
+**Teardown-safe (F6):** cancelled from `_fast_path_pending_dwell` in `async_teardown`
+BEFORE the first await; `_tearing_down` guards prevent late-arriving callbacks from
+touching a torn-down coordinator.
+
+### 4.5 Re-entrancy — trailing rerun (F5 + F6)
+
+Today's guard at `hvac.py:1592-1598` DROPS the trigger. Rev-4 rule:
 
 ```
-async def _async_decision_cycle(self, _now=None, *, trigger="periodic"):
+async def _async_decision_cycle(
+    self, _now=None, *, trigger="periodic",
+    origin_zones=None, _origin_trigger=None,
+):
+    if self._tearing_down: return                              # F6
     if not self._enabled: return
     if not self._boot_settle_done:
-        # count-only; do NOT stamp _fast_path_last_run_at
-        self._boot_settle_hvac_suppressed += 1
-        if trigger != "periodic":
-            self._fast_path_boot_suppressed_count += 1
+        self._fast_path_boot_suppressed_total += 1             # F15 unified
         return
     if self._decision_cycle_lock.locked():
-        if trigger != "periodic":
-            self._fast_path_rerun_requested = True
-            self._fast_path_skipped_reentrant_total += 1
+        # F5: record the DROPPED trigger (periodic OR non-periodic), rerun as-that.
+        self._fast_path_rerun_requested = trigger
+        self._fast_path_skipped_reentrant_total += 1
         return
     async with self._decision_cycle_lock:
-        await self._run_decision_cycle(trigger=trigger)
-        # Trailing rerun — one only, exempt from per-zone limiter,
-        # honours global limiter + boot-settle + lock re-entrancy.
-        if self._fast_path_rerun_requested:
-            self._fast_path_rerun_requested = False
-            # Note: recursion is safe — lock is released on exit of `async with`.
-            self.hass.async_create_task(
-                self._async_decision_cycle(trigger="fast_path")
+        await self._run_decision_cycle(
+            trigger=trigger, origin_zones=origin_zones,
+            _origin_trigger=_origin_trigger,
+        )
+        rerun_trigger = self._fast_path_rerun_requested
+        if rerun_trigger:
+            self._fast_path_rerun_requested = None
+            # F6: rerun exempt from limiters + tracked in _pending_tasks.
+            rerun_origin = origin_zones if rerun_trigger in {"fast_path","fast_path_dwell_followup"} else None
+            task = self.hass.async_create_task(
+                self._async_decision_cycle(trigger=rerun_trigger, origin_zones=rerun_origin)
             )
+            self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks.discard)
 ```
 
-Stamping rule: `_run_decision_cycle` stamps `_fast_path_last_run_at[Z]` for the trigger's originating zone AND `_fast_path_last_run_at_any_zone` ONLY on entry, ONLY when `trigger != "periodic"`. Every early-return path above leaves the stamps untouched.
+Stamping: `_run_decision_cycle` stamps `_fast_path_last_run_at[Z]` for each `Z ∈ origin_zones`
+AND `_fast_path_last_run_at_any_zone` ONLY on entry, ONLY when `trigger ∈ {fast_path, fast_path_dwell_followup}`.
 
-### 4.6 Zone / hallway resolution at event time (finding 6)
+### 4.6 Handler pseudocode (F4 + F6 + F10 + F12 + F13)
 
-Handler pseudocode:
 ```
 def _on_room_occupancy_state_change(event):
+    if self._tearing_down: return                              # F6
     entity_id = event.data["entity_id"]
     old = event.data.get("old_state"); new = event.data.get("new_state")
     if not (old and new and old.state == "off" and new.state == "on"): return
-    room_name = self._room_name_by_entity.get(entity_id)         # built at rebuild
+    room_name = self._room_name_by_entity.get(entity_id)
     if not room_name: return
     room_type = self._room_type_by_name.get(room_name)
     if room_type == ROOM_TYPE_HALLWAY: return
-    zone_id = self._resolve_zone(room_name)                      # zm.zones scan
+    zm = self._zone_manager
+    zone_id = self._resolve_zone_live(room_name, zm)           # F12: read zm.zones live
     if not zone_id: return
-    if self._zone_manager._hvac_armed.get(room_name) is True: return
-    # limiter + boot-settle + re-entrancy per §4.1
+    if zm._hvac_armed.get(room_name) is True: return
+    zone = zm.zones.get(zone_id)
+    if zone is None or zone.any_room_hvac_occupied:            # F4 (also handles missing)
+        self._fast_path_warm_zone_gated_total += 1
+        return
+    if not self._boot_settle_done:
+        self._fast_path_boot_suppressed_total += 1             # F15
+        return
+    now = dt_util.utcnow()
+    if now < self._fast_path_ceiling_tripped_until.get(zone_id, dt.datetime.min.replace(tzinfo=dt.timezone.utc)):
+        self._fast_path_ceiling_gated_total += 1               # F10 fallback active
+        return
+    if self._decision_cycle_lock.locked():                     # F5: ahead of DENY
+        self._fast_path_rerun_requested = "fast_path"
+        self._fast_path_skipped_reentrant_total += 1
+        return
+    last_z = self._fast_path_last_run_at.get(zone_id)
+    if last_z and (now - last_z).total_seconds() < HVAC_FAST_PATH_MIN_INTERVAL_S:
+        self._fast_path_rate_limited_total += 1
+        return
+    if self._fast_path_last_run_at_any_zone and \
+       (now - self._fast_path_last_run_at_any_zone).total_seconds() < HVAC_FAST_PATH_GLOBAL_MIN_INTERVAL_S:
+        self._fast_path_global_rate_limited_total += 1
+        return
+    # F10 ceiling sample + breach check
+    bucket = self._fast_path_ceiling_bucket.setdefault(zone_id, deque())
+    bucket.append(now)
+    _prune_older_than(bucket, now - dt.timedelta(hours=1))
+    if len(bucket) > HVAC_FAST_PATH_MAX_PER_ZONE_PER_HOUR:
+        self._fast_path_ceiling_tripped_total += 1
+        self._fast_path_ceiling_tripped_until[zone_id] = _next_local_midnight_utc(now)
+        _emit_nm_once(...)  # NM MED "fast-path rate ceiling tripped"
+        return
+    task = self.hass.async_create_task(
+        self._async_decision_cycle(trigger="fast_path", origin_zones={zone_id})
+    )
+    self._pending_tasks.add(task)
+    task.add_done_callback(self._pending_tasks.discard)
+    # sensor gauge: t0 captured here; _run_decision_cycle records t1-t0 into
+    # self._last_fast_path_edge_to_start_s (F14)
+    self._pending_fast_path_start_times[zone_id] = now
 ```
 
-`self._room_name_by_entity`, `self._room_type_by_name` rebuilt on `SIGNAL_ROOM_ENTRY_LIFECYCLE` and on config-entry `options_updated` (finding 7).
+Maps are rebuilt on `SIGNAL_ROOM_ENTRY_LIFECYCLE` (F13 — ONE subscription covers
+options_updated too, verified against `signals.py:199` producers).
 
-### 4.7 Count-coupled side effects — MUST SKIP on non-periodic cycles (finding 1)
+### 4.7 Count-coupled side effects — SKIP ONLY on {fast_path, fast_path_dwell_followup} (F3)
 
-`_run_decision_cycle` today runs several call sites whose semantics assume "one call per 5-min tick." Firing an extra whole-house cycle on a fast-path trigger perturbs their counters. Threading `trigger` and skipping the count-coupled ones on `trigger != "periodic"` is required for INV conjunct (3) — behaviour-neutrality for every other zone.
+REV 4 clarification (F3): the skip set applies ONLY to
+`trigger ∈ {fast_path, fast_path_dwell_followup}`. `periodic`, `house_state`,
+`pre_arrival`, boot-kick (`hvac.py:1553` — invoked with default `trigger="periodic"`),
+setup initial cycle (`hvac.py:1372` — same) all stay periodic-classified and run the
+full site list. Reviewer B verifies this table against merged `develop` at build dispatch.
 
-Reviewer B on this plan MUST verify this table against the merged `develop` at build dispatch.
-
-| Site (file:line) | Count-coupled OR time-based | Rev-2 disposition on non-periodic |
+| Site (file:line, F11-refreshed) | Count-coupled OR time-based | REV 4 disposition on {fast_path, fast_path_dwell_followup} |
 |---|---|---|
-| `_check_carrier_freshness` (`hvac.py:1649`) | Time-based (last-poll timestamp) | Run — safe. |
-| `update_room_conditions` (`hvac.py:1647`, `hvac_zones.py:523`) | Time-based (uses `now`, tail expiry) | Run — this is THE reason the fast path exists. Note: this call is what sets `current_session_start = now` at `hvac_zones.py:714-716`, which arms the dwell — so the fast-path cycle itself will hit the dwell skip and schedule the D3 follow-up. Expected. |
-| `_egress_manager.async_tick(now)` (`hvac.py:1683`) | Time-based | Run. |
-| `_predictor` updates (banking / pre-cool / pre-heat) | Time-based (per-schedule) — VERIFY | Default: skip on non-periodic to avoid off-cadence schedule reads. Reviewer B verifies each. |
-| `_fan_controller` per-zone updates | Time-based | Run — fans are the operator's other fast-in lever; a delay-free fan update on entry is desirable. |
-| `_cover_controller` updates | Time-based | Run. |
-| `_override_arrester.check_ac_reset` (`hvac.py:1745`) → `hvac_override.py:3805-3815` `kwh_samples_above_threshold += 1` vs `_sustained_samples` | **COUNT-COUPLED** | **SKIP on non-periodic.** An extra call inflates the sample counter, tripping the nudge debounce early. |
-| `_override_arrester` per-zone override detection | Contains its own suppression window (C17: 5 s temp / 120 s preset), event-driven internally | Run. Its own suppression handles the extra call. |
-| Anomaly observations (`hvac.py:1783`) | **COUNT-COUPLED** (per-cycle samples feed `AnomalyDetector` baselines) | **SKIP on non-periodic.** Extra samples pollute baselines. |
+| `_check_carrier_freshness` (`hvac.py:1670`) | Time-based | Run — safe. |
+| `update_room_conditions` (`hvac.py:1656`, `hvac_zones.py:523`) | Time-based; iterates ALL rooms (no per-zone entry point) | Run — F2 producer-drift-accepted: sibling-zone tail/session state is refreshed at fast-path cadence, drift ≤ 300 s vs a "producer only on tick" world. |
+| `_egress_manager.async_tick(now)` (`hvac.py:1696`) | Time-based | Run. |
+| `_predictor.update` (`hvac.py:1784`) — banking / pre-cool / pre-heat | **COUNT-COUPLED + event payload** (F3 definitive) | **SKIP.** Extra samples pollute schedule reads AND fire event payloads off-cadence. |
+| `_fan_controller.update(constraint, house_state)` (`hvac.py:1764`) | Time-based | Run. Under zone-cold gate, warm-zone rising edges don't fire the fast path at all, so warm-edge fan-in falls back to periodic tick (median wait 142–181 s per D0 §3.1) — same as today. Escape hatch = card `HVAC-FAST-PATH-FAN-WARM-EDGES-1`. |
+| `_cover_controller.update` (`hvac.py:1767`) | Time-based | Run. |
+| `_override_arrester.check_ac_reset` (`hvac.py:1760`) → `hvac_override.py:3805-3815` `kwh_samples_above_threshold += 1` | **COUNT-COUPLED** | **SKIP.** Extra call inflates sample counter, tripping nudge debounce early. |
+| `_override_arrester` per-zone override detection | Contains own suppression window (C17: 5 s temp / 120 s preset), event-driven internally | Run. |
+| Anomaly `record_observation` (F15: correct method) at `hvac.py:1783` | **COUNT-COUPLED** | **SKIP.** Extra samples pollute baselines. |
 | `_emit_and_reset_short_cycles` daily rollover (`hvac.py:1643`) | Time-based (LOCAL-day hinge) | Run. |
 | `_predictor.flush_daily_outcome` (`hvac.py:1610`) | Time-based (daily hinge) | Run. |
-| Row-1 / row-4 / row-10 / D5 / D6 / D7 / D9 / F4 preset & retreat logic | Time-based (reads current state) | Run — this IS the fast-path payload. |
-| `preset_change` activity-log write (`hvac.py:2716-2748`) | Event-driven (only fires on actual change) | Run; add `trigger` to details dict (finding 2). |
-| Zone-dwell skip (`hvac.py:2362-2365`) | Time-based | Run — schedules the D3 follow-up (§4.4). |
+| Row-1 / row-4 / row-10 / D5 / D6 / D7 / D9 / F4 preset & retreat evaluation | Time-based (reads current state) | Evaluated FOR ALL ZONES (producer-drift F2). |
+| S1 preset-write loop `_apply_house_state_presets` at :2013+ | Event-driven writes | **F2 origin-gate:** WRITES only for zones in `origin_zones`; other zones are evaluated read-only (compute `effective_preset` but skip `emit_set_preset_mode` / `emit_set_temperature`). |
+| Zone-dwell skip at `hvac.py:2451` (F11) | Time-based | Runs FOR ALL ZONES; the F1 follow-up scheduler sits just before this `continue` and fires only for origin zones (zones ∉ origin have no fast-path follow-up scheduled by a fast-path cycle — the periodic tick that hit dwell schedules them if needed). |
+| `preset_change` activity-log write (`hvac.py:2716-2748`) | Event-driven (only fires on actual change) | Run; add `trigger` (F14 threaded to the write, not just to a counter) AND `origin_trigger` for follow-ups (F8) to details dict. |
 
-**Implementation shape:** `_run_decision_cycle(trigger)` receives the arg and guards each count-coupled call with `if trigger == "periodic":`. Adding two guards; no logic changes inside the guarded calls. Behaviour-neutrality for periodic ticks is byte-identical (the arg default is `"periodic"`).
+**Implementation shape:** `_run_decision_cycle(trigger, origin_zones, _origin_trigger)`
+receives the args. Each SKIP-on-fast-path guard: `if trigger not in FAST_PATH_TRIGGERS:`
+where `FAST_PATH_TRIGGERS = frozenset({"fast_path","fast_path_dwell_followup"})`.
+Behaviour-neutrality for periodic ticks: byte-identical (all args default to
+`trigger="periodic"`, `origin_zones=None`, `_origin_trigger=None`).
 
-House-state and pre-arrival triggers (already existing) inherit the same skip — they fire at low rates today, but they're also count-coupled by the same argument. Threading the arg fixes them retroactively; document in the D2 progress note.
+### 4.8 Coexistence
 
-### 4.8 Coexistence with other triggers (unchanged intent, updated per §4.7)
-
-- Boot-settle: honoured; §4.5 stamping rule ensures no state pollution on early returns.
-- House-state / pre-arrival: pass `trigger="house_state"` / `trigger="pre_arrival"` explicitly so the §4.7 skip applies to them too — a small side-benefit finding 1 unlocks.
+- Boot-kick (`hvac.py:1553`) + setup (`hvac.py:1372`): call `_async_decision_cycle()` with defaults → classified `periodic` per F3.
+- House-state / pre-arrival: pass `trigger="house_state"` / `"pre_arrival"` explicitly for observability, but F3 classifies them periodic (they RUN the full site list).
 - Egress initial-restore gate: unaffected.
 - `SIGNAL_ZM_ZONES_UPDATED`: unaffected.
-- Carrier post-write guard (C16) × arrester preset-suppression (C17 120 s): unchanged by this cycle — no new preset writes are introduced.
+- Carrier post-write guard (C16) × arrester preset-suppression (C17 120 s): unchanged — no new preset writes.
 
 ---
 
 ## 5. Deliverables
 
-### D0 — Empirical probe (READ-ONLY, gate) — see §3
+### D0 — Empirical probe (READ-ONLY, gate) — DONE 2026-09-26
+- **DONE:** per-zone trigger-eligible + zone-cold + burst + gap stats (AUDIT §2/§3.1/§3.2).
+- **DONE:** cycle-duration proxy (AUDIT §5).
+- **PENDING (audit §7, F9 corrected query):** pre-W2-1 per-zone `climate_write` rows/day baseline — earliest 2026-09-27 15:25 CDT; margin computed over **≥ 3** full days; attributable criterion added (F9).
+- **DONE:** sizing (§REV 4 DELTA / §4.3 constants).
+
+### D1 — Constants, state, `trigger`+`origin_zones` threading, count-coupled skips
+Add all six constants at sized values; add state fields (F5 `_fast_path_rerun_requested`
+as `str | None`; F6 `_tearing_down`; F1/F10 sliding-window deques + tripped-until dict;
+F14 `last_fast_path_edge_to_start_s`); thread `trigger` AND `origin_zones` AND
+`_origin_trigger` through `_async_decision_cycle` and `_run_decision_cycle`; add the
+count-coupled skip guards per §4.7 (F3-narrowed). Put `trigger` INTO the write path at
+`hvac.py:2716-2748` (F14).
+
+**Wire-in anchors (F15: neuter the RETURN in drills, not just the CALL):**
+- `test_run_decision_cycle_trigger_defaults_periodic` — call sites without kwargs default to `"periodic"` + `origin_zones=None`.
+- `test_fast_path_skips_check_ac_reset_sample_increment` — mutation drill: replace `return` with `pass` on the guard → test FAILS.
+- `test_fast_path_skips_predictor_update` — F3: predictor SKIP verified; mutation drill.
+- `test_fast_path_skips_anomaly_record_observation` — F15: correct method name; spy the coordinator's `AnomalyDetector.record_observation`; assert 0 calls.
+- `test_periodic_cycle_call_sequence_unchanged` (F15 replaces byte-identical) — record ordered list of major call sites under `trigger="periodic"` before and after patch; assert equivalence.
+- `test_preset_change_activity_log_carries_trigger_and_origin_trigger` (F14/F8) — trigger on the row, origin_trigger for follow-ups.
+- `test_boot_kick_and_setup_are_periodic_class` (F3) — invocation from `hvac.py:1553` and `:1372` runs the full site list.
+
 **Acceptance:**
-- **Verify:** per-zone trigger-eligible edge counts (median / p95 / max / bursts-per-5-min p95) after armed-gate replay.
-- **Verify:** cycle-duration p50/p95/p99 (SLA sizing).
-- **Verify:** pre-W2-1 per-zone `climate_write` rows/day baseline from W1-A ≥ 1-day post-ship window.
-- **Verify:** proposed `HVAC_FAST_PATH_MIN_INTERVAL_S`, `HVAC_FAST_PATH_GLOBAL_MIN_INTERVAL_S`, `HVAC_FAST_PATH_SLA_S` values with one-line justifications.
+- **Verify:** count-coupled skip table (§4.7) has a matching guard per row.
+- **Live:** `ura_activity_log preset_change` rows carry `trigger` (and follow-ups `origin_trigger`) within 24 h.
 
-### D1 — Constants, state, `trigger` threading, count-coupled skips
-Add the constants; add the state fields; thread `trigger` through `_async_decision_cycle` and `_run_decision_cycle`; add the two count-coupled guards per §4.7. Put `trigger` into the existing `preset_change` details dict (`hvac.py:2716-2748`). Expose counters as attributes on an existing HVAC sensor (finding 2 — pick the existing coordinator-status sensor; NO new sensor).
-
-**Wire-in anchors:**
-- `test_run_decision_cycle_trigger_defaults_periodic` — call sites without kwarg default to `"periodic"`.
-- `test_fast_path_skips_check_ac_reset_sample_increment` — invoke `_run_decision_cycle(trigger="fast_path")`, assert `zone.kwh_samples_above_threshold` unchanged from prior value; mutation drill: comment out the guard → this test FAILS.
-- `test_fast_path_skips_anomaly_observation` — spy on AnomalyDetector.observe; assert 0 calls; mutation drill on the guard.
-- `test_periodic_cycle_byte_identical_to_develop` — snapshot behavioural output of a periodic cycle before and after the patch; require equivalence (structural, not stringly).
-- `test_preset_change_activity_log_carries_trigger` — assert details dict contains `trigger` key with the expected enum value.
-
-**Acceptance:**
-- **Verify:** the count-coupled skip table (§4.7) has a matching guard in code, one per row.
-- **Live:** post-restart, `ura_activity_log` `preset_change` rows carry a `trigger` in details for at least one row per trigger kind within 24 h.
-
-### D2 — Fast-path trigger wiring (rising edge, hallway-excluded, armed-gated, limited)
-Register `async_track_state_change_event` on the filtered set at `async_setup` (`hvac.py` — after room-coordinator seed at :1254, before / adjacent to the periodic timer at :1355). Single unsub on `self._fast_path_state_unsub` — release-then-reassign on rebuild (finding 7). Subscribe to `SIGNAL_ROOM_ENTRY_LIFECYCLE` AND to config-entry `options_updated` (finding 7) to rebuild.
+### D2 — Fast-path trigger wiring (rising edge, hallway-excluded, armed-gated, ZONE-COLD, DENY, F10 ceiling)
+Register `async_track_state_change_event` on the filtered set at `async_setup` between
+`hvac.py:1254` and `:1355`. Single unsub on `self._fast_path_state_unsub`. Subscribe to
+ONE `SIGNAL_ROOM_ENTRY_LIFECYCLE` (F13 — covers options_updated). Implement §4.1
+gates 1-11 (F4 fused, F5 order, F10 ceiling).
 
 **Wire-in anchors (mutation drills required — Tier 2-DB C-framing):**
-- `test_fast_path_registered_at_setup_with_filtered_entities` — asserts registration; neuter drill on the call.
-- `test_fast_path_rebuilds_on_lifecycle_signal_no_double_unsub` — fires `SIGNAL_ROOM_ENTRY_LIFECYCLE`; asserts previous unsub is called ONCE and a new one is stored; drill: replace release-then-reassign with re-registration → test FAILS RED with the `helpers/event.py:441-447` shape.
-- `test_fast_path_rebuilds_on_options_updated` — analogous, options-flow path.
-- `test_fast_path_hallway_excluded_at_event_time` — behavioural, not source-grep.
-- `test_fast_path_skips_when_hvac_armed_already` — sets `zm._hvac_armed[room]=True`, dispatches edge, asserts no cycle.
-- `test_fast_path_falling_edge_ignored` — on→off does nothing.
-- `test_fast_path_unknown_unavailable_ignored` — old ∈ {unknown, unavailable, None} does not trigger.
-- `test_fast_path_skips_room_in_no_hvac_zone` — a room absent from every `zone.rooms` produces no trigger.
+- `test_fast_path_registered_at_setup_with_filtered_entities` — neuter drill.
+- `test_fast_path_rebuilds_on_lifecycle_signal_no_double_unsub` — helpers/event.py:441-447 shape asserted RED under regression.
+- `test_fast_path_hallway_excluded_at_event_time` — behavioural.
+- `test_fast_path_skips_when_hvac_armed_already` — gate 4.
+- `test_fast_path_skips_when_zone_warm_via_fused_signal` (F4) — sets `zone.any_room_hvac_occupied = True`, asserts no cycle + counter increment; mutation drill.
+- `test_fast_path_falling_edge_ignored`.
+- `test_fast_path_unknown_unavailable_ignored`.
+- `test_fast_path_skips_room_in_no_hvac_zone`.
+- `test_fast_path_global_limiter_denies_and_next_tick_recovers` — DENY + backstop cycle picks up the zone.
+- `test_fast_path_lock_gate_ahead_of_global_deny` (F5) — hold lock + set global stamp in-window → rerun requested with the ORIGINAL trigger label (not silently swallowed by DENY).
+- `test_periodic_tick_that_hits_lock_sets_rerun_periodic` (F5) — periodic cycle dropped by lock → trailing rerun runs as `periodic`.
+- `test_fast_path_ceiling_trip_falls_back_to_tick_only` (F10) — 16 edges in an hour → one NM + subsequent edges gated + counter increments; state clears at LOCAL midnight.
+- `test_zone_manager_zones_read_live` (F12) — mutate `zm.zones` between subscribe and dispatch; new zone recognised without a lifecycle rebuild.
 
 **Acceptance:**
-- **Test:** all wire-in tests pass with mutation drills.
-- **Live:** counter `fast_path_triggers_total > 0` within 24 h; `fast_path_skipped_reentrant_total` bounded.
+- **Test:** all wire-in tests pass with mutation drills (neuter the RETURN).
+- **Live:** `fast_path_triggers_total > 0` within 24 h; `fast_path_warm_zone_gated_total > 0` within 24 h; `fast_path_global_rate_limited_total ≤ 3/day` on average (revival trigger for parked DEFER, §7); `fast_path_ceiling_tripped_total == 0` in steady state; `last_fast_path_edge_to_start_s` populated on `sensor.ura_hvac_coordinator_status` (F14).
 
-### D3 — Dwell-expiry follow-up (MAIN hot-entry path, per finding 4 + C18)
-Implement §4.4 for periodic AND fast-path triggers (any dwell skip). Per-zone dedup dict `_fast_path_pending_dwell`; unsubs cancelled from that dict in `async_teardown`.
+### D3 — Dwell-expiry follow-up (MAIN hot-entry path — F1 gated + F7 popped + F8 tagged)
+Implement §4.4: gate on `effective_preset != zone.preset_mode` AND
+`should_change_preset()` allow AND rate cap. Place BEFORE `continue` at `hvac.py:2451`.
+Per-zone dedup dict; unsubs cancelled from that dict in `async_teardown` BEFORE first
+await (F6). Follow-up dispatch POPS its dict entry BEFORE `async_create_task` (F7).
+`origin_trigger` forwarded (F8).
 
 **Wire-in anchors:**
-- `test_dwell_skip_schedules_followup_regardless_of_trigger` — parametrise `trigger ∈ {"periodic","fast_path","house_state"}`; each schedules one follow-up.
-- `test_dwell_followup_exempt_from_per_zone_limiter` — stamp `_fast_path_last_run_at[Z]` recently; assert follow-up still runs.
+- `test_dwell_skip_schedules_followup_only_when_preset_would_change` (F1) — parametrised: (a) `effective_preset == zone.preset_mode` → no follow-up; (b) `should_change_preset` returns False → no follow-up; (c) both allow → follow-up scheduled. Mutation drill neuters the gate → suite RED.
+- `test_dwell_followup_rate_cap` (F1) — inject 7 dwell-skips within 1 h → 6 scheduled, 7th capped + counter increments.
+- `test_dwell_skip_schedules_followup_regardless_of_trigger` (`trigger ∈ {"periodic","fast_path","house_state"}` all schedule when F1 gate passes).
+- `test_dwell_followup_exempt_from_per_zone_limiter`.
+- `test_dwell_followup_exempt_from_global_limiter` — stamp `_fast_path_last_run_at_any_zone` recently; assert follow-up still runs; mutation drill.
 - `test_dwell_followup_deduplicated_per_zone` — two dwell skips → one follow-up.
-- `test_dwell_followup_cancelled_on_teardown` — call `async_unload` mid-window; assert no callback fires.
-- `test_dwell_followup_writes_preset_when_expected` — end-to-end with a hot-entry fixture (zone away, empty, edge lands, follow-up fires after dwell + slack, `preset_change` recorded).
+- `test_dwell_followup_rearms_after_fire` (F7) — follow-up fires, dict entry popped; a subsequent dwell-skip on the same zone SCHEDULES a fresh follow-up.
+- `test_dwell_followup_cancelled_on_teardown` — `async_unload` cancels BEFORE first await (F6).
+- `test_dwell_followup_writes_preset_with_origin_trigger` (F8) — end-to-end: hot-entry fixture → follow-up fires → `preset_change` row has `trigger="fast_path_dwell_followup"` AND `origin_trigger="fast_path"`.
 
-**Acceptance (rewritten, finding 10):**
-- **Verify (D0 baseline restated):** today's edge→`preset_change` p50 latency on hot entries (zone away, `any_room_hvac_occupied` False, no active session) is **300-600 s** (C18).
-- **Verify (post-fix discriminator):** share of hot entries with edge→`ura_activity_log preset_change` (or W1-A `climate_write`) latency < **250 s** rises from ≈0 to ≈all, with the winning row's details carrying `trigger=fast_path_dwell_followup`.
-- **Live:** 3+ hot entries in the first 24 h post-restart show < 250 s edge→write; recorder + `ura_activity_log` cross-check.
-- **Live (write-rate acceptance, finding 8):** per-zone `climate_write` rows/day ≤ pre-W2-1 baseline + D0-computed margin (i.e. the fast path did not raise the cloud call rate).
+**Acceptance (F8, F9):**
+- **Verify (D0 baseline):** today's zone-cold hot-entry edge→`preset_change` p50 = 300-600 s (C18).
+- **Verify (post-fix discriminator, F8):**
+  - `p90(edge → preset_change ts) ≤ hvac_zone_entry_dwell_live_seconds + FAST_PATH_DWELL_SLACK_S + HVAC_FAST_PATH_SLA_S` — dwell read LIVE from `number.ura_hvac_coordinator_zone_entry_dwell` (current 120 s → target ≈ 167 s).
+  - AND ≥ 90 % of zone-cold entries have `origin_trigger="fast_path"` in the details dict.
+- **Live (write-rate acceptance, F9):** per-zone `climate_write` rows/day ≤ pre-W2-1 baseline (≥ 3 full days) + margin. **Attributable criterion (F9): fast-path-attributable `preset_change` rows/day (rows with `origin_trigger="fast_path"`) ≤ zone-cold edges/day (D0 §2 per zone).** If the fast path is writing more preset-changes than zone-cold edges exist, something is wrong (likely origin_zones threading bug or F7 rearm loop).
 
-### D4 — Teardown, reload-storm safety, storm trip-wire (finding 9)
-- Single-owned `_fast_path_state_unsub`; per-zone `_fast_path_pending_dwell` dict; both drained in `async_teardown`.
-- `SIGNAL_ROOM_ENTRY_LIFECYCLE` handler is idempotent: release-then-reassign (no double-unsub).
-- Add `fast_path_trigger_rate` metric to `AnomalyDetector` (per-zone, LOCAL-day bucket, sibling to `short_cycle_rate` at `hvac.py:1496-1500`). Storm trip-wire = anomaly on this metric → single NM. NO per-denial NM.
+Baseline query (F9 corrected):
+```
+SELECT date(timestamp, 'unixepoch', 'localtime') AS d,
+       json_extract(details_json, '$.zone_id')  AS zone,
+       json_extract(details_json, '$.verb')     AS verb,
+       COUNT(*) AS n
+FROM ura_activity_log
+WHERE action = 'climate_write' AND timestamp >= ?
+GROUP BY d, zone, verb ORDER BY d, zone, verb;
+```
+
+### D4 — Teardown, reload-storm safety, storm trip-wire (F6 + F10)
+- `async_teardown` sets `self._tearing_down = True` synchronously, DRAINS `_fast_path_state_unsub` and every `_fast_path_pending_dwell[Z]` BEFORE any await (F6).
+- Handler + follow-up + rerun all check `_tearing_down` and return early (F6).
+- `SIGNAL_ROOM_ENTRY_LIFECYCLE` handler idempotent: release-then-reassign.
+- `AnomalyDetector.record_observation` (F15 correct method) with `fast_path_trigger_rate` metric per-zone LOCAL-day bucket. Storm trip-wire = anomaly → single NM.
+- F10 in-code hard ceiling: separate from storm-trip anomaly; deterministic (`HVAC_FAST_PATH_MAX_PER_ZONE_PER_HOUR = 15`); on breach one NM + tick-only fallback until midnight.
 
 **Wire-in anchors:**
 - `test_reload_storm_no_duplicate_dispatch` — 5 rapid lifecycle signals → exactly one active listener set.
-- `test_fast_path_no_op_during_boot_settle` — trigger with `_boot_settle_done=False`; assert no cycle runs and `_fast_path_boot_suppressed_count` increments (and `_fast_path_last_run_at[Z]` NOT stamped).
-- `test_storm_trip_wire_fires_once_at_threshold` — inject a burst; assert exactly one NM.
+- `test_fast_path_no_op_during_boot_settle` — trigger with `_boot_settle_done=False`; no cycle, `_fast_path_boot_suppressed_total` (F15) increments, last_run NOT stamped.
+- `test_tearing_down_guards_all_paths` (F6) — set `_tearing_down=True`; dispatch edge, fire pending follow-up, request rerun; assert none reach `_async_decision_cycle`.
+- `test_teardown_drains_before_await` (F6) — patch `_fast_path_pending_dwell` with a spy unsub; `async_teardown` must call unsub BEFORE it awaits anything.
+- `test_storm_trip_wire_fires_once_at_threshold`.
+- `test_ceiling_fallback_lifts_at_local_midnight` (F10).
 
 **Acceptance:**
-- **Live:** no `RuntimeError` in logs referencing fast-path; storm trip-wire silent in first hour.
+- **Live:** no `RuntimeError` in logs referencing fast-path; storm trip-wire silent in first hour; ceiling never trips in steady state.
 
 ---
 
 ## 6. Open operator question
 
-**Q1 — Per-zone vs whole-house cycle.** Left as-is per operator scope. Ask ONLY if D0 shows per-zone trigger volume × sibling-zone write rate would push Carrier per-thermostat cadence into a new regime; §4.7 makes non-periodic cycles behaviour-neutral for un-triggered zones by construction, so this is now much less likely to be needed.
+**Q1 — Per-zone vs whole-house cycle.** CLOSED. F2 origin-gate keeps sibling-zone WRITES
+unaffected; producer runs for all zones (accepted drift ≤ 1 tick — see §REV 4 DELTA F2).
+Expected load ~32 non-periodic cycles/day + 288 periodic ticks (+11 %).
 
 No other open questions.
 
 ---
 
-## 7. Non-goals (rev-2 additions in bold)
+## 7. Non-goals + PARKED alternatives
 
 - No dwell / tail / grace / hallway-exclusion / retreat semantics change.
 - No falling-edge fast path.
 - No new preset/setpoint write sites.
-- No producer refactor (`_compute_hvac_occupied` stays inside the tick).
+- No producer refactor (`_compute_hvac_occupied` stays as-is; runs all zones on non-periodic per F2).
 - No operator UI knob for the limiter.
-- **No new sensor** (`sensor.ura_hvac_coordinator_decision_cycle` was invented in rev 1 and is retracted, finding 2).
-- **No new per-cycle DB writer** — counters are in-memory attributes; `trigger` piggy-backs on the existing `preset_change` activity-log row (finding 2).
-- **No per-denial NM** — storm trip-wire only (finding 9).
+- **No new sensor** — counters + `last_fast_path_edge_to_start_s` gauge land on the existing `sensor.ura_hvac_coordinator_status` (F14).
+- **No new per-cycle DB writer** — `trigger` / `origin_trigger` piggy-back on the existing `preset_change` activity-log row (F14/F8).
+- **No per-denial NM** — storm trip-wire (AnomalyDetector) + F10 in-code ceiling only.
 - **No Nest / other-brand strategy changes** — W1-B territory.
+- *No warm-zone triggers (§4.1 gate 5 / F4) — an edge in a zone whose fused signal is True does NOT fire.*
+- *No dedicated fan-only fast path in this cycle — escape hatch card `HVAC-FAST-PATH-FAN-WARM-EDGES-1` (minted 2026-09-26).*
+
+### PARKED alternative — Global-limiter DEFER (REV 3, not built)
+
+An earlier REV 3 draft proposed deferring globally-limited triggers via
+`async_call_later(G - elapsed_s)`. Orchestrator decision 2026-09-26: DENY + tick backstop
+wins on marginal-benefit grounds (~1/day recovered vs a new timer/dict/discharge surface).
+
+- **Revival trigger:** `fast_path_global_rate_limited_total` per-zone `> 3/day` on a 7-day rolling avg, OR a denied cold edge coincides with a comfort complaint traceable to the delay.
+- **Revival evaluation query (recorder/ura DB):**
+  ```
+  SELECT date(day_ts, 'unixepoch', 'localtime') AS d,
+         zone,
+         AVG(denies) OVER (PARTITION BY zone ORDER BY day_ts
+                           ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS rolling_7d_avg
+  FROM (
+    SELECT day_ts, zone, MAX(counter_value) - MIN(counter_value) AS denies
+    FROM sensor_history
+    WHERE entity_id = 'sensor.ura_hvac_coordinator_status'
+      AND attr = 'fast_path_global_rate_limited_total'
+    GROUP BY day_ts, zone
+  );
+  ```
+  (Or the daily-snapshot table if we start recording one; the counter attribute is the primary source.)
+- **Design carrier:** this planning doc's git history — the DEFER draft state is retrievable from a prior revision. No card until revival.
 
 ---
 
-## 8. Tier + review framings (unchanged from rev 1, expanded per finding 1 + 8)
+## 8. Tier + review framings
 
 **Tier 2-DB (three framing-disjoint reviews + live validation + README write-back).**
 
 **Framings:**
-- **A — Local correctness + limiter arithmetic + rising-edge classification.** Per-zone stamp discipline (finding 5); trailing-rerun idempotence; global limiter interaction.
-- **B — Integration + decision-cycle integrity + count-coupled classification.** Verify §4.7 table against merged `develop`; verify the `trigger`-arg thread does not miss any call site; verify Carrier cloud bound holds against W1-A per-zone write-rate baseline (finding 8); verify house-state / pre-arrival paths inherit the skip cleanly; C16/C17 interactions still no-op for this cycle.
-- **C — Test authority via real per-site mutation.** Neuter each of: state-change registration, per-zone limiter, global limiter, count-coupled skip guards, dwell follow-up scheduler, lifecycle re-subscribe, options_updated re-subscribe. Each mutation MUST turn a SPECIFIC test RED; no aggregate monkeypatch. Confirm no `.pyc` staleness (`feedback_mutation_verification_pycache_staleness.md`).
+- **A — Local correctness + limiter arithmetic + rising-edge classification.** Per-zone stamp discipline; trailing-rerun idempotence with the DROPPED-trigger label (F5); per-zone L + global G DENY arithmetic; F4 fused-signal read correctness; follow-up exemption from both L and G; F1 rate cap; F10 ceiling arithmetic + LOCAL-midnight clear; F14 gauge population.
+- **B — Integration + decision-cycle integrity + count-coupled classification + origin-zones scope.** Verify §4.7 table against merged `develop`; verify `trigger` + `origin_zones` thread reaches EVERY affected site (S1 write loop, preset_change details, boot-kick / setup / house-state / pre-arrival stay periodic per F3); verify F2 sibling-zone read-only behaviour (no `emit_*` calls issued for zones ∉ origin_zones); verify Carrier cloud bound holds against W1-A per-zone write-rate baseline (F9, PENDING); C16/C17 interactions still no-op; DENY tick-backstop actually processes a denied zone-cold edge; F10 fallback lifts.
+- **C — Test authority via real per-site mutation.** Neuter the RETURN (not just the CALL, F15) of: state-change registration, F4 fused-signal gate, F5 lock-ahead-of-DENY order, per-zone L, global G DENY (counter + return), F10 ceiling (all three transitions: sample append, breach check, tripped-until stamp), count-coupled skip guards, origin_zones write skip in S1 loop, F1 dwell-follow-up gate + rate cap, follow-up exemption from L and G, F6 tearing-down guards on every path, F13 single subscription. Each mutation MUST turn a SPECIFIC test RED; no aggregate monkeypatch. Confirm no `.pyc` staleness.
 
-**Reviewer D (adversarial completeness):** re-enumerate every count-coupled site in `_run_decision_cycle` and every downstream reader of the counters/sensors the D1 patch touches; produce a legal-config reachable break of any INV conjunct.
+**Reviewer D (adversarial completeness):** re-enumerate every count-coupled site in
+`_run_decision_cycle`; every downstream reader of the counters/sensors; every place a
+race on `zone.any_room_hvac_occupied` could yield a wrong classification; every legal
+config where a zone-cold edge could silently DROP (must always land on the periodic
+tick within 300 s + dwell); every path where `_tearing_down` guards might be missing
+(F6); every place the F1 gate could be evaluated against stale state.
 
-**Plan review (mandatory):** ONE adversarial plan review before build dispatch — re-run §1.1 greps, re-derive §4.7 table, verify the D0 armed-gate replay logic in prose is executable as-is.
+**Plan review (mandatory):** ONE adversarial plan review before build dispatch — re-run
+§1.1 greps, re-derive §4.7 table, verify §REV 4 DELTA numbers, verify the F9 query is
+executable against the live schema, verify F1/F10 rung + values against the ladder.
 
-**Sequencing gate (finding 8):** merge only after **W1-A is live ≥ 1 day** AND `feature/hvac-live-room-establishment` is on `develop`. The pre-W2-1 climate-write baseline in §5 D3's acceptance is unmeasurable before W1-A.
+**Sequencing gate:** merge only after `feature/hvac-live-room-establishment` on
+`develop` AND W1-A live ≥ **3** days (F9 margin rule) — earliest 2026-09-30 for build
+dispatch on the baseline.
+
+### 8b. What the builder will most likely get wrong (reviewer's list)
+
+Include in the builder brief. These are the specific traps this plan sets:
+
+1. **Threading `origin_zones` only into `_async_decision_cycle` but not into `_run_decision_cycle` and NOT into the S1 write loop.** The point of F2 is the write skip inside `_apply_house_state_presets` at zone iteration; the plumbing job isn't done until an `if origin_zones is not None and zone_id not in origin_zones: continue` sits inside that loop with a wire-in test that fails-red when removed.
+2. **Putting the F1 dwell-followup scheduler in `_run_decision_cycle` instead of inside `_apply_house_state_presets` before `continue` at hvac.py:2451.** Only inside the S1 loop do you know both `effective_preset` and the `should_change_preset` verdict; scheduling in the outer cycle either duplicates that logic or schedules unnecessarily.
+3. **Assuming `SIGNAL_ROOM_ENTRY_LIFECYCLE` won't fire for options_updated** and adding a second subscription — resulting in double-rebuild storms on every options change. F13: ONE subscription; verify at build dispatch that URA's options-updated handler re-emits the lifecycle signal.
+4. **Reading `self._room_name_by_entity` inside the handler but caching `zone_id` at rebuild time.** F12: `zm.zones` must be read LIVE at event time, not snapshotted at listener rebuild.
+5. **F5 gate ordering:** putting the lock/rerun check AFTER global DENY, so a periodic cycle that hits the lock gets swallowed by DENY on the next attempt. Order matters: lock → per-zone L → global G.
+6. **F7: forgetting to `pop` the pending-dict entry before dispatching the follow-up**, so a rearm looks like "already pending" and gets coalesced away. Test `test_dwell_followup_rearms_after_fire` catches this.
+7. **F14: threading `trigger` into a counter but not into the `preset_change` details dict.** The Live D3 discriminator NEEDS the trigger label on the DB row, not on an in-memory attribute.
+8. **F6: cancelling the pending dwell dict AFTER an await in `async_teardown`.** Any timer that fires during that await can dispatch a cycle against a partially-torn coordinator. Drain BEFORE the first await; use `_tearing_down` as the belt.
+9. **F3: adding the count-coupled skip to `house_state` / `pre_arrival` triggers** (which are periodic-classified per REV 4). Those triggers SHOULD run the full site list; a hasty union of "everything not periodic" is the wrong classification.
+10. **F10: emitting the NM inside the F10 breach path per-event (loud) instead of latch-once-per-trip** (with a manual reset only via LOCAL midnight or restart). The `_emit_nm_once` helper must dedup per `(zone_id, trip_ts)`.
 
 ---
 
@@ -357,68 +732,119 @@ No other open questions.
 
 Do not dispatch build until:
 1. `feature/hvac-live-room-establishment` (v5.103.15) merges to `develop`.
-2. W1-A ships and has been live ≥ 1 day.
+2. W1-A live ≥ **3** days (F9 margin) — earliest 2026-09-30 15:25 CDT.
 
-Overlapping regions in `hvac.py` (v5.103.15): subscribe block :1131-1213; `_async_decision_cycle` :1564-1598 (round-3 `_row1_hold_write` scoping fix at :2002/:2056/:2533 in review — verify at dispatch); `_run_decision_cycle` :1600-1700 including :1647 `update_room_conditions` and the count-coupled sites in §4.7. At dispatch, re-verify §1.1 REUSE line numbers.
+Overlapping regions in `hvac.py` (refresh at dispatch per F11): subscribe block
+:1131-1213; `_async_decision_cycle` :1564-1598; `_run_decision_cycle` :1600-1789 (S1
+loop inside `_apply_house_state_presets` :2013+, dwell-skip continue :2451). At
+dispatch, re-verify §1.1 REUSE line numbers.
 
 ---
 
 ## 10. Knobs on the ladder
 
-| Number | Rung | Why |
-|---|---|---|
-| `HVAC_FAST_PATH_MIN_INTERVAL_S` | 1 (module const) | Cloud-call-rate protective; not operator-facing. |
-| `HVAC_FAST_PATH_GLOBAL_MIN_INTERVAL_S` | 1 (module const) | House-wide floor between non-periodic cycles; same posture. |
-| `HVAC_FAST_PATH_SLA_S` | 1 (module const) | Test/observability target; sized from D0 cycle-duration percentiles. |
-| `FAST_PATH_DWELL_SLACK_S` | 1 (module const) | Wall-clock slack past dwell edge. |
+| Number | Value | Rung | Why |
+|---|---|---|---|
+| `HVAC_FAST_PATH_MIN_INTERVAL_S` | 60 | 1 (module const) | Cloud-call-rate protective. D0 §6.1: 0/114 zone-cold denied at any L ≤ 300 s. |
+| `HVAC_FAST_PATH_GLOBAL_MIN_INTERVAL_S` | 20 | 1 (module const) | House-wide floor; DENY + tick backstop; ~1 zone-cold edge/day discharged by next tick. |
+| `HVAC_FAST_PATH_SLA_S` | 45 | 1 (module const) | Test/observability target. Comment MUST note proxy method + absolute-duration unmeasured. Live consumer: `last_fast_path_edge_to_start_s` on `sensor.ura_hvac_coordinator_status` (F14). |
+| `FAST_PATH_DWELL_SLACK_S` | 2 | 1 (module const) | Wall-clock slack past dwell edge. |
+| `HVAC_FAST_PATH_DWELL_FOLLOWUPS_PER_ZONE_PER_HOUR` | 6 | 1 (module const) | F1 per-zone dwell-follow-up cap. ~1 per 10 min per zone; well above D0 zone-cold rate. |
+| `HVAC_FAST_PATH_MAX_PER_ZONE_PER_HOUR` | 15 | 1 (module const) | F10 hard ceiling / kill-switch. On breach: one NM + tick-only fallback for that zone until LOCAL midnight. |
 
-**Kill-switch:** none. Fast path degrades to today's behaviour (5-10 min hot entry per C18) if the state-change subscription fails — warning log + one NM LOW at boot.
+**Kill-switch:** F10 hard ceiling degrades a runaway zone to today's tick-only behaviour.
+Full-cycle kill-switch: subscription failure at boot → warning log + one NM LOW; fast path
+degrades to 5–10 min hot entry per C18.
 
 ---
 
-## 11. Producer / Consumer map (rev 2)
+## 11. Producer / Consumer map (REV 4)
 
-**PRODUCER of the "fast-path trigger" value:** HA `state_changed` events for `binary_sensor.{entry_id}_occupied` (registry-resolved). Source health = URA room coordinator's STATE_OCCUPIED write path. Falling-edge failures (e.g. sensor `unavailable`) collapse to the periodic tick (5-min discharge).
+**PRODUCER of the "fast-path trigger" value:** HA `state_changed` events for
+`binary_sensor.{entry_id}_occupied` (registry-resolved). Source health = URA room
+coordinator's STATE_OCCUPIED write path. Failures collapse to periodic tick.
 
 **CONSUMERS + call-sites:**
-- `HVACCoordinator._async_decision_cycle(trigger="fast_path")` → `_run_decision_cycle(trigger)` — sole trust-consumer. Count-coupled call sites guarded per §4.7.
-- `_fast_path_dwell_followup(Z)` (D3) — sole time-shifted trust-consumer; re-enters `_async_decision_cycle(trigger="fast_path_dwell_followup")`.
-- Existing `preset_change` activity-log details dict — carries `trigger` for the audit oracle in D3's acceptance (display + audit).
-- Existing HVAC coordinator sensor attributes — in-memory counter view (display + audit).
-- `AnomalyDetector` `fast_path_trigger_rate` — storm trip-wire (audit).
+- `HVACCoordinator._async_decision_cycle(trigger="fast_path", origin_zones={Z})` → `_run_decision_cycle(trigger, origin_zones)` — sole trust-consumer. Count-coupled sites SKIPPED per §4.7 F3-narrowed; S1 write loop restricted to origin zones per F2.
+- `_fast_path_dwell_followup(Z, origin_trigger)` (D3) — time-shifted trust-consumer; re-enters `_async_decision_cycle(trigger="fast_path_dwell_followup", origin_zones={Z}, _origin_trigger=origin_trigger)`. Exempt from both limiters (§4.4).
+- Periodic-tick backstop for global-DENY, per-zone L DENY, F10 ceiling-fallback: `_async_decision_cycle(trigger="periodic")` picks up the zone on the next tick.
+- Existing `preset_change` activity-log row — `trigger` + `origin_trigger` in details (F14, F8) — D3 acceptance oracle.
+- `sensor.ura_hvac_coordinator_status` — counters + `last_fast_path_edge_to_start_s` gauge (F14).
+- `AnomalyDetector.record_observation` `fast_path_trigger_rate` (F15) — storm trip-wire.
 
-**No new trust downstream.** The plan changes WHEN the cycle runs and PARTIALLY WHAT it runs (count-coupled sites are gated by `trigger`); INV conjunct (3) makes the periodic-tick output byte-identical.
+**No new trust downstream.** The plan changes WHEN cycles run and PARTIALLY WHAT they
+run (F2 write scope + F3 count-coupled skip).
 
 ---
 
 ## Appendix A — INV restated for reviewer D
 
-> Under normal steady-state operation (boot-settle released, no active reload storm, W1-A live), for every HVAC-occupancy rising edge on a live non-hallway room R in an HVAC zone Z, where `zm._hvac_armed[R]` is not already True:
+> Under normal steady-state operation (boot-settle released, no active reload storm,
+> W1-A live), for every HVAC-occupancy rising edge on a live non-hallway room R in an
+> HVAC zone Z where `zm._hvac_armed[R]` is not already True AND
+> `zone.any_room_hvac_occupied is False` (zone-cold, F4):
 >
-> 1. A `_run_decision_cycle(trigger="fast_path")` STARTS within `HVAC_FAST_PATH_SLA_S` seconds unless the per-zone OR global limiter denied it.
-> 2. If that cycle takes the dwell-skip branch at `hvac.py:2362-2365`, a follow-up `_run_decision_cycle(trigger="fast_path_dwell_followup")` runs at `zone.current_session_start + zone_entry_dwell + FAST_PATH_DWELL_SLACK_S`, exempt from the per-zone limiter, per-zone dedup'd.
-> 3. On any non-periodic cycle, the count-coupled sites in §4.7 are SKIPPED. The periodic-tick output for every un-triggered zone is byte-identical to `develop`.
-> 4. `_fast_path_last_run_at[Z]` is stamped ONLY when a cycle actually runs (not on denials, not on boot-settle early returns, not on re-entrancy skips — which set `_fast_path_rerun_requested` and produce one trailing cycle).
-> 5. `async_teardown` cancels every fast-path subscription, per-zone follow-up timer, and pending rerun; the state-change unsub is single-owned on `self._fast_path_state_unsub`.
-> 6. Hot-entry latency (edge → `ura_activity_log preset_change` row) drops from the C18 baseline of 300-600 s to < 250 s for the class defined in §5 D3.
+> 1. A `_run_decision_cycle(trigger="fast_path", origin_zones={Z})` STARTS within
+>    `HVAC_FAST_PATH_SLA_S` seconds unless denied by the per-zone or global limiter, or
+>    gated by the F10 hard ceiling. A DENIED zone-cold edge is discharged by the NEXT
+>    periodic 5-min tick.
+> 2. If that cycle takes the dwell-skip branch at `hvac.py:2451` AND
+>    `effective_preset != zone.preset_mode` AND `should_change_preset` allows the
+>    write, a follow-up `_run_decision_cycle(trigger="fast_path_dwell_followup",
+>    origin_zones={Z})` runs at
+>    `zone.current_session_start + hvac_zone_entry_dwell_live_seconds +
+>    FAST_PATH_DWELL_SLACK_S`, exempt from both limiters, per-zone dedup'd, and
+>    subject to `HVAC_FAST_PATH_DWELL_FOLLOWUPS_PER_ZONE_PER_HOUR`.
+> 3. On any `trigger ∈ {fast_path, fast_path_dwell_followup}`: (a) the producer
+>    (`update_room_conditions`) runs for ALL zones (drift ≤ HVAC_DECISION_TICK, same
+>    envelope siblings live in today); (b) the S1 preset-write loop skips zones ∉
+>    origin_zones, so their preset/setpoint/mode WRITES are identical to what a
+>    periodic tick at the same wallclock would produce; (c) the count-coupled sites in
+>    §4.7 are SKIPPED. Other triggers (`periodic`, `house_state`, `pre_arrival`,
+>    boot-kick, setup) are `origin_zones=None` and run the full site list (F3).
+> 4. `_fast_path_last_run_at[Z]` and `_fast_path_last_run_at_any_zone` are stamped
+>    ONLY when a cycle actually runs (not on denials, boot-settle early returns, F10
+>    ceiling gating, or re-entrancy skips — which set `_fast_path_rerun_requested` to
+>    the DROPPED trigger label, F5).
+> 5. `async_teardown` DRAINS `self._fast_path_state_unsub` and every entry of
+>    `self._fast_path_pending_dwell` BEFORE its first await. Handler, follow-up
+>    callback, and rerun scheduler each check `self._tearing_down` and return
+>    immediately if set (F6).
+> 6. Hot-entry latency: p90(zone-cold edge → `preset_change` row with
+>    `origin_trigger="fast_path"`) ≤ `hvac_zone_entry_dwell_live_seconds +
+>    FAST_PATH_DWELL_SLACK_S + HVAC_FAST_PATH_SLA_S` (F8); ≥ 90 % of zone-cold entries
+>    carry `origin_trigger="fast_path"`.
 >
 > A legal-config, recorder-reachable violation of ANY conjunct falsifies INV.
 
 ---
 
-## Rev 2 change log — findings 1-12 → sections
+## Rev 4 change log — plan-review-driven (F1–F15)
 
-| # | Finding | Section(s) folded |
+| # | Finding | Fold |
 |---|---|---|
-| 1 | HIGH — count-coupled side effects, `trigger` arg, skip on non-periodic; strike "changes WHEN not WHAT" and "sibling zones quiescent" | §2 (INV rewritten, claims struck), §4.7 (new table), §5 D1 (implementation + wire-in), §8 framings A/B/C, §11 (partial WHAT change acknowledged). House-state / pre-arrival note in §4.7. |
-| 2 | HIGH — no invented surfaces; `trigger` on existing preset_change + counters as attrs on existing sensor | §1.1 (retraction), §4.3 (counters as attrs), §5 D1 (existing activity-log details dict + existing sensor), §7 (non-goals: no new sensor / no new DB writer). |
-| 3 | HIGH — D0 uses `{entry_id}_occupied` via registry, armed-gate replay with day/night tail tables, cycle-duration percentiles | §3 (rewritten). §1.1 REUSE citations for tail tables. §10 sizing rule for SLA. |
-| 4 | HIGH — dwell follow-up is the MAIN path; schedule on any dwell skip; exempt from limiter; rewrite D3 Live | §4.4 (rewritten), §5 D3 (Live acceptance rewritten around hot-entry share + trigger name). |
-| 5 | MED — trailing rerun; stamp only when cycle actually runs; boot-settle stamps unchanged | §4.1 gate 7, §4.3 stamping rule, §4.5 (rewritten with pseudocode), §5 D4 wire-in. |
-| 6 | MED — trigger spec (registry resolve, off→on strict, armed-gate at event time, hallway + zone at event time) | §4.1 gates 1-3, §4.6 (handler pseudocode). |
-| 7 | MED — listener lifecycle: single unsub, options_updated rebuild, per-zone dict for D3 unsubs | §1.1, §4.3 state fields, §4.4 (dedicated dict), §5 D2 wire-in (no-double-unsub test cites helpers/event.py:441-447), §5 D4 teardown. |
-| 8 | MED — merge after W1-A ≥ 1 day; write-rate acceptance vs baseline; global min interval | §3 baseline signal, §4.3 constants (global), §5 D3 write-rate acceptance, §8 sequencing gate, §9. |
-| 9 | MED — denials as counters + debug log; storm trip-wire via AnomalyDetector, no per-denial NM | §4.3 counters (no NM), §5 D4 (trip-wire), §7 (non-goals). |
-| 10 | MED — latency baseline 300-600 s (C18); oracle = ura_activity_log preset_change (or W1-A row); discriminator = share of hot entries edge→write < 250 s | §2 discriminator, §5 D3 acceptance, App A. |
-| 11 | LOW — INV as "cycle STARTS within X s"; SLA sized from D0 cycle durations | §2 INV wording ("STARTS"), §3 cycle-duration percentiles, §10 rung note. |
-| 12 | LOW — C6 amended; align text | §0 (integration-doc note); consistent language with the state-of-play. |
+| F1 | HIGH — gate dwell follow-up on real preset change; add per-zone cap; place inside `_apply_house_state_presets` before `continue` at hvac.py:2451 | §REV 4 DELTA F1; §4.4 gate + rate cap; §5 D3 wire-in `test_dwell_skip_schedules_followup_only_when_preset_would_change`, `test_dwell_followup_rate_cap`; §10 knob; §11 producer/consumer |
+| F2 | HIGH — origin_zones param, S1 write loop restricted to origin; producer runs for all zones with bounded drift; INV rewritten truthfully | §REV 4 DELTA F2; §2 INV conjunct (3); §4.5 pseudocode; §4.6 handler `origin_zones={zone_id}`; §4.7 S1 row; §5 D1 threading; §8 framing B; Appendix A |
+| F3 | HIGH — §4.7 skip set = {fast_path, fast_path_dwell_followup} only; house_state / pre_arrival / boot kick / setup remain periodic-classified; predictor = COUNT-COUPLED + event payload | §REV 4 DELTA F3; §4.7 predictor row + implementation shape; §4.8 coexistence; §5 D1 `test_boot_kick_and_setup_are_periodic_class`, `test_fast_path_skips_predictor_update` |
+| F4 | Zone-cold gate uses `zone.any_room_hvac_occupied`; race-freedom argument | §4.1 gate 5; §4.6 handler; §REV 4 DELTA F4 race argument; §5 D2 `test_fast_path_skips_when_zone_warm_via_fused_signal` |
+| F5 | Periodic ticks that hit lock ALSO set rerun; lock/rerun gate AHEAD of global DENY; rerun replays with the DROPPED trigger label | §4.1 gate 8 order; §4.5 pseudocode; §REV 4 DELTA F5; §5 D2 `test_periodic_tick_that_hits_lock_sets_rerun_periodic`, `test_fast_path_lock_gate_ahead_of_global_deny` |
+| F6 | origin_zones threading; rerun exempt + tracked in _pending_tasks; `_tearing_down` flag on all paths; teardown DRAINS BEFORE first await | §4.1 gate 1; §4.5 pseudocode; §4.6 handler; §5 D4 `test_tearing_down_guards_all_paths`, `test_teardown_drains_before_await` |
+| F7 | Follow-up pops its dict entry BEFORE dispatch; rearm test | §4.4 fire pseudocode; §5 D3 `test_dwell_followup_rearms_after_fire` |
+| F8 | Follow-up rows carry `origin_trigger`; D3 pass uses LIVE dwell + ≥ 90 % origin_trigger | §REV 4 DELTA F8; §2 INV conjunct (6); §4.4 origin_trigger forwarding; §5 D3 acceptance; Appendix A |
+| F9 | Corrected query (details_json, zone column, per-day grouping); ≥ 3-day margin; attributable criterion | §REV 4 DELTA F9; §5 D0 acceptance; §5 D3 acceptance + baseline query; §8 sequencing gate; §9 note |
+| F10 | Hard ceiling `HVAC_FAST_PATH_MAX_PER_ZONE_PER_HOUR = 15` + NM + tick-only fallback until midnight; parked-DEFER revival query | §REV 4 DELTA F10; §4.1 gate 7/11; §4.3 state; §5 D2/D4 wire-in; §7 parked DEFER query; §10 knob |
+| F11 | Refresh file:line citations against develop @ c1c555291 (dwell `continue` at hvac.py:2451; boot kick :1553; setup :1372; check_ac_reset :1760; fan :1764; predictor :1784) | §1.4 code locations; §4.7 table; §4.4 placement note; §9 overlap |
+| F12 | Read `zm.zones` live (not cached at listener rebuild) | §4.6 handler; §5 D2 `test_zone_manager_zones_read_live` |
+| F13 | ONE `SIGNAL_ROOM_ENTRY_LIFECYCLE` subscription (covers options_updated) | §1.1; §4.6 note; §5 D2 wire-in (single subscription) |
+| F14 | Thread `trigger` to the preset_change write; give SLA a consumer via `last_fast_path_edge_to_start_s` on `sensor.ura_hvac_coordinator_status`; unify boot-suppressed counter name; fix rerun arithmetic to ~1.5/day | §REV 4 DELTA F14; §4.3 state; §4.6 handler; §5 D1 `test_preset_change_activity_log_carries_trigger_and_origin_trigger`; §7 sensor name; §10 SLA row |
+| F15 | `AnomalyDetector.record_observation` (not observe); mutation drills neuter the RETURN; replace byte-identical test with call-sequence test | §4.7 anomaly row; §5 D1 wire-in tests; §8 framing C |
+
+## Rev 3 change log — audit-driven + orchestrator decision (retained)
+
+See docs/planning/AUDIT_hvac_fast_path_rate_2026_09_26.md + this doc's REV 3 body
+(previous revisions). Highlights: zone-cold gate; DENY global limiter + follow-up
+exemption; constants sized 60/20/45/2.
+
+## Rev 2 change log — findings 1-12 (retained)
+
+See prior revisions for the full 12-row table.

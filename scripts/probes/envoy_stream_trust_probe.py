@@ -40,6 +40,8 @@ C_RES = "number.iq_battery_hacs_battery_reserve"
 
 # Physical slew ceiling: ~30.7 kW available power over ~38-40 kWh ~= 1.3 pp/min. 2 pp/min = clearly non-physical.
 SLEW_PP_PER_MIN = 2.0
+# Reserve-witness match window (either direction), seconds.
+REL_WIN_S = 300
 
 
 def fmt(t):
@@ -283,8 +285,11 @@ cr = [(t, s) for t, s in rows(C_RES) if t > START and not excluded(t) and num(s)
 print(f"  stream backup_reserve now {value_at(rows(S_RES), END)}; cloud reserve now {value_at(rows(C_RES), END)}")
 print(f"  cloud reserve changes in window: {len(cr)}; stream changes: {len(lr)}")
 for t, s in cr:
-    conv = next((t2 for t2, s2 in lr if t2 >= t and num(s2) == num(s)), None)
-    print(f"     cloud -> {s} at {fmt(t)}; stream converged {'at '+fmt(conv)+f' (lag {conv-t:.0f}s)' if conv else 'NOT in window'}")
+    # Run 2 fix: the stream usually changes BEFORE the cloud (it reads the Envoy directly),
+    # so search both directions within +/-REL_WIN_S, nearest match wins. Lag < 0 = stream led.
+    cands = [t2 for t2, s2 in lr if abs(t2 - t) <= REL_WIN_S and num(s2) == num(s)]
+    conv = min(cands, key=lambda t2: abs(t2 - t)) if cands else None
+    print(f"     cloud -> {s} at {fmt(t)}; stream {'matched at '+fmt(conv)+f' (lag {conv-t:+.0f}s)' if conv else 'NO match within +/-%ds' % REL_WIN_S}")
 if not cr:
     print("  no reserve change in window — convergence lag UNTESTED (needs a reserve change)")
 

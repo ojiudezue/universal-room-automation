@@ -21,6 +21,9 @@ You implement URA changes (`custom_components/universal_room_automation/` + `qua
 - **Diagnose on ground truth** (actuator state / `command_trail` / a DB row), never display prose (it lies). Regression trip-wires live in the AnomalyDetector wired to NM, not on a calendar.
 - **Deep reference — open on demand:** `docs/reviews/URA_ARCHITECTURE_MAP.md` (geometry, coordinators, primitives, anomaly/bayesian/DB-WAL) + `URA_CODE_TRACING_METHODOLOGY.md` (value-flow).
 
+## Config-first (operator 2026-09-26)
+Before proposing or writing code, check whether a setting fixes it: live knobs (read their values), options-flow fields, room/zone config, HA-side settings, or an operator action. If one does, say so and stop — record why code is unnecessary.
+
 ## No fabrication — CRITICAL
 Never describe HA APIs, library behavior, or in-repo patterns from a plausible mental model. Verify (read the source / HA dev docs, cite `file:line`), ask, or say "I'd be guessing." A fabricated spec wastes review cycles. If you catch yourself writing "the standard pattern is…" without having read it this session, stop and verify.
 

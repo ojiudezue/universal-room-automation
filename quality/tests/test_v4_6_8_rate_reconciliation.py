@@ -22,45 +22,31 @@ class TestD1TouSyncLoaderRemoved:
     """D1 acceptance criteria."""
 
     def test_tou_engine_sync_loader_removed(self):
-        """from_json_file classmethod must no longer exist on TOURateEngine."""
-        import sys, importlib
-        # Import via the package path used by the integration
-        import importlib.util, pathlib
-        tou_path = pathlib.Path(__file__).parents[2] / (
-            "custom_components/universal_room_automation"
-            "/domain_coordinators/energy_tou.py"
+        """from_json_file classmethod must no longer exist on TOURateEngine.
+
+        TEST-SILENT-WHOLE-FILE-SKIPS-1: previously loaded energy_tou via
+        ``spec_from_file_location("energy_tou", ...)`` — a standalone module
+        name with no parent package — so the module's ``from .energy_const
+        import ...`` raised ``attempted relative import with no known parent
+        package`` and the test silently skipped in every env. Fix mirrors
+        commit c5ea7dfc7: import as a real package member with repo root on
+        ``sys.path``. Silent skip removed — a future env break must fail
+        loudly, not silently pass.
+        """
+        import importlib
+        import pathlib
+        import sys as _sys
+        _repo = str(pathlib.Path(__file__).resolve().parents[2])
+        if _repo not in _sys.path:
+            _sys.path.insert(0, _repo)
+        mod = importlib.import_module(
+            "custom_components.universal_room_automation."
+            "domain_coordinators.energy_tou"
         )
-        spec = importlib.util.spec_from_file_location("energy_tou", tou_path)
-        mod = importlib.util.module_from_spec(spec)
-        # Stub HA deps
-        sys.modules.setdefault("homeassistant", MagicMock())
-        sys.modules.setdefault("homeassistant.util", MagicMock())
-        sys.modules.setdefault("homeassistant.util.dt", MagicMock())
-        # Provide a minimal energy_const so the import doesn't fail
-        energy_const_mock = MagicMock()
-        energy_const_mock.PEC_FIXED_CHARGES = {
-            "service_availability": 32.50,
-            "delivery_per_kwh": 0.022546,
-            "transmission_per_kwh": 0.019930,
-        }
-        energy_const_mock.PEC_TOU_RATES = {}
-        sys.modules["energy_tou"] = mod
-        with patch.dict(sys.modules, {
-            "homeassistant.util.dt": MagicMock(now=MagicMock()),
-        }):
-            # Patch the relative import inside energy_tou
-            with patch.dict(sys.modules, {
-                "custom_components.universal_room_automation.domain_coordinators.energy_const":
-                    energy_const_mock,
-            }):
-                try:
-                    spec.loader.exec_module(mod)
-                    TOURateEngine = mod.TOURateEngine
-                    assert not hasattr(TOURateEngine, "from_json_file"), (
-                        "from_json_file should have been deleted in D1"
-                    )
-                except Exception as exc:
-                    pytest.skip(f"Module load failed (import env issue): {exc}")
+        TOURateEngine = mod.TOURateEngine
+        assert not hasattr(TOURateEngine, "from_json_file"), (
+            "from_json_file should have been deleted in D1"
+        )
 
 
 # =============================================================================
@@ -342,21 +328,25 @@ class TestNoMagicFallback:
     """Cross-cutting: verify DEFAULT_ELECTRICITY_RATE is not 0.1."""
 
     def test_default_electricity_rate_is_not_0_1(self):
-        """DEFAULT_ELECTRICITY_RATE must be 0.15 (per const.py), never 0.1."""
-        import pathlib, importlib.util, sys
-        const_path = pathlib.Path(__file__).parents[2] / (
-            "custom_components/universal_room_automation/const.py"
+        """DEFAULT_ELECTRICITY_RATE must be 0.15 (per const.py), never 0.1.
+
+        TEST-SILENT-WHOLE-FILE-SKIPS-1 fix-up: previously the assertion body
+        was wrapped in ``except Exception: pytest.skip(...)``, which turned
+        an ``AssertionError`` into a skip — the reviewers proved that
+        forcing DEFAULT_ELECTRICITY_RATE=0.1 yielded ``1 skipped`` instead
+        of a failure. Now imports const as a real package member and
+        asserts with nothing wrapped, so a violation fails loudly.
+        """
+        import importlib
+        import pathlib
+        import sys as _sys
+        _repo = str(pathlib.Path(__file__).resolve().parents[2])
+        if _repo not in _sys.path:
+            _sys.path.insert(0, _repo)
+        mod = importlib.import_module(
+            "custom_components.universal_room_automation.const"
         )
-        spec = importlib.util.spec_from_file_location("ura_const", const_path)
-        mod = importlib.util.module_from_spec(spec)
-        # Stub typing.Final and other stdlib deps used in const.py
-        sys.modules.setdefault("homeassistant", MagicMock())
-        sys.modules.setdefault("homeassistant.const", MagicMock())
-        try:
-            spec.loader.exec_module(mod)
-            assert mod.DEFAULT_ELECTRICITY_RATE == 0.15, (
-                f"Expected 0.15 but got {mod.DEFAULT_ELECTRICITY_RATE}"
-            )
-            assert mod.DEFAULT_ELECTRICITY_RATE != 0.1
-        except Exception as exc:
-            pytest.skip(f"const.py load failed (import env issue): {exc}")
+        assert mod.DEFAULT_ELECTRICITY_RATE == 0.15, (
+            f"Expected 0.15 but got {mod.DEFAULT_ELECTRICITY_RATE}"
+        )
+        assert mod.DEFAULT_ELECTRICITY_RATE != 0.1

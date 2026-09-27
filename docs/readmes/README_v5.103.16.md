@@ -18,14 +18,20 @@ Plan rev 2 (plan review F1–F15). Build `914baecd9` → orchestrator rejected (
 ## Non-goals
 Which Carrier feed confirms a write, presets-only returns, provenance ownership (Stage B / W1-B); occupancy fast path (W2).
 
-## Live Validation (prospective — written back post-restart; plan §7)
-- **Verify:** every `nudge_started` since restart has exactly one `S5_nudge_start` row on the same zone within ±5 s.
-- **Verify:** every `nudge_restored` has one `S6_nudge_restore_setpoint` row and ≥1 row whose site starts `S7_nudge_restore_preset`.
-- **Verify:** every `preset_change` has ≥1 `climate_write` row whose site starts `S1_`.
-- **Verify (discriminating):** borrow rows (S3/S5–S7/S11–S13/egress) carry a non-null `excursion_id` matching the excursion / `ac_ramp_events` row — null everywhere = forwarding broken.
-- **Verify:** `values_before.preset_mode`/`hold_activity` present on the large majority of rows.
-- **Verify:** recorder climate changes with no `climate_write` row in the prior 90 s (external-or-bypass) ≤ pre-ship baseline + 10 %.
-- **Verify:** zero URA ERROR after restart; zone_1 §9.7 re-issued away writes now appear as rows (≈ 6/h while the feeds disagree).
+## Live Validation — Validated 2026-09-26 (HACS v5.103.16, HA restarted 20:15:37Z, back 20:19:12Z; house EMPTY — all rows are URA's own)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | Rows are written, one per attempted wire call | **PASS** | first post-boot write 15:25 CDT: `ura_activity_log` `climate_write` zone_1, site `S1_reason_ladder`, reason `vacant_past_grace`, `wire_ok=true`, `values_after={preset_mode: away}` |
+| 2 | every `preset_change` has a row whose site starts `S1_` | **PASS (1/1 so far)** | 1 `preset_change` since restart ↔ 1 `S1_` row, same zone |
+| 3 | `values_before` read before the write | **PASS** | 0 rows missing both feeds; the first row recorded `preset_mode=home` / `hold_activity=away` — the §9.7 feed split captured in the ledger at the moment URA acted on it |
+| 4 | Borrow rows carry the borrow `excursion_id` | **PENDING** | no borrow (nudge / compromise / egress / pre-cool) since restart; house empty, so first exercise expected after return. Null everywhere on borrow sites = forwarding broken |
+| 5 | Nudge start/restore ↔ S5/S6/S7 rows (plan §7 #1–#2) | **PENDING** | no nudge since restart |
+| 6 | External-or-bypass recorder changes ≤ pre-ship baseline + 10 % | **PENDING (24 h)** | needs a full day of post-ship data |
+| 7 | Zero URA ERROR after restart | **PASS** | error_log ERROR filter on `universal_room_automation`: none |
+| 8 | Installed version | **PASS** | installed `manifest.json` = `v5.103.16` |
+
+In-suite only: CancelledError row + re-raise, AI-rule climate refusal (no climate AI rules configured live), raise-path rows.
 
 ## Rollback
 Revert the merge. Additive rows only; no schema change.

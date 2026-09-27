@@ -130,23 +130,38 @@ _LOGGER = logging.getLogger(__name__)
 # events (e.g. _revert_override firing set_hvac_mode + set_preset_mode under
 # one suppress()). The TTL window covers all settle events from a single
 # logical write and self-clears so we don't grow unbounded.
-SUPPRESS_TTL_SECONDS = 5
-# HVAC-MANUAL-PRESET-CONTRACT-1 D1 — PER-KIND suppression TTL.
+SUPPRESS_TTL_SECONDS = 15
+# HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1 (2026-09-26): RAISED 5 -> 15 s.
 #
-# WHY THIS IS SPLIT RATHER THAN RAISED. The suppression window is NOT blanket
-# blindness: `_is_genuine_manual` implements a MID-WINDOW PASSTHROUGH — inside
-# the TTL a fresh transition INTO "manual" is still treated as genuine ("URA
-# never writes manual") — EXCEPT when the suppression was tagged kind="temp",
-# which classifies the induced manual as a side effect of URA's own setpoint
-# write. So the two kinds have opposite risk profiles:
+# EVIDENCE. Since 2026-09-19, 24/52 `override_detected` rows are Carrier's
+# ECHO of URA's own nudge, arriving 5.3-7.5 s after the write — just past the
+# old 5 s window (§10 C23 in HVAC_ARCHITECTURE_STATE_OF_PLAY.md). 22 of those
+# 24 were followed by an S1 preset lockout. Measured max echo lag 7.5 s;
+# 15 s = 2x headroom. Genuine human manual flips in the same corpus (23 rows)
+# were all > 60 s from any URA write, so 15 s remains far below the human floor.
+#
+# ACCEPTED TRADE-OFF. `_is_genuine_manual` has a MID-WINDOW PASSTHROUGH: a
+# fresh preset transition INTO "manual" is still treated as genuine EXCEPT
+# when the suppression was tagged kind="temp" (see :2455-2467). Consequence:
+# a real human who flips preset -> manual within 15 s of URA's own temp write
+# will NOT be booked as an override. This is deemed acceptable vs. the
+# measured harm of the false-override / lockout cascade the old 5 s allowed;
+# the human-manual signal is preserved for every kind="preset" write (which
+# keeps the 120 s window and mid-window passthrough) and for kind="temp"
+# outside the 15 s echo window (i.e. genuine humans, which cluster > 60 s out).
+#
+# WHY THIS IS SPLIT RATHER THAN RAISED FURTHER. The suppression window is
+# NOT blanket blindness: `_is_genuine_manual` implements the mid-window
+# passthrough above. The two kinds still have opposite risk profiles:
 #
 #   kind="preset" -> a long TTL is SAFE. A human grabbing the dial mid-window
 #       still comes through the passthrough, and a preset->preset move is not
 #       an override by the arrester's own definition anyway.
 #   kind="temp"   -> the ONLY path that swallows a genuine human manual flip.
-#       A long TTL here would blind us to a human correcting the thermostat —
-#       which is the INDEPENDENT WITNESS the spurious-away metric depends on
-#       (HVAC-SUPPLE-SEQUENCE-1). It stays at 5s.
+#       Raised to 15 s (was 5) to cover Carrier's echo; kept well under the
+#       measured 42-79 s cloud refresh window and the 60+ s human floor so
+#       the spurious-away metric's independent witness (HVAC-SUPPLE-SEQUENCE-1)
+#       stays observable.
 #
 # The preset value must span resume -> pin -> refresh -> verify. Sized from the
 # MEASURED ha_carrier coordinator refresh window (42-79s, 2026-08-23) plus
@@ -2874,7 +2889,9 @@ class OverrideArrester:
             self._compromise_active.clear()
             # A-F5 review HIGH FIX 2 — lifecycle: clear suppression on
             # disable so a stale TTL window doesn't survive an arrester
-            # disable (which would silently swallow events for ≤5s).
+            # disable (which would silently swallow events for up to
+            # SUPPRESS_TTL_SECONDS (15 s, temp-kind) or
+            # SUPPRESS_TTL_SECONDS_PRESET (120 s, preset-kind)).
             self._suppressed_until.clear()
             self._suppress_kind.clear()
         _LOGGER.info("Override Arrester %s", "enabled" if value else "disabled (passive mode)")

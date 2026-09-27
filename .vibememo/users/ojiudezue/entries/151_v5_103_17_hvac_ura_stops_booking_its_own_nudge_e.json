@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "151",
+  "author": "ojiudezue",
+  "session_id": "claude_20260927_153303_ship_v5_103_17",
+  "timestamp": "2026-09-27T15:33:03Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.17 shipped: HVAC: URA stops booking its own nudge echoes as human overrides; room rename can no longer duplicate a name",
+  "summary": "HVAC: URA stops booking its own nudge echoes as human overrides; room rename can no longer duplicate a name",
+  "why": "The arrester treated Carrier's 6-second echo of URA's own nudge as a person, then wrote a compromise setpoint that Carrier turned into a real manual hold, locking URA out of the zone ~22 times a week and sending ~24 false override alerts. The 5 s window was deliberately short to catch a quick human correction; 15 s covers every measured echo while adding only ~0.3-2.5 s of human blind time per write, because after the echo lands a human touch is manual->manual and was never booked. Room renames had no uniqueness check while creation did.",
+  "implications": "Shipped HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1, ROOM-NAME-UNIQUE-1 at v5.103.17; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.17.md (Live criteria).",
+  "revisit_trigger": "0 override_detected within 15 s after a nudge_started post-deploy; 0 preset_change_locked_out at ~+595 s after a nudge; renaming a room to an existing name shows the error and writes nothing.",
+  "refs": {
+    "cards": [
+      "HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1",
+      "ROOM-NAME-UNIQUE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.17.md"
+    ],
+    "release_notes": "HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1: temp suppression window 5->15 s (Carrier echoes URA nudges at 5.3-7.5 s; 24/52 overrides were self-echoes, 22 led to lockouts via the compromise write). ROOM-NAME-UNIQUE-1: rename uniqueness guard, trimmed names, create race re-check, options-screen error strings. See docs/readmes/README_v5.103.17.md."
+  }
+}
