@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'WIFI-ACTUATOR-FLEET-FLAP-1@2026-09-27T02:15:28'
+    at: '2026-09-27T02:15:28'
+    outcome: escalated
+    headline: 'Wi-Fi device dropouts, measured: mostly NOT the devices leaving Wi-Fi. HA briefly loses them (Shelly median 9 s, Tuya 38 s) while they stay connected. About 0.6-2% of the time down, so low harm. Clue: Shellys that act as Bluetooth proxies drop out ~20x more often than ones that dont (not proven). PICK: accept (my recommendation), a 1-week test turning Bluetooth scanning off on 2 Shellys, and/or fix Garage Bs weak signal (3 devices at -78 to -82 dBm).'
+    acknowledged: false
   - fid: 'WIFI-ACTUATOR-FLEET-FLAP-1@2026-09-27T02:10:48'
     at: '2026-09-27T02:10:48'
     outcome: measured
@@ -945,12 +950,13 @@ meta:
       nine days later.'
 cards:
 - id: WIFI-ACTUATOR-FLEET-FLAP-1
-  title: About 80 Wi-Fi lights, switches and plugs keep dropping offline dozens of times a day, so a light command can land while the device is gone
+  title: About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss
   thread: presence
-  status: investigating
+  status: waiting_operator
   created: '2026-09-27 02:50'
-  updated: '2026-09-27 02:50'
-  refinement_status: initial
+  updated: '2026-09-27 03:20'
+  measured_2026_09_27_mechanism: 'OVERNIGHT 2026-09-27 03:00, MECHANISM WORK (all read-only). (1) UniFi read (net-ops agent, unifi-cli devices/clients show; no writes): the fault is NOT mostly Wi-Fi disassociation. Several heavy HA flappers have held one continuous Wi-Fi association for 8-10 days: GarageB Plug2 (client uptime 904k s, 410 HA dropouts in 3 days) and the StudyB dimmers (-55 dBm, up to 719k s). So the device stays on Wi-Fi while HA loses its connection to it. EXCEPTION: the Garage B cluster (3 devices at -78/-79/-82 dBm on Garage B U6-Mesh-EA, which had restarted ~17 h before the read) is a real weak-signal cohort. 7 listed devices (4 LIFX, WiiM, Hampton Bay) are not visible to the controller at all. The controller event log returned 404, so roam/disconnect counts are unavailable. (2) Synchrony (recorder, 3 clean days, one representative entity per device): 84 flapping actuator devices, 9,757 dropouts. Shelly co-occurrence is almost all sub-devices of the SAME physical Shelly (Dining2 x3, Dining1 x3) plus the Garage B trio, so there is no house-wide simultaneous drop and no sign of an HA-side stall. (3) Dropout length: Shelly median 9 s (p90 98 s), Tuya 38 s (p90 361 s), LIFX 47 s, Bond 5 s. At 20-60 dropouts a day that is about 0.6-2% of the time unavailable per device. That bounds the URA harm as small. (4) DISCRIMINATOR, and a hypothesis only, not proven: Shelly devices with a Bluetooth-proxy entity (*_aioshelly_ble_integration) median 71 dropouts in 3 days (14 of 19 flap), versus 3 for Shellys without one (15 of 39 flap, 13 never). Possible confounds: model generation, location, load. ble_scanner_mode is auto on 36 entries, passive on 4, unset on 9, so the mode alone does not separate them. Only a controlled A/B test would prove it (option B). Config-first: every lever here is configuration or physical; no URA code is proposed. Moved to waiting_operator because the options trade off Bluetooth presence coverage, which is the operators call.'
+  refinement_status: refined
   approval: implied
   tags: [measure-before-build, audit-first, no-fabrication-verify]
   problem_solution:
@@ -965,16 +971,18 @@ cards:
   - 'URA already has mitigations: sensor.<room>_unavailable_entities now lists actuators (sensor.py:1983 unavailable_actuators), and automation.py has an ActuatorReconciler. Check their coverage before proposing anything new (BACKLOG "Offline-actuator visibility + recovery" D1/D2/D3).'
   parked_alts:
   - 'D3 reload-as-recovery from the BACKLOG item: rejected for now. A reload does not help a device that is off Wi-Fi, and with ~100 flappers an auto-reload would be a storm.'
-  refinement: []
+  refinement:
+  - 'Assumed Wi-Fi dropouts (the device leaving the network) -> the UniFi read showed many flappers hold one Wi-Fi association for 8-10 days, so it is mostly HA losing its connection to a device that is still online; only the Garage B trio is a weak-signal Wi-Fi problem.'
+  - 'Assumed a meaningful actuation-miss risk -> measured dropouts are short (9-47 s median), about 0.6-2% of the time, so the value is low; recommendation became ACCEPT.'
   knobs: []
   rank:
-    value: 5
-    time_criticality: 3
+    value: 3
+    time_criticality: 2
     effort: 2
   parsimony:
-    problem: About 100 Wi-Fi actuator devices go unavailable ~30 times a day each on days with no HA restart.
-    verdict: MEASURE (not yet gated)
-  next: 'MEASURE (me): (1) map the ~100 flapping Wi-Fi actuators to their UniFi AP and signal (net-ops agent or the unifi MCP once uvx is on PATH): one AP or area means a network fix, an operator DO; (2) count URA light commands in the last 7 days that were sent while the target was unavailable, and whether the ActuatorReconciler re-applied them on return. Then escalate: network DO for the operator, or close as mitigated.'
+    problem: 84 actuator devices drop out of HA 20-60 times a day each for 5-47 s (median), about 0.6-2% of the time.
+    verdict: PARK-leaning (low harm); operator PICK between accept / BLE A/B test / Garage B physical fix
+  next: 'PICK (operator): (A) ACCEPT and close. Each dropout is short (Shelly median 9 s, Tuya 38 s, LIFX 47 s), so a device is unavailable roughly 0.6-2% of the time and a URA command rarely lands in a gap. URAs actuator reconciler covers the rest. This is my recommendation. (B) Run a one-week A/B test: turn OFF Bluetooth scanning on the 2 worst Shellys (Dining2 2PM Gen4, Dining1 2PM Gen4) and compare their dropout rate to before. Cost: those two stop acting as Bluetooth proxies for room presence (Bermuda) in the dining area. (C) Physical fix for Garage B only: its 3 devices sit at -78 to -82 dBm on the Garage B mesh AP, which rebooted ~17 h before the read, so move the AP or add coverage. C can be combined with A or B. -> On A I close the card. On B I record the baseline and re-measure in a week. C is yours to do.'
   links:
     related: [ENVOY-FLAKINESS-181243-1, PERIMETER-DETECTION-WENT-DARK-1, APPLIANCE-COST-DEFERRAL-1, RECEIVING-ROOM-MOTION-DEAD-1, OC-STUCK-SENSOR-GENERALIZE-1]
     context: 'Enphase, Frigate and RainBird are the non-actuator flappers in the same measurement and already have their own cards, so they are excluded here. RECEIVING-ROOM-MOTION-DEAD-1 is where this was spotted. OC-STUCK-SENSOR-GENERALIZE-1 is the sensor-side fleet-health surface; this card is the actuator side.'
