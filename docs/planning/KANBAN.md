@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-27T02:37:43-05:00_ - _Data commit: `041db0fdf0a2`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-27T02:38:44-05:00_ - _Data commit: `ba57c91e2fcd`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -11,11 +11,11 @@ _Generated: 2026-09-27T02:37:43-05:00_ - _Data commit: `041db0fdf0a2`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 5 |
-| 🧭 Pre-planning | 13 |
+| 🧭 Pre-planning | 12 |
 | 📝 Planned | 22 |
 | 🔨 In progress | 3 |
 | 🔍 Review | 0 |
-| ⏸️ Waiting on operator | 24 |
+| ⏸️ Waiting on operator | 25 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 3 |
 | 🅿️ Parked | 69 |
@@ -70,7 +70,7 @@ _created 2026-09-26 · updated 2026-09-26 13:40_
 
 ### `NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26` - Natural experiment — house empty ~24 h (2026-09-26 14:16 CDT until first person returns); anything URA attributes to a person is a false positive — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **investigating**
-_created 2026-09-26 · updated 2026-09-27 04:20_
+_created 2026-09-26 · updated 2026-09-27 02:40_
 - **Next:** MEASURE (me) after the first person returns: re-run scripts/probes/empty_house_experiment_probe.py (now written; it auto-ends the window 30 min before the first return lasting >60 s, and ignores 0-second flickers). Record the final numbe...
 - **Forensic keys (4):**
   - `item8_person_blip_mechanism_2026_09_27`: ITEM 8 (not pre-registered) MECHANISM, measured: all 4 person.oji_udezue zero-second home blips (09-26 13:32:35, 13:56:25, 14:15:45, 15:03:51) coincide within 0.4-1.2 s with device_tracker.phalanxiphone15promaxcflare going unavailable ->...
@@ -80,7 +80,7 @@ _created 2026-09-26 · updated 2026-09-27 04:20_
 
 ### `HVAC-WRITE-CONFIRMATION-ORACLE-1` - Which Carrier feed confirms that a URA write took? (problem 6, decoupled from W1-B) — measurement-only investigation — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **investigating**
-_created 2026-09-26 · updated 2026-09-27 04:25_
+_created 2026-09-26 · updated 2026-09-27 02:40_
 - **Next:** MEASURE (me): (1) operator controlled test in the Carrier app (change zone 2 or 3 by hand at a noted time; also pick a named preset; also press resume) — requested; (2) re-run the episode probe stratified by hold_until "" vs None (cloud-...
 - **Forensic keys (3):**
   - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
@@ -89,7 +89,7 @@ _created 2026-09-26 · updated 2026-09-27 04:25_
 
 ### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#5 · WSJF 1.0 · v7 tc4 u2 /e13_
 thread: **security** - status: **investigating** - approval: **unreviewed**
-_created 2026-08-17 23:58 · updated 2026-09-27 04:30 · refined_
+_created 2026-08-17 23:58 · updated 2026-09-27 02:40 · refined_
 - **Problem / Solution:**
   - Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house is away) even when no other camera watching the area agreed — because the alert records which cameras fired but throws that agreement away...
   - Solution (Tier 3, NARROW remit per operator): make the already-recorded cross-camera/NVR agreement MATTER to the notification severity — a single-source detection DEMOTES (floor LOW, never silenced, so a lone-camera real threat still pag...
@@ -119,7 +119,7 @@ _created 2026-08-17 23:58 · updated 2026-09-27 04:30 · refined_
   - `dead_leg_claim_retracted_2026_08_18`: RETRACTION: earlier notes said the dead Frigate-1 bare leg is a "stale corpse leg counted as coverage" that skews leg-agreement telemetry. WRONG — the audit found the dead F1 legs are REMOVED from the registry, so resolve_detection_legs ...
   - `ptz_rebooted_2026_08_18`: Operator REBOOTED the front PTZ 2026-08-18 (~02:40). Re-check the front_side_ptz Frigate-2/Protect ratio (was 11.4x, sole fleet outlier) after the reboot — if it drops toward the fleet norm (~0.5-1x), the over-trigger was a PTZ state/mot...
 
-## 🧭 Pre-planning (13)
+## 🧭 Pre-planning (12)
 _idea being decomposed_
 
 ### `HVAC-PRECOOL-WINDOW-TOU-DERIVED-1` - Path A pre-cool window is summer-hardcoded [10,14) — not responsive to shoulder/winter TOU peaks (same phase-blindness we just deleted) — _#1 · WSJF 3.0 · v8 tc5 u2 /e5_
@@ -186,7 +186,7 @@ _created 2026-09-15 · updated 2026-09-19 03:10 · initial_
 
 ### `SAFETY-HAZARD-NEVER-CLEARS-1` - A humidity or temperature safety hazard stays "active" until HA restarts, even after the reading is back to normal — _#5 · WSJF 2.4 · v6 tc4 u2 /e5_
 thread: **safety** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-09-27 05:00 · initial_
+_created 2026-09-27 02:40 · initial_
 - **Problem / Solution:**
   - Problem: when the safety system raises a low/high humidity, freeze or overheat hazard, nothing takes it back down when the reading returns to normal. Only an HA restart clears it. So the house safety alert and the safety status can sit o...
 - **Origin:** 2026-09-27 - Review B (framing: state/lifecycle) of SAFETY-HUMIDITY-JUNK-READING-1, 2026-09-27 overnight; independently noted by Review A.
@@ -195,7 +195,7 @@ _created 2026-09-27 05:00 · initial_
 - **Tags:** tier-2, no-fabrication-verify, mutation-drill
 - **Parsimony:** [BUILD (after a plan review, Tier 2; it changes safety-hazard lifecycle)] Humidity and temperature hazards in the safety coordinator are never cleared by a later in-range reading from the same sensor.
 - **Forensic keys (2):**
-  - `live_evidence_2026_09_27`: LIVE at 04:50 CDT: binary_sensor.ura_safety_coordinator_safety_alert = on and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24, with one active hazard, low_humidity Study A value 0.0 (the junk reconnect reading). The ...
+  - `live_evidence_2026_09_27`: LIVE at ~02:30 CDT: binary_sensor.ura_safety_coordinator_safety_alert = on and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24, with one active hazard, low_humidity Study A value 0.0 (the junk reconnect reading). The...
   - `code_2026_09_27`: Per the reviewers, with file:line to be re-verified at plan time: _handle_humidity (safety.py ~2076-2292) never removes from _active_hazards. Removals exist only in the binary handler (~1757), the CO2 log-only rung (~1888), _handle_numer...
 
 ### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -292,20 +292,7 @@ _created 2026-09-14 02:20 · updated 2026-09-19 03:10 · initial_
   - `KNOWN_INSTANCES`: (1) front_side_ptz person sensor pinned ON 29.5h (2026-09-10/11) — actually a fleet-wide Frigate producer freeze. (2) pool_equipment person sensor ON for 53% of all wall-clock over a full 8-day window, median 408s vs fleet median ~25s; o...
   - `design_questions_do_not_guess`: (a) PER-KIND HORIZONS are the crux: a door contact unchanged for 3 days is normal, a motion sensor unchanged for 3 days is broken, a temperature sensor that never moves 0.1F is stuck even while "reporting". Derive horizons from MEASURED ...
 
-### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#12 · WSJF 1.6 · v4 tc2 u2 /e5_
-thread: **safety** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-09-27 05:00 · initial_
-- **Problem / Solution:**
-  - Problem: the safety system is meant to spot fast changes, like humidity jumping (a possible leak) or temperature running away (HVAC failure). Its check asks for readings at least 30 minutes apart, but only keeps readings from the last 30...
-- **Origin:** 2026-09-27 - Review B of SAFETY-HUMIDITY-JUNK-READING-1 (2026-09-27 overnight), then verified by the orchestrator in code and in the live DB.
-- **Why:** Dead-but-looks-alive safety logic is worse than none: a reader assumes leak-by-humidity-rise and HVAC-failure-by-rate are covered.
-- **Next:** MEASURE (me, read-only): replay 7 days of recorder humidity/temperature history through a corrected window (e.g. oldest reading at or before now-30min) and count the hazards that would fire and how many look real. Then page the operator ...
-- **Tags:** tier-2, measure-before-build, no-fabrication-verify
-- **Parsimony:** [MEASURE then PICK (fix vs retire)] RateOfChangeDetector.get_rate returns None except at an exact 1800 s boundary, so rate-based safety hazards never fire.
-- **Forensic keys (1):**
-  - `verified_2026_09_27`: CODE: RateOfChangeDetector.get_rate (safety.py ~636-675) sets window_start = now - WINDOW_MINUTES(30), takes the oldest reading >= window_start, and returns None unless latest - oldest >= MIN_WINDOW_SECONDS (1800, safety.py:618). Because...
-
-### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#13 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#12 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **config-flow** - status: **pre_planning** - approval: **explicit**
 _created 2026-09-12 16:30 · updated 2026-09-12 16:05 · refined_
 - **Problem / Solution:**
@@ -341,7 +328,7 @@ _has plan / acceptance_
 
 ### `COVERAGE-EVENING-ATTRIBUTION-DRIFT-1` - Every evening the room-by-room energy totals creep past the whole-house meter and keep growing until midnight, and nobody has explained why — _#1 · WSJF 4.3 · v7 tc4 u2 /e3_
 thread: **energy** - status: **planned** - approval: **unreviewed**
-_created 2026-09-23 03:10 · updated 2026-09-27 05:30 · refined_
+_created 2026-09-23 03:10 · updated 2026-09-27 02:40 · refined_
 - **Problem / Solution:**
   - Problem: URA checks its own energy bookkeeping by adding up everything it attributed to individual rooms and comparing that against the meter for the whole house. On several evenings the room total has crept PAST the whole-house figure a...
 - **Origin:** 2026-09-23 - fell out of the 10-day recorder measurement run to size the midnight window on COVERAGE-RATING-FALSE-ANOMALOUS-1; the ANOMALOUS samples split into two populations and only one of them was the artifact that card describes
@@ -682,7 +669,7 @@ _being built_
 
 ### `SAFETY-HUMIDITY-JUNK-READING-1` - A single junk "0% humidity" reading from a reconnecting sensor raises a safety alert; ignore physically impossible humidity values — _#1 · WSJF 4.5 · v4 tc3 u2 /e2_
 thread: **safety** - status: **in_progress** - approval: **implied**
-_created 2026-09-27 03:45 · updated 2026-09-27 05:00 · initial_
+_created 2026-09-27 02:40 · initial_
 - **Problem / Solution:**
   - Problem: some humidity sensors send a bogus reading of 0% (or 3%) for about a second while they reconnect. The safety system treats any reading at or below 25% as low humidity and raises an alert IMMEDIATELY, with no check that the value...
 - **Origin:** 2026-09-27 - Found by the empty-house natural-experiment interim probe (overnight 2026-09-27): a MEDIUM safety alert "Low humidity: 0.0% in Study A" at 23:35 CDT with nobody home.
@@ -691,7 +678,7 @@ _created 2026-09-27 03:45 · updated 2026-09-27 05:00 · initial_
 - **Tags:** tier-1, mutation-drill, no-fabrication-verify, numbers-get-knobs
 - **Parsimony:** [SIMPLIFY (plausibility floor only)] Humidity readings below 5% (physically impossible indoors) raise low-humidity safety alerts and chip trips.
 - **Forensic keys (5):**
-  - `live_2026_09_27_0450`: LIVE at 04:50 CDT, and this is the discriminating observation: binary_sensor.ura_safety_coordinator_safety_alert = ON and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24. The only active hazard is low_humidity Study ...
+  - `live_2026_09_27_0230`: LIVE at ~02:30 CDT, and this is the discriminating observation: binary_sensor.ura_safety_coordinator_safety_alert = ON and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24. The only active hazard is low_humidity Study...
   - `reviews_2026_09_27`: Review A (local correctness/edges/consumers): SHIP. M1 MEDIUM, a missed site: the whole-house SafetyAlertBinarySensor in aggregation.py:1359-1365 has its own humidity < 25 check; orchestrator-verified. Plus L1 (chip blips off for 1 s on ...
   - `evidence_2026_09_27`: notification_log, all "Low humidity" safety alerts since 09-12: 09-12 Dining Room 3.0% (MEDIUM), 09-16 Study A 0.0% (MEDIUM), 09-26 Garage A 30.0% (LOW, plausible), 09-27 Study A 0.0% (MEDIUM). All four went out with bucket_outcome no_ch...
   - `gate_2026_09_27`: (1) VALIDITY: still real, 3 junk alerts in 16 days, code path confirmed. (1b) CONFIG-FIRST: no knob covers it. LOW_HUMIDITY_THRESHOLDS are rung-1 constants, and swapping each room to a different humidity sensor is whack-a-mole because an...
@@ -699,7 +686,7 @@ _created 2026-09-27 03:45 · updated 2026-09-27 05:00 · initial_
 
 ### `TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1` - About ten test files still edit real production code in place while the suite runs, so a killed run or a concurrent git operation can leave the repo silently broken — _#2 · WSJF 3.7 · v5 tc4 u2 /e3_
 thread: **platform** - status: **in_progress** - approval: **implied**
-_created 2026-09-26 02:14 · updated 2026-09-27 06:00 · initial_
+_created 2026-09-26 02:14 · updated 2026-09-27 02:40 · initial_
 - **Problem / Solution:**
   - Problem: some of our "prove the test would catch a bug" checks work by temporarily editing the real production file on disk, running a test, then putting the file back. If the run is killed mid-way (our suite guard kills runs), or if any...
 - **Origin:** 2026-09-26 - overnight pass observed `return 0.0
@@ -737,7 +724,7 @@ _under review_
 
 _(none)_
 
-## ⏸️ Waiting on operator (24)
+## ⏸️ Waiting on operator (25)
 _needs a human call — groomed first_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
@@ -963,7 +950,7 @@ _created 2026-08-20 14:15 · updated 2026-09-26 02:40 · refined ×3_
 
 ### `WIFI-ACTUATOR-FLEET-FLAP-1` - About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss — _#13 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **presence** - status: **waiting_operator** - approval: **implied**
-_created 2026-09-27 02:50 · updated 2026-09-27 03:20 · refined ×2_
+_created 2026-09-27 02:50 · updated 2026-09-27 02:40 · refined ×2_
 - **Problem / Solution:**
   - Problem: many of the house's Wi-Fi light switches, dimmers and plugs (Shelly, Tuya, Sonoff and others) are not steadily online. They drop to "unavailable" and come back, typically every 20-60 minutes, all day. A turn-on or turn-off that ...
 - **Origin:** 2026-09-27 - Mid-run discovery in the 2026-09-27 overnight pass while verifying RECEIVING-ROOM-MOTION-DEAD-1: both Receiving Room light actuators showed 38-96 unavailable events per day, and a fleet query showed it is house-wide.
@@ -973,7 +960,7 @@ _created 2026-09-27 02:50 · updated 2026-09-27 03:20 · refined ×2_
 - **Parsimony:** [PARK-leaning (low harm); operator PICK between accept / BLE A/B test / Garage B physical fix] 84 actuator devices drop out of HA 20-60 times a day each for 5-47 s (median), about 0.6-2% of the time.
 - **Refs:** docs/BACKLOG.md "Offline-actuator visibility + recovery" (2026-06-30); custom_components/universal_room_automation/sensor.py:1983
 - **Forensic keys (3):**
-  - `measured_2026_09_27_mechanism`: OVERNIGHT 2026-09-27 03:00, MECHANISM WORK (all read-only). (1) UniFi read (net-ops agent, unifi-cli devices/clients show; no writes): the fault is NOT mostly Wi-Fi disassociation. Several heavy HA flappers have held one continuous Wi-Fi...
+  - `measured_2026_09_27_mechanism`: OVERNIGHT 2026-09-27 ~02:15, MECHANISM WORK (all read-only). (1) UniFi read (net-ops agent, unifi-cli devices/clients show; no writes): the fault is NOT mostly Wi-Fi disassociation. Several heavy HA flappers have held one continuous Wi-F...
   - `measured_2026_09_27`: One-shot, read-only (recorder states x core.entity_registry/device_registry), over 3 CLEAN days with no HA restart (09-22 00:00 to 09-25 00:00 CDT): 1,104 devices logged at least one unavailable; 263 logged 10 or more (median 92 per devi...
   - `adjacency_sweep_2026_09_27`: Swept: board titles and why fields (fleet, wifi, AP, network, unavailable): no duplicate. DIMMER-REBOOT-1 (done) was one Shelly rebooting; ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1 (done) was URA's own selects. BACKLOG: "Offline-actuator...
 
@@ -1062,7 +1049,7 @@ _created 2026-08-21 17:40 · updated 2026-09-23 04:45 · initial_
 
 ### `HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1` - The arrester books Carrier's echo of URA's OWN nudge as a human override (46% of override_detected), then URA locks itself out — the main zone_1 lockout mechanism — _#19 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **waiting_operator**
-_created 2026-09-26 · updated 2026-09-27 04:35_
+_created 2026-09-26 · updated 2026-09-27 02:40_
 - **Next:** APPROVE the v5.103.17 deploy timing: the fix is merged to develop and the README is written; it ships together with ROOM-NAME-UNIQUE-1. The overnight pass does not deploy, because a deploy restarts HA. -> On your go I run deploy.sh 5.103...
 - **Forensic keys (8):**
   - `disposition_2026_09_26_groom`: BUILT 1ca21dddb (feature/echo-ttl): SUPPRESS_TTL_SECONDS 5 -> 15 (operator-approved simplest fix; value-matched last-write record deferred to W1-B). Review A SHIP: covers all 24 S5 nudge-start echoes + 3 S3 compromise + 1 S12 pre-cool ec...
@@ -1076,7 +1063,7 @@ _created 2026-09-26 · updated 2026-09-27 04:35_
 
 ### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket) — _#20 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
-_updated 2026-09-27 04:35_
+_updated 2026-09-27 02:40_
 - **Origin:** 2026-08-14 - ROOM-NAME-DESYNC-1 Review C adversarial find (D-MED-1): rename Room A to an existing Room B name — zero validation; _room_to_zone dict + ZonePresenceTracker.room_names + substrate bucket keys all name-keyed -> silent overwri...
 - **Why:** Join-key uniqueness is an unenforced invariant every name-keyed tier map depends on.
 - **Next:** APPROVE the v5.103.17 deploy timing (bundled with HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1). -> On your go I deploy and live-validate per README_v5.103.17.
@@ -1119,7 +1106,22 @@ _updated 2026-09-19 03:50_
   - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
   - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real...
 
-### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#23 · WSJF 1.2 · v5 tc3 u2 /e8_
+### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#23 · WSJF 1.6 · v4 tc2 u2 /e5_
+thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-09-27 02:40 · refined_
+- **Problem / Solution:**
+  - Problem: the safety system is meant to spot fast changes, like humidity jumping (a possible leak) or temperature running away (HVAC failure). Its check asks for readings at least 30 minutes apart, but only keeps readings from the last 30...
+- **Origin:** 2026-09-27 - Review B of SAFETY-HUMIDITY-JUNK-READING-1 (2026-09-27 overnight), then verified by the orchestrator in code and in the live DB.
+- **Why:** Dead-but-looks-alive safety logic is worse than none: a reader assumes leak-by-humidity-rise and HVAC-failure-by-rate are covered.
+- **Next:** PICK (operator): (A) RETIRE ON PURPOSE, my recommendation. Leave the detector off, and mark it in code and in the Safety coordinator doc as "dormant by design, revisit only with a redesign". The accidental off-switch becomes a documented...
+- **Tags:** tier-2, measure-before-build, no-fabrication-verify
+- **Parsimony:** [MEASURE then PICK (fix vs retire)] RateOfChangeDetector.get_rate returns None except at an exact 1800 s boundary, so rate-based safety hazards never fire.
+- **Forensic keys (3):**
+  - `measured_2026_09_27_replay`: REPLAY (overnight 2026-09-27, read-only, recorder 7 days, the 74 temperature/humidity sensors configured on URA rooms, sub-5% humidity junk excluded, Celsius normalized, corrected window = the reading at or before t-30 min, episodes dedu...
+  - `refinement_2026_09_27`: Assumed the fix was "repair the window" -> replay shows the repair would flood about 12 alerts/day once z-score mode engages, so the choice is retire vs redesign, not repair.
+  - `verified_2026_09_27`: CODE: RateOfChangeDetector.get_rate (safety.py ~636-675) sets window_start = now - WINDOW_MINUTES(30), takes the oldest reading >= window_start, and returns None unless latest - oldest >= MIN_WINDOW_SECONDS (1800, safety.py:618). Because...
+
+### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#24 · WSJF 1.2 · v5 tc3 u2 /e8_
 thread: **diagnostics** - status: **waiting_operator**
 _created 2026-08-19 09:00 · updated 2026-09-23 04:45 · refined_
 - **Next:** APPROVE building D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) as a SHADOW-FIRST ship. NOTE: approving STARTS a hard 2-day forcing gate (flip to acting within 2 days of shadow deploy or declare moot).
@@ -1132,7 +1134,7 @@ _created 2026-08-19 09:00 · updated 2026-09-23 04:45 · refined_
   - `build_2026_08_19`: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
   - `reviews_2026_08_19`: D7 TIER-3 REVIEWS: A+D SHIP-WITH-FIX, B+C DO-NOT-SHIP — INDEPENDENTLY CONVERGED on the HIGH. Boot-safety CLEAN (no repeat of the v5.84.0 import-shadow incident class). HIGH: act->shadow/off mode-flip leaves stale chatter exclusions (occu...
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#24 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#25 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-22 02:32_
 - **Problem / Solution:**
@@ -1293,7 +1295,7 @@ _created 2026-08-29 13:20 · initial_
 
 ### `SAFETY-RECONNECT-ZERO-SIBLINGS-1` - The same junk "0" reconnect reading can also fake a freeze alarm or switch a bathroom fan on; guard those paths too — _#5 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **safety** - status: **parked** - approval: **unreviewed**
-_created 2026-09-27 05:00 · updated 2026-09-27 05:50 · initial_
+_created 2026-09-27 02:40 · initial_
 - **Problem / Solution:**
   - Problem: sensors that briefly send 0 while reconnecting can mislead more than the humidity safety check. A temperature 0 is below the freeze-risk line (35 F) and would raise a HIGH freeze alert. A humidity 0 fed to the bathroom exhaust-f...
 - **Origin:** 2026-09-27 - Review B of SAFETY-HUMIDITY-JUNK-READING-1 (2026-09-27 overnight), Q3 and Q4.
@@ -2194,30 +2196,16 @@ _created 2026-08-26 02:20 · updated 2026-09-26 02:40 · refined_
 ## ✅ Done (226)
 _closed, evidence in refs_
 
-### `ENVOY-STREAM-TRUST-MEASURE-1` - We now have a third, much faster Envoy data source — measure whether it can be trusted before anything is allowed to depend on it — _WSJF 9.5 · v7 tc6 u6 /e2_
-thread: **energy** - status: **done** - approval: **explicit**
-_created 2026-09-25 18:00 · updated 2026-09-27 05:30 · refined_
-- **Problem / Solution:**
-  - Problem: the house now has a second way of hearing from the solar/battery gateway — a local feed that updates about once a second, versus the built-in one that has been dropping out roughly a third of every day. It looks better in every ...
-- **Origin:** 2026-09-25 - operator: "MQTT can be added as a trusted local witness. Just measure for its trust now and then we decide."
-- **Why:** Measure-Before-You-Build: the feed is a new producer for a value that drives battery, TOU, arbitrage and EVSE decisions. Its plausibility is not evidence.
-- **Next:** NONE - measurement complete. Gate verdict handed to ENVOY-STREAM-SOC-TIER-1 (cleared to plan, with the post-reconnect junk gate as a binding constraint).
-- **Tags:** energy, envoy, measure-before-build, no-fabrication-verify
-- **Parsimony:** [BUILD] A new SOC/power producer may be fresh and independent but has not been shown to agree with ground truth or to survive the outages it is meant to cover.
-- **Refs:** docs/planning/PLANNING_envoy_local_witness_and_solar_follow.md
-- **Forensic keys (8):**
-  - `native_status_2026_09_25_2345`: Operator: "Envoy connected. Is it still flapping?" Native enphase_envoy entry LOADED; sensor.envoy_482543015950_battery down-events: 23 between 12:08 and 21:07 CDT, 0 since 21:07 (~2.5 h, right after the Envoy reboot + network restart + ...
-  - `correction_2026_09_27_consumption_ct`: CORRECTION to consumption_ct_consumer_check_2026_09_26 and native_status_2026_09_25_2345: the native CONSUMPTION-CT entities were described as dead since the 09-25 18:11 restart. That was true until the 09-26 12:50 HA restart. After it t...
-  - `run2_final_2026_09_27`: OVERNIGHT PASS 2026-09-27 02:02, RUN 2 FINAL (written into AUDIT_envoy_mqtt_trust_measurement.md). Window 09-25 20:15 -> 09-27 02:02 CDT, 28.7 h clean after excluding two HA core restarts that landed inside it (09-26 12:50 and 15:19, rec...
-  - `consumption_ct_consumer_check_2026_09_26`: OVERNIGHT 2026-09-26 02:19 re-check plus CONSUMER check on the native consumption-CT outage. STILL UNAVAILABLE: current_power_consumption, energy_consumption_today, last_seven_days (+L1/L2), lifetime_energy_consumption, balanced_net_powe...
-  - `restart_boundaries_2026_09_25`: CONTAMINATED WINDOW ~18:21-20:05 CDT — operator did, in sequence: HA core 2026.9.2->2026.9.3; Envoy reboot (stream 0 at 18:39, device re-enumeration 0->48, then 48->8 with SOC 87->20 by 19:12, recovered to 46 devices / grid 11 W / batt 7...
-  - `measured_2026_09_25_cadence_and_skew`: PARTIAL RESULT ALREADY IN, and it CORRECTS MY OWN CLAIM. I have been describing this feed as "~1 Hz, ages essentially never exceed a few seconds". Six consecutive samples of meters.last_update against the HA host clock: last_update advan...
-  - `run1_prelim_2026_09_25`: Operator: "Do this anyway and clear its criteria for other builds as needed." Run 1 over 16:40-21:00 CDT excluding 18:21-20:15 (2.4 h clean) -> AUDIT_envoy_mqtt_trust_measurement.md. PASS: 3.1 freshness (skew-adjusted p95 3 s; plan rule ...
-  - `prior_art_reduces_scope`: Operator asked whether prior measurement makes this unnecessary. PARTLY, and the reduction is recorded rather than the whole card dropped. EVSE-SOLAR-FOLLOW-AMPS-1 already measured Emporia mains vs the Envoy net-consumption CT (7,090 ali...
+### `RECEIVING-ROOM-MOTION-DEAD-1` - Receiving Room motion sensor looks dead — 2 ON events in 7 days while a phone reported a person in that room — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **done**
+_created 2026-09-26 · updated 2026-09-27 02:45_
+- **Next:** NONE - refuted. The sensor is alive; the room is simply rarely used. Fleet-wide finding carried to WIFI-ACTUATOR-FLEET-FLAP-1.
+- **Forensic keys (1):**
+  - `verified_2026_09_27`: OVERNIGHT 2026-09-27, VERDICT: REFUTED (sensor not dead; the room is low-traffic). Evidence: (1) Config: the rooms only motion/presence input is binary_sensor.occupancy_lux_temp_humidity_hobeian_receiving_presence (HOBEIAN Zigbee mmWave ...
 
 ### `COVERAGE-RATING-FALSE-ANOMALOUS-1` - The energy coverage self-check reports a false "measurement units are mismatched" alarm — its real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at midnight the way the code assumes — _WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **energy** - status: **done** - approval: **unreviewed**
-_created 2026-09-19 04:15 · updated 2026-09-27 05:20 · initial_
+_created 2026-09-19 04:15 · updated 2026-09-27 02:40 · initial_
 - **Problem / Solution:**
   - Problem: URA cross-checks its own energy accounting by comparing what it attributed to individual rooms against what it measured for the whole house, and it currently disagrees with itself by roughly sevenfold (the gap reads about minus ...
 - **Why:** A self-check that reports a confident wrong cause is worse than one that says "I do not know": the ANOMALOUS line names Bug Class #30 (unit mismatch) and would send the next investigator to the unit-normalization work, which the evidence...
@@ -2236,12 +2224,26 @@ _created 2026-09-19 04:15 · updated 2026-09-27 05:20 · initial_
   - `MEASURED_LIVE_2026_09_19`: MECHANISM SETTLED, AND THE SCARY HALF IS EXONERATED — it is a day-boundary bug in the self-check, NOT a sevenfold attribution error. Read the live sensor directly (sensor.universal_room_automation_energy_coverage_delta at 02:14 CDT): who...
   - `SCOPE_NARROWED_2026_09_19`: Now a small, contained fix — and NOT built tonight, deliberately. Shape: treat a negative delta inside a day-boundary re-anchor window the same way the post-restart window is already treated (return INCOMPLETE, log the re-anchor explanat...
 
-### `RECEIVING-ROOM-MOTION-DEAD-1` - Receiving Room motion sensor looks dead — 2 ON events in 7 days while a phone reported a person in that room — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **done**
-_created 2026-09-26 · updated 2026-09-27 02:45_
-- **Next:** NONE - refuted. The sensor is alive; the room is simply rarely used. Fleet-wide finding carried to WIFI-ACTUATOR-FLEET-FLAP-1.
-- **Forensic keys (1):**
-  - `verified_2026_09_27`: OVERNIGHT 2026-09-27, VERDICT: REFUTED (sensor not dead; the room is low-traffic). Evidence: (1) Config: the rooms only motion/presence input is binary_sensor.occupancy_lux_temp_humidity_hobeian_receiving_presence (HOBEIAN Zigbee mmWave ...
+### `ENVOY-STREAM-TRUST-MEASURE-1` - We now have a third, much faster Envoy data source — measure whether it can be trusted before anything is allowed to depend on it — _WSJF 9.5 · v7 tc6 u6 /e2_
+thread: **energy** - status: **done** - approval: **explicit**
+_created 2026-09-25 18:00 · updated 2026-09-27 02:40 · refined_
+- **Problem / Solution:**
+  - Problem: the house now has a second way of hearing from the solar/battery gateway — a local feed that updates about once a second, versus the built-in one that has been dropping out roughly a third of every day. It looks better in every ...
+- **Origin:** 2026-09-25 - operator: "MQTT can be added as a trusted local witness. Just measure for its trust now and then we decide."
+- **Why:** Measure-Before-You-Build: the feed is a new producer for a value that drives battery, TOU, arbitrage and EVSE decisions. Its plausibility is not evidence.
+- **Next:** NONE - measurement complete. Gate verdict handed to ENVOY-STREAM-SOC-TIER-1 (cleared to plan, with the post-reconnect junk gate as a binding constraint).
+- **Tags:** energy, envoy, measure-before-build, no-fabrication-verify
+- **Parsimony:** [BUILD] A new SOC/power producer may be fresh and independent but has not been shown to agree with ground truth or to survive the outages it is meant to cover.
+- **Refs:** docs/planning/PLANNING_envoy_local_witness_and_solar_follow.md
+- **Forensic keys (8):**
+  - `native_status_2026_09_25_2345`: Operator: "Envoy connected. Is it still flapping?" Native enphase_envoy entry LOADED; sensor.envoy_482543015950_battery down-events: 23 between 12:08 and 21:07 CDT, 0 since 21:07 (~2.5 h, right after the Envoy reboot + network restart + ...
+  - `correction_2026_09_27_consumption_ct`: CORRECTION to consumption_ct_consumer_check_2026_09_26 and native_status_2026_09_25_2345: the native CONSUMPTION-CT entities were described as dead since the 09-25 18:11 restart. That was true until the 09-26 12:50 HA restart. After it t...
+  - `run2_final_2026_09_27`: OVERNIGHT PASS 2026-09-27 02:02, RUN 2 FINAL (written into AUDIT_envoy_mqtt_trust_measurement.md). Window 09-25 20:15 -> 09-27 02:02 CDT, 28.7 h clean after excluding two HA core restarts that landed inside it (09-26 12:50 and 15:19, rec...
+  - `consumption_ct_consumer_check_2026_09_26`: OVERNIGHT 2026-09-26 02:19 re-check plus CONSUMER check on the native consumption-CT outage. STILL UNAVAILABLE: current_power_consumption, energy_consumption_today, last_seven_days (+L1/L2), lifetime_energy_consumption, balanced_net_powe...
+  - `restart_boundaries_2026_09_25`: CONTAMINATED WINDOW ~18:21-20:05 CDT — operator did, in sequence: HA core 2026.9.2->2026.9.3; Envoy reboot (stream 0 at 18:39, device re-enumeration 0->48, then 48->8 with SOC 87->20 by 19:12, recovered to 46 devices / grid 11 W / batt 7...
+  - `measured_2026_09_25_cadence_and_skew`: PARTIAL RESULT ALREADY IN, and it CORRECTS MY OWN CLAIM. I have been describing this feed as "~1 Hz, ages essentially never exceed a few seconds". Six consecutive samples of meters.last_update against the HA host clock: last_update advan...
+  - `run1_prelim_2026_09_25`: Operator: "Do this anyway and clear its criteria for other builds as needed." Run 1 over 16:40-21:00 CDT excluding 18:21-20:15 (2.4 h clean) -> AUDIT_envoy_mqtt_trust_measurement.md. PASS: 3.1 freshness (skew-adjusted p95 3 s; plan rule ...
+  - `prior_art_reduces_scope`: Operator asked whether prior measurement makes this unnecessary. PARTLY, and the reduction is recorded rather than the whole card dropped. EVSE-SOLAR-FOLLOW-AMPS-1 already measured Emporia mains vs the Envoy net-consumption CT (7,090 ali...
 
 ### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _WSJF 3.2 · v8 tc6 u2 /e5_
 thread: **hvac** - status: **done** - approval: **implied**
