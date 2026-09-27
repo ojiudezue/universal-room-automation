@@ -1,71 +1,133 @@
-# PLANNING — HVAC W1-B: Per-brand thermostat definition (Carrier/Bryant first) — REV 5
+# PLANNING — HVAC W1-B: Per-brand thermostat definition (Carrier/Bryant first) — REV 6
 
-> **PROBLEM 1 — ALTERNATIVE A APPROVED (2026-09-27, operator).** Operator: *"yes. Its outdated design. We know a lot more. We didn't even know borrows would come back as manual then. Note that a and b are basically the same thing. I'm the only immune person currently that can be detected afaik. But I guess we should generalize."*
->
-> Problem 1 is solved by **replacing the v3.8.0 S1 manual guard at `hvac_preset.py:202-217`**. Provenance chain / kill-switch / drift sensor / D0 merge blocker — **DROPPED**. Rulings 15/16 SUPERSEDED where they only existed to serve provenance.
->
-> **REV-5 collapse (orchestrator mid-turn 2026-09-27, code-verified):** the earlier REV-5 draft carried TWO borrow-protection mechanisms — gate (e) reading `_row_present_and_fresh(zone_id)` at S1, AND a `BORROW_LOCK` funnel-side gate reading `_nudge_excursion_tokens` / `_nudge_restore_timers` / `_compromise_timers`. That is duplication. Every timer/token dict is populated STRICTLY AFTER `begin_excursion(...)` populates `_rows[zone_id]`, and the row's `stale_ts = started_ts + duration_s + EXCURSION_LEASE_SLACK_S` (`hvac_excursion.py:562/576`) covers the full timer window (per-kind `duration_s` already flows in — S3 at `hvac_override.py:3390` `self._compromise_minutes * 60`; S5 at `:4449` `duration_s`). Verified sequences:
->
-> - COMPROMISE: `begin_excursion` `hvac_override.py:3383` → `emit_set_temperature` `:3414` → `self._compromise_timers[zone_id] = async_call_later(...)` `:3449`. Row present before timer.
-> - NUDGE: `begin_excursion` `:4442` → `emit_set_temperature` `:4469` → `self._nudge_excursion_tokens[zone_id] = _ex_token` `:4491` → later restore scheduled at `:4613`. Row present before either dict.
->
-> **No reachable window** exists where any of the three dicts is live but `_rows[zone_id]` is absent or stale. Therefore:
-> - **Gate (e) is the ONE borrow predicate.** S1 consumes it; the arrester's `nudge_win` booking consumes it. `BORROW_LOCK` (its four sources, `BORROW_LOCK_CAP_FOR`, `_lock_capped` memo, `[BORROW LOCK CAP HIT]` NM) is **DELETED**.
-> - **Per-kind bound is the row's `stale_ts`** — no new cap constant, no new memo, no new NM. The existing `stale_excursion_row` (low-severity NM at `hvac_excursion.py:293-334`, emitted by `_reap_stale` `:582`) IS the overrun notice.
-> - **No "funnel-side gate" anywhere.** The rule lives ONLY at the S1 decision site (`should_change_preset` / `hvac.py:2626`). No changes to `emit_*` funnels in `hvac_setpoint.py`. No changes to `begin_excursion` / `return_excursion` / borrow code.
->
-> Everything else in REV 5 retained: §5 D2.4 presets-only five-site setpoint-return migration, §5 D2.5 no-op suppression, §5 D2.6 anchors + AST lint, §5 D2.8 28-site table, §5 D2a `_last_emitted_range` split, D1 quad-state `WriteResult` + `allow_resume` kwarg, ruling 13 (nudge wins), **ruling 14 UI-max clamp for `hvac_compromise_minutes` (§5 D4a)** — retained as-is.
+## OPERATOR RULINGS ON PRIOR HOLDS — RESOLVED 2026-09-27 (binding; verbatim below)
 
-**Card:** `HVAC-W1-THERMOSTAT-DEFINITION` (Stage B).
-**Tier:** **Tier 3** (delicate; S1 manual guard consumed by every preset-write path; S1 also reads the borrow registry).
-**Depends on:**
-- W1-A (`emit_set_hvac_mode` funnel + `climate_write`) — **SHIPPED v5.103.16**.
-- Echo-fix — **SHIPPED v5.103.17 2026-09-27 ~10:45 CDT**.
+### P1 = **PERSIST IMMUNE HOLDS** (operator ruling)
 
-**MANDATORY reads:**
-`docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` (all sections); `docs/Coordinator/THERMOSTAT_DEFINITION_CARRIER_BRYANT.md` rev 2; `README_v5.103.16.md` + `README_v5.103.17.md` + `README_v3.9.0.md:45-50` (arrester passive-mode); `hvac_excursion.py:6-16` (2026-08-21 lease-strip note); `hvac_excursion.py:293-334` (stale_excursion_row) + `:562-579` (`_row_present_and_fresh` bound); REV-4 plan review findings; card `operator_rulings_2026_09_27`.
+**Verbatim (operator, 2026-09-27):** *"Persist the immune-person hold (zone, holder, start, sunset basis) so it survives a restart and gate (a/b) re-arms at boot before S1's first tick. Grace timers and comfort grants are NOT persisted. The accepted exposure is ≤ 20 min on restart."*
+
+**Spec (folded into §5.P1 gate (a/b) + new §5 D-P1):**
+
+- **Persist** every `_stamp_immune_hold` (`hvac_override.py:705`) as a DB row: `(zone_id, holder_user_name, holder_person_id, started_ts, sunset_basis, values_before_snapshot)`. Sunset basis captures the discriminator today's `sunset_immune_holds` (`:727`) uses (next_activity ts, durable house-state, or 4 h timer expiry) so post-restart sunset logic runs unchanged.
+- **Rehydrate on setup** — read all rows into `_immune_holds` dict BEFORE the first decision cycle. Ordering guarantee: rehydration completes inside `async_setup_entry` before `SIGNAL_HVAC_COORDINATOR_READY` fires at `hvac.py:1381` (which is the seam gate (d) already respects, M10). Gate (a/b) via `_corrective_writes_suppressed(zone_id)` (`hvac_override.py:660`) then sees the row on the first tick at `hvac.py:1371`.
+- **Clear on sunset** — every path that calls `sunset_immune_holds` / `_immune_holds.pop` (`hvac_override.py:838`) ALSO deletes the DB row. Same commit.
+- **Not persisted (verbatim carve-out):** `_grace_timers`, `_comfort_delay_timers`, `_compromise_timers`, `_override_active`, `_nudge_excursion_tokens`, `_nudge_restore_timers`. Any of these that were in flight at shutdown are lost. Accepted exposure: `≤ 20 min on restart` — bounded by Comfort Grace (live 20 min, `hvac_const.py:452-456`).
+- **TAO switch restore** — already `RestoreEntity` (verify at build; pattern precedent: `EnergyObservationModeSwitch` at `switch.py:701-791` and `MemoryNMConditioningSwitch` at `:909-965`). No change required if verified.
+
+**Prior-art REUSE (Institutional Context First):**
+
+| Piece | REUSE at | Note |
+|---|---|---|
+| DAO pattern (save / clear / get_all row on a coordinator-owned table) | `database.py:8219` `save_excursion_row`, `:8257` `clear_excursion_row`, `:8272` `get_all_excursion_rows` | Model the new immune-hold DAO on the same shape: `save_immune_hold_row(row)`, `clear_immune_hold_row(zone_id)`, `get_all_immune_hold_rows()`. Table `hvac_immune_holds` with the columns listed above; index on `zone_id`. |
+| Boot-rehydration ordering | Existing boot audit `hvac_excursion.async_startup_excursion_audit` runs before `SIGNAL_HVAC_COORDINATOR_READY`; same call slot in `async_setup_entry`. | Add `arrester.async_rehydrate_immune_holds()` next to the excursion audit call. |
+| SwitchEntity + RestoreEntity | `switch.py:701` (`EnergyObservationModeSwitch`), `:909` (`MemoryNMConditioningSwitch`), `:965` restore-retry pattern | Verify TAO switch (`switch.ura_hvac_coordinator_temp_arrester_override`) already subclasses `RestoreEntity`; if not, add per this precedent. |
+
+**Acceptance (mandatory):**
+- `test_immune_hold_persists_across_restart` — stamp an immune hold on zone_1; simulate HA restart; assert `_immune_holds['zone_1']` is populated BEFORE the first S1 tick; assert `_corrective_writes_suppressed('zone_1')` returns True on that tick; assert S1 does NOT reclaim.
+- `test_immune_hold_sunset_deletes_db_row` — sunset the hold via each of the three sunset paths (next_activity / durable house-state / 4 h expiry); assert DB row cleared.
+- **Reviewer C mutation:** neuter the rehydration call in `async_setup_entry` (delete the line); assert `test_immune_hold_persists_across_restart` goes RED with a specific named failure.
+- **Reviewer B live:** post-deploy, place an immune hold via the Bryant app as an immune person; restart HA; observe `_corrective_writes_suppressed` True on first tick via debug attribute; observe zone NOT reclaimed.
+- **Restart TAO test** — assert TAO switch state restored to its pre-restart value; gate (a/b) sees the restored TAO on first tick.
+
+### P2 = **ACCEPT + LOG** (operator ruling)
+
+**Verbatim (operator, 2026-09-27):** *"Within-tolerance human manuals (<1 °F, or <2 °F in coast) are reclaimed by S1 on its next tick with no grace and no NM. The reclaim row records the reason so it is visible in the log."*
+
+**Spec (folded into §5.P1):**
+
+- No NM. No arrester grace or compromise (the arrester's existing `OVERRIDE_NORMAL_DELTA = 1 °F` / +1 °F coast threshold at `hvac_const.py:531-532` already skips reverting sub-delta manuals — unchanged).
+- S1's `climate_write` row for the reclaim carries `reason = 's1_manual_write_through:sub_delta_human'` when at the time of the reclaim (i) `preset_mode == "manual"`, (ii) no Alt-A gate is armed, AND (iii) the last observed `override_detected` on the same entity within `SUB_DELTA_WINDOW_S = 300` (5 min; Rung 1 module const) had `details.delta_f < OVERRIDE_NORMAL_DELTA` (or `< OVERRIDE_NORMAL_DELTA + 1` under coast).
+- If no such `override_detected` exists in the window, `reason = 's1_manual_write_through:zero_delta_ura'` (the URA-caused strand class — the default problem-1 case).
+- Log visibility: `preset_deferrals_today` counter unchanged (this is not a deferral); the `climate_write` row IS the log. Grep-friendly reason string.
+
+**Acceptance (mandatory):**
+- `test_sub_delta_human_reclaim_reason_string` — arrester books `override_detected` with `delta_f=0.5` (sub-delta); no gate arms; next tick S1 writes; assert `climate_write.reason == 's1_manual_write_through:sub_delta_human'`.
+- `test_zero_delta_ura_reclaim_reason_string` — no preceding `override_detected` in window; S1 reclaims; reason string `zero_delta_ura`.
+- `test_coast_threshold_uses_plus_one` — with coast active, delta 1.5 °F is still sub-delta (below 2 °F); reason string `sub_delta_human`. Discriminating: delta 2.5 °F → NOT sub-delta (arrester would revert, gate (c) armed).
+- `test_no_nm_fires_on_sub_delta_reclaim` — assert no NM latch or bus event emitted; only the `climate_write` row.
+- **Reviewer C mutation:** flip the reason discriminator (compare delta with `>` instead of `<`); assert `test_sub_delta_human_reclaim_reason_string` and `test_zero_delta_ura_reclaim_reason_string` swap outcomes.
+
+**Both P1 and P2 are RESOLVED. They land in D-P1 (persistence) and §5.P1 (reason-string discriminator) respectively; §7 ship gate carries a restart drill for P1 and a reason-string drill for P2.**
 
 ---
 
-## REV 5 change log
+> **Alt A APPROVED 2026-09-27.** Provenance chain / kill-switch / drift sensor / D0 merge blocker — DROPPED. Rulings 15/16 SUPERSEDED where provenance-only.
+>
+> **REV 6 folds both Tier-3 plan reviews (both FIX-PLAN) + operator rulings on P1/P2.** State-of-play §9e (post-ea6fabfd1) is authoritative. Ledger discipline preserved.
 
-| Ruling / amendment | One-line delta | Where folded |
+**Card:** `HVAC-W1-THERMOSTAT-DEFINITION` (Stage B).
+**Tier:** Tier 3.
+**Depends on:** W1-A SHIPPED v5.103.16; echo-fix SHIPPED v5.103.17.
+
+**MANDATORY reads:** `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` (all — §9e); `docs/Coordinator/THERMOSTAT_DEFINITION_CARRIER_BRYANT.md` rev 2; `README_v5.103.16/17/v3.9.0`; `hvac_excursion.py:6-16`; REV-4 + REV-5 plan reviews (both FIX-PLAN); card `operator_rulings_2026_09_27`.
+
+---
+
+## REV 6 change log
+
+REV 6 folds 12 must-fix + 6 also-fix + 4 legacy-test replacements from the two Tier-3 plan reviews on REV 5, PLUS the operator's binding P1/P2 rulings above.
+
+| # | REV-6 fix | Where |
 |---|---|---|
-| 13 — nudge wins over human; remove human-ends-borrow | INV C3 rewritten. `_restore_after_nudge` untouched. Revival: nudge effective share < 80 % over 7 d → `HVAC-NUDGE-EFFECTIVENESS-REVISIT-1`. | §0 C3; §7 C3. |
-| 14 — UI clamp for `hvac_compromise_minutes` (max 120 → 15) | `config_flow.py:6106` selector max trimmed to 15; stored > 15 clamped on read via `_read_hvac_compromise_minutes(options)` helper in `hvac_const.py`; sole decision consumer `__init__.py:3804/3862`. | §5 D4a. |
-| 14 — per-kind borrow cap | **REPLACED by row's `stale_ts` bound** — no new constant. `stale_ts` already carries `duration_s + EXCURSION_LEASE_SLACK_S`; per-kind duration flows into `begin_excursion` today. | §5 gate (e). |
-| 15 / 16 (SUPERSEDED where provenance-only) | Provenance classifier / learner / URA-owned reclaim writer / kill switch / drift sensor DROPPED under Alt A. | INV C4/C6 DROPPED; §5 D2.3 chain DELETED. |
-| Mid-turn — Alt A approved | §5.P1 five-gate helper: (a/b) person-protected, (c) arrester grace/compromise, (d) arrester disabled (README v3.9.0), (e) active borrow row via `_row_present_and_fresh(zone_id)`. Rule lives at S1 only. | §5.P1; INV C-P1A/C-P1B; §7. |
-| Mid-turn REV-5 collapse | BORROW_LOCK DELETED — gate (e) is the ONE borrow predicate consumed by S1 and by the arrester `nudge_win` booking. No funnel-side gate. | Front matter; §5.P1 gate (e); §0 C2 rewritten; §7 C2 rewritten; §5 D2.8 columns updated. |
+| **P1 (operator)** | **Persist immune holds** via a new DAO on `database.py`; rehydrate before `SIGNAL_HVAC_COORDINATOR_READY`; grace/comfort NOT persisted; ≤ 20 min accepted exposure. | Front matter; §5 D-P1 NEW; §7 restart drill. |
+| **P2 (operator)** | Sub-delta human manuals reclaimed silently; reason string discriminates `sub_delta_human` vs `zero_delta_ura`; no NM. | Front matter; §5.P1 reason-string block. |
+| M1 | Gate (c): comfort-delay + grace + compromise timers; drop `_override_active` (leaks under TAO/immune early-return `hvac_override.py:3366-3372`). Reuse `_corrective_writes_suppressed` for (a/b). | §5.P1. |
+| M2 | Gate (e): fresh row OR `_nudge_excursion_tokens` OR `_nudge_restore_timers` OR `_compromise_timers`. NEW pure-read `hvac_excursion.is_borrow_active(zone_id)` — side-effect free. `stale_ts` claim fixed: BANKING/EGRESS `duration_s=None` → 7200 s cap. Boot audit rehydrates COMPROMISE/PREHEAT/EGRESS rows w/o timer — still covered by gate (e). | §5.P1 gate (e); §1.1. |
+| M3 | Vacancy/runtime bypass `hvac.py:2623-2625` ALSO checks (a/b) and (e). | §5.P1; C2/C-P1B. |
+| M4 | S1 `suppress()` at `hvac.py:2775` → `kind="preset"` (120 s). §5.P3 reasoning corrected. NM anomaly `s1_reclaim_rate_high` (`S1_RECLAIM_RATE_LIMIT_N = 3` / 30 min). | §5.P3; §5.P5. |
+| M5 | Operator-constraint restoration: no-op suppression + `last_sent` MOVE INTO strategy layer, NOT funnel. Returns KEEP resume-then-pin. `allow_resume=False` dropped. `excursion_id` = join key only. | §5 D2.5; §5 D2a; D2.4 return contract. |
+| M6 | S11 `_release_ok` self-exclusion; S11 comfort gate onto preset write `hvac_predict.py:1046` (Bug Class #53); S13 restructure `:1515-1583` incl. `_last_emitted_range` update. | §5 D2.4. |
+| M7 | Same-tick nudge-start skip: `_zones_written_this_cycle` set (S1 `hvac.py:1748` runs before `check_ac_reset:1760`). | §5 D2.1. |
+| M8 | Arrester booking site is `_handle_climate_change`, `override_detected` at `hvac_override.py:3028`. `gated_reason` in `details`. Precedence: immune stamp `:3050-3100` → TAO skip `:3105` → comfort grant `:3130-3143` → gate-(e) → passive `:3176` (deduplicate). | §5.P1 arrester booking. |
+| M9 | S10 DPM `hvac.py:3217` — explicit exclusion this cycle + card `HVAC-S10-DPM-VS-S1-1` (sibling `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1`). | §2 + card. |
+| M10 | Gate (d) reload window: accessor reads OPTIONS value until `SIGNAL_HVAC_COORDINATOR_READY` fires (`hvac.py:1381` vs first cycle `:1371`). | §5.P1 gate (d). |
+| M11 | D4a: change all three defaults (`hvac_const.py:361`, `hvac.py:165`, `hvac_override.py:191`) to 15; named constant `HVAC_COMPROMISE_MINUTES_MAX = 15`. | §5 D4a. |
+| M12 | Acceptance queries use `S1_reason_ladder` (`hvac.py:2821`). Gate snapshot in `details`. HUMAN_MANUAL := `pre_preset ∈ {manual, None, ""}` with reason prefix `human_manual_`. C-P1A carve-outs: night-trust / row-1 transient / dwell. | §0 INV; §7. |
+| Also-1 | `PresetManager` built before arrester (`hvac.py:248-249`) — inject via post-construction setter; None → `(True, 'arrester_not_wired')` (fail-closed); update 8 two-arg test call sites. | §5.P1 injection. |
+| Also-2 | Rewrite as behavioural: `test_hvac_offphase_removed.py`, `test_hvac_live_room_hold_wire_in.py`, `test_v4511_ac_energy_aware_ramp_down.py`, `test_preset_hold_contract_resume_then_pin.py::test_lockout_*`. | §5 D2.6. |
+| Also-3 | Rename `preset_lockouts_today` → `preset_deferrals_today` (per-gate breakdown); `nudge_win` suppresses `arrester_reverts_today` (verify at build). | §5.P3. |
+| Also-4 | All-brands scope for `hvac_preset.py` edit. | §5.P1. |
+| Also-5 | Drill M10 = neuter `begin_excursion` to return None; assert S1 refuses while timer live. | Reviewer C brief. |
+| Also-6 | LOWs: `_needs_resume_first:331`, `emit_set_preset_mode:487`, use `_delete_row` (not `_clear_row`); ~54 writes/day (not 160). | §5.P3. |
+| Inst | §1.2-1.5 restated (ARREST-COMFORT-1, excursion kill switch, S10). | §1.2-1.5. |
+| W2 | W2 fast-path plan lines 234/349/588 — signature change (add `zone_id`). | §9. |
+
+Ledger discipline: decisions 1-16 kept verbatim; REV-6 items 17-35 appended (17-18 = operator P1/P2 rulings).
 
 ---
 
 ## 0. Falsifiable invariant
 
-> **INV-W1B (REV 5, Alt A + collapsed).** On a Carrier/Bryant zone, over the ship-gate floor (§7):
+> **INV-W1B (REV 6, Alt A + collapsed + reviews-folded + P1/P2-ruled).** On any thermostat zone, over §7 floor:
 >
-> **C1 (presets-only return).** Every URA borrow return emits ZERO `climate.set_temperature`, EXCEPT for HUMAN_MANUAL snapshots. Exhaustive list = five sites (§5 D2.4).
+> **C1 (presets-only return).** Every URA borrow return emits ZERO `set_temperature` EXCEPT for HUMAN_MANUAL snapshots (`pre_preset ∈ {manual, None, ""}`). Exhaustive list = 5 sites (§5 D2.4).
 >
-> **C2 (borrow protection via the row registry).** While `_row_present_and_fresh(zone_id)` is True (i.e. `_rows[zone_id]` exists and `now < started_ts + duration_s + EXCURSION_LEASE_SLACK_S`), S1 emits ZERO preset writes to that zone's entity AND the arrester books any `override_detected` on that entity with `gated_reason='borrow_active'` (or `'nudge_win'` when kind == NUDGE — see C3), NOT acting on it. The borrow's own return writes are exempt via `excursion_id` match. On stale (row exceeds `stale_ts`): `_reap_stale` emits `stale_excursion_row` (`hvac_excursion.py:293-334`; existing NM) and gate (e) disarms — normal writers resume on the next tick.
+> **C2 (borrow protection — manual-qualified, bypass-carve-out).** While `is_borrow_active(zone_id) is True`: (i) if zone reads `preset_mode == "manual"`, S1 emits ZERO preset writes at `S1_reason_ladder`; (ii) vacancy/runtime bypass at `hvac.py:2623-2625` ALSO refuses; (iii) arrester `_handle_climate_change` at `hvac_override.py:3028` books `details.gated_reason ∈ {'nudge_win','borrow_active'}` and skips revert. Borrow's own return exempt only in the falsification JOIN (via `excursion_id` key), not via a runtime gate. Bound: row's `stale_ts` (7200 s cap for `duration_s=None`).
 >
-> **C3 (nudge wins).** For an active NUDGE (row present AND `_nudge_excursion_tokens[zone_id]` set), the arrester books `override_detected` with `gated_reason='nudge_win'` and does NOT revert. Restore runs unchanged.
+> **C3 (nudge wins).** For active NUDGE (row present AND `_nudge_excursion_tokens[zone_id]` set), arrester books `details.gated_reason='nudge_win'`; no revert.
 >
-> **C5 (no-op suppression at the funnel).** Zero service calls on a proven no-op.
+> **C5 (no-op at strategy layer, not funnel).** `Strategy.hold_preset` returns `SKIPPED_ALREADY_CORRECT` when (verb, values) match strategy `last_sent` AND observation matches (tolerance); ZERO service calls. `hvac_setpoint.py` unchanged.
 >
-> **C-P1A (S1 rewrites URA-caused zero-delta manual).** While the arrester is enabled AND no person-protected hold AND no arrester grace/compromise window AND `_row_present_and_fresh(zone_id) is False` AND S1's `effective_preset != "manual"`: S1 leaves the zone in `manual` for AT MOST one S1 decision tick.
+> **C-P1A (S1 rewrites URA-caused zero-delta manual).** While arrester enabled AND `_corrective_writes_suppressed(zone_id) is False` AND no comfort-delay/grace/compromise armed AND `is_borrow_active(zone_id) is False` AND `effective_preset != "manual"` AND zone is NOT under night-trust suppression, row-1 transient hold, or entry dwell: S1 leaves zone in `manual` for AT MOST one S1 decision tick.
 >
-> **C-P1B (S1 never races a legitimate hold).** S1 emits ZERO preset writes while ANY of the four Alt-A gates ((a/b), (c), (d), (e)) is armed for that zone.
+> **C-P1B (S1 never races a legitimate hold; manual-qualified).** When zone reads `preset_mode == "manual"`, S1 emits ZERO preset writes at `S1_reason_ladder` while ANY of the four Alt-A gates armed. When zone reads a NAMED preset, C2(ii) covers writes on the vacancy/runtime bypass path.
+>
+> **C-P1C (P1 persistence — restart survivability).** After a restart, an immune-person hold that was armed pre-shutdown is REHYDRATED into `_immune_holds` before `SIGNAL_HVAC_COORDINATOR_READY` fires, and S1's first post-boot tick sees `_corrective_writes_suppressed(zone_id) is True` for that zone. Falsifier: any `climate_write.site='S1_reason_ladder'` on a zone whose pre-restart immune-hold row was present in the DB, occurring before the DB row was cleared by a sunset event.
+>
+> **C-P1D (P2 sub-delta reason-string discipline).** Every `climate_write.reason` for `site='S1_reason_ladder'` on a manual→named write matches one of `s1_manual_write_through:sub_delta_human` or `s1_manual_write_through:zero_delta_ura`; discriminator is a preceding `override_detected` within `SUB_DELTA_WINDOW_S` with `details.delta_f < OVERRIDE_NORMAL_DELTA` (+1 °F coast).
 
 ### Falsification queries
 
 | # | Query |
 |---|---|
-| C1 | `SELECT COUNT(*) FROM ura_activity_log WHERE action='climate_write' AND json_extract(data,'$.verb')='set_temperature' AND json_extract(data,'$.site') IN (<D2.4 return sites>) AND json_extract(data,'$.reason') NOT LIKE 'human_manual_%';` MUST be 0. |
-| C2 | Join `ura_activity_log`(`climate_write`) × `hvac_excursion_events` per `entity_id` × row `[started_ts, stale_ts]`; exclude `excursion_id` matches; count MUST be 0. `SELECT COUNT(*) FROM ura_activity_log WHERE action='override_detected' AND ...` during row window without `gated_reason IN ('borrow_active','nudge_win')` MUST be 0. |
-| C3 | Any `override_detected` on an entity during active `_nudge_excursion_tokens[zone_id]` window WITHOUT `gated_reason='nudge_win'` MUST be 0. |
+| C1 | `SELECT COUNT(*) FROM ura_activity_log WHERE action='climate_write' AND json_extract(data,'$.verb')='set_temperature' AND json_extract(data,'$.site') IN (<5 sites>) AND json_extract(data,'$.reason') NOT LIKE 'human_manual_%';` MUST be 0. |
+| C2 | Join `climate_write` × `hvac_excursion_events`(open) per `entity_id` × `[started_ts, stale_ts]`; exclude `excursion_id` matches; count MUST be 0. AND: `override_detected` inside window w/o `details.gated_reason IN ('nudge_win','borrow_active')` MUST be 0. |
+| C3 | `override_detected` during active `_nudge_excursion_tokens[zone_id]` w/o `details.gated_reason='nudge_win'` MUST be 0. |
 | C5 | `SELECT COUNT(*) FROM ura_activity_log WHERE action='climate_write' AND json_extract(data,'$.wire_ok')=1 AND json_extract(data,'$.values_before')=json_extract(data,'$.values_after');` MUST be 0. |
-| C-P1A | For every `preset_mode='manual'` window with arrester enabled, no person-protected hold, no arrester grace, no fresh borrow row, S1 target differs: interval until next `climate_write.site='S1_manual_write_through'` MUST be ≤ `HVAC_DECISION_TICK + 30 s`. |
-| C-P1B | `SELECT COUNT(*) FROM ura_activity_log WHERE action='climate_write' AND json_extract(data,'$.site')='S1_manual_write_through' AND <gate-state snapshot at ts_issued showed any of (a/b)/(c)/(d)/(e) armed>;` MUST be 0. |
+| C-P1A | For every `manual` window with all conditions met per `preset_change_deferred.details.gate_snapshot`: interval to next `climate_write.site='S1_reason_ladder'` `wire_ok=1` MUST be ≤ `HVAC_DECISION_TICK + 30 s`. |
+| C-P1B | `SELECT COUNT(*) FROM ura_activity_log WHERE action='climate_write' AND json_extract(data,'$.site')='S1_reason_ladder' AND json_extract(data,'$.values_before.preset_mode')='manual' AND (<any of a/b/c/d/e armed per details.gate_snapshot>);` MUST be 0. |
+| C-P1C | `SELECT COUNT(*) FROM ura_activity_log a WHERE a.action='climate_write' AND json_extract(a.data,'$.site')='S1_reason_ladder' AND EXISTS (SELECT 1 FROM hvac_immune_holds h WHERE h.zone_id = json_extract(a.data,'$.zone_id') AND h.started_ts < a.ts_issued AND (h.sunset_ts IS NULL OR h.sunset_ts > a.ts_issued));` MUST be 0. |
+| C-P1D | `SELECT COUNT(*) FROM ura_activity_log WHERE action='climate_write' AND json_extract(data,'$.site')='S1_reason_ladder' AND json_extract(data,'$.reason') NOT IN ('s1_manual_write_through:sub_delta_human', 's1_manual_write_through:zero_delta_ura');` for manual→named writes MUST be 0. |
 
 ---
 
@@ -73,54 +135,80 @@
 
 ### 1.1 Prior-art scan — REUSE
 
-- `_temp_arrester_override_active` — `hvac_override.py:463/858`.
-- `_immune_holds` / `_is_hold_immune(zone_id)` — `hvac_override.py:448/656/705/727`. Generalised over `_immune_persons` (`:431/508-521`, populated from `CONF_HVAC_ARRESTER_IMMUNE_PERSONS` `hvac_const.py:189-198`).
-- `_override_active[zone_id]` — `hvac_override.py:224/2102/3246/3303/2888`.
-- `_compromise_timers[zone_id]` — `hvac_override.py:220/2153/2885/3449/3476`. **NOTE:** the timer dict is populated AFTER `begin_excursion` (§0). Kept as a read source for gate (c) — grace/compromise legitimacy, not borrow existence.
-- `arrester.enabled` — property `hvac_override.py:2816`; log `:2897`; passive-mode `override_detected` `:3172-3186`. README `README_v3.9.0.md:45-50`.
-- **`_row_present_and_fresh(zone_id)`** — `hvac_excursion.py:562` (module-level, public read-only). Reads `_rows` (populated by five `begin_excursion` sites); auto-reaps stale via `_reap_stale` `:582` → `stale_excursion_row` NM `:293-334`. Boot audit rehydrates. **THIS IS THE ONE BORROW PREDICATE for both S1 and the arrester `nudge_win` path.**
-- Five `begin_excursion` sites (verified `develop` 2026-09-27): `hvac_override.py:3383` COMPROMISE (`duration_s = self._compromise_minutes*60`, `:3390`), `hvac_override.py:4442` NUDGE (`duration_s = duration_s`, `:4449`), `hvac_egress.py:655` EGRESS_PAUSE, `hvac_predict.py:1128` BANKING, `hvac_predict.py:1419` PREHEAT. Each populates `_rows` before its `emit_set_temperature` fires; no reachable window where the timer/token dicts are live but the row is absent/stale (see front matter).
-- `_is_genuine_manual` — `hvac_override.py:~2434` (echo-safe).
-- `should_change_preset` consumer: one site — `hvac.py:2626`.
+- `_temp_arrester_override_active` `hvac_override.py:463/858`; `_immune_holds` `:448/656/705/727/838`; **`_corrective_writes_suppressed(zone_id)`** `:660` — pre-existing OR for gate (a/b).
+- **Comfort-delay:** `comfort_delay_active(zone_id)` / `_comfort_delay_timers` `:2671/:3141-3143`.
+- **Grace timers:** `_grace_timers` (verify field name at build).
+- `_compromise_timers` `:220/2153/2885/3449/3476`.
+- **DO NOT USE `_override_active`** for gate (c) — leaks under `_apply_compromise` early-return `:3366-3372`.
+- `arrester.enabled` `:2816`; log `:2897`; passive-mode double-book at `:3172-3186/:3176`.
+- **`is_borrow_active(zone_id)` — NEW pure-read accessor** in `hvac_excursion.py`. No `_reap_stale`, no NM, no DB delete. Signature: `def is_borrow_active(zone_id: str) -> bool: tok = _rows.get(zone_id); return tok is not None and _now() < tok.stale_ts()`. Sweep + NM continue via `_row_present_and_fresh` from `begin_excursion` / boot-audit paths.
+- Arrester `_handle_climate_change` — `override_detected` row `hvac_override.py:3028`; precedence chain per M8.
+- **Excursion kill switch:** `excursion_primitive_enabled` options field.
+- **S10 DPM `hvac.py:3217`** — explicit exclusion + card `HVAC-S10-DPM-VS-S1-1`.
+- `SUPPRESS_TTL_SECONDS_PRESET = 120` `hvac_override.py:173/2798`.
+- `should_change_preset` consumer: one site — `hvac.py:2626`. S1 site string `S1_reason_ladder` `hvac.py:2821`.
+- `_needs_resume_first` `hvac_setpoint.py:331`; `emit_set_preset_mode` `:487`. Row deletion API `hvac_excursion._delete_row`.
+- **P1 persistence — REUSE prior art (Institutional Context First):**
+  - **DAO shape** — `database.py:8219` `save_excursion_row`, `:8257` `clear_excursion_row`, `:8272` `get_all_excursion_rows`. Model `save_immune_hold_row` / `clear_immune_hold_row` / `get_all_immune_hold_rows` on the same shape. New table `hvac_immune_holds` (schema in §5 D-P1).
+  - **Boot-rehydration ordering** — precedent: `hvac_excursion.async_startup_excursion_audit` runs in `async_setup_entry` before `SIGNAL_HVAC_COORDINATOR_READY` fires at `hvac.py:1381`. Add `arrester.async_rehydrate_immune_holds()` next to it.
+  - **SwitchEntity + RestoreEntity** — `switch.py:701` (`EnergyObservationModeSwitch`), `:909` (`MemoryNMConditioningSwitch`), `:965` restore-retry pattern. Verify TAO switch (`switch.ura_hvac_coordinator_temp_arrester_override`) subclasses RestoreEntity; if not, add per this precedent.
 
-### 1.2–1.5 (Unchanged.)
+### 1.2 Prior planning docs consulted
 
-### 1.6 REV-4 review findings folded
+`PLANNING_hvac_governed_excursion.md` (rev-6 lease-strip); `PLANNING_hvac_excursion_restore_unified.md` (parked D2/D3/D4); `PLANNING_hvac_live_room_establishment.md` (Stage 0 SHIPPED v5.103.15); `AUDIT_thermostat_write_paths_2026_09_16`. REV-5 draft superseded.
 
-Reviewer #1/#2 CRIT-2 → MOOT under Alt A. Reviewer #2 CRIT-3 → exhaustive 5-site setpoint-return inventory (§5 D2.4). Reviewer #2 CRIT-4 (LIVE-state derivation) → subsumed by gate (e) which reads the LIVE row registry. Reviewer #1 CRIT-3 → quad-state `WriteResult`. Reviewer #1 HIGH → regenerated 28-site table (§5 D2.8). Reviewer #2 HIGH → D1 truly behaviour-neutral. Reviewer #1 MED → `preset_mode` trust reads (§5 D2.6). Reviewer C → per-site mutation .pyc-safe.
+### 1.3 Memory bodies pulled
+
+`feedback_extend_existing_never_rebuild`, `feedback_wire_in_anchor_mandatory`, `feedback_suppression_needs_discharge`, `feedback_mutation_verification_pycache_staleness`, `feedback_no_soak`, `feedback_tier2plus_prior_art_scan`, `feedback_falsify_before_asserting`, `feedback_hollow_test_anchors`, `feedback_marginal_benefit_pushback`, `project_single_user_no_backcompat`, `project_reload_storm_refuted_restart_storm_live` (relevant to P1).
+
+### 1.4 REV-3/4/5 plan-review findings folded
+
+All prior CRIT/HIGH survivors retained. REV-5 draft's two Tier-3 plan reviews (both FIX-PLAN) folded as M1-M12 + Also-* above.
+
+### 1.5 Design docs read
+
+`HVAC_ARCHITECTURE_STATE_OF_PLAY.md` §9e (authoritative). `THERMOSTAT_DEFINITION_CARRIER_BRYANT.md` rev 2. `README_v5.103.16/17/v3.9.0`.
+
+### 1.6 Code locations surveyed (with refreshed lines)
+
+`hvac_preset.py:202-217`; `hvac.py:1371/1381` (READY signal), `:1748/1760` (S1 vs check_ac_reset), `:2623-2625` (vacancy bypass), `:2626`/`:2775`/`:2821`, `:3217` (S10); `hvac_override.py:2671`, `:2897`, `:3028`, `:3050-3100`, `:3105`, `:3130-3143`, `:3172-3186`, `:3366-3372`, `:3383`, `:4442`, `:660`, `:705`, `:727`, `:838`; `hvac_excursion.py:562-579` (side effects), `:6-16` (lease-strip); `hvac_predict.py:1046/1128/1419/1515-1583`; `hvac_egress.py:655`; `hvac_setpoint.py:331/487`; `hvac_const.py:361/452-456/531-532`; `database.py:8219/8257/8272`; `switch.py:701/909/965`.
 
 ---
 
 ## 2. Non-goals
 
-- No provenance classifier / learner / URA-owned reclaim writer / kill switch / drift sensor.
-- **No `BORROW_LOCK` funnel-side gate; no `BORROW_LOCK_CAP_FOR`; no `_lock_capped` memo; no `[BORROW LOCK CAP HIT]` NM.** Superseded by gate (e) + existing `stale_excursion_row`.
+- No provenance chain, kill-switch entity, drift sensor.
+- **No `BORROW_LOCK` funnel-side gate.**
 - No confirmation oracle / bounded retry.
-- No knob-expiry reclaim (closed-by-A per §5.P4).
+- No knob-expiry reclaim (closed-by-A).
 - No human-ends-borrow on NUDGE (ruling 13).
 - No new state listeners.
-- No `set_temperature` migration beyond removing setpoint from the 5 return sites.
-- **No changes inside `begin_excursion` / `return_excursion` / any borrow code.**
-- **No changes inside `emit_*` funnels in `hvac_setpoint.py`.**
+- No `set_temperature` migration beyond D2.4.
+- **No changes inside `begin_excursion` / `return_excursion` / any borrow code beyond the new pure-read `is_borrow_active` accessor.**
+- **No changes inside `emit_*` funnels; strategy layer owns `last_sent` + no-op suppression.**
 - No Nest strategy code.
+- **S10 DPM vs S1: explicit exclusion; card `HVAC-S10-DPM-VS-S1-1`.**
+- **Grace/comfort/compromise timers NOT persisted (operator P1 carve-out); accepted ≤ 20 min exposure on restart.**
+- No NM on sub-delta human manual reclaim (operator P2).
 
 ---
 
 ## 3. D0 — Read-only measurement (Alt-A form; not a merge blocker)
 
-CONFIG-FIRST refresh; nudge-effectiveness sanity read; optional replay of the four §9.1 historical strands.
+CONFIG-FIRST refresh; nudge-effectiveness sanity read; optional §9.1 replay.
 
 ---
 
-## 4. Deliverable order
+## 4. Deliverable order (REV 6)
 
 1. **D0** (Alt-A form).
-2. **D1** — Strategy interface, quad-state `WriteResult`, `allow_resume` kwarg, thin-forwarding.
-3. **D4** — module constants (none new; `NUDGE_LOCK_CAP_SLACK_S` / `COMPROMISE_LOCK_CAP_SLACK_S` NOT ADDED — cap collapsed to row bound).
-4. **D4a** — UI-max clamp for `hvac_compromise_minutes`.
-5. **D5** — generic default.
-6. **D2** — Carrier strategy: §5.P1 (S1 manual-guard replacement, four gates incl. gate (e)); §5 D2.4 five-site setpoint-return migration; §5 D2.5 no-op; §5 D2.6 anchors + AST lint; §5 D2.8 table enforcement; §5 D2a split.
-7. **Live-validation write-back** into `README_v<version>.md`.
+2. **D1** — Strategy interface, quad-state `WriteResult`, strategy-layer `last_sent` + no-op (M5). Funnels untouched.
+3. **D4** — module constants: `S1_RECLAIM_RATE_LIMIT_N = 3`; `HVAC_COMPROMISE_MINUTES_MAX = 15`; `SUB_DELTA_WINDOW_S = 300`. Rung 1 all.
+4. **D4a** — UI-max clamp + default reduction (M11).
+5. **D-P1** — Immune-hold persistence (operator P1 ruling; NEW).
+6. **D5** — generic default.
+7. **D2** — §5.P1 four-gate helper + `should_change_preset` replacement + `preset_change_deferred` telemetry + arrester `_handle_climate_change` gated_reason precedence + §5.P5 reclaim-rate NM + §5 D2.4 five-site migration + §5 D2a strategy `last_sent`.
+8. **Live-validation write-back**.
 
 ---
 
@@ -128,208 +216,217 @@ CONFIG-FIRST refresh; nudge-effectiveness sanity read; optional replay of the fo
 
 ### D1 — Strategy interface
 
-Unchanged. Quad-state `WriteResult = (status: {APPLIED, SKIPPED_ALREADY_CORRECT, DEFERRED, FAILED}, reason, exc)`. `FAILED` retains raise-semantics; `DEFERRED` covers gate skips (never latches NM). Truthiness banned. `hold_preset(..., allow_resume=True)`. No call-site migration. Registry-miss → GenericStrategy uncached. `_snapshot_climate_state` exempt.
+Quad-state `WriteResult` (`APPLIED / SKIPPED_ALREADY_CORRECT / DEFERRED / FAILED`). Strategy layer owns `last_sent[entity_id][verb]` + no-op suppression. Returns KEEP resume-then-pin (`allow_resume=False` dropped). `_snapshot_climate_state` exempt.
+
+Acceptance: `test_strategy_no_op_returns_skipped`; `test_last_sent_lives_in_strategy_not_funnel` (grep `hvac_setpoint.py` for `last_sent` MUST be 0); `test_returns_still_emit_resume_then_pin_via_needs_resume_first`.
+
+### D-P1 — Immune-hold persistence (operator P1 ruling; NEW)
+
+**Schema:** new table `hvac_immune_holds`
+```
+CREATE TABLE hvac_immune_holds (
+  zone_id            TEXT PRIMARY KEY,
+  holder_user_name   TEXT,
+  holder_person_id   TEXT,
+  started_ts         REAL NOT NULL,
+  sunset_basis       TEXT NOT NULL,          -- 'next_activity' | 'durable_house_state' | 'timer_4h'
+  sunset_ts          REAL,                    -- non-NULL when computable (timer_4h); NULL for event-driven
+  values_before_snapshot TEXT                 -- JSON: pre-hold setpoints/preset (for diagnostics)
+);
+CREATE INDEX idx_hvac_immune_holds_started_ts ON hvac_immune_holds(started_ts);
+```
+
+**DAO** — new methods on `Database` (`database.py`), modelled on `save_excursion_row` / `clear_excursion_row` / `get_all_excursion_rows`:
+```
+async def save_immune_hold_row(self, row: dict) -> None
+async def clear_immune_hold_row(self, zone_id: str) -> None
+async def get_all_immune_hold_rows(self) -> list[dict]
+```
+
+**Write side.** Every `_stamp_immune_hold` (`hvac_override.py:705`) calls `save_immune_hold_row(...)` in the same commit. Every `sunset_immune_holds` / `_immune_holds.pop` (`:727/838`) calls `clear_immune_hold_row(zone_id)` in the same commit. Failure of the DB write does NOT block the in-memory stamp (belt-and-suspenders; on next restart the row is missing → gate (a/b) not armed → surface as a low-severity NM `immune_hold_persistence_gap` for operator awareness — Rung 1).
+
+**Boot rehydration.** New method `arrester.async_rehydrate_immune_holds(hass)`:
+```
+rows = await db.get_all_immune_hold_rows()
+for row in rows:
+    self._immune_holds[row['zone_id']] = {
+        'user_name': row['holder_user_name'],
+        'person_id': row['holder_person_id'],
+        'started_ts': row['started_ts'],
+        'sunset_basis': row['sunset_basis'],
+        'sunset_ts': row['sunset_ts'],
+        'values_before_snapshot': json.loads(row['values_before_snapshot'] or '{}'),
+    }
+# Optionally schedule the 4h timer for 'timer_4h' rows whose sunset_ts is in the future.
+```
+
+Called from `async_setup_entry` NEXT TO `hvac_excursion.async_startup_excursion_audit`, BEFORE `SIGNAL_HVAC_COORDINATOR_READY` fires at `hvac.py:1381`. Gate (a/b) via `_corrective_writes_suppressed(zone_id)` (`hvac_override.py:660`) then sees the rehydrated row on the first tick at `hvac.py:1371`.
+
+**Grace / comfort / compromise NOT persisted (verbatim operator carve-out).** Accepted exposure ≤ 20 min (Comfort Grace live 20 min, `hvac_const.py:452-456`). Documented; no code beyond leaving those dicts empty on boot.
+
+**TAO switch restore.** Verify at build: `switch.ura_hvac_coordinator_temp_arrester_override` subclasses `RestoreEntity` (per `switch.py:701`/`:909` precedent). If yes: no change. If no: add per `switch.py:965` restore-retry precedent. Gate (a/b) then sees restored TAO on first tick.
+
+**Acceptance (mandatory):**
+- `test_immune_hold_persists_across_restart` — stamp; simulate restart; assert `_immune_holds['zone_1']` populated before first S1 tick; assert `_corrective_writes_suppressed('zone_1')` True; assert S1 does NOT reclaim.
+- `test_immune_hold_sunset_deletes_db_row` — parametric across 3 sunset paths (next_activity / durable house-state / 4 h timer); DB row cleared.
+- `test_immune_hold_dao_shape_matches_excursion_dao` — assert the three method signatures match the `save_excursion_row` pattern (reflection-based).
+- `test_immune_hold_boot_rehydration_before_ready_signal` — order-of-operations assertion via a captured call log; rehydration precedes `SIGNAL_HVAC_COORDINATOR_READY`.
+- `test_tao_switch_restore_entity` — verify TAO switch class inheritance; simulate restart with TAO on; assert TAO state restored.
+- **Reviewer C mutation:** delete the `async_rehydrate_immune_holds` call in `async_setup_entry` → `test_immune_hold_persists_across_restart` RED with specific named failure.
+- **Live:** post-deploy, place immune hold via Bryant app; restart HA; observe restore.
 
 ### D2 — Carrier strategy
 
-#### §5.P1 — S1 manual-guard replacement (Alt A, APPROVED)
+#### §5.P1 — S1 manual-guard replacement (Alt A; REV-6 fixed gates)
 
-Change site: `hvac_preset.py:202-217`. New signature carries `zone_id`. New helper `_arrester_is_legitimately_holding(zone_id) -> (refused: bool, reason: Optional[str])` — pure read; injected via constructor.
+Change site `hvac_preset.py:202-217`. Applies to ALL brands (Also-4). Signature carries `zone_id`. Helper injected via `set_arrester(arrester)` (Also-1); arrester-None → `(True, 'arrester_not_wired')` fail-closed.
 
-If `current_preset != "manual"` → return True. If `current_preset == "manual"` → return `not refused`. Store last reason for the caller's `preset_change_deferred` telemetry.
+**FOUR gates:**
 
-**The FOUR gates (all read-only, all pre-existing signals; rule lives ONLY here):**
-
-| Gate | Condition | Signals (verified `develop` 2026-09-27) | Reason string |
+| Gate | Condition | Signals | Reason string |
 |---|---|---|---|
-| **(a/b) person-protected hold** | TAO on OR any immune-person hold active (generalised across `_immune_persons`). | `arrester._temp_arrester_override_active` OR `arrester._is_hold_immune(zone_id)` | `"person_protected_hold"` |
-| **(c) arrester grace / compromise window** | Arrester inside its own override-handling window (grace or compromise; NOT a borrow). | `arrester._override_active.get(zone_id, False)` OR `zone_id in arrester._compromise_timers` | `"arrester_grace_or_compromise"` |
-| **(d) arrester disabled (passive)** | Arrester off; still books passive-mode `override_detected` but never reverts. Safety rail. | `not arrester.enabled` (`hvac_override.py:2816`) | `"arrester_disabled_passive"` |
-| **(e) active borrow row (ONE borrow predicate)** | A borrow of any kind is live on this zone. Reads the row registry — the same source of truth `begin_excursion` writes to, and the ONLY thing S1 or the arrester needs to know a borrow is in flight. Bounded by `stale_ts = started_ts + duration_s + EXCURSION_LEASE_SLACK_S`; auto-reaps to `stale_excursion_row` NM. | `hvac_excursion._row_present_and_fresh(zone_id)` (`hvac_excursion.py:562`) — reads `_rows` populated by the five `begin_excursion` sites (`hvac_override.py:3383` compromise, `:4442` nudge, `hvac_egress.py:655` egress, `hvac_predict.py:1128` banking, `hvac_predict.py:1419` preheat). Public read-only accessor already used by `begin_excursion`'s REJECT-on-existing-row path and by the boot audit. | `"active_borrow_row"` |
+| **(a/b)** | Reuse pre-existing OR. Post-P1: signals include rehydrated immune holds after restart. | `arrester._corrective_writes_suppressed(zone_id)` (`hvac_override.py:660`) | `"person_protected_hold"` |
+| **(c)** | Comfort-delay OR grace OR compromise. **Not `_override_active`.** | `comfort_delay_active(zone_id)` (`:2671`) OR `zone_id in _grace_timers` (verify at build) OR `zone_id in _compromise_timers` (`:220/3449`) | `"arrester_active_window"` (+ sub-reason in `details`) |
+| **(d)** | Arrester off. Accessor reads OPTIONS until `SIGNAL_HVAC_COORDINATOR_READY` fires (M10). | `not arrester.enabled` | `"arrester_disabled_passive"` |
+| **(e)** | Fresh row OR arrester-timer fallback. Pure read. | `is_borrow_active(zone_id)` OR `zone_id in arrester._nudge_excursion_tokens` OR `zone_id in arrester._nudge_restore_timers` OR `zone_id in arrester._compromise_timers` | `"active_borrow"` (+ sub-source in `details`) |
 
-**Gap analysis — verified.** Every timer/token dict (`_compromise_timers`, `_nudge_excursion_tokens`, `_nudge_restore_timers`) is populated STRICTLY AFTER `begin_excursion` populates `_rows[zone_id]` (front matter cites the exact call ordering). Per-kind duration already flows into `begin_excursion.duration_s` (S3 `hvac_override.py:3390`; S5 `:4449`). The row's `stale_ts` therefore covers the full timer window plus `EXCURSION_LEASE_SLACK_S`. There is NO reachable window where the arrester's own timers are live but `_row_present_and_fresh` returns False → **no arrester-side timer read is needed** for gate (e) coverage. Gate (c) continues to read `_compromise_timers` for its OWN semantic — arrester grace/compromise legitimacy, distinct from "is a borrow live" — and that is correct: a compromise is BOTH an arrester window (gate c) AND a borrow row (gate e) simultaneously; both refuse; no conflict.
+**Vacancy/runtime bypass (M3).** `hvac.py:2623-2625` also checks (a/b) + (e); logs `preset_change_deferred:vacancy_bypass_deferred:<gate>`. Gate (c) and (d) do NOT block vacancy bypass (documented explicitly).
 
-**Discharge for gate (e) (suppression-needs-a-discharge — enumerated):**
-- **Row return** — every `return_excursion` clears the row (`_clear_row` `hvac_excursion.py:544-559`); next S1 tick unblocks.
-- **Stale reap** — `_row_present_and_fresh` calls `_reap_stale` (`:582`) when `now >= stale_ts`; emits existing `stale_excursion_row` NM (`:293-334`). No new NM introduced.
-- **Auto-release sweep** — `auto_release_on_incomplete` (`hvac_excursion.py:1322`).
-- **Boot audit** — `async_startup_excursion_audit` clears stranded rows; the timer/token dicts do NOT survive restart either (in-memory), so no split-brain across boot.
+**Arrester booking (M8).** `_handle_climate_change` at `override_detected` row `hvac_override.py:3028`, `details.gated_reason` by precedence (top-down):
+1. Immune stamp (`:3050-3100`) → `'immune_stamp'`.
+2. TAO skip (`:3105`) → no row.
+3. Comfort grant (`:3130-3143`) → `'comfort_grant'`.
+4. Gate (e) True → `'nudge_win'` if `_nudge_excursion_tokens[zone_id]` else `'borrow_active'`; skip revert.
+5. Passive mode (`:3172-3186`) → `'passive_mode'` (dedup: only if no higher-precedence gate matched).
 
-**Arrester `nudge_win` booking (C3):** the arrester's `override_detected` path (`hvac_override.py:2304-2340`) reads `_row_present_and_fresh(zone_id)` AND checks `zone_id in _nudge_excursion_tokens` to distinguish NUDGE (→ `gated_reason='nudge_win'`) from other kinds (→ `gated_reason='borrow_active'`). Both suppress revert; only `nudge_win` also suppresses lockout counting per ruling 13. This is a READ inside the arrester's existing detection code — not a new listener, not a funnel gate.
+`details.gate_snapshot` in every row (for C-P1B falsifier).
 
-**Every S1 write path touched.** `should_change_preset` consumer at `hvac.py:2626`; `zone_id` kwarg added at that site. `preset_change_locked_out` (edge-triggered telemetry `hvac.py:2630+`) rewritten as `preset_change_deferred` carrying `reason` — fires ONLY when a gate refuses.
+**Ledger rewrite.** `hvac.py:2616-2675` `preset_change_locked_out` → `preset_change_deferred` with `{reason, gate_snapshot: {a_b, c, d, e, e_source, c_source}}`.
 
-**Step-by-step: genuine human manual (grace → compromise → S4 revert) intact.**
+**Sub-delta human reason string (operator P2, verbatim).** At the S1 write site, when the write moves the zone out of `manual`:
+- If a preceding `override_detected` on the entity within `SUB_DELTA_WINDOW_S = 300 s` has `details.delta_f < OVERRIDE_NORMAL_DELTA` (or `< OVERRIDE_NORMAL_DELTA + 1` under coast per `hvac_const.py:531-532`) → `reason = 's1_manual_write_through:sub_delta_human'`.
+- Else → `reason = 's1_manual_write_through:zero_delta_ura'`.
+- No NM. `preset_deferrals_today` unchanged (this is a write, not a deferral).
 
-1. T+0: human writes manual. 2. T+0..15 s: temp suppression filters echoes. 3. T+~15 s: `_is_genuine_manual` True; `_override_active[zone_id] = True`; grace begins. 4. **T+~15 s .. grace_end (20 min):** gate (c) armed → S1 refuses (`reason='arrester_grace_or_compromise'`). 5. **T+grace_end (compromise armed):** S3 places compromise via `begin_excursion` (`:3383`) → `_rows[zone_id]` populated → gate (e) ALSO armed; `_compromise_timers[zone_id]` armed → gate (c) still armed. S1 refuses. Both gates enforce; no conflict. 6. **T+compromise_end (S4 revert):** row cleared by `return_excursion` in S4; `_compromise_timers` cleared; `_override_active` cleared. All four gates disarmed → next tick, if zone still reads `manual` (Carrier lag), S1 writes over.
+**Step-by-step (genuine human manual grace → compromise → S4).** As REV 5: gate (c) armed via comfort-delay/grace; compromise adds gate (e); both refuse; S4 clears both; S1 writes over on next tick.
 
-**TAO / immune / arrester-disabled variants** — as prior draft, each honoured via the respective gate.
+**Acceptance (Alt A, REV-6, additive):**
+- `test_gate_a_b_via_corrective_writes_suppressed` (TAO / non-operator immune).
+- `test_gate_c_comfort_delay_grace_compromise` (parametric).
+- `test_gate_c_does_not_leak_under_compromise_early_return` (M1 discriminator against `_override_active`).
+- `test_gate_d_reload_window` (options-first accessor pre-READY).
+- `test_gate_e_all_kinds_and_all_fallbacks` (M2 begin-None cases).
+- `test_gate_e_pure_read_no_side_effects` (no `_reap_stale`).
+- `test_vacancy_bypass_defers_under_borrow_and_tao` (M3).
+- `test_arrester_gated_reason_precedence` (M8 five rungs).
+- `test_passive_mode_no_longer_double_books`.
+- `test_preset_manager_arrester_none_fails_closed`.
+- `test_s1_site_string_is_S1_reason_ladder` (M12).
+- **P2 tests:** `test_sub_delta_human_reclaim_reason_string`; `test_zero_delta_ura_reclaim_reason_string`; `test_coast_threshold_uses_plus_one`; `test_no_nm_fires_on_sub_delta_reclaim`.
+- Per-site mutation of each of the 4 gates (.pyc-safe).
+- Drill M10: neuter `begin_excursion` → gate (e) still armed via timer fallback → S1 refuses.
+- **Live:** §9.1 four historical strands → written over within one S1 tick.
 
-**URA-caused zero-delta manual (problem 1).** URA's return preset-only (D2.4) shouldn't create a manual. If one appears: no gate fires (arrester deliberately ignores; no borrow row; arrester enabled; no person-protected hold). S1 next tick sees `manual` + no gate → writes `home`. **Problem 1 closed.**
+#### §5.P2 — Supersession triage (unchanged)
 
-**Acceptance:** as prior draft, plus:
-- `test_gate_e_covers_all_kinds` — parametric over the 5 begin sites; each `begin_excursion` populates `_rows`; S1 refuses with `reason='active_borrow_row'`; return clears; S1 unblocks.
-- `test_gate_e_no_arrester_timer_gap` — arm each of `_compromise_timers`, `_nudge_excursion_tokens`, `_nudge_restore_timers` in isolation via a defer-in-source mutation (deferring `begin_excursion` by one line at each of the 5 sites) and confirm the matching `test_gate_e_active_during_<kind>` goes RED with a specific named failure. This proves the row is armed BEFORE any timer/token could be observed by S1 or the arrester.
-- `test_gate_e_stale_reap_emits_stale_excursion_row_and_disarms` — advance time past `stale_ts`; `_row_present_and_fresh` returns False; existing `stale_excursion_row` NM fires (assert against NM channel); gate disarms.
-- `test_arrester_nudge_win_booking_uses_row_registry` — active NUDGE; arrester's `override_detected` path books `gated_reason='nudge_win'`; discriminating: end nudge (clear row + token) → next detection books normally.
-- `test_arrester_borrow_active_booking_for_non_nudge_kinds` — active COMPROMISE / BANKING / PREHEAT / EGRESS_PAUSE; arrester books `gated_reason='borrow_active'`; no revert.
-- Per-site mutation of each of the 4 gates (.pyc-safe) → specific named test failure.
-- **Live:** replay §9.1 four historical strands → each written over within one S1 tick when all gates disarmed.
+DELETE post-PASS: `hvac_excursion.py:629-650`; cards `HVAC-PRESET-LOCKOUT-ESCAPE-1`, `HVAC-ZONE1-MANUAL-OSCILLATION-1`. KEEP+WIRE: `hvac.py:2616-2675` → `preset_change_deferred`. KEEP+DOCUMENT: `hvac_predict.py:1540-1580`.
 
-#### §5.P2 — Supersession triage (deletions gated on §7 PASS)
+#### §5.P3 — Write volume + preset-kind suppression (REV-6)
 
-| Item | File:line | Bucket | Justification |
-|---|---|---|---|
-| HIGH-1 skip rule + "D3 recovery parked" | `hvac_excursion.py:629-650` | DELETE | S1 recovers directly under Alt A. |
-| D2b return re-pin | `hvac_predict.py:1540-1580` | KEEP + DOCUMENT | Faster path than one S1 tick. |
-| Lockout ledger row | `hvac.py:2616-2675` | KEEP + WIRE | Repurpose to `preset_change_deferred` with gate reason. |
-| Card `HVAC-PRESET-LOCKOUT-ESCAPE-1` | — | CLOSE | Alt A IS the escape. |
-| Card `HVAC-ZONE1-MANUAL-OSCILLATION-1` | — | CLOSE | Strand class written over within one tick. |
+~27 nudges/day house-wide × 2 wire calls = ~54 extra Carrier writes/day. `hvac.py:2775` `suppress(kind="preset")` (120 s); preset-suppression covers URA's reclaim echo which lands on `preset=<target>`, not on `manual`. `test_s1_manual_write_through_sets_preset_kind_suppression` MUST be RED on `develop`, GREEN after fix.
 
-#### §5.P3 — Write volume and preset-kind suppression
+Counter renames: `preset_deferrals_today` (per-gate breakdown); `nudge_win` suppresses `arrester_reverts_today`.
 
-~80 nudges/day × 2 wire calls (resume + pin, via existing `emit_set_preset_mode` `_needs_resume_first` `hvac_setpoint.py:171-222`) = ~160 extra Carrier writes/day. Well within cloud call-rate bounds. `SUPPRESS_TTL_SECONDS_PRESET = 120 s` (`hvac_override.py:173/2798`) prevents the S1 reclaim being booked as a false override (Carrier echo lands inside the 120 s window). Verify: `test_s1_manual_write_through_sets_preset_suppression`.
+#### §5.P4 — Problem 4 closed-by-A (unchanged)
 
-#### §5.P4 — Problem 4 closed-by-A free of charge
+`test_person_protected_hold_sunset_s1_reclaims_next_tick`.
 
-Person-protected sunset → gate (a/b) disarms → next S1 tick reclaims. One test — `test_person_protected_hold_sunset_s1_reclaims_next_tick`. No new code beyond §5.P1. Ruling 3 (reclaim delay + kill switch) SUPERSEDED.
+#### §5.P5 — S1 reclaim-rate anomaly trip-wire (M4)
 
-#### D2.4 Presets-only returns — 5-site setpoint-return inventory
+`S1_RECLAIM_RATE_LIMIT_N = 3` (Rung 1; infinity = disable) in 30 min → NM `s1_reclaim_rate_high` (medium) with `{zone_id, count, window_s, recent_reasons}`. Discharge: rate drops below N.
 
-| # | Site | File:line | Kind | Migration |
-|---|---|---|---|---|
-| 1 | S6 nudge restore setpoint | `hvac_override.py:4650` | NUDGE | DROPPED; `Strategy.return_borrow(allow_resume=False)`. |
-| 2 | S8 cancel-nudge setpoint | `hvac_override.py:5877` | NUDGE (button) | DROPPED. |
-| 3 | S9 boot audit setpoint | `hvac_override.py:6289` | NUDGE (boot) | DROPPED. |
-| 4 | S11 banking release setpoint | `hvac_predict.py:984` | BANKING | DROPPED. |
-| 5 | S13 pre-heat release setpoint | `hvac_predict.py:1520` | PRE-HEAT | DROPPED. |
+Acceptance: `test_s1_reclaim_rate_nm_fires_at_N_plus_1`; `test_s1_reclaim_rate_nm_discharges_after_window`.
 
-Preset-return sites (kept, routed via `Strategy.return_borrow` + `allow_resume=False`): `hvac_excursion.py:667`, `:1131`; `hvac_override.py:3578`, `:4159`, `:4698`, `:5906`, `:6313`; `hvac_predict.py:1046`, `:1570`; `hvac_egress.py:815`.
+#### D2.1 Same-tick nudge-start skip (M7)
 
-`_auto_return` snapshot rules per value: named → pin only; `manual/None/""` → restore pre-borrow setpoints, no resume.
+`_zones_written_this_cycle: set[str]` populated by S1's `climate_write`; consumed by `check_ac_reset`; cleared at cycle end.
 
-`S11._release_ok(zone)`: True iff banking token present AND banking release gate met AND (`zone.preset_mode != "manual"` OR no Alt-A gate armed).
+#### D2.4 Presets-only returns — 5-site inventory (unchanged from REV 5 + M6)
 
-Return order: mode → preset → setpoints only if snapshot classifies HUMAN_MANUAL.
+Five sites: `hvac_override.py:4650`, `:5877`, `:6289`, `hvac_predict.py:984`, `:1520`. HUMAN_MANUAL := `pre_preset ∈ {manual, None, ""}`.
 
-#### D2.5 No-op suppression at the funnel
+**M6:**
+- S11 `_release_ok` self-exclusion: `is_borrow_active(zone) AND active_row.excursion_id != self_token.excursion_id`.
+- S11 comfort gate onto preset write `hvac_predict.py:1046` (`gate=lambda: not self._s11_gate.deferred`).
+- S13 block restructure `:1515-1583`: setpoint (`:1520`) dropped; preset (`:1570`) sole restore; `_last_emitted_range` update moves to preset site (or the strategy-layer `last_sent` replaces it — verify at build).
 
-Unchanged. `SKIPPED_ALREADY_CORRECT` iff (verb, values) match last-sent AND observation matches. Distinct from `DEFERRED`.
+#### D2.5 No-op suppression — MOVED TO STRATEGY LAYER (M5)
 
-#### D2.6 S1 + arrester + consumer wiring — behavioural anchors + AST lint
+Funnels untouched. Grep `hvac_setpoint.py` for `last_sent` / `SKIPPED_ALREADY_CORRECT` → MUST be 0.
 
-Trust-reader table + AST lint as prior draft. S1 also reads the borrow registry (`_row_present_and_fresh`) — import-only, no `preset_mode` read; AST `preset_mode` lint unaffected. The arrester's `nudge_win`/`borrow_active` booking also reads `_row_present_and_fresh` — covered by `test_arrester_*_booking_uses_row_registry` (§5.P1 acceptance) and a Reviewer-C mutation drill.
+#### D2.6 Consumer wiring — behavioural anchors + AST lint
 
-AST lint keyed by `(file, qualname)`; in-source marker `# preset_mode: display-only — <reason>`; alias normalisation; self-tests; precedent `quality/tests/domain_coordinators/test_hvac_climate_write_funnel_completeness.py`.
+Also-2 test rewrites: `test_hvac_offphase_removed.py`, `test_hvac_live_room_hold_wire_in.py`, `test_v4511_ac_energy_aware_ramp_down.py`, `test_preset_hold_contract_resume_then_pin.py::test_lockout_*` — behavioural, gate-state-driven.
 
-#### D2.8 28-site write table (regenerated against `develop` 2026-09-27)
+#### D2.8 28-site write table (unchanged)
 
-| # | Site | Verb | Strategy method (or direct funnel + reason) | Gates consulted |
-|---|---|---|---|---|
-| 1 | `hvac.py:1941` | set_hvac_mode | direct — "heat_cool enforcer" | funnel-only |
-| 2 | `hvac.py:2816` | set_preset_mode | `Strategy.hold_preset` (S1) | Alt-A four gates ((a/b), (c), (d), (e)); no-op |
-| 3 | `hvac.py:3217` | set_temperature | direct — "S10 DPM baseline; F8-exempt" | freeze |
-| 4 | `hvac_excursion.py:667` | set_preset_mode | `Strategy.return_borrow` (_auto_return) | no-op |
-| 5 | `hvac_excursion.py:1131` | set_preset_mode | `Strategy.return_borrow` (boot NUDGE) | no-op |
-| 6 | `hvac_override.py:3414` | set_temperature | `Strategy.borrow(kind=COMPROMISE)` (S3) | freeze |
-| 7 | `hvac_override.py:3548` | set_hvac_mode | direct — "S4 revert mode" | funnel-only |
-| 8 | `hvac_override.py:3578` | set_preset_mode | `Strategy.return_borrow` (S4) | gate (e) exempt via excursion_id |
-| 9-11 | `hvac_override.py:3923/4045/4084` | set_hvac_mode | direct — "hard reset off/on" | funnel-only |
-| 12 | `hvac_override.py:4159` | set_preset_mode | `Strategy.return_borrow` (hard reset restore preset) | — |
-| 13 | `hvac_override.py:4469` | set_temperature | `Strategy.borrow(kind=NUDGE)` (S5) | freeze; ARMS gate (e) via `begin_excursion` |
-| 14 | `hvac_override.py:4650` | set_temperature | **REMOVED in D2.4** (S6) | — |
-| 15 | `hvac_override.py:4698` | set_preset_mode | `Strategy.return_borrow` (S6/S7 nudge restore) | gate (e) exempt via excursion_id, no-op |
-| 16 | `hvac_override.py:5877` | set_temperature | **REMOVED in D2.4** (S8 cancel setpoint) | — |
-| 17 | `hvac_override.py:5906` | set_preset_mode | `Strategy.return_borrow` (S8 cancel preset) | — |
-| 18 | `hvac_override.py:6289` | set_temperature | **REMOVED in D2.4** (S9 boot setpoint) | — |
-| 19 | `hvac_override.py:6313` | set_preset_mode | `Strategy.return_borrow` (S9 boot preset) | — |
-| 20 | `hvac_predict.py:984` | set_temperature | **REMOVED in D2.4** (S11 setpoint) | — |
-| 21 | `hvac_predict.py:1046` | set_preset_mode | `Strategy.return_borrow` (S11 preset) | `S11._release_ok` |
-| 22 | `hvac_predict.py:1167` | set_temperature | `Strategy.borrow(kind=BANKING)` (S12 pre-cool — CORRECTED) | freeze |
-| 23 | `hvac_predict.py:1456` | set_temperature | `Strategy.borrow(kind=PREHEAT)` (S13 start) | freeze |
-| 24 | `hvac_predict.py:1520` | set_temperature | **REMOVED in D2.4** (S13 setpoint) | — |
-| 25 | `hvac_predict.py:1570` | set_preset_mode | `Strategy.return_borrow` (S13 preset) | — |
-| 26 | `hvac_egress.py:688` | set_hvac_mode | direct — "egress pause mode" | funnel-only |
-| 27 | `hvac_egress.py:794` | set_hvac_mode | direct — "egress resume mode" | funnel-only |
-| 28 | `hvac_egress.py:815` | set_preset_mode | `Strategy.return_borrow` (egress resume preset) | — |
+S1 site 2 writes with `reason` per §5.P1 P2 discriminator; `site='S1_reason_ladder'`.
 
-**No funnel-side BORROW_LOCK column** — deleted with the mechanism. S1's site 2 writes with `reason="s1_manual_write_through"` when moving a zone out of `manual`.
+#### D2a — Strategy-layer `last_sent` (M5)
 
-Verify at build-start: `git grep` returns exactly these 28 rows. Any drift → refresh in the SAME commit.
-
-#### D2a — Split `_last_emitted_range`
-
-Unchanged. Funnel's `last_sent` (per-verb, no-op suppression) vs `HvacZoneBaseline` (S10/DPM). Byte-identical.
+Owns per-verb `last_sent[entity_id][verb] = (values, ts)`. Replaces funnel-side `_last_emitted_range` for no-op purposes. `HvacZoneBaseline` (S10 comfort baseline) stays separate.
 
 ### D4 — Module constants
 
-**No new constants.** `NUDGE_LOCK_CAP_SLACK_S` / `COMPROMISE_LOCK_CAP_SLACK_S` / `BORROW_LOCK_HARD_CAP_S` NOT ADDED — cap collapsed to the row's `stale_ts = duration_s + EXCURSION_LEASE_SLACK_S` (existing). `URA_OWNED_*` NOT ADDED (Alt-B chain dropped).
+| Constant | Value | Rung |
+|---|---|---|
+| `S1_RECLAIM_RATE_LIMIT_N` | 3 | 1 |
+| `HVAC_COMPROMISE_MINUTES_MAX` | 15 | 1 |
+| `SUB_DELTA_WINDOW_S` | 300 | 1 |
 
-No Rung-3 kill switch entity. No drift telemetry sensor.
+### D4a — UI clamp + default reduction (M11)
 
-### D4a — UI-max clamp for `hvac_compromise_minutes` (ruling 14, RETAINED)
+`config_flow.py:6106` max 120 → 15. `hvac_const.py:361` `DEFAULT_COMPROMISE_MINUTES` 30 → 15. Defaults at `hvac.py:165` and `hvac_override.py:191` → 15. Named constant `HVAC_COMPROMISE_MINUTES_MAX = 15`. Clamp-on-read helper `_read_hvac_compromise_minutes(options)` in `hvac_const.py`; consumer `__init__.py:3804/3862`.
 
-`config_flow.py:6106` selector `max=120` → **`max=15`**. Inspect `:5906` same edit. Strings/translations unchanged. Code-side constants unchanged.
-
-Stored-value handling: **CLAMP ON READ** via `_read_hvac_compromise_minutes(options)` in `hvac_const.py` — `min(15, options.get(CONF_HVAC_COMPROMISE_MINUTES, DEFAULT))`. Single install (`project_single_user_no_backcompat`); not a migration; not "warn-and-leave"; reversible; idempotent.
-
-Read sites: `config_flow.py:5906/6103` (display), `__init__.py:3804/3862` (decision consumer — sole clamp site).
-
-Acceptance: `test_config_flow_hvac_compromise_minutes_max_is_15`; `test_read_hvac_compromise_minutes_clamps_stored_20_to_15`; live: slider max 15; stored 20 clamps to 15 at first read.
-
-### D5 — Generic default (unchanged from REV 4)
+### D5 — Generic default (unchanged)
 
 ---
 
-## 6. Operator questions — none
+## 6. Operator questions
+
+**None remaining.** P1 = persist (D-P1). P2 = accept + log (§5.P1 reason discriminator). Signature-change note (W2 fast-path lines 234/349/588) is a mechanical follow-up, not a question.
 
 ---
 
 ## 7. Ship gate
 
-Pre-deploy: replay §9.1 four historical strands + the four-gate parametric matrix + gate-(e) discharge matrix (row return / stale reap → `stale_excursion_row` / sweep / boot audit). Any strand-not-cleared or gate-violation → BLOCK.
+Pre-deploy replay: §9.1 four historical strands + four-gate parametric + gate-(e) discharge matrix (row return / stale reap / sweep / boot audit) + reload-window drill (M10) + suppression-kind drill (M4) + vacancy-bypass drill (M3) + S11/S13 self-block drills (M6) + same-tick drill (M7) + arrester precedence drill (M8) + reclaim-rate NM drill (§5.P5) + **P1 restart drill** (D-P1) + **P2 reason-string drill** + S10 exclusion probe (assert no fight while `guest_mode_actuation` off).
 
-Post-deploy disposition at N ≥ 10 non-nudge return episodes per zone (7-day cap). §0 queries.
+Post-deploy disposition at N ≥ 10 non-nudge return episodes per zone (7-day cap). §0 queries; gate snapshot in `details`.
 
-PASS → dispose + execute §5.P2 DELETE-bucket.
+PASS → dispose + §5.P2 DELETE-bucket + confirm card `HVAC-S10-DPM-VS-S1-1` sibling exists.
 
 ---
 
-## 8. Review protocol — Tier 3
+## 8. Review protocol — Tier 3 (4 framing-disjoint + orchestrator hand-check + operator checkpoint)
 
-**Reviewer A — local correctness.** Four gate reads at correct signals; `_last_manual_refusal_reason` discipline; `_row_present_and_fresh` semantics (bounds, reap); D2.8 cell-by-cell; verify NO funnel-side gate anywhere.
+**Reviewer A.** Four gates at correct signals; precedence chain at `:3028`; `_release_ok` self-exclusion; D2.4 five-site coverage; D4a all three default sites reduced to 15; **P1 DAO shape matches excursion DAO precedent**; **P2 reason-string discriminator arithmetic.**
 
-**Reviewer B — integration / state-machine integrity.** Gap analysis: verify NO reachable window where `_compromise_timers` / `_nudge_excursion_tokens` / `_nudge_restore_timers` is live but `_rows[zone_id]` is absent/stale (re-run the code trace from the front matter independently). Gate (c) cleared at S4 revert. Gate (d) under passive `override_detected`. Arrester `nudge_win` / `borrow_active` booking reads the row registry, not the timer dicts. `stale_excursion_row` NM path unchanged; not double-emitted. Operator constraint honoured (no changes to borrow code, no changes to funnels).
+**Reviewer B.** No funnel-side gate; `is_borrow_active` side-effect free; reload window (M10); `_apply_compromise` early-return doesn't leak into (c); vacancy bypass respects (a/b)+(e); passive-mode dedup; same-tick set cleared at cycle end; boot-audit rehydration covered by (e) via `stale_ts`; **P1: rehydration precedes `SIGNAL_HVAC_COORDINATOR_READY`; DB failure surfaces as low-severity NM; grace/comfort/compromise NOT rehydrated (verbatim carve-out)**; **P2: no NM on sub-delta reclaim (verify NM channels silent).**
 
-**Reviewer C — test authority via REAL per-site source mutation.** `PYTHONDONTWRITEBYTECODE=1` + cache clear. Each of the 4 gates mutated. Each of the 5 `begin_excursion` sites deferred by one line → corresponding `test_gate_e_active_during_<kind>` RED. Every migrated D2.4 site; every D2.8 site; D2a; D4a. Arrester `nudge_win` / `borrow_active` booking mutations. Each mutation → specific named test failure.
+**Reviewer C.** Each of the 4 gates mutated; each of 5 `begin_excursion` sites deferred; drill M10; arrester precedence rungs mutated; grep `hvac_setpoint.py` for `last_sent` MUST be 0 (lint failure); **P1: neuter rehydration call → `test_immune_hold_persists_across_restart` RED**; **P2: flip delta comparator → sub_delta/zero_delta reason strings swap.**
 
-**Reviewer D — adversarial completeness.** Re-enumerate every path that could set `hold_activity == manual` from URA. Confirm gate (e) covers ALL five borrow kinds and the arrester's `nudge_win` reads the same source. Confirm NO funnel-side gate (grep `emit_*` bodies for any borrow-registry read — MUST be zero). Confirm `S11._release_ok` cannot fire under an Alt-A gate. Falsify INV C-P1A / C-P1B / C2. Confirm the gate-(e) restart-gap analysis holds (in-memory timer dicts don't survive restart; boot audit rehydrates rows). Confirm no config toggle can silently disable a gate without breaking a specific named test.
+**Reviewer D.** Re-enumerate every path that could set `hold_activity == manual` from URA; confirm gate (e) covers all five borrow kinds via row OR arrester-timer fallback; confirm `_handle_climate_change` reads same source; confirm precedence top-down and no double-book; falsify INV C1..C-P1D; **verify restart storm doesn't reintroduce lockout for immune-hold zones (P1 rehydration wins); verify sub-delta case is silent + reason-string discriminates (P2).**
 
-**Two plan reviews before build dispatch:**
-1. **Completeness.** Re-run the code-trace gap analysis (front matter) — verify per-kind `duration_s` flow-through at S3 `hvac_override.py:3390` and S5 `:4449`; verify `stale_ts = duration_s + EXCURSION_LEASE_SLACK_S`; verify `stale_excursion_row` NM is the discharge for cap overrun; verify no funnel-side gate.
-2. **Adversarial build-prediction.** Predict what a builder will get wrong. Specifically challenge: does the plan say gate (e) is the ONE borrow predicate (no funnel-side gate, no BORROW_LOCK)? Does it say the arrester's `nudge_win` booking reads `_row_present_and_fresh` + `_nudge_excursion_tokens`, not any `BORROW_LOCK`? Does it say the row's `stale_ts` bounds the borrow window and `stale_excursion_row` is the overrun NM?
+**Orchestrator hand-check before deploy:** re-grep 28 sites + 5 begin sites; mutation of each gate + each migrated site + each begin-site defer; AST lint; §9.1 replay; reload-window, suppression-kind, vacancy-bypass, S11/S13 self-block, arrester precedence, reclaim-rate NM drills; **P1 restart drill (simulate boot, assert rehydration completes pre-READY); P2 reason-string drill**; grep `hvac_setpoint.py` for `last_sent` (MUST be 0); slider max = 15 and defaults = 15.
 
-**Orchestrator hand-check before deploy:** re-grep 28 sites + 5 begin sites; real source mutation of each of the 4 gates + each migrated site + each begin-site defer drill; AST lint; §9.1-historical replay; gate-(e) stale-reap drill; verify slider max = 15 post-deploy AND stored 20 clamps; verify `preset_change_deferred` telemetry fires with correct reasons and never on a URA-caused zero-delta manual; **grep `emit_*` bodies for any borrow-registry read (MUST be zero)**.
-
-**Operator checkpoint before deploy:** invariant proof; 5-site setpoint-return coverage; 28-site table; four-gate parametric demo incl. all four gate-(e) discharge paths; config-flow slider max.
+**Operator checkpoint:** four-gate demo; P1 restart demo; P2 log-only demo; false-positive-under-restart sanity check.
 
 ---
 
 ## 9. Sequencing / dependencies
 
-1. W1-A **SHIPPED v5.103.16**.
-2. Echo-fix **SHIPPED v5.103.17**.
-3. **Alt A APPROVED 2026-09-27** + **REV-5 collapse (BORROW_LOCK → gate (e))**.
-4. Two plan reviews on this REV 5.
-5. Build in worktree `.claude/worktrees/hvac-w1b-thermostat-definition`.
-6. Build order: D1 + D4 + D4a + D5 → D2 (§5.P1 four-gate helper + `should_change_preset` replacement + `preset_change_deferred` telemetry rewrite; D2.4 five-site migration + preset-return `allow_resume=False`; D2.5; D2.6; D2.8; D2a). **Arrester `nudge_win` / `borrow_active` booking** updated in the arrester's existing detection code (`hvac_override.py:2304-2340`) as part of D2 — a READ addition, not a new listener; still not a "funnel-side gate" (the funnel is not touched).
-7. Four framing-disjoint reviews in parallel. Fix CRIT/HIGH.
-8. Operator checkpoint. Deploy.
-9. Live-validation write-back.
-10. Post-deploy disposition at N ≥ 10.
-11. On §7 PASS: execute §5.P2 DELETE-bucket.
-
-Not this cycle: `HVAC-WRITE-CONFIRMATION-ORACLE-1`.
+1. W1-A SHIPPED v5.103.16. 2. Echo-fix SHIPPED v5.103.17. 3. Alt A APPROVED + REV-5 collapse + REV-6 review-fold + **operator P1/P2 rulings folded (this REV)**. 4. Two Tier-3 plan reviews on this REV 6 (the focused re-review the orchestrator will run before build). 5. Build via new `ura-super-builder` agent in worktree `.claude/worktrees/hvac-w1b-thermostat-definition`. 6. Build order per §4. W2 fast-path plan lines 234/349/588 signature-updated. 7. Four framing-disjoint reviews. 8. Operator checkpoint. Deploy. 9. Live-validation write-back. 10. Disposition at N ≥ 10. 11. On PASS: §5.P2 DELETE-bucket.
 
 **No soak.**
 
@@ -337,50 +434,45 @@ Not this cycle: `HVAC-WRITE-CONFIRMATION-ORACLE-1`.
 
 ## Operator decisions — BINDING (verbatim; annotate, never edit earlier text)
 
-**REV 3 (2026-09-26 "Accept recs"):**
-1. `set_activity_setpoint` NOT adopted this cycle.
-2. No in-code schedule-boundary guard.
-3. Reclaim DELAY + kill switch. [REV 5: SUPERSEDED by Alt A — reclaim path doesn't exist; no delay, no kill switch.]
-4. Ship-gate N ≥ 10, replay pre-deploy.
-5. No Nest stub.
-6. Timing values Rung 1. [REV 5: no new timing values; `stale_ts` bound is the row's existing property.]
-7. Reclaim on TAO / immune-person expiry against HUMAN hold. [REV 4: REMOVED per decision 8.] [REV 5: closed-by-A per §5.P4.]
+**REV 3 (2026-09-26):** 1-7 verbatim + prior annotations. [REV-6 no changes.]
 
-**REV 4 (2026-09-26 evening):**
-8. Scope = problems 1, 2, 3, 5.
-9. Borrow lock nudges + compromises only, hard cap 10 min, LIVE-state, `excursion_id` exempt, one NM at cap. [REV 5 (2026-09-27, orchestrator finding + operator SIMPLIFY direction): SUPERSEDED. Code-verified: every timer/token dict is populated strictly after `_rows[zone_id]`; per-kind `duration_s` already flows into `begin_excursion`; row's `stale_ts = duration_s + EXCURSION_LEASE_SLACK_S` covers the full timer window. Therefore the ONE borrow predicate is gate (e) (`_row_present_and_fresh`), consumed by S1 AND by the arrester's `nudge_win` booking. `BORROW_LOCK_CAP_FOR`, `_lock_capped` memo, `[BORROW LOCK CAP HIT]` NM DELETED — bound = row's `stale_ts`; overrun NM = existing `stale_excursion_row` (`hvac_excursion.py:293-334`). No new borrow code; no funnel-side gate; operator constraint honoured.]
-10. Genuine human change during a locked borrow ENDS the borrow. [REV 5: REVERSED by decision 13 — nudge WINS.]
-11. Problem 1 = presets-only returns + in-memory W1-A last-write record; URA-owned reclaim. [REV 5: SUPERSEDED by Alt A — presets-only returns retained (§5 D2.4); URA-owned reclaim NOT built; S1 writes over residual manual directly, gated by four legitimacy conditions (§5.P1).]
-12. CONFIG-FIRST.
+**REV 4 (2026-09-26 evening):** 8-12 verbatim + prior annotations. [REV-6 no changes.]
 
-**REV 5 (2026-09-27):**
-13. **Decision 10 REVERSED: nudge WINS.** Evidence 564/579 (97 %). Revival: nudge effective share < 80 % over 7 rolling days → `HVAC-NUDGE-EFFECTIVENESS-REVISIT-1`.
-14. **UI max for `hvac_compromise_minutes` trimmed 120 → 15 min**; stored > 15 clamped on read. [REV-5 collapse: the per-kind borrow-cap portion of ruling 14 is honoured via the row's existing `stale_ts` bound — no new cap constants; only the UI clamp lands as new code.]
-15. [SUPERSEDED where provenance-only.]
-16. [SUPERSEDED where provenance-only.]
+**REV 5 (2026-09-27):** 13-16 verbatim + prior annotations. [REV-6 no changes.]
 
-**Mid-turn (2026-09-27, operator):** *"yes. Its outdated design. We know a lot more. We didn't even know borrows would come back as manual then. Note that a and b are basically the same thing. I'm the only immune person currently that can be detected afaik. But I guess we should generalize."* → **Alt A APPROVED.**
+**Mid-turn (2026-09-27):** Alt A APPROVED; gate (e) added; REV-5 BORROW_LOCK collapse.
 
-**Mid-turn amendment (2026-09-27, orchestrator + operator constraint):**
-- Add gate (e) via `_row_present_and_fresh(zone_id)` — the v3.8.0 lease strip relied on the manual-lockout as protection; removing the lockout under Alt A requires S1 to check the registry directly.
-- Rule lives ONLY at S1; borrow code and funnels untouched.
+**REV 6 (2026-09-27, Tier-3 plan-review fold + operator SIMPLIFY + P1/P2 rulings):**
 
-**Mid-turn REV-5 collapse (2026-09-27, orchestrator SIMPLIFY direction):**
-- `BORROW_LOCK` (four LIVE-state sources, `BORROW_LOCK_CAP_FOR`, `_lock_capped`, `[BORROW LOCK CAP HIT]` NM) DELETED. Gate (e) is the ONE borrow predicate. Bound = row's `stale_ts`. Overrun NM = existing `stale_excursion_row`.
-- No funnel-side gate anywhere. No changes to `emit_*` funnels. No changes to `begin_excursion` / `return_excursion` / borrow code.
-- Gap analysis proved no reachable window where an arrester timer/token is live without a fresh row.
+17. **P1 = PERSIST IMMUNE HOLDS.** Operator verbatim (2026-09-27): *"Persist the immune-person hold (zone, holder, start, sunset basis) so it survives a restart and gate (a/b) re-arms at boot before S1's first tick. Grace timers and comfort grants are NOT persisted. The accepted exposure is ≤ 20 min on restart."* Spec: §5 D-P1 (new DAO on `database.py` modelled on `save_excursion_row` precedent; rehydration before `SIGNAL_HVAC_COORDINATOR_READY`; TAO switch RestoreEntity verified/added; ≤ 20 min accepted exposure carve-out documented). Restart test + mutation drill mandatory.
+18. **P2 = ACCEPT + LOG.** Operator verbatim (2026-09-27): *"Within-tolerance human manuals (<1 °F, or <2 °F in coast) are reclaimed by S1 on its next tick with no grace and no NM. The reclaim row records the reason so it is visible in the log."* Spec: `SUB_DELTA_WINDOW_S = 300 s`; reason discriminator `s1_manual_write_through:sub_delta_human` vs `s1_manual_write_through:zero_delta_ura`; no NM; test that pins the behaviour.
+19-27. Gate corrections (M1), gate (e) with pure-read accessor (M2), vacancy-bypass (M3), preset-kind suppression + reclaim-rate NM (M4), operator-constraint restoration (M5), S11/S13 fixes (M6), same-tick (M7), arrester booking precedence (M8), S10 explicit exclusion (M9). [As detailed in the change log.]
+28. Gate (d) reload window (M10).
+29. D4a defaults + named clamp constant (M11).
+30. Acceptance queries corrected + gate snapshot in details + HUMAN_MANUAL definition + C-P1A carve-outs (M12).
+31. PresetManager arrester injection (Also-1).
+32. Behavioural test replacements (Also-2).
+33. Counter renames (Also-3).
+34. All-brands scope (Also-4).
+35. Line refresh (Also-6).
 
 ---
 
-## REV 5 delta summary (for reviewers)
+## REV 6 delta summary (for reviewers)
 
-- **Collapsed:** BORROW_LOCK DELETED. Gate (e) = the ONE borrow predicate for S1 AND arrester `nudge_win`/`borrow_active` booking. Bound = row's `stale_ts`. Overrun = existing `stale_excursion_row` NM.
-- **No funnel-side gate anywhere** — grep the plan; no gate lives in `hvac_setpoint.py`; no changes to borrow code.
-- **Retained:** ruling 13 (nudge wins); ruling 14 UI clamp (§5 D4a); five-site setpoint-return migration (§5 D2.4); no-op suppression; anchors + AST lint; 28-site table with actual verbs; D1 quad-state `WriteResult`; same-tick ordering DROPPED (was tied to BORROW_LOCK arming; under gate (e) it is not needed — a nudge start that populates `_rows` immediately arms gate (e), so any subsequent same-tick S1 write for that zone is already refused).
-- **Deleted (REV-5 collapse):** `BORROW_LOCK_CAP_FOR`, `NUDGE_LOCK_CAP_SLACK_S`, `COMPROMISE_LOCK_CAP_SLACK_S`, `_lock_capped` memo, `[BORROW LOCK CAP HIT]` NM, `_zones_written_this_tick` set.
-- **Corrected:** 28-site table has actual verbs; 7 `set_hvac_mode` stay direct-funnel; only 5 setpoint-return writes exist to migrate; S12 = BANKING; `S11._release_ok` redefined; gate (c) STAYS separate (grace/compromise, not a borrow).
-- **Gap analysis (verified in code):** every `_compromise_timers` / `_nudge_excursion_tokens` / `_nudge_restore_timers` setter is dominated by a preceding `begin_excursion(...)` that populates `_rows`; per-kind `duration_s` already threads through (S3 `hvac_override.py:3390`, S5 `:4449`); row `stale_ts` covers the full timer window plus slack. No reachable gap.
+- **Operator ruled P1 = persist, P2 = accept+log.** Both folded verbatim into front matter + decisions 17-18 + §5 D-P1 (new) + §5.P1 reason discriminator + §7 restart drill + acceptance tests.
+- **P1 REUSE cited:** `database.py:8219/8257/8272` DAO shape; `hvac_excursion.async_startup_excursion_audit` rehydration ordering; `switch.py:701/909/965` RestoreEntity precedent for TAO.
+- **P2 constants:** `SUB_DELTA_WINDOW_S = 300 s`; reason strings grep-friendly; no NM channel touched.
+- **Gates corrected:** (a/b) via `_corrective_writes_suppressed` (post-P1 also sees rehydrated immune holds); (c) comfort-delay + grace + compromise timers (not `_override_active`); (d) reload-window fix; (e) NEW pure-read `is_borrow_active` + arrester-timer fallback.
+- **Vacancy bypass** checks (a/b) + (e); C2/C-P1B manual-qualified with bypass carve-out.
+- **Preset-kind suppression** fix at `hvac.py:2775`; reclaim-rate NM trip-wire.
+- **Operator constraint enforced:** no-op + `last_sent` in strategy; funnels untouched; `allow_resume=False` dropped; resume-then-pin kept.
+- **Arrester `_handle_climate_change:3028`** with precedence chain in `details.gated_reason`; passive-mode dedup.
+- **S10 DPM:** explicit exclusion + card sibling.
+- **D4a:** all three default sites reduced to 15 + named constant.
+- **Accept criteria:** `S1_reason_ladder` site string; gate snapshot in `details`; HUMAN_MANUAL definition; C-P1A carve-outs.
+- **Injection + test rewrites + counters + brand scope + LOWs** folded.
 
-**Falsifiable invariant (one sentence, REV 5 collapsed):** on a Carrier/Bryant zone, no URA borrow return writes a raw setpoint (except HUMAN_MANUAL); while `_row_present_and_fresh(zone_id)` is True, S1 emits zero preset writes to that zone and the arrester books `override_detected` as `nudge_win` (NUDGE) or `borrow_active` (other kinds) without reverting (borrow's own return exempt via `excursion_id`); the nudge wins over any human change for its duration; the funnel emits zero service calls on a proven no-op; AND while the arrester is enabled, no person-protected hold or arrester grace/compromise window is armed, AND no fresh borrow row exists, S1 leaves the zone in `manual` for at most one decision tick; conversely S1 emits zero preset writes while ANY of the four Alt-A gates ((a/b), (c), (d), (e)) is armed.
+**Falsifiable invariant (one sentence, REV 6 + P1/P2):** on any thermostat zone, no URA borrow return writes a raw setpoint (except HUMAN_MANUAL); while `is_borrow_active(zone_id)` is True and the zone reads `manual`, S1 emits zero preset writes and the vacancy bypass does not write `away`; the arrester at `hvac_override.py:3028` books `override_detected` with `details.gated_reason` per precedence and skips revert where the gate wins; the nudge wins over any human change for its duration; the strategy layer emits zero service calls on a proven no-op; while the arrester is enabled and none of the four Alt-A gates is armed, S1 leaves the zone in `manual` for at most one decision tick (with carve-outs for night-trust / row-1 transient / dwell); **an immune-person hold persisted via `hvac_immune_holds` re-arms gate (a/b) on the first post-restart tick, so S1 never reclaims across a restart while the DB row is present; every S1 manual write-through carries a reason string that discriminates `sub_delta_human` from `zero_delta_ura` and fires no NM.**
 
-**Open questions: none.**
+**Open questions: none.** Ready for the orchestrator's focused re-review, then build via `ura-super-builder`.
