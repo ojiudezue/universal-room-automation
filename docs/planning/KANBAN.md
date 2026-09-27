@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-27T02:38:44-05:00_ - _Data commit: `ba57c91e2fcd`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-27T10:33:03-05:00_ - _Data commit: `1ba8403d3640`_ - _last_reconciled: 2026-09-27_
 
 
 ## Columns
@@ -15,9 +15,9 @@ _Generated: 2026-09-27T02:38:44-05:00_ - _Data commit: `ba57c91e2fcd`_ - _last_r
 | 📝 Planned | 22 |
 | 🔨 In progress | 3 |
 | 🔍 Review | 0 |
-| ⏸️ Waiting on operator | 25 |
+| ⏸️ Waiting on operator | 23 |
 | ⏳ Waiting on me (Claude) | 2 |
-| 🚀 Shipped (organic open) | 3 |
+| 🚀 Shipped (organic open) | 5 |
 | 🅿️ Parked | 69 |
 | ✅ Done | 226 |
 
@@ -709,7 +709,8 @@ _created 2026-09-26 02:40 · updated 2026-09-26 11:00 · initial_
 - **Why:** Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.
 - **Next:** Order: nudge-echo fix -> (dwell-clock fix if operator parks the W2 fast path) -> W1-B REV 4 (problems 1-5; fold plan-review #1/#2 findings; borrow-lock scope decision deferred to the re-plan) -> Tier-3 plan reviews -> operator go.
 - **Tags:** hvac, workstream
-- **Forensic keys (8):**
+- **Forensic keys (9):**
+  - `operator_rulings_2026_09_27`: After REV 4 plan reviews (#1 and #2 both FIX-PLAN-FIRST): (B) decision 10 REVERSED — during a NUDGE the nudge WINS over a human change ("Let the house cook and let the nudge win... I have interrupted a nudge before and I had less informa...
   - `operator_go_2026_09_26`: Operator 2026-09-26 ~18:15 CDT: "Finish plan review and start. You have my go" + "unless something unexpected comes up". GO covers W1-B REV 4 plan reviews -> build -> reviews -> DEPLOY without the Tier-3 pre-deploy operator checkpoint, U...
   - `disposition_2026_09_26_groom`: Stage A build in flight 2026-09-26 (feature/hvac-w1a-write-governance). Stage B (W1-B, Tier 3) gated on W1-A live 1 day + D0 probe + Tier-3 plan re-review + operator go. New input for Stage B: state-of-play §9.7 (zone_1 status feed repor...
   - `planning_dispatched_2026_09_26`: Operator: "Cant we start the other pieces of the arc now? Planning?" Two planners dispatched (opus-5.5, read state-of-play first): Stage A -> docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md (Tier 2-DB, behaviour-neutral: a...
@@ -724,7 +725,7 @@ _under review_
 
 _(none)_
 
-## ⏸️ Waiting on operator (25)
+## ⏸️ Waiting on operator (23)
 _needs a human call — groomed first_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
@@ -1047,35 +1048,7 @@ _created 2026-08-21 17:40 · updated 2026-09-23 04:45 · initial_
   - `THE_DESIGN_TENSION_READ_THIS_BEFORE_FIXING`: DO NOT simply add a rate threshold to the existing detector. The impossibility framing was chosen ON PURPOSE so the detector could QUARANTINE-ALWAYS WITH NO CORROBORATOR GATE (chatter_detector.py:8 — "quarantine-ALWAYS on a physics viola...
   - `SECOND_FINDING_WRONG_LEG_WATCHED`: The detector registers over "the room blind-time-gated tier-1 entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,...
 
-### `HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1` - The arrester books Carrier's echo of URA's OWN nudge as a human override (46% of override_detected), then URA locks itself out — the main zone_1 lockout mechanism — _#19 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **waiting_operator**
-_created 2026-09-26 · updated 2026-09-27 02:40_
-- **Next:** APPROVE the v5.103.17 deploy timing: the fix is merged to develop and the README is written; it ships together with ROOM-NAME-UNIQUE-1. The overnight pass does not deploy, because a deploy restarts HA. -> On your go I run deploy.sh 5.103...
-- **Forensic keys (8):**
-  - `disposition_2026_09_26_groom`: BUILT 1ca21dddb (feature/echo-ttl): SUPPRESS_TTL_SECONDS 5 -> 15 (operator-approved simplest fix; value-matched last-write record deferred to W1-B). Review A SHIP: covers all 24 S5 nudge-start echoes + 3 S3 compromise + 1 S12 pre-cool ec...
-  - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
-  - `verify_2026_09_27`: VERIFIED (overnight 2026-09-27): the listed next steps are DONE. Reviewer LOWs folded in 950148b3d; merged to develop in 5bc6e6904 ("Merge feature/echo-ttl"); README_v5.103.17 names this card (d4e2a92c0). Deployed HA is still v5.103.16 (...
-  - `measured_2026_09_26`: ura_activity_log + ac_ramp_events since 2026-09-19: 52 override_detected rows; 24 (46%) land 5.3-7.5 s after a URA nudge_started on the SAME zone (zone_1 17, zone_2 5, zone_3 2); 22 of the 24 are followed by preset_change_locked_out with...
-  - `mechanism`: hvac_override.py:2419-2468 _is_genuine_manual: after a URA temp write the arrester suppresses for SUPPRESS_TTL_SECONDS=5 (hvac_override.py:133, kind="temp"); once the window expires (now >= until) the next change is treated as GENUINE. C...
-  - `correction`: This also corrects the ARRESTER-CLOUDFLAP-FALSEPOS-1 disposition: the 09-25 16:45:36 zone_1+zone_3 "+2F human raise" was URA's own nudges (76->77.5, 78->79.5) echoed at 7.2-7.5 s, not a person.
-  - `w1a_consumer_gap_2026_09_26`: Operator asked "I assume the arrester is now using w1-a?". WRITES: yes — hvac_override.py has 14 emit_set_* funnel calls and 0 raw climate calls. READS: no — override detection uses its own time-only suppression dict (_suppressed_until, ...
-  - `proposed_fix`: Value-matched echo recognition: a change that arrives within an echo window after a URA write AND whose setpoints equal what URA wrote after display rounding (+-0.5 F, round-half-up to the entity's whole-degree display) is URA's echo, no...
-
-### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket) — _#20 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
-_updated 2026-09-27 02:40_
-- **Origin:** 2026-08-14 - ROOM-NAME-DESYNC-1 Review C adversarial find (D-MED-1): rename Room A to an existing Room B name — zero validation; _room_to_zone dict + ZonePresenceTracker.room_names + substrate bucket keys all name-keyed -> silent overwri...
-- **Why:** Join-key uniqueness is an unenforced invariant every name-keyed tier map depends on.
-- **Next:** APPROVE the v5.103.17 deploy timing (bundled with HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1). -> On your go I deploy and live-validate per README_v5.103.17.
-- **Forensic keys (6):**
-  - `disposition_2026_09_26_groom`: RE-LANED (was wrongly stamped shipped by the v5.101.0 --cards list). VERIFIED 2026-09-26: the CREATE-time guard shipped (config_flow.py:1375-1388, room_name_exists), but the RENAME path — options-flow basic_setup write-through at config_...
-  - `ship_approved_2026_09_12`: APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (room_name_exists guard in async_step_room_setup config_flow.py:1122/1129 + strings.json:465). Moves review->shipped_organic at deploy.
-  - `verify_2026_09_27`: VERIFIED (overnight 2026-09-27): still NOT deployed (HA manifest reads v5.103.16). README_v5.103.17 is written and names this card. "Tomorrow" in the old next (09-12) is long stale. The one remaining step is the deploy, which is an opera...
-  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no uniqueness guard in config_flow.py (0 hits). ~15 LoC Tier-1; fold into next config-flow batch.
-  - `disposition_2026_09_12_built`: BUILT 2026-09-12 (Tier-1, overnight autonomous). Added create-time duplicate-room-name guard in async_step_room_setup (config_flow.py:1114-1135), mirroring the existing zone_name_exists guard: case-insensitive + whitespace-trimmed compar...
-  - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
-
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#21 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#19 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-19 03:50_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -1094,7 +1067,7 @@ _updated 2026-09-19 03:50_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped) — _#22 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped) — _#20 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
 _updated 2026-09-19 03:50_
 - **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
@@ -1106,7 +1079,7 @@ _updated 2026-09-19 03:50_
   - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
   - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real...
 
-### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#23 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#21 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-27 02:40 · refined_
 - **Problem / Solution:**
@@ -1121,7 +1094,7 @@ _created 2026-09-27 02:40 · refined_
   - `refinement_2026_09_27`: Assumed the fix was "repair the window" -> replay shows the repair would flood about 12 alerts/day once z-score mode engages, so the choice is retire vs redesign, not repair.
   - `verified_2026_09_27`: CODE: RateOfChangeDetector.get_rate (safety.py ~636-675) sets window_start = now - WINDOW_MINUTES(30), takes the oldest reading >= window_start, and returns None unless latest - oldest >= MIN_WINDOW_SECONDS (1800, safety.py:618). Because...
 
-### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#24 · WSJF 1.2 · v5 tc3 u2 /e8_
+### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#22 · WSJF 1.2 · v5 tc3 u2 /e8_
 thread: **diagnostics** - status: **waiting_operator**
 _created 2026-08-19 09:00 · updated 2026-09-23 04:45 · refined_
 - **Next:** APPROVE building D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) as a SHADOW-FIRST ship. NOTE: approving STARTS a hard 2-day forcing gate (flip to acting within 2 days of shadow deploy or declare moot).
@@ -1134,7 +1107,7 @@ _created 2026-08-19 09:00 · updated 2026-09-23 04:45 · refined_
   - `build_2026_08_19`: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
   - `reviews_2026_08_19`: D7 TIER-3 REVIEWS: A+D SHIP-WITH-FIX, B+C DO-NOT-SHIP — INDEPENDENTLY CONVERGED on the HIGH. Boot-safety CLEAN (no repeat of the v5.84.0 import-shadow incident class). HIGH: act->shadow/off mode-flip leaves stale chatter exclusions (occu...
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#25 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#23 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-22 02:32_
 - **Problem / Solution:**
@@ -1175,7 +1148,7 @@ _created 2026-09-26 · updated 2026-09-26 16:50_
   - `disposition_2026_09_26_groom`: OPERATOR DID IT 2026-09-26 20:56:21Z: Game Room presence_sensors now ['binary_sensor.0xa4c1382e60e05225_presence'] (friendly name Motion_Lux_Temp_Humidity_Zigbee_Gameroom Occupancy, live); Exercise Room keeps binary_sensor.mmwave_zigbee_...
   - `correction_2026_09_26`: Operator: the sensor was physically MOVED to the Exercise Room when Ziri moved out; MQTT friendly name updated but the HA entity_id still says gameroom. So Exercise Room is CORRECT; Game Room's claim is the stale one, and because Game Ro...
 
-## 🚀 Shipped (organic open) (3)
+## 🚀 Shipped (organic open) (5)
 _live, awaiting proof_
 
 ### `SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1` - Solar-following car charging steers off a grid reading that lags by a minute — point it at the new fast (~5-6s) local reading instead — _#1 · WSJF 5.0 · v5 tc3 u2 /e2_
@@ -1229,6 +1202,34 @@ _created 2026-09-17 · updated 2026-09-26 09:10_
   - `operator_decision_2026_09_26_failed_room`: Operator picked option (a): "The room does not count to decisions and acts like its not defined in URA." Matches the fix-up default (excluded room contributes nothing; zone decides on its remaining live rooms immediately, no extra vacanc...
   - `review_round2_2026_09_26`: Fix-up 3e707612b + wire-in round 9374b2361 (row-1 hold restructured to suppress only the preset write; D5 shed clears it). Focused re-review: FIX-REQUIRED — HIGH UnboundLocalError: _row1_hold_write assigned only under `if zi:` (hvac.py:2...
   - `review_C_2026_09_26`: Validator round 4 @91e6f9559: CLEAN (0 NEW names, 3 GONE). Reviewer C (41 real per-site source mutations): FIX-REQUIRED — green-under-mutation: HIGH row-1 hold transient conjunct hvac.py:2090 (dropping it makes every empty zone hold — fu...
+
+### `HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1` - The arrester books Carrier's echo of URA's OWN nudge as a human override (46% of override_detected), then URA locks itself out — the main zone_1 lockout mechanism — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **shipped_organic**
+_created 2026-09-26 · updated 2026-09-27 02:40_
+- **Next:** APPROVE the v5.103.17 deploy timing: the fix is merged to develop and the README is written; it ships together with ROOM-NAME-UNIQUE-1. The overnight pass does not deploy, because a deploy restarts HA. -> On your go I run deploy.sh 5.103...
+- **Forensic keys (8):**
+  - `disposition_2026_09_26_groom`: BUILT 1ca21dddb (feature/echo-ttl): SUPPRESS_TTL_SECONDS 5 -> 15 (operator-approved simplest fix; value-matched last-write record deferred to W1-B). Review A SHIP: covers all 24 S5 nudge-start echoes + 3 S3 compromise + 1 S12 pre-cool ec...
+  - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
+  - `verify_2026_09_27`: VERIFIED (overnight 2026-09-27): the listed next steps are DONE. Reviewer LOWs folded in 950148b3d; merged to develop in 5bc6e6904 ("Merge feature/echo-ttl"); README_v5.103.17 names this card (d4e2a92c0). Deployed HA is still v5.103.16 (...
+  - `measured_2026_09_26`: ura_activity_log + ac_ramp_events since 2026-09-19: 52 override_detected rows; 24 (46%) land 5.3-7.5 s after a URA nudge_started on the SAME zone (zone_1 17, zone_2 5, zone_3 2); 22 of the 24 are followed by preset_change_locked_out with...
+  - `mechanism`: hvac_override.py:2419-2468 _is_genuine_manual: after a URA temp write the arrester suppresses for SUPPRESS_TTL_SECONDS=5 (hvac_override.py:133, kind="temp"); once the window expires (now >= until) the next change is treated as GENUINE. C...
+  - `correction`: This also corrects the ARRESTER-CLOUDFLAP-FALSEPOS-1 disposition: the 09-25 16:45:36 zone_1+zone_3 "+2F human raise" was URA's own nudges (76->77.5, 78->79.5) echoed at 7.2-7.5 s, not a person.
+  - `w1a_consumer_gap_2026_09_26`: Operator asked "I assume the arrester is now using w1-a?". WRITES: yes — hvac_override.py has 14 emit_set_* funnel calls and 0 raw climate calls. READS: no — override detection uses its own time-only suppression dict (_suppressed_until, ...
+  - `proposed_fix`: Value-matched echo recognition: a change that arrives within an echo window after a URA write AND whose setpoints equal what URA wrote after display rounding (+-0.5 F, round-half-up to the entity's whole-degree display) is URA's echo, no...
+
+### `ROOM-NAME-UNIQUE-1` - Room rename has no name-uniqueness guard — collision collapses name-keyed maps (two rooms fold into one occupancy bucket) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **shipped_organic** - approval: **unreviewed**
+_updated 2026-09-27 02:40_
+- **Origin:** 2026-08-14 - ROOM-NAME-DESYNC-1 Review C adversarial find (D-MED-1): rename Room A to an existing Room B name — zero validation; _room_to_zone dict + ZonePresenceTracker.room_names + substrate bucket keys all name-keyed -> silent overwri...
+- **Why:** Join-key uniqueness is an unenforced invariant every name-keyed tier map depends on.
+- **Next:** APPROVE the v5.103.17 deploy timing (bundled with HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1). -> On your go I deploy and live-validate per README_v5.103.17.
+- **Forensic keys (6):**
+  - `disposition_2026_09_26_groom`: RE-LANED (was wrongly stamped shipped by the v5.101.0 --cards list). VERIFIED 2026-09-26: the CREATE-time guard shipped (config_flow.py:1375-1388, room_name_exists), but the RENAME path — options-flow basic_setup write-through at config_...
+  - `ship_approved_2026_09_12`: APPROVED to ship on next deploy (operator 2026-09-12). DONE + on develop (room_name_exists guard in async_step_room_setup config_flow.py:1122/1129 + strings.json:465). Moves review->shipped_organic at deploy.
+  - `verify_2026_09_27`: VERIFIED (overnight 2026-09-27): still NOT deployed (HA manifest reads v5.103.16). README_v5.103.17 is written and names this card. "Tomorrow" in the old next (09-12) is long stale. The one remaining step is the deploy, which is an opera...
+  - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no uniqueness guard in config_flow.py (0 hits). ~15 LoC Tier-1; fold into next config-flow batch.
+  - `disposition_2026_09_12_built`: BUILT 2026-09-12 (Tier-1, overnight autonomous). Added create-time duplicate-room-name guard in async_step_room_setup (config_flow.py:1114-1135), mirroring the existing zone_name_exists guard: case-insensitive + whitespace-trimmed compar...
+  - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
 
 ## 🅿️ Parked (69)
 _revisit-trigger set_
