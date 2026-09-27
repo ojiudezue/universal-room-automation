@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-27T16:36:00-05:00_ - _Data commit: `04a28a2c55fe`_ - _last_reconciled: 2026-09-27_
+_Generated: 2026-09-27T17:36:11-05:00_ - _Data commit: `f26ff81e189d`_ - _last_reconciled: 2026-09-27_
 
 
 ## Columns
@@ -714,7 +714,8 @@ _created 2026-09-26 02:40 · updated 2026-09-26 11:00 · initial_
 - **Why:** Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.
 - **Next:** Order: nudge-echo fix -> (dwell-clock fix if operator parks the W2 fast path) -> W1-B REV 4 (problems 1-5; fold plan-review #1/#2 findings; borrow-lock scope decision deferred to the re-plan) -> Tier-3 plan reviews -> operator go.
 - **Tags:** hvac, workstream
-- **Forensic keys (11):**
+- **Forensic keys (12):**
+  - `build_review_2026_09_27`: Built by ura-super-builder (e77dd686/2297eb8b/b444046d, tag pre-review-v5.103.18): 121 tests, 60 drills. 4 Tier-3 reviews all FIX-REQUIRED -> fix-up dispatched: gate (e) simplified to fresh row OR nudge/compromise timers + new gate (f) k...
   - `rev5_2026_09_27`: REV 5 committed 3ed9afda1: S1 manual guard replaced (Alt A, 4 gates: person-protected / arrester grace-compromise / arrester disabled=passive / live borrow row via _row_present_and_fresh). BORROW_LOCK collapsed into gate (e) (verified no...
   - `operator_decision_2026_09_27_manual_guard`: APPROVED (operator): replace the v3.8.0 S1 manual guard (hvac_preset.py:214-216 "Don't fight manual — that's the arrester's job"; design doc HVAC_COORDINATOR_DESIGN.md:934 "respect user") with: S1 may write over manual UNLESS (a) Temp Ar...
   - `operator_rulings_2026_09_27`: After REV 4 plan reviews (#1 and #2 both FIX-PLAN-FIRST): (B) decision 10 REVERSED — during a NUDGE the nudge WINS over a human change ("Let the house cook and let the nudge win... I have interrupted a nudge before and I had less informa...
