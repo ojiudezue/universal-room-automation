@@ -1680,6 +1680,11 @@ class SafetyCoordinator(BaseCoordinator):
             # history and the persistent per-sensor rate baseline).
             if (sensor_type == "humidity" and HUMIDITY_PLAUSIBLE_MIN_PCT > 0
                     and value < HUMIDITY_PLAUSIBLE_MIN_PCT):
+                _LOGGER.debug(
+                    "Ignoring implausible humidity %s%% from %s before rate "
+                    "record (< floor %s%%)",
+                    value, entity_id, HUMIDITY_PLAUSIBLE_MIN_PCT,
+                )
                 return hazards
 
             # Record for rate-of-change detection (after normalization)
