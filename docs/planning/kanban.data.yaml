@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'SAFETY-RECONNECT-ZERO-SIBLINGS-1@2026-09-27T02:38:41'
+    at: '2026-09-27T02:38:41'
+    outcome: parked
+    headline: 'Checked whether the same junk "0" reading could fake a freeze alarm or trick a bathroom fan on: it could in theory, but it has never happened. There have been no freeze alerts ever, and the 5 fan-controlled bathrooms humidity sensors never sent a sub-5% reading. Parked with a trigger to revisit if one ever does.'
+    acknowledged: false
   - fid: 'SAFETY-HAZARD-NEVER-CLEARS-1@2026-09-27T02:37:41'
     at: '2026-09-27T02:37:41'
     outcome: measured
@@ -1030,9 +1035,10 @@ cards:
 - id: SAFETY-RECONNECT-ZERO-SIBLINGS-1
   title: The same junk "0" reconnect reading can also fake a freeze alarm or switch a bathroom fan on; guard those paths too
   thread: safety
-  status: investigating
+  status: parked
   created: '2026-09-27 05:00'
-  updated: '2026-09-27 05:00'
+  updated: '2026-09-27 05:50'
+  measured_2026_09_27_fan: 'MEASURED (overnight 2026-09-27, recorder about 10 days): the 5 rooms with humidity_fan_control_enabled (Guest Bedroom 2 Bathroom, Jaya Bathroom, Ziri Bathroom, Laundry, Master Bathroom) use Zigbee/MQTT humidity sensors that logged ZERO readings below 5% in the retained history. The reconnect-zero sensors seen so far (the invisoutlet Study A and Dining sensors) are not on fan-controlled rooms. Freeze path: 0 freeze-risk alerts ever. VERDICT: PARK. The defect is real in code, but it has 0 occurrences on the paths that matter, so building now is not worth a review cycle. The revival trigger is in next.'
   refinement_status: initial
   approval: unreviewed
   tags: [tier-1, measure-before-build, no-fabrication-verify]
@@ -1050,7 +1056,7 @@ cards:
   parsimony:
     problem: A 1 s reconnect 0 can feed freeze-risk (temperature) and the humidity-fan spike baseline with no plausibility floor.
     verdict: MEASURE (fan) / PARK (freeze, 0 occurrences)
-  next: 'MEASURE (me): for rooms with humidity fan control enabled, count humidity readings below 5% in the recorder over 10 days, and any fan turn-on within alpha_s after one. If there are any, build the floor at the fan baseline (Tier 1). If none, park with the trigger "a humidity sensor on a fan-controlled room emits a sub-5 reading".'
+  next: 'PARKED. Revival trigger: any humidity sensor bound to a humidity-fan-controlled room logs a reading below 5% (re-run the one-line recorder query below), OR any freeze_risk alert appears in notification_log with a temperature at or near 0. On trigger: Tier 1 floor at the fan baseline / temperature path, same shape as SAFETY-HUMIDITY-JUNK-READING-1.'
   links:
     related: [SAFETY-HUMIDITY-JUNK-READING-1, ENVOY-STREAM-SOC-TIER-1]
     context: 'Siblings of the same reconnect-zero defect; the humidity safety site is fixed on the parent card.'
@@ -30025,9 +30031,10 @@ cards:
 - id: TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1
   title: About ten test files still edit real production code in place while the suite runs, so a killed run or a concurrent git operation can leave the repo silently broken
   thread: platform
-  status: planned
+  status: in_progress
   created: '2026-09-26 02:14'
-  updated: '2026-09-26 02:14'
+  updated: '2026-09-27 06:00'
+  gate_2026_09_27: 'FOUR-STEP GATE (overnight 2026-09-27). (1) VALIDITY: still real. Re-grep of quality/tests files that write_text AND reference custom_components: in-place writers with 0-1 tmp refs are still test_ble_extend_not_create, test_chatter_wire_in, test_dp_yields_to_excess_solar, test_energy_write_verification, test_evse_drain_precedence_session_b2a / b2b_i / b2b_ii / b2c1_fixup / b2c3_fixup, test_fan_transition_gate (10). test_dp_drain_target_value_stamp, test_energy_projector_grep_singleton and test_resolver_accuracy carry tmp refs and must be verified individually. (1b) CONFIG-FIRST: not applicable (test infrastructure). (2) PRIOR ART: REUSE the SIGKILL-safe pattern in quality/tests/test_owner_registry_mutation_matrix.py:32-101 (copytree custom_components into a tempdir, symlink the rest, subprocess with a PYTHONPATH prefix, assert the real file md5 is unchanged). (3) PARSIMONY: BUILD, extracting that pattern into one shared helper instead of copying it 10 times. (4) COST/BENEFIT: test-only, zero house risk, observed live 09-26. Tier 1. Building to review overnight on feature/test-mutation-sandbox; no merge.'
   refinement_status: initial
   approval: implied
   tags:
