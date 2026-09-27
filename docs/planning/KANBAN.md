@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-27T02:10:51-05:00_ - _Data commit: `aa1982ca888e`_ - _last_reconciled: 2026-09-26_
+_Generated: 2026-09-27T02:15:31-05:00_ - _Data commit: `48abdaf9142e`_ - _last_reconciled: 2026-09-26_
 
 
 ## Columns
@@ -13,7 +13,7 @@ _Generated: 2026-09-27T02:10:51-05:00_ - _Data commit: `aa1982ca888e`_ - _last_r
 | 🔬 Investigating | 5 |
 | 🧭 Pre-planning | 11 |
 | 📝 Planned | 23 |
-| 🔨 In progress | 1 |
+| 🔨 In progress | 2 |
 | 🔍 Review | 2 |
 | ⏸️ Waiting on operator | 22 |
 | ⏳ Waiting on me (Claude) | 2 |
@@ -660,10 +660,25 @@ _created 2026-09-16_
 - **Tags:** energy, tier-2db, bug-class-53, needs-plan-review
 - **Parsimony:** [BUILD] three ordering invariants are validated at save time + anomaly-flagged at runtime but their ~25 live decision readers still read raw, so an inverted slider flips a gate
 
-## 🔨 In progress (1)
+## 🔨 In progress (2)
 _being built_
 
-### `HVAC-W1-THERMOSTAT-DEFINITION` - W1 — One thermostat definition per brand: how URA writes, borrows/returns, and reads a thermostat, discovered in detail and applied everywhere — _#1 · WSJF 2.1 · v10 tc8 u9 /e13_
+### `SAFETY-HUMIDITY-JUNK-READING-1` - A single junk "0% humidity" reading from a reconnecting sensor raises a safety alert; ignore physically impossible humidity values — _#1 · WSJF 4.5 · v4 tc3 u2 /e2_
+thread: **safety** - status: **in_progress** - approval: **implied**
+_created 2026-09-27 03:45 · initial_
+- **Problem / Solution:**
+  - Problem: some humidity sensors send a bogus reading of 0% (or 3%) for about a second while they reconnect. The safety system treats any reading at or below 25% as low humidity and raises an alert IMMEDIATELY, with no check that the value...
+- **Origin:** 2026-09-27 - Found by the empty-house natural-experiment interim probe (overnight 2026-09-27): a MEDIUM safety alert "Low humidity: 0.0% in Study A" at 23:35 CDT with nobody home.
+- **Why:** An alert that fires on an impossible value trains people to ignore safety alerts. The configured Study A sensor (sensor.invisoutlet_b7d0_humidity) wrote 0 for 1 s at 23:35:24 and then unknown at 23:35:25, a reconnect artifact. The record...
+- **Next:** BUILD (me, overnight): ura-builder in a worktree on feature/safety-humidity-junk-floor, add the floor at both sites (early-return in _handle_humidity so a junk value neither fires low nor resets the high-humidity timer; treat as None in ...
+- **Tags:** tier-1, mutation-drill, no-fabrication-verify, numbers-get-knobs
+- **Parsimony:** [SIMPLIFY (plausibility floor only)] Humidity readings below 5% (physically impossible indoors) raise low-humidity safety alerts and chip trips.
+- **Forensic keys (3):**
+  - `evidence_2026_09_27`: notification_log, all "Low humidity" safety alerts since 09-12: 09-12 Dining Room 3.0% (MEDIUM), 09-16 Study A 0.0% (MEDIUM), 09-26 Garage A 30.0% (LOW, plausible), 09-27 Study A 0.0% (MEDIUM). All four went out with bucket_outcome no_ch...
+  - `gate_2026_09_27`: (1) VALIDITY: still real, 3 junk alerts in 16 days, code path confirmed. (1b) CONFIG-FIRST: no knob covers it. LOW_HUMIDITY_THRESHOLDS are rung-1 constants, and swapping each room to a different humidity sensor is whack-a-mole because an...
+  - `open_question_garage`: NOT BUILT, and flagged for the operator: the zone chip treats garages as humidity-EXEMPT ("garage RH tracks weather"), but the safety coordinator still fires low-humidity for garages (09-26 "30.0% in Garage A", LOW). The coordinator and ...
+
+### `HVAC-W1-THERMOSTAT-DEFINITION` - W1 — One thermostat definition per brand: how URA writes, borrows/returns, and reads a thermostat, discovered in detail and applied everywhere — _#2 · WSJF 2.1 · v10 tc8 u9 /e13_
 thread: **hvac** - status: **in_progress** - approval: **explicit**
 _created 2026-09-26 02:40 · updated 2026-09-26 11:00 · initial_
 - **Problem / Solution:**

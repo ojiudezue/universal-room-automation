@@ -949,6 +949,40 @@ meta:
       plus a count shown at session start so regrowth is visible instead of being noticed by accident
       nine days later.'
 cards:
+- id: SAFETY-HUMIDITY-JUNK-READING-1
+  title: A single junk "0% humidity" reading from a reconnecting sensor raises a safety alert; ignore physically impossible humidity values
+  thread: safety
+  status: in_progress
+  created: '2026-09-27 03:45'
+  updated: '2026-09-27 03:45'
+  refinement_status: initial
+  approval: implied
+  tags: [tier-1, mutation-drill, no-fabrication-verify, numbers-get-knobs]
+  problem_solution:
+  - 'Problem: some humidity sensors send a bogus reading of 0% (or 3%) for about a second while they reconnect. The safety system treats any reading at or below 25% as low humidity and raises an alert IMMEDIATELY, with no check that the value is even possible indoors. Three of the four low-humidity alerts in the last two weeks were these junk readings (Study A 0.0% twice, Dining Room 3.0%). The same junk reading also resets the high-humidity timer and can trip the zone safety chip. Solution: treat any humidity below a small floor (5%) as an invalid reading and ignore it everywhere the safety code reads humidity, the way a missing reading is ignored.'
+  origin:
+    date: '2026-09-27'
+    gist: 'Found by the empty-house natural-experiment interim probe (overnight 2026-09-27): a MEDIUM safety alert "Low humidity: 0.0% in Study A" at 23:35 CDT with nobody home.'
+  why: 'An alert that fires on an impossible value trains people to ignore safety alerts. The configured Study A sensor (sensor.invisoutlet_b7d0_humidity) wrote 0 for 1 s at 23:35:24 and then unknown at 23:35:25, a reconnect artifact. The recorder shows it reads 46-49% on either side.'
+  evidence_2026_09_27: 'notification_log, all "Low humidity" safety alerts since 09-12: 09-12 Dining Room 3.0% (MEDIUM), 09-16 Study A 0.0% (MEDIUM), 09-26 Garage A 30.0% (LOW, plausible), 09-27 Study A 0.0% (MEDIUM). All four went out with bucket_outcome no_channel_fired, so none reached a phone; the harm is audit noise, hazard state, and a possible zone chip trip. Code: safety.py LOW_HUMIDITY_THRESHOLDS (MEDIUM 25 / LOW 30) and _handle_humidity low branch ("fires immediately", no plausibility check); evaluate_zone_chip compares humidity < humidity_low_medium with no floor. Prior-art grep for plausibility/sanity/valid-range guards in safety.py and the domain coordinators found none, so this is NEW: one module constant.'
+  gate_2026_09_27: '(1) VALIDITY: still real, 3 junk alerts in 16 days, code path confirmed. (1b) CONFIG-FIRST: no knob covers it. LOW_HUMIDITY_THRESHOLDS are rung-1 constants, and swapping each room to a different humidity sensor is whack-a-mole because any Zigbee/Wi-Fi sensor can emit a reconnect 0. (2) PRIOR ART: none; NEW constant. (3) PARSIMONY: SIMPLIFY. A floor, not a sustain window: a sustain window adds timer state that needs restart handling, for no extra benefit on these data. (4) COST/BENEFIT: about 10 LoC in one file, fail-safe direction. Below 5% RH is not physically reachable in an occupied Texas house. Tier 1. Overnight contract: build + review to the review lane; NO merge to develop, NO deploy.'
+  knobs:
+  - 'HUMIDITY_PLAUSIBLE_MIN_PCT = 5.0 (rung 1, module constant in safety.py): a safety-semantics bound; changing it should require review, same rung as LOW_HUMIDITY_THRESHOLDS. 0 disables the floor.'
+  open_question_garage: 'NOT BUILT, and flagged for the operator: the zone chip treats garages as humidity-EXEMPT ("garage RH tracks weather"), but the safety coordinator still fires low-humidity for garages (09-26 "30.0% in Garage A", LOW). The coordinator and the chip disagree about garages. It is a separate policy call, so it is kept out of this fix.'
+  parked_alts:
+  - 'Sustained-window (e.g. low humidity must hold 10 min): rejected for now. It adds timer state, and the observed junk is a single sample well below any real value, which the floor catches alone.'
+  refinement: []
+  rank:
+    value: 4
+    time_criticality: 3
+    effort: 2
+  parsimony:
+    problem: Humidity readings below 5% (physically impossible indoors) raise low-humidity safety alerts and chip trips.
+    verdict: SIMPLIFY (plausibility floor only)
+  next: 'BUILD (me, overnight): ura-builder in a worktree on feature/safety-humidity-junk-floor, add the floor at both sites (early-return in _handle_humidity so a junk value neither fires low nor resets the high-humidity timer; treat as None in evaluate_zone_chip), tests with mutation anchors, then review and validation. Leave it on the branch for the operator to approve the merge into a deploy.'
+  links:
+    related: [NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26, ENVOY-STREAM-SOC-TIER-1]
+    context: 'Found by the empty-house experiment probe. Same failure SHAPE as ENVOY-STREAM-SOC-TIER-1 constraint 3.8, where a device emits a junk 0 on reconnect. That is a recurring pattern (reconnect-zero) worth a QUALITY_CONTEXT bug-class note.'
 - id: WIFI-ACTUATOR-FLEET-FLAP-1
   title: About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss
   thread: presence
