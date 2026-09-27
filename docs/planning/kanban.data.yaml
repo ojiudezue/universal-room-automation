@@ -2696,15 +2696,16 @@ cards:
     context: 'Found by the v5.103.4 interim lockout read. Explains why manual% did not move on zone_1
       (67.5% vs 69.6%). Distinct from escape (URA refuses to write) — here something WRITES manual. 2026-09-26: blocked_by W1-A because W1-B''s D0 probe (the instrument for the remaining strand-cause question) needs one clean day of W1-A climate_write rows; HVAC-W1-THERMOSTAT-DEFINITION is where the fix lands.'
 - id: PERSON-STATIONARY-TRACKER-BLIP-1
+  operator_action_2026_09_27: 'Operator trimmed person.oji_udezue trackers 19 -> 5, all phone-carried (verified live 17:26 CDT): phalanxiphone15promax, phalanxiphone15promaxcflare, iphone_oji_bermuda_tracker, unifi_default_12_83_ec_78_6d_6c, private_ble_device_8ce182. Other persons not yet checked.'
   title: person.oji_udezue blips home for <1 s when the phone tracker drops, because home-stationary trackers are attached to the person - fires phantom pre-arrivals
-  status: waiting_operator
+  status: waiting_me
   thread: presence
   created: '2026-09-27'
   updated: '2026-09-27 17:30'
   origin: 'Empty-house natural experiment item 8 (not pre-registered), 2026-09-27.'
   why: '4 zero-second home blips on 09-26 each within 0.4-1.2 s of device_tracker.phalanxiphone15promaxcflare going unavailable; person.oji_udezue has 19 trackers incl. home-stationary ones (mac minis, tablets, entrypad). One blip fired a phantom pre-arrival (zone_1 pre-cool). Hypothesis (HA person fallback to a stationary tracker) NOT verified in HA core source.'
   sweep_2026_09_27: 'Board + BACKLOG grepped for blip/flicker/cflare/geofence pre-arrival: only this experiment card carries it. NEW.'
-  next: 'DO (config-first): remove the home-stationary device trackers from person.oji_udezue (Settings > People) -> I verify zero sub-second home blips over the next few days and close. If you need them attached, ANSWER why and I will scope a pre-arrival debounce instead.'
+  next: 'VERIFY (me): recorder count of person.oji_udezue home states lasting < 60 s since 2026-09-27 17:26 CDT = 0 over the next several days; also check whether ezinne/jaya/other person entities carry home-stationary trackers. Then close.'
   links: {related: [NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26]}
 - id: NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26
   final_readout_2026_09_27: 'FINAL (window 09-26 14:35 -> 09-27 12:13 CDT, 21.6 h; first real return person.jaya 12:43). (1) PHANTOM OCCUPANCY: 21 room entries in 2 rooms: Kitchen Hallway Garage 20 (source motion = the room''s OWN Zigbee presence sensor binary_sensor.occupancy_lux_temp_humidity_garagekitchenhallway_presence — CORRECTED 2026-09-27, NOT the garage opener; stuck-signal shadow flagged it 14x WOULD-quarantine) -> STUCK-SENSOR-1; Master Bathroom 1 (mmWave, 16 min, 23:35-23:51). No other room produced a phantom. (2) CENSUS/GUEST: house total 0 in all 931 snapshots, 0 house-state transitions -> NO guest false positive with nobody home. Property 1/unidentified in 16 snapshots (passers-by, alongside perimeter alerts). (3) OVERRIDE/MANUAL: 0 rows. The C22 candidate rule could not be tested (no manual arose) - neutral. (4) PRESETS: zone_1 got 130 away writes (6.0/h) + 126 climate_write rows; zones 2/3 ZERO -> re-issued-away loop confirmed with no human possible (HVAC-WRITE-CONFIRMATION-ORACLE-1). (5) ACTUATION: no phantom light/fan turn-on (27 shared_space_auto_off are OFFs); 1 phantom pre-arrival (15:03:51) from a 0.2 s person.oji_udezue home blip (item 8 -> PERSON-STATIONARY-TRACKER-BLIP-1). (6) NOTIFICATIONS: 25 perimeter notification rows = ~5 distinct UniFi Protect person_detected events (rear_ptz, g5_bullet; 07:34, 08:21, 11:26, 20:20) each fanned to ~4 recipients/channels + audit rows (CORRECTED 2026-09-27: Protect person detection is independent of Frigate2; operator: Protect still sees persons) -> PERIMETER-ALERT-VOLUME-FATIGUE-1; 28 Envoy Offline HIGH; 1 false safety low-humidity 0.0% (SAFETY-HUMIDITY-JUNK-READING-1). (7) LOAD — CORRECTED 2026-09-27: first read used sensor.span_panel_current_power, which is the GRID FEED (battery covers the house at night), so 1.7 kW was wrong. House consumption (Envoy consumption CT, kW): empty overnight 02-06 CDT 3.0 kW (AC ~0.5 kW -> non-AC ~2.5 kW; EVSE ~0.18 kW); occupied nights 09-23..25 5-6 kW, 09-20..22 9-12 kW. No pets (operator).'
@@ -10187,6 +10188,7 @@ cards:
     (measure-first).'
   - 'RE-APPLY: deferred -> parked. Revisit: resident-in-guest-room-without-phone false-GUEST recurs.'
 - id: STUCK-SENSOR-1
+  operator_action_2026_09_27: 'Operator replaced the battery on binary_sensor.occupancy_lux_temp_humidity_garagekitchenhallway_presence ("just in case") after the empty-house read showed 20 phantom entries in 21.6 h. Discriminator: next empty/low-traffic window phantom entry rate on this sensor vs 20/21.6 h.'
   evidence_empty_house_2026_09_27: 'Empty-house experiment: Kitchen Hallway Garage produced 20 phantom occupancy entries (source motion, the room''s own Zigbee presence sensor binary_sensor.occupancy_lux_temp_humidity_garagekitchenhallway_presence — corrected, not the garage opener) in 21.6 h; stuck-signal shadow flagged it 14x WOULD-quarantine + 9 chatter recoveries. Only other phantom: Master Bathroom mmWave once (16 min).'
   title: Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
   thread: presence
