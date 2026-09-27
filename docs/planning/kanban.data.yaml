@@ -2695,9 +2695,22 @@ cards:
     blocked_by: [HVAC-SETHVACMODE-CHOKEPOINT-1]
     context: 'Found by the v5.103.4 interim lockout read. Explains why manual% did not move on zone_1
       (67.5% vs 69.6%). Distinct from escape (URA refuses to write) — here something WRITES manual. 2026-09-26: blocked_by W1-A because W1-B''s D0 probe (the instrument for the remaining strand-cause question) needs one clean day of W1-A climate_write rows; HVAC-W1-THERMOSTAT-DEFINITION is where the fix lands.'
+- id: PERSON-STATIONARY-TRACKER-BLIP-1
+  title: person.oji_udezue blips home for <1 s when the phone tracker drops, because home-stationary trackers are attached to the person - fires phantom pre-arrivals
+  status: waiting_operator
+  thread: presence
+  created: '2026-09-27'
+  updated: '2026-09-27 17:30'
+  origin: 'Empty-house natural experiment item 8 (not pre-registered), 2026-09-27.'
+  why: '4 zero-second home blips on 09-26 each within 0.4-1.2 s of device_tracker.phalanxiphone15promaxcflare going unavailable; person.oji_udezue has 19 trackers incl. home-stationary ones (mac minis, tablets, entrypad). One blip fired a phantom pre-arrival (zone_1 pre-cool). Hypothesis (HA person fallback to a stationary tracker) NOT verified in HA core source.'
+  sweep_2026_09_27: 'Board + BACKLOG grepped for blip/flicker/cflare/geofence pre-arrival: only this experiment card carries it. NEW.'
+  next: 'DO (config-first): remove the home-stationary device trackers from person.oji_udezue (Settings > People) -> I verify zero sub-second home blips over the next few days and close. If you need them attached, ANSWER why and I will scope a pre-arrival debounce instead.'
+  links: {related: [NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26]}
 - id: NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26
+  final_readout_2026_09_27: 'FINAL (window 09-26 14:35 -> 09-27 12:13 CDT, 21.6 h; first real return person.jaya 12:43). (1) PHANTOM OCCUPANCY: 21 room entries in 2 rooms: Kitchen Hallway Garage 20 (source motion = garage-opener motion, stuck-signal detector flagged it 14x shadow WOULD-quarantine) -> STUCK-SENSOR-1; Master Bathroom 1 (mmWave, 16 min, 23:35-23:51). No other room produced a phantom. (2) CENSUS/GUEST: house total 0 in all 931 snapshots, 0 house-state transitions -> NO guest false positive with nobody home. Property 1/unidentified in 16 snapshots (passers-by, alongside perimeter alerts). (3) OVERRIDE/MANUAL: 0 rows. The C22 candidate rule could not be tested (no manual arose) - neutral. (4) PRESETS: zone_1 got 130 away writes (6.0/h) + 126 climate_write rows; zones 2/3 ZERO -> re-issued-away loop confirmed with no human possible (HVAC-WRITE-CONFIRMATION-ORACLE-1). (5) ACTUATION: no phantom light/fan turn-on (27 shared_space_auto_off are OFFs); 1 phantom pre-arrival (15:03:51) from a 0.2 s person.oji_udezue home blip (item 8 -> PERSON-STATIONARY-TRACKER-BLIP-1). (6) NOTIFICATIONS: 25 perimeter CRITICAL "Person Detected" in an empty house (~1.2/h baseline; Frigate2 offline) -> PERIMETER-ALERT-VOLUME-FATIGUE-1; 28 Envoy Offline HIGH; 1 false safety low-humidity 0.0% (SAFETY-HUMIDITY-JUNK-READING-1). (7) LOAD (SPAN): window mean 2.14 kW; empty overnight 02-06 CDT 1.70 kW (AC 0.51 kW -> non-AC baseload ~1.2 kW) vs occupied night 09-25 02-06 2.99 kW (AC 3.19 kW). Pets confound unresolved.'
+  disposition_2026_09_27: 'DONE - all pre-registered items read; findings routed to the named cards. Probe: scripts/probes/empty_house_experiment_probe.py.'
   title: Natural experiment — house empty ~24 h (2026-09-26 14:16 CDT until first person returns); anything URA attributes to a person is a false positive
-  status: investigating
+  status: done
   thread: presence
   created: '2026-09-26'
   updated: '2026-09-27 02:40'
@@ -2794,6 +2807,7 @@ cards:
   origin: 'Found by the raw-evidence gap probe 2026-09-26 (AUDIT_hvac_raw_evidence_gaps_2026_09_26.md, could-not-measure section).'
   next: 'NONE - refuted. The sensor is alive; the room is simply rarely used. Fleet-wide finding carried to WIFI-ACTUATOR-FLEET-FLAP-1.'
 - id: HVAC-WRITE-CONFIRMATION-ORACLE-1
+  evidence_empty_house_2026_09_27: 'Empty-house experiment (21.6 h, nobody home): zone_1 received 130 re-issued away writes (6.0/h), zones 2/3 zero. The loop is not human-caused.'
   title: Which Carrier feed confirms that a URA write took? (problem 6, decoupled from W1-B) — measurement-only investigation
   status: investigating
   thread: hvac
@@ -10173,6 +10187,7 @@ cards:
     (measure-first).'
   - 'RE-APPLY: deferred -> parked. Revisit: resident-in-guest-room-without-phone false-GUEST recurs.'
 - id: STUCK-SENSOR-1
+  evidence_empty_house_2026_09_27: 'Empty-house experiment: Kitchen Hallway Garage produced 20 phantom occupancy entries (source motion, the garage-opener motion sensor) in 21.6 h; stuck-signal shadow flagged it 14x WOULD-quarantine + 9 chatter recoveries. Only other phantom: Master Bathroom mmWave once (16 min).'
   title: Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier
   thread: presence
   status: parked
@@ -28300,6 +28315,7 @@ cards:
     accounting (or key it off a persisted last-seen timestamp rather than an in-process counter),
     which also makes it robust by construction instead of dependent on someone elses uptime.'
 - id: PERIMETER-ALERT-VOLUME-FATIGUE-1
+  evidence_empty_house_2026_09_27: 'Empty-house baseline: 25 CRITICAL "Perimeter Alert - Person Detected" in 21.6 h with no resident (~1.2/h), Frigate2 offline so camera coverage degraded. Census property count reached 1 in 16 snapshots.'
   title: "Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue"
   thread: security
   rank: {value: 6, time_criticality: 5, effort: 3}  # v/tc cut 2026-09-20: lever A falsified, volume 22-63/day not 155
