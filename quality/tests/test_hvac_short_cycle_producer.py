@@ -463,16 +463,41 @@ def test_hvac_short_cycle_guard_uses_tracker_date_not_last_daily_reset():
 
 def test_hvac_short_cycle_counter_persisted_in_zone_state_snapshot():
     """Snapshot writes must include the tracker's date+counts so a
-    mid-day restart preserves the accumulated per-zone counts."""
-    # Both snapshot-write sites must carry the meta key.
-    matches = re.findall(
-        r'snapshot\["__short_cycles_today"\]\s*=\s*\{',
-        HVAC_SRC,
-    )
-    assert len(matches) >= 2, (
-        f"expected the counter to be persisted at BOTH snapshot-save "
-        f"sites (periodic + teardown), found {len(matches)}."
-    )
+    mid-day restart preserves the accumulated per-zone counts.
+
+    HVAC W1-B (2026-09-27) converted this from a source-grep of two inline
+    snapshot builders to a BEHAVIOURAL drive of both save sites (periodic
+    `async_save_zone_state` and `async_teardown`), which now share ONE
+    builder (`_build_zone_state_snapshot`)."""
+    import asyncio
+    import os as _os, sys as _sys
+    pytest.importorskip("homeassistant.helpers.storage")
+    _here = _os.path.dirname(__file__)
+    if _here not in _sys.path:
+        _sys.path.insert(0, _here)
+    import _w1b_harness as H
+    baseline = H.snapshot_shims()
+    try:
+        mods = H.load_real()
+        coord, hass = H.make_coord(mods)
+        coord._zone_state_store = H.FakeStore()
+        coord._short_cycles_today = {"zone_1": 3}
+        coord._short_cycles_today_date = "2026-09-27"
+
+        async def _drive():
+            await coord.async_save_zone_state()          # periodic site
+            n = len(coord._zone_state_store.saves)
+            await coord.async_teardown()                 # teardown site
+            return n
+        n = asyncio.run(_drive())
+        saves = coord._zone_state_store.saves
+        assert n == 1 and len(saves) >= 2, "both save sites must persist"
+        for snap in saves[:2]:
+            assert snap["__short_cycles_today"] == {
+                "date": "2026-09-27", "counts": {"zone_1": 3},
+            }
+    finally:
+        H.restore_shims(baseline)
 
 
 def test_hvac_short_cycle_uses_local_day_clock():

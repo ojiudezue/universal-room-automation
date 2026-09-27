@@ -53,6 +53,8 @@ def purge_shim_modules():
 
 _FUNNEL_NAMES = ("emit_set_temperature", "emit_set_preset_mode", "emit_set_hvac_mode")
 _FUNNEL_HOSTS = ("hvac", "hvac_override", "hvac_predict", "hvac_egress")
+_CLOCK_HOSTS = ("hvac", "hvac_override", "hvac_predict", "hvac_egress", "hvac_zones",
+                "hvac_setpoint", "hvac_preset")
 _DC = "custom_components.universal_room_automation.domain_coordinators."
 
 
@@ -69,6 +71,10 @@ def snapshot_shims():
         for n in _FUNNEL_NAMES:
             if hasattr(m, n):
                 attrs[(host, n)] = getattr(m, n)
+    for host in _CLOCK_HOSTS:
+        m = sys.modules.get(_DC + host)
+        if m is not None and getattr(m, "__file__", None) and hasattr(m, "dt_util"):
+            attrs[(host, "dt_util")] = m.dt_util
     return {"keys": keys, "attrs": attrs}
 
 
@@ -87,7 +93,10 @@ def restore_shims(baseline):
 
 
 def rebind_real_funnels(mods):
-    """Point every host module's `emit_set_*` at the REAL funnel."""
+    """Point every host module's `emit_set_*` at the REAL funnel, and bind
+    ONE clock module (`homeassistant.util.dt`) on every HVAC host so the
+    arrester / coordinator / this harness read the same `now()` even when a
+    sibling file left a frozen `dt_util` on one module."""
     sp = mods["hvac_setpoint"]
     for host in _FUNNEL_HOSTS:
         m = mods.get(host)
@@ -96,6 +105,11 @@ def rebind_real_funnels(mods):
         for n in _FUNNEL_NAMES:
             if hasattr(m, n):
                 setattr(m, n, getattr(sp, n))
+    from homeassistant.util import dt as _real_dt
+    for host in _CLOCK_HOSTS:
+        m = mods.get(host)
+        if m is not None and hasattr(m, "dt_util"):
+            m.dt_util = _real_dt
 
 
 def load_real():
