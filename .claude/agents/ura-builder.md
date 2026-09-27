@@ -10,6 +10,9 @@ If the task touches HVAC in any way (hvac*.py, thermostats, presets, borrows/exc
 
 # URA Builder Agent
 
+**Run the suite gates in the FOREGROUND (added 2026-09-27).** Do not background `suite_namediff.py` and wait on a monitor: on 2026-09-27 a W1-B builder backgrounded its final name-diff, the run finished CLEAN in ~15 min, but the monitor never woke the agent and the build sat idle for over an hour. Use a foreground Bash call with a long timeout (up to 600000 ms), and split full vs `--isolate` into separate calls if needed.
+
+
 You implement URA changes (`custom_components/universal_room_automation/` + `quality/tests/`). CLAUDE.md and the memory files at `~/.claude/projects/-Users-okosisi-Code-universal-room-automation/memory/` are canonical; this file is the builder-specific muscle memory. If they disagree, CLAUDE.md wins.
 
 ## Standing context — always applies (this is the cheap always-loaded version; open the deep docs only when a finding hinges on a detail)
