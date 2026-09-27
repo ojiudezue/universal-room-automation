@@ -9,6 +9,16 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'SAFETY-HAZARD-NEVER-CLEARS-1@2026-09-27T02:37:41'
+    at: '2026-09-27T02:37:41'
+    outcome: measured
+    headline: 'Your house safety alert is ON right now for "0% humidity in Study A". Thats a 1-second junk reading at 23:35; the room has read 46–49% since. Two problems: the junk reading shouldnt count (fixed tonight on a branch, below), and safety hazards never clear themselves when the reading recovers, only on an HA restart. The second one is now its own card, to be planned.'
+    acknowledged: false
+  - fid: 'COVERAGE-RATING-FALSE-ANOMALOUS-1@2026-09-27T02:37:40'
+    at: '2026-09-27T02:37:40'
+    outcome: done
+    headline: 'Closed the energy "coverage" self-check fix after its midnight test: it no longer claims a false unit mismatch, and the new midnight allowance switched on 00:00–02:00 as designed. Whats left, the check still reading "Anomalous" because the house total it uses is net of solar/battery, is already its own planned card. (Couldnt read HA logs this run, so the log-line half is checked from the sensor, not the log.)'
+    acknowledged: false
   - fid: 'HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1@2026-09-27T02:22:59'
     at: '2026-09-27T02:22:59'
     outcome: escalated
@@ -959,12 +969,99 @@ meta:
       plus a count shown at session start so regrowth is visible instead of being noticed by accident
       nine days later.'
 cards:
+- id: SAFETY-HAZARD-NEVER-CLEARS-1
+  title: A humidity or temperature safety hazard stays "active" until HA restarts, even after the reading is back to normal
+  thread: safety
+  status: pre_planning
+  created: '2026-09-27 05:00'
+  updated: '2026-09-27 05:00'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [tier-2, no-fabrication-verify, mutation-drill]
+  problem_solution:
+  - 'Problem: when the safety system raises a low/high humidity, freeze or overheat hazard, nothing takes it back down when the reading returns to normal. Only an HA restart clears it. So the house safety alert and the safety status can sit on "warning" for days over a problem that lasted seconds. Solution: clear (resolve) these hazards when a later reading from the same sensor is back inside safe limits, with a little hysteresis so they do not flap.'
+  origin:
+    date: '2026-09-27'
+    gist: 'Review B (framing: state/lifecycle) of SAFETY-HUMIDITY-JUNK-READING-1, 2026-09-27 overnight; independently noted by Review A.'
+  live_evidence_2026_09_27: 'LIVE at 04:50 CDT: binary_sensor.ura_safety_coordinator_safety_alert = on and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24, with one active hazard, low_humidity Study A value 0.0 (the junk reconnect reading). The same sensor (sensor.invisoutlet_b7d0_humidity) has read 46-49% ever since. The hazard will persist until the next restart.'
+  code_2026_09_27: 'Per the reviewers, with file:line to be re-verified at plan time: _handle_humidity (safety.py ~2076-2292) never removes from _active_hazards. Removals exist only in the binary handler (~1757), the CO2 log-only rung (~1888), _handle_numeric_hazard (~1930), and clear_hazard/clear_all_hazards (no production callers). Temperature (FREEZE_RISK/OVERHEAT) has the same shape.'
+  why: 'A safety alert that cannot turn off stops meaning anything. It also means one junk reading (see SAFETY-HUMIDITY-JUNK-READING-1) costs a day of "warning" rather than a second.'
+  rank:
+    value: 6
+    time_criticality: 4
+    effort: 5
+  parsimony:
+    problem: Humidity and temperature hazards in the safety coordinator are never cleared by a later in-range reading from the same sensor.
+    verdict: BUILD (after a plan review, Tier 2; it changes safety-hazard lifecycle)
+  next: 'PLAN (me): enumerate every hazard type and how each clears today (a table), pick clear-on-recovery thresholds with hysteresis (numbers get knobs), and check which consumers read active_hazards (NM re-fire via is_hazard_active, status/alert entities, zone chip). Tier 2 plan review, then build. Not in the overnight scope beyond the plan.'
+  links:
+    related: [SAFETY-HUMIDITY-JUNK-READING-1, SAFETY-RECONNECT-ZERO-SIBLINGS-1, SAFETY-RATE-DETECTOR-DEAD-WINDOW-1]
+    context: 'The junk-reading fix stops the bogus hazard from being CREATED; this card is why one that does get created never goes away. Siblings are the other safety-coordinator defects found in the same review.'
+- id: SAFETY-RATE-DETECTOR-DEAD-WINDOW-1
+  title: The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant
+  thread: safety
+  status: pre_planning
+  created: '2026-09-27 05:00'
+  updated: '2026-09-27 05:00'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [tier-2, measure-before-build, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: the safety system is meant to spot fast changes, like humidity jumping (a possible leak) or temperature running away (HVAC failure). Its check asks for readings at least 30 minutes apart, but only keeps readings from the last 30 minutes, so it can almost never compute a rate. In practice the feature is switched off without anyone deciding that. Solution: decide deliberately. Either fix the window so it works, and first measure how many new alerts that would create, or retire it on purpose and document why.'
+  origin:
+    date: '2026-09-27'
+    gist: 'Review B of SAFETY-HUMIDITY-JUNK-READING-1 (2026-09-27 overnight), then verified by the orchestrator in code and in the live DB.'
+  verified_2026_09_27: 'CODE: RateOfChangeDetector.get_rate (safety.py ~636-675) sets window_start = now - WINDOW_MINUTES(30), takes the oldest reading >= window_start, and returns None unless latest - oldest >= MIN_WINDOW_SECONDS (1800, safety.py:618). Because oldest >= now-30min and latest <= now, the gap is <= 1800 s, so only an exact-boundary match passes. LIVE DB: metric_baselines scope=rate_of_change has just 3 rows (media_room_closet_temperature 15 samples, media_room_closet_humidity 11, one sen55 temperature 1): 27 rate observations in total, ever. notification_log has 0 rate/rise alerts. So the detector is effectively dead in production. Tests pass only because they seed readings exactly 30 min apart.'
+  why: 'Dead-but-looks-alive safety logic is worse than none: a reader assumes leak-by-humidity-rise and HVAC-failure-by-rate are covered.'
+  constraints:
+  - 'Reviving it CREATES new alerts on a safety surface. Measure first: replay recorder history through a fixed window and count what would have fired, before turning it on.'
+  - 'Dead is not delete (Supersession rule): if retired, record it as KEEP+DOCUMENT or DELETE with reasons.'
+  rank:
+    value: 4
+    time_criticality: 2
+    effort: 5
+  parsimony:
+    problem: RateOfChangeDetector.get_rate returns None except at an exact 1800 s boundary, so rate-based safety hazards never fire.
+    verdict: MEASURE then PICK (fix vs retire)
+  next: 'MEASURE (me, read-only): replay 7 days of recorder humidity/temperature history through a corrected window (e.g. oldest reading at or before now-30min) and count the hazards that would fire and how many look real. Then page the operator to PICK: revive or retire.'
+  links:
+    related: [SAFETY-HAZARD-NEVER-CLEARS-1, SAFETY-HUMIDITY-JUNK-READING-1]
+    context: 'Found in the same review. The junk-reading fix''s rate-skip only matters if this detector ever runs.'
+- id: SAFETY-RECONNECT-ZERO-SIBLINGS-1
+  title: The same junk "0" reconnect reading can also fake a freeze alarm or switch a bathroom fan on; guard those paths too
+  thread: safety
+  status: investigating
+  created: '2026-09-27 05:00'
+  updated: '2026-09-27 05:00'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [tier-1, measure-before-build, no-fabrication-verify]
+  problem_solution:
+  - 'Problem: sensors that briefly send 0 while reconnecting can mislead more than the humidity safety check. A temperature 0 is below the freeze-risk line (35 F) and would raise a HIGH freeze alert. A humidity 0 fed to the bathroom exhaust-fan logic becomes its "baseline", so the next normal reading looks like a sudden spike and turns the fan on. Solution: first check whether either has actually happened; if so, apply the same "ignore impossible readings" floor at those two places.'
+  origin:
+    date: '2026-09-27'
+    gist: 'Review B of SAFETY-HUMIDITY-JUNK-READING-1 (2026-09-27 overnight), Q3 and Q4.'
+  measured_2026_09_27: 'FREEZE: notification_log has 0 freeze-risk alerts ever (the only "freez" rows are "Circuit Anomaly: Span Right Freezer Power"), so the temperature-0 path has NOT fired in practice. Low priority. FAN: not yet measured. Per the reviewer, automation.py ~2584-2585 and ~2741-2805 (window-min and EMA baselines) read room humidity with no floor, and the off-path at ~2624/~2700 compares humidity <= off_threshold.'
+  why: 'Same failure SHAPE as SAFETY-HUMIDITY-JUNK-READING-1 and ENVOY-STREAM-SOC-TIER-1 3.8 (reconnect-zero). A recurring bug class worth a QUALITY_CONTEXT entry once all three land.'
+  rank:
+    value: 3
+    time_criticality: 2
+    effort: 2
+  parsimony:
+    problem: A 1 s reconnect 0 can feed freeze-risk (temperature) and the humidity-fan spike baseline with no plausibility floor.
+    verdict: MEASURE (fan) / PARK (freeze, 0 occurrences)
+  next: 'MEASURE (me): for rooms with humidity fan control enabled, count humidity readings below 5% in the recorder over 10 days, and any fan turn-on within alpha_s after one. If there are any, build the floor at the fan baseline (Tier 1). If none, park with the trigger "a humidity sensor on a fan-controlled room emits a sub-5 reading".'
+  links:
+    related: [SAFETY-HUMIDITY-JUNK-READING-1, ENVOY-STREAM-SOC-TIER-1]
+    context: 'Siblings of the same reconnect-zero defect; the humidity safety site is fixed on the parent card.'
 - id: SAFETY-HUMIDITY-JUNK-READING-1
   title: A single junk "0% humidity" reading from a reconnecting sensor raises a safety alert; ignore physically impossible humidity values
   thread: safety
   status: in_progress
   created: '2026-09-27 03:45'
-  updated: '2026-09-27 03:45'
+  updated: '2026-09-27 05:00'
+  live_2026_09_27_0450: 'LIVE at 04:50 CDT, and this is the discriminating observation: binary_sensor.ura_safety_coordinator_safety_alert = ON and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24. The only active hazard is low_humidity Study A value 0.0 from the junk reading, while the sensor has read 46-49% since. The house is showing a safety warning right now purely because of this defect. It will clear at the next restart (the deploy), and the reason it never self-clears is carded separately as SAFETY-HAZARD-NEVER-CLEARS-1.'
+  reviews_2026_09_27: 'Review A (local correctness/edges/consumers): SHIP. M1 MEDIUM, a missed site: the whole-house SafetyAlertBinarySensor in aggregation.py:1359-1365 has its own humidity < 25 check; orchestrator-verified. Plus L1 (chip blips off for 1 s on a real trip; acceptable, snapshot semantics) and L2 (no 5.0 boundary tests at the chip / process_sensor sites). Review B (state/lifecycle/ripple): SHIP. The rate-skip is strictly better, there are no stuck or wrongly cleared hazards, and no actuation ripple (ConstraintActions are never executed). Four out-of-scope findings were carded: SAFETY-HAZARD-NEVER-CLEARS-1, SAFETY-RATE-DETECTOR-DEAD-WINDOW-1 (orchestrator-verified in the live DB: 27 rate samples ever), SAFETY-RECONNECT-ZERO-SIBLINGS-1 (freeze: 0 occurrences ever; fan: to measure), and the observability LOW, folded into the fix-up. Fix-up dispatched for M1 + L2 + the debug log.'
   refinement_status: initial
   approval: implied
   tags: [tier-1, mutation-drill, no-fabrication-verify, numbers-get-knobs]
@@ -28752,7 +28849,8 @@ cards:
   thread: energy
   status: planned
   created: '2026-09-23 03:10'
-  updated: '2026-09-23 03:30'
+  updated: '2026-09-27 05:30'
+  input_health_2026_09_27: 'INPUT CHECK for the planned fix (overnight 2026-09-27, recorder): the Envoy TOTAL consumption sensor this card wants to add, sensor.envoy_482543015950_lifetime_energy_consumption, was unavailable from 09-25 18:11 until the 09-26 12:50 HA restart, then returned (first value 12:56:21, 29.2533 MWh). Since then it has had 269 good rows and 22 unavailable rows. That is the native-Envoy dropout pattern, which it shares with the NET sensor now in use (1022 good / 27 unavailable over the same window). So the swap target is healthy enough to build on, but it inherits the same dropouts. The build should keep the existing no-data handling, and coverage will show "No data" during Envoy dropouts either way. Also confirmed by the 09-27 coverage soak-exit read: Anomalous at 02:05 once the midnight window expired (delta -4.67 kWh), consistent with this cards NET-vs-TOTAL root cause.'
   refinement_status: refined
   approval: unreviewed
   tags: [measure-before-build, no-fabrication-verify, falsify-first]
@@ -28905,10 +29003,11 @@ cards:
     real problem is that two tiers disagree by about sevenfold and the disagreement does not clear at
     midnight the way the code assumes
   thread: energy
-  status: shipped_organic
+  status: done
   shipped_version: v5.103.15
   created: '2026-09-19 04:15'
-  updated: '2026-09-25 03:40'
+  updated: '2026-09-27 05:20'
+  soak_exit_2026_09_27: 'SOAK EXIT, overnight 2026-09-27, one-shot recorder read of sensor.universal_room_automation_energy_coverage_delta attributes over 3 days (state_attributes join). PRIMARY MET: (a) the midnight re-anchor window attribute is published and behaved as designed, midnight_reanchor_window = true from 00:00 to 02:00 CDT on 09-27 and false otherwise, and post_restart_window cleared at midnight; (b) scope_mismatch_warning was EMPTY on every recorded state for 3 days, so the entity no longer asserts a unit mismatch. LOG-READ GAP, stated and NOT an all-clear: the README criterion "no unit-mismatch WARNING LOG LINE across midnight" is log-based, and the home-assistant MCP (ha_get_logs) failed to connect this run, so the log line itself was not read. Only the entity attribute was verified. RESIDUAL, as expected and already carded: once the window expired, the rating went Anomalous at 02:05 (delta -4.67 kWh), and whole_house flips to None every few minutes. Both fit the established root cause on COVERAGE-EVENING-ATTRIBUTION-DRIFT-1: whole_house_energy_sensors is Envoy lifetime NET consumption (net of solar and battery), not total, so the parts can exceed the whole. The None flips come from the native Envoy entity dropping out (ENVOY-FLAKINESS-181243-1). Disposed per Soak Exit: close the primary, and the residual lives on the existing card (no new card).'
   FIXUP_DONE_VERIFIED_2026_09_25: 'FIX-UP COMPLETE AND INDEPENDENTLY VERIFIED BY THE ORCHESTRATOR —
     I did not take the builder''s report on trust, which is the standing rule. Commit ca69d45c2,
     fast-forward merged onto develop, built in an isolated worktree under .claude/worktrees (since
@@ -29013,20 +29112,7 @@ cards:
     the ANOMALOUS line names Bug Class #30 (unit mismatch) and would send the next investigator to the
     unit-normalization work, which the evidence does not support. Meanwhile a genuine sevenfold
     attribution disagreement is sitting unexplained behind it.'
-  next: 'REVIEWS IN FLIGHT — no operator input needed, and the old "BUILD next pass" text was STALE
-    and is replaced. Verified on develop 2026-09-25: the build ALREADY LANDED at commit c5ea7dfc7
-    (COVERAGE_MIDNIGHT_REANCHOR_WINDOW_MIN=120 confirmed at const.py:358; the helper
-    _in_midnight_reanchor_window at aggregation.py:3232 and its wire-in at :3417/:3437/:3446 all
-    confirmed present), so the build half is ALREADY-DONE and only the review gate remains. Dispatched
-    two framing-disjoint reviews on the 2026-09-25 overnight pass: A = local correctness and edge cases
-    (midnight-window arithmetic, DST spring-forward/fall-back, the never-excuse invariant for
-    >100/None/NaN, fail-closed on exception, straddle consistency between the rating and the published
-    attribute, suppression-needs-a-discharge, and an independent re-grep of the consumer count);
-    B = test authority via real per-site source mutation (re-run both mutation drills per-site, verify
-    the wire-in anchor asserts enclosing behaviour rather than symbol existence, re-verify and then
-    SWEEP for the silent-whole-file-skip class this commit fixed, and check the boundary-vs-mid-day
-    discriminator plus wall-clock coupling). -> on two clean verdicts this is ready to DEPLOY, which
-    waits for you: an overnight pass does not restart HA in an occupied sleeping house.'
+  next: 'NONE - disposed done (met with a residual; the residual is already carded as COVERAGE-EVENING-ATTRIBUTION-DRIFT-1).'
   links:
     related: [STUCK-MOTION-FROZEN-ON-BLINDSPOT-1]
     context: 'Surfaced 2026-09-19 in the same live-log read that withdrew the operator ask on
@@ -29264,7 +29350,8 @@ cards:
   thread: energy
   status: done
   created: '2026-09-25 18:00'
-  updated: '2026-09-27 02:15'
+  updated: '2026-09-27 05:30'
+  correction_2026_09_27_consumption_ct: 'CORRECTION to consumption_ct_consumer_check_2026_09_26 and native_status_2026_09_25_2345: the native CONSUMPTION-CT entities were described as dead since the 09-25 18:11 restart. That was true until the 09-26 12:50 HA restart. After it they came back: lifetime_energy_consumption first value 12:56:21, current_power_consumption live, and both have been reporting since, with the usual native dropouts. The "mechanism unknown" outage ended with that restart. This record is kept so no one plans around a dead CT that is actually alive.'
   run2_final_2026_09_27: 'OVERNIGHT PASS 2026-09-27 02:02, RUN 2 FINAL (written into AUDIT_envoy_mqtt_trust_measurement.md). Window 09-25 20:15 -> 09-27 02:02 CDT, 28.7 h clean after excluding two HA core restarts that landed inside it (09-26 12:50 and 15:19, recorder_runs 1138/1139). RESULTS: 3.1 freshness PASS (skew-adjusted p95 4 s); 3.2 independence 98.65% of 20,552 s native-down time, the whole shortfall is ONE 277 s episode at 23:09 where the Envoy itself re-enumerated (microinverter count 0->32 over 2 min) so it is a source outage, not a transport failure -> PASS on transport; 3.3b stream vs native SOC n=1382, mean 0.00 pp, p95 1 pp -> PASS; 3.4 cloud value-change gaps p50 947 s (72% over its own 600 s bound); 3.5 PASS; 3.6 contention: native down-events/day fell from 109-163 (09-19..24) to 52 (09-25) and 15 (09-26), confounded by the operator''s 09-25 Envoy reboot + network restart + core update, but adding the stream clearly did NOT make it worse; 3.7 reserve witness PASS, 10/10 matched, stream LEADS cloud by 1-32 s. PROBE BUG FOUND AND FIXED before trusting 3.7: it only searched for a stream match AFTER the cloud change, so it reported 8/10 as never converged; fixed to +/-300 s either direction (REL_WIN_S). NEW HAZARD 3.8: when the Envoy came back at 23:14:11 the stream published SOC=0 and reserve 0 then 30 for 36 s before the true values (36 / 10). Second live instance of the partial-fleet failure -> binding constraint on ENVOY-STREAM-SOC-TIER-1. VERDICT: CONFIRMED trustworthy as a SOC/reserve witness with a post-reconnect gate. Closed done; the build lives on ENVOY-STREAM-SOC-TIER-1 (existing card, no new card minted).'
   consumption_ct_consumer_check_2026_09_26: 'OVERNIGHT 2026-09-26 02:19 re-check plus CONSUMER check on the native consumption-CT outage. STILL
     UNAVAILABLE: current_power_consumption, energy_consumption_today, last_seven_days (+L1/L2),
