@@ -1,0 +1,46 @@
+{
+  "format_version": "2.1",
+  "entry_id": "152",
+  "author": "ojiudezue",
+  "session_id": "claude_20260927_hvac_w1b_rev5",
+  "timestamp": "2026-09-27T21:30:00Z",
+  "type": "pivot",
+  "weight": "critical",
+  "title": "S1 'don't fight manual' guard superseded: URA reclaims manual unless one of four gates holds; it was secretly the only thing protecting borrows",
+  "summary": "The v3.8.0 rule that S1 never writes a preset over a manual hold (\"that's the arrester's job\") is replaced in W1-B. S1 now reclaims manual unless (a/b) a person-protected hold is on (Temp Arrester Override or any immune person), (c) the arrester's grace/compromise is in flight, (d) the arrester is disabled (passive mode: detects, never reverts), or (e) the zone has a live borrow row in the existing excursion registry. Provenance tracking, reclaim delay, kill switch and a separate BORROW_LOCK were all dropped; problem 4 (reclaim after TAO/immune sunset) closes for free.",
+  "why": "The rule predates borrows and assumed the arrester owns every manual, but Carrier turns every raw setpoint write into a manual hold and the arrester declines manuals at ~zero delta, so URA-caused manuals had no owner: 88-661 min strands and 22/22 nudge-echo lockouts. Operator: \"Its outdated design... We didn't even know borrows would come back as manual then.\" Tracing it showed the guard was also an undocumented safety dependency: the governed-excursion lease gate was stripped on 2026-08-21 as 'zero value' precisely because the guard shielded borrows, so removing it without gate (e) would let S1 stomp every nudge.",
+  "alternatives_considered": [
+    "Keep the guard and build provenance (classify each manual as URA-owned vs human, reclaim only URA-owned with a delay + kill switch) \u2014 REV 4 plan; dropped as complexity serving a wrong premise",
+    "Separate BORROW_LOCK reading four arrester timers with its own cap + NM \u2014 collapsed into gate (e) after verifying every nudge/compromise timer is preceded by begin_excursion so the registry row covers the window",
+    "Revive the stripped lease gate \u2014 rejected; gate (e) is a read of the existing row, discharged by its own stale_ts bound, sweep and boot audit"
+  ],
+  "implications": "The rule lives only at the S1 decision site (plus the arrester's existing detection path for nudge-wins booking); operator forbade adding logic to borrow code or the emit_* write funnels, and resume-then-pin stays because it is a Carrier quirk, not the guard. ~160 extra Carrier writes/day from post-nudge reclaims. After live validation: delete the excursion HIGH-1 manual-skip + parked D3, repurpose the lockout ledger to deferral reasons, close HVAC-PRESET-LOCKOUT-ESCAPE-1 and HVAC-ZONE1-MANUAL-OSCILLATION-1. Any unbuilt plan whose safety argument leaned on the guard (off-phase honesty INV #2, W2 fast path) must be re-proven. 15 docs bannered SUPERSEDED; state-of-play \u00a79e + \u00a710 C25.",
+  "confidence": "high",
+  "revisit_trigger": "Post-W1-B: any S1 preset write landing while a borrow row, person-protected hold, arrester grace/compromise, or passive arrester is active; or a URA-caused manual lasting > one decision tick with all gates clear.",
+  "refs": {
+    "supersedes": [
+      "145"
+    ],
+    "related": [
+      "148",
+      "151"
+    ],
+    "cards": [
+      "HVAC-W1-THERMOSTAT-DEFINITION",
+      "HVAC-PRESET-LOCKOUT-ESCAPE-1",
+      "HVAC-ZONE1-MANUAL-OSCILLATION-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_hvac_w1b_thermostat_definition.md",
+      "docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md"
+    ],
+    "files": [
+      "custom_components/universal_room_automation/domain_coordinators/hvac_preset.py",
+      "custom_components/universal_room_automation/domain_coordinators/hvac_excursion.py"
+    ],
+    "commits": [
+      "3ed9afda1",
+      "ea6fabfd1"
+    ]
+  }
+}
