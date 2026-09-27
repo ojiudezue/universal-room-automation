@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-27T10:33:03-05:00_ - _Data commit: `1ba8403d3640`_ - _last_reconciled: 2026-09-27_
+_Generated: 2026-09-27T10:33:55-05:00_ - _Data commit: `eb8b058f0191`_ - _last_reconciled: 2026-09-27_
 
 
 ## Columns
@@ -16,10 +16,10 @@ _Generated: 2026-09-27T10:33:03-05:00_ - _Data commit: `1ba8403d3640`_ - _last_r
 | 🔨 In progress | 3 |
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 23 |
-| ⏳ Waiting on me (Claude) | 2 |
+| ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 5 |
 | 🅿️ Parked | 69 |
-| ✅ Done | 226 |
+| ✅ Done | 227 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -1119,7 +1119,7 @@ _created 2026-09-20 · updated 2026-09-22 02:32_
   - `groom_2026_09_22`: Scored during the overnight groom — it was the only waiting_operator card still running on tier+link defaults (the ⚠ default-scored tripwire). value 5: a research spike, real upside on occupancy-trust correctness but no live defect ridin...
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
 
-## ⏳ Waiting on me (Claude) (2)
+## ⏳ Waiting on me (Claude) (1)
 _I owe something_
 
 ### `HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1` - The FULL 2-6am degradation-defense leniency for night HVAC retreat (200min, 4 discharge paths) — parked, uncork if a real occupied-bedroom sensor-degradation is observed — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -1138,15 +1138,6 @@ _created 2026-09-16 · updated 2026-09-26 10:30_
   - `TRIGGER_FIRED_2026_09_25`: Revival trigger ("observed degradation") FIRED, measured. Both zone_2 night retreats (09-24 02:47, 09-25 02:09) were a still sleeper lost by radar, not an empty room: Jaya's phone (device_tracker.iphone_jaya_bermuda_tracker home; sensor....
   - `D_A0_MEASURED_2026_09_26`: D-A0 probe (scripts/probes/hvac_night_sleeper_probe.py, 7.8 nights, 6 bedroom rooms): 26 night drops, 16 returned <=90 min, 13 with a zone person stationary in-suite (spread 0.4-1.3 ft) — ALL 13 returned (max 55.6 min), 0 of 9 genuine ex...
   - `operator_approved_2026_09_26`: Operator: "approved" (Jaya Bedroom hvac_vacancy_hold_night 1800 -> 5400 s). The knob is options-form only (Jaya Bedroom (Bedroom 4) -> Configure -> Climate & Fans -> "HVAC vacancy hold — night", seconds, 0-7200; day stays 60; night must ...
-
-### `EXERCISE-ROOM-PRESENCE-MISCONFIG-1` - Moved mmWave (still named gameroom) is claimed by BOTH Game Room and Exercise Room — Game Room wins, so Exercise Room loses its radar and Game Room gets phantom presence; remove it from Game Room — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **presence** - status: **waiting_me**
-_created 2026-09-26 · updated 2026-09-26 16:50_
-- **Why:** Exercise Room config presence_sensors = [binary_sensor.mmwave_zigbee_gameroom_presence] (the Game Room radar). The substrate already ignores the duplicate, so live behaviour is unaffected, but any code path that reads the room config dir...
-- **Next:** VERIFY (me) at the next HA restart (planned with the next deploy): boot log has NO 'claimed by multiple rooms' WARNING for binary_sensor.mmwave_zigbee_gameroom_presence, and Exercise Room occupancy follows that radar. Then close done.
-- **Forensic keys (2):**
-  - `disposition_2026_09_26_groom`: OPERATOR DID IT 2026-09-26 20:56:21Z: Game Room presence_sensors now ['binary_sensor.0xa4c1382e60e05225_presence'] (friendly name Motion_Lux_Temp_Humidity_Zigbee_Gameroom Occupancy, live); Exercise Room keeps binary_sensor.mmwave_zigbee_...
-  - `correction_2026_09_26`: Operator: the sensor was physically MOVED to the Exercise Room when Ziri moved out; MQTT friendly name updated but the HA entity_id still says gameroom. So Exercise Room is CORRECT; Game Room's claim is the stale one, and because Game Ro...
 
 ## 🚀 Shipped (organic open) (5)
 _live, awaiting proof_
@@ -2194,7 +2185,7 @@ _created 2026-08-26 02:20 · updated 2026-09-26 02:40 · refined_
   - `DESCOPE_DECISION_2026_08_26`: Operator chose (B) DESCOPE. D1 (auto-release sweep + stale-boot banking release + HIGH-1) SPLIT OUT to a fresh clean build on feature/hvac-excursion-d1-only (building now, with the B3 re-entrancy guard + C-4 discriminating HIGH-1 tests +...
   - `status_note`: D1 split to HVAC-EXCURSION-D1-BANKING-RELEASE (feature/hvac-excursion-d1-only); this card = D2/D3/D4 park.
 
-## ✅ Done (226)
+## ✅ Done (227)
 _closed, evidence in refs_
 
 ### `RECEIVING-ROOM-MOTION-DEAD-1` - Receiving Room motion sensor looks dead — 2 ON events in 7 days while a phone reported a person in that room — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -2245,6 +2236,15 @@ _created 2026-09-25 18:00 · updated 2026-09-27 02:40 · refined_
   - `measured_2026_09_25_cadence_and_skew`: PARTIAL RESULT ALREADY IN, and it CORRECTS MY OWN CLAIM. I have been describing this feed as "~1 Hz, ages essentially never exceed a few seconds". Six consecutive samples of meters.last_update against the HA host clock: last_update advan...
   - `run1_prelim_2026_09_25`: Operator: "Do this anyway and clear its criteria for other builds as needed." Run 1 over 16:40-21:00 CDT excluding 18:21-20:15 (2.4 h clean) -> AUDIT_envoy_mqtt_trust_measurement.md. PASS: 3.1 freshness (skew-adjusted p95 3 s; plan rule ...
   - `prior_art_reduces_scope`: Operator asked whether prior measurement makes this unnecessary. PARTLY, and the reduction is recorded rather than the whole card dropped. EVSE-SOLAR-FOLLOW-AMPS-1 already measured Emporia mains vs the Envoy net-consumption CT (7,090 ali...
+
+### `EXERCISE-ROOM-PRESENCE-MISCONFIG-1` - Moved mmWave (still named gameroom) is claimed by BOTH Game Room and Exercise Room — Game Room wins, so Exercise Room loses its radar and Game Room gets phantom presence; remove it from Game Room — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **done**
+_created 2026-09-26 · updated 2026-09-26 16:50_
+- **Why:** Exercise Room config presence_sensors = [binary_sensor.mmwave_zigbee_gameroom_presence] (the Game Room radar). The substrate already ignores the duplicate, so live behaviour is unaffected, but any code path that reads the room config dir...
+- **Next:** VERIFY (me) at the next HA restart (planned with the next deploy): boot log has NO 'claimed by multiple rooms' WARNING for binary_sensor.mmwave_zigbee_gameroom_presence, and Exercise Room occupancy follows that radar. Then close done.
+- **Forensic keys (2):**
+  - `disposition_2026_09_26_groom`: OPERATOR DID IT 2026-09-26 20:56:21Z: Game Room presence_sensors now ['binary_sensor.0xa4c1382e60e05225_presence'] (friendly name Motion_Lux_Temp_Humidity_Zigbee_Gameroom Occupancy, live); Exercise Room keeps binary_sensor.mmwave_zigbee_...
+  - `correction_2026_09_26`: Operator: the sensor was physically MOVED to the Exercise Room when Ziri moved out; MQTT friendly name updated but the HA entity_id still says gameroom. So Exercise Room is CORRECT; Game Room's claim is the stale one, and because Game Ro...
 
 ### `HVAC-PRESET-LOCKOUT-ESCAPE-1` - URA refuses to write a preset to a zone in `manual` — including when URA itself caused the manual, so nothing ever rescues it — _WSJF 3.2 · v8 tc6 u2 /e5_
 thread: **hvac** - status: **done** - approval: **implied**

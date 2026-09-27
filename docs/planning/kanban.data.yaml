@@ -2690,9 +2690,10 @@ cards:
   why: 'optimization.py:3546 / :3688 dispatch generic service actions and explicitly support climate.* targets (broker suppress_climate, A-CRIT-2 egress guard :3436). They bypass emit_set_* and write no climate_write row. Today the optimizer runs at L1 SHADOW (broker docstring: "no service call is ever dispatched"; live ura_activity_log shows only shadow_cycle_summary / clamped_cycle_summary, never a dispatch), so no live bypass exists. It is allowlisted in hvac_const.DYNAMIC_DOMAIN_ALLOWLIST so the W1-A lint tolerates it.'
   next: 'BUILD (Tier 2) BEFORE any optimizer promotion to L2+: route optimizer climate.* actions through the matching emit_set_* funnel (site OPT_<action>, zone_id via _zone_id_for_climate_entity, reason from the action) and remove the allowlist entry so the lint enforces it. Trip-wire until then: a promotion to L2+ with this card open is a process violation.'
 - id: EXERCISE-ROOM-PRESENCE-MISCONFIG-1
+  disposition_2026_09_26_groom: 'VERIFIED 2026-09-27 on the v5.103.17 boot: no ''claimed by multiple rooms'' WARNING in the error_log (was present on the 2026-09-26 boots for binary_sensor.mmwave_zigbee_gameroom_presence). The radar now belongs to the Exercise Room only.'
   disposition_2026_09_26_groom: 'OPERATOR DID IT 2026-09-26 20:56:21Z: Game Room presence_sensors now [''binary_sensor.0xa4c1382e60e05225_presence''] (friendly name Motion_Lux_Temp_Humidity_Zigbee_Gameroom Occupancy, live); Exercise Room keeps binary_sensor.mmwave_zigbee_gameroom_presence (friendly name Mmwave_Zigbee_ExcerciseRoom Occupancy, live). Verified in .storage/core.config_entries and live states.'
   title: Moved mmWave (still named gameroom) is claimed by BOTH Game Room and Exercise Room — Game Room wins, so Exercise Room loses its radar and Game Room gets phantom presence; remove it from Game Room
-  status: waiting_me
+  status: done
   thread: presence
   created: '2026-09-26'
   updated: '2026-09-26 16:50'
