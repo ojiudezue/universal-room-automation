@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-27T10:33:55-05:00_ - _Data commit: `eb8b058f0191`_ - _last_reconciled: 2026-09-27_
+_Generated: 2026-09-27T10:42:52-05:00_ - _Data commit: `4e8980d46de0`_ - _last_reconciled: 2026-09-27_
 
 
 ## Columns
@@ -709,7 +709,8 @@ _created 2026-09-26 02:40 · updated 2026-09-26 11:00 · initial_
 - **Why:** Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.
 - **Next:** Order: nudge-echo fix -> (dwell-clock fix if operator parks the W2 fast path) -> W1-B REV 4 (problems 1-5; fold plan-review #1/#2 findings; borrow-lock scope decision deferred to the re-plan) -> Tier-3 plan reviews -> operator go.
 - **Tags:** hvac, workstream
-- **Forensic keys (9):**
+- **Forensic keys (10):**
+  - `operator_decision_2026_09_27_manual_guard`: APPROVED (operator): replace the v3.8.0 S1 manual guard (hvac_preset.py:214-216 "Don't fight manual — that's the arrester's job"; design doc HVAC_COORDINATOR_DESIGN.md:934 "respect user") with: S1 may write over manual UNLESS (a) Temp Ar...
   - `operator_rulings_2026_09_27`: After REV 4 plan reviews (#1 and #2 both FIX-PLAN-FIRST): (B) decision 10 REVERSED — during a NUDGE the nudge WINS over a human change ("Let the house cook and let the nudge win... I have interrupted a nudge before and I had less informa...
   - `operator_go_2026_09_26`: Operator 2026-09-26 ~18:15 CDT: "Finish plan review and start. You have my go" + "unless something unexpected comes up". GO covers W1-B REV 4 plan reviews -> build -> reviews -> DEPLOY without the Tier-3 pre-deploy operator checkpoint, U...
   - `disposition_2026_09_26_groom`: Stage A build in flight 2026-09-26 (feature/hvac-w1a-write-governance). Stage B (W1-B, Tier 3) gated on W1-A live 1 day + D0 probe + Tier-3 plan re-review + operator go. New input for Stage B: state-of-play §9.7 (zone_1 status feed repor...
