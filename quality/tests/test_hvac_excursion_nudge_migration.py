@@ -101,7 +101,6 @@ def _setup_arrester_for_nudge(preset_now: str = "home"):
     Wires hass.states.get to return preset_now.
     """
     _ex_mod._test_clear_leases()
-    _ex_mod._test_set_kill_switch(True)
     _ex_mod._test_bind(hass=None, db=None)
 
     zone = _make_zone_with_temps()
@@ -237,26 +236,6 @@ def test_cancel_nudge_releases_lease_row_8():
 # Kill-switch (§4.7): OFF → begin_excursion returns None → no lease.
 # The nudge still fires on the wire; only the lease-based tick
 # deferral is bypassed.
-# ---------------------------------------------------------------------------
-
-def test_kill_switch_off_produces_no_lease_but_still_nudges():
-    a, zone = _setup_arrester_for_nudge()
-    _ex_mod._test_set_kill_switch(False)
-    try:
-        _run(a._perform_soft_nudge(zone, kwh_rate_before=2.0))
-        assert _ex_mod._test_has_row(ZONE_ID) is False, (
-            "§4.7 BEGIN-ONLY: kill switch OFF must yield no lease."
-        )
-        # Wire write still fires (the switch does not gate the emit,
-        # it only gates lease creation).
-        assert hvac_override.emit_set_temperature.await_count >= 1
-    finally:
-        _ex_mod._test_set_kill_switch(True)
-
-
-
-# ---------------------------------------------------------------------------
-# F3 fix - cancel_nudge writes preset from snapshot
 # ---------------------------------------------------------------------------
 
 def test_F3_cancel_nudge_writes_preset_from_snapshot():

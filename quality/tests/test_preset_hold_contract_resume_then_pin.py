@@ -404,9 +404,19 @@ def test_boot_restore_reads_the_PERSISTED_snapshot_not_the_ram_map():
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
         and n.name == "async_startup_ramp_audit"
     )
+    # HVAC W1-B fix-up 2 (D-4): the boot path may SEED the RAM map from the
+    # persisted row (`self._nudge_pre_preset[zid] = <persisted>` — a store
+    # whose value comes from get_all_excursion_rows); what stays forbidden is
+    # READING it. Exclude an attribute that is the target of a subscript
+    # STORE; everything else (`.get(`, `.pop(`, subscript loads) still fails.
+    _store_targets = {
+        id(n.value) for n in ast.walk(fn)
+        if isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Store)
+    }
     ram_reads = [
         n for n in ast.walk(fn)
         if isinstance(n, ast.Attribute) and n.attr == "_nudge_pre_preset"
+        and id(n) not in _store_targets
     ]
     assert not ram_reads, (
         "the boot path must NOT read the RAM-only _nudge_pre_preset map — it is "
@@ -426,73 +436,12 @@ def test_boot_preset_restore_cannot_break_the_setpoint_restore():
 
 
 # --------------------------------------------------------------------------
-# HVAC-PRESET-LOCKOUT-TELEMETRY-1 — measure the HARM, not the proxy.
+# HVAC-PRESET-LOCKOUT-TELEMETRY-1 — SUPERSEDED by HVAC W1-B (2026-09-27).
+# The five source-grep tests that pinned the `preset_change_locked_out`
+# ledger row (`test_lockout_*`, `test_daily_counter_declares_its_restart_
+# reason`) are replaced by BEHAVIOURAL anchors that drive
+# `_apply_house_state_presets` and assert the `preset_change_deferred` row,
+# its episode gating and discharge, and the renamed
+# `hvac.preset_deferrals_today` counter, in
+# quality/tests/test_hvac_w1b_s1_gates.py.
 # --------------------------------------------------------------------------
-
-def _hvac_src():
-    return (DC / "hvac.py").read_text()
-
-
-def test_lockout_is_recorded_at_the_refusal_site():
-    """`manual%` is a PROXY. The harm is URA deciding a preset and being
-    REFUSED. That refusal happens at the should_change_preset `continue`, and
-    was previously silent — a pure two-string function with no logger and no
-    counter, so a zone could be locked out for hours with nothing recorded."""
-    src = _hvac_src()
-    assert "preset_change_locked_out" in src, (
-        "the refusal site must record a lockout; otherwise we can only measure "
-        "the proxy and never diagnose why it is not improving"
-    )
-
-
-def test_lockout_excludes_the_benign_no_op():
-    """DISCRIMINATING: should_change_preset returns False for TWO reasons.
-
-    already-at-target is a benign no-op and happens constantly; manual is the
-    lockout. Recording both would drown the signal in noise — the counter would
-    rise on healthy zones and mean nothing.
-    """
-    src = _hvac_src()
-    i = src.index("preset_change_locked_out")
-    window = src[max(0, i - 1500):i]
-    assert 'zone.preset_mode == "manual"' in window, (
-        "the lockout record must be gated on the zone being in manual, not on "
-        "should_change_preset simply returning False"
-    )
-
-
-def test_lockout_is_edge_triggered_not_per_tick():
-    """At a 5-minute cadence a per-tick row is ~288/zone/day.
-
-    The ledger would become unreadable and the daily counter would measure tick
-    count rather than episodes.
-    """
-    src = _hvac_src()
-    assert "_preset_lockout_since" in src, (
-        "lockout must track an episode start so it records once per episode"
-    )
-    i = src.index("preset_change_locked_out")
-    window = src[max(0, i - 1500):i]
-    assert "if _lk is None" in window or "_lk is None" in window, (
-        "the row must fire only when no episode is already open"
-    )
-
-
-def test_lockout_episode_has_a_discharge():
-    """suppression-needs-a-discharge: an episode that never ends would make
-    every LATER lockout invisible, under-counting exactly what we are trying
-    to measure."""
-    src = _hvac_src()
-    assert "_preset_lockout_since.pop(" in src, (
-        "the lockout episode must clear when the zone leaves manual"
-    )
-
-
-def test_daily_counter_declares_its_restart_reason():
-    """DailyCounter raises ValueError on an empty reason (RESTART-SAFETY
-    doctrine). A counter that crashes the coordinator at init is worse than no
-    counter — this pins the declaration."""
-    src = _hvac_src()
-    i = src.index("hvac.preset_lockouts_today")
-    window = src[i:i + 500]
-    assert "reason=" in window and "persist=False" in window

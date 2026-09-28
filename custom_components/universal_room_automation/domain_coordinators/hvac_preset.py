@@ -87,6 +87,14 @@ class PresetManager:
         self._max_sleep_offset = max_sleep_offset
         self._current_season: str = ""
         self._last_house_state: str = ""
+        # HVAC W1-B §5.P1 (2026-09-27): the S1 manual rule reads four
+        # legitimacy gates off the arrester / predictor / egress manager.
+        # PresetManager is built BEFORE the arrester (hvac.py:248-249), so
+        # the refs are injected post-construction (Also-1). Unwired
+        # arrester => fail-CLOSED (`arrester_not_wired`): S1 keeps
+        # respecting `manual` until the gates can be read.
+        self._arrester: Any = None
+        self._last_manual_verdict: dict[str, dict[str, Any]] = {}
 
     @property
     def current_season(self) -> str:
@@ -199,21 +207,163 @@ class PresetManager:
 
         return adjusted_cool, adjusted_heat
 
+    # ------------------------------------------------------------------
+    # HVAC W1-B §5.P1 — S1 manual-guard replacement (Alt A, four gates)
+    # ------------------------------------------------------------------
+    # The v3.8.0 rule "Don't fight manual — that's the arrester's job" is
+    # SUPERSEDED (state-of-play §9e / §10 C25, operator 2026-09-27). The
+    # arrester only owns manuals it books as a genuine human change at
+    # >= 1 F delta; URA-caused manuals (borrow returns, echoes,
+    # compromises) fell through and locked S1 out of its own zones for
+    # hours. S1 now takes a zone out of `manual` UNLESS one of four gates
+    # says a legitimate holder exists. The rule lives ONLY here (plus the
+    # arrester's own booking of gate (e)); nothing in the funnels, nothing
+    # in borrow code.
+
+    def set_arrester(self, arrester: Any) -> None:
+        """Inject the OverrideArrester (gates a/b, c, d, e-arrester)."""
+        self._arrester = arrester
+
+    @staticmethod
+    def _has(container: Any, key: str) -> bool:
+        try:
+            return bool(container) and key in container
+        except TypeError:
+            return False
+
+    def manual_guard_verdict(self, zone_id: str) -> dict[str, Any]:
+        """Evaluate the four Alt-A gates for ``zone_id`` (pure read).
+
+        Returns ``{"refused": bool, "reason": str | None,
+        "gate_snapshot": {...}}``. ``reason`` is the FIRST armed gate in
+        the order (a/b) -> (c) -> (d) -> (e); every gate's state is in the
+        snapshot so the ledger can show the full picture (C-P1B falsifier).
+        Never raises; an accessor error arms the gate it belongs to
+        (fail-closed: an unreadable holder is treated as present).
+        """
+        arr = self._arrester
+        snap: dict[str, Any] = {
+            "a_b": False, "c": False, "c_source": None,
+            "d": False, "e": False, "e_source": None,
+        }
+        if arr is None:
+            snap["arrester_wired"] = False
+            self._last_manual_verdict[zone_id] = {
+                "refused": True, "reason": "arrester_not_wired",
+                "gate_snapshot": snap,
+            }
+            return self._last_manual_verdict[zone_id]
+        snap["arrester_wired"] = True
+
+        # (a/b) person-protected hold: TAO switch ON or any immune-person
+        # hold on this zone — the pre-existing OR the shave paths consult.
+        try:
+            snap["a_b"] = bool(arr._corrective_writes_suppressed(zone_id))
+        except Exception:  # noqa: BLE001
+            snap["a_b"] = True
+
+        # (c) arrester grace / comfort-delay / compromise window. NOT
+        # `_override_active` (M1): it leaks under the compromise
+        # early-return at hvac_override.py:3366-3372.
+        c_source = None
+        try:
+            if arr.comfort_delay_active(zone_id):
+                c_source = "comfort_delay"
+            elif self._has(getattr(arr, "_grace_timers", None), zone_id):
+                c_source = "grace_timer"
+            elif self._has(getattr(arr, "_compromise_timers", None), zone_id):
+                c_source = "compromise_timer"
+        except Exception:  # noqa: BLE001
+            c_source = "accessor_error"
+        snap["c"] = c_source is not None
+        snap["c_source"] = c_source
+
+        # (d) arrester DISABLED (passive mode): it still books
+        # `override_detected` but never reverts, so S1 must keep
+        # respecting manual (README_v3.9.0). Reload window (M10): the
+        # arrester is CONSTRUCTED from the options value (hvac.py:249 /
+        # __init__.py `arrester_enabled=`), and the switch's RestoreEntity
+        # value only lands at/after SIGNAL_HVAC_COORDINATOR_READY, so this
+        # read IS the options value until READY.
+        try:
+            snap["d"] = not bool(arr.enabled)
+        except Exception:  # noqa: BLE001
+            snap["d"] = True
+
+        # (e) live borrow — D47 (2026-09-27): the registry row (pure read,
+        # no reap) OR one of the arrester's SELF-DISCHARGING in-flight
+        # timers (nudge restore timer / nudge in-flight set / compromise
+        # timer — all set even when `begin_excursion` returned None).
+        # Token dicts and predictor / egress state are NOT read: their
+        # leftovers outlive the row (banking token after the 2 h sweep,
+        # `_last_precool_zones` with Zone Intelligence OFF); S1 already
+        # skips egress-paused zones. D51 retired the excursion kill switch,
+        # so every borrow records a row — no no-row kind remains.
+        e_source = None
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            if _ex_mod.is_borrow_active(zone_id):
+                e_source = "row"
+        except Exception:  # noqa: BLE001
+            e_source = "row_accessor_error"
+        if e_source is None:
+            if self._has(getattr(arr, "_nudge_restore_timers", None), zone_id):
+                e_source = "nudge_restore_timer"
+            elif self._has(getattr(arr, "_nudge_in_flight", None), zone_id):
+                e_source = "nudge_in_flight"
+            elif self._has(getattr(arr, "_compromise_timers", None), zone_id):
+                e_source = "compromise_timer"
+        snap["e"] = e_source is not None
+        snap["e_source"] = e_source
+
+        reason: str | None = None
+        if snap["a_b"]:
+            reason = "person_protected_hold"
+        elif snap["c"]:
+            reason = "arrester_active_window"
+        elif snap["d"]:
+            reason = "arrester_disabled_passive"
+        elif snap["e"]:
+            reason = "active_borrow"
+        verdict = {
+            "refused": reason is not None,
+            "reason": reason,
+            "gate_snapshot": snap,
+        }
+        self._last_manual_verdict[zone_id] = verdict
+        return verdict
+
+    def last_manual_verdict(self, zone_id: str) -> dict[str, Any] | None:
+        """The verdict computed by the most recent ``should_change_preset``
+        for this zone (for the caller's `preset_change_deferred` row)."""
+        return self._last_manual_verdict.get(zone_id)
+
     def should_change_preset(
         self,
         current_preset: str,
         target_preset: str,
+        *,
+        zone_id: str | None = None,
     ) -> bool:
-        """Determine if preset should be changed.
+        """Determine if preset should be changed (S1 decision site).
 
-        Skip change if already at target or if current preset is 'manual'
-        (user manually set temperature — arrester handles this, not preset manager).
+        * already at target -> False (benign no-op).
+        * current is `manual` -> True UNLESS a §5.P1 gate refuses
+          (person-protected hold / arrester window / arrester disabled /
+          live borrow). ``zone_id`` is REQUIRED to read the gates; without
+          it the manual case fails closed (refused, `no_zone_id`).
+        * otherwise -> True.
         """
         if current_preset == target_preset:
             return False
-        # Don't fight manual — that's the arrester's job
         if current_preset == "manual":
-            return False
+            if zone_id is None:
+                self._last_manual_verdict["__no_zone__"] = {
+                    "refused": True, "reason": "no_zone_id", "gate_snapshot": {},
+                }
+                return False
+            verdict = self.manual_guard_verdict(zone_id)
+            return not verdict["refused"]
         return True
 
     def get_status(self) -> dict[str, Any]:

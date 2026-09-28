@@ -5911,6 +5911,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_HVAC_COVER_ENTITIES,
             DEFAULT_MAX_SLEEP_OFFSET,
             DEFAULT_COMPROMISE_MINUTES,
+            clamp_hvac_compromise_minutes,
             DEFAULT_AC_RESET_TIMEOUT,
             DEFAULT_FAN_ACTIVATION_DELTA,
             DEFAULT_FAN_HYSTERESIS,
@@ -5920,12 +5921,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_ARRESTER_ENABLED,
             CONF_HVAC_AC_RESET_ENABLED,
             DEFAULT_AC_RESET_ENABLED,
-            # HVAC-GOVERNED-EXCURSION-1 fix-up r5 (2026-08-21):
-            # the kill switch moved from a dashboard entity to
-            # this config-flow field. Sibling of the other HVAC
-            # coordinator-level feature toggles.
-            CONF_EXCURSION_PRIMITIVE_ENABLED,
-            DEFAULT_EXCURSION_PRIMITIVE_ENABLED,
             CONF_HVAC_FAN_CONTROL_ENABLED,
             DEFAULT_FAN_CONTROL_ENABLED,
             CONF_ZONE_VACANCY_SWEEP_ENABLED,
@@ -6100,10 +6095,18 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(
                 CONF_HVAC_COMPROMISE_MINUTES,
-                default=self._get_current(CONF_HVAC_COMPROMISE_MINUTES, DEFAULT_COMPROMISE_MINUTES),
+                # A-L4: a stored value outside the slider's [5, 15] would
+                # render as an invalid form default — clamp it on read.
+                default=clamp_hvac_compromise_minutes(
+                    self._get_current(CONF_HVAC_COMPROMISE_MINUTES, DEFAULT_COMPROMISE_MINUTES)
+                ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=5, max=120, step=5,
+                    # HVAC W1-B D4a (ruling 14): max 120 -> 15
+                    # (HVAC_COMPROMISE_MINUTES_MAX). A stored value above
+                    # the ceiling is clamped on read at the decision
+                    # consumer (`_read_hvac_compromise_minutes`).
+                    min=5, max=15, step=5,
                     unit_of_measurement="min",
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
@@ -6413,19 +6416,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 )
             ),
             # HVAC-GOVERNED-EXCURSION-1 fix-up r5 (2026-08-21): Governed
-            # Thermostat Borrows kill switch. Sibling of the two toggles
-            # above (Override Arrester + AC Reset). BEGIN-ONLY: OFF
-            # prevents NEW borrows from being recorded; in-flight ones
-            # still complete via the legacy path and thermostats are
-            # still restored. See strings.json data_description for the
-            # honest label.
-            vol.Optional(
-                CONF_EXCURSION_PRIMITIVE_ENABLED,
-                default=self._get_current(
-                    CONF_EXCURSION_PRIMITIVE_ENABLED,
-                    DEFAULT_EXCURSION_PRIMITIVE_ENABLED,
-                ),
-            ): selector.BooleanSelector(),
             # v3.18.2: Zone sweep toggle
             vol.Optional(
                 CONF_ZONE_VACANCY_SWEEP_ENABLED,

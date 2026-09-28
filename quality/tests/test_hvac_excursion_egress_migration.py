@@ -65,7 +65,6 @@ class _StubZoneState:
 def _make_em(pre_mode: str = "heat_cool", pre_preset: str = "home",
              mode_fail: bool = False):
     _ex_mod._test_clear_leases()
-    _ex_mod._test_set_kill_switch(True)
     _ex_mod._test_bind(hass=None, db=None)
 
     em = EgressManager.__new__(EgressManager)
@@ -166,24 +165,6 @@ def test_engage_resume_mode_fail_still_attempts_preset_LEAK_FIX():
     # Lease still released even on mode failure.
     assert _ex_mod._test_has_row(ZONE_ID) is False
 
-
-def test_kill_switch_off_produces_no_egress_lease():
-    em, log = _make_em()
-    _ex_mod._test_set_kill_switch(False)
-    try:
-        _run(em._engage_pause(
-            zone_id=ZONE_ID, zone_state=_StubZoneState(),
-            triggered_room="Living Room", now=None,
-        ))
-        assert _ex_mod._test_has_row(ZONE_ID) is False
-    finally:
-        _ex_mod._test_set_kill_switch(True)
-
-
-
-# ---------------------------------------------------------------------------
-# C-H1 - egress abort branch: _engage_resume with saved_mode empty
-# ---------------------------------------------------------------------------
 
 def test_C_H1_engage_resume_abort_branch_closes_excursion():
     """The `not thermostat or not saved_mode` abort branch used to
