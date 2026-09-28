@@ -744,3 +744,9 @@ Q1–Q3 are answered (rulings below). Still open:
 ## Operator answers to questions 4-5 (2026-09-27 ~22:25, verbatim)
 - **Q4 switch default:** "Default OFF (Recommended)" — D8 proceeds.
 - **Q5 D0 item 5 live test:** "Run it in zone 3. Btw don't deploy after building until I say so" — test target zone_3; **the CPR build must NOT be deployed until the operator says so** (hold after build + reviews).
+
+## D0 item 5 — live test log (zone_3)
+- 22:33:0x CDT 2026-09-27: `ha_carrier.set_activity_setpoint` on `climate.back_hallway_zone_3` while on named preset **away** (both feeds away, 66/80): target_temp_low 66, target_temp_high 81.
+- +0 (HA): preset_mode away, hold_activity away, hold_until None, 66/81.
+- +1 min (operator app screenshot 22:34): Zone 3 "66 - 81 · Holding Away" — named preset retained, NOT manual.
+- Pending: through the next full config read (≤ 120 min, ~00:35) — pass = still away/away, no manual, app still "Holding Away" 81; then revert to 80 via the same service.
