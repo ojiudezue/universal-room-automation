@@ -571,8 +571,9 @@ class ZoneManager:
         from config entries against zone.rooms.
 
         HVAC-ZONE-CONDITIONING-DEMAND-1 D1 (2026-09-16): `house_state` is
-        optional. When set to a member of `FAN_TRUST_STATES` (home_night /
-        sleep / waking), the per-room HVAC vacancy tail-hold selects from
+        optional. When set to a member of `HVAC_NIGHT_HOLD_STATES` (sleep /
+        waking — NOT home_night, HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1), the
+        per-room HVAC vacancy tail-hold selects from
         `ROOM_TYPE_HVAC_HOLD_NIGHT`; otherwise from `ROOM_TYPE_HVAC_HOLD`
         (day). None => day table (safe default for callers that haven't
         been threaded yet).
@@ -983,7 +984,9 @@ class ZoneManager:
     ) -> int:
         """Return the effective tail-hold window for a room in seconds.
 
-        Selects day vs night table by `house_state in FAN_TRUST_STATES`.
+        Selects day vs night table by `house_state in HVAC_NIGHT_HOLD_STATES`
+        (sleep / waking; HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1, 2026-09-27 —
+        home_night deliberately uses the DAY value).
         HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D1/D2 (v5.103.8): honour the
         optional per-room `override_day` / `override_night` (from the
         ROOM options-flow CONF_HVAC_VACANCY_HOLD[_NIGHT] fields). None
@@ -999,7 +1002,7 @@ class ZoneManager:
             DEFAULT_HVAC_VACANCY_HOLD,
             DEFAULT_HVAC_VACANCY_HOLD_NIGHT,
         )
-        from .hvac_const import FAN_TRUST_STATES
+        from .hvac_const import HVAC_NIGHT_HOLD_STATES
 
         # Resolve day + night with overrides first (needed for clamp).
         day_val: int
@@ -1043,7 +1046,7 @@ class ZoneManager:
                 logged.add(clamp_key)
             night_val = day_val
 
-        return night_val if house_state in FAN_TRUST_STATES else day_val
+        return night_val if house_state in HVAC_NIGHT_HOLD_STATES else day_val
 
     def _compute_hvac_occupied(
         self,

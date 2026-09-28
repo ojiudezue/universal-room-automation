@@ -239,14 +239,18 @@ def test_d1_falls_after_tail_expires():
 
 
 def test_d1_night_table_selection():
-    """D8: house_state in FAN_TRUST_STATES selects the NIGHT table."""
+    """D8: house_state in HVAC_NIGHT_HOLD_STATES (sleep / waking) selects
+    the NIGHT table. HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1 (2026-09-27):
+    home_night now selects the DAY table (was 1800)."""
     zm = _mk_manager()
     hold_day = zm._effective_hvac_hold_seconds("bedroom", "home_day")
     hold_night = zm._effective_hvac_hold_seconds("bedroom", "home_night")
     hold_sleep = zm._effective_hvac_hold_seconds("bedroom", "sleep")
+    hold_waking = zm._effective_hvac_hold_seconds("bedroom", "waking")
     assert hold_day == 60
-    assert hold_night == 1800
+    assert hold_night == 60
     assert hold_sleep == 1800
+    assert hold_waking == 1800
 
 
 def test_d1_hold_tables_source_of_truth():
@@ -257,7 +261,10 @@ def test_d1_hold_tables_source_of_truth():
     reject-type here at call time."""
     zm = _mk_manager()
     assert zm._effective_hvac_hold_seconds("bedroom", "home_day") == 60
-    assert zm._effective_hvac_hold_seconds("bedroom", "home_night") == 1800
+    # HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1: home_night -> day table (60);
+    # the night table (1800) applies in sleep.
+    assert zm._effective_hvac_hold_seconds("bedroom", "home_night") == 60
+    assert zm._effective_hvac_hold_seconds("bedroom", "sleep") == 1800
     # Unknown room_type falls to defaults.
     assert zm._effective_hvac_hold_seconds("unknown_type", "home_day") == 60
 
