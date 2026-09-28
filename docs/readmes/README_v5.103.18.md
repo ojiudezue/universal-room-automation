@@ -71,3 +71,17 @@ A v3.8.0 rule in S1 (`should_change_preset`) refused to write a preset over a zo
 
 ## Rollback
 Revert the merge. Older code ignores the store side-keys. A stored value for the retired option is harmless.
+
+## Live validation — 2026-09-28 (HACS v5.103.18, HA restarted 20:54 CDT 09-27; v5.103.19 restart 22:15 CDT; window to 08:30 CDT 09-28)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | All 3 zones load; zero URA ERRORs | **PASS** | system_log after both restarts: only boot-transient WARNINGs; zone 3 decided on the first cycle |
+| 2 | 0 `preset_change_locked_out`; deferrals only with a gate reason | **PASS** | 0 `preset_change_locked_out`; 2 `preset_change_deferred` rows |
+| 3 | URA-caused manual after a nudge reclaimed within one tick | **PASS (stronger than expected)** | 14 nudges; presets-only returns left NO URA-caused manual to reclaim — `manual_class` on 26 `preset_change` rows: 24 `not_manual`, 2 `gated_human` (reclaims after genuine human changes), 0 `zero_delta_ura` |
+| 4 | No S1 `preset_change` inside a nudge window | **PASS** | 0 S1 writes inside the 14 `nudge_started`→`nudge_restored` windows |
+| 5 | `tao_restore_evaluated` at boot | **PASS** | 20:54:34 `decision=no_persisted_state` (TAO off) |
+| 6 | Reclaim trip-wire NM count = 0 | **PASS** | no reclaim-rate NM in `notification_log`; only 2 ordinary "HVAC Override" NMs for the genuine human changes |
+| 7 | "Restore thermostats after temporary changes" gone | **PASS** | 0 references in installed `strings.json` / `config_flow.py` |
+
+Echo re-check (v5.103.17): 0 `override_detected` within 15 s of any of the 14 nudges.
