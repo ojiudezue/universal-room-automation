@@ -597,8 +597,10 @@ def test_hallway_circulation_exclusion_via_update_room_conditions():
             self._occ = occupied
 
         def get_last_hvac_evidence_time(self):
-            from datetime import datetime, timedelta, timezone
-            now = datetime.now(timezone.utc)
+            import sys as _sys
+            from datetime import timedelta
+            _hz = _sys.modules["custom_components.universal_room_automation.domain_coordinators.hvac_zones"]
+            now = _hz.dt_util.now()   # the PRODUCER's clock (sibling tests may freeze it)
             return now if self._occ else now - timedelta(days=1)
 
         def is_hvac_evidence_active(self):

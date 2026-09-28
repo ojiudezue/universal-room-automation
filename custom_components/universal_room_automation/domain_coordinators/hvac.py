@@ -1509,7 +1509,8 @@ class HVACCoordinator(BaseCoordinator):
         # completion (typically <1s after async_added_to_hass) but tight
         # enough that the second tick still acts on saved values.
         try:
-            from homeassistant.helpers.event import async_call_later
+            # (async_call_later is a module-level import — v5.103.20 removed
+            # the function-local re-import here, Bug Class #34.)
 
             @callback
             def _release_egress_gate(_now=None):
@@ -2066,7 +2067,7 @@ class HVACCoordinator(BaseCoordinator):
         self._zone_manager.update_all_zones()
         self._zone_manager.update_room_conditions(
             house_state=self._house_state,
-            entry_dwell_s=float(self._zone_entry_dwell or 0) * 60.0,
+            entry_dwell_s=self._entry_dwell_s(),
             away_edge_fn=self._zone_away_edge,
         )
         # HVAC-DEGRADED-ROOM-TRIPWIRE-1 REV-2 D3/F9: async NM emission
@@ -4277,8 +4278,10 @@ class HVACCoordinator(BaseCoordinator):
             pass
 
     def _entry_dwell_s(self) -> float:
+        """Knob 47 in seconds (W). Tolerates a partially-initialised
+        coordinator (bare fixtures) — missing/None/malformed -> 0 (filter off)."""
         try:
-            return float(self._zone_entry_dwell or 0) * 60.0
+            return float(getattr(self, "_zone_entry_dwell", 0) or 0) * 60.0
         except (TypeError, ValueError):
             return 0.0
 
@@ -4621,7 +4624,7 @@ class HVACCoordinator(BaseCoordinator):
                     zm.update_zone_climate_state(zone_id)
                     zm.update_room_conditions(
                         house_state=self._house_state, zone_ids={zone_id},
-                        entry_dwell_s=float(self._zone_entry_dwell or 0) * 60.0,
+                        entry_dwell_s=self._entry_dwell_s(),
                         away_edge_fn=self._zone_away_edge,
                     )
                     self._sync_arm_rechecks(zone)

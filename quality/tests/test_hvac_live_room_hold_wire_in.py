@@ -219,8 +219,10 @@ def _seed_zone_with_transient_sibling(coord, zone_id: str) -> None:
         last_update_success = True
 
         def get_last_hvac_evidence_time(self):
-            from datetime import datetime, timedelta, timezone
-            now = datetime.now(timezone.utc)
+            import sys as _sys
+            from datetime import timedelta
+            _hz = _sys.modules["custom_components.universal_room_automation.domain_coordinators.hvac_zones"]
+            now = _hz.dt_util.now()   # the PRODUCER's clock (sibling tests may freeze it)
             return now if self.data.get("occupied") else now - timedelta(days=1)
 
         def is_hvac_evidence_active(self):
@@ -800,8 +802,10 @@ def _seed_zone_transient_and_occupied(coord, zone_id: str) -> None:
         last_update_success = True
 
         def get_last_hvac_evidence_time(self):
-            from datetime import datetime, timedelta, timezone
-            now = datetime.now(timezone.utc)
+            import sys as _sys
+            from datetime import timedelta
+            _hz = _sys.modules["custom_components.universal_room_automation.domain_coordinators.hvac_zones"]
+            now = _hz.dt_util.now()   # the PRODUCER's clock (sibling tests may freeze it)
             return now if self.data.get("occupied") else now - timedelta(days=1)
 
         def is_hvac_evidence_active(self):
@@ -1007,8 +1011,10 @@ async def test_drain_call_site_in_run_decision_cycle_fires_nm():
         last_update_success = True
 
         def get_last_hvac_evidence_time(self):
-            from datetime import datetime, timedelta, timezone
-            now = datetime.now(timezone.utc)
+            import sys as _sys
+            from datetime import timedelta
+            _hz = _sys.modules["custom_components.universal_room_automation.domain_coordinators.hvac_zones"]
+            now = _hz.dt_util.now()   # the PRODUCER's clock (sibling tests may freeze it)
             return now if self.data.get("occupied") else now - timedelta(days=1)
 
         def is_hvac_evidence_active(self):
