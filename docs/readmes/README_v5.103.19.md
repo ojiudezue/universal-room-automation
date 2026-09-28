@@ -27,3 +27,13 @@ New `quality/tests/test_hvac_night_hold_follows_sleep.py` (helper + wire-in thro
 
 ## Rollback
 Revert the merge (or set `HVAC_NIGHT_HOLD_STATES` back to include `home_night`). No schema, config or entity changes.
+
+## Live validation — 2026-09-27 (HACS v5.103.19, HA restarted 22:15 CDT)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| — | Code shipped | PASS | PR #591 contains `hvac_const.py` + `hvac_zones.py`; installed manifest v5.103.19; `HVAC_NIGHT_HOLD_STATES` present in installed `hvac_zones.py` |
+| L2 | In house `sleep`: night holds apply | PASS | 22:16 CDT, `sensor.ura_presence_coordinator_presence_house_state = sleep`; `binary_sensor.kitchen_kitchen_hvac_occupied` hold 90 s (common-room override); `binary_sensor.jaya_bedroom_jaya_bedroom_hvac_occupied` 5400 s; `binary_sensor.master_bedroom_master_bedroom_hvac_occupied` 1800 s |
+| L1 | In `home_night` (21:00–22:00): day holds apply | PENDING | window next occurs 2026-09-28 21:00–22:00 |
+| L3 | A bedroom/media room emptying 21:00–22:00 releases within ~7 min | PENDING | needs the 09-28 evening window |
+| L4 | Fan snapshots still report sleep_state during home_night | PENDING | same window; fans untouched by design (`FAN_TRUST_STATES` unchanged) |
