@@ -2920,9 +2920,10 @@ cards:
   origin: 'Found by the raw-evidence gap probe 2026-09-26 (AUDIT_hvac_raw_evidence_gaps_2026_09_26.md, could-not-measure section).'
   next: 'NONE - refuted. The sensor is alive; the room is simply rarely used. Fleet-wide finding carried to WIFI-ACTUATOR-FLEET-FLAP-1.'
 - id: HVAC-WRITE-CONFIRMATION-ORACLE-1
+  measured_2026_09_28: 'Zone 1 away re-write loop NOT recurring: zone_1 on away 08:29 -> 09:00 CDT 09-28 with BOTH feeds agreeing (status away / hold_activity away) and exactly 1 away write (vs 6/h during the 09-26/27 feed split). The split ended after the operator reconnected the zone_1 thermostat to the network (~19:45 09-27) — consistent with the operators read that it was an integration/device-connectivity problem, not URA. Parked with trigger: status preset_mode != hold_activity for > 10 min on any zone, or > 2 same-preset S1 re-writes/h. Backoff build NOT needed now.'
   evidence_empty_house_2026_09_27: 'Empty-house experiment (21.6 h, nobody home): zone_1 received 130 re-issued away writes (6.0/h), zones 2/3 zero. The loop is not human-caused.'
   title: Which Carrier feed confirms that a URA write took? (problem 6, decoupled from W1-B) — measurement-only investigation
-  status: investigating
+  status: parked
   thread: hvac
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
   created: '2026-09-26'
