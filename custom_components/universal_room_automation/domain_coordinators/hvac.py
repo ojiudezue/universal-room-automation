@@ -4869,9 +4869,12 @@ class HVACCoordinator(BaseCoordinator):
             zone_name = getattr(zone, "zone_name", zone_id)
             window_min = int(HVAC_QUICK_RETURN_WINDOW_S // 60)
             self._fast_path_nm(
-                f"{zone_name} keeps switching to Away too soon",
+                # User-facing name "Early return alert" (operator 2026-09-28:
+                # distinct from the "Return window" mechanism — 15-min alarm
+                # vs 10-min mechanism). Internal names / attr keys unchanged.
+                f"Early return alert: {zone_name}",
                 (
-                    f"{zone_name} switched to Away and someone was back within "
+                    f"Early return alert: {zone_name} switched to Away and someone was back within "
                     f"{window_min} minutes {n} times today. The empty-room hold "
                     "for a room in this zone may be too short."
                 ),

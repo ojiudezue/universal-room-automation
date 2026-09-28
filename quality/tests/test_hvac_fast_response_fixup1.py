@@ -169,7 +169,8 @@ async def test_pending_hold_cap_latch_clears_when_spell_ends(mods):
 # ==========================================================================
 
 @pytest.mark.parametrize("minutes,ret_after_s,expect_exempt", [
-    (15, 400, True),      # default: 400 s < 900 s
+    (10, 400, True),      # default: 400 s < 600 s
+    (10, 601, False),     # default: 601 s > 600 s -> cold
     (5, 200, True),       # 200 s < 300 s
     (5, 400, False),      # 400 s > 300 s -> cold
     (0, 1, False),        # 0 = exemption OFF: even 1 s later is cold
@@ -194,13 +195,13 @@ def test_return_window_knob_live_value_drives_exemption(mods, minutes, ret_after
 
 def test_return_window_seconds_helper(mods):
     coord, hass, coords, sched = _setup(mods)
-    assert coord._return_window_s() == 900.0                             # default 15
+    assert coord._return_window_s() == 600.0                             # default 10
     coord._return_window_minutes = 0
     assert coord._return_window_s() == 0.0
     coord._return_window_minutes = 60
     assert coord._return_window_s() == 3600.0
     coord._return_window_minutes = "bad"
-    assert coord._return_window_s() == 900.0                             # malformed -> default
+    assert coord._return_window_s() == 600.0                             # malformed -> default
 
 
 @pytest.mark.asyncio
@@ -211,8 +212,8 @@ async def test_fast_run_threads_live_return_window_to_producer(mods):
     run -> cold (a run that dropped the kwarg would re-use 900 -> exempt)."""
     with _Clock(T0) as clk:
         coord, hass, coords, sched = _away_zone(mods, clk)
-        _arm_then_release(coord, coords, clk)                            # passes at 900 s
-        assert coord.zone_manager._last_return_window_s == 900.0
+        _arm_then_release(coord, coords, clk)                            # passes at 600 s
+        assert coord.zone_manager._last_return_window_s == 600.0
         coord._return_window_minutes = 0
         clk.t = clk.t + S(seconds=60)
         _evidence(coords[KIT], onset=clk.t, ev=clk.t, active=True)
@@ -232,7 +233,7 @@ def test_return_window_number_entity_identity(mods):
     assert n.name == "52 · Return Window (min)"
     assert n.unique_id == f"{mods['const'].DOMAIN}_hvac_return_window_minutes"
     assert (n.native_min_value, n.native_max_value, n.native_step) == (0, 60, 1)
-    assert n.native_value == 15                                          # default
+    assert n.native_value == 10                                          # default
     entry.options = {"hvac_return_window_minutes": 3}
     assert number_mod.ReturnWindowMinutesNumber(hass, entry).native_value == 3
 

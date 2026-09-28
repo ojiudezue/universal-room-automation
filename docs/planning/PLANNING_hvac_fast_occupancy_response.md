@@ -196,6 +196,8 @@ measure-before-build, coincidental-equality (#63), unrestored-drill, pyc stalene
 | R6 (fix-up 1) | 2026-09-28 | Per-room "Skip entry wait" option (room options, climate step), helper "Turn on for rooms whose sensor only gives short pulses, so anyone detected counts at once. Other rooms still wait the Entry Wait.", default off; reload-suppressed (the producer reads `entry.options` every pass — consumer-proven) | §5b.1, §14 |
 | R7 (fix-up 1) | 2026-09-28 | Keep fast ENTRY in ALL house states: the outcome is unchanged (INV-1 — the fast run computes exactly the periodic outcome for that state); it only arrives faster. Exit timers, the evidence rule, D5 and the pending hold stay evidence/night-scoped | §6, §16 |
 | R8 (fix-up 1) | 2026-09-28 | No per-sensor-type waits (rejected) | — |
+| R9 (post-GO) | 2026-09-28 | "I think it should be shorter. say 5 or 10 ... faster response and more wait time for increased transit debounce." — Return window default 15 → **10** (10 chosen because anything at or below the 5-min vacancy grace does nothing: the window only helps above the grace — effective protection = window − grace) | `DEFAULT_HVAC_RETURN_WINDOW_MINUTES`, §5b.3, §14 |
+| R10 (post-GO) | 2026-09-28 | The quick-return alarm is named **"Early return alert"** for users (NM title/text) to avoid confusion with "Return window" — two different windows (15-min alarm vs 10-min mechanism). Internal names and attr keys unchanged | §5.7, §14.2 |
 | O2 (operator, D-M2 overruled) | 2026-09-28 | "I think dropping it is right." — the shadow night tail is NOT carried across a night -> evidence crossing. D's repro: Jaya's radar loses her at 06:40 (house asleep, 30-min night tail would hold until ~07:11); `home_day` at 07:00; the evidence rule releases at 06:44, the zone's empty-since is back-filled to 06:44 and the 07:00 tick writes `away` (~07:03 on the live tick cadence). Pinned by `test_night_tail_not_carried_across_crossing_jaya_repro` | §4.3 |
 
 **R1/R2 rationale:** the audit's margins were measured on today's design, with no re-arm and with stacked timers. The
@@ -676,7 +678,9 @@ else:                   output = ev_out and persisted(R, now)
 
 ### 5b.3 Room-only return exemption
 - A room whose last release ended an arm of span >= `W` re-arms immediately within the Return Window (knob 52
-  `52 · Return Window (min)`, default 15, 0–60, 0 = off — ruling R5; the D0c sizing now informs the knob's default).
+  `52 · Return Window (min)`, default **10** (R9), 0–60, 0 = off — ruling R5). The window only helps above the vacancy
+  grace: a return inside the grace never saw an away in the first place, so the effective protection is
+  `window − grace` (10 − 5 = 5 min at the live knobs); a value at or below the grace does nothing.
 - A room with "Skip entry wait" (room options, climate step — ruling R6) never waits; `exempt_reason` = `skip_entry_wait`.
   The listener probe honours it too (a skip room's first evidence queues `fast_entry` at once).
 - It renews only from such releases, so a ghosting sensor cannot chain it.
@@ -1088,7 +1092,7 @@ is clean.
 | `HVAC_FAST_PATH_MAX_WRITES_PER_ZONE_PER_HOUR` / `_MAX_RUNS_...` | 6 / 30 | 1 | |
 | `HVAC_QUICK_RETURN_WINDOW_S` | 900 | 1 | Alarm window from the ZONE's away |
 | `HVAC_QUICK_RETURN_NM_PER_DAY` | 12 | 1 | Per zone; distinct events (O1). Checkpoint |
-| Knob 52 `52 · Return Window (min)` (`CONF_HVAC_RETURN_WINDOW_MINUTES`) | default 15, 0–60 | 3 | R5 — from the ROOM's evidence release after a span >= W arm; 0 = exemption off; live (`hvac._return_window_minutes`, in the CM reload-suppress allowlist) |
+| Knob 52 `52 · Return Window (min)` (`CONF_HVAC_RETURN_WINDOW_MINUTES`) | default 10 (R9), 0–60 | 3 | R5 — from the ROOM's evidence release after a span >= W arm; 0 = exemption off; live (`hvac._return_window_minutes`, in the CM reload-suppress allowlist) |
 | `HVAC_PENDING_HOLD_CAP_S` | 600 | 1 | R4 — bounds a pending-hold spell; one `pending_hold_capped` row per spell |
 | `CONF_HVAC_SKIP_ENTRY_WAIT` (room options, climate step) | off | 2 | R6 — per-room; reload-suppressed (read live every pass) |
 | Knob 47 | default 1 min | 3 | R3; 0 = filter off |
@@ -1123,13 +1127,13 @@ evidence, tick, fast path, debounce, CRIT, fused, rung, shadow, legacy, dwell, t
 **Entities**
 - `47 · Entry Wait (min)`.
 - `52 · Return Window (min)` (`number.ura_hvac_coordinator_52_return_window_min`, unique_id
-  `{DOMAIN}_hvac_return_window_minutes`, 0–60, box, default 15) — the entity stays alongside the form field (fix-up 2 M2).
+  `{DOMAIN}_hvac_return_window_minutes`, 0–60, box, default 10 per R9) — the entity stays alongside the form field (fix-up 2 M2).
 - `31 · Fast Room Response` (`switch.ura_hvac_coordinator_31_fast_room_response`, unique_id
   `{DOMAIN}_hvac_fast_room_response`).
 
 **Notifications** (numbers are read from constants at runtime)
 - Ceiling: `Fast room response paused for {zone}` / `{zone} changed its heating and cooling setting {n} times in the last hour. Fast response is off for this zone until midnight. The regular 5-minute check still runs.`
-- Quick returns: `{zone} keeps switching to Away too soon` / `{zone} switched to Away and someone was back within {window_min} minutes {n} times today. The empty-room hold for a room in this zone may be too short.`
+- Early return alert (R10; internally the quick-return alarm, attr keys `quick_returns_today` etc. unchanged): `Early return alert: {zone}` / `Early return alert: {zone} switched to Away and someone was back within {window_min} minutes {n} times today. The empty-room hold for a room in this zone may be too short.`
 - Runaway: `Fast room response paused for {zone}` / `{zone} ran more checks than expected in the last hour. Fast response is off for this zone until midnight. The regular 5-minute check still runs.`
 
 **Acceptance:** the two string files match; the banned-word check passes; the JSON parses; hassfest passes.

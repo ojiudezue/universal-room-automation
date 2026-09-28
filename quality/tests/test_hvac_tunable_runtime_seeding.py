@@ -781,14 +781,14 @@ def _hvac_ctor_kwarg_expr(name: str) -> ast.expr:
     raise AssertionError(f"HVACCoordinator(...) call has no `{name}=` kwarg in async_setup_entry")
 
 
-@pytest.mark.parametrize("saved,expected", [({"hvac_return_window_minutes": 7}, 7), ({}, 15), ({"hvac_return_window_minutes": 0}, 0)])
+@pytest.mark.parametrize("saved,expected", [({"hvac_return_window_minutes": 7}, 7), ({}, 10), ({"hvac_return_window_minutes": 0}, 0)])
 def test_return_window_seeded_from_cm_options_at_boot(saved, expected):
     expr = _hvac_ctor_kwarg_expr("return_window_minutes")
     code = compile(ast.Expression(body=expr), "<hvac-ctor-kwarg>", "eval")
     ns = {
         "cm_config": dict(saved),
         "CONF_HVAC_RETURN_WINDOW_MINUTES": "hvac_return_window_minutes",
-        "DEFAULT_HVAC_RETURN_WINDOW_MINUTES": 15,
+        "DEFAULT_HVAC_RETURN_WINDOW_MINUTES": 10,
     }
     assert eval(code, ns) == expected  # noqa: S307 — production expression under test
 
