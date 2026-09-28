@@ -2126,6 +2126,17 @@ cards:
     related: [HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1, HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1, HVAC-W1-THERMOSTAT-DEFINITION]
     context: 'Non-goal in W1-B; blocks D9. Both S10 and S1 are URA writers, so this is not a human-interaction issue.'
   parsimony: {problem: 'S10 and S1 fight every tick on empty night zones once D9 enabled', verdict: BUILD, note: 'gate on D9 enablement'}
+- id: TEST-BILLING-RESTORE-WALLCLOCK-FLAKE-1
+  title: test_energy_restart_resilience::TestBillingRestoreDaily fails after ~19:00 CDT on pristine develop (wall-clock coupled) and pollutes every name-diff as 2 NEW
+  status: inbox
+  thread: quality
+  created: '2026-09-27'
+  updated: '2026-09-27 20:25'
+  origin: 'W1-B gates 2026-09-27: 2 NEW in full name-diff; orchestrator ran the class on a pristine develop worktree at 20:22 CDT -> 2 failed/2 passed. Also seen 2026-09-17 (HVAC-ZONE-CONDITIONING-DEMAND-1 ROUND5) and mis-attributed then to collection order.'
+  sweep_2026_09_27: 'Board grep: only mentioned inside HVAC-ZONE-CONDITIONING-DEMAND-1 as a resolved NEW; no owning card. NEW.'
+  why: 'Wall-clock-coupled tests (a named bad family) make every evening suite gate report false NEW entries, costing a verification round each time.'
+  next: 'Tier 1: pin the test clock (aware, fixed date) in TestBillingRestoreDaily; likely a local-vs-UTC date boundary (00:00 UTC = 19:00 CDT). Verify by running at a pinned 23:30 local.'
+  links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1]}
 - id: HVAC-W1-THERMOSTAT-DEFINITION
   build_review_2026_09_27: 'Built by ura-super-builder (e77dd686/2297eb8b/b444046d, tag pre-review-v5.103.18): 121 tests, 60 drills. 4 Tier-3 reviews all FIX-REQUIRED -> fix-up dispatched: gate (e) simplified to fresh row OR nudge/compromise timers + new gate (f) kill-switch-OFF respects manual (stale banking/precool leftovers were re-creating the lockout); save TAO before teardown (reload wiped it); false TAO-released NM; manual_class labels; startup audit must not revert a live borrow; 3 hollow-test gaps. OPERATOR RULINGS 2026-09-27: (D48) borrow STARTS win over person protection - "URA has more information and should win. URA understands energy saving strategies and Operators dont. They can redo if they want to pre-empt automation changes that are valid." (D49) vacancy bypass keeps todays behaviour (does not wait for arrester grace/compromise or arrester off). Orchestrator: immune person wins over a live compromise (develop behaviour kept).'
   rev5_2026_09_27: 'REV 5 committed 3ed9afda1: S1 manual guard replaced (Alt A, 4 gates: person-protected / arrester grace-compromise / arrester disabled=passive / live borrow row via _row_present_and_fresh). BORROW_LOCK collapsed into gate (e) (verified no window where nudge/compromise timers live without a fresh row). Provenance, reclaim delay, kill switch DROPPED; problem 4 closed-by-A. Operator constraint: nothing added to borrow code or emit_* funnels. Guard marked SUPERSEDED in state-of-play §9e + §10 C25 and bannered in 15 docs. NEXT: two Tier-3 plan reviews (completeness + build-prediction), reviewers read corrected state-of-play first, then build.'
@@ -29837,6 +29848,7 @@ cards:
       local-API-contention hypothesis, but is NOT a cause of the flapping (which is the pyenphase bug).'
   refs: ['https://github.com/vk2him/Enphase-Envoy-mqtt-json', docs/planning/OPEN_THREADS_2026-09-25.md]
 - id: ENVOY-FLAKINESS-181243-1
+  ha_2026_9_4_tracking_2026_09_27: 'Operator updated HA core to 2026.9.4 (core start 2026-09-28 01:34:40Z = 20:34 CDT 09-27) and wants to track whether the Envoy stops hanging. NOTE the 09-25 source audit found the upstream fix does NOT cover our path (EnvoyClientClosedError subclasses RuntimeError, not EnvoyError) — so the PRE-REGISTERED prediction is: flapping CONTINUES. Probe scripts/probes/envoy_flap_rate_probe.py (down-events/day of sensor.envoy_482543015950_battery + since core start). BASELINE on 2026.9.3: 09-20 118, 09-21 140, 09-22 163, 09-23 109, 09-24 120, 09-25 52, 09-26 15, 09-27 80 down-events/day; longest outages 36-166 min. DISCRIMINATOR: fixed = <= 5 down-events/day over 2 full local days (09-28 and 09-29) with no outage > 10 min; not fixed = >= 30/day on either day. In between = partial, look at outage length. First read: 1 down-event in the first ~6 min after boot (likely boot transient; excluded from the verdict). Caveat: 09-26 (15) shows natural variance, so one quiet day alone is not proof.'
   measured_2026_09_25: 'OPERATOR HYPOTHESIS CONFIRMED — IT IS FLAPPING, AND MY EARLIER "THE OUTAGE IS
     OVER" CLAIM WAS WRONG. Operator 2026-09-25: "please measure flakiness. I think the integration is
     flapping." Measured, read-only, recorder: sensor.envoy_482543015950_battery, ALL state changes
@@ -30007,7 +30019,7 @@ cards:
     Envoy fine. homeassistant.reload_config_entry at 21:05 timed out (queued behind the hung setup).
     A setup that never returns and never logs = a missing timeout somewhere in setup, not a network
     fault. Recovery needs a core restart / host reboot.'
-  next: 'PICK (operator), with new data: flapping fell from 109-163 down-events a day (09-19..24) to 52 on 09-25 and 15 on 09-26 (4 so far on 09-27 by 02:00). That was the first full day after your 09-25 Envoy reboot + network-stack restart + core 2026.9.3. I now recommend (D) ACCEPT + re-measure: no patch while the rate is ~10x lower. The local stream now covers native outages anyway (Run 2: up for 98.65% of native-down time, and the whole gap was one Envoy reboot). If the rate climbs back over ~100/day, re-open (A)/(B). Alternatives unchanged: (A) local core patch, (B) dual-homed interface investigation, (C) track upstream. -> on your pick I run it; on (D) I close this card with the recorder query as the trip-wire definition.'
+  next: 'MEASURE (me) on 09-30: run scripts/probes/envoy_flap_rate_probe.py and apply the ha_2026_9_4_tracking discriminator (09-28 + 09-29 full days). Fixed -> close; not fixed -> upstream report with our RuntimeError path.'
   links:
     related: [ENERGY-ACCOUNTING-DIVERGENCE-1]
 - id: TEST-SILENT-WHOLE-FILE-SKIPS-1
