@@ -4921,8 +4921,10 @@ class HVACCoordinator(BaseCoordinator):
         self._fast_path_exit_unsubs.pop(zone_id, None)
         self._fast_path_exit_due.pop(zone_id, None)
         try:
-            if self._tearing_down:
-                return
+            # Teardown / kill switch / zone gone / tripped / state / target /
+            # egress pause / establishment / last-write-away: ONE gate,
+            # checked FIRST (fix-up 1 D-M1) — `_exit_timer_preconditions`
+            # (its first conjunct is `_tearing_down`).
             if not self._exit_timer_preconditions(zone_id):
                 return
             now_utc = dt_util.utcnow()
