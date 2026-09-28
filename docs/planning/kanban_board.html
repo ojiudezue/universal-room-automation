@@ -212,14 +212,14 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-09-27T22:15:15-05:00</b></span>
-<span>data <b>3efddf8b508f</b></span>
+<span>generated <b>2026-09-27T22:25:24-05:00</b></span>
+<span>data <b>b9c535880c9c</b></span>
 <span>reconciled <b>2026-09-27</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">13<span class="den"> / 146</span></span>
+<span class="metric">13<span class="den"> / 147</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
 <details open><summary>recent autonomous work — 51 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
@@ -533,7 +533,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </ul></details>
 </section>
 <div class="summary">
-<span>Inbox <b>2</b></span>
+<span>Inbox <b>3</b></span>
 <span>Investigating <b>4</b></span>
 <span>Pre-planning <b>12</b></span>
 <span>Planned <b>23</b></span>
@@ -547,10 +547,11 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 <main class="board">
 <section class="lane" data-col="inbox">
-<h2>Inbox <span class="count">2</span><span class="hint">raw capture</span></h2>
+<h2>Inbox <span class="count">3</span><span class="hint">raw capture</span></h2>
 <div class="cards">
 <details class="card" data-id="TEST-BILLING-RESTORE-WALLCLOCK-FLAKE-1" draggable="true"><summary><span class="id">TEST-BILLING-RESTORE-WALLCLOCK-FLAKE-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">test_energy_restart_resilience::TestBillingRestoreDaily fails after ~19:00 CDT on pristine develop (wall-clock coupled) and pollutes every name-diff as 2 NEW</span><div class="tagline">quality</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-27 · updated 2026-09-27 20:25</div><dt>Why</dt><dd>Wall-clock-coupled tests (a named bad family) make every evening suite gate report false NEW entries, costing a verification round each time.</dd><dt>Next</dt><dd>Tier 1: pin the test clock (aware, fixed date) in TestBillingRestoreDaily; likely a local-vs-UTC date boundary (00:00 UTC = 19:00 CDT). Verify by running at a pinned 23:30 local.</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>sweep_2026_09_27</code>: Board grep: only mentioned inside HVAC-ZONE-CONDITIONING-DEMAND-1 as a resolved NEW; no owning card. NEW.</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div></div></details>
 <details class="card" data-id="HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1" draggable="true"><summary><span class="id">HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">A manual house-state override (e.g. forcing Sleep) never reaches HVAC or other signal consumers — only inferred transitions are dispatched</span><div class="tagline">presence</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-27 · updated 2026-09-27 22:40</div><dt>Next</dt><dd>ANSWER: should a manual house-state override propagate to HVAC and the other coordinators like an inferred change? YES -&gt; Tier 2 fix (dispatch on override set/clear). NO -&gt; document as intended.</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>sweep_2026_09_27</code>: Board grep house state override: one mention inside another card as an existing path the operator floated for manual away (line ~18336); no card owns this defect. NEW.</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div></div></details>
+<details class="card" data-id="DINING-ROOM-RADAR-SILENT-1" draggable="true"><summary><span class="id">DINING-ROOM-RADAR-SILENT-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠</span><span class="title">Dining Room radar has not reported presence once in 24 h — the room never registers as occupied</span><div class="tagline">presence</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-27 · updated 2026-09-27 23:10</div><dt>Next</dt><dd>MEASURE (me): 7-day on/off/unavailable history + battery/linkquality of the Hobeian dining radar; if dead -&gt; ask operator to check it (physical); if alive but never triggers -&gt; placement/sensitivity.</dd><dt>Forensic (1)</dt><dd><ul class="forensic"><li><code>sweep_2026_09_27</code>: Board grep hobeian_dining / dining presence: no card. NEW.</li></ul></dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div></div></details>
 </div>
 </section>
 <section class="lane" data-col="investigating">
@@ -994,7 +995,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>3efddf8b508f</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>b9c535880c9c</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {

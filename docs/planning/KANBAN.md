@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-27T22:15:15-05:00_ - _Data commit: `3efddf8b508f`_ - _last_reconciled: 2026-09-27_
+_Generated: 2026-09-27T22:25:24-05:00_ - _Data commit: `b9c535880c9c`_ - _last_reconciled: 2026-09-27_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 2 |
+| 📥 Inbox | 3 |
 | 🔬 Investigating | 4 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 23 |
@@ -21,7 +21,7 @@ _Generated: 2026-09-27T22:15:15-05:00_ - _Data commit: `3efddf8b508f`_ - _last_r
 | 🅿️ Parked | 71 |
 | ✅ Done | 229 |
 
-## 📥 Inbox (2)
+## 📥 Inbox (3)
 _raw capture_
 
 ### `TEST-BILLING-RESTORE-WALLCLOCK-FLAKE-1` - test_energy_restart_resilience::TestBillingRestoreDaily fails after ~19:00 CDT on pristine develop (wall-clock coupled) and pollutes every name-diff as 2 NEW — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -38,6 +38,13 @@ _created 2026-09-27 · updated 2026-09-27 22:40_
 - **Next:** ANSWER: should a manual house-state override propagate to HVAC and the other coordinators like an inferred change? YES -> Tier 2 fix (dispatch on override set/clear). NO -> document as intended.
 - **Forensic keys (1):**
   - `sweep_2026_09_27`: Board grep house state override: one mention inside another card as an existing path the operator floated for manual away (line ~18336); no card owns this defect. NEW.
+
+### `DINING-ROOM-RADAR-SILENT-1` - Dining Room radar has not reported presence once in 24 h — the room never registers as occupied — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **presence** - status: **inbox**
+_created 2026-09-27 · updated 2026-09-27 23:10_
+- **Next:** MEASURE (me): 7-day on/off/unavailable history + battery/linkquality of the Hobeian dining radar; if dead -> ask operator to check it (physical); if alive but never triggers -> placement/sensitivity.
+- **Forensic keys (1):**
+  - `sweep_2026_09_27`: Board grep hobeian_dining / dining presence: no card. NEW.
 
 ## 🔬 Investigating (4)
 _measuring; truth not yet known_

@@ -750,3 +750,5 @@ Q1–Q3 are answered (rulings below). Still open:
 - +0 (HA): preset_mode away, hold_activity away, hold_until None, 66/81.
 - +1 min (operator app screenshot 22:34): Zone 3 "66 - 81 · Holding Away" — named preset retained, NOT manual.
 - Pending: through the next full config read (≤ 120 min, ~00:35) — pass = still away/away, no manual, app still "Holding Away" 81; then revert to 80 via the same service.
+- +31 min (22:37): unchanged, away/away, no hold_until, 66/81.
+- **Bonus evidence (unplanned):** at 23:04:50 URA switched zone 3 away -> sleep (house_state_transition), showing sleep's own 70/77; at 23:24:51 URA switched it back sleep -> away (vacant_past_grace) and the zone came back at **66/81** — the edited value is stored IN the away profile and survives a preset round-trip; neither switch produced `manual`.
