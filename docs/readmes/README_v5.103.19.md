@@ -10,7 +10,9 @@ When a room empties, HVAC keeps treating it as occupied for a short "hold" befor
 - `hvac_zones.py` `_effective_hvac_hold_seconds`: picks the night hold when the house is in `HVAC_NIGHT_HOLD_STATES` instead of `FAN_TRUST_STATES`. Overrides, the night-at-least-day clamp and both callers (producer + per-room display attribute) are unchanged.
 - `FAN_TRUST_STATES` is byte-identical: fans, D7 night-trust and the fan recheck behave exactly as before.
 
-Effect: between 21:00 and house Sleep, rooms use their day hold (bedroom/common 60 s, media 120 s). From Sleep until the house actually wakes (the wake is occupancy-vetoed, up to sleep_end + 3 h), night holds apply as before, including per-room overrides (Jaya Bedroom 5400 s, the 9 common rooms 90 s).
+Effect: between 21:00 and house Sleep, rooms use their day hold (bedroom/common 60 s, media 120 s). Night holds apply as before (including per-room overrides: Jaya Bedroom 5400 s, the 9 common rooms 90 s) while the house is in SLEEP and the brief WAKING step. SLEEP is what carries the protection into the morning: at sleep_end_hour the move to WAKING is vetoed until there is sustained zone occupancy, so SLEEP persists up to sleep_end + 3 h (the backstop); WAKING then lasts only until the next inference, which moves it to HOME_DAY.
+
+**Manual Sleep override does not reach HVAC (pre-existing, unchanged here).** Choosing Sleep on the house-state select / `ura.set_house_state` goes through `set_house_state_override` (`presence.py:7591`) → `HouseStateMachine.set_override` (`house_state.py:213`), and neither sends `SIGNAL_HOUSE_STATE_CHANGED`. HVAC's `_house_state` is updated only by that signal (`hvac.py:3657`), so HVAC switches to night holds only when the inferred state machine reaches Sleep. The one exception is HVAC's boot seed (`hvac.py:1261`), which reads the override-aware `manager.house_state`, so an override active when HVAC starts or reloads is picked up once.
 
 Known residual (plan §11, D0): Jaya's room had one 21:41 gap in 7.7 days that the old hold absorbed. Mitigations if it recurs: an earlier house Sleep Start Hour, or revive C for her room.
 

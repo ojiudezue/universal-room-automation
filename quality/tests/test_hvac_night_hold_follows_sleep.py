@@ -17,11 +17,10 @@ pattern as test_hvac_live_room_establishment.py.
 """
 from __future__ import annotations
 
-import inspect
 import os
 import sys
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -32,6 +31,11 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from custom_components.universal_room_automation.const import (  # noqa: E402
+    CONF_ENTRY_TYPE,
+    CONF_ROOM_NAME,
+    CONF_ROOM_TYPE,
+    DOMAIN,
+    ENTRY_TYPE_ROOM,
     ROOM_TYPE_BEDROOM,
     ROOM_TYPE_COMMON_AREA,
     ROOM_TYPE_HVAC_HOLD,
@@ -136,9 +140,10 @@ def test_common_room_night_override_90_only_in_sleep():
 def test_fan_trust_states_unchanged_and_not_read_by_selector():
     assert _hvac_const.FAN_TRUST_STATES == ("home_night", "sleep", "waking")
     assert _hvac_const.HVAC_NIGHT_HOLD_STATES == ("sleep", "waking")
-    src = inspect.getsource(ZoneManager._effective_hvac_hold_seconds)
-    assert "FAN_TRUST_STATES" not in src
-    assert "HVAC_NIGHT_HOLD_STATES" in src
+    # Selector behaviour (not a source grep): home_night is a FAN_TRUST
+    # member but must NOT select the night value.
+    assert "home_night" in _hvac_const.FAN_TRUST_STATES
+    assert _zm()._effective_hvac_hold_seconds(ROOM_TYPE_BEDROOM, "home_night") == 60
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +191,68 @@ def test_producer_sleep_arms_night_tail(house_state):
     assert _falling_edge(zm, room_type=ROOM_TYPE_BEDROOM,
                          house_state=house_state) is True
     assert zm._hvac_tail_until["r1"] == NOW + timedelta(seconds=1800)
+
+
+class _Entry:
+    def __init__(self, room_name: str, room_type: str) -> None:
+        from homeassistant.config_entries import ConfigEntryState
+        self.entry_id = f"e_{room_name}"
+        self.state = ConfigEntryState.LOADED
+        self.disabled_by = None
+        self.data = {
+            CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+            CONF_ROOM_NAME: room_name,
+            CONF_ROOM_TYPE: room_type,
+        }
+        self.options: dict = {}
+
+
+def _tick(zm, when, house_state):
+    with patch.object(_hvac_zones.dt_util, "now", return_value=when), \
+         patch.object(_hvac_zones.dt_util, "utcnow", return_value=when):
+        zm.update_room_conditions(house_state=house_state)
+
+
+@pytest.mark.parametrize("house_state,expected_s", [
+    ("sleep", 1800),
+    ("home_night", 60),
+])
+def test_update_room_conditions_hands_house_state_to_tail(house_state, expected_s):
+    """LOW-2 wire-in anchor for the `house_state` hand-off at
+    hvac_zones.py update_room_conditions -> _compute_hvac_occupied.
+    Drives the real per-tick producer (config entries + room coordinator
+    data) through a falling edge; the armed tail length must follow the
+    house_state passed to update_room_conditions. Neutering the hand-off
+    (house_state=None) makes the sleep case arm the 60 s day tail."""
+    room = "bed1"
+    entry = _Entry(room, ROOM_TYPE_BEDROOM)
+    coord = MagicMock()
+    coord.data = {"occupied": True}
+
+    hass = MagicMock()
+
+    class _CEs:
+        def async_entries(self, dom):
+            return [entry]
+
+    hass.config_entries = _CEs()
+    hass.data = {DOMAIN: {entry.entry_id: coord}}
+    hass.states = MagicMock()
+    hass.states.get = lambda ent_id: None
+    zm = ZoneManager(hass)
+    zone = _hvac_zones.ZoneState(
+        zone_id="z1", zone_name="Z1", climate_entity="climate.z1",
+    )
+    zone.rooms = [room]
+    zm._zones["z1"] = zone
+
+    t0 = NOW - timedelta(minutes=5)
+    _tick(zm, t0, house_state)             # rising edge -> armed
+    assert zm._hvac_armed[room] is True
+    coord.data = {"occupied": False}
+    _tick(zm, NOW, house_state)            # falling edge -> tail armed
+    assert zm._hvac_tail_until[room] == NOW + timedelta(seconds=expected_s)
+    assert zone.any_room_hvac_occupied is True
 
 
 def test_producer_per_room_night_override_only_in_sleep():
