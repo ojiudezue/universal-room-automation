@@ -2182,6 +2182,15 @@ cards:
   origin: 'Found by the Custom Preset Ranges plan (PLANNING_hvac_enable_custom_preset_ranges.md); operator 2026-09-27 chose to fix it separately from CPR.'
   why: 'Same latent bug as the CPR write site: heat = cool - 7 instead of the configured Heat Low; with winter away 80/65 it would heat an empty zone to 73 F. Site: the banking/pre-heat restore fallback in hvac_predict.py (grep the minus-7 derivation).'
   next: 'BUILD (Tier 1): use the configured Heat Low at the restore fallback; test with winter away 80/65 -> heat 65.'
+- id: DINING-ROOM-RADAR-SILENT-1
+  title: 'Dining Room radar has not reported presence once in 24 h — the room never registers as occupied'
+  status: inbox
+  thread: presence
+  created: '2026-09-27'
+  updated: '2026-09-27 23:10'
+  origin: 'Side-finding of the fast-response D5 plan review 2026-09-27: binary_sensor.occupancy_lux_temp_humidity_hobeian_dining_presence never read on in the last 24 h (house occupied most of the evening).'
+  sweep_2026_09_27: 'Board grep hobeian_dining / dining presence: no card. NEW.'
+  next: 'MEASURE (me): 7-day on/off/unavailable history + battery/linkquality of the Hobeian dining radar; if dead -> ask operator to check it (physical); if alive but never triggers -> placement/sensitivity.'
 - id: HVAC-W1-THERMOSTAT-DEFINITION
   build_review_2026_09_27: 'Built by ura-super-builder (e77dd686/2297eb8b/b444046d, tag pre-review-v5.103.18): 121 tests, 60 drills. 4 Tier-3 reviews all FIX-REQUIRED -> fix-up dispatched: gate (e) simplified to fresh row OR nudge/compromise timers + new gate (f) kill-switch-OFF respects manual (stale banking/precool leftovers were re-creating the lockout); save TAO before teardown (reload wiped it); false TAO-released NM; manual_class labels; startup audit must not revert a live borrow; 3 hollow-test gaps. OPERATOR RULINGS 2026-09-27: (D48) borrow STARTS win over person protection - "URA has more information and should win. URA understands energy saving strategies and Operators dont. They can redo if they want to pre-empt automation changes that are valid." (D49) vacancy bypass keeps todays behaviour (does not wait for arrester grace/compromise or arrester off). Orchestrator: immune person wins over a live compromise (develop behaviour kept).'
   rev5_2026_09_27: 'REV 5 committed 3ed9afda1: S1 manual guard replaced (Alt A, 4 gates: person-protected / arrester grace-compromise / arrester disabled=passive / live borrow row via _row_present_and_fresh). BORROW_LOCK collapsed into gate (e) (verified no window where nudge/compromise timers live without a fresh row). Provenance, reclaim delay, kill switch DROPPED; problem 4 closed-by-A. Operator constraint: nothing added to borrow code or emit_* funnels. Guard marked SUPERSEDED in state-of-play §9e + §10 C25 and bannered in 15 docs. NEXT: two Tier-3 plan reviews (completeness + build-prediction), reviewers read corrected state-of-play first, then build.'
