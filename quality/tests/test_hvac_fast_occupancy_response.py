@@ -453,8 +453,19 @@ def test_tearing_down_guards_every_callback(mods):
         assert tt.call_count == 0
         coord._on_exit_timer("zone_1")
         assert tt.call_count == 0
-        coord._on_room_lifecycle("room_x", "x", "loaded")
-        assert "room_x" not in coord._fast_path_room_unsubs
+        # With a pending room the callback's own guard is load-bearing (the
+        # pending reschedule runs BEFORE the preconditions).
+        coord.zone_manager.zones["zone_1"].hvac_pending_arm_rooms = ["bed1"]
+        coord._on_exit_timer("zone_1")
+        assert sched.live() == []
+        # A REAL room that was released must not be re-attached while
+        # tearing down (a phantom entry id would fail to attach regardless).
+        eid = _entry_id("bed1")
+        coord._release_room_listener(eid)
+        assert coords["bed1"].listeners == []
+        coord._on_room_lifecycle(eid, "bed1", "loaded")
+        assert eid not in coord._fast_path_room_unsubs
+        assert coords["bed1"].listeners == []
         assert coord._fast_path_gates_open("zone_1", "fast_entry") is False
         coord._schedule_exit_timer("zone_1")
         assert sched.live() == []
@@ -920,14 +931,23 @@ def test_exit_timer_grace_zero(mods):
 
 
 def test_exit_timer_uses_grace_at_fire_time(mods):
-    """Row 36. Scheduled with grace 10; the knob drops to 3 WITHOUT a
-    reschedule; when the timer fires at the OLD due the callback re-reads
-    the live grace -> due is already past -> runs."""
+    """Row 36. Scheduled with grace 3; the knob is RAISED to 10 by a bypass
+    writer (no reschedule hook); when the timer fires at the OLD due the
+    callback re-reads the LIVE grace -> not due -> lazy reschedule, no run.
+    A callback using the scheduled grace would run here."""
     with _Clock(T0) as clk:
-        coord, hass, coords, sched = _exit_setup(mods, clk)
+        coord, hass, coords, sched = _exit_setup(mods, clk, grace=3, constrained=3)
         coords["bed1"].active = False
         coord._schedule_exit_timer("zone_1")
-        coord._vacancy_grace = 3                          # bypass writer
+        assert coord._fast_path_exit_due["zone_1"] == T0 + S(seconds=240 + 182)
+        coord._vacancy_grace = 10                         # bypass writer
+        clk.t = T0 + S(seconds=240 + 182)
+        with _captured(hass) as tt:
+            sched.fire_all()
+            assert tt.call_count == 0
+        assert "zone_1" not in coord._fp_exit_fired
+        assert coord._fast_path_exit_due["zone_1"] == T0 + S(seconds=240 + 602)
+        # ... and it does run once the live due is reached.
         clk.t = T0 + S(seconds=240 + 602)
         with _captured(hass) as tt:
             sched.fire_all()
@@ -1058,6 +1078,34 @@ def test_exit_timer_rescheduled_on_grace_knob_change(mods):
         ent.async_write_ha_state = lambda: None
         asyncio.get_event_loop().run_until_complete(ent.async_set_native_value(4))
         assert coord._fast_path_exit_due["zone_1"] == T0 + S(seconds=240 + 242)
+
+
+@pytest.mark.asyncio
+async def test_backfill_prevents_early_vacancy_away(mods):
+    """Row 13 (INV-2, periodic leg). Evidence ends at T0 (hold 240 ->
+    release T0+240). A tick at T0+310 sees the zone empty: with the
+    back-fill `last_occupied_time == T0+240`, 70 s into the grace -> no
+    away. Without it the grace would count from the last occupied PASS
+    (T0) and the away would land 230 s early."""
+    with _Clock(T0) as clk:
+        coord, hass, coords, _ = _setup(
+            mods, rooms={"zone_1": [("bed1", "bedroom", {"occupied": False, "ev": T0, "active": True})]},
+            presets={"zone_1": "home", "zone_2": "home", "zone_3": "home"},
+        )
+        coord.zone_manager.update_room_conditions(house_state="home_day")
+        assert coord.zone_manager.zones["zone_1"].last_occupied_time == T0
+        coords["bed1"].active = False
+        clk.t = T0 + S(seconds=310)
+        coord.zone_manager.update_room_conditions(house_state="home_day")
+        assert coord.zone_manager.zones["zone_1"].last_occupied_time == T0 + S(seconds=240)
+        await coord._apply_house_state_presets()
+        await _drain(hass)
+        assert _writes(hass, "climate.test_zone_1") == []
+        clk.t = T0 + S(seconds=545)
+        coord.zone_manager.update_room_conditions(house_state="home_day")
+        await coord._apply_house_state_presets()
+        await _drain(hass)
+        assert len(_writes(hass, "climate.test_zone_1", "away")) == 1
 
 
 # ==========================================================================

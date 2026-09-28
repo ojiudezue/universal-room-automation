@@ -851,10 +851,15 @@ async def test_zone_last_s1_write_stamped_only_on_applied(mods):
             mods, rooms={"zone_1": [(KIT, "common_area", {"occupied": True, "ev": T0, "active": True})]},
             presets={"zone_1": "home", "zone_2": "home", "zone_3": "home"},
         )
-        # (1) no-op: last_sent == observed == target -> SKIPPED, no stamp
+        # (1) no-op: the zone's stored preset says `away` (S1 attempts the
+        # write) but the strategy last SENT `home` and the entity OBSERVES
+        # `home` -> SKIPPED_ALREADY_CORRECT, zero wire calls, NO stamp.
         mods["hvac_strategy"].strategy_for(hass, ENT1)._record_sent(ENT1, "set_preset_mode", "home")
+        coord.zone_manager.zones["zone_1"].preset_mode = "away"
         await _tick(coord, hass)
+        assert _writes(hass, ENT1) == []
         assert "zone_1" not in coord._zone_last_s1_write
+        coord.zone_manager.zones["zone_1"].preset_mode = "home"
         # (2) deferred: manual zone under a live borrow (gate e)
         z = coord.zone_manager.zones["zone_1"]
         z.preset_mode = "manual"
