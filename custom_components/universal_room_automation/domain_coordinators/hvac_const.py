@@ -420,19 +420,30 @@ DEFAULT_MAX_OCCUPANCY_HOURS: Final = 8  # Stale sensor failsafe threshold
 # It is now the ENTRY TRANSIT FILTER: in home_day / home_evening, a room in a
 # zone whose last APPLIED S1 write was `away` only arms HVAC occupancy after
 # this many minutes of persisted evidence (episodes join across gaps of at
-# most min(hold, W)). Re-arms within HVAC_TRANSIT_EXEMPT_WINDOW_S of a real
-# release stay immediate. 0 = filter off (REV 3 behaviour). Unit stays
+# most min(hold, W)). Re-arms within the Return Window (knob 52,
+# CONF_HVAC_RETURN_WINDOW_MINUTES) of a real release stay immediate; a room
+# with CONF_HVAC_SKIP_ENTRY_WAIT set never waits. 0 = filter off (REV 3 behaviour). Unit stays
 # minutes; entity/unique_id unchanged. Rung 3 (Number entity), default 1;
 # the live value stays 0 until the operator sets it (checkpoint item 4).
 DEFAULT_ZONE_ENTRY_DWELL_MINUTES: Final = 1
 CONF_HVAC_ZONE_ENTRY_DWELL: Final = "hvac_zone_entry_dwell"  # Config key
-# D5 room-only return exemption window, counted from the ROOM's release of an
-# arm whose span was >= W (never renewed by a short arm, so a ghosting sensor
-# cannot chain it). Deliberately its OWN constant, split from
-# HVAC_QUICK_RETURN_WINDOW_S (the alarm window from the ZONE's away) — Bug
-# Class #63 coincidental equality. Placeholder 900 s; sized by D0c. The knob
-# 47 helper text states this value in minutes (enforced by a test).
-HVAC_TRANSIT_EXEMPT_WINDOW_S: Final = 900
+# D5 room-only RETURN WINDOW (fix-up round 1, operator ruling 2): "Return
+# Window (min)" — a rung-3 Number entity (`number.ura_hvac_coordinator_52_
+# return_window`), default 15, range 0-60, is the LIVE source; this default
+# seeds the coordinator until the entity/options write. Counted from the
+# ROOM's evidence release after an arm whose evidence spanned >= W (never
+# renewed by a short arm, so a ghosting sensor cannot chain it).
+# Deliberately separate from HVAC_QUICK_RETURN_WINDOW_S (the alarm window
+# from the ZONE's away) — Bug Class #63. 0 = exemption off.
+CONF_HVAC_RETURN_WINDOW_MINUTES: Final = "hvac_return_window_minutes"
+DEFAULT_HVAC_RETURN_WINDOW_MINUTES: Final = 15
+HVAC_RETURN_WINDOW_MINUTES_MAX: Final = 60
+# D5 pending-hold CAP (fix-up round 1, operator ruling 1): if a zone has
+# been held ONLY by never-persisted episodes for longer than this, stop
+# holding and let the vacancy away through (one `pending_hold_capped`
+# ledger row per spell). Rung 1 — bounds the unbounded re-pending case the
+# plan §7.1 recorded.
+HVAC_PENDING_HOLD_CAP_S: Final = 600
 # Added to `episode_start + W` for the D5 arm re-check timer so it fires
 # after the room coordinator's refresh that makes the episode persist.
 HVAC_ARM_RECHECK_SLACK_S: Final = 1

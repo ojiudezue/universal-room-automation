@@ -354,10 +354,12 @@ def test_shadow_dicts_untouched_by_evidence_branch():
             room_name="r1", room_type="bedroom", state_occupied=occ, now=t,
             house_state="home_day",
         )
-    assert a._hvac_armed == b._hvac_armed
-    assert a._hvac_prev_state_occupied == b._hvac_prev_state_occupied
-    assert a._hvac_tail_until == b._hvac_tail_until
-    assert a._hvac_arm_source == b._hvac_arm_source
+        # Review C (fix-up 1): compared after EVERY pass, not only at the end
+        # — a transient divergence that later re-converges is a violation.
+        assert a._hvac_armed == b._hvac_armed, ("armed", occ, age, active)
+        assert a._hvac_prev_state_occupied == b._hvac_prev_state_occupied
+        assert a._hvac_tail_until == b._hvac_tail_until
+        assert a._hvac_arm_source == b._hvac_arm_source
 
 
 def test_direct_caller_without_evidence_gets_shadow():
@@ -521,19 +523,26 @@ def test_producer_reads_active_and_refresh_from_coordinator():
 
 
 def test_hallway_never_holds_and_absent_set_pass_complete():
-    """Hallway rooms contribute nothing to release; a zone room with no
-    coordinator is in `_coordinator_absent_this_pass` even when the pass
-    is filtered to ANOTHER zone (row 17 sibling)."""
+    """Hallway rooms contribute nothing to release. Absent set (B-M3): a
+    FULL pass fills it for every zone room; a pass filtered to ANOTHER zone
+    keeps the previous value; a pass filtered to the room's own zone
+    re-evaluates it."""
     rc = _RoomCoord(occupied=True, ev=NOW, active=True)
     zm, zone = _install({"hall": ("hallway", rc), "bed": ("bedroom", None)})
     zone2 = ZoneState(zone_id="z2", zone_name="Z2", climate_entity="climate.z2")
     zone2.rooms = []
     zm._zones["z2"] = zone2
-    _tick(zm, NOW, "home_day", zone_ids={"z2"})
+    _tick(zm, NOW, "home_day")                          # full pass
     assert "bed" in zm._coordinator_absent_this_pass
-    assert zone.room_conditions == []          # z1 untouched by the z2 pass
-    _tick(zm, NOW, "home_day")
-    assert zone.any_room_hvac_occupied is False
+    _tick(zm, NOW, "home_day", zone_ids={"z2"})          # other zone: kept
+    assert "bed" in zm._coordinator_absent_this_pass
+    assert zone.room_conditions and zone.any_room_hvac_occupied is False
+    zm.hass.data[DOMAIN]["e_bed"] = _RoomCoord(occupied=False)
+    zm._room_coord_last_pass  # noqa: B018 — snapshot exists
+    _tick(zm, NOW, "home_day", zone_ids={"z2"})          # still kept (not re-evaluated)
+    assert "bed" in zm._coordinator_absent_this_pass
+    _tick(zm, NOW, "home_day", zone_ids={"z1"})          # own zone: re-evaluated
+    assert "bed" not in zm._coordinator_absent_this_pass
     assert zm.zone_release_at("z1") is None
 
 
@@ -543,8 +552,31 @@ def test_hallway_never_holds_and_absent_set_pass_complete():
 # test_ble_hold_cap.py:_bare_coord).
 # ==========================================================================
 
+def _real_room_coordinator_cls():
+    """The REAL `UniversalRoomCoordinator` class, whatever another test file
+    left in `sys.modules` (several replace the coordinator module with a
+    MagicMock): a MagicMock cannot be `object.__new__`-ed, so on a non-class
+    binding the real module is executed from its file under its package
+    name WITHOUT registering it (no permanent sys.modules surgery)."""
+    import importlib.util
+    import inspect
+    name = "custom_components.universal_room_automation.coordinator"
+    mod = sys.modules.get(name)
+    cls = getattr(mod, "UniversalRoomCoordinator", None)
+    if inspect.isclass(cls):
+        return cls
+    path = os.path.join(
+        os.path.dirname(__file__), "..", "..", "custom_components",
+        "universal_room_automation", "coordinator.py",
+    )
+    spec = importlib.util.spec_from_file_location(name, os.path.abspath(path))
+    real = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(real)
+    return real.UniversalRoomCoordinator
+
+
 def _bare(*, override_vacant=False, override_occupied=False, last_occ=False):
-    c = object.__new__(UniversalRoomCoordinator)
+    c = object.__new__(_real_room_coordinator_cls())
     entry = MagicMock()
     entry.data = {"room_name": "Testbed", CONF_ROOM_TYPE: "bedroom"}
     entry.options = {}

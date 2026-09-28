@@ -1286,6 +1286,14 @@ ROOM_TYPE_HVAC_HOLD_NIGHT: Final = {
 # `_effective_hvac_hold_seconds` (Numbers-Get-Knobs discipline).
 CONF_HVAC_VACANCY_HOLD: Final = "hvac_vacancy_hold"
 CONF_HVAC_VACANCY_HOLD_NIGHT: Final = "hvac_vacancy_hold_night"
+# v5.103.20 fix-up round 1 (operator ruling 3): per-room "Skip entry wait" —
+# rooms whose sensor only gives short pulses arm HVAC occupancy at once on
+# the away->home edge instead of waiting knob 47 (the D5 transit filter).
+# Read each producer pass from `{**entry.data, **entry.options}`
+# (hvac_zones.update_room_conditions), so an options write needs no room
+# reload — it is on `_ROOM_SUPPRESS_KEYS`. Default False.
+CONF_HVAC_SKIP_ENTRY_WAIT: Final = "hvac_skip_entry_wait"
+DEFAULT_HVAC_SKIP_ENTRY_WAIT: Final = False
 
 # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D6 (v5.103.8): the complete
 # vocabulary of `reason=` strings passed to `emit_set_preset_mode` at

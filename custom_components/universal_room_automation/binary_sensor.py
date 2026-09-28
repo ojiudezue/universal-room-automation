@@ -855,10 +855,34 @@ class HVACOccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
             diag = zm.hvac_occupied_diag(room_name)
         except Exception:  # noqa: BLE001
             diag = {}
-        attrs["armed"] = diag.get("armed", False)
-        attrs["tail_expires_at"] = diag.get("tail_expires_at")
-        attrs["hold_expires_at"] = diag.get("tail_expires_at")
-        attrs["source"] = diag.get("source", "idle")
+        # v5.103.20 fix-up 1 (A-MED3): `armed` / `source` / `tail_expires_at`
+        # follow the ACTIVE rule so they never contradict the entity's own
+        # on/off; the shadow machine's raw values are exposed alongside.
+        _rule = diag.get("rule", "legacy")
+        _out = bool(diag.get("output", diag.get("armed", False)))
+        attrs["shadow_armed"] = diag.get("armed", False)
+        attrs["shadow_source"] = diag.get("source", "idle")
+        attrs["shadow_tail_expires_at"] = diag.get("tail_expires_at")
+        if _rule == "legacy":
+            attrs["armed"] = diag.get("armed", False)
+            attrs["source"] = diag.get("source", "idle")
+            attrs["tail_expires_at"] = diag.get("tail_expires_at")
+        else:
+            attrs["armed"] = _out
+            if diag.get("armed", False) and _out and _rule == "night":
+                attrs["source"] = diag.get("source", "idle")
+            elif diag.get("pending"):
+                attrs["source"] = "pending"
+            elif _out:
+                attrs["source"] = "evidence"
+            else:
+                attrs["source"] = "idle"
+            attrs["tail_expires_at"] = diag.get("release_at")
+        attrs["hold_expires_at"] = attrs["tail_expires_at"]
+        for _k in ("episode_start", "armed_at", "arm_span_s", "arm_class",
+                   "pending", "exempt_reason", "dwell_s", "released_at",
+                   "episode_active_s", "cold"):
+            attrs[_k] = diag.get(_k)
 
         # room_type + effective hold seconds — resolve from the config
         # entry + producer's `_effective_hvac_hold_seconds` helper so the

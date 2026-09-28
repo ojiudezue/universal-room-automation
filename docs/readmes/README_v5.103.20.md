@@ -2,7 +2,9 @@
 
 **Status:** BUILT on `feature/hvac-fast-occupancy-response` (2026-09-28). **NOT deployed** — Tier 3: four
 framing-disjoint reviews, orchestrator re-grep + re-drill, then the operator checkpoint (four items below + D0c Gate A).
-**Plan:** `docs/planning/PLANNING_hvac_fast_occupancy_response.md` REV 7 (rulings R0–R3, O1).
+**Plan:** `docs/planning/PLANNING_hvac_fast_occupancy_response.md` REV 7 + fix-up round 1 (rulings R0–R8, O1, O2).
+**Reviews:** four Tier-3 framing-disjoint reviews on `pre-review-v5.103.20` (00bb88473) — all FIX-REQUIRED, no CRIT/HIGH;
+fix-up round 1 applied on the branch (see plan §18).
 **Cards:** `HVAC-OCCUPANCY-HOLD-CHAINED-AFTER-LIGHT-TIMEOUT-1`, `HVAC-W2-OCCUPANCY-TRUTH` (fast path),
 `HVAC-ENTRY-DWELL-ROOM-CLOCK-1` (folded as D5).
 **Mandatory read done:** `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` (complete; updated in this branch).
@@ -12,8 +14,8 @@ framing-disjoint reviews, orchestrator re-grep + re-drill, then the operator che
 | Deliverable | What | Where |
 |---|---|---|
 | D1 — HVAC's own release clock | In `home_day` / `home_evening` a room is HVAC-occupied while `evidence_active OR now < last_evidence + hold` (hold from `ROOM_TYPE_HVAC_HOLD`, operator rulings R1/R2: closet/infra 60 s, generic/utility/media/garage 120, bathroom/common 180, bedroom 240, hallway 0). The v5.103.19 machine keeps running as a SHADOW on the frozen `ROOM_TYPE_HVAC_TAIL_LEGACY`; `sleep`/`waking` = shadow OR evidence; `home_night`/`guest`/`arriving`/`away` are byte-identical to v5.103.19. `last_occupied_time` is back-filled to the exact release. | `coordinator.py` (`_stamp_hvac_evidence`, 3 accessors), `hvac_zones.py`, `const.py`, `hvac_const.py` |
-| D2 — event-driven zone decisions | A room-coordinator refresh with an evidence advance into a cold zone queues a ZONE-SCOPED fast run (≤ 45 s SLA; 60 s per-zone limiter, exempt after an away; write ceiling 6/h, runaway guard 30/h → tick-only until local midnight + one NM). An exit timer fires a zone-scoped run at `release + grace + 2 s` (one-shot per vacancy episode, live grace at fire time). Periodic cycles wait behind a fast run and never double-run. Kill switch `switch.ura_hvac_coordinator_31_fast_room_response` (default ON). | `hvac.py`, `switch.py`, `number.py` |
-| D5 — transit filter (ruling R3) | Knob 47 (`47 · Entry Wait`, default **1** min, live value stays 0 until the operator sets it) now gates arming on the away → home edge: a cold room arms after 60 s of persisted evidence (episodes join across gaps ≤ min(hold, W)); while a room is pending and the zone is otherwise HVAC-empty, S1 HOLDS the zone's preset in both directions (`preset_change_suppressed` reason `pending_arm_hold`, one row per spell). Room-only 15-minute return exemption (`HVAC_TRANSIT_EXEMPT_WINDOW_S`). The v4.2.2 lighting-session dwell skip is RETIRED. | `hvac_zones.py` (`_d5_update`), `hvac.py` |
+| D2 — event-driven zone decisions | A room-coordinator refresh with an evidence advance into a cold zone queues a ZONE-SCOPED fast run (≤ 45 s SLA; 60 s per-zone limiter, exempt after an away; write ceiling 6/h, runaway guard 30/h → tick-only until local midnight + one NM). An exit timer fires a zone-scoped run at `release + grace + 2 s` (one-shot per vacancy episode, live grace at fire time). Periodic cycles wait behind a fast run and never double-run. Kill switch `switch.ura_hvac_coordinator_31_fast_room_response` (default ON) — **scope: OFF stops the fast path ONLY** (room-refresh runs and exit timers); D1 (the evidence release clock), D5 (the transit filter + pending hold), the back-fill and the nudge seed stay ON on the tick; knob 47 = 0 disables D5; D1 is rolled back only by a redeploy. Fast ENTRY runs in every house state (ruling R7: same outcome, sooner); exit timers only in evidence/night states. | `hvac.py`, `switch.py`, `number.py` |
+| D5 — transit filter (ruling R3) | Knob 47 (`47 · Entry Wait`, default **1** min, live value stays 0 until the operator sets it) now gates arming on the away → home edge: a cold room arms after 60 s of persisted evidence (episodes join across gaps ≤ min(hold, W)); while a room is pending and the zone is otherwise HVAC-empty, S1 HOLDS the zone's preset in both directions (`preset_change_suppressed` reason `pending_arm_hold`, one row per spell). Room-only return exemption sized by **knob 52 `52 · Return Window (min)`** (default 15, 0–60, 0 = off; ruling R5). Per-room **"Skip entry wait"** (room options, climate step, default off; ruling R6) makes a pulse-only room count at once. A pending-hold spell is **capped at `HVAC_PENDING_HOLD_CAP_S` = 600 s** (ruling R4; one `pending_hold_capped` row per spell). The v4.2.2 lighting-session dwell skip is RETIRED. | `hvac_zones.py` (`_d5_update`), `hvac.py`, `number.py`, `config_flow.py` |
 | Ledger | `preset_change` rows carry `trigger` (`periodic` / `house_state` / `pre_arrival` / `fast_entry` / `fast_exit`), `edge_ts`, `zone_empty_since`, `exempt_reason`, `established`, `last_away_reason` (the L15 predicate). | `hvac.py` |
 | Labels | `Empty-room hold (day/night)`, `Entry wait (minutes)`, grace helpers, section `Thermostat and empty-room hold` (plain language; both string files identical). | `strings.json`, `translations/en.json` |
 | Docs | State of play §2/§3.1/§3.2/§8/§9.5/§9c/§9d; SUPERSEDED banners on the REV 4 fast-path plan and both dwell plans; gap probe `--states` + T 240. | |
@@ -30,7 +32,9 @@ framing-disjoint reviews, orchestrator re-grep + re-drill, then the operator che
 ## Tests
 
 - New: `quality/tests/test_hvac_evidence_clock.py` (D1 + stamp), `test_hvac_fast_occupancy_response.py` (D2),
-  `test_hvac_transit_filter.py` (D5 + REV 7 ledger/trigger/alarm); two chained BLE tests in `test_ble_hold_cap.py`.
+  `test_hvac_transit_filter.py` (D5 + REV 7 ledger/trigger/alarm), `test_hvac_fast_response_fixup1.py` (fix-up round 1:
+  rulings R4–R7 + O2, A-MED1/2/3, D-M1/M3, B-M3, Review C 1–4, C LOW anchors, A-LOW-5, B-L1/L3, D-L2); two chained BLE
+  tests in `test_ble_hold_cap.py`.
 - Updated (plan §11c + two more legacy fakes that needed the evidence surface): `test_hvac_night_hold_follows_sleep.py`,
   `test_zzz_hvac_conditioning_demand.py` (3 tests), `test_hvac_vacancy_hold_ui_defaults.py`,
   `test_hvac_live_room_hold_wire_in.py` (fakes only).
@@ -42,8 +46,21 @@ framing-disjoint reviews, orchestrator re-grep + re-drill, then the operator che
 
 1. Kitchen exception dropped (common-area hold 180 s).
 2. Quick-return alarm threshold 12 per zone per day; alarm counts one event per applied vacancy away (O1).
-3. D5 room-only 15-minute return exemption.
+3. D5 room-only return exemption — now knob 52 `52 · Return Window (min)`, default 15 (ruling R5); 0 turns it off.
 4. Setting knob 47 to 1 minute (D4) and clearing Jaya Bedroom's day override.
+5. Kill-switch scope (B-M4): `31 · Fast Room Response` OFF stops the fast path ONLY (room-refresh runs + exit timers).
+   The evidence release clock (D1), the transit filter + pending hold (D5), the back-fill and the nudge seed stay ON on
+   the 5-minute tick. Knob 47 = 0 disables D5. D1 is rolled back only by a redeploy.
+
+## Knob inventory (fix-up round 1)
+
+| Knob | Rung | Default / range | Where |
+|---|---|---|---|
+| `52 · Return Window (min)` (`number`, unique_id `{DOMAIN}_hvac_return_window_minutes`, `CONF_HVAC_RETURN_WINDOW_MINUTES`) | 3 | 15 / 0–60, 0 = off | `number.py`; CM options (reload-suppressed, live push); reset button |
+| `Skip entry wait` (`CONF_HVAC_SKIP_ENTRY_WAIT`, room options, climate step) | 2 | off | `config_flow.py`; read live every producer pass (reload-suppressed) |
+| `HVAC_PENDING_HOLD_CAP_S` | 1 | 600 s | `hvac_const.py` |
+| `47 · Entry Wait (min)` | 3 | 1 (live 0 until set) | unchanged |
+| `31 · Fast Room Response` | 3 | ON | unchanged; scope above |
 Plus D0c Gate A (residual re-probe at the ruled values).
 
 ## Live acceptance (plan §9) — prospective; write the observed table back after deploy
@@ -70,8 +87,12 @@ Observability: `sensor.ura_hvac_coordinator_mode` attrs `fast_room_response_enab
 `fast_exit_runs_today`, `fast_writes_today`, `fast_limited_today`, `fast_tripped_zones`, `quick_returns_today`,
 `same_room_returns_today`, `other_room_returns_today`, `transit_filtered_today`, `last_fast_edge_to_write_s`; per-room
 `binary_sensor.<room>_<room>_hvac_occupied` attrs `rule`, `last_evidence_at`, `evidence_active`, `release_at`,
-`hvac_vacancy_hold_s`; zone status attrs `hvac_empty_since`, `hvac_release_at`, `pending_arm_rooms`,
-`pending_hold_s_today`, `transit_filtered_today`.
+`hvac_vacancy_hold_s`, and (fix-up 1 A-MED3) `armed` / `source` / `tail_expires_at` that follow the ACTIVE rule (never
+contradicting the entity's own on/off; `source` ∈ idle / pending / evidence / shadow sources in legacy+night), the raw
+shadow on `shadow_armed` / `shadow_source` / `shadow_tail_expires_at`, and the D5 diagnostics `episode_start`,
+`armed_at`, `arm_span_s`, `arm_class`, `pending`, `exempt_reason`, `dwell_s`, `released_at`, `episode_active_s`,
+`cold`; zone status attrs `hvac_empty_since`, `hvac_release_at`, `pending_arm_rooms`, `pending_hold_s_today` (accrues
+live), `transit_filtered_today`; ledger action `pending_hold_capped` (`held_s`, `cap_s`, `pending_rooms`).
 
 ## Not done / deferred (accounted for)
 

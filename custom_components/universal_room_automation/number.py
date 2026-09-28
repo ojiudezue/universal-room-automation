@@ -56,6 +56,8 @@ async def async_setup_entry(
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
         entities = [
             ZoneEntryDwellNumber(hass, entry),
+            # v5.103.20 fix-up 1 (ruling 2): D5 same-room return window.
+            ReturnWindowMinutesNumber(hass, entry),
             # Presence-timer cluster — entry.options is the SOLE source of
             # truth (no RestoreEntity). Live-attr push happens BEFORE the
             # writeback so the next HVAC decision cycle picks up the new
@@ -413,14 +415,18 @@ class ComfortHumidityMaxNumber(UniversalRoomEntity, NumberEntity):
 
 
 class ZoneEntryDwellNumber(NumberEntity):
-    """Configurable zone entry dwell time on HVAC Coordinator device.
+    """Entry wait (knob 47) — the D5 ENTRY TRANSIT FILTER's W (v5.103.20).
 
-    Minutes a zone must be occupied before switching from away to home preset.
-    Prevents HVAC flapping when someone briefly transits through a zone.
-    Only applies when the house is already occupied.
+    Minutes of persisted HVAC evidence a room needs before a zone whose last
+    applied preset write was `away` switches back to Home, in `home_day` /
+    `home_evening`. Episodes join across gaps of at most min(hold, W); a
+    room returning within the Return Window (knob 52) or a room with
+    "Skip entry wait" set counts at once; 0 = filter off. The v4.2.2
+    LIGHTING-session dwell this knob used to drive is RETIRED (the entity,
+    unique_id and CONF key are unchanged).
 
     Entity: number.ura_hvac_coordinator_zone_entry_dwell
-    v4.2.2
+    v4.2.2 (semantics replaced v5.103.20, plan §5b)
     """
 
     _attr_has_entity_name = True
@@ -500,6 +506,85 @@ class ZoneEntryDwellNumber(NumberEntity):
         )
         self.async_write_ha_state()
         _LOGGER.info("Zone entry dwell set to %d minutes", int(value))
+
+
+class ReturnWindowMinutesNumber(NumberEntity):
+    """Return Window — HVAC fast occupancy response D5 (v5.103.20, operator
+    ruling 2, fix-up round 1).
+
+    If someone comes back into a room within this many minutes of it
+    emptying, the zone turns back on straight away instead of waiting the
+    Entry Wait (knob 47). 0 turns the exemption off. Live source for
+    `hvac_zones._d5_update`'s return-window check; persisted in the CM
+    entry options (Bug Class #32 pattern: options are the sole source of
+    truth, live-attr push BEFORE the writeback, no RestoreEntity).
+
+    Entity: number.ura_hvac_coordinator_52_return_window
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-import-outline"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 60
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_RETURN_WINDOW_MINUTES,
+            DEFAULT_HVAC_RETURN_WINDOW_MINUTES,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_return_window_minutes"
+        self._attr_name = "52 · Return Window (min)"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+        )
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get(
+            CONF_HVAC_RETURN_WINDOW_MINUTES, DEFAULT_HVAC_RETURN_WINDOW_MINUTES,
+        ))
+
+    def _get_hvac(self):
+        """Get the HVAC coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        """Only available when HVAC coordinator is active."""
+        return self._get_hvac() is not None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Live-attr push BEFORE the options writeback (Bug Class #32)."""
+        from .domain_coordinators.hvac_const import CONF_HVAC_RETURN_WINDOW_MINUTES
+        new_value = max(0, min(60, int(value)))
+        self._value = new_value
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac._return_window_minutes = new_value
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, CONF_HVAC_RETURN_WINDOW_MINUTES: new_value},
+        )
+        self.async_write_ha_state()
+        _LOGGER.info("Return window set to %d minutes", new_value)
 
 
 class VacancyGraceMinutesNumber(NumberEntity):

@@ -222,6 +222,8 @@ from .const import (
     CONF_HUMIDITY_FAN_MAX_RUNTIME,
     CONF_HVAC_VACANCY_HOLD,
     CONF_HVAC_VACANCY_HOLD_NIGHT,
+    CONF_HVAC_SKIP_ENTRY_WAIT,
+    DEFAULT_HVAC_SKIP_ENTRY_WAIT,
     DEFAULT_TARGET_TEMP_COOL,
     DEFAULT_TARGET_TEMP_HEAT,
     DEFAULT_FAN_TEMP_THRESHOLD,
@@ -11801,6 +11803,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                             mode=selector.NumberSelectorMode.BOX,
                         )
                     ),
+                    # v5.103.20 fix-up 1 (ruling 3): "Skip entry wait".
+                    vol.Optional(
+                        CONF_HVAC_SKIP_ENTRY_WAIT,
+                        default=bool(self._get_current(
+                            CONF_HVAC_SKIP_ENTRY_WAIT, DEFAULT_HVAC_SKIP_ENTRY_WAIT,
+                        )),
+                    ): selector.BooleanSelector(),
                 }),
                 {"collapsed": False},
             ),

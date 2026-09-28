@@ -692,7 +692,9 @@ def test_same_room_return_rearms_immediately(mods):
     with _Clock(T0) as clk:
         coord, hass, coords, sched = _away_zone(mods, clk)
         _arm_then_release(coord, coords, clk)
-        assert _diag(coord, KIT)["released_at"] == clk.t.isoformat()
+        # A-LOW-3: the anchor is the room's EVIDENCE release (ev + hold 180),
+        # not the pass that observed it.
+        assert _diag(coord, KIT)["released_at"] == (coords[KIT].ev + S(seconds=180)).isoformat()
         clk.t = clk.t + S(seconds=300)
         _evidence(coords[KIT], onset=clk.t, ev=clk.t, active=True)
         _pass(coord)
@@ -709,7 +711,7 @@ def test_exemption_renews_on_each_release(mods):
         clk.t = clk.t + S(seconds=100)
         _arm_then_release(coord, coords, clk)
         second = _diag(coord, KIT)["released_at"]
-        assert second > first and second == clk.t.isoformat()
+        assert second > first and second == (coords[KIT].ev + S(seconds=180)).isoformat()
 
 
 def test_exemption_not_renewed_by_ghost_blip_chain(mods):
@@ -769,15 +771,18 @@ def test_rearm_after_window_is_cold(mods):
 
 @pytest.mark.asyncio
 async def test_exempt_rearm_counted_once_in_quick_return_alarm(mods):
-    """Row 63. An exempt fast_entry after a vacancy away counts (same-room);
-    a second fast_entry on the same away does not."""
+    """Row 63 + B-L4. An exempt fast_entry that actually RE-ARMS the zone
+    after a vacancy away counts (same-room); a second fast_entry on the
+    same away (zone already armed) does not."""
     with _Clock(T0) as clk:
         coord, hass, coords, sched = _away_zone(mods, clk, vacancy_away_age=100)
         _arm_then_release(coord, coords, clk)                   # exempt anchor
         away_at = coord._zone_vacancy_away_at["zone_1"]
         clk.t = clk.t + S(seconds=60)
+        _evidence(coords[KIT], onset=clk.t, ev=clk.t, active=True)   # returns
         coord._fast_path_queued.add("zone_1")
         await coord._async_zone_fast_run("zone_1", "fast_entry", edge_ts=clk.t, exempt_reason="same_room_return")
+        assert coord.zone_manager.zones["zone_1"].any_room_hvac_occupied is True
         coord._fast_path_queued.add("zone_1")
         await coord._async_zone_fast_run("zone_1", "fast_entry", edge_ts=clk.t)
         assert coord._quick_returns_today_view() == {"zone_1": 1}
@@ -960,11 +965,14 @@ async def test_preset_change_row_carries_established_and_last_away_reason(mods):
 # ==========================================================================
 
 def test_exit_timer_reschedules_to_pending_lapse_without_consuming_key(mods):
-    """Rows 70/77 (REV 7 L2). The zone is home with a released bedroom and a
-    pending Kitchen; when the exit timer comes due it reschedules to
-    `ev(kitchen) + J + SLACK` (never exactly ev + J) and the key stays
-    unconsumed."""
-    with _Clock(T0) as clk, _pin_platform(mods):
+    """Rows 70/77 (REV 7 L2) + fix-up D-M1: the callback checks its
+    preconditions FIRST. With the zone's last applied write `away` (which a
+    pending room requires) the preconditions fail: no reschedule, key
+    untouched. The pending branch is a defensive path reached only when the
+    preconditions pass; driven here with the preconditions pinned open: it
+    reschedules to `ev + J + SLACK` (never exactly `ev + J`) and never
+    consumes the key."""
+    with _Clock(T0) as clk:
         coord, hass, coords, sched = _setup(
             mods, grace=5, rooms={"zone_1": [("bed", "bedroom", {"occupied": False}),
                                              (KIT, "common_area", {"occupied": False})]},
@@ -976,15 +984,20 @@ def test_exit_timer_reschedules_to_pending_lapse_without_consuming_key(mods):
         rel = T0 - S(seconds=100) + S(seconds=240)
         coord._schedule_exit_timer("zone_1")
         assert coord._fast_path_exit_due["zone_1"] == rel + S(seconds=302)
-        # An away is applied by another path (no reschedule yet) and the
-        # Kitchen goes pending on the resulting away edge: onset 400, ev 410.
         coord._zone_last_s1_write["zone_1"] = ("away", "vacant_past_grace", T0 + S(seconds=300))
         _evidence(coords[KIT], onset=T0 + S(seconds=400), ev=T0 + S(seconds=410), active=False)
         clk.t = rel + S(seconds=302)
         _pass(coord)
         assert coord.zone_manager.zones["zone_1"].hvac_pending_arm_rooms == [KIT]
+        # (1) preconditions fail (last write away): nothing scheduled, key untouched.
         with _captured(hass) as tt:
             sched.fire_all()
+            assert tt.call_count == 0
+        assert "zone_1" not in coord._fp_exit_fired
+        assert "zone_1" not in coord._fast_path_exit_due
+        # (2) defensive pending branch, preconditions pinned open.
+        with patch.object(coord, "_exit_timer_preconditions", return_value=True), _captured(hass) as tt:
+            coord._on_exit_timer("zone_1")
             assert tt.call_count == 0
         assert "zone_1" not in coord._fp_exit_fired
         assert coord._fast_path_exit_due["zone_1"] == T0 + S(seconds=410 + 60 + 2)
@@ -1141,14 +1154,36 @@ def test_arm_recheck_cancelled_on(mods, how):
 
 
 def test_transit_helper_text_matches_constant(mods):
-    """The knob 47 helper states the exemption window in minutes; the number
-    is HVAC_TRANSIT_EXEMPT_WINDOW_S / 60 (Bug Class #63 guard)."""
-    from custom_components.universal_room_automation.domain_coordinators.hvac_const import (
-        HVAC_TRANSIT_EXEMPT_WINDOW_S,
-    )
+    """Ruling 2: the knob-47 helper carries NO return-window number (the
+    window is knob 52, a live value); it names the Return Window instead.
+    Both string files match."""
     base = Path(H._REAL_URA_PATH)
+    texts = {}
     for fn in ("strings.json", "translations/en.json"):
         data = json.loads((base / fn).read_text(encoding="utf-8"))
-        text = json.dumps(data)
-        assert f"within {HVAC_TRANSIT_EXEMPT_WINDOW_S // 60} minutes counts at once" in text, fn
-        assert "Entry wait (minutes)" in text, fn
+        helper = data["options"]["step"]["coordinator_hvac_settings"]["data_description"]["hvac_zone_entry_dwell"] \
+            if "coordinator_hvac_settings" in data.get("options", {}).get("step", {}) else None
+        if helper is None:
+            # find it anywhere
+            helper = next(v for v in _walk_values(data, "hvac_zone_entry_dwell") if "Return Window" in v)
+        texts[fn] = helper
+        assert "15" not in helper and "minutes of it emptying" not in helper
+        assert "Return Window" in helper
+        labels = list(_walk_values(data, "hvac_zone_entry_dwell"))
+        assert "Entry wait (minutes)" in labels
+        assert "Skip entry wait" in list(_walk_values(data, "hvac_skip_entry_wait"))
+    assert texts["strings.json"] == texts["translations/en.json"]
+
+
+def _walk_values(obj, key):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == key and isinstance(v, str):
+                yield v
+            else:
+                yield from _walk_values(v, key)
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _walk_values(v, key)
+
+

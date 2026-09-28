@@ -626,6 +626,7 @@ class ZoneManager:
         zone_ids: set[str] | None = None,
         entry_dwell_s: float | None = None,
         away_edge_fn: Any = None,
+        return_window_s: float | None = None,
     ) -> None:
         """Aggregate room conditions per zone from URA room coordinators.
 
@@ -681,6 +682,8 @@ class ZoneManager:
             CONF_ROOM_TYPE,
             CONF_HVAC_VACANCY_HOLD,
             CONF_HVAC_VACANCY_HOLD_NIGHT,
+            CONF_HVAC_SKIP_ENTRY_WAIT,
+            DEFAULT_HVAC_SKIP_ENTRY_WAIT,
             ROOM_TYPE_GENERIC,
             ROOM_TYPE_HALLWAY,
         )
@@ -694,7 +697,6 @@ class ZoneManager:
         # step 4. v5.103.20 (plan §5.3, REV 2 R2 M6): populated in THIS
         # entry loop for every zone room whose coordinator is absent, so a
         # zone-filtered pass still yields a pass-complete set.
-        self._coordinator_absent_this_pass = set()
         # REV-2 fix-up item 5: pre-compute rooms-in-any-zone (moved ahead of
         # the entry loop for the pass-complete absent set; the classifier
         # below still reads it).
@@ -702,6 +704,21 @@ class ZoneManager:
         for _z in self._zones.values():
             for _r in getattr(_z, "rooms", []) or []:
                 rooms_in_zones.add(_r)
+        # v5.103.20 fix-up 1 (B-M3): on a ZONE-FILTERED pass only the
+        # filtered zones' rooms are re-evaluated for coordinator absence
+        # and classification; every other room KEEPS its previous value.
+        _filtered_rooms: set[str] | None = None
+        if zone_ids is not None:
+            _filtered_rooms = set()
+            for _z in self._zones.values():
+                if _z.zone_id in zone_ids:
+                    _filtered_rooms.update(getattr(_z, "rooms", []) or [])
+            _prev_absent = set(self._coordinator_absent_this_pass)
+            self._coordinator_absent_this_pass = {
+                r for r in _prev_absent if r not in _filtered_rooms
+            }
+        else:
+            self._coordinator_absent_this_pass = set()
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
                 continue
@@ -712,7 +729,9 @@ class ZoneManager:
             coordinator = self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
             if coordinator is not None:
                 room_coordinators[room_name] = coordinator
-            elif room_name in rooms_in_zones:
+            elif room_name in rooms_in_zones and (
+                _filtered_rooms is None or room_name in _filtered_rooms
+            ):
                 self._coordinator_absent_this_pass.add(room_name)
             merged = {**entry.data, **entry.options}
             _ws = merged.get(_CONF_WINDOW_SENSORS) or None
@@ -740,6 +759,10 @@ class ZoneManager:
                 "hvac_hold_override_night": _coerce_hold_override(
                     merged.get(CONF_HVAC_VACANCY_HOLD_NIGHT, None)
                 ),
+                # v5.103.20 fix-up 1 (ruling 3): per-room "Skip entry wait".
+                "hvac_skip_entry_wait": bool(
+                    merged.get(CONF_HVAC_SKIP_ENTRY_WAIT, DEFAULT_HVAC_SKIP_ENTRY_WAIT)
+                ),
             }
 
         # v4.7.8 fix-up B-M1 / B4: unify on dt_util.now() (URA-wide convention)
@@ -753,11 +776,26 @@ class ZoneManager:
         # REV-2 fix-up item 5: classifier only emits WARN+NM for rooms that
         # actually belong to an HVAC zone (`rooms_in_zones` built above).
         self._rooms_in_any_zone = rooms_in_zones
-        self._classify_all_rooms(dt_util.utcnow())
+        self._classify_all_rooms(dt_util.utcnow(), only_rooms=_filtered_rooms)
         # v5.103.20: pass-complete snapshots for the sync release helpers.
-        self._room_meta_last_pass = room_entry_meta
-        self._room_coord_last_pass = room_coordinators
+        # On a filtered pass merge over the previous snapshot so other
+        # zones' rooms keep resolving (B-M3).
+        if _filtered_rooms is None:
+            self._room_meta_last_pass = room_entry_meta
+            self._room_coord_last_pass = room_coordinators
+        else:
+            self._room_meta_last_pass = {**self._room_meta_last_pass, **room_entry_meta}
+            self._room_coord_last_pass = {**self._room_coord_last_pass, **room_coordinators}
         self._last_house_state = house_state
+        try:
+            _RW = float(return_window_s) if return_window_s is not None else None
+        except (TypeError, ValueError):
+            _RW = None
+        if _RW is None:
+            from .hvac_const import DEFAULT_HVAC_RETURN_WINDOW_MINUTES as _DRW  # noqa: PLC0415
+            _RW = float(_DRW) * 60.0
+        self._last_return_window_s = _RW
+        self._rooms_processed_this_pass = set()
         from .hvac_const import (  # noqa: PLC0415
             HVAC_EVIDENCE_RULE_STATES as _EV_STATES,
             HVAC_NIGHT_HOLD_STATES as _NIGHT_STATES,
@@ -796,6 +834,12 @@ class ZoneManager:
                         window_state = None
 
                 if coordinator is None:
+                    # v5.103.20 fix-up 1 (D-M1): a room without a coordinator
+                    # (unloading / deleted) can neither pend nor hold.
+                    self._clear_episode(room_name)
+                    self._hvac_pending[room_name] = False
+                    self._hvac_cold[room_name] = False
+                    self._hvac_exempt_reason[room_name] = None
                     # HVAC-DEGRADED-ROOM-TRIPWIRE-1 REV-2 F4: the room was
                     # marked coordinator-absent in the ENTRY loop above
                     # (v5.103.20 moved the add so a zone-filtered pass is
@@ -845,6 +889,13 @@ class ZoneManager:
                     self._hvac_armed[room_name] = False
                     self._hvac_tail_until.pop(room_name, None)
                     self._hvac_arm_source[room_name] = "hallway_excluded"
+                    # v5.103.20 fix-up 1 (D-M1): a room retyped to hallway
+                    # drops any D5 episode / pending state.
+                    self._clear_episode(room_name)
+                    self._hvac_pending[room_name] = False
+                    self._hvac_cold[room_name] = False
+                    self._hvac_exempt_reason[room_name] = None
+                    self._hvac_output[room_name] = False
                     # D-HIGH-1: hallway rooms are still "seen" — their
                     # coordinator is live; the state machine just short-
                     # circuits them via CIRCULATION EXCLUSION. Marking
@@ -876,6 +927,8 @@ class ZoneManager:
                         entry_dwell_s=_W,
                         away_edge=_away_edge,
                         zone_id=zone.zone_id,
+                        return_window_s=_RW,
+                        skip_entry_wait=bool(meta.get("hvac_skip_entry_wait", False)),
                         # The producer path ALWAYS applies the rule (a room
                         # with no evidence yet is simply not held in an
                         # evidence state); only direct legacy callers get
@@ -883,6 +936,7 @@ class ZoneManager:
                         apply_evidence_rule=True,
                     )
 
+                self._rooms_processed_this_pass.add(room_name)
                 condition = RoomCondition(
                     room_name=room_name,
                     temperature=data.get("temperature"),
@@ -932,8 +986,14 @@ class ZoneManager:
 
             # D5 rollup (plan §4.2 step 6): the zone's pending rooms. Only
             # meaningful in evidence states; empty otherwise.
+            # v5.103.20 fix-up 1 (D-M1): only rooms that are LIVE on this
+            # pass (coordinator present, not hallway, classified live) can
+            # be pending — a disabled / deleted / retyped room drops out.
             zone.hvac_pending_arm_rooms = [
-                r for r in zone.rooms if self._hvac_pending.get(r, False)
+                r for r in zone.rooms
+                if self._hvac_pending.get(r, False)
+                and r in self._rooms_processed_this_pass
+                and self._room_hvac_class.get(r, ("live", ""))[0] == "live"
             ]
 
             # Row 2b: lighting-fused vacancy_sweep_done reset (NO-SWAP).
@@ -988,7 +1048,15 @@ class ZoneManager:
                 if self.zone_release_at(zone_id) is not None else None
             ),
             "pending_arm_rooms": list(getattr(zone, "hvac_pending_arm_rooms", []) or []),
-            "pending_hold_s_today": int(getattr(zone, "pending_hold_s_today", 0.0) or 0),
+            # fix-up 1 (A-LOW-5): the CURRENT spell accrues live, not only
+            # once it closes.
+            "pending_hold_s_today": int(
+                (getattr(zone, "pending_hold_s_today", 0.0) or 0.0)
+                + (
+                    max(0.0, (dt_util.utcnow() - zone.pending_hold_since).total_seconds())
+                    if getattr(zone, "pending_hold_since", None) is not None else 0.0
+                )
+            ),
             "transit_filtered_today": int(self.transit_filtered_today.get(zone_id, 0)),
             # HVAC-DEGRADED-ROOM-TRIPWIRE-1 REV-2 D3/F1 (2026-09-26):
             # live-room classification for this zone. `excluded_rooms`
@@ -1303,6 +1371,8 @@ class ZoneManager:
         entry_dwell_s: float = 0.0,
         away_edge: bool = False,
         zone_id: str | None = None,
+        return_window_s: float | None = None,
+        skip_entry_wait: bool = False,
     ) -> bool:
         """D1 producer — returns True iff the room is HVAC-occupied.
 
@@ -1366,6 +1436,8 @@ class ZoneManager:
             entry_dwell_s=entry_dwell_s,
             away_edge=away_edge,
             zone_id=zone_id,
+            return_window_s=return_window_s,
+            skip_entry_wait=skip_entry_wait,
         )
 
     def _evidence_rule_output(
@@ -1384,6 +1456,8 @@ class ZoneManager:
         entry_dwell_s: float = 0.0,
         away_edge: bool = False,
         zone_id: str | None = None,
+        return_window_s: float | None = None,
+        skip_entry_wait: bool = False,
     ) -> bool:
         """Evidence rule (plan §4.2 steps 2-5) + D5 (§5b). NEVER writes the
         shadow's dicts; writes only the evidence rule's own state.
@@ -1405,10 +1479,13 @@ class ZoneManager:
             self._hvac_rule[room_name] = rule
             self._hvac_day_release_at.pop(room_name, None)
             self._hvac_output[room_name] = shadow_out
-            # No D5, no pending hold in legacy states (INV-5).
+            # No D5, no pending hold in legacy states (INV-5). Per-pass
+            # D5 fields are RESET so nothing stale survives (A-LOW-1/2).
             self._clear_episode(room_name)
             self._hvac_pending[room_name] = False
             self._hvac_cold[room_name] = False
+            self._hvac_exempt_reason[room_name] = None
+            self._hvac_arm_onset.pop(room_name, None)
             if shadow_out:
                 self._hvac_ep_armed[room_name] = True
             return shadow_out
@@ -1445,15 +1522,18 @@ class ZoneManager:
                 override_day=override_day, now=now, ev=last_evidence,
                 active=(bool(evidence_active) if refresh_ok is not False else False),
                 onset=onset, W=W, away_edge=bool(away_edge), prev_out=prev_out,
-                zone_id=zone_id,
+                zone_id=zone_id, return_window_s=return_window_s,
+                skip_entry_wait=skip_entry_wait,
             )
             if d5["cold"] and W > 0:
                 ev_out = ev_out and d5["persisted"]
                 pending = d5["pending"]
         else:
-            # Night: no D5 (plan §4.3); a live episode is dropped.
+            # Night: no D5 (plan §4.3); a live episode is dropped and the
+            # per-pass D5 fields are reset (A-LOW-1).
             self._clear_episode(room_name)
             self._hvac_cold[room_name] = False
+            self._hvac_exempt_reason[room_name] = None
         self._hvac_pending[room_name] = pending
 
         if rule == "evidence":
@@ -1497,7 +1577,10 @@ class ZoneManager:
             if rule == "evidence" and (W <= 0 or span >= W):
                 # Room-only exemption anchor: renewed ONLY by an arm whose
                 # evidence spanned >= W — a ghost blip cannot chain it.
-                self._hvac_ev_released_at[room_name] = now
+                # Anchored on the room's EVIDENCE RELEASE (`ev + hold`),
+                # not on the pass that observed it (A-LOW-3).
+                _rel = self._hvac_day_release_at.get(room_name)
+                self._hvac_ev_released_at[room_name] = _rel if _rel is not None else now
         self._hvac_rule[room_name] = rule
         self._hvac_output[room_name] = out
         return out
@@ -1544,29 +1627,40 @@ class ZoneManager:
         away_edge: bool,
         prev_out: bool,
         zone_id: str | None,
+        return_window_s: float | None = None,
+        skip_entry_wait: bool = False,
     ) -> dict[str, Any]:
         """Update the room's D5 episode from (ev, active, onset) at `now`
         and return {cold, live, persisted, pending, episode_start, J}.
 
         Idempotent for identical inputs (the listener and the producer may
         both call it for the same refresh). Rule (plan §5b.1):
-          exempt = released_at within HVAC_TRANSIT_EXEMPT_WINDOW_S
+          exempt = released_at within the Return Window (knob 52; 0 = off)
+          skip_entry_wait (per-room option) -> never cold
           cold   = away_edge and not prev_out and not exempt
           not cold or W == 0 -> episode cleared, output unfiltered
           else: episode join/lapse (§5b.2); persisted = W == 0 or
                 (active and now - start >= W) or (ev - start >= W)
         """
-        from .hvac_const import HVAC_TRANSIT_EXEMPT_WINDOW_S
+        if return_window_s is None:
+            return_window_s = getattr(self, "_last_return_window_s", None)
+        if return_window_s is None:
+            from .hvac_const import DEFAULT_HVAC_RETURN_WINDOW_MINUTES as _DRW  # noqa: PLC0415
+            return_window_s = float(_DRW) * 60.0
         hold_ev = self._evidence_hold_seconds(room_type, override_day)
         J = float(min(hold_ev, W)) if W > 0 else 0.0
         released_at = self._hvac_ev_released_at.get(room_name)
+        # Return Window (knob 52, live): 0 = exemption off.
         exempt = (
-            released_at is not None
-            and 0 <= (now - released_at).total_seconds() <= HVAC_TRANSIT_EXEMPT_WINDOW_S
+            float(return_window_s) > 0
+            and released_at is not None
+            and 0 <= (now - released_at).total_seconds() <= float(return_window_s)
         )
-        cold = bool(away_edge) and not prev_out and not exempt
+        # Per-room "Skip entry wait" (ruling 3): the room is never cold.
+        cold = bool(away_edge) and not prev_out and not exempt and not bool(skip_entry_wait)
         self._hvac_exempt_reason[room_name] = (
-            "same_room_return" if (bool(away_edge) and not prev_out and exempt) else None
+            "same_room_return" if (bool(away_edge) and not prev_out and exempt) else
+            ("skip_entry_wait" if (bool(away_edge) and not prev_out and skip_entry_wait) else None)
         )
         self._hvac_cold[room_name] = cold
         if not cold or W <= 0:
@@ -1697,6 +1791,10 @@ class ZoneManager:
             W=float(entry_dwell_s or 0.0), away_edge=bool(away_edge),
             prev_out=bool(self._hvac_output.get(room_name, False)),
             zone_id=zone_id,
+            # fix-up 1 (ruling 3): the listener probe honours the per-room
+            # "Skip entry wait" too, else a skip room would wait for the
+            # arm re-check / tick instead of queuing a fast run at once.
+            skip_entry_wait=bool(meta.get("hvac_skip_entry_wait", False)),
         )
 
     def room_is_pending(self, room_name: str) -> bool:
@@ -1941,8 +2039,12 @@ class ZoneManager:
     # ------------------------------------------------------------------
     # HVAC-DEGRADED-ROOM-TRIPWIRE-1 (2026-09-26) — live-room classification
     # ------------------------------------------------------------------
-    def _classify_all_rooms(self, now: datetime) -> None:
+    def _classify_all_rooms(self, now: datetime, only_rooms: set[str] | None = None) -> None:
         """Classify every known ROOM entry into live | transient | excluded.
+
+        v5.103.20 fix-up 1 (B-M3): `only_rooms` (a zone-filtered fast run)
+        re-classifies ONLY those rooms; every other room keeps its previous
+        classification and non-loaded clock, and emits nothing.
 
         Called from `update_room_conditions` once per pass. Result stored
         in `self._room_hvac_class[room_name] = (kind, reason)`. Also
@@ -1965,7 +2067,12 @@ class ZoneManager:
         the analogous fail-open-for-loaded / fail-closed-for-retreat
         directionality.
         """
+        _prev_class = dict(getattr(self, "_room_hvac_class", {}) or {})
         self._room_hvac_class = {}
+        if only_rooms is not None:
+            for _r, _v in _prev_class.items():
+                if _r not in only_rooms:
+                    self._room_hvac_class[_r] = _v
         try:
             from homeassistant.config_entries import ConfigEntryState as _CES
         except Exception:  # noqa: BLE001
@@ -1996,10 +2103,14 @@ class ZoneManager:
         for zroom in self._rooms_in_any_zone:
             if zroom in self._room_entry_by_name:
                 continue
+            if only_rooms is not None and zroom not in only_rooms:
+                continue
             self._room_hvac_class[zroom] = ("excluded", "entry_removed")
             self._room_non_loaded_since.pop(zroom, None)
             self._maybe_emit_degraded(zroom, "entry_removed")
         for room_name, entry in self._room_entry_by_name.items():
+            if only_rooms is not None and room_name not in only_rooms:
+                continue
             # disabled_by wins over state.
             try:
                 disabled_by = getattr(entry, "disabled_by", None)

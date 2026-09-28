@@ -177,7 +177,7 @@ it. The room type hold blunts it. Do it". Rulings R1-R3 and O1 are in §0.6.
 | Kill switch | **BUILD (one switch)** | pattern `switch.py:4229` |
 | Dwell knob | **REUSE, semantics moved** | knob 47 |
 | Arming episode state | **BUILD** | `_hvac_episode_start`, `_hvac_episode_onsets`, `_hvac_episode_active_s`, `_hvac_arm_span_s`, `_hvac_ev_released_at` |
-| Transit exemption window | **BUILD (own constant)** | `HVAC_TRANSIT_EXEMPT_WINDOW_S` (split from the alarm window, Bug Class #63) |
+| Transit exemption window | **BUILD (own knob)** | Knob 52 `CONF_HVAC_RETURN_WINDOW_MINUTES` (fix-up 1 R5; was the constant `HVAC_TRANSIT_EXEMPT_WINDOW_S`, split from the alarm window, Bug Class #63) |
 | Lighting-session dwell | **RETIRE** | `hvac.py:2735-2748` |
 
 Memory consulted: suppression-needs-discharge, wire-in anchors, hollow anchors, marginal-benefit,
@@ -191,6 +191,12 @@ measure-before-build, coincidental-equality (#63), unrestored-drill, pyc stalene
 | R2 | 2026-09-27 | "3mins" | Common-area evidence hold = 180 s |
 | R3 | 2026-09-27 | "I think you should add this to the fast response plan. We want no seams. My instinct is it should go to 1 minute to allow for transients also though hallways are now excluded right?" | D5, 1 minute; hallways excluded |
 | O1 (orchestrator) | 2026-09-27 | The quick-return alarm SUMS same-room returns | §5.7 |
+| R4 (fix-up 1) | 2026-09-28 | Cap the pending hold: `HVAC_PENDING_HOLD_CAP_S` = 600 s, rung 1; a `pending_hold_capped` ledger row when it fires; tests + drill | §5.2, §14.1; §17 cap item BUILT |
+| R5 (fix-up 1) | 2026-09-28 | "I'm most skeptical of the 15m so being a knob feels like a must but please naming and description is important. We have badly named timers all over the place." — the same-room return window is a KNOB: rung 3 Number entity `52 · Return Window (min)`, helper "If someone comes back into a room within this many minutes of it emptying, the zone turns back on straight away instead of waiting the Entry Wait. 0 turns this off.", default 15, range 0–60; the knob-47 helper carries no number | §5b.1, §5b.3, §14 |
+| R6 (fix-up 1) | 2026-09-28 | Per-room "Skip entry wait" option (room options, climate step), helper "Turn on for rooms whose sensor only gives short pulses, so anyone detected counts at once. Other rooms still wait the Entry Wait.", default off; reload-suppressed (the producer reads `entry.options` every pass — consumer-proven) | §5b.1, §14 |
+| R7 (fix-up 1) | 2026-09-28 | Keep fast ENTRY in ALL house states: the outcome is unchanged (INV-1 — the fast run computes exactly the periodic outcome for that state); it only arrives faster. Exit timers, the evidence rule, D5 and the pending hold stay evidence/night-scoped | §6, §16 |
+| R8 (fix-up 1) | 2026-09-28 | No per-sensor-type waits (rejected) | — |
+| O2 (operator, D-M2 overruled) | 2026-09-28 | "I think dropping it is right." — the shadow night tail is NOT carried across a night -> evidence crossing. D's repro: Jaya's radar loses her at 06:40 (house asleep, 30-min night tail would hold until ~07:11); `home_day` at 07:00; the evidence rule releases at 06:44, the zone's empty-since is back-filled to 06:44 and the 07:00 tick writes `away` (~07:03 on the live tick cadence). Pinned by `test_night_tail_not_carried_across_crossing_jaya_repro` | §4.3 |
 
 **R1/R2 rationale:** the audit's margins were measured on today's design, with no re-arm and with stacked timers. The
 quick-return trip-wire and the kill switch measure and bound the residual live. The trip-wire is the live measure of
@@ -224,7 +230,9 @@ the hold choice.
 - `W` = knob 47 × 60 s. `J(R) = min(hold_ev(R), W)`.
 - **Away edge:** Z's last APPLIED S1 write was `away` (`_zone_last_s1_write`, else `last_sent`) AND
   `Z not in _pre_arrival_zones`. Unknown -> False.
-- **Exempt:** R's last release ended an arm with `arm_span_s >= W` AND was within `HVAC_TRANSIT_EXEMPT_WINDOW_S`.
+- **Exempt:** R's last release ended an arm with `arm_span_s >= W` AND was within the Return Window (knob 52,
+  `CONF_HVAC_RETURN_WINDOW_MINUTES` × 60; 0 = off) [R5]; OR the room has "Skip entry wait" set [R6]
+  (`exempt_reason` = `same_room_return` / `skip_entry_wait`).
 - **Cold room:** evidence state AND away edge AND output False AND not exempt.
 - **Episode:** onsets each within `J` of the previous `ev`; lapses at `ev + J` unarmed.
 - **Persisted:** `W == 0` OR (`active` and `now - episode_start >= W`) OR `ev - episode_start >= W`.
@@ -335,7 +343,7 @@ room with a pending sibling.
 | Pre-arrival | `hvac.py:4567-4654` | — | full cycle waits behind a fast run; expiry in fast runs; bypasses D5 |
 | Fans; presence D6 source 4 | lighting | — | unaffected |
 | Per-room display | `binary_sensor.py:745-920` | DISPLAY | attrs `rule`, `last_evidence_at`, `release_at`, `episode_start`, `episode_onsets`, `episode_active_s`, `armed_at`, `arm_span_s`, `dwell_s`, `exempt_reason`, `pending`; `hvac_vacancy_hold_s` via `_display_hold` |
-| Zone status | `hvac_zones.py:791-895` | DISPLAY | `hvac_empty_since`, `away_due_at`, `pending_arm_rooms`, `pending_hold_s_today` [REV 7] |
+| Zone status | `hvac_zones.py:791-895` | DISPLAY | `hvac_empty_since`, `hvac_release_at`, `pending_arm_rooms`, `pending_hold_s_today` (accrues live during a spell, fix-up 1 A-LOW-5) [REV 7] |
 | Mode sensor | `hvac.py:5411` | DISPLAY | per-zone `quick_returns_today`, `same_room_returns_today`, `other_room_returns_today`, `transit_filtered_today` |
 | `optimization.py:2398-2430` | `continuous_occupied_since` | analysis | shorter spans |
 
@@ -629,8 +637,10 @@ Accepted, not gated. It never precedes the room's own lighting vacancy, and it i
 away_edge = (_zone_last_s1_write[Z][0] == "away") if Z in _zone_last_s1_write   # APPLIED writes only
             else (strategy_for(...).last_sent(entity, "set_preset_mode") == "away")
 away_edge = away_edge and Z not in _pre_arrival_zones
-exempt    = released_at[R] is not None and now - released_at[R] <= HVAC_TRANSIT_EXEMPT_WINDOW_S
-            # released_at stamped only for releases of arms with arm_span_s >= W
+RW        = knob 52 "Return Window (min)" × 60          # live; 0 = off [R5]
+exempt    = (RW > 0 and released_at[R] is not None and 0 <= now - released_at[R] <= RW)
+            or skip_entry_wait[R]                          # per-room option [R6]
+            # released_at = the room's EVIDENCE release (ev + hold) of an arm with arm_span_s >= W
 cold      = away_edge and not prev_output[R] and not exempt
 if not cold or W == 0:  output = ev_out
 else:                   output = ev_out and persisted(R, now)
@@ -660,8 +670,10 @@ else:                   output = ev_out and persisted(R, now)
   never joined.
 
 ### 5b.3 Room-only return exemption
-- A room whose last release ended an arm of span >= `W` re-arms immediately within `HVAC_TRANSIT_EXEMPT_WINDOW_S`
-  (placeholder 900, sized by D0c).
+- A room whose last release ended an arm of span >= `W` re-arms immediately within the Return Window (knob 52
+  `52 · Return Window (min)`, default 15, 0–60, 0 = off — ruling R5; the D0c sizing now informs the knob's default).
+- A room with "Skip entry wait" (room options, climate step — ruling R6) never waits; `exempt_reason` = `skip_entry_wait`.
+  The listener probe honours it too (a skip room's first evidence queues `fast_entry` at once).
 - It renews only from such releases, so a ghosting sensor cannot chain it.
 - There is no zone-level exemption.
 - Exempt re-arms carry `exempt_reason="same_room_return"` and count in the alarm (`same_room_returns_today` within
@@ -747,12 +759,13 @@ else:                   output = ev_out and persisted(R, now)
 | Exit, `home_day`/`home_evening`, 300 s room | avg ~12.8 min | hold + 5 min: closet/infra 6; generic/utility/media/garage 7; bathroom 8; common 8; bedroom 9 |
 | Exit, 900 s room | avg ~22.8 min | bathroom 8 / common 8 |
 | Kitchen exit | ~12.8 | 8 |
-| `home_night`, `guest`, `arriving` | today | unchanged |
+| `home_night`, `guest`, `arriving`, `away` | avg ~2.5-3 min, worst ~5.5 min | outcome unchanged (legacy rule, INV-1); fast ENTRY arrives within 45 s [R7]. No exit timer, D5 or pending hold |
 | `sleep`/`waking` | timeout + night hold + tick | same or later |
 
 - Exits add ~2-5 s.
-- A single pending episode holds its zone's preset for less than `W + J`. Repeated re-pending can extend the hold with
-  no bound (§7.1).
+- A single pending episode holds its zone's preset for less than `W + J`. Repeated re-pending can extend the hold up
+  to `HVAC_PENDING_HOLD_CAP_S` (600 s) per spell [R4]; past the cap the vacancy away proceeds and one
+  `pending_hold_capped` row is logged (§7.1).
 
 ---
 
@@ -1070,7 +1083,9 @@ is clean.
 | `HVAC_FAST_PATH_MAX_WRITES_PER_ZONE_PER_HOUR` / `_MAX_RUNS_...` | 6 / 30 | 1 | |
 | `HVAC_QUICK_RETURN_WINDOW_S` | 900 | 1 | Alarm window from the ZONE's away |
 | `HVAC_QUICK_RETURN_NM_PER_DAY` | 12 | 1 | Per zone; distinct events (O1). Checkpoint |
-| `HVAC_TRANSIT_EXEMPT_WINDOW_S` | 900 (placeholder) | 1 | From the ROOM's release after a span >= W arm; sized by D0c; the knob 47 helper states its minutes |
+| Knob 52 `52 · Return Window (min)` (`CONF_HVAC_RETURN_WINDOW_MINUTES`) | default 15, 0–60 | 3 | R5 — from the ROOM's evidence release after a span >= W arm; 0 = exemption off; live (`hvac._return_window_minutes`, in the CM reload-suppress allowlist) |
+| `HVAC_PENDING_HOLD_CAP_S` | 600 | 1 | R4 — bounds a pending-hold spell; one `pending_hold_capped` row per spell |
+| `CONF_HVAC_SKIP_ENTRY_WAIT` (room options, climate step) | off | 2 | R6 — per-room; reload-suppressed (read live every pass) |
 | Knob 47 | default 1 min | 3 | R3; 0 = filter off |
 | `HVAC_ARM_RECHECK_SLACK_S` | 1 | 1 | |
 | Fast room response switch | ON | 3 | Rollback |
@@ -1082,7 +1097,8 @@ evidence, tick, fast path, debounce, CRIT, fused, rung, shadow, legacy, dwell, t
 
 **Room options, climate step**
 - `hvac_vacancy_hold` label: `Empty-room hold (day)`
-- `hvac_vacancy_hold` helper: `How many seconds heating and cooling keep treating this room as occupied during the day and evening. The time counts from the last sign of someone in the room, such as motion, presence, a camera or a phone. This covers people sitting still, and it is the only protection for someone who stays completely still. Leave blank to use the default for this room type: 1 minute for closets, 2 minutes for media, utility and general rooms and garages, 3 for bathrooms and living areas, and 4 for bedrooms. Enter 0 to hold only while a sensor still sees someone. From 9 pm until the house goes to sleep, this number is counted from when the room itself shows as empty.`
+- `hvac_vacancy_hold` helper: `How many seconds heating and cooling keep treating this room as occupied during the day and evening. The time counts from the last sign of someone in the room, such as motion, presence, a camera or a phone. This covers people sitting still, and it is the only protection for someone who stays completely still. Leave blank to use the default for this room type: 1 minute for closets, 2 minutes for media, utility and general rooms and garages, 3 for bathrooms and living areas, and 4 for bedrooms. Enter 0 to hold only while a sensor still sees someone. From 9 pm until the house goes to sleep, and while the house is away, arriving or has guests, the room's usual short hold applies instead and is counted from when the room itself shows as empty.`
+  - (fix-up 1 A-LOW-6: the legacy states — `home_night`, `away`, `arriving`, `guest` — use the frozen legacy tail, not this number.)
 - `hvac_vacancy_hold_night` label: `Empty-room hold (night)`
 - `hvac_vacancy_hold_night` helper: `The hold used while the house is asleep or waking up. It counts from when the room itself shows as empty, so sleepers who lie still get extra time. Leave blank to use the default for this room type: 30 minutes for bedrooms and media rooms, 15 for living areas, 10 for bathrooms, garages and utility rooms, and 5 for closets. Enter 0 for no extra time once the room shows as empty. This form rejects a night value below the day value.`
 - Error `hvac_hold_night_below_day`: `The night hold must be at least as long as the day hold. Raise the night value, or leave one of them blank to use the room type's default.`
@@ -1092,11 +1108,17 @@ evidence, tick, fast path, debounce, CRIT, fused, rung, shadow, legacy, dwell, t
 - `hvac_vacancy_grace_minutes` helper: `Minutes a zone waits after its last room empties before heating and cooling switch to Away. If someone comes back sooner, nothing changes. A shorter wait saves energy but switches a zone to Away more often while someone sits still.`
 - `hvac_vacancy_grace_constrained` helper: `The same wait, used while the house is saving energy. It must be no longer than the normal delay. A shorter wait saves energy but switches a zone to Away more often while someone sits still.`
 - `hvac_zone_entry_dwell` label: `Entry wait (minutes)`
-- `hvac_zone_entry_dwell` helper: `How long someone must be in a room before heating and cooling switch a zone that is set to Away back to Home, during the day and evening. People passing through faster than this do not switch it. Someone coming back to a room within 15 minutes counts at once. Enter 0 to count any sign of someone at once. Recommended: 1.`
-  - "15" = `HVAC_TRANSIT_EXEMPT_WINDOW_S / 60` (enforced by a test).
+- `hvac_zone_entry_dwell` helper [R5]: `How long someone must be in a room before heating and cooling switch a zone that is set to Away back to Home, during the day and evening. People passing through faster than this do not switch it. Someone coming back to a room soon after it emptied counts at once (see Return Window). Enter 0 to count any sign of someone at once. Recommended: 1.`
+  - Carries NO number (the window is knob 52, a live value) — enforced by `test_transit_helper_text_matches_constant`.
+- `hvac_skip_entry_wait` label [R6]: `Skip entry wait`
+- `hvac_skip_entry_wait` helper [R6]: `Turn on for rooms whose sensor only gives short pulses, so anyone detected counts at once. Other rooms still wait the Entry Wait.`
 
 **Entities**
 - `47 · Entry Wait (min)`.
+- `52 · Return Window (min)` (`number.ura_hvac_coordinator_52_return_window_min`, unique_id
+  `{DOMAIN}_hvac_return_window_minutes`, 0–60, box, default 15). Helper (entity description, R5): `If someone comes back
+  into a room within this many minutes of it emptying, the zone turns back on straight away instead of waiting the Entry
+  Wait. 0 turns this off.`
 - `31 · Fast Room Response` (`switch.ura_hvac_coordinator_31_fast_room_response`, unique_id
   `{DOMAIN}_hvac_fast_room_response`).
 
@@ -1129,8 +1151,8 @@ evidence, tick, fast path, debounce, CRIT, fused, rung, shadow, legacy, dwell, t
 
 ## 16. Non-goals
 - No change to night holds or the night anchor.
-- No change in `home_night`/`guest`/`arriving`/`away`: no evidence rule, back-fill, exit timer, D5 or pending hold
-  there.
+- No OUTCOME change in `home_night`/`guest`/`arriving`/`away`: no evidence rule, back-fill, exit timer, D5 or pending
+  hold there. Fast ENTRY does run in every house state [R7] — the same outcome, sooner.
 - The clamp and validation are unchanged.
 - No fan/cover/predictor/egress/arrester/DPM/D9 change.
 - No change to the tick, grace, or knob 47's unit.
@@ -1147,10 +1169,27 @@ evidence, tick, fast path, debounce, CRIT, fused, rung, shadow, legacy, dwell, t
 - `home_night` on the evidence rule (Gate B).
 - A night/legacy dwell.
 - A zone-level exemption.
-- **A cap on repeated re-pending holds.** Revive if `pending_hold_s_today` shows long spells in a zone whose `away_edge`
-  was misjudged [REV 7].
+- ~~A cap on repeated re-pending holds~~ — BUILT in fix-up 1 as `HVAC_PENDING_HOLD_CAP_S` (600 s) per operator ruling R4.
 
 ## 18. Change logs
+
+### Fix-up round 1 (2026-09-28, after the four Tier-3 reviews; tag `pre-review-v5.103.20`)
+| Item | Change | Where |
+|---|---|---|
+| R4 | Pending-hold cap 600 s + `pending_hold_capped` row (one per spell; latch closes with the spell) | `hvac.py` S1, §0.6, §6, §14.1, §17 |
+| R5 | Return window -> knob 52 `52 · Return Window (min)` (rung 3, live, 0 = off); `HVAC_TRANSIT_EXEMPT_WINDOW_S` deleted; knob-47 helper carries no number | `hvac_const.py`, `number.py`, `__init__.py`, `button.py`, §5b, §14 |
+| R6 | Per-room "Skip entry wait" (`CONF_HVAC_SKIP_ENTRY_WAIT`, climate step, reload-suppressed; producer AND listener probe) | `const.py`, `config_flow.py`, strings, `hvac_zones.py`, `__init__.py` |
+| R7 | Fast entry in all house states — wording only (outcome unchanged, arrives faster) | §6, §16, README, state of play |
+| O2 | D-M2 overruled: the night tail is not carried across a crossing; Jaya repro pinned | §0.6 |
+| A-MED1 | Write ceiling counts `fast_entry`/`fast_exit` only | `hvac.py` S1 |
+| A-MED2 | Fast-path buckets popped on trip start and on midnight expiry | `hvac.py` |
+| A-MED3 | Per-room entity `armed`/`source`/`tail_expires_at` follow the active rule; `shadow_*` + D5 diagnostics exposed | `binary_sensor.py` |
+| D-M1 | Coordinator-absent / hallway branches clear the episode + pending; rollup only over rooms classified live this pass; `_on_exit_timer` checks preconditions before the pending branch | `hvac_zones.py`, `hvac.py` |
+| D-M3 | `_zone_vacancy_away_at` stamped only when the previous applied write was not `away` (§9.7 re-issue never re-anchors) | `hvac.py` S1 |
+| B-M3 | Zone-filtered pass keeps other zones' absent set and classification | `hvac_zones.py` |
+| B-M4 | Kill-switch scope documented (README, checkpoint) | docs |
+| C 1–5 | Full-cycle exit-timer anchor; real `_run_decision_cycle` stamp; INV-5 per pass; switch OFF restore; deferred-write stamp | tests |
+| LOWs | A-LOW-1/2 stale per-pass fields reset; A-LOW-3 exemption anchored on ev + hold; A-LOW-5 live accrual; A-LOW-6 helper; A-LOW-7 annotation + docstring; attr name `hvac_release_at`; B-L1 warm-zone falling edge re-arms the exit timer; B-L3 latch closes on every exit; B-L4 quick return only on a real re-arm; D-L2 shed away booked `energy_shed_cap_reached`; D-L4 carded | code + tests |
 
 ### REV 7
 | Item | Change | Where |

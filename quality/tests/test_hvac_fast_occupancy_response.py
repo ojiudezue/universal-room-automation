@@ -571,8 +571,9 @@ async def test_s1_writes_only_origin_zone(mods):
 
 @pytest.mark.asyncio
 async def test_absent_set_built_before_zone_loop(mods):
-    """Row 17. zone_2's room has NO coordinator; a zone_1 fast run still
-    leaves that room in `_coordinator_absent_this_pass`."""
+    """Row 17 (B-M3 semantics). zone_2's room has NO coordinator. After a
+    full pass it is in `_coordinator_absent_this_pass`; a zone_1 fast run
+    KEEPS it there (other zones' rooms keep their previous value)."""
     with _Clock(T0):
         coord, hass, coords, _ = _setup(
             mods,
@@ -582,9 +583,12 @@ async def test_absent_set_built_before_zone_loop(mods):
             },
             presets={"zone_1": "away", "zone_2": "home", "zone_3": "home"},
         )
+        coord.zone_manager.update_room_conditions(house_state="home_day")
+        assert "ghost" in coord.zone_manager._coordinator_absent_this_pass
         coord._fast_path_queued.add("zone_1")
         await coord._async_zone_fast_run("zone_1", "fast_entry", edge_ts=T0)
         assert "ghost" in coord.zone_manager._coordinator_absent_this_pass
+        assert coord.zone_manager.is_zone_hvac_established("zone_2") is False
 
 
 @pytest.mark.asyncio

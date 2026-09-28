@@ -94,6 +94,7 @@ def button_tree(button_src) -> ast.Module:
 
 PRESENCE_TIMER_NUMBER_CLASSES = (
     "ZoneEntryDwellNumber",
+    "ReturnWindowMinutesNumber",   # v5.103.20 fix-up 1 (ruling 2)
     "VacancyGraceMinutesNumber",
     "VacancyGraceConstrainedNumber",
     "MaxOccupancyHoursNumber",
@@ -102,6 +103,7 @@ PRESENCE_TIMER_NUMBER_CLASSES = (
 
 PRESENCE_TIMER_CONF_KEYS = {
     "ZoneEntryDwellNumber": "CONF_HVAC_ZONE_ENTRY_DWELL",
+    "ReturnWindowMinutesNumber": "CONF_HVAC_RETURN_WINDOW_MINUTES",
     "VacancyGraceMinutesNumber": "CONF_HVAC_VACANCY_GRACE_MINUTES",
     "VacancyGraceConstrainedNumber": "CONF_HVAC_VACANCY_GRACE_CONSTRAINED",
     "MaxOccupancyHoursNumber": "CONF_HVAC_MAX_OCCUPANCY_HOURS",
@@ -110,6 +112,7 @@ PRESENCE_TIMER_CONF_KEYS = {
 
 PRESENCE_TIMER_HVAC_ATTRS = {
     "ZoneEntryDwellNumber": "_zone_entry_dwell",
+    "ReturnWindowMinutesNumber": "_return_window_minutes",
     "VacancyGraceMinutesNumber": "_vacancy_grace",
     "VacancyGraceConstrainedNumber": "_vacancy_grace_constrained",
     "MaxOccupancyHoursNumber": "_max_occupancy_hours",
@@ -708,6 +711,9 @@ def _make_entry(opts: dict | None = None) -> MagicMock:
          "hvac_max_occupancy_hours", 12),
         ("ZoneEntryDwellNumber", "_zone_entry_dwell",
          "hvac_zone_entry_dwell", 5),
+        # v5.103.20 fix-up 1 (ruling 2): "52 · Return Window (min)"
+        ("ReturnWindowMinutesNumber", "_return_window_minutes",
+         "hvac_return_window_minutes", 7),
     ],
 )
 def test_set_native_value_end_to_end(class_name, attr, conf_key, value):
