@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: 2026-09-27
+  last_reconciled: 2026-09-28
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -2898,7 +2898,8 @@ cards:
   reframe_2026_09_26: 'Operator: "Room clock is not good for HVAC. We built a separate HVAC occupied to decouple it ... one for turning things off, another for activating HVAC." Correct. The first plan (docs/planning/PLANNING_hvac_entry_dwell_room_clock.md) used the room LIGHTING occupancy start (_became_occupied_time), inheriting the dwell''s lighting denomination (hvac.py:2438-2451 reads zone.any_room_occupied; hvac_zones.py:783-788 NO-SWAP) — its plan review FIX-PLAN-FIRST (lighting timeouts 4-15 min make any transit look long; hallways leak in). SUPERSEDED. Correct design: dwell gate reads zone.any_room_hvac_occupied, clock = earliest HVAC-arm onset among HVAC-armed rooms (producer hvac_zones.py:1072-1121 _hvac_armed/_hvac_tail_until; add an arm-onset timestamp from raw evidence). HVAC''s 1-min day tail already drops a transit ~1 min after the person leaves, so dwell 0 may already filter most transits — MEASURE flaps first.'
   next: 'MEASURE (me) with dwell 0 after >= 3 occupied days: zone flip rate (S1 home/sleep write then vacant_past_grace away within 20 min) and, per flip, the arming room''s raw presence-evidence duration (recorder) — the Stage-B N threshold. If flips are material: ura-planner writes the Stage B plan (arming-edge raw-persistence gate), Tier 2-DB with plan review. The two onset-anchored dwell plans are SUPERSEDED.'
   title: Build step-4-B STAGE B — arm HVAC occupancy only on persisted raw evidence (CRIT-1-safe, arming-edge only) so brief transits stop flipping zones; replaces the entry dwell
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.20
   thread: hvac
   workstream: HVAC-W2-OCCUPANCY-TRUTH
   created: '2026-09-26'
@@ -2909,7 +2910,8 @@ cards:
   revived_2026_09_27: 'REVIVED by operator 2026-09-27 ~22:00 after a live zone_3 exit took ~15-20 min (kitchen occupied timeout 10 min + hold + 5 min grace + tick): "We wanted faster responses. This is nuts." / "fast path catches it. The room type hold blunts it. Do it". Combined with the parked W2 fast path (extended to exits) into docs/planning/PLANNING_hvac_fast_occupancy_response.md (planning). Stopgap done same night: Kitchen occupancy_timeout 600 -> 300 s (options flow, verified).'
   disposition_2026_09_26_groom: 'MEASURED 2026-09-26 (docs/planning/AUDIT_hvac_raw_evidence_gaps_2026_09_26.md, probe scripts/probes/hvac_raw_evidence_gap_probe.py, 82 daytime hours, 33 rooms): the intent/execution gap is real, but EXECUTION IS THE SAFER DESIGN. A flat 60 s day tail with the live 5-min vacancy grace would retreat a zone with someone present 23x/week (0 at the 10-min grace, 0 with today''s design); the lighting timeout in front of the tail absorbs radar misses of still people (Living Room camera saw a person in 55% of >60 s daytime gaps with all 3 radars off). Safe per-room-type tails (closet 60, generic 120, bath 180, bedroom 240, common 300) save only 60-120 s vs today''s ~360 s for bedrooms/common — marginal benefit does not justify reopening CRIT-1. Also: a fix keyed on _last_motion_time would drop camera/BLE-held occupancy (coordinator.py:3589/3680/3867 only set it when empty). Kitchen = 20 of 23 risk events (but the Kitchen room is deliberately disabled via switch.kitchen_override_vacant — verify whether it contributes to HVAC at all). Confirms the vacancy grace 10->5 change is SAFE with the current design.'
   title: BUG — HVAC occupancy's 60 s hold starts only AFTER the full lighting timeout (~5 min), so rooms stay HVAC-occupied ~6 min after the last motion instead of the intended ~1 min
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.103.20
   thread: hvac
   workstream: HVAC-W2-OCCUPANCY-TRUTH
   created: '2026-09-26'

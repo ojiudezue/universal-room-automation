@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "158",
+  "author": "ojiudezue",
+  "session_id": "claude_20260928_234420_ship_v5_103_20",
+  "timestamp": "2026-09-28T23:44:20Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.20 shipped: HVAC fast occupancy response: rooms release on their own short holds, zones react in seconds, 1-minute entry wait filters walk-throughs",
+  "summary": "HVAC fast occupancy response: rooms release on their own short holds, zones react in seconds, 1-minute entry wait filters walk-throughs",
+  "why": "Operator: 'We wanted faster responses. This is nuts' after a kitchen exit took ~20 min (lighting timeout + hold + grace + tick stacked). HVAC now has its own evidence clock with per-type holds sized from the 09-26 audit (operator: 'fast path catches it, the room type hold blunts it'; common hold 3 min by ruling), a zone-scoped fast path for entry and exit, and a 1-minute entry filter folded in ('we want no seams'). Night keeps today's rule (unmeasured), and the night tail is dropped at wake by ruling.",
+  "implications": "Shipped HVAC-OCCUPANCY-HOLD-CHAINED-AFTER-LIGHT-TIMEOUT-1, HVAC-ENTRY-DWELL-ROOM-CLOCK-1 at v5.103.20; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.20.md (Live criteria).",
+  "revisit_trigger": "Early return alert firing (>=12/zone/day), a still sleeper retreated in home_night, fast-path ceiling trips, or zone flap rate up vs baseline",
+  "refs": {
+    "cards": [
+      "HVAC-OCCUPANCY-HOLD-CHAINED-AFTER-LIGHT-TIMEOUT-1",
+      "HVAC-ENTRY-DWELL-ROOM-CLOCK-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.20.md"
+    ],
+    "release_notes": "During the day and evening each room now releases HVAC occupancy on its own per-type hold after the last real sign of someone (closet 1, generic/utility 2, common/bath 3, bedroom 4 min) instead of riding the lighting timeout, and zones switch Home/Away immediately via a zone-scoped fast path instead of waiting for the 5-min cycle. A 1-minute Entry Wait stops walk-throughs from switching an Away zone to Home; a Return window (10 min) lets a still person who moves again switch back at once. New settings: 52 Return Window, per-room Skip entry wait, kill switch 31 Fast Room Response. Night/guest/arriving decide as before, faster. See docs/readmes/README_v5.103.20.md."
+  }
+}
