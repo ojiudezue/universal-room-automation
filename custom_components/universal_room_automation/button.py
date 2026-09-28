@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.19
+# Universal Room Automation vv5.103.20
 # Build: 2026-01-04
 # File: button.py
 #
@@ -842,12 +842,15 @@ class ResetPresenceTimersButton(ButtonEntity):
             DEFAULT_MAX_OCCUPANCY_HOURS,
             CONF_HVAC_ZONE_ENTRY_DWELL,
             DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
+            CONF_HVAC_RETURN_WINDOW_MINUTES,
+            DEFAULT_HVAC_RETURN_WINDOW_MINUTES,
         )
         defaults = {
             CONF_HVAC_VACANCY_GRACE_MINUTES: DEFAULT_VACANCY_GRACE_MINUTES,
             CONF_HVAC_VACANCY_GRACE_CONSTRAINED: DEFAULT_VACANCY_GRACE_CONSTRAINED,
             CONF_HVAC_MAX_OCCUPANCY_HOURS: DEFAULT_MAX_OCCUPANCY_HOURS,
             CONF_HVAC_ZONE_ENTRY_DWELL: DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
+            CONF_HVAC_RETURN_WINDOW_MINUTES: DEFAULT_HVAC_RETURN_WINDOW_MINUTES,
         }
         # Live-attr push so the next HVAC decision cycle picks defaults
         # up immediately; the writeback below persists them across the
@@ -858,6 +861,7 @@ class ResetPresenceTimersButton(ButtonEntity):
             hvac._vacancy_grace_constrained = DEFAULT_VACANCY_GRACE_CONSTRAINED
             hvac._max_occupancy_hours = DEFAULT_MAX_OCCUPANCY_HOURS
             hvac._zone_entry_dwell = DEFAULT_ZONE_ENTRY_DWELL_MINUTES
+            hvac._return_window_minutes = DEFAULT_HVAC_RETURN_WINDOW_MINUTES
         # Single options-save → single reload, not four cascading ones.
         self.hass.config_entries.async_update_entry(
             self._entry,

@@ -20,6 +20,7 @@ actually writing the runtime field.
 from __future__ import annotations
 
 import ast
+import pytest
 import types
 from pathlib import Path
 
@@ -753,3 +754,56 @@ def test_zone_seed_runs_without_error_against_real_ha_restore_shape(monkeypatch)
         "helper's defensive except is likely swallowing the retrieval "
         "error and dropping the runtime to the dataclass default."
     )
+
+
+# ---------------------------------------------------------------------------
+# v5.103.20 fix-up 2 (re-review A/B/C M3): knob 52 "Return Window (min)" is
+# seeded at boot through the HVACCoordinator CONSTRUCTOR kwarg
+# (`return_window_minutes=int(cm_config.get(CONF_HVAC_RETURN_WINDOW_MINUTES,
+# DEFAULT_...))` in async_setup_entry), not through the tunable seed helper.
+# The test extracts THAT kwarg's value expression from the real call site
+# and evaluates it against a saved / absent option (drill M9: delete the
+# kwarg -> RED).
+# ---------------------------------------------------------------------------
+
+def _hvac_ctor_kwarg_expr(name: str) -> ast.expr:
+    tree = ast.parse(INIT_SRC)
+    fn = _find_async_setup_entry(tree)
+    for node in ast.walk(fn):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "HVACCoordinator"
+        ):
+            for kw in node.keywords:
+                if kw.arg == name:
+                    return kw.value
+    raise AssertionError(f"HVACCoordinator(...) call has no `{name}=` kwarg in async_setup_entry")
+
+
+@pytest.mark.parametrize("saved,expected", [({"hvac_return_window_minutes": 7}, 7), ({}, 10), ({"hvac_return_window_minutes": 0}, 0)])
+def test_return_window_seeded_from_cm_options_at_boot(saved, expected):
+    expr = _hvac_ctor_kwarg_expr("return_window_minutes")
+    code = compile(ast.Expression(body=expr), "<hvac-ctor-kwarg>", "eval")
+    ns = {
+        "cm_config": dict(saved),
+        "CONF_HVAC_RETURN_WINDOW_MINUTES": "hvac_return_window_minutes",
+        "DEFAULT_HVAC_RETURN_WINDOW_MINUTES": 10,
+    }
+    assert eval(code, ns) == expected  # noqa: S307 — production expression under test
+
+
+def test_return_window_ctor_kwarg_lands_on_the_live_attribute():
+    """The constructor stores the kwarg where `_return_window_s()` reads it
+    (real class from the W1-B harness)."""
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent))
+    import _w1b_harness as H
+    from runtime_harness import build_smoke_hass
+    base = H.snapshot_shims()
+    try:
+        mods = H.load_real()
+        coord = mods["hvac"].HVACCoordinator(build_smoke_hass(zones_count=1), return_window_minutes=3)
+        assert coord._return_window_minutes == 3 and coord._return_window_s() == 180.0
+    finally:
+        H.restore_shims(base)

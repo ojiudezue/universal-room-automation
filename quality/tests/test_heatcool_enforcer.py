@@ -152,7 +152,8 @@ def _load_hvac_module():
         "ura_hvac_pkg.domain_coordinators.hvac_fans", FanController=object
     )
     _stub_module(
-        "ura_hvac_pkg.domain_coordinators.hvac_override", OverrideArrester=object
+        "ura_hvac_pkg.domain_coordinators.hvac_override", OverrideArrester=object,
+        SUPPRESS_TTL_SECONDS_PRESET=120,  # v5.103.20: hvac.py imports it at module level
     )
     _stub_module(
         "ura_hvac_pkg.domain_coordinators.hvac_predict", HVACPredictor=object

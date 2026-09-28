@@ -568,11 +568,36 @@ class TestDisabledCoordinatorGuard:
         )
 
     def test_hvac_decision_cycle_enabled_guard(self):
-        """HVAC _async_decision_cycle checks _enabled."""
-        self._check_handler_has_enabled_guard(
-            "custom_components/universal_room_automation/domain_coordinators/hvac.py",
-            "_async_decision_cycle",
+        """HVAC `_async_decision_cycle` checks `_enabled` — BEHAVIOURAL
+        (v5.103.20 converted the 500-char source window: the method grew a
+        docstring). Drive the real method on a bare coordinator: disabled ->
+        `_run_decision_cycle` is never awaited; enabled -> it runs once."""
+        import asyncio
+        from unittest.mock import AsyncMock
+        pytest.importorskip("homeassistant.helpers.storage")
+        from custom_components.universal_room_automation.domain_coordinators.hvac import (
+            HVACCoordinator,
         )
+        coord = object.__new__(HVACCoordinator)
+        coord._run_decision_cycle = AsyncMock()
+        coord._enabled = False
+        coord._boot_settle_done = True
+        coord._boot_settle_hvac_suppressed = 0
+        coord._boot_settle_release_reason = "test"
+        coord._decision_cycle_lock = asyncio.Lock()
+        coord._fast_path_running = False
+        coord._last_full_cycle_started_at = None
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(coord._async_decision_cycle())
+            assert coord._run_decision_cycle.await_count == 0, (
+                "_async_decision_cycle ran while the coordinator was disabled"
+            )
+            coord._enabled = True
+            loop.run_until_complete(coord._async_decision_cycle())
+            assert coord._run_decision_cycle.await_count == 1
+        finally:
+            loop.close()
 
     def test_hvac_safety_hazard_enabled_guard(self):
         """HVAC _handle_safety_hazard checks _enabled."""

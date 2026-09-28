@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.19
+# Universal Room Automation vv5.103.20
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -3773,6 +3773,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
                         CONF_HVAC_MAX_OCCUPANCY_HOURS,
                         CONF_HVAC_ZONE_ENTRY_DWELL,
+                        CONF_HVAC_RETURN_WINDOW_MINUTES,
+                        DEFAULT_HVAC_RETURN_WINDOW_MINUTES,
                         DEFAULT_MAX_SLEEP_OFFSET,
                         DEFAULT_COMPROMISE_MINUTES,
                         _read_hvac_compromise_minutes,
@@ -3892,6 +3894,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         })(cm_config),
                         zone_entry_dwell=int(cm_config.get(
                             CONF_HVAC_ZONE_ENTRY_DWELL, DEFAULT_ZONE_ENTRY_DWELL_MINUTES
+                        )),
+                        return_window_minutes=int(cm_config.get(
+                            CONF_HVAC_RETURN_WINDOW_MINUTES, DEFAULT_HVAC_RETURN_WINDOW_MINUTES
                         )),
                         person_zone_map=None,
                         # v4.2.29: only pass net_power_entity when envoy
@@ -6192,6 +6197,8 @@ from .domain_coordinators.hvac_const import (
     CONF_HVAC_VACANCY_GRACE_CONSTRAINED as _CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
     CONF_HVAC_MAX_OCCUPANCY_HOURS as _CONF_HVAC_MAX_OCCUPANCY_HOURS,
     CONF_HVAC_ZONE_ENTRY_DWELL as _CONF_HVAC_ZONE_ENTRY_DWELL,
+    # v5.103.20 fix-up 1 (ruling 2): D5 return window knob
+    CONF_HVAC_RETURN_WINDOW_MINUTES as _CONF_HVAC_RETURN_WINDOW_MINUTES,
     # Part 2 — HVAC tunable factory (60-66 + 70-76 cluster, 14 keys)
     CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA as _CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
     CONF_HVAC_COVER_CLOSE_TEMP as _CONF_HVAC_COVER_CLOSE_TEMP,
@@ -6296,6 +6303,7 @@ from .const import (
     # audit block below the _ROOM_SUPPRESS_KEYS frozenset.
     CONF_HVAC_VACANCY_HOLD as _CONF_HVAC_VACANCY_HOLD,
     CONF_HVAC_VACANCY_HOLD_NIGHT as _CONF_HVAC_VACANCY_HOLD_NIGHT,
+    CONF_HVAC_SKIP_ENTRY_WAIT as _CONF_HVAC_SKIP_ENTRY_WAIT,
     CONF_HVAC_COORDINATION_ENABLED as _CONF_HVAC_COORDINATION_ENABLED,
     CONF_COMFORT_FAN_AWAY_VETO_ENABLED as _CONF_COMFORT_FAN_AWAY_VETO_ENABLED,
     CONF_WET_ROOM as _CONF_WET_ROOM,
@@ -6848,6 +6856,7 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
     _CONF_HVAC_MAX_OCCUPANCY_HOURS,
     _CONF_HVAC_ZONE_ENTRY_DWELL,
+    _CONF_HVAC_RETURN_WINDOW_MINUTES,
     _CONF_DYNAMIC_PRESET_DWELL_MINUTES,
     # Part 2 D1 — EC Number family + Bayesian
     _CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
@@ -7275,6 +7284,7 @@ def _apply_in_place(
         _CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
         _CONF_HVAC_MAX_OCCUPANCY_HOURS,
         _CONF_HVAC_ZONE_ENTRY_DWELL,
+        _CONF_HVAC_RETURN_WINDOW_MINUTES,
         # Part 2 D3 — HVAC tunable factory (14 keys)
         *_HVAC_TUNABLE_DISPATCH.keys(),
         # Part 2 D5 — egress thresholds (HVAC-owned via egress_manager)
@@ -7374,6 +7384,20 @@ def _apply_in_place(
                 "key=%s value=%r: %s",
                 _CONF_HVAC_MAX_OCCUPANCY_HOURS,
                 new_options.get(_CONF_HVAC_MAX_OCCUPANCY_HOURS),
+                err,
+            )
+    if _CONF_HVAC_RETURN_WINDOW_MINUTES in changed_keys:
+        try:
+            hvac._return_window_minutes = int(
+                new_options[_CONF_HVAC_RETURN_WINDOW_MINUTES],
+            )
+            applied.add(_CONF_HVAC_RETURN_WINDOW_MINUTES)
+        except (AttributeError, KeyError, ValueError, TypeError) as err:
+            _LOGGER.warning(
+                "CM in-place apply: HVAC live-attr push failed for "
+                "key=%s value=%r: %s",
+                _CONF_HVAC_RETURN_WINDOW_MINUTES,
+                new_options.get(_CONF_HVAC_RETURN_WINDOW_MINUTES),
                 err,
             )
     if _CONF_HVAC_ZONE_ENTRY_DWELL in changed_keys:
@@ -7755,6 +7779,11 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         #                                .options) — LIVE.
         _CONF_HVAC_VACANCY_HOLD,
         _CONF_HVAC_VACANCY_HOLD_NIGHT,
+        # v5.103.20 fix-up 1 (ruling 3) — LIVE: hvac_zones.update_room_
+        # conditions reads `{**entry.data, **entry.options}` EVERY producer
+        # pass (`hvac_skip_entry_wait` -> meta -> `_d5_update`); no cache,
+        # no coordinator attribute, so a save needs no room reload.
+        _CONF_HVAC_SKIP_ENTRY_WAIT,
         _CONF_BLE_HOLD_CAP_ENABLED,
         _CONF_TARGET_TEMP_HEAT,
         _CONF_TARGET_TEMP_COOL,

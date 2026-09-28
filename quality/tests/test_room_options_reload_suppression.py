@@ -136,6 +136,7 @@ def _load_ns() -> dict:
         "_CONF_HVAC_AC_NIGHT_END_HHMM", "_CONF_HVAC_AC_GATE4_PREDICATE_MODE",
         "_CONF_HVAC_VACANCY_GRACE_MINUTES", "_CONF_HVAC_VACANCY_GRACE_CONSTRAINED",
         "_CONF_HVAC_MAX_OCCUPANCY_HOURS", "_CONF_HVAC_ZONE_ENTRY_DWELL",
+        "_CONF_HVAC_RETURN_WINDOW_MINUTES", "_CONF_HVAC_SKIP_ENTRY_WAIT",
         "_CONF_DYNAMIC_PRESET_DWELL_MINUTES",
         "_CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA", "_CONF_HVAC_COVER_CLOSE_TEMP",
         "_CONF_HVAC_COVER_OPEN_TEMP", "_CONF_HVAC_COVER_OVERRIDE_HOURS",
@@ -201,6 +202,8 @@ def _load_ns() -> dict:
     room_new_conf_values = {
         "_CONF_HVAC_VACANCY_HOLD": "hvac_vacancy_hold",
         "_CONF_HVAC_VACANCY_HOLD_NIGHT": "hvac_vacancy_hold_night",
+        "_CONF_HVAC_SKIP_ENTRY_WAIT": "hvac_skip_entry_wait",
+        "_CONF_HVAC_RETURN_WINDOW_MINUTES": "hvac_return_window_minutes",
         "_CONF_HVAC_COORDINATION_ENABLED": "hvac_coordination_enabled",
         "_CONF_COMFORT_FAN_AWAY_VETO_ENABLED": "comfort_fan_away_veto_enabled",
         "_CONF_WET_ROOM": "wet_room",
@@ -338,6 +341,9 @@ _CLIMATE_FORM_KEYS_ALLOWLISTED = (
     "humidity_fan_presence_runtime_cap_s",
     "fan_speed_low_temp", "fan_speed_med_temp", "fan_speed_high_temp",
     "target_temp_heat", "target_temp_cool",
+    # v5.103.20 fix-up 1 (ruling 3): read LIVE every producer pass
+    # (`hvac_zones.update_room_conditions` merges entry.options) -> no reload.
+    "hvac_skip_entry_wait",
 )
 
 _CLIMATE_FORM_KEY_EXCLUDED_ENTITY = "climate_entity"

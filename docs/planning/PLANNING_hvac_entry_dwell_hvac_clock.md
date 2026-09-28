@@ -1,5 +1,8 @@
 > **SUPERSEDED 2026-09-26 night:** HVAC occupancy rides the lighting STATE_OCCUPIED + timeout (C24), so an onset-anchored dwell cannot filter transits. Replaced by step-4-B Stage B (arming-edge raw-persistence gate) — card HVAC-ENTRY-DWELL-ROOM-CLOCK-1.
 
+> **SUPERSEDED 2026-09-28 — FOLDED into `PLANNING_hvac_fast_occupancy_response.md` §5b (D5 transit filter, built v5.103.20).** Knob 47 now gates arming on 60 s of persisted room evidence on the away→home edge; the lighting-session dwell is retired. Card `HVAC-ENTRY-DWELL-ROOM-CLOCK-1` closes as folded.
+
+
 # PLANNING — HVAC-ENTRY-DWELL-ROOM-CLOCK-1 (v2, HVAC-clock)
 
 **Supersedes:** `PLANNING_hvac_entry_dwell_room_clock.md` (v1 gated on the LIGHTING clock;

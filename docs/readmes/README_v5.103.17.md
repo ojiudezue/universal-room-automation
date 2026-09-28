@@ -40,9 +40,9 @@ Build `8d0a855c1` → review A (correctness) FIX-REQUIRED: missing `options.erro
 | # | Criterion | Result | Evidence |
 |---|---|---|---|
 | 1 | All room entries load; zero URA ERROR | **PASS** | zone status sensors: live_rooms 12/14/14, excluded [] / transient [] on all three; error_log ERROR filter on `universal_room_automation`: none |
-| 2 | Echo: 0 `override_detected` within 15 s after a `nudge_started` | **PENDING** | needs nudges (AC-ramp runs under cooling load); query written back as they accumulate today |
-| 3 | Echo: 0 `preset_change_locked_out` at ~+595 s after a nudge | **PENDING** | same |
-| 4 | Genuine human change still booked | **PENDING** | operator's controlled test (HVAC-WRITE-CONFIRMATION-ORACLE-1) |
+| 2 | Echo: 0 `override_detected` within 15 s after a `nudge_started` | **PASS** (written back 2026-09-28 overnight) | URA DB, deploy through 02:00 CDT 09-28: 24 `nudge_started` rows (`ac_ramp_events`), 5 `override_detected` rows (`ura_activity_log`). **0** overrides fell within 15 s after a same-zone nudge start. The closest were +429 s, +435 s and +477 s (zone_1); the other two had no zone_2 nudge within 15 min. Under the old code, 24 of 52 overrides were 5.3-7.5 s echoes. |
+| 3 | Echo: 0 `preset_change_locked_out` at ~+595 s after a nudge | **PASS for the echo chain, 1 residual** | 6 lockouts since deploy. 5 are not at +595 s after any same-zone nudge. 1 (zone_1 18:58:03 CDT, +600 s after the 18:48:03 nudge) did NOT come from an echo: its override was booked at +477 s (18:56:00, `home->manual`, temp 76->76, a zero-delta manual about 6 min after the 18:50:10 restore). That is the documented "Not fixed" post-restore zero-delta strand (W1-B problem 1), not the 5-7 s echo. RESIDUAL: all 3 zone_1 overrides landed +429 to +477 s after a nudge start. Recorded as an instance on HVAC-ZONE1-MANUAL-OSCILLATION-1. |
+| 4 | Genuine human change still booked | **PASS (organic, inferred)** | zone_2 21:31:30 CDT `home->manual`, temp_high 76->72 (-4 F), with no zone_2 nudge in the prior 15 min, was booked as `override_detected`: a human-shaped change still books. The operator's controlled test (HVAC-WRITE-CONFIRMATION-ORACLE-1) remains the authoritative proof. |
 | 5 | Rename to an existing room name shows the error, writes nothing | **In-suite** (live requires an operator rename) | `TestRoomNameUniqueRenameGuard` |
 | 6 | Side check: Exercise Room radar no longer double-claimed | **PASS** | no "claimed by multiple rooms" WARNING this boot |
 

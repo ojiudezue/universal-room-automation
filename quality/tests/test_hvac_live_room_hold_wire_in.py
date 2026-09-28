@@ -211,6 +211,22 @@ def _seed_zone_with_transient_sibling(coord, zone_id: str) -> None:
     class _RC:
         def __init__(self):
             self.data = {"occupied": False, "temperature": None, "humidity": None}
+
+        # v5.103.20 (HVAC fast occupancy response): in home_day the producer
+        # follows the EVIDENCE rule, so a lighting-occupied fake needs HVAC
+        # evidence to count. Evidence follows `data["occupied"]`, which keeps
+        # every discriminator below unchanged.
+        last_update_success = True
+
+        def get_last_hvac_evidence_time(self):
+            import sys as _sys
+            from datetime import timedelta
+            _hz = _sys.modules["custom_components.universal_room_automation.domain_coordinators.hvac_zones"]
+            now = _hz.dt_util.now()   # the PRODUCER's clock (sibling tests may freeze it)
+            return now if self.data.get("occupied") else now - timedelta(days=1)
+
+        def is_hvac_evidence_active(self):
+            return bool(self.data.get("occupied"))
     coord.hass.data.setdefault(DOMAIN, {})[entries[0].entry_id] = _RC()
 
     zm._hvac_seen.update(["r_ok", "r_reload"])
@@ -778,6 +794,22 @@ def _seed_zone_transient_and_occupied(coord, zone_id: str) -> None:
             self.data = {
                 "occupied": occupied, "temperature": None, "humidity": None,
             }
+
+        # v5.103.20 (HVAC fast occupancy response): in home_day the producer
+        # follows the EVIDENCE rule, so a lighting-occupied fake needs HVAC
+        # evidence to count. Evidence follows `data["occupied"]`, which keeps
+        # every discriminator below unchanged.
+        last_update_success = True
+
+        def get_last_hvac_evidence_time(self):
+            import sys as _sys
+            from datetime import timedelta
+            _hz = _sys.modules["custom_components.universal_room_automation.domain_coordinators.hvac_zones"]
+            now = _hz.dt_util.now()   # the PRODUCER's clock (sibling tests may freeze it)
+            return now if self.data.get("occupied") else now - timedelta(days=1)
+
+        def is_hvac_evidence_active(self):
+            return bool(self.data.get("occupied"))
     coord.hass.data.setdefault(DOMAIN, {})[entries[0].entry_id] = _RC(True)
     zm._hvac_seen.update(["r_live_occ", "r_reload"])
     zm.update_room_conditions(house_state="home_day")
@@ -893,7 +925,7 @@ async def test_row1_hold_H2e_transient_conjunct_load_bearing_sleep_target(monkey
 
 
 @pytest.mark.asyncio
-async def test_row1_hold_H2d_fused_empty_conjunct_load_bearing():
+async def test_row1_hold_H2d_fused_empty_conjunct_load_bearing(monkeypatch):
     """FIX-UP round 5 item 2 (HIGH H2d). Discriminator for the
     `_fused_empty and` conjunct at hvac.py:2091. Zone has a transient
     sibling AND a LIVE hvac_occupied room; zone currently `away`;
@@ -901,6 +933,15 @@ async def test_row1_hold_H2d_fused_empty_conjunct_load_bearing():
     empty) → preset=home writes. Mutation drops `_fused_empty and` →
     hold arms on a fused-OCCUPIED zone → home suppressed.
     """
+    # v5.103.20: pin an AWARE clock on BOTH `utcnow` and `now` — the
+    # evidence-rule back-fill derives `last_occupied_time` from the
+    # producer's `dt_util.now()`, and earlier files leak NAIVE frozen clocks.
+    _pinned = _pin_aware_clock(monkeypatch)
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac as _hvac_mod_pin, hvac_zones as _hz_mod_pin,
+    )
+    for _m in (_hvac_mod_pin, _hz_mod_pin):
+        monkeypatch.setattr(_m.dt_util, "now", lambda tz=None, _p=_pinned: _p)
     coord, hass = _make_coord()
     coord._house_state = "home_day"
     coord._energy_constraint_mode = "normal"
@@ -971,6 +1012,22 @@ async def test_drain_call_site_in_run_decision_cycle_fires_nm():
     class _RC:
         def __init__(self):
             self.data = {"occupied": False, "temperature": None, "humidity": None}
+
+        # v5.103.20 (HVAC fast occupancy response): in home_day the producer
+        # follows the EVIDENCE rule, so a lighting-occupied fake needs HVAC
+        # evidence to count. Evidence follows `data["occupied"]`, which keeps
+        # every discriminator below unchanged.
+        last_update_success = True
+
+        def get_last_hvac_evidence_time(self):
+            import sys as _sys
+            from datetime import timedelta
+            _hz = _sys.modules["custom_components.universal_room_automation.domain_coordinators.hvac_zones"]
+            now = _hz.dt_util.now()   # the PRODUCER's clock (sibling tests may freeze it)
+            return now if self.data.get("occupied") else now - timedelta(days=1)
+
+        def is_hvac_evidence_active(self):
+            return bool(self.data.get("occupied"))
     coord.hass.data.setdefault(DOMAIN, {})[entry.entry_id] = _RC()
     # Tick 1: room LOADED — populate _hvac_seen, no NM.
     zm.update_room_conditions(house_state="home_day")
@@ -1110,7 +1167,7 @@ def expected_lingering_timers() -> bool:
 
 
 @pytest.mark.asyncio
-async def test_drain_call_site_in_async_setup_fires_nm(expected_lingering_timers):
+async def test_drain_call_site_in_async_setup_fires_nm(expected_lingering_timers, monkeypatch):
     """FIX-UP round 5 item 3 (N1) — wire-in for the SETUP-path drain at
     hvac.py:1262 (`await self._drain_hvac_degraded_room_events()`
     immediately after the initial `self._zone_manager.update_room_
@@ -1131,6 +1188,15 @@ async def test_drain_call_site_in_async_setup_fires_nm(expected_lingering_timers
     `await self._drain_hvac_degraded_room_events()` at hvac.py:1262 →
     drain spy count = 0 AND NM captures nothing → RED.
     """
+    # v5.103.20: pin an AWARE clock on BOTH `utcnow` and `now` — the
+    # evidence-rule back-fill derives `last_occupied_time` from the
+    # producer's `dt_util.now()`, and earlier files leak NAIVE frozen clocks.
+    _pinned = _pin_aware_clock(monkeypatch)
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac as _hvac_mod_pin, hvac_zones as _hz_mod_pin,
+    )
+    for _m in (_hvac_mod_pin, _hz_mod_pin):
+        monkeypatch.setattr(_m.dt_util, "now", lambda tz=None, _p=_pinned: _p)
     _purge_shim_modules()
 
     # Extend runtime_harness StubBus to tolerate the `event_filter`
