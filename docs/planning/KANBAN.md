@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-27T20:50:12-05:00_ - _Data commit: `717d889ec1bd`_ - _last_reconciled: 2026-09-27_
+_Generated: 2026-09-27T21:32:07-05:00_ - _Data commit: `e873d1abef16`_ - _last_reconciled: 2026-09-27_
 
 
 ## Columns
@@ -1131,10 +1131,11 @@ _created 2026-09-16 · updated 2026-09-26 10:30_
 - **Problem / Solution:**
   - Problem: HVAC Option B (HVAC-ZONE-CONDITIONING-DEMAND-1 D7) retreats an empty zone to away at night on fused room occupancy. If a bedroom's multi-sensor redundancy degrades WHILE OCCUPIED (a sensor dies mid-sleep), its fused signal could...
 - **Why:** CARDED-NOT-RETIRED per operator ("Do not lose the p2-3 from compaction. Card and link it, do not retire it in case we need to uncork it"). This was briefly elevated to P1-required on the basis that Ziri proved silent redundancy degradati...
-- **Next:** RE-PROBE (me) on/after 2026-09-29 evening (3 nights): ssh ha python3 - < scripts/probes/hvac_night_sleeper_probe.py; accept if Jaya night RETURNED drops no longer let zone_2 go away inside the gap; then dispose done.
+- **Next:** RE-PROBE (me) on 2026-09-30 after 3 nights with Jaya home (09-27, 09-28, 09-29): ssh ha python3 - < scripts/probes/hvac_night_sleeper_probe.py. PASS = no zone_2 away write inside a Jaya bedroom drop that later returned -> dispose this ca...
 - **Tags:** hvac, parked-with-trigger, night-trust, suppression-discharge, do-not-retire
 - **Parsimony:** [PARK] night retreat is safe for the measured (healthy-redundancy) rooms but a degraded-while-occupied bedroom could be wrongly retreated; the full defense is unbuilt for lack of an observed instance
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `operator_2026_09_27`: Operator "ok" to NOT building the full degradation defense now: the practical fix (Jaya night hold 5400 s) is a setting; the full machinery has no observed case. First night that counts is 2026-09-27 (house was empty 09-26). Note: after ...
   - `disposition_2026_09_26_groom`: OPERATOR SET IT 2026-09-26: Jaya Bedroom (Bedroom 4) hvac_vacancy_hold_night = 5400.0 (day 60.0), .storage/core.config_entries modified_at 2026-09-26T18:21:55Z, verified stored.
   - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
   - `possible_trigger_2026_09_25`: README v5.103.7 INV-1 write-back found 2 suspect night retreats: zone_2 went away at 02:47 (09-24) and 02:09 (09-25) with Jaya home; her bedroom last read occupied 02:10 / 01:30 (past the 30-min D8 night hold) and re-occupied at 02:56 / ...

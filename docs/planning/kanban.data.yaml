@@ -2860,6 +2860,7 @@ cards:
   verdict: 'NO broad livability problem. One config change is worth it: Laundry day hold -> 1200 s (20 min) covers the ~15-min load-swap trip that caused 4 of 8 harms; cost = zone_3 conditioned up to ~20 min longer after a real laundry departure. Pantries / Master Bath are 1 event each — do not change on this evidence.'
   next: 'FIX THE PROBE (me, read-only): re-base hvac_room_return_probe.py on RAW presence/motion/BLE per room (the room''s configured sensors) instead of hvac_occupied, and count ''person present per raw sensors while the zone was written away''. Re-run after the W2 fast path ships (the fast path removes most of the lag this probe tripped on). No operator action.'
 - id: HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1
+  operator_2026_09_27: 'Operator "ok" to NOT building the full degradation defense now: the practical fix (Jaya night hold 5400 s) is a setting; the full machinery has no observed case. First night that counts is 2026-09-27 (house was empty 09-26). Note: after the night-tail B fix, night holds start at house sleep (22:00) not 21:00 — fine for a sleeper.'
   disposition_2026_09_26_groom: 'OPERATOR SET IT 2026-09-26: Jaya Bedroom (Bedroom 4) hvac_vacancy_hold_night = 5400.0 (day 60.0), .storage/core.config_entries modified_at 2026-09-26T18:21:55Z, verified stored.'
   workstream: HVAC-W2-OCCUPANCY-TRUTH
   status: waiting_me
@@ -2920,7 +2921,7 @@ cards:
     now; step-4-B ships D7 + a MODEST prudent grace instead (see HVAC-ZONE-CONDITIONING-DEMAND-1
     D8_RESCOPED). This card preserves the full design so it can be uncorked fast if degradation is ever
     observed, rather than re-derived from a compacted note.'
-  next: 'RE-PROBE (me) on/after 2026-09-29 evening (3 nights): ssh ha python3 - < scripts/probes/hvac_night_sleeper_probe.py; accept if Jaya night RETURNED drops no longer let zone_2 go away inside the gap; then dispose done.'
+  next: 'RE-PROBE (me) on 2026-09-30 after 3 nights with Jaya home (09-27, 09-28, 09-29): ssh ha python3 - < scripts/probes/hvac_night_sleeper_probe.py. PASS = no zone_2 away write inside a Jaya bedroom drop that later returned -> dispose this card + HVAC-HOLD-SIZING-ALL-ROOMS-1 night part. FAIL = evidence to uncork the full defense.'
   parsimony:
     problem: night retreat is safe for the measured (healthy-redundancy) rooms but a degraded-while-occupied
       bedroom could be wrongly retreated; the full defense is unbuilt for lack of an observed instance
