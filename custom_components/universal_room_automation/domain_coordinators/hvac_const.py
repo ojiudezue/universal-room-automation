@@ -918,6 +918,21 @@ FAN_ADOPTED_VACANCY_HOLD_MULT: Final = 2.0
 # recheck (presence_fan_recheck.py) deliberately stays sleep-only.
 FAN_TRUST_STATES: Final = ("home_night", "sleep", "waking")
 
+# HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1 (2026-09-27): house states in which the
+# HVAC per-room vacancy tail-hold uses the NIGHT table
+# (ROOM_TYPE_HVAC_HOLD_NIGHT / per-room hvac_vacancy_hold_night) instead of
+# the day table. Deliberately NARROWER than FAN_TRUST_STATES: HOME_NIGHT
+# starts at a hardcoded 21:00, an hour before house Sleep, and a 30-min
+# night tail from 21:00 held zones at comfort for common/media rooms people
+# had simply left. Night holds now follow house Sleep (clock-entered at
+# sleep_start_hour) through WAKING (wake is occupancy-vetoed, so late
+# sleepers keep protection). FAN_TRUST_STATES stays as-is for fans and D7.
+# Consumed only by hvac_zones.ZoneManager._effective_hvac_hold_seconds.
+# Rung — MODULE CONSTANT: which states count as "night" for HVAC holds is a
+# design choice that should require review. No kill switch; revert = one
+# constant. Plan: docs/planning/PLANNING_hvac_night_tail_follows_sleep.md (B).
+HVAC_NIGHT_HOLD_STATES: Final = ("sleep", "waking")
+
 # HVAC-DEGRADED-ROOM-TRIPWIRE-1 (2026-09-26): grace window during which a
 # transiently non-LOADED room config entry (NOT_LOADED / SETUP_IN_PROGRESS /
 # UNLOAD_IN_PROGRESS / FAILED_UNLOAD / unknown future member) still BLOCKS

@@ -3,6 +3,7 @@
 **Status:** forensic snapshot of `develop` @`5072deaaf` (2026-09-26 ~02:30 CDT) + live HA reads the same night.
 **W1-A Stage A SHIPPED v5.103.16 2026-09-26 (behaviour-neutral write governance; live-validated, `docs/readmes/README_v5.103.16.md`) — see §4.1 (new `emit_set_hvac_mode` funnel), §4.3 (`climate_write` ledger row).
 **W1-B SHIPPED v5.103.18 2026-09-27 — the S1 "Don't fight manual" guard (v3.8.0) is REPLACED by the four-gate rule in §9e (person-protected hold / arrester grace-compromise / arrester disabled / live borrow); borrow returns are presets-only; immune holds + TAO persist across restart and reload; the arrester defers to live borrows at timer fire; the excursion kill switch is retired. Precedence rulings D13/D48/D49/D50/D52 in §9e. Read §9e before anything in §6, §7 or §9.1.** Plan `docs/planning/PLANNING_hvac_w1b_thermostat_definition.md` (decisions 1-52), README `docs/readmes/README_v5.103.18.md`.
+**v5.103.19 (built 2026-09-27, `feature/hvac-night-tail-follows-sleep`) — D8 night tail-holds follow house Sleep/Waking (`HVAC_NIGHT_HOLD_STATES`), no longer `home_night`; `FAN_TRUST_STATES` untouched. See §3.1 / §3.3.** Plan `docs/planning/PLANNING_hvac_night_tail_follows_sleep.md` (B only; C parked).
 **Scope:** everything URA does with the thermostats — decide, write, borrow/return, read back — and the occupancy
 model that drives it. Covers releases v5.103.0 → v5.103.18.
 **Owner rule:** the operator (2026-09-26): *"every agent used in the rest of the arc reads [this] first completely
@@ -83,7 +84,7 @@ Consequences:
 |---|---|---|
 | `RoomCondition.hvac_occupied` sibling of `.occupied` (lighting signal NOT swapped) | producer loop, `_hvac_seen.add` at `hvac_zones.py:988` | LIVE (v5.103.7) |
 | Per-room-type tail-hold (day) `ROOM_TYPE_HVAC_HOLD` | `const.py:1219-1224` — bedroom 60 s, media 120 s, common 60 s, **hallway 0** | LIVE |
-| Night tail-hold `ROOM_TYPE_HVAC_HOLD_NIGHT` (D8) | `const.py:1230-1242` — bedroom/media **30 min**, common 15, generic/bath/garage/utility 10, closet/infra 5, hallway 0 | LIVE |
+| Night tail-hold `ROOM_TYPE_HVAC_HOLD_NIGHT` (D8) | `const.py:1230-1242` — bedroom/media **30 min**, common 15, generic/bath/garage/utility 10, closet/infra 5, hallway 0. **Selected only in house `sleep` / `waking`** (`HVAC_NIGHT_HOLD_STATES`, `hvac_const.py`, v5.103.19 HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1); `home_night` (21:00 → Sleep) uses the DAY table. Before v5.103.19 it keyed on `FAN_TRUST_STATES` (incl. `home_night`), which is unchanged for fans/D7 | LIVE |
 | Per-room override knobs `CONF_HVAC_VACANCY_HOLD[_NIGHT]`, night ≥ day clamp | `_effective_hvac_hold_seconds` `hvac_zones.py:894` | LIVE (v5.103.8 made them config-flow fields) |
 | Hallway circulation exclusion (`hvac_occupied` always False, still marked seen) | `hvac_zones.py:650-665` (`arm_source="hallway_excluded"`) | LIVE — 7 hallways, 0 `on` rows in 7 d (v5.103.7 README write-back) |
 | Coordinator-absent room → synthetic `RoomCondition(occupied=False, hvac_occupied=False)` | `hvac_zones.py:616-641` | pre-existing (Bug Class #43). **Hazard:** a reloading room reads "empty" (§9.4) |
@@ -106,7 +107,7 @@ Consequences:
 |---|---|---|
 | Preset-layer retreat (row-1), incl. **night** retreat of empty zones | **LIVE** | `conditioning_retreat_ok` |
 | D7 night-trust suppression (zone_persons home) — only when zone NOT cleared to retreat | **LIVE** | `hvac.py:2403` |
-| D8 night tail-hold | **LIVE** | `const.py:1230` |
+| D8 night tail-hold | **LIVE** — house `sleep` / `waking` only (v5.103.19) | `const.py:1230`; selector `hvac_zones.py` `_effective_hvac_hold_seconds` |
 | D9 compose-away (Custom Preset Ranges setpoint layer), F2 throttle bypass, F4 | **DORMANT** — `switch.ura_hvac_coordinator_guest_mode_actuation` = off (13/13 recorded states 09-18→25); gate `hvac.py:2867` | blocked on `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1` + `HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1` |
 
 ---
