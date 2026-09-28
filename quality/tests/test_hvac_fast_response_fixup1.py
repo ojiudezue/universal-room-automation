@@ -943,3 +943,28 @@ async def test_quick_return_not_counted_when_zone_already_armed(mods):
         await coord._async_zone_fast_run("zone_1", "fast_entry", edge_ts=clk.t)
         assert coord._quick_returns_today_view() == {}
         assert "zone_1" not in coord._zone_vacancy_away_counted
+
+
+@pytest.mark.asyncio
+async def test_quick_return_deduped_per_away_across_two_real_rearms(mods):
+    """O1 dedup anchor (re-targeted after B-L4): TWO real re-arms on the
+    SAME vacancy away (arm, release, arm again — no new away written)
+    count ONE quick return."""
+    with _Clock(T0) as clk:
+        coord, hass, coords, sched = _away_zone(mods, clk, dwell=0, vacancy_away_age=100)
+        away_at = coord._zone_vacancy_away_at["zone_1"]
+        rc = coords[KIT]
+        _evidence(rc, onset=clk.t, ev=clk.t, active=True)
+        coord._fast_path_queued.add("zone_1")
+        await coord._async_zone_fast_run("zone_1", "fast_entry", edge_ts=clk.t)
+        assert coord._quick_returns_today_view() == {"zone_1": 1}
+        clk.t = clk.t + S(seconds=200)
+        _evidence(rc, onset=rc.onset, ev=T0, active=False); _pass(coord)   # released (hold 180)
+        assert coord.zone_manager.zones["zone_1"].any_room_hvac_occupied is False
+        assert coord._zone_vacancy_away_at["zone_1"] == away_at            # same away
+        clk.t = clk.t + S(seconds=100)
+        _evidence(rc, onset=clk.t, ev=clk.t, active=True)
+        coord._fast_path_queued.add("zone_1")
+        await coord._async_zone_fast_run("zone_1", "fast_entry", edge_ts=clk.t)
+        assert coord.zone_manager.zones["zone_1"].any_room_hvac_occupied is True
+        assert coord._quick_returns_today_view() == {"zone_1": 1}          # deduped
