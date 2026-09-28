@@ -925,7 +925,7 @@ async def test_row1_hold_H2e_transient_conjunct_load_bearing_sleep_target(monkey
 
 
 @pytest.mark.asyncio
-async def test_row1_hold_H2d_fused_empty_conjunct_load_bearing():
+async def test_row1_hold_H2d_fused_empty_conjunct_load_bearing(monkeypatch):
     """FIX-UP round 5 item 2 (HIGH H2d). Discriminator for the
     `_fused_empty and` conjunct at hvac.py:2091. Zone has a transient
     sibling AND a LIVE hvac_occupied room; zone currently `away`;
@@ -933,6 +933,15 @@ async def test_row1_hold_H2d_fused_empty_conjunct_load_bearing():
     empty) → preset=home writes. Mutation drops `_fused_empty and` →
     hold arms on a fused-OCCUPIED zone → home suppressed.
     """
+    # v5.103.20: pin an AWARE clock on BOTH `utcnow` and `now` — the
+    # evidence-rule back-fill derives `last_occupied_time` from the
+    # producer's `dt_util.now()`, and earlier files leak NAIVE frozen clocks.
+    _pinned = _pin_aware_clock(monkeypatch)
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac as _hvac_mod_pin, hvac_zones as _hz_mod_pin,
+    )
+    for _m in (_hvac_mod_pin, _hz_mod_pin):
+        monkeypatch.setattr(_m.dt_util, "now", lambda tz=None, _p=_pinned: _p)
     coord, hass = _make_coord()
     coord._house_state = "home_day"
     coord._energy_constraint_mode = "normal"
@@ -1158,7 +1167,7 @@ def expected_lingering_timers() -> bool:
 
 
 @pytest.mark.asyncio
-async def test_drain_call_site_in_async_setup_fires_nm(expected_lingering_timers):
+async def test_drain_call_site_in_async_setup_fires_nm(expected_lingering_timers, monkeypatch):
     """FIX-UP round 5 item 3 (N1) — wire-in for the SETUP-path drain at
     hvac.py:1262 (`await self._drain_hvac_degraded_room_events()`
     immediately after the initial `self._zone_manager.update_room_
@@ -1179,6 +1188,15 @@ async def test_drain_call_site_in_async_setup_fires_nm(expected_lingering_timers
     `await self._drain_hvac_degraded_room_events()` at hvac.py:1262 →
     drain spy count = 0 AND NM captures nothing → RED.
     """
+    # v5.103.20: pin an AWARE clock on BOTH `utcnow` and `now` — the
+    # evidence-rule back-fill derives `last_occupied_time` from the
+    # producer's `dt_util.now()`, and earlier files leak NAIVE frozen clocks.
+    _pinned = _pin_aware_clock(monkeypatch)
+    from custom_components.universal_room_automation.domain_coordinators import (
+        hvac as _hvac_mod_pin, hvac_zones as _hz_mod_pin,
+    )
+    for _m in (_hvac_mod_pin, _hz_mod_pin):
+        monkeypatch.setattr(_m.dt_util, "now", lambda tz=None, _p=_pinned: _p)
     _purge_shim_modules()
 
     # Extend runtime_harness StubBus to tolerate the `event_filter`
