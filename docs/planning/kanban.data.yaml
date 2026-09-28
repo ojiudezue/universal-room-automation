@@ -2150,6 +2150,27 @@ cards:
   sweep_2026_09_27: 'Board grep FAN_TRUST_STATES/night tail/night_start: only inside HVAC-ZONE-CONDITIONING-DEMAND-1 design notes (shipped v5.103.7/8). NEW.'
   next: 'BUILD (Tier 2) on operator go: (B) the HVAC tail selector (_effective_hvac_hold_seconds, hvac_zones.py) uses the night table only when house_state in {sleep, waking} instead of FAN_TRUST_STATES (home_night stays on day tails) — do NOT change FAN_TRUST_STATES itself (other consumers: fans, night-trust); (C) new optional per-room knob "night hold starts at" (HH:MM, room options climate step, blank = follow house sleep state); when set, the room uses its night tail from that local time until sleep_end_hour, regardless of house state. Tests: 21:30 home_night -> day tail; 22:30 sleep -> night tail; per-room 20:30 override -> night tail at 21:00 home_night; blank override -> house state.'
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-ENTRY-DWELL-ROOM-CLOCK-1]}
+- id: HVAC-W1C-GENERIC-THERMOSTAT-1
+  title: 'W1-C — make URA work with a non-Carrier thermostat: brand-owned override detection, timings and a setpoint-based hold for thermostats without home/away/sleep presets'
+  status: parked
+  thread: hvac
+  workstream: HVAC-W1-THERMOSTAT-DEFINITION
+  created: '2026-09-27'
+  updated: '2026-09-27 22:40'
+  origin: 'Operator 2026-09-27: "We need this to generalize URA. How and where is it configured? What remains?"'
+  why: 'Strategy dispatch exists (hvac_strategy.py: registry platform -> _KNOWN; ha_carrier -> CarrierStrategy, else GenericStrategy), but: (1) borrow starts/returns bypass the strategy (call emit_* directly; borrow/return_borrow not built); (2) Carrier-tuned timings live in shared code (arrester echo TTL 15 s / preset 120 s, 5-min tick = cloud call-rate bound); (3) URA models holds as named home/away/sleep presets — many thermostats (Nest: eco/none) need a setpoint-based hold; (4) human-override detection keys on preset_mode == manual (Carriers anonymous hold) in the S1 gates and arrester.'
+  revival_trigger: 'A second thermostat brand is available to test against, or the operator wants URA ready for other homes.'
+  next: 'PARKED — scope recorded; revive on the trigger.'
+- id: HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1
+  title: 'A manual house-state override (e.g. forcing Sleep) never reaches HVAC or other signal consumers — only inferred transitions are dispatched'
+  status: inbox
+  thread: presence
+  created: '2026-09-27'
+  updated: '2026-09-27 22:40'
+  origin: 'Found by the Tier-1 review of the night-holds-follow-sleep build (v5.103.19): set_house_state_override (presence.py:7591) -> house_state_machine.set_override (house_state.py:213) sets _override but sends no SIGNAL_HOUSE_STATE_CHANGED; the only sender is the accepted-inference path (presence.py:6778); HVAC updates _house_state only from that signal (hvac.py:3657) or the boot seed. Pre-existing; affects every signal consumer (HVAC presets, night holds).'
+  sweep_2026_09_27: 'Board grep house state override: one mention inside another card as an existing path the operator floated for manual away (line ~18336); no card owns this defect. NEW.'
+  next: 'ANSWER: should a manual house-state override propagate to HVAC and the other coordinators like an inferred change? YES -> Tier 2 fix (dispatch on override set/clear). NO -> document as intended.'
+  links: {related: [HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1]}
 - id: HVAC-W1-THERMOSTAT-DEFINITION
   build_review_2026_09_27: 'Built by ura-super-builder (e77dd686/2297eb8b/b444046d, tag pre-review-v5.103.18): 121 tests, 60 drills. 4 Tier-3 reviews all FIX-REQUIRED -> fix-up dispatched: gate (e) simplified to fresh row OR nudge/compromise timers + new gate (f) kill-switch-OFF respects manual (stale banking/precool leftovers were re-creating the lockout); save TAO before teardown (reload wiped it); false TAO-released NM; manual_class labels; startup audit must not revert a live borrow; 3 hollow-test gaps. OPERATOR RULINGS 2026-09-27: (D48) borrow STARTS win over person protection - "URA has more information and should win. URA understands energy saving strategies and Operators dont. They can redo if they want to pre-empt automation changes that are valid." (D49) vacancy bypass keeps todays behaviour (does not wait for arrester grace/compromise or arrester off). Orchestrator: immune person wins over a live compromise (develop behaviour kept).'
   rev5_2026_09_27: 'REV 5 committed 3ed9afda1: S1 manual guard replaced (Alt A, 4 gates: person-protected / arrester grace-compromise / arrester disabled=passive / live borrow row via _row_present_and_fresh). BORROW_LOCK collapsed into gate (e) (verified no window where nudge/compromise timers live without a fresh row). Provenance, reclaim delay, kill switch DROPPED; problem 4 closed-by-A. Operator constraint: nothing added to borrow code or emit_* funnels. Guard marked SUPERSEDED in state-of-play §9e + §10 C25 and bannered in 15 docs. NEXT: two Tier-3 plan reviews (completeness + build-prediction), reviewers read corrected state-of-play first, then build.'
