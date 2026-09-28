@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-28T02:09:22-05:00_ - _Data commit: `220fba520c09`_ - _last_reconciled: 2026-09-27_
+_Generated: 2026-09-28T02:10:12-05:00_ - _Data commit: `15144767e9e4`_ - _last_reconciled: 2026-09-27_
 
 
 ## Columns
@@ -626,7 +626,7 @@ _created 2026-09-27 02:40 · initial_
 
 ### `TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1` - About ten test files still edit real production code in place while the suite runs, so a killed run or a concurrent git operation can leave the repo silently broken — _#2 · WSJF 3.7 · v5 tc4 u2 /e3_
 thread: **platform** - status: **in_progress** - approval: **implied**
-_created 2026-09-26 02:14 · updated 2026-09-27 02:40 · initial_
+_created 2026-09-26 02:14 · updated 2026-09-28 04:50 · initial_
 - **Problem / Solution:**
   - Problem: some of our "prove the test would catch a bug" checks work by temporarily editing the real production file on disk, running a test, then putting the file back. If the run is killed mid-way (our suite guard kills runs), or if any...
 - **Origin:** 2026-09-26 - overnight pass observed `return 0.0
@@ -635,29 +635,34 @@ _created 2026-09-26 02:14 · updated 2026-09-27 02:40 · initial_
 - **Tags:** tier-1, unrestored-drill, test-strategy, found-during-validation
 - **Parsimony:** [BUILD] About ten tests write production source in place, and a SIGKILL or concurrent tree operation mid-run leaves it mutated. Observed live 2026-09-26.
 - **Refs:** quality/tests/test_evse_drain_precedence_session_b2c1_fixup.py:788-809; quality/tests/test_owner_registry_mutation_matrix.py; feedback_unrestored_mutation_drill_poisons_evidence
-- **Forensic keys (3):**
+- **Forensic keys (5):**
+  - `review_2026_09_28`: REVIEW C (test authority): FIX-REQUIRED, test-code only; the port weakened nothing vs develop. Verified: 4 drills made harmless all failed loudly; a marker write proved the sandbox runs the MUTATED copy; md5 is asserted on the real path;...
+  - `build_2026_09_28`: BUILT (ura-builder, worktree overnight-0928-mutsandbox, branch feature/test-mutation-sandbox-0928 @ 050e655fc, pushed). New shared helper quality/tests/_mutation_sandbox.py mirrors the v5.100.9 reference: it copies custom_components/ + q...
   - `gate_2026_09_27`: FOUR-STEP GATE (overnight 2026-09-27). (1) VALIDITY: still real. Re-grep of quality/tests files that write_text AND reference custom_components: in-place writers with 0-1 tmp refs are still test_ble_extend_not_create, test_chatter_wire_i...
   - `observed_2026_09_26`: LIVE INSTANCE, not theoretical. At about 02:04 CDT, during the overnight full-suite run in the shared main checkout, `git status` showed custom_components/universal_room_automation/domain_coordinators/energy.py modified with `return 0.0 ...
   - `scope_measured_2026_09_26`: grep for write_text plus custom_components across quality/tests: 14 files. Counting those with zero or one tmp-path reference as in-place writers gives about 9-10: test_ble_extend_not_create, test_dp_yields_to_excess_solar, test_energy_w...
 
-### `TEST-BILLING-RESTORE-WALLCLOCK-FLAKE-1` - test_energy_restart_resilience::TestBillingRestoreDaily fails after ~19:00 CDT on pristine develop (wall-clock coupled) and pollutes every name-diff as 2 NEW — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1` - Pre-cool / pre-heat restore fallback computes heat as cooling minus 7 and ignores the configured Heat Low — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **in_progress**
+_created 2026-09-27 · updated 2026-09-28 04:35_
+- **Why:** Same latent bug as the CPR write site: heat = cool - 7 instead of the configured Heat Low; with winter away 80/65 it would heat an empty zone to 73 F. Site: the banking/pre-heat restore fallback in hvac_predict.py (grep the minus-7 deriv...
+- **Next:** BUILD (Tier 1): use the configured Heat Low at the restore fallback; test with winter away 80/65 -> heat 65.
+- **Forensic keys (4):**
+  - `review_2026_09_28`: Review A (consumers; read the state-of-play doc in full first): SHIP, 0 CRIT/HIGH/MED. It maps every consumer. The fix REMOVES a false +15 F arrester delta on a summer-away raw release (the arrester compares against the configured heat, ...
+  - `build_2026_09_28`: BUILT (ura-builder, feature/hvac-precool-restore-heat-low @ e478e0368, pushed). One site: HVACPredictor._resolve_baseline_range fallback (hvac_predict.py ~929) now returns (configured heat from PresetManager.get_seasonal_setpoints, hvac_...
+  - `gate_2026_09_28`: GATE (overnight 2026-09-28): (1) VALIDITY still real: hvac_predict.py:918 still returns (baseline_cool - 7.0, baseline_cool). The sibling hvac.py:3541 baseline_low = baseline_cool - 7.0 also exists, and the builder is to establish from t...
+  - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
+
+### `TEST-BILLING-RESTORE-WALLCLOCK-FLAKE-1` - test_energy_restart_resilience::TestBillingRestoreDaily fails after ~19:00 CDT on pristine develop (wall-clock coupled) and pollutes every name-diff as 2 NEW — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **quality** - status: **in_progress**
-_created 2026-09-27 · updated 2026-09-28 03:05_
+_created 2026-09-27 · updated 2026-09-28 04:50_
 - **Why:** Wall-clock-coupled tests (a named bad family) make every evening suite gate report false NEW entries, costing a verification round each time.
 - **Next:** Tier 1: pin the test clock (aware, fixed date) in TestBillingRestoreDaily; likely a local-vs-UTC date boundary (00:00 UTC = 19:00 CDT). Verify by running at a pinned 23:30 local.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `correction_2026_09_28`: CARD-WAS-WRONG (my gate_2026_09_28 detail): I wrote that the files stub wins when it runs alone, and that the failure therefore depends on collection order. Review C refuted that. The real homeassistant.util.dt (DEFAULT_TIME_ZONE = UTC) ...
   - `build_2026_09_28`: BUILT (ura-builder, worktree .claude/worktrees/overnight-0928-billing, branch feature/test-billing-wallclock @ 259cda40b, pushed). Test-only: the 3 TestBillingRestoreDaily sites now use _energy_billing.dt_util.now() (the module-under-tes...
   - `gate_2026_09_28`: ROOT CAUSE READ (overnight 2026-09-28). The production CostTracker.restore_daily (energy_billing.py:355) takes "today" from dt_util.now(). The test builds the snapshot date from naive datetime.now() (local), at test_energy_restart_resili...
   - `sweep_2026_09_27`: Board grep: only mentioned inside HVAC-ZONE-CONDITIONING-DEMAND-1 as a resolved NEW; no owning card. NEW.
-
-### `HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1` - Pre-cool / pre-heat restore fallback computes heat as cooling minus 7 and ignores the configured Heat Low — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **in_progress**
-_created 2026-09-27 · updated 2026-09-28 03:40_
-- **Why:** Same latent bug as the CPR write site: heat = cool - 7 instead of the configured Heat Low; with winter away 80/65 it would heat an empty zone to 73 F. Site: the banking/pre-heat restore fallback in hvac_predict.py (grep the minus-7 deriv...
-- **Next:** BUILD (Tier 1): use the configured Heat Low at the restore fallback; test with winter away 80/65 -> heat 65.
-- **Forensic keys (2):**
-  - `gate_2026_09_28`: GATE (overnight 2026-09-28): (1) VALIDITY still real: hvac_predict.py:918 still returns (baseline_cool - 7.0, baseline_cool). The sibling hvac.py:3541 baseline_low = baseline_cool - 7.0 also exists, and the builder is to establish from t...
-  - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
 
 ## 🔍 Review (0)
 _under review_
