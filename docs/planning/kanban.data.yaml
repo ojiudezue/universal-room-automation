@@ -21350,7 +21350,21 @@ cards:
       but is not the fix.
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL adjacent-independent Tier 1 audit. Promoted inbox -> pre_planning.'
+- id: GUEST-ROOM-FAN-HOLD-1
+  title: A guest's bedroom fan turns off ~5 min after the room reads empty at night, while residents' bedroom fans stay on all night
+  status: parked
+  thread: hvac
+  workstream: HVAC-W2-OCCUPANCY-TRUTH
+  created: '2026-09-27'
+  updated: '2026-09-27 22:15'
+  origin: 'Found by the guest-as-zone-person plan (PLANNING_hvac_guest_as_zone_person.md) after its STEP 0 refuted the parent card HVAC-GUEST-AS-ZONE-PERSON-1.'
+  sweep_2026_09_27: 'Board grep guest fan/fan hold guest: none. NEW.'
+  why: 'Residents bedroom fans hold on all night while a zone person is home; a guest room fan follows room occupancy only. Full spec (guard, 30-min arm on per-room is_guest flag, post-sleep recheck, discharge contract, label strings, staged live test via Override Vacant) is in the plan. Open question: Guest Bedroom 1 options turn HVAC fan coordination off but the HVAC fan controller still manages its fan — two drivers?'
+  revival_trigger: 'Run the plans read-only D0 probe; build (Tier 2-DB + plan review) only if a guest night with the fan turning off under a sleeping guest is observed, or the operator asks.'
+  next: 'PARKED — revive on the trigger.'
+  links: {related: [HVAC-GUEST-AS-ZONE-PERSON-1]}
 - id: HVAC-GUEST-AS-ZONE-PERSON-1
+  refuted_2026_09_27: 'STEP 0 (docs/planning/PLANNING_hvac_guest_as_zone_person.md) CONFIRMED the operator claim and REFUTED the card premise: occupancy, not zone_persons, decides the night thermostat retreat for every zone since round 4 (2026-09-17). Night-trust (hvac.py:2780-2797) only intercepts the stale-sensor and energy-shed force-aways and is skipped in house Sleep; the sleep veto/person bias (aggregation.py:4339-4341/4474-4476) feed only binary_sensor.zone_*_anyone (no in-integration reader). A guest in Guest Bedroom 1 already gets resident-equivalent thermostat protection. Guest person in night-trust REJECTED (a stuck sensor would disarm the net meant to catch it). Residual settings-only option offered to operator: Guest Bedroom 1 night hold 5400 s (as Jaya). Fertile residual -> new card GUEST-ROOM-FAN-HOLD-1.'
   workstream: HVAC-W2-OCCUPANCY-TRUTH
   seq_2026_09_15: 'STEP 5 (conditional) of HVAC-SUPPLE-SEQUENCE-1. NOT a prerequisite for measuring spurious-away — that was my error; this derives a person FROM room occupancy and so cannot witness its own input. Build only if the step-5 re-measure still justifies it.'
   operator_priority_2026_09_25: 'Operator 2026-09-25: "these all seem high value". value raised to 8.'
@@ -21358,7 +21372,7 @@ cards:
     assigned residents loses three protections entirely
   rank: {value: 8, time_criticality: 5, effort: 5}
   thread: hvac
-  status: pre_planning
+  status: done
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py:2086 night away-suppression iterates zone.zone_persons only (0 guest_person hits). Do the card''s own sleep-veto verification first.'
   OPERATOR_DESIGN_INPUT_OCCUPANCY_GATE_2026_08_20: 'OPERATOR, on how to stop the synthetic guest from
     pinning the zone: "We have to gate the person on occupancy for this fix. Guest mode flips on if a
@@ -21440,9 +21454,7 @@ cards:
     verdict: SIMPLIFY
     note: operator explicitly deferred this behind the calming work; build the simple calming first and
       re-measure before deciding this is still needed
-  next: 'DEFERRED behind HVAC-PRESET-FLAP-1 calming per operator. When picked up: verify the per-room
-    is_guest flag name and its existing consumers (institutional-context grep) BEFORE proposing anything;
-    then design the liveness/decay contract explicitly.'
+  next: 'DONE (refuted-but-fertile). See GUEST-ROOM-FAN-HOLD-1.'
   refs:
   - hvac.py:1788-1795
   - aggregation.py:4017-4019, 4152-4154
