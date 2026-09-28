@@ -1,23 +1,28 @@
-# PLANNING: HVAC fast occupancy response (own release clock + event-driven entry and exit)
+# PLANNING: HVAC fast occupancy response (own release clock + event-driven entry and exit) — REV 2
 
 **Cards:** `HVAC-OCCUPANCY-HOLD-CHAINED-AFTER-LIGHT-TIMEOUT-1` (revived) + the parked W2 fast path
 (`HVAC-W2-OCCUPANCY-TRUTH`, plan `PLANNING_hvac_w2_occupancy_fast_path.md` REV 4). Workstream `HVAC-W2-OCCUPANCY-TRUTH`.
-**Status:** plan, not reviewed. Tier 3 (see section 11). Two plan reviews are required before any build dispatch.
-**Base:** `develop` @ `b2868c0d1` (v5.103.18, W1-B shipped). Build waits for the night-tail B build (section 12).
+**Status:** REV 2. REV 1 went through two Tier-3 plan reviews (R1 completeness, R2 build-prediction); both returned
+FIX-PLAN. REV 2 folds every finding; each change is tagged `[REV 2 #n]` (n = the coordinator's finding number).
+The change log is in section 18. A REV 2 re-review is still required before build.
+**Base:** `develop` after v5.103.19 (night-tail B merged and shipped). `hvac_zones.py` lines refreshed (+1 to +3);
+`hvac.py` lines unchanged (re-verified).
 
 **Operator decision (2026-09-27 ~22:00, verbatim):**
 - "We wanted faster responses. This is nuts."
 - On the still-person risk: "fast path catches it. The room type hold blunts it. Do it"
 
-**Design premise (operator):**
-1. A per-room-type hold blunts radar misses of still people.
+**Design premise (operator), with its limit stated plainly [REV 2 #2]:**
+1. A per-room-type hold blunts radar misses of still people. **This is the ONLY protection for a person who stays
+   still.** A still person produces no new evidence, so the fast path cannot "catch" them. It can only react once
+   they move again.
 2. An event-driven fast path re-arms a room the moment it is re-detected, so a wrongly released room recovers in
    seconds instead of waiting for the next 5-minute tick.
 
 | Deliverable | What | Code? |
 |---|---|---|
-| D0 | Baselines and residual re-probe (read-only) | probe only |
-| D1 | HVAC's own release clock (day), per-type holds, night unchanged | yes |
+| D0 | Baselines, residual re-probe, home_night gate probe (read-only) | probe only |
+| D1 | HVAC's own release clock in measured day states; today's machine kept as a shadow; night unchanged | yes |
 | D2 | Event-driven zone decision on entry AND exit | yes |
 | D3 | Vacancy grace re-check (measure, knob only) | no |
 | D4 | Operator config step: clear Jaya Bedroom's day hold override | config |
@@ -27,744 +32,739 @@
 ## 0. Institutional context verified
 
 ### 0.1 Mandatory read
-- **`docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` read completely (lines 1-470).** W1-B is SHIPPED
-  (v5.103.18, §9e, four gates at the S1 site). Relevant to this plan: §2 (triggers; no occupancy trigger), §3.1-§3.3
-  (producer, rollup, retreat gate, dwell, grace), §9c (override switches ride the hold), §9d (fast-path scope),
-  §9.4 (placeholder readers), §9.7 (zone_1 away re-issue loop), §10.
-- **C18:** entry latency 5-10 min came from the dwell skip; with dwell 0 (live) entry = wait for the next tick.
-- **C24:** today HVAC occupancy is NOT a faster clock. It arms on the lighting rising edge and holds through the
-  lighting timeout plus the tail. This plan builds that faster clock; it does not claim it exists.
-- **§10 check.** This plan re-asserts none of C1-C25. In particular: no 1-minute tick (C8); suppression windows are
-  15 s temp / 120 s preset (C17, C23); the S1 manual guard is superseded by the §9e four gates (C25).
-- **State-of-play drift found (fix in the build commit, not a §10 entry):** §3.2 says knob 48 = 10 live and §8 says
-  dwell = 2. Live `.storage/core.config_entries` (read 2026-09-27): `hvac_vacancy_grace_minutes: 5`,
-  `hvac_vacancy_grace_constrained: 5.0`, `hvac_zone_entry_dwell: 0`.
+- **`docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` re-read for REV 2 [REV 2 preamble].** Header now records
+  v5.103.19: D8 night tail-holds follow `HVAC_NIGHT_HOLD_STATES` (`sleep`, `waking`; `hvac_const.py:934`);
+  `home_night` uses the DAY table; `FAN_TRUST_STATES` unchanged (§3.1, §3.3). W1-B is SHIPPED (v5.103.18, §9e four
+  gates). Relevant: §2 (triggers; no occupancy trigger), §3.1-§3.3, §9c (override switches ride the hold), §9d,
+  §9.4 (placeholder readers), §9.7 (zone_1 away re-issue loop), §10 C1-C25.
+- **C18:** with dwell 0 (live), entry = wait for the next tick. **C24:** HVAC occupancy today is NOT a faster clock.
+  This plan builds that clock; it does not claim it exists.
+- **§10 check.** No C1-C25 claim is re-asserted (no 1-minute tick C8; suppression 15 s temp / 120 s preset C17/C23;
+  S1 manual guard superseded by §9e C25).
+- **State-of-play drift still open (fix in the build commit):** §3.2 says knob 48 = 10 live and §8 says dwell = 2.
+  Live `.storage/core.config_entries` (2026-09-27): `hvac_vacancy_grace_minutes: 5`,
+  `hvac_vacancy_grace_constrained: 5.0`, `hvac_zone_entry_dwell: 0`. §3.1 still cites pre-B line numbers
+  (`_effective_hvac_hold_seconds` is now `hvac_zones.py:977`).
 
 ### 0.2 Other docs and cards read
 | Source | Use |
 |---|---|
-| Card `HVAC-OCCUPANCY-HOLD-CHAINED-AFTER-LIGHT-TIMEOUT-1` incl. `disposition_2026_09_26_groom` + `revived_2026_09_27` | Measured disposition: "execution is the safer design"; safe per-type tails; `_last_motion_time` misses camera/BLE. Revived by operator; Kitchen timeout stopgap 600 -> 300 s (verified live: Kitchen options `occupancy_timeout: 300.0`). |
-| `docs/planning/AUDIT_hvac_raw_evidence_gaps_2026_09_26.md` | Per-type safe hold table (closet 60, generic 120, bath 180, bedroom 240, common 300; utility 120; media keep 120), MID/LATE zone-retreat counts, the `T + G` coupling, the implementation note on `coordinator.py:3589/3680/3867`. |
-| `docs/planning/PLANNING_hvac_w2_occupancy_fast_path.md` REV 4 (PARKED) | Design reused (zone-cold gate, per-zone limiter, SLA, ceiling, teardown discipline, single lifecycle subscription, trigger label on the ledger row). Section 13 dispositions every F1-F15 finding. |
-| Card `HVAC-W2-OCCUPANCY-TRUTH` `disposition_2026_09_26_groom` | The REV 4 second plan review failed with 4 HIGH: "a whole-house cycle triggered off-schedule keeps leaking into other zones: wrong-zone reruns, heat_cool/egress/fan/cover writes, sibling-zone wake-ups". The full review text is not on disk (grep of `docs/reviews/` and the repo found only the card summary). Section 13 answers each named leak. |
-| `docs/planning/AUDIT_hvac_fast_path_rate_2026_09_26.md` | 16.6 zone-cold edges/day; cycle-duration proxy p95 27.6 s; per-zone L=60 denies 0/114 zone-cold edges. |
-| `docs/planning/PLANNING_hvac_night_tail_follows_sleep.md` (building in parallel) | B adds `HVAC_NIGHT_HOLD_STATES = ("sleep", "waking")` and switches the selector at `hvac_zones.py:1046`. This plan uses that constant for "night" and builds after B (section 12). |
+| Card `HVAC-OCCUPANCY-HOLD-CHAINED-AFTER-LIGHT-TIMEOUT-1` (groom disposition + `revived_2026_09_27`) | Measured disposition; per-type safe tails; `_last_motion_time` misses camera/BLE; Kitchen timeout stopgap 600 -> 300 s (verified live). |
+| `docs/planning/AUDIT_hvac_raw_evidence_gaps_2026_09_26.md` | Per-type table; MID/LATE counts; T + G coupling. **Its "day" bucket is `home_day` + `home_evening` only (82.4 h). `away`, `arriving` and `guest` were excluded (§8.6). Its night bucket lumps `home_night` with `sleep`/`waking` (§3 footnote), so `home_night` alone was never measured** [REV 2 #2]. |
+| `docs/planning/PLANNING_hvac_w2_occupancy_fast_path.md` REV 4 (PARKED) + card `HVAC-W2-OCCUPANCY-TRUTH` | Design reused; section 13 dispositions F1-F15 and the four REV 4 re-review HIGHs (summary only on the card; full text not on disk). |
+| `docs/planning/AUDIT_hvac_fast_path_rate_2026_09_26.md` | 16.6 zone-cold edges/day; cycle proxy p95 27.6 s; L=60 denies 0/114. |
+| `docs/planning/PLANNING_hvac_night_tail_follows_sleep.md` (B shipped v5.103.19) | `HVAC_NIGHT_HOLD_STATES` reused. The "wait for B" gate is dropped [REV 2 preamble]. |
 | Card `HVAC-ENTRY-DWELL-ROOM-CLOCK-1` (Stage B) | Supersession verdict in section 12. |
-| Cards `HVAC-FAST-PATH-FAN-WARM-EDGES-1`, `HVAC-HOLD-SIZING-ALL-ROOMS-1`, `HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1`, `HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1`, `HVAC-WRITE-CONFIRMATION-ORACLE-1` | Adjacency (section 12). |
-| vibememo entry 153 (dwell 0, grace 5, fast path parked) | Why the fast path was parked; this plan revives it on the operator's new decision. |
+| Cards `HVAC-FAST-PATH-FAN-WARM-EDGES-1`, `HVAC-HOLD-SIZING-ALL-ROOMS-1`, `HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1`, `HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1`, `HVAC-WRITE-CONFIRMATION-ORACLE-1` | Section 12 (fan card: explicit decision) [REV 2 #11]. |
+| vibememo entry 153 | Why the fast path was parked. |
 
-### 0.3 Code surveyed (develop @ b2868c0d1)
-- `coordinator.py`: `_async_update_data` occupancy block `:3538-3643` (`_last_motion_time = now` only when a Tier-1
-  sensor is active, `:3589`); camera override `:3663-3697` (seeds `_last_motion_time` only if unset, `:3679-3680`);
-  BLE chain-hold override `:3699-3908` (seed only if unset `:3866-3867`; cap `:3810-3847`); override switches
-  `:4790-4811`; skip-first `:4825-4851`; poll 30 s + 0-5 s jitter `:625-631`; event refresh rate-limited to 2 s with
-  trailing edge `:1395-1411`, `:1616-1630`; entry debounce default 150 ms (`const.py:1154`); accessor pattern
-  `get_became_occupied_time` `:5384-5395`.
-- `domain_coordinators/hvac_zones.py`: `RoomCondition` `:61-84`; `ZoneState` fused property `:177-188`;
-  `update_room_conditions` `:566-788` (coordinator-absent set `:686`, hallway exclusion `:724-735`, rollup writes
-  `:771-788`); `_effective_hvac_hold_seconds` `:976-1046` (numeric night>=day clamp `:1028-1044`, selector `:1046`);
-  `_compute_hvac_occupied` `:1048-1123`; `conditioning_retreat_ok` `:1522`; `hvac_occupied_diag` `:1585`.
-- `domain_coordinators/hvac.py`: subscriptions `:1145-1230`; periodic timer `:1374-1382`; `_async_decision_cycle`
-  `:1583-1617` (re-entrancy skip `:1611-1615`); `_track_task` `:1644`; `_run_decision_cycle` `:1873-2076`;
-  `_apply_house_state_presets` `:2132-3320` (consensus defer gate `:2156-2197`, heat_cool enforcer over ALL zones
-  `:2227-2256`, arriving return `:2261`, per-zone loop `:2282`, row-1 `:2339-2426`, D6 `:2437-2539`, D5 `:2568-2733`,
-  dwell skip `:2738-2748`, D7 `:2780-2852`, row-1 transient hold `:2860-2911`, W1-B gates `:2918-2996`, S1 write +
-  `preset_change` row `:3125-3271`, DPM overrides `:3319-3320`); `_handle_person_arriving` `:4567-4622`;
-  `_compute_zone_presence_states` `:4775-4820`; `get_mode_attrs` `:5411`; `async_teardown` `:5555-5610`.
-- `domain_coordinators/hvac_predict.py:583` (F8 pre-cool), `:1420` (F9 pre-heat); `hvac_override.py:2513-2560`
-  (row-10 comfort delay); `hvac_fans.py:761`, `:997` (fans read LIGHTING `.occupied`); `presence.py:2147-2159`
-  (D6 source 4 reads LIGHTING `.occupied`); `binary_sensor.py:745-920` (per-room HVAC Occupied display).
-- HA `helpers/update_coordinator.py` (installed in `.venv-ha`): `async_add_listener` `:170-182` returns a remove
-  callable; listeners are called after every successful refresh when `always_update` is True (default True, `:84`;
-  `:528-533`). Room coordinators do not override `always_update` (`coordinator.py:626-631`).
-- Live config (`/Users/okosisi/ha-config/.storage/core.config_entries`, 2026-09-27): only Jaya Bedroom has a day
-  override (`hvac_vacancy_hold: 60.0`, night `5400.0`); 9 common rooms have night `90.0`; timeouts: most 300 s,
-  Breakfast Nook 480, Ziri/Jaya Bedroom and Kitchen Pantry 500, Game Room, Study A and Ziri Bathroom 540, Oji Vanity
-  600, Master Bathroom, Jaya Bathroom and Exercise Room 900. `switch.kitchen_override_vacant` restores `off`
-  (`core.restore_state`), so the Kitchen does feed HVAC (answers the card's open question).
+### 0.3 Code surveyed (develop, post v5.103.19)
+- `coordinator.py`: occupancy block `:3538-3643` (`_last_motion_time = now` only on Tier-1 activity `:3589`); camera
+  override `:3663-3697` (seeds only if unset `:3679-3680`); BLE chain-hold `:3699-3908` (seed only if unset
+  `:3866-3867`; cap `:3810-3847`); mmWave fan demotion source `OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED` `:4113`; failsafe
+  source `"failsafe"` `:4361`, `_failsafe_fired = True` `:4369`; override switches `:4790-4811`; skip-first
+  `:4825-4851`; `apply_fan_recheck_release` `:5249-5280` (sets `OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE` outside a
+  refresh); poll 30 s + 0-5 s jitter `:625-631`; event refresh within 2 s `:1395-1411`, `:1616-1630`; accessor
+  pattern `get_became_occupied_time` `:5384`.
+- `domain_coordinators/hvac_zones.py` (post-B): `update_room_conditions` `:566`; entry loop `:611-647`;
+  `_classify_all_rooms` call `:665`; zone loop `:666`, `room_conditions.clear()` `:667`; coordinator-absent add `:687`;
+  `room_occupied` `:718`; hallway exclusion `:725-736`; rollup writes `:772-789`; `get_zone_status_attrs` `:791`;
+  `_effective_hvac_hold_seconds` `:977-1049` (import `HVAC_NIGHT_HOLD_STATES` `:1005`, clamp `:1031-1047`, selector
+  `:1049`); `_compute_hvac_occupied` `:1051-1126`; `conditioning_retreat_ok` `:1525`; `hvac_occupied_diag` `:1588`.
+- `domain_coordinators/hvac.py` (unchanged by B): `_zones_written_this_cycle` init `:455`, reset `:1879`, add `:3194`,
+  read by the arrester `hvac_override.py:4713`; `_async_decision_cycle` `:1583-1617`; `_track_task` `:1644`;
+  `_run_decision_cycle` `:1873-2076`; `_apply_house_state_presets` `:2132-3320` (consensus gate `:2156-2197`,
+  heat_cool enforcer `:2227-2256`, arriving `:2261`, zone loop `:2282`, row-1 + vacancy sweep `:2339-2426`, D6
+  `:2437-2539`, D5 `:2568-2733`, dwell `:2738-2748`, D7 `:2780-2852`, transient hold `:2860-2911`, W1-B gates
+  `:2918-2996`, S1 write `:3125-3271`, DPM `:3319-3320`); `_handle_energy_constraint` `:3843`;
+  `_handle_zm_zones_updated` `:3908` (zone pops `:3987`, `:4010`); `_execute_vacancy_sweep` `:4266`;
+  `_handle_person_arriving` `:4567`; `_expire_pre_arrival_zones` `:4624-4654`; `_compute_zone_presence_states`
+  `:4775`; `get_mode_attrs` `:5411`; `async_teardown` `:5555`.
+- `hvac_strategy.py`: per-platform cached strategy `strategy_for` `:254-266` (registry miss -> uncached generic);
+  `last_sent` `:142`; `hold_preset` no-op needs `last_sent == preset` AND observed preset == preset `:187-197`, and a
+  divergent observation clears `last_sent` `:195-197`.
+- `hvac_override.py:174` `SUPPRESS_TTL_SECONDS_PRESET = 120`.
+- `sensor.py:13684-13745` `HVACZoneIntelligenceSensor` (`sensor.ura_hvac_coordinator_zone_intelligence`) reads
+  `zone_presence_state` [REV 2 #11].
+- HA `helpers/update_coordinator.py` (`.venv-ha`): `async_add_listener` `:170-182`; listeners called after every
+  successful refresh when `always_update` (default True `:84`; `:528-533`).
+- Live config: only Jaya Bedroom has a day override (60, night 5400); 9 common rooms night 90; timeouts 300 s for
+  most rooms, up to 900 s (Master Bathroom, Jaya Bathroom, Exercise Room); `switch.kitchen_override_vacant` restores
+  `off`.
+- Tests read for REV 2: `test_hvac_night_hold_follows_sleep.py` (whole file), `test_hvac_vacancy_hold_ui_defaults.py:140-171`.
 
 ### 0.4 Config-first check
 | Candidate setting | Solves it? | Why |
 |---|---|---|
-| Room `occupancy_timeout` (lower it per room) | Partly; already used as the Kitchen stopgap (600 -> 300) | Shortens lighting too; today's release is still timeout + tail + two tick quantizations; does nothing for entry or re-arm latency. |
-| Per-room `hvac_vacancy_hold` / `_night` | No | Today the hold only starts after the lighting timeout, so no hold value can release sooner than the timeout. |
-| Knob 48 vacancy grace (live 5) | No | Already lowered; the audit shows lowering it further re-introduces MID risk (section 7). |
-| `number.ura_hvac_coordinator_zone_entry_dwell` (live 0) | Already 0 | The remaining entry wait is the 5-minute tick itself. |
-| `HVAC_DECISION_TICK` shorter | Rejected | Rung-1 Carrier call-rate bound (`hvac_const.py:13`); runs the whole house, the exact leak the REV 4 review failed. |
-| Jaya Bedroom day override 60 | **Must change (D4)** | Under the new clock 60 s means 60 s after the last evidence, not after a 500 s timeout. Audit: Jaya Bedroom MID ZR at T=60 is 2 per 6.74 days; at the bedroom default 240 it is 0. |
-
-**Verdict:** a code change is required for D1 and D2; D4 is a config step; D3 is a knob decision after measurement.
+| Room `occupancy_timeout` | Partly (used as the Kitchen stopgap) | Shortens lighting too; release still waits for two tick quantizations; no effect on entry or re-arm |
+| Per-room `hvac_vacancy_hold` / `_night` | No | Today the hold starts only after the lighting timeout |
+| Knob 48 grace (live 5) | No | Lowering further re-introduces MID risk (section 7) |
+| Dwell (live 0) | Already 0 | Remaining entry wait is the tick itself |
+| Shorter `HVAC_DECISION_TICK` | Rejected | Rung-1 Carrier call-rate bound; whole-house cycle = the REV 4 leak |
+| Jaya Bedroom day override 60 | **Must change (D4)** | Under the new clock 60 s counts from the last evidence; audit Jaya Bedroom MID ZR at 60 = 2 / 6.74 d, at 240 = 0 |
 
 ### 0.5 Prior-art scan: REUSE or BUILD per piece
 | Piece | Verdict | Existing symbol / justification |
 |---|---|---|
-| Per-type day hold table | **REUSE, change values** | `ROOM_TYPE_HVAC_HOLD` `const.py:1219-1224` (rung 1). |
-| Night hold table and per-room overrides | **REUSE unchanged** | `ROOM_TYPE_HVAC_HOLD_NIGHT` `const.py:1230-1241`; `CONF_HVAC_VACANCY_HOLD[_NIGHT]` `const.py:1252-1253`; resolver `hvac_zones.py:976`. |
-| Night-state tuple | **REUSE (from night-tail B)** | `HVAC_NIGHT_HOLD_STATES` added by `PLANNING_hvac_night_tail_follows_sleep.md` B. Not `FAN_TRUST_STATES`. |
-| "Last raw evidence" timestamp | **BUILD (one field + accessor)** | Searched `coordinator.py` for `_last_motion_time`, `_last_trigger_time`, `_last_occupied_time`, `_ble_only_hold_since`, `_became_occupied_time`, `_last_pir_motion_time`. None is correct: `_last_motion_time` (`:3589`) misses camera/BLE (only seeded when unset, `:3680`, `:3867`); `_last_trigger_time` (`:3270-3289`) stamps only on rising edges; `_last_occupied_time` (`:3613`, `:3625`) includes the lighting timeout and is not refreshed under BLE hold. New `_last_hvac_evidence_time` + `get_last_hvac_evidence_time()` following the `get_became_occupied_time` accessor pattern (`:5384`). |
-| Camera evidence read | **REUSE by extraction** | The loop at `coordinator.py:3667-3697` becomes helper `_camera_person_sensor_on() -> str | None`, called by the existing override and by the evidence stamp. No behaviour change to the override. |
-| BLE evidence read | **REUSE by extraction** | The cap test at `coordinator.py:3811-3837` becomes a pure `_ble_cap_exceeded(now) -> bool`; the NM side effect stays in the block. |
-| Room-change event source | **REUSE HA API** | `DataUpdateCoordinator.async_add_listener` on each room coordinator (HA `update_coordinator.py:170`). Prior-art usage pattern: `aggregation.py:1990` (`person_coordinator.async_add_listener`). No new dispatcher signal. REV 4's `binary_sensor.{entry_id}_occupied` trigger is REJECTED: it cannot see a re-arm while the lighting value is still `on`, which is the operator's premise case. |
-| Listener lifecycle | **REUSE** | ONE `SIGNAL_ROOM_ENTRY_LIFECYCLE` subscription (`signals.py:199`; fired at `__init__.py:5081` loaded, `:5590` unloaded, `:7869` options_updated). Pattern: `presence.py:2624-2651`. |
-| Zone-scoped decision | **REUSE + parameterise** | `_apply_house_state_presets` gains `zone_filter` and `trigger` keywords; `update_room_conditions` gains `zone_ids`. No copy of the S1 body. |
-| Decision lock | **REUSE** | `_decision_cycle_lock` (`hvac.py:579`). |
-| Task tracking | **REUSE** | `_track_task` (`hvac.py:1644`), `_pending_tasks` cancelled in teardown (`:5565`). |
-| Exit timer | **BUILD (per-zone dict of one-shot timers)** | Pattern REUSE: `async_call_later` as used for the boot-settle kick. Nothing today schedules a decision at a computed instant. |
-| Ledger surface | **REUSE** | `preset_change` row details (`hvac.py:3232-3269`) gain `trigger`, `edge_ts`, `zone_empty_since`. No new table, no new writer. |
-| Counters / gauges | **REUSE entity** | `sensor.ura_hvac_coordinator_mode` attrs via `get_mode_attrs` (`hvac.py:5411`, `sensor.py:12082-12121`). REV 4 named `sensor.ura_hvac_coordinator_status`; that entity does not exist (grep of `sensor.py`). Per-zone attrs on the existing zone status sensor via `get_zone_status_attrs` (`hvac_zones.py:790`). |
-| Per-room diagnostics | **REUSE entity** | `binary_sensor.<room>_<room>_hvac_occupied` attrs (`binary_sensor.py:826-920`), extended via `hvac_occupied_diag`. |
-| Kill switch | **BUILD (one switch)** | Pattern REUSE: `HVACPreArrivalSwitch` (`switch.py:4229`, `SwitchEntity, RestoreEntity`, numbered name). No existing switch gates occupancy-triggered decisions (grep of `switch.py`). |
-| Trip-wire notifications | **REUSE** | The NM path used by `_note_s1_reclaim` (`hvac.py:1653`) and `fire_stuck_signal` (`hvac.py:2513`). |
-| Baseline probes | **REUSE** | `scripts/probes/hvac_fast_path_d0_probe.py` (room/zone/entity resolution), `hvac_raw_evidence_gap_probe.py`, `hvac_vacancy_grace_probe.py`. |
+| Evidence-rule hold table | **REUSE, change values** | `ROOM_TYPE_HVAC_HOLD` `const.py:1219-1224` (rung 1) — per the task |
+| Shadow machine's day tail (today's v5.103.19 values) | **BUILD (frozen copy)** [REV 2 #1] | Changing `ROOM_TYPE_HVAC_HOLD` would change today's machine. `ROOM_TYPE_HVAC_TAIL_LEGACY` keeps bedroom 60, media 120, common 60, hallway 0 so the shadow stays byte-for-byte |
+| Night table, per-room overrides, numeric night>=day clamp, flow validation | **REUSE unchanged** [REV 2 #1] | `const.py:1230-1241`, `:1252-1253`; clamp `hvac_zones.py:1031-1047`; `config_flow.py:599-610`. With the shadow reading the legacy tail the clamp no longer lifts the 9 common rooms' night 90 (90 >= 60), so REV 1's clamp/validation removal is withdrawn |
+| Night-state tuple | **REUSE** | `HVAC_NIGHT_HOLD_STATES` `hvac_const.py:934` |
+| Evidence-rule state tuple | **BUILD (constant)** [REV 2 #2] | `HVAC_EVIDENCE_RULE_STATES = ("home_day", "home_evening")`; no existing tuple of the audit-measured states |
+| Last-evidence timestamp + "active now" | **BUILD (fields + 2 accessors)** | No existing field is correct (see REV 1 reasoning: `_last_motion_time` `:3589` misses camera/BLE; `_last_trigger_time` rising edges only; `_last_occupied_time` includes the timeout). Accessors follow `get_became_occupied_time` `:5384` |
+| Camera / BLE evidence reads | **REUSE by extraction** | `_camera_person_sensor_on()` from `:3667-3697`; `_ble_cap_exceeded(now)` from `:3811-3837` |
+| Room-change event source | **REUSE HA API** | `DataUpdateCoordinator.async_add_listener`; pattern `aggregation.py:1990`. Lighting binary sensor edge rejected (cannot see a re-arm while the light is on) |
+| Listener lifecycle | **REUSE** | ONE `SIGNAL_ROOM_ENTRY_LIFECYCLE` subscription (`signals.py:199`), subscribe-then-enumerate [REV 2 #11] |
+| Zone-scoped decision | **REUSE + parameterise** | `_apply_house_state_presets(zone_filter, trigger, edge_ts)`, `update_room_conditions(zone_ids)` |
+| Same-tick nudge skip | **REUSE + extend** [REV 2 #4] | `_zones_written_this_cycle` (`hvac.py:455/1879/3194`, read `hvac_override.py:4713`), seeded from a new per-zone S1 write stamp |
+| Limiter exemption key | **REUSE** [REV 2 #7] | `strategy_for(...).last_sent(entity, "set_preset_mode")` (`hvac_strategy.py:142`); fallback to the new S1 write stamp on a registry miss |
+| Decision lock, task tracking, timers, NM, ledger row, mode-sensor attrs, zone-status attrs, per-room diag attrs, probes | **REUSE** | As REV 1 (`hvac.py:579`, `:1644`, `async_call_later`, `_note_s1_reclaim` NM path, `preset_change` details `:3232-3269`, `get_mode_attrs` `:5411`, `get_zone_status_attrs` `:791`, `hvac_occupied_diag` `:1588`, probes in `scripts/probes/`) |
+| Kill switch | **BUILD (one switch)** | Pattern `HVACPreArrivalSwitch` `switch.py:4229` |
 
 Memory bodies consulted: `feedback_suppression_needs_discharge`, `feedback_wire_in_anchor_mandatory`,
 `feedback_hollow_test_anchors`, `feedback_marginal_benefit_pushback`, `feedback_measure_before_build`,
-`feedback_coincidental_equality_masks_concept_split`, `project_zone_away_when_occupied_home_night_gap`,
-`reference_hvac_state_of_play`.
+`feedback_coincidental_equality_masks_concept_split`, `feedback_unrestored_mutation_drill_poisons_evidence`,
+`feedback_mutation_verification_pycache_staleness`, `project_zone_away_when_occupied_home_night_gap`.
 
 ---
 
-## 1. Marginal-benefit note (recorded, operator has decided)
+## 1. Marginal-benefit note (recorded; operator has decided)
 
-The 2026-09-26 audit concluded "for common_area and bedroom, the fix buys too little to justify a CRIT-1 revisit".
-That weighed release speed alone. The operator's decision adds a second lever the audit did not price: with an
-event-driven re-arm, the cost of a wrong release drops from "up to a tick of wrong away" to "two writes and seconds
-of away". The pushback that remains is recorded in section 7 (residual) and section 10 D3 (the grace cannot safely
-drop below 5 minutes without raising holds). The design below keeps the risky ingredient small: no new writer, no
-new decision logic, the S1 body is reused as-is, and a kill switch reverts to tick-only in one flip.
+The audit said shortening common/bedroom holds "buys too little to justify a CRIT-1 revisit", weighing release speed
+alone. The operator added a second lever: event-driven re-arm cuts the cost of a wrong release to two writes and
+seconds of away, **provided the person moves again**. For a person who stays still, the hold is the whole defence
+[REV 2 #2]. REV 2 narrows the new rule to the two house states the audit measured, keeps today's machine running
+underneath, and leaves `home_night` on today's rule until measured.
 
 ---
 
-## 2. Falsifiable invariants
+## 2. Falsifiable invariants [REV 2 #7: restated]
 
-Definitions. `ev(R)` = room R's last HVAC evidence time (section 4.1). `hold_day(R)` = per-room override if set,
-else the type table. "Day" = house state not in `HVAC_NIGHT_HOLD_STATES`. `G` = live vacancy grace for the current
-constraint mode. `release(R)` = `ev(R) + hold_day(R)` in day; at night, the unchanged night machine's tail end.
-`E(Z)` = max `release(R)` over live non-hallway rooms of zone Z.
+Definitions. `ev(R)` = room R's last evidence time; `active(R)` = R has evidence at its latest refresh (section 4.1).
+`hold_ev(R)` = per-room day override if set, else `ROOM_TYPE_HVAC_HOLD`. **Rule by house state:**
+evidence states `HVAC_EVIDENCE_RULE_STATES` = (`home_day`, `home_evening`); night states `HVAC_NIGHT_HOLD_STATES`
+= (`sleep`, `waking`); every other state (`home_night` until D0c passes, `guest`, `arriving`, `away`, `None`) is
+legacy. `release(R)` = `ev(R) + hold_ev(R)` in evidence states; in night states the later of the shadow's tail end
+and `ev + hold_ev`; in legacy states the shadow's tail end. `E(Z)` = max `release(R)` over live non-hallway rooms.
+`P(Z, t)` = what a periodic cycle would write for zone Z at wallclock `t` given the same producer state and the same
+`runtime_exceeded` (possibly nothing).
 
-**INV-1 (the operator's premise, re-arm).** For an established zone Z whose house-state target is home or sleep:
-(a) if raw evidence appears in any live non-hallway room of Z before Z's vacancy away write is issued, no vacancy
-away write is issued for that vacancy episode; (b) if Z was written away by a `vacant_past_grace` write at `t_a`
-and raw evidence then appears in a live non-hallway room of Z (room refresh at `t_r`, within about 2 s of the
-sensor edge), S1 issues a home/sleep write for Z by `t_r + HVAC_FAST_PATH_SLA_S` (45 s). Allowed exceptions, each
-with a named, logged refusal and the periodic tick (at most 300 s) as the backstop: kill switch off; zone tripped
-by the ceiling; observation mode, zone intelligence off, or boot-settle; S1's own gates (W1-B four gates, consensus
-defer, `arriving`, egress pause, D7).
+**INV-1 (re-arm = periodic outcome, within the SLA).** When a live non-hallway room of zone Z has an evidence advance
+at refresh time `t_r` while Z's stored fused value is False, a zone-scoped fast run for Z starts by
+`t_r + HVAC_FAST_PATH_SLA_S` (45 s) and issues exactly `P(Z, t_run)` for Z and nothing for any other zone.
+In the case "Z was written away by a `vacant_past_grace` write and the house target is home/sleep", `P` is a
+home/sleep write UNLESS one of the listed exceptions holds.
 
-**INV-2 (no early away, day).** In a day house state, S1 never issues a `vacant_past_grace` away write for zone Z
-at time `t` while any live non-hallway room R of Z has `release(R) > t - G`. Falsified by any reachable path (fast
-or periodic) that writes such an away.
+**INV-1 exception list (each is either "the periodic run would also not write" or "falls back to the tick"):**
+| Exception | Outcome | Named where |
+|---|---|---|
+| Dwell > 0 (live 0) | dwell skip (`hvac.py:2738-2748`); write at the first tick after dwell | `preset_change` absent; documented on the dwell knob |
+| Row-1 transient-room hold (`hvac.py:2360-2392`) | no write, `preset_change_suppressed transient_room_hold` | existing row |
+| D5 shed force-away / D6 stale failsafe | effective away (no home write) | existing reasons |
+| W1-B gates (a/b), (c), (d), (e) for a `manual` zone | deferral, `preset_change_deferred` with gate | existing row |
+| Consensus defer gate (`hvac.py:2156-2197`) | whole call skipped | existing counter |
+| `arriving`, egress pause, observation mode, zone intelligence off | no write | existing guards |
+| D7 night trust (night only) | suppression row | existing row |
+| §9.7 status feed already reads the target AND `last_sent` equals it | `SKIPPED_ALREADY_CORRECT`, zero calls | strategy no-op |
+| Kill switch off, zone tripped (ceiling/runaway), boot-settle, teardown | no fast run; periodic tick backstop (<= 300 s) | counters |
 
-**INV-3 (exact exit).** When no new evidence arrives, the day vacancy away write for Z (trigger `fast_exit`) is
-issued in `[E(Z) + G, E(Z) + G + HVAC_FAST_PATH_EXIT_SLACK_S + HVAC_FAST_PATH_SLA_S]`, and at most once per
-vacancy episode (keyed by `E(Z)`).
+**INV-2 (no early vacancy away, evidence states).** In an evidence state, S1 never issues a `vacant_past_grace` away
+for Z at time `t` while any live non-hallway room R of Z has `active(R)` or `release(R) > t - G`. Any reachable path
+(fast or periodic) that does so falsifies it.
 
-**INV-4 (no leak into other zones).** A fast run for zone Z issues climate writes only for Z, and only through the
-S1 site. It never calls the heat_cool enforcer, the egress tick, `check_ac_reset`, fans, covers, the predictor,
-anomaly observations, DPM overrides, the arrester sweeps, or the Carrier freshness check. It never changes
-`room_conditions`, `last_occupied_time`, `continuous_occupied_since` or `current_session_start` of any other zone.
+**INV-3 (exit = periodic outcome at the due time, once).** When no new evidence arrives, a `fast_exit` run for Z starts
+in `[E(Z) + G + SLACK, E(Z) + G + SLACK + SLA]` and issues exactly `P(Z, t_run)`. It starts at most once per vacancy
+episode (key `(Z, E(Z))`); if that run is deferred by gate (e) (live borrow) or any row above, the key is consumed and
+the periodic tick owns the rest of the episode.
 
-**INV-5 (night unchanged).** In `HVAC_NIGHT_HOLD_STATES` a room is HVAC-occupied at least whenever today's machine
-(ride room `occupied` + night hold) says so. The night release can only be equal or later than today's.
+**INV-4 (zone scope) [REV 2 #5: corrected].** A fast run for Z issues climate writes only for Z and only through S1.
+Its only other actuation is **the vacancy sweep for Z** (`_execute_vacancy_sweep`, lights/fans of Z's rooms, inside
+Z's row-1 branch). Its only house-wide effects are (a) a display-only `zone_presence_state` refresh for all zones and
+(b) `_expire_pre_arrival_zones`, which may clear other zones' pre-arrival flags and schedule
+`_deactivate_zone_fans` for timed-out pre-arrival zones — accepted, because it is time-driven and the next tick would
+do the same [REV 2 #11]. It never calls the heat_cool enforcer, egress tick, `check_ac_reset`, fans, covers, predictor,
+anomaly observations, DPM overrides, arrester sweeps or the Carrier freshness check, and never changes
+`room_conditions`, `last_occupied_time`, `continuous_occupied_since` or `current_session_start` of another zone.
 
-**Equivalence (for reviewer B).** For zone Z at wallclock `t`, the preset decision a fast run makes equals the
-decision a periodic cycle would make for Z at `t` given the same producer state and the same `runtime_exceeded`.
+**INV-5 (shadow and night) [REV 2 #1].** On every producer pass, in every house state, today's machine runs
+byte-for-byte on `data["occupied"]` and alone owns `_hvac_armed`, `_hvac_prev_state_occupied` and `_hvac_tail_until`.
+In night and legacy states the room's output is at least the shadow's output. Consequently a room that crosses from
+an evidence state into `sleep` mid-lighting-timeout is still held by the shadow (armed, riding `occupied`) and then by
+its night tail.
+
+**Equivalence (for reviewer B).** `fast run for Z at t` == `P(Z, t)` for Z's writes, over seeds that include cases
+where S1 actually writes (home, away, sleep, manual write-through) [REV 2 #8].
 
 ---
 
 ## 3. Producer and consumer map for `hvac_occupied`
 
-### 3.1 Producer (today -> after)
+### 3.1 Producer
 | Step | Today | After |
 |---|---|---|
-| Input | Room `data["occupied"]` (lighting, grace-held, includes timeout, camera, BLE, overrides) `hvac_zones.py:717` | Day: `coordinator.get_last_hvac_evidence_time()`. Night: `data["occupied"]` (unchanged) |
-| Arm | Rising edge of `occupied` on a pass `:1075` | Day: any pass with `now < ev + hold_day`. Night: unchanged |
-| Hold | Tail starts at the first pass that sees `occupied` fall `:1111` | Day: from `ev` exactly. Night: unchanged |
-| Pass cadence | 5-min tick + house-state/pre-arrival cycles | Same, plus zone-scoped fast runs (section 5) |
-| Zone rollup | OR of rooms `:178-188`; `last_occupied_time = now` while fused `:771-773` | Same, plus back-fill `last_occupied_time = max(lot, E(Z))` when fused is False (section 4.4) |
+| Shadow (every state) | — | Today's machine (`hvac_zones.py:1051-1126`), unchanged, on `data["occupied"]`, tail from `_shadow_tail_seconds` (night table in night states, `ROOM_TYPE_HVAC_TAIL_LEGACY` otherwise, same overrides and clamp) |
+| Evidence-state output | shadow | `active(R) OR now < ev(R) + hold_ev(R)` |
+| Night-state output | shadow | `shadow OR active(R) OR now < ev(R) + hold_ev(R)` |
+| Legacy-state output | shadow | shadow (byte-identical to v5.103.19) |
+| Room refresh failing (`last_update_success is False`) [REV 2 #3] | shadow on stale data | hold the previous output; bounded by the D6 stale failsafe |
+| Pass cadence | tick + house-state/pre-arrival | same + zone-scoped fast runs |
+| Rollup | OR; `last_occupied_time = now` while fused | same + back-fill `last_occupied_time = max(lot, E(Z))` when fused False |
 
-**Dependency health.** The evidence stamp depends on the room coordinator refresh (event-driven within 2 s, poll
-30-35 s) and on the fusion filters (stuck-sensor exclusion, fan gate, mmWave-demoted latch) that already shape
-lighting occupancy. Camera: only the Living Room has a firing person sensor (audit §6). BLE: 3 phones, often
-`unknown` (audit §6). All healthy as inputs; camera and BLE only lengthen holds.
-
-### 3.2 Consumers (every one; trust vs display)
-| Consumer | Site | Kind | Effect of this plan |
+### 3.2 Consumers
+| Consumer | Site | Kind | Effect |
 |---|---|---|---|
-| Zone rollup `any_room_hvac_occupied` | `hvac_zones.py:178` | feeds all below | Flips sooner in day; re-arms on evidence |
-| `conditioning_retreat_ok` -> row-1 vacancy away | `hvac_zones.py:1522`; `hvac.py:2339-2426` | TRUST | Main consumer; INV-2/INV-3 |
-| Row-1 transient-room hold | `hvac.py:2360-2392`, `:2860-2911` | TRUST | Unchanged logic; runs inside fast runs for the origin zone |
-| D6 stale failsafe (row 4) | `hvac.py:2437-2539` | TRUST | Shorter holds break `continuous_occupied_since` more often; failsafe fires less. Safer |
-| D5 energy-shed coast defer | `hvac.py:2643-2709` | TRUST | Coast defer ends sooner when a zone empties. Shed unchanged. Pre-existing bypass reader (§9.4) unchanged |
-| D7 night-trust | `hvac.py:2780-2852` | TRUST | Night unchanged (INV-5) |
-| D9 compose-away (dormant) | `hvac.py:3484-3518` | TRUST | Not run by fast runs; tick only (non-goal) |
-| Arrester row-10 comfort delay | `hvac_override.py:2513-2557` | TRUST | A comfort grant in an emptied zone expires sooner (intended) |
-| Pre-cool F8 / pre-heat F9 | `hvac_predict.py:583`, `:1420` | TRUST | Tick only; sees shorter day holds |
-| `last_occupied_time` / grace math | `hvac_zones.py:771-779`; `hvac.py:2340-2344` | TRUST | Back-fill makes grace count from the exact release |
-| `zone_presence_state` | `hvac.py:4775-4820` | DISPLAY | Recomputed by fast runs too |
-| W1-B four gates / `manual_guard_verdict` | `hvac.py:2918-2996`, `hvac_preset.py` | TRUST (consumes S1 intent, not occupancy) | Unchanged; fast runs go through the same S1 body |
-| Fans | `hvac_fans.py:761`, `:997` | reads LIGHTING `.occupied` | Unaffected; fans stay tick-driven (card `HVAC-FAST-PATH-FAN-WARM-EDGES-1` stays parked) |
-| Pre-arrival | `hvac.py:4567-4622` | writes `_pre_arrival_zones`, triggers a full cycle | Unchanged; the full cycle waits behind a fast run instead of being dropped (section 5.5) |
-| Presence D6 source 4 | `presence.py:2147-2159` | reads LIGHTING `.occupied` | Unaffected |
-| Per-room `binary_sensor.<room>_<room>_hvac_occupied` | `binary_sensor.py:745-920` | DISPLAY | New attrs `last_evidence_at`, `release_at`, `rule` |
-| Zone status sensor attrs | `hvac_zones.py:790-894` | DISPLAY | New attrs `hvac_empty_since`, `away_due_at` |
-| `sensor.ura_hvac_coordinator_mode` attrs | `hvac.py:5411` | DISPLAY | New fast-path counters and gauges |
-| `optimization.py:2398-2430` | `continuous_occupied_since` | finding/analysis | Sees shorter continuous spans |
+| Zone rollup `any_room_hvac_occupied` | `hvac_zones.py:178` | feeds below | Flips sooner in evidence states; re-arms on evidence |
+| `conditioning_retreat_ok` -> row-1 vacancy away | `hvac_zones.py:1525`; `hvac.py:2339-2426` | TRUST | INV-2/INV-3 |
+| **Vacancy sweep** (lighting actuator, inside row-1) [REV 2 #5] | `hvac.py:2416-2426` -> `_execute_vacancy_sweep` `:4266` | ACTUATION (lights/fans of the zone) | Runs for Z inside fast runs; see 5.9 |
+| Row-1 transient hold | `hvac.py:2360-2392`, `:2860-2911` | TRUST | unchanged logic |
+| D6 stale failsafe | `hvac.py:2437-2539` | TRUST | fires less (shorter continuous spans) |
+| D5 coast defer | `hvac.py:2643-2709` | TRUST | ends sooner when a zone empties |
+| D7 night trust | `hvac.py:2780-2852` | TRUST | night output >= today (INV-5) |
+| D9 compose-away (dormant) | `hvac.py:3484-3518` | TRUST | tick only |
+| Arrester row-10 comfort delay | `hvac_override.py:2513-2557` | TRUST | grant in an emptied zone expires sooner |
+| Pre-cool F8 / pre-heat F9 | `hvac_predict.py:583`, `:1420` | TRUST | tick only |
+| `last_occupied_time` / grace | `hvac_zones.py:772-780`; `hvac.py:2340-2344` | TRUST | back-fill to exact release |
+| `zone_presence_state` | `hvac.py:4775-4820` | DISPLAY | refreshed by fast runs |
+| **`sensor.ura_hvac_coordinator_zone_intelligence`** [REV 2 #11] | `sensor.py:13684-13745` (counts `zone_presence_state == "away"`, lists occupied/away/pre-arrival zones) | DISPLAY | updates at fast-run cadence |
+| W1-B four gates | `hvac.py:2918-2996` | TRUST (S1 intent) | same S1 body |
+| Arrester same-tick nudge skip | `hvac_override.py:4713` reads `_zones_written_this_cycle` | TRUST | seeded from recent S1 writes [REV 2 #4] |
+| Fans | `hvac_fans.py:761`, `:997` (LIGHTING `.occupied`) | — | unaffected |
+| Pre-arrival | `hvac.py:4567-4654` | — | full cycle waits behind a fast run; expiry runs in fast runs [REV 2 #11] |
+| Presence D6 source 4 | `presence.py:2147-2159` (LIGHTING) | — | unaffected |
+| Per-room `binary_sensor.<room>_<room>_hvac_occupied` | `binary_sensor.py:745-920` | DISPLAY | attrs `rule`, `last_evidence_at`, `release_at`; `hvac_vacancy_hold_s` rule (4.6) [REV 2 #11] |
+| Zone status sensor | `hvac_zones.py:791-895` | DISPLAY | `hvac_empty_since`, `away_due_at` |
+| `sensor.ura_hvac_coordinator_mode` | `hvac.py:5411` | DISPLAY | fast-path counters |
+| `optimization.py:2398-2430` | `continuous_occupied_since` | analysis | shorter spans |
 
 ---
 
 ## 4. D1: HVAC's own release clock
 
-### 4.1 Evidence stamp in the room coordinator (`coordinator.py`)
-- New fields: `_last_hvac_evidence_time: datetime | None = None`, `_hvac_evidence_active_prev: bool = False`.
-- New accessor `get_last_hvac_evidence_time() -> datetime | None` next to `get_became_occupied_time` (`:5384`).
-- Extract `_camera_person_sensor_on() -> str | None` from `:3667-3697` (same area lookup, same `state == "on"`
-  test). The camera override calls it; behaviour unchanged.
-- Extract `_ble_cap_exceeded(now) -> bool` from `:3811-3837` (cap enabled AND `_ble_only_hold_since` set AND
-  duration > cap). The BLE block calls it and keeps its NM and logs.
-- **One stamp site**, immediately after the override-switch block (after `:4811`, before skip-first at `:4825`):
+### 4.1 Evidence stamp (`coordinator.py`)
+- Fields: `_last_hvac_evidence_time: datetime | None = None`; `_hvac_evidence_active: bool = False`.
+- Accessors next to `get_became_occupied_time` (`:5384`): `get_last_hvac_evidence_time() -> datetime | None`,
+  `is_hvac_evidence_active() -> bool` [REV 2 #3].
+- Extract `_camera_person_sensor_on() -> str | None` (from `:3667-3697`) and `_ble_cap_exceeded(now) -> bool` (from
+  `:3811-3837`, pure; NM stays in the block).
+- **One stamp site**, after the override-switch block (after `:4811`, before skip-first `:4825`):
   ```
-  evidence_now = (
-      any_sensor_active                                     # post debounce, fan gate, demote latch, stuck filter
-      or (grace_hold and self._last_occupied_state)         # sensor unavailability grace keeps holding
+  source = data.get(STATE_OCCUPANCY_SOURCE)
+  suppressed = source in (OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED, "failsafe",
+                          OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE)        # [REV 2 #9]
+  evidence_now = (not suppressed) and (not self._is_override_vacant()) and (
+      any_sensor_active                                                 # post all fusion filters
+      or (grace_hold and self._last_occupied_state)
       or (not self._failsafe_fired and self._camera_person_sensor_on() is not None)
-      or (BLE_CHAIN_HOLD_ENABLED and ble_persons_present
+      or (not self._failsafe_fired                                      # [REV 2 #9]
+          and BLE_CHAIN_HOLD_ENABLED and ble_persons_present
           and self._last_occupied_state and not self._ble_cap_exceeded(now))
       or self._is_override_occupied()
-  ) and not self._is_override_vacant()
-  if evidence_now or self._hvac_evidence_active_prev:
-      self._last_hvac_evidence_time = now                  # falling-edge tick stamps too (conservative)
-  self._hvac_evidence_active_prev = evidence_now
+  )
+  if evidence_now or (self._hvac_evidence_active and not suppressed):   # falling-edge stamp
+      self._last_hvac_evidence_time = now
+  self._hvac_evidence_active = evidence_now
   ```
-  `ble_persons_present` is read once per tick from `person_coordinator.get_persons_in_room(room_name)`, the same
-  call the BLE block makes. `any_sensor_active` must be the value after all filters, exactly what drives lighting.
-- **Why the falling-edge stamp:** the refresh that first sees the sensor off runs within about 2 s of the edge, so
-  `ev` is at most about 2 s late (longer hold, safe) instead of up to 35 s early.
-- **BLE semantics (decided):** BLE counts only while the chain is unbroken (room lighting-occupied on the previous
-  tick) and the cap has not fired. That matches today's effective HVAC hold (today BLE keeps `occupied` true
-  indefinitely through the chain leg) and preserves extend-not-create: BLE can never arm a cold room.
-- **Override Vacant:** no evidence while on; the room releases at the last real evidence + hold (it "rides the
-  hold", as §9c records, minus the lighting timeout). §9c text is updated in the build commit.
-- Restart: in-memory; `None` until the first evidence, same as `_last_motion_time` today. Zones stay unestablished
-  until every live room is seen (reset-only backstop), unchanged.
+  On a suppressed tick there is no stamp and no falling-edge stamp, so a fan-induced or stuck signal cannot extend
+  the hold [REV 2 #9].
+- `apply_fan_recheck_release` (`:5249`, runs outside a refresh) sets `_hvac_evidence_active = False` and does not
+  stamp [REV 2 #9].
+- BLE counts only while the chain is unbroken and the cap has not fired: extend-not-create holds; BLE can never arm a
+  cold room. Override Vacant: no evidence; the room releases at last evidence + hold (§9c updated in the build).
+- In memory only; `None` until the first evidence after a restart (same as `_last_motion_time` today).
 
-### 4.2 Release rule in the producer (`hvac_zones.py`)
-`update_room_conditions` reads `ev` for each room (`getattr(coordinator, "get_last_hvac_evidence_time", None)`; if
-the accessor is missing, the legacy rule applies. That fallback exists only for test fakes; a guard test asserts
-the production class has the accessor). `_compute_hvac_occupied` gains `last_evidence: datetime | None` and branches:
+### 4.2 Producer: shadow plus rule output (`hvac_zones.py`) [REV 2 #1, #2, #3]
+- `_compute_hvac_occupied` keeps its body as the **shadow** and gains `last_evidence`, `evidence_active`,
+  `refresh_ok` keywords. Order inside:
+  1. Run the shadow exactly as today (lines `:1073-1126`), with `hold_s` from `_shadow_tail_seconds` (today's
+     `_effective_hvac_hold_seconds` logic, reading `ROOM_TYPE_HVAC_TAIL_LEGACY` for the day value). Store its result as
+     `shadow_out`. Only the shadow writes `_hvac_armed`, `_hvac_prev_state_occupied`, `_hvac_tail_until`,
+     `_hvac_arm_source`.
+  2. If `refresh_ok is False`: return `self._hvac_output.get(room, shadow_out)` (hold previous output).
+  3. `ev_out = evidence_active or (last_evidence is not None and now < last_evidence + hold_ev)`; store
+     `_hvac_day_release_at[room] = last_evidence + hold_ev` (or pop when `last_evidence` is None). The evidence branch
+     NEVER writes the shadow's dicts.
+  4. Output: evidence state -> `ev_out`; night state -> `shadow_out or ev_out`; legacy -> `shadow_out`. Store in
+     `_hvac_output[room]` and `_hvac_rule[room]`.
+- `update_room_conditions` reads `last_evidence` with `isinstance(ev, datetime)` (anything else, including a MagicMock,
+  = `None`) and `evidence_active` with `is True` [REV 2 #8]; `refresh_ok = coordinator.last_update_success is not False`.
+  A legacy-only fake coordinator therefore produces `ev = None` and the shadow decides in night/legacy states.
+- **Hold 0 and holds shorter than the poll [REV 2 #3].** With `active OR now < ev + hold`, a hold of 0 still keeps the
+  room occupied while a sensor is on at the latest refresh, and a hold under ~35 s cannot drop a room between two
+  polls of a continuously-on sensor (each poll re-stamps).
+- Hallway exclusion unchanged (`:725-736`). Per-room day override wins in evidence states (as `hold_ev`) and in the
+  shadow's non-night tail (as today).
 
-- **Day** (`house_state not in HVAC_NIGHT_HOLD_STATES`):
-  `hvac_occupied = last_evidence is not None and now < last_evidence + hold_day`.
-  `_hvac_armed` mirrors the result; `_hvac_tail_until[room] = last_evidence + hold_day` while occupied (for the
-  diag and for `release()`); `_hvac_arm_source` = `"evidence"` / `"released_evidence_expired"`. `_hvac_prev_state_occupied`
-  is still updated so a day -> night switch starts the night machine from a correct edge state.
-  The lighting occupancy timeout no longer takes part in the day release.
-- **Night** (`house_state in HVAC_NIGHT_HOLD_STATES`): today's machine, byte-for-byte (`:1066-1123`), with
-  `hold_s` = the night value. **OR** the day rule (`last_evidence + hold_day`). The OR is what keeps night never
-  shorter than day (section 4.3).
-- **Hallway:** unchanged (`:724-735`), still marked seen.
-- **Per-room day override** `hvac_vacancy_hold` wins over the table, as today (`:1019-1020`).
+### 4.3 Night and legacy states
+- **`sleep`/`waking`:** shadow OR evidence rule. Never shorter than today (INV-5).
+- **`home_night` [REV 2 #2]:** legacy (shadow only; the v5.103.19 day tail 60/60/120 after the lighting fall) until
+  D0c measures `home_night` on its own. **Gate:** `home_night` MID zone retreats at the new table (G = 300) = 0 ->
+  add `home_night` to `HVAC_EVIDENCE_RULE_STATES` in a reviewed follow-up; otherwise it stays legacy.
+- **`guest`, `arriving`, `away` [REV 2 #2, disagreement recorded in section 19]:** legacy. The audit excluded them
+  (§8.6). `arriving` makes S1 return early anyway; `away` targets away regardless of occupancy; `guest` is unmeasured.
 
-**Arming decision.** Day arming goes on raw evidence: a room re-arms on new evidence even while its lighting value is
-still `on`, which today's edge-based arm cannot do. This is required for INV-1. Night arming is unchanged (a
-lighting rising edge always coincides with evidence). CRIT-1 at night is preserved exactly (INV-5): the night hold
-still starts when the room itself goes empty, including its lighting timeout, camera and BLE holds. The Stage B
-arming-persistence filter is NOT built here (section 12).
+### 4.4 Clamp and validation: unchanged [REV 2 #1]
+The shadow reads the legacy tail, so the numeric night >= day clamp (`hvac_zones.py:1031-1047`) compares night with the
+legacy day value exactly as today (common night 90 >= legacy 60: no clamp, no warning). The config-flow validation
+`hvac_hold_night_below_day` stays. Monotonicity against the new evidence hold comes from the night OR. REV 1's removal
+of both is withdrawn.
 
-### 4.3 The numeric night >= day clamp is replaced by the OR
-Raising `common_area` day to 300 would make the runtime clamp (`hvac_zones.py:1028-1044`) lift the 9 common rooms'
-night `90` to `300`, undoing night-tail A and logging 9 warnings. The two holds now start from different anchors
-(day from last evidence, night from the room going empty), so comparing their numbers is a coincidental-equality
-trap (Bug Class #63). Replace the numeric clamp with the structural OR in section 4.2: night release =
-`max(night machine release, ev + hold_day)`, which is never earlier than day. Also remove the config-flow
-validation `hvac_hold_night_below_day` (`config_flow.py:599-610`) and its error string, because "night 90, day 300"
-is now a legitimate, meaningful setting. `_effective_hvac_hold_seconds` keeps its signature and callers
-(`hvac_zones.py:1100`, `binary_sensor.py:894`) and returns the raw day or night value.
+### 4.5 Exact release instant for the grace
+On a pass where Z is fused-empty: `zone.last_occupied_time = max(lot, E(Z))`, `E(Z)` over rooms whose `release <= now`.
+Helpers (pure, sync): `room_release_at(room)` reads the LIVE `coordinator.get_last_hvac_evidence_time()` and
+`is_hvac_evidence_active()` (not the last pass) [REV 2 #10]; returns `None` if `active` (unbounded), or the shadow is
+riding `occupied` in a night/legacy state. `zone_release_at(Z)` = max, `None` if any room is `None`.
+`zone_away_due_at(Z, grace_s) = zone_release_at + grace_s`.
 
-### 4.4 Exact release instant for the grace
-Today `last_occupied_time` is the last pass that saw the zone fused-occupied (`:771-773`), so the grace starts up to
-one pass before the real release. New: on a pass where the zone is fused-empty, set
-`zone.last_occupied_time = max(zone.last_occupied_time, E(Z))`, where `E(Z)` is the max `release()` over the zone's
-live non-hallway rooms that are already `<= now`. This makes the 5-minute grace a real 5 minutes after the release.
-Without it, the fast exit (INV-3) would fire up to one pass early and INV-2 would break.
-
-Helpers (pure, sync, no side effects): `room_release_at(room_name) -> datetime | None` and
-`zone_release_at(zone_id) -> datetime | None` (None when some room is held without a bound, e.g. night `occupied`
-still on, or when the zone has no live rooms). `zone_away_due_at(zone_id, grace_s) = zone_release_at + grace_s`.
-
-### 4.5 New day hold table (`const.py`, rung 1)
+### 4.6 Tables (`const.py`, rung 1)
 ```
-ROOM_TYPE_HVAC_HOLD: Final = {
-    ROOM_TYPE_CLOSET: 60,          # audit §7: 0 MID zone retreats at any T
-    ROOM_TYPE_INFRASTRUCTURE: 60,  # grouped with closet (audit §7)
-    ROOM_TYPE_GENERIC: 120,        # max MID 396 s -> T >= 96
-    ROOM_TYPE_UTILITY: 120,        # max MID 386 s -> T >= 86
-    ROOM_TYPE_MEDIA_ROOM: 120,     # no data; keep today's value
-    ROOM_TYPE_GARAGE: 120,         # no zoned garage; generic-like
-    ROOM_TYPE_BATHROOM: 180,       # measured MID ZR = 0 from 180
-    ROOM_TYPE_BEDROOM: 240,        # max MID 495 s -> T >= 195
-    ROOM_TYPE_COMMON_AREA: 300,    # max MID 603 s -> T >= 303 (G = 300)
-    ROOM_TYPE_HALLWAY: 0,          # circulation exclusion
+ROOM_TYPE_HVAC_HOLD: Final = {          # evidence rule (home_day, home_evening; night OR)
+    ROOM_TYPE_CLOSET: 60, ROOM_TYPE_INFRASTRUCTURE: 60,
+    ROOM_TYPE_GENERIC: 120, ROOM_TYPE_UTILITY: 120, ROOM_TYPE_MEDIA_ROOM: 120, ROOM_TYPE_GARAGE: 120,
+    ROOM_TYPE_BATHROOM: 180, ROOM_TYPE_BEDROOM: 240, ROOM_TYPE_COMMON_AREA: 300,
+    ROOM_TYPE_HALLWAY: 0,
+}
+ROOM_TYPE_HVAC_TAIL_LEGACY: Final = {   # FROZEN v5.103.19 day tail, used only by the shadow
+    ROOM_TYPE_BEDROOM: 60, ROOM_TYPE_MEDIA_ROOM: 120, ROOM_TYPE_COMMON_AREA: 60, ROOM_TYPE_HALLWAY: 0,
 }
 ```
-The table must cover every `ROOM_TYPE_*` (test). `DEFAULT_HVAC_VACANCY_HOLD` (60) stays as the fallback for unknown
-types. The Kitchen gets `common_area` 300; the audit's "keep today's behaviour for the Kitchen" exception is
-overruled by the operator's decision (residual in section 7). The comment above the table must state the coupling:
-**each type's hold plus the vacancy grace must stay at or above that type's measured max MID gap**
-(common 603 s, bedroom 495 s, generic 396 s, utility 386 s).
+Comment on `ROOM_TYPE_HVAC_HOLD`: each type's hold plus the vacancy grace (and the energy-saving grace, knob 49) must
+stay at or above that type's measured max MID gap (common 603 s, bedroom 495 s, generic 396 s, utility 386 s).
+`DEFAULT_HVAC_VACANCY_HOLD` (60) stays the fallback for both tables.
+
+**Display rule for `hvac_vacancy_hold_s` (`binary_sensor.py:894`) [REV 2 #11]:** shows the hold of the active rule:
+`hold_ev` in evidence states, the night value in night states, the legacy tail in legacy states. `release_at` shows
+the effective release (the max in night states). `rule` ∈ {`evidence`, `night`, `legacy`}.
 
 ### D1 acceptance
-- **Test:** `test_day_release_is_last_evidence_plus_type_hold` (parametrised over every type).
-- **Test:** `test_day_release_ignores_lighting_timeout` — `occupied=True` in `data`, evidence older than the hold ->
-  `hvac_occupied False`. Mutation: restore the lighting ride in the day branch -> this test goes red. This is the
-  discriminating anchor for the whole cycle.
-- **Test:** `test_camera_person_refreshes_evidence_inside_lighting_timeout`, `test_ble_refreshes_evidence_only_with_chain_and_under_cap`,
-  `test_ble_cannot_arm_cold_room`, `test_grace_hold_counts_as_evidence`, `test_override_occupied_is_evidence_override_vacant_is_not`,
-  `test_falling_edge_refresh_stamps_evidence`.
-- **Test:** `test_night_machine_unchanged` — scripted input sequence in `sleep` produces the same `hvac_occupied`
-  series as the pre-change machine (golden series captured from `develop`, not hand-written).
-- **Test:** `test_night_release_never_before_day_release` — config extremes: night 0 / day 300; night 90 / day 300;
-  day 60 / night 5400; day 0 / night 0 (non-hallway).
-- **Test:** `test_home_night_uses_day_evidence_rule` (with B merged).
-- **Test:** `test_last_occupied_time_backfilled_to_exact_release`; `test_table_covers_every_room_type`;
-  `test_per_room_day_override_wins`; `test_hallway_excluded_unchanged`; `test_night_below_day_now_accepted_by_flow`.
-- **Test (updated, not deleted):** `test_zzz_hvac_conditioning_demand.py` table tests;
-  `test_v5_103_8_hvac_knobs_and_obs.py::test_effective_hold_clamps_night_up_to_day_pure` becomes the OR test;
-  `test_hvac_vacancy_hold_ui_defaults.py` if it pins day values.
-- **Sensor:** `binary_sensor.kitchen_kitchen_hvac_occupied` attrs show `rule: day_evidence`, `last_evidence_at`,
-  `release_at = last_evidence_at + 300 s`.
-- **Live:** in a day state, for 10 consecutive day releases across at least 3 room types, recorder shows
-  `*_hvac_occupied` off within `hold + 35 s` of `last_evidence_at` while `binary_sensor.<room>_occupied` is still
-  `on` (the discriminator: under the old rule the HVAC value could never drop while the lighting value is on).
+- **Test (anchor):** `test_evidence_state_ignores_lighting_timeout` — `occupied=True`, evidence older than the hold,
+  `home_day` -> output False, shadow still armed. Mutation: return `shadow_out` in evidence states -> RED.
+- **Test (INV-5, the Jaya/Ziri repro) [REV 2 #1]:** `test_home_evening_to_sleep_mid_timeout_stays_held` — bedroom
+  lighting `occupied` on, evidence 250 s old (released under the 240 s evidence hold), house switches to `sleep`: output
+  True (shadow armed + riding `occupied`), and after `occupied` falls the tail is 1800 s. Parametrised variant with
+  `home_night` added to the evidence states (the post-D0c case). **Drill:** make the evidence branch write
+  `_hvac_armed[room] = False` when it releases -> this test goes RED.
+- **Test:** `test_shadow_dicts_untouched_by_evidence_branch` (snapshot the three dicts across 50 random evidence-state
+  passes; equal to a shadow-only run on the same `occupied` series).
+- **Test:** `test_home_night_is_legacy_until_gate`, `test_guest_arriving_away_are_legacy`.
+- **Test [REV 2 #3]:** `test_hold_zero_holds_while_active`, `test_hold_shorter_than_poll_no_drop_while_on`,
+  `test_refresh_failure_holds_previous_output`.
+- **Test [REV 2 #9]:** `test_no_stamp_on_fan_demoted_failsafe_recheck_sources` (each source, including no falling-edge
+  stamp on the next tick), `test_ble_term_blocked_after_failsafe`.
+- **Test:** camera/BLE/grace-hold/override stamps; `test_ble_cannot_arm_cold_room`; `test_falling_edge_refresh_stamps`;
+  `test_last_occupied_time_backfilled_to_exact_release`; `test_tables_cover_every_room_type`;
+  `test_legacy_tail_is_frozen_v5_103_19` (independent literals 60/120/60/0); `test_per_room_day_override_wins`;
+  `test_accessor_fallback_uses_isinstance_datetime` (MagicMock coordinator -> `ev None`).
+- **Tests that go red and are UPDATED, not deleted [REV 2 #8]** (see 11c for the full list).
+- **Live [REV 2 #11, R2 M5]:** in `home_day`, for 10 consecutive releases across >= 3 room types: the per-room attr
+  `release_at` equals `last_evidence_at + hold` (to the second), and the `*_hvac_occupied` off transition lands by
+  `release_at + 335 s` (display updates on the next pass: tick <= 300 s + poll <= 35 s; a fast run makes it sooner).
+  Discriminator: under the old rule the off transition could never precede the lighting `*_occupied` off.
 
 ---
 
 ## 5. D2: event-driven decisions on entry and exit
 
-### 5.1 Why not REV 4's whole-house cycle
-REV 4 ran `_run_decision_cycle` off-schedule with an `origin_zones` write filter. Its second review failed on leaks
-into other zones. This plan never calls `_run_decision_cycle` from an event. A fast run is a new, small method that
-does only the zone's own occupancy decision:
-
+### 5.1 Fast run (never `_run_decision_cycle`) [REV 2 #6, #11]
 ```
 async def _async_zone_fast_run(self, zone_id, trigger, edge_ts=None):
-    # trigger in {"fast_entry", "fast_exit"}
-    if not self._fast_path_gates_open(zone_id): return          # section 5.4 gates
-    async with self._decision_cycle_lock:                        # waits behind a full cycle
-        self._fast_path_running = True
-        try:
+    wrote = False; fused_changed = False                       # [REV 2 R2 LOW] never unbound
+    try:                                                       # [REV 2 #6] finally covers the whole coroutine
+        if not self._fast_path_gates_open(zone_id, trigger): return
+        async with self._decision_cycle_lock:
+            if not self._fast_path_gates_open(zone_id, trigger): return   # re-check after the wait
+            self._fast_path_running = True
+            fused_before = zone.any_room_hvac_occupied
             zm.update_zone_climate_state(zone_id)
             zm.update_room_conditions(house_state=self._house_state, zone_ids={zone_id})
+            if self._zone_intelligence_enabled:
+                self._expire_pre_arrival_zones(dt_util.utcnow())            # [REV 2 R1 LOW-9]
             if not self._observation_mode:
                 wrote = await self._apply_house_state_presets(
                     zone_filter={zone_id}, trigger=trigger, edge_ts=edge_ts)
             if self._zone_intelligence_enabled:
-                self._compute_zone_presence_states(dt_util.utcnow())   # read-only, all zones
+                self._compute_zone_presence_states(dt_util.utcnow())       # display, all zones
+            fused_changed = fused_before != zone.any_room_hvac_occupied
             self._schedule_exit_timer(zone_id)
-            if wrote or fused_changed: async_dispatcher_send(self.hass, SIGNAL_HVAC_ENTITIES_UPDATE)
-        finally:
-            self._fast_path_running = False
-            self._fast_path_queued.discard(zone_id)
+            if wrote or fused_changed:
+                async_dispatcher_send(self.hass, SIGNAL_HVAC_ENTITIES_UPDATE)
+    finally:
+        self._fast_path_running = False
+        self._fast_path_queued.discard(zone_id)
 ```
+`_fast_path_gates_open` = not tearing down, enabled, boot-settle done, kill switch on, not observation mode, zone
+intelligence on, zone still in `zm.zones`, zone not tripped. Re-checking after the lock wait catches a kill-switch flip,
+teardown start, zone deletion or trip that happened while waiting.
 
-### 5.2 `_apply_house_state_presets(*, zone_filter=None, trigger="periodic", edge_ts=None)`
-- `zone_filter is None` (every existing caller): byte-identical behaviour.
-- `zone_filter` set: skip the heat_cool enforcer loop (`:2227-2256`); `continue` at the top of the zone loop
-  (`:2282`) for zones not in the filter; skip `_async_apply_preset_overrides` (`:3319-3320`). Honour the consensus
-  defer gate, `arriving`, and every per-zone rule unchanged.
-- `trigger` and `edge_ts` go into the `preset_change` details dict (`:3232-3269`), plus `zone_empty_since`
-  (`last_occupied_time`) on away rows. `house_state` and `pre_arrival` full cycles keep `trigger="periodic"` in this
-  cycle (no change to their callers).
-- Return `True` when S1 applied a write (for the ceiling and the dispatch).
+### 5.2 `_apply_house_state_presets(*, zone_filter=None, trigger="periodic", edge_ts=None) -> bool`
+- `zone_filter is None`: byte-identical.
+- `zone_filter` set: skip the heat_cool enforcer (`:2227-2256`), `continue` for other zones at the loop top (`:2282`),
+  skip DPM overrides (`:3319-3320`). Consensus gate, `arriving`, every per-zone rule and the vacancy sweep for Z run as
+  today.
+- `trigger`, `edge_ts`, and `zone_empty_since` (away rows) go into the `preset_change` details.
+- **[REV 2 #4]** Every S1 write (fast or periodic) sets `self._zone_last_s1_write[zone_id] = (effective_preset, utcnow)`
+  next to `:3194`.
+- Returns `True` iff S1 applied a write.
 
 ### 5.3 `update_room_conditions(house_state, zone_ids=None)`
-- `zone_ids is None`: unchanged.
-- `zone_ids` set: the per-zone loop (`:665`) skips other zones BEFORE `zone.room_conditions.clear()`, so sibling
-  zones keep their room conditions and rollup fields untouched (INV-4).
-- **The coordinator-absent set must stay pass-complete.** Today it is filled inside the zone loop (`:686`). Move
-  the absent detection into the entry loop (`:610-646`), which already sees every room entry, so
-  `is_zone_hvac_established` for a sibling zone never reads a partial set after a zone-scoped pass.
-- `_classify_all_rooms` still runs over all rooms (read-only, queued events drain on the next full cycle).
+- `zone_ids` set: skip other zones BEFORE `zone.room_conditions.clear()` (`:667`).
+- **[REV 2 #11, R2 M6]** Build `_coordinator_absent_this_pass` BEFORE the zone loop: in the entry loop (`:611-647`),
+  for every ROOM entry in a zone whose coordinator is `None`. Remove the add at `:687`. The set is then pass-complete
+  whether or not the pass is zone-filtered.
+- `_classify_all_rooms` still runs over all rooms.
 
-### 5.4 Entry trigger (room coordinator listener)
-At `async_setup`, for every loaded ROOM entry, attach `coordinator.async_add_listener(partial(self._on_room_refresh, entry_id))`.
-Store the remove callables in `self._fast_path_room_unsubs: dict[entry_id, callable]`. One
-`SIGNAL_ROOM_ENTRY_LIFECYCLE` subscription re-attaches on `loaded`, releases on `unloaded`, and does release-then-attach
-on `options_updated` (idempotent).
+### 5.4 Entry trigger
+Setup order [REV 2 R2 LOW]: subscribe to `SIGNAL_ROOM_ENTRY_LIFECYCLE` FIRST, then enumerate existing room
+coordinators and attach `coordinator.async_add_listener(partial(self._on_room_refresh, entry_id))`. Attach is idempotent
+(release-then-attach per `entry_id`), so a room that loads between the subscribe and the enumeration is attached once.
+`loaded` attaches, `unloaded` releases, `options_updated` re-attaches.
 
-`_on_room_refresh(entry_id)` (sync `@callback`), all short-circuit in this order:
-1. `_tearing_down`, not enabled, boot-settle not done, kill switch off, observation mode, zone intelligence off -> return.
-2. Resolve room name; skip hallways; resolve its zone from `zm.zones` LIVE (REV 4 F12); none -> return.
-3. `ev = coordinator.get_last_hvac_evidence_time()`; if `ev` did not advance past `self._fp_last_ev[room]` -> return; store.
-4. Zone-cold gate (REV 4 F4): if `zone.any_room_hvac_occupied` is True (last pass) -> return. A still-True stored
-   value after an unobserved release is harmless: no away can have been written without a pass storing False.
-5. Zone tripped by the ceiling -> count, return (tick backstop).
-6. Per-zone limiter `HVAC_FAST_PATH_MIN_INTERVAL_S` on entry runs, **exempt when `zone.preset_mode == "away"`**
-   (a re-arm write is due; this is the INV-1 case and must never be rate-limited).
-7. Per-zone dedup: if `zone_id in self._fast_path_queued` -> return.
-8. Queue: `self._fast_path_queued.add(zone_id)`; `self._track_task(hass.async_create_task(self._async_zone_fast_run(zone_id, "fast_entry", edge_ts=now)))`.
+`_on_room_refresh(entry_id)` (sync), short-circuits in order:
+1. Gates as in 5.1 (except the zone checks).
+2. Resolve room; skip hallways; resolve zone from `zm.zones` live; none -> return.
+3. `ev = get_last_hvac_evidence_time()` (via `isinstance`). **None rule [REV 2 R2 LOW]:** `None` never counts as an
+   advance and does not overwrite a stored value; the first non-`None` after `None` counts as an advance.
+   Not advanced -> return; else store.
+4. Zone-cold gate: stored `zone.any_room_hvac_occupied` True -> return.
+5. Zone tripped -> count, return.
+6. Per-zone limiter `HVAC_FAST_PATH_MIN_INTERVAL_S` on entry runs. **Exempt [REV 2 #7]** when
+   `strategy_for(hass, zone.climate_entity).last_sent(zone.climate_entity, "set_preset_mode") == "away"`; on a
+   registry miss (uncached generic strategy, `last_sent` always `None`) fall back to
+   `_zone_last_s1_write[zone][0] == "away"`. Not keyed on `preset_mode`, which the §9.7 status feed can misreport.
+7. Dedup: `zone_id in _fast_path_queued` -> return.
+8. `_fast_path_queued.add(zone_id)`; `_track_task(async_create_task(_async_zone_fast_run(zone_id, "fast_entry", edge_ts=now)))`.
 
-### 5.5 Lock rules (replaces REV 4's rerun machinery)
-- Fast runs **wait** for the lock (`async with`) instead of skipping; `_fast_path_queued` stops pile-ups.
-- `_async_decision_cycle` (periodic, house-state, pre-arrival, boot): if the lock is held by a fast run
-  (`_fast_path_running`), wait instead of skipping. If held by a full cycle, skip as today. After acquiring,
-  if a full cycle STARTED after this call was scheduled (`_last_full_cycle_started_at`), skip, so a waiting
-  periodic never runs a second back-to-back full cycle (that would double-sample `check_ac_reset` and anomaly
-  counters, REV 4 F3).
-- Every producer mutation happens under `_decision_cycle_lock`. The producer is synchronous, so the only race it
-  closes is a full cycle's zone loop awaiting mid-iteration while a fast run rewrites room conditions.
+### 5.5 Lock rules
+- Fast runs wait for the lock; `_fast_path_queued` stops pile-ups; `finally` always clears the queue entry [REV 2 #6].
+- `_async_decision_cycle`: if the lock is held by a fast run, wait; if held by a full cycle, skip (today). After
+  acquiring, skip if a full cycle started after this call was scheduled (`_last_full_cycle_started_at`), so no
+  back-to-back full cycles double-sample `check_ac_reset` or anomaly counters.
+- **[REV 2 #4] Same-tick nudge skip across ticks.** At `_run_decision_cycle` entry (`:1879`), replace
+  `self._zones_written_this_cycle = set()` with the set of zones whose `_zone_last_s1_write` timestamp is within
+  `SUPPRESS_TTL_SECONDS_PRESET` (120 s, `hvac_override.py:174`). A zone a fast run wrote seconds before a tick is then
+  still skipped by the soft-nudge dispatch (`hvac_override.py:4713`) on that tick.
 
-### 5.6 Exit timer
-`_schedule_exit_timer(zone_id)` runs at the end of every full cycle (all zones) and every fast run (its zone):
-- Preconditions: kill switch on, zone intelligence on, not observation mode, zone established, house target in
-  (home, sleep), `zone.preset_mode != "away"`, not egress-paused, not tripped.
-- `due = zm.zone_away_due_at(zone_id, grace_s) + HVAC_FAST_PATH_EXIT_SLACK_S` (the grace test is strict `>`,
-  `hvac.py:2342-2343`). `None` -> no timer (tick backstop).
-- **One-shot per vacancy episode.** Key = `(zone_id, zone_release_at)`. If `_fp_exit_fired[zone_id] == key`, do not
-  schedule. This stops the §9.7 zone_1 feed-disagreement loop (the status feed reads `home` after an away write)
-  from turning into a write every few seconds; re-issues stay on the tick as today.
-- Replace an existing timer only if `due` changed. Store in `self._fast_path_exit_unsubs[zone_id]`.
-
-Callback (sync): return if tearing down; recompute `due`; if `due > now + 1 s`, reschedule lazily (no run, no
-counters); else record the fired key and queue `_async_zone_fast_run(zone_id, "fast_exit")`, exempt from the
-per-zone limiter. While a zone stays occupied the timer re-fires about once per `hold + G` and only reschedules.
-
-Cancel the zone's exit timer when a fast entry run finds the zone fused-occupied.
+### 5.6 Exit timer [REV 2 #10]
+`_schedule_exit_timer(zone_id)` at the end of every full cycle (all zones) and every fast run (its zone):
+- Preconditions: kill switch on, zone intelligence on, not observation mode, zone established, current house state in
+  `HVAC_EVIDENCE_RULE_STATES` or `HVAC_NIGHT_HOLD_STATES`, target preset home/sleep, `last_sent`/stamp not already
+  `away`, not egress-paused, not tripped.
+- `due = zm.zone_away_due_at(Z, grace_s) + HVAC_FAST_PATH_EXIT_SLACK_S`, `grace_s` chosen exactly as S1 does
+  (`hvac.py:2271-2275`: constrained grace under coast/shed). `None` -> no timer.
+- One-shot key `(Z, zone_release_at)`; a fired key is never rescheduled (stops the §9.7 loop).
+- Callback: recompute from LIVE evidence; not due -> lazy reschedule (no run); due -> record key, queue `fast_exit`
+  (exempt from the limiter).
+- **Reschedule all zones' timers** when the grace knobs change (`number.py:571`, `:584`, `:677` call a new
+  `hvac.reschedule_exit_timers()`) and when the energy constraint mode changes (`_handle_energy_constraint` `:3843`).
+- Cancel on a fast entry that finds the zone fused-occupied; cancel on zone pruning in `_handle_zm_zones_updated`
+  (`:3987`, `:4010`) [REV 2 R1 LOW-9].
 
 ### 5.7 Ceiling, runaway guard, trip-wire, kill switch
-- **Write ceiling:** fast-run writes per zone per rolling hour > `HVAC_FAST_PATH_MAX_WRITES_PER_ZONE_PER_HOUR` (6)
-  -> one NM, zone falls back to tick-only until local midnight. Counts only runs where S1 applied a write (the
-  Carrier call-rate bound). The periodic tick is unaffected.
-- **Runaway guard:** fast runs per zone per rolling hour > `HVAC_FAST_PATH_MAX_RUNS_PER_ZONE_PER_HOUR` (30) -> same
-  fallback + NM. Lazy timer reschedules do not count.
-- **Quick-return trip-wire (measures the residual live):** a `fast_entry` run for a zone whose last `preset_change`
-  was a `vacant_past_grace` away less than `HVAC_QUICK_RETURN_WINDOW_S` (900 s) ago increments
-  `quick_returns_today[zone]`; at `HVAC_QUICK_RETURN_NM_PER_DAY` (8) one LOW NM per zone per day. This is how a
-  too-short hold shows up, in code, with no soak watching.
-- **Kill switch** `switch.ura_hvac_coordinator_31_fast_room_response` (default ON). OFF: listeners ignore events, exit
-  timers are cancelled, behaviour is today's tick timing with the D1 clock still active. ON again: next full cycle
-  reschedules timers.
-- **Global limiter G: dropped (deliberate deviation from REV 4).** G existed to bound off-schedule whole-house cycles.
-  Fast runs are zone-scoped, write at most one zone through S1, and are serialised by the lock; the per-zone write
-  ceiling bounds Carrier calls. G also denied about 1 zone-cold edge per day, which would break INV-1.
+Unchanged from REV 1: write ceiling 6 per zone per hour; runaway guard 30 runs per zone per hour (lazy reschedules do
+not count); quick-return trip-wire (900 s window, 8 per zone per day, one LOW NM); kill switch
+`31 · Fast Room Response` (OFF = tick timing; the D1 clock stays). Global limiter G dropped (zone-scoped runs, lock
+serialised, per-zone write ceiling bounds Carrier calls; G denied ~1 zone-cold edge/day, which breaks INV-1).
+**Restart [REV 2 R2 LOW]:** all counters, trip states, `_fp_last_ev`, `_zone_last_s1_write` and exit timers are in
+memory and reset on restart. Accepted: a restart ends any trip early (the next trip needs a fresh hour of breaches);
+the first full cycle after boot-settle reschedules timers; the nudge-skip seed is empty for the first tick (same as
+today).
 
 ### 5.8 Teardown
-`async_teardown` sets `self._tearing_down = True` and, BEFORE its first `await` (the zone-state save at `:5575`),
-releases every `_fast_path_room_unsubs` entry, cancels every `_fast_path_exit_unsubs` entry, and clears
-`_fast_path_queued`. Fast-run tasks are in `_pending_tasks` and are already cancelled at `:5565`. Every callback
-checks `_tearing_down` first (REV 4 F6).
+`_tearing_down = True`; release listeners, cancel exit timers, clear `_fast_path_queued` BEFORE the first `await`
+(`hvac.py:5575`); tasks already cancelled at `:5565`; every callback checks `_tearing_down`.
+
+### 5.9 Vacancy sweep timing [REV 2 #5] — decision: ACCEPT, no new gate
+The sweep (`hvac.py:2416-2426`) runs only when the zone is past grace AND lighting-empty (`not zone.any_room_occupied`),
+and is re-evaluated on every pass while the zone stays past grace. For a zone whose last room has a 900 s lighting
+timeout, today the sweep lands on the away tick (~timeout + up to 5 min + 5 min); after this change the away write
+lands at hold + 5 min (lights still on, no sweep) and the sweep lands on the first pass after the room's own lighting
+timeout ends, i.e. up to ~5 min sooner than today. Accepted because (a) the room's own automation already turns its
+lights off at that timeout, so the sweep is a backstop that never beats the room's own vacancy, and (b) the sweep still
+requires every room in the zone to be lighting-empty. Test: `test_sweep_waits_for_lighting_empty_after_fast_exit`.
 
 ### D2 acceptance
-- **Test (premise):** `test_rearm_while_lighting_still_on_triggers_fast_entry` — room lighting `on`, HVAC released,
-  zone written away; new evidence -> home write within one fast run. Mutation: switch the trigger back to the
-  lighting binary sensor edge -> red.
-- **Test:** `test_rearm_after_vacancy_away_bypasses_zone_limiter` (INV-1 b); `test_evidence_during_grace_prevents_away` (INV-1 a).
-- **Test:** `test_fast_run_is_zone_scoped` — spies on heat_cool enforcer, `_egress_manager.async_tick`,
-  `check_ac_reset`, `_fan_controller.update`, `_cover_controller.update`, `_predictor.update`,
-  `_record_anomaly_observations`, `_async_apply_preset_overrides`, `sunset_immune_holds`, `_check_carrier_freshness`:
-  zero calls. One mutation per spy (remove that site's skip -> the matching assertion goes red).
-- **Test:** `test_fast_run_leaves_sibling_zones_untouched` (room_conditions, `last_occupied_time`,
-  `continuous_occupied_since`, `current_session_start` identical before/after); `test_absent_set_pass_complete_under_zone_filter`.
-- **Test:** `test_fast_decision_equals_periodic_decision` — seeded random zone states (occupancy, preset, manual +
-  gates, house state, constraint mode): the fast run's S1 outcome for Z equals a periodic run's outcome for Z.
-- **Test:** `test_exit_timer_fires_at_release_plus_grace` (INV-3 window); `test_exit_timer_lazy_reschedule`;
-  `test_exit_timer_one_shot_under_feed_disagreement` (preset reads `home` after the away write: no second fast
-  write; the tick re-issues as today); `test_exit_timer_cancelled_on_entry`.
-- **Test:** `test_periodic_waits_behind_fast_run`, `test_periodic_skips_behind_full_cycle`,
-  `test_waiting_periodic_skips_if_full_cycle_ran`, `test_fast_run_waits_and_dedups_per_zone`.
-- **Test:** `test_listener_lifecycle_idempotent` (5 rapid options_updated -> one listener per room);
-  `test_boot_settle_suppresses_fast_path`; `test_teardown_releases_before_first_await`;
-  `test_tearing_down_guards_every_callback`.
-- **Test:** `test_write_ceiling_trips_and_clears_at_local_midnight`; `test_runaway_guard`; `test_quick_return_counter_and_nm_latch`;
-  `test_kill_switch_off_restores_tick_only`; `test_preset_change_row_carries_trigger_edge_ts_zone_empty_since`.
-- **Test (config boundaries, Tier 3):** grace 0; grace 60; per-room day hold 0 on a non-hallway room; dwell 1
-  (entry falls back to the tick, documented); constraint-mode grace switch while a timer is pending.
-- **Sensor:** `sensor.ura_hvac_coordinator_mode` attrs `fast_entry_runs_today`, `fast_exit_runs_today`,
-  `fast_writes_today`, `fast_limited_today`, `fast_tripped_zones`, `quick_returns_today`,
-  `last_fast_edge_to_write_s`.
-- **Live:** see section 9.
+- **Premise:** `test_rearm_while_lighting_still_on_triggers_fast_entry` (mutation: trigger on the lighting edge -> RED).
+- `test_rearm_limiter_exempt_keyed_on_last_sent` (preset_mode reads `home` while `last_sent == "away"` -> exempt;
+  registry-miss fallback case) [REV 2 #7]; `test_evidence_during_grace_prevents_away`.
+- **[REV 2 #4]** `test_fast_write_seeds_nudge_skip_on_next_tick` — fast run writes zone_1 at t, periodic tick at
+  t + 60 s: `check_ac_reset` sees zone_1 in `_zones_written_this_cycle` and does not nudge it; at t + 130 s it may.
+  **Drill:** revert the seed to `set()` -> RED.
+- **[REV 2 #6]** `test_queue_entry_cleared_on_every_exit_path` (gate fails before the lock; gate fails after the lock;
+  exception inside; cancellation while waiting) and `test_gates_rechecked_after_lock_wait` (kill switch flipped while
+  waiting -> no write).
+- `test_fast_run_is_zone_scoped` (spies; per-spy drill), `test_fast_run_sweeps_only_its_zone` [REV 2 #5],
+  `test_fast_run_leaves_sibling_zones_untouched`, `test_absent_set_built_before_zone_loop` [REV 2 R2 M6].
+- **Equivalence [REV 2 #8]:** `test_fast_decision_equals_periodic_decision`; seeds MUST include writes (home from away,
+  away from home, sleep, manual write-through under open gates) and non-writes (each INV-1 exception row). A seed set
+  with no S1 write fails the test's own precondition assert.
+- **Exit [REV 2 #10]:** `test_exit_timer_fires_at_release_plus_grace` with normal grace **10** and constrained grace
+  **3** (not the coincident live 5/5), switching coast on and off while a timer is pending; `test_exit_timer_rescheduled_on_grace_knob_change`;
+  `test_exit_timer_reads_live_evidence`; `test_exit_timer_lazy_reschedule`; `test_exit_timer_one_shot_under_feed_disagreement`;
+  `test_exit_timer_one_shot_consumed_on_gate_e_deferral`; `test_exit_timer_cancelled_on_zone_prune` [REV 2 R1 LOW-9].
+- **[REV 2 R2 LOW]** `test_two_zones_same_second` (evidence in zone_1 and zone_3 in the same loop turn: both run, each
+  writes only its zone, order-independent); `test_fp_last_ev_none_rule`; `test_subscribe_then_enumerate_no_miss_no_double`.
+- Lock rules, lifecycle idempotence, boot-settle, teardown-before-await, `_tearing_down` guards, ceiling/runaway/
+  quick-return, kill switch, ledger fields (as REV 1).
+- Config boundaries: grace 0; grace 60; per-room day hold 0; dwell 1.
 
 ---
 
 ## 6. Latency budget (before -> after)
 
-Assumptions: live grace G = 300 s, dwell 0, tick period 300.3-301.1 s (D0 audit §1), room poll 30-35 s, event
-refresh within 2 s. "Today" exit derivation: the room's lighting value falls at `ev + timeout + r` (r up to ~35 s);
-the next tick (0-300 s later) sees the fall and sets the tail; since tail <= 300 s and the tick period is slightly
-over 300 s, the following tick both releases the room and clears the grace (`now - lot` = 300.x > 300). So today
-the grace is absorbed by the tick quantization. Sanity check: Kitchen at its old 600 s timeout gives about 18 min
-average, matching the operator's "15-20 min".
+Assumptions: live grace 300 s, dwell 0, tick 300.3-301.1 s, poll 30-35 s, event refresh within 2 s. Today the grace is
+absorbed by tick quantization (the tick after the one that starts the tail both releases the room and clears
+`now - lot > 300`). Kitchen at its old 600 s timeout -> ~18 min avg, matching the operator's "15-20 min".
 
 | Path | Today (live) | After |
 |---|---|---|
-| Entry into a cold zone | Wait for next tick + ~13 s cycle: avg ~2.5-3 min (median wait 142-181 s), worst ~5.5 min | Room refresh <= 2 s + one zone run: typically under 5 s; <= 45 s SLA when a full cycle holds the lock (~4 % of edges) |
-| Re-arm after a wrong away | Next tick: avg ~2.5, worst ~5 min | Typically under 5 s; <= 45 s SLA; never rate-limited |
-| Re-detected during grace | No away write | No away write (unchanged) |
-| Exit, day, 300 s-timeout room | ~avg 12.8 min (range ~10-15.6) | Exactly hold + 5 min: closet/infra 6 min; generic/utility/media/garage 7; bathroom 8; bedroom 9; common 10 |
-| Exit, day, 900 s-timeout room (Master Bath, Jaya Bath, Exercise) | avg ~22.8 min | bathroom 8 min; common (Exercise) 10 min |
-| Exit, Kitchen | old 600 s timeout: ~17.8 min avg; stopgap 300 s: ~12.8 min | 10 min |
-| Exit, night (sleep/waking) | Room timeout + night hold + tick quantization; grace absorbed | Same hold, same start; away lands exactly at hold end + 5 min, so up to ~5 min LATER than today (the grace becomes real; safer for sleepers) |
+| Entry into a cold zone | avg ~2.5-3 min, worst ~5.5 min | usually under 5 s; <= 45 s SLA |
+| Re-arm after a wrong away (person moves again) | avg ~2.5, worst ~5 min | usually under 5 s; <= 45 s; never rate-limited |
+| Still person who does not move | held by timeout + tail | held by the hold ONLY; no re-arm until they move [REV 2 #2] |
+| Re-detected during grace | no away write | no away write |
+| Exit, `home_day`/`home_evening`, 300 s-timeout room | avg ~12.8 min (~10-15.6) | hold + 5 min: closet/infra 6, generic/utility/media/garage 7, bathroom 8, bedroom 9, common 10 min |
+| Exit, same states, 900 s-timeout room | avg ~22.8 min | bathroom 8 / common 10 min |
+| Exit, Kitchen | ~17.8 (old 600 s) / ~12.8 (300 s stopgap) | 10 min |
+| Exit, `home_night`, `guest`, `arriving` [REV 2 #2] | today's rule | today's hold and start; away lands at release + 5 min (real grace; up to ~5 min later than today) |
+| Exit, `sleep`/`waking` | timeout + night hold + tick quantization | same or later (shadow OR evidence); lands at release + 5 min |
 
-Each "after" exit figure adds about 2-5 s (evidence stamp resolution + slack + run).
-
----
-
-## 7. Residual risk (quantified from the audit)
-
-Source: `AUDIT_hvac_raw_evidence_gaps_2026_09_26.md` §2-§7, 6.74 days, 82.4 day-hours, G = 300 s.
-
-| Class | Count at the new table | Today | Notes |
-|---|---|---|---|
-| MID zone retreat (evidence resumed within the room's old timeout; best proxy for a still person) | **0 / 6.74 d** | 0 by construction | Holds by construction because each type's T + G >= its max MID gap |
-| MID, if Jaya's day override 60 is left in place | +2 / 6.74 d (Jaya Bedroom) | 0 | Fixed by D4 |
-| LATE zone retreat (ambiguous: resumed within ~16 min) | **~31 / 6.74 d (~4.6/day)**: Kitchen 28, Dining 1, Master Bath 1, Jaya Bath 1 (bedrooms <= 1) | 0 by construction | 30/30 Kitchen events had evidence in another room (mostly Patio); a phone was in the room in 1/44. Most look like real departures |
-| Night | unchanged | — | INV-5 |
-
-- **What changes in the meaning of the count.** The audit called ZR an upper bound partly because it ignored the
-  5-minute tick. The fast exit removes that tick, so ZR is now close to the expected rate (still an upper bound
-  because camera, BLE and grace-hold evidence can only shorten gaps).
-- **Not measured:** production fusion filters (stuck-sensor exclusion, fan gate, mmWave-demoted latch) can make
-  production evidence less continuous than the audit's raw union; phantom radars (Patio 65 % duty, Master and Jaya
-  Bedroom ~45 %) can make it more continuous. D0c re-probes; the quick-return trip-wire measures it live.
-- **Cost of one wrong retreat:** one away write, then one home write within seconds of the person moving again
-  (INV-1), plus the temperature drift during the away (LATE gaps end within ~16 min). Upper bound ~4.6 pairs/day =
-  ~9 extra Carrier writes/day, against ~160/day W1-B added.
-- **Write-rate bound:** fast-path writes <= 6 per zone per hour by the ceiling; entry writes replace tick writes
-  one-for-one (same count, earlier).
+"After" exits add ~2-5 s (stamp resolution + slack + run).
 
 ---
 
-## 8. D0: baselines and residual re-probe (read-only)
+## 7. Residual risk (quantified from the audit, evidence states only)
 
-- **D0a (latency baseline).** Extend `scripts/probes/hvac_fast_path_d0_probe.py` with a `--latency` mode (REUSE its
-  room/zone/entity resolution): per zone, over at least 3 occupied days (house occupied from 2026-09-27; earliest
-  2026-09-30): entry = zone-cold room `*_occupied` rising edge -> `preset_change` home/sleep; exit = zone's last
-  room raw-evidence end -> `vacant_past_grace` away. Report p50/p90/max. Expected from section 6: entry p50
-  ~2.5-3 min; exit p50 ~12-13 min for 300 s-timeout zones.
-- **D0b (write-rate baseline).** REV 4 F9 query on `ura_activity_log` `climate_write`, >= 3 full days from
-  2026-09-26 15:25 CDT (earliest 2026-09-30). Verify the details column name against W1-A's writer before running.
-- **D0c (residual at the exact table).** Re-run `hvac_raw_evidence_gap_probe.py --graces 300,600` with current
-  config (Kitchen timeout 300, Jaya override both ways) and read ZR at each type's new hold. **Gate:** if any
-  zone's day ZR at the new table exceeds 2x the audit figure (> ~64 per week), stop and go back to the operator.
+Scope [REV 2 #2]: `home_day` + `home_evening` (the audit's 82.4 h). Nothing below applies to `home_night`, `guest`,
+`arriving` or `away`, which stay on today's rule.
 
-D0 does not block build dispatch. D0a/D0b block the live acceptance comparison; D0c blocks deploy.
+| Class | At the new table (G = 300) | Today |
+|---|---|---|
+| MID zone retreat (proxy for a still person) | **0 / 6.74 d** | 0 by construction |
+| MID with Jaya's day override 60 left | +2 / 6.74 d | 0 (fixed by D4) |
+| LATE zone retreat (ambiguous) | **~31 / 6.74 d (~4.6/day)**: Kitchen 28, Dining 1, Master Bath 1, Jaya Bath 1 | 0 by construction |
+
+- **A still person is protected only by the hold [REV 2 #2].** If a seated person's sensors stay quiet longer than
+  hold + grace, the zone goes to away and stays there until they move. The fast path helps only after that movement.
+  The MID count is 0 in the sample because every measured still gap was shorter than hold + grace for its type.
+- Knob coupling: the MID-zero result needs hold + grace >= max MID gap, for the normal grace (knob 48) AND the
+  energy-saving grace (knob 49, used under coast/shed) [REV 2 R1 LOW-10]. Knob 49 at 5 min is at the common-area limit
+  (300 + 300 >= 603 fails by 3 s; the audit counted 0 at T = 300 because the max gap was 603 with no retreat). Lowering
+  knob 49 below 5 reintroduces MID risk in common areas; its helper text warns about this (section 14.2).
+- ZR is now close to the expected rate (the fast exit removes the tick padding); still an upper bound because camera,
+  BLE and grace-hold only shorten gaps. Fusion filters and phantom radars are unmeasured; D0c and the quick-return
+  trip-wire measure them.
+- Cost of one wrong retreat: one away + one home write (once the person moves) + drift. Upper bound ~9 extra writes/day.
+
+---
+
+## 8. D0: probes (read-only)
+- **D0a latency baseline** — `hvac_fast_path_d0_probe.py --latency`, >= 3 occupied days (earliest 2026-09-30).
+- **D0b write-rate baseline** — REV 4 F9 query, >= 3 days of W1-A rows (earliest 2026-09-30).
+- **D0c residual at the exact table** — `hvac_raw_evidence_gap_probe.py --graces 300,600` with current config.
+  Gate A: any zone's evidence-state ZR > 2x the audit figure -> stop, back to the operator.
+- **D0c-home_night [REV 2 #2]** — same probe with a new `--states home_night` filter, >= 7 nights. Gate B: `home_night`
+  MID ZR at the new table (G = 300 and G = knob 49) = 0 -> propose adding `home_night` to `HVAC_EVIDENCE_RULE_STATES`
+  (reviewed rung-1 change); otherwise `home_night` stays legacy. Gate B does not block this cycle's deploy.
+
+D0a/D0b block the live comparison; D0c Gate A blocks deploy.
 
 ---
 
 ## 9. Live acceptance (discriminating)
 
-| # | Check | Pass (fix working) | What a plausible failure looks like |
+| # | Check | Pass | Plausible failure |
 |---|---|---|---|
-| L1 | Fast entry latency | >= 90 % of `preset_change` rows with `trigger=fast_entry` have `row_ts - edge_ts <= 45 s`; median < 10 s | Tick fallback: uniform 0-300 s, median ~150 s |
-| L2 | Exit exactness | Every `vacant_past_grace` away row with `trigger=fast_exit` has `row_ts - zone_empty_since` in `[300, 350] s` | Tick: `[300, 600] s` spread; early fire: < 300 s (INV-2 break) |
-| L3 | INV-2 on live data | For every day away row, each zone room's `release_at` attr (recorder) is <= `row_ts - 300 s` | Any room with a later `release_at` |
-| L4 | Re-arm | For every quick return (away then evidence in the zone), a home/sleep `fast_entry` row within 45 s of `edge_ts` | Home write only at the next tick |
-| L5 | No leak | During fast runs, zero `climate_write` rows for other zones and zero `B1_heat_cool_enforcer`, nudge, cover, fan actions stamped within the run window | Any off-zone write |
-| L6 | Clock decoupled from lighting | Section 4 D1 Live: HVAC value drops while the lighting value is still `on` | HVAC value never drops before lighting |
-| L7 | Night unchanged | In `sleep`, per-room `rule: night` and releases no earlier than the room's `occupied` off + night hold | Night release before that |
-| L8 | Write rate | Per-zone `climate_write`/day <= D0b baseline + observed spread + 10/day; `fast_writes_today` <= 6/hour/zone; no ceiling trips | Ceiling trips, or a jump well past the residual bound |
-| L9 | Quick returns | `quick_returns_today` summed over 7 days <= 2x D0c's prediction | Much higher: holds too short for real behaviour |
-| L10 | Teardown / reload | After one room reload and one HA restart: exactly one listener per room (debug attr `fast_listener_count` = live room count), no `RuntimeError`, timers re-armed by the next full cycle | Duplicate or missing listeners |
-
-Results go into the README as a `Validated <date>` table (CLAUDE.md rule).
+| L1 | Fast entry latency | >= 90 % of `fast_entry` rows: `row_ts - edge_ts <= 45 s`; median < 10 s | uniform 0-300 s (tick) |
+| L2 | Exit exactness | every `fast_exit` away row: `row_ts - zone_empty_since` in `[300, 350] s` (or `[g, g + 50]` for the constrained grace) | `[300, 600]` spread; `< 300` (INV-2 break) |
+| L3 | INV-2 live | for each evidence-state away row, every zone room's recorded `release_at <= row_ts - grace` and `rule == evidence` | any later `release_at` |
+| L4 | Re-arm [REV 2 #7] | for every quick return, a `fast_entry` home/sleep row within 45 s of `edge_ts` — **zone_1 excluded while §9.7 is open** (its status feed can make the strategy skip or the tick re-issue) | home write only at the next tick |
+| L5 | Zone scope | during fast runs, no `climate_write` rows for other zones; no heat_cool / nudge / cover / fan actions; sweep actions only for the run's zone | any off-zone write |
+| L6 | Clock decoupled | D1 Live criterion | off never precedes lighting off |
+| L7 | Night and legacy unchanged | in `sleep` and `home_night`, `rule` is `night` / `legacy` and releases never precede the room's `*_occupied` off + the shadow tail | earlier release |
+| L8 | Write rate | per-zone `climate_write`/day <= D0b + spread + 10; no ceiling trips | trips or a jump |
+| L9 | Quick returns | 7-day sum <= 2x D0c prediction | much higher |
+| L10 | Lifecycle | after a room reload and an HA restart: one listener per room; timers re-armed | duplicates / missing |
+| L11 | Nudge skip [REV 2 #4] | no `ac_ramp_events` `nudge_started` for a zone within 120 s after a `fast_entry`/`fast_exit` write on that zone | a nudge seconds after a fast write |
 
 ---
 
 ## 10. D3: vacancy grace re-check (measure; knob only)
+Knob 48 (live 5), no code. Constraint first: common 300 + G >= 603 -> G >= 303 s; the same applies to knob 49
+[REV 2 R1 LOW-10]. The grace cannot drop below 5 minutes without raising the common-area hold. Probe after D1+D2 live
+>= 7 days (`hvac_vacancy_grace_probe.py` adapted): per zone, time from `zone_empty_since` to the next re-arm; for
+G' ∈ {2, 3, 4} min, extra away/home pairs vs conditioning minutes saved, with the matching hold increase. Operator turns
+the knob or not.
 
-The grace is knob 48, `number.ura_hvac_coordinator_48_zone_vacancy_delay_minutes` (live 5). No code change.
-
-- **Constraint from the audit (state it before measuring).** A MID gap can retreat a zone only if gap > T + G. At the
-  new table the margins are: common 300 + G >= 603 -> **G >= 303 s**; bedroom 240 + G >= 495 -> G >= 255 s. So
-  **the grace cannot drop below 5 minutes without raising the common-area hold by the same amount.** Lowering G is
-  a trade between the two, not a free win.
-- **Probe (after D1 + D2 live >= 7 days):** adapt `scripts/probes/hvac_vacancy_grace_probe.py` to read the new
-  `preset_change` fields. Per zone, from each exact `zone_empty_since`, the time to the next evidence re-arm. For
-  candidate G' in {2, 3, 4} min: extra away/home pairs per week (returns inside (G', G]) versus conditioning minutes
-  saved (episodes with no return x (G - G')). Report alongside the matching hold increase needed to keep MID = 0.
-- **Decision:** operator turns the knob (or not). No card-level code follow-up.
-
-**Acceptance:** probe table in this doc's results section; operator decision recorded on the card.
-
-## 10b. D4: clear Jaya Bedroom's day hold override (config)
-
-At deploy, blank `hvac_vacancy_hold` (day) on Jaya Bedroom so it uses the bedroom default 240; keep night 5400. The
-key is on the reload-suppression list (night-tail A precedent), so no reload.
-- **Verify:** `.storage/core.config_entries` Jaya Bedroom options have no `hvac_vacancy_hold` (or `null`),
-  `hvac_vacancy_hold_night: 5400.0`.
-- **Live:** `binary_sensor.jaya_bedroom_jaya_bedroom_hvac_occupied` attr `hvac_vacancy_hold_s` = 240 in a day state
-  and 5400 in `sleep`.
+## 10b. D4: clear Jaya Bedroom's day hold override
+Blank `hvac_vacancy_hold` on Jaya Bedroom (keep night 5400). Verify in `.storage`; live attr `hvac_vacancy_hold_s` = 240
+in `home_day` (rule `evidence`), 5400 in `sleep`. Note the shadow's legacy tail for Jaya becomes 60 (table) instead of
+the override 60: identical.
 
 ---
 
 ## 11. Tier: 3
-
-**Why Tier 3 (each trigger fires):**
-- It changes the still-person safeguard (CRIT-1 day release) — a comfort-and-cost decision where one wrong path
-  retreats an occupied zone.
-- It adds a new trigger into the decision-cycle lock and the S1 site, both shared primitives consumed by many paths;
-  the failure mode is one missed path (REV 4's second review found exactly that: four leaks).
-- History: this surface has had two failed plan reviews (REV 3/REV 4) and a parked build.
-
-**Protocol:**
-- **Two plan reviews before build:** (1) completeness: re-enumerate every S1 away path, every producer caller,
-  every lock taker, every consumer in section 3.2, every place that writes `last_occupied_time`; (2) build
-  prediction: section 11b plus whatever else a builder will misread.
-- **Four build reviews, parallel, disjoint:** A local correctness (evidence stamp, release arithmetic, table,
-  back-fill, timer math, config extremes); B integration and state machine (equivalence, lock rules, INV-4, W1-B
-  gates, D5/D6/D7, §9.7 loop, restart, reload, teardown); C test authority by real per-site source mutation (each
-  site in section 5 D2 and D1 tests, `.pyc` disabled, restore and status-check each drill); D adversarial
-  completeness: falsify INV-1..INV-5 over the whole surface including pre-existing code (D5 coast bypass reader,
-  reloading-room synthetic empty, egress, `arriving`, consensus defer, observation mode, pre-arrival, override
-  switches, zone deletion via `SIGNAL_ZM_ZONES_UPDATED`), each leak with a legal-config repro.
-- Orchestrator re-greps every S1 away path and re-runs the mutation on the day-rule anchor and the zone-scope anchor.
-- **Operator checkpoint before deploy.**
+Unchanged justification: changes the still-person safeguard; adds a trigger into the shared lock and S1 site; two
+failed plan reviews on this surface. Protocol: REV 2 re-review (both framings) -> build -> four parallel reviews
+(A local correctness; B integration/state machine; C per-site mutation; D adversarial completeness incl. pre-existing
+paths) -> orchestrator re-grep + re-drill -> operator checkpoint before deploy.
 
 ### 11b. What a builder will most likely get wrong
-1. Triggering on `binary_sensor.<room>_occupied` (REV 4) instead of the evidence stamp. That misses the premise case.
-2. Calling `_run_decision_cycle` for a fast run, or forgetting to skip the heat_cool enforcer / DPM overrides under
-   `zone_filter`.
-3. Putting the zone filter AFTER `zone.room_conditions.clear()` in the producer, wiping sibling zones.
-4. Leaving the coordinator-absent set filled only inside the filtered zone loop.
-5. Forgetting the `last_occupied_time` back-fill, so the fast exit fires one pass early (INV-2 break).
-6. Stamping evidence from `_last_motion_time` (misses camera/BLE) or only on rising edges.
-7. Letting BLE evidence arm a cold room (breaks extend-not-create).
-8. Rescheduling the exit timer after the away write when the status feed still reads `home` (§9.7 loop).
-9. Rate-limiting the re-arm (limiter must be exempt when the zone preset is `away`).
-10. Making a waiting periodic run a second back-to-back full cycle.
-11. Keeping the numeric night >= day clamp, which silently lifts the 9 common rooms' night 90 to 300.
-12. Releasing listeners or timers after the first `await` in teardown.
-13. Threading `trigger` into a counter but not into the `preset_change` row (L1-L4 need it on the row).
+REV 1 items 1-13 stand, with 11 replaced. Added [REV 2]:
+- (11, replaced) Removing or re-pointing the numeric clamp. It stays, reading the legacy tail.
+- 14. Letting the evidence branch write `_hvac_armed` / `_hvac_tail_until` / `_hvac_prev_state_occupied` (breaks INV-5).
+- 15. Pointing the shadow at `ROOM_TYPE_HVAC_HOLD` instead of `ROOM_TYPE_HVAC_TAIL_LEGACY`.
+- 16. Putting `guest`/`arriving`/`home_night` in the evidence states.
+- 17. `finally` placed after the lock acquisition instead of around the whole coroutine.
+- 18. Keying the limiter exemption on `zone.preset_mode`.
+- 19. Resetting `_zones_written_this_cycle` to an empty set at cycle entry.
+- 20. Reading `ev` with `if ev:` (a MagicMock is truthy) instead of `isinstance(ev, datetime)`.
+- 21. Exit timer reading the last pass's evidence instead of the live accessor; not rescheduling on grace/constraint changes.
+- 22. Stamping evidence on a fan-demoted / failsafe / fan-recheck tick, or falling-edge-stamping the tick after one.
+
+### 11c. Test-file impact [REV 2 #8]
+| Existing test | Why it changes | Disposition |
+|---|---|---|
+| `test_hvac_night_hold_follows_sleep.py:69-79` `test_home_night_uses_day_hold` | Compares the selector with `ROOM_TYPE_HVAC_HOLD[room_type]`; the shadow selector now reads `ROOM_TYPE_HVAC_TAIL_LEGACY` and the table values changed | **RED -> update** to compare with the legacy table |
+| `:82-88` literals 60/60/120 in `home_night` | The shadow keeps the v5.103.19 tail | **stays GREEN by design** (see section 19 — the coordinator expected RED) |
+| `:91-100`, `:103-121`, `:124-133` | shadow selector unchanged | GREEN |
+| `:167-185` `test_producer_home_night_arms_day_tail` | drives `_compute_hvac_occupied` in `home_night` (legacy) | **stays GREEN by design**; add a sibling `home_day` test that asserts the evidence rule with `last_evidence` supplied |
+| `:216-255` `test_update_room_conditions_hands_house_state_to_tail` | MagicMock coordinator -> `ev None` via `isinstance`; sleep/home_night decided by the shadow | **GREEN only if** the `isinstance` fallback is built as specified; RED if the builder uses truthiness — so it is a guard test for item 20 |
+| `test_hvac_vacancy_hold_ui_defaults.py:159-172` `test_help_text_describes_reject_on_night_below_day` | asserts "rejects a night below day" and "0 = disabled" in `en.json`; section 14.2 rewrites both helpers | **RED -> update** to the new wording (still states that a night below day is rejected; states what 0 means) |
+| `test_zzz_hvac_conditioning_demand.py` table tests (`test_d1_hold_tables_source_of_truth` et al.) | day table values changed | RED -> update; add the legacy-table oracle |
+| `test_v5_103_8_hvac_knobs_and_obs.py:154-170` clamp test | clamp unchanged, now against the legacy tail | GREEN; add a case proving night 90 is not lifted to 300 |
+
+### 11d. Per-site mutation drill table [REV 2 #8]
+**R2's verbatim drill table was not provided to me and is not on disk** (grep of `docs/` and the repo). The table below
+is mine; the orchestrator should replace or merge it with R2's verbatim table before build.
+| # | Site (neuter the RETURN / value, not just the call) | Test that must go RED |
+|---|---|---|
+| 1 | Evidence-state output returns `shadow_out` | `test_evidence_state_ignores_lighting_timeout` |
+| 2 | Evidence branch writes `_hvac_armed = False` on release | `test_home_evening_to_sleep_mid_timeout_stays_held` |
+| 3 | Night output drops the shadow (`ev_out` only) | same + `test_night_release_never_before_shadow` |
+| 4 | `home_night` added to evidence states | `test_home_night_is_legacy_until_gate` |
+| 5 | `active` term removed from `ev_out` | `test_hold_zero_holds_while_active` |
+| 6 | `refresh_ok` hold removed | `test_refresh_failure_holds_previous_output` |
+| 7 | Suppressed-source check removed from the stamp | `test_no_stamp_on_fan_demoted_failsafe_recheck_sources` |
+| 8 | `not _failsafe_fired` removed from the BLE term | `test_ble_term_blocked_after_failsafe` |
+| 9 | Camera helper returns `None` in the stamp only | `test_camera_person_refreshes_evidence_inside_lighting_timeout` |
+| 10 | `last_occupied_time` back-fill removed | `test_last_occupied_time_backfilled_to_exact_release` + `test_exit_timer_fires_at_release_plus_grace` |
+| 11 | Zone filter moved after `clear()` | `test_fast_run_leaves_sibling_zones_untouched` |
+| 12 | Absent set filled back inside the zone loop | `test_absent_set_built_before_zone_loop` |
+| 13 | Heat_cool enforcer not skipped under `zone_filter` | `test_fast_run_is_zone_scoped` (enforcer spy) |
+| 14 | DPM overrides not skipped under `zone_filter` | `test_fast_run_is_zone_scoped` (DPM spy) |
+| 15 | Listener triggers on the lighting binary sensor edge | `test_rearm_while_lighting_still_on_triggers_fast_entry` |
+| 16 | Limiter exemption keyed on `preset_mode` | `test_rearm_limiter_exempt_keyed_on_last_sent` |
+| 17 | Nudge-skip seed reverted to `set()` | `test_fast_write_seeds_nudge_skip_on_next_tick` |
+| 18 | `finally` moved inside the lock | `test_queue_entry_cleared_on_every_exit_path` |
+| 19 | Post-lock gate re-check removed | `test_gates_rechecked_after_lock_wait` |
+| 20 | One-shot key not recorded | `test_exit_timer_one_shot_under_feed_disagreement` |
+| 21 | Exit timer reads pass-cached evidence | `test_exit_timer_reads_live_evidence` |
+| 22 | No reschedule on grace/constraint change | `test_exit_timer_rescheduled_on_grace_knob_change` + the 10/3 grace test |
+| 23 | Timer not cancelled on zone prune | `test_exit_timer_cancelled_on_zone_prune` |
+| 24 | Waiting periodic does not skip after a full cycle | `test_waiting_periodic_skips_if_full_cycle_ran` |
+| 25 | Teardown releases after the first await | `test_teardown_releases_before_first_await` |
+| 26 | Write ceiling never trips | `test_write_ceiling_trips_and_clears_at_local_midnight` |
+| 27 | `isinstance` replaced by truthiness | `test_accessor_fallback_uses_isinstance_datetime` + night-hold `:216-255` |
+Every drill: bytecode disabled, file restored, `git status` clean before the next drill.
 
 ---
 
 ## 12. Sequencing, coordination, supersession
+- **B is shipped (v5.103.19); no wait gate** [REV 2 preamble]. Build on current `develop`.
+- **`HVAC-ENTRY-DWELL-ROOM-CLOCK-1` (Stage B): partly superseded** — the release half is absorbed (evidence states
+  only); the arming-persistence half stays on the card, re-based on the evidence stamp.
+- **REV 4 plan:** superseded; add a banner.
+- **`HVAC-FAST-PATH-FAN-WARM-EDGES-1` — decision [REV 2 #11, R1 checklist 4]: keep it OUT of this cycle; recommend
+  reviving it as the NEXT cycle.** The trigger ("fan latency becomes an explicit goal") is arguably met by "we wanted
+  faster responses". But fans read the lighting `.occupied`, not the HVAC clock, and have their own counters and
+  gates (fan-transition gate, recheck, demotion); calling them from fast runs would reintroduce REV 4's
+  "fan writes off-schedule" HIGH into a Tier-3 cycle. A fan-only fast path (run `FanController` for one room on its
+  lighting edge) is a separate Tier-2 cycle, with a D0 of warm-zone entry -> fan-on latency. Operator to confirm.
+- `HVAC-HOLD-SIZING-ALL-ROOMS-1` -> D3/L9 input. `HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1` unchanged exposure.
+  `HVAC-WRITE-CONFIRMATION-ORACLE-1`: one-shot timer keeps §9.7 at tick cadence; L4 excludes zone_1.
+- W1-A baseline (D0b) >= 3 days, earliest 2026-09-30.
 
-- **Night-tail B first.** B edits `hvac_zones.py:1002/:1046` and the hold tests this plan also touches. Build this
-  cycle on `develop` after B merges; reuse `HVAC_NIGHT_HOLD_STATES`. If B is not merged, this plan's "night" means
-  B's set anyway (do not fall back to `FAN_TRUST_STATES`). Night-tail §L label changes to the two hold fields are
-  superseded by section 14 below.
-- **`HVAC-ENTRY-DWELL-ROOM-CLOCK-1` (Stage B): partly superseded.** Its release half (a 10 s transit holding a room
-  ~5 min + tail, C24) is absorbed here: the day release now runs from raw evidence. Its arming half (arm only after
-  raw evidence persists N s, to filter transits) is NOT built here and stays on the card, re-based on the new
-  evidence stamp, still gated on the flap measurement. With dwell 0 and fast entry, a zone-cold transit writes home
-  in seconds and away after hold + 5 min: the same two writes as today, less conditioning time.
-- **REV 4 plan (`PLANNING_hvac_w2_occupancy_fast_path.md`):** superseded by this plan; add a banner pointing here.
-- **`HVAC-OCCUPANCY-HOLD-CHAINED-AFTER-LIGHT-TIMEOUT-1`:** this cycle.
-- **`HVAC-HOLD-SIZING-ALL-ROOMS-1`:** its probe re-run ("after the fast path ships") becomes D3/L9 input.
-- **`HVAC-FAST-PATH-FAN-WARM-EDGES-1`:** stays parked; fans are untouched.
-- **`HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1`:** unchanged exposure; fast runs keep the establishment gate.
-- **`HVAC-WRITE-CONFIRMATION-ORACLE-1`:** the one-shot exit timer keeps the §9.7 loop at tick cadence.
-- **W1-A baseline:** D0b needs >= 3 days (earliest 2026-09-30).
+## 13. REV 4 findings and re-review HIGHs: disposition
+As REV 1, plus: the "sibling-zone wake-ups" answer now includes the pass-complete absent set built before the zone
+loop [REV 2 R2 M6]; F5's rerun replacement now covers the same-tick nudge skip across ticks [REV 2 #4].
 
----
-
-## 13. REV 4 findings and the failed re-review: disposition
-
-| Item | Disposition here |
-|---|---|
-| Re-review HIGH: whole-house off-schedule cycle | Fast runs never call `_run_decision_cycle` (section 5.1) |
-| Re-review HIGH: wrong-zone reruns | No rerun label; per-zone `_fast_path_queued` + wait-for-lock (5.5) |
-| Re-review HIGH: heat_cool / egress / fan / cover writes | Not called by a fast run; test `test_fast_run_is_zone_scoped` (5.2, D2) |
-| Re-review HIGH: sibling-zone wake-ups | Producer zone filter before `clear()`; pass-complete absent set; S1 origin-only (5.3) |
-| F1 dwell follow-up, F7 pop-before-dispatch, F8 follow-up tag | Dropped: dwell is 0 live; dwell > 0 now means "wait for the tick" and is documented on the knob (non-goal) |
-| F2 origin_zones | Replaced by the zone-scoped run |
-| F3 count-coupled skips | Moot: those sites are never called; waiting periodic skip rule prevents double full cycles |
-| F4 zone-cold gate on the fused value | Kept (5.4 step 4) |
-| F5 lock ahead of DENY / rerun | Replaced by wait-for-lock rules (5.5) |
-| F6 teardown before first await | Kept (5.8) |
-| F9 write-rate baseline query | Kept (D0b) |
-| F10 hard ceiling | Kept, re-based on writes per zone; plus runaway guard (5.7) |
-| F11 line refresh | Done against b2868c0d1 |
-| F12 zones read live | Kept |
-| F13 one lifecycle subscription | Kept |
-| F14 trigger on the ledger row + SLA consumer | Kept; the SLA gauge lives on `sensor.ura_hvac_coordinator_mode` (the named `_status` sensor does not exist) |
-| F15 anomaly observation | Moot: not called by fast runs |
-| Global limiter G | Dropped (5.7) |
-
----
-
-## 14. Knobs (ladder) and labels
+## 14. Knobs and labels
 
 ### 14.1 Knob ladder
 | Number | Value | Rung | Why |
 |---|---|---|---|
-| `ROOM_TYPE_HVAC_HOLD` values | section 4.5 | 1 (`const.py`) | Measured-safe from a probe; changing them reopens CRIT-1, so review required. Per-room override (rung 2) exists |
-| `HVAC_FAST_PATH_MIN_INTERVAL_S` | 60 | 1 (`hvac_const.py`) | Per-zone entry-run floor; D0: 0/114 zone-cold edges denied; exempt for re-arm |
-| `HVAC_FAST_PATH_SLA_S` | 45 | 1 | Observability target: p95 cycle proxy 27.6 s + headroom. Consumer: `last_fast_edge_to_write_s` |
-| `HVAC_FAST_PATH_EXIT_SLACK_S` | 2 | 1 | Clears the strict `>` grace test |
-| `HVAC_FAST_PATH_MAX_WRITES_PER_ZONE_PER_HOUR` | 6 | 1 | Carrier call-rate bound; min flap period is hold + grace >= 6 min |
-| `HVAC_FAST_PATH_MAX_RUNS_PER_ZONE_PER_HOUR` | 30 | 1 | Runaway guard for a producer/listener disagreement |
-| `HVAC_QUICK_RETURN_WINDOW_S` | 900 | 1 | Audit: LATE gaps resumed within ~16 min |
-| `HVAC_QUICK_RETURN_NM_PER_DAY` | 8 | 1 | ~2x the audit's ~4.6/day upper bound house-wide, applied per zone |
-| Fast room response switch | ON | 3 (switch) | Tier-3 rollback lever without a deploy. OFF = tick-only timing; the D1 clock stays |
-| Vacancy grace (knob 48) | 5 min | 3 (existing) | D3 decides; see its coupling with the holds |
+| `ROOM_TYPE_HVAC_HOLD` | 4.6 | 1 | Measured; reopening CRIT-1 needs review |
+| `ROOM_TYPE_HVAC_TAIL_LEGACY` [REV 2 #1] | 60/120/60/0 | 1 | Frozen v5.103.19 tail for the shadow; must not be tuned |
+| `HVAC_EVIDENCE_RULE_STATES` [REV 2 #2] | (`home_day`, `home_evening`) | 1 | Which states use the new clock; adding one needs a probe and review |
+| `HVAC_FAST_PATH_MIN_INTERVAL_S` | 60 | 1 | per-zone entry floor; exempt for re-arm |
+| `HVAC_FAST_PATH_SLA_S` | 45 | 1 | observability target |
+| `HVAC_FAST_PATH_EXIT_SLACK_S` | 2 | 1 | clears strict `>` |
+| `HVAC_FAST_PATH_MAX_WRITES_PER_ZONE_PER_HOUR` | 6 | 1 | Carrier bound |
+| `HVAC_FAST_PATH_MAX_RUNS_PER_ZONE_PER_HOUR` | 30 | 1 | runaway guard |
+| `HVAC_QUICK_RETURN_WINDOW_S` / `_NM_PER_DAY` | 900 / 8 | 1 | trip-wire |
+| Fast room response switch | ON | 3 | rollback without deploy; OFF = tick timing |
+| Knob 48 / knob 49 grace | 5 / 5 | 3 (existing) | D3; coupling warning on both |
 
-### 14.2 Label style guide (user-facing text)
-Rules: the config-flow label is a short phrase; the helper is plain sentences; entity names are 3 words max
-(after the HVAC numbering prefix); no jargon (not: tail, HVAC-occupied, clamp, gate, evidence, tick, fast path,
-debounce, CRIT, fused, rung).
+### 14.2 Labels (short config-flow phrase; plain helper; entity names <= 3 words; no jargon)
+Banned in user text: tail, HVAC-occupied, clamp, gate, evidence, tick, fast path, debounce, CRIT, fused, rung, shadow, legacy.
 
-**Room options, climate step (`strings.json` and `translations/en.json`, identical):**
+**Room options, climate step:**
 - `hvac_vacancy_hold` label: `Empty-room hold (day)`
-- `hvac_vacancy_hold` helper: `How many seconds heating and cooling keep treating this room as occupied after the last sign of someone in it, such as motion, presence, a camera or a phone. This covers people sitting still. Leave blank to use the default for this room type: 1 minute for closets, 2 minutes for utility and media rooms, 3 for bathrooms, 4 for bedrooms and 5 for living areas. Enter 0 to never hold.`
+- `hvac_vacancy_hold` helper [REV 2 #3]: `How many seconds heating and cooling keep treating this room as occupied during the day and evening. The time counts from the last sign of someone in the room, such as motion, presence, a camera or a phone. This covers people sitting still, and it is the only protection for someone who stays completely still. Leave blank to use the default for this room type: 1 minute for closets, 2 minutes for utility and media rooms, 3 for bathrooms, 4 for bedrooms and 5 for living areas. Enter 0 to hold only while a sensor still sees someone. From 9 pm until the house goes to sleep, this number is counted from when the room itself shows as empty.`
 - `hvac_vacancy_hold_night` label: `Empty-room hold (night)`
-- `hvac_vacancy_hold_night` helper: `The hold used while the house is asleep or waking up. It starts only when the room itself shows as empty, so sleepers who lie still get extra time. Leave blank to use the default for this room type: 30 minutes for bedrooms and media rooms, 15 for living areas, 10 for bathrooms, garages and utility rooms, and 5 for closets. It can be shorter than the day hold.`
-- Remove the error `hvac_hold_night_below_day`.
-- Section name `climate_backstop`: `Thermostat and empty-room hold`
+- `hvac_vacancy_hold_night` helper [REV 2 #3]: `The hold used while the house is asleep or waking up. It counts from when the room itself shows as empty, so sleepers who lie still get extra time. Leave blank to use the default for this room type: 30 minutes for bedrooms and media rooms, 15 for living areas, 10 for bathrooms, garages and utility rooms, and 5 for closets. Enter 0 for no extra time once the room shows as empty. This form rejects a night value below the day value.`
+- Error `hvac_hold_night_below_day` stays: `The night hold must be at least as long as the day hold. Raise the night value, or leave one of them blank to use the room type's default.`
+- Section `climate_backstop` name: `Thermostat and empty-room hold`
 
-**HVAC coordinator options (existing fields, helper text only):**
-- `hvac_vacancy_grace_minutes` helper: `Minutes a zone waits after its last room empties before heating and cooling switch to Away. If someone comes back sooner, nothing changes. Going below 5 minutes can switch a zone to Away while someone sits still in a living area.`
-- `hvac_zone_entry_dwell` helper: `Minutes a zone must stay occupied before heating and cooling switch it from Away to Home. At 0, the switch happens within seconds of someone arriving. Above 0, it waits for the next regular 5-minute check.`
+**HVAC coordinator options (helper text only):**
+- `hvac_vacancy_grace_minutes`: `Minutes a zone waits after its last room empties before heating and cooling switch to Away. If someone comes back sooner, nothing changes. Going below 5 minutes can switch a zone to Away while someone sits still in a living area.`
+- `hvac_vacancy_grace_constrained` [REV 2 R1 LOW-10]: `The same wait, used while the house is saving energy. It must be no longer than the normal delay. Going below 5 minutes can switch a zone to Away while someone sits still in a living area.`
+- `hvac_zone_entry_dwell`: `Minutes a zone must stay occupied before heating and cooling switch it from Away to Home. At 0, the switch happens within seconds of someone arriving. Above 0, it waits for the next regular 5-minute check.`
 
-**New switch:** entity name `31 · Fast Room Response` (entity `switch.ura_hvac_coordinator_31_fast_room_response`,
-`unique_id` `{DOMAIN}_hvac_fast_room_response`). There is no config-flow field for it.
+**New switch:** `31 · Fast Room Response` (`switch.ura_hvac_coordinator_31_fast_room_response`).
 
-**Notifications (NM):**
-- Write ceiling, title: `Fast room response paused for {zone}`; message: `{zone} changed its heating and cooling setting {n} times in the last hour. Fast response is off for this zone until midnight. The regular 5-minute check still runs.`
-- Quick returns, title: `{zone} keeps switching to Away too soon`; message: `{zone} switched to Away and someone was back within 15 minutes {n} times today. The empty-room hold for a room in this zone may be too short.`
-- Runaway guard, title: `Fast room response paused for {zone}`; message: `{zone} ran more checks than expected in the last hour. Fast response is off for this zone until midnight. The regular 5-minute check still runs.`
+**Notifications:** as REV 1 (ceiling, quick returns, runaway guard).
 
-**Acceptance:** `strings.json` and `en.json` match; a banned-word check over the changed strings finds none of the
-jargon list above; JSON parses; hassfest passes.
-
----
+**Acceptance:** `strings.json` == `en.json`; banned-word check clean; JSON parses; hassfest passes;
+`test_hvac_vacancy_hold_ui_defaults.py` updated to the new wording.
 
 ## 15. Files
-
-| File | Change |
-|---|---|
-| `custom_components/universal_room_automation/const.py` | `ROOM_TYPE_HVAC_HOLD` values + full coverage + coupling comment |
-| `.../coordinator.py` | Evidence stamp, accessor, `_camera_person_sensor_on`, `_ble_cap_exceeded` extractions |
-| `.../domain_coordinators/hvac_zones.py` | Day/night branches in `_compute_hvac_occupied`; `zone_ids` filter; pass-complete absent set; back-fill; `room_release_at` / `zone_release_at` / `zone_away_due_at`; clamp removal; diag + zone attrs |
-| `.../domain_coordinators/hvac.py` | Listeners + lifecycle; `_on_room_refresh`; `_async_zone_fast_run`; exit timers; lock rules; `_apply_house_state_presets(zone_filter, trigger, edge_ts)`; ceiling/guard/trip-wire; teardown; `get_mode_attrs` |
-| `.../domain_coordinators/hvac_const.py` | Section 14.1 constants |
-| `.../binary_sensor.py` | `last_evidence_at`, `release_at`, `rule` attrs |
-| `.../switch.py` | `31 · Fast Room Response` |
-| `.../config_flow.py` | Remove the night < day validation |
-| `.../strings.json`, `.../translations/en.json` | Section 14.2 |
-| `quality/tests/` | New `test_hvac_fast_occupancy_response.py`, `test_hvac_evidence_clock.py`; updates listed in D1 |
-| `scripts/probes/` | `hvac_fast_path_d0_probe.py --latency`; `hvac_vacancy_grace_probe.py` adaptation |
-| `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` | §1, §2 trigger table, §3.1-§3.2, §8 live values, §9.5, §9c, §9d, header (same commit) |
-| `docs/planning/PLANNING_hvac_w2_occupancy_fast_path.md` | Superseded banner |
-| `docs/readmes/README_v5.103.<n>.md` | PATCH bump (not a new capability class; per convention a MINOR is arguable — orchestrator decides) |
-
----
+As REV 1, with: `const.py` also gains `ROOM_TYPE_HVAC_TAIL_LEGACY`; `hvac_const.py` gains `HVAC_EVIDENCE_RULE_STATES`;
+`config_flow.py` is **no longer changed** (validation kept) [REV 2 #1]; `number.py` calls `reschedule_exit_timers()`
+from the three grace setters [REV 2 #10]; `hvac_zones.py` gains `_shadow_tail_seconds`, `_hvac_output`, `_hvac_rule`,
+`_hvac_day_release_at`; test-file updates per 11c; `scripts/probes/hvac_raw_evidence_gap_probe.py` gains `--states`.
 
 ## 16. Non-goals
-- No change to night hold values, night anchor, or `HVAC_NIGHT_HOLD_STATES` (night-tail B owns that).
-- No Stage B arming-persistence filter.
-- No fan, cover, predictor, egress, arrester, DPM or D9 change; fans stay tick-driven.
-- No change to `HVAC_DECISION_TICK`, the vacancy grace value, or the dwell value.
-- No REV 4 dwell follow-up; dwell > 0 means the entry waits for the tick (documented).
-- No change to hallway exclusion or to Override Occupied/Vacant semantics beyond "Vacant rides the hold from the last evidence".
-- No new table, DB writer, sensor, or dispatcher signal.
-- No fix for §9.4 placeholder readers or §9.7 feed disagreement (only: do not amplify §9.7).
-- No per-zone decision for D9 compose-away while it is dormant.
+REV 1 list, plus [REV 2]: no change to `home_night`, `guest`, `arriving` or `away` behaviour; no change to the numeric
+clamp or the flow validation; no fan fast path (section 12).
 
-## 17. Not done from the requested scope
-- The REV 4 second-review text is not on disk; section 13 answers the four HIGHs as summarised on the card. The
-  completeness plan reviewer should confirm with the orchestrator that nothing else was in that review.
-- Night-anchor unification (night hold from last evidence) was considered and PARKED: the night-sleeper probe
-  measured gaps on the HVAC value, so the raw-evidence margin for Jaya's 5400 s is unknown. Revival trigger: a
-  raw-evidence night probe shows every bedroom's max still-sleeper gap under its night hold with >= 15 min margin.
+## 17. Not done / parked
+- R2's verbatim drill table (not provided; section 11d is a stand-in).
+- Night-anchor unification (night hold from last evidence): parked; revival trigger unchanged from REV 1.
+- `home_night` on the evidence rule: parked behind D0c Gate B.
+
+## 18. REV 2 change log
+| # | Finding | Change | Where |
+|---|---|---|---|
+| pre | B shipped | Wait gate dropped; `hvac_zones.py` lines refreshed; state of play re-read | header, 0.1, 0.3, 12 |
+| 1 | INV-5 breaks at day->night (R1 CRIT-1 = R2 H1) | Shadow machine on every pass owns the three dicts; evidence output in its own dicts; night = shadow OR evidence; frozen legacy tail; clamp/validation kept; crossing test + drill | 0.5, 2 INV-5, 3.1, 4.2-4.4, 4.6, D1, 11d #1-3 |
+| 2 | home_night never measured (R1 H2 = R2 H2) | Evidence rule only in `home_day`/`home_evening`; `home_night` legacy until D0c Gate B; still person = hold only | header, 1, 2, 4.3, 6, 7, 8 |
+| 3 | Hold 0 / shorter than poll (R1 H3 = R2 M1) | `active OR now < ev + hold`; refresh failure holds; truthful "0" helpers | 4.1, 4.2, 14.2 |
+| 4 | Same-tick nudge skip lost (R1 H4 = R2 H4) | `_zone_last_s1_write`; cycle-entry seed within 120 s; test + drill; L11 | 5.2, 5.5, D2, 9, 11d #17 |
+| 5 | Vacancy sweep (R1 H5 = R2 M4) | In the consumer map; INV-4 corrected; timing change ACCEPTED with reason | 2, 3.2, 5.9 |
+| 6 | Dedup leak / gate re-check (R2 H3) | `finally` around the whole coroutine; gates re-checked after the lock; tests | 5.1, 5.5, D2 |
+| 7 | Falsifiable invariants (R1 M6 = R2 M3) | INV-1/INV-3 as "= periodic outcome within SLA"; exception table; exemption on `last_sent`; L4 excludes zone_1 | 2, 5.4, 9 |
+| 8 | Test list (R1 M7 + R2 M7) | Test-impact table; `isinstance` fallback; drill table (R2's verbatim missing); equivalence seeds must write | 4.2, D2, 11c, 11d |
+| 9 | Stamp gating (R1 M8) | No stamp on fan-demoted/failsafe/fan-recheck; BLE `not _failsafe_fired` | 4.1 |
+| 10 | Exit timer (R2 M2) | Live evidence; reschedule on grace and constraint changes; 10/3 grace test | 4.5, 5.6, D2 |
+| 11 | R2 M5, R2 M6, R1 LOW-9/10/11, R2 LOWs, R1 checklist 4 | Live criterion `release_at` + 335 s; absent set before loop; prune cancels timers + pre-arrival expiry in fast runs; knob 49 warning; zone-intelligence sensor; unbound locals; None rule; subscribe-then-enumerate; two-zones test; restart counters documented; display rule; fan card decision | throughout |
+
+## 19. Where REV 2 departs from the coordinator's instructions
+1. **`guest` and `arriving` are NOT on the evidence rule.** The instruction says the audit measured them; it did not.
+   The audit's day bucket is `home_day` + `home_evening` only, and it excludes `away`, `arriving` and `guest` (audit
+   §1 "82.4 h of day state (`home_day` / `home_evening`)", §8.6). They stay legacy until measured.
+2. **Night-hold test lines `:82-88`, `:167-185`, `:216-255` stay GREEN, not RED.** Fix 1 requires the shadow to run
+   today's machine byte-for-byte, so it keeps the v5.103.19 tails via the frozen legacy table. Only `:69-79` (which
+   reads `ROOM_TYPE_HVAC_HOLD`) goes red. `:216-255` becomes the guard for the `isinstance` fallback.
+3. **The numeric clamp and flow validation are kept** (REV 1 removed them). With the shadow on the legacy tail the clamp
+   no longer causes the 90 -> 300 lift, and the night OR provides monotonicity against the new hold.
+4. **Vacancy sweep "fires sooner" is bounded and accepted, not gated**: it never precedes the room's own lighting
+   vacancy (5.9).
