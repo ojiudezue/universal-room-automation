@@ -34,6 +34,7 @@ from .hvac_const import (
     AC_NUDGE_RESTORE_SETTLE_DELAY_S,
     AC_NUDGE_SETTLED_REASON_ENTITY_MISSING,
     AC_NUDGE_SETTLED_REASON_CANCELLED_BY_RENUDGE,
+    AC_NUDGE_SETTLED_REASON_RESTORED_BY_BOOT_AUDIT,
     AC_NUDGE_KWH_RATE_BEFORE_FLOOR,
     AC_NUDGE_OVERSHOOT_GAP,
     ARRESTER_IMMUNE_HOLD_MAX_S,
@@ -3521,7 +3522,13 @@ class OverrideArrester:
         """Discharge the arrester's own state cleanly (no latch) and record
         ONE `arrester_deferred_to_borrow` ledger row."""
         zone_id = zone.zone_id
-        self._cancel_zone_timers(zone_id)
+        # Round 3 LOW-2: cancel ONLY the arrester's own grace / compromise
+        # timers — a pending AC-reset restore timer (`_reset_timers`) is a
+        # different owner and must survive this deferral.
+        for _td in (self._grace_timers, self._compromise_timers):
+            _cancel = _td.pop(zone_id, None)
+            if _cancel:
+                _cancel()
         self._override_active[zone_id] = False
         self._compromise_active[zone_id] = False
         _LOGGER.info(
@@ -6600,10 +6607,13 @@ class OverrideArrester:
         # The snapshot DOES survive: hvac_excursion_state.pre_preset is
         # persisted. We just never read it here.
         _pre_presets: dict[str, str] = {}
+        _nudge_rows_present: set[str] = set()
         try:
             for _ex in (await self._db.get_all_excursion_rows()) or []:
                 _zid = _ex.get("zone_id")
                 _pp = _ex.get("pre_preset")
+                if _zid and str(_ex.get("kind") or "") == "nudge":
+                    _nudge_rows_present.add(str(_zid))
                 if _zid and _pp:
                     _pre_presets[str(_zid)] = str(_pp)
         except Exception:  # noqa: BLE001
@@ -6634,6 +6644,41 @@ class OverrideArrester:
 
             original_target = row.get("original_target")
             if original_target is None:
+                continue
+
+            # HVAC W1-B round 3 (MEDIUM-1): production boot order is the
+            # excursion audit FIRST (`hvac.py` async_setup) — it pins the
+            # NUDGE snapshot preset and DELETES the row — then this ramp
+            # audit on the first cycle. An in-flight `ac_reset_state` row
+            # with NO NUDGE excursion row therefore means the zone was
+            # already restored: do NOT re-arm a phantom nudge (no snapshot
+            # -> S6 would write a raw `human_manual_` setpoint and re-create
+            # an anonymous manual), write NOTHING, clear the in-flight state
+            # and close the ledger with one settled row.
+            if zone_id not in _nudge_rows_present:
+                await self._db.clear_ac_in_flight_nudge(zone_id)
+                try:
+                    await self._db.log_ac_ramp_event(
+                        zone_id=zone_id,
+                        event_type=AC_RAMP_EVENT_NUDGE_RESTORED,
+                        triggered_by="startup",
+                        target_high=float(original_target),
+                        notes=AC_NUDGE_SETTLED_REASON_RESTORED_BY_BOOT_AUDIT,
+                    )
+                    await self._db.update_ac_ramp_restore_settled(
+                        zone_id=zone_id,
+                        preset_settled=None,
+                        mode_settled=None,
+                        restore_ok=None,
+                        settled_reason=AC_NUDGE_SETTLED_REASON_RESTORED_BY_BOOT_AUDIT,
+                    )
+                except Exception:  # noqa: BLE001 — ledger only
+                    _LOGGER.debug("boot-audit settled row failed", exc_info=True)
+                zone.ramp_state = AC_RAMP_STATE_IDLE
+                _LOGGER.info(
+                    "Startup ramp audit: %s in-flight nudge already restored by "
+                    "the boot excursion audit — no re-arm, no write", zone.zone_name,
+                )
                 continue
 
             # HIGH-A2: NINTH-SITE GATE. Startup-ramp audit's direct

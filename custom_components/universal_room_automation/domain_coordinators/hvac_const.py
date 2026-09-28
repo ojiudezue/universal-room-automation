@@ -712,6 +712,9 @@ AC_NUDGE_RESTORE_SETTLE_DELAY_S: Final = 180
 # on the unmeasured 30-min figure and is retired.
 AC_NUDGE_SETTLED_REASON_ENTITY_MISSING: Final = "entity_missing_at_settle"
 AC_NUDGE_SETTLED_REASON_CANCELLED_BY_RENUDGE: Final = "cancelled_by_renudge"
+# HVAC W1-B round 3 (MEDIUM-1): the boot excursion audit already pinned the
+# NUDGE snapshot preset and dropped the row before the ramp audit ran.
+AC_NUDGE_SETTLED_REASON_RESTORED_BY_BOOT_AUDIT: Final = "restored_by_boot_excursion_audit"
 
 # v4.7.17.1: Post-restore minimum drop fraction for the new eval rule.
 # If trailing-window min kW during [restore, restore + eval_delay] is

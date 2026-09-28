@@ -270,7 +270,47 @@ async def test_egress_rehydrate_returns_orphan_row_when_not_paused(mods):
 
 
 @pytest.mark.asyncio
-async def test_restart_mid_nudge_resume_is_presets_only(mods):
+async def test_restart_mid_nudge_production_order_no_phantom_nudge(mods):
+    """Round 3 MEDIUM-1 — PRODUCTION boot order: the excursion audit runs
+    first (pins the NUDGE snapshot preset, deletes the row), then the ramp
+    audit on the first cycle. The ramp audit must NOT re-arm a phantom
+    nudge / write a raw setpoint; a later human change inside the old
+    window is booked governed, not nudge_win."""
+    db = _RampDB(
+        in_flight={ZONE: 76.0},
+        excursion_rows=[{"zone_id": ZONE, "kind": "nudge", "pre_preset": "home",
+                         "started_ts": H.utc_now().isoformat(), "duration_s": 1200,
+                         "excursion_id": "nudge:zone_1:1", "caller_site": "S5"}],
+    )
+    coord, hass, arr, z = _setup(mods, db=db)
+    ex = mods["hvac_excursion"]
+    ex._test_bind(hass=hass, db=db)
+    H.set_climate(hass, ENT, preset_mode="manual", hold_activity="manual", high=77.5)
+    # 1. boot excursion audit (async_setup) — restores the preset, drops the row
+    await ex.async_startup_excursion_audit(hass, coord)
+    await H.drain(hass)
+    assert H.preset_writes(hass, ENT, "home"), "boot audit pins the snapshot preset"
+    db._ex_rows = []  # the row is gone by the time the ramp audit runs
+    # 2. ramp audit (first cycle)
+    await arr.async_startup_ramp_audit()
+    await H.drain(hass)
+    assert H.temp_writes(hass, ENT) == [], "no raw setpoint restore"
+    assert ZONE not in arr._nudge_in_flight and ZONE not in arr._nudge_restore_timers
+    assert ZONE not in db._in_flight, "in-flight state cleared"
+    assert any(e.get("notes") == "restored_by_boot_excursion_audit" for e in db.ramp_events)
+    # 3. human change inside the old window -> governed
+    arr.unsuppress(ENT)
+    ev = H.make_event(ENT, old_preset="home", new_preset="manual", old_high=76.0, new_high=64.0, old_low=68.0, new_low=64.0)
+    arr._handle_climate_change(ev)
+    await H.drain(hass)
+    assert _ledger(hass, mods, "override_detected")[-1]["details"]["gated_reason"] is None
+    ex._test_clear_leases()
+
+
+@pytest.mark.asyncio
+async def test_restart_mid_nudge_with_row_present_is_presets_only(mods):
+    """Round-2 D-4 path (NUDGE row still present at ramp-audit time —
+    unreachable in production order, kept harmless): seeded, presets-only."""
     coord, hass, arr, z = _setup(mods, db=_RampDB(
         in_flight={ZONE: 76.0},
         excursion_rows=[{"zone_id": ZONE, "kind": "nudge", "pre_preset": "home"}],
@@ -280,8 +320,26 @@ async def test_restart_mid_nudge_resume_is_presets_only(mods):
     assert ZONE in arr._nudge_in_flight and arr._nudge_pre_preset.get(ZONE) == "home"
     await arr._restore_after_nudge(z, 76.0)
     await H.drain(hass)
-    assert H.temp_writes(hass, ENT) == [], "named snapshot -> no raw setpoint restore"
+    assert H.temp_writes(hass, ENT) == []
     assert H.preset_writes(hass, ENT, "home")
+
+
+# ---- LOW-2 ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_defer_to_borrow_keeps_pending_reset_restore_timer(mods):
+    """Round 3 LOW-2: a pending AC-reset restore timer survives a grace
+    deferral; only grace/compromise timers are cancelled."""
+    coord, hass, arr, z = _setup(mods)
+    fired = {"reset": False, "grace": False}
+    arr._reset_timers[ZONE] = lambda: fired.__setitem__("reset", True)
+    arr._grace_timers[ZONE] = lambda: fired.__setitem__("grace", True)
+    arr._override_active[ZONE] = True
+    arr._defer_arrester_to_borrow(z, "compromise", "egress_paused")
+    assert ZONE in arr._reset_timers and fired["reset"] is False
+    assert ZONE not in arr._grace_timers and fired["grace"] is True
+    assert arr._override_active.get(ZONE) is False
 
 
 # ---- LOW-3 ---------------------------------------------------------------------------
