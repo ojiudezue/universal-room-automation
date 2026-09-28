@@ -5725,6 +5725,7 @@ cards:
       _cameras_by_area never rebuilds on the suppressed reload).
     verdict: SIMPLIFY-OR-PARK
 - id: KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1
+  finding_2026_09_27: 'RE-OPENED by operator 2026-09-27 ("keeps timing out and turning off; room automations are off"). TWO callers found. (1) URA reconcile-on-return: switch.kitchen_automation was ON (recorder shows ON from 09-20 09:35, earliest retained row; the 09-12 read said OFF - how it flipped is UNKNOWN) with switch.kitchen_override_vacant ON, so every time the Tapo returned from unavailable (it drops every ~10-60 min, dozens/day for 2+ days) URA reconciled it to off: 14:19, 18:47, 18:56, 19:34 (activity rows reconcile_on_return exit_light_off; service call entity_id as list). (2) The ORIGINAL orphan caller is still live: 18:58:04 and 19:23:07 light.turn_off with entity_id as a STRING, no user/parent context, no URA row. Operator at 19:40-19:41 turned override_vacant OFF and kitchen_automation OFF, which stops caller (1). Caller (2) remains - HomeKit/iOS automation still the leading suspect. Tapo Wi-Fi/Matter dropouts are a separate device-health issue.'
   title: Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context
     light.turn_off from an external caller (leading suspect HomeKit/app-side automation)
   thread: diagnostics

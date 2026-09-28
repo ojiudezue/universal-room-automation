@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-27T17:36:11-05:00_ - _Data commit: `f26ff81e189d`_ - _last_reconciled: 2026-09-27_
+_Generated: 2026-09-27T18:54:57-05:00_ - _Data commit: `d0cf99dff003`_ - _last_reconciled: 2026-09-27_
 
 
 ## Columns
@@ -1780,7 +1780,8 @@ _created 2026-09-06 18:35 · updated 2026-09-12 11:00 · initial_
 - **Why:** A managed light turning off unexpectedly reads as a URA regression; proving it is external prevents chasing a phantom URA bug and points at the real owner.
 - **Next:** ANSWER: do you have a HomeKit/iOS (or other app) automation that turns the kitchen overhead off? YES -> name it, done. UNSURE -> I add service-call-origin debug logging and read the next fire. (URA already ruled out.)
 - **Tags:** no-fabrication-verify, falsify-first
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `finding_2026_09_27`: RE-OPENED by operator 2026-09-27 ("keeps timing out and turning off; room automations are off"). TWO callers found. (1) URA reconcile-on-return: switch.kitchen_automation was ON (recorder shows ON from 09-20 09:35, earliest retained row;...
   - `parked_2026_09_13`: PARKED by operator ("Ok. Leave it alone now"). URA was already EXONERATED by evidence (activity log clean; the light.turn_off arrives with an orphan context = an external caller, leading suspect a HomeKit/iOS-side automation). The operat...
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: URA exonerated (activity_log 0 rows, switch.kitchen_automation off, orphan-context turn_off, commit 810be0418). Ball legitimately with operator: is there a HomeKit...
   - `forensic_evidence`: ura_activity_log: 0 rows for entity/room Kitchen light; reconciles_today=0.
