@@ -892,3 +892,33 @@ def test_kill_switch_off_keeps_release_clock_and_filter_on(mods):
         _pass(coord)
         assert _diag(coord, KIT)["output"] is True
         assert coord._fast_path_gates_open("zone_1", "fast_entry") is False
+
+
+def test_legacy_and_night_passes_reset_stale_d5_fields(mods):
+    """A-LOW-1/2: `exempt_reason`, `arm_onset`, `pending`, `cold` and the
+    episode never survive a legacy or night pass (they are per-pass D5
+    fields of the evidence rule only)."""
+    with _Clock(T0) as clk:
+        coord, hass, coords, sched = _away_zone(mods, clk)
+        zm = coord.zone_manager
+        _arm_then_release(coord, coords, clk)
+        clk.t = clk.t + S(seconds=60)
+        _evidence(coords[KIT], onset=clk.t, ev=clk.t, active=True)
+        _pass(coord)                                                     # exempt re-arm
+        assert _diag(coord, KIT)["exempt_reason"] == "same_room_return"
+        assert KIT in zm._hvac_arm_onset
+        coord._house_state = "home_night"
+        _pass(coord)                                                     # legacy pass
+        d = _diag(coord, KIT)
+        assert d["rule"] == "legacy"
+        assert d["exempt_reason"] is None and d["pending"] is False and d["cold"] is False
+        assert KIT not in zm._hvac_arm_onset and d["episode_start"] is None
+        # Night: a live episode / exempt reason is dropped too.
+        coord._house_state = "home_day"
+        zm._hvac_exempt_reason[KIT] = "same_room_return"
+        zm._hvac_episode_start[KIT] = clk.t
+        coord._house_state = "sleep"
+        _pass(coord)
+        d = _diag(coord, KIT)
+        assert d["rule"] == "night" and d["exempt_reason"] is None and d["cold"] is False
+        assert d["episode_start"] is None
