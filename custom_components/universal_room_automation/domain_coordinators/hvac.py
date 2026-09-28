@@ -4334,6 +4334,10 @@ class HVACCoordinator(BaseCoordinator):
         """fix-up 2 (D-L1): close the pending spell of every in-scope zone
         whose S1 block did not run this tick (arriving, no target preset,
         zone intelligence off, observation mode, egress pause)."""
+        # Bare fixtures (object.__new__ coordinators in older tests) may lack
+        # the latch sets — treat them as empty rather than fault the tick.
+        _logged = getattr(self, "_pending_hold_logged", None)
+        _cap_logged = getattr(self, "_pending_hold_cap_logged", None)
         for _zid, _z in list(self._zone_manager.zones.items()):
             if zone_filter is not None and _zid not in zone_filter:
                 continue
@@ -4341,8 +4345,10 @@ class HVACCoordinator(BaseCoordinator):
                 continue
             if getattr(_z, "pending_hold_since", None) is not None:
                 self._note_pending_hold(_z, False)
-            self._pending_hold_logged.discard(_zid)
-            self._pending_hold_cap_logged.discard(_zid)
+            if _logged is not None:
+                _logged.discard(_zid)
+            if _cap_logged is not None:
+                _cap_logged.discard(_zid)
 
     def _log_pending_hold_capped(
         self, zone: Any, zone_id: str, activity_logger: Any, now_utc: datetime,
