@@ -874,8 +874,14 @@ class HVACPredictor:
 
         Fallback when `_last_emitted_range` has no entry (e.g. zone never
         had a preset cycle since boot): reconstruct from preset manager
-        using the same shape DPM apply uses (cool_high = baseline_cool,
-        cool_low = baseline_cool - 7.0 — see hvac.py:1337).
+        using cool_high = baseline_cool and low = the CONFIGURED HEAT
+        setpoint from `get_seasonal_setpoints` (hvac_preset.py:126-180 —
+        reads per-preset heat from CM entry.options with SEASONAL_DEFAULTS
+        fallback, so a Heat Low always exists). Card
+        HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1: the prior `baseline_cool - 7.0`
+        derivation was a Bug Class #63 coincidental-equality that ignored
+        the configured Heat Low and would restore an empty winter-away
+        zone to heat 73 F on an 80/65 profile.
 
         NB (pre-existing, out of scope): the same live-state read causes
         banking itself to ratchet toward the SOLAR_BANK_FLOOR across
@@ -914,8 +920,13 @@ class HVACPredictor:
             baseline = self._preset_manager.get_seasonal_setpoints(target_preset)
             if baseline is None:
                 return None
-            baseline_cool, _baseline_heat = baseline
-            return (float(baseline_cool) - 7.0, float(baseline_cool))
+            baseline_cool, baseline_heat = baseline
+            # HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1: return the CONFIGURED
+            # Heat Low as the low side (target_temp_low on heat_cool IS the
+            # heat setpoint). `get_seasonal_setpoints` already reads
+            # per-preset CM entry.options with SEASONAL_DEFAULTS fallback,
+            # so this can never be missing.
+            return (float(baseline_heat), float(baseline_cool))
         except Exception:  # noqa: BLE001
             return None
 

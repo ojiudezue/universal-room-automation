@@ -227,10 +227,14 @@ def _load_real_predictor_class():
     def _stub_apply_setpoint_guards(*a, **k):
         return None
 
+    async def _stub_emit_set_preset_mode(*a, **k):
+        return None
+
     _ensure_stub(
         f"{_dc_name}.hvac_setpoint",
         apply_setpoint_guards=_stub_apply_setpoint_guards,
         emit_set_temperature=_stub_emit_set_temperature,
+        emit_set_preset_mode=_stub_emit_set_preset_mode,
     )
     _ensure_stub(
         f"{_dc_name}.signals",
@@ -1653,3 +1657,57 @@ class TestMutationMap:
         assert not missing, (
             f"Mutation map references unknown tests: {missing}"
         )
+
+
+class TestResolveBaselineRangeHeatLow:
+    """Card HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1.
+
+    `_resolve_baseline_range` preset-resolved fallback must return the
+    CONFIGURED Heat Low, not `baseline_cool - 7.0`. On a winter `away`
+    profile of 80/65 the release must restore heat 65, not 73 -- writing
+    73 F to an empty winter-away zone heats it unnecessarily.
+
+    Behavioural test through the enclosing method (not a helper-only
+    test): drives `_resolve_baseline_range` with a preset manager whose
+    `get_seasonal_setpoints` names the real per-preset heat setpoint,
+    exactly as the production preset manager (`hvac_preset.py:126-180`)
+    does at runtime.
+    """
+
+    def _pred_with_fallback_only(self, cool: float, heat: float):
+        pred, _hass = _make_predictor()
+        # Force the fallback branch: `_last_emitted_range` must MISS.
+        coord = MagicMock()
+        coord._last_emitted_range = {}
+        coord._house_state = "home_away"  # any value; the pm stub ignores it
+        pred._hvac_coord = coord
+        pm = pred._preset_manager
+        pm.get_preset_for_house_state = MagicMock(return_value="away")
+        pm.get_seasonal_setpoints = MagicMock(return_value=(cool, heat))
+        return pred
+
+    def test_winter_away_returns_configured_heat_low_not_minus7(self):
+        """Winter away profile 80/65 -> fallback returns (65, 80), not (73, 80)."""
+        pred = self._pred_with_fallback_only(cool=80.0, heat=65.0)
+        got = pred._resolve_baseline_range("z1")
+        assert got == (65.0, 80.0), (
+            f"HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1: winter away 80/65 must "
+            f"restore heat 65 (the configured Heat Low), got {got}. "
+            f"Under the old `baseline_cool - 7.0` derivation this would "
+            f"be (73.0, 80.0) -- heating an empty winter-away zone to 73 F."
+        )
+
+    def test_summer_default_range_unchanged_shape(self):
+        """Summer 78/70 profile -> fallback returns (70, 78) (shape unchanged)."""
+        pred = self._pred_with_fallback_only(cool=78.0, heat=70.0)
+        got = pred._resolve_baseline_range("z1")
+        assert got == (70.0, 78.0), (
+            f"Summer default 78/70 must restore (70, 78); got {got}."
+        )
+
+    def test_last_emitted_range_still_wins_when_present(self):
+        """The `_last_emitted_range` branch is untouched by this fix."""
+        pred = self._pred_with_fallback_only(cool=80.0, heat=65.0)
+        pred._hvac_coord._last_emitted_range = {"z1": (68.0, 76.0)}
+        got = pred._resolve_baseline_range("z1")
+        assert got == (68.0, 76.0), got
