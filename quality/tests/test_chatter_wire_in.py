@@ -158,16 +158,32 @@ class _SourceMutation:
 def _mutate_and_expect_red(
     path: pathlib.Path, old: str, new: str, target: str, label: str,
 ):
-    """Run the drill: mutate, expect RED, restore, expect GREEN."""
-    with _SourceMutation(path, old, new):
-        red = _run_target(target)
-    assert red != 0, (
-        f"DRILL {label}: mutation did NOT red target {target}. "
-        "Hollow anchor — the test does not actually depend on the mutated site."
+    """SIGKILL-safe drill: mutate a COPY under tmp; run the anchor
+    test in a subprocess against the mutated tree; assert RED. Real
+    production source is NEVER opened for write.
+
+    ``target`` is ``"<abs_test_file>::<test_name>"`` — the anchor test
+    typically lives in a DIFFERENT test file (test_chatter_tick_helper,
+    test_chatter_detector, ...), which is why this drill is not
+    same-file. See _mutation_sandbox.py.
+    """
+    from _mutation_sandbox import apply_mutation_in_sandbox
+    anchor_file_str, _, anchor_name = target.partition("::")
+    assert anchor_name, f"target must be file::testname, got: {target!r}"
+    apply_mutation_in_sandbox(
+        prod_path=path,
+        swap_from=old,
+        swap_to=new,
+        anchor_test_file=pathlib.Path(anchor_file_str),
+        anchor_test_name=anchor_name,
+        expect="KILLED",
     )
+    # Post-restore green check (source is untouched, but keep the
+    # contract: the anchor runs green in a fresh subprocess).
     green = _run_target(target)
     assert green == 0, (
-        f"DRILL {label}: post-restore run failed. Restore corrupted the file."
+        f"DRILL {label}: post-restore run failed. Anchor did not run "
+        "green against the (unmutated) production tree."
     )
 
 

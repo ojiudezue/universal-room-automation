@@ -592,25 +592,17 @@ def _run_test_in_subprocess(test_name: str) -> subprocess.CompletedProcess:
 
 
 def _mutate_and_expect_red(swap_from: str, swap_to: str, test_name: str):
-    src_path = _POOL_SRC
-    original = src_path.read_text(encoding="utf-8")
-    assert swap_from in original, f"anchor missing: {swap_from!r}"
-    mutated = original.replace(swap_from, swap_to, 1)
-    assert mutated != original, "mutation was a no-op"
-    src_path.write_text(mutated, encoding="utf-8")
-    _md5_after = _md5(src_path)
-    try:
-        _clear_pycache()
-        result = _run_test_in_subprocess(test_name)
-        assert result.returncode != 0, (
-            f"expected {test_name} to FAIL under mutation; got returncode="
-            f"{result.returncode}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-        )
-    finally:
-        src_path.write_text(original, encoding="utf-8")
-        _clear_pycache()
-        assert _md5(src_path) != _md5_after
-        assert src_path.read_text(encoding="utf-8") == original
+    # SIGKILL-safe: mutate a COPY under tmp; real _POOL_SRC never
+    # opened for write. See _mutation_sandbox.py.
+    from _mutation_sandbox import apply_mutation_in_sandbox
+    apply_mutation_in_sandbox(
+        prod_path=_POOL_SRC,
+        swap_from=swap_from,
+        swap_to=swap_to,
+        anchor_test_file=Path(os.path.abspath(__file__)),
+        anchor_test_name=test_name,
+        expect="KILLED",
+    )
 
 
 def test_MUTATION_M1_remove_hold_only_condition_makes_INV_YIELD_2_red():
@@ -961,32 +953,26 @@ def test_Cb8_stronger_peer_helper_covers_five_owners():
 def test_MUTATION_M4_remove_orphan_floor_clear_makes_AHIGH1_red():
     """M4 (A-HIGH-1 anchor): drop the `_dp_decision_soc = None` clear
     from the post-yield bookkeeping ⇒ the AHIGH1 test goes RED."""
+    from _mutation_sandbox import apply_mutation_in_sandbox
     _POOL_SRC_ENERGY = Path(_dc_path) / "energy.py"
-    original = _POOL_SRC_ENERGY.read_text(encoding="utf-8")
-    swap_from = (
-        "if not self._ev._paused_by_dp:  # noqa: SLF001\n"
-        "                self._dp_decision_soc = None\n"
-        "                self._cancel_dp_must_start_by_timer()"
+    apply_mutation_in_sandbox(
+        prod_path=_POOL_SRC_ENERGY,
+        swap_from=(
+            "if not self._ev._paused_by_dp:  # noqa: SLF001\n"
+            "                self._dp_decision_soc = None\n"
+            "                self._cancel_dp_must_start_by_timer()"
+        ),
+        swap_to=(
+            "if not self._ev._paused_by_dp:  # noqa: SLF001\n"
+            "                pass"
+        ),
+        anchor_test_file=Path(os.path.abspath(__file__)),
+        anchor_test_name=(
+            "test_AHIGH1_yield_last_dp_member_clears_decision_soc_"
+            "and_cancels_timer"
+        ),
+        expect="KILLED",
     )
-    swap_to = (
-        "if not self._ev._paused_by_dp:  # noqa: SLF001\n"
-        "                pass"
-    )
-    assert swap_from in original, "M4 anchor missing"
-    mutated = original.replace(swap_from, swap_to, 1)
-    _POOL_SRC_ENERGY.write_text(mutated, encoding="utf-8")
-    try:
-        _clear_pycache()
-        result = _run_test_in_subprocess(
-            "test_AHIGH1_yield_last_dp_member_clears_decision_soc_and_cancels_timer"
-        )
-        assert result.returncode != 0, (
-            f"expected test to fail under M4 mutation; got "
-            f"returncode={result.returncode}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-        )
-    finally:
-        _POOL_SRC_ENERGY.write_text(original, encoding="utf-8")
-        _clear_pycache()
 
 
 def test_MUTATION_M3_break_owner_handoff_makes_ownerless_gap_test_red():

@@ -110,49 +110,25 @@ def test_MUTATION_h1_save_evse_dp_paused_dropped_makes_ast_test_red():
     below goes RED (evse_dp_paused literal disappears from the
     declaration file).
     """
+    # SIGKILL-safe: mutate a COPY under tmp; real owners_src is never
+    # opened for write. See _mutation_sandbox.py.
     from pathlib import Path
-    import subprocess, sys, os
-    owners_src = Path(
+    import os
+    from _mutation_sandbox import apply_mutation_in_sandbox, _REPO
+    owners_src = _REPO / (
         "custom_components/universal_room_automation/domain_coordinators/"
-        "energy_pool_owners.py",
+        "energy_pool_owners.py"
     )
-    original = owners_src.read_text(encoding="utf-8")
-    swap_from = 'persistence_key="evse_dp_paused", persistence_kind="list",'
-    swap_to = 'persistence_key=None, persistence_kind="none",'
-    assert swap_from in original, f"anchor missing: {swap_from!r}"
-    try:
-        owners_src.write_text(original.replace(swap_from, swap_to, 1),
-                              encoding="utf-8")
-        env = os.environ.copy()
-        env["PYTHONPATH"] = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), ".."),
-        )
-        # Clear caches so the mutated module is re-imported.
-        for root, _dirs, _files in os.walk(
-            os.path.join(os.path.dirname(__file__), "..", ".."),
-        ):
-            if root.endswith("__pycache__"):
-                for f in os.listdir(root):
-                    try:
-                        os.unlink(os.path.join(root, f))
-                    except OSError:
-                        pass
-        result = subprocess.run(
-            [
-                sys.executable, "-m", "pytest",
-                f"{os.path.abspath(__file__)}::"
-                "test_h1_evse_dp_paused_is_saved_alongside_siblings",
-                "-x", "--tb=short", "-q",
-            ],
-            env=env, capture_output=True, text=True,
-            cwd=os.path.abspath(os.path.join(os.path.dirname(__file__),
-                                             "..", "..")),
-        )
-        assert result.returncode != 0, (
-            f"expected RED under mutation; got 0\n{result.stdout}"
-        )
-    finally:
-        owners_src.write_text(original, encoding="utf-8")
+    apply_mutation_in_sandbox(
+        prod_path=owners_src,
+        swap_from='persistence_key="evse_dp_paused", persistence_kind="list",',
+        swap_to='persistence_key=None, persistence_kind="none",',
+        anchor_test_file=Path(os.path.abspath(__file__)),
+        anchor_test_name=(
+            "test_h1_evse_dp_paused_is_saved_alongside_siblings"
+        ),
+        expect="KILLED",
+    )
 
 
 # ==========================================================================

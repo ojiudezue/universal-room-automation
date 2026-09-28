@@ -764,46 +764,17 @@ _POOL_SRC = Path(_dc_path) / "energy_pool.py"
 def _run_named_test_under_mutation(
     src_path: Path, old: str, new: str, target_test: str,
 ) -> None:
-    backup = src_path.read_text()
-    assert old in backup, (
-        f"mutation anchor NOT FOUND in {src_path.name} — test needs "
-        f"updating for source drift.\nanchor snippet:\n{old[:200]}"
+    # SIGKILL-safe: mutate a COPY under tmp; real src_path never
+    # opened for write. See _mutation_sandbox.py.
+    from _mutation_sandbox import apply_mutation_in_sandbox
+    apply_mutation_in_sandbox(
+        prod_path=src_path,
+        swap_from=old,
+        swap_to=new,
+        anchor_test_file=Path(os.path.abspath(__file__)),
+        anchor_test_name=target_test,
+        expect="KILLED",
     )
-    try:
-        mutated = backup.replace(old, new, 1)
-        assert mutated != backup, "mutation was a no-op"
-        src_path.write_text(mutated)
-        pyc_dir = src_path.parent / "__pycache__"
-        if pyc_dir.exists():
-            for p in pyc_dir.glob(f"{src_path.stem}.*"):
-                p.unlink()
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(Path(_HERE).parent) + os.pathsep + env.get(
-            "PYTHONPATH", ""
-        )
-        proc = subprocess.run(
-            [
-                sys.executable, "-m", "pytest", "-x", "--no-header",
-                f"quality/tests/test_evse_drain_precedence_session_b2b_ii.py::{target_test}",
-                "-q",
-            ],
-            cwd=str(Path(_HERE).parent.parent),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
-        assert proc.returncode != 0, (
-            f"mutation did NOT cause {target_test} to fail; site not "
-            f"load-bearing.\nstdout={proc.stdout[-2000:]}\n"
-            f"stderr={proc.stderr[-2000:]}"
-        )
-    finally:
-        src_path.write_text(backup)
-        pyc_dir = src_path.parent / "__pycache__"
-        if pyc_dir.exists():
-            for p in pyc_dir.glob(f"{src_path.stem}.*"):
-                p.unlink()
 
 
 def test_mutation_append_leg_drops_dp_fold_breaks_supremacy():

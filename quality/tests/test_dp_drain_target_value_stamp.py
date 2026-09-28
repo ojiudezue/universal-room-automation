@@ -759,25 +759,17 @@ def _run_named_test_subprocess_dp(test_name):
 
 
 def _mutate_energy_expect_red(swap_from, swap_to, test_name):
-    src_path = Path(_ENERGY_PY)
-    original = src_path.read_text(encoding="utf-8")
-    assert swap_from in original, f"anchor missing in energy.py: {swap_from!r}"
-    mutated = original.replace(swap_from, swap_to, 1)
-    assert mutated != original, "mutation was a no-op"
-    src_path.write_text(mutated, encoding="utf-8")
-    md5_after = _md5_dp(src_path)
-    try:
-        _clear_pycache_dp()
-        result = _run_named_test_subprocess_dp(test_name)
-        assert result.returncode != 0, (
-            f"MUTATION SILENT: {test_name} passed under mutation\n"
-            f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-        )
-    finally:
-        src_path.write_text(original, encoding="utf-8")
-        _clear_pycache_dp()
-        assert _md5_dp(src_path) != md5_after
-        assert src_path.read_text(encoding="utf-8") == original
+    # SIGKILL-safe: mutate a COPY under tmp; real _ENERGY_PY is never
+    # opened for write. See _mutation_sandbox.py.
+    from _mutation_sandbox import apply_mutation_in_sandbox
+    apply_mutation_in_sandbox(
+        prod_path=Path(_ENERGY_PY),
+        swap_from=swap_from,
+        swap_to=swap_to,
+        anchor_test_file=Path(os.path.abspath(__file__)),
+        anchor_test_name=test_name,
+        expect="KILLED",
+    )
 
 
 def test_capture_is_last_binding_before_dp_tick_call():

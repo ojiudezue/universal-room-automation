@@ -788,25 +788,17 @@ def _run_test_in_subprocess(test_name: str) -> subprocess.CompletedProcess:
 def _mutate_and_expect_red(
     swap_from: str, swap_to: str, test_name: str,
 ):
-    src_path = _ENERGY_SRC
-    original = src_path.read_text(encoding="utf-8")
-    assert swap_from in original, f"anchor missing in energy.py: {swap_from!r}"
-    mutated = original.replace(swap_from, swap_to, 1)
-    assert mutated != original, "mutation was a no-op"
-    src_path.write_text(mutated, encoding="utf-8")
-    _md5_after = _md5(src_path)
-    try:
-        _clear_pycache()
-        result = _run_test_in_subprocess(test_name)
-        assert result.returncode != 0, (
-            f"expected {test_name} to FAIL under mutation; got returncode="
-            f"{result.returncode}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-        )
-    finally:
-        src_path.write_text(original, encoding="utf-8")
-        _clear_pycache()
-        assert _md5(src_path) != _md5_after
-        assert src_path.read_text(encoding="utf-8") == original
+    # SIGKILL-safe: mutate a COPY under tmp; real _ENERGY_SRC is never
+    # opened for write. See _mutation_sandbox.py for the invariant.
+    from _mutation_sandbox import apply_mutation_in_sandbox
+    apply_mutation_in_sandbox(
+        prod_path=_ENERGY_SRC,
+        swap_from=swap_from,
+        swap_to=swap_to,
+        anchor_test_file=Path(os.path.abspath(__file__)),
+        anchor_test_name=test_name,
+        expect="KILLED",
+    )
 
 
 def test_MUTATION_item1_exit_predicate_reverted_makes_hold_test_red():
