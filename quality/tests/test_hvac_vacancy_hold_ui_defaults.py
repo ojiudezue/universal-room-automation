@@ -162,9 +162,14 @@ def test_help_text_describes_reject_on_night_below_day():
     )
     with open(en_path, "r") as fh:
         en = fh.read()
-    # C3: reworded from "auto-clamped to >= day" to reject-on-form,
-    # runtime-clamp-blank-only wording.
-    assert "rejects a night below day" in en, (
-        "help text must state the form rejects a night below day"
+    # C3 (v5.103.8): the form rejects a night below day. v5.103.20 (HVAC
+    # fast occupancy response, plan §14.2) reworded both helpers in plain
+    # language: the night helper still states the rejection; the day helper
+    # states what 0 means (hold only while a sensor still sees someone).
+    assert "This form rejects a night value below the day value." in en, (
+        "night helper must state the form rejects a night below day"
     )
-    assert "0 = disabled" in en
+    assert "Enter 0 to hold only while a sensor still sees someone." in en, (
+        "day helper must state what 0 means"
+    )
+    assert "Enter 0 for no extra time once the room shows as empty." in en

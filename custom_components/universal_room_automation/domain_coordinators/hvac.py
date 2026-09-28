@@ -13,7 +13,9 @@ from __future__ import annotations
 import asyncio
 import time
 import logging
+from collections import deque
 from datetime import datetime, timedelta
+from functools import partial
 from typing import Any
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -23,6 +25,7 @@ from homeassistant.helpers.dispatcher import (
     async_dispatcher_send,
 )
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_state_change_event,
     async_track_time_interval,
 )
@@ -33,6 +36,15 @@ from ..const import DOMAIN
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .hvac_const import (
     HVAC_DECISION_TICK,
+    HVAC_EVIDENCE_RULE_STATES,
+    HVAC_NIGHT_HOLD_STATES,
+    HVAC_FAST_PATH_MIN_INTERVAL_S,
+    HVAC_FAST_PATH_SLA_S,
+    HVAC_FAST_PATH_EXIT_SLACK_S,
+    HVAC_FAST_PATH_MAX_WRITES_PER_ZONE_PER_HOUR,
+    HVAC_FAST_PATH_MAX_RUNS_PER_ZONE_PER_HOUR,
+    HVAC_QUICK_RETURN_WINDOW_S,
+    HVAC_QUICK_RETURN_NM_PER_DAY,
     COMFORT_SOC_FLOOR_PCT,
     COMFORT_GRACE_MIN,
     # HVAC W1-B: P2 classifier thresholds + §5.P5 reclaim-rate trip-wire.
@@ -67,7 +79,7 @@ from .hvac_const import (
 from .hvac_covers import CoverController
 from .hvac_egress import EgressManager
 from .hvac_fans import FanController
-from .hvac_override import OverrideArrester
+from .hvac_override import OverrideArrester, SUPPRESS_TTL_SECONDS_PRESET
 from .hvac_predict import HVACPredictor
 from .hvac_preset import PresetManager
 from .hvac_setpoint import (
@@ -82,6 +94,7 @@ from .signals import (
     SIGNAL_ENERGY_CONSTRAINT,
     SIGNAL_HOUSE_STATE_CHANGED,
     SIGNAL_PERSON_ARRIVING,
+    SIGNAL_ROOM_ENTRY_LIFECYCLE,
     SIGNAL_SAFETY_HAZARD,
     SIGNAL_ZM_ZONES_UPDATED,
 )
@@ -459,6 +472,59 @@ class HVACCoordinator(BaseCoordinator):
         self._s1_reclaim_ts: dict[str, list[float]] = {}
         self._s1_reclaim_rate_latched: set[str] = set()
 
+        # ------------------------------------------------------------------
+        # HVAC fast occupancy response (v5.103.20) — D2 event-driven zone
+        # runs. Plan: docs/planning/PLANNING_hvac_fast_occupancy_response.md
+        # REV 3 §5. ALL of this is in memory and resets on restart (plan
+        # §5.7 "Restart"): a restart ends any trip early, the first full
+        # cycle after boot-settle reschedules the exit timers, and the
+        # nudge-skip seed is empty for the first tick (same as today).
+        # ------------------------------------------------------------------
+        # Kill switch (`switch.ura_hvac_coordinator_31_fast_room_response`,
+        # default ON). OFF = listeners ignore refreshes, exit timers are
+        # cancelled, behaviour is today's tick timing; the D1 evidence clock
+        # in hvac_zones.py stays active either way.
+        self._fast_path_enabled: bool = True
+        self._tearing_down: bool = False
+        # True ONLY while a fast run holds `_decision_cycle_lock` (set and
+        # cleared inside the lock) — a waiting periodic cycle reads it.
+        self._fast_path_running: bool = False
+        # Zones with a fast run queued or running (per-zone dedup).
+        self._fast_path_queued: set[str] = set()
+        # Room-coordinator listener unsubs keyed by ROOM entry_id + the one
+        # lifecycle-signal unsub.
+        self._fast_path_room_unsubs: dict[str, Any] = {}
+        self._fast_path_lifecycle_unsub: Any = None
+        # Exit timers: unsub + scheduled due per zone; one-shot key per
+        # vacancy episode `(zone_id, zone_release_at)`.
+        self._fast_path_exit_unsubs: dict[str, Any] = {}
+        self._fast_path_exit_due: dict[str, datetime] = {}
+        self._fp_exit_fired: dict[str, tuple[str, datetime]] = {}
+        # Per-room last evidence seen by the listener (None-rule, §5.4 step 3).
+        self._fp_last_ev: dict[str, datetime] = {}
+        # Per-zone last fast ENTRY run start (60 s limiter).
+        self._fp_last_entry_run: dict[str, datetime] = {}
+        # Per-zone last S1 write: (effective_preset, utc ts, reason). Seeds
+        # `_zones_written_this_cycle` at cycle entry (§5.5), is the FIRST
+        # key of the limiter exemption (§5.4) and of the quick-return
+        # trip-wire (§5.7).
+        self._zone_last_s1_write: dict[str, tuple[str, datetime, str]] = {}
+        # Rolling-hour buckets (UTC datetimes) for the write ceiling and the
+        # runaway guard; per-zone tick-only fallback until local midnight.
+        self._fp_writes_bucket: dict[str, deque] = {}
+        self._fp_runs_bucket: dict[str, deque] = {}
+        self._fp_tripped_until: dict[str, datetime] = {}
+        # Quick-return trip-wire: per-zone count today + per-zone NM latch.
+        self._fp_quick_returns_today: dict[str, int] = {}
+        self._fp_quick_return_date: str | None = None
+        self._fp_quick_return_latched: set[str] = set()
+        # UTC start of the most recent FULL cycle (lock rule §5.5: a waiting
+        # periodic skips if a full cycle started after it was scheduled).
+        self._last_full_cycle_started_at: datetime | None = None
+        self._last_fast_edge_to_write_s: float | None = None
+        # (The four `_fast_*_today` DailyCounters are created below, after
+        # the function-local `_DailyCounter` import — Bug Class #34.)
+
         # v4.0.15: Fan control toggle
         self._fan_control_enabled: bool = fan_control_enabled
 
@@ -574,6 +640,25 @@ class HVACCoordinator(BaseCoordinator):
             name="hvac.vacancy_sweeps_today",
             persist=False,
             reason="display counter; vacancy actuation is live-derived per cycle",
+        )
+        # HVAC fast occupancy response (v5.103.20) display counters.
+        # restart: RESET WITH REASON — re-derived within a day; the durable
+        # record of every fast write is its `preset_change` ledger row.
+        self._fast_entry_runs_today = _DailyCounter(
+            name="hvac.fast_entry_runs_today", persist=False,
+            reason="display counter; fast runs are live-derived from room refreshes",
+        )
+        self._fast_exit_runs_today = _DailyCounter(
+            name="hvac.fast_exit_runs_today", persist=False,
+            reason="display counter; exit timers are re-armed by the first full cycle",
+        )
+        self._fast_writes_today = _DailyCounter(
+            name="hvac.fast_writes_today", persist=False,
+            reason="display counter; the durable record is the preset_change row",
+        )
+        self._fast_limited_today = _DailyCounter(
+            name="hvac.fast_limited_today", persist=False,
+            reason="display counter; a limited edge is discharged by the next tick",
         )
         self._zone_intelligence_enabled: bool = True
         self._decision_cycle_lock = asyncio.Lock()
@@ -1207,6 +1292,11 @@ class HVACCoordinator(BaseCoordinator):
             )
         )
 
+        # HVAC fast occupancy response (v5.103.20, plan §5.4): room-refresh
+        # listeners — subscribe to the lifecycle signal FIRST, then
+        # enumerate existing rooms (attach is idempotent).
+        self._setup_fast_path_listeners()
+
         # v3.22.0 D2: Subscribe to safety hazard signals
         self._unsub_listeners.append(
             async_dispatcher_connect(
@@ -1608,12 +1698,28 @@ class HVACCoordinator(BaseCoordinator):
 
         # Re-entrancy guard: skip if already running (e.g. signal + timer overlap,
         # or the post-boot-settle re-kick landing on top of a periodic tick).
-        if self._decision_cycle_lock.locked():
+        # HVAC fast occupancy response (v5.103.20, plan §5.5): if the lock is
+        # held by a zone-scoped FAST run, WAIT for it instead of skipping
+        # (a fast run is short and must not cost the house a whole tick);
+        # if held by a full cycle, skip as before. After acquiring, skip if
+        # a full cycle STARTED after this call was scheduled, so a waiting
+        # periodic never runs a second back-to-back full cycle (that would
+        # double-sample `check_ac_reset` and the anomaly counters).
+        scheduled_at = dt_util.utcnow()
+        if self._decision_cycle_lock.locked() and not self._fast_path_running:
             _LOGGER.debug(
                 "HVAC decision cycle skipped — already running (re-entrancy guard)"
             )
             return
         async with self._decision_cycle_lock:
+            if (
+                self._last_full_cycle_started_at is not None
+                and self._last_full_cycle_started_at >= scheduled_at
+            ):
+                _LOGGER.debug(
+                    "HVAC decision cycle skipped — a full cycle ran while waiting"
+                )
+                return
             await self._run_decision_cycle()
 
     @staticmethod
@@ -1872,11 +1978,25 @@ class HVACCoordinator(BaseCoordinator):
 
     async def _run_decision_cycle(self) -> None:
         """Inner decision cycle logic (called under lock)."""
-        now = dt_util.now()
         # HVAC W1-B D2.1 (N9a): same-tick set resets at cycle ENTRY, not at
         # cycle end — an exception anywhere below cannot leave a zone
         # marked "written" into the next tick.
-        self._zones_written_this_cycle = set()
+        # HVAC fast occupancy response (v5.103.20, plan §5.5 / REV 2 #4):
+        # the reset is now a SEED — zones whose last S1 write (fast OR
+        # periodic) is younger than the arrester's preset suppression window
+        # (SUPPRESS_TTL_SECONDS_PRESET, 120 s) start the tick already
+        # "written", so a zone a fast run wrote seconds before this tick is
+        # still skipped by the soft-nudge dispatch (hvac_override.py). A
+        # zone written by the previous tick (300 s ago) is NOT seeded —
+        # identical to the old empty set.
+        _cycle_start_utc = dt_util.utcnow()
+        self._last_full_cycle_started_at = _cycle_start_utc
+        self._zones_written_this_cycle = {
+            _z for _z, _rec in self._zone_last_s1_write.items()
+            if (_cycle_start_utc - _rec[1]).total_seconds() < SUPPRESS_TTL_SECONDS_PRESET
+        }
+        # LOCAL-day clock for the daily reset (test_hvac_short_cycle_producer).
+        now = dt_util.now()
 
         # Daily reset check
         today = now.date().isoformat()
@@ -2064,6 +2184,11 @@ class HVACCoordinator(BaseCoordinator):
         # Record anomaly observations (async — persists anomalies to anomaly_log)
         await self._record_anomaly_observations()
 
+        # HVAC fast occupancy response (v5.103.20, plan §5.6): (re)arm the
+        # exit timer of every zone at the end of every full cycle.
+        for _zid in list(self._zone_manager.zones.keys()):
+            self._schedule_exit_timer(_zid)
+
         # Signal sensor updates
         async_dispatcher_send(self.hass, SIGNAL_HVAC_ENTITIES_UPDATE)
 
@@ -2129,11 +2254,26 @@ class HVACCoordinator(BaseCoordinator):
         """
         return []
 
-    async def _apply_house_state_presets(self) -> None:
+    async def _apply_house_state_presets(
+        self,
+        *,
+        zone_filter: set[str] | None = None,
+        trigger: str = "periodic",
+        edge_ts: datetime | None = None,
+    ) -> bool:
         """Apply preset changes based on current house state.
 
         Includes D1 vacancy override, D5 duty cycle enforcement, D6 stale failsafe.
         Directly calls HA services (self-driven, not via CoordinatorManager actions).
+
+        HVAC fast occupancy response (v5.103.20, plan §5.2). Returns True iff
+        S1 applied a write this call. `zone_filter is None` (periodic /
+        house-state / pre-arrival) is byte-identical to before. With
+        `zone_filter` set (a zone-scoped fast run): the heat_cool enforcer
+        and the DPM preset overrides are SKIPPED, every other zone is
+        skipped at the loop top, and the consensus gate, `arriving`, every
+        per-zone rule and the vacancy sweep for the filtered zone run as
+        today. `trigger` / `edge_ts` land on the `preset_change` ledger row.
 
         v4.7.15 D6: Asymmetric-hysteresis defer gate driven by signal_consensus.
         When the inputs disagree (consensus < 0.5) AND the last house-state
@@ -2143,7 +2283,7 @@ class HVACCoordinator(BaseCoordinator):
         cycle that crosses the upper hysteresis threshold writes presets normally).
         """
         if not self._house_state:
-            return
+            return False
 
         # v4.7.15 D6: HVAC consensus defer gate.
         # v4.7.15 fix-up A5-H1: asymmetric hysteresis 0.5 / 0.7.
@@ -2184,7 +2324,7 @@ class HVACCoordinator(BaseCoordinator):
                             consensus,
                         )
                         self._d6_deferrals_today.increment()
-                        return
+                        return False
                 else:
                     if consensus < 0.5 and secs_since_transition < 30:
                         _LOGGER.info(
@@ -2194,7 +2334,7 @@ class HVACCoordinator(BaseCoordinator):
                         )
                         self._d6_gate_engaged = True
                         self._d6_deferrals_today.increment()
-                        return  # Skip this apply cycle — retry next tick.
+                        return False  # Skip this apply cycle — retry next tick.
 
         # --- Continuous heat_cool enforcer (always, even during arriving) ---
         # The operator runs zones in ranges/presets (heat_cool). A bare
@@ -2224,7 +2364,11 @@ class HVACCoordinator(BaseCoordinator):
         # still heats via the low setpoint and the operator does not rely on
         # single-mode heat. Do NOT "re-fix" this by adding a heat exemption.
         # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
-        for zone_id, zone in list(self._zone_manager.zones.items()):
+        # v5.103.20 (plan §5.2 / INV-4): the enforcer is a house-wide,
+        # tick-cadence writer — a zone-scoped fast run SKIPS it.
+        for zone_id, zone in (
+            list(self._zone_manager.zones.items()) if zone_filter is None else []
+        ):
             if self._egress_manager.is_paused(zone_id):
                 continue
             if (
@@ -2259,13 +2403,14 @@ class HVACCoordinator(BaseCoordinator):
         # HA restart or geofence arrival.  Presence sensors haven't settled
         # yet, so acting now causes unnecessary preset churn.
         if self._house_state == "arriving":
-            return
+            return False
 
         target_preset = self._preset_manager.get_preset_for_house_state(
             self._house_state
         )
         if target_preset is None:
-            return
+            return False
+        wrote_any = False
 
         now = dt_util.utcnow()
         energy_constrained = self._energy_constraint_mode in ("coast", "shed")
@@ -2280,6 +2425,10 @@ class HVACCoordinator(BaseCoordinator):
         activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
         # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
         for zone_id, zone in list(self._zone_manager.zones.items()):
+            # v5.103.20 (plan §5.2 / INV-4): zone-scoped fast run — every
+            # other zone is skipped at the loop top, before any read/write.
+            if zone_filter is not None and zone_id not in zone_filter:
+                continue
             # v4.7.8 D8: Skip preset apply for zones paused by EgressManager.
             # Preset restoration happens on resume; applying here would push
             # a preset to an off compressor and the restore would override it.
@@ -3192,6 +3341,16 @@ class HVACCoordinator(BaseCoordinator):
                 # HVAC W1-B D2.1: this zone was written this tick — the
                 # arrester's soft-nudge dispatch skips it until next tick.
                 self._zones_written_this_cycle.add(zone_id)
+                # v5.103.20 (plan §5.2, REV 2 #4): per-zone S1 write stamp —
+                # seeds the next tick's nudge skip, keys the limiter
+                # exemption and the quick-return trip-wire.
+                _s1_ts = dt_util.utcnow()
+                self._zone_last_s1_write[zone_id] = (
+                    effective_preset, _s1_ts, preset_change_reason,
+                )
+                wrote_any = True
+                if trigger != "periodic":
+                    self._note_fast_write(zone_id, _s1_ts, edge_ts)
                 # HVAC W1-B §5.P5: reclaim-rate trip-wire on manual
                 # write-throughs only.
                 if zone.preset_mode == "manual":
@@ -3235,6 +3394,23 @@ class HVACCoordinator(BaseCoordinator):
                                 "house_state": self._house_state,
                                 "reason": preset_change_reason,
                                 "zone_vacant_past_grace": zone_vacant_past_grace,
+                                # v5.103.20 (plan §5.2): which path wrote
+                                # (`periodic` / `fast_entry` / `fast_exit`),
+                                # the evidence edge that triggered a fast
+                                # entry, and the zone's release anchor on
+                                # an away row (L1-L4 live checks).
+                                "trigger": trigger,
+                                "edge_ts": (
+                                    edge_ts.isoformat() if edge_ts is not None else None
+                                ),
+                                "zone_empty_since": (
+                                    zone.last_occupied_time.isoformat()
+                                    if (
+                                        effective_preset == "away"
+                                        and zone.last_occupied_time is not None
+                                    )
+                                    else None
+                                ),
                                 # D-b1 rename (operator-facing).
                                 "energy_shed_cap_reached": bool(zone.runtime_exceeded),
                                 # F6 (fix-up) — DISCRIMINATING fields so
@@ -3316,8 +3492,11 @@ class HVACCoordinator(BaseCoordinator):
 
         # v4.7.1 fix-up D2: After preset changes, apply OverrideEngine temperature
         # ranges if guest_mode_actuation is enabled (Bug #23 — skip in obs mode).
-        if not self._observation_mode:
+        # v5.103.20 (plan §5.2 / INV-4): DPM overrides are house-wide and
+        # tick-cadence — a zone-scoped fast run SKIPS them.
+        if not self._observation_mode and zone_filter is None:
             await self._async_apply_preset_overrides()
+        return wrote_any
 
     # ------------------------------------------------------------------
     # feature/freeze-floor: freeze-protection heat_low FLOOR
@@ -3839,6 +4018,550 @@ class HVACCoordinator(BaseCoordinator):
                 "Temp Arrester Override defer NM note failed: %s", e,
             )
 
+    # ==================================================================
+    # HVAC fast occupancy response (v5.103.20) — D2 event-driven zone runs
+    # Plan: docs/planning/PLANNING_hvac_fast_occupancy_response.md REV 3 §5.
+    # Invariants: INV-1 (re-arm = periodic outcome within SLA), INV-3 (exit =
+    # periodic outcome at release + grace, once per episode), INV-4 (zone
+    # scope: climate writes only for Z via S1; other actuation = Z's vacancy
+    # sweep; accepted house-wide side effects = display refresh of
+    # zone_presence_state + `_expire_pre_arrival_zones`).
+    # ==================================================================
+    @property
+    def fast_room_response_enabled(self) -> bool:
+        """Kill switch (`31 · Fast Room Response`). OFF = tick-only timing."""
+        return self._fast_path_enabled
+
+    @fast_room_response_enabled.setter
+    def fast_room_response_enabled(self, value: bool) -> None:
+        value = bool(value)
+        if value == self._fast_path_enabled:
+            return
+        self._fast_path_enabled = value
+        if not value:
+            # OFF: cancel every exit timer; listeners stay attached but
+            # `_on_room_refresh` short-circuits on the gate.
+            for _zid in list(self._fast_path_exit_unsubs):
+                self._cancel_exit_timer(_zid)
+            _LOGGER.info("HVAC fast room response OFF — tick-only timing")
+        else:
+            _LOGGER.info("HVAC fast room response ON — exit timers re-armed")
+            self.reschedule_exit_timers()
+
+    # ---- listener lifecycle (§5.4) -------------------------------------
+    def _setup_fast_path_listeners(self) -> None:
+        """Subscribe to SIGNAL_ROOM_ENTRY_LIFECYCLE FIRST, then enumerate the
+        rooms already loaded. Attach is idempotent (release-then-attach per
+        entry_id), so a room that loads between the two steps is attached
+        exactly once."""
+        from ..const import CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM  # noqa: PLC0415
+        if self._fast_path_lifecycle_unsub is None:
+            self._fast_path_lifecycle_unsub = async_dispatcher_connect(
+                self.hass, SIGNAL_ROOM_ENTRY_LIFECYCLE, self._on_room_lifecycle,
+            )
+        try:
+            entries = list(self.hass.config_entries.async_entries(DOMAIN))
+        except Exception:  # noqa: BLE001
+            entries = []
+        for entry in entries:
+            try:
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+            self._attach_room_listener(entry.entry_id)
+
+    @callback
+    def _on_room_lifecycle(self, entry_id: Any, room_name: Any = None, phase: Any = None) -> None:
+        """`loaded` attaches, `unloaded` releases, `options_updated`
+        re-attaches (payload: entry_id, room_name, phase — __init__.py)."""
+        if self._tearing_down:
+            return
+        if phase == "unloaded":
+            self._release_room_listener(entry_id)
+        elif phase in ("loaded", "options_updated"):
+            self._attach_room_listener(entry_id)
+
+    def _attach_room_listener(self, entry_id: str) -> None:
+        self._release_room_listener(entry_id)
+        if self._tearing_down:
+            return
+        coordinator = self.hass.data.get(DOMAIN, {}).get(entry_id)
+        add = getattr(coordinator, "async_add_listener", None)
+        if not callable(add):
+            return
+        try:
+            unsub = add(partial(self._on_room_refresh, entry_id))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("fast path: listener attach failed for %s", entry_id, exc_info=True)
+            return
+        if callable(unsub):
+            self._fast_path_room_unsubs[entry_id] = unsub
+
+    def _release_room_listener(self, entry_id: str) -> None:
+        unsub = self._fast_path_room_unsubs.pop(entry_id, None)
+        if callable(unsub):
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _teardown_fast_path(self) -> None:
+        """Sync; called BEFORE the first await of `async_teardown`."""
+        for _eid in list(self._fast_path_room_unsubs):
+            self._release_room_listener(_eid)
+        if self._fast_path_lifecycle_unsub is not None:
+            try:
+                self._fast_path_lifecycle_unsub()
+            except Exception:  # noqa: BLE001
+                pass
+            self._fast_path_lifecycle_unsub = None
+        for _zid in list(self._fast_path_exit_unsubs):
+            self._cancel_exit_timer(_zid)
+        self._fast_path_queued.clear()
+
+    # ---- gates + helpers ------------------------------------------------
+    def _fast_path_gates_open(self, zone_id: str, trigger: str) -> bool:
+        """Every gate a fast run must pass — checked before AND after the
+        lock wait (a kill-switch flip, teardown, zone deletion or trip while
+        waiting must abort the run)."""
+        if self._tearing_down or not self._enabled or not self._boot_settle_done:
+            return False
+        if (
+            not self._fast_path_enabled
+            or self._observation_mode
+            or not self._zone_intelligence_enabled
+        ):
+            return False
+        if zone_id not in self._zone_manager.zones:
+            return False
+        if self._fast_path_zone_tripped(zone_id):
+            return False
+        return True
+
+    def _fast_path_zone_tripped(self, zone_id: str) -> bool:
+        until = self._fp_tripped_until.get(zone_id)
+        if until is None:
+            return False
+        if dt_util.utcnow() >= until:
+            self._fp_tripped_until.pop(zone_id, None)
+            return False
+        return True
+
+    def _local_midnight_after(self, now_utc: datetime) -> datetime:
+        """UTC instant of the next LOCAL midnight (trip fallback end)."""
+        local = dt_util.as_local(now_utc)
+        start = dt_util.start_of_local_day(local) + timedelta(days=1)
+        return dt_util.as_utc(start)
+
+    def _trip_fast_path_zone(self, zone_id: str, kind: str, count: int) -> None:
+        """Tick-only fallback for `zone_id` until local midnight + ONE NM.
+        `kind` ∈ {ceiling, runaway}."""
+        now_utc = dt_util.utcnow()
+        if self._fast_path_zone_tripped(zone_id):
+            return
+        self._fp_tripped_until[zone_id] = self._local_midnight_after(now_utc)
+        self._cancel_exit_timer(zone_id)
+        zone = self._zone_manager.zones.get(zone_id)
+        zone_name = getattr(zone, "zone_name", zone_id) if zone else zone_id
+        _LOGGER.warning(
+            "HVAC fast room response paused for %s (%s, %d in the last hour) "
+            "until local midnight; the periodic tick still runs",
+            zone_name, kind, count,
+        )
+        if kind == "ceiling":
+            title = f"Fast room response paused for {zone_name}"
+            message = (
+                f"{zone_name} changed its heating and cooling setting {count} "
+                "times in the last hour. Fast response is off for this zone "
+                "until midnight. The regular 5-minute check still runs."
+            )
+            hazard = "hvac_fast_path_write_ceiling"
+        else:
+            title = f"Fast room response paused for {zone_name}"
+            message = (
+                f"{zone_name} ran more checks than expected in the last hour. "
+                "Fast response is off for this zone until midnight. The "
+                "regular 5-minute check still runs."
+            )
+            hazard = "hvac_fast_path_runaway"
+        self._fast_path_nm(title, message, hazard, "MEDIUM")
+
+    def _fast_path_nm(self, title: str, message: str, hazard_type: str, severity: str) -> None:
+        """One NM via the notification manager (same path as
+        `_note_s1_reclaim`). Never raises."""
+        try:
+            nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+            if nm is None:
+                return
+            from .base import Severity  # noqa: PLC0415
+            sev = getattr(Severity, severity, Severity.LOW)
+            self._track_task(self.hass.async_create_task(nm.async_notify(
+                coordinator_id="hvac",
+                severity=sev,
+                title=title,
+                message=message,
+                hazard_type=hazard_type,
+            )))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("fast path NM failed", exc_info=True)
+
+    @staticmethod
+    def _bucket_add_and_count(bucket: deque, now_utc: datetime, window_s: int = 3600) -> int:
+        bucket.append(now_utc)
+        cutoff = now_utc - timedelta(seconds=window_s)
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
+        return len(bucket)
+
+    def _zone_last_write_is_away(self, zone: Any) -> bool:
+        """Limiter-exemption / exit-timer key (plan §5.4, REV 3): the S1 write
+        stamp FIRST; on a miss, the strategy's `last_sent`; NEVER
+        `zone.preset_mode` (the §9.7 status feed can misreport it)."""
+        rec = self._zone_last_s1_write.get(getattr(zone, "zone_id", ""))
+        if rec is not None:
+            return rec[0] == "away"
+        try:
+            from .hvac_strategy import strategy_for  # noqa: PLC0415
+            sent = strategy_for(self.hass, zone.climate_entity).last_sent(
+                zone.climate_entity, "set_preset_mode",
+            )
+        except Exception:  # noqa: BLE001
+            sent = None
+        return sent == "away"
+
+    def _room_name_and_type(self, coordinator: Any) -> tuple[str | None, str | None]:
+        """Resolve (room_name, room_type) for a room coordinator, from the
+        producer's last-pass meta first, else the entry config."""
+        from ..const import CONF_ROOM_NAME, CONF_ROOM_TYPE, ROOM_TYPE_GENERIC  # noqa: PLC0415
+        entry = getattr(coordinator, "entry", None)
+        data = getattr(entry, "data", None) or {}
+        room_name = data.get(CONF_ROOM_NAME) or data.get("room_name")
+        if not room_name:
+            return None, None
+        meta = getattr(self._zone_manager, "_room_meta_last_pass", {}).get(room_name)
+        if meta and meta.get("room_type"):
+            return room_name, str(meta["room_type"])
+        options = getattr(entry, "options", None) or {}
+        merged = {**data, **options}
+        return room_name, str(merged.get(CONF_ROOM_TYPE) or ROOM_TYPE_GENERIC)
+
+    def _zone_for_room(self, room_name: str) -> tuple[str | None, Any]:
+        for zone_id, zone in self._zone_manager.zones.items():
+            if room_name in (getattr(zone, "rooms", []) or []):
+                return zone_id, zone
+        return None, None
+
+    # ---- entry trigger (§5.4) -------------------------------------------
+    @callback
+    def _on_room_refresh(self, entry_id: str) -> None:
+        """Room-coordinator refresh listener. Short-circuits in the plan's
+        order: gates -> hallway skip / zone resolve -> evidence advance
+        (None rule) -> zone-cold gate -> tripped -> 60 s limiter (exempt on
+        last write away) -> dedup -> queue."""
+        try:
+            if self._tearing_down or not self._enabled or not self._boot_settle_done:
+                return
+            if (
+                not self._fast_path_enabled
+                or self._observation_mode
+                or not self._zone_intelligence_enabled
+            ):
+                return
+            coordinator = self.hass.data.get(DOMAIN, {}).get(entry_id)
+            if coordinator is None:
+                return
+            from ..const import ROOM_TYPE_HALLWAY  # noqa: PLC0415
+            room_name, room_type = self._room_name_and_type(coordinator)
+            if not room_name or room_type == ROOM_TYPE_HALLWAY:
+                return
+            zone_id, zone = self._zone_for_room(room_name)
+            if zone_id is None:
+                return
+            # 3. Evidence advance — None never counts and never overwrites.
+            _get = getattr(coordinator, "get_last_hvac_evidence_time", None)
+            _raw = _get() if callable(_get) else None
+            ev = _raw if isinstance(_raw, datetime) else None
+            if ev is None:
+                return
+            last = self._fp_last_ev.get(room_name)
+            if last is not None and ev <= last:
+                return
+            self._fp_last_ev[room_name] = ev
+            # 4. Zone-cold gate (stored fused value from the last pass).
+            if bool(getattr(zone, "any_room_hvac_occupied", False)):
+                return
+            # 5. Tripped zone -> tick backstop.
+            if self._fast_path_zone_tripped(zone_id):
+                self._fast_limited_today.increment()
+                return
+            now_utc = dt_util.utcnow()
+            # 6. Per-zone entry limiter, exempt when the last write was away.
+            if not self._zone_last_write_is_away(zone):
+                last_run = self._fp_last_entry_run.get(zone_id)
+                if (
+                    last_run is not None
+                    and (now_utc - last_run).total_seconds() < HVAC_FAST_PATH_MIN_INTERVAL_S
+                ):
+                    self._fast_limited_today.increment()
+                    return
+            # 7. Dedup.
+            if zone_id in self._fast_path_queued:
+                return
+            # 8. Queue.
+            self._fast_path_queued.add(zone_id)
+            self._track_task(self.hass.async_create_task(
+                self._async_zone_fast_run(zone_id, "fast_entry", edge_ts=now_utc)
+            ))
+        except Exception:  # noqa: BLE001 — a listener must never raise into HA
+            _LOGGER.debug("fast path: room refresh handler failed", exc_info=True)
+
+    # ---- the fast run (§5.1) --------------------------------------------
+    async def _async_zone_fast_run(
+        self, zone_id: str, trigger: str, edge_ts: datetime | None = None,
+    ) -> None:
+        wrote = False
+        fused_changed = False
+        try:
+            if not self._fast_path_gates_open(zone_id, trigger):
+                return
+            async with self._decision_cycle_lock:
+                if not self._fast_path_gates_open(zone_id, trigger):
+                    return
+                self._fast_path_running = True  # set only while holding the lock
+                try:
+                    now_utc = dt_util.utcnow()
+                    # Runaway guard — counts RUNS (write or not).
+                    runs = self._bucket_add_and_count(
+                        self._fp_runs_bucket.setdefault(zone_id, deque()), now_utc,
+                    )
+                    if runs > HVAC_FAST_PATH_MAX_RUNS_PER_ZONE_PER_HOUR:
+                        self._trip_fast_path_zone(zone_id, "runaway", runs)
+                        return
+                    zm = self._zone_manager
+                    zone = zm.zones.get(zone_id)
+                    if zone is None:
+                        return
+                    if trigger == "fast_entry":
+                        self._fp_last_entry_run[zone_id] = now_utc
+                        self._fast_entry_runs_today.increment()
+                        self._note_quick_return(zone_id, zone, now_utc)
+                    else:
+                        self._fast_exit_runs_today.increment()
+                    fused_before = bool(getattr(zone, "any_room_hvac_occupied", False))
+                    zm.update_zone_climate_state(zone_id)
+                    zm.update_room_conditions(
+                        house_state=self._house_state, zone_ids={zone_id},
+                    )
+                    if self._zone_intelligence_enabled:
+                        self._expire_pre_arrival_zones(dt_util.utcnow())
+                    if not self._observation_mode:
+                        wrote = await self._apply_house_state_presets(
+                            zone_filter={zone_id}, trigger=trigger, edge_ts=edge_ts,
+                        )
+                    if self._zone_intelligence_enabled:
+                        self._compute_zone_presence_states(dt_util.utcnow())
+                    fused_changed = fused_before != bool(
+                        getattr(zone, "any_room_hvac_occupied", False)
+                    )
+                    self._schedule_exit_timer(zone_id)
+                    if wrote or fused_changed:
+                        async_dispatcher_send(self.hass, SIGNAL_HVAC_ENTITIES_UPDATE)
+                finally:
+                    self._fast_path_running = False  # cleared inside the lock
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("HVAC fast run (%s) failed for %s", trigger, zone_id, exc_info=True)
+        finally:
+            self._fast_path_queued.discard(zone_id)  # every exit path
+
+    def _note_fast_write(self, zone_id: str, ts_utc: datetime, edge_ts: datetime | None) -> None:
+        """Called from S1 when a non-periodic run applied a write: counters,
+        SLA consumer, write ceiling."""
+        self._fast_writes_today.increment()
+        if edge_ts is not None:
+            try:
+                self._last_fast_edge_to_write_s = round(
+                    (ts_utc - edge_ts).total_seconds(), 1,
+                )
+            except Exception:  # noqa: BLE001
+                self._last_fast_edge_to_write_s = None
+        writes = self._bucket_add_and_count(
+            self._fp_writes_bucket.setdefault(zone_id, deque()), ts_utc,
+        )
+        if writes > HVAC_FAST_PATH_MAX_WRITES_PER_ZONE_PER_HOUR:
+            self._trip_fast_path_zone(zone_id, "ceiling", writes)
+
+    # ---- quick-return trip-wire (§5.7) ----------------------------------
+    def _quick_returns_today_view(self) -> dict[str, int]:
+        today = dt_util.now().date().isoformat()
+        if self._fp_quick_return_date != today:
+            self._fp_quick_return_date = today
+            self._fp_quick_returns_today = {}
+            self._fp_quick_return_latched = set()
+        return self._fp_quick_returns_today
+
+    def _note_quick_return(self, zone_id: str, zone: Any, now_utc: datetime) -> None:
+        """A fast ENTRY on a zone whose last S1 write was a `vacant_past_grace`
+        away less than HVAC_QUICK_RETURN_WINDOW_S ago = one quick return.
+        At HVAC_QUICK_RETURN_NM_PER_DAY per zone per local day: one LOW NM."""
+        rec = self._zone_last_s1_write.get(zone_id)
+        if rec is None or rec[0] != "away" or rec[2] != "vacant_past_grace":
+            return
+        if (now_utc - rec[1]).total_seconds() >= HVAC_QUICK_RETURN_WINDOW_S:
+            return
+        counts = self._quick_returns_today_view()
+        counts[zone_id] = counts.get(zone_id, 0) + 1
+        n = counts[zone_id]
+        if n >= HVAC_QUICK_RETURN_NM_PER_DAY and zone_id not in self._fp_quick_return_latched:
+            self._fp_quick_return_latched.add(zone_id)
+            zone_name = getattr(zone, "zone_name", zone_id)
+            self._fast_path_nm(
+                f"{zone_name} keeps switching to Away too soon",
+                (
+                    f"{zone_name} switched to Away and someone was back within "
+                    f"15 minutes {n} times today. The empty-room hold for a room "
+                    "in this zone may be too short."
+                ),
+                "hvac_quick_return_rate",
+                "LOW",
+            )
+
+    # ---- exit timer (§5.6) ----------------------------------------------
+    def _exit_grace_seconds(self) -> float:
+        """The grace S1 uses NOW (hvac.py `_apply_house_state_presets`):
+        constrained under coast/shed, else normal — read at call time."""
+        energy_constrained = self._energy_constraint_mode in ("coast", "shed")
+        minutes = (
+            self._vacancy_grace_constrained if energy_constrained
+            else self._vacancy_grace
+        )
+        return float(minutes) * 60.0
+
+    def _exit_timer_preconditions(self, zone_id: str) -> bool:
+        if self._tearing_down or not self._enabled:
+            return False
+        if (
+            not self._fast_path_enabled
+            or self._observation_mode
+            or not self._zone_intelligence_enabled
+        ):
+            return False
+        zone = self._zone_manager.zones.get(zone_id)
+        if zone is None:
+            return False
+        if self._fast_path_zone_tripped(zone_id):
+            return False
+        if not self._house_state or (
+            self._house_state not in HVAC_EVIDENCE_RULE_STATES
+            and self._house_state not in HVAC_NIGHT_HOLD_STATES
+        ):
+            return False
+        target = self._preset_manager.get_preset_for_house_state(self._house_state)
+        if target not in ("home", "sleep"):
+            return False
+        try:
+            if self._egress_manager.is_paused(zone_id):
+                return False
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if not self._zone_manager.is_zone_hvac_established(zone_id):
+                return False
+        except Exception:  # noqa: BLE001
+            return False
+        if self._zone_last_write_is_away(zone):
+            return False
+        return True
+
+    def _exit_due(self, zone_id: str) -> tuple[datetime | None, datetime | None]:
+        """(due, release) from LIVE evidence and the LIVE grace."""
+        release = self._zone_manager.zone_release_at(zone_id)
+        if release is None:
+            return None, None
+        due = release + timedelta(
+            seconds=self._exit_grace_seconds() + HVAC_FAST_PATH_EXIT_SLACK_S,
+        )
+        return due, release
+
+    def _cancel_exit_timer(self, zone_id: str) -> None:
+        unsub = self._fast_path_exit_unsubs.pop(zone_id, None)
+        self._fast_path_exit_due.pop(zone_id, None)
+        if callable(unsub):
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def _schedule_exit_timer(self, zone_id: str) -> None:
+        """(Re)arm the zone's exit timer; cancel it when no timer is due."""
+        try:
+            if not self._exit_timer_preconditions(zone_id):
+                self._cancel_exit_timer(zone_id)
+                return
+            due, release = self._exit_due(zone_id)
+            if due is None or release is None:
+                self._cancel_exit_timer(zone_id)
+                return
+            if self._fp_exit_fired.get(zone_id) == (zone_id, release):
+                # One-shot per vacancy episode: this key already fired.
+                self._cancel_exit_timer(zone_id)
+                return
+            if (
+                zone_id in self._fast_path_exit_unsubs
+                and self._fast_path_exit_due.get(zone_id) == due
+            ):
+                return  # unchanged
+            self._cancel_exit_timer(zone_id)
+            delay = max(0.0, (due - dt_util.utcnow()).total_seconds())
+            self._fast_path_exit_unsubs[zone_id] = async_call_later(
+                self.hass, delay, partial(self._on_exit_timer, zone_id),
+            )
+            self._fast_path_exit_due[zone_id] = due
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("fast path: exit timer schedule failed for %s", zone_id, exc_info=True)
+
+    @callback
+    def _on_exit_timer(self, zone_id: str, _now: Any = None) -> None:
+        """Recompute from LIVE evidence + LIVE grace; not due -> lazy
+        reschedule (no run, no counters); due -> record the one-shot key and
+        queue a `fast_exit` run (never limited)."""
+        self._fast_path_exit_unsubs.pop(zone_id, None)
+        self._fast_path_exit_due.pop(zone_id, None)
+        try:
+            if self._tearing_down:
+                return
+            if not self._exit_timer_preconditions(zone_id):
+                return
+            due, release = self._exit_due(zone_id)
+            if due is None or release is None:
+                return
+            now_utc = dt_util.utcnow()
+            if due > now_utc + timedelta(seconds=1):
+                self._schedule_exit_timer(zone_id)
+                return
+            key = (zone_id, release)
+            if self._fp_exit_fired.get(zone_id) == key:
+                return
+            self._fp_exit_fired[zone_id] = key
+            if zone_id in self._fast_path_queued:
+                return
+            self._fast_path_queued.add(zone_id)
+            self._track_task(self.hass.async_create_task(
+                self._async_zone_fast_run(zone_id, "fast_exit")
+            ))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("fast path: exit timer callback failed for %s", zone_id, exc_info=True)
+
+    def reschedule_exit_timers(self) -> None:
+        """Public hook (number.py grace setters, energy-constraint change,
+        kill switch ON): recompute every zone's exit due time."""
+        if self._tearing_down:
+            return
+        for _zid in list(self._zone_manager.zones.keys()):
+            self._schedule_exit_timer(_zid)
+
     @callback
     def _handle_energy_constraint(self, constraint: EnergyConstraint) -> None:
         """Handle energy constraint signal from Energy Coordinator."""
@@ -3860,6 +4583,9 @@ class HVACCoordinator(BaseCoordinator):
             self._energy_constraint_mode_since = dt_util.utcnow()
 
         if old_mode != constraint.mode:
+            # v5.103.20 (plan §5.6): the grace S1 uses depends on coast/shed,
+            # so a mode change moves every zone's exit due time.
+            self.reschedule_exit_timers()
             _LOGGER.info(
                 "HVAC: Energy constraint changed %s -> %s (offset=%.1f, fan_assist=%s)",
                 old_mode,
@@ -4022,6 +4748,13 @@ class HVACCoordinator(BaseCoordinator):
                     "HVAC: pruned %d zone(s) from ZoneManager for deleted "
                     "zone=%r: %s", len(pruned_ids), deleted_name, pruned_ids,
                 )
+                # v5.103.20 (plan §5.6, REV 2 R1 LOW-9): a pruned zone's exit
+                # timer and fast-path state must not fire against a zone
+                # that no longer exists.
+                for _pz in pruned_ids:
+                    self._cancel_exit_timer(_pz)
+                    self._fast_path_queued.discard(_pz)
+                    self._fp_exit_fired.pop(_pz, None)
         except Exception:  # noqa: BLE001
             _LOGGER.warning(
                 "HVAC: in-memory zone prune failed for %r", deleted_name,
@@ -5416,6 +6149,18 @@ class HVACCoordinator(BaseCoordinator):
             "energy_offset": self._energy_offset,
             "season": self._preset_manager.current_season,
             "zone_count": self._zone_manager.zone_count,
+            # v5.103.20 fast occupancy response counters (plan D2 sensor row).
+            "fast_room_response_enabled": self._fast_path_enabled,
+            "fast_entry_runs_today": self._fast_entry_runs_today.value,
+            "fast_exit_runs_today": self._fast_exit_runs_today.value,
+            "fast_writes_today": self._fast_writes_today.value,
+            "fast_limited_today": self._fast_limited_today.value,
+            "fast_tripped_zones": sorted(
+                z for z in list(self._fp_tripped_until)
+                if self._fast_path_zone_tripped(z)
+            ),
+            "quick_returns_today": dict(self._quick_returns_today_view()),
+            "last_fast_edge_to_write_s": self._last_fast_edge_to_write_s,
             "last_evaluate": self._last_evaluate,
         }
         # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D7 (v5.103.8): energy-
@@ -5555,6 +6300,12 @@ class HVACCoordinator(BaseCoordinator):
     async def async_teardown(self) -> None:
         """Tear down HVAC Coordinator."""
         _LOGGER.info("HVAC Coordinator: tearing down")
+
+        # v5.103.20 (plan §5.8): mark tearing down and release every fast-path
+        # listener / exit timer / queue entry BEFORE the first `await` below
+        # (the zone-state save), so no callback can fire mid-teardown.
+        self._tearing_down = True
+        self._teardown_fast_path()
 
         # Cancel periodic timer
         if self._decision_timer_unsub:

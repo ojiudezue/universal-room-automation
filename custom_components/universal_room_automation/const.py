@@ -1215,12 +1215,47 @@ DEFAULT_HVAC_VACANCY_HOLD: Final = 60         # 1 minute (daytime baseline)
 # A-MED/B-HIGH-3): the night tail is an INSURANCE window for unmeasured
 # rooms; a shorter night tail would produce instant night retreats.
 DEFAULT_HVAC_VACANCY_HOLD_NIGHT: Final = 60   # 1 min baseline (rare fallback).
-# Day-side tail hold (self-gating: only extends an existing D1 arm).
+# HVAC fast occupancy response (v5.103.20, PLANNING_hvac_fast_occupancy_response
+# REV 3 §4.6): EVIDENCE-RULE hold, counted from the room's LAST HVAC EVIDENCE
+# (motion / presence / camera / phone / override), NOT from the lighting
+# timeout. Used only in HVAC_EVIDENCE_RULE_STATES (home_day, home_evening) and
+# OR-ed with the shadow tail in HVAC_NIGHT_HOLD_STATES. Rung 1 (module
+# constant): values are OPERATOR RULINGS R1/R2 (plan §0.6 — "Shorter ... 3mins"
+# for common areas) that overrode the planner's margin sizing; changing one
+# re-opens the still-person trade and needs review. The live check on this
+# choice is the quick-return trip-wire (HVAC_QUICK_RETURN_NM_PER_DAY), not a
+# soak. Every non-hallway type is explicit; DEFAULT_HVAC_VACANCY_HOLD is the
+# fallback for unknown types only.
 ROOM_TYPE_HVAC_HOLD: Final = {
-    ROOM_TYPE_BEDROOM: 60,       # 1 min
-    ROOM_TYPE_MEDIA_ROOM: 120,   # 2 min
-    ROOM_TYPE_COMMON_AREA: 60,   # 1 min
-    ROOM_TYPE_HALLWAY: 0,        # never — hallway is CIRCULATION EXCLUSION
+    ROOM_TYPE_CLOSET: 60,            # 1 min
+    ROOM_TYPE_INFRASTRUCTURE: 60,    # 1 min
+    ROOM_TYPE_GENERIC: 120,          # 2 min
+    ROOM_TYPE_UTILITY: 120,          # 2 min
+    ROOM_TYPE_MEDIA_ROOM: 120,       # 2 min
+    ROOM_TYPE_GARAGE: 120,           # 2 min
+    ROOM_TYPE_BATHROOM: 180,         # 3 min
+    ROOM_TYPE_COMMON_AREA: 180,      # 3 min — operator ruling R2 "3mins"
+    ROOM_TYPE_BEDROOM: 240,          # 4 min
+    ROOM_TYPE_HALLWAY: 0,            # never — hallway is CIRCULATION EXCLUSION
+}
+# FROZEN v5.103.19 day tail — read ONLY by the SHADOW machine
+# (`_effective_hvac_hold_seconds`, the pre-v5.103.20 state machine that still
+# runs byte-for-byte on every pass and owns `_hvac_armed` /
+# `_hvac_prev_state_occupied` / `_hvac_tail_until`). Keeping the shadow on
+# this table is what makes home_night / guest / arriving / away behave exactly
+# as v5.103.19 (plan INV-5). Rung 1; MUST NOT be tuned — every type explicit
+# so a table lookup can never silently fall to DEFAULT_HVAC_VACANCY_HOLD.
+ROOM_TYPE_HVAC_TAIL_LEGACY: Final = {
+    ROOM_TYPE_BEDROOM: 60,
+    ROOM_TYPE_MEDIA_ROOM: 120,
+    ROOM_TYPE_COMMON_AREA: 60,
+    ROOM_TYPE_GENERIC: 60,
+    ROOM_TYPE_CLOSET: 60,
+    ROOM_TYPE_BATHROOM: 60,
+    ROOM_TYPE_GARAGE: 60,
+    ROOM_TYPE_UTILITY: 60,
+    ROOM_TYPE_INFRASTRUCTURE: 60,
+    ROOM_TYPE_HALLWAY: 0,
 }
 # Night-side variant (fix-up round 2, A-MED/B-HIGH-3): MUST cover
 # every non-hallway room type AND every type's night value MUST be

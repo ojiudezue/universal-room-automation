@@ -298,6 +298,20 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._last_motion_time: datetime | None = None
         self._last_occupied_time: datetime | None = None  # Track when room was last occupied
         self._last_occupied_state = False
+        # HVAC fast occupancy response (v5.103.20, plan §4.1): HVAC's own
+        # evidence clock. `_last_hvac_evidence_time` = the last refresh at
+        # which this room had HVAC evidence (any fused sensor active, the
+        # unavailability grace-hold of an occupied room, the camera / BLE
+        # override blocks' own verdict, or Override Occupied) — plus the
+        # first refresh AFTER evidence ends (falling-edge stamp, so `ev` is
+        # ~2 s late rather than up to 35 s early). `_hvac_evidence_active`
+        # = evidence at the latest refresh. `_hvac_evidence_since` = start
+        # of the current contiguous evidence run (None while inactive) —
+        # the anchor a future arming dwell reads. In memory only: None
+        # after a restart until the first evidence (same as _last_motion_time).
+        self._last_hvac_evidence_time: datetime | None = None
+        self._hvac_evidence_active: bool = False
+        self._hvac_evidence_since: datetime | None = None
         self._last_occupancy_source: str = "none"  # Track source for ble→motion re-entry
         self._last_source_reentry_time: datetime | None = None  # Cooldown for re-entry
         self._became_occupied_time: datetime | None = None  # v3.2.4: When current occupancy session started
@@ -4810,6 +4824,21 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             # hours-old value cannot poison the next occupancy session.
             self._ble_only_hold_since = None
 
+        # === HVAC fast occupancy response (v5.103.20) — evidence stamp ===
+        # ONE stamp site (plan §4.1), after the override switches and before
+        # skip-first so the first refresh after a restart stamps too.
+        # `any_sensor_active` and `grace_hold` are the post-filter values
+        # that drove lighting above. Camera / BLE count ONLY through the
+        # override blocks' own verdict this tick (`source in ("camera",
+        # "ble")`), so they inherit the failsafe guards, the BLE chain rule
+        # and the BLE cap — BLE can never arm a cold room. A suppressed
+        # source (fan-demoted mmWave, failsafe, fan-recheck release) gives
+        # neither a stamp nor a falling-edge stamp, so a fan-induced or
+        # stuck signal cannot extend the HVAC hold. Override Vacant = no
+        # evidence. This block writes ONLY the three `_hvac_evidence*`
+        # fields — nothing that lighting reads.
+        self._stamp_hvac_evidence(data, any_sensor_active, grace_hold, now)
+
         # FIX A (second fix-up): capture skip-first BEFORE the if-block
         # consumes it. The hoisted humidity call below uses this to decide
         # whether the VENTING path is allowed this tick (cap-only is
@@ -5275,6 +5304,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # hours-old value cannot poison the next occupancy session.
         self._ble_only_hold_since = None
         self._last_occupied_state = False
+        # HVAC fast occupancy response (plan §4.1): a fan-recheck release
+        # ends HVAC evidence WITHOUT stamping (no falling-edge stamp either)
+        # — the release is a correction of a fan-induced signal, not a last
+        # sighting. The next refresh carries OCCUPANCY_SOURCE_FAN_RECHECK_
+        # RELEASE, which the stamp treats as suppressed.
+        self._hvac_evidence_active = False
+        self._hvac_evidence_since = None
         room_name = self.entry.data.get("room_name", "unknown")
         _LOGGER.info(
             "Room %s: fan-recheck released occupancy (mmwave drop confirmed "
@@ -5393,3 +5429,72 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             datetime when room became occupied, or None if not currently occupied
         """
         return self._became_occupied_time
+
+    def _stamp_hvac_evidence(
+        self,
+        data: dict[str, Any],
+        any_sensor_active: bool,
+        grace_hold: bool,
+        now: datetime,
+    ) -> bool:
+        """HVAC fast occupancy response (v5.103.20, plan §4.1) — the ONE
+        evidence stamp, called from `_async_update_data` after the override
+        switches and before skip-first. Returns `evidence_now`.
+
+        `any_sensor_active` / `grace_hold` are the post-filter values that
+        drove lighting this refresh. Camera / BLE count ONLY through the
+        override blocks' own verdict (`source in ("camera", "ble")`), so they
+        inherit the failsafe guards, the BLE chain rule and the BLE cap —
+        BLE can never arm a cold room. A suppressed source (fan-demoted
+        mmWave, failsafe, fan-recheck release) gives neither a stamp nor a
+        falling-edge stamp, so a fan-induced or stuck signal cannot extend
+        the HVAC hold. Override Vacant = no evidence. Writes ONLY the three
+        `_hvac_evidence*` fields — nothing that lighting reads.
+        """
+        source = data.get(STATE_OCCUPANCY_SOURCE)
+        suppressed = source in (
+            OCCUPANCY_SOURCE_MMWAVE_FAN_DEMOTED,
+            "failsafe",
+            OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE,
+        )
+        evidence_now = (
+            (not suppressed)
+            and (not self._is_override_vacant())
+            and (
+                bool(any_sensor_active)
+                or (bool(grace_hold) and bool(self._last_occupied_state))
+                or source in ("camera", "ble")
+                or self._is_override_occupied()
+            )
+        )
+        if evidence_now or (self._hvac_evidence_active and not suppressed):
+            # Rising / held: stamp. Falling edge: stamp once (~2 s late is
+            # safer than up to 35 s early).
+            self._last_hvac_evidence_time = now
+        if evidence_now:
+            if not self._hvac_evidence_active:
+                self._hvac_evidence_since = now
+        else:
+            self._hvac_evidence_since = None
+        self._hvac_evidence_active = evidence_now
+        return evidence_now
+
+    def get_last_hvac_evidence_time(self) -> datetime | None:
+        """HVAC fast occupancy response (v5.103.20): last refresh at which
+        this room had HVAC evidence (plus the falling-edge refresh). None
+        until the first evidence after a restart. Read by the HVAC producer
+        (`hvac_zones.update_room_conditions`) and the fast-path listener;
+        readers MUST accept it via `isinstance(ev, datetime)`."""
+        return self._last_hvac_evidence_time
+
+    def is_hvac_evidence_active(self) -> bool:
+        """True iff the room had HVAC evidence at its latest refresh. Covers
+        hold 0 and holds shorter than a poll: while a sensor is on the room
+        stays HVAC-occupied regardless of the hold value."""
+        return bool(self._hvac_evidence_active)
+
+    def get_hvac_evidence_since(self) -> datetime | None:
+        """Start of the current contiguous HVAC-evidence run (None while
+        inactive). Not consumed by v5.103.20 decisions; it is the anchor the
+        planned entry-arming dwell (REV 4) reads."""
+        return self._hvac_evidence_since

@@ -261,6 +261,29 @@ class ZoneManager:
         # retreat of a sleeping bedroom.
         self._hvac_seen: set[str] = set()
 
+        # HVAC fast occupancy response (v5.103.20, plan §4.2): the evidence
+        # rule's OWN state. The three dicts above (`_hvac_armed`,
+        # `_hvac_tail_until`, `_hvac_prev_state_occupied`) are owned by the
+        # SHADOW machine alone (INV-5); the evidence branch never writes them.
+        #   _hvac_output[room]   -> the room's final hvac_occupied on the last pass
+        #   _hvac_rule[room]     -> "evidence" | "night" | "legacy" on the last pass
+        #   _hvac_day_release_at -> last_evidence + evidence hold (None if no evidence)
+        #   _hvac_shadow_release_at -> when the shadow last released the room
+        #                              (tail expiry or the no-tail release instant)
+        #   _hvac_last_ev / _hvac_last_active -> the evidence inputs of the last pass
+        self._hvac_output: dict[str, bool] = {}
+        self._hvac_rule: dict[str, str] = {}
+        self._hvac_day_release_at: dict[str, datetime] = {}
+        self._hvac_shadow_release_at: dict[str, datetime] = {}
+        self._hvac_last_ev: dict[str, datetime | None] = {}
+        self._hvac_last_active: dict[str, bool] = {}
+        # Pass-complete snapshots so `room_release_at` / `zone_away_due_at`
+        # (exit timer, sync) can resolve a room's type / override / coordinator
+        # without re-walking config entries.
+        self._room_meta_last_pass: dict[str, dict[str, Any]] = {}
+        self._room_coord_last_pass: dict[str, Any] = {}
+        self._last_house_state: str | None = None
+
         # HVAC-DEGRADED-ROOM-TRIPWIRE-1 (2026-09-26): live-room establishment.
         # `_room_entry_by_name` maps ROOM room_name -> ConfigEntry, rebuilt at
         # the start of every `update_room_conditions` pass so `_classify_all_
@@ -563,7 +586,11 @@ class ZoneManager:
         for zone_id in self._zones:
             self.update_zone_climate_state(zone_id)
 
-    def update_room_conditions(self, house_state: str | None = None) -> None:
+    def update_room_conditions(
+        self,
+        house_state: str | None = None,
+        zone_ids: set[str] | None = None,
+    ) -> None:
         """Aggregate room conditions per zone from URA room coordinators.
 
         Room coordinators are stored at hass.data[DOMAIN][entry.entry_id],
@@ -573,10 +600,27 @@ class ZoneManager:
         HVAC-ZONE-CONDITIONING-DEMAND-1 D1 (2026-09-16): `house_state` is
         optional. When set to a member of `HVAC_NIGHT_HOLD_STATES` (sleep /
         waking — NOT home_night, HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1), the
-        per-room HVAC vacancy tail-hold selects from
-        `ROOM_TYPE_HVAC_HOLD_NIGHT`; otherwise from `ROOM_TYPE_HVAC_HOLD`
-        (day). None => day table (safe default for callers that haven't
-        been threaded yet).
+        SHADOW per-room tail-hold selects from `ROOM_TYPE_HVAC_HOLD_NIGHT`;
+        otherwise from the frozen `ROOM_TYPE_HVAC_TAIL_LEGACY`. None => day
+        table (safe default for callers that haven't been threaded yet).
+
+        HVAC fast occupancy response (v5.103.20, plan §4.2 / §5.3):
+          * `zone_ids` — when set, ONLY those zones' room conditions are
+            rebuilt (zone-scoped fast run); every other zone's
+            `room_conditions` / rollup fields are left untouched. The filter
+            is applied BEFORE `room_conditions.clear()`.
+          * `_coordinator_absent_this_pass` is built in the ENTRY loop (for
+            every room that belongs to any zone), so it is pass-complete
+            whether or not the pass is zone-filtered.
+          * Each room's HVAC evidence (`get_last_hvac_evidence_time`,
+            `is_hvac_evidence_active`) and refresh health
+            (`last_update_success`) are read here and handed to
+            `_compute_hvac_occupied`, which runs the shadow machine AND the
+            evidence rule and returns the state-selected output.
+          * Back-fill: on a pass where a zone is fused-empty in an evidence
+            or night state, `last_occupied_time` is raised to the exact
+            release instant (max room release), so the vacancy grace counts
+            from the release, not from the last pass that saw occupancy.
         """
         # Build room_name -> coordinator mapping. v4.7.8 D3: also collect
         # CONF_WINDOW_SENSORS + CONF_IS_EGRESS_WINDOW per room so EgressManager
@@ -605,9 +649,18 @@ class ZoneManager:
         # HVAC-DEGRADED-ROOM-TRIPWIRE-1 REV-2 F6: rebuild reverse map every
         # pass so `_classify_all_rooms` can read entry.state / .disabled_by.
         self._room_entry_by_name = {}
-        # REV-2 F4: pass-scoped set — rebuilt here, populated in the
-        # `coordinator is None` branch below, consulted by REV-2 D2 step 4.
+        # REV-2 F4: pass-scoped set — rebuilt here, consulted by REV-2 D2
+        # step 4. v5.103.20 (plan §5.3, REV 2 R2 M6): populated in THIS
+        # entry loop for every zone room whose coordinator is absent, so a
+        # zone-filtered pass still yields a pass-complete set.
         self._coordinator_absent_this_pass = set()
+        # REV-2 fix-up item 5: pre-compute rooms-in-any-zone (moved ahead of
+        # the entry loop for the pass-complete absent set; the classifier
+        # below still reads it).
+        rooms_in_zones: set[str] = set()
+        for _z in self._zones.values():
+            for _r in getattr(_z, "rooms", []) or []:
+                rooms_in_zones.add(_r)
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
                 continue
@@ -618,6 +671,8 @@ class ZoneManager:
             coordinator = self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
             if coordinator is not None:
                 room_coordinators[room_name] = coordinator
+            elif room_name in rooms_in_zones:
+                self._coordinator_absent_this_pass.add(room_name)
             merged = {**entry.data, **entry.options}
             _ws = merged.get(_CONF_WINDOW_SENSORS) or None
             # v4.7.8 fix-up C-L4: only treat as egress when a window_sensor
@@ -654,16 +709,25 @@ class ZoneManager:
         # `is_zone_hvac_established` gate can read a coherent snapshot.
         # REV-2 fix-up item 6: grace-window clock is UTC (dt_util.utcnow())
         # — DST-safe. Local `now` above is kept for the tail machinery.
-        # REV-2 fix-up item 5: pre-compute rooms-in-any-zone so classifier
-        # only emits WARN+NM for rooms that actually belong to an HVAC
-        # zone.
-        rooms_in_zones: set[str] = set()
-        for _z in self._zones.values():
-            for _r in getattr(_z, "rooms", []) or []:
-                rooms_in_zones.add(_r)
+        # REV-2 fix-up item 5: classifier only emits WARN+NM for rooms that
+        # actually belong to an HVAC zone (`rooms_in_zones` built above).
         self._rooms_in_any_zone = rooms_in_zones
         self._classify_all_rooms(dt_util.utcnow())
+        # v5.103.20: pass-complete snapshots for the sync release helpers.
+        self._room_meta_last_pass = room_entry_meta
+        self._room_coord_last_pass = room_coordinators
+        self._last_house_state = house_state
+        from .hvac_const import (  # noqa: PLC0415
+            HVAC_EVIDENCE_RULE_STATES as _EV_STATES,
+            HVAC_NIGHT_HOLD_STATES as _NIGHT_STATES,
+        )
+        _backfill_states = house_state in _EV_STATES or house_state in _NIGHT_STATES
         for zone in self._zones.values():
+            # v5.103.20 (plan §5.3): zone filter BEFORE clear() — a
+            # zone-scoped fast run must leave sibling zones' conditions,
+            # rollup fields and shadow state untouched.
+            if zone_ids is not None and zone.zone_id not in zone_ids:
+                continue
             zone.room_conditions.clear()
             for room_name in zone.rooms:
                 coordinator = room_coordinators.get(room_name)
@@ -679,12 +743,13 @@ class ZoneManager:
                         window_state = None
 
                 if coordinator is None:
-                    # HVAC-DEGRADED-ROOM-TRIPWIRE-1 REV-2 F4: mark the room
-                    # as coordinator-absent for THIS producer pass. REV-2 D2
-                    # step 4 blocks establishment on any live room whose
-                    # coordinator was absent on the latest pass — belt (entry
-                    # state = LOADED) + braces (coordinator actually there).
-                    self._coordinator_absent_this_pass.add(room_name)
+                    # HVAC-DEGRADED-ROOM-TRIPWIRE-1 REV-2 F4: the room was
+                    # marked coordinator-absent in the ENTRY loop above
+                    # (v5.103.20 moved the add so a zone-filtered pass is
+                    # still pass-complete). REV-2 D2 step 4 blocks
+                    # establishment on any live room absent on the latest
+                    # pass — belt (entry state = LOADED) + braces
+                    # (coordinator actually there).
                     # v4.7.8 fix-up A-H1 (Bug Class #43): if the room entry
                     # exists but its coordinator hasn't booted yet, STILL
                     # append a RoomCondition populated from entry meta so
@@ -735,6 +800,24 @@ class ZoneManager:
                     # ESTABLISHED once the dwelling room is read.
                     self._hvac_seen.add(room_name)
                 else:
+                    # v5.103.20 (plan §4.2): read the room's HVAC evidence
+                    # defensively — `isinstance(ev, datetime)` (a MagicMock
+                    # or a legacy fake yields None), `is True` for the
+                    # active flag, and `last_update_success is not False`
+                    # for refresh health.
+                    _ev_raw = None
+                    _act_raw = None
+                    try:
+                        _get_ev = getattr(coordinator, "get_last_hvac_evidence_time", None)
+                        _ev_raw = _get_ev() if callable(_get_ev) else None
+                        _get_act = getattr(coordinator, "is_hvac_evidence_active", None)
+                        _act_raw = _get_act() if callable(_get_act) else None
+                    except Exception:  # noqa: BLE001 — never let a room read fault the pass
+                        _ev_raw = None
+                        _act_raw = None
+                    last_evidence = _ev_raw if isinstance(_ev_raw, datetime) else None
+                    evidence_active = _act_raw is True
+                    refresh_ok = getattr(coordinator, "last_update_success", True) is not False
                     hvac_occupied_val = self._compute_hvac_occupied(
                         room_name=room_name,
                         room_type=room_type,
@@ -743,6 +826,14 @@ class ZoneManager:
                         house_state=house_state,
                         override_day=meta.get("hvac_hold_override_day"),
                         override_night=meta.get("hvac_hold_override_night"),
+                        last_evidence=last_evidence,
+                        evidence_active=evidence_active,
+                        refresh_ok=refresh_ok,
+                        # The producer path ALWAYS applies the rule (a room
+                        # with no evidence yet is simply not held in an
+                        # evidence state); only direct legacy callers get
+                        # the shadow by default.
+                        apply_evidence_rule=True,
                     )
 
                 condition = RoomCondition(
@@ -778,6 +869,19 @@ class ZoneManager:
             else:
                 # Row 2c reset: mirrors write source above.
                 zone.continuous_occupied_since = None
+                # v5.103.20 (plan §4.5, INV-2): back-fill the exact release
+                # instant — evidence and night states ONLY (legacy states
+                # keep v5.103.19 byte-for-byte). `last_occupied_time` is the
+                # grace clock's anchor; without this the grace would count
+                # from the last PASS that saw the zone occupied (up to one
+                # tick early) and the fast exit could fire before hold + G.
+                if _backfill_states:
+                    _e = self._zone_release_bound(zone, now, house_state)
+                    if _e is not None and (
+                        zone.last_occupied_time is None
+                        or _e > zone.last_occupied_time
+                    ):
+                        zone.last_occupied_time = _e
 
             # Row 2b: lighting-fused vacancy_sweep_done reset (NO-SWAP).
             # Row 2d: lighting-fused session_start (NO-SWAP).
@@ -982,7 +1086,16 @@ class ZoneManager:
         override_night: int | None = None,
         room_name: str | None = None,
     ) -> int:
-        """Return the effective tail-hold window for a room in seconds.
+        """Return the SHADOW tail-hold window for a room in seconds.
+
+        v5.103.20 (HVAC fast occupancy response, plan §4.4): this is the
+        shadow machine's selector. Its day value now comes from the FROZEN
+        `ROOM_TYPE_HVAC_TAIL_LEGACY` (v5.103.19 values), NOT from
+        `ROOM_TYPE_HVAC_HOLD` (the evidence-rule table, `_evidence_hold_seconds`).
+        Logic, signature, overrides and the numeric clamp are unchanged, so
+        the shadow runs byte-for-byte as v5.103.19 (INV-5) and the clamp still
+        compares night against the legacy day value (common night 90 >= 60:
+        no lift). Callers: `_compute_hvac_occupied` (shadow), `_display_hold`.
 
         Selects day vs night table by `house_state in HVAC_NIGHT_HOLD_STATES`
         (sleep / waking; HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1, 2026-09-27 —
@@ -997,7 +1110,7 @@ class ZoneManager:
         so the operator sees the intent violation without a firehose.
         """
         from ..const import (
-            ROOM_TYPE_HVAC_HOLD,
+            ROOM_TYPE_HVAC_TAIL_LEGACY,
             ROOM_TYPE_HVAC_HOLD_NIGHT,
             DEFAULT_HVAC_VACANCY_HOLD,
             DEFAULT_HVAC_VACANCY_HOLD_NIGHT,
@@ -1008,7 +1121,7 @@ class ZoneManager:
         day_val: int
         night_val: int
         try:
-            day_val = int(ROOM_TYPE_HVAC_HOLD.get(
+            day_val = int(ROOM_TYPE_HVAC_TAIL_LEGACY.get(
                 room_type, DEFAULT_HVAC_VACANCY_HOLD,
             ))
         except (TypeError, ValueError):
@@ -1048,6 +1161,64 @@ class ZoneManager:
 
         return night_val if house_state in HVAC_NIGHT_HOLD_STATES else day_val
 
+    # ------------------------------------------------------------------
+    # HVAC fast occupancy response (v5.103.20) — evidence-rule selectors
+    # ------------------------------------------------------------------
+    def _evidence_hold_seconds(
+        self, room_type: str, override_day: int | None = None,
+    ) -> int:
+        """Evidence-rule hold (plan §4.4): the per-room DAY override if set,
+        else `ROOM_TYPE_HVAC_HOLD[room_type]`, else DEFAULT_HVAC_VACANCY_HOLD.
+        Counted from the room's LAST EVIDENCE (not the lighting timeout).
+        Callers: the evidence term in `_compute_hvac_occupied`,
+        `_room_release_from`, `_display_hold`."""
+        from ..const import ROOM_TYPE_HVAC_HOLD, DEFAULT_HVAC_VACANCY_HOLD
+        if override_day is not None:
+            try:
+                return max(0, int(override_day))
+            except (TypeError, ValueError):
+                pass
+        try:
+            return max(0, int(ROOM_TYPE_HVAC_HOLD.get(
+                room_type, DEFAULT_HVAC_VACANCY_HOLD,
+            )))
+        except (TypeError, ValueError):
+            return int(DEFAULT_HVAC_VACANCY_HOLD)
+
+    @staticmethod
+    def _hvac_rule_for_state(house_state: str | None) -> str:
+        """`evidence` (home_day / home_evening), `night` (sleep / waking),
+        else `legacy`."""
+        from .hvac_const import HVAC_EVIDENCE_RULE_STATES, HVAC_NIGHT_HOLD_STATES
+        if house_state in HVAC_EVIDENCE_RULE_STATES:
+            return "evidence"
+        if house_state in HVAC_NIGHT_HOLD_STATES:
+            return "night"
+        return "legacy"
+
+    def _display_hold(
+        self,
+        room_type: str,
+        house_state: str | None,
+        override_day: int | None = None,
+        override_night: int | None = None,
+        room_name: str | None = None,
+    ) -> tuple[int, str]:
+        """(hold_seconds, rule) of the ACTIVE rule for the per-room diagnostic
+        entity (plan §4.4 / §4.6 display rule): the evidence hold in evidence
+        states, the night value in night states, the legacy tail otherwise."""
+        rule = self._hvac_rule_for_state(house_state)
+        if rule == "evidence":
+            return self._evidence_hold_seconds(room_type, override_day), rule
+        return (
+            self._effective_hvac_hold_seconds(
+                room_type, house_state,
+                override_day=override_day, override_night=override_night,
+                room_name=room_name,
+            ),
+            rule,
+        )
+
     def _compute_hvac_occupied(
         self,
         *,
@@ -1058,11 +1229,301 @@ class ZoneManager:
         house_state: str | None,
         override_day: int | None = None,
         override_night: int | None = None,
+        last_evidence: datetime | None = None,
+        evidence_active: bool = False,
+        refresh_ok: bool = True,
+        apply_evidence_rule: bool | None = None,
     ) -> bool:
-        """D1 state machine — returns True iff the room is HVAC-occupied.
+        """D1 producer — returns True iff the room is HVAC-occupied.
+
+        v5.103.20 (plan §4.2). Two layers, one output:
+          1. SHADOW: today's v5.103.19 machine (`_shadow_hvac_occupied`)
+             runs byte-for-byte on `state_occupied` on EVERY pass in EVERY
+             house state, and alone owns `_hvac_armed` /
+             `_hvac_prev_state_occupied` / `_hvac_tail_until` /
+             `_hvac_arm_source` (INV-5).
+          2. EVIDENCE RULE (`_evidence_rule_output`): `active OR now <
+             last_evidence + hold_ev`, bounded refresh-failure hold.
+        Output by house state: evidence states -> rule; night states ->
+        shadow OR rule; legacy states -> shadow.
+
+        `apply_evidence_rule` defaults to "only when the caller supplied
+        evidence" — `update_room_conditions` always does; a direct caller
+        that passes no evidence keywords (pre-v5.103.20 tests, diagnostics)
+        gets the shadow's output unchanged. Hallway is filtered upstream.
+        """
+        if apply_evidence_rule is None:
+            apply_evidence_rule = (
+                last_evidence is not None
+                or evidence_active is not False
+                or refresh_ok is not True
+            )
+        # Snapshot the shadow's release inputs BEFORE it runs, so the
+        # release instant can be recorded without touching its dicts.
+        _tail_before = self._hvac_tail_until.get(room_name)
+        _armed_before = bool(self._hvac_armed.get(room_name, False))
+        shadow_out = self._shadow_hvac_occupied(
+            room_name=room_name,
+            room_type=room_type,
+            state_occupied=state_occupied,
+            now=now,
+            house_state=house_state,
+            override_day=override_day,
+            override_night=override_night,
+        )
+        if shadow_out:
+            self._hvac_shadow_release_at.pop(room_name, None)
+        elif _tail_before is not None:
+            self._hvac_shadow_release_at[room_name] = _tail_before
+        elif _armed_before:
+            # released_no_tail (hold 0) — released at this pass.
+            self._hvac_shadow_release_at[room_name] = now
+        if not apply_evidence_rule:
+            self._hvac_rule[room_name] = "legacy"
+            self._hvac_output[room_name] = bool(shadow_out)
+            return bool(shadow_out)
+        return self._evidence_rule_output(
+            room_name=room_name,
+            room_type=room_type,
+            now=now,
+            house_state=house_state,
+            override_day=override_day,
+            last_evidence=last_evidence,
+            evidence_active=evidence_active,
+            refresh_ok=refresh_ok,
+            shadow_out=bool(shadow_out),
+        )
+
+    def _evidence_rule_output(
+        self,
+        *,
+        room_name: str,
+        room_type: str,
+        now: datetime,
+        house_state: str | None,
+        override_day: int | None,
+        last_evidence: datetime | None,
+        evidence_active: bool,
+        refresh_ok: bool,
+        shadow_out: bool,
+    ) -> bool:
+        """Evidence rule (plan §4.2 steps 2-4). NEVER writes the shadow's
+        dicts; writes only `_hvac_output`, `_hvac_rule`, `_hvac_day_release_at`.
+
+        Refresh failure (`refresh_ok is False`): the room coordinator's stamp
+        did not run, so the stale `evidence_active` is NOT trusted (else a
+        dead coordinator would hold its zone forever). In evidence states the
+        previous True output is held for at most
+        HVAC_EVIDENCE_REFRESH_FAIL_HOLD_S after `last_evidence`; in night /
+        legacy states the shadow decides on stale data, as before.
+        """
+        from datetime import timedelta as _td
+        from .hvac_const import HVAC_EVIDENCE_REFRESH_FAIL_HOLD_S
+
+        rule = self._hvac_rule_for_state(house_state)
+        self._hvac_last_ev[room_name] = last_evidence
+        self._hvac_last_active[room_name] = bool(evidence_active)
+        if rule == "legacy":
+            self._hvac_rule[room_name] = rule
+            self._hvac_day_release_at.pop(room_name, None)
+            self._hvac_output[room_name] = shadow_out
+            return shadow_out
+
+        prev_out = bool(self._hvac_output.get(room_name, False))
+        hold_ev = self._evidence_hold_seconds(room_type, override_day)
+        ev_release: datetime | None = None
+        if last_evidence is not None:
+            ev_release = last_evidence + _td(seconds=hold_ev)
+            self._hvac_day_release_at[room_name] = ev_release
+        else:
+            self._hvac_day_release_at.pop(room_name, None)
+
+        active = bool(evidence_active) if refresh_ok is not False else False
+        ev_out = active or (ev_release is not None and now < ev_release)
+        if (
+            rule == "evidence"
+            and refresh_ok is False
+            and prev_out
+            and not ev_out
+            and last_evidence is not None
+            and HVAC_EVIDENCE_REFRESH_FAIL_HOLD_S > 0
+            and now < last_evidence + _td(seconds=HVAC_EVIDENCE_REFRESH_FAIL_HOLD_S)
+        ):
+            ev_out = True
+
+        if rule == "evidence":
+            out = ev_out
+        else:  # night: never shorter than the shadow (INV-5)
+            out = shadow_out or ev_out
+        # Cold-arm point (REV 4 hook): `out and not prev_out` in an evidence
+        # state is where an entry-arming dwell would gate on
+        # `coordinator.get_hvac_evidence_since()`; re-arms within the hold
+        # (prev_out True) stay immediate. Not implemented in v5.103.20.
+        self._hvac_rule[room_name] = rule
+        self._hvac_output[room_name] = bool(out)
+        return bool(out)
+
+    # ------------------------------------------------------------------
+    # v5.103.20 — exact release instant helpers (plan §4.5), sync + pure
+    # ------------------------------------------------------------------
+    def _room_release_from(
+        self,
+        *,
+        room_name: str,
+        room_type: str,
+        house_state: str | None,
+        override_day: int | None,
+        last_evidence: datetime | None,
+        evidence_active: bool,
+        refresh_ok: bool = True,
+    ) -> tuple[str, datetime | None]:
+        """Release verdict for one room: ("unbounded", None) while the room
+        is held with no known end (active evidence, or the shadow riding
+        `occupied`, or a legacy state); ("at", dt) when the release instant
+        is known; ("none", None) when the room contributes nothing (hallway,
+        never any evidence / arm)."""
+        from datetime import timedelta as _td
+        from ..const import ROOM_TYPE_HALLWAY
+        from .hvac_const import HVAC_EVIDENCE_REFRESH_FAIL_HOLD_S
+
+        if room_type == ROOM_TYPE_HALLWAY:
+            return ("none", None)
+        rule = self._hvac_rule_for_state(house_state)
+        if rule == "legacy":
+            return ("unbounded", None)
+        if refresh_ok is not False and evidence_active:
+            return ("unbounded", None)
+        ev_rel: datetime | None = None
+        if last_evidence is not None:
+            ev_rel = last_evidence + _td(
+                seconds=self._evidence_hold_seconds(room_type, override_day),
+            )
+            if (
+                rule == "evidence"
+                and refresh_ok is False
+                and self._hvac_output.get(room_name, False)
+                and HVAC_EVIDENCE_REFRESH_FAIL_HOLD_S > 0
+            ):
+                ev_rel = max(
+                    ev_rel,
+                    last_evidence + _td(seconds=HVAC_EVIDENCE_REFRESH_FAIL_HOLD_S),
+                )
+        if rule == "evidence":
+            return ("at", ev_rel) if ev_rel is not None else ("none", None)
+        # night: the later of the shadow's tail end and the evidence release
+        sh_rel: datetime | None
+        if self._hvac_armed.get(room_name, False):
+            tail = self._hvac_tail_until.get(room_name)
+            if tail is None:
+                return ("unbounded", None)  # shadow riding `occupied`
+            sh_rel = tail
+        else:
+            sh_rel = self._hvac_shadow_release_at.get(room_name)
+        cands = [x for x in (ev_rel, sh_rel) if x is not None]
+        return ("at", max(cands)) if cands else ("none", None)
+
+    def room_release_at(self, room_name: str) -> datetime | None:
+        """LIVE release instant for a room (reads the coordinator accessors
+        NOW, not the last pass — plan §4.5 / REV 2 #10). None while
+        unbounded or unknown."""
+        kind, at = self._room_release_info_live(room_name)
+        return at if kind == "at" else None
+
+    def _room_release_info_live(self, room_name: str) -> tuple[str, datetime | None]:
+        meta = self._room_meta_last_pass.get(room_name) or {}
+        coordinator = self._room_coord_last_pass.get(room_name)
+        if coordinator is None:
+            return ("none", None)
+        from ..const import ROOM_TYPE_GENERIC
+        room_type = str(meta.get("room_type", ROOM_TYPE_GENERIC))
+        ev = None
+        active = False
+        try:
+            _g = getattr(coordinator, "get_last_hvac_evidence_time", None)
+            _raw = _g() if callable(_g) else None
+            ev = _raw if isinstance(_raw, datetime) else None
+            _a = getattr(coordinator, "is_hvac_evidence_active", None)
+            active = (_a() if callable(_a) else None) is True
+        except Exception:  # noqa: BLE001
+            ev, active = None, False
+        refresh_ok = getattr(coordinator, "last_update_success", True) is not False
+        return self._room_release_from(
+            room_name=room_name,
+            room_type=room_type,
+            house_state=self._last_house_state,
+            override_day=meta.get("hvac_hold_override_day"),
+            last_evidence=ev,
+            evidence_active=active,
+            refresh_ok=refresh_ok,
+        )
+
+    def zone_release_at(self, zone_id: str) -> datetime | None:
+        """Max LIVE room release over the zone's rooms; None if any room is
+        unbounded or no room has a known release."""
+        zone = self._zones.get(zone_id)
+        if zone is None:
+            return None
+        best: datetime | None = None
+        for room_name in getattr(zone, "rooms", []) or []:
+            kind, at = self._room_release_info_live(room_name)
+            if kind == "unbounded":
+                return None
+            if kind == "at" and at is not None and (best is None or at > best):
+                best = at
+        return best
+
+    def zone_away_due_at(self, zone_id: str, grace_s: float) -> datetime | None:
+        """`zone_release_at + grace_s`, or None."""
+        from datetime import timedelta as _td
+        rel = self.zone_release_at(zone_id)
+        if rel is None:
+            return None
+        return rel + _td(seconds=float(grace_s))
+
+    def _zone_release_bound(self, zone, now: datetime, house_state: str | None) -> datetime | None:
+        """Back-fill helper (plan §4.5): max release over the zone's rooms
+        from THIS pass's stored evidence, counting only releases <= now.
+        Used only when the zone is fused-empty on the pass."""
+        best: datetime | None = None
+        for room_name in getattr(zone, "rooms", []) or []:
+            meta = self._room_meta_last_pass.get(room_name) or {}
+            coordinator = self._room_coord_last_pass.get(room_name)
+            if coordinator is None:
+                continue
+            from ..const import ROOM_TYPE_GENERIC
+            room_type = str(meta.get("room_type", ROOM_TYPE_GENERIC))
+            kind, at = self._room_release_from(
+                room_name=room_name,
+                room_type=room_type,
+                house_state=house_state,
+                override_day=meta.get("hvac_hold_override_day"),
+                last_evidence=self._hvac_last_ev.get(room_name),
+                evidence_active=bool(self._hvac_last_active.get(room_name, False)),
+                refresh_ok=getattr(coordinator, "last_update_success", True) is not False,
+            )
+            if kind == "at" and at is not None and at <= now and (
+                best is None or at > best
+            ):
+                best = at
+        return best
+
+    def _shadow_hvac_occupied(
+        self,
+        *,
+        room_name: str,
+        room_type: str,
+        state_occupied: bool,
+        now: datetime,
+        house_state: str | None,
+        override_day: int | None = None,
+        override_night: int | None = None,
+    ) -> bool:
+        """SHADOW — the v5.103.19 D1 state machine, byte-for-byte.
 
         Ride grace-held STATE_OCCUPIED + per-room tail. Kind is NOT
-        consulted (CRIT-1 closure). Hallway is filtered upstream.
+        consulted (CRIT-1 closure). Hallway is filtered upstream. Sole
+        writer of `_hvac_armed` / `_hvac_prev_state_occupied` /
+        `_hvac_tail_until` / `_hvac_arm_source` (INV-5).
         """
         from datetime import timedelta as _td
 
@@ -1587,6 +2048,12 @@ class ZoneManager:
 
     def hvac_occupied_diag(self, room_name: str) -> dict[str, Any]:
         """Return a diagnostic snapshot for a room's D1 state (used by D2)."""
+        _day_rel = self._hvac_day_release_at.get(room_name)
+        _live_rel = None
+        try:
+            _live_rel = self.room_release_at(room_name)
+        except Exception:  # noqa: BLE001
+            _live_rel = None
         return {
             "armed": bool(self._hvac_armed.get(room_name, False)),
             "tail_expires_at": (
@@ -1595,6 +2062,11 @@ class ZoneManager:
                 else None
             ),
             "source": self._hvac_arm_source.get(room_name, "idle"),
+            # v5.103.20: evidence-rule diagnostics (plan §3.2 display row).
+            "rule": self._hvac_rule.get(room_name, "legacy"),
+            "output": bool(self._hvac_output.get(room_name, False)),
+            "evidence_release_at": _day_rel.isoformat() if _day_rel else None,
+            "release_at": _live_rel.isoformat() if _live_rel else None,
         }
 
     def reset_daily_counters(self) -> None:

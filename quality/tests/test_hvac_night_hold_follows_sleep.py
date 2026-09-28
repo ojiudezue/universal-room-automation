@@ -38,8 +38,8 @@ from custom_components.universal_room_automation.const import (  # noqa: E402
     ENTRY_TYPE_ROOM,
     ROOM_TYPE_BEDROOM,
     ROOM_TYPE_COMMON_AREA,
-    ROOM_TYPE_HVAC_HOLD,
     ROOM_TYPE_HVAC_HOLD_NIGHT,
+    ROOM_TYPE_HVAC_TAIL_LEGACY,
     ROOM_TYPE_MEDIA_ROOM,
 )
 from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E402
@@ -72,9 +72,12 @@ def test_home_night_uses_day_hold(room_type):
     and media room — not the 30/15/30-min night hold."""
     zm = _zm()
     got = zm._effective_hvac_hold_seconds(room_type, "home_night")
-    assert got == ROOM_TYPE_HVAC_HOLD[room_type], (
-        f"{room_type} in home_night must use the day hold "
-        f"{ROOM_TYPE_HVAC_HOLD[room_type]}s; got {got}s"
+    # v5.103.20 (HVAC fast occupancy response): the SHADOW selector reads the
+    # frozen v5.103.19 tail (ROOM_TYPE_HVAC_TAIL_LEGACY), not the evidence
+    # table ROOM_TYPE_HVAC_HOLD.
+    assert got == ROOM_TYPE_HVAC_TAIL_LEGACY[room_type], (
+        f"{room_type} in home_night must use the legacy day tail "
+        f"{ROOM_TYPE_HVAC_TAIL_LEGACY[room_type]}s; got {got}s"
     )
     assert got != ROOM_TYPE_HVAC_HOLD_NIGHT[room_type]
 

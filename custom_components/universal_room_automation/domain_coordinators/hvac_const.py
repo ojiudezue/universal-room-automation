@@ -933,6 +933,54 @@ FAN_TRUST_STATES: Final = ("home_night", "sleep", "waking")
 # constant. Plan: docs/planning/PLANNING_hvac_night_tail_follows_sleep.md (B).
 HVAC_NIGHT_HOLD_STATES: Final = ("sleep", "waking")
 
+# ============================================================================
+# HVAC fast occupancy response (v5.103.20) —
+# docs/planning/PLANNING_hvac_fast_occupancy_response.md REV 3 §14.1.
+# All rung-1 module constants: each changes a safety / call-rate trade and
+# must go through review. The runtime rollback lever is the switch
+# `31 · Fast Room Response` (rung 3), not these numbers.
+# ============================================================================
+# House states in which a room's HVAC occupancy follows the EVIDENCE rule
+# (`active OR now < last_evidence + ROOM_TYPE_HVAC_HOLD`). Only the two states
+# the raw-evidence audit measured (AUDIT_hvac_raw_evidence_gaps_2026_09_26,
+# 82.4 h). `home_night` stays on the legacy shadow until D0c Gate B measures
+# it alone (plan §4.3); `guest` / `arriving` / `away` / None are legacy.
+# Adding a state = a probe + a reviewed change.
+HVAC_EVIDENCE_RULE_STATES: Final = ("home_day", "home_evening")
+# Evidence states only: when a room coordinator's refresh is FAILING
+# (`last_update_success is False`) and the room's previous evidence-rule
+# output was True, hold True for at most this long after the last evidence.
+# 600 = longest evidence hold (240) + ~10 polls, so a dead room coordinator
+# can never hold a zone indefinitely. 0 disables the hold (stale data decides).
+HVAC_EVIDENCE_REFRESH_FAIL_HOLD_S: Final = 600
+# Per-zone floor between fast ENTRY runs (Carrier cloud call-rate protection).
+# D0 (AUDIT_hvac_fast_path_rate_2026_09_26): 0/114 zone-cold edges denied at
+# L=60. Exempt when the zone's last S1 write was `away` (a re-arm is due —
+# INV-1 must never be rate-limited); `fast_exit` runs are never limited.
+HVAC_FAST_PATH_MIN_INTERVAL_S: Final = 60
+# Observability target: evidence edge -> fast run START. Proxy p95 cycle
+# duration 27.6 s + headroom (D0). Consumer: `last_fast_edge_to_write_s`
+# on `sensor.ura_hvac_coordinator_mode` + live check L1.
+HVAC_FAST_PATH_SLA_S: Final = 45
+# Added to the exit-timer due time so the strict `> grace` test at S1
+# (hvac.py `zone_vacant_past_grace`) is cleared when the timer fires.
+HVAC_FAST_PATH_EXIT_SLACK_S: Final = 2
+# Write ceiling: fast-run S1 writes per zone per rolling hour above this ->
+# one NM + tick-only fallback for that zone until LOCAL midnight. The minimum
+# legitimate flap period is hold + grace >= 6 min, so 6/h is already a fight.
+HVAC_FAST_PATH_MAX_WRITES_PER_ZONE_PER_HOUR: Final = 6
+# Runaway guard: fast RUNS (write or not) per zone per rolling hour above
+# this -> same fallback + NM. Lazy exit-timer reschedules do not count.
+HVAC_FAST_PATH_MAX_RUNS_PER_ZONE_PER_HOUR: Final = 30
+# Quick-return trip-wire — the LIVE measure of the operator's hold rulings.
+# A `fast_entry` run on a zone whose last S1 write was a `vacant_past_grace`
+# away less than WINDOW seconds ago counts as a quick return; at NM_PER_DAY
+# per zone per local day, one LOW NM. 12 (REV 3, was 8) ≈ 2x the audit's
+# expected zone_3 rate at the ruled holds, so an alert means worse than the
+# audit predicted. Checkpoint item (plan §14.1).
+HVAC_QUICK_RETURN_WINDOW_S: Final = 900
+HVAC_QUICK_RETURN_NM_PER_DAY: Final = 12
+
 # HVAC-DEGRADED-ROOM-TRIPWIRE-1 (2026-09-26): grace window during which a
 # transiently non-LOADED room config entry (NOT_LOADED / SETUP_IN_PROGRESS /
 # UNLOAD_IN_PROGRESS / FAILED_UNLOAD / unknown future member) still BLOCKS

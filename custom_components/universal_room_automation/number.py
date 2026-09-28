@@ -587,6 +587,11 @@ class VacancyGraceMinutesNumber(NumberEntity):
                 "minutes to stay <= new normal delay",
                 constrained, new_value,
             )
+        # HVAC fast occupancy response (v5.103.20, plan §5.6): a grace change
+        # moves every zone's exit due time — reschedule now (latency only;
+        # the timer callback re-reads the live grace when it fires anyway).
+        if hvac is not None and hasattr(hvac, "reschedule_exit_timers"):
+            hvac.reschedule_exit_timers()
         self.hass.config_entries.async_update_entry(self._entry, options=options)
         self.async_write_ha_state()
         _LOGGER.info("Zone vacancy delay set to %d minutes", new_value)
@@ -675,6 +680,10 @@ class VacancyGraceConstrainedNumber(NumberEntity):
         hvac = self._get_hvac()
         if hvac is not None:
             hvac._vacancy_grace_constrained = new_value
+            # HVAC fast occupancy response (v5.103.20, plan §5.6): the
+            # constrained grace is the exit-timer grace under coast/shed.
+            if hasattr(hvac, "reschedule_exit_timers"):
+                hvac.reschedule_exit_timers()
         self.hass.config_entries.async_update_entry(
             self._entry,
             options={**self._entry.options, CONF_HVAC_VACANCY_GRACE_CONSTRAINED: new_value},

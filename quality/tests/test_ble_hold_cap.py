@@ -666,3 +666,81 @@ def test_MUTATION_reset_true_vacancy_finalize_clears_anchor():
     )
     assert self_._became_occupied_time is None
     assert self_._last_occupied_since_for_handler is not None
+
+
+# ---------------------------------------------------------------------------
+# HVAC fast occupancy response (v5.103.20) — drill row 11 + the "room with
+# BLE only" config extreme. The HVAC evidence stamp reads the BLE block's
+# OWN verdict (`source == "ble"`), so the real cap and the real chain rule
+# decide whether BLE stamps HVAC evidence. Chains the REAL extracted BLE
+# block into the REAL `_stamp_hvac_evidence`.
+# ---------------------------------------------------------------------------
+
+
+def _ble_block_then_stamp(coord, now, *, ble_only_hold_since, last_occupied_state):
+    from test_ble_extend_not_create import (  # noqa: PLC0415
+        _run_ble_block, _make_person_coord,
+    )
+    hass = make_hass()
+    room_name = f"Test{coord._room_type}"
+    pc = _make_person_coord(
+        persons_by_room={room_name: {"oji"}}, direct_ble_rooms={room_name},
+    )
+    hass.data.setdefault("universal_room_automation", {})["person_coordinator"] = pc
+    hass.async_create_task = lambda coro, *a, **kw: (coro.close(), MagicMock())[1]
+
+    class _Shim:
+        pass
+    s = _Shim()
+    s.hass = hass
+    s._occupancy_timeout = 300
+    s._last_motion_time = now
+    s._failsafe_fired = False
+    s._became_occupied_time = now - timedelta(hours=1)
+    s._ble_only_hold_since = ble_only_hold_since
+    s._last_occupied_state = last_occupied_state
+    s._last_occupied_time = now
+    s._room_type = coord._room_type
+    s.entry = coord.entry
+    s._get_config = coord._get_config
+    s._get_ble_hold_cap_seconds = coord._get_ble_hold_cap_seconds
+    # Stamp fields + override verdicts (real method, bare instance).
+    s._last_hvac_evidence_time = None
+    s._hvac_evidence_active = False
+    s._hvac_evidence_since = None
+    s._is_override_vacant = lambda: False
+    s._is_override_occupied = lambda: False
+    data = {"occupied": False, "occupancy_source": "none"}
+    _run_ble_block(s, data, now, room_name)
+    stamped = UniversalRoomCoordinator._stamp_hvac_evidence(s, data, False, False, now)
+    return data.get("occupancy_source"), stamped, s._last_hvac_evidence_time
+
+
+def test_ble_cap_stops_stamp_after_cap():
+    """Drill row 11: bathroom, cap ON, BLE-only for 7201 s -> the block
+    refuses -> no HVAC evidence stamp. Discriminator: within the cap the
+    block admits (`source == ble`) and the stamp lands."""
+    c = _bare_coord(ROOM_TYPE_BATHROOM)
+    now = dt_util.now()
+    src, stamped, ev = _ble_block_then_stamp(
+        c, now, ble_only_hold_since=now - timedelta(seconds=7201),
+        last_occupied_state=True,
+    )
+    assert src != "ble" and stamped is False and ev is None
+    src2, stamped2, ev2 = _ble_block_then_stamp(
+        c, now, ble_only_hold_since=now - timedelta(seconds=3600),
+        last_occupied_state=True,
+    )
+    assert src2 == "ble" and stamped2 is True and ev2 == now
+
+
+def test_ble_cannot_arm_cold_room_evidence():
+    """Config extreme "a room with BLE only": with the chain broken
+    (`_last_occupied_state` False) BLE never admits, so BLE alone can never
+    create HVAC evidence — extend-not-create holds for the HVAC clock too."""
+    c = _bare_coord(ROOM_TYPE_BEDROOM)
+    now = dt_util.now()
+    src, stamped, ev = _ble_block_then_stamp(
+        c, now, ble_only_hold_since=None, last_occupied_state=False,
+    )
+    assert src != "ble" and stamped is False and ev is None

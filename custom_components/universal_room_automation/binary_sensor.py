@@ -891,11 +891,30 @@ class HVACOccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
             except Exception:  # noqa: BLE001
                 house_state = None
             attrs["room_type"] = room_type
-            attrs["hvac_vacancy_hold_s"] = zm._effective_hvac_hold_seconds(
+            # HVAC fast occupancy response (v5.103.20, plan §4.4 display
+            # rule): show the hold of the ACTIVE rule — the evidence hold in
+            # home_day / home_evening, the night value in sleep / waking,
+            # the legacy tail otherwise — plus the rule name, the room's
+            # last HVAC evidence and its live release instant.
+            _hold_s, _rule = zm._display_hold(
                 room_type, house_state,
                 override_day=override_day,
                 override_night=override_night,
+                room_name=self.coordinator.entry.data.get("room_name"),
             )
+            attrs["hvac_vacancy_hold_s"] = _hold_s
+            attrs["rule"] = _rule
+            _ev_get = getattr(self.coordinator, "get_last_hvac_evidence_time", None)
+            _ev = _ev_get() if callable(_ev_get) else None
+            attrs["last_evidence_at"] = (
+                _ev.isoformat() if hasattr(_ev, "isoformat") else None
+            )
+            _act_get = getattr(self.coordinator, "is_hvac_evidence_active", None)
+            attrs["evidence_active"] = bool(_act_get()) if callable(_act_get) else None
+            _diag = zm.hvac_occupied_diag(
+                self.coordinator.entry.data.get("room_name", ""),
+            )
+            attrs["release_at"] = _diag.get("release_at")
         except Exception:  # noqa: BLE001
             pass
 
