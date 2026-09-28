@@ -469,6 +469,22 @@ def test_tearing_down_guards_every_callback(mods):
         assert coord._fast_path_gates_open("zone_1", "fast_entry") is False
         coord._schedule_exit_timer("zone_1")
         assert sched.live() == []
+    # Fix-up 1: a zone that passes EVERY other precondition (home, evidence
+    # state, established, released, due now) — only `_tearing_down` stops
+    # the exit callback and the scheduler.
+    with _Clock(T0) as clk:
+        coord, hass, coords, sched = _exit_setup(mods, clk)
+        coords["bed1"].active = False
+        coord._schedule_exit_timer("zone_1")
+        assert len(sched.live()) == 1                       # armed while up
+        clk.t = coord._fast_path_exit_due["zone_1"]
+        coord._tearing_down = True
+        with _captured(hass) as tt:
+            sched.fire_all()
+            assert tt.call_count == 0
+        assert "zone_1" not in coord._fp_exit_fired and sched.live() == []
+        coord._schedule_exit_timer("zone_1")
+        assert sched.live() == []
 
 
 @pytest.mark.asyncio
