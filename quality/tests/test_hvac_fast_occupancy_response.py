@@ -58,6 +58,9 @@ S = timedelta  # noqa: N816
 T0 = datetime(2026, 9, 28, 15, 0, 0, tzinfo=timezone.utc)   # 10:00 CDT, home_day
 
 
+_ACTIVE_CLOCK: list = []
+
+
 class _Clock:
     """Patches `homeassistant.util.dt.utcnow` / `now` (the one module every
     HVAC host reads after `rebind_real_funnels`)."""
@@ -74,15 +77,33 @@ class _Clock:
     def __enter__(self):
         self._p1.start()
         self._p2.start()
+        _ACTIVE_CLOCK.append(self)
         return self
 
     def __exit__(self, *a):
         self._p1.stop()
         self._p2.stop()
+        if _ACTIVE_CLOCK and _ACTIVE_CLOCK[-1] is self:
+            _ACTIVE_CLOCK.pop()
 
     def advance(self, seconds: float):
         self.t = self.t + S(seconds=seconds)
         return self.t
+
+    def bind(self, coord) -> None:
+        """Point the clock global of the coordinator's ACTUAL functions at
+        the patched module. Under a full run the harness re-imports HVAC
+        modules and a class can be bound to an earlier module generation
+        whose `dt_util` is a different (unpatched) object — the same reason
+        `_w1b_harness.rebind_real_funnels` exists for the funnels."""
+        for fn in (
+            type(coord.zone_manager).update_room_conditions,
+            type(coord)._async_zone_fast_run,
+            type(coord)._apply_house_state_presets,
+        ):
+            g = getattr(fn, "__globals__", None)
+            if g is not None and "dt_util" in g:
+                g["dt_util"] = self._dt
 
 
 class FakeScheduler:
@@ -154,9 +175,13 @@ def _room_entry(room_name: str, room_type: str, entry_id: str | None = None):
 
 
 def _setup(mods, *, house_state="home_day", rooms=None, presets=None,
-           grace=5, constrained=5):
+           grace=5, constrained=5, clk=None):
     """rooms: {zone_id: [(room_name, room_type, RoomCoord kwargs)]}."""
     coord, hass = H.make_coord(mods)
+    if clk is None:
+        clk = _ACTIVE_CLOCK[-1] if _ACTIVE_CLOCK else None
+    if clk is not None:
+        clk.bind(coord)
     DOMAIN = mods["const"].DOMAIN
     coord._house_state = house_state
     coord._boot_settle_done = True
@@ -285,7 +310,7 @@ async def test_rearm_while_lighting_still_on_triggers_fast_entry(mods):
         coord.zone_manager.update_room_conditions(house_state="home_day")
         z = coord.zone_manager.zones["zone_1"]
         assert z.any_room_hvac_occupied is False
-        coord._zone_last_s1_write["zone_1"] = ("away", T0 - S(seconds=600), "vacant_past_grace")
+        coord._zone_last_s1_write["zone_1"] = ("away", "vacant_past_grace", T0 - S(seconds=600))
         # New evidence arrives; lighting never changed.
         clk.advance(5)
         rc.ev = clk.t; rc.active = True
@@ -372,7 +397,7 @@ def test_entry_limiter_denies_second_run_within_60s(mods):
     with _Clock(T0) as clk:
         coord, hass, coords, _ = _setup(mods, presets={"zone_1": "home"})
         rc = coords["bed1"]
-        coord._zone_last_s1_write["zone_1"] = ("home", T0 - S(seconds=300), "house_state_transition")
+        coord._zone_last_s1_write["zone_1"] = ("home", "house_state_transition", T0 - S(seconds=300))
         coord._fp_last_entry_run["zone_1"] = T0
         with _captured(hass) as tt:
             clk.advance(59)
@@ -409,13 +434,13 @@ def test_limiter_exemption_order(mods):
         z = coord.zone_manager.zones["zone_1"]
         strat = mods["hvac_strategy"].strategy_for(hass, z.climate_entity)
         strat._record_sent(z.climate_entity, "set_preset_mode", "away")
-        coord._zone_last_s1_write["zone_1"] = ("home", T0, "house_state_transition")
+        coord._zone_last_s1_write["zone_1"] = ("home", "house_state_transition", T0)
         assert coord._zone_last_write_is_away(z) is False
         coord._zone_last_s1_write.pop("zone_1")
         assert coord._zone_last_write_is_away(z) is True
         strat._clear_sent(z.climate_entity)
         assert coord._zone_last_write_is_away(z) is False
-        coord._zone_last_s1_write["zone_1"] = ("away", T0, "vacant_past_grace")
+        coord._zone_last_s1_write["zone_1"] = ("away", "vacant_past_grace", T0)
         assert coord._zone_last_write_is_away(z) is True
 
 
@@ -760,7 +785,7 @@ async def test_fast_write_seeds_nudge_skip_on_next_tick(mods):
     at t+130 s it does not."""
     with _Clock(T0) as clk:
         coord, hass, coords, _ = _setup(mods, presets={"zone_1": "away"})
-        coord._zone_last_s1_write["zone_1"] = ("home", T0, "house_state_transition")
+        coord._zone_last_s1_write["zone_1"] = ("home", "house_state_transition", T0)
         seen = {}
 
         async def _apply(**kw):
@@ -1089,27 +1114,34 @@ async def test_runaway_guard_trips_at_31_runs(mods):
 
 @pytest.mark.asyncio
 async def test_quick_return_counter_and_nm_latch(mods):
-    """Row 42. fast_entry within 900 s of a `vacant_past_grace` away counts;
-    the 12th per zone per day fires ONE LOW NM; older than 900 s is not a
-    quick return."""
+    """Row 42 (O1). One event per APPLIED `vacant_past_grace` away: the FIRST
+    fast_entry within 900 s of it counts (exempt or not); later entries on
+    the same away do not; the 12th event per zone per day fires ONE LOW NM
+    whose text reads the window from the constant; an entry >= 900 s after
+    the away is not a quick return."""
     with _Clock(T0) as clk:
         coord, hass, coords, sched = _setup(mods, presets={"zone_1": "away"})
         nm = hass.data[mods["const"].DOMAIN]["notification_manager"]
         z = coord.zone_manager.zones["zone_1"]
         for i in range(13):
-            coord._zone_last_s1_write["zone_1"] = ("away", clk.t - S(seconds=100), "vacant_past_grace")
-            coord._note_quick_return("zone_1", z, clk.t)
+            away_at = clk.t - S(seconds=100 + i)
+            coord._zone_vacancy_away_at["zone_1"] = away_at
+            coord._note_quick_return("zone_1", z, clk.t, exempt=(i % 2 == 0))
+            coord._note_quick_return("zone_1", z, clk.t, exempt=False)   # same away: no 2nd event
         assert coord._quick_returns_today_view()["zone_1"] == 13
+        assert coord._fp_same_room_returns_today["zone_1"] == 7
+        assert coord._fp_other_room_returns_today["zone_1"] == 6
         await _drain(hass)
         assert [n["hazard_type"] for n in nm.notes] == ["hvac_quick_return_rate"]
         assert nm.notes[0]["severity"].name == "LOW"
-        coord._zone_last_s1_write["zone_1"] = ("away", clk.t - S(seconds=900), "vacant_past_grace")
+        assert "within 15 minutes 12 times today" in nm.notes[0]["message"]
+        coord._zone_vacancy_away_at["zone_1"] = clk.t - S(seconds=900)
         coord._note_quick_return("zone_1", z, clk.t)
         assert coord._quick_returns_today_view()["zone_1"] == 13
-        coord._zone_last_s1_write["zone_1"] = ("away", clk.t - S(seconds=100), "house_state_transition")
-        coord._note_quick_return("zone_1", z, clk.t)
-        assert coord._quick_returns_today_view()["zone_1"] == 13
-        assert coord.get_mode_attrs()["quick_returns_today"] == {"zone_1": 13}
+        attrs = coord.get_mode_attrs()
+        assert attrs["quick_returns_today"] == {"zone_1": 13}
+        assert attrs["same_room_returns_today"] == {"zone_1": 7}
+        assert attrs["other_room_returns_today"] == {"zone_1": 6}
 
 
 # ==========================================================================
@@ -1204,7 +1236,11 @@ async def test_preset_change_row_carries_trigger_edge_ts_zone_empty_since(mods):
         assert d["zone_empty_since"] == (T0 - S(seconds=760)).isoformat()
         assert d["reason"] == "vacant_past_grace"
         assert coord._zone_last_s1_write["zone_1"][0] == "away"
-        assert coord._zone_last_s1_write["zone_1"][2] == "vacant_past_grace"
+        assert coord._zone_last_s1_write["zone_1"][1] == "vacant_past_grace"
+        assert coord._zone_vacancy_away_at["zone_1"] == T0
+        assert coord._zone_last_away_reason["zone_1"] == "vacant_past_grace"
+        assert d["established"] is True and d["last_away_reason"] is None
+        assert d["exempt_reason"] is None
 
 
 # ==========================================================================
@@ -1227,3 +1263,41 @@ async def test_fast_room_response_switch_roundtrip(mods):
     assert coord.fast_room_response_enabled is False
     await sw.async_turn_on()
     assert coord.fast_room_response_enabled is True
+
+
+# ==========================================================================
+# Plan-named aliases (REV 7 §D2 acceptance) for behaviours proven above
+# ==========================================================================
+
+@pytest.mark.asyncio
+async def test_periodic_waits_behind_fast_run(mods):
+    with _Clock(T0):
+        coord, hass, coords, _ = _setup(mods)
+        run = AsyncMock()
+        with patch.object(coord, "_run_decision_cycle", new=run):
+            await coord._decision_cycle_lock.acquire()
+            coord._fast_path_running = True
+            t = asyncio.ensure_future(coord._async_decision_cycle())
+            await asyncio.sleep(0)
+            assert run.call_count == 0
+            coord._fast_path_running = False
+            coord._decision_cycle_lock.release()
+            await t
+            assert run.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_periodic_skips_behind_full_cycle(mods):
+    with _Clock(T0):
+        coord, hass, coords, _ = _setup(mods)
+        run = AsyncMock()
+        with patch.object(coord, "_run_decision_cycle", new=run):
+            await coord._decision_cycle_lock.acquire()
+            coord._fast_path_running = False
+            await coord._async_decision_cycle()
+            coord._decision_cycle_lock.release()
+            assert run.call_count == 0
+
+
+def test_listener_lifecycle_idempotent(mods):
+    test_restart_storm_listeners_idempotent(mods)

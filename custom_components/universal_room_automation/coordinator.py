@@ -305,13 +305,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # override blocks' own verdict, or Override Occupied) — plus the
         # first refresh AFTER evidence ends (falling-edge stamp, so `ev` is
         # ~2 s late rather than up to 35 s early). `_hvac_evidence_active`
-        # = evidence at the latest refresh. `_hvac_evidence_since` = start
-        # of the current contiguous evidence run (None while inactive) —
-        # the anchor a future arming dwell reads. In memory only: None
-        # after a restart until the first evidence (same as _last_motion_time).
+        # = evidence at the latest refresh. `_hvac_evidence_onset` = start
+        # of the current (or last) contiguous evidence stretch — the D5
+        # transit filter's episode anchor (plan §4.1 / §5b.2). In memory
+        # only: None after a restart until the first evidence (same as
+        # _last_motion_time).
         self._last_hvac_evidence_time: datetime | None = None
         self._hvac_evidence_active: bool = False
-        self._hvac_evidence_since: datetime | None = None
+        self._hvac_evidence_onset: datetime | None = None
         self._last_occupancy_source: str = "none"  # Track source for ble→motion re-entry
         self._last_source_reentry_time: datetime | None = None  # Cooldown for re-entry
         self._became_occupied_time: datetime | None = None  # v3.2.4: When current occupancy session started
@@ -5310,7 +5311,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # sighting. The next refresh carries OCCUPANCY_SOURCE_FAN_RECHECK_
         # RELEASE, which the stamp treats as suppressed.
         self._hvac_evidence_active = False
-        self._hvac_evidence_since = None
         room_name = self.entry.data.get("room_name", "unknown")
         _LOGGER.info(
             "Room %s: fan-recheck released occupancy (mmwave drop confirmed "
@@ -5467,15 +5467,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 or self._is_override_occupied()
             )
         )
+        if evidence_now and not self._hvac_evidence_active:
+            # Onset of a new evidence stretch (plan §4.1). Kept across the
+            # falling edge so D5 can join stretches into one episode.
+            self._hvac_evidence_onset = now
         if evidence_now or (self._hvac_evidence_active and not suppressed):
             # Rising / held: stamp. Falling edge: stamp once (~2 s late is
             # safer than up to 35 s early).
             self._last_hvac_evidence_time = now
-        if evidence_now:
-            if not self._hvac_evidence_active:
-                self._hvac_evidence_since = now
-        else:
-            self._hvac_evidence_since = None
         self._hvac_evidence_active = evidence_now
         return evidence_now
 
@@ -5493,8 +5492,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         stays HVAC-occupied regardless of the hold value."""
         return bool(self._hvac_evidence_active)
 
-    def get_hvac_evidence_since(self) -> datetime | None:
-        """Start of the current contiguous HVAC-evidence run (None while
-        inactive). Not consumed by v5.103.20 decisions; it is the anchor the
-        planned entry-arming dwell (REV 4) reads."""
-        return self._hvac_evidence_since
+    def get_hvac_evidence_onset(self) -> datetime | None:
+        """Start of the current (or most recent) contiguous HVAC-evidence
+        stretch (plan §4.1). D5 (`hvac_zones._d5_update`) joins stretches
+        whose onset is within J of the previous evidence into one episode.
+        None until the first evidence after a restart."""
+        return self._hvac_evidence_onset

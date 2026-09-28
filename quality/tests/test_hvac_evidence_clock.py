@@ -219,7 +219,16 @@ def test_home_evening_to_sleep_mid_timeout_stays_held_post_gate_b():
     states later (D0c Gate B), the crossing INTO sleep is still held by
     the shadow."""
     zm = _zm()
-    with patch.object(HC, "HVAC_EVIDENCE_RULE_STATES",
+    # Patch the module object the producer resolves at CALL time (a sibling
+    # harness may have re-imported hvac_const; the import-time alias `HC`
+    # can be stale under a full run).
+    import importlib
+    _hc_live = importlib.import_module(
+        ZoneManager.__module__.rsplit(".", 1)[0] + ".hvac_const"
+    )
+    with patch.object(_hc_live, "HVAC_EVIDENCE_RULE_STATES",
+                      ("home_day", "home_evening", "home_night")), \
+         patch.object(HC, "HVAC_EVIDENCE_RULE_STATES",
                       ("home_day", "home_evening", "home_night")):
         assert _ev(zm, occupied=True, now=NOW, hs="home_night",
                    ev=NOW - S(seconds=250), active=False) is False
@@ -543,7 +552,7 @@ def _bare(*, override_vacant=False, override_occupied=False, last_occ=False):
     object.__setattr__(c, "_last_occupied_state", last_occ)
     object.__setattr__(c, "_last_hvac_evidence_time", None)
     object.__setattr__(c, "_hvac_evidence_active", False)
-    object.__setattr__(c, "_hvac_evidence_since", None)
+    object.__setattr__(c, "_hvac_evidence_onset", None)
     object.__setattr__(c, "_is_override_vacant", lambda: override_vacant)
     object.__setattr__(c, "_is_override_occupied", lambda: override_occupied)
     object.__setattr__(c, "_last_motion_time", NOW)
@@ -561,16 +570,26 @@ def _stamp(c, *, source="motion", sensors=True, grace=False, now=NOW):
     )
 
 
-def test_sensor_evidence_stamps_and_tracks_since():
+def test_evidence_onset_accessor():
+    """Drill row 56: the onset is stamped at the START of a stretch and never
+    re-stamped while the stretch continues; it survives the falling edge
+    (D5 joins stretches by onset) and moves only at the next rising edge."""
     c = _bare()
+    assert c.get_hvac_evidence_onset() is None
     assert _stamp(c, source="motion", sensors=True, now=NOW) is True
     assert c.get_last_hvac_evidence_time() == NOW
     assert c.is_hvac_evidence_active() is True
-    assert c.get_hvac_evidence_since() == NOW
+    assert c.get_hvac_evidence_onset() == NOW
     t1 = NOW + S(seconds=30)
     _stamp(c, source="mmwave", sensors=True, now=t1)
     assert c.get_last_hvac_evidence_time() == t1
-    assert c.get_hvac_evidence_since() == NOW      # run start unchanged
+    assert c.get_hvac_evidence_onset() == NOW      # stretch start unchanged
+    t2 = t1 + S(seconds=2)
+    _stamp(c, source="timeout", sensors=False, now=t2)   # falling edge
+    assert c.get_hvac_evidence_onset() == NOW      # kept across the edge
+    t3 = t2 + S(seconds=90)
+    _stamp(c, source="motion", sensors=True, now=t3)     # next stretch
+    assert c.get_hvac_evidence_onset() == t3
 
 
 def test_falling_edge_refresh_stamps():
@@ -582,7 +601,6 @@ def test_falling_edge_refresh_stamps():
     assert _stamp(c, source="timeout", sensors=False, now=t1) is False
     assert c.get_last_hvac_evidence_time() == t1
     assert c.is_hvac_evidence_active() is False
-    assert c.get_hvac_evidence_since() is None
     t2 = t1 + S(seconds=30)
     _stamp(c, source="timeout", sensors=False, now=t2)
     assert c.get_last_hvac_evidence_time() == t1
@@ -667,7 +685,6 @@ def test_fan_recheck_release_clears_active():
     assert c.is_hvac_evidence_active() is True
     c.apply_fan_recheck_release()
     assert c.is_hvac_evidence_active() is False
-    assert c.get_hvac_evidence_since() is None
     assert c.get_last_hvac_evidence_time() == NOW
     assert c.data[STATE_OCCUPANCY_SOURCE] == OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE
     # The next refresh carries the suppressed source -> still no stamp.

@@ -787,7 +787,9 @@ def test_swap_rows_2a_and_2c_read_fused():
 
 
 def test_d5_zone_entry_dwell_default_is_zero():
-    assert _hvac_const_mod().DEFAULT_ZONE_ENTRY_DWELL_MINUTES == 0
+    # v5.103.20 D5 (ruling R3): knob 47 now drives the entry transit
+    # filter; its default is 1 minute (the live value stays 0 until set).
+    assert _hvac_const_mod().DEFAULT_ZONE_ENTRY_DWELL_MINUTES == 1
 
 
 def test_d2_binary_sensor_entity_registered_and_reflects_producer():

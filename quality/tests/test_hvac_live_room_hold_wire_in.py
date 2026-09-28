@@ -211,6 +211,20 @@ def _seed_zone_with_transient_sibling(coord, zone_id: str) -> None:
     class _RC:
         def __init__(self):
             self.data = {"occupied": False, "temperature": None, "humidity": None}
+
+        # v5.103.20 (HVAC fast occupancy response): in home_day the producer
+        # follows the EVIDENCE rule, so a lighting-occupied fake needs HVAC
+        # evidence to count. Evidence follows `data["occupied"]`, which keeps
+        # every discriminator below unchanged.
+        last_update_success = True
+
+        def get_last_hvac_evidence_time(self):
+            from datetime import datetime, timedelta, timezone
+            now = datetime.now(timezone.utc)
+            return now if self.data.get("occupied") else now - timedelta(days=1)
+
+        def is_hvac_evidence_active(self):
+            return bool(self.data.get("occupied"))
     coord.hass.data.setdefault(DOMAIN, {})[entries[0].entry_id] = _RC()
 
     zm._hvac_seen.update(["r_ok", "r_reload"])
@@ -778,6 +792,20 @@ def _seed_zone_transient_and_occupied(coord, zone_id: str) -> None:
             self.data = {
                 "occupied": occupied, "temperature": None, "humidity": None,
             }
+
+        # v5.103.20 (HVAC fast occupancy response): in home_day the producer
+        # follows the EVIDENCE rule, so a lighting-occupied fake needs HVAC
+        # evidence to count. Evidence follows `data["occupied"]`, which keeps
+        # every discriminator below unchanged.
+        last_update_success = True
+
+        def get_last_hvac_evidence_time(self):
+            from datetime import datetime, timedelta, timezone
+            now = datetime.now(timezone.utc)
+            return now if self.data.get("occupied") else now - timedelta(days=1)
+
+        def is_hvac_evidence_active(self):
+            return bool(self.data.get("occupied"))
     coord.hass.data.setdefault(DOMAIN, {})[entries[0].entry_id] = _RC(True)
     zm._hvac_seen.update(["r_live_occ", "r_reload"])
     zm.update_room_conditions(house_state="home_day")
@@ -971,6 +999,20 @@ async def test_drain_call_site_in_run_decision_cycle_fires_nm():
     class _RC:
         def __init__(self):
             self.data = {"occupied": False, "temperature": None, "humidity": None}
+
+        # v5.103.20 (HVAC fast occupancy response): in home_day the producer
+        # follows the EVIDENCE rule, so a lighting-occupied fake needs HVAC
+        # evidence to count. Evidence follows `data["occupied"]`, which keeps
+        # every discriminator below unchanged.
+        last_update_success = True
+
+        def get_last_hvac_evidence_time(self):
+            from datetime import datetime, timedelta, timezone
+            now = datetime.now(timezone.utc)
+            return now if self.data.get("occupied") else now - timedelta(days=1)
+
+        def is_hvac_evidence_active(self):
+            return bool(self.data.get("occupied"))
     coord.hass.data.setdefault(DOMAIN, {})[entry.entry_id] = _RC()
     # Tick 1: room LOADED — populate _hvac_seen, no NM.
     zm.update_room_conditions(house_state="home_day")

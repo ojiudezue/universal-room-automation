@@ -5,7 +5,7 @@ Question (CRIT-1 safety of "release HVAC occupancy at last-raw-evidence + tail")
 how often does a genuinely present person produce NO raw evidence for longer than
 the tail T, during the DAY (house state home_day/home_evening)?
 
-    ssh ha "python3 - [--days 7] [--end 2026-09-26T19:20:00Z] [--graces 300,600]" \
+    ssh ha "python3 - [--days 7] [--end 2026-09-26T19:20:00Z] [--graces 300,600] [--states home_night]" \
         < scripts/probes/hvac_raw_evidence_gap_probe.py
 
 Reads (read-only): recorder file:/config/home-assistant_v2.db?mode=ro;
@@ -38,9 +38,11 @@ def arg(k, d):
 DAYS = float(arg('--days', 7))
 END = arg('--end', '2026-09-26T19:20:00Z')
 GRACES = [int(x) for x in arg('--graces', '300,600').split(',')]
-TAILS = [60, 120, 180, 300]
+TAILS = [60, 120, 180, 240, 300]   # 240 = v5.103.20 bedroom evidence hold
 RESTART_PAD = 15 * 60
-DAY = {'home_day', 'home_evening'}
+# v5.103.20 D0c-home_night (plan §8 Gate B): `--states home_night` (comma list)
+# replaces the day bucket so a state can be measured ON ITS OWN.
+DAY = set(arg('--states', 'home_day,home_evening').split(','))
 NIGHT = {'home_night', 'sleep', 'waking'}
 
 def iso(s):

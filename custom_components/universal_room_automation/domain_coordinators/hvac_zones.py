@@ -131,6 +131,16 @@ class ZoneState:
     # D6: Max-occupancy-duration failsafe
     continuous_occupied_since: datetime | None = None
 
+    # HVAC fast occupancy response D5 (v5.103.20, plan §4.2 step 6 / §5.2):
+    # rooms of this zone whose evidence episode is live but not yet
+    # persisted (cold rooms on the away edge). S1 HOLDS the zone's preset
+    # while this is non-empty AND the zone is otherwise HVAC-empty.
+    # `pending_hold_since` / `pending_hold_s_today` measure that exposure
+    # (plan §7.1); the per-zone D5 lapse counter lives on the ZoneManager.
+    hvac_pending_arm_rooms: list[str] = field(default_factory=list)
+    pending_hold_since: datetime | None = None
+    pending_hold_s_today: float = 0.0
+
     # v4.2.2: Zone entry dwell — when current occupancy session started
     current_session_start: datetime | None = None
 
@@ -277,6 +287,30 @@ class ZoneManager:
         self._hvac_shadow_release_at: dict[str, datetime] = {}
         self._hvac_last_ev: dict[str, datetime | None] = {}
         self._hvac_last_active: dict[str, bool] = {}
+        # D5 transit filter (plan §5b): per-room EPISODE state — an episode
+        # is a chain of evidence stretches whose onsets fall within
+        # J = min(hold_ev, W) of the previous evidence. A cold room (away
+        # edge, output False, not exempt) arms only once its episode has
+        # persisted for W. Never-armed episodes are excluded from E(Z).
+        self._hvac_episode_start: dict[str, datetime] = {}
+        self._hvac_episode_onsets: dict[str, list[datetime]] = {}
+        self._hvac_episode_prev_ev: dict[str, datetime] = {}
+        self._hvac_episode_closed_s: dict[str, float] = {}
+        self._hvac_episode_active_s: dict[str, float] = {}
+        self._hvac_pending: dict[str, bool] = {}
+        self._hvac_ep_armed: dict[str, bool] = {}
+        self._hvac_armed_at: dict[str, datetime] = {}
+        self._hvac_arm_onset: dict[str, datetime] = {}
+        self._hvac_arm_span_s: dict[str, float] = {}
+        self._hvac_arm_class: dict[str, str] = {}
+        # Stamped ONLY when an evidence-state True -> False ended an arm of
+        # span >= W (or W == 0): the room-only return exemption anchor.
+        self._hvac_ev_released_at: dict[str, datetime] = {}
+        self._hvac_exempt_reason: dict[str, str | None] = {}
+        self._hvac_cold: dict[str, bool] = {}
+        self._hvac_dwell_s: dict[str, float] = {}
+        # Per-zone: unarmed episodes that lapsed today (D5 C1-D metric).
+        self.transit_filtered_today: dict[str, int] = {}
         # Pass-complete snapshots so `room_release_at` / `zone_away_due_at`
         # (exit timer, sync) can resolve a room's type / override / coordinator
         # without re-walking config entries.
@@ -590,6 +624,8 @@ class ZoneManager:
         self,
         house_state: str | None = None,
         zone_ids: set[str] | None = None,
+        entry_dwell_s: float | None = None,
+        away_edge_fn: Any = None,
     ) -> None:
         """Aggregate room conditions per zone from URA room coordinators.
 
@@ -619,8 +655,13 @@ class ZoneManager:
             evidence rule and returns the state-selected output.
           * Back-fill: on a pass where a zone is fused-empty in an evidence
             or night state, `last_occupied_time` is raised to the exact
-            release instant (max room release), so the vacancy grace counts
-            from the release, not from the last pass that saw occupancy.
+            release instant (max room release over ARMED rooms), so the
+            vacancy grace counts from the release, not from the last pass
+            that saw occupancy. Pending / never-armed episodes never touch it.
+          * D5 (plan §5b): `entry_dwell_s` = knob 47 × 60 (W; None/0 = off)
+            and `away_edge_fn(zone_id) -> bool` (the zone's last APPLIED S1
+            write was `away` and it is not pre-arrival) are threaded to the
+            evidence rule; the rollup fills `zone.hvac_pending_arm_rooms`.
         """
         # Build room_name -> coordinator mapping. v4.7.8 D3: also collect
         # CONF_WINDOW_SENSORS + CONF_IS_EGRESS_WINDOW per room so EgressManager
@@ -722,12 +763,24 @@ class ZoneManager:
             HVAC_NIGHT_HOLD_STATES as _NIGHT_STATES,
         )
         _backfill_states = house_state in _EV_STATES or house_state in _NIGHT_STATES
+        try:
+            _W = float(entry_dwell_s or 0.0)
+        except (TypeError, ValueError):
+            _W = 0.0
         for zone in self._zones.values():
             # v5.103.20 (plan §5.3): zone filter BEFORE clear() — a
             # zone-scoped fast run must leave sibling zones' conditions,
             # rollup fields and shadow state untouched.
             if zone_ids is not None and zone.zone_id not in zone_ids:
                 continue
+            # D5: the zone's away edge, read ONCE per zone per pass (only
+            # meaningful in evidence states with the filter on).
+            _away_edge = False
+            if _W > 0 and house_state in _EV_STATES and callable(away_edge_fn):
+                try:
+                    _away_edge = bool(away_edge_fn(zone.zone_id))
+                except Exception:  # noqa: BLE001 — unknown edge = False (fail open)
+                    _away_edge = False
             zone.room_conditions.clear()
             for room_name in zone.rooms:
                 coordinator = room_coordinators.get(room_name)
@@ -805,19 +858,9 @@ class ZoneManager:
                     # or a legacy fake yields None), `is True` for the
                     # active flag, and `last_update_success is not False`
                     # for refresh health.
-                    _ev_raw = None
-                    _act_raw = None
-                    try:
-                        _get_ev = getattr(coordinator, "get_last_hvac_evidence_time", None)
-                        _ev_raw = _get_ev() if callable(_get_ev) else None
-                        _get_act = getattr(coordinator, "is_hvac_evidence_active", None)
-                        _act_raw = _get_act() if callable(_get_act) else None
-                    except Exception:  # noqa: BLE001 — never let a room read fault the pass
-                        _ev_raw = None
-                        _act_raw = None
-                    last_evidence = _ev_raw if isinstance(_ev_raw, datetime) else None
-                    evidence_active = _act_raw is True
-                    refresh_ok = getattr(coordinator, "last_update_success", True) is not False
+                    last_evidence, evidence_active, onset, refresh_ok = (
+                        self._read_room_evidence(coordinator)
+                    )
                     hvac_occupied_val = self._compute_hvac_occupied(
                         room_name=room_name,
                         room_type=room_type,
@@ -829,6 +872,10 @@ class ZoneManager:
                         last_evidence=last_evidence,
                         evidence_active=evidence_active,
                         refresh_ok=refresh_ok,
+                        onset=onset,
+                        entry_dwell_s=_W,
+                        away_edge=_away_edge,
+                        zone_id=zone.zone_id,
                         # The producer path ALWAYS applies the rule (a room
                         # with no evidence yet is simply not held in an
                         # evidence state); only direct legacy callers get
@@ -883,6 +930,12 @@ class ZoneManager:
                     ):
                         zone.last_occupied_time = _e
 
+            # D5 rollup (plan §4.2 step 6): the zone's pending rooms. Only
+            # meaningful in evidence states; empty otherwise.
+            zone.hvac_pending_arm_rooms = [
+                r for r in zone.rooms if self._hvac_pending.get(r, False)
+            ]
+
             # Row 2b: lighting-fused vacancy_sweep_done reset (NO-SWAP).
             # Row 2d: lighting-fused session_start (NO-SWAP).
             if zone.any_room_occupied:
@@ -924,6 +977,19 @@ class ZoneManager:
             # sibling on the zone status attrs so D7/D9 observers and the
             # per-zone diagnostic surface can read the fused signal.
             "any_room_hvac_occupied": zone.any_room_hvac_occupied,
+            # v5.103.20 (plan §3.2 zone-status row): exact release + D5 exposure.
+            "hvac_empty_since": (
+                zone.last_occupied_time.isoformat()
+                if (not zone.any_room_hvac_occupied and zone.last_occupied_time is not None)
+                else None
+            ),
+            "hvac_release_at": (
+                self.zone_release_at(zone_id).isoformat()
+                if self.zone_release_at(zone_id) is not None else None
+            ),
+            "pending_arm_rooms": list(getattr(zone, "hvac_pending_arm_rooms", []) or []),
+            "pending_hold_s_today": int(getattr(zone, "pending_hold_s_today", 0.0) or 0),
+            "transit_filtered_today": int(self.transit_filtered_today.get(zone_id, 0)),
             # HVAC-DEGRADED-ROOM-TRIPWIRE-1 REV-2 D3/F1 (2026-09-26):
             # live-room classification for this zone. `excluded_rooms`
             # / `transient_rooms` include the reason for operator diag
@@ -1233,6 +1299,10 @@ class ZoneManager:
         evidence_active: bool = False,
         refresh_ok: bool = True,
         apply_evidence_rule: bool | None = None,
+        onset: datetime | None = None,
+        entry_dwell_s: float = 0.0,
+        away_edge: bool = False,
+        zone_id: str | None = None,
     ) -> bool:
         """D1 producer — returns True iff the room is HVAC-occupied.
 
@@ -1292,6 +1362,10 @@ class ZoneManager:
             evidence_active=evidence_active,
             refresh_ok=refresh_ok,
             shadow_out=bool(shadow_out),
+            onset=onset,
+            entry_dwell_s=entry_dwell_s,
+            away_edge=away_edge,
+            zone_id=zone_id,
         )
 
     def _evidence_rule_output(
@@ -1306,9 +1380,13 @@ class ZoneManager:
         evidence_active: bool,
         refresh_ok: bool,
         shadow_out: bool,
+        onset: datetime | None = None,
+        entry_dwell_s: float = 0.0,
+        away_edge: bool = False,
+        zone_id: str | None = None,
     ) -> bool:
-        """Evidence rule (plan §4.2 steps 2-4). NEVER writes the shadow's
-        dicts; writes only `_hvac_output`, `_hvac_rule`, `_hvac_day_release_at`.
+        """Evidence rule (plan §4.2 steps 2-5) + D5 (§5b). NEVER writes the
+        shadow's dicts; writes only the evidence rule's own state.
 
         Refresh failure (`refresh_ok is False`): the room coordinator's stamp
         did not run, so the stale `evidence_active` is NOT trusted (else a
@@ -1327,6 +1405,12 @@ class ZoneManager:
             self._hvac_rule[room_name] = rule
             self._hvac_day_release_at.pop(room_name, None)
             self._hvac_output[room_name] = shadow_out
+            # No D5, no pending hold in legacy states (INV-5).
+            self._clear_episode(room_name)
+            self._hvac_pending[room_name] = False
+            self._hvac_cold[room_name] = False
+            if shadow_out:
+                self._hvac_ep_armed[room_name] = True
             return shadow_out
 
         prev_out = bool(self._hvac_output.get(room_name, False))
@@ -1351,17 +1435,278 @@ class ZoneManager:
         ):
             ev_out = True
 
+        # ---- D5 transit filter (plan §5b, evidence states only) ----
+        W = float(entry_dwell_s or 0.0)
+        pending = False
+        if rule == "evidence":
+            self._hvac_dwell_s[room_name] = W
+            d5 = self._d5_update(
+                room_name=room_name, room_type=room_type,
+                override_day=override_day, now=now, ev=last_evidence,
+                active=(bool(evidence_active) if refresh_ok is not False else False),
+                onset=onset, W=W, away_edge=bool(away_edge), prev_out=prev_out,
+                zone_id=zone_id,
+            )
+            if d5["cold"] and W > 0:
+                ev_out = ev_out and d5["persisted"]
+                pending = d5["pending"]
+        else:
+            # Night: no D5 (plan §4.3); a live episode is dropped.
+            self._clear_episode(room_name)
+            self._hvac_cold[room_name] = False
+        self._hvac_pending[room_name] = pending
+
         if rule == "evidence":
             out = ev_out
         else:  # night: never shorter than the shadow (INV-5)
             out = shadow_out or ev_out
-        # Cold-arm point (REV 4 hook): `out and not prev_out` in an evidence
-        # state is where an entry-arming dwell would gate on
-        # `coordinator.get_hvac_evidence_since()`; re-arms within the hold
-        # (prev_out True) stay immediate. Not implemented in v5.103.20.
+        out = bool(out)
+
+        # ---- arm / release bookkeeping (plan §4.2 step 5, §5b.3) ----
+        if out and not prev_out:
+            self._hvac_armed_at[room_name] = now
+            self._hvac_ep_armed[room_name] = True
+            onsets = self._hvac_episode_onsets.get(room_name) or []
+            ep_start = self._hvac_episode_start.get(room_name)
+            if rule == "evidence" and self._hvac_cold.get(room_name) and W > 0:
+                # D0c arm-class split (diagnostic only).
+                if len(onsets) > 1:
+                    cls = "joined_transit"
+                elif not evidence_active:
+                    cls = "exit_pulse"
+                else:
+                    cls = "clean"
+                arm_onset = ep_start if ep_start is not None else now
+            else:
+                cls = "immediate"
+                arm_onset = onset if isinstance(onset, datetime) else now
+            self._hvac_arm_class[room_name] = cls
+            # The arm's evidence span is measured from this onset to the
+            # last evidence before the release (plan §5b.3: "an arm whose
+            # evidence spanned at least W").
+            self._hvac_arm_onset[room_name] = arm_onset
+        elif out:
+            self._hvac_ep_armed[room_name] = True
+        elif prev_out:
+            arm_onset = self._hvac_arm_onset.get(room_name)
+            if arm_onset is not None and last_evidence is not None:
+                span = max(0.0, (last_evidence - arm_onset).total_seconds())
+            else:
+                span = 0.0
+            self._hvac_arm_span_s[room_name] = span
+            if rule == "evidence" and (W <= 0 or span >= W):
+                # Room-only exemption anchor: renewed ONLY by an arm whose
+                # evidence spanned >= W — a ghost blip cannot chain it.
+                self._hvac_ev_released_at[room_name] = now
         self._hvac_rule[room_name] = rule
-        self._hvac_output[room_name] = bool(out)
-        return bool(out)
+        self._hvac_output[room_name] = out
+        return out
+
+    # ------------------------------------------------------------------
+    # D5 transit filter — episode machinery (plan §5b.1 / §5b.2)
+    # ------------------------------------------------------------------
+    def _clear_episode(self, room_name: str) -> None:
+        self._hvac_episode_start.pop(room_name, None)
+        self._hvac_episode_onsets.pop(room_name, None)
+        self._hvac_episode_prev_ev.pop(room_name, None)
+        self._hvac_episode_closed_s.pop(room_name, None)
+        self._hvac_episode_active_s.pop(room_name, None)
+
+    def _lapse_episode(self, room_name: str, zone_id: str | None) -> None:
+        """An unarmed episode lapsed: count it (D5 C1-D) and drop it."""
+        if not self._hvac_ep_armed.get(room_name, False) and zone_id:
+            self.transit_filtered_today[zone_id] = (
+                self.transit_filtered_today.get(zone_id, 0) + 1
+            )
+        self._clear_episode(room_name)
+
+    def d5_join_window_s(self, room_name: str, W: float) -> float:
+        """J = min(hold_ev, W) for the room (plan §5b.2)."""
+        meta = self._room_meta_last_pass.get(room_name) or {}
+        from ..const import ROOM_TYPE_GENERIC
+        hold = self._evidence_hold_seconds(
+            str(meta.get("room_type", ROOM_TYPE_GENERIC)),
+            meta.get("hvac_hold_override_day"),
+        )
+        return float(min(hold, W)) if W > 0 else 0.0
+
+    def _d5_update(
+        self,
+        *,
+        room_name: str,
+        room_type: str,
+        override_day: int | None,
+        now: datetime,
+        ev: datetime | None,
+        active: bool,
+        onset: datetime | None,
+        W: float,
+        away_edge: bool,
+        prev_out: bool,
+        zone_id: str | None,
+    ) -> dict[str, Any]:
+        """Update the room's D5 episode from (ev, active, onset) at `now`
+        and return {cold, live, persisted, pending, episode_start, J}.
+
+        Idempotent for identical inputs (the listener and the producer may
+        both call it for the same refresh). Rule (plan §5b.1):
+          exempt = released_at within HVAC_TRANSIT_EXEMPT_WINDOW_S
+          cold   = away_edge and not prev_out and not exempt
+          not cold or W == 0 -> episode cleared, output unfiltered
+          else: episode join/lapse (§5b.2); persisted = W == 0 or
+                (active and now - start >= W) or (ev - start >= W)
+        """
+        from .hvac_const import HVAC_TRANSIT_EXEMPT_WINDOW_S
+        hold_ev = self._evidence_hold_seconds(room_type, override_day)
+        J = float(min(hold_ev, W)) if W > 0 else 0.0
+        released_at = self._hvac_ev_released_at.get(room_name)
+        exempt = (
+            released_at is not None
+            and 0 <= (now - released_at).total_seconds() <= HVAC_TRANSIT_EXEMPT_WINDOW_S
+        )
+        cold = bool(away_edge) and not prev_out and not exempt
+        self._hvac_exempt_reason[room_name] = (
+            "same_room_return" if (bool(away_edge) and not prev_out and exempt) else None
+        )
+        self._hvac_cold[room_name] = cold
+        if not cold or W <= 0:
+            # Unfiltered: the plain evidence rule decides.
+            self._clear_episode(room_name)
+            return {
+                "cold": cold, "live": False, "persisted": True, "pending": False,
+                "episode_start": None, "J": J,
+            }
+        # Cold: NOTHING arms unless a live episode has persisted (INV-D5 a).
+        result: dict[str, Any] = {
+            "cold": True, "live": False, "persisted": False, "pending": False,
+            "episode_start": None, "J": J,
+        }
+        if ev is None:
+            self._clear_episode(room_name)
+            return result
+
+        onset_cur = onset if isinstance(onset, datetime) else ev
+        if onset_cur > ev:
+            onset_cur = ev
+        start = self._hvac_episode_start.get(room_name)
+        onsets = self._hvac_episode_onsets.get(room_name)
+        prev_ev = self._hvac_episode_prev_ev.get(room_name)
+
+        if start is None or onsets is None or prev_ev is None:
+            # No live episode. Evidence older than J -> nothing to track.
+            if not active and (now - ev).total_seconds() > J:
+                self._clear_episode(room_name)
+                return result
+            start = onset_cur
+            onsets = [onset_cur]
+            self._hvac_episode_start[room_name] = start
+            self._hvac_episode_onsets[room_name] = onsets
+            self._hvac_episode_closed_s[room_name] = 0.0
+            self._hvac_ep_armed[room_name] = False
+            prev_ev = ev
+        else:
+            if onset_cur > onsets[-1]:
+                # A new evidence stretch began since the last update.
+                if (onset_cur - prev_ev).total_seconds() > J:
+                    # Gap beyond J: the old episode lapsed; start anew.
+                    self._lapse_episode(room_name, zone_id)
+                    start = onset_cur
+                    onsets = [onset_cur]
+                    self._hvac_episode_start[room_name] = start
+                    self._hvac_episode_onsets[room_name] = onsets
+                    self._hvac_episode_closed_s[room_name] = 0.0
+                    self._hvac_ep_armed[room_name] = False
+                else:
+                    # Join: close the previous stretch, append the onset.
+                    closed = self._hvac_episode_closed_s.get(room_name, 0.0)
+                    closed += max(0.0, (prev_ev - onsets[-1]).total_seconds())
+                    self._hvac_episode_closed_s[room_name] = closed
+                    onsets.append(onset_cur)
+            prev_ev = max(prev_ev, ev)
+        self._hvac_episode_prev_ev[room_name] = prev_ev
+
+        # Lapse: no arm and the evidence is older than J.
+        if not active and (now - prev_ev).total_seconds() > J:
+            self._lapse_episode(room_name, zone_id)
+            return result
+
+        closed = self._hvac_episode_closed_s.get(room_name, 0.0)
+        self._hvac_episode_active_s[room_name] = closed + max(
+            0.0, (prev_ev - onsets[-1]).total_seconds(),
+        )
+        persisted = (
+            (active and (now - start).total_seconds() >= W)
+            or (prev_ev - start).total_seconds() >= W
+        )
+        result.update({
+            "live": True, "persisted": bool(persisted),
+            "pending": not persisted, "episode_start": start,
+        })
+        return result
+
+    @staticmethod
+    def _read_room_evidence(coordinator: Any) -> tuple[datetime | None, bool, datetime | None, bool]:
+        """(last_evidence, evidence_active, onset, refresh_ok) read
+        defensively from a room coordinator: `isinstance(..., datetime)`
+        (a MagicMock or a legacy fake yields None), `is True` for the active
+        flag, `last_update_success is not False` for refresh health."""
+        ev_raw = act_raw = onset_raw = None
+        try:
+            g = getattr(coordinator, "get_last_hvac_evidence_time", None)
+            ev_raw = g() if callable(g) else None
+            a = getattr(coordinator, "is_hvac_evidence_active", None)
+            act_raw = a() if callable(a) else None
+            o = getattr(coordinator, "get_hvac_evidence_onset", None)
+            onset_raw = o() if callable(o) else None
+        except Exception:  # noqa: BLE001 — never let a room read fault the pass
+            ev_raw = act_raw = onset_raw = None
+        return (
+            ev_raw if isinstance(ev_raw, datetime) else None,
+            act_raw is True,
+            onset_raw if isinstance(onset_raw, datetime) else None,
+            getattr(coordinator, "last_update_success", True) is not False,
+        )
+
+    def d5_room_probe(
+        self, room_name: str, now: datetime, entry_dwell_s: float, away_edge: bool,
+    ) -> dict[str, Any] | None:
+        """Listener-side D5 probe (plan §5.4 step 4): update the room's
+        episode from the LIVE accessors and return the `_d5_update` result,
+        or None when D5 does not apply (no coordinator / not an evidence
+        state / hallway)."""
+        from ..const import ROOM_TYPE_GENERIC, ROOM_TYPE_HALLWAY
+        meta = self._room_meta_last_pass.get(room_name) or {}
+        coordinator = self._room_coord_last_pass.get(room_name)
+        if coordinator is None:
+            return None
+        if self._hvac_rule_for_state(self._last_house_state) != "evidence":
+            return None
+        room_type = str(meta.get("room_type", ROOM_TYPE_GENERIC))
+        if room_type == ROOM_TYPE_HALLWAY:
+            return None
+        ev, active, onset, refresh_ok = self._read_room_evidence(coordinator)
+        zone_id = None
+        for z in self._zones.values():
+            if room_name in (getattr(z, "rooms", []) or []):
+                zone_id = z.zone_id
+                break
+        return self._d5_update(
+            room_name=room_name, room_type=room_type,
+            override_day=meta.get("hvac_hold_override_day"), now=now, ev=ev,
+            active=(active if refresh_ok else False), onset=onset,
+            W=float(entry_dwell_s or 0.0), away_edge=bool(away_edge),
+            prev_out=bool(self._hvac_output.get(room_name, False)),
+            zone_id=zone_id,
+        )
+
+    def room_is_pending(self, room_name: str) -> bool:
+        return bool(self._hvac_pending.get(room_name, False))
+
+    def room_last_evidence_live(self, room_name: str) -> datetime | None:
+        coordinator = self._room_coord_last_pass.get(room_name)
+        if coordinator is None:
+            return None
+        return self._read_room_evidence(coordinator)[0]
 
     # ------------------------------------------------------------------
     # v5.103.20 — exact release instant helpers (plan §4.5), sync + pure
@@ -1391,6 +1736,13 @@ class ZoneManager:
         rule = self._hvac_rule_for_state(house_state)
         if rule == "legacy":
             return ("unbounded", None)
+        if rule == "evidence" and (
+            self._hvac_pending.get(room_name, False)
+            or not self._hvac_ep_armed.get(room_name, True)
+        ):
+            # D5 (plan §4.5): pending and never-armed episodes are excluded
+            # from E(Z) — they never touch the grace clock.
+            return ("none", None)
         if refresh_ok is not False and evidence_active:
             return ("unbounded", None)
         ev_rel: datetime | None = None
@@ -2054,6 +2406,9 @@ class ZoneManager:
             _live_rel = self.room_release_at(room_name)
         except Exception:  # noqa: BLE001
             _live_rel = None
+
+        def _iso(v):
+            return v.isoformat() if isinstance(v, datetime) else None
         return {
             "armed": bool(self._hvac_armed.get(room_name, False)),
             "tail_expires_at": (
@@ -2065,8 +2420,22 @@ class ZoneManager:
             # v5.103.20: evidence-rule diagnostics (plan §3.2 display row).
             "rule": self._hvac_rule.get(room_name, "legacy"),
             "output": bool(self._hvac_output.get(room_name, False)),
-            "evidence_release_at": _day_rel.isoformat() if _day_rel else None,
-            "release_at": _live_rel.isoformat() if _live_rel else None,
+            "evidence_release_at": _iso(_day_rel),
+            "release_at": _iso(_live_rel),
+            # D5 (plan §3.2): episode + arm diagnostics.
+            "episode_start": _iso(self._hvac_episode_start.get(room_name)),
+            "episode_onsets": [
+                _iso(o) for o in (self._hvac_episode_onsets.get(room_name) or [])
+            ],
+            "episode_active_s": self._hvac_episode_active_s.get(room_name),
+            "armed_at": _iso(self._hvac_armed_at.get(room_name)),
+            "arm_span_s": self._hvac_arm_span_s.get(room_name),
+            "arm_class": self._hvac_arm_class.get(room_name),
+            "dwell_s": self._hvac_dwell_s.get(room_name),
+            "exempt_reason": self._hvac_exempt_reason.get(room_name),
+            "pending": bool(self._hvac_pending.get(room_name, False)),
+            "cold": bool(self._hvac_cold.get(room_name, False)),
+            "released_at": _iso(self._hvac_ev_released_at.get(room_name)),
         }
 
     def reset_daily_counters(self) -> None:
@@ -2075,6 +2444,9 @@ class ZoneManager:
             zone.override_count_today = 0
             zone.ac_reset_count_today = 0
             zone.camera_face_arrivals_today = 0
+            # D5 (v5.103.20) exposure metrics.
+            zone.pending_hold_s_today = 0.0
+        self.transit_filtered_today = {}
 
 
 # ============================================================================
