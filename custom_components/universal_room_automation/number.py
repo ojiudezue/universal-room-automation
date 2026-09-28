@@ -519,7 +519,7 @@ class ReturnWindowMinutesNumber(NumberEntity):
     entry options (Bug Class #32 pattern: options are the sole source of
     truth, live-attr push BEFORE the writeback, no RestoreEntity).
 
-    Entity: number.ura_hvac_coordinator_52_return_window
+    Entity: number.ura_hvac_coordinator_52_return_window_min
     Device: URA: HVAC Coordinator
     """
 

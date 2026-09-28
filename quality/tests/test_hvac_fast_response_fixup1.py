@@ -328,7 +328,8 @@ def test_fast_entry_queues_in_every_house_state(mods, hs):
 # ==========================================================================
 
 @pytest.mark.asyncio
-async def test_night_tail_not_carried_across_crossing_jaya_repro(mods):
+@pytest.mark.parametrize("night_state", ["sleep", "waking"])
+async def test_night_tail_not_carried_across_crossing_jaya_repro(mods, night_state):
     """D's repro: Jaya's radar loses her at 06:40 (house asleep); house_day at
     07:00. The shadow's 30-minute night tail would still be armed (until
     ~07:11); the evidence rule releases at 06:40 + 240 s = 06:44, the zone's
@@ -338,19 +339,19 @@ async def test_night_tail_not_carried_across_crossing_jaya_repro(mods):
     t0630 = real_dt.as_utc(datetime(2026, 9, 28, 6, 30, tzinfo=real_dt.DEFAULT_TIME_ZONE))
     with _Clock(t0630) as clk:
         coord, hass, coords, sched = _setup(
-            mods, house_state="sleep",
+            mods, house_state=night_state,
             rooms={"zone_1": [("jaya", "bedroom", {"occupied": True})]},
             presets={"zone_1": "sleep", "zone_2": "sleep", "zone_3": "sleep"},
         )
         rc = coords["jaya"]
         _evidence(rc, onset=t0630, ev=t0630, active=True)
-        _pass(coord, "sleep")
+        _pass(coord, night_state)
         assert _diag(coord, "jaya")["output"] is True
         t0640 = t0630 + S(minutes=10)
         clk.t = t0640 + S(seconds=60)                                    # 06:41
         rc.data = {"occupied": False}
         _evidence(rc, onset=t0630, ev=t0640, active=False)
-        _pass(coord, "sleep")
+        _pass(coord, night_state)
         assert _diag(coord, "jaya")["output"] is True                    # night: shadow tail
         t0700 = t0630 + S(minutes=30)
         clk.t = t0700
@@ -968,3 +969,184 @@ async def test_quick_return_deduped_per_away_across_two_real_rearms(mods):
         await coord._async_zone_fast_run("zone_1", "fast_entry", edge_ts=clk.t)
         assert coord.zone_manager.zones["zone_1"].any_room_hvac_occupied is True
         assert coord._quick_returns_today_view() == {"zone_1": 1}          # deduped
+
+
+# ==========================================================================
+# Fix-up round 2 — D-L1 spell closes when S1 is skipped; D-L2 cap >= W + J;
+# D-L3 counters by reason; D-L4 suppressed-source falling edge; knob 52 form
+# ==========================================================================
+
+async def _open_spell(mods, clk):
+    coord, hass, coords, sched = _away_zone(mods, clk)
+    z = coord.zone_manager.zones["zone_1"]
+    _pending_kitchen(coord, coords, clk)
+    await coord._apply_house_state_presets()
+    assert z.pending_hold_since == T0 + S(seconds=20)
+    assert "zone_1" in coord._pending_hold_logged
+    return coord, hass, coords, z
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("how", ["zone_intelligence_off", "egress_paused", "arriving", "observation"])
+async def test_pending_spell_closes_when_s1_block_skipped(mods, how):
+    """D-L1: a tick that never reaches the zone's S1 block closes its spell
+    (the clock is the HOLD, not the pending room) and clears both latches."""
+    with _Clock(T0) as clk:
+        coord, hass, coords, z = await _open_spell(mods, clk)
+        clk.t = T0 + S(seconds=50)
+        if how == "zone_intelligence_off":
+            coord._zone_intelligence_enabled = False
+            await coord._apply_house_state_presets()
+        elif how == "egress_paused":
+            with patch.object(coord._egress_manager, "is_paused", return_value=True):
+                await coord._apply_house_state_presets()
+        elif how == "arriving":
+            coord._house_state = "arriving"
+            await coord._apply_house_state_presets()
+        else:
+            coord._observation_mode = True
+            coord._startup_audit_done = True
+            ps = [p for p in _heavy(coord) if "apply_house_state_presets" not in str(p)]
+            for p in ps:
+                p.start()
+            try:
+                await coord._run_decision_cycle()
+            finally:
+                for p in ps:
+                    p.stop()
+        assert z.pending_hold_since is None
+        assert z.pending_hold_s_today == 30.0
+        assert "zone_1" not in coord._pending_hold_logged
+        assert "zone_1" not in coord._pending_hold_cap_logged
+
+
+@pytest.mark.asyncio
+async def test_zone_scoped_run_does_not_close_other_zones_spell(mods):
+    """D-L1 scope: a fast run for zone_2 leaves zone_1's spell untouched."""
+    with _Clock(T0) as clk:
+        coord, hass, coords, z = await _open_spell(mods, clk)
+        clk.t = T0 + S(seconds=50)
+        await coord._apply_house_state_presets(zone_filter={"zone_2"}, trigger="fast_entry")
+        assert z.pending_hold_since == T0 + S(seconds=20)
+        assert "zone_1" in coord._pending_hold_logged
+
+
+@pytest.mark.asyncio
+async def test_pending_hold_cap_is_at_least_one_episode_at_knob_15(mods):
+    """D-L2: knob 47 = 15 -> W = 900, kitchen J = 180 -> cap = 1080 s (> 600).
+    A chain of never-persisting pulses (one every 200 s, gap 190 > J) is
+    held at 1000 s and released past 1080 s; the row carries cap_s 1080."""
+    with _Clock(T0) as clk:
+        coord, hass, coords, sched = _setup(
+            mods, rooms={"zone_1": [(KIT, "common_area", {"occupied": True})]},
+            presets={"zone_1": "home", "zone_2": "home", "zone_3": "home"},
+        )
+        coord._zone_entry_dwell = 15
+        z = coord.zone_manager.zones["zone_1"]
+        z.last_occupied_time = T0 - S(seconds=1000)
+        coord._zone_last_s1_write["zone_1"] = ("away", "vacant_past_grace", T0 - S(seconds=600))
+        rc = coords[KIT]
+        for k in range(0, 7):                                           # 0 .. 1200 s
+            clk.t = T0 + S(seconds=200 * k)
+            _evidence(rc, onset=clk.t - S(seconds=15), ev=clk.t - S(seconds=5), active=False)
+            _pass(coord)
+            assert z.hvac_pending_arm_rooms == [KIT], k
+            assert coord._pending_hold_cap_s(z) == 1080.0
+            await coord._apply_house_state_presets()
+            await _drain(hass)
+            if 200 * k <= 1080:
+                assert _writes(hass, ENT1, "away") == [], k
+            else:
+                assert len(_writes(hass, ENT1, "away")) == 1, k
+                rows = _rows(hass, mods, "pending_hold_capped")
+                assert len(rows) == 1 and rows[0]["details"]["cap_s"] == 1080
+                assert rows[0]["details"]["held_s"] == 1200
+        # knob 47 = 1: W + J = 120 < 600 -> the constant rules.
+        coord._zone_entry_dwell = 1
+        assert coord._pending_hold_cap_s(z) == 600.0
+
+
+@pytest.mark.asyncio
+async def test_quick_return_counters_split_by_reason(mods):
+    """D-L3: `skip_entry_wait` re-arms have their own counter and never land
+    in `same_room_returns_today`; quick = same + skip + other."""
+    with _Clock(T0) as clk:
+        coord, hass, coords, sched = _setup(mods)
+        z1 = coord.zone_manager.zones["zone_1"]
+        for i, reason in enumerate(("skip_entry_wait", "same_room_return", None, "skip_entry_wait")):
+            coord._zone_vacancy_away_at["zone_1"] = clk.t - S(seconds=10 + i)
+            coord._note_quick_return("zone_1", z1, clk.t, exempt_reason=reason)
+        a = coord.get_mode_attrs()
+        assert a["quick_returns_today"] == {"zone_1": 4}
+        assert a["skip_entry_wait_returns_today"] == {"zone_1": 2}
+        assert a["same_room_returns_today"] == {"zone_1": 1}
+        assert a["other_room_returns_today"] == {"zone_1": 1}
+        # End to end: a skip-room fast entry counts in the skip bucket.
+    with _Clock(T0) as clk:
+        coord, hass, coords, sched = _away_zone(mods, clk, vacancy_away_age=100)
+        _entry_of(hass, KIT).options = {"hvac_skip_entry_wait": True}
+        _evidence(coords[KIT], onset=clk.t, ev=clk.t, active=True)
+        coord._fast_path_queued.add("zone_1")
+        await coord._async_zone_fast_run("zone_1", "fast_entry", edge_ts=clk.t, exempt_reason="skip_entry_wait")
+        assert coord.zone_manager.zones["zone_1"].any_room_hvac_occupied is True
+        assert coord._fp_skip_entry_wait_returns_today == {"zone_1": 1}
+        assert coord._fp_same_room_returns_today == {}
+        # ... and the daily reset clears it.
+        coord._fp_quick_return_date = "1970-01-01"
+        coord._quick_returns_today_view()
+        assert coord._fp_skip_entry_wait_returns_today == {}
+
+
+@pytest.mark.parametrize("active_after", [False, True])
+def test_suppressed_source_falling_edge_rearms_exit_timer(mods, active_after):
+    """D-L4 (grace 1 min): a refresh with NO evidence advance — a fan-recheck
+    release (active -> False, no stamp) or a fan-demoted falling edge (stamp
+    suppressed, active unchanged) — queues no run and re-arms the exit timer
+    from live evidence: release + 60 + 2 when the evidence ended; no timer
+    (unbounded) while it is still active."""
+    with _Clock(T0) as clk:
+        coord, hass, coords, sched = _setup(
+            mods, grace=1, constrained=1,
+            rooms={"zone_1": [("bed1", "bedroom", {"occupied": True, "ev": T0, "active": True})]},
+            presets={"zone_1": "home", "zone_2": "home", "zone_3": "home"},
+        )
+        _pass(coord)
+        rc = coords["bed1"]
+        rc.refresh()                                                     # advance seen
+        coord._schedule_exit_timer("zone_1")
+        assert sched.live() == []                                        # active: unbounded
+        clk.t = T0 + S(seconds=30)
+        rc.active = active_after                                         # same ev
+        with _captured(hass) as tt:
+            rc.refresh()
+            assert tt.call_count == 0
+        if active_after:
+            assert sched.live() == [] and "zone_1" not in coord._fast_path_exit_due
+        else:
+            assert coord._fast_path_exit_due["zone_1"] == T0 + S(seconds=240 + 62)
+            assert sched.live()[0][0] == 272.0
+
+
+def test_return_window_on_hvac_settings_form(mods):
+    """Knob 52 is a form field of the HVAC settings step (presence_timing
+    section) with the persisted value as its default, 0..60 min."""
+    from custom_components.universal_room_automation import config_flow as _cf
+    from test_hvac_vacancy_hold_ui_defaults import _walk_schema
+    entry = SimpleNamespace(entry_id="cm", options={"hvac_return_window_minutes": 7}, data={})
+    flow = _cf.UniversalRoomAutomationOptionsFlow(entry)
+    flow.hass = MagicMock()
+    flow.hass.states.async_all.return_value = []
+    flow.hass.states.get.return_value = None
+    result = asyncio.new_event_loop().run_until_complete(
+        flow.async_step_coordinator_hvac_settings(user_input=None)
+    )
+    found = None
+    for marker, value in _walk_schema(result["data_schema"]):
+        if getattr(marker, "schema", None) == "hvac_return_window_minutes":
+            found = (marker, value)
+    assert found is not None, "knob 52 missing from the HVAC settings form"
+    marker, value = found
+    d = marker.default
+    assert (d() if callable(d) else d) == 7
+    cfg = value.config
+    assert (cfg["min"], cfg["max"], cfg["step"], cfg["unit_of_measurement"]) == (0, 60, 1, "min")

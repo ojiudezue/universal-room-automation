@@ -5930,6 +5930,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_PRE_ARRIVAL_SOURCES,
             CONF_HVAC_ZONE_ENTRY_DWELL,
             DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
+            # v5.103.20 fix-up 2: knob 52 "Return window (minutes)"
+            CONF_HVAC_RETURN_WINDOW_MINUTES,
+            DEFAULT_HVAC_RETURN_WINDOW_MINUTES,
+            HVAC_RETURN_WINDOW_MINUTES_MAX,
             # Presence-timer cluster — collapsed "presence_timing" section
             CONF_HVAC_VACANCY_GRACE_MINUTES,
             DEFAULT_VACANCY_GRACE_MINUTES,
@@ -6482,6 +6486,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
                             min=0, max=15, step=1,
+                            unit_of_measurement="min",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    # v5.103.20 fix-up 2 (re-review A/B/C M2): knob 52 is
+                    # visible on the form next to 47/48/49; the Number
+                    # entity `52 · Return Window (min)` stays as well.
+                    vol.Optional(
+                        CONF_HVAC_RETURN_WINDOW_MINUTES,
+                        default=self._get_current(
+                            CONF_HVAC_RETURN_WINDOW_MINUTES,
+                            DEFAULT_HVAC_RETURN_WINDOW_MINUTES,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0, max=HVAC_RETURN_WINDOW_MINUTES_MAX, step=1,
                             unit_of_measurement="min",
                             mode=selector.NumberSelectorMode.BOX,
                         )

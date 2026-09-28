@@ -536,6 +536,8 @@ class HVACCoordinator(BaseCoordinator):
         self._zone_last_away_reason: dict[str, str] = {}
         self._fp_same_room_returns_today: dict[str, int] = {}
         self._fp_other_room_returns_today: dict[str, int] = {}
+        # fix-up 2 (D-L3): "Skip entry wait" re-arms get their own counter.
+        self._fp_skip_entry_wait_returns_today: dict[str, int] = {}
         self._pending_hold_logged: set[str] = set()
         self._pending_hold_cap_logged: set[str] = set()
         self._fast_path_arm_unsubs: dict[str, Any] = {}
@@ -2190,6 +2192,8 @@ class HVACCoordinator(BaseCoordinator):
                 await self._fan_controller.turn_off_all_managed()
             await self._cover_controller.update(self._energy_constraint)
         else:
+            # fix-up 2 (D-L1): observation mode skips every S1 block.
+            self._close_unseen_pending_spells(set(), None)
             # Still update arrester state for diagnostics (no actions)
             self._override_arrester.update_energy_state(
                 self._energy_offset,
@@ -2439,14 +2443,19 @@ class HVACCoordinator(BaseCoordinator):
         # HA restart or geofence arrival.  Presence sensors haven't settled
         # yet, so acting now causes unnecessary preset churn.
         if self._house_state == "arriving":
+            self._close_unseen_pending_spells(set(), zone_filter)
             return False
 
         target_preset = self._preset_manager.get_preset_for_house_state(
             self._house_state
         )
         if target_preset is None:
+            self._close_unseen_pending_spells(set(), zone_filter)
             return False
         wrote_any = False
+        # fix-up 2 (D-L1): zones whose S1 block ran `_note_pending_hold`
+        # this tick; every other zone in scope has its spell closed below.
+        _pending_seen: set[str] = set()
 
         now = dt_util.utcnow()
         energy_constrained = self._energy_constraint_mode in ("coast", "shed")
@@ -2599,17 +2608,22 @@ class HVACCoordinator(BaseCoordinator):
                 # spell clock runs while the hold CONDITION holds; the latch
                 # closes whenever it does not, on every exit path below.
                 self._note_pending_hold(zone, _pending_arm_hold_write)
+                _pending_seen.add(zone_id)
                 if _pending_arm_hold_write:
                     _since = getattr(zone, "pending_hold_since", None)
+                    # fix-up 2 (D-L2): the cap is never shorter than one
+                    # full episode (W + J) so it only bites on CHAINS of
+                    # episodes that never persisted — even at knob 47 = 15.
+                    _cap_s = self._pending_hold_cap_s(zone)
                     if (
                         _since is not None
-                        and (now - _since).total_seconds() > HVAC_PENDING_HOLD_CAP_S
+                        and (now - _since).total_seconds() > _cap_s
                     ):
-                        # Held ONLY by never-persisted episodes for too
-                        # long: stop holding, let the away through.
+                        # Held ONLY by never-persisted episodes for longer
+                        # than the cap: stop holding, let the away through.
                         _pending_arm_hold_write = False
                         self._log_pending_hold_capped(
-                            zone, zone_id, activity_logger, now, _since,
+                            zone, zone_id, activity_logger, now, _since, _cap_s,
                         )
                 else:
                     self._pending_hold_logged.discard(zone_id)
@@ -3657,6 +3671,9 @@ class HVACCoordinator(BaseCoordinator):
         # tick-cadence — a zone-scoped fast run SKIPS them.
         if not self._observation_mode and zone_filter is None:
             await self._async_apply_preset_overrides()
+        # fix-up 2 (D-L1): a zone whose S1 block was skipped this tick
+        # (zone intelligence off, egress pause, ...) is not held.
+        self._close_unseen_pending_spells(_pending_seen, zone_filter)
         return wrote_any
 
     # ------------------------------------------------------------------
@@ -4300,9 +4317,36 @@ class HVACCoordinator(BaseCoordinator):
             return False
         return self._zone_last_write_is_away(zone)
 
+    def _pending_hold_cap_s(self, zone: Any) -> float:
+        """fix-up 2 (D-L2): `max(HVAC_PENDING_HOLD_CAP_S, W + J)` with J the
+        largest join window among the zone's pending rooms — one episode can
+        always run its course; only chains are capped."""
+        W = self._entry_dwell_s()
+        J = 0.0
+        for _r in (getattr(zone, "hvac_pending_arm_rooms", []) or []):
+            try:
+                J = max(J, float(self._zone_manager.d5_join_window_s(_r, W)))
+            except Exception:  # noqa: BLE001
+                continue
+        return max(float(HVAC_PENDING_HOLD_CAP_S), W + J)
+
+    def _close_unseen_pending_spells(self, seen: set[str], zone_filter: Any) -> None:
+        """fix-up 2 (D-L1): close the pending spell of every in-scope zone
+        whose S1 block did not run this tick (arriving, no target preset,
+        zone intelligence off, observation mode, egress pause)."""
+        for _zid, _z in list(self._zone_manager.zones.items()):
+            if zone_filter is not None and _zid not in zone_filter:
+                continue
+            if _zid in seen:
+                continue
+            if getattr(_z, "pending_hold_since", None) is not None:
+                self._note_pending_hold(_z, False)
+            self._pending_hold_logged.discard(_zid)
+            self._pending_hold_cap_logged.discard(_zid)
+
     def _log_pending_hold_capped(
         self, zone: Any, zone_id: str, activity_logger: Any, now_utc: datetime,
-        since: datetime,
+        since: datetime, cap_s: float = float(HVAC_PENDING_HOLD_CAP_S),
     ) -> None:
         """One `pending_hold_capped` ledger row per spell (ruling 1)."""
         if zone_id in self._pending_hold_cap_logged:
@@ -4312,7 +4356,7 @@ class HVACCoordinator(BaseCoordinator):
         _LOGGER.info(
             "HVAC pending hold CAPPED on %s after %d s (cap %d s) — the "
             "vacancy away may proceed", getattr(zone, "zone_name", zone_id),
-            held_s, HVAC_PENDING_HOLD_CAP_S,
+            held_s, int(cap_s),
         )
         if activity_logger is None:
             return
@@ -4322,14 +4366,14 @@ class HVACCoordinator(BaseCoordinator):
                 action="pending_hold_capped",
                 description=(
                     f"{getattr(zone, 'zone_name', zone_id)} stopped holding for a "
-                    f"room that never settled ({held_s} s, cap {HVAC_PENDING_HOLD_CAP_S} s)"
+                    f"room that never settled ({held_s} s, cap {int(cap_s)} s)"
                 ),
                 zone=zone_id,
                 importance="notable",
                 entity_id=getattr(zone, "climate_entity", None),
                 details={
                     "held_s": held_s,
-                    "cap_s": HVAC_PENDING_HOLD_CAP_S,
+                    "cap_s": int(cap_s),
                     "pending_rooms": list(getattr(zone, "hvac_pending_arm_rooms", []) or []),
                     "house_state": self._house_state,
                 },
@@ -4617,10 +4661,15 @@ class HVACCoordinator(BaseCoordinator):
                 _get = getattr(coordinator, "get_last_hvac_evidence_time", None)
                 _raw = _get() if callable(_get) else None
                 ev = _raw if isinstance(_raw, datetime) else None
-                if ev is None:
-                    return
                 last = self._fp_last_ev.get(room_name)
-                if last is not None and ev <= last:
+                if ev is None or (last is not None and ev <= last):
+                    # fix-up 2 (D-L4): no evidence advance — but a
+                    # SUPPRESSED-source falling edge (fan-demoted, fan-recheck
+                    # release) can still end the room's evidence without a
+                    # stamp. In a warm zone (re)arm the exit timer from live
+                    # evidence, exactly as the B-L1 edge does. No run.
+                    if bool(getattr(zone, "any_room_hvac_occupied", False)):
+                        self._schedule_exit_timer(zone_id)
                     return
                 self._fp_last_ev[room_name] = ev
             if from_step <= 4:
@@ -4736,7 +4785,7 @@ class HVACCoordinator(BaseCoordinator):
                     # the fast entry actually RE-ARMED the zone.
                     if trigger == "fast_entry" and _fused_after and not fused_before:
                         self._note_quick_return(
-                            zone_id, zone, now_utc, exempt=(exempt_reason is not None),
+                            zone_id, zone, now_utc, exempt_reason=exempt_reason,
                         )
                     self._schedule_exit_timer(zone_id)
                     if wrote or fused_changed:
@@ -4775,17 +4824,20 @@ class HVACCoordinator(BaseCoordinator):
             self._fp_quick_returns_today = {}
             self._fp_same_room_returns_today = {}
             self._fp_other_room_returns_today = {}
+            self._fp_skip_entry_wait_returns_today = {}
             self._fp_quick_return_latched = set()
         return self._fp_quick_returns_today
 
     def _note_quick_return(
-        self, zone_id: str, zone: Any, now_utc: datetime, *, exempt: bool = False,
+        self, zone_id: str, zone: Any, now_utc: datetime, *,
+        exempt_reason: str | None = None,
     ) -> None:
         """Quick-return alarm (plan §5.7, O1). Event: the FIRST `fast_entry`
         re-arm in Z (exempt or not) after an APPLIED `vacant_past_grace` away
         (`_zone_vacancy_away_at`), within HVAC_QUICK_RETURN_WINDOW_S of it —
         at most one per away (deduped on the away instant). Per-zone
-        counters: `quick_returns_today` (= same-room + other-room). At
+        counters: `quick_returns_today` (= same-room + skip-entry-wait +
+        other-room; fix-up 2 D-L3 splits them by `exempt_reason`). At
         HVAC_QUICK_RETURN_NM_PER_DAY per zone per local day: one LOW NM whose
         text reads the window from the constant."""
         away_at = self._zone_vacancy_away_at.get(zone_id)
@@ -4798,10 +4850,12 @@ class HVACCoordinator(BaseCoordinator):
         self._zone_vacancy_away_counted[zone_id] = away_at
         counts = self._quick_returns_today_view()
         counts[zone_id] = counts.get(zone_id, 0) + 1
-        split = (
-            self._fp_same_room_returns_today if exempt
-            else self._fp_other_room_returns_today
-        )
+        if exempt_reason == "same_room_return":
+            split = self._fp_same_room_returns_today
+        elif exempt_reason == "skip_entry_wait":
+            split = self._fp_skip_entry_wait_returns_today
+        else:
+            split = self._fp_other_room_returns_today
         split[zone_id] = split.get(zone_id, 0) + 1
         n = counts[zone_id]
         if n >= HVAC_QUICK_RETURN_NM_PER_DAY and zone_id not in self._fp_quick_return_latched:
@@ -6598,6 +6652,7 @@ class HVACCoordinator(BaseCoordinator):
             ),
             "quick_returns_today": dict(self._quick_returns_today_view()),
             "same_room_returns_today": dict(self._fp_same_room_returns_today),
+            "skip_entry_wait_returns_today": dict(self._fp_skip_entry_wait_returns_today),
             "other_room_returns_today": dict(self._fp_other_room_returns_today),
             "transit_filtered_today": dict(
                 getattr(self._zone_manager, "transit_filtered_today", {}) or {}

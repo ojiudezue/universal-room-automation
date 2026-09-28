@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -798,10 +799,10 @@ async def test_quick_return_alarm_per_zone_and_sums(mods):
         z1 = coord.zone_manager.zones["zone_1"]; z2 = coord.zone_manager.zones["zone_2"]
         coord._zone_vacancy_away_at["zone_1"] = clk.t - S(seconds=10)
         coord._zone_vacancy_away_at["zone_2"] = clk.t - S(seconds=10)
-        coord._note_quick_return("zone_1", z1, clk.t, exempt=True)
-        coord._note_quick_return("zone_2", z2, clk.t, exempt=False)
+        coord._note_quick_return("zone_1", z1, clk.t, exempt_reason="same_room_return")
+        coord._note_quick_return("zone_2", z2, clk.t)
         coord._zone_vacancy_away_at["zone_2"] = clk.t - S(seconds=5)
-        coord._note_quick_return("zone_2", z2, clk.t, exempt=True)
+        coord._note_quick_return("zone_2", z2, clk.t, exempt_reason="same_room_return")
         a = coord.get_mode_attrs()
         assert a["quick_returns_today"] == {"zone_1": 1, "zone_2": 2}
         assert a["same_room_returns_today"] == {"zone_1": 1, "zone_2": 1}
@@ -1165,10 +1166,13 @@ def test_transit_helper_text_matches_constant(mods):
             if "coordinator_hvac_settings" in data.get("options", {}).get("step", {}) else None
         if helper is None:
             # find it anywhere
-            helper = next(v for v in _walk_values(data, "hvac_zone_entry_dwell") if "Return Window" in v)
+            helper = next(v for v in _walk_values(data, "hvac_zone_entry_dwell") if "Return window" in v)
         texts[fn] = helper
+        # fix-up 2 (L3): no "<digits> minute(s)" phrase of ANY value may
+        # creep back in — the window is a live knob.
+        assert not re.search(r"\b\d+\s*minute", helper), helper
         assert "15" not in helper and "minutes of it emptying" not in helper
-        assert "Return Window" in helper
+        assert "(see Return window)" in helper
         labels = list(_walk_values(data, "hvac_zone_entry_dwell"))
         assert "Entry wait (minutes)" in labels
         assert "Skip entry wait" in list(_walk_values(data, "hvac_skip_entry_wait"))

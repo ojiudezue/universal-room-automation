@@ -429,7 +429,7 @@ DEFAULT_ZONE_ENTRY_DWELL_MINUTES: Final = 1
 CONF_HVAC_ZONE_ENTRY_DWELL: Final = "hvac_zone_entry_dwell"  # Config key
 # D5 room-only RETURN WINDOW (fix-up round 1, operator ruling 2): "Return
 # Window (min)" — a rung-3 Number entity (`number.ura_hvac_coordinator_52_
-# return_window`), default 15, range 0-60, is the LIVE source; this default
+# return_window_min`), default 15, range 0-60, is the LIVE source; this default
 # seeds the coordinator until the entity/options write. Counted from the
 # ROOM's evidence release after an arm whose evidence spanned >= W (never
 # renewed by a short arm, so a ghosting sensor cannot chain it).

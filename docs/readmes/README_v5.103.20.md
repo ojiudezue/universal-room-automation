@@ -56,9 +56,17 @@ fix-up round 1 applied on the branch (see plan §18).
 
 | Knob | Rung | Default / range | Where |
 |---|---|---|---|
-| `52 · Return Window (min)` (`number`, unique_id `{DOMAIN}_hvac_return_window_minutes`, `CONF_HVAC_RETURN_WINDOW_MINUTES`) | 3 | 15 / 0–60, 0 = off | `number.py`; CM options (reload-suppressed, live push); reset button |
+| `52 · Return Window (min)` (`number`, unique_id `{DOMAIN}_hvac_return_window_minutes`, `CONF_HVAC_RETURN_WINDOW_MINUTES`) — ALSO on the HVAC settings form as `Return window (minutes)` (presence-timing section, next to 47/48/49) | 3 | 15 / 0–60, 0 = off | `number.py`, `config_flow.py`; CM options (reload-suppressed, live push, boot-seeded via the coordinator constructor); reset button |
 | `Skip entry wait` (`CONF_HVAC_SKIP_ENTRY_WAIT`, room options, climate step) | 2 | off | `config_flow.py`; read live every producer pass (reload-suppressed) |
-| `HVAC_PENDING_HOLD_CAP_S` | 1 | 600 s | `hvac_const.py` |
+| `HVAC_PENDING_HOLD_CAP_S` | 1 | 600 s — effective cap `max(600, W + J)` so one episode is never cut (fix-up 2) | `hvac_const.py`, `hvac.py` |
+
+**Final label inventory (fix-up 2, for the operator's naming review — both string files identical):**
+- Room climate step — `hvac_vacancy_hold` label `Empty-room hold (day)`; helper ends: *"From 9 pm until the house goes to sleep, and while the house is away, arriving or has guests, this same number (or, if left blank, a shorter built-in hold) is counted from when the room itself shows as empty instead."*
+- Room climate step — `hvac_skip_entry_wait` label `Skip entry wait`; helper: *"For rooms whose sensor only gives short pulses. When on, anyone detected in this room switches a zone set to Away back to Home at once, without the Entry wait. Only matters during the day and evening."*
+- HVAC settings — `hvac_zone_entry_dwell` label `Entry wait (minutes)`; helper: *"How long someone must be in a room before heating and cooling switch a zone that is set to Away back to Home, during the day and evening. People passing through faster than this do not switch it. Someone coming back to a room soon after it emptied counts at once (see Return window). Enter 0 to count any sign of someone at once. Recommended: 1."*
+- HVAC settings — `hvac_return_window_minutes` label `Return window (minutes)`; helper: *"If someone comes back into a room within this many minutes after its hold ends — and their earlier stay lasted at least the Entry wait — a zone set to Away switches back to Home straight away instead of waiting the Entry wait again. 0 turns this off."*
+- Entities — `47 · Entry Wait (min)`, `52 · Return Window (min)` (`number.ura_hvac_coordinator_52_return_window_min`), `31 · Fast Room Response`.
+- Mode-sensor attrs — `quick_returns_today` = `same_room_returns_today` + `skip_entry_wait_returns_today` + `other_room_returns_today` (fix-up 2 D-L3).
 | `47 · Entry Wait (min)` | 3 | 1 (live 0 until set) | unchanged |
 | `31 · Fast Room Response` | 3 | ON | unchanged; scope above |
 Plus D0c Gate A (residual re-probe at the ruled values).
@@ -92,7 +100,8 @@ contradicting the entity's own on/off; `source` ∈ idle / pending / evidence / 
 shadow on `shadow_armed` / `shadow_source` / `shadow_tail_expires_at`, and the D5 diagnostics `episode_start`,
 `armed_at`, `arm_span_s`, `arm_class`, `pending`, `exempt_reason`, `dwell_s`, `released_at`, `episode_active_s`,
 `cold`; zone status attrs `hvac_empty_since`, `hvac_release_at`, `pending_arm_rooms`, `pending_hold_s_today` (accrues
-live), `transit_filtered_today`; ledger action `pending_hold_capped` (`held_s`, `cap_s`, `pending_rooms`).
+live; the spell closes on any tick whose S1 block is skipped — fix-up 2 D-L1), `transit_filtered_today`; ledger action
+`pending_hold_capped` (`held_s`, `cap_s` = `max(600, W + J)`, `pending_rooms`).
 
 ## Not done / deferred (accounted for)
 

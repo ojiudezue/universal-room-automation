@@ -1194,8 +1194,8 @@ async def test_quick_return_counter_and_nm_latch(mods):
         for i in range(13):
             away_at = clk.t - S(seconds=100 + i)
             coord._zone_vacancy_away_at["zone_1"] = away_at
-            coord._note_quick_return("zone_1", z, clk.t, exempt=(i % 2 == 0))
-            coord._note_quick_return("zone_1", z, clk.t, exempt=False)   # same away: no 2nd event
+            coord._note_quick_return("zone_1", z, clk.t, exempt_reason=("same_room_return" if i % 2 == 0 else None))
+            coord._note_quick_return("zone_1", z, clk.t)   # same away: no 2nd event
         assert coord._quick_returns_today_view()["zone_1"] == 13
         assert coord._fp_same_room_returns_today["zone_1"] == 7
         assert coord._fp_other_room_returns_today["zone_1"] == 6

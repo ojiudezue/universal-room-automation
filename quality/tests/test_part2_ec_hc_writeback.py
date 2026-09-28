@@ -1461,3 +1461,20 @@ def test_listener_suppresses_reload_for_hvac_tunable_change():
     )
     assert hass.async_create_task.call_count == 0
     assert hvac._cover_controller._occupied_close_delta == 2.5
+
+
+def test_apply_in_place_pushes_return_window_live(monkeypatch):
+    """v5.103.20 fix-up 2 (L5 / M10): an options save that changes ONLY
+    `hvac_return_window_minutes` is applied in place — the live attribute
+    the producer reads (`hvac._return_window_minutes`) is updated and the
+    key is reported applied (no reload)."""
+    ns = _load_init_dispatch_namespace()
+    hvac = _FakeHvacFull()
+    hvac._return_window_minutes = 15
+    hass = _FakeHassFull(hvac=hvac)
+    key = "hvac_return_window_minutes"
+    new = {key: 4}
+    applied = ns["_apply_in_place"](hass, _FakeEntry(options=new), {key}, new)
+    assert applied == {key}
+    assert hvac._return_window_minutes == 4
+    assert hass.config_entries.async_reload.call_count == 0
