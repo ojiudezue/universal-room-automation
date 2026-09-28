@@ -227,7 +227,6 @@ class HVACCoordinator(BaseCoordinator):
         # stale defaults during the boot window between HC init and the
         # Number/Switch entities' async_added_to_hass push. None => use
         # module defaults (fresh install / test bench).
-        excursion_primitive_enabled: bool | None = None,
         # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b3): Rung-3 knob seeds
         # for the D5 duty-cycle window / caps / master enable. None
         # falls back to the module DUTY_CYCLE_* defaults (fresh install
@@ -264,6 +263,11 @@ class HVACCoordinator(BaseCoordinator):
         # arrester, so the S1 manual-rule gates are injected here. Until
         # this line runs `should_change_preset` fails CLOSED on `manual`.
         self._preset_manager.set_arrester(self._override_arrester)
+        # HVAC W1-B D4a / C-2: the constructor is the load-bearing clamp
+        # site — EVERY caller (setup path, tests) gets [5, 15].
+        from .hvac_const import clamp_hvac_compromise_minutes as _clamp_cm
+        compromise_minutes = _clamp_cm(compromise_minutes)
+        self._override_arrester._compromise_minutes = compromise_minutes
         # Arrester Operator-Immunity: seed immune-persons list. Options-flow
         # edits refresh via set_immune_persons() from the options update
         # handler (mirrors the CM options-write-back pattern).
@@ -361,21 +365,8 @@ class HVACCoordinator(BaseCoordinator):
             if d5_enabled is not None
             else bool(_DFLT_D5_ENABLED)
         )
-        # HVAC-GOVERNED-EXCURSION-1 D2 §4.7 — Excursion Primitive kill switch.
-        # BEGIN-ONLY. Persisted rows still run their return path when OFF.
-        from .hvac_const import DEFAULT_EXCURSION_PRIMITIVE_ENABLED as _DFLT_EX
-        self._excursion_primitive_enabled: bool = (
-            bool(excursion_primitive_enabled)
-            if excursion_primitive_enabled is not None
-            else bool(_DFLT_EX)
-        )
-        # Push the initial state into the primitive module so first-tick
-        # gating is correct even before the switch entity's setter fires.
-        try:
-            from . import hvac_excursion as _ex_mod
-            _ex_mod.set_kill_switch_enabled(self._excursion_primitive_enabled)
-        except Exception:  # noqa: BLE001
-            pass
+        # HVAC-GOVERNED-EXCURSION-1 §4.7 kill switch RETIRED (W1-B decision
+        # 51, 2026-09-27): borrow rows are always recorded.
         # Episode-gated ledger cache: (zone_id, house_state) -> True while a
         # single per-(zone, house_state) episode of the off-phase condition
         # has already emitted its `preset_change_suppressed` row (mirror of
@@ -440,8 +431,6 @@ class HVACCoordinator(BaseCoordinator):
         # Tier 1 review CRITICAL-1: wire backref so banking release path
         # sources the TRUE baseline from `_last_emitted_range`.
         self._predictor.set_hvac_coord(self)
-        # HVAC W1-B gate (e): BANKING / PREHEAT tokens live on the predictor.
-        self._preset_manager.set_predictor(self._predictor)
         # feature/freeze-floor: arrester reads freeze_active off HC for the
         # setpoint chokepoint (mirror of the predictor backref above).
         self._override_arrester.set_hvac_coord(self)
@@ -455,8 +444,6 @@ class HVACCoordinator(BaseCoordinator):
             enabled=egress_pause_enabled,
         )
         self._egress_manager.set_hvac_coord(self)
-        # HVAC W1-B gate (e): EGRESS_PAUSE token / paused state.
-        self._preset_manager.set_egress_manager(self._egress_manager)
 
         # HVAC W1-B D2.1 (M7 / N9a): zones S1 wrote THIS decision cycle.
         # Reset at cycle ENTRY (`_run_decision_cycle`); consumed by the
@@ -889,20 +876,6 @@ class HVACCoordinator(BaseCoordinator):
             self._d5_enabled,
             "" if self._d5_enabled else " (D5 disabled entirely)",
         )
-
-    @property
-    def excursion_primitive_enabled(self) -> bool:
-        """HVAC-GOVERNED-EXCURSION-1 §4.7 kill switch. BEGIN-ONLY."""
-        return bool(self._excursion_primitive_enabled)
-
-    @excursion_primitive_enabled.setter
-    def excursion_primitive_enabled(self, value: bool) -> None:
-        self._excursion_primitive_enabled = bool(value)
-        try:
-            from . import hvac_excursion as _ex_mod
-            _ex_mod.set_kill_switch_enabled(self._excursion_primitive_enabled)
-        except Exception:  # noqa: BLE001
-            pass
 
     @property
     def shed_active(self) -> bool:
@@ -1640,6 +1613,40 @@ class HVACCoordinator(BaseCoordinator):
         async with self._decision_cycle_lock:
             await self._run_decision_cycle()
 
+    @staticmethod
+    def _classify_manual_episode(last_det: dict | None) -> str:
+        """HVAC W1-B P2 (N4, A-M1, D-LOW) — `manual_class` for an S1 manual
+        write-through, from the arrester's in-memory detection for the
+        CURRENT manual episode:
+          * no detection in this episode (incl. after a restart) -> `unknown`
+          * delta_f == 0                                          -> `zero_delta_ura`
+          * 0 < |delta_f| < threshold (+1 F in coast)             -> `sub_delta_human`
+          * |delta_f| >= threshold (gated or failed/expired arrest) -> `gated_human`
+        Reason ladder untouched; no NM."""
+        if not last_det or last_det.get("delta_f") is None:
+            return "unknown"
+        try:
+            d = abs(float(last_det["delta_f"]))
+        except (TypeError, ValueError):
+            return "unknown"
+        if d == 0.0:
+            return "zero_delta_ura"
+        thr = float(OVERRIDE_NORMAL_DELTA) + (
+            float(OVERRIDE_COAST_TOLERANCE_BONUS) if last_det.get("coast") else 0.0
+        )
+        if d < thr:
+            return "sub_delta_human"
+        return "gated_human"
+
+    def _track_task(self, task: Any) -> None:
+        """B-L2: register a fire-and-forget task on the coordinator's
+        existing `_pending_tasks` set (cancelled in `async_teardown`)."""
+        try:
+            self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks.discard)
+        except Exception:  # noqa: BLE001
+            pass
+
     def _note_s1_reclaim(self, zone_id: str, zone_name: str, reason: str) -> None:
         """HVAC W1-B §5.P5 — S1 reclaim-rate anomaly trip-wire.
 
@@ -1667,7 +1674,7 @@ class HVACCoordinator(BaseCoordinator):
                 if nm is None:
                     return
                 from .base import Severity  # noqa: PLC0415
-                self.hass.async_create_task(nm.async_notify(
+                self._track_task(self.hass.async_create_task(nm.async_notify(
                     coordinator_id="hvac",
                     severity=Severity.MEDIUM,
                     title=f"HVAC S1 reclaim rate high: {zone_name}",
@@ -1678,11 +1685,81 @@ class HVACCoordinator(BaseCoordinator):
                         f"a manual hold (last reason={reason})."
                     ),
                     hazard_type="s1_reclaim_rate_high",
-                ))
+                )))
             else:
                 self._s1_reclaim_rate_latched.discard(zone_id)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("s1 reclaim-rate trip-wire failed", exc_info=True)
+
+    def _settle_tao_restart_marker(self, decision: str, expires_at: Any, now: Any) -> None:
+        """A-H2 / B-M1: the `hvac_temp_arrester_override_was_active` options
+        marker (written by the switch on every toggle) used to fire a
+        "released across restart" NM from `__init__` BEFORE the coordinator
+        existed — false whenever decision 46 restores the override. The
+        wording is now decided HERE from the boot decision:
+          restore_on          -> LOW "restored across restart (Xh left)"
+          restore_off_expired -> LOW "expired across restart"
+          anything else       -> LOW "released across restart" (legacy)
+        and the marker is cleared in every branch. Never raises."""
+        try:
+            marked = [
+                e for e in self.hass.config_entries.async_entries(DOMAIN)
+                if (getattr(e, "options", None) or {}).get(
+                    "hvac_temp_arrester_override_was_active"
+                )
+            ]
+        except Exception:  # noqa: BLE001
+            marked = []
+        if not marked:
+            return
+        if decision == "restore_on":
+            left_h = max(0.0, (expires_at - now).total_seconds() / 3600.0) if expires_at else 0.0
+            title = "Temp Arrester Override restored across restart"
+            message = (
+                f"Temp Arrester Override was ACTIVE when HA restarted and its "
+                f"6 h window has not expired; it was RESTORED ({left_h:.1f} h left). "
+                f"Arrester corrective writes stay suppressed until it sunsets."
+            )
+        elif decision == "restore_off_expired":
+            title = "Temp Arrester Override expired across restart"
+            message = (
+                "Temp Arrester Override was ACTIVE when HA restarted but its "
+                "6 h window had already expired; it is OFF and arrester "
+                "governance has resumed. Re-engage if still intended."
+            )
+        else:
+            title = "Temp Arrester Override released across restart"
+            message = (
+                "Temp Arrester Override was ACTIVE when HA restarted/reloaded "
+                "but no restorable window was persisted. It has been released "
+                "to the default-OFF state; arrester governance has resumed. "
+                "Re-engage if still intended."
+            )
+
+        async def _emit() -> None:
+            nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+            if nm is not None:
+                try:
+                    from .base import Severity  # noqa: PLC0415
+                    await nm.async_notify(
+                        coordinator_id="hvac", severity=Severity.LOW,
+                        title=title, message=message,
+                        hazard_type="hvac_temp_arrester_override",
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("TAO restart NM note failed", exc_info=True)
+            for e in marked:
+                try:
+                    new_opts = dict(e.options)
+                    new_opts.pop("hvac_temp_arrester_override_was_active", None)
+                    self.hass.config_entries.async_update_entry(e, options=new_opts)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug("TAO marker clear failed", exc_info=True)
+
+        try:
+            self._track_task(self.hass.async_create_task(_emit()))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("TAO restart marker settle failed", exc_info=True)
 
     async def _rehydrate_arrester_state(self, stored: Any) -> None:
         """HVAC W1-B D-P1 + D-P1a boot restore from `_zone_state_store`.
@@ -1729,7 +1806,15 @@ class HVACCoordinator(BaseCoordinator):
             started_at = dt_util.as_local(started_at.replace(tzinfo=dt_util.UTC))
         if expires_at is not None and now < expires_at:
             try:
-                arr.restore_temp_arrester_override(started_at or now)
+                # A-L3: a missing/unparseable started_ts derives the start
+                # from the ceiling so age math still measures from the real
+                # engagement, not from boot.
+                if started_at is None:
+                    from .hvac_const import COMFORT_OVERRIDE_MAX_S as _MAX_S
+                    started_at = expires_at - timedelta(seconds=_MAX_S)
+                arr.restore_temp_arrester_override(
+                    started_at, pending_sunset=tao.get("pending_sunset"),
+                )
                 decision = "restore_on"
             except Exception:  # noqa: BLE001
                 _LOGGER.warning("HVAC: TAO restore failed", exc_info=True)
@@ -1738,6 +1823,7 @@ class HVACCoordinator(BaseCoordinator):
             decision = "restore_off_expired"
         else:
             decision = "no_persisted_state"
+        self._settle_tao_restart_marker(decision, expires_at, now)
         _LOGGER.info(
             "HVAC: Temp Arrester Override boot evaluation: %s (expires_at=%s)",
             decision, persisted_expires,
@@ -2010,7 +2096,7 @@ class HVACCoordinator(BaseCoordinator):
     def schedule_zone_state_save(self, reason: str = "") -> None:
         """Non-blocking save request (arrester stamp/sunset/TAO paths)."""
         try:
-            self.hass.async_create_task(self.async_save_zone_state())
+            self._track_task(self.hass.async_create_task(self.async_save_zone_state()))
             _LOGGER.debug("HVAC: zone-state save scheduled (%s)", reason)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("HVAC: zone-state save schedule failed", exc_info=True)
@@ -3000,7 +3086,6 @@ class HVACCoordinator(BaseCoordinator):
             _manual_class = "not_manual"
             _last_det: dict | None = None
             if zone.preset_mode == "manual":
-                _manual_class = "zero_delta_ura"
                 try:
                     if self._override_arrester is not None:
                         _last_det = self._override_arrester.last_detection_for(
@@ -3008,12 +3093,7 @@ class HVACCoordinator(BaseCoordinator):
                         )
                 except Exception:  # noqa: BLE001
                     _last_det = None
-                if _last_det is not None and _last_det.get("delta_f") is not None:
-                    _thr = float(OVERRIDE_NORMAL_DELTA) + (
-                        float(OVERRIDE_COAST_TOLERANCE_BONUS) if _last_det.get("coast") else 0.0
-                    )
-                    if abs(float(_last_det["delta_f"])) < _thr:
-                        _manual_class = "sub_delta_human"
+                _manual_class = self._classify_manual_episode(_last_det)
 
             # Execute the service call directly
             #
@@ -3088,8 +3168,10 @@ class HVACCoordinator(BaseCoordinator):
                     # Deferred by comfort-grace — do NOT log the "Set
                     # preset" line nor emit the preset_change activity
                     # row; the deferred-write ledger row has already
-                    # been logged by the chokepoint. Skip the compliance
-                    # + decision-log tail below.
+                    # been logged by the chokepoint. B-L3: nothing went
+                    # out, so roll back the pre-emit suppress stamp.
+                    if self._override_arrester:
+                        self._override_arrester.unsuppress(zone.climate_entity)
                     continue
                 # HVAC W1-B D2.1: this zone was written this tick — the
                 # arrester's soft-nudge dispatch skips it until next tick.
@@ -5468,6 +5550,19 @@ class HVACCoordinator(BaseCoordinator):
             task.cancel()
         self._pending_tasks.clear()
 
+        # HVAC W1-B B-H1 / D-M1: persist the zone-state snapshot (incl.
+        # `__tao_state` / `__immune_holds`) BEFORE the arrester teardown
+        # clears `_temp_arrester_override_active` — otherwise a reload
+        # wiped the saved TAO and decision 46 could never restore it.
+        try:
+            if self._zone_manager:
+                await self._zone_state_store.async_save(
+                    self._build_zone_state_snapshot()
+                )
+                _LOGGER.info("HVAC: Zone state saved on shutdown")
+        except Exception as e:
+            _LOGGER.warning("HVAC: Failed to save zone state on shutdown: %s", e)
+
         # Tear down override arrester and cover controller
         self._override_arrester.teardown()
         self._cover_controller.teardown()
@@ -5487,15 +5582,7 @@ class HVACCoordinator(BaseCoordinator):
                 exc_info=True,
             )
 
-        # v3.18.2: Save zone state on shutdown
-        try:
-            if self._zone_manager:
-                await self._zone_state_store.async_save(
-                    self._build_zone_state_snapshot()
-                )
-                _LOGGER.info("HVAC: Zone state saved on shutdown")
-        except Exception as e:
-            _LOGGER.warning("HVAC: Failed to save zone state on shutdown: %s", e)
+        # v3.18.2: zone state was saved ABOVE (before the arrester teardown).
 
         # Save anomaly baselines
         if self.anomaly_detector:

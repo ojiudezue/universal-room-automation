@@ -6,7 +6,7 @@ v3.8.0-H1: Initial implementation.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Final
+from typing import Any, Final
 
 # HVAC decision cycle quantum; rung-1 module const, cloud API call-rate
 # bound — change requires review.
@@ -364,21 +364,31 @@ DEFAULT_MAX_SLEEP_OFFSET: Final = 1.5  # F
 # before S4 reverts; longer than the cap is a footgun, not a preference.
 DEFAULT_COMPROMISE_MINUTES: Final = 15
 HVAC_COMPROMISE_MINUTES_MAX: Final = 15
+# A-L4: floor mirrors the config-flow slider minimum (config_flow.py ~6110).
+HVAC_COMPROMISE_MINUTES_MIN: Final = 5
+
+
+def clamp_hvac_compromise_minutes(value: Any) -> int:
+    """W1-B D4a (+A-L4 floor, C-2): clamp a compromise-minutes value into
+    [HVAC_COMPROMISE_MINUTES_MIN, HVAC_COMPROMISE_MINUTES_MAX]. Malformed ->
+    default. Applied by `HVACCoordinator.__init__` (every constructor caller,
+    the load-bearing site) and by the options read / form default."""
+    try:
+        raw = int(value)
+    except (TypeError, ValueError):
+        raw = DEFAULT_COMPROMISE_MINUTES
+    return max(HVAC_COMPROMISE_MINUTES_MIN, min(HVAC_COMPROMISE_MINUTES_MAX, raw))
 
 
 def _read_hvac_compromise_minutes(options: dict) -> int:
     """W1-B D4a: CLAMP-ON-READ for the compromise minutes option.
 
-    Single install (no migration): a stored value above the ceiling is
-    clamped at the ONE decision consumer (`__init__.py` HVACCoordinator
-    construction). Reversible, idempotent. Malformed values fall back to
-    the default.
+    Single install (no migration): a stored value outside [5, 15] is
+    clamped on read. Reversible, idempotent. Malformed -> default.
     """
-    try:
-        raw = int(options.get(CONF_HVAC_COMPROMISE_MINUTES, DEFAULT_COMPROMISE_MINUTES))
-    except (TypeError, ValueError):
-        raw = DEFAULT_COMPROMISE_MINUTES
-    return min(HVAC_COMPROMISE_MINUTES_MAX, raw)
+    return clamp_hvac_compromise_minutes(
+        options.get(CONF_HVAC_COMPROMISE_MINUTES, DEFAULT_COMPROMISE_MINUTES)
+    )
 
 
 # HVAC W1-B §5.P5 — S1 reclaim-rate anomaly trip-wire. RUNG 1 (module
@@ -536,13 +546,9 @@ MAX_COMFORT_OFFPHASE_OFFSET_F: Final = 6.0
 CONF_HVAC_OFFPHASE_HONESTY_ENABLED: Final = "hvac_offphase_honesty_enabled"
 DEFAULT_HVAC_OFFPHASE_HONESTY_ENABLED: Final = True
 
-# HVAC-GOVERNED-EXCURSION-1 D2 §4.7 — Excursion Primitive kill switch.
-# Default ON. OFF => `begin_excursion` returns None (no state row, no
-# lease, no suppress, no wire write). Already-persisted rows continue to
-# fire `return_excursion` at their timer callback and at the boot audit
-# regardless of the switch — the switch is BEGIN-ONLY.
-CONF_EXCURSION_PRIMITIVE_ENABLED: Final = "excursion_primitive_enabled"
-DEFAULT_EXCURSION_PRIMITIVE_ENABLED: Final = True
+# HVAC-GOVERNED-EXCURSION-1 D2 §4.7 Excursion Primitive kill switch
+# (`excursion_primitive_enabled`) — RETIRED 2026-09-27 by HVAC W1-B decision
+# 51: borrow records are always written; a stored option value is ignored.
 
 # COMFORT_TEMP_MAX_AGE_S — RUNG 1 (module constant).
 # Maximum age (seconds) of the `current_temperature` attribute for the

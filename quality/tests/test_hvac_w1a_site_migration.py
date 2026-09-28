@@ -346,7 +346,6 @@ async def test_B6_ac_reset_restore_wire_and_row():
 def _mk_egress(hass, pre_mode="heat_cool", pre_preset="home"):
     EgressManager = hvac_egress.EgressManager
     hvac_excursion._test_clear_leases()
-    hvac_excursion._test_set_kill_switch(True)
     hvac_excursion._test_bind(hass=None, db=None)
 
     em = EgressManager.__new__(EgressManager)

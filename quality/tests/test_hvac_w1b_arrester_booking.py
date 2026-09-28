@@ -238,7 +238,8 @@ async def test_nudge_win_short_circuits_every_lower_rung(mods, lower, expect):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("pair,expect", [
-    (("borrow", "immune"), "borrow_active"),
+    (("borrow", "immune"), "immune_stamp"),   # D50: immune wins over a compromise
+    (("borrow", "tao"), "borrow_active"),
     (("immune", "tao"), "immune_stamp"),
     (("tao", "comfort"), "temp_arrester_override"),
     (("comfort", "passive"), "comfort_grant"),
@@ -263,6 +264,60 @@ async def test_arrester_gated_reason_precedence(mods, pair, expect):
     assert len(rows) == 1
     assert rows[0]["details"]["gated_reason"] == expect
     ex._test_clear_leases()
+
+
+@pytest.mark.asyncio
+async def test_nudge_win_with_both_row_and_token(mods):
+    """C-1: a real NUDGE row AND the token present (the live shape) ->
+    nudge_win, even against an immune person."""
+    coord, hass, arr = _arr(mods)
+    ex = mods["hvac_excursion"]
+    tok = ex._test_seed_row(zone_id=ZONE, kind=ex.EXCURSION_KIND.NUDGE, duration_s=120)
+    arr._nudge_excursion_tokens[ZONE] = tok
+    _immune_person(hass, arr)
+    ev = _severe(); ev.context.user_id = "u-oji"
+    await _fire(hass, arr, ev)
+    d = _rows(hass, mods)[0]["details"]
+    assert d["gated_reason"] == "nudge_win"
+    assert d["gate_snapshot"]["borrow_row"] is True and d["gate_snapshot"]["nudge_token"] is True
+    assert ZONE not in arr._immune_holds
+    ex._test_clear_leases()
+
+
+@pytest.mark.asyncio
+async def test_immune_change_mid_compromise_stamps_and_skips_s4_revert(mods):
+    """D50 (B-M2): immune person changes the thermostat during a live
+    COMPROMISE -> hold stamped -> the S4 revert stands down."""
+    coord, hass, arr = _arr(mods)
+    ex = mods["hvac_excursion"]
+    ex._test_seed_row(zone_id=ZONE, kind=ex.EXCURSION_KIND.COMPROMISE, duration_s=900)
+    arr._compromise_timers[ZONE] = lambda: None
+    _immune_person(hass, arr)
+    ev = _severe(); ev.context.user_id = "u-oji"
+    await _fire(hass, arr, ev)
+    assert _rows(hass, mods)[0]["details"]["gated_reason"] == "immune_stamp"
+    assert ZONE in arr._immune_holds
+    zone = coord.zone_manager.zones[ZONE]
+    await arr._revert_override(zone, "home")
+    await H.drain(hass)
+    assert H.preset_writes(hass, ENT) == [], "S4 revert must be skipped under the immune hold"
+    ex._test_clear_leases()
+
+
+@pytest.mark.asyncio
+async def test_startup_audit_does_not_revert_under_live_borrow(mods):
+    """D-M4: a rehydrated PREHEAT row on a `manual` zone -> the boot audit
+    schedules NO revert (the borrow wins, D48)."""
+    coord, hass, arr = _arr(mods)
+    ex = mods["hvac_excursion"]
+    H.set_climate(hass, ENT, preset_mode="manual", hold_activity="manual", high=64.0, low=62.0)
+    ex._test_seed_row(zone_id=ZONE, kind=ex.EXCURSION_KIND.PREHEAT, duration_s=3600)
+    await arr.async_startup_audit(coord.preset_manager, "home_day")
+    assert ZONE not in arr._grace_timers
+    # discriminator: same zone without the row -> revert IS scheduled
+    ex._test_clear_leases()
+    await arr.async_startup_audit(coord.preset_manager, "home_day")
+    assert ZONE in arr._grace_timers
 
 
 # ---- episode scoping of last_detection --------------------------------------

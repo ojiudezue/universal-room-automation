@@ -978,11 +978,19 @@ class OverrideArrester:
         `expires_at = started_ts + COMFORT_OVERRIDE_MAX_S` (6 h ceiling)."""
         started = self._temp_arrester_override_started_ts
         if not self._temp_arrester_override_active or not isinstance(started, datetime):
-            return {"started_ts": None, "expires_at": None}
+            return {"started_ts": None, "expires_at": None, "pending_sunset": None}
         expires = started + timedelta(seconds=COMFORT_OVERRIDE_MAX_S)
-        return {"started_ts": started.isoformat(), "expires_at": expires.isoformat()}
+        return {
+            "started_ts": started.isoformat(),
+            "expires_at": expires.isoformat(),
+            # B-L1: a deferred (MIN_LIFE-blocked) sunset obligation survives
+            # the restart too; the sweep discharges it once age >= MIN_LIFE.
+            "pending_sunset": self._temp_arrester_override_pending_sunset,
+        }
 
-    def restore_temp_arrester_override(self, started_ts: datetime) -> None:
+    def restore_temp_arrester_override(
+        self, started_ts: datetime, pending_sunset: str | None = None,
+    ) -> None:
         """Decision 46 boot restore — set the arrester internals for a TAO
         whose window has not expired. Called by the coordinator (the ONE
         channel) before the first decision cycle; the switch UI follows via
@@ -992,8 +1000,10 @@ class OverrideArrester:
         self._temp_arrester_override_active = True
         self._temp_arrester_override_started_ts = started_ts
         self._temp_arrester_override_engagement_id += 1
-        self._temp_arrester_override_pending_sunset = None
         self._cancel_pending_sunset_timer()
+        # B-L1: carry the deferred-sunset obligation across the restart; the
+        # periodic `sunset_temp_arrester_override` sweep discharges it.
+        self._temp_arrester_override_pending_sunset = pending_sunset or None
         self._cancel_expiry_warn_timer()
         # Re-arm the pre-warn one-shot for the REMAINING window.
         try:
@@ -2240,6 +2250,17 @@ class OverrideArrester:
                     zone.zone_name, zone.zone_id, "startup_audit",
                 )
                 continue
+            # HVAC W1-B D-M4 (2026-09-27): a LIVE borrow owns the zone (gate
+            # (e), consistent with D48) — the boot audit rehydrates
+            # COMPROMISE / PREHEAT / EGRESS rows, and a `manual` reading
+            # under a live row is the borrow's own raw write, not a stale
+            # human override. Never schedule a revert against it.
+            if self._borrow_gate_armed(zone.zone_id):
+                _LOGGER.info(
+                    "Startup audit: %s in manual under a live borrow — "
+                    "borrow wins; no revert scheduled", zone.zone_name,
+                )
+                continue
             state = self.hass.states.get(zone.climate_entity)
             if state is None:
                 continue
@@ -3284,10 +3305,14 @@ class OverrideArrester:
         _comfort_meta: dict[str, Any] | None = None
         if _nudge_tok or _nudge_live:
             gated_reason = "nudge_win"
+        elif _immune_eligible:
+            # D50 (B-M2): an immune person WINS over a live compromise —
+            # the hold is stamped so the S4 revert (which consults
+            # `_corrective_writes_suppressed`) stands down, as develop did.
+            # Only a live NUDGE outranks the stamp (ruling 13).
+            gated_reason = "immune_stamp"
         elif _borrow_row or _comp_live:
             gated_reason = "borrow_active"
-        elif _immune_eligible:
-            gated_reason = "immune_stamp"
         elif self._temp_arrester_override_active:
             gated_reason = "temp_arrester_override"
         else:
@@ -3466,6 +3491,21 @@ class OverrideArrester:
                 "Override on %s within tolerance (delta=%.1fF, threshold=%.1fF)",
                 zone.zone_name, abs_delta, normal_threshold,
             )
+
+    def _borrow_gate_armed(self, zone_id: str) -> bool:
+        """Gate (e) as the arrester sees it (D47 shape): fresh registry row
+        OR a self-discharging in-flight timer on this zone. Pure read."""
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            if _ex_mod.is_borrow_active(zone_id):
+                return True
+        except Exception:  # noqa: BLE001
+            return True
+        return (
+            zone_id in self._nudge_restore_timers
+            or zone_id in self._nudge_in_flight
+            or zone_id in self._compromise_timers
+        )
 
     def last_detection_for(self, entity_id: str) -> dict[str, Any] | None:
         """HVAC W1-B P2 (N4): in-memory record of the most recent
@@ -4917,11 +4957,15 @@ class OverrideArrester:
         # (state-of-play §9.1). Only a HUMAN_MANUAL snapshot (`manual` /
         # None / "") — nothing nameable to pin — still restores the raw
         # setpoints, with the `human_manual_` reason prefix (C1 falsifier).
-        pre_preset = self._nudge_pre_preset.pop(zone_id, "")
+        # A-L1: ONE snapshot source — the borrow token's UNFILTERED
+        # `pre_preset` when a token exists, else the RAM map; both the
+        # HUMAN_MANUAL decision and the S7 pin below read `_snap_preset`.
+        _ram_pre_preset = self._nudge_pre_preset.pop(zone_id, "")
         _snap_preset = (
             getattr(_nudge_tok, "pre_preset", None) if _nudge_tok is not None
-            else (pre_preset or None)
+            else (_ram_pre_preset or None)
         )
+        pre_preset = _snap_preset or ""
         from .hvac_strategy import strategy_for as _strategy_for  # noqa: PLC0415
         if _strategy_for(self.hass, zone.climate_entity).is_human_manual_snapshot(
             _snap_preset,

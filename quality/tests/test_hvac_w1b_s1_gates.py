@@ -104,7 +104,7 @@ async def test_s1_reclaims_manual_when_no_gate_armed(mods):
     rows = _changes(hass, mods)
     assert len(rows) == 1
     d = rows[0]["details"]
-    assert d["manual_class"] == "zero_delta_ura"
+    assert d["manual_class"] == "unknown"  # no detection booked in this episode
     snap = d["gate_snapshot"]
     assert (snap["a_b"], snap["c"], snap["d"], snap["e"]) == (False, False, False, False)
 
@@ -307,43 +307,55 @@ async def test_gate_e_row_covers_all_five_kinds(mods, kind):
     assert len(H.preset_writes(hass, ENT, "home")) >= 1
 
 
-@pytest.mark.parametrize("src", [
-    "nudge_token", "nudge_restore_timer", "nudge_in_flight",
-    "banking_token", "banking_precool_zone", "preheat_token",
-    "preheat_return_timer", "egress_token", "egress_paused",
-])
-def test_gate_e_all_fallbacks_without_a_row(mods, src):
-    """Kill switch OFF / begin rejected: NO row, but each kind's in-flight
-    state still arms gate (e) (pure verdict, no wire)."""
+@pytest.mark.asyncio
+@pytest.mark.parametrize("src", ["nudge_restore_timer", "nudge_in_flight", "compromise_timer"])
+async def test_gate_e_all_fallbacks_without_a_row(mods, src):
+    """D47: begin rejected (no row) but a SELF-DISCHARGING arrester timer
+    is live -> gate (e) arms and S1 defers (`active_borrow`, or the
+    compromise's own `arrester_active_window` since (c) is read first)."""
     coord, hass, z = _manual_zone(mods)
-    pm = coord.preset_manager
     arr = coord._override_arrester
-    pr = coord._predictor
-    eg = coord._egress_manager
-    tok = type("T", (), {"excursion_id": "x", "pre_preset": "home"})()
-    if src == "nudge_token":
-        arr._nudge_excursion_tokens[ZONE] = tok
-    elif src == "nudge_restore_timer":
+    if src == "nudge_restore_timer":
         arr._nudge_restore_timers[ZONE] = lambda: None
     elif src == "nudge_in_flight":
         arr._nudge_in_flight.add(ZONE)
-    elif src == "banking_token":
+    else:
+        arr._compromise_timers[ZONE] = lambda: None
+    await _tick(coord, hass)
+    assert H.preset_writes(hass, ENT) == []
+    d = _deferred(hass, mods)[0]["details"]
+    assert d["gate_snapshot"]["e"] is True
+    assert d["gate_snapshot"]["e_source"] == src
+    assert d["reason"] in ("active_borrow", "arrester_active_window")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("leftover", [
+    "banking_token", "last_precool_zone", "preheat_token", "preheat_timer",
+    "egress_token", "nudge_token",
+])
+async def test_gate_e_ignores_token_and_predictor_leftovers(mods, leftover):
+    """D47 (A-H1/B-H2/D-H1): a stale token / predictor set with NO row
+    (e.g. banking token after the 2 h sweep, `_last_precool_zones` with
+    ZI off) must NOT hold S1 hostage — S1 reclaims."""
+    coord, hass, z = _manual_zone(mods)
+    arr, pr, eg = coord._override_arrester, coord._predictor, coord._egress_manager
+    tok = type("T", (), {"excursion_id": "x", "pre_preset": "home"})()
+    if leftover == "banking_token":
         pr._banking_excursion_tokens = {ZONE: tok}
-    elif src == "banking_precool_zone":
+    elif leftover == "last_precool_zone":
         pr._last_precool_zones = {ZONE}
-    elif src == "preheat_token":
+    elif leftover == "preheat_token":
         pr._preheat_excursion_tokens = {ZONE: tok}
-    elif src == "preheat_return_timer":
+    elif leftover == "preheat_timer":
         pr._preheat_return_timers = {ZONE: lambda: None}
-    elif src == "egress_token":
+    elif leftover == "egress_token":
         eg._egress_excursion_tokens = {ZONE: tok}
-    elif src == "egress_paused":
-        eg._paused_by_egress[ZONE] = {"mode": "heat_cool", "preset": "home"}
-    v = pm.manual_guard_verdict(ZONE)
-    assert v["refused"] is True
-    assert v["gate_snapshot"]["e"] is True
-    assert v["gate_snapshot"]["e_source"] == src
-    assert pm.should_change_preset("manual", "home", zone_id=ZONE) is False
+    else:
+        arr._nudge_excursion_tokens[ZONE] = tok
+    await _tick(coord, hass)
+    assert len(H.preset_writes(hass, ENT, "home")) >= 1
+    assert _deferred(hass, mods) == []
 
 
 def test_gate_e_compromise_timer_is_both_c_and_e(mods):
@@ -354,7 +366,7 @@ def test_gate_e_compromise_timer_is_both_c_and_e(mods):
     assert v["reason"] == "arrester_active_window"
 
 
-def test_gate_e_pure_read_no_side_effects(mods):
+def test_gate_e_pure_read_no_side_effects(mods, monkeypatch):
     """`is_borrow_active` on a STALE row returns False and leaves the row
     in place (no reap, no NM, no DB clear) — unlike `_row_present_and_fresh`."""
     ex = mods["hvac_excursion"]
@@ -362,7 +374,7 @@ def test_gate_e_pure_read_no_side_effects(mods):
     ex._test_seed_row(zone_id=ZONE, kind=ex.EXCURSION_KIND.NUDGE, duration_s=60)
     ex._rows[ZONE].started_ts = ex._now() - 1000  # stale by far
     fired = []
-    ex._fire_stale_row_nm = lambda *a, **k: fired.append(a)  # would be called by a reap
+    monkeypatch.setattr(ex, "_fire_stale_row_nm", lambda *a, **k: fired.append(a))  # C-7
     assert ex.is_borrow_active(ZONE) is False
     assert ex.excursion_id_for(ZONE) is None
     assert ZONE in ex._rows, "pure read must not reap"
@@ -395,29 +407,36 @@ async def _bypass_zone(mods):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("gate", ["tao", "borrow", "none", "c_only"])
+@pytest.mark.parametrize("gate", ["tao", "borrow", "timer", "none", "c_only", "d_only"])
 async def test_vacancy_bypass_defers_under_borrow_and_tao(mods, gate):
+    """M3/N9b + D47/D49/D51: the bypass refuses under (a/b) and (e) [row OR
+    timer fallback, C-4]; it does NOT wait for (c) or (d) (D49)."""
     coord, hass, z = await _bypass_zone(mods)
     arr = coord._override_arrester
+    ex = mods["hvac_excursion"]
     if gate == "tao":
         arr.set_temp_arrester_override(True)
     elif gate == "borrow":
-        ex = mods["hvac_excursion"]
         ex._test_seed_row(zone_id=ZONE, kind=ex.EXCURSION_KIND.NUDGE, duration_s=600)
+    elif gate == "timer":
+        arr._nudge_restore_timers[ZONE] = lambda: None
     elif gate == "c_only":
         arr._grace_timers[ZONE] = lambda: None
+    elif gate == "d_only":
+        arr.enabled = False
     await _tick(coord, hass)
     writes = H.preset_writes(hass, ENT, "away")
     rows = _deferred(hass, mods)
-    if gate in ("tao", "borrow"):
+    expect = {
+        "tao": "vacancy_bypass_deferred:person_protected_hold",
+        "borrow": "vacancy_bypass_deferred:active_borrow",
+        "timer": "vacancy_bypass_deferred:active_borrow",
+    }.get(gate)
+    if expect:
         assert writes == [], f"bypass must refuse under {gate}"
-        expect = {
-            "tao": "vacancy_bypass_deferred:person_protected_hold",
-            "borrow": "vacancy_bypass_deferred:active_borrow",
-        }[gate]
         assert rows and rows[0]["details"]["reason"] == expect
     else:
-        assert len(writes) >= 1, "bypass proceeds when only (c)/(nothing) is armed"
+        assert len(writes) >= 1, "bypass proceeds when only (c)/(d)/nothing is armed"
         assert rows == []
 
 
@@ -429,10 +448,11 @@ async def test_vacancy_bypass_defers_under_borrow_and_tao(mods, gate):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("delta,coast,expect", [
     (0.5, False, "sub_delta_human"),
-    (None, False, "zero_delta_ura"),
-    (1.5, True, "sub_delta_human"),   # coast widens to < 2 F
-    (1.5, False, "zero_delta_ura"),   # not sub-delta without coast
-    (2.5, True, "zero_delta_ura"),
+    (0.0, False, "zero_delta_ura"),    # A-M1: URA echo booked at zero delta
+    (None, False, "unknown"),          # D-LOW: no detection this episode / post-restart
+    (1.5, True, "sub_delta_human"),    # coast widens to < 2 F
+    (1.5, False, "gated_human"),       # >= threshold without coast
+    (2.5, True, "gated_human"),
 ])
 async def test_manual_class_from_last_detection(mods, delta, coast, expect):
     coord, hass, z = _manual_zone(mods)
@@ -496,6 +516,35 @@ def test_daily_counter_declares_its_restart_reason(mods):
     assert c.name == "hvac.preset_deferrals_today"
     assert c.persist is False
     assert c.reason
+
+
+@pytest.mark.asyncio
+async def test_s1_deferred_by_comfort_gate_rolls_back_suppression(mods):
+    """B-L3: the S1 funnel gate defers (comfort-delay active + a defer
+    reason) -> nothing went out -> the pre-emit suppress stamp is rolled
+    back so a genuine manual inside the 120 s window is still booked."""
+    coord, hass, z = _manual_zone(mods)
+    arr = coord._override_arrester
+    arr.comfort_delay_active = lambda zid: True  # S1 gate (reason house_state_transition) defers
+    await _tick(coord, hass)
+    assert H.preset_writes(hass, ENT) == []
+    assert ENT not in arr._suppressed_until and ENT not in arr._suppress_kind
+
+
+@pytest.mark.asyncio
+async def test_background_tasks_are_tracked_on_pending_tasks(mods):
+    """B-L2: the fire-and-forget save + reclaim-rate NM tasks register on the
+    coordinator's `_pending_tasks` (cancelled by `async_teardown`)."""
+    coord, hass, z = _manual_zone(mods)
+    coord._zone_state_store = H.FakeStore()
+    coord.schedule_zone_state_save("test")
+    assert any(not t.done() for t in coord._pending_tasks)
+    await H.drain(hass)
+    for _ in range(4):
+        coord._note_s1_reclaim(ZONE, "Zone 1", "r")
+    assert any(not t.done() for t in coord._pending_tasks)
+    await H.drain(hass)
+    assert all(t.done() for t in coord._pending_tasks) or not coord._pending_tasks
 
 
 # --------------------------------------------------------------------------
@@ -575,15 +624,18 @@ async def test_same_tick_s1_write_marks_zone_and_nudge_skips(mods):
 
 @pytest.mark.asyncio
 async def test_same_tick_set_resets_at_cycle_entry(mods):
+    """C-6: the reset happens at cycle ENTRY — proven with a cycle that
+    RAISES right after entry (a reset-at-end would never run)."""
     coord, hass, z = _manual_zone(mods)
     coord._zones_written_this_cycle = {ZONE, "zone_2"}
-    # Enter the decision cycle; observation mode so no preset/AC work runs.
-    coord._observation_mode = True
     coord._startup_audit_done = True
-    try:
+    coord._zone_intelligence_enabled = True
+
+    def _boom(*a, **k):
+        raise RuntimeError("injected after entry")
+    coord._accumulate_zone_runtime = _boom  # first un-guarded step after entry
+    with pytest.raises(RuntimeError):
         await coord._run_decision_cycle()
-    except Exception:  # noqa: BLE001 — downstream smoke collaborators may raise; reset is at ENTRY
-        pass
     assert coord._zones_written_this_cycle == set()
 
 

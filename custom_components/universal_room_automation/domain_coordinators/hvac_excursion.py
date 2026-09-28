@@ -11,7 +11,7 @@ TODAY. The sibling cycle has not landed. Until it does, the gate's
 current value is zero while three reviewers independently measured its
 risk as real (a suppression with no reliable discharge — the same bug
 class as the lockout it insures against). So this module KEEPS the
-snapshot / restore / persistence / kill-switch / boot-audit machinery
+snapshot / restore / persistence / boot-audit machinery
 that is the cycle's actual value, and DROPS the tick-side gate + the
 "lease" framing that named it.
 
@@ -33,9 +33,12 @@ What this module now provides:
   BANKING rows are cleared without rehydration (collision-avoidance
   with ``ac_reset_state.in_flight_nudge_*`` and ``_first_eval_done``
   respectively).
-* Kill switch (§4.7) — BEGIN-ONLY. Switch entity lives in
-  ``switch.py``; this module exposes ``set_kill_switch_enabled`` +
-  ``is_kill_switch_enabled`` for the coordinator's property setter.
+* Kill switch (§4.7) — RETIRED 2026-09-27 (HVAC W1-B decision 51,
+  operator: "retire the knob; borrow records always written; no special
+  case"). Every ``begin_excursion`` now records a row; the v5.88.0
+  back-out option ``excursion_primitive_enabled`` is gone (single
+  install, no back-compat). Gate (e) at S1 therefore always sees a
+  live borrow.
 
 What this module NO LONGER provides (removed with the design change):
 
@@ -199,7 +202,6 @@ class ReturnOutcome:
 # this map — the S1 gate that used to is removed.
 
 _rows: dict[str, ExcursionToken] = {}
-_kill_switch_enabled: bool = True
 
 # --- Diagnostic counters (fix-up r5 addendum A) --------------------------
 # Per-day counters keyed by EXCURSION_KIND value. Reset on calendar-day
@@ -266,20 +268,6 @@ def _now_iso() -> str:
         return datetime.now(timezone.utc).isoformat()
     except Exception:  # noqa: BLE001
         return f"epoch:{_now()}"
-
-
-def set_kill_switch_enabled(enabled: bool) -> None:
-    """Push the kill switch state (called by the coordinator setter)."""
-    global _kill_switch_enabled
-    _kill_switch_enabled = bool(enabled)
-    _LOGGER.info(
-        "excursion.kill_switch=%s (begin-only; existing rows unaffected)",
-        _kill_switch_enabled,
-    )
-
-
-def is_kill_switch_enabled() -> bool:
-    return _kill_switch_enabled
 
 
 def bind(hass: Any, db: Any) -> None:
@@ -808,19 +796,12 @@ async def begin_excursion(
 ) -> Optional[ExcursionToken]:
     """Open an excursion; return a token or None (§4.1).
 
-    §4.7 kill-switch: OFF => return ``None`` immediately, no state row,
-    no wire write. Already-persisted rows are unaffected.
+    (The §4.7 kill switch was RETIRED by W1-B decision 51 — a row is
+    ALWAYS recorded.)
 
     §4.6 REJECT-on-existing-row: if a fresh row exists for ``zone_id``,
     log a warning and return ``None``.
     """
-    if not _kill_switch_enabled:
-        _LOGGER.debug(
-            "excursion.begin: kill switch OFF — refusing site=%s kind=%s zone=%s",
-            site, kind.value, zone_id,
-        )
-        return None
-
     if _row_present_and_fresh(zone_id):
         existing = _rows[zone_id]
         _LOGGER.warning(
@@ -1307,7 +1288,7 @@ async def async_startup_excursion_audit(hass, coord) -> None:
 #                                     trigger_detail="wire_exception:<type>".
 #   * Block exits without commit   -> CM releases restore_ok=False +
 #                                     trigger_detail (defaulted or supplied).
-#   * token is None (kill switch)  -> CM is a no-op.
+#   * token is None (begin rejected) -> CM is a no-op.
 #
 # The CM DELIBERATELY does not swallow the wrapped exception; the caller
 # still sees it. But the excursion row is closed either way.
@@ -1432,11 +1413,6 @@ def _test_clear_leases() -> None:
 
 
 _test_clear_rows = _test_clear_leases
-
-
-def _test_set_kill_switch(enabled: bool) -> None:
-    global _kill_switch_enabled
-    _kill_switch_enabled = bool(enabled)
 
 
 def _test_bind(hass=None, db=None) -> None:

@@ -138,6 +138,8 @@ async def test_immune_hold_stamped_and_sunset_ledger_rows(mods):
     coord, hass = _coord_with_store(mods)
     arr = coord._override_arrester
     arr._stamp_immune_hold(ZONE, "u1", "Oji", "person.oji")
+    await H.drain(hass)  # C-3: the stamp save lands WITH the hold
+    assert ZONE in coord._zone_state_store.saves[-1]["__immune_holds"]
     arr._immune_holds[ZONE]["started_ts"] = H.local_now() - timedelta(seconds=14401)
     arr.sunset_immune_holds("max_age_or_boundary")
     await H.drain(hass)
@@ -270,7 +272,7 @@ async def test_tao_persistence_clear_on_off(mods):
     assert coord._zone_state_store.saves[-1]["__tao_state"]["expires_at"] is not None
     arr.set_temp_arrester_override(False)
     await H.drain(hass)
-    assert coord._zone_state_store.saves[-1]["__tao_state"] == {"started_ts": None, "expires_at": None}
+    assert coord._zone_state_store.saves[-1]["__tao_state"] == {"started_ts": None, "expires_at": None, "pending_sunset": None}
 
 
 @pytest.mark.asyncio
@@ -285,7 +287,7 @@ async def test_tao_persistence_clear_on_sunset(mods):
     assert arr.sunset_temp_arrester_override("max_age_or_boundary") is True
     await H.drain(hass)
     assert len(coord._zone_state_store.saves) > n_before, "sunset must schedule its own save"
-    assert coord._zone_state_store.saves[-1]["__tao_state"] == {"started_ts": None, "expires_at": None}
+    assert coord._zone_state_store.saves[-1]["__tao_state"] == {"started_ts": None, "expires_at": None, "pending_sunset": None}
 
 
 def test_tao_max_window_uses_hvac_const(mods):
@@ -320,6 +322,86 @@ async def test_tao_restore_is_atomic_switch_signal_and_internals(mods):
         mods["hvac_override"].async_dispatcher_send = orig
     assert coord._override_arrester._temp_arrester_override_active is True
     assert mods["hvac_const"].SIGNAL_HVAC_TEMP_ARRESTER_OVERRIDE_UPDATE in fired
+
+
+@pytest.mark.asyncio
+async def test_tao_survives_teardown_then_restart(mods):
+    """B-H1 / D-M1: the shutdown save runs BEFORE the arrester teardown
+    clears the TAO flag, so a reload can restore it."""
+    coord_a, hass_a = _coord_with_store(mods)
+    coord_a._override_arrester.set_temp_arrester_override(True)
+    await H.drain(hass_a)
+    await coord_a.async_teardown()
+    saved = coord_a._zone_state_store.saves[-1]
+    assert saved["__tao_state"]["expires_at"] is not None, "teardown save must precede the flag clear"
+    coord_b, hass_b = await _restart_into(mods, saved)
+    assert coord_b._override_arrester._temp_arrester_override_active is True
+    await coord_b._apply_house_state_presets()
+    await H.drain(hass_b)
+    assert H.preset_writes(hass_b, ENT) == []
+
+
+@pytest.mark.asyncio
+async def test_tao_restore_derives_started_from_expires_when_missing(mods):
+    """A-L3: missing started_ts -> start = expires_at - 6 h."""
+    now = H.local_now()
+    exp = now + timedelta(hours=2)
+    coord, hass = await _restart_into(mods, {"__tao_state": {"started_ts": None, "expires_at": exp.isoformat()}})
+    arr = coord._override_arrester
+    assert arr._temp_arrester_override_active is True
+    assert abs((arr._temp_arrester_override_started_ts - (exp - timedelta(seconds=21600))).total_seconds()) < 1
+
+
+@pytest.mark.asyncio
+async def test_tao_pending_sunset_round_trips(mods):
+    """B-L1: a deferred sunset obligation is persisted and restored."""
+    coord, hass = _coord_with_store(mods)
+    arr = coord._override_arrester
+    arr.set_temp_arrester_override(True)
+    arr._temp_arrester_override_pending_sunset = "sleep"
+    st = arr.export_tao_state()
+    assert st["pending_sunset"] == "sleep"
+    coord_b, hass_b = await _restart_into(mods, {"__tao_state": st})
+    assert coord_b._override_arrester._temp_arrester_override_pending_sunset == "sleep"
+
+
+def _mark_cm(hass, mods):
+    from runtime_harness import StubConfigEntry
+    DOMAIN = mods["const"].DOMAIN
+    for e in hass.config_entries.async_entries(DOMAIN):
+        e.options = {**(e.options or {}), "hvac_temp_arrester_override_was_active": True}
+    return [e for e in hass.config_entries.async_entries(DOMAIN)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored,expect_title", [
+    ({"__tao_state": {"started_ts": None, "expires_at": "FUTURE"}}, "restored across restart"),
+    ({"__tao_state": {"started_ts": None, "expires_at": "PAST"}}, "expired across restart"),
+    ({}, "released across restart"),
+])
+async def test_tao_restart_marker_nm_wording_and_clear(mods, stored, expect_title):
+    """A-H2 / B-M1: the options marker NM is worded from the boot decision
+    and the marker is cleared in every branch."""
+    now = H.local_now()
+    if stored.get("__tao_state"):
+        v = stored["__tao_state"]["expires_at"]
+        stored["__tao_state"]["expires_at"] = (
+            now + timedelta(hours=3) if v == "FUTURE" else now - timedelta(hours=1)
+        ).isoformat()
+    coord, hass = _coord_with_store(mods, stored)
+    entries = _mark_cm(hass, mods)
+    await coord._rehydrate_arrester_state(stored)
+    await H.drain(hass)
+    nm = hass.data[mods["const"].DOMAIN]["notification_manager"]
+    assert len(nm.notes) == 1 and expect_title in nm.notes[0]["title"]
+    for e in entries:
+        assert "hvac_temp_arrester_override_was_active" not in (e.options or {})
+
+
+@pytest.mark.asyncio
+async def test_tao_restart_no_marker_no_nm(mods):
+    coord, hass = await _restart_into(mods, {})
+    assert hass.data[mods["const"].DOMAIN]["notification_manager"].notes == []
 
 
 # ---- snapshot builder carries every side-key -----------------------------------

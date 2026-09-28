@@ -94,8 +94,6 @@ class PresetManager:
         # arrester => fail-CLOSED (`arrester_not_wired`): S1 keeps
         # respecting `manual` until the gates can be read.
         self._arrester: Any = None
-        self._predictor: Any = None
-        self._egress_manager: Any = None
         self._last_manual_verdict: dict[str, dict[str, Any]] = {}
 
     @property
@@ -226,14 +224,6 @@ class PresetManager:
         """Inject the OverrideArrester (gates a/b, c, d, e-arrester)."""
         self._arrester = arrester
 
-    def set_predictor(self, predictor: Any) -> None:
-        """Inject the HVACPredictor (gate (e) BANKING / PREHEAT tokens)."""
-        self._predictor = predictor
-
-    def set_egress_manager(self, egress_manager: Any) -> None:
-        """Inject the EgressManager (gate (e) EGRESS_PAUSE token / paused)."""
-        self._egress_manager = egress_manager
-
     @staticmethod
     def _has(container: Any, key: str) -> bool:
         try:
@@ -300,9 +290,15 @@ class PresetManager:
         except Exception:  # noqa: BLE001
             snap["d"] = True
 
-        # (e) live borrow: the registry row (pure read, no reap) OR the
-        # per-kind in-flight fallback that exists even when
-        # `begin_excursion` returned None (kill switch OFF / reject).
+        # (e) live borrow — D47 (2026-09-27): the registry row (pure read,
+        # no reap) OR one of the arrester's SELF-DISCHARGING in-flight
+        # timers (nudge restore timer / nudge in-flight set / compromise
+        # timer — all set even when `begin_excursion` returned None).
+        # Token dicts and predictor / egress state are NOT read: their
+        # leftovers outlive the row (banking token after the 2 h sweep,
+        # `_last_precool_zones` with Zone Intelligence OFF); S1 already
+        # skips egress-paused zones. D51 retired the excursion kill switch,
+        # so every borrow records a row — no no-row kind remains.
         e_source = None
         try:
             from . import hvac_excursion as _ex_mod  # noqa: PLC0415
@@ -311,36 +307,12 @@ class PresetManager:
         except Exception:  # noqa: BLE001
             e_source = "row_accessor_error"
         if e_source is None:
-            if self._has(getattr(arr, "_nudge_excursion_tokens", None), zone_id):
-                e_source = "nudge_token"
-            elif self._has(getattr(arr, "_nudge_restore_timers", None), zone_id):
+            if self._has(getattr(arr, "_nudge_restore_timers", None), zone_id):
                 e_source = "nudge_restore_timer"
             elif self._has(getattr(arr, "_nudge_in_flight", None), zone_id):
                 e_source = "nudge_in_flight"
             elif self._has(getattr(arr, "_compromise_timers", None), zone_id):
                 e_source = "compromise_timer"
-        if e_source is None and self._predictor is not None:
-            pr = self._predictor
-            if self._has(getattr(pr, "_banking_excursion_tokens", None), zone_id):
-                e_source = "banking_token"
-            elif self._has(getattr(pr, "_last_precool_zones", None), zone_id):
-                # No-row BANKING fallback: pruned by the predictor once the
-                # live cool target is back within 0.5 F of baseline.
-                e_source = "banking_precool_zone"
-            elif self._has(getattr(pr, "_preheat_excursion_tokens", None), zone_id):
-                e_source = "preheat_token"
-            elif self._has(getattr(pr, "_preheat_return_timers", None), zone_id):
-                e_source = "preheat_return_timer"
-        if e_source is None and self._egress_manager is not None:
-            eg = self._egress_manager
-            if self._has(getattr(eg, "_egress_excursion_tokens", None), zone_id):
-                e_source = "egress_token"
-            else:
-                try:
-                    if eg.is_paused(zone_id):
-                        e_source = "egress_paused"
-                except Exception:  # noqa: BLE001
-                    pass
         snap["e"] = e_source is not None
         snap["e_source"] = e_source
 

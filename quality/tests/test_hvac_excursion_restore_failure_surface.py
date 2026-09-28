@@ -114,7 +114,6 @@ def setup_function(_):
 def _fresh_token():
     """Populate a synthetic token in _rows and return it."""
     _ex_mod._test_clear_rows()
-    _ex_mod._test_set_kill_switch(True)
     _ex_mod._test_bind(hass=None, db=None)
     tok = _ex_mod._test_seed_row("zone_a", pre_preset="home")
     return tok
@@ -348,7 +347,6 @@ def test_D_restore_ok_True_fires_neither_log_nor_nm(caplog, monkeypatch):
 
 def test_A_counters_track_started_returned_restore_failed():
     _ex_mod._test_clear_rows()
-    _ex_mod._test_set_kill_switch(True)
     _ex_mod._test_bind(hass=None, db=None)
     hass = MagicMock()
     hass.states = MagicMock()

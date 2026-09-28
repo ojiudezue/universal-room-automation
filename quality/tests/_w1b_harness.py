@@ -261,7 +261,6 @@ def make_coord(mods, zones=("zone_1", "zone_2", "zone_3")):
     # Excursion primitive: bind to this hass/db, clear registry.
     ex = mods["hvac_excursion"]
     ex._test_clear_leases()
-    ex._test_set_kill_switch(True)
     ex._test_bind(hass=hass, db=None)
     mods["hvac_strategy"]._test_reset_cache()
     return coord, hass

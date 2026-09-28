@@ -199,6 +199,23 @@ async def test_S11_banking_release_presets_only(mods, snap, expect_temp):
 
 
 @pytest.mark.asyncio
+async def test_S11_release_seeds_last_emitted_when_entry_missing(mods):
+    """C-5: no `_last_emitted_range` entry -> the release resolves the
+    baseline from the preset manager and, on landing, WRITES the entry
+    (discriminating: absent before, present after)."""
+    coord, hass, arr, z, pr, ex, tok = await _bank(mods, snap="home")
+    coord._last_emitted_range.pop(ZONE, None)
+    coord._house_state = "home_day"
+    await pr._release_banked_zones({ZONE})
+    await H.drain(hass)
+    assert H.preset_writes(hass, ENT, "home")
+    assert ZONE in coord._last_emitted_range
+    low, high = coord._last_emitted_range[ZONE]
+    assert high - low == 7.0  # preset-manager fallback shape (cool-7, cool)
+    ex._test_clear_leases()
+
+
+@pytest.mark.asyncio
 async def test_S11_comfort_gate_covers_the_preset_write(mods):
     """N5: `_s11_gate` (True=DEFER) gates the preset half too."""
     coord, hass, arr, z, pr, ex, tok = await _bank(mods, snap="home")
@@ -270,6 +287,28 @@ async def test_S13_preheat_return_presets_only(mods, snap, expect_temp):
         assert H.preset_writes(hass, ENT, "home")
     assert coord._last_emitted_range[ZONE] == (68.0, 76.0)
     assert ZONE not in pr._pre_conditioning_zones and ZONE not in ex._rows
+    ex._test_clear_leases()
+
+
+# ---- D51: kill switch retired — every kind always records ------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["nudge", "compromise", "banking", "preheat", "egress_pause"])
+async def test_begin_excursion_always_records_for_every_kind(mods, kind):
+    """D51 (operator): the excursion kill switch is retired — there is no
+    switch to consult, `begin_excursion` records a row for EVERY kind, and
+    gate (e) sees it (the M3 no-row cases are gone)."""
+    coord, hass = H.make_coord(mods)
+    ex = mods["hvac_excursion"]
+    assert not hasattr(ex, "set_kill_switch_enabled") and not hasattr(ex, "is_kill_switch_enabled")
+    assert not hasattr(coord, "excursion_primitive_enabled")
+    tok = await ex.begin_excursion(
+        hass, zone_id=ZONE, entity_id=ENT, kind=ex.EXCURSION_KIND(kind),
+        duration_s=600 if kind != "egress_pause" else None, site="t",
+    )
+    assert tok is not None and ex.is_borrow_active(ZONE) is True
+    assert coord.preset_manager.manual_guard_verdict(ZONE)["gate_snapshot"]["e_source"] == "row"
     ex._test_clear_leases()
 
 
@@ -379,10 +418,23 @@ def test_read_hvac_compromise_minutes_clamps_stored_20_to_15(mods):
     assert C._read_hvac_compromise_minutes({key: 20}) == 15
     assert C._read_hvac_compromise_minutes({key: 15}) == 15
     assert C._read_hvac_compromise_minutes({key: 10}) == 10
+    assert C._read_hvac_compromise_minutes({key: 3}) == 5      # A-L4 floor
+    assert C._read_hvac_compromise_minutes({key: 5}) == 5
     assert C._read_hvac_compromise_minutes({}) == 15
     assert C._read_hvac_compromise_minutes({key: "junk"}) == 15
+    assert C.clamp_hvac_compromise_minutes(120) == 15 and C.clamp_hvac_compromise_minutes(0) == 5
     assert C.DEFAULT_COMPROMISE_MINUTES == 15 and C.HVAC_COMPROMISE_MINUTES_MAX == 15
     assert C.S1_RECLAIM_RATE_LIMIT_N == 3 and C.S1_RECLAIM_RATE_WINDOW_S == 1800
+
+
+def test_coordinator_constructor_clamps_compromise_minutes(mods):
+    """C-2 wire-in anchor: the setup path constructs HVACCoordinator with
+    the options value; the CONSTRUCTOR clamps to [5, 15] for every caller
+    and pushes the clamped value into the arrester."""
+    from runtime_harness import build_smoke_hass
+    for given, expect in ((20, 15), (3, 5), (10, 10)):
+        coord = mods["hvac"].HVACCoordinator(build_smoke_hass(zones_count=3), compromise_minutes=given)
+        assert coord._override_arrester._compromise_minutes == expect
 
 
 def test_coordinator_and_arrester_defaults_are_15(mods):

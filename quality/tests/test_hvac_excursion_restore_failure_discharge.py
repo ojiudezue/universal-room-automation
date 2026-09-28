@@ -120,7 +120,6 @@ def setup_function(_):
     _ensure_util_dt()
     _reset_stats()
     _ex_mod._test_clear_rows()
-    _ex_mod._test_set_kill_switch(True)
 
 
 def _install_capture(monkeypatch):
