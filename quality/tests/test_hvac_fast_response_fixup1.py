@@ -173,6 +173,7 @@ async def test_pending_hold_cap_latch_clears_when_spell_ends(mods):
     (5, 200, True),       # 200 s < 300 s
     (5, 400, False),      # 400 s > 300 s -> cold
     (0, 1, False),        # 0 = exemption OFF: even 1 s later is cold
+    (0, 0, False),        # 0 = OFF even at the release instant itself (delta 0)
 ])
 def test_return_window_knob_live_value_drives_exemption(mods, minutes, ret_after_s, expect_exempt):
     with _Clock(T0) as clk:
@@ -922,3 +923,23 @@ def test_legacy_and_night_passes_reset_stale_d5_fields(mods):
         d = _diag(coord, KIT)
         assert d["rule"] == "night" and d["exempt_reason"] is None and d["cold"] is False
         assert d["episode_start"] is None
+
+
+@pytest.mark.asyncio
+async def test_quick_return_not_counted_when_zone_already_armed(mods):
+    """B-L4: a `fast_entry` run on a zone that was ALREADY fused-occupied
+    (a second room entering) is not a quick return even with a fresh,
+    never-counted vacancy-away anchor."""
+    with _Clock(T0) as clk:
+        coord, hass, coords, sched = _setup(
+            mods, rooms={"zone_1": [(KIT, "common_area", {"occupied": True, "ev": T0, "active": True})]},
+            presets={"zone_1": "home", "zone_2": "home", "zone_3": "home"},
+        )
+        _pass(coord)
+        z = coord.zone_manager.zones["zone_1"]
+        assert z.any_room_hvac_occupied is True
+        coord._zone_vacancy_away_at["zone_1"] = clk.t - S(seconds=100)   # stale anchor
+        coord._fast_path_queued.add("zone_1")
+        await coord._async_zone_fast_run("zone_1", "fast_entry", edge_ts=clk.t)
+        assert coord._quick_returns_today_view() == {}
+        assert "zone_1" not in coord._zone_vacancy_away_counted
