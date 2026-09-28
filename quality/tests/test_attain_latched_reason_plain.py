@@ -95,3 +95,39 @@ def test_entry_reason_keeps_projection_when_comparison_is_true():
     )
     reason = decision.get("reason", "")
     assert "projected SOC 75% < target 80%" in reason, reason
+
+
+
+def test_latched_builder_plain_even_when_projection_below_target():
+    """latched=True: plain text even if the projection happens to be below
+    target — the latch did not re-compare, so do not claim it did."""
+    strat, _ = _build_strategy(soc=72, peak_buffer_target=80)
+    decision = strat._get_attainability_decision(
+        soc=72.0, now=_ANCHOR,
+        target_day_class="normal", tomorrow_class="normal",
+        current_mode=None, season="summer",
+        projected=75.0, rate=1.0, mins=103,
+        tou_period="off_peak", latched=True,
+    )
+    reason = decision.get("reason", "")
+    assert "projected SOC" not in reason, reason
+    assert "Charging the battery from the grid to 80% before " in reason
+    assert "(now 72%)" in reason
+
+
+def test_latched_continuation_passes_latched_true(monkeypatch):
+    """Wire-in anchor: the latched CHARGING continuation in determine_mode
+    calls the reason builder with latched=True. (A latched tick with the
+    projection below target is not reachable in this harness — the rung
+    ladder pre-empts — so the call-site kwarg is anchored directly.)"""
+    strat, _ = _latched_charging(soc_start=62.0, rate=40.0, target=80)
+    seen = []
+    real = strat._get_attainability_decision
+
+    def _spy(*args, **kwargs):
+        seen.append(kwargs.get("latched", False))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(strat, "_get_attainability_decision", _spy)
+    strat.determine_mode("off_peak", "summer", now=_ANCHOR)
+    assert seen == [True], seen
