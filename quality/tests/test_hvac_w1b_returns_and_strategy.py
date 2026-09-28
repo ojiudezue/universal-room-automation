@@ -122,6 +122,23 @@ async def test_S6_nudge_restore_presets_only(mods, snap, expect_temp):
     ex._test_clear_leases()
 
 
+@pytest.mark.asyncio
+async def test_S6_snapshot_source_is_the_token(mods):
+    """A-L1: ONE snapshot source — when a token exists, BOTH the HUMAN_MANUAL
+    decision and the S7 pin read the token's `pre_preset`, not the RAM map."""
+    coord, hass, arr, z = _setup(mods, snapshot_preset="sleep")
+    ex = mods["hvac_excursion"]
+    tok = ex._test_seed_row(zone_id=ZONE, kind=ex.EXCURSION_KIND.NUDGE, duration_s=120)
+    tok.pre_preset = "sleep"
+    arr._nudge_excursion_tokens[ZONE] = tok
+    arr._nudge_pre_preset[ZONE] = "home"  # stale RAM copy disagrees
+    await arr._restore_after_nudge(z, original_target=76.0)
+    await H.drain(hass)
+    assert H.temp_writes(hass, ENT) == []
+    assert H.preset_writes(hass, ENT, "sleep") and not H.preset_writes(hass, ENT, "home")
+    ex._test_clear_leases()
+
+
 # ---- site 2: S8 cancel nudge ---------------------------------------------------
 
 

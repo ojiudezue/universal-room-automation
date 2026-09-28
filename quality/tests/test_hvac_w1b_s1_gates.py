@@ -524,8 +524,9 @@ async def test_s1_deferred_by_comfort_gate_rolls_back_suppression(mods):
     reason) -> nothing went out -> the pre-emit suppress stamp is rolled
     back so a genuine manual inside the 120 s window is still booked."""
     coord, hass, z = _manual_zone(mods)
+    z.preset_mode = "away"  # NOT manual: the manual rule passes; the funnel `_s1_gate` defers
     arr = coord._override_arrester
-    arr.comfort_delay_active = lambda zid: True  # S1 gate (reason house_state_transition) defers
+    arr.comfort_delay_active = lambda zid: True  # reason house_state_transition -> DEFER
     await _tick(coord, hass)
     assert H.preset_writes(hass, ENT) == []
     assert ENT not in arr._suppressed_until and ENT not in arr._suppress_kind
