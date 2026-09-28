@@ -2140,7 +2140,8 @@ cards:
 - id: HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1
   operator_2026_09_27_2130: 'Operator: A "Do it." B "yes follow house state for sleep. Check on its logic" C "Yes backup. If set it uses this instead of house state. Even more useful per room. Is that the plan?". DONE A (config): hvac_vacancy_hold_night=90 s on all 9 common_area rooms (Kitchen, Dining, Living, Patio, Receiving, Breakfast Nook, Game, Exercise, Butler Pantry) via options flow; field is in the reload-suppression list (no reload); other options verified intact. SLEEP LOGIC CHECKED (presence.py:1295-1301, _is_sleep_hour :1358): house SLEEP is CLOCK-ONLY — any home state enters SLEEP when hour is inside sleep hours; live CM options sleep_start_hour=22, sleep_end_hour=6 (house-wide knob exists, default 23); WAKING at sleep_end then HOME_DAY. No activity/bed-sensor sleep detection. home_night = 21:00 (night_start_hour, hardcoded presence.py:1011). So B moves the long tails from 21:00 to 22:00 (the existing sleep-start knob) — clock-based either way.'
   title: HVAC night tail-holds (15-30 min) kick in at 21:00 home_night while the house is still active — common rooms hold zones home long after people leave
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.19
   thread: hvac
   workstream: HVAC-W2-OCCUPANCY-TRUTH
   created: '2026-09-27'
