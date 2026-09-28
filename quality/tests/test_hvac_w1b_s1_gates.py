@@ -453,6 +453,9 @@ async def test_vacancy_bypass_defers_under_borrow_and_tao(mods, gate):
     (1.5, True, "sub_delta_human"),    # coast widens to < 2 F
     (1.5, False, "gated_human"),       # >= threshold without coast
     (2.5, True, "gated_human"),
+    (1.0, False, "gated_human"),       # LOW-1 boundary: |delta| == normal threshold
+    (2.0, True, "gated_human"),        # LOW-1 boundary: |delta| == coast threshold
+    (0.99, False, "sub_delta_human"),  # just under
 ])
 async def test_manual_class_from_last_detection(mods, delta, coast, expect):
     coord, hass, z = _manual_zone(mods)

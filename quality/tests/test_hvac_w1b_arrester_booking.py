@@ -137,7 +137,9 @@ async def test_non_override_state_change_writes_no_row(mods):
 async def test_nudge_win_booked_no_revert(mods, src):
     coord, hass, arr = _arr(mods)
     if src == "token":
+        # D-2: a token alone is NOT a live nudge; the live shape is token + in-flight.
         arr._nudge_excursion_tokens[ZONE] = type("T", (), {"excursion_id": "n1"})()
+        arr._nudge_in_flight.add(ZONE)
     elif src == "restore_timer":
         arr._nudge_restore_timers[ZONE] = lambda: None
     else:
@@ -222,6 +224,7 @@ async def test_comfort_grant_booked_and_seeded(mods):
 async def test_nudge_win_short_circuits_every_lower_rung(mods, lower, expect):
     coord, hass, arr = _arr(mods, enabled=(lower != "passive"))
     arr._nudge_excursion_tokens[ZONE] = type("T", (), {"excursion_id": "n1"})()
+    arr._nudge_in_flight.add(ZONE)  # live nudge (D-2)
     ev = _severe()
     if lower == "immune":
         _immune_person(hass, arr); ev.context.user_id = "u-oji"
@@ -274,6 +277,7 @@ async def test_nudge_win_with_both_row_and_token(mods):
     ex = mods["hvac_excursion"]
     tok = ex._test_seed_row(zone_id=ZONE, kind=ex.EXCURSION_KIND.NUDGE, duration_s=120)
     arr._nudge_excursion_tokens[ZONE] = tok
+    arr._nudge_restore_timers[ZONE] = lambda: None  # live nudge (D-2)
     _immune_person(hass, arr)
     ev = _severe(); ev.context.user_id = "u-oji"
     await _fire(hass, arr, ev)

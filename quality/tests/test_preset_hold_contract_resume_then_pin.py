@@ -404,9 +404,19 @@ def test_boot_restore_reads_the_PERSISTED_snapshot_not_the_ram_map():
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
         and n.name == "async_startup_ramp_audit"
     )
+    # HVAC W1-B fix-up 2 (D-4): the boot path may SEED the RAM map from the
+    # persisted row (`self._nudge_pre_preset[zid] = <persisted>` — a store
+    # whose value comes from get_all_excursion_rows); what stays forbidden is
+    # READING it. Exclude an attribute that is the target of a subscript
+    # STORE; everything else (`.get(`, `.pop(`, subscript loads) still fails.
+    _store_targets = {
+        id(n.value) for n in ast.walk(fn)
+        if isinstance(n, ast.Subscript) and isinstance(n.ctx, ast.Store)
+    }
     ram_reads = [
         n for n in ast.walk(fn)
         if isinstance(n, ast.Attribute) and n.attr == "_nudge_pre_preset"
+        and id(n) not in _store_targets
     ]
     assert not ram_reads, (
         "the boot path must NOT read the RAM-only _nudge_pre_preset map — it is "

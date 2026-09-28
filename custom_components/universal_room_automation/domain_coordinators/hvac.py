@@ -288,6 +288,9 @@ class HVACCoordinator(BaseCoordinator):
                 _t.add_done_callback(self._pending_tasks.discard)
             except Exception:  # noqa: BLE001
                 pass
+            # HVAC W1-B fix-up 2 (LOW-3): an automatic sunset ends the
+            # engagement, so the restart marker must not claim "was ACTIVE".
+            self._clear_tao_restart_marker()
         self._override_arrester.set_on_sunset_notify(_fire_sunset_note)
 
         # OVERRIDE-NOTIFY-1 (2026-08-08, operator-approved): pre-warn +
@@ -1690,6 +1693,19 @@ class HVACCoordinator(BaseCoordinator):
                 self._s1_reclaim_rate_latched.discard(zone_id)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("s1 reclaim-rate trip-wire failed", exc_info=True)
+
+    def _clear_tao_restart_marker(self) -> None:
+        """Drop `hvac_temp_arrester_override_was_active` from every entry's
+        options (sunset path; the switch clears it itself on manual OFF)."""
+        try:
+            for e in self.hass.config_entries.async_entries(DOMAIN):
+                opts = getattr(e, "options", None) or {}
+                if opts.get("hvac_temp_arrester_override_was_active"):
+                    new_opts = dict(opts)
+                    new_opts.pop("hvac_temp_arrester_override_was_active", None)
+                    self.hass.config_entries.async_update_entry(e, options=new_opts)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("TAO marker clear on sunset failed", exc_info=True)
 
     def _settle_tao_restart_marker(self, decision: str, expires_at: Any, now: Any) -> None:
         """A-H2 / B-M1: the `hvac_temp_arrester_override_was_active` options

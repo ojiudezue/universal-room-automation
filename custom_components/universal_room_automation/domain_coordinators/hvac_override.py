@@ -3303,7 +3303,9 @@ class OverrideArrester:
 
         gated_reason: str | None = None
         _comfort_meta: dict[str, Any] | None = None
-        if _nudge_tok or _nudge_live:
+        if _nudge_live:
+            # fix-up 2 (D-2): a LIVE nudge (in-flight set / restore timer),
+            # not a stale token, is what wins.
             gated_reason = "nudge_win"
         elif _immune_eligible:
             # D50 (B-M2): an immune person WINS over a live compromise —
@@ -3492,6 +3494,48 @@ class OverrideArrester:
                 zone.zone_name, abs_delta, normal_threshold,
             )
 
+    def _arrester_blocked_by_borrow(self, zone_id: str, own_excursion_id: str | None) -> str | None:
+        """HVAC W1-B fix-up 2 (D-1): FIRE-TIME check for the arrester's own
+        timers. Returns the blocking source or None:
+          * a fresh registry row whose excursion_id is NOT ours (`excursion_id_for`);
+          * a live NUDGE (`_nudge_in_flight` / `_nudge_restore_timers`);
+          * an egress pause on the zone.
+        A live borrow OWNS the zone (D48); the arrester stands down."""
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            live = _ex_mod.excursion_id_for(zone_id)
+        except Exception:  # noqa: BLE001
+            live = None
+        if live is not None and live != own_excursion_id:
+            return f"borrow_row:{live}"
+        if zone_id in self._nudge_in_flight or zone_id in self._nudge_restore_timers:
+            return "nudge_live"
+        try:
+            if self._egress_manager is not None and self._egress_manager.is_paused(zone_id):
+                return "egress_paused"
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    def _defer_arrester_to_borrow(self, zone: ZoneState, path: str, source: str) -> None:
+        """Discharge the arrester's own state cleanly (no latch) and record
+        ONE `arrester_deferred_to_borrow` ledger row."""
+        zone_id = zone.zone_id
+        self._cancel_zone_timers(zone_id)
+        self._override_active[zone_id] = False
+        self._compromise_active[zone_id] = False
+        _LOGGER.info(
+            "Arrester %s on %s deferred to live borrow (%s); grace/compromise "
+            "state cleared", path, zone.zone_name, source,
+        )
+        self._arrest_ledger(
+            action="arrester_deferred_to_borrow",
+            description=f"{zone.zone_name} arrester {path} deferred to {source}",
+            zone_id=zone_id,
+            entity_id=zone.climate_entity,
+            details={"path": path, "source": source},
+        )
+
     def _borrow_gate_armed(self, zone_id: str) -> bool:
         """Gate (e) as the arrester sees it (D47 shape): fresh registry row
         OR a self-discharging in-flight timer on this zone. Pure read."""
@@ -3661,6 +3705,12 @@ class OverrideArrester:
             )
             self._grace_timers.pop(zone_id, None)
             return
+        # HVAC W1-B fix-up 2 (D-1): a borrow / egress pause that began
+        # during the grace owns the zone now — stand down, no latch.
+        _blk = self._arrester_blocked_by_borrow(zone_id, None)
+        if _blk is not None:
+            self._defer_arrester_to_borrow(zone, "compromise", _blk)
+            return
         self._compromise_active[zone_id] = True
 
         # Remove grace timer reference
@@ -3787,6 +3837,24 @@ class OverrideArrester:
                 zone_id, trigger="immunity_skip",
                 restore_ok=None,
                 trigger_detail="revert_skipped_immunity",
+            )
+            return
+
+        # HVAC W1-B fix-up 2 (D-1): a foreign borrow row (not our own
+        # compromise token), a live nudge or an egress pause at fire time
+        # owns the zone — no B4 mode write, no S4 preset write. Our own
+        # compromise row is closed as a policy skip (restore_ok=None).
+        _own_eid = (
+            self._compromise_excursion_tokens.get(zone_id).excursion_id
+            if self._compromise_excursion_tokens.get(zone_id) is not None else None
+        )
+        _blk = self._arrester_blocked_by_borrow(zone_id, _own_eid)
+        if _blk is not None:
+            self._defer_arrester_to_borrow(zone, "revert", _blk)
+            await self._compromise_release_lease(
+                zone_id, trigger="borrow_skip",
+                restore_ok=None,
+                trigger_detail=f"revert_skipped_{_blk.split(':')[0]}",
             )
             return
 
@@ -4865,7 +4933,24 @@ class OverrideArrester:
         zone.last_overshoot_started = ""  # window resets — outcome under eval
         zone.kwh_samples_above_threshold = 0
 
-        if self._db is not None:
+        # HVAC W1-B fix-up 2 (MEDIUM-1): the restore timer is the DISCHARGE
+        # for `_nudge_in_flight` (gate (e) reads it). Schedule it BEFORE the
+        # DB bookkeeping awaits below so a DAO exception can never leave the
+        # zone marked in-flight with no timer to clear it (S1 deferred
+        # forever). The bookkeeping itself is guarded: a failure is logged
+        # and the nudge still restores on time.
+        @callback
+        def _on_nudge_restore_fire(_now):
+            self.hass.async_create_task(
+                self._restore_after_nudge(zone, original_target)
+            )
+
+        self._nudge_restore_timers[zone_id] = async_call_later(
+            self.hass, duration_s, _on_nudge_restore_fire,
+        )
+
+        try:
+          if self._db is not None:
             state = await self._db.get_ac_reset_state(zone_id)
             state["soft_nudge_count"] = int(state.get("soft_nudge_count", 0)) + 1
             state["last_soft_nudge_ts"] = started_ts
@@ -4902,22 +4987,18 @@ class OverrideArrester:
                 mode_before=_tele_mode_before,
                 excursion_id=_tele_excursion_id,
             )
+        except Exception as _bk_exc:  # noqa: BLE001 — bookkeeping must not strand the nudge
+            _LOGGER.warning(
+                "Soft nudge on %s: DB bookkeeping failed (%s); restore timer "
+                "already scheduled, nudge will still return on time",
+                zone.zone_name, _bk_exc,
+            )
 
         _LOGGER.info(
             "Soft nudge fired on %s: target %.1f -> %.1f for %d min "
             "(kwh_rate_before=%.2f kW, by=%s)",
             zone.zone_name, original_target, new_target,
             self._nudge_duration_min, kwh_rate_before, triggered_by,
-        )
-
-        @callback
-        def _on_nudge_restore_fire(_now):
-            self.hass.async_create_task(
-                self._restore_after_nudge(zone, original_target)
-            )
-
-        self._nudge_restore_timers[zone_id] = async_call_later(
-            self.hass, duration_s, _on_nudge_restore_fire,
         )
 
     async def _restore_after_nudge(
@@ -6423,6 +6504,23 @@ class OverrideArrester:
         # v4.7.17.1: clear the restore-ts anchor on startup audit too.
         self._nudge_post_restore_ts.pop(zone_id, None)
         self._nudge_in_flight.discard(zone_id)
+        # HVAC W1-B fix-up 2 (D-2): the cancelled nudge's borrow row must
+        # be RETURNED (mirrors cancel_nudge) — otherwise the token and the
+        # row leak and gate (e) / nudge_win stay armed against the zone.
+        _fr_token = self._nudge_excursion_tokens.pop(zone_id, None)
+        self._nudge_pre_preset.pop(zone_id, None)
+        if _fr_token is not None:
+            try:
+                from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+                await _ex_mod.return_excursion(
+                    _fr_token, trigger="force_reset", restore_ok=None,
+                    trigger_detail="nudge_cancelled_by_force_reset",
+                )
+            except Exception as _fr_exc:  # noqa: BLE001
+                _LOGGER.debug(
+                    "force_ac_reset: return_excursion failed for %s: %s",
+                    zone_id, _fr_exc,
+                )
         if self._db is not None:
             try:
                 await self._db.clear_ac_in_flight_nudge(zone_id)
@@ -6673,6 +6771,13 @@ class OverrideArrester:
                 self._nudge_in_flight.add(zone_id)
                 zone.ramp_state = AC_RAMP_STATE_NUDGING
                 target = float(original_target)
+                # HVAC W1-B fix-up 2 (D-4): seed the RAM snapshot from the
+                # persisted excursion row's pre_preset so the in-window
+                # restore is presets-only (S6 raw setpoint only for a
+                # HUMAN_MANUAL snapshot), like every other return.
+                _pp_resume = _pre_presets.get(zone_id, "")
+                if _pp_resume:
+                    self._nudge_pre_preset[zone_id] = _pp_resume
 
                 @callback
                 def _on_resume_restore(_now, z=zone, t=target):
