@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-27T21:56:52-05:00_ - _Data commit: `4f84b38d6110`_ - _last_reconciled: 2026-09-27_
+_Generated: 2026-09-27T22:15:15-05:00_ - _Data commit: `3efddf8b508f`_ - _last_reconciled: 2026-09-27_
 
 
 ## Columns
@@ -17,7 +17,7 @@ _Generated: 2026-09-27T21:56:52-05:00_ - _Data commit: `4f84b38d6110`_ - _last_r
 | 🔍 Review | 0 |
 | ⏸️ Waiting on operator | 23 |
 | ⏳ Waiting on me (Claude) | 2 |
-| 🚀 Shipped (organic open) | 6 |
+| 🚀 Shipped (organic open) | 7 |
 | 🅿️ Parked | 71 |
 | ✅ Done | 229 |
 
@@ -615,15 +615,13 @@ _created 2026-09-26 · updated 2026-09-26 17:30_
   - `reframe_2026_09_26`: Operator: "Room clock is not good for HVAC. We built a separate HVAC occupied to decouple it ... one for turning things off, another for activating HVAC." Correct. The first plan (docs/planning/PLANNING_hvac_entry_dwell_room_clock.md) us...
   - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
 
-### `HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1` - HVAC night tail-holds (15-30 min) kick in at 21:00 home_night while the house is still active — common rooms hold zones home long after people leave — _#20 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1` - Pre-cool / pre-heat restore fallback computes heat as cooling minus 7 and ignores the configured Heat Low — _#20 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **planned**
-_created 2026-09-27 · updated 2026-09-27 21:35_
-- **Next:** BUILD (Tier 2) on operator go: (B) the HVAC tail selector (_effective_hvac_hold_seconds, hvac_zones.py) uses the night table only when house_state in {sleep, waking} instead of FAN_TRUST_STATES (home_night stays on day tails) — do NOT ch...
-- **Forensic keys (4):**
-  - `operator_2026_09_27_2130`: Operator: A "Do it." B "yes follow house state for sleep. Check on its logic" C "Yes backup. If set it uses this instead of house state. Even more useful per room. Is that the plan?". DONE A (config): hvac_vacancy_hold_night=90 s on all ...
-  - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
-  - `evidence`: Kitchen (common_area) occupied 21:00-21:02, room vacant 21:13, kitchen_hvac_occupied held ON from 21:05 by the NIGHT tail (ROOM_TYPE_HVAC_HOLD_NIGHT common_area 900 s, const.py:1230) -> zone_3 set home at 21:04 on house_state_transition ...
-  - `sweep_2026_09_27`: Board grep FAN_TRUST_STATES/night tail/night_start: only inside HVAC-ZONE-CONDITIONING-DEMAND-1 design notes (shipped v5.103.7/8). NEW.
+_created 2026-09-27 · updated 2026-09-27 23:00_
+- **Why:** Same latent bug as the CPR write site: heat = cool - 7 instead of the configured Heat Low; with winter away 80/65 it would heat an empty zone to 73 F. Site: the banking/pre-heat restore fallback in hvac_predict.py (grep the minus-7 deriv...
+- **Next:** BUILD (Tier 1): use the configured Heat Low at the restore fallback; test with winter away 80/65 -> heat 65.
+- **Forensic keys (1):**
+  - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
 
 ### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#21 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
@@ -1138,7 +1136,7 @@ _created 2026-09-27 · updated 2026-09-27 17:30_
   - `operator_action_2026_09_27`: Operator trimmed person.oji_udezue trackers 19 -> 5, all phone-carried (verified live 17:26 CDT): phalanxiphone15promax, phalanxiphone15promaxcflare, iphone_oji_bermuda_tracker, unifi_default_12_83_ec_78_6d_6c, private_ble_device_8ce182....
   - `sweep_2026_09_27`: Board + BACKLOG grepped for blip/flicker/cflare/geofence pre-arrival: only this experiment card carries it. NEW.
 
-## 🚀 Shipped (organic open) (6)
+## 🚀 Shipped (organic open) (7)
 _live, awaiting proof_
 
 ### `SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1` - Solar-following car charging steers off a grid reading that lags by a minute — point it at the new fast (~5-6s) local reading instead — _#1 · WSJF 5.0 · v5 tc3 u2 /e2_
@@ -1243,6 +1241,16 @@ _updated 2026-09-27 02:40_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: no uniqueness guard in config_flow.py (0 hits). ~15 LoC Tier-1; fold into next config-flow batch.
   - `disposition_2026_09_12_built`: BUILT 2026-09-12 (Tier-1, overnight autonomous). Added create-time duplicate-room-name guard in async_step_room_setup (config_flow.py:1114-1135), mirroring the existing zone_name_exists guard: case-insensitive + whitespace-trimmed compar...
   - `fix_sketch`: _check_room_name_unique in async_step_basic_setup -> async_show_form error on collision (~15 LoC, Tier 1-2). Live-validation D-block for the rename cycle includes a do-not-rename-to-existing sanity note meanwhile.
+
+### `HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1` - HVAC night tail-holds (15-30 min) kick in at 21:00 home_night while the house is still active — common rooms hold zones home long after people leave — _#7 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **shipped_organic**
+_created 2026-09-27 · updated 2026-09-27 21:35_
+- **Next:** BUILD (Tier 2) on operator go: (B) the HVAC tail selector (_effective_hvac_hold_seconds, hvac_zones.py) uses the night table only when house_state in {sleep, waking} instead of FAN_TRUST_STATES (home_night stays on day tails) — do NOT ch...
+- **Forensic keys (4):**
+  - `operator_2026_09_27_2130`: Operator: A "Do it." B "yes follow house state for sleep. Check on its logic" C "Yes backup. If set it uses this instead of house state. Even more useful per room. Is that the plan?". DONE A (config): hvac_vacancy_hold_night=90 s on all ...
+  - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
+  - `evidence`: Kitchen (common_area) occupied 21:00-21:02, room vacant 21:13, kitchen_hvac_occupied held ON from 21:05 by the NIGHT tail (ROOM_TYPE_HVAC_HOLD_NIGHT common_area 900 s, const.py:1230) -> zone_3 set home at 21:04 on house_state_transition ...
+  - `sweep_2026_09_27`: Board grep FAN_TRUST_STATES/night tail/night_start: only inside HVAC-ZONE-CONDITIONING-DEMAND-1 design notes (shipped v5.103.7/8). NEW.
 
 ## 🅿️ Parked (71)
 _revisit-trigger set_

@@ -515,3 +515,8 @@ It is **not Tier 3**. There is one emission site (S10). The load-bearing precond
 1. **Profile edits in the Carrier app while the switch is ON** get overwritten at the next visit to that preset. After 3 edits of the same value, URA stops and sends a notification. OK? *(Recommendation: yes. This matches "URA has more information and should win", §9e D48.)*
 2. **On switch-off, keep the last URA ranges** rather than restoring the Bryant originals (§3.4). OK? *(Recommendation: yes. The originals stay in the ledger.)*
 3. **Include the S11/S13 `cool − 7` fallback fix in this build**, or ship it separately? *(Recommendation: separately, unless the plan review rates it trivial.)*
+
+## Operator rulings 2026-09-27 (verbatim, pre-build)
+- **Q1 (app edits vs URA):** "Won't the app just reflect the new preset? Yes Ura wins." — Yes: the Carrier app shows URA's edited temperatures inside each named preset. While CPR is on, URA wins; stop + NM after 3 unconfirmed tries stays.
+- **Q2 (turning CPR off):** "If we turn of cpr, it should go back to the default ranges inset right?" + picked **Restore Carrier originals**. BUILD CHANGE: before URA first edits a zone's named preset, snapshot the original Carrier range for that preset (persisted, per zone x preset); when switch 01 turns OFF, write each snapshotted original back once (same write path, confirmation + NM on failure) and clear the snapshot. Restart while ON keeps snapshots; a preset URA never edited is not touched.
+- **Q3 (the minus-7 heat bug in the hvac_predict restore fallback):** **Separately** — carded, not in this build.
