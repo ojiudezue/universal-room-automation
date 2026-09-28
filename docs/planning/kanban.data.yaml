@@ -2205,12 +2205,13 @@ cards:
   next: 'ANSWER: should a manual house-state override propagate to HVAC and the other coordinators like an inferred change? YES -> Tier 2 fix (dispatch on override set/clear). NO -> document as intended.'
   links: {related: [HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1]}
 - id: HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1
+  gate_2026_09_28: 'GATE (overnight 2026-09-28): (1) VALIDITY still real: hvac_predict.py:918 still returns (baseline_cool - 7.0, baseline_cool). The sibling hvac.py:3541 baseline_low = baseline_cool - 7.0 also exists, and the builder is to establish from the CPR plan which site CPR owns. (1b) CONFIG-FIRST: no knob covers it, since the fallback ignores the configured Heat Low. (2) PRIOR ART: reuse the existing configured-range accessor, with no new constant. (3) BUILD: the smallest fix. (4) Winter cost only; fail direction is colder-when-empty. Tier 1. Dispatched ura-builder in worktree overnight-0928-heatminus7 (feature/hvac-precool-restore-heat-low), with the state-of-play full read mandatory. Built to review only; no merge or deploy.'
   title: 'Pre-cool / pre-heat restore fallback computes heat as cooling minus 7 and ignores the configured Heat Low'
-  status: planned
+  status: in_progress
   thread: hvac
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
   created: '2026-09-27'
-  updated: '2026-09-27 23:00'
+  updated: '2026-09-28 03:40'
   origin: 'Found by the Custom Preset Ranges plan (PLANNING_hvac_enable_custom_preset_ranges.md); operator 2026-09-27 chose to fix it separately from CPR.'
   why: 'Same latent bug as the CPR write site: heat = cool - 7 instead of the configured Heat Low; with winter away 80/65 it would heat an empty zone to 73 F. Site: the banking/pre-heat restore fallback in hvac_predict.py (grep the minus-7 derivation).'
   next: 'BUILD (Tier 1): use the configured Heat Low at the restore fallback; test with winter away 80/65 -> heat 65.'
@@ -3265,6 +3266,7 @@ cards:
   refs:
   - docs/readmes/README_v5.99.1.md (validation error-scan)
 - id: FRONT-SIDE-PTZ-CHATTER-1
+  datapoint_2026_09_28: 'Data point (overnight 2026-09-28, HA history): since Frigate2 came back (09-27 21:12Z) front_side_ptz_person_occupancy_2 went ON 0 times, while front_side_ptz_motion_3 went ON 140 times. That is the same pattern as your pending ANSWER (person detection near-silent, motion busy), so the ask stands.'
   UNBLOCKED_2026_09_25: 'THE MEASUREMENT BLOCKER IS RESOLVED — by an operator fact, not by a probe.
     Operator 2026-09-25: "the camera fleet is fine now. Frigate is having periodic degrades on the
     hardware side that I am working on. The quick fix is a docker reload." That settles the question the
@@ -3292,7 +3294,7 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-14 00:20'
-  updated: '2026-09-25 03:00'
+  updated: '2026-09-28 03:30'
   CONTAMINATION_DEEPENED_2026_09_25: 'OVERNIGHT PASS — the contamination warning above is RE-CONFIRMED
     and now stronger, and the practical consequence is that this card CANNOT be advanced by measurement
     at all; your ANSWER is the only route left. Measured tonight from the live recorder (last-state-per-entity
@@ -28213,6 +28215,7 @@ cards:
     producer-silence trip-wire is a real operator decision and stays with you.'
 
 - id: CAMERA-SILENT-PRODUCER-TRIPWIRE-1
+  INSTANCE_2026_09_28: 'SECOND UNNOTICED OUTAGE (measured 2026-09-28): the Frigate2 host was off the network from 09-25 19:18 CDT to 09-27 16:12 CDT, about 45 h (sensor.frigate_status_2 history: unavailable 09-26 00:18Z, running 09-27 21:12Z), and all its person/motion legs were unavailable. Nothing in URA flagged it; only the overnight board pass noticed. This strengthens the case for the redesign you are asked to APPROVE. Note that this outage mode is UNAVAILABLE (host down), which a simple "every leg unavailable for > N min" check would catch without the in-memory silence counter that the reload storm resets.'
   operator_attribution_2026_09_25: 'ROOT CAUSE SUPPLIED BY THE OPERATOR, AND IT STRENGTHENS THIS CARD
     RATHER THAN KILLING IT. Operator 2026-09-25: "the camera fleet is fine now. Frigate is having
     periodic degrades on the hardware side that I am working on. The quick fix is a docker reload."
@@ -28273,7 +28276,7 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-17 02:20'
-  updated: '2026-09-25 02:35'
+  updated: '2026-09-28 03:30'
   refinement_status: refined
   approval: implied
   tags:
@@ -28433,13 +28436,14 @@ cards:
     accounting (or key it off a persisted last-seen timestamp rather than an in-process counter),
     which also makes it robust by construction instead of dependent on someone elses uptime.'
 - id: PERIMETER-ALERT-VOLUME-FATIGUE-1
+  INSTANCE_2026_09_28: 'Fresh measurement on PERIMETER-PHANTOM-XCORR-1 (09-27 21:12Z to 03:00Z): 36 exterior alerts in about 6 h, with 31 single-source empty-frame phantoms. The dominant sources tonight were back_yard (17) and pool_equipment (12, incl. 3 night CRITICALs across Pushover/WhatsApp/iMessage), NOT front_side_ptz, which fired 0 person-ONs tonight against 140 motion-ONs. The SOURCE lever (A) now names two more cameras, and the concrete DO (cloth pile / mask) is on PERIMETER-PHANTOM-XCORR-1.'
   evidence_empty_house_2026_09_27: 'Empty-house baseline: ~5 distinct UniFi Protect person_detected events (rear_ptz / g5_bullet) in 21.6 h with no resident, fanned out to 25 notification rows (~4 per event + audit). Protect person detection works regardless of Frigate2. Census property count reached 1 in 16 snapshots.'
   title: "Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue"
   thread: security
   rank: {value: 6, time_criticality: 5, effort: 3}  # v/tc cut 2026-09-20: lever A falsified, volume 22-63/day not 155
   status: waiting_operator
   created: '2026-09-12 20:45'
-  updated: '2026-09-19 04:00'
+  updated: '2026-09-28 03:30'
   refinement_status: refined
   approval: unreviewed
   tags: [no-fabrication-verify]
@@ -29699,12 +29703,13 @@ cards:
     docs/Coordinator/ENERGY_COORDINATOR_MANUAL.md]
 
 - id: SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1
+  soak_check_2026_09_28: 'SOAK-EXIT CHECK (overnight 2026-09-28): NOT YET EVALUABLE. HA history of sensor.ura_energy_coordinator_ev_charging_status from 09-26 to 09-28 07:00Z shows 32 rows, with solar_follow_grid_source only ever unknown or absent and solar_follow_state always empty. So no solar-follow tick has run since the 09-25 change (no daytime solar-surplus EV charge). The window runs to about 10-02. If no solar-follow session occurs by then, park it with the revival trigger "first solar-follow session" rather than leaving it organic.'
   title: Solar-following car charging steers off a grid reading that lags by a minute — point it at
     the new fast (~5-6s) local reading instead
   thread: energy
   status: shipped_organic
   created: '2026-09-25 18:00'
-  updated: '2026-09-25 21:00'
+  updated: '2026-09-28 03:35'
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-09-25 ("Approved") — B1 only: set the solar-follow grid FALLBACK to
