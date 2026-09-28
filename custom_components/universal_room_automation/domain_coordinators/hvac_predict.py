@@ -911,7 +911,9 @@ class HVACPredictor:
                 except (TypeError, ValueError):
                     pass
 
-        # Preset-resolved fallback (mirrors DPM apply at hvac.py:1330-1338).
+        # Preset-resolved fallback: configured (heat, cool) for the preset.
+        # NB: DPM apply (hvac.py ~3541) still derives low as cool - 7; the
+        # CPR plan deletes that site (PLANNING_hvac_enable_custom_preset_ranges.md).
         try:
             house_state = getattr(coord, "_house_state", None) if coord else None
             target_preset = self._preset_manager.get_preset_for_house_state(house_state)
