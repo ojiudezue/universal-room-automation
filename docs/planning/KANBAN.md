@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-28T08:28:21-05:00_ - _Data commit: `8eccf055948a`_ - _last_reconciled: 2026-09-27_
+_Generated: 2026-09-28T09:04:56-05:00_ - _Data commit: `8acd8059e7b5`_ - _last_reconciled: 2026-09-27_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 1 |
+| 📥 Inbox | 2 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 21 |
@@ -21,7 +21,7 @@ _Generated: 2026-09-28T08:28:21-05:00_ - _Data commit: `8eccf055948a`_ - _last_r
 | 🅿️ Parked | 71 |
 | ✅ Done | 236 |
 
-## 📥 Inbox (1)
+## 📥 Inbox (2)
 _raw capture_
 
 ### `HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1` - A manual house-state override (e.g. forcing Sleep) never reaches HVAC or other signal consumers — only inferred transitions are dispatched — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
@@ -30,6 +30,12 @@ _created 2026-09-27 · updated 2026-09-27 22:40_
 - **Next:** ANSWER: should a manual house-state override propagate to HVAC and the other coordinators like an inferred change? YES -> Tier 2 fix (dispatch on override set/clear). NO -> document as intended.
 - **Forensic keys (1):**
   - `sweep_2026_09_27`: Board grep house state override: one mention inside another card as an existing path the operator floated for manual away (line ~18336); no card owns this defect. NEW.
+
+### `EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1` - Arbitrage release can turn a car on that fill-priority should still hold; attain reason text mislabels a latched state — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **inbox**
+_created 2026-09-28 · updated 2026-09-28 13:20_
+- **Why:** (1) energy_pool.py:2951-2965 arbitrage release condition omits _paused_by_fill_priority, so if grid charging ends with SOC still < fill target the release turns the car on and fill-priority re-pauses it next tick (a one-tick on/off flap)...
+- **Next:** BUILD (Tier 1): add _paused_by_fill_priority to the arbitrage release gate with a test (grid-charge ends at SOC 75 < 80 -> no turn_on); verify the attain reason text; fix manual :448.
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_
