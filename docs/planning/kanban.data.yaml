@@ -2230,6 +2230,7 @@ cards:
   sweep_2026_09_27: 'Board grep hobeian_dining / dining presence: no card. NEW.'
   next: 'CLOSED 2026-09-28 (overnight pass). Reopen only if the operator knows people were in the dining room on 09-26 or 09-27 and the radar stayed off.'
 - id: HVAC-W1-THERMOSTAT-DEFINITION
+  disposition_2026_09_28: 'DONE — W1-B shipped v5.103.18 and live-validated. Overnight 2026-09-27 20:54 -> 09-28 08:30 CDT on v5.103.18/19: 14 nudges, 0 preset_change_locked_out, 0 URA-caused manual (manual_class: 24 not_manual, 2 gated_human, 0 zero_delta_ura), 0 S1 writes inside nudge windows, 0 echo overrides within 15 s; 3 genuine human overrides booked (README_v5.103.17/18 validation tables). Residuals carded separately: HVAC-W1C-GENERIC-THERMOSTAT-1 (parked), HVAC-WRITE-CONFIRMATION-ORACLE-1, HVAC-S10-DPM-VS-S1-1 (CPR plan). Deferred cleanup: delete excursion HIGH-1 manual-skip + parked D3 (now dead) in the next small cycle.'
   build_review_2026_09_27: 'Built by ura-super-builder (e77dd686/2297eb8b/b444046d, tag pre-review-v5.103.18): 121 tests, 60 drills. 4 Tier-3 reviews all FIX-REQUIRED -> fix-up dispatched: gate (e) simplified to fresh row OR nudge/compromise timers + new gate (f) kill-switch-OFF respects manual (stale banking/precool leftovers were re-creating the lockout); save TAO before teardown (reload wiped it); false TAO-released NM; manual_class labels; startup audit must not revert a live borrow; 3 hollow-test gaps. OPERATOR RULINGS 2026-09-27: (D48) borrow STARTS win over person protection - "URA has more information and should win. URA understands energy saving strategies and Operators dont. They can redo if they want to pre-empt automation changes that are valid." (D49) vacancy bypass keeps todays behaviour (does not wait for arrester grace/compromise or arrester off). Orchestrator: immune person wins over a live compromise (develop behaviour kept).'
   rev5_2026_09_27: 'REV 5 committed 3ed9afda1: S1 manual guard replaced (Alt A, 4 gates: person-protected / arrester grace-compromise / arrester disabled=passive / live borrow row via _row_present_and_fresh). BORROW_LOCK collapsed into gate (e) (verified no window where nudge/compromise timers live without a fresh row). Provenance, reclaim delay, kill switch DROPPED; problem 4 closed-by-A. Operator constraint: nothing added to borrow code or emit_* funnels. Guard marked SUPERSEDED in state-of-play §9e + §10 C25 and bannered in 15 docs. NEXT: two Tier-3 plan reviews (completeness + build-prediction), reviewers read corrected state-of-play first, then build.'
   operator_decision_2026_09_27_manual_guard: 'APPROVED (operator): replace the v3.8.0 S1 manual guard (hvac_preset.py:214-216 "Don''t fight manual — that''s the arrester''s job"; design doc HVAC_COORDINATOR_DESIGN.md:934 "respect user") with: S1 may write over manual UNLESS (a) Temp Arrester Override active, (b) an immune-person hold is active, (c) the arrester is actively handling a genuine override for the zone (grace/compromise window), (d) arrester passive mode (pending verification of what passive promises). Operator: "Its outdated design. We know a lot more. We didn''t even know borrows would come back as manual then." Note (a) and (b) are near-identical today (operator is the only detectable immune person) but stay GENERALIZED. This replaces problem 1''s provenance machinery (URA-owned recognition, STRAND_WINDOW_S, learned profiles, D0 strand gate).'
@@ -2268,7 +2269,7 @@ cards:
     Tier-3 plan re-review + operator go.'
   title: 'W1 — One thermostat definition per brand: how URA writes, borrows/returns, and reads a thermostat, discovered in detail and applied everywhere'
   thread: hvac
-  status: shipped_organic
+  status: done
   shipped_version: v5.103.18
   created: '2026-09-26 02:40'
   updated: '2026-09-26 11:00'
@@ -2569,6 +2570,7 @@ cards:
     context: 'Phase 1 split from HVAC-THERMOSTAT-ABSTRACTION-1 per the write-path inventory. Phase 2 (full
       ZoneThermostat API) stays on the parent card, parked.'
 - id: HVAC-ZONE1-MANUAL-OSCILLATION-1
+  disposition_2026_09_28: 'DONE — the post-borrow manual strand class is gone under W1-B presets-only returns + S1 reclaim. Overnight 2026-09-27 20:54 -> 09-28 08:30 CDT on v5.103.18/19: 14 nudges, 0 preset_change_locked_out, 0 URA-caused manual (manual_class: 24 not_manual, 2 gated_human, 0 zero_delta_ura), 0 S1 writes inside nudge windows, 0 echo overrides within 15 s; 3 genuine human overrides booked (README_v5.103.17/18 validation tables). The separate zone_1 status/config feed split (re-issued away writes) lives on HVAC-WRITE-CONFIRMATION-ORACLE-1; re-check on the next zone_1 away period (it stopped when the house was reoccupied and after the operator reconnected the thermostat).'
   INSTANCE_2026_09_28_post_nudge_manual: 'INSTANCE (overnight 2026-09-28, measured facts only; no mechanism asserted, since HVAC diagnosis requires the state-of-play read first). After v5.103.17 (echo TTL 15 s), all 3 zone_1 override_detected rows from 09-27 10:45 CDT to 02:00 CDT 09-28 landed +477 s, +429 s and +435 s after a zone_1 nudge_started: 18:56:00 home->manual temp 76->76; 22:41:52 sleep->manual 75->77; 01:02:10 sleep->manual 75->76. Nudge restores land at about +125 s and nudge_evaluated at about +360 s (with a hard_reset at evaluation in 2 of the days zone_1 nudges). So the manual appears about 1-2 min after evaluation. The first one produced a preset_change_locked_out at 18:58:03. A tight cluster like this is a candidate discriminator for the W1-B strand-cause probe: URA-write-caused (anchored to the evaluate/hard-reset step) versus a genuine human (the two 22:41 and 01:02 bookings have +1 or +2 F deltas at night, which is ambiguous). Queries: ac_ramp_events event_type in (nudge_started, nudge_restored, nudge_evaluated, hard_reset_started), and ura_activity_log action=override_detected, both since 2026-09-27T10:45 local.'
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
   finding_2026_09_26_away_feed_split: 'NEW SHAPE, found during v5.103.15 live validation (predates that
@@ -2611,7 +2613,7 @@ cards:
     uniformly durable, manual is re-asserted at ~2min cadence. Either the pin is not fully effective
     on-device or the Bryant native schedule/an operator/a URA writer re-manuals. Still the measure-
     first target; clean 24h read to identify the producer.'
-  status: investigating
+  status: done
   thread: hvac
   created: '2026-09-16'
   updated: '2026-09-28 03:25'
@@ -2862,6 +2864,7 @@ cards:
   revival_trigger: 'Revive if an operator complaint or measurement shows a comfort/night fan starting noticeably late in an already-occupied zone, or if fan latency becomes an explicit goal. Cheapest version then: a fan-only fast path that runs the fan controller, not the whole decision cycle.'
   next: 'PARKED — no action until the revival trigger fires.'
 - id: HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1
+  disposition_2026_09_28: 'DONE — Overnight 2026-09-27 20:54 -> 09-28 08:30 CDT on v5.103.18/19: 14 nudges, 0 preset_change_locked_out, 0 URA-caused manual (manual_class: 24 not_manual, 2 gated_human, 0 zero_delta_ura), 0 S1 writes inside nudge windows, 0 echo overrides within 15 s; 3 genuine human overrides booked (README_v5.103.17/18 validation tables).'
   organic_evidence_2026_09_28: 'SOAK-EXIT DISPOSITION (overnight 2026-09-28; URA DB via ssh sqlite3 -readonly). Window: deploy 09-27 ~10:45 CDT to 02:00 CDT 09-28, with 24 nudge_started rows (ac_ramp_events, local time), 5 override_detected rows and 6 preset_change_locked_out rows (ura_activity_log, UTC). (h1, echo) 0 of 5 overrides were within 15 s after a same-zone nudge start. PASS: the 5-7.5 s echo booking is gone. (h2, echo lockout at ~+595 s) 5 of 6 lockouts are not nudge-anchored. 1 (zone_1 18:58:03, +600 s) followed a ZERO-DELTA home->manual booked at +477 s, about 6 min after the restore. That is the documented not-fixed post-restore strand, not an echo. PASS for the echo chain. (h3, human still booked) zone_2 21:31:30 CDT home->manual 76->72, with no nudge nearby, was booked. PASS (organic, inferred). RESIDUAL: all 3 zone_1 overrides were +429 s, +435 s and +477 s after a zone_1 nudge start (a cluster), filed as an instance on HVAC-ZONE1-MANUAL-OSCILLATION-1. README_v5.103.17 validation table written back.'
   disposition_2026_09_26_groom: 'BUILT 1ca21dddb (feature/echo-ttl): SUPPRESS_TTL_SECONDS 5 -> 15 (operator-approved simplest fix; value-matched last-write record deferred to W1-B). Review A SHIP: covers all 24 S5 nudge-start echoes + 3 S3 compromise + 1 S12 pre-cool echo (~28 of ~35 URA self-caused false overrides); added human blind time only ~0.3-2.5 s per write (after the echo lands a human touch is manual->manual, never booked), ~30 s/day zone_1; named-preset human changes never booked either way. Review B SHIP-WITH-RESIDUAL, causal chain proven: echo booked -> _handle_normal_override (NM medium alert, _override_active, 5-min grace) -> +300 s S3 compromise raw set_temperature creates the Carrier manual hold -> +591-597 s tick logs preset_change_locked_out (22/22) -> +600 s S4 revert. Nudge restore itself completed 22/24. Fix removes the chain: ~22 lockouts, ~24 false NM alerts, ~48 Carrier writes per week. RESIDUALS (W1-B problem 1, value-matched last-write record): post-restore zero-delta manual strands (8 rows incl. §9.1 long strands 264779/268232/269742); restore echoes booked under kind=preset pass-through (263659/263713/267239); late echoes 32 s/42 s; S12 pre-cool window stamped before the wire write (263356 at 15.8 s, unverified).'
   title: The arrester books Carrier's echo of URA's OWN nudge as a human override (46% of override_detected), then URA locks itself out — the main zone_1 lockout mechanism
@@ -12773,11 +12776,12 @@ cards:
   - docs/reviews/code-review/hvac_excursion_restore_unified.md
   - feature/hvac-excursion-d1-only @ 48b06eaa7
 - id: HVAC-EXCURSION-RESTORE-UNIFIED-1
+  disposition_2026_09_28: 'DONE (superseded) — W1-B (v5.103.18) delivered presets-only returns, the borrow gate and restore governance this parked plan aimed at; the kill switch it relied on is retired.'
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
   title: Unify HVAC excursion restore — auto-release sweep (D1), setpoint-writer governance gate (D2),
     manual-preset recovery (D3, kill-switch OFF), off-phase ceiling governance (D4)
   thread: hvac
-  status: parked
+  status: done
   created: 2026-08-26 02:20
   updated: '2026-09-26 02:40'
   refinement_status: refined
@@ -13835,6 +13839,7 @@ cards:
   parsimony: {problem: 'possible house-wide self-lockout via EC offset', verdict: BUILD, note: 'investigation; read-only trace, cheap, decisive'}
   links: {related: [HVAC-PRESET-LOCKOUT-ESCAPE-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-ZONE1-MANUAL-OSCILLATION-1], context: 'D5 true-up / S14 removal 2026-09-16 / Bryant audit'}
 - id: HVAC-PRESET-LOCKOUT-ESCAPE-1
+  disposition_2026_09_28: 'DONE (superseded by W1-B four-gate rule, v5.103.18) — Overnight 2026-09-27 20:54 -> 09-28 08:30 CDT on v5.103.18/19: 14 nudges, 0 preset_change_locked_out, 0 URA-caused manual (manual_class: 24 not_manual, 2 gated_human, 0 zero_delta_ura), 0 S1 writes inside nudge windows, 0 echo overrides within 15 s; 3 genuine human overrides booked (README_v5.103.17/18 validation tables).'
   disposition_2026_09_26_groom: 'SUPERSEDED — CLOSED. Its three deliverables are now owned by the approved arc: D1 presets-only borrow return -> W1-B (operator accepted all 7 recommendations 2026-09-26, binding); D2 status/config coherence -> WITHDRAWN by state-of-play C20 (hold_activity also reads manual in the strands); D3 funnel logging -> W1-A (build in flight 2026-09-26). Lockout frequency confirmed real (HVAC-PRESET-LOCKOUT-TELEMETRY-1: zone_1 2-7/day). Track under HVAC-W1-THERMOSTAT-DEFINITION.'
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
   MEASUREMENT_2026_09_17: 'Gate read (v5.103.4 telemetry, ura_activity_log action=preset_change_
