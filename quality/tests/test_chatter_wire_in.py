@@ -78,39 +78,6 @@ _TOUCHED_FILES: list[pathlib.Path] = [
 ]
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _snapshot_and_restore_touched_sources():
-    """Snapshot every production file drills may edit; restore on exit.
-
-    Guarantees `git status --porcelain` reports no drift after this
-    module's tests complete, regardless of drill outcome.
-    """
-    snapshots: dict[pathlib.Path, str] = {
-        p: p.read_text() for p in _TOUCHED_FILES if p.exists()
-    }
-    try:
-        yield
-    finally:
-        for p, orig in snapshots.items():
-            if p.read_text() != orig:
-                p.write_text(orig)
-
-
-@pytest.fixture(autouse=True)
-def _per_test_restore_touched_sources():
-    """Per-test belt on top of the module-scoped braces: any drill that
-    somehow bypasses its own try/finally is caught here too."""
-    snaps: dict[pathlib.Path, str] = {
-        p: p.read_text() for p in _TOUCHED_FILES if p.exists()
-    }
-    try:
-        yield
-    finally:
-        for p, orig in snaps.items():
-            if p.exists() and p.read_text() != orig:
-                p.write_text(orig)
-
-
 def _run_target(target: str) -> int:
     """Run a single pytest node, return exit code.
 
@@ -128,31 +95,6 @@ def _run_target(target: str) -> int:
         capture_output=True,
     )
     return r.returncode
-
-
-class _SourceMutation:
-    """Context manager: mutate a file, restore on exit."""
-
-    def __init__(self, path: pathlib.Path, old: str, new: str):
-        self.path = path
-        self.old = old
-        self.new = new
-        self._orig = None
-
-    def __enter__(self):
-        self._orig = self.path.read_text()
-        assert self.old in self._orig, (
-            f"mutation anchor not found in {self.path}: {self.old[:80]!r}"
-        )
-        self.path.write_text(self._orig.replace(self.old, self.new, 1))
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # Restore + status-check (feedback_unrestored_mutation_drill).
-        self.path.write_text(self._orig)
-        assert self.path.read_text() == self._orig, (
-            f"RESTORE FAILED for {self.path}"
-        )
 
 
 def _mutate_and_expect_red(

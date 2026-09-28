@@ -39,11 +39,16 @@ def test_MUTATION_h2_sticky_reverted_to_eager_discard_makes_sticky_test_red():
     """Revert `_apply_dp_reversion` to eager-discard (drop the set +
     owner BEFORE the peer/TOU checks). The sticky test asserts the DP
     claim SURVIVES a TOU-defer; under the eager mutation, the set is
-    emptied first → test goes RED."""
-    _mutate_and_expect_red(
-        # The anchor is the sticky TOU-defer log line. Replace with the
-        # pre-fix eager discard sequence (discard + release BEFORE
-        # continue). Uniquely targets the reversion sticky branch.
+    emptied first → test goes RED.
+
+    M2 (2026-09-28): route directly through apply_mutation_in_sandbox
+    with the correct cross-file anchor_test_file — b2c1's helper hardcodes
+    __file__ and would build a malformed node id.
+    """
+    from pathlib import Path
+    from _mutation_sandbox import apply_mutation_in_sandbox
+    apply_mutation_in_sandbox(
+        prod_path=_b2c1._ENERGY_SRC,
         swap_from=(
             'if tou_period is not None and tou_period != "off_peak":\n'
             '                _LOGGER.info(\n'
@@ -59,10 +64,12 @@ def test_MUTATION_h2_sticky_reverted_to_eager_discard_makes_sticky_test_red():
             '                self._ev._release_pause_dispatch_owner(evse_id, "dp")  # noqa: SLF001\n'
             '                continue'
         ),
-        test_name=(
-            "test_evse_drain_precedence_session_b2b_ii.py::"
+        anchor_test_file=Path(_b2c1.__file__).resolve().parent
+            / "test_evse_drain_precedence_session_b2b_ii.py",
+        anchor_test_name=(
             "test_reversion_defers_ensure_on_when_tou_not_off_peak"
         ),
+        expect="KILLED",
     )
 
 
@@ -71,8 +78,15 @@ def test_MUTATION_h2_retry_driver_removed_makes_orphan_test_red():
     `_dp_decision_tick`. The restart-orphan test (switch-ON path)
     depends on that block calling `_apply_dp_reversion` on a HOLD_ONLY
     carrier with non-empty `_paused_by_dp`; without it, the set never
-    drains → RED."""
-    _mutate_and_expect_red(
+    drains → RED.
+
+    M2 (2026-09-28): route directly through apply_mutation_in_sandbox
+    (b2c1's helper hardcodes __file__).
+    """
+    from pathlib import Path
+    from _mutation_sandbox import apply_mutation_in_sandbox
+    apply_mutation_in_sandbox(
+        prod_path=_b2c1._ENERGY_SRC,
         swap_from=(
             "if (\n"
             "            _dp_on\n"
@@ -89,10 +103,11 @@ def test_MUTATION_h2_retry_driver_removed_makes_orphan_test_red():
             "        ):\n"
             "            self._apply_dp_reversion(tou_period=period)"
         ),
-        test_name=(
-            "test_evse_drain_precedence_session_b2c1_fixup.py::"
+        anchor_test_file=Path(_b2c1.__file__).resolve(),
+        anchor_test_name=(
             "test_h2_sticky_orphan_hold_only_retry_dispatches_turn_on_switch_on_path"
         ),
+        expect="KILLED",
     )
 
 

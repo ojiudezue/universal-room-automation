@@ -56,6 +56,7 @@ def apply_mutation_in_sandbox(
     expect: str = "KILLED",
     extra_pytest_args: tuple = (),
     mutator=None,
+    timeout: float = 180.0,
 ) -> subprocess.CompletedProcess:
     """Mutate ``prod_path`` in a tmp copy of the repo, then run
     ``anchor_test_file::anchor_test_name`` in a subprocess against the
@@ -118,7 +119,7 @@ def apply_mutation_in_sandbox(
 
         rel_prod = prod_path.resolve().relative_to(_CC)
         tmp_target = tmp_root / "custom_components" / rel_prod
-        tmp_target.write_text(mutated, encoding="utf-8")
+        # Mutation is applied AFTER the baseline run (see below).
 
         rel_test = anchor_test_file.resolve().relative_to(_REPO)
         tmp_test = tmp_root / rel_test
@@ -131,16 +132,39 @@ def apply_mutation_in_sandbox(
             str(tmp_root / "quality"),
         ])
         env["PYTHONDONTWRITEBYTECODE"] = "1"
-        result = subprocess.run(
-            [
-                sys.executable, "-B", "-m", "pytest",
-                f"{tmp_test}::{anchor_test_name}",
-                "-x", "-p", "no:cacheprovider", "--tb=short", "-q",
-                *extra_pytest_args,
-            ],
-            env=env, cwd=str(tmp_root),
-            capture_output=True, text=True,
-        )
+
+        def _run_anchor():
+            return subprocess.run(
+                [
+                    sys.executable, "-B", "-m", "pytest",
+                    f"{tmp_test}::{anchor_test_name}",
+                    "-x", "-p", "no:cacheprovider", "--tb=short", "-q",
+                    *extra_pytest_args,
+                ],
+                env=env, cwd=str(tmp_root),
+                capture_output=True, text=True,
+                timeout=timeout,
+            )
+
+        # M1 (2026-09-28): baseline-green run BEFORE mutation. If the
+        # anchor is not green unmutated in the sandbox, ALL downstream
+        # rc!=0 signals are ambiguous (collection error, no-tests-ran,
+        # xfail-strict, unrelated failure). Fail loudly here so the
+        # drill cannot vacuously "kill" a broken anchor.
+        baseline = _run_anchor()
+        if baseline.returncode != 0:
+            raise AssertionError(
+                "anchor is not green unmutated (baseline rc="
+                f"{baseline.returncode}); every kill would be vacuous. "
+                f"Fix the anchor first.\n"
+                f"BASELINE STDOUT:\n{baseline.stdout[-2000:]}\n"
+                f"BASELINE STDERR:\n{baseline.stderr[-1000:]}"
+            )
+
+        # Now apply the mutation to the tmp copy and re-run.
+        tmp_target.write_text(mutated, encoding="utf-8")
+        _clear_pycache_at(tmp_root)
+        result = _run_anchor()
 
     # SIGKILL-safe invariant: the real production file was NEVER touched.
     md5_after = _md5(prod_path)
@@ -149,10 +173,23 @@ def apply_mutation_in_sandbox(
         f"drill (md5 {md5_before} -> {md5_after})."
     )
 
+    # M1: log rc for every drill so the run trail is auditable.
+    print(
+        f"[mutation_sandbox] anchor={anchor_test_file.name}::"
+        f"{anchor_test_name} baseline_rc={baseline.returncode} "
+        f"mutated_rc={result.returncode} expect={expect}"
+    )
+
     if expect == "KILLED":
-        assert result.returncode != 0, (
-            f"expected KILLED (anchor RED under mutation); got returncode="
-            f"{result.returncode}\nSTDOUT:\n{result.stdout[-2000:]}\n"
+        # M1: require rc==1 AND " failed" in output. rc=2 (collection
+        # error), rc=4 (no tests ran), rc=5 (no tests collected) etc.
+        # are NOT real kills.
+        assert result.returncode == 1 and " failed" in (
+            result.stdout + result.stderr
+        ), (
+            f"expected KILLED (rc==1 + ' failed' in output); got "
+            f"returncode={result.returncode}\n"
+            f"STDOUT:\n{result.stdout[-2000:]}\n"
             f"STDERR:\n{result.stderr[-1000:]}"
         )
     elif expect == "SURVIVES":

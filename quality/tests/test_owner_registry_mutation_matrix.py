@@ -103,9 +103,19 @@ def _apply(path: Path, swap_from: str, swap_to: str, anchor: str,
         "harness (SIGKILL-safe invariant)."
     )
 
+    # M1 (2026-09-28): tighten KILLED — require rc==1 AND " failed"
+    # in the output; rc=2/4/5 (collection error, no tests ran/collected)
+    # is NOT a real kill.
+    print(
+        f"[owner_registry_mutation_matrix] anchor={anchor} "
+        f"mutated_rc={result.returncode} expect={expect}"
+    )
     if expect == "KILLED":
-        assert result.returncode != 0, (
-            f"expected KILLED; test stayed GREEN\n{result.stdout[-2000:]}"
+        assert result.returncode == 1 and " failed" in (
+            result.stdout + result.stderr
+        ), (
+            f"expected KILLED (rc==1 + ' failed'); got rc={result.returncode}"
+            f"\n{result.stdout[-2000:]}"
         )
     else:
         assert result.returncode == 0, (
