@@ -132,9 +132,6 @@ from conftest import MockHass, MockState
 from custom_components.universal_room_automation.domain_coordinators.energy_forecast import (
     DailyEnergyPredictor,
 )
-from custom_components.universal_room_automation.domain_coordinators import (
-    energy_billing as _energy_billing,
-)
 from custom_components.universal_room_automation.domain_coordinators.energy_billing import (
     CostTracker,
 )
@@ -259,7 +256,7 @@ class TestBillingRestoreDaily:
     def test_restores_same_day(self):
         """Restores accumulators when snapshot date matches today."""
         _, billing = _make_billing()
-        today = _energy_billing.dt_util.now().date().isoformat()
+        today = type(billing).restore_daily.__globals__["dt_util"].now().date().isoformat()
 
         billing.restore_daily({
             "snapshot_date": today,
@@ -295,7 +292,7 @@ class TestBillingRestoreDaily:
     def test_missing_keys_default_to_zero(self):
         """Missing keys in snapshot default to 0."""
         _, billing = _make_billing()
-        today = _energy_billing.dt_util.now().date().isoformat()
+        today = type(billing).restore_daily.__globals__["dt_util"].now().date().isoformat()
 
         billing.restore_daily({
             "snapshot_date": today,
@@ -303,6 +300,7 @@ class TestBillingRestoreDaily:
 
         assert billing._import_kwh_today == 0
         assert billing._cost_today == 0
+        assert billing._last_date == today
 
     def test_accumulate_continues_after_restore(self):
         """After restore, accumulate() continues adding to restored values.
@@ -328,7 +326,7 @@ class TestBillingRestoreDaily:
             TOURateEngine(),
             net_power_entity=net_power_entity,
         )
-        today = _energy_billing.dt_util.now().date().isoformat()
+        today = type(billing).restore_daily.__globals__["dt_util"].now().date().isoformat()
 
         billing.restore_daily({
             "snapshot_date": today,
