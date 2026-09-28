@@ -210,6 +210,22 @@ class _FakeClock:
         self.t = self.t + timedelta(seconds=seconds)
 
 
+@pytest.fixture(autouse=True)
+def _clear_borrow_rows():
+    """HVAC W1-B gate (e): the arrester now READS the excursion row
+    registry (`hvac_excursion._rows`, module-global) on every detection.
+    Tests in this file open real COMPROMISE / NUDGE rows on zone_a and
+    never return them; clear the registry around EVERY test so a row
+    from one test cannot gate the next (order-robustness)."""
+    import importlib
+    _ex = importlib.import_module(
+        "custom_components.universal_room_automation.domain_coordinators.hvac_excursion"
+    )
+    _ex._test_clear_leases()
+    yield
+    _ex._test_clear_leases()
+
+
 @pytest.fixture
 def fake_clock(monkeypatch):
     clock = _FakeClock(datetime(2026, 8, 10, 14, 0, 0, tzinfo=timezone.utc))
@@ -618,8 +634,15 @@ class TestWriteSiteGates:
         )
 
     async def test_S6_and_S7_restore_paths_are_ALLOW(self, fake_clock):
-        """S6 (nudge restore set_temperature) + S7 (nudge preset restore)
-        MUST always write — they are restorations, not reverts."""
+        """S6/S7 are restorations, not reverts — they ALLOW under grace.
+
+        HVAC W1-B D2.4 (presets-only returns): with a NAMED snapshot the
+        restore is the S7 preset pin ALONE (no raw set_temperature — that
+        write is what left the zone in an anonymous `manual` hold);
+        with a HUMAN_MANUAL snapshot (`manual`) the S6 raw setpoint
+        restore still fires. Both halves are asserted here so a
+        regression in either direction reds."""
+        # (a) NAMED snapshot -> S7 only, under active grace.
         a = _make_arrester()
         a._seed_comfort_delay(a._zone_manager.zones[ZONE_ID], {
             "zone_id": ZONE_ID, "climate_entity_id": CLIMATE,
@@ -627,9 +650,7 @@ class TestWriteSiteGates:
             "direction": "cooler", "granted_setpoint": 72.0,
         })
         zone = a._zone_manager.zones[ZONE_ID]
-        # Snapshot a pre-preset so S7 fires.
         a._nudge_pre_preset[ZONE_ID] = "sleep"
-        # State registry: current preset is manual so S7 restore fires.
         st = MagicMock()
         st.attributes = {"preset_mode": "manual"}
         a.hass.states.get = MagicMock(return_value=st)
@@ -638,9 +659,29 @@ class TestWriteSiteGates:
             calls.append((args, kwargs))
         a.hass.services.async_call = fake_call
         await a._restore_after_nudge(zone, original_target=76.0)
-        # Both a set_temperature (S6) AND a set_preset_mode (S7) must fire.
-        assert any(args[:2] == ("climate", "set_temperature") for args, _ in calls)
+        assert not any(args[:2] == ("climate", "set_temperature") for args, _ in calls), (
+            "named snapshot: the raw setpoint restore must be DROPPED (C1)"
+        )
         assert any(args[:2] == ("climate", "set_preset_mode") for args, _ in calls)
+
+        # (b) HUMAN_MANUAL snapshot -> S6 raw setpoint restore fires.
+        b = _make_arrester()
+        b._seed_comfort_delay(b._zone_manager.zones[ZONE_ID], {
+            "zone_id": ZONE_ID, "climate_entity_id": CLIMATE,
+            "hvac_mode": "cool", "current_temp": 79.0, "delta_f": 4.0,
+            "direction": "cooler", "granted_setpoint": 72.0,
+        })
+        zone_b = b._zone_manager.zones[ZONE_ID]
+        b._nudge_pre_preset[ZONE_ID] = "manual"
+        b.hass.states.get = MagicMock(return_value=st)
+        calls_b: list = []
+        async def fake_call_b(*args, **kwargs):
+            calls_b.append((args, kwargs))
+        b.hass.services.async_call = fake_call_b
+        await b._restore_after_nudge(zone_b, original_target=76.0)
+        assert any(args[:2] == ("climate", "set_temperature") for args, _ in calls_b), (
+            "manual snapshot: the raw setpoint restore must still fire"
+        )
 
 
 # ===========================================================================

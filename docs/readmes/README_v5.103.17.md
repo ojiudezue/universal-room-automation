@@ -35,12 +35,16 @@ Creating a room rejected a name another room already had, but renaming a room in
 ## Review ledger
 Build `8d0a855c1` → review A (correctness) FIX-REQUIRED: missing `options.error` string (MEDIUM) + 2 LOWs; review B (lifecycle) FIX-REQUIRED: same MEDIUM; rejection writes nothing / no reload / zone sync skipped; accept path byte-identical; no other rename surface; pre-existing create race (LOW) → fix-up `eebe92784` (all fixed, 6 drills RED). Gates: full name-diff 0 NEW + isolated run of 66 config-flow test files 0 NEW.
 
-## Live Validation (prospective — written back post-restart)
-- **Verify (echo, discriminating):** after restart, 0 `override_detected` rows within 15 s after a `nudge_started` on the same zone; 0 `preset_change_locked_out` at ~+595 s after a nudge; nudges still start and restore (`ac_ramp_events`).
-- **Verify (echo, human path intact):** a genuine manual change (operator's controlled test, when done) is still booked `override_detected`.
-- **Verify:** all 43 room entries still load; zero URA ERROR after restart.
-- **Verify (discriminating, operator-assisted or skipped):** renaming a room to another room's name in its options shows "A room with this name already exists" and `.storage/core.config_entries` `modified_at` for that entry does not change; renaming to a free name saves.
-- **In-suite only:** the create/rename race re-check (needs two concurrent flows).
+## Live Validation — Validated 2026-09-27 (HACS v5.103.17, HA restarted ~10:45 CDT)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | All room entries load; zero URA ERROR | **PASS** | zone status sensors: live_rooms 12/14/14, excluded [] / transient [] on all three; error_log ERROR filter on `universal_room_automation`: none |
+| 2 | Echo: 0 `override_detected` within 15 s after a `nudge_started` | **PENDING** | needs nudges (AC-ramp runs under cooling load); query written back as they accumulate today |
+| 3 | Echo: 0 `preset_change_locked_out` at ~+595 s after a nudge | **PENDING** | same |
+| 4 | Genuine human change still booked | **PENDING** | operator's controlled test (HVAC-WRITE-CONFIRMATION-ORACLE-1) |
+| 5 | Rename to an existing room name shows the error, writes nothing | **In-suite** (live requires an operator rename) | `TestRoomNameUniqueRenameGuard` |
+| 6 | Side check: Exercise Room radar no longer double-claimed | **PASS** | no "claimed by multiple rooms" WARNING this boot |
 
 ## Rollback
 Revert the merge. No schema or entity changes.

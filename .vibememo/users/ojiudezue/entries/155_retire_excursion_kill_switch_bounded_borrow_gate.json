@@ -1,0 +1,32 @@
+{
+  "format_version": "2.1",
+  "entry_id": "155",
+  "author": "ojiudezue",
+  "session_id": "claude_20260927_w1b_fixup",
+  "timestamp": "2026-09-27T23:56:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Retired the excursion kill switch; S1's borrow check = borrow record OR self-discharging nudge/compromise timers only",
+  "summary": "The v5.88.0 back-out option 'Restore thermostats after temporary changes' was removed so every borrow always records a row. S1's borrow gate reads only the self-expiring registry row plus the nudge restore timer, nudge in-flight set and compromise timer; token dicts and predictor/egress leftovers were dropped. Built by a new Tier-3 agent (ura-super-builder, Fable 5.1 low effort).",
+  "why": "All four Tier-3 reviews showed leftover markers (banking token after the 2 h sweep, _last_precool_zones with Zone Intelligence off) outlive their borrow and re-create the \u00a79.1 lockout. The only reason those fallbacks existed was the kill-switch-OFF case, where no row is written; the option had never been turned off and single-install means no back-compat scaffolding. Operator proposed separating 'record' from 'restore'; retiring the knob achieved it by deleting code instead of adding branches to borrow code.",
+  "alternatives_considered": [
+    "Gate (f): respect manual when the kill switch is OFF \u2014 simpler but an unexplained exception to the rule",
+    "Keep the knob but always record rows, gating only the restore path \u2014 adds logic to begin_excursion, which the operator asked to keep clean"
+  ],
+  "implications": "Emergency back-out for borrow bookkeeping is now a release rollback. Any gate-(e) evidence added later must self-discharge or be bounded by the row's stale_ts. Fix-up round 2 also makes the arrester's own timers check for live borrows at fire time (pre-existing leak where a compromise/revert could turn AC back on during an egress pause).",
+  "confidence": "high",
+  "revisit_trigger": "A borrow-bookkeeping defect in production that would have needed the off-switch.",
+  "refs": {
+    "supersedes": [],
+    "related": [
+      "152",
+      "154"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_hvac_w1b_thermostat_definition.md"
+    ],
+    "files": [
+      ".claude/agents/ura-super-builder.md"
+    ]
+  }
+}

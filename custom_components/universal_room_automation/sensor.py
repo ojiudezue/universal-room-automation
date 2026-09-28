@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.17
+# Universal Room Automation vv5.103.18
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -18205,19 +18205,14 @@ class HVACThermostatBorrowsSensor(SensorEntity):
                 "pre_target_high": tok.pre_target_high,
                 "excursion_id": tok.excursion_id,
             })
-        primitive_enabled = True
-        if hvac is not None:
-            try:
-                primitive_enabled = bool(hvac.excursion_primitive_enabled)
-            except Exception:  # noqa: BLE001
-                pass
+        # `primitive_enabled` attribute dropped 2026-09-27 (W1-B decision 51:
+        # the excursion kill switch is retired; borrows always record).
         return {
             "active_borrows": active,
             "started_today": stats.get("started_today", {}),
             "returned_today": stats.get("returned_today", {}),
             "restore_failed_today": stats.get("restore_failed_today", {}),
             "last_return": stats.get("last_return"),
-            "primitive_enabled": primitive_enabled,
             "stats_date": stats.get("date"),
         }
 

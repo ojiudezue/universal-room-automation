@@ -307,43 +307,45 @@ class TestPresetChangeReasonLedger:
     """
 
     def test_reason_local_derived_before_write(self, apply_presets_src: str):
-        """`preset_change_reason` must be assigned before the set_preset_mode call."""
-        # The reason derivation must lexically precede the write. If someone
-        # accidentally moves it after the service call, the activity row's
-        # details would reference a stale/undefined value.
-        assert "preset_change_reason" in apply_presets_src, (
-            "reason ledger: `preset_change_reason` local must be derived"
-        )
-        idx_reason = apply_presets_src.find("preset_change_reason =")
-        # ARREST-COMFORT-1 Cycle A (2026-08-10): the inline
-        # `hass.services.async_call("climate", "set_preset_mode", ...)`
-        # site was migrated to the `emit_set_preset_mode` chokepoint.
-        # Accept either the legacy string OR the chokepoint call.
-        idx_call = apply_presets_src.find("'set_preset_mode'")
-        if idx_call < 0:
-            idx_call = apply_presets_src.find('"set_preset_mode"')
-        if idx_call < 0:
-            idx_call = apply_presets_src.find("emit_set_preset_mode(")
-        assert idx_reason >= 0 and idx_call >= 0, (
-            "expected both reason assignment and set_preset_mode/emit call"
-        )
-        # ARREST-COMFORT-1 B-LOW-1 fix-up: convert char-offset ordering
-        # assert to line-index based (character offsets are brittle to
-        # comment expansion). The reason assignment MUST live on an
-        # earlier line than the write call.
-        lines = apply_presets_src.splitlines()
-        char_to_line = []
-        _running = 0
-        for _ln in lines:
-            char_to_line.append(_running)
-            _running += len(_ln) + 1  # +1 for the newline
-        def _line_of(idx: int) -> int:
-            import bisect
-            return bisect.bisect_right(char_to_line, idx) - 1
-        assert _line_of(idx_reason) < _line_of(idx_call), (
-            "reason must be derived BEFORE the preset_change service call so "
-            "the activity/DecisionLog rows record a fresh, branch-derived reason"
-        )
+        """The `preset_change` row carries a `reason` from the approved
+        vocabulary, derived BEFORE the write.
+
+        HVAC W1-B (2026-09-27) converted this from a char-offset source
+        grep (the S1 write moved behind `Strategy.hold_preset`) to a
+        BEHAVIOURAL drive of `_apply_house_state_presets`: the emitted row's
+        `details.reason` must be a vocabulary member (a stale/undefined
+        local would surface as a missing or foreign value)."""
+        import asyncio
+        import os as _os, sys as _sys
+        pytest.importorskip("homeassistant.helpers.storage")
+        _here = _os.path.dirname(__file__)
+        if _here not in _sys.path:
+            _sys.path.insert(0, _here)
+        import _w1b_harness as H
+        baseline = H.snapshot_shims()
+        try:
+            mods = H.load_real()
+            coord, hass = H.make_coord(mods)
+            coord._house_state = "home_day"
+            coord._zone_intelligence_enabled = False
+            coord.zone_manager.zones["zone_1"].preset_mode = "away"
+
+            async def _drive():
+                await coord._apply_house_state_presets()
+                await H.drain(hass)
+            asyncio.run(_drive())
+            rows = [r for r in hass.data[mods["const"].DOMAIN]["activity_logger"]
+                    .actions("preset_change") if r.get("zone") == "zone_1"]
+            assert rows, "S1 must emit a preset_change row for the written zone"
+            assert rows[0]["details"]["reason"] in {
+                "house_state_transition", "vacant_past_grace",
+                "energy_shed_cap_reached", "stale_occupancy",
+                "night_trust_suppressed", "pre_arrival",
+                "comfort_delay_active", "energy_shed_cap_deferred_occupied",
+            }
+            assert H.preset_writes(hass, "climate.test_zone_1", "home")
+        finally:
+            H.restore_shims(baseline)
 
     def test_reason_vocabulary_present(self, apply_presets_src: str):
         """Approved reason literals must appear in the derivation block."""

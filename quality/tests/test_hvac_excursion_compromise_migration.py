@@ -59,7 +59,6 @@ def teardown_function(_):
 
 def _setup(preset_now: str = "home"):
     _ex_mod._test_clear_leases()
-    _ex_mod._test_set_kill_switch(True)
     _ex_mod._test_bind(hass=None, db=None)
     zone = ZoneState(
         zone_id=ZONE_ID, zone_name="Zone A",
@@ -142,22 +141,6 @@ def test_revert_override_releases_lease_on_comfort_delay_early_return():
         "comfort_delay early-return must still release the lease."
     )
 
-
-def test_kill_switch_off_produces_no_compromise_lease():
-    a, zone = _setup()
-    _ex_mod._test_set_kill_switch(False)
-    try:
-        _run(a._apply_compromise(zone, "home", 74.0, 70.0, 76.0, 70.0))
-        assert _ex_mod._test_has_row(ZONE_ID) is False
-        # But the compromise itself still emits.
-        assert hvac_override.emit_set_temperature.await_count >= 1
-    finally:
-        _ex_mod._test_set_kill_switch(True)
-
-
-# ---------------------------------------------------------------------------
-# F2 fix - restore_ok signal + preset source from token
-# ---------------------------------------------------------------------------
 
 def test_F2_revert_records_restore_ok_False_when_s4_write_deferred(monkeypatch):
     """S4 emit deferred by comfort-delay grace -> _s4_written False ->

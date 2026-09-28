@@ -92,48 +92,14 @@ def _mode_of(call):
     return None
 
 
-def test_both_detection_sites_write_distinct_ledger_rows():
-    """THE POSITIVE DIRECTION, pinned per-site so neither can cover for the other."""
-    calls = _ledger_calls()
-    modes = sorted(m for m in (_mode_of(c) for c in calls) if m)
-    assert modes == ["governed", "passive"], (
-        f"expected exactly one governed and one passive ledger call, got {modes}. "
-        "Deleting either site must fail this test — that is what makes it an anchor."
-    )
-
-
-def test_governed_row_carries_the_attribution_fields():
-    """A row that cannot attribute the event is as useless as no row.
-
-    The 2026-09-16 investigation needed exactly these: which zone, which entity,
-    and what the preset/setpoints moved from and to. Asserted against the
-    GOVERNED call specifically, not against the function text.
-    """
-    governed = [c for c in _ledger_calls() if _mode_of(c) == "governed"]
-    assert len(governed) == 1, "the governed detection site must write exactly one row"
-    call = governed[0]
-    kwargs = {kw.arg for kw in call.keywords}
-    for field in ("zone_id", "entity_id", "action", "description", "details"):
-        assert field in kwargs, f"governed ledger row is missing kwarg: {field}"
-    detail_keys = set()
-    for kw in call.keywords:
-        if kw.arg == "details" and isinstance(kw.value, ast.Dict):
-            detail_keys = {getattr(k, "value", None) for k in kw.value.keys}
-    for field in ("old_preset", "new_preset", "old_high", "new_high"):
-        assert field in detail_keys, (
-            f"governed ledger row cannot attribute the change without {field}"
-        )
-
-
-def test_passive_mode_detection_also_records_and_is_distinguishable():
-    """Passive mode DETECTS without reverting — it must still be recorded, and a
-    reader must be able to tell it apart from a real arrest."""
-    modes = [_mode_of(c) for c in _ledger_calls()]
-    assert "passive" in modes, "passive detection must be recorded"
-    assert "governed" in modes, (
-        "governed arrests must be distinguishable from passive detections — "
-        "otherwise the ledger cannot answer 'did URA actually act?'"
-    )
+# HVAC W1-B (2026-09-27, N3): the two-site (governed + passive) booking is
+# SUPERSEDED by a SINGLE `override_detected` row carrying `delta_f`,
+# `gated_reason` and `mode`. The three AST tests that pinned the two-site
+# shape (`test_both_detection_sites_write_distinct_ledger_rows`,
+# `test_governed_row_carries_the_attribution_fields`,
+# `test_passive_mode_detection_also_records_and_is_distinguishable`) are
+# replaced by BEHAVIOURAL anchors that drive `_handle_climate_change` in
+# quality/tests/test_hvac_w1b_arrester_booking.py.
 
 
 def test_non_override_path_writes_no_row():

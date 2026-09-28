@@ -34,6 +34,7 @@ from .hvac_const import (
     AC_NUDGE_RESTORE_SETTLE_DELAY_S,
     AC_NUDGE_SETTLED_REASON_ENTITY_MISSING,
     AC_NUDGE_SETTLED_REASON_CANCELLED_BY_RENUDGE,
+    AC_NUDGE_SETTLED_REASON_RESTORED_BY_BOOT_AUDIT,
     AC_NUDGE_KWH_RATE_BEFORE_FLOOR,
     AC_NUDGE_OVERSHOOT_GAP,
     ARRESTER_IMMUNE_HOLD_MAX_S,
@@ -285,6 +286,11 @@ class OverrideArrester:
         self._nudge_excursion_tokens: dict = {}
         # Same for compromise (rows 4/5).
         self._compromise_excursion_tokens: dict = {}
+        # HVAC W1-B P2 (N4): entity_id -> last `override_detected` booking
+        # {ts, zone_id, old_preset, new_preset, delta_f, coast, gated_reason}
+        # scoped to the current manual episode (cleared on manual exit).
+        # RAM-only: S1's classifier needs no DB read on the decision path.
+        self._last_detection: dict[str, dict[str, Any]] = {}
 
         # v3.18.x review fix: Track verify/retry tasks for AC reset restore
         self._verify_tasks: dict[str, asyncio.Task] = {}
@@ -452,7 +458,13 @@ class OverrideArrester:
         # operator-facing entity is a Switch on the HVAC Coordinator device.
         # Default OFF. Deliberately NOT restored across restart (default-OFF
         # is the safe state — an accidental "leave it on" through an outage
-        # should not persistently disable governance). Documented as
+        # should not persistently disable governance).
+        # SUPERSEDED 2026-09-27 by HVAC W1-B decision 46 for the W1-B
+        # context: an engagement whose 6 h window has not expired IS restored
+        # at boot by the coordinator (`restore_temp_arrester_override`,
+        # persisted via `_zone_state_store.__tao_state`), because under Alt A
+        # S1 would otherwise reclaim the manual the operator was protecting
+        # on the first post-restart tick. Expired engagements stay OFF. Documented as
         # intentional inversion of the restore-off-only pattern used by the
         # other HVAC switches (which default ON and restore OFF).
         #
@@ -723,6 +735,30 @@ class OverrideArrester:
             "(%s); shave paths will skip until sunset",
             zone_id, user_name, person_entity,
         )
+        # HVAC W1-B D-P1 (ruling 17): the hold PERSISTS across a restart
+        # (`_zone_state_store.__immune_holds`) and the stamp is a durable
+        # ledger row so C-P1C can be evaluated from `ura_activity_log`
+        # alone (N6a). Grace / comfort / compromise timers are NOT
+        # persisted (verbatim carve-out; <= 20 min accepted exposure).
+        self._arrest_ledger(
+            action="immune_hold_stamped",
+            description=(
+                f"immune hold stamped zone={zone_id} user={user_name}"
+            ),
+            zone_id=zone_id,
+            entity_id=None,
+            details={
+                "zone_id": zone_id,
+                "user_name": user_name,
+                "person_entity": person_entity,
+                "started_ts": self._immune_holds[zone_id]["started_ts"].isoformat(),
+                "next_activity_ts": (
+                    next_activity_ts.isoformat()
+                    if isinstance(next_activity_ts, datetime) else None
+                ),
+            },
+        )
+        self._persist_arrester_state("immune_hold_stamped")
 
     def sunset_immune_holds(
         self, reason: str, house_state: str | None = None,
@@ -842,7 +878,149 @@ class OverrideArrester:
                 "(governance resumes; hold not force-cleared)",
                 zone_id, sunset_reason, user_name,
             )
+            # HVAC W1-B D-P1: matching ledger row for the C-P1C join +
+            # drop the persisted record in the same motion.
+            self._arrest_ledger(
+                action="immune_hold_sunset",
+                description=(
+                    f"immune hold sunset zone={zone_id} reason={sunset_reason}"
+                ),
+                zone_id=zone_id,
+                entity_id=None,
+                details={
+                    "zone_id": zone_id,
+                    "user_name": user_name,
+                    "sunset_reason": sunset_reason,
+                },
+            )
+        if expired:
+            self._persist_arrester_state("immune_hold_sunset")
         return len(expired)
+
+    # -------------------------------------------------------------------------
+    # HVAC W1-B D-P1 / D-P1a — persistence via `_zone_state_store` side-keys
+    # -------------------------------------------------------------------------
+    # The store is owned by HVACCoordinator (hvac.py `_zone_state_store`,
+    # side-key precedent `__person_zone_map` / `__short_cycles_today`). The
+    # arrester exports/rehydrates its two records; the coordinator
+    # schedules the save. NO new DB table (N7).
+
+    def _persist_arrester_state(self, reason: str) -> None:
+        """Ask the coordinator to persist the zone-state snapshot now.
+
+        Non-blocking (schedules a task). No-op when unwired (bench mode)."""
+        coord = self._hvac_coord
+        sched = getattr(coord, "schedule_zone_state_save", None) if coord else None
+        if sched is None:
+            return
+        try:
+            sched(reason)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("arrester persist schedule failed", exc_info=True)
+
+    def export_immune_holds(self) -> dict[str, dict[str, Any]]:
+        """Serialise `_immune_holds` (N1: mirror the in-memory shape;
+        datetimes as ISO strings)."""
+        out: dict[str, dict[str, Any]] = {}
+        for zone_id, rec in self._immune_holds.items():
+            started = rec.get("started_ts")
+            nxt = rec.get("next_activity_ts")
+            out[str(zone_id)] = {
+                "user_id": rec.get("user_id"),
+                "user_name": rec.get("user_name"),
+                "person_entity": rec.get("person_entity"),
+                "started_ts": started.isoformat() if isinstance(started, datetime) else None,
+                "next_activity_ts": nxt.isoformat() if isinstance(nxt, datetime) else None,
+                "pending_sunset_state": rec.get("pending_sunset_state"),
+            }
+        return out
+
+    def rehydrate_immune_holds(self, data: Any) -> int:
+        """Load persisted immune holds into `_immune_holds` BEFORE the first
+        decision cycle (N8). ISO -> aware datetime so the sunset gates
+        (`isinstance(started, datetime)` at max-age / boundary) keep
+        working. A record whose `started_ts` does not parse is DROPPED
+        (fail-closed on the persistence side: gate (a/b) is not armed by
+        an unparseable record). Returns the number of holds restored."""
+        if not isinstance(data, dict):
+            return 0
+        restored = 0
+        for zone_id, rec in data.items():
+            if not isinstance(rec, dict):
+                continue
+            started = dt_util.parse_datetime(str(rec.get("started_ts") or ""))
+            if started is None:
+                continue
+            if started.tzinfo is None:
+                started = dt_util.as_local(started.replace(tzinfo=dt_util.UTC))
+            nxt_raw = rec.get("next_activity_ts")
+            nxt = dt_util.parse_datetime(str(nxt_raw)) if nxt_raw else None
+            if nxt is not None and nxt.tzinfo is None:
+                nxt = dt_util.as_local(nxt.replace(tzinfo=dt_util.UTC))
+            self._immune_holds[str(zone_id)] = {
+                "user_id": rec.get("user_id"),
+                "user_name": rec.get("user_name"),
+                "person_entity": rec.get("person_entity"),
+                "started_ts": started,
+                "next_activity_ts": nxt,
+                "pending_sunset_state": rec.get("pending_sunset_state"),
+            }
+            restored += 1
+        if restored:
+            _LOGGER.info(
+                "Arrester immunity: rehydrated %d immune hold(s) from the "
+                "zone-state store: %s", restored, sorted(self._immune_holds),
+            )
+        return restored
+
+    def export_tao_state(self) -> dict[str, Any]:
+        """Serialise Temp Arrester Override for `__tao_state` (decision 46):
+        `{started_ts, expires_at}` ISO or both None when OFF.
+        `expires_at = started_ts + COMFORT_OVERRIDE_MAX_S` (6 h ceiling)."""
+        started = self._temp_arrester_override_started_ts
+        if not self._temp_arrester_override_active or not isinstance(started, datetime):
+            return {"started_ts": None, "expires_at": None, "pending_sunset": None}
+        expires = started + timedelta(seconds=COMFORT_OVERRIDE_MAX_S)
+        return {
+            "started_ts": started.isoformat(),
+            "expires_at": expires.isoformat(),
+            # B-L1: a deferred (MIN_LIFE-blocked) sunset obligation survives
+            # the restart too; the sweep discharges it once age >= MIN_LIFE.
+            "pending_sunset": self._temp_arrester_override_pending_sunset,
+        }
+
+    def restore_temp_arrester_override(
+        self, started_ts: datetime, pending_sunset: str | None = None,
+    ) -> None:
+        """Decision 46 boot restore — set the arrester internals for a TAO
+        whose window has not expired. Called by the coordinator (the ONE
+        channel) before the first decision cycle; the switch UI follows via
+        the dispatcher signal. Age math survives: `started_ts` is the
+        ORIGINAL engagement time, so the 6 h ceiling and MIN_LIFE grace are
+        measured from the real start, not from boot."""
+        self._temp_arrester_override_active = True
+        self._temp_arrester_override_started_ts = started_ts
+        self._temp_arrester_override_engagement_id += 1
+        self._cancel_pending_sunset_timer()
+        # B-L1: carry the deferred-sunset obligation across the restart; the
+        # periodic `sunset_temp_arrester_override` sweep discharges it.
+        self._temp_arrester_override_pending_sunset = pending_sunset or None
+        self._cancel_expiry_warn_timer()
+        # Re-arm the pre-warn one-shot for the REMAINING window.
+        try:
+            remaining = COMFORT_OVERRIDE_MAX_S - (dt_util.now() - started_ts).total_seconds()
+            delay = remaining - ARRESTER_OVERRIDE_EXPIRY_WARN_S
+            if ARRESTER_OVERRIDE_EXPIRY_WARN_S > 0 and delay > 0:
+                self._temp_arrester_override_expiry_warn_unsub = async_call_later(
+                    self.hass, delay, self._expiry_warn_timer_cb,
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("TAO restore: expiry-warn timer schedule failed", exc_info=True)
+        _LOGGER.info(
+            "Temp Arrester Override RESTORED across restart (started=%s, "
+            "window=%ds) — decision 46", started_ts.isoformat(), COMFORT_OVERRIDE_MAX_S,
+        )
+        self._fire_temp_arrester_override_update()
 
     # -------------------------------------------------------------------------
     # Temp Arrester Override — public wiring
@@ -1027,6 +1205,9 @@ class OverrideArrester:
             self._cancel_expiry_warn_timer()
             _LOGGER.info("Temp Arrester Override RELEASED")
         self._fire_temp_arrester_override_update()
+        # HVAC W1-B D-P1a (decision 46): persist `(started_ts, expires_at)`
+        # on ON, clear on OFF — same store channel as the immune holds.
+        self._persist_arrester_state("tao_on" if value else "tao_off")
 
     def sunset_temp_arrester_override(
         self, reason: str, house_state: str | None = None,
@@ -1181,6 +1362,8 @@ class OverrideArrester:
             # sweep + timer-precise discharge + max-age, converge here).
             self._cancel_expiry_warn_timer()
             self._fire_temp_arrester_override_update()
+            # HVAC W1-B D-P1a: clear the persisted `__tao_state`.
+            self._persist_arrester_state("tao_sunset")
             # F8 (2026-08-07 fix-up cycle-4): notify the operator via NM
             # regardless of which path (sweep / state-change / timer)
             # discharged the override. Engagement-id dedup guarantees at
@@ -2068,6 +2251,17 @@ class OverrideArrester:
                     zone.zone_name, zone.zone_id, "startup_audit",
                 )
                 continue
+            # HVAC W1-B D-M4 (2026-09-27): a LIVE borrow owns the zone (gate
+            # (e), consistent with D48) — the boot audit rehydrates
+            # COMPROMISE / PREHEAT / EGRESS rows, and a `manual` reading
+            # under a live row is the borrow's own raw write, not a stale
+            # human override. Never schedule a revert against it.
+            if self._borrow_gate_armed(zone.zone_id):
+                _LOGGER.info(
+                    "Startup audit: %s in manual under a live borrow — "
+                    "borrow wins; no revert scheduled", zone.zone_name,
+                )
+                continue
             state = self.hass.states.get(zone.climate_entity)
             if state is None:
                 continue
@@ -2906,6 +3100,20 @@ class OverrideArrester:
         if new_state is None or old_state is None:
             return
 
+        # HVAC W1-B P2 (N4): the in-memory last-detection record is scoped
+        # to the current MANUAL EPISODE. A transition OUT of `manual` ends
+        # the episode, so a later S1 write-through cannot classify itself
+        # against a detection that belonged to an earlier hold. Runs before
+        # every filter below because the episode boundary is a fact about
+        # the entity, not about whether this event is genuine.
+        try:
+            _ep_new = (getattr(new_state, "attributes", None) or {}).get("preset_mode", "")
+            _ep_old = (getattr(old_state, "attributes", None) or {}).get("preset_mode", "")
+            if _ep_old == "manual" and _ep_new != "manual":
+                self._last_detection.pop(entity_id, None)
+        except Exception:  # noqa: BLE001
+            pass
+
         # ================================================================
         # ARRESTER-CLOUDFLAP-FALSEPOS-1 (2026-09-12): reconnect guard.
         # MUST run BEFORE `_is_genuine_manual` (D1 fix, review 2026-09-12):
@@ -3022,13 +3230,145 @@ class OverrideArrester:
             zone.zone_name, entity_id, old_preset, new_preset,
             old_high, new_high,
         )
+
+        # ================================================================
+        # HVAC W1-B §5.P1 arrester booking (N3, 2026-09-27) — SINGLE ROW.
+        #
+        # Delta is computed FIRST (None-safe) so the one `override_detected`
+        # row carries `delta_f`, then the gated reason is resolved by
+        # precedence, top-down, with nudge_win at the TOP (C3: a change
+        # during a live nudge is booked nudge_win regardless of an immune
+        # stamp or a comfort grant, and never reverted — ruling 13):
+        #     nudge_win -> borrow_active -> immune_stamp ->
+        #     temp_arrester_override -> comfort_grant -> passive_mode -> None
+        # `None` = governed: the pre-existing severe/normal dispatch runs.
+        # The row also carries `gate_snapshot` (C-P1B falsifier) and is
+        # mirrored into the in-memory `_last_detection` record that S1's P2
+        # classifier reads (`last_detection_for`, no DB on the decision
+        # path). Passive mode no longer double-books (it used to write a
+        # `mode=governed` row and then a `mode=passive` row).
+        # ================================================================
+        expected_cool: float | None = None
+        expected_heat: float | None = None
+        _delta_parse_ok = True
+        try:
+            expected_cool = float(old_high) if old_high is not None else None
+            expected_heat = float(old_low) if old_low is not None else None
+        except (ValueError, TypeError):
+            _delta_parse_ok = False
+        delta: float | None = None
+        if _delta_parse_ok and not (expected_cool is None and expected_heat is None):
+            delta = self._compute_override_delta(
+                new_high, new_low,
+                expected_cool or 0.0,
+                expected_heat or 0.0,
+            )
+        # Widen tolerance during energy coast
+        tolerance_bonus = OVERRIDE_COAST_TOLERANCE_BONUS if self._energy_coast else 0.0
+
+        zone_id_b = getattr(zone, "zone_id", None) or ""
+        # gate (e) reads — registry row (pure) + arrester in-flight fallbacks.
+        _borrow_row = False
+        try:
+            from . import hvac_excursion as _ex_mod_b  # noqa: PLC0415
+            _borrow_row = bool(_ex_mod_b.is_borrow_active(zone_id_b))
+        except Exception:  # noqa: BLE001
+            _borrow_row = False
+        _nudge_tok = zone_id_b in self._nudge_excursion_tokens
+        _nudge_live = (
+            zone_id_b in self._nudge_restore_timers
+            or zone_id_b in self._nudge_in_flight
+        )
+        _comp_live = zone_id_b in self._compromise_timers
+        gate_snapshot = {
+            "borrow_row": _borrow_row,
+            "nudge_token": _nudge_tok,
+            "nudge_in_flight": _nudge_live,
+            "compromise_timer": _comp_live,
+            "immune_hold": self._is_hold_immune(zone_id_b),
+            "temp_arrester_override": bool(self._temp_arrester_override_active),
+            "arrester_enabled": bool(self._enabled),
+        }
+
+        # Immune-person resolution (needed for the immune_stamp rung).
+        ctx = getattr(event, "context", None)
+        ctx_user_id = getattr(ctx, "user_id", None) if ctx is not None else None
+        person_entity, user_name = self._resolve_context_user_to_person(
+            ctx_user_id,
+        )
+        _immune_eligible = (
+            person_entity is not None
+            and person_entity in self._immune_persons
+            and self._is_immunity_context_eligible(ctx)
+        )
+
+        gated_reason: str | None = None
+        _comfort_meta: dict[str, Any] | None = None
+        if _nudge_live:
+            # fix-up 2 (D-2): a LIVE nudge (in-flight set / restore timer),
+            # not a stale token, is what wins.
+            gated_reason = "nudge_win"
+        elif _immune_eligible:
+            # D50 (B-M2): an immune person WINS over a live compromise —
+            # the hold is stamped so the S4 revert (which consults
+            # `_corrective_writes_suppressed`) stands down, as develop did.
+            # Only a live NUDGE outranks the stamp (ruling 13).
+            gated_reason = "immune_stamp"
+        elif _borrow_row or _comp_live:
+            gated_reason = "borrow_active"
+        elif self._temp_arrester_override_active:
+            gated_reason = "temp_arrester_override"
+        else:
+            # ARREST-COMFORT-1 Cycle A rev-2 §3.2 step 5 (2026-08-10):
+            # comfort_request evaluation. SOC evaluated EXACTLY ONCE here
+            # (H2 contract). Fail-closed: not qualifying / SOC below floor
+            # / blind / shed => standard arrest with byte-identical timing.
+            if self._get_grace_min() > 0:
+                qualifies, meta = self._comfort_request_qualifies(
+                    entity_id, event, zone,
+                )
+                if qualifies:
+                    soc = self._battery_soc
+                    soc_ok = (
+                        (not self._battery_blind)
+                        and soc is not None
+                        and float(soc) >= float(self._get_soc_floor())
+                    )
+                    shed_gate = not self._shed_active
+                    if soc_ok and shed_gate:
+                        gated_reason = "comfort_grant"
+                        _comfort_meta = meta
+                    else:
+                        _LOGGER.debug(
+                            "ARREST-COMFORT-1: comfort request qualified but "
+                            "collapsed to standard timing (soc=%s blind=%s shed=%s)",
+                            soc, self._battery_blind, self._shed_active,
+                        )
+            if gated_reason is None and not self._enabled:
+                gated_reason = "passive_mode"
+
+        try:
+            _detect_ts = dt_util.now().isoformat()
+        except Exception:  # noqa: BLE001
+            _detect_ts = None
+        _detect_rec = {
+            "ts": _detect_ts,
+            "zone_id": zone_id_b,
+            "old_preset": old_preset,
+            "new_preset": new_preset,
+            "delta_f": delta,
+            "coast": bool(self._energy_coast),
+            "gated_reason": gated_reason,
+        }
+        self._last_detection[entity_id] = _detect_rec
         # ARRESTER-LEDGER-INVISIBLE-1: the INFO line above is discarded by the
-        # log level, so mirror the detection into the durable ledger.
+        # log level, so mirror the detection into the durable ledger — ONE row.
         self._arrest_ledger(
             action="override_detected",
             description=(
                 f"{zone.zone_name} override detected: preset "
                 f"{old_preset}->{new_preset}, temp_high {old_high}->{new_high}"
+                + (f" [gated: {gated_reason}]" if gated_reason else "")
             ),
             zone_id=getattr(zone, "zone_id", None),
             entity_id=entity_id,
@@ -3039,41 +3379,41 @@ class OverrideArrester:
                 "new_high": new_high,
                 "old_low": old_low,
                 "new_low": new_low,
-                "mode": "governed",
+                "delta_f": delta,
+                "coast": bool(self._energy_coast),
+                "gated_reason": gated_reason,
+                "gate_snapshot": gate_snapshot,
+                "mode": "passive" if gated_reason == "passive_mode" else "governed",
             },
         )
 
-        # ================================================================
-        # Arrester Operator-Immunity — DETECTION-TIME STAMP.
-        # Resolve the state-change's context.user_id to a person entity;
-        # if that person is on the operator-immune list, stamp the hold
-        # record and RETURN. No _override_active flag is set, no grace
-        # timer is scheduled, no NM alert fires. Every subsequent shave
-        # path additionally consults `_corrective_writes_suppressed` as
-        # defense-in-depth, but the detection-time skip is the primary
-        # short-circuit. Fail-open direction: user resolution errors,
-        # missing context (physical dial), and non-listed users all fall
-        # through to the normal (governed) path.
-        # ================================================================
-        ctx = getattr(event, "context", None)
-        ctx_user_id = getattr(ctx, "user_id", None) if ctx is not None else None
-        person_entity, user_name = self._resolve_context_user_to_person(
-            ctx_user_id,
-        )
-        if (
-            person_entity is not None
-            and person_entity in self._immune_persons
-            and self._is_immunity_context_eligible(ctx)
-        ):
+        if gated_reason in ("nudge_win", "borrow_active"):
+            # A live borrow OWNS the zone for its window (gate (e)). No
+            # grace, no compromise, no revert: the borrow's own return
+            # puts the snapshot back, and S1 reclaims a residual manual on
+            # the tick after the row clears. `nudge_win` additionally
+            # means the nudge is NOT ended by the change (ruling 13).
+            zone.override_count_today += 1
+            _LOGGER.info(
+                "Arrester: override on %s booked %s (borrow in flight; "
+                "no revert)", zone.zone_name, gated_reason,
+            )
+            return
+
+        if gated_reason == "immune_stamp":
+            # ================================================================
+            # Arrester Operator-Immunity — DETECTION-TIME STAMP. Stamp the
+            # hold record and RETURN. No _override_active flag, no grace
+            # timer, no NM alert. Every subsequent shave path additionally
+            # consults `_corrective_writes_suppressed` as defense-in-depth.
+            # ================================================================
             # Capture thermostat's next_activity_time attribute (if the
             # integration exposes it) for boundary-based sunset. Bryant/
             # Carrier climate entities expose ``next_activity_time`` as
             # either an ISO-8601 timestamp or a bare "HH:MM" string
-            # (verified live 2026-08-06 on the operator's Bryant, e.g.
-            # value "18:00"). MED-A3: try fromisoformat first; on failure
-            # parse as HH:MM in house-local time (roll forward to tomorrow
-            # if the boundary has already passed today). Any parse
-            # failure → no boundary sunset (durable-state + max-age
+            # (verified live 2026-08-06). MED-A3: fromisoformat first; on
+            # failure parse as HH:MM in house-local time. Any parse
+            # failure -> no boundary sunset (durable-state + max-age
             # still active).
             nxt_dt: datetime | None = None
             try:
@@ -3098,11 +3438,9 @@ class OverrideArrester:
             )
             return
 
-        # Temp Arrester Override — if the operator has flipped the
-        # house-wide switch ON, no arrester write should fire for anyone
-        # (guest, kid, physical dial, or listed operator). Skip with
-        # ledger row and count the override for diagnostics.
-        if self._temp_arrester_override_active:
+        if gated_reason == "temp_arrester_override":
+            # Temp Arrester Override — house-wide switch ON: no arrester
+            # write for anyone (guest, kid, physical dial, listed operator).
             zone.override_count_today += 1
             self._log_shave_skipped(
                 zone.zone_name, zone.zone_id,
@@ -3110,94 +3448,28 @@ class OverrideArrester:
             )
             return
 
-        # ================================================================
-        # ARREST-COMFORT-1 Cycle A rev-2 §3.2 step 5 (2026-08-10).
-        # NEW comfort_request evaluation. If the change is a genuine,
-        # non-immune, occupied, toward-comfort manual with |delta| ≥
-        # COMFORT_DELTA_MIN_F AND grant-time SOC ≥ COMFORT_SOC_FLOOR_PCT
-        # AND not shed_active AND kill-switch not tripped: seed a comfort-
-        # delay grant + emit `comfort_delay_started` ledger row + RETURN
-        # (no severity dispatch). Otherwise fall through to the standard
-        # severe/normal branches with ZERO behavior change (fail-closed
-        # direction — planning §3.3). SOC evaluated EXACTLY ONCE here
-        # (H2 contract); subsequent `comfort_delay_active` reads never
-        # re-read SOC.
-        # ================================================================
-        if self._get_grace_min() > 0:
-            qualifies, meta = self._comfort_request_qualifies(
-                entity_id, event, zone,
-            )
-            if qualifies:
-                # SOC gate: inclusive `>=` per rev-2 L2. Blind = below floor.
-                # Fix-up A-HIGH-1: read the LIVE rung-3 knob (not the module
-                # constant) so operator changes take effect without restart.
-                soc = self._battery_soc
-                soc_ok = (
-                    (not self._battery_blind)
-                    and soc is not None
-                    and float(soc) >= float(self._get_soc_floor())
-                )
-                shed_gate = not self._shed_active
-                if soc_ok and shed_gate:
-                    # Seed grant, count override, RETURN (no dispatch).
-                    self._seed_comfort_delay(zone, meta)
-                    return
-                # SOC below floor / blind / shed active → fall through to
-                # standard arrest with byte-identical pre-cycle behavior.
-                _LOGGER.debug(
-                    "ARREST-COMFORT-1: comfort request qualified but "
-                    "collapsed to standard timing (soc=%s blind=%s shed=%s)",
-                    soc, self._battery_blind, self._shed_active,
-                )
-
-        # Use the actual old setpoints from the event (what was active before override)
-        # This is more accurate than seasonal defaults since presets may differ per thermostat
-        if old_high is None and old_low is None:
-            _LOGGER.debug("Override: no old setpoints available to compare")
+        if gated_reason == "comfort_grant":
+            # Seed grant, count override, RETURN (no dispatch).
+            self._seed_comfort_delay(zone, _comfort_meta or {})
             return
 
-        try:
-            expected_cool = float(old_high) if old_high is not None else None
-            expected_heat = float(old_low) if old_low is not None else None
-        except (ValueError, TypeError):
-            _LOGGER.debug("Override: invalid old setpoint values")
-            return
-
-        if expected_cool is None and expected_heat is None:
-            return
-
-        # Passive mode: track override but don't revert
-        if not self._enabled:
+        if gated_reason == "passive_mode":
+            # Passive mode: track override but don't revert (row above
+            # already carries mode=passive — no second row).
             zone.override_count_today += 1
-            # ARRESTER-LEDGER-INVISIBLE-1: passive mode still DETECTS; record
-            # it durably too, and mark mode=passive so a reader can tell a
-            # detection-without-revert from a real arrest.
-            self._arrest_ledger(
-                action="override_detected",
-                description=(
-                    f"{zone.zone_name} override detected (passive mode, "
-                    f"no revert)"
-                ),
-                zone_id=getattr(zone, "zone_id", None),
-                entity_id=entity_id,
-                details={"mode": "passive"},
-            )
             _LOGGER.info(
                 "Override detected on %s (passive mode, no revert): delta from old setpoints",
                 zone.zone_name,
             )
             return
 
-        # Widen tolerance during energy coast
-        tolerance_bonus = OVERRIDE_COAST_TOLERANCE_BONUS if self._energy_coast else 0.0
-
-        # Determine override severity
-        delta = self._compute_override_delta(
-            new_high, new_low,
-            expected_cool or 0.0,
-            expected_heat or 0.0,
-        )
-
+        # ---- governed path: severity dispatch (pre-existing) ----------
+        if not _delta_parse_ok:
+            _LOGGER.debug("Override: invalid old setpoint values")
+            return
+        if expected_cool is None and expected_heat is None:
+            _LOGGER.debug("Override: no old setpoints available to compare")
+            return
         if delta is None:
             return
 
@@ -3222,6 +3494,77 @@ class OverrideArrester:
                 "Override on %s within tolerance (delta=%.1fF, threshold=%.1fF)",
                 zone.zone_name, abs_delta, normal_threshold,
             )
+
+    def _arrester_blocked_by_borrow(self, zone_id: str, own_excursion_id: str | None) -> str | None:
+        """HVAC W1-B fix-up 2 (D-1): FIRE-TIME check for the arrester's own
+        timers. Returns the blocking source or None:
+          * a fresh registry row whose excursion_id is NOT ours (`excursion_id_for`);
+          * a live NUDGE (`_nudge_in_flight` / `_nudge_restore_timers`);
+          * an egress pause on the zone.
+        A live borrow OWNS the zone (D48); the arrester stands down."""
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            live = _ex_mod.excursion_id_for(zone_id)
+        except Exception:  # noqa: BLE001
+            live = None
+        if live is not None and live != own_excursion_id:
+            return f"borrow_row:{live}"
+        if zone_id in self._nudge_in_flight or zone_id in self._nudge_restore_timers:
+            return "nudge_live"
+        try:
+            if self._egress_manager is not None and self._egress_manager.is_paused(zone_id):
+                return "egress_paused"
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    def _defer_arrester_to_borrow(self, zone: ZoneState, path: str, source: str) -> None:
+        """Discharge the arrester's own state cleanly (no latch) and record
+        ONE `arrester_deferred_to_borrow` ledger row."""
+        zone_id = zone.zone_id
+        # Round 3 LOW-2: cancel ONLY the arrester's own grace / compromise
+        # timers — a pending AC-reset restore timer (`_reset_timers`) is a
+        # different owner and must survive this deferral.
+        for _td in (self._grace_timers, self._compromise_timers):
+            _cancel = _td.pop(zone_id, None)
+            if _cancel:
+                _cancel()
+        self._override_active[zone_id] = False
+        self._compromise_active[zone_id] = False
+        _LOGGER.info(
+            "Arrester %s on %s deferred to live borrow (%s); grace/compromise "
+            "state cleared", path, zone.zone_name, source,
+        )
+        self._arrest_ledger(
+            action="arrester_deferred_to_borrow",
+            description=f"{zone.zone_name} arrester {path} deferred to {source}",
+            zone_id=zone_id,
+            entity_id=zone.climate_entity,
+            details={"path": path, "source": source},
+        )
+
+    def _borrow_gate_armed(self, zone_id: str) -> bool:
+        """Gate (e) as the arrester sees it (D47 shape): fresh registry row
+        OR a self-discharging in-flight timer on this zone. Pure read."""
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            if _ex_mod.is_borrow_active(zone_id):
+                return True
+        except Exception:  # noqa: BLE001
+            return True
+        return (
+            zone_id in self._nudge_restore_timers
+            or zone_id in self._nudge_in_flight
+            or zone_id in self._compromise_timers
+        )
+
+    def last_detection_for(self, entity_id: str) -> dict[str, Any] | None:
+        """HVAC W1-B P2 (N4): in-memory record of the most recent
+        `override_detected` booking on this entity within the CURRENT manual
+        episode (cleared when the entity leaves `manual`). No DB read on the
+        decision path. Returns a copy or None."""
+        rec = self._last_detection.get(entity_id)
+        return dict(rec) if rec else None
 
     def _handle_severe_override(
         self,
@@ -3369,6 +3712,12 @@ class OverrideArrester:
             )
             self._grace_timers.pop(zone_id, None)
             return
+        # HVAC W1-B fix-up 2 (D-1): a borrow / egress pause that began
+        # during the grace owns the zone now — stand down, no latch.
+        _blk = self._arrester_blocked_by_borrow(zone_id, None)
+        if _blk is not None:
+            self._defer_arrester_to_borrow(zone, "compromise", _blk)
+            return
         self._compromise_active[zone_id] = True
 
         # Remove grace timer reference
@@ -3495,6 +3844,24 @@ class OverrideArrester:
                 zone_id, trigger="immunity_skip",
                 restore_ok=None,
                 trigger_detail="revert_skipped_immunity",
+            )
+            return
+
+        # HVAC W1-B fix-up 2 (D-1): a foreign borrow row (not our own
+        # compromise token), a live nudge or an egress pause at fire time
+        # owns the zone — no B4 mode write, no S4 preset write. Our own
+        # compromise row is closed as a policy skip (restore_ok=None).
+        _own_eid = (
+            self._compromise_excursion_tokens.get(zone_id).excursion_id
+            if self._compromise_excursion_tokens.get(zone_id) is not None else None
+        )
+        _blk = self._arrester_blocked_by_borrow(zone_id, _own_eid)
+        if _blk is not None:
+            self._defer_arrester_to_borrow(zone, "revert", _blk)
+            await self._compromise_release_lease(
+                zone_id, trigger="borrow_skip",
+                restore_ok=None,
+                trigger_detail=f"revert_skipped_{_blk.split(':')[0]}",
             )
             return
 
@@ -4337,6 +4704,20 @@ class OverrideArrester:
             zone.ramp_state = AC_RAMP_STATE_IDLE
             self._log_shave_skipped(zone.zone_name, zone_id, "soft_nudge")
             return
+        # HVAC W1-B D2.1 (M7 / N9a): same-tick nudge-start skip. S1 runs
+        # BEFORE `check_ac_reset` in the decision cycle (hvac.py:1748 vs
+        # :1760); a zone S1 just wrote this tick is still settling
+        # (Carrier refresh 42-79 s), so a nudge start on it would borrow
+        # against a snapshot that is about to change. The set resets at
+        # cycle ENTRY, so a skip here is re-evaluated on the very next tick.
+        _written = getattr(self._hvac_coord, "_zones_written_this_cycle", None)
+        if _written and zone_id in _written:
+            zone.ramp_state = AC_RAMP_STATE_IDLE
+            _LOGGER.info(
+                "AC soft-nudge on %s skipped: S1 wrote this zone this tick "
+                "(same-tick skip)", zone.zone_name,
+            )
+            return
         self._track_zone_action(
             zone, AC_RAMP_EVENT_DETECTION_FIRED, "auto",
             kwh_before=kwh_rate,
@@ -4559,7 +4940,24 @@ class OverrideArrester:
         zone.last_overshoot_started = ""  # window resets — outcome under eval
         zone.kwh_samples_above_threshold = 0
 
-        if self._db is not None:
+        # HVAC W1-B fix-up 2 (MEDIUM-1): the restore timer is the DISCHARGE
+        # for `_nudge_in_flight` (gate (e) reads it). Schedule it BEFORE the
+        # DB bookkeeping awaits below so a DAO exception can never leave the
+        # zone marked in-flight with no timer to clear it (S1 deferred
+        # forever). The bookkeeping itself is guarded: a failure is logged
+        # and the nudge still restores on time.
+        @callback
+        def _on_nudge_restore_fire(_now):
+            self.hass.async_create_task(
+                self._restore_after_nudge(zone, original_target)
+            )
+
+        self._nudge_restore_timers[zone_id] = async_call_later(
+            self.hass, duration_s, _on_nudge_restore_fire,
+        )
+
+        try:
+          if self._db is not None:
             state = await self._db.get_ac_reset_state(zone_id)
             state["soft_nudge_count"] = int(state.get("soft_nudge_count", 0)) + 1
             state["last_soft_nudge_ts"] = started_ts
@@ -4596,22 +4994,18 @@ class OverrideArrester:
                 mode_before=_tele_mode_before,
                 excursion_id=_tele_excursion_id,
             )
+        except Exception as _bk_exc:  # noqa: BLE001 — bookkeeping must not strand the nudge
+            _LOGGER.warning(
+                "Soft nudge on %s: DB bookkeeping failed (%s); restore timer "
+                "already scheduled, nudge will still return on time",
+                zone.zone_name, _bk_exc,
+            )
 
         _LOGGER.info(
             "Soft nudge fired on %s: target %.1f -> %.1f for %d min "
             "(kwh_rate_before=%.2f kW, by=%s)",
             zone.zone_name, original_target, new_target,
             self._nudge_duration_min, kwh_rate_before, triggered_by,
-        )
-
-        @callback
-        def _on_nudge_restore_fire(_now):
-            self.hass.async_create_task(
-                self._restore_after_nudge(zone, original_target)
-            )
-
-        self._nudge_restore_timers[zone_id] = async_call_later(
-            self.hass, duration_s, _on_nudge_restore_fire,
         )
 
     async def _restore_after_nudge(
@@ -4644,26 +5038,46 @@ class OverrideArrester:
         _nudge_tok = self._nudge_excursion_tokens.get(zone_id)
         _nudge_eid = _nudge_tok.excursion_id if _nudge_tok else None
 
-        try:
-            # ARREST-COMFORT-1 §3.7 S6: ALLOW (restoration path).
-            # HVAC-W1-A F3: required site/zone_id/reason kwargs added.
-            await emit_set_temperature(
-                self.hass,
-                zone.climate_entity,
-                target_temp_low=zone.target_temp_low,
-                target_temp_high=original_target,
-                freeze_active=self._freeze_active(),
-                blocking=False,
-                site="S6_nudge_restore_setpoint",
-                zone_id=zone_id,
-                reason="soft_nudge_setpoint_restore",
-                excursion_id=_nudge_eid,
-            )
-        except Exception as e:
-            _LOGGER.error(
-                "Soft nudge restore: set_temperature failed on %s: %s",
-                zone.climate_entity, e,
-            )
+        # HVAC W1-B D2.4 (C1, presets-only returns) — site 1 of 5 (S6).
+        # A NAMED snapshot preset carries its own setpoints, so the raw
+        # `set_temperature` restore is DROPPED for it: that write is what
+        # left the zone in an anonymous `manual` hold after every nudge
+        # (state-of-play §9.1). Only a HUMAN_MANUAL snapshot (`manual` /
+        # None / "") — nothing nameable to pin — still restores the raw
+        # setpoints, with the `human_manual_` reason prefix (C1 falsifier).
+        # A-L1: ONE snapshot source — the borrow token's UNFILTERED
+        # `pre_preset` when a token exists, else the RAM map; both the
+        # HUMAN_MANUAL decision and the S7 pin below read `_snap_preset`.
+        _ram_pre_preset = self._nudge_pre_preset.pop(zone_id, "")
+        _snap_preset = (
+            getattr(_nudge_tok, "pre_preset", None) if _nudge_tok is not None
+            else (_ram_pre_preset or None)
+        )
+        pre_preset = _snap_preset or ""
+        from .hvac_strategy import strategy_for as _strategy_for  # noqa: PLC0415
+        if _strategy_for(self.hass, zone.climate_entity).is_human_manual_snapshot(
+            _snap_preset,
+        ):
+            try:
+                # ARREST-COMFORT-1 §3.7 S6: ALLOW (restoration path).
+                # HVAC-W1-A F3: required site/zone_id/reason kwargs added.
+                await emit_set_temperature(
+                    self.hass,
+                    zone.climate_entity,
+                    target_temp_low=zone.target_temp_low,
+                    target_temp_high=original_target,
+                    freeze_active=self._freeze_active(),
+                    blocking=False,
+                    site="S6_nudge_restore_setpoint",
+                    zone_id=zone_id,
+                    reason="human_manual_soft_nudge_setpoint_restore",
+                    excursion_id=_nudge_eid,
+                )
+            except Exception as e:
+                _LOGGER.error(
+                    "Soft nudge restore: set_temperature failed on %s: %s",
+                    zone.climate_entity, e,
+                )
 
         # FIX B2: preset-preserving restore. If we snapshotted a
         # non-manual preset before the nudge AND the thermostat is now
@@ -4672,7 +5086,6 @@ class OverrideArrester:
         # open (kind="temp" set above); we re-open with kind="preset"
         # so the induced settle events from set_preset_mode stay
         # suppressed and don't self-count as a user override.
-        pre_preset = self._nudge_pre_preset.pop(zone_id, "")
         # HVAC-GOVERNED-EXCURSION-1 D3 (§13.5 CLOSED, row 7):
         # UNCONDITIONAL preset write from the snapshot. Rev-4 deleted
         # the pre-existing `if _cur_preset == "manual"` gate — the
@@ -5860,39 +6273,40 @@ class OverrideArrester:
             original_target = state.get("in_flight_nudge_original_target")
 
         if original_target is not None:
-            # FIX B1: kind="temp" — cancel_nudge restore is a set_temperature.
-            self.suppress(zone.climate_entity, kind="temp")
-            try:
-                # ARREST-COMFORT-1 §3.7 S8 (cancel_nudge restore): the
-                # plan's rev-2 table labels this "AI-rules R2 residual"
-                # and prescribes DEFER, but re-enumeration at build time
-                # (2026-08-10) finds NO AI-rules R2 site in this file at
-                # this or any line. The actual site here is the
-                # cancel_nudge RESTORATION path — structurally identical
-                # to S6 (nudge restore). Restoration moves BACK toward the
-                # operator's original target; comfort-grace exists to
-                # prevent yanking the operator, not to strand them at a
-                # nudged +°F. Classified ALLOW to match S6's rationale;
-                # discrepancy surfaced in the build report for review.
-                await emit_set_temperature(
-                    self.hass,
-                    zone.climate_entity,
-                    target_temp_low=zone.target_temp_low,
-                    target_temp_high=float(original_target),
-                    freeze_active=self._freeze_active(),
-                    blocking=False,
-                    site="S8_cancel_nudge_restore",
-                    zone_id=zone_id,
-                    reason="cancel_nudge_restore",
-                    excursion_id=(
-                        _cancel_token.excursion_id if _cancel_token else None
-                    ),
-                )
-            except Exception as e:
-                _LOGGER.error(
-                    "cancel_nudge restore failed for %s: %s",
-                    zone.climate_entity, e,
-                )
+            # HVAC W1-B D2.4 (C1) — site 2 of 5 (S8): raw setpoint restore
+            # ONLY for a HUMAN_MANUAL snapshot; a named snapshot is
+            # restored by the preset pin below alone.
+            from .hvac_strategy import strategy_for as _strategy_for  # noqa: PLC0415
+            _s8_human_manual = _strategy_for(
+                self.hass, zone.climate_entity,
+            ).is_human_manual_snapshot(_cancel_snapshot_preset or None)
+            if _s8_human_manual:
+                # FIX B1: kind="temp" — cancel_nudge restore is a set_temperature.
+                self.suppress(zone.climate_entity, kind="temp")
+                try:
+                    # ARREST-COMFORT-1 §3.7 S8 (cancel_nudge restore): the
+                    # cancel_nudge RESTORATION path — structurally identical
+                    # to S6 (nudge restore). Restoration moves BACK toward the
+                    # operator's original target; classified ALLOW.
+                    await emit_set_temperature(
+                        self.hass,
+                        zone.climate_entity,
+                        target_temp_low=zone.target_temp_low,
+                        target_temp_high=float(original_target),
+                        freeze_active=self._freeze_active(),
+                        blocking=False,
+                        site="S8_cancel_nudge_restore",
+                        zone_id=zone_id,
+                        reason="human_manual_cancel_nudge_restore",
+                        excursion_id=(
+                            _cancel_token.excursion_id if _cancel_token else None
+                        ),
+                    )
+                except Exception as e:
+                    _LOGGER.error(
+                        "cancel_nudge restore failed for %s: %s",
+                        zone.climate_entity, e,
+                    )
 
             # F3 fix (2026-08-21, plan §3 row 8): also restore the
             # snapshotted preset — cancel must be the full undo of the
@@ -6097,6 +6511,23 @@ class OverrideArrester:
         # v4.7.17.1: clear the restore-ts anchor on startup audit too.
         self._nudge_post_restore_ts.pop(zone_id, None)
         self._nudge_in_flight.discard(zone_id)
+        # HVAC W1-B fix-up 2 (D-2): the cancelled nudge's borrow row must
+        # be RETURNED (mirrors cancel_nudge) — otherwise the token and the
+        # row leak and gate (e) / nudge_win stay armed against the zone.
+        _fr_token = self._nudge_excursion_tokens.pop(zone_id, None)
+        self._nudge_pre_preset.pop(zone_id, None)
+        if _fr_token is not None:
+            try:
+                from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+                await _ex_mod.return_excursion(
+                    _fr_token, trigger="force_reset", restore_ok=None,
+                    trigger_detail="nudge_cancelled_by_force_reset",
+                )
+            except Exception as _fr_exc:  # noqa: BLE001
+                _LOGGER.debug(
+                    "force_ac_reset: return_excursion failed for %s: %s",
+                    zone_id, _fr_exc,
+                )
         if self._db is not None:
             try:
                 await self._db.clear_ac_in_flight_nudge(zone_id)
@@ -6176,10 +6607,13 @@ class OverrideArrester:
         # The snapshot DOES survive: hvac_excursion_state.pre_preset is
         # persisted. We just never read it here.
         _pre_presets: dict[str, str] = {}
+        _nudge_rows_present: set[str] = set()
         try:
             for _ex in (await self._db.get_all_excursion_rows()) or []:
                 _zid = _ex.get("zone_id")
                 _pp = _ex.get("pre_preset")
+                if _zid and str(_ex.get("kind") or "") == "nudge":
+                    _nudge_rows_present.add(str(_zid))
                 if _zid and _pp:
                     _pre_presets[str(_zid)] = str(_pp)
         except Exception:  # noqa: BLE001
@@ -6210,6 +6644,41 @@ class OverrideArrester:
 
             original_target = row.get("original_target")
             if original_target is None:
+                continue
+
+            # HVAC W1-B round 3 (MEDIUM-1): production boot order is the
+            # excursion audit FIRST (`hvac.py` async_setup) — it pins the
+            # NUDGE snapshot preset and DELETES the row — then this ramp
+            # audit on the first cycle. An in-flight `ac_reset_state` row
+            # with NO NUDGE excursion row therefore means the zone was
+            # already restored: do NOT re-arm a phantom nudge (no snapshot
+            # -> S6 would write a raw `human_manual_` setpoint and re-create
+            # an anonymous manual), write NOTHING, clear the in-flight state
+            # and close the ledger with one settled row.
+            if zone_id not in _nudge_rows_present:
+                await self._db.clear_ac_in_flight_nudge(zone_id)
+                try:
+                    await self._db.log_ac_ramp_event(
+                        zone_id=zone_id,
+                        event_type=AC_RAMP_EVENT_NUDGE_RESTORED,
+                        triggered_by="startup",
+                        target_high=float(original_target),
+                        notes=AC_NUDGE_SETTLED_REASON_RESTORED_BY_BOOT_AUDIT,
+                    )
+                    await self._db.update_ac_ramp_restore_settled(
+                        zone_id=zone_id,
+                        preset_settled=None,
+                        mode_settled=None,
+                        restore_ok=None,
+                        settled_reason=AC_NUDGE_SETTLED_REASON_RESTORED_BY_BOOT_AUDIT,
+                    )
+                except Exception:  # noqa: BLE001 — ledger only
+                    _LOGGER.debug("boot-audit settled row failed", exc_info=True)
+                zone.ramp_state = AC_RAMP_STATE_IDLE
+                _LOGGER.info(
+                    "Startup ramp audit: %s in-flight nudge already restored by "
+                    "the boot excursion audit — no re-arm, no write", zone.zone_name,
+                )
                 continue
 
             # HIGH-A2: NINTH-SITE GATE. Startup-ramp audit's direct
@@ -6277,36 +6746,40 @@ class OverrideArrester:
 
             if elapsed_s >= duration_s:
                 # Expired — restore now
-                # FIX B1: kind="temp" — startup nudge restore is a set_temperature.
-                self.suppress(zone.climate_entity, kind="temp")
-                try:
-                    # ARREST-COMFORT-1 §3.7 S9 (startup_ramp_audit restore):
-                    # same reconciliation as S8 — plan's rev-2 table labels
-                    # this "AI-rules downstream write" and prescribes DEFER,
-                    # but the actual site is a boot-time RESTORATION path
-                    # that puts the operator's pre-outage target back on
-                    # the wire. Classified ALLOW to match S6 rationale.
-                    await emit_set_temperature(
-                        self.hass,
-                        zone.climate_entity,
-                        target_temp_low=zone.target_temp_low,
-                        target_temp_high=float(original_target),
-                        freeze_active=self._freeze_active(),
-                        blocking=False,
-                        site="S9_startup_ramp_audit_restore",
-                        zone_id=zone_id,
-                        reason="startup_ramp_audit_restore",
-                    )
-                except Exception as e:
-                    _LOGGER.error(
-                        "Startup nudge restore failed for %s: %s",
-                        zone.climate_entity, e,
-                    )
+                _pp = _pre_presets.get(zone_id, "")
+                # HVAC W1-B D2.4 (C1) — site 3 of 5 (S9): raw setpoint
+                # restore ONLY for a HUMAN_MANUAL persisted snapshot; a
+                # named snapshot is restored by the preset pin below alone.
+                from .hvac_strategy import strategy_for as _strategy_for  # noqa: PLC0415
+                if _strategy_for(self.hass, zone.climate_entity).is_human_manual_snapshot(
+                    _pp or None,
+                ):
+                    # FIX B1: kind="temp" — startup nudge restore is a set_temperature.
+                    self.suppress(zone.climate_entity, kind="temp")
+                    try:
+                        # ARREST-COMFORT-1 §3.7 S9 (startup_ramp_audit restore):
+                        # boot-time RESTORATION path that puts the operator's
+                        # pre-outage target back on the wire. Classified ALLOW.
+                        await emit_set_temperature(
+                            self.hass,
+                            zone.climate_entity,
+                            target_temp_low=zone.target_temp_low,
+                            target_temp_high=float(original_target),
+                            freeze_active=self._freeze_active(),
+                            blocking=False,
+                            site="S9_startup_ramp_audit_restore",
+                            zone_id=zone_id,
+                            reason="human_manual_startup_ramp_audit_restore",
+                        )
+                    except Exception as e:
+                        _LOGGER.error(
+                            "Startup nudge restore failed for %s: %s",
+                            zone.climate_entity, e,
+                        )
                 # Put the PRESET back, from the persisted snapshot. Same
                 # unfiltered-snapshot semantic as the other excursion returns:
                 # restore exactly what was there, skip when we have nothing.
                 # Only meaningful now that v5.103.2 makes a preset write LAND.
-                _pp = _pre_presets.get(zone_id, "")
                 if _pp:
                     try:
                         self.suppress(zone.climate_entity, kind="preset")
@@ -6343,6 +6816,13 @@ class OverrideArrester:
                 self._nudge_in_flight.add(zone_id)
                 zone.ramp_state = AC_RAMP_STATE_NUDGING
                 target = float(original_target)
+                # HVAC W1-B fix-up 2 (D-4): seed the RAM snapshot from the
+                # persisted excursion row's pre_preset so the in-window
+                # restore is presets-only (S6 raw setpoint only for a
+                # HUMAN_MANUAL snapshot), like every other return.
+                _pp_resume = _pre_presets.get(zone_id, "")
+                if _pp_resume:
+                    self._nudge_pre_preset[zone_id] = _pp_resume
 
                 @callback
                 def _on_resume_restore(_now, z=zone, t=target):

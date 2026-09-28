@@ -1,5 +1,7 @@
 # PLANNING — HVAC-PRESET-FLAP-1: Off-Phase Setpoint + Mechanism Honesty
 
+> **⚠️ SUPERSEDED DESIGN PREMISE (2026-09-27).** This document cites the S1 manual guard (`should_change_preset` refusing to write over `manual` — "Don't fight manual — that's the arrester's job", `hvac_preset.py:202-217`, v3.8.0) as design intent or as a load-bearing fact. The operator superseded that rule on 2026-09-27; W1-B replaces it with four gates (person-protected hold / arrester grace-compromise / arrester disabled / live borrow row). **Do not derive new designs from this doc's reasoning about the guard** — read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` §9e and §10 C25 first. NOTE: this plan's INV #2 ("no two-writer race, held by construction") leans on `should_change_preset` returning False; if this plan is ever revived, re-prove INV #2 against the §9e gates.
+
 **Card:** `HVAC-PRESET-FLAP-1` (docs/planning/kanban.data.yaml:622)
 **Sibling (shipped):** `ARREST-COMFORT-1` Cycle A (v5.69.0) — owns the S1-S13 preset/temp write gate table and the `_d3_skipped_this_tick` relabel flag. This cycle LAYERS INSIDE that machinery; it does not redesign it. **This cycle appends S14 to §3.7 of the sibling plan (D0 below).**
 **Operator direction (2026-08-11):** fix "**2+1**" — Fix 2 (off-phase setpoint) plus the honesty half of Fix 1 (make the duty off-phase legible as an ENERGY action, not a presence failure). NON-GOAL: retune the duty values / window (Fix 3, audit-gated) and NON-GOAL: occupancy-conditional duty.

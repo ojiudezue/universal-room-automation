@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "156",
+  "author": "ojiudezue",
+  "session_id": "claude_20260928_015012_ship_v5_103_18",
+  "timestamp": "2026-09-28T01:50:12Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.18 shipped: HVAC W1-B: URA reclaims manual (four-gate rule replaces v3.8.0 guard), presets-only returns, durable person protection, arrester defers to live borrows, kill switch retired",
+  "summary": "HVAC W1-B: URA reclaims manual (four-gate rule replaces v3.8.0 guard), presets-only returns, durable person protection, arrester defers to live borrows, kill switch retired",
+  "why": "The v3.8.0 rule 'don't fight manual, that's the arrester's job' predated borrows; Carrier turns every URA raw setpoint into a manual hold and the arrester ignores zero-delta manuals, so URA locked itself out (88-661 min strands, 22/22 echo lockouts). The rule was also the undocumented protection for live borrows, so it was replaced by explicit gates rather than deleted. Operator ruled URA's energy actions win over person protection, and that person protection must survive restarts because S1 now reclaims.",
+  "implications": "Shipped HVAC-W1-THERMOSTAT-DEFINITION at v5.103.18; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.18.md (Live criteria).",
+  "revisit_trigger": "Any preset_change_locked_out after deploy, an S1 write inside a nudge window, or the reclaim trip-wire firing",
+  "refs": {
+    "cards": [
+      "HVAC-W1-THERMOSTAT-DEFINITION"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.18.md"
+    ],
+    "release_notes": "S1 no longer locks itself out of zones Carrier reports as manual: it reclaims unless a person-protected hold, arrester grace/compromise, a disabled arrester, or a live borrow says otherwise. Borrow returns are presets-only. Immune holds and Temp Arrester Override survive restart/reload (TAO within its 6 h window). The arrester stands down when its timer fires over a live borrow (fixes AC turning back on during an egress pause). Retired the excursion kill switch; compromise clamped 5-15 min. See docs/readmes/README_v5.103.18.md."
+  }
+}

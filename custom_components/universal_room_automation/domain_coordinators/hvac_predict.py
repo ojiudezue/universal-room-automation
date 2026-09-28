@@ -954,8 +954,6 @@ class HVACPredictor:
                 )
                 continue
             base_low, base_high = baseline
-            if self._override_arrester:
-                self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
             # B-L1: store the POST-guard pair the chokepoint will actually
             # write (consistent with the DPM apply at hvac.py:1522-1529), so a
             # banking-release during a freeze doesn't leave a pre-guard value
@@ -964,51 +962,112 @@ class HVACPredictor:
             emit_low, emit_high = apply_setpoint_guards(
                 base_low, base_high, freeze_active=freeze_active,
             )
+            # ARREST-COMFORT-1 D-HIGH-1 fix-up: S11_release_banked — gate on
+            # comfort_delay_active (True = DEFER; the funnel treats a True
+            # gate as "defer this write"). N5: the SAME gate now covers the
+            # preset write below, so a comfort-qualified manual is not
+            # stomped by either half of the release.
+            _s11_zid = zone_id
+            def _s11_gate(z=_s11_zid) -> bool:
+                if self._override_arrester is None:
+                    return False
+                try:
+                    return bool(self._override_arrester.comfort_delay_active(z))
+                except Exception:  # noqa: BLE001
+                    return False
+            # HVAC-W1-A F6: forward the banking token's excursion_id.
+            _s11_bt = getattr(
+                self, "_banking_excursion_tokens", {}
+            ).get(zone_id)
+            _s11_eid = _s11_bt.excursion_id if _s11_bt else None
+            _s11_pre_preset = getattr(_s11_bt, "pre_preset", None) if _s11_bt else None
+            # HVAC W1-B D2.4 (C1) — site 4 of 5 (S11): presets-only return.
+            # A NAMED snapshot is restored by the preset pin alone; only a
+            # HUMAN_MANUAL snapshot (`manual` / None / "") restores the raw
+            # baseline setpoints (`human_manual_` reason prefix).
+            from .hvac_strategy import strategy_for as _strategy_for  # noqa: PLC0415
+            _s11_human_manual = _strategy_for(
+                self.hass, zone.climate_entity,
+            ).is_human_manual_snapshot(_s11_pre_preset)
+            # N5 self-exclusion: `excursion_id_for` is the PURE read of the
+            # live row. Our OWN banking row is not a foreign borrow; a
+            # different live row on this zone (ours went stale and another
+            # kind began) means the release must not stomp it.
+            _s11_foreign: str | None = None
             try:
-                # ARREST-COMFORT-1 D-HIGH-1 fix-up: S11_release_banked — gate on
-                # comfort_delay_active. Was ungated: solar-banking release could
-                # stomp a comfort-qualified manual on the way back to baseline.
-                _s11_zid = zone_id
-                def _s11_gate(z=_s11_zid) -> bool:
-                    if self._override_arrester is None:
-                        return False
-                    try:
-                        return bool(self._override_arrester.comfort_delay_active(z))
-                    except Exception:  # noqa: BLE001
-                        return False
-                # HVAC-W1-A F6: forward the banking token's excursion_id.
-                _s11_bt = getattr(
-                    self, "_banking_excursion_tokens", {}
-                ).get(zone_id)
-                _s11_eid = _s11_bt.excursion_id if _s11_bt else None
-                _s11_written = await emit_set_temperature(
-                    self.hass,
-                    zone.climate_entity,
-                    target_temp_low=base_low,
-                    target_temp_high=base_high,
-                    freeze_active=freeze_active,
-                    blocking=False,
-                    gate=_s11_gate,
-                    site="S11_release_banked",
-                    zone_id=zone_id,
-                    reason="banking_release",
-                    excursion_id=_s11_eid,
-                )
-                _release_ok = bool(_s11_written)
-                _release_detail = (
-                    None if _release_ok
-                    else "s11_release_deferred_comfort_grace"
-                )
-                if not _s11_written:
+                from . import hvac_excursion as _ex_ro  # noqa: PLC0415
+                _live_id = _ex_ro.excursion_id_for(zone_id)
+                if _live_id is not None and _live_id != _s11_eid:
+                    _s11_foreign = _live_id
+            except Exception:  # noqa: BLE001
+                _s11_foreign = None
+            _release_ok = False
+            _release_detail: str | None = None
+            try:
+                if _s11_foreign is not None:
+                    _release_ok = False
+                    _release_detail = f"s11_release_skipped_foreign_borrow:{_s11_foreign}"
+                    _LOGGER.info(
+                        "HVAC: banking release on %s skipped — foreign borrow "
+                        "row live (%s)", zone.zone_name, _s11_foreign,
+                    )
+                elif _s11_human_manual:
                     if self._override_arrester:
+                        self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
+                    _s11_written = await emit_set_temperature(
+                        self.hass,
+                        zone.climate_entity,
+                        target_temp_low=base_low,
+                        target_temp_high=base_high,
+                        freeze_active=freeze_active,
+                        blocking=False,
+                        gate=_s11_gate,
+                        site="S11_release_banked",
+                        zone_id=zone_id,
+                        reason="human_manual_banking_release",
+                        excursion_id=_s11_eid,
+                    )
+                    _release_ok = bool(_s11_written)
+                    _release_detail = (
+                        None if _release_ok
+                        else "s11_release_deferred_comfort_grace"
+                    )
+                    if not _s11_written and self._override_arrester:
                         self._override_arrester.unsuppress(zone.climate_entity)
                 else:
+                    if self._override_arrester:
+                        self._override_arrester.suppress(
+                            zone.climate_entity, kind="preset",
+                        )
+                    _s11_preset_written = await emit_set_preset_mode(
+                        self.hass,
+                        zone.climate_entity,
+                        _s11_pre_preset,
+                        blocking=True,  # EXCURSION_RETURN_BLOCKING
+                        gate=_s11_gate,
+                        site="S11_release_banked_preset",
+                        zone_id=zone_id,
+                        reason="banking_release",
+                        excursion_id=_s11_eid,
+                    )
+                    _release_ok = bool(_s11_preset_written)
+                    _release_detail = (
+                        None if _release_ok
+                        else "s11_release_deferred_comfort_grace"
+                    )
+                    if not _s11_preset_written and self._override_arrester:
+                        self._override_arrester.unsuppress(zone.climate_entity)
+                if _release_ok:
+                    # N5: the throttle-map update moves AFTER the release
+                    # outcome is known (either half landing means the zone
+                    # is back at baseline).
                     if last_emitted is not None:
                         last_emitted[zone_id] = (emit_low, emit_high)
                     _LOGGER.info(
                         "HVAC: Solar banking master OFF — released %s to baseline "
-                        "(low=%.1f high=%.1f)",
+                        "(low=%.1f high=%.1f, via=%s)",
                         zone.zone_name, base_low, base_high,
+                        "setpoints" if _s11_human_manual else "preset",
                     )
             except Exception as e:  # noqa: BLE001
                 _LOGGER.error(
@@ -1019,45 +1078,12 @@ class HVACPredictor:
                 _release_detail = f"s11_release_exception:{type(e).__name__}"
 
             # HVAC-GOVERNED-EXCURSION-1 D3 (row 10, S11 banking RETURN):
-            # release the excursion row on every zone. Item-2 structural
-            # (2026-08-21): restore_ok carries the wire outcome; defer +
-            # exception paths produce restore_ok=False + trigger_detail
-            # naming the reason. The pre-refactor `continue`-on-defer
-            # left the row live for stranding.
+            # release the excursion row on every zone. restore_ok carries
+            # the wire outcome; defer + exception + foreign-borrow paths
+            # produce restore_ok=False + trigger_detail naming the reason.
             _bt = getattr(self, "_banking_excursion_tokens", {}).pop(
                 zone_id, None,
             )
-            # HVAC-MANUAL-PRESET-CONTRACT-1 D2b — solar banking's RELEASE
-            # restored setpoints and never a preset, so a banked zone came
-            # back with correct numbers sitting in an ANONYMOUS hold. Same
-            # gap as the pre-heat return; same fix, using the snapshot the
-            # token already carries. Only attempted when the setpoint
-            # restore itself succeeded (_release_ok) — re-presetting a zone
-            # whose numbers were never restored would assert governance over
-            # a state we did not actually establish.
-            if _bt is not None and _release_ok and getattr(_bt, "pre_preset", ""):
-                _bz = self._zone_manager.zones.get(zone_id)
-                if _bz is not None:
-                    try:
-                        if self._override_arrester:
-                            self._override_arrester.suppress(
-                                _bz.climate_entity, kind="preset",
-                            )
-                        await emit_set_preset_mode(
-                            self.hass,
-                            _bz.climate_entity,
-                            _bt.pre_preset,
-                            blocking=True,  # EXCURSION_RETURN_BLOCKING
-                            site="S11_release_banked_preset",
-                            zone_id=zone_id,
-                            reason="banking_release",
-                            excursion_id=_bt.excursion_id if _bt else None,
-                        )
-                    except Exception as _bp:  # noqa: BLE001
-                        _LOGGER.warning(
-                            "banking release: preset restore failed for "
-                            "%s: %s", zone_id, _bp,
-                        )
             if _bt is not None:
                 try:
                     from . import hvac_excursion as _ex_mod  # noqa: PLC0415
@@ -1512,62 +1538,42 @@ class HVACPredictor:
         if tok is None:
             return
         zone = self._zone_manager.zones.get(zone_id)
-        if zone is not None and tok.pre_target_low is not None \
-                and tok.pre_target_high is not None:
-            if self._override_arrester:
-                self._override_arrester.suppress(zone.climate_entity, kind="temp")
+        if zone is not None:
+            # HVAC W1-B D2.4 (C1) — site 5 of 5 (S13), N5 restructure:
+            # the NAMED snapshot preset is the SOLE restore (it carries its
+            # own setpoints); the raw setpoint write runs ONLY for a
+            # HUMAN_MANUAL snapshot (`manual` / None / ""), with the
+            # `human_manual_` reason prefix. `_last_emitted_range` is
+            # updated after EITHER half lands so the DPM throttle at
+            # hvac.py does not re-strand the +2 F floor.
+            from .hvac_strategy import strategy_for as _strategy_for  # noqa: PLC0415
+            _s13_human_manual = _strategy_for(
+                self.hass, zone.climate_entity,
+            ).is_human_manual_snapshot(tok.pre_preset)
+            _s13_landed = False
             try:
-                await emit_set_temperature(
-                    self.hass,
-                    zone.climate_entity,
-                    target_temp_low=tok.pre_target_low,
-                    target_temp_high=tok.pre_target_high,
-                    freeze_active=self._freeze_active(),
-                    blocking=True,  # EXCURSION_RETURN_BLOCKING
-                    site="S13_preheat_return",
-                    zone_id=zone_id,
-                    reason="preheat_boundary",
-                    excursion_id=(tok.excursion_id if tok else None),
-                )
-                # Plan §3 row 12: update _last_emitted_range so the DPM
-                # throttle at hvac.py:2252-2255 doesn't re-strand the
-                # +2°F floor.
-                coord = self._hvac_coord
-                if coord is not None and hasattr(coord, "_last_emitted_range"):
-                    coord._last_emitted_range[zone_id] = (
-                        tok.pre_target_low, tok.pre_target_high,
-                    )
-                # HVAC-MANUAL-PRESET-CONTRACT-1 D2b — RESTORE THE PRESET,
-                # not just the numbers.
-                #
-                # THE GAP THIS CLOSES. Returning a setpoint hands back the
-                # right TEMPERATURES but leaves the zone in an ANONYMOUS hold
-                # — a raw setpoint write IS a hold with no named activity — so
-                # the zone keeps correct numbers with no preset governance,
-                # and `should_change_preset` then refuses to act on it
-                # (hvac_preset.py:202-217). Measured consequence: zone_1 spent
-                # 69.6% of 7 days in `manual`, with a 17.9-hour tail.
-                # hvac_predict.py owned solar banking, pre-cool AND pre-heat
-                # and contained ZERO preset emissions — these returns never
-                # even attempted it.
-                #
-                # WHY THE SNAPSHOT IS THE RIGHT TARGET. The excursion token
-                # already carries `pre_preset` (hvac_excursion.py:116), and
-                # the established semantic (rev-4, operator-ruled) is an
-                # UNFILTERED snapshot: restore exactly what was there. If it
-                # was "manual" the write is an equality no-op; if empty we
-                # skip. Fighting an operator-set manual is the arrester's job,
-                # not the excursion's.
-                #
-                # This only became worth doing now that D2a makes a preset
-                # write actually LAND — before, a named pin over an anonymous
-                # hold had its name discarded by the cloud.
-                if tok.pre_preset:
+                if _s13_human_manual:
+                    if tok.pre_target_low is not None and tok.pre_target_high is not None:
+                        if self._override_arrester:
+                            self._override_arrester.suppress(zone.climate_entity, kind="temp")
+                        _s13_landed = bool(await emit_set_temperature(
+                            self.hass,
+                            zone.climate_entity,
+                            target_temp_low=tok.pre_target_low,
+                            target_temp_high=tok.pre_target_high,
+                            freeze_active=self._freeze_active(),
+                            blocking=True,  # EXCURSION_RETURN_BLOCKING
+                            site="S13_preheat_return",
+                            zone_id=zone_id,
+                            reason="human_manual_preheat_boundary",
+                            excursion_id=(tok.excursion_id if tok else None),
+                        ))
+                else:
                     if self._override_arrester:
                         self._override_arrester.suppress(
                             zone.climate_entity, kind="preset",
                         )
-                    await emit_set_preset_mode(
+                    _s13_landed = bool(await emit_set_preset_mode(
                         self.hass,
                         zone.climate_entity,
                         tok.pre_preset,
@@ -1576,7 +1582,14 @@ class HVACPredictor:
                         zone_id=zone_id,
                         reason="preheat_boundary",
                         excursion_id=(tok.excursion_id if tok else None),
-                    )
+                    ))
+                if _s13_landed and tok.pre_target_low is not None \
+                        and tok.pre_target_high is not None:
+                    coord = self._hvac_coord
+                    if coord is not None and hasattr(coord, "_last_emitted_range"):
+                        coord._last_emitted_range[zone_id] = (
+                            tok.pre_target_low, tok.pre_target_high,
+                        )
             except Exception as _rex:  # noqa: BLE001
                 _LOGGER.warning(
                     "preheat return: emit failed for %s: %s",

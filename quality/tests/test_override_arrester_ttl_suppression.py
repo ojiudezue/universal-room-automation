@@ -642,75 +642,49 @@ class TestRevertOverrideOrdering:
     test_v4511_ac_energy_aware_ramp_down.py."""
 
     def test_suppress_conditional_on_emit_in_revert_override(self):
-        """ARREST-COMFORT-1 A-MED-2 fix-up (2026-08-10): supersedes the
-        pre-fix "suppress-BEFORE-service" ordering guard. The new
-        contract is stricter: `self.suppress(zone.climate_entity, ...)`
-        must run AFTER the emit(s) AND only when they actually fired.
-        Stamping suppress unconditionally BEFORE the gate check would
-        leave a ~5s SUPPRESS_TTL window that swallows a real manual on
-        a deferred no-op (comfort-delay grace path)."""
-        src_path = os.path.join(
-            _URA_PATH, "domain_coordinators", "hvac_override.py",
-        )
-        with open(src_path, "r", encoding="utf-8") as f:
-            src = f.read()
+        """ARREST-COMFORT-1 A-MED-2: `_revert_override` stamps `suppress(...)`
+        ONLY after its emit(s) actually fired.
 
-        idx = src.find("async def _revert_override(")
-        assert idx > 0, "could not locate _revert_override in source"
-        # Slice bumped from 4000 to 6000 chars to accommodate the
-        # legitimate growth in _revert_override from the
-        # HVAC-GOVERNED-EXCURSION-1 D3 migration (lease-release calls
-        # on the immunity and comfort_delay early-return paths, plus
-        # the terminal release + a small helper heading). The
-        # ordering invariant this test guards remains intact.
-        body = src[idx:idx + 6000]
-        end_markers = ["\n    async def ", "\n    def "]
-        end = len(body)
-        for marker in end_markers:
-            pos = body.find(marker, len("async def _revert_override("))
-            if pos != -1 and pos < end:
-                end = pos
-        body = body[:end]
+        HVAC W1-B fix-up 2 converted this from a 6000-char source slice (the
+        D-1 fire-time borrow gate grew the method past the slice) to a
+        BEHAVIOURAL drive on the real arrester: (a) a revert whose emits fire
+        -> a preset-kind suppression window is open; (b) a revert deferred by
+        an active comfort-delay -> NO suppression window (nothing went out)."""
+        import asyncio
+        import os as _os, sys as _sys
+        pytest.importorskip("homeassistant.helpers.storage")
+        _here = _os.path.dirname(__file__)
+        if _here not in _sys.path:
+            _sys.path.insert(0, _here)
+        import _w1b_harness as H
+        baseline = H.snapshot_shims()
+        try:
+            mods = H.load_real()
 
-        suppress_pos = body.find("self.suppress(zone.climate_entity")
-        # The migrated preset write uses `emit_set_preset_mode(...)`
-        # (S4). The raw `set_hvac_mode` re-assert uses services.async_call.
-        emit_preset_pos = body.find("emit_set_preset_mode(")
-        emit_hvac_mode_pos = body.find("services.async_call(")
+            async def _drive(defer: bool):
+                coord, hass = H.make_coord(mods)
+                arr = coord._override_arrester
+                z = coord.zone_manager.zones["zone_1"]
+                z.hvac_mode = "off"  # forces the B4 heat_cool re-assert too
+                if defer:
+                    arr.comfort_delay_active = lambda zid: True
+                await arr._revert_override(z, "home")
+                await H.drain(hass)
+                return arr, hass
 
-        assert suppress_pos > 0, (
-            "_revert_override must still call self.suppress(...) "
-            "to cover its own settle events on successful emits."
-        )
-        assert emit_preset_pos > 0, (
-            "_revert_override must route preset write through "
-            "emit_set_preset_mode chokepoint (D6)."
-        )
-        # Suppress MUST NOT precede EITHER emit — fix-up A-MED-2.
-        assert suppress_pos > emit_preset_pos, (
-            "A-MED-2 regression: suppress landed BEFORE emit_set_preset_mode. "
-            "Suppress must be stamped AFTER the emit(s) and only when they "
-            "actually fired — otherwise a deferred no-op leaves a stale "
-            "TTL window open."
-        )
-        if emit_hvac_mode_pos > 0:
-            assert suppress_pos > emit_hvac_mode_pos, (
-                "A-MED-2 regression: suppress landed BEFORE the raw "
-                "set_hvac_mode async_call."
+            arr_ok, hass_ok = asyncio.run(_drive(defer=False))
+            assert [c for c in hass_ok.services.calls if c[1] == "set_preset_mode"], "emit must fire"
+            assert arr_ok._suppress_kind.get("climate.test_zone_1") == "preset", (
+                "_revert_override must suppress (kind=preset) AFTER its emits fired"
             )
+            arr_no, hass_no = asyncio.run(_drive(defer=True))
+            assert not [c for c in hass_no.services.calls if c[0] == "climate"]
+            assert "climate.test_zone_1" not in arr_no._suppressed_until, (
+                "a deferred revert must NOT open a suppression window"
+            )
+        finally:
+            H.restore_shims(baseline)
 
-
-# ---------------------------------------------------------------------------
-# FIX B1: kind-tagged suppression — induced preset_mode manual under a
-# "temp" suppression (from URA's own set_temperature nudge) must NOT
-# self-count as a user override. Otherwise on preset-based Carrier/Bryant
-# thermostats, every nudge triggers preset sleep->manual as a SIDE EFFECT,
-# which fires override_count_today++ (empty house, 85 auto ac_ramp_events/
-# night with current_temp==target).
-# ---------------------------------------------------------------------------
-
-
-class TestKindTaggedSuppression:
     def test_induced_manual_under_temp_suppression_stays_suppressed(
         self, fake_clock,
     ):

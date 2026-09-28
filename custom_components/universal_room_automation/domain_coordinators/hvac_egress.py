@@ -363,6 +363,7 @@ class EgressManager:
             return
 
         paused_n = counting_n = countdown_n = cooldown_n = 0
+        rehydrated_zones: set[str] = set()
         for row in rows or []:
             zone_id = row.get("zone_id")
             if not zone_id:
@@ -386,6 +387,7 @@ class EgressManager:
                     "triggered_by_room": triggered,
                     "thermostat": thermostat,
                 }
+                rehydrated_zones.add(zone_id)
                 paused_n += 1
             elif state == EGRESS_STATE_COUNTING:
                 if first_open is not None:
@@ -418,6 +420,37 @@ class EgressManager:
             paused_n + counting_n + countdown_n + cooldown_n,
             paused_n, counting_n, countdown_n, cooldown_n,
         )
+        # HVAC W1-B fix-up 2 (D-3): re-link rehydrated EGRESS borrow rows.
+        # The excursion boot audit (which runs before this) put the EGRESS
+        # rows back into the registry; without the token in
+        # `_egress_excursion_tokens` the resume path could never return
+        # them and gate (e) stayed armed. A row whose zone is NOT paused
+        # after rehydrate is an orphan -> returned now.
+        _ex_mod = _try_load_excursion_module()
+        if _ex_mod is not None:
+            if not hasattr(self, "_egress_excursion_tokens"):
+                self._egress_excursion_tokens = {}
+            for _zid, _tok in list(getattr(_ex_mod, "_rows", {}).items()):
+                if getattr(_tok, "kind", None) != _ex_mod.EXCURSION_KIND.EGRESS_PAUSE:
+                    continue
+                if _zid in self._paused_by_egress:
+                    self._egress_excursion_tokens[_zid] = _tok
+                    _LOGGER.info(
+                        "EgressManager: re-linked rehydrated EGRESS borrow row "
+                        "for zone %s (%s)", _zid, _tok.excursion_id,
+                    )
+                else:
+                    try:
+                        await _ex_mod.return_excursion(
+                            _tok, trigger="rehydrate_orphan", restore_ok=None,
+                            trigger_detail="egress_row_without_pause_state",
+                        )
+                        _LOGGER.info(
+                            "EgressManager: returned orphaned EGRESS row for "
+                            "zone %s (not paused after rehydrate)", _zid,
+                        )
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug("egress orphan return failed", exc_info=True)
         self._rehydrate_done = True
 
     # ------------------------------------------------------------------

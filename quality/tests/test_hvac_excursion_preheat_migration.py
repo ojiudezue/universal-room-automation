@@ -72,7 +72,6 @@ class _PreheatStubZone:
 
 def _make():
     _ex_mod._test_clear_leases()
-    _ex_mod._test_set_kill_switch(True)
     _ex_mod._test_bind(hass=None, db=None)
     zone = _PreheatStubZone()
 
@@ -97,6 +96,9 @@ def _make():
     p.hass = hass
     p._freeze_active = MagicMock(return_value=False)
     hvac_predict.emit_set_temperature = AsyncMock(return_value=True)
+    # HVAC W1-B D2.4 / N5: with a NAMED snapshot the preset pin IS the
+    # restore, so the fixture must supply that collaborator too.
+    hvac_predict.emit_set_preset_mode = AsyncMock(return_value=True)
     hvac_predict.async_call_later = MagicMock(return_value=lambda: None)
     return p, zone
 
@@ -134,21 +136,6 @@ def test_return_preheat_releases_lease_and_updates_throttle_row_12():
         "restored baseline pair to prevent DPM throttle re-strand."
     )
 
-
-def test_kill_switch_off_produces_no_preheat_lease():
-    p, zone = _make()
-    _ex_mod._test_set_kill_switch(False)
-    try:
-        _run(p._execute_pre_heat())
-        assert _ex_mod._test_has_row(ZONE_ID) is False
-    finally:
-        _ex_mod._test_set_kill_switch(True)
-
-
-
-# ---------------------------------------------------------------------------
-# A-CRIT-2 - preheat snapshot ordering (begin BEFORE emit)
-# ---------------------------------------------------------------------------
 
 def test_A_CRIT_2_preheat_snapshot_taken_BEFORE_emit():
     """Pre-fix: emit_set_temperature(pre_heat_temp) ran BEFORE

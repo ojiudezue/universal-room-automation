@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.17
+# Universal Room Automation vv5.103.18
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -2444,6 +2444,12 @@ class HVACTempArresterOverrideSwitch(SwitchEntity):
     flips OFF and a LOW NM note fires ("Comfort Override ended (auto)").
 
     F7 (2026-08-07 fix-up cycle-4) — restart-amnesty invariant:
+    # SUPERSEDED 2026-09-27 by HVAC W1-B decision 46 for the W1-B context:
+    # the COORDINATOR restores TAO ON at boot iff its persisted 6 h window
+    # (`_zone_state_store.__tao_state.expires_at`) has not expired, setting
+    # the arrester internals + firing this switch's update signal in one
+    # step (hvac.py `_rehydrate_arrester_state`). The switch itself stays a
+    # plain SwitchEntity (F7 text below retained as history).
     the switch is default-OFF non-RestoreEntity by DESIGN. There is
     NO re-engagement across restart: the entry.options marker fires a
     LOW NM note ("released across restart") and clears itself; it

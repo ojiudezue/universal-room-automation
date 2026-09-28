@@ -1,0 +1,30 @@
+{
+  "format_version": "2.1",
+  "entry_id": "153",
+  "author": "ojiudezue",
+  "session_id": "claude_20260926_hvac_knobs",
+  "timestamp": "2026-09-27T21:31:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Config-first rule; HVAC entry dwell 2->0 and vacancy grace 10->5 by knob; occupancy fast path parked",
+  "summary": "Before planning any code, check whether a live knob, options field, HA setting or operator action fixes it (CLAUDE.md, ura-kanban gate 1b, planner/builder defs). Applied the same evening: HVAC entry dwell set to 0 and vacancy grace to 5 min as knob turns instead of building the occupancy fast path, which was parked pending real-world entry-latency measurements.",
+  "why": "On 2026-09-26 three planned changes turned out to be a knob, a knob, and a non-problem refuted by data (override-expiry reclaim: 22 expiries, 0 lockouts). Dwell 0 delivers the bulk of the entry-latency gain; the fast path's margin was about half the remaining wait for a new cross-coordinator trigger path. Operator resisted dwell 0 earlier over hysteresis; the measured hold/tail structure (lighting STATE_OCCUPIED held ~300 s + per-room tails) already damps flaps.",
+  "alternatives_considered": [
+    "Build the W2 occupancy fast path now (REV 4 plan) \u2014 parked",
+    "HVAC-clock entry-dwell rewrite anchored on the room clock \u2014 superseded; operator: room clock is the lighting-decay clock, HVAC needs its own",
+    "Whole-number nudge sizes to dodge echo detection \u2014 rejected; timing, not rounding, caused the false overrides"
+  ],
+  "implications": "Flap rate and entry latency under dwell 0 / grace 5 must be measured after occupied days (card HVAC-ENTRY-DWELL-ROOM-CLOCK-1 = Stage B arming-edge discrimination if flaps are material). Every new plan states which knob it checked first.",
+  "confidence": "medium",
+  "revisit_trigger": "Measured zone flap rate materially up after dwell 0, or entry latency still > one tick on occupied days.",
+  "refs": {
+    "cards": [
+      "HVAC-ENTRY-DWELL-ROOM-CLOCK-1",
+      "HVAC-FAST-PATH-FAN-WARM-EDGES-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_hvac_w2_occupancy_fast_path.md",
+      "docs/planning/AUDIT_hvac_fast_path_rate_2026_09_26.md"
+    ]
+  }
+}

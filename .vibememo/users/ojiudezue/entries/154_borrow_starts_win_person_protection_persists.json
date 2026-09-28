@@ -1,0 +1,31 @@
+{
+  "format_version": "2.1",
+  "entry_id": "154",
+  "author": "ojiudezue",
+  "session_id": "claude_20260927_w1b_rulings",
+  "timestamp": "2026-09-27T23:55:00Z",
+  "type": "decision",
+  "weight": "critical",
+  "title": "HVAC precedence: URA energy actions (nudges, borrow starts) win over person protection; person protection survives restarts",
+  "summary": "W1-B rulings: nudges win over a human change during the nudge (D13); borrow starts (pre-cool, pre-heat, pre-arrival, nudge, compromise) proceed even when a zone is person-protected (D48); the vacancy-away shortcut keeps today's behaviour (D49). Person protection itself (immune holds D17, TAO restored if still inside its 6 h window D46) now persists across restarts and reloads; an immune person still wins over an arrester compromise (D50). Small human changes the arrester ignores are reclaimed and logged, no alert (D18).",
+  "why": "Operator: \"URA has more information and should win. URA understands energy saving strategies and Operators don't. They can redo if they want to pre-empt automation changes that are valid.\" Nudges measured 97% effective, and the operator had interrupted one with less information than its intent. But once S1 reclaims manual holds, a restart that forgets a protection would silently undo a person's hold \u2014 the old manual guard used to hide that \u2014 so protection had to become durable.",
+  "alternatives_considered": [
+    "Gate borrow starts on person protection (reviewer D-H2) \u2014 rejected by operator",
+    "Keep TAO default-OFF on restart (F7 restart amnesty) \u2014 superseded: OFF is no longer 'safe' when S1 reclaims",
+    "Accept losing immune holds on restart \u2014 rejected; restart storms are live (~8/night)"
+  ],
+  "implications": "The core invariant is scoped: protections stop S1 reclaim and the arrester, NOT URA energy actions. Any future 'person override' feature must state where it sits in this order: nudge_win > immune stamp > compromise; borrow starts ignore person protection; hard reset respects only person protection (D52, by analogy). Persistence rides _zone_state_store side-keys (__immune_holds, __tao_state), not a DB table.",
+  "confidence": "high",
+  "revisit_trigger": "Operator complaints that URA energy actions undo deliberate comfort choices; nudge effectiveness < 80% over 7 d (the nudge-wins revival trigger).",
+  "refs": {
+    "related": [
+      "152"
+    ],
+    "cards": [
+      "HVAC-W1-THERMOSTAT-DEFINITION"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_hvac_w1b_thermostat_definition.md"
+    ]
+  }
+}

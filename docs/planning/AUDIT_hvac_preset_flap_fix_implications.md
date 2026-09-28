@@ -1,5 +1,7 @@
 # AUDIT — HVAC preset-flap fix implications (P1 / P2 / P3)
 
+> **⚠️ SUPERSEDED DESIGN PREMISE (2026-09-27).** This document cites the S1 manual guard (`should_change_preset` refusing to write over `manual` — "Don't fight manual — that's the arrester's job", `hvac_preset.py:202-217`, v3.8.0) as design intent or as a load-bearing fact. The operator superseded that rule on 2026-09-27; W1-B replaces it with four gates (person-protected hold / arrester grace-compromise / arrester disabled / live borrow row). **Do not derive new designs from this doc's reasoning about the guard** — read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md` §9e and §10 C25 first.
+
 **Date:** 2026-08-06
 **Author:** context-wide audit (no code changes proposed here — scoping only)
 **Trigger incident:** 2026-08-06 ~5–6 PM CDT, zone_1 (Entertainment + Master

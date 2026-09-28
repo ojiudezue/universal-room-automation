@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.17
+# Universal Room Automation vv5.103.18
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -178,59 +178,19 @@ def _warn_immunity_voice_default_best_effort(hass: HomeAssistant) -> None:
 
 
 def _fire_temp_arrester_override_lost_note(hass: HomeAssistant) -> None:
-    """B-M2 + LOW-A3: if a marker in entry.options indicates Temp
-    Arrester Override was ACTIVE pre-restart, emit a LOW NM note and
-    clear the marker.
-
-    Called from async_setup_entry AFTER the notification_manager exists.
-    Guarded — every branch tolerates missing keys / mid-teardown state.
+    """B-M2 + LOW-A3 (2026-08-07) — SUPERSEDED 2026-09-27 by HVAC W1-B
+    (A-H2 / B-M1): the "released across restart" note fired here BEFORE the
+    HVAC coordinator existed, so it was FALSE whenever decision 46 restores
+    the override from `_zone_state_store.__tao_state`. The marker
+    (`hvac_temp_arrester_override_was_active`) is now read, worded
+    (restored / expired / released) and cleared by
+    `HVACCoordinator._settle_tao_restart_marker` from the boot decision.
+    Kept as a no-op call site so the setup ordering is unchanged.
     """
-    try:
-        from .const import DOMAIN
-        entries = hass.config_entries.async_entries(DOMAIN)
-        for e in entries:
-            if not e.options.get("hvac_temp_arrester_override_was_active"):
-                continue
-            nm = hass.data.get(DOMAIN, {}).get("notification_manager")
-            if nm is None:
-                return
-            from .domain_coordinators.base import Severity
-
-            async def _emit(entry=e, notifier=nm):
-                try:
-                    await notifier.async_notify(
-                        coordinator_id="hvac",
-                        severity=Severity.LOW,
-                        title="Temp Arrester Override released across restart",
-                        message=(
-                            "Temp Arrester Override was ACTIVE when HA "
-                            "restarted/reloaded. It has been released to "
-                            "the default-OFF state (safe default); "
-                            "arrester governance has resumed. Re-engage "
-                            "if still intended."
-                        ),
-                        hazard_type="hvac_temp_arrester_override",
-                    )
-                except Exception as ex:  # noqa: BLE001
-                    _LOGGER.debug(
-                        "Temp Arrester Override restart NM note failed: %s",
-                        ex,
-                    )
-                try:
-                    new_opts = dict(entry.options)
-                    new_opts.pop("hvac_temp_arrester_override_was_active", None)
-                    hass.config_entries.async_update_entry(
-                        entry, options=new_opts,
-                    )
-                except Exception as ex:  # noqa: BLE001
-                    _LOGGER.debug(
-                        "Temp Arrester Override marker clear failed: %s",
-                        ex,
-                    )
-
-            hass.async_create_task(_emit())  # noqa: untracked-ok — best-effort one-shot LOW NM note at setup + marker clear; fire-and-forget by design (setup should not block on an NM channel).
-    except Exception as ex:  # noqa: BLE001
-        _LOGGER.debug("Marker-scan on setup failed: %s", ex)
+    _LOGGER.debug(
+        "Temp Arrester Override restart marker: deferred to the HVAC "
+        "coordinator's boot evaluation (W1-B)",
+    )
 
 
 def _log_nm_suppression_daily_warning(hass: HomeAssistant) -> None:
@@ -3815,6 +3775,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         CONF_HVAC_ZONE_ENTRY_DWELL,
                         DEFAULT_MAX_SLEEP_OFFSET,
                         DEFAULT_COMPROMISE_MINUTES,
+                        _read_hvac_compromise_minutes,
                         DEFAULT_AC_RESET_TIMEOUT,
                         DEFAULT_FAN_ACTIVATION_DELTA,
                         DEFAULT_FAN_HYSTERESIS,
@@ -3858,9 +3819,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         max_sleep_offset=float(cm_config.get(
                             CONF_HVAC_MAX_SLEEP_OFFSET, DEFAULT_MAX_SLEEP_OFFSET
                         )),
-                        compromise_minutes=int(cm_config.get(
-                            CONF_HVAC_COMPROMISE_MINUTES, DEFAULT_COMPROMISE_MINUTES
-                        )),
+                        # HVAC W1-B D4a: CLAMP-ON-READ (sole decision
+                        # consumer) — stored > HVAC_COMPROMISE_MINUTES_MAX
+                        # reads as the ceiling.
+                        compromise_minutes=_read_hvac_compromise_minutes(cm_config),
                         ac_reset_timeout=int(cm_config.get(
                             CONF_HVAC_AC_RESET_TIMEOUT, DEFAULT_AC_RESET_TIMEOUT
                         )),
@@ -3904,11 +3866,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             )),
                             "comfort_soc_floor_pct": int(_cfg.get(
                                 "hvac_comfort_soc_floor_pct", 80,
-                            )),
-                            # HVAC-GOVERNED-EXCURSION-1 D2 §4.7 kill
-                            # switch. Default ON. BEGIN-ONLY.
-                            "excursion_primitive_enabled": bool(_cfg.get(
-                                "excursion_primitive_enabled", True,
                             )),
                             # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b3):
                             # Rung-3 D5 duty-cycle knobs. Defaults match

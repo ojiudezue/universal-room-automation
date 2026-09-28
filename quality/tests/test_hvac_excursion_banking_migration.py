@@ -67,7 +67,6 @@ def _make_predictor():
     """Build a HVACPredictor via __new__ with the minimum surface for
     _execute_zone_pre_cool + _release_banked_zones."""
     _ex_mod._test_clear_leases()
-    _ex_mod._test_set_kill_switch(True)
     _ex_mod._test_bind(hass=None, db=None)
 
     p = HVACPredictor.__new__(HVACPredictor)
