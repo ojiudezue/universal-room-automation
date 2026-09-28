@@ -156,9 +156,12 @@ def test_effective_hold_clamps_night_up_to_day_pure():
     (kept as the definitive assertion; a mutation-verify anchor).
     """
     zm = _fresh_zm()
-    # Trust states include 'home_night' (see FAN_TRUST_STATES).
+    # Night table applies only in HVAC_NIGHT_HOLD_STATES (sleep / waking).
+    # HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1: moved off 'home_night', which now
+    # returns the DAY value (600 == the clamped value), so it would pass
+    # without exercising the clamp at all.
     got = zm._effective_hvac_hold_seconds(
-        "bedroom", house_state="home_night",
+        "bedroom", house_state="sleep",
         override_day=600, override_night=300,
     )
     assert got == 600, (

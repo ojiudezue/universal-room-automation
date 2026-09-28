@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "157",
+  "author": "ojiudezue",
+  "session_id": "claude_20260928_031514_ship_v5_103_19",
+  "timestamp": "2026-09-28T03:15:14Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.19 shipped: HVAC night holds follow the house sleep state, not the 21:00 clock",
+  "summary": "HVAC night holds follow the house sleep state, not the 21:00 clock",
+  "why": "The long HVAC night holds (15-30 min) were sized for sleepers but switched on at the hardcoded 21:00 home_night boundary while the house was still active; a kitchen pass-through at 21:00 kept zone 3 on home for 20+ min. Operator: follow the house sleep state. D0 probe found 1 exposed bedroom gap in 7.7 days, below the revive-C bar.",
+  "implications": "Shipped HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1 at v5.103.19; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.19.md (Live criteria).",
+  "revisit_trigger": "A bedroom sleeper lost between 21:00 and house sleep onset, or operator wants per-room night start (revive C)",
+  "refs": {
+    "cards": [
+      "HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.19.md"
+    ],
+    "release_notes": "HVAC uses the long night hold for a room only while the house is in its sleep or waking state (your Sleep Start Hour, 22:00 live) instead of from the hardcoded 21:00 night boundary. From 21:00 until sleep, rooms use their normal day hold. Fans and overnight occupancy trust are unchanged. See docs/readmes/README_v5.103.19.md."
+  }
+}

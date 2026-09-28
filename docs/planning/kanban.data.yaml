@@ -2137,6 +2137,41 @@ cards:
   why: 'Wall-clock-coupled tests (a named bad family) make every evening suite gate report false NEW entries, costing a verification round each time.'
   next: 'Tier 1: pin the test clock (aware, fixed date) in TestBillingRestoreDaily; likely a local-vs-UTC date boundary (00:00 UTC = 19:00 CDT). Verify by running at a pinned 23:30 local.'
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1]}
+- id: HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1
+  operator_2026_09_27_2130: 'Operator: A "Do it." B "yes follow house state for sleep. Check on its logic" C "Yes backup. If set it uses this instead of house state. Even more useful per room. Is that the plan?". DONE A (config): hvac_vacancy_hold_night=90 s on all 9 common_area rooms (Kitchen, Dining, Living, Patio, Receiving, Breakfast Nook, Game, Exercise, Butler Pantry) via options flow; field is in the reload-suppression list (no reload); other options verified intact. SLEEP LOGIC CHECKED (presence.py:1295-1301, _is_sleep_hour :1358): house SLEEP is CLOCK-ONLY — any home state enters SLEEP when hour is inside sleep hours; live CM options sleep_start_hour=22, sleep_end_hour=6 (house-wide knob exists, default 23); WAKING at sleep_end then HOME_DAY. No activity/bed-sensor sleep detection. home_night = 21:00 (night_start_hour, hardcoded presence.py:1011). So B moves the long tails from 21:00 to 22:00 (the existing sleep-start knob) — clock-based either way.'
+  title: HVAC night tail-holds (15-30 min) kick in at 21:00 home_night while the house is still active — common rooms hold zones home long after people leave
+  status: shipped_organic
+  shipped_version: v5.103.19
+  thread: hvac
+  workstream: HVAC-W2-OCCUPANCY-TRUTH
+  created: '2026-09-27'
+  updated: '2026-09-27 21:35'
+  origin: 'Operator 2026-09-27 21:2x: "Why is back hallway set to home when no one is there?" / "Yikes. When does night start? And is there a knob for this?" / "This is too long for 9pm" / "Too much movement still".'
+  evidence: 'Kitchen (common_area) occupied 21:00-21:02, room vacant 21:13, kitchen_hvac_occupied held ON from 21:05 by the NIGHT tail (ROOM_TYPE_HVAC_HOLD_NIGHT common_area 900 s, const.py:1230) -> zone_3 set home at 21:04 on house_state_transition to home_night and kept home. Night = house_state in FAN_TRUST_STATES (home_night/sleep/waking, hvac_const.py:919); home_night starts at night_start_hour=21, a HARDCODED constructor default (presence.py:1011, _time_based_home :1350) — no config/knob. Tails: bedroom/media 30 min, common 15, bathroom/generic/garage/utility 10, closet/infra 5 (day: 1-2 min). Per-room knobs exist: room options -> climate step fields hvac_vacancy_hold / hvac_vacancy_hold_night (v5.103.8); Kitchen has none set. The night tails were sized as insurance for still SLEEPERS (radar dropping a still body) but they trigger on home_night, when the house is still active.'
+  sweep_2026_09_27: 'Board grep FAN_TRUST_STATES/night tail/night_start: only inside HVAC-ZONE-CONDITIONING-DEMAND-1 design notes (shipped v5.103.7/8). NEW.'
+  next: 'BUILD (Tier 2) on operator go: (B) the HVAC tail selector (_effective_hvac_hold_seconds, hvac_zones.py) uses the night table only when house_state in {sleep, waking} instead of FAN_TRUST_STATES (home_night stays on day tails) — do NOT change FAN_TRUST_STATES itself (other consumers: fans, night-trust); (C) new optional per-room knob "night hold starts at" (HH:MM, room options climate step, blank = follow house sleep state); when set, the room uses its night tail from that local time until sleep_end_hour, regardless of house state. Tests: 21:30 home_night -> day tail; 22:30 sleep -> night tail; per-room 20:30 override -> night tail at 21:00 home_night; blank override -> house state.'
+  links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-ENTRY-DWELL-ROOM-CLOCK-1]}
+- id: HVAC-W1C-GENERIC-THERMOSTAT-1
+  title: 'W1-C — make URA work with a non-Carrier thermostat: brand-owned override detection, timings and a setpoint-based hold for thermostats without home/away/sleep presets'
+  status: parked
+  thread: hvac
+  workstream: HVAC-W1-THERMOSTAT-DEFINITION
+  created: '2026-09-27'
+  updated: '2026-09-27 22:40'
+  origin: 'Operator 2026-09-27: "We need this to generalize URA. How and where is it configured? What remains?"'
+  why: 'Strategy dispatch exists (hvac_strategy.py: registry platform -> _KNOWN; ha_carrier -> CarrierStrategy, else GenericStrategy), but: (1) borrow starts/returns bypass the strategy (call emit_* directly; borrow/return_borrow not built); (2) Carrier-tuned timings live in shared code (arrester echo TTL 15 s / preset 120 s, 5-min tick = cloud call-rate bound); (3) URA models holds as named home/away/sleep presets — many thermostats (Nest: eco/none) need a setpoint-based hold; (4) human-override detection keys on preset_mode == manual (Carriers anonymous hold) in the S1 gates and arrester.'
+  revival_trigger: 'A second thermostat brand is available to test against, or the operator wants URA ready for other homes.'
+  next: 'PARKED — scope recorded; revive on the trigger.'
+- id: HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1
+  title: 'A manual house-state override (e.g. forcing Sleep) never reaches HVAC or other signal consumers — only inferred transitions are dispatched'
+  status: inbox
+  thread: presence
+  created: '2026-09-27'
+  updated: '2026-09-27 22:40'
+  origin: 'Found by the Tier-1 review of the night-holds-follow-sleep build (v5.103.19): set_house_state_override (presence.py:7591) -> house_state_machine.set_override (house_state.py:213) sets _override but sends no SIGNAL_HOUSE_STATE_CHANGED; the only sender is the accepted-inference path (presence.py:6778); HVAC updates _house_state only from that signal (hvac.py:3657) or the boot seed. Pre-existing; affects every signal consumer (HVAC presets, night holds).'
+  sweep_2026_09_27: 'Board grep house state override: one mention inside another card as an existing path the operator floated for manual away (line ~18336); no card owns this defect. NEW.'
+  next: 'ANSWER: should a manual house-state override propagate to HVAC and the other coordinators like an inferred change? YES -> Tier 2 fix (dispatch on override set/clear). NO -> document as intended.'
+  links: {related: [HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1]}
 - id: HVAC-W1-THERMOSTAT-DEFINITION
   build_review_2026_09_27: 'Built by ura-super-builder (e77dd686/2297eb8b/b444046d, tag pre-review-v5.103.18): 121 tests, 60 drills. 4 Tier-3 reviews all FIX-REQUIRED -> fix-up dispatched: gate (e) simplified to fresh row OR nudge/compromise timers + new gate (f) kill-switch-OFF respects manual (stale banking/precool leftovers were re-creating the lockout); save TAO before teardown (reload wiped it); false TAO-released NM; manual_class labels; startup audit must not revert a live borrow; 3 hollow-test gaps. OPERATOR RULINGS 2026-09-27: (D48) borrow STARTS win over person protection - "URA has more information and should win. URA understands energy saving strategies and Operators dont. They can redo if they want to pre-empt automation changes that are valid." (D49) vacancy bypass keeps todays behaviour (does not wait for arrester grace/compromise or arrester off). Orchestrator: immune person wins over a live compromise (develop behaviour kept).'
   rev5_2026_09_27: 'REV 5 committed 3ed9afda1: S1 manual guard replaced (Alt A, 4 gates: person-protected / arrester grace-compromise / arrester disabled=passive / live borrow row via _row_present_and_fresh). BORROW_LOCK collapsed into gate (e) (verified no window where nudge/compromise timers live without a fresh row). Provenance, reclaim delay, kill switch DROPPED; problem 4 closed-by-A. Operator constraint: nothing added to borrow code or emit_* funnels. Guard marked SUPERSEDED in state-of-play §9e + §10 C25 and bannered in 15 docs. NEXT: two Tier-3 plan reviews (completeness + build-prediction), reviewers read corrected state-of-play first, then build.'
@@ -2337,10 +2372,11 @@ cards:
   parsimony: {problem: 'a disabled room silently disables conditioning-demand for its whole zone', verdict: BUILD, note: 'scope the gate to live rooms (operator rule); trip-wire only as a diag'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'residual of the round-5 F1 all() revert'}
 - id: HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1
+  measured_2026_09_27: 'Planned (docs/planning/PLANNING_hvac_reloading_room_placeholder_readers.md: 4 bypass readers D1-D4, reuse v5.103.15 gate) then MEASURED FIRST per its D0 (scripts/probes/hvac_reloading_room_probe.py, 7.7 d): 8 restarts; 0 zone-status samples with a transient/absent room (boot 0, live 0); 0/10 restart occupancy-clock resets. Every build gate fails -> PARKED. Revival trigger: any tick sees a transient/absent room (zone status transient_rooms/coordinator_absent_rooms non-empty) or a restart resets continuous_occupied_hours on an occupied zone — re-run the probe. Plan corrections (D6 fix shape, D5 was a deliberate v5.103.15 choice, 3 missed readers) are preserved in the plan for revival.'
   workstream: HVAC-W2-OCCUPANCY-TRUTH
   title: A room that is reloading is briefly treated as "empty" by HVAC paths that bypass the shared retreat check
   thread: hvac
-  status: planned
+  status: parked
   created: '2026-09-26 02:15'
   updated: '2026-09-26 02:40'
   refinement_status: initial
@@ -2371,8 +2407,7 @@ cards:
     related: [HVAC-DEGRADED-ROOM-TRIPWIRE-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1]
     context: 'HVAC-DEGRADED-ROOM-TRIPWIRE-1 fixed the retreat chokepoint; this card covers the readers that bypass
       it. HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 built the D5 occupancy gate on the raw fused read.'
-  next: 'Plan (Tier 2): D5 defer on `not self._zone_conditioning_retreat_ok(zone)`; D6 Source-4 excludes
-     coordinator-absent rooms; continuous_occupied_since ignores synthetic rooms. Belongs in W2 (occupancy truth).'
+  next: 'PARKED on measurement 2026-09-27. Revive only on the trigger in measured_2026_09_27.'
   parsimony: {problem: 'paths that bypass the shared retreat check act on a reloading room''s placeholder empty', verdict: BUILD}
 
 - id: HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1
@@ -2798,9 +2833,10 @@ cards:
   origin: 'Operator 2026-09-26 evening, after dwell 2->0: "Yes let''s deal with hysteresis now. That was the reason I resisted zero. Alternatives while staying low?"'
   why: 'hvac_zones.py:783-788 sets zone.current_session_start = now when a decision tick FIRST sees lighting occupancy, so any dwell > 0 costs a whole extra tick (C18: 2 min dwell -> 5-10 min entry). With the clock at the room''s real occupancy start (room coordinator already tracks it: coordinator.py:320 _last_occupied_since_for_handler), a person present >= dwell when the tick arrives is acted on at that tick, and a 20-45 s transit is still filtered. Options compared (operator-visible table 2026-09-26): dwell 0 (no hysteresis, ~2.5 min avg); THIS + dwell 1 min (filters <1 min transits, ~3.5 min avg / ~6 worst) RECOMMENDED; wake-capable room types only (closets/pantry/laundry/baths may hold but not wake a zone) as a complement if transit flaps come from those rooms; short-visit fast retreat (limits cost, still 2 writes per flap).'
 - id: HVAC-OCCUPANCY-HOLD-CHAINED-AFTER-LIGHT-TIMEOUT-1
+  revived_2026_09_27: 'REVIVED by operator 2026-09-27 ~22:00 after a live zone_3 exit took ~15-20 min (kitchen occupied timeout 10 min + hold + 5 min grace + tick): "We wanted faster responses. This is nuts." / "fast path catches it. The room type hold blunts it. Do it". Combined with the parked W2 fast path (extended to exits) into docs/planning/PLANNING_hvac_fast_occupancy_response.md (planning). Stopgap done same night: Kitchen occupancy_timeout 600 -> 300 s (options flow, verified).'
   disposition_2026_09_26_groom: 'MEASURED 2026-09-26 (docs/planning/AUDIT_hvac_raw_evidence_gaps_2026_09_26.md, probe scripts/probes/hvac_raw_evidence_gap_probe.py, 82 daytime hours, 33 rooms): the intent/execution gap is real, but EXECUTION IS THE SAFER DESIGN. A flat 60 s day tail with the live 5-min vacancy grace would retreat a zone with someone present 23x/week (0 at the 10-min grace, 0 with today''s design); the lighting timeout in front of the tail absorbs radar misses of still people (Living Room camera saw a person in 55% of >60 s daytime gaps with all 3 radars off). Safe per-room-type tails (closet 60, generic 120, bath 180, bedroom 240, common 300) save only 60-120 s vs today''s ~360 s for bedrooms/common — marginal benefit does not justify reopening CRIT-1. Also: a fix keyed on _last_motion_time would drop camera/BLE-held occupancy (coordinator.py:3589/3680/3867 only set it when empty). Kitchen = 20 of 23 risk events (but the Kitchen room is deliberately disabled via switch.kitchen_override_vacant — verify whether it contributes to HVAC at all). Confirms the vacancy grace 10->5 change is SAFE with the current design.'
   title: BUG — HVAC occupancy's 60 s hold starts only AFTER the full lighting timeout (~5 min), so rooms stay HVAC-occupied ~6 min after the last motion instead of the intended ~1 min
-  status: parked
+  status: pre_planning
   thread: hvac
   workstream: HVAC-W2-OCCUPANCY-TRUTH
   created: '2026-09-26'
@@ -2810,7 +2846,7 @@ cards:
   consequences: 'Transits hold a room HVAC-occupied ~6 min (flip empty zones to home); zones retreat ~5 min later than intended (energy); the entry-dwell work was chasing this (two dwell plans superseded, state-of-play C24).'
   why_it_was_built_this_way: 'Step-4-B CRIT-1 (PLANNING_hvac_zone_conditioning_demand.md:30,:119): reading raw kinds LIVE would drop a still/sleeping body on a radar blip. Riding the grace-held STATE_OCCUPIED gave robustness — and silently imported the lighting timeout.'
   proposed_fix: 'Release HVAC occupancy on LAST RAW EVIDENCE + tail: hvac_occupied stays True while now - last_evidence_time < tail (the room already records last evidence: _last_motion_time, updated on motion / mmWave / occupancy fires, coordinator.py ~3589), instead of waiting for STATE_OCCUPIED to fall. Arming unchanged. Night tails (bedroom 30 min, Jaya 90) keep sleepers safe; the open risk is DAYTIME still/seated occupants whose raw evidence pauses > 60 s.'
-  next: 'PARKED. Revive if: (a) measured zone flip/entry data after people return shows transits materially flipping zones (then the lever is a CRIT-1-safe arming-edge gate, card HVAC-ENTRY-DWELL-ROOM-CLOCK-1), or (b) energy analysis shows late retreats cost materially; then per-room-type tails from the audit table, sized together with the vacancy grace.'
+  next: 'PLAN (in progress): PLANNING_hvac_fast_occupancy_response.md -> plan reviews -> build (likely Tier 3) under operator go.'
 - id: RECEIVING-ROOM-MOTION-DEAD-1
   title: Receiving Room motion sensor looks dead — 2 ON events in 7 days while a phone reported a person in that room
   status: done
@@ -2847,6 +2883,7 @@ cards:
   verdict: 'NO broad livability problem. One config change is worth it: Laundry day hold -> 1200 s (20 min) covers the ~15-min load-swap trip that caused 4 of 8 harms; cost = zone_3 conditioned up to ~20 min longer after a real laundry departure. Pantries / Master Bath are 1 event each — do not change on this evidence.'
   next: 'FIX THE PROBE (me, read-only): re-base hvac_room_return_probe.py on RAW presence/motion/BLE per room (the room''s configured sensors) instead of hvac_occupied, and count ''person present per raw sensors while the zone was written away''. Re-run after the W2 fast path ships (the fast path removes most of the lag this probe tripped on). No operator action.'
 - id: HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1
+  operator_2026_09_27: 'Operator "ok" to NOT building the full degradation defense now: the practical fix (Jaya night hold 5400 s) is a setting; the full machinery has no observed case. First night that counts is 2026-09-27 (house was empty 09-26). Note: after the night-tail B fix, night holds start at house sleep (22:00) not 21:00 — fine for a sleeper.'
   disposition_2026_09_26_groom: 'OPERATOR SET IT 2026-09-26: Jaya Bedroom (Bedroom 4) hvac_vacancy_hold_night = 5400.0 (day 60.0), .storage/core.config_entries modified_at 2026-09-26T18:21:55Z, verified stored.'
   workstream: HVAC-W2-OCCUPANCY-TRUTH
   status: waiting_me
@@ -2907,7 +2944,7 @@ cards:
     now; step-4-B ships D7 + a MODEST prudent grace instead (see HVAC-ZONE-CONDITIONING-DEMAND-1
     D8_RESCOPED). This card preserves the full design so it can be uncorked fast if degradation is ever
     observed, rather than re-derived from a compacted note.'
-  next: 'RE-PROBE (me) on/after 2026-09-29 evening (3 nights): ssh ha python3 - < scripts/probes/hvac_night_sleeper_probe.py; accept if Jaya night RETURNED drops no longer let zone_2 go away inside the gap; then dispose done.'
+  next: 'RE-PROBE (me) on 2026-09-30 after 3 nights with Jaya home (09-27, 09-28, 09-29): ssh ha python3 - < scripts/probes/hvac_night_sleeper_probe.py. PASS = no zone_2 away write inside a Jaya bedroom drop that later returned -> dispose this card + HVAC-HOLD-SIZING-ALL-ROOMS-1 night part. FAIL = evidence to uncork the full defense.'
   parsimony:
     problem: night retreat is safe for the measured (healthy-redundancy) rooms but a degraded-while-occupied
       bedroom could be wrongly retreated; the full defense is unbuilt for lack of an observed instance
@@ -21335,7 +21372,21 @@ cards:
       but is not the fix.
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL adjacent-independent Tier 1 audit. Promoted inbox -> pre_planning.'
+- id: GUEST-ROOM-FAN-HOLD-1
+  title: A guest's bedroom fan turns off ~5 min after the room reads empty at night, while residents' bedroom fans stay on all night
+  status: parked
+  thread: hvac
+  workstream: HVAC-W2-OCCUPANCY-TRUTH
+  created: '2026-09-27'
+  updated: '2026-09-27 22:15'
+  origin: 'Found by the guest-as-zone-person plan (PLANNING_hvac_guest_as_zone_person.md) after its STEP 0 refuted the parent card HVAC-GUEST-AS-ZONE-PERSON-1.'
+  sweep_2026_09_27: 'Board grep guest fan/fan hold guest: none. NEW.'
+  why: 'Residents bedroom fans hold on all night while a zone person is home; a guest room fan follows room occupancy only. Full spec (guard, 30-min arm on per-room is_guest flag, post-sleep recheck, discharge contract, label strings, staged live test via Override Vacant) is in the plan. Open question: Guest Bedroom 1 options turn HVAC fan coordination off but the HVAC fan controller still manages its fan — two drivers?'
+  revival_trigger: 'Run the plans read-only D0 probe; build (Tier 2-DB + plan review) only if a guest night with the fan turning off under a sleeping guest is observed, or the operator asks.'
+  next: 'PARKED — revive on the trigger.'
+  links: {related: [HVAC-GUEST-AS-ZONE-PERSON-1]}
 - id: HVAC-GUEST-AS-ZONE-PERSON-1
+  refuted_2026_09_27: 'STEP 0 (docs/planning/PLANNING_hvac_guest_as_zone_person.md) CONFIRMED the operator claim and REFUTED the card premise: occupancy, not zone_persons, decides the night thermostat retreat for every zone since round 4 (2026-09-17). Night-trust (hvac.py:2780-2797) only intercepts the stale-sensor and energy-shed force-aways and is skipped in house Sleep; the sleep veto/person bias (aggregation.py:4339-4341/4474-4476) feed only binary_sensor.zone_*_anyone (no in-integration reader). A guest in Guest Bedroom 1 already gets resident-equivalent thermostat protection. Guest person in night-trust REJECTED (a stuck sensor would disarm the net meant to catch it). Residual settings-only option offered to operator: Guest Bedroom 1 night hold 5400 s (as Jaya). Fertile residual -> new card GUEST-ROOM-FAN-HOLD-1.'
   workstream: HVAC-W2-OCCUPANCY-TRUTH
   seq_2026_09_15: 'STEP 5 (conditional) of HVAC-SUPPLE-SEQUENCE-1. NOT a prerequisite for measuring spurious-away — that was my error; this derives a person FROM room occupancy and so cannot witness its own input. Build only if the step-5 re-measure still justifies it.'
   operator_priority_2026_09_25: 'Operator 2026-09-25: "these all seem high value". value raised to 8.'
@@ -21343,7 +21394,7 @@ cards:
     assigned residents loses three protections entirely
   rank: {value: 8, time_criticality: 5, effort: 5}
   thread: hvac
-  status: pre_planning
+  status: done
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: hvac.py:2086 night away-suppression iterates zone.zone_persons only (0 guest_person hits). Do the card''s own sleep-veto verification first.'
   OPERATOR_DESIGN_INPUT_OCCUPANCY_GATE_2026_08_20: 'OPERATOR, on how to stop the synthetic guest from
     pinning the zone: "We have to gate the person on occupancy for this fix. Guest mode flips on if a
@@ -21425,9 +21476,7 @@ cards:
     verdict: SIMPLIFY
     note: operator explicitly deferred this behind the calming work; build the simple calming first and
       re-measure before deciding this is still needed
-  next: 'DEFERRED behind HVAC-PRESET-FLAP-1 calming per operator. When picked up: verify the per-room
-    is_guest flag name and its existing consumers (institutional-context grep) BEFORE proposing anything;
-    then design the liveness/decay contract explicitly.'
+  next: 'DONE (refuted-but-fertile). See GUEST-ROOM-FAN-HOLD-1.'
   refs:
   - hvac.py:1788-1795
   - aggregation.py:4017-4019, 4152-4154
