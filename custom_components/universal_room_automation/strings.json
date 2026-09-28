@@ -374,7 +374,7 @@
             }
           },
           "climate_backstop": {
-            "name": "Climate Backstop (comfort range + thermostat fallback)",
+            "name": "Thermostat and empty-room hold",
             "data": {
               "target_temp_heat": "Comfort Range — Low (°F)",
               "target_temp_cool": "Comfort Range — High (°F)",
@@ -1163,7 +1163,8 @@
           "hvac_ac_reset_enabled": "AC Reset",
           "zone_vacancy_sweep_enabled": "Vacancy Auto-Off",
           "pre_arrival_sources": "Pre-Arrival Trigger Sources",
-          "hvac_zone_entry_dwell": "Zone Entry Wait Time (minutes)",
+          "hvac_zone_entry_dwell": "Entry wait (minutes)",
+          "hvac_return_window_minutes": "Return window (minutes)",
           "hvac_vacancy_grace_minutes": "Zone Vacancy Delay (minutes)",
           "hvac_vacancy_grace_constrained": "Zone Vacancy Delay · Energy-Saving (minutes)",
           "hvac_max_occupancy_hours": "Max Zone Occupied Time (hours)",
@@ -1194,9 +1195,10 @@
           "hvac_ac_reset_enabled": "Cycle the thermostat off briefly when a stuck cooling/heating cycle is detected. Disable if AC reset is causing issues. The thermostat has its own compressor protection.",
           "zone_vacancy_sweep_enabled": "Turn off lights and fans in zones after they become vacant. Runs after the vacancy grace period expires. Disable to keep lights/fans running when zones empty.",
           "pre_arrival_sources": "Which detection methods trigger zone pre-conditioning when a person arrives home. Geofence uses phone GPS; BLE uses Bluetooth proximity beacons; Camera Face uses Frigate/UniFi face recognition for instant confirmation.",
-          "hvac_zone_entry_dwell": "Minutes a zone must be occupied before switching from away to home preset. Prevents HVAC from conditioning zones when someone just walks through briefly. Only applies when the house is already occupied — has no effect on arrival from away. Set to 0 to disable. Default: 3.",
-          "hvac_vacancy_grace_minutes": "Minutes a zone must stay empty before HVAC backs off to the Away preset. Lower = AC retreats faster after you leave. Default: 15.",
-          "hvac_vacancy_grace_constrained": "Shorter vacancy delay used while the house is energy-coasting (constrained). Must be ≤ the normal Zone Vacancy Delay. Default: 5.",
+          "hvac_zone_entry_dwell": "How long someone must be in a room before heating and cooling switch a zone that is set to Away back to Home, during the day and evening. People passing through faster than this do not switch it. Someone coming back to a room soon after it emptied counts at once (see Return window). Enter 0 to count any sign of someone at once. Recommended: 1.",
+          "hvac_vacancy_grace_minutes": "Minutes a zone waits after its last room empties before heating and cooling switch to Away. If someone comes back sooner, nothing changes. A shorter wait saves energy but switches a zone to Away more often while someone sits still.",
+          "hvac_vacancy_grace_constrained": "The same wait, used while the house is saving energy. It must be no longer than the normal delay. A shorter wait saves energy but switches a zone to Away more often while someone sits still.",
+          "hvac_return_window_minutes": "If someone comes back into a room within this many minutes after its hold ends — and their earlier stay lasted at least the Entry wait — a zone set to Away switches back to Home straight away instead of waiting the Entry wait again. 0 turns this off.",
           "hvac_max_occupancy_hours": "If a zone reads continuously occupied this long, HVAC treats the presence signal as stuck and stops trusting it. Default: 8 (hours).",
           "hvac_occupied_cover_close_delta": "When a room is occupied, HVAC only closes its covers for solar-gain reduction if the room temp is at least this many °F above the zone's cooling setpoint. Lower = more aggressive (closes covers sooner when occupied), higher = more conservative (lets occupied rooms get warmer before closing). Default: 2.0°F.",
           "hvac_solar_gain_cover_enabled": "Master toggle for the entire solar-gain cover management feature. When OFF, HVAC does not close or open any covers regardless of per-room settings. Per-room cover automation (timed open/close, exit close) is unaffected.",
@@ -1950,20 +1952,22 @@
             }
           },
           "climate_backstop": {
-            "name": "Climate Backstop (comfort range + thermostat fallback)",
+            "name": "Thermostat and empty-room hold",
             "data": {
               "target_temp_heat": "Comfort Range — Low (°F)",
               "target_temp_cool": "Comfort Range — High (°F)",
               "climate_entity": "Climate/Thermostat Entity (fallback)",
-              "hvac_vacancy_hold": "HVAC vacancy hold — day (seconds; 0 = never hold)",
-              "hvac_vacancy_hold_night": "HVAC vacancy hold — night (seconds; must be ≥ day, auto-clamped)"
+              "hvac_vacancy_hold": "Empty-room hold (day)",
+              "hvac_vacancy_hold_night": "Empty-room hold (night)",
+              "hvac_skip_entry_wait": "Skip entry wait"
             },
             "data_description": {
               "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set.",
-              "hvac_vacancy_hold": "How long HVAC keeps this room HVAC-occupied after motion clears (day). 0 = disabled (never hold; used for hallways/circulation). Typical: bedrooms ~1 min day / 30 min night; common areas ~1 / 15 min; closets & baths ~5-10 min night; hallways 0. Night must be ≥ day (this form rejects a night below day; a blank night is auto-clamped up at runtime). Blank falls back to the room-type default.",
-              "hvac_vacancy_hold_night": "How long HVAC keeps this room HVAC-occupied after motion clears (night). 0 = disabled (never hold; used for hallways/circulation). Typical: bedrooms ~1 min day / 30 min night; common areas ~1 / 15 min; closets & baths ~5-10 min night; hallways 0. Night must be ≥ day (this form rejects a night below day; a blank night is auto-clamped up at runtime). Blank falls back to the room-type default."
+              "hvac_vacancy_hold": "How many seconds heating and cooling keep treating this room as occupied during the day and evening. The time counts from the last sign of someone in the room, such as motion, presence, a camera or a phone. This covers people sitting still, and it is the only protection for someone who stays completely still. Leave blank to use the default for this room type: 1 minute for closets, 2 minutes for media, utility and general rooms and garages, 3 for bathrooms and living areas, and 4 for bedrooms. Enter 0 to hold only while a sensor still sees someone. From 9 pm until the house goes to sleep, and while the house is away, arriving or has guests, this same number (or, if left blank, a shorter built-in hold) is counted from when the room itself shows as empty instead.",
+              "hvac_vacancy_hold_night": "The hold used while the house is asleep or waking up. It counts from when the room itself shows as empty, so sleepers who lie still get extra time. Leave blank to use the default for this room type: 30 minutes for bedrooms and media rooms, 15 for living areas, 10 for bathrooms, garages and utility rooms, and 5 for closets. Enter 0 for no extra time once the room shows as empty. This form rejects a night value below the day value.",
+              "hvac_skip_entry_wait": "For rooms whose sensor only gives short pulses. When on, anyone detected in this room switches a zone set to Away back to Home at once, without the Entry wait. Only matters during the day and evening."
             }
           }
         }
@@ -2037,7 +2041,7 @@
       "ai_rule_empty_description": "Please enter a rule description.",
       "invalid_json": "Invalid JSON format. Use: {\"person.name\": [\"zone_1\", \"zone_2\"]}",
       "envoy_required": "Envoy entity is required when Energy Coordinator is enabled.",
-      "hvac_hold_night_below_day": "HVAC vacancy hold (night) must be greater than or equal to HVAC vacancy hold (day). Leave one blank to use the room-type default.",
+      "hvac_hold_night_below_day": "The night hold must be at least as long as the day hold. Raise the night value, or leave one of them blank to use the room type's default.",
       "presence_runtime_cap_above_max": "Presence-runtime cap must be less than or equal to the humidity-fan max runtime.",
       "comfort_range_inverted": "Comfort Range — Low must be less than or equal to Comfort Range — High.",
       "envoy_invalid_format": "Doesn't look like an Envoy entity ID — expected format: sensor.envoy_<serial>_<...>",

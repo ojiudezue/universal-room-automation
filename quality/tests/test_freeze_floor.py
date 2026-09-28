@@ -156,7 +156,8 @@ def _load_hvac_module():
     _stub_module("ura_hvac_pkg.domain_coordinators.hvac_egress", EgressManager=object)
     _stub_module("ura_hvac_pkg.domain_coordinators.hvac_fans", FanController=object)
     _stub_module(
-        "ura_hvac_pkg.domain_coordinators.hvac_override", OverrideArrester=object
+        "ura_hvac_pkg.domain_coordinators.hvac_override", OverrideArrester=object,
+        SUPPRESS_TTL_SECONDS_PRESET=120,  # v5.103.20: hvac.py imports it at module level
     )
     _stub_module("ura_hvac_pkg.domain_coordinators.hvac_predict", HVACPredictor=object)
     _stub_module("ura_hvac_pkg.domain_coordinators.hvac_preset", PresetManager=object)
@@ -281,6 +282,12 @@ class _FakeServices:
 
 
 class _FakeHass:
+    # v5.103.20 hardening: when a sibling test has already imported the REAL
+    # `homeassistant.helpers.dispatcher` before this file runs, the stub is
+    # skipped and the real `async_dispatcher_send` calls this no-op first.
+    def verify_event_loop_thread(self, *_a, **_k) -> None:
+        return None
+
     def __init__(self):
         self.services = _FakeServices()
         self.data = {

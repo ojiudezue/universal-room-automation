@@ -588,6 +588,23 @@ def test_hallway_circulation_exclusion_via_update_room_conditions():
         def __init__(self, occupied):
             self.data = {"occupied": occupied, "temperature": None, "humidity": None}
             self.config_entry = None
+            # v5.103.20 (HVAC fast occupancy response): in home_day the
+            # producer follows the EVIDENCE rule, so a lighting-occupied
+            # room needs HVAC evidence to count. Both rooms get identical
+            # fresh evidence — the hallway is still excluded upstream, so
+            # the discriminator (fused == bedroom only) is unchanged.
+            self.last_update_success = True
+            self._occ = occupied
+
+        def get_last_hvac_evidence_time(self):
+            import sys as _sys
+            from datetime import timedelta
+            _hz = _sys.modules["custom_components.universal_room_automation.domain_coordinators.hvac_zones"]
+            now = _hz.dt_util.now()   # the PRODUCER's clock (sibling tests may freeze it)
+            return now if self._occ else now - timedelta(days=1)
+
+        def is_hvac_evidence_active(self):
+            return bool(self._occ)
 
     hass = MagicMock()
     hass.config_entries = _CEs()
@@ -772,7 +789,9 @@ def test_swap_rows_2a_and_2c_read_fused():
 
 
 def test_d5_zone_entry_dwell_default_is_zero():
-    assert _hvac_const_mod().DEFAULT_ZONE_ENTRY_DWELL_MINUTES == 0
+    # v5.103.20 D5 (ruling R3): knob 47 now drives the entry transit
+    # filter; its default is 1 minute (the live value stays 0 until set).
+    assert _hvac_const_mod().DEFAULT_ZONE_ENTRY_DWELL_MINUTES == 1
 
 
 def test_d2_binary_sensor_entity_registered_and_reflects_producer():
@@ -905,8 +924,11 @@ def test_d3_defaults_and_tables_present():
     assert C.DEFAULT_HVAC_VACANCY_HOLD == 60
     # Fix-up round 2: night default MUST be >= day default (monotonicity).
     assert C.DEFAULT_HVAC_VACANCY_HOLD_NIGHT >= C.DEFAULT_HVAC_VACANCY_HOLD
-    # Bedroom day = 60s (matches DEFAULT).
-    assert C.ROOM_TYPE_HVAC_HOLD["bedroom"] == 60
+    # v5.103.20 (HVAC fast occupancy response): the evidence-rule bedroom
+    # hold is 240 s (operator ruling, plan §4.6); the SHADOW's frozen
+    # v5.103.19 bedroom tail stays 60 s in ROOM_TYPE_HVAC_TAIL_LEGACY.
+    assert C.ROOM_TYPE_HVAC_HOLD["bedroom"] == 240
+    assert C.ROOM_TYPE_HVAC_TAIL_LEGACY["bedroom"] == 60
     # Night table has bigger bedroom tail.
     assert C.ROOM_TYPE_HVAC_HOLD_NIGHT["bedroom"] == 1800
     # HVAC-DEMAND-KNOBS-AND-OBS-GAPS-1 D1/D2 (v5.103.8): CONFs

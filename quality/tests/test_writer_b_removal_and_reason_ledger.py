@@ -589,8 +589,14 @@ class TestReasonLadderPrecedence:
 
     EXPECTED_ORDER = [
         "stale_occupancy",
+        # v5.103.20 fix-up 1 (D-L2, reviewed): a shed/coast FORCE-away
+        # (`_shed_forced_away_this_tick`) is booked as the energy reason
+        # even when the zone is also past grace — it ranks ABOVE
+        # `vacant_past_grace`. Behavioural anchor:
+        # test_hvac_fast_response_fixup1::test_shed_forced_away_is_not_booked_as_vacant_past_grace
+        "energy_shed_cap_reached",
         "vacant_past_grace",
-        # D-b1 rename (Single-User-No-Back-Compat).
+        # D-b1 rename (Single-User-No-Back-Compat); the runtime_exceeded rung.
         "energy_shed_cap_reached",
         "pre_arrival",
         "house_state_transition",

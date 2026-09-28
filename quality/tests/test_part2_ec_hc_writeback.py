@@ -60,6 +60,8 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(HVAC_CONST_SRC, "CONF_HVAC_VACANCY_GRACE_CONSTRAINED"),
     _extract_conf(HVAC_CONST_SRC, "CONF_HVAC_MAX_OCCUPANCY_HOURS"),
     _extract_conf(HVAC_CONST_SRC, "CONF_HVAC_ZONE_ENTRY_DWELL"),
+    # v5.103.20 fix-up 1 (ruling 2): "52 · Return Window (min)"
+    _extract_conf(HVAC_CONST_SRC, "CONF_HVAC_RETURN_WINDOW_MINUTES"),
     _extract_conf(ENERGY_CONST_SRC, "CONF_DYNAMIC_PRESET_DWELL_MINUTES"),
     # D1 — EC family
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT"),
@@ -344,7 +346,7 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +2 evse-charge-onset Rev 6 (2026-08-30): CHARGE_ONSET_TIME +
     #    CHARGE_ONSET_ENABLED (both push live via _EC_SETTER_DISPATCH;
     #    B-CRIT-2) -> 95
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 96
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 97  # +hvac_return_window_minutes (v5.103.20)
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +446,8 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_HVAC_VACANCY_GRACE_CONSTRAINED": "hvac_vacancy_grace_constrained",
         "_CONF_HVAC_MAX_OCCUPANCY_HOURS": "hvac_max_occupancy_hours",
         "_CONF_HVAC_ZONE_ENTRY_DWELL": "hvac_zone_entry_dwell",
+        "_CONF_HVAC_RETURN_WINDOW_MINUTES": "hvac_return_window_minutes",
+        "_CONF_HVAC_SKIP_ENTRY_WAIT": "hvac_skip_entry_wait",
         "_CONF_DYNAMIC_PRESET_DWELL_MINUTES": "dynamic_preset_dwell_minutes",
         "_CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA":  "hvac_occupied_cover_close_delta",
         "_CONF_HVAC_COVER_CLOSE_TEMP":            "hvac_cover_close_temp",
@@ -631,6 +635,7 @@ def test_apply_in_place_dispatch_coverage():
         "hvac_vacancy_grace_constrained",
         "hvac_max_occupancy_hours",
         "hvac_zone_entry_dwell",
+        "hvac_return_window_minutes",  # v5.103.20 fix-up 1: own dispatch branch
     })
     # HVAC tunable factory
     covered.update(ns["_HVAC_TUNABLE_DISPATCH"].keys())
@@ -1456,3 +1461,20 @@ def test_listener_suppresses_reload_for_hvac_tunable_change():
     )
     assert hass.async_create_task.call_count == 0
     assert hvac._cover_controller._occupied_close_delta == 2.5
+
+
+def test_apply_in_place_pushes_return_window_live(monkeypatch):
+    """v5.103.20 fix-up 2 (L5 / M10): an options save that changes ONLY
+    `hvac_return_window_minutes` is applied in place — the live attribute
+    the producer reads (`hvac._return_window_minutes`) is updated and the
+    key is reported applied (no reload)."""
+    ns = _load_init_dispatch_namespace()
+    hvac = _FakeHvacFull()
+    hvac._return_window_minutes = 15
+    hass = _FakeHassFull(hvac=hvac)
+    key = "hvac_return_window_minutes"
+    new = {key: 4}
+    applied = ns["_apply_in_place"](hass, _FakeEntry(options=new), {key}, new)
+    assert applied == {key}
+    assert hvac._return_window_minutes == 4
+    assert hass.config_entries.async_reload.call_count == 0

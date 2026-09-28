@@ -80,13 +80,17 @@ def test_options_reload_suppress_keys_contains_exactly_five_conf_imports():
         "_CONF_HVAC_VACANCY_GRACE_CONSTRAINED",
         "_CONF_HVAC_MAX_OCCUPANCY_HOURS",
         "_CONF_HVAC_ZONE_ENTRY_DWELL",
+        # v5.103.20 fix-up 1 (ruling 2): "52 · Return Window (min)". The
+        # per-room "Skip entry wait" key is a ROOM key (_ROOM_SUPPRESS_KEYS),
+        # not a CM key, so it is deliberately NOT expected here.
+        "_CONF_HVAC_RETURN_WINDOW_MINUTES",
         "_CONF_DYNAMIC_PRESET_DWELL_MINUTES",
     ]
     for name in expected:
         assert name in body, f"{name} missing from OPTIONS_RELOAD_SUPPRESS_KEYS"
     # Count CONF aliases — guards against accidental additions.
     alias_count = sum(1 for name in expected if name in body)
-    assert alias_count == 5
+    assert alias_count == 6
 
 
 def test_options_reload_suppress_keys_resolves_to_known_conf_strings():
@@ -110,6 +114,7 @@ def test_options_reload_suppress_keys_resolves_to_known_conf_strings():
         extract(hvac_const_src, "CONF_HVAC_VACANCY_GRACE_CONSTRAINED"),
         extract(hvac_const_src, "CONF_HVAC_MAX_OCCUPANCY_HOURS"),
         extract(hvac_const_src, "CONF_HVAC_ZONE_ENTRY_DWELL"),
+        extract(hvac_const_src, "CONF_HVAC_RETURN_WINDOW_MINUTES"),
         extract(energy_const_src, "CONF_DYNAMIC_PRESET_DWELL_MINUTES"),
     }
     assert expected_strings == {
@@ -117,6 +122,7 @@ def test_options_reload_suppress_keys_resolves_to_known_conf_strings():
         "hvac_vacancy_grace_constrained",
         "hvac_max_occupancy_hours",
         "hvac_zone_entry_dwell",
+        "hvac_return_window_minutes",
         "dynamic_preset_dwell_minutes",
     }
 
@@ -219,6 +225,8 @@ def _load_init_listener_helpers():
         "_CONF_HVAC_VACANCY_GRACE_CONSTRAINED": "hvac_vacancy_grace_constrained",
         "_CONF_HVAC_MAX_OCCUPANCY_HOURS": "hvac_max_occupancy_hours",
         "_CONF_HVAC_ZONE_ENTRY_DWELL": "hvac_zone_entry_dwell",
+        "_CONF_HVAC_RETURN_WINDOW_MINUTES": "hvac_return_window_minutes",
+        "_CONF_HVAC_SKIP_ENTRY_WAIT": "hvac_skip_entry_wait",
         "_CONF_DYNAMIC_PRESET_DWELL_MINUTES": "dynamic_preset_dwell_minutes",
         # Part 2 — HVAC tunable factory (14 keys)
         "_CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA":  "hvac_occupied_cover_close_delta",

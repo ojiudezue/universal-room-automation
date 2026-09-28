@@ -94,6 +94,7 @@ def button_tree(button_src) -> ast.Module:
 
 PRESENCE_TIMER_NUMBER_CLASSES = (
     "ZoneEntryDwellNumber",
+    "ReturnWindowMinutesNumber",   # v5.103.20 fix-up 1 (ruling 2)
     "VacancyGraceMinutesNumber",
     "VacancyGraceConstrainedNumber",
     "MaxOccupancyHoursNumber",
@@ -102,6 +103,7 @@ PRESENCE_TIMER_NUMBER_CLASSES = (
 
 PRESENCE_TIMER_CONF_KEYS = {
     "ZoneEntryDwellNumber": "CONF_HVAC_ZONE_ENTRY_DWELL",
+    "ReturnWindowMinutesNumber": "CONF_HVAC_RETURN_WINDOW_MINUTES",
     "VacancyGraceMinutesNumber": "CONF_HVAC_VACANCY_GRACE_MINUTES",
     "VacancyGraceConstrainedNumber": "CONF_HVAC_VACANCY_GRACE_CONSTRAINED",
     "MaxOccupancyHoursNumber": "CONF_HVAC_MAX_OCCUPANCY_HOURS",
@@ -110,6 +112,7 @@ PRESENCE_TIMER_CONF_KEYS = {
 
 PRESENCE_TIMER_HVAC_ATTRS = {
     "ZoneEntryDwellNumber": "_zone_entry_dwell",
+    "ReturnWindowMinutesNumber": "_return_window_minutes",
     "VacancyGraceMinutesNumber": "_vacancy_grace",
     "VacancyGraceConstrainedNumber": "_vacancy_grace_constrained",
     "MaxOccupancyHoursNumber": "_max_occupancy_hours",
@@ -316,6 +319,7 @@ def test_hvac_settings_schema_includes_presence_timing_section(config_flow_src):
         "CONF_HVAC_VACANCY_GRACE_MINUTES",
         "CONF_HVAC_VACANCY_GRACE_CONSTRAINED",
         "CONF_HVAC_ZONE_ENTRY_DWELL",
+        "CONF_HVAC_RETURN_WINDOW_MINUTES",   # v5.103.20 fix-up 2: knob 52 on the form
         "CONF_HVAC_MAX_OCCUPANCY_HOURS",
     ):
         assert key in window, (
@@ -407,6 +411,7 @@ def test_new_presence_timer_keys_present(strings_json, translations_en):
         "hvac_vacancy_grace_minutes",
         "hvac_vacancy_grace_constrained",
         "hvac_max_occupancy_hours",
+        "hvac_return_window_minutes",        # v5.103.20 fix-up 2
     ):
         assert key in s["data"], f"strings.json missing {key} in data"
         assert key in s["data_description"], f"strings.json missing {key} in data_description"
@@ -495,15 +500,16 @@ def test_presence_timing_selectors_use_box(config_flow_src):
     if end < 0:
         end = start + 4000
     window = config_flow_src[start:end]
-    # Section should contain four NumberSelector entries — every one BOX.
+    # Section should contain five NumberSelector entries (47, 48, 49, 52
+    # — v5.103.20 fix-up 2 — and max-occupancy) — every one BOX.
     selector_count = window.count("selector.NumberSelector(")
-    assert selector_count == 4, (
-        f"presence_timing section must contain 4 NumberSelector entries, "
+    assert selector_count == 5, (
+        f"presence_timing section must contain 5 NumberSelector entries, "
         f"got {selector_count}."
     )
     box_count = window.count("NumberSelectorMode.BOX")
-    assert box_count == 4, (
-        f"presence_timing section must use NumberSelectorMode.BOX for all 4 "
+    assert box_count == 5, (
+        f"presence_timing section must use NumberSelectorMode.BOX for all 5 "
         f"selectors, got {box_count}."
     )
 
@@ -708,6 +714,9 @@ def _make_entry(opts: dict | None = None) -> MagicMock:
          "hvac_max_occupancy_hours", 12),
         ("ZoneEntryDwellNumber", "_zone_entry_dwell",
          "hvac_zone_entry_dwell", 5),
+        # v5.103.20 fix-up 1 (ruling 2): "52 · Return Window (min)"
+        ("ReturnWindowMinutesNumber", "_return_window_minutes",
+         "hvac_return_window_minutes", 7),
     ],
 )
 def test_set_native_value_end_to_end(class_name, attr, conf_key, value):

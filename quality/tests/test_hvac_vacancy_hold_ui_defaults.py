@@ -32,6 +32,7 @@ import voluptuous as vol
 
 from custom_components.universal_room_automation import config_flow as _cf
 from custom_components.universal_room_automation.const import (
+    CONF_HVAC_SKIP_ENTRY_WAIT,
     CONF_HVAC_VACANCY_HOLD,
     CONF_HVAC_VACANCY_HOLD_NIGHT,
     CONF_ROOM_TYPE,
@@ -162,9 +163,36 @@ def test_help_text_describes_reject_on_night_below_day():
     )
     with open(en_path, "r") as fh:
         en = fh.read()
-    # C3: reworded from "auto-clamped to >= day" to reject-on-form,
-    # runtime-clamp-blank-only wording.
-    assert "rejects a night below day" in en, (
-        "help text must state the form rejects a night below day"
+    # C3 (v5.103.8): the form rejects a night below day. v5.103.20 (HVAC
+    # fast occupancy response, plan §14.2) reworded both helpers in plain
+    # language: the night helper still states the rejection; the day helper
+    # states what 0 means (hold only while a sensor still sees someone).
+    assert "This form rejects a night value below the day value." in en, (
+        "night helper must state the form rejects a night below day"
     )
-    assert "0 = disabled" in en
+    assert "Enter 0 to hold only while a sensor still sees someone." in en, (
+        "day helper must state what 0 means"
+    )
+    assert "Enter 0 for no extra time once the room shows as empty." in en
+
+
+# --------- v5.103.20 fix-up 1 (ruling 3): per-room "Skip entry wait" ---------
+
+def _extract_default(flow_result, conf_key):
+    """The vol.Optional(conf_key, default=...) marker's default (called)."""
+    for marker, _value in _walk_schema(flow_result["data_schema"]):
+        if getattr(marker, "schema", None) == conf_key:
+            d = getattr(marker, "default", None)
+            return d() if callable(d) else d
+    raise AssertionError(f"CONF key {conf_key!r} not found in climate schema")
+
+
+@pytest.mark.parametrize("saved,expected", [(None, False), (True, True), (False, False)])
+def test_skip_entry_wait_field_in_climate_step(saved, expected):
+    """The climate step carries `hvac_skip_entry_wait` as a boolean whose
+    default is the persisted value (off when never set)."""
+    options = {CONF_ROOM_TYPE: ROOM_TYPE_BEDROOM}
+    if saved is not None:
+        options[CONF_HVAC_SKIP_ENTRY_WAIT] = saved
+    result = _run_climate(options=options)
+    assert _extract_default(result, CONF_HVAC_SKIP_ENTRY_WAIT) is expected
