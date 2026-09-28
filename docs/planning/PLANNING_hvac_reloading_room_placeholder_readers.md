@@ -150,6 +150,16 @@ It opens the recorder read-only as `file:/config/home-assistant_v2.db?mode=ro`, 
 
 **Expected outcome, stated as a hypothesis for the probe to test.** v5.103.15 live row 2 never saw a transient room, and the 09-19 memory found zero restart-free URA setups. So the live-reload gates will probably fail. Only P3 is likely to justify a build, which would make this a D3-only cycle.
 
+## 5a. D0 results (2026-09-27 21:45 CDT, orchestrator, `scripts/probes/hvac_reloading_room_probe.py`, recorder span 7.7 d)
+
+- **P0:** 8 HA restarts in 7.7 d.
+- **P1:** 0 zone-status samples with a transient or absent room — boot 0, live 0 — across all 3 zones since v5.103.15.
+- **P3:** BOOT-RESET 0 of 10 zone/restart pairs occupied across a restart (the occupancy clock survived every restart).
+- **P4 (14 d):** D5 coast activity exists (3 `energy_shed_cap_reached` coast aways, 48 occupied deferrals), 2 `stale_occupancy` D6 aways — but with zero reloading rooms ever observed, none can have been caused by a placeholder read.
+- P2 omitted: P1 is the direct signal since v5.103.15.
+
+**Verdict:** every go/no-go gate fails. **PARK the whole card** with the §9 revival triggers (any P1 sample > 0, or P3 BOOT-RESET > 0). Clean result, no build.
+
 ## 6. Falsifiable invariant
 
 > **INV-PLACEHOLDER.** On any decision tick where zone Z contains a room classified TRANSIENT:

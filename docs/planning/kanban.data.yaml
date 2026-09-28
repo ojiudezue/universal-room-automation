@@ -2350,10 +2350,11 @@ cards:
   parsimony: {problem: 'a disabled room silently disables conditioning-demand for its whole zone', verdict: BUILD, note: 'scope the gate to live rooms (operator rule); trip-wire only as a diag'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'residual of the round-5 F1 all() revert'}
 - id: HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1
+  measured_2026_09_27: 'Planned (docs/planning/PLANNING_hvac_reloading_room_placeholder_readers.md: 4 bypass readers D1-D4, reuse v5.103.15 gate) then MEASURED FIRST per its D0 (scripts/probes/hvac_reloading_room_probe.py, 7.7 d): 8 restarts; 0 zone-status samples with a transient/absent room (boot 0, live 0); 0/10 restart occupancy-clock resets. Every build gate fails -> PARKED. Revival trigger: any tick sees a transient/absent room (zone status transient_rooms/coordinator_absent_rooms non-empty) or a restart resets continuous_occupied_hours on an occupied zone — re-run the probe. Plan corrections (D6 fix shape, D5 was a deliberate v5.103.15 choice, 3 missed readers) are preserved in the plan for revival.'
   workstream: HVAC-W2-OCCUPANCY-TRUTH
   title: A room that is reloading is briefly treated as "empty" by HVAC paths that bypass the shared retreat check
   thread: hvac
-  status: planned
+  status: parked
   created: '2026-09-26 02:15'
   updated: '2026-09-26 02:40'
   refinement_status: initial
@@ -2384,8 +2385,7 @@ cards:
     related: [HVAC-DEGRADED-ROOM-TRIPWIRE-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1]
     context: 'HVAC-DEGRADED-ROOM-TRIPWIRE-1 fixed the retreat chokepoint; this card covers the readers that bypass
       it. HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 built the D5 occupancy gate on the raw fused read.'
-  next: 'Plan (Tier 2): D5 defer on `not self._zone_conditioning_retreat_ok(zone)`; D6 Source-4 excludes
-     coordinator-absent rooms; continuous_occupied_since ignores synthetic rooms. Belongs in W2 (occupancy truth).'
+  next: 'PARKED on measurement 2026-09-27. Revive only on the trigger in measured_2026_09_27.'
   parsimony: {problem: 'paths that bypass the shared retreat check act on a reloading room''s placeholder empty', verdict: BUILD}
 
 - id: HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1
