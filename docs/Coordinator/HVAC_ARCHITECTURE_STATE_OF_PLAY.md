@@ -28,6 +28,7 @@
   - The latch discharge is LEVEL-triggered (any readable named non-manual state, incl. the first event after boot), checked every full pass; latches of unmapped thermostats are pruned.
   - A person-interrupted or master-off pre-arrival also spends the arrival episode.
   - An ended pre-arrival always takes the arrival reference, even over an in-flight episode (incl. the startup audit).
+**2026-09-29 (`feature/anomaly-blind-metrics`, built, not deployed — Tier 2-DB) — the HVAC anomaly sensor (`sensor.ura_hvac_coordinator_hvac_anomaly`, `hvac.get_anomaly_status`) no longer reads `nominal` while metrics are blind: it delegates to the shared `AnomalyDetector.get_sensor_state()` (severity → learning → `partial` → nominal). `HVAC_UNWIRED_METRICS` (`hvac_const.py`: comfort_deviation_hours, egress_pause_frequency) is passed at the detector ctor; `short_cycle_rate` counts at its best (zone) scope. Display/diagnostic only — no decision reads the anomaly sensor; severity is unchanged. §11 W4 `ANOMALY-SAVE-BASELINES-DICT-MUTATION-1` folded. Plan `docs/planning/PLANNING_anomaly_detector_blind_metrics.md`.**
 **2026-09-28 (`feature/hvac-labels-and-timer-attrs`, not deployed) — display-only: zone `away_due_at` (§3.2), arrester `grace_until` / `compromise_until` (§7); label renames "Wait for Presence" / "Compliance Presence Wait" / "Weather Adjust Delay/Margin" (no behaviour change, §8).**
 **Scope:** everything URA does with the thermostats — decide, write, borrow/return, read back — and the occupancy
 model that drives it. Covers releases v5.103.0 → v5.103.18.
@@ -522,7 +523,7 @@ cause does not. Evidence: HA recorder state history for both entities, 09-23→0
 | 4 | **W2 Occupancy truth:** night still-sleeper hold (in-suite stationary BLE + radar micro-blips extend the hold; zone-scoped), Jaya radar repair (physical), occupancy-triggered decision cycle (fast path, `82620357a`), hot entry, reloading-room placeholder readers, guest-as-zone-person | 9.3, 9.4, 9.5 | Tier 2-DB each |
 | 5 | Enable Custom Preset Ranges (D9) once W1-B removed its blockers | 9.7 | Tier 2 |
 | 6 | **W3 Energy-aware HVAC:** pre-cool window TOU-derived, D5 re-ground on ODU Var %, equipment-health telemetry | — | as ranked |
-| 7 | **W4 Closure:** parked residuals (`HVAC-ROLLOVER-DURABLE-DATE-ORDERING-1`, `ANOMALY-SAVE-BASELINES-DICT-MUTATION-1`), README write-backs, card disposal, update this doc | — | — |
+| 7 | **W4 Closure:** parked residuals (`HVAC-ROLLOVER-DURABLE-DATE-ORDERING-1`; ~~`ANOMALY-SAVE-BASELINES-DICT-MUTATION-1`~~ **FOLDED 2026-09-29 into the anomaly-coverage cycle** (`PLANNING_anomaly_detector_blind_metrics.md` D1/§3a, branch `feature/anomaly-blind-metrics`): `save_baselines` now iterates `list(self._baselines.items())`, and every detector status read is non-creating. The card's premise "not reachable — every baseline creator runs under the decision-cycle lock" was FALSE: the HVAC anomaly sensor's reads created `(metric, house)` rows outside the lock), README write-backs, card disposal, update this doc | — | — |
 
 Operator constraints carried into every step: match occupancy **in the zone**, never "anyone home"; nudges stay ON;
 per-brand behaviour discovered in detail but exposed through a simple generic interface; no corners cut
