@@ -4117,6 +4117,7 @@ class BatteryStrategy:
         stage_note: str | None = None,
         effective_reserve: int | None = None,
         hold_depth: str = "allow_discharge",
+        latched: bool = False,
     ) -> dict[str, Any]:
         """Build the ATTAIN-phase CHARGE decision dict.
 
@@ -4156,14 +4157,37 @@ class BatteryStrategy:
         horizon_str = (
             f"{horizon_val:.0f} min" if horizon_val is not None else "?"
         )
-        reason = (
-            f"Peak-buffer attainability{stage} — projected SOC "
-            f"{proj_str} < target {self._peak_buffer_target}% "
-            f"at {boundary_str} (observed net rate "
-            f"{rate_str} over {ATTAIN_RATE_WINDOW_TICKS} ticks, "
-            f"{mins_str} remaining; projection horizon {horizon_str}; "
-            f"solar consumed by house/EV loads)"
-        )
+        # EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1: the "projected X <
+        # target" wording is only true on the ENTRY tick, where
+        # `_should_attain_peak_buffer` actually made that comparison. Once
+        # latched (`latched=True`), the charge continues until SOC reaches
+        # the target and the projection is NOT compared (by design — the
+        # observed rate now includes attain's own grid charge, so the raw
+        # projection overshoots, e.g. 129%-191% live 2026-09-28). Never
+        # print "<" unless it is true; say what is happening instead.
+        # LOW-3: compare on the same whole-percent value that gets printed,
+        # so 79.6 vs 80 never renders as "80% < target 80%".
+        target = self._peak_buffer_target
+        if (
+            not latched
+            and projected is not None
+            and target is not None
+            and int(f"{projected:.0f}") < int(f"{target:.0f}")
+        ):
+            reason = (
+                f"Peak-buffer attainability{stage} — projected SOC "
+                f"{proj_str} < target {target}% "
+                f"at {boundary_str} (observed net rate "
+                f"{rate_str} over {ATTAIN_RATE_WINDOW_TICKS} ticks, "
+                f"{mins_str} remaining; projection horizon {horizon_str}; "
+                f"solar consumed by house/EV loads)"
+            )
+        else:
+            now_str = f"{soc:.0f}%" if soc is not None else "unknown"
+            reason = (
+                f"Charging the battery from the grid to {target}% "
+                f"before {boundary_str} (now {now_str}){stage}"
+            )
         floored = self._floor_reserve(
             self._peak_buffer_target, effective_reserve, hold_depth,
         )
@@ -4823,6 +4847,7 @@ class BatteryStrategy:
                 projected=projected, rate=rate, mins=mins,
                 tou_period=tou_period, stage_note=stage_note,
                 effective_reserve=effective_reserve, hold_depth=hold_depth,
+                latched=True,
             )
 
         # ---- Route INACTIVE — entry predicate may fire -----------------

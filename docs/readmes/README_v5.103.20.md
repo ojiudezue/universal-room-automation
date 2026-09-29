@@ -111,3 +111,14 @@ live; the spell closes on any tick whose S1 block is skipped — fix-up 2 D-L1),
   no runtime code depends on them).
 - D3 (grace re-check) and D4 (config) are operator steps, not code.
 - `current_session_start` DELETE waits for validation (W4), per plan §12.
+
+## Live validation — boot, 2026-09-28 (HACS v5.103.20, HA restarted 18:45 CDT; URA loaded 18:54)
+
+| # | Check | Result | Evidence |
+|---|---|---|---|
+| — | Installed code | PASS | PR #592 carries hvac_zones.py / hvac.py / coordinator.py / hvac_const.py; host manifest v5.103.20; `_evidence_rule_output` present in installed hvac_zones.py |
+| — | Zero URA ERRORs at boot | PASS | system_log ERROR filter on `universal_room_automation`: none |
+| — | New settings live | PASS | `number.ura_hvac_coordinator_52_return_window_min` = 10; `switch.ura_hvac_coordinator_31_fast_room_response` present; `number.ura_hvac_coordinator_zone_entry_dwell` set to **1** by the orchestrator (operator-approved checkpoint item 4) and verified |
+| — | Evidence rule active in home_evening | PASS | house `home_evening`; Kitchen / Living Room `rule=evidence`, hold 180 s (common, R1); Master Bedroom `rule=evidence`, hold 240 s |
+| — | Zones establish on live rooms | PASS | zone_1/2/3 status: `live_rooms` 12/14/14, `pending_arm_rooms` [], `transit_filtered_today` 0 |
+| L1–L15 | Timed behaviour checks | PENDING | evaluated by one-shot DB/recorder query after the first full occupied day (2026-09-29 evening) — not a soak |

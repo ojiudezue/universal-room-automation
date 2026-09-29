@@ -2231,7 +2231,8 @@ cards:
   next: 'CLOSED 2026-09-28 (overnight pass). Reopen only if the operator knows people were in the dining room on 09-26 or 09-27 and the radar stayed off.'
 - id: EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1
   title: 'Arbitrage release can turn a car on that fill-priority should still hold; attain reason text mislabels a latched state'
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.103.21
   thread: energy
   created: '2026-09-28'
   updated: '2026-09-28 13:20'
@@ -30294,6 +30295,49 @@ cards:
   - quality/tests/test_evse_drain_precedence_session_b2c1_fixup.py:788-809
   - quality/tests/test_owner_registry_mutation_matrix.py
   - feedback_unrestored_mutation_drill_poisons_evidence
+- id: URA-ATTRIBUTE-CHURN-1
+  title: Two URA entities re-publish every couple of seconds only because a timestamp or countdown attribute ticked, adding HA CPU load and a history row each time
+  thread: platform
+  status: planned
+  created: '2026-09-28 19:10'
+  updated: '2026-09-28 19:10'
+  approval: implied
+  tags: [tier-1, ha-cpu, recorder]
+  origin:
+    date: '2026-09-28'
+    gist: 'operator HA CPU review ("HA CPU is double what it was 4 months ago"); recorder top-writers sweep over 5 min'
+  why: 'Measured 2026-09-28 19:07 over 5 min: binary_sensor.living_room_occupied and living_room_hvac_occupied each wrote 119 rows (~24/min) with state steady "on"; the ONLY changed attribute was last_motion. sensor.ura_safety_coordinator_safety_active_cooldowns wrote 119 rows with state "1 recent"; the only changes were cooldowns.*.age_seconds and max_remaining_seconds (both derivable from last_alert). Every write is a state_changed event on the single HA event loop plus a new state_attributes row.'
+  adjacency_2026_09_28: 'ADJACENT to RECORDER-BLOAT-LOGFLOOD-1 (same class: last_check dropped from Safety Status, sensor.py:6521-6529/6576-6583). That fix established the pattern: DROP the churning key (an unrecorded attribute still fires state_changed on the loop); keep _unrecorded_attributes as a backstop. Swept board, BACKLOG and planning: no other card covers last_motion or cooldown attributes. BACKLOG:1127 discusses _last_motion_time semantics (not churn).'
+  constraints:
+  - 'last_motion: grep consumers (dashboards/PWA/automations/URA readers) before dropping; if something reads it, keep it on a slower-changing surface (e.g. the room occupancy sensor only) and mark it unrecorded.'
+  - 'cooldowns: publish last_alert + cooldown_until (static per alert); drop age_seconds / max_remaining_seconds.'
+  - Sweep every URA entity for the same shape (live-ticking attributes with a steady state), not just these two; measure each against the recorder.
+  next: 'BUILD (Tier 1): drop or stop live-ticking attributes per the RECORDER-BLOAT-LOGFLOOD-1 pattern after a consumer grep; include an all-entity recorder sweep for the same shape. Live check: those entities write < 1 row/min when the state is steady.'
+  links:
+    related: [RECORDER-BLOAT-LOGFLOOD-1, HA-CPU-LOAD-REVIEW-1]
+  rank:
+    value: 4
+    time_criticality: 3
+    effort: 2
+- id: HA-CPU-LOAD-REVIEW-1
+  title: HA runs at about 2x the CPU it used 4 months ago; the biggest non-URA sources need owner decisions
+  thread: platform
+  status: waiting_operator
+  created: '2026-09-28 19:10'
+  updated: '2026-09-28 19:10'
+  tags: [ha-cpu, recorder, config]
+  origin:
+    date: '2026-09-28'
+    gist: operator pasted an external review of HA CPU and asked me to check it and implement some changes
+  why: 'Measured 2026-09-28 (5-min recorder window): 83.9 rows/s total. By integration: span_panel ~1,677/min (206 entities, 2 real panels, 5 s snapshot interval; the simulator is already off), bermuda ~793/min, mqtt ~637/min, URA ~555/min, unifi ~205/min. The review was wrong on two points: the recorder already excluded UniFi rx/tx, and the SPAN load comes from the real panels, not the simulator.'
+  done_2026_09_28: 'DONE: (1) UniFi option allow_bandwidth_sensors -> false (live rx/tx sensors 1,742 -> 6; none had consumers). (2) configuration.yaml recorder exclude globs: sensor.*_unfiltered_distance_to_* (Bermuda, no readers), sensor.envoy_stream_data_timestamp, sensor.envoy_stream_data_age. Backed up as configuration.yaml.bak-2026-09-28-recorder; config_check valid; takes effect at the next restart.'
+  next: 'PICK: (a) raise SPAN snapshot_update_interval 5 s -> 15 s (I would first check which URA energy paths read SPAN); (b) retrigger the Frigate MQTT->events bridge automation (~115 runs/min, the top single entity) only on new/end events; (c) check the water-monitor low_flow_leak binary sensor (~42 changes/min, likely device flapping) -> I apply the chosen ones and re-measure rows/s after the restart.'
+  links:
+    related: [URA-ATTRIBUTE-CHURN-1]
+  rank:
+    value: 4
+    time_criticality: 3
+    effort: 2
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

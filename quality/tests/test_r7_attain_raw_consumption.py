@@ -14,8 +14,9 @@ primitive in isolation) and assert:
   1. `_should_attain_peak_buffer` publishes RAW `_attain_projected_soc`
      that can exceed 100 given a runaway (high-SOC, high-rate, long-mins)
      scenario (M7b anchor — mutation at :2861).
-  2. Attain hold-current flows the RAW value into the decision reason
-     via `_get_attainability_decision` (M7 anchor — mutation at :3553).
+  2. Attain hold-current publishes the RAW value to `_attain_projected_soc`
+     (M7 anchor — mutation at :3553). The latched decision REASON no longer
+     prints the projection (EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1).
   3. Blind hold (soc/rate None) at the hold-current site yields
      `projected=None` in the decision path (not a clamped 0).
 
@@ -130,18 +131,18 @@ def test_attain_hold_current_publishes_raw_projection_over_100():
     hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
     next_soc = _seed_rate(strat, _ANCHOR, start_soc=80.0, rate_pct_per_h=20.0)
     hass.set_state(_BSOC, f"{next_soc:.4f}")
-    result = strat.determine_mode("off_peak", "summer", now=_ANCHOR)
-    reason = result.get("reason", "")
-    # The decision reason format is "projected SOC {projected:.0f}%".
-    # RAW value (no clamp) should print >100. If someone flips to
-    # `soc_pct` (clamped) the reason will say "100%".
-    import re
-    m = re.search(r"projected SOC (\d+)%", reason)
-    assert m is not None, f"no projected SOC in reason: {reason!r}"
-    projected_int = int(m.group(1))
-    assert projected_int > 100, (
+    strat.determine_mode("off_peak", "summer", now=_ANCHOR)
+    # EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1: the latched reason no
+    # longer prints the projection (it claimed "projected X < target" while
+    # X >= target). The RAW contract is anchored on the published mirror
+    # `_attain_projected_soc` (sensor attr attain_projected_soc_at_boundary),
+    # written from the same ProjectionResult. Flipping `raw_soc_pct` ->
+    # `soc_pct` at the hold-current site caps it at 100.
+    published = strat._attain_projected_soc
+    assert published is not None, "hold-current must publish a projection"
+    assert published > 100, (
         f"hold-current consumed clamped value, not raw: "
-        f"reason projected SOC = {projected_int}% (expected >100)"
+        f"published projection = {published} (expected >100)"
     )
 
 

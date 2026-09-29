@@ -43,14 +43,19 @@ _HORIZON_RE = re.compile(r"projection horizon (\d+) min")
 
 def test_attain_entry_reason_horizon_matches_stored_mirror():
     """The reason string's horizon token equals the stored mirror field."""
+    # EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1: use a GENUINE entry
+    # (predicate fires, projected < target). The prior fixture (+10 %/h,
+    # solcast 30) projected 139% >= 90% — the predicate refused entry, and
+    # the reason it built was the false "139% < 90%" text this card fixed.
     strat, hass = _build_strategy(
-        soc=80, peak_buffer_target=90, solcast_today="30",
+        soc=80, peak_buffer_target=90, solcast_today="5",
     )
-    next_soc = _seed_rate(strat, _ANCHOR, start_soc=80.0, rate_pct_per_h=10.0)
+    next_soc = _seed_rate(strat, _ANCHOR, start_soc=80.0, rate_pct_per_h=1.0)
     hass.set_state(_BSOC, f"{next_soc:.4f}")
-    _, projected, rate, mins = strat._should_attain_peak_buffer(
+    should, projected, rate, mins = strat._should_attain_peak_buffer(
         soc=next_soc, now=_ANCHOR, tou_period="off_peak",
     )
+    assert should is True, "fixture must be a genuine attain entry"
     assert projected is not None, "predicate must return a projection"
     mirror = strat._attain_projection_horizon_min
     assert mirror is not None, (
@@ -82,14 +87,19 @@ def test_attain_entry_reason_horizon_reflects_primitive_source():
     mirror, not re-derived from `mins`. If someone accidentally rewired
     the reason to read `mins` directly, this test fails.
     """
+    # EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1: use a GENUINE entry
+    # (predicate fires, projected < target). The prior fixture (+10 %/h,
+    # solcast 30) projected 139% >= 90% — the predicate refused entry, and
+    # the reason it built was the false "139% < 90%" text this card fixed.
     strat, hass = _build_strategy(
-        soc=80, peak_buffer_target=90, solcast_today="30",
+        soc=80, peak_buffer_target=90, solcast_today="5",
     )
-    next_soc = _seed_rate(strat, _ANCHOR, start_soc=80.0, rate_pct_per_h=10.0)
+    next_soc = _seed_rate(strat, _ANCHOR, start_soc=80.0, rate_pct_per_h=1.0)
     hass.set_state(_BSOC, f"{next_soc:.4f}")
-    _, projected, rate, mins = strat._should_attain_peak_buffer(
+    should, projected, rate, mins = strat._should_attain_peak_buffer(
         soc=next_soc, now=_ANCHOR, tou_period="off_peak",
     )
+    assert should is True, "fixture must be a genuine attain entry"
     # Deliberately overwrite the mirror to a SENTINEL that could not have
     # come from `mins`.
     sentinel = 4242.0

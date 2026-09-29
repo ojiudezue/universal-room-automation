@@ -445,7 +445,7 @@ loop. Their non-overlapping shifts across a summer day:
 
 | Window | Governing owner | Behaviour |
 |---|---|---|
-| Sunrise → 14:00, **SOC < 80** (off-peak daylight) | **Fill priority** (row 8, `fill_priority_soc`=80) | HOLD the car — battery fills first. The ONLY owner between ensure-on and the car here. Releases at SOC 80 → ensure-on charges on cheap off-peak while solar pushes battery toward 95. Fired live 2026-07-23 07:59:55. |
+| Sunrise → 14:00, **SOC < 80** (off-peak daylight) | **Fill priority** (row 8, `fill_priority_soc`=80) | HOLD the car — battery fills first. Releases at SOC 80 → ensure-on charges on cheap off-peak while solar pushes battery toward 95. Fired live 2026-07-23 07:59:55. **Not the only owner here:** while attain/arbitrage is grid-charging the battery, the arbitrage breaker hold (row 3/6, `_paused_by_arbitrage` label `breaker`) also holds the car. Fill-priority only claims a charger that is ON, so it never claims a car the breaker hold already turned off; when grid charging ends with SOC still below the fill target, the arbitrage release hands the car to fill-priority instead of turning it on (v5.103.21, EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1). At or above the fill target the release turns the car on as before. |
 | 80–95 band, daytime | **Plain TOU** | Hands-off; no solar-aware interference either way. |
 | **SOC ≥ 95** + forecast ≥ 5 kWh, never peak | **Excess-solar** (row 10, `excess_solar_soc`=95) | Turn ON (overriding TOU pause). Cut off the instant SOC dips **below 95** OR forecast < 5 kWh OR peak starts — NOT at 80. Worst-case battery give-back through this path ≈ 5 SOC points. |
 | Peak | TOU pause (row 12) | Battery needed; EV off. |
