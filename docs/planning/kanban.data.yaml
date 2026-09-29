@@ -30343,6 +30343,22 @@ cards:
   links:
     children: [HVAC-S10-DPM-VS-S1-1, HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1, HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1]
   rank: {value: 6, time_criticality: 3, effort: 4}
+- id: HVAC-FANS-IGNORE-ROOM-COMFORT-FAN-SWITCH-1
+  title: The HVAC fan controller keeps turning a room's fan on and off even after the room's Comfort Fan Control switch is turned off (a guest was woken by it)
+  thread: hvac
+  status: in_progress
+  created: '2026-09-29 14:10'
+  updated: '2026-09-29 14:10'
+  approval: implied
+  tags: [hvac, fans, guest, live-incident, batch-d]
+  origin:
+    date: '2026-09-29'
+    gist: 'operator: "I have a guest in Guest room 2 and they are complaining of fan starting and stopping even after I turned off room comfort fan and HVAC controlled fans (last night)... I don''t like URA failing guests."'
+  why: 'Guest Bedroom 2 (fan.fan_switch_4, Tuya): the operator turned off switch.guest_bedroom_2_guest_bedroom_2_comfort_fan_control at 09-28 17:31, and the room config already had fan_control_enabled False / hvac_coordination_enabled False. The HVAC-tier fan controller (ura_activity_log coordinator=hvac) still acted: fan_off 20:25 and 21:15 (temp_hvac); sleep-onset fan ON at 23:43 (66%) and 03:09 (33%, right after the orchestrator''s 03:01 restart); fan_off 06:01. Other on/off edges (22:11, 22:32, 23:36, 23:39, 23:46, 07:09, 13:12, 13:18) have no URA log entry and no user context, so they are most likely the guest pressing the switch. The old blueprint automation "Upstairs Guest Room Automation" is OFF. Root cause: hvac_fans.discover_fans registers every zone room that has fans and never reads CONF_FAN_CONTROL_ENABLED, so the room''s Comfort Fan Control switch does not stop the HVAC tier. switch.ura_hvac_coordinator_fan_control (house-wide) stayed on.'
+  next: 'BUILD in Batch D (feature/hvac-batch-d, Tier 2): gate every hvac-tier fan actuation on the room''s LIVE CONF_FAN_CONTROL_ENABLED (and decide on the room climate-automation switch); a switch-off leaves the device as the person left it. Ship today while the house is awake; live check = 0 hvac fan actions for Guest Bedroom 2 while its switch is off.'
+  links:
+    related: [GUEST-ROOM-FAN-HOLD-1, HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1]
+  rank: {value: 9, time_criticality: 9, effort: 2}
 - id: ENPHASE-BATTERY-CUTOUTS-1
   title: At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time
   thread: energy
@@ -30429,9 +30445,10 @@ cards:
   parsimony: {problem: 'borrow writes are logged without the borrow id on 4 site families, breaking write-to-episode attribution', verdict: BUILD}
   refs: [docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md, docs/planning/PLANNING_hvac_w1_w2_finish.md, docs/readmes/README_v5.103.16.md]
 - id: ROOM-OVERRIDE-SWITCH-FORGOTTEN-1
+  operator_2026_09_29: 'Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let''s see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant turned OFF by the orchestrator 2026-09-29 (verified off). No soak: a one-shot check is scheduled instead.'
   title: A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21)
   thread: presence
-  status: waiting_operator
+  status: waiting_me
   created: '2026-09-29 04:20'
   updated: '2026-09-29 04:20'
   refinement_status: initial
@@ -30450,7 +30467,7 @@ cards:
   knobs:
   - 'override reminder after N hours (entity Number or options field; rung decided at plan time)'
   parsimony: {problem: 'A vacant override stays on for days unnoticed and hides a room from automation.', verdict: 'CONFIG-FIRST now; reminder build only if you want it'}
-  next: 'DO: turn off switch.exercise_room_override_vacant if it is not deliberate (it has been on since 09-21 23:23). PICK: (A) close this card after that, forgotten overrides are rare; or (B) APPROVE a small reminder (NM digest line or dashboard chip when any room override has been on > N h). -> on B I plan it as Tier 1.'
+  next: 'CHECK (me, one-shot, 2026-09-30 evening): Exercise Room occupancy vs its 2 motion + 1 mmWave sensors since the switch was turned off (2026-09-29 ~14:05): count occupied periods with no motion (phantom), fan-driven mmWave holds, and stuck sensors. Dispose: clean -> done; phantom/stuck -> card the specific sensor fix (operator suspects 3 sensors is too many).'
   links:
     related: [KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1, HVAC-HOLD-SIZING-ALL-ROOMS-1]
     context: 'HVAC-HOLD-SIZING-ALL-ROOMS-1 raw probe surfaced both overrides; KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 carried the kitchen override as evidence while diagnosing kitchen lights.'
