@@ -137,6 +137,7 @@ def _load_ns() -> dict:
         "_CONF_HVAC_VACANCY_GRACE_MINUTES", "_CONF_HVAC_VACANCY_GRACE_CONSTRAINED",
         "_CONF_HVAC_MAX_OCCUPANCY_HOURS", "_CONF_HVAC_ZONE_ENTRY_DWELL",
         "_CONF_HVAC_RETURN_WINDOW_MINUTES", "_CONF_HVAC_SKIP_ENTRY_WAIT",
+        "_CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES",
         "_CONF_DYNAMIC_PRESET_DWELL_MINUTES",
         "_CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA", "_CONF_HVAC_COVER_CLOSE_TEMP",
         "_CONF_HVAC_COVER_OPEN_TEMP", "_CONF_HVAC_COVER_OVERRIDE_HOURS",
@@ -259,6 +260,7 @@ def _load_ns() -> dict:
         "HomeAssistant": type("HomeAssistant", (), {}),
         **{k: k.lower() for k in conf_aliases_from_watchdog},
         **room_new_conf_values,
+        "_clamp_hvac_pre_arrival_window_minutes": lambda v: max(5, min(110, int(v))),
         # Real values for the 4 pre-existing ROOM allowlist aliases
         # (watchdog's `k.lower()` default would give the wrong string).
         "_CONF_COMFORT_TEMP_MIN": "comfort_temp_min",

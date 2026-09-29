@@ -62,6 +62,8 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(HVAC_CONST_SRC, "CONF_HVAC_ZONE_ENTRY_DWELL"),
     # v5.103.20 fix-up 1 (ruling 2): "52 · Return Window (min)"
     _extract_conf(HVAC_CONST_SRC, "CONF_HVAC_RETURN_WINDOW_MINUTES"),
+    # HVAC W1/W2 finish D5: "35 · Pre-Arrival Window (min)"
+    _extract_conf(HVAC_CONST_SRC, "CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES"),
     _extract_conf(ENERGY_CONST_SRC, "CONF_DYNAMIC_PRESET_DWELL_MINUTES"),
     # D1 — EC family
     _extract_conf(ENERGY_CONST_SRC, "CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT"),
@@ -346,7 +348,8 @@ def test_options_reload_suppress_keys_count_matches_part2_scope():
     # +2 evse-charge-onset Rev 6 (2026-08-30): CHARGE_ONSET_TIME +
     #    CHARGE_ONSET_ENABLED (both push live via _EC_SETTER_DISPATCH;
     #    B-CRIT-2) -> 95
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 97  # +hvac_return_window_minutes (v5.103.20)
+    # +1 hvac_pre_arrival_window_minutes (HVAC W1/W2 finish D5, knob 35) -> 98
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 98  # +hvac_return_window_minutes (v5.103.20)
 
 
 # ---------------------------------------------------------------------------
@@ -448,6 +451,10 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_HVAC_ZONE_ENTRY_DWELL": "hvac_zone_entry_dwell",
         "_CONF_HVAC_RETURN_WINDOW_MINUTES": "hvac_return_window_minutes",
         "_CONF_HVAC_SKIP_ENTRY_WAIT": "hvac_skip_entry_wait",
+        "_CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES": "hvac_pre_arrival_window_minutes",
+        # HVAC W1/W2 finish D5 loader stub (the real clamp lives in hvac_const;
+        # importing it here would pull the package __init__).
+        "_clamp_hvac_pre_arrival_window_minutes": lambda v: max(5, min(110, int(v))),
         "_CONF_DYNAMIC_PRESET_DWELL_MINUTES": "dynamic_preset_dwell_minutes",
         "_CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA":  "hvac_occupied_cover_close_delta",
         "_CONF_HVAC_COVER_CLOSE_TEMP":            "hvac_cover_close_temp",
@@ -636,6 +643,7 @@ def test_apply_in_place_dispatch_coverage():
         "hvac_max_occupancy_hours",
         "hvac_zone_entry_dwell",
         "hvac_return_window_minutes",  # v5.103.20 fix-up 1: own dispatch branch
+        "hvac_pre_arrival_window_minutes",  # HVAC W1/W2 finish D5: own branch
     })
     # HVAC tunable factory
     covered.update(ns["_HVAC_TUNABLE_DISPATCH"].keys())
@@ -1477,4 +1485,36 @@ def test_apply_in_place_pushes_return_window_live(monkeypatch):
     applied = ns["_apply_in_place"](hass, _FakeEntry(options=new), {key}, new)
     assert applied == {key}
     assert hvac._return_window_minutes == 4
+    assert hass.config_entries.async_reload.call_count == 0
+
+
+def test_pre_arrival_window_key_in_reload_suppress_set():
+    """HVAC W1/W2 finish D5 (M6): a save that changes ONLY knob 35 must NOT
+    reload the Coordinator Manager — the listener suppresses the reload and
+    pushes the live attribute the pre-arrival expiry / D3 read."""
+    ns = _load_init_dispatch_namespace()
+    assert "hvac_pre_arrival_window_minutes" in ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]
+    hvac = _FakeHvacFull()
+    hvac._pre_arrival_window_minutes = 30
+    hass = _FakeHassFull(hvac=hvac)
+    entry = _FakeEntry(options={"hvac_pre_arrival_window_minutes": 30})
+    ns["_seed_cm_last_applied_options"](hass, entry)
+    entry.options = {"hvac_pre_arrival_window_minutes": 20}
+    asyncio.new_event_loop().run_until_complete(
+        ns["_async_update_listener"](hass, entry)
+    )
+    assert hass.async_create_task.call_count == 0
+    assert hvac._pre_arrival_window_minutes == 20
+
+
+def test_apply_in_place_pushes_pre_arrival_window_live():
+    ns = _load_init_dispatch_namespace()
+    hvac = _FakeHvacFull()
+    hvac._pre_arrival_window_minutes = 30
+    hass = _FakeHassFull(hvac=hvac)
+    key = "hvac_pre_arrival_window_minutes"
+    new = {key: 45}
+    applied = ns["_apply_in_place"](hass, _FakeEntry(options=new), {key}, new)
+    assert applied == {key}
+    assert hvac._pre_arrival_window_minutes == 45
     assert hass.config_entries.async_reload.call_count == 0

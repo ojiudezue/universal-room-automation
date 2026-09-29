@@ -58,6 +58,8 @@ async def async_setup_entry(
             ZoneEntryDwellNumber(hass, entry),
             # v5.103.20 fix-up 1 (ruling 2): D5 same-room return window.
             ReturnWindowMinutesNumber(hass, entry),
+            # HVAC W1/W2 finish D5: knob 35 pre-arrival window.
+            PreArrivalWindowMinutesNumber(hass, entry),
             # Presence-timer cluster — entry.options is the SOLE source of
             # truth (no RestoreEntity). Live-attr push happens BEFORE the
             # writeback so the next HVAC decision cycle picks up the new
@@ -585,6 +587,94 @@ class ReturnWindowMinutesNumber(NumberEntity):
         )
         self.async_write_ha_state()
         _LOGGER.info("Return window set to %d minutes", new_value)
+
+
+class PreArrivalWindowMinutesNumber(NumberEntity):
+    """Pre-Arrival Window — HVAC W1/W2 finish D5 (knob 35).
+
+    How long a pre-arrival stays active with no arrival, and the longest a
+    pre-arrival pre-cool may run (counted from its own start). Range 5-110
+    min, step 5 (max 110 keeps a pre-arrival borrow below the 2-hour borrow
+    backstop). Switching pre-arrival OFF is the `35 · Pre-Arrival
+    Conditioning` switch's job, so 0 is not allowed. Persisted in the CM
+    entry options (Bug Class #32 pattern: options are the sole source of
+    truth, live-attr push BEFORE the writeback, no RestoreEntity); the key is
+    in OPTIONS_RELOAD_SUPPRESS_KEYS so a turn applies in place.
+
+    Entity: number.ura_hvac_coordinator_35_pre_arrival_window_min
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-sand"
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES,
+            DEFAULT_HVAC_PRE_ARRIVAL_WINDOW_MINUTES,
+            HVAC_PRE_ARRIVAL_WINDOW_MINUTES_MAX,
+            HVAC_PRE_ARRIVAL_WINDOW_MINUTES_MIN,
+            HVAC_PRE_ARRIVAL_WINDOW_MINUTES_STEP,
+            clamp_hvac_pre_arrival_window_minutes,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._attr_native_min_value = HVAC_PRE_ARRIVAL_WINDOW_MINUTES_MIN
+        self._attr_native_max_value = HVAC_PRE_ARRIVAL_WINDOW_MINUTES_MAX
+        self._attr_native_step = HVAC_PRE_ARRIVAL_WINDOW_MINUTES_STEP
+        self._attr_unique_id = f"{DOMAIN}_hvac_pre_arrival_window_minutes"
+        self._attr_name = "35 · Pre-Arrival Window (min)"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+        )
+        config = {**entry.data, **entry.options}
+        self._value = clamp_hvac_pre_arrival_window_minutes(config.get(
+            CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES,
+            DEFAULT_HVAC_PRE_ARRIVAL_WINDOW_MINUTES,
+        ))
+
+    def _get_hvac(self):
+        """Get the HVAC coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        """Only available when HVAC coordinator is active."""
+        return self._get_hvac() is not None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Live-attr push BEFORE the options writeback (Bug Class #32)."""
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES,
+            clamp_hvac_pre_arrival_window_minutes,
+        )
+        new_value = clamp_hvac_pre_arrival_window_minutes(value)
+        self._value = new_value
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac._pre_arrival_window_minutes = new_value
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES: new_value},
+        )
+        self.async_write_ha_state()
+        _LOGGER.info("Pre-arrival window set to %d minutes", new_value)
 
 
 class VacancyGraceMinutesNumber(NumberEntity):

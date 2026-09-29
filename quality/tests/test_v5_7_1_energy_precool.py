@@ -324,6 +324,13 @@ def _make_zone(zone_id="z1", occupied=True, temp_high=78.0, temp_low=70.0):
 
 def _make_predictor(zones=None):
     HVACPredictor = _load_real_predictor_class()
+    # HVAC W1/W2 finish: the pre-arrival branch now reads the excursion
+    # registry (D4: no second begin while a borrow is live). Real
+    # `_execute_zone_pre_cool` calls in earlier tests leave BANKING rows in
+    # that module-global registry — clear it so each test starts clean.
+    _ex = sys.modules.get(f"{_dc_name}.hvac_excursion")
+    if _ex is not None and hasattr(_ex, "_test_clear_leases"):
+        _ex._test_clear_leases()
     hass = MagicMock()
     hass.data = {}
     hass.services = MagicMock()
@@ -838,14 +845,35 @@ class TestD1I7OffsetConfigurable:
 class TestD4PreArrivalAndPreHeatUntouched:
 
     def test_pre_arrival_block_unchanged(self):
-        src = open(os.path.join(
-            _dc_path, "hvac_predict.py",
-        )).read()
-        # The two reason-tagged dispatches still exist and still use the
-        # hardcoded -2.0 offset (NOT the new configurable offset).
-        assert 'reason="pre_arrival"' in src
-        # Pre-arrival dispatch fragment.
-        assert 'offset=-2.0, reason="pre_arrival"' in src
+        """Converted from a source grep (HVAC W1/W2 finish, rule 7): drive
+        the real pre-arrival branch and assert the dispatch it makes — the
+        fixed -2.0 comfort offset (NOT the configurable energy offset),
+        applied from the BASELINE (D4)."""
+        pred, hass = _make_predictor()
+        _install_ec(hass, enabled=False, pre_cond_enabled=True)
+        pred._first_eval_done = True
+        pred._get_net_power = MagicMock(return_value=0.0)
+        calls: list = []
+
+        async def _spy_precool(zone, offset, reason, from_baseline=False):
+            calls.append({"offset": offset, "reason": reason,
+                          "from_baseline": from_baseline})
+
+        async def _spy_fans(zone):
+            return None
+
+        pred._execute_zone_pre_cool = _spy_precool
+        pred._activate_zone_fans = _spy_fans
+        _run_coro(pred._check_pre_conditioning(
+            _make_constraint(soc=98, forecast_high=95),
+            house_state="home_day",
+            now=datetime(2026, 6, 11, 13, 0, 0),
+            pre_arrival_zones={"z1"},
+            zone_intelligence_enabled=True,
+        ))
+        pa = [c for c in calls if c["reason"] == "pre_arrival"]
+        assert pa == [{"offset": -2.0, "reason": "pre_arrival",
+                       "from_baseline": True}]
 
     def test_pre_heat_dispatch_present(self):
         src = open(os.path.join(
@@ -870,7 +898,7 @@ class TestD4PreArrivalAndPreHeatUntouched:
         pred._get_net_power = MagicMock(return_value=0.0)
         calls: list = []
 
-        async def _spy_precool(zone, offset, reason):
+        async def _spy_precool(zone, offset, reason, from_baseline=False):
             calls.append({"zone_id": zone.zone_id, "offset": offset,
                           "reason": reason})
 

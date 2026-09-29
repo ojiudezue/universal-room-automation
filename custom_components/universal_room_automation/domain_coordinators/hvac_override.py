@@ -125,6 +125,96 @@ from .hvac_zones import ZoneManager, ZoneState
 
 _LOGGER = logging.getLogger(__name__)
 
+
+# ==========================================================================
+# HVAC W1/W2 finish D1 — within-manual human change classifier.
+#
+# INV-A5: a URA `set_temperature` echo that matches one of URA's last
+# ARRESTER_URA_WRITE_RING_DEPTH writes to the entity is never classified
+# HUMAN, and a mode change (either side not `heat_cool`) is never classified
+# HUMAN. ha_carrier reports target_temp_high/low = None in every mode except
+# HEAT_COOL (`ha_carrier/climate.py:230-240`), so without rule 1-2 an egress
+# `off` write or an AC hard reset during a borrow would read as a person.
+# ==========================================================================
+MANUAL_CHANGE_NONE = "none"
+MANUAL_CHANGE_URA_ECHO = "ura_echo"
+MANUAL_CHANGE_HUMAN = "human"
+
+
+def _leg_float(v: Any) -> float | None:
+    try:
+        if v is None:
+            return None
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def manual_changed_legs(old_state: Any, new_state: Any) -> list[str]:
+    """Legs ("low" / "high") whose numeric value differs between the two
+    states. Non-numeric legs never count as changed."""
+    oa = getattr(old_state, "attributes", None) or {}
+    na = getattr(new_state, "attributes", None) or {}
+    out: list[str] = []
+    for leg, key in (("low", "target_temp_low"), ("high", "target_temp_high")):
+        o = _leg_float(oa.get(key))
+        n = _leg_float(na.get(key))
+        if o is not None and n is not None and o != n:
+            out.append(leg)
+    return out
+
+
+def classify_manual_setpoint_change(
+    old_state: Any, new_state: Any, recent: Any, tol: float,
+) -> str:
+    """Pure: classify a state change as ``none`` / ``ura_echo`` / ``human``.
+
+    1. ``none`` unless BOTH states are ``heat_cool`` AND both presets are
+       ``manual`` (a mode change is never a within-manual human change — H1).
+    2. ``none`` unless all four legs (old/new high/low) are numeric.
+    3. changed legs = the legs whose value differs; none -> ``none``.
+    4. ``ura_echo`` if ANY recent URA write matches EVERY changed leg within
+       ``tol`` (inclusive: Carrier shows whole degrees, so URA's 77.5 echoes
+       as 78 — measured P1 2026-09-28).
+    5. otherwise ``human``.
+    """
+    try:
+        if getattr(old_state, "state", None) != "heat_cool":
+            return MANUAL_CHANGE_NONE
+        if getattr(new_state, "state", None) != "heat_cool":
+            return MANUAL_CHANGE_NONE
+        oa = getattr(old_state, "attributes", None) or {}
+        na = getattr(new_state, "attributes", None) or {}
+        if oa.get("preset_mode") != "manual" or na.get("preset_mode") != "manual":
+            return MANUAL_CHANGE_NONE
+        legs = {
+            "old_low": _leg_float(oa.get("target_temp_low")),
+            "old_high": _leg_float(oa.get("target_temp_high")),
+            "low": _leg_float(na.get("target_temp_low")),
+            "high": _leg_float(na.get("target_temp_high")),
+        }
+        if any(v is None for v in legs.values()):
+            return MANUAL_CHANGE_NONE
+        changed = [
+            leg for leg in ("low", "high") if legs[leg] != legs["old_" + leg]
+        ]
+        if not changed:
+            return MANUAL_CHANGE_NONE
+        for entry in recent or ():
+            try:
+                e_low, e_high = entry
+            except (TypeError, ValueError):
+                continue
+            vals = {"low": _leg_float(e_low), "high": _leg_float(e_high)}
+            if all(
+                vals[leg] is not None and abs(vals[leg] - legs[leg]) <= tol
+                for leg in changed
+            ):
+                return MANUAL_CHANGE_URA_ECHO
+        return MANUAL_CHANGE_HUMAN
+    except Exception:  # noqa: BLE001 — fail to the safe direction (today's behaviour)
+        return MANUAL_CHANGE_NONE
+
 # v4.7.33 A-F5: TTL window for suppressing override detection on URA-initiated
 # climate writes. Previous mechanism was a `set` popped on the first state
 # event, which silently broke when a single URA action emitted multiple
@@ -299,6 +389,31 @@ class OverrideArrester:
         # scoped to the current manual episode (cleared on manual exit).
         # RAM-only: S1's classifier needs no DB read on the decision path.
         self._last_detection: dict[str, dict[str, Any]] = {}
+        # HVAC W1/W2 finish D2e (H4, operator ruling Q3): entity_ids a person
+        # interrupted. While latched, the predictor begins no S12 pre-cool
+        # (either reason) and no S13 pre-heat on the zone. SEPARATE from
+        # `_last_detection` (a later booking in the same episode must not
+        # erase it). Discharge: ONLY the manual-exit boundary in
+        # `_handle_climate_change` and `teardown()`. Backstop: RAM — a
+        # restart loses it, and the boot audit releases BANKING rows with a
+        # preset pin, which itself ends the manual episode.
+        self._interrupt_latch: set[str] = set()
+        # HVAC W1/W2 finish D2c: the arrester episode in flight per zone —
+        # {original_preset, expected_cool, expected_heat, gen}. Written by the
+        # severe / normal handlers; cleared by `_revert_override`,
+        # `_defer_arrester_to_borrow`, the `enabled=False` setter and
+        # `teardown()`. RAM, like the grace / compromise timers it describes.
+        self._arrest_episode: dict[str, dict[str, Any]] = {}
+        # L6: per-zone MONOTONIC episode generation. A scheduled
+        # `_apply_compromise` / `_revert_override` captures it and stands
+        # down if it changed (a new episode began or a person superseded the
+        # compromise). Kept apart from `_arrest_episode` so clearing an
+        # episode never resets the counter back to a value a stale task holds.
+        self._arrest_gen: dict[str, int] = {}
+        # D2 baseline resolver (set by HVACCoordinator):
+        # cb(zone_id, preset=None) -> (preset, cool, heat) | None;
+        # preset=None means the house's current S1 target preset.
+        self._baseline_resolver = None
 
         # v3.18.x review fix: Track verify/retry tasks for AC reset restore
         self._verify_tasks: dict[str, asyncio.Task] = {}
@@ -1143,6 +1258,49 @@ class OverrideArrester:
         produce exactly one operator-facing note per engagement.
         """
         self._on_sunset_notify = cb
+
+    def set_baseline_resolver(self, cb) -> None:
+        """HVAC W1/W2 finish D2: register the reference-preset resolver,
+        ``cb(zone_id, preset=None) -> (preset, cool, heat) | None``. Same
+        setter pattern as ``set_on_sunset_notify``."""
+        self._baseline_resolver = cb
+
+    def interrupt_latched(self, entity_id: str) -> bool:
+        """HVAC W1/W2 finish D2e — PURE READ: did a person interrupt a borrow
+        on this entity in its current manual episode?"""
+        return entity_id in self._interrupt_latch
+
+    def _resolve_reference(
+        self, zone_id: str, preset: str | None = None,
+    ) -> tuple[str, float, float] | None:
+        """(preset, cool, heat) for ``preset`` (None = house S1 target), or
+        None when unwired / unresolvable. Never raises."""
+        cb = self._baseline_resolver
+        if cb is None:
+            return None
+        try:
+            res = cb(zone_id, preset)
+            if not res:
+                return None
+            p, cool, heat = res
+            if not p or cool is None or heat is None:
+                return None
+            return str(p), float(cool), float(heat)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _bump_arrest_gen(self, zone_id: str) -> int:
+        g = int(self._arrest_gen.get(zone_id, 0)) + 1
+        self._arrest_gen[zone_id] = g
+        return g
+
+    def _gen_changed(self, zone_id: str, gen: int | None) -> bool:
+        """L6: True when a task scheduled at ``gen`` is stale. ``gen=None``
+        (callers that predate the episode record, e.g. the startup audit)
+        never stands down — byte-identical for them."""
+        if gen is None:
+            return False
+        return int(self._arrest_gen.get(zone_id, 0)) != int(gen)
 
     def set_temp_arrester_override(self, value: bool) -> None:
         """Set Temp Arrester Override state (called by the switch).
@@ -2361,6 +2519,12 @@ class OverrideArrester:
             cancel()
         self._reset_timers.clear()
 
+        # HVAC W1/W2 finish D2c/D2e: RAM episode + interrupt latch end with
+        # the arrester (a compromise row left behind is rehydrated at the
+        # next boot and is then ownerless — D2a / the lease sweep close it).
+        self._interrupt_latch.clear()
+        self._arrest_episode.clear()
+
         # v3.18.x review fix: Cancel all verify/retry tasks
         for task in self._verify_tasks.values():
             task.cancel()
@@ -3090,6 +3254,22 @@ class OverrideArrester:
             self._compromise_timers.clear()
             self._override_active.clear()
             self._compromise_active.clear()
+            self._arrest_episode.clear()
+            # HVAC W1/W2 finish D2f (M3): cancelling the compromise timers
+            # would otherwise orphan each owned COMPROMISE borrow row until
+            # its stale_ts. Release them now (bookkeeping, no wire write).
+            for _zid in list(self._compromise_excursion_tokens.keys()):
+                try:
+                    self.hass.async_create_task(
+                        self._compromise_release_lease(
+                            _zid, trigger="arrester_disabled", restore_ok=None,
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "arrester disable: compromise release schedule failed "
+                        "for %s", _zid, exc_info=True,
+                    )
             # A-F5 review HIGH FIX 2 — lifecycle: clear suppression on
             # disable so a stale TTL window doesn't survive an arrester
             # disable (which would silently swallow events for up to
@@ -3120,6 +3300,12 @@ class OverrideArrester:
             _ep_old = (getattr(old_state, "attributes", None) or {}).get("preset_mode", "")
             if _ep_old == "manual" and _ep_new != "manual":
                 self._last_detection.pop(entity_id, None)
+                # HVAC W1/W2 finish D2e: the interrupt latch's ONLY runtime
+                # discharge — the zone left manual (S4 pin, S1 reclaim or a
+                # person choosing a preset). L5 (accepted): a status-feed
+                # flicker manual->named->manual also discharges it, exactly
+                # as it ends the arrester's own episode record above.
+                self._interrupt_latch.discard(entity_id)
         except Exception:  # noqa: BLE001
             pass
 
@@ -3224,8 +3410,45 @@ class OverrideArrester:
 
         # Detect override: preset changed to "manual" OR temp changed while on preset
         is_override = False
+        # HVAC W1/W2 finish D1: a person fine-tuning an EXISTING manual hold.
+        within_manual = False
+        # Can this booking count as a person for the D2 interrupt rule?
+        # (INV-A5: never on a URA echo — see `_transition_is_human`.)
+        interrupt_eligible = False
+        changed_legs: list[str] = []
+        try:
+            from .hvac_setpoint import recent_ura_setpoints as _recent_fn  # noqa: PLC0415
+            from .hvac_strategy import LAST_SENT_TOLERANCE_F as _tol  # noqa: PLC0415
+            _recent_vals = _recent_fn(entity_id)
+        except Exception:  # noqa: BLE001 — unwired record: today's behaviour
+            _recent_fn = None
+            _tol = None
+            _recent_vals = ()
         if new_preset == "manual" and old_preset != "manual":
             is_override = True
+            changed_legs = manual_changed_legs(old_state, new_state)
+            if _recent_fn is not None:
+                interrupt_eligible = self._transition_is_human(
+                    old_state, new_state, changed_legs, _recent_vals, _tol,
+                )
+        elif new_preset == "manual" and old_preset == "manual":
+            if _recent_fn is None:
+                return
+            _cls = classify_manual_setpoint_change(
+                old_state, new_state, _recent_vals, _tol,
+            )
+            if _cls == MANUAL_CHANGE_URA_ECHO:
+                _LOGGER.debug(
+                    "Arrester: within-manual change on %s matches a recent URA "
+                    "write (%s -> %s) — URA echo, not booked",
+                    entity_id, (old_low, old_high), (new_low, new_high),
+                )
+                return
+            if _cls == MANUAL_CHANGE_HUMAN:
+                is_override = True
+                within_manual = True
+                interrupt_eligible = True
+                changed_legs = manual_changed_legs(old_state, new_state)
         elif new_preset != "manual" and (new_high != old_high or new_low != old_low):
             # Temperature changed but preset didn't go to manual — this is
             # our own preset change or a preset range adjustment. Ignore.
@@ -3311,6 +3534,182 @@ class OverrideArrester:
             and self._is_immunity_context_eligible(ctx)
         )
 
+        # ================================================================
+        # HVAC W1/W2 finish D2 (operator ruling 2026-09-28: "The person
+        # interrupts. We end and revert."). Runs AFTER the unchanged
+        # `_nudge_live` read (D13: a live nudge wins and is never ended) and
+        # BEFORE the precedence ladder, so every rung below sees the borrow
+        # already ended.
+        #   D2a — a live BANKING / PREHEAT row, or an OWNERLESS COMPROMISE
+        #         row, is ended with NO write (`human_interrupt`,
+        #         restore_ok=None). EGRESS_PAUSE is excluded (Q2).
+        #   D2c — an arrester episode in flight (grace / compromise) is
+        #         SUPERSEDED: its two timers are cancelled (reset timers
+        #         survive), the generation bumps (pending tasks stand down),
+        #         its own compromise row is released, and the change is
+        #         re-dispatched against the episode's ORIGINAL preset.
+        #   D2e — the entity is latched: no S12 / S13 begin until it leaves
+        #         manual (Q3).
+        # ================================================================
+        _gate_snapshot_pre: dict[str, Any] | None = None
+        _K = None
+        _interrupt = False
+        _ended_tok = None
+        _episode_rec: dict[str, Any] | None = None
+        _episode_superseded = False
+        if interrupt_eligible and not _nudge_live:
+            _T = None
+            try:
+                from . import hvac_excursion as _ex_d2  # noqa: PLC0415
+                _T = _ex_d2.live_token_for(zone_id_b)
+                _K = _ex_d2.EXCURSION_KIND
+            except Exception:  # noqa: BLE001
+                _T = None
+                _K = None
+            _owned_cmp = self._compromise_excursion_tokens.get(zone_id_b)
+            _episode_in_flight = (
+                zone_id_b in self._grace_timers
+                or zone_id_b in self._compromise_timers
+                or _owned_cmp is not None
+                or bool(self._compromise_active.get(zone_id_b))
+            )
+            _endable = False
+            if _T is not None and _K is not None and not _T.returned:
+                if _T.kind in (_K.BANKING, _K.PREHEAT):
+                    _endable = True
+                elif (
+                    _T.kind == _K.COMPROMISE
+                    and zone_id_b not in self._compromise_timers
+                    and _owned_cmp is None
+                    and not self._compromise_active.get(zone_id_b)
+                ):
+                    # M3: rehydrated / disabled / torn-down orphan.
+                    _endable = True
+            if _endable or _episode_in_flight:
+                _gate_snapshot_pre = dict(gate_snapshot)
+                _interrupt = True
+                self._interrupt_latch.add(entity_id)
+            if _endable:
+                _ended_tok = _T
+                try:
+                    self.hass.async_create_task(
+                        _ex_d2.return_excursion(
+                            _T, trigger="human_interrupt", restore_ok=None,
+                            trigger_detail=(
+                                "within_manual_change" if within_manual
+                                else "transition_into_manual"
+                            ),
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Arrester: human_interrupt end schedule failed for %s",
+                        zone_id_b, exc_info=True,
+                    )
+                _borrow_row = False
+            if _episode_in_flight:
+                # D2c (H2, L6).
+                _episode_rec = self._arrest_episode.get(zone_id_b)
+                _episode_superseded = True
+                for _td in (self._grace_timers, self._compromise_timers):
+                    _cancel_d2c = _td.pop(zone_id_b, None)
+                    if _cancel_d2c:
+                        _cancel_d2c()
+                self._override_active[zone_id_b] = False
+                self._compromise_active[zone_id_b] = False
+                self._bump_arrest_gen(zone_id_b)
+                if _owned_cmp is not None:
+                    try:
+                        self.hass.async_create_task(
+                            self._compromise_release_lease(
+                                zone_id_b, trigger="human_interrupt",
+                                restore_ok=None,
+                                trigger_detail="compromise_superseded_by_human",
+                            )
+                        )
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "Arrester: compromise supersede release schedule "
+                            "failed for %s", zone_id_b, exc_info=True,
+                        )
+                # H2: the episode's OWN compromise row (owned, or still being
+                # begun by an in-flight `_apply_compromise`) must not reach
+                # the `borrow_active` rung for this evaluation.
+                if _T is None or (_K is not None and _T.kind == _K.COMPROMISE):
+                    _borrow_row = False
+                _comp_live = False
+            if _interrupt:
+                gate_snapshot = {
+                    **gate_snapshot,
+                    "borrow_row": _borrow_row,
+                    "compromise_timer": _comp_live,
+                }
+
+        # D2 baseline — ONE reference preset per case (H3, P3, Q7):
+        #   A  BANKING / PREHEAT ended: T.pre_preset if named, else the house
+        #      S1 target; a PRE-ARRIVAL pre-cool (Q7) always uses the house
+        #      S1 target. Delta basis = that preset's seasonal setpoints.
+        #   B  episode in flight: episode.original_preset / expected_*.
+        #   C  plain within-manual, ownerless compromise ended, or an episode
+        #      with no record: the house S1 target.
+        #   transition (no interrupt, no episode): today's old_preset / old_*.
+        # A / B / C count only the legs the person CHANGED.
+        ref_preset = old_preset
+        baseline_case = "transition"
+        _resolver_missing = False
+        if _episode_rec is not None:
+            baseline_case = "B"
+            ref_preset = _episode_rec.get("original_preset") or old_preset
+            expected_cool = _episode_rec.get("expected_cool")
+            expected_heat = _episode_rec.get("expected_heat")
+        elif (
+            _ended_tok is not None
+            and _K is not None
+            and _ended_tok.kind in (_K.BANKING, _K.PREHEAT)
+        ):
+            baseline_case = "A"
+            _want: str | None = None
+            try:
+                from .hvac_const import S12_PRE_ARRIVAL_SITE as _s12pa  # noqa: PLC0415
+                from .hvac_strategy import strategy_for as _strat  # noqa: PLC0415
+                _is_pa = _ended_tok.caller_site == _s12pa
+                _named = not _strat(self.hass, entity_id).is_human_manual_snapshot(
+                    _ended_tok.pre_preset,
+                )
+            except Exception:  # noqa: BLE001
+                _is_pa, _named = False, False
+            if not _is_pa and _named:
+                _want = _ended_tok.pre_preset
+            _ref = self._resolve_reference(zone_id_b, _want)
+            if _ref is None:
+                _resolver_missing = True
+            else:
+                ref_preset, expected_cool, expected_heat = _ref
+        elif within_manual or _interrupt:
+            baseline_case = "C"
+            _ref = self._resolve_reference(zone_id_b, None)
+            if _ref is None:
+                _resolver_missing = True
+            else:
+                ref_preset, expected_cool, expected_heat = _ref
+        # Legs fed to the delta and to the compromise arithmetic.
+        _d_high, _d_low = new_high, new_low
+        if baseline_case != "transition" and not _resolver_missing:
+            if changed_legs:
+                _d_high = new_high if "high" in changed_legs else None
+                _d_low = new_low if "low" in changed_legs else None
+            if expected_cool is None and expected_heat is None:
+                delta = None
+            else:
+                delta = self._compute_override_delta(
+                    _d_high, _d_low,
+                    expected_cool if expected_cool is not None else 0.0,
+                    expected_heat if expected_heat is not None else 0.0,
+                )
+            _delta_parse_ok = True
+        elif _resolver_missing:
+            delta = None
+
         gated_reason: str | None = None
         _comfort_meta: dict[str, Any] | None = None
         if _nudge_live:
@@ -3393,6 +3792,20 @@ class OverrideArrester:
                 "gated_reason": gated_reason,
                 "gate_snapshot": gate_snapshot,
                 "mode": "passive" if gated_reason == "passive_mode" else "governed",
+                # HVAC W1/W2 finish D1 / D2 ledger keys.
+                "within_manual": within_manual,
+                "changed_legs": list(changed_legs),
+                "human_interrupt": _interrupt,
+                "interrupted_excursion_id": (
+                    _ended_tok.excursion_id if _ended_tok is not None else None
+                ),
+                "interrupted_kind": (
+                    _ended_tok.kind.value if _ended_tok is not None else None
+                ),
+                "episode_superseded": _episode_superseded,
+                "baseline_case": baseline_case,
+                "reference_preset": ref_preset,
+                "gate_snapshot_pre_interrupt": _gate_snapshot_pre,
             },
         )
 
@@ -3473,6 +3886,15 @@ class OverrideArrester:
             return
 
         # ---- governed path: severity dispatch (pre-existing) ----------
+        if _resolver_missing:
+            # D2 (M9): no reference preset resolvable — the row is booked,
+            # nothing is dispatched, and S1's §9e reclaim owns the zone.
+            zone.override_count_today += 1
+            _LOGGER.info(
+                "Arrester: override on %s booked (case %s) with no resolvable "
+                "reference preset — no dispatch", zone.zone_name, baseline_case,
+            )
+            return
         if not _delta_parse_ok:
             _LOGGER.debug("Override: invalid old setpoint values")
             return
@@ -3491,12 +3913,12 @@ class OverrideArrester:
 
         if abs_delta >= severe_threshold:
             self._handle_severe_override(
-                zone, old_preset, expected_cool, expected_heat, delta
+                zone, ref_preset, expected_cool, expected_heat, delta
             )
         elif abs_delta >= normal_threshold:
             self._handle_normal_override(
-                zone, old_preset, expected_cool, expected_heat, delta,
-                new_high, new_low,
+                zone, ref_preset, expected_cool, expected_heat, delta,
+                _d_high, _d_low,
             )
         else:
             _LOGGER.debug(
@@ -3540,6 +3962,7 @@ class OverrideArrester:
                 _cancel()
         self._override_active[zone_id] = False
         self._compromise_active[zone_id] = False
+        self._arrest_episode.pop(zone_id, None)
         _LOGGER.info(
             "Arrester %s on %s deferred to live borrow (%s); grace/compromise "
             "state cleared", path, zone.zone_name, source,
@@ -3566,6 +3989,43 @@ class OverrideArrester:
             or zone_id in self._nudge_in_flight
             or zone_id in self._compromise_timers
         )
+
+    @staticmethod
+    def _transition_is_human(
+        old_state: Any, new_state: Any, changed_legs: list[str],
+        recent: Any, tol: float,
+    ) -> bool:
+        """HVAC W1/W2 finish D2 / INV-A5 for a transition INTO manual: may
+        it end a borrow as a person's change? Only when both sides are
+        `heat_cool` (a mode change never is — H1), at least one leg changed,
+        and the new values match NONE of URA's recent writes on every changed
+        leg (a late echo of URA's own raw write, e.g. > 15 s after an S12
+        pre-cool, is not a person). Booking of the transition itself is
+        unchanged — this only decides the interrupt."""
+        if not changed_legs:
+            return False
+        if getattr(old_state, "state", None) != "heat_cool":
+            return False
+        if getattr(new_state, "state", None) != "heat_cool":
+            return False
+        na = getattr(new_state, "attributes", None) or {}
+        new_vals = {
+            "low": _leg_float(na.get("target_temp_low")),
+            "high": _leg_float(na.get("target_temp_high")),
+        }
+        for entry in recent or ():
+            try:
+                e_low, e_high = entry
+            except (TypeError, ValueError):
+                continue
+            vals = {"low": _leg_float(e_low), "high": _leg_float(e_high)}
+            if all(
+                vals[leg] is not None and new_vals[leg] is not None
+                and abs(vals[leg] - new_vals[leg]) <= tol
+                for leg in changed_legs
+            ):
+                return False
+        return True
 
     def last_detection_for(self, entity_id: str) -> dict[str, Any] | None:
         """HVAC W1-B P2 (N4): in-memory record of the most recent
@@ -3600,6 +4060,16 @@ class OverrideArrester:
         # Cancel any existing timers for this zone
         self._cancel_zone_timers(zone_id)
 
+        # HVAC W1/W2 finish D2c / L6: record the episode and bump its
+        # generation; the grace task captures it.
+        _gen = self._bump_arrest_gen(zone_id)
+        self._arrest_episode[zone_id] = {
+            "original_preset": original_preset,
+            "expected_cool": expected_cool,
+            "expected_heat": expected_heat,
+            "gen": _gen,
+        }
+
         grace_seconds = OVERRIDE_SEVERE_GRACE_MINUTES * 60
 
         _LOGGER.warning(
@@ -3609,9 +4079,9 @@ class OverrideArrester:
         )
 
         @callback
-        def _on_severe_grace_fire(_now):
+        def _on_severe_grace_fire(_now, _g=_gen):
             self.hass.async_create_task(
-                self._revert_override(zone, original_preset)
+                self._revert_override(zone, original_preset, gen=_g)
             )
 
         self._grace_timers[zone_id] = async_call_later(
@@ -3658,6 +4128,15 @@ class OverrideArrester:
         # Cancel any existing timers
         self._cancel_zone_timers(zone_id)
 
+        # HVAC W1/W2 finish D2c / L6 (see _handle_severe_override).
+        _gen = self._bump_arrest_gen(zone_id)
+        self._arrest_episode[zone_id] = {
+            "original_preset": original_preset,
+            "expected_cool": expected_cool,
+            "expected_heat": expected_heat,
+            "gen": _gen,
+        }
+
         grace_seconds = OVERRIDE_NORMAL_GRACE_MINUTES * 60
 
         # Compute compromise: move each setpoint halfway toward the override
@@ -3673,12 +4152,13 @@ class OverrideArrester:
         )
 
         @callback
-        def _on_normal_grace_fire(_now):
+        def _on_normal_grace_fire(_now, _g=_gen):
             self.hass.async_create_task(
                 self._apply_compromise(
                     zone, original_preset,
                     compromise_cool, compromise_heat,
                     expected_cool, expected_heat,
+                    gen=_g,
                 )
             )
 
@@ -3710,9 +4190,20 @@ class OverrideArrester:
         compromise_heat: float,
         expected_cool: float,
         expected_heat: float,
+        gen: int | None = None,
     ) -> None:
         """Apply compromise temperature, then schedule full revert."""
         zone_id = zone.zone_id
+        # HVAC W1/W2 finish L6: a person superseded this episode (D2c) or a
+        # new episode began after this task was scheduled — stand down, no
+        # write. (The timer handle was cancelled; this task was already
+        # pending.)
+        if self._gen_changed(zone_id, gen):
+            _LOGGER.info(
+                "Arrester compromise on %s stood down (episode superseded)",
+                zone.zone_name,
+            )
+            return
         # Arrester Operator-Immunity: defense-in-depth. This runs from a
         # timer scheduled several minutes ago; immunity or Comfort Override
         # may have engaged in the interim (e.g. operator flipped the
@@ -3759,6 +4250,27 @@ class OverrideArrester:
             _cmp_token = None
         if not hasattr(self, "_compromise_excursion_tokens"):
             self._compromise_excursion_tokens = {}
+        # HVAC W1/W2 finish L6 / INV-A.1: a person's change landed while
+        # `begin_excursion` awaited its DB save. The episode is superseded;
+        # close the just-opened row as the person's interrupt and write
+        # nothing under its id.
+        if self._gen_changed(zone_id, gen):
+            if _cmp_token is not None:
+                try:
+                    await _ex_mod.return_excursion(
+                        _cmp_token, trigger="human_interrupt", restore_ok=None,
+                        trigger_detail="compromise_superseded_by_human",
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "compromise stand-down: return failed for %s", zone_id,
+                        exc_info=True,
+                    )
+            _LOGGER.info(
+                "Arrester compromise on %s stood down after begin (episode "
+                "superseded)", zone.zone_name,
+            )
+            return
 
         _LOGGER.info(
             "Override compromise on %s: setting cool=%.0f heat=%.0f for %dmin",
@@ -3801,9 +4313,9 @@ class OverrideArrester:
         compromise_seconds = self._compromise_minutes * 60
 
         @callback
-        def _on_compromise_fire(_now):
+        def _on_compromise_fire(_now, _g=gen):
             self.hass.async_create_task(
-                self._revert_override(zone, original_preset)
+                self._revert_override(zone, original_preset, gen=_g)
             )
 
         self._compromise_timers[zone_id] = async_call_later(
@@ -3827,16 +4339,27 @@ class OverrideArrester:
         return "heat_cool" in modes
 
     async def _revert_override(
-        self, zone: ZoneState, original_preset: str,
+        self, zone: ZoneState, original_preset: str, gen: int | None = None,
     ) -> None:
         """Revert zone to its original preset."""
         zone_id = zone.zone_id
+
+        # HVAC W1/W2 finish L6: superseded by a person (D2c) or by a newer
+        # episode — stand down BEFORE touching the (possibly new) episode's
+        # timers. D2c already released this episode's compromise row.
+        if self._gen_changed(zone_id, gen):
+            _LOGGER.info(
+                "Arrester revert on %s stood down (episode superseded)",
+                zone.zone_name,
+            )
+            return
 
         # Clean up timer references
         self._grace_timers.pop(zone_id, None)
         self._compromise_timers.pop(zone_id, None)
         self._override_active[zone_id] = False
         self._compromise_active[zone_id] = False
+        self._arrest_episode.pop(zone_id, None)
 
         # Arrester Operator-Immunity: defense-in-depth. Revert is the
         # LAST-CHANCE gate before we forcibly write preset back — if
@@ -3947,11 +4470,52 @@ class OverrideArrester:
             # The two can disagree — the token is taken at compromise
             # begin_excursion time (what the wire held); `original_preset`
             # is the caller's intended value which may have drifted.
-            _revert_preset = (
-                _cmp_token.pre_preset if _cmp_token is not None
-                and _cmp_token.pre_preset
-                else original_preset
-            )
+            # HVAC W1/W2 finish D2d: ...EXCEPT that a compromise begins while
+            # the person's override holds the zone, so its snapshot is
+            # usually the anonymous `manual` hold — pinning that re-creates
+            # the lockout. A HUMAN_MANUAL snapshot falls back to the
+            # episode's `original_preset`; if neither names a preset, S4 is
+            # skipped and the lease closes as a policy skip.
+            _tok_pre = _cmp_token.pre_preset if _cmp_token is not None else None
+            try:
+                from .hvac_strategy import strategy_for as _strat_d2d  # noqa: PLC0415
+                _strat_obj = _strat_d2d(self.hass, zone.climate_entity)
+                _tok_named = bool(_tok_pre) and not _strat_obj.is_human_manual_snapshot(_tok_pre)
+                _orig_named = bool(original_preset) and not _strat_obj.is_human_manual_snapshot(original_preset)
+            except Exception:  # noqa: BLE001
+                _tok_named = bool(_tok_pre) and _tok_pre != "manual"
+                _orig_named = bool(original_preset) and original_preset != "manual"
+            if _tok_named:
+                _revert_preset = _tok_pre
+            elif _orig_named:
+                _revert_preset = original_preset
+            else:
+                _revert_preset = None
+
+            # HVAC W1/W2 finish L6: a person superseded the episode while
+            # the B4 mode write awaited — no S4 under the old episode.
+            if self._gen_changed(zone_id, gen):
+                _LOGGER.info(
+                    "Arrester revert on %s stood down before S4 (episode "
+                    "superseded)", zone.zone_name,
+                )
+                if _mode_wrote:
+                    self.suppress(zone.climate_entity, kind="preset")
+                return
+
+            if _revert_preset is None:
+                _LOGGER.info(
+                    "Override revert on %s: no named preset to restore "
+                    "(snapshot %r, original %r) — S4 skipped",
+                    zone.zone_name, _tok_pre, original_preset,
+                )
+                if _mode_wrote:
+                    self.suppress(zone.climate_entity, kind="preset")
+                await self._compromise_release_lease(
+                    zone_id, trigger="timer", restore_ok=None,
+                    trigger_detail="revert_no_named_preset",
+                )
+                return
 
             # ARREST-COMFORT-1 §3.7 S4: DEFER while comfort_delay_active.
             _s4_written = await emit_set_preset_mode(

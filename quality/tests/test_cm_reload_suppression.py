@@ -227,6 +227,10 @@ def _load_init_listener_helpers():
         "_CONF_HVAC_ZONE_ENTRY_DWELL": "hvac_zone_entry_dwell",
         "_CONF_HVAC_RETURN_WINDOW_MINUTES": "hvac_return_window_minutes",
         "_CONF_HVAC_SKIP_ENTRY_WAIT": "hvac_skip_entry_wait",
+        "_CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES": "hvac_pre_arrival_window_minutes",
+        # HVAC W1/W2 finish D5 loader stub (the real clamp lives in hvac_const;
+        # importing it here would pull the package __init__).
+        "_clamp_hvac_pre_arrival_window_minutes": lambda v: max(5, min(110, int(v))),
         "_CONF_DYNAMIC_PRESET_DWELL_MINUTES": "dynamic_preset_dwell_minutes",
         # Part 2 — HVAC tunable factory (14 keys)
         "_CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA":  "hvac_occupied_cover_close_delta",

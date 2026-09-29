@@ -26,6 +26,8 @@ from .hvac_const import (
     ENERGY_PRECOOL_SCOPE_VALUES,
     ENERGY_PRECOOL_SCOPE_WHOLE_HOUSE,
     MIN_DEADBAND,
+    PRE_ARRIVAL_PRECOOL_OFFSET_F,
+    S12_PRE_ARRIVAL_SITE,
     SEASON_SHOULDER,
     SEASON_SUMMER,
     SEASON_WINTER,
@@ -646,7 +648,18 @@ class HVACPredictor:
             # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
             for zone_id, zone in list(self._zone_manager.zones.items()):
                 if zone_id in pre_arrival_zones:
-                    await self._execute_zone_pre_cool(zone, offset=-2.0, reason="pre_arrival")
+                    # HVAC W1/W2 finish D4 (INV-B.1): ONE pre-arrival write,
+                    # from the BASELINE. A repeat trigger (or any other live
+                    # borrow on the zone) begins nothing — the old path
+                    # re-wrote live - 2 on every pass (78 -> 76 -> 74 on
+                    # 09-28). The person-interrupt latch is enforced inside
+                    # `_execute_zone_pre_cool` (one site for both reasons).
+                    from . import hvac_excursion as _ex_pa  # noqa: PLC0415
+                    if not _ex_pa.is_borrow_active(zone_id):
+                        await self._execute_zone_pre_cool(
+                            zone, offset=PRE_ARRIVAL_PRECOOL_OFFSET_F,
+                            reason="pre_arrival", from_baseline=True,
+                        )
                     # Fans as comfort bridge (skip during sleep — Critique 5 fix)
                     if house_state != "sleep":
                         await self._activate_zone_fans(zone)
@@ -932,8 +945,18 @@ class HVACPredictor:
         except Exception:  # noqa: BLE001
             return None
 
-    async def _release_banked_zones(self, zone_ids: set[str]) -> None:
+    async def _release_banked_zones(
+        self, zone_ids: set[str], *, trigger: str = "banking_release",
+        update_throttle: bool = True,
+    ) -> None:
         """Release previously-banked zones by writing baseline setpoints back.
+
+        HVAC W1/W2 finish: ``trigger`` names the borrow's end on its event
+        row (the pre-arrival reconciliation passes ``pre_arrival_<reason>``);
+        the preset emit keeps ``reason="banking_release"``. With
+        ``update_throttle=False`` the release does not touch
+        ``_last_emitted_range`` (a pre-arrival end restores the snapshot
+        preset, not a DPM range — Bug Class #7).
 
         Called once on the cycle where the master banking gate flips OFF
         while zones are still mid-bank. Issues `climate.set_temperature`
@@ -955,6 +978,17 @@ class HVACPredictor:
         coord = self._hvac_coord
         last_emitted = getattr(coord, "_last_emitted_range", None) if coord else None
         for zone_id in zone_ids:
+            # HVAC W1/W2 finish D2b: a person ended this borrow
+            # (human_interrupt) — pop the token, write NOTHING.
+            _tok_d2b = getattr(self, "_banking_excursion_tokens", {}).get(zone_id)
+            if _tok_d2b is not None and _tok_d2b.returned:
+                self._banking_excursion_tokens.pop(zone_id, None)
+                _LOGGER.info(
+                    "HVAC: banking release on %s skipped — borrow already "
+                    "ended (%s)", zone_id,
+                    getattr(_tok_d2b._return_outcome, "trigger", None),
+                )
+                continue
             zone = self._zone_manager.zones.get(zone_id)
             if zone is None:
                 continue
@@ -1074,7 +1108,7 @@ class HVACPredictor:
                     # N5: the throttle-map update moves AFTER the release
                     # outcome is known (either half landing means the zone
                     # is back at baseline).
-                    if last_emitted is not None:
+                    if last_emitted is not None and update_throttle:
                         last_emitted[zone_id] = (emit_low, emit_high)
                     _LOGGER.info(
                         "HVAC: Solar banking master OFF — released %s to baseline "
@@ -1101,7 +1135,7 @@ class HVACPredictor:
                 try:
                     from . import hvac_excursion as _ex_mod  # noqa: PLC0415
                     await _ex_mod.return_excursion(
-                        _bt, trigger="banking_release",
+                        _bt, trigger=trigger,
                         restore_ok=_release_ok,
                         trigger_detail=_release_detail,
                     )
@@ -1110,6 +1144,62 @@ class HVACPredictor:
                         "banking release: return_excursion failed for %s: %s",
                         zone_id, _rc,
                     )
+
+    async def async_end_pre_arrival_borrows(
+        self,
+        active_zones: set[str],
+        reasons: dict[str, str] | None,
+        window_s: float,
+        zone_filter: set[str] | None = None,
+    ) -> set[str]:
+        """HVAC W1/W2 finish D3 — the single pre-arrival reconciliation.
+
+        INV-B.2/3: every ``S12_pre_arrival`` borrow ends in the first full
+        pass (or the first fast run scoped to its zone) that finds its zone
+        out of the pre-arrival set, or finds the borrow ``window_s`` old —
+        counted from the BORROW's own start, so repeated triggers can never
+        stretch it to ``lease_expiry`` (M5). Walks ``_banking_excursion_tokens``
+        (within ``zone_filter`` when given — M10: a fast run touches only its
+        own zone):
+          * token already returned (a person ended it)  -> pop, no write;
+          * zone not in ``active_zones``                -> presets-only release,
+            trigger ``pre_arrival_<reason or 'inactive'>``;
+          * borrow age >= ``window_s``                  -> the same release,
+            trigger ``pre_arrival_max_age``.
+        Releases never touch ``_last_emitted_range``. Returns the zones ended
+        by max age (the caller drops them from its pre-arrival set).
+        """
+        tokens = getattr(self, "_banking_excursion_tokens", None)
+        if not tokens:
+            return set()
+        reasons = reasons or {}
+        max_aged: set[str] = set()
+        now_ts: float | None = None
+        for zone_id, tok in list(tokens.items()):
+            if zone_filter is not None and zone_id not in zone_filter:
+                continue
+            if getattr(tok, "caller_site", None) != S12_PRE_ARRIVAL_SITE:
+                continue
+            if tok.returned:
+                tokens.pop(zone_id, None)
+                continue
+            trig: str | None = None
+            if zone_id not in active_zones:
+                trig = f"pre_arrival_{reasons.get(zone_id) or 'inactive'}"
+            else:
+                if now_ts is None:
+                    # Same clock as the token's `started_ts`.
+                    from . import hvac_excursion as _ex_clk  # noqa: PLC0415
+                    now_ts = _ex_clk._now()
+                if now_ts - float(tok.started_ts) >= float(window_s):
+                    trig = "pre_arrival_max_age"
+                    max_aged.add(zone_id)
+            if trig is None:
+                continue
+            await self._release_banked_zones(
+                {zone_id}, trigger=trig, update_throttle=False,
+            )
+        return max_aged
 
     def _get_net_power(self) -> float:
         """Read real-time net power. Negative = exporting to grid.
@@ -1128,14 +1218,34 @@ class HVACPredictor:
         except (ValueError, TypeError):
             return 0.0
 
+    def _interrupt_latched(self, zone) -> bool:
+        """HVAC W1/W2 finish D2e (ruling Q3): a person interrupted a borrow
+        on this zone in its current manual episode. Never raises."""
+        arr = self._override_arrester
+        if arr is None:
+            return False
+        try:
+            # Strictly True: an unwired / duck-typed arrester never latches.
+            return arr.interrupt_latched(zone.climate_entity) is True
+        except Exception:  # noqa: BLE001
+            return False
+
     async def _execute_zone_pre_cool(
-        self, zone, offset: float, reason: str,
+        self, zone, offset: float, reason: str, from_baseline: bool = False,
     ) -> None:
         """Pre-cool a single zone with offset from target_temp_high.
 
         Applies floor: never go below SOLAR_BANK_FLOOR or within MIN_DEADBAND
         of target_temp_low (Ecobee requires >= 2F deadband in auto mode).
+
+        ``from_baseline`` (HVAC W1/W2 finish D4, pre-arrival): the offset is
+        applied to the BASELINE cool setpoint (`_resolve_baseline_range`),
+        not the live one; no baseline -> no write.
         """
+        # HVAC W1/W2 finish D2e (Q3): a person interrupted a borrow on this
+        # zone — no pre-cool (energy OR pre-arrival) until it leaves manual.
+        if self._interrupt_latched(zone):
+            return
         # v4.7.8 D8: skip predictive pre-cool dispatch for paused zones.
         if (
             self._egress_manager is not None
@@ -1145,7 +1255,17 @@ class HVACPredictor:
         if zone.target_temp_high is None or zone.target_temp_low is None:
             return
 
-        banked_high = zone.target_temp_high + offset  # offset is negative
+        if from_baseline:
+            _base = self._resolve_baseline_range(zone.zone_id)
+            if _base is None:
+                _LOGGER.info(
+                    "HVAC: pre-cool (%s) on %s skipped — no baseline",
+                    reason, zone.zone_name,
+                )
+                return
+            banked_high = float(_base[1]) + offset  # offset is negative
+        else:
+            banked_high = zone.target_temp_high + offset  # offset is negative
         # v4.5.10: floor is now self._solar_bank_floor (configurable).
         floor = max(self._solar_bank_floor, zone.target_temp_low + MIN_DEADBAND)
         effective_high = max(banked_high, floor)
@@ -1153,16 +1273,17 @@ class HVACPredictor:
         if effective_high >= zone.target_temp_high:
             return  # Floor prevents any meaningful change
 
-        # Suppress arrester
-        if self._override_arrester:
-            self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
-
         # HVAC-GOVERNED-EXCURSION-1 D3 (row 11, S12 banking START):
         # Item-2 retrofit (2026-08-21): use the CM structurally. The
         # site-local _release_banking_on_incomplete_write helper is
         # removed — the CM is now the ONLY release path for early exits.
         from . import hvac_excursion as _ex_mod  # noqa: PLC0415
         _baseline_pair = self._resolve_baseline_range(zone.zone_id)
+        # HVAC W1/W2 finish D3: a pre-arrival pre-cool begins with its own
+        # caller_site so its lifetime can be ended by the D3 reconciliation
+        # (the `climate_write` site stays S12_pre_cool).
+        _s12_site = S12_PRE_ARRIVAL_SITE if reason == "pre_arrival" else "S12_pre_cool"
+        _begin_raised = False
         try:
             _bt = await _ex_mod.begin_excursion(
                 self.hass,
@@ -1172,7 +1293,7 @@ class HVACPredictor:
                 excursion_low=zone.target_temp_low,
                 excursion_high=effective_high,
                 duration_s=None,
-                site="S12_pre_cool",
+                site=_s12_site,
                 intended_mode="heat_cool",
             )
             # Snapshot override: use _resolve_baseline_range values so
@@ -1185,12 +1306,55 @@ class HVACPredictor:
                 zone.zone_id, _bk_exc,
             )
             _bt = None
+            _begin_raised = True
         if not hasattr(self, "_banking_excursion_tokens"):
             self._banking_excursion_tokens = {}
+
+        # HVAC W1/W2 finish D4b (INV-B.4): `begin_excursion` refused because
+        # a row is live. Only this path's OWN row (same id AND same
+        # caller_site) may be written over; any other borrow owns the zone.
+        if _bt is None and not _begin_raised:
+            try:
+                _live_id = _ex_mod.excursion_id_for(zone.zone_id)
+            except Exception:  # noqa: BLE001
+                _live_id = None
+            _own = self._banking_excursion_tokens.get(zone.zone_id)
+            _is_own = (
+                _own is not None and _live_id is not None
+                and _own.excursion_id == _live_id
+                and _own.caller_site == _s12_site
+            )
+            if _live_id is not None and not _is_own:
+                _LOGGER.info(
+                    "HVAC: pre-cool (%s) on %s skipped — another borrow owns "
+                    "the zone (%s)", reason, zone.zone_name, _live_id,
+                )
+                return
+
+        # Suppress arrester
+        if self._override_arrester:
+            self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
 
         async with _ex_mod.auto_release_on_incomplete(
             _bt, trigger="s12_banking_wire_failed",
         ) as _s12_guard:
+            # HVAC W1/W2 finish M1 (INV-A.1): a person's change can land while
+            # `begin_excursion` awaited its DB save — the token is then
+            # already returned (or about to be: the latch is set in the same
+            # callback that schedules the return). Write nothing.
+            if (_bt is not None and _bt.returned) or self._interrupt_latched(zone):
+                if self._override_arrester:
+                    self._override_arrester.unsuppress(zone.climate_entity)
+                # The arrester's scheduled `human_interrupt` return owns the
+                # close of THIS row (it was the live row when the person
+                # changed the thermostat) — the CM must not also close it
+                # as a wire failure.
+                _s12_guard.mark_committed()
+                _LOGGER.info(
+                    "HVAC: pre-cool (%s) on %s dropped — a person interrupted "
+                    "the borrow while it began", reason, zone.zone_name,
+                )
+                return
             try:
                 # ARREST-COMFORT-1 D-HIGH-1 fix-up: S12_pre_cool — gate
                 # on comfort_delay_active. Predictive pre-cool would
@@ -1437,6 +1601,10 @@ class HVACPredictor:
                 continue
             if zone.target_temp_high is None or zone.target_temp_low is None:
                 continue
+            # HVAC W1/W2 finish D2e (Q3): no pre-heat over a person's
+            # interrupt until the zone leaves manual.
+            if self._interrupt_latched(zone):
+                continue
 
             pre_heat_temp = zone.target_temp_low + 2  # Raise by 2F from current
 
@@ -1472,10 +1640,34 @@ class HVACPredictor:
                     zone.zone_id, _phe,
                 )
                 _pt = None
+                _s13_begin_raised = True
+            else:
+                _s13_begin_raised = False
             if not hasattr(self, "_preheat_excursion_tokens"):
                 self._preheat_excursion_tokens = {}
             if not hasattr(self, "_preheat_return_timers"):
                 self._preheat_return_timers = {}
+
+            # HVAC W1/W2 finish D4b at S13 (M2, INV-B.4): a refused begin
+            # means another borrow owns the zone — unless it is this path's
+            # own pre-heat row. Never write an un-returned pre-heat low over
+            # a live compromise / nudge / pre-cool.
+            if _pt is None and not _s13_begin_raised:
+                try:
+                    _s13_live = _ex_mod.excursion_id_for(zone.zone_id)
+                except Exception:  # noqa: BLE001
+                    _s13_live = None
+                _s13_own = self._preheat_excursion_tokens.get(zone.zone_id)
+                if _s13_live is not None and not (
+                    _s13_own is not None
+                    and _s13_own.excursion_id == _s13_live
+                    and _s13_own.caller_site == "S13_pre_heat"
+                ):
+                    _LOGGER.info(
+                        "HVAC Pre-heat on %s skipped — another borrow owns the "
+                        "zone (%s)", zone.zone_name, _s13_live,
+                    )
+                    continue
 
             if self._override_arrester:
                 self._override_arrester.suppress(zone.climate_entity, kind="temp")
@@ -1483,6 +1675,14 @@ class HVACPredictor:
             async with _ex_mod.auto_release_on_incomplete(
                 _pt, trigger="s13_preheat_wire_failed",
             ) as _s13_guard:
+                # HVAC W1/W2 finish M1 (INV-A.1): a person interrupted while
+                # begin awaited — no write, no return timer; the arrester's
+                # scheduled `human_interrupt` return closes the row.
+                if (_pt is not None and _pt.returned) or self._interrupt_latched(zone):
+                    if self._override_arrester:
+                        self._override_arrester.unsuppress(zone.climate_entity)
+                    _s13_guard.mark_committed()
+                    continue
                 try:
                     _s13_zid = zone.zone_id
                     def _s13_gate(z=_s13_zid) -> bool:
@@ -1549,6 +1749,15 @@ class HVACPredictor:
             zone_id, None,
         )
         if tok is None:
+            return
+        # HVAC W1/W2 finish D2b: a person ended this borrow (human_interrupt)
+        # — the owner pops its token and writes NOTHING.
+        if tok.returned:
+            self._pre_conditioning_zones.discard(zone_id)
+            _LOGGER.info(
+                "preheat return on %s skipped — borrow already ended (%s)",
+                zone_id, getattr(tok._return_outcome, "trigger", None),
+            )
             return
         zone = self._zone_manager.zones.get(zone_id)
         if zone is not None:
