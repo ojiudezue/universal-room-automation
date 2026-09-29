@@ -376,6 +376,23 @@ def test_below_gate_metric_still_gaining_is_learning():
     assert det2.get_sensor_state() == "learning"
 
 
+def test_stall_check_reads_newest_sample_in_any_scope():
+    """Review C S17: the stall check for the aggregate looks at EVERY scope,
+    not just the best one. Best scope zone_1 (n=10 < gate 14) is 10 days old,
+    but sibling zone_2 was sampled yesterday → the metric is still collecting."""
+    det = AnomalyDetector(
+        NOOP.make_hass(), "hvac", ["short_cycle_rate"], minimum_samples=336,
+        minimum_samples_by_metric={"short_cycle_rate": 14},
+    )
+    _seed(det, "short_cycle_rate", "zone_1", 10, last_updated=_now_iso(10))
+    _seed(det, "short_cycle_rate", "zone_2", 3, last_updated=_now_iso(1))
+    assert det.get_learning_status() == diag.LearningStatus.LEARNING
+    assert det.get_sensor_state() == "learning"
+    cov = det.get_coverage()["short_cycle_rate"]
+    assert cov["best_scope"] == "zone_1"
+    assert cov["reason"] == "learning"
+
+
 def test_below_gate_metric_without_timestamp_is_not_judged_stalled():
     det = AnomalyDetector(NOOP.make_hass(), "s", ["m"], minimum_samples=720)
     _seed(det, "m", "house", 42, last_updated="")
