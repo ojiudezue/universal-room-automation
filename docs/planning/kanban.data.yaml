@@ -1877,6 +1877,7 @@ cards:
     ok. Now a loadable skill. NOT wired into URA / not run against the repo. Update = re-pull+copy.'
 
 - id: HVAC-S10-DPM-VS-S1-1
+  groom_2026_09_29_arc: 'Part of BATCH C (HVAC-CUSTOM-PRESET-RANGES-1): build together with Custom Preset Ranges; deploy only on the operators word, zone 3 first.'
   title: 'S10 DPM raw setpoint write vs S1 preset write — race resolution before D9 enablement'
   thread: hvac
   status: planned
@@ -1960,11 +1961,12 @@ cards:
   next: 'ANSWER: should a manual house-state override propagate to HVAC and the other coordinators like an inferred change? YES -> Tier 2 fix (dispatch on override set/clear). NO -> document as intended.'
   links: {related: [HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1]}
 - id: HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1
+  groom_2026_09_29_arc: 'DISPOSED: shipped v5.103.22, proven in-suite (reverting to cool-7 turns 2 of 3 tests red). The live path (a raw human-manual banking/pre-heat restore via the preset fallback) is rare and mostly winter, so it cannot be observed inside the soak window. Closed with a revival trigger instead of riding organic.'
   review_2026_09_28: 'Review A (consumers; read the state-of-play doc in full first): SHIP, 0 CRIT/HIGH/MED. It maps every consumer. The fix REMOVES a false +15 F arrester delta on a summer-away raw release (the arrester compares against the configured heat, hvac_override.py:7017-7019). No restore_ok change. An inverted range is unreachable (3 F deadband, config_flow.py:6923-6929). L1: the same cool - 7 at hvac.py:3541 / sensor.py:10264 / dynamic_preset.py:905 is COVERED by the CPR plan (deletes :3541; written low = configured heat, PLANNING_hvac_enable_custom_preset_ranges.md:268/:395/:659), so no new card. L2 stale comment: FIXED 71e932f3f. Orchestrator mutation re-drill: revert gives 2 red, restore gives 3 green, tree clean. Review record at docs/reviews/code-review/hvac_precool_restore_heat_low.md (ae73bba74). Awaiting the overnight full-suite name-diff.'
   build_2026_09_28: 'BUILT (ura-builder, feature/hvac-precool-restore-heat-low @ e478e0368, pushed). One site: HVACPredictor._resolve_baseline_range fallback (hvac_predict.py ~929) now returns (configured heat from PresetManager.get_seasonal_setpoints, hvac_preset.py:126-180, cool). REUSED accessor, no new constant. OWNERSHIP: hvac.py:3541 (cool - 7) is CPRs, since the CPR plan deletes it (PLANNING_hvac_enable_custom_preset_ranges.md:395, :659), so it is untouched. Tests: 3 new in test_v5_7_1_energy_precool.py::TestResolveBaselineRangeHeatLow. Mutation: reverting to -7.0 turns 2 of 3 red (winter 80/65 gives 73 instead of 65; summer 78/70 gives 71 instead of 70). The last-emitted-range test correctly stays green. Note that summer behaviour also shifts slightly: home low goes from 71 (derived) to 70 (configured). Related files 95 pass, 1 fail: TestD5Migration::test_restore_entity_off_overrides_options_true, which the orchestrator confirmed also fails on unmodified develop in isolation (pre-existing). The state-of-play doc does not describe this fallback, so no doc change. Review A (consumers, incl. restore_ok / arrester value-match against a range computed elsewhere) dispatched.'
   gate_2026_09_28: 'GATE (overnight 2026-09-28): (1) VALIDITY still real: hvac_predict.py:918 still returns (baseline_cool - 7.0, baseline_cool). The sibling hvac.py:3541 baseline_low = baseline_cool - 7.0 also exists, and the builder is to establish from the CPR plan which site CPR owns. (1b) CONFIG-FIRST: no knob covers it, since the fallback ignores the configured Heat Low. (2) PRIOR ART: reuse the existing configured-range accessor, with no new constant. (3) BUILD: the smallest fix. (4) Winter cost only; fail direction is colder-when-empty. Tier 1. Dispatched ura-builder in worktree overnight-0928-heatminus7 (feature/hvac-precool-restore-heat-low), with the state-of-play full read mandatory. Built to review only; no merge or deploy.'
   title: 'Pre-cool / pre-heat restore fallback computes heat as cooling minus 7 and ignores the configured Heat Low'
-  status: shipped_organic
+  status: done
   soak_check_2026_09_29: 'NOT YET EVALUABLE. The L4 discriminator (a banking/pre-heat restore through the preset fallback writing the configured Heat Low) has not fired. ura_activity_log has no climate_write S11 row since the v5.103.22 restart (23:36 09-28). The only restores were auto_return:banking via stale_boot_release, which restore a named preset and write no setpoints. Rare path. If it has not fired by ~10-06, convert per Soak Exit (park with the trigger "first raw-release banking restore").'
   shipped_version: v5.103.22
   thread: hvac
@@ -1973,7 +1975,7 @@ cards:
   updated: '2026-09-29 01:05'
   origin: 'Found by the Custom Preset Ranges plan (PLANNING_hvac_enable_custom_preset_ranges.md); operator 2026-09-27 chose to fix it separately from CPR.'
   why: 'Same latent bug as the CPR write site: heat = cool - 7 instead of the configured Heat Low; with winter away 80/65 it would heat an empty zone to 73 F. Site: the banking/pre-heat restore fallback in hvac_predict.py (grep the minus-7 derivation).'
-  next: 'BUILD (Tier 1): use the configured Heat Low at the restore fallback; test with winter away 80/65 -> heat 65.'
+  next: 'DONE. Revival trigger: a climate_write row from S11/S13 whose written low != the configured Heat Low for that season.'
 - id: DINING-ROOM-RADAR-SILENT-1
   problem_solution: 'Problem: the Dining Room radar looked dead because it reported no presence for a day. Solution: none needed. A week of history shows it detects people on the days the room is used, and the device is healthy.'
   measured_2026_09_28: 'CARD-WAS-WRONG / refuted. The premise was "the room never registers as occupied". HA history (REST /api/history, 09-20 to 09-28 02:00 CDT) shows the radar binary_sensor.occupancy_lux_temp_humidity_hobeian_dining_presence went ON on 09-21 (7 times), 09-23 (6) and 09-25 (13). It was quiet on 09-26, 09-27 and 09-28, and it also had quiet days before (09-20, 09-22, 09-24), so it only fires on days the room is used. The device is alive: battery 100, and temperature and humidity were still updating at 01:51 CDT. Its settings did not change during the window (sensitivity 12, fading time 30 s). The Dining Room URA config uses this radar as its only motion source. "No presence in 24 h" is how a lightly used dining room looks, not a dead sensor. Closed as done. LOG-READ GAP: the home-assistant MCP failed to connect this run, so no log read was made. This verdict rests on recorder history and live states only, and needed no logs.'
@@ -2093,8 +2095,7 @@ cards:
   origin: {date: '2026-09-26', gist: 'operator approved the 4-workstream consolidation of the HVAC arc (see HVAC-SUPPLE-SEQUENCE-1 RESEQUENCE_PROPOSAL_2026_09_26)'}
   why: 'Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.'
   children: [HVAC-DEGRADED-ROOM-TRIPWIRE-1, HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1, HVAC-HOT-ENTRY-LATENCY-1, HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1, HVAC-GUEST-AS-ZONE-PERSON-1]
-  next: 'MEASURE (me) after >= 3 occupied days (house empty until 2026-09-27): (a) entry latency = room occupied rising edge -> S1 climate_write (preset home/sleep) on that zone, per zone-cold entry; (b) flap rate = S1 home/sleep write followed by a vacant_past_grace away within 20 min on the same zone. REVIVE the parked fast path (docs/planning/PLANNING_hvac_w2_occupancy_fast_path.md REV 4 + the REV-4 re-review findings) only if (a) p90 > 5 min or the operator reports hot entries; raise the dwell back toward 1 min only if (b) shows material flapping. W2-2 (reloading-room placeholder readers) remains next in W2.'
-
+  next: 'CLOSE-OUT: W2 has one open decision (HVAC-HOLD-SIZING-ALL-ROOMS-1 Kitchen hold, operator APPROVE) and one one-shot residual (v5.103.20 L4/L8/L9/L10/L12 after the next occupied week). Everything else shipped and validated (v5.103.19/.20/.23, sleeper probe PASS).'
 - id: HVAC-W3-ENERGY-AWARE
   disposition_2026_09_29_closed: 'W3 CLOSED by measurement (measure-before-build). G0: pre-cool window $14.5/yr (PARK), D5 re-ground 1 fire (DROP), drift alerts telemetry too sparse (PARK), filter alert DROP. M0: stage-signal build group PARKED (no harm to fix on zones 2/3; regresses zone_1). Zero code shipped for W3, by design.'
   correction_2026_09_29_variable_unit: 'OPERATOR: "It''s a variable unit." CORRECT. All three ODUs report type `proteusac` (sensor.thermostat_bryant_wifi_upstairs_odu_status, sensor.thermostat_bryant_wifi_backhallway_odu_status, sensor.office_b_odu_status; IDUs furnace2stg). Proteus is Carrier''s variable-speed Infinity outdoor unit. The W3 plan''s "no ODU Var entity, so not variable-capacity" was WRONG as an inference: ha_carrier creates OutdoorUnitVarSensor only for outdoor_unit_type in ["varcaphp","varcapac"] (ha_carrier/sensor.py ~90), so proteusac falls through. The entity is missing because of the integration''s type list, not the hardware. What IS available: odu_status state = "Stage N" (live "Stage 5" / "Stage 3" / "off"), plus coil/discharge/suction/superheat/line-voltage attributes. G0 found ODU stage agrees with SPAN >= 0.2 kW on 98-99% of cool-mode time. RE-PLAN: use ODU stage (off vs Stage N) as the per-zone running signal for the short-cycle producer and for arrester Gate 4, instead of any single SPAN kW threshold. That dissolves the zone 2/3 low-stage flap. Possible upstream: ask ha_carrier to add proteusac to the Var sensor type list.'
@@ -2206,11 +2207,12 @@ cards:
   parsimony: {problem: 'a disabled room silently disables conditioning-demand for its whole zone', verdict: BUILD, note: 'scope the gate to live rooms (operator rule); trip-wire only as a diag'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], context: 'residual of the round-5 F1 all() revert'}
 - id: HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1
+  groom_2026_09_29_arc: 'DISPOSED: C3 (the occupancy clock is not reset while a room reloads) shipped v5.103.23 with per-site drills; the boot pass exercised it at the 03:01 restart. C1/C2/C4 stay parked in PLANNING_hvac_w1_w2_finish.md Appendix A per ruling Q5 (0 measured exposure), with their probe-based revival trigger.'
   measured_2026_09_27: 'Planned (docs/planning/PLANNING_hvac_reloading_room_placeholder_readers.md: 4 bypass readers D1-D4, reuse v5.103.15 gate) then MEASURED FIRST per its D0 (scripts/probes/hvac_reloading_room_probe.py, 7.7 d): 8 restarts; 0 zone-status samples with a transient/absent room (boot 0, live 0); 0/10 restart occupancy-clock resets. Every build gate fails -> PARKED. Revival trigger: any tick sees a transient/absent room (zone status transient_rooms/coordinator_absent_rooms non-empty) or a restart resets continuous_occupied_hours on an occupied zone — re-run the probe. Plan corrections (D6 fix shape, D5 was a deliberate v5.103.15 choice, 3 missed readers) are preserved in the plan for revival.'
   workstream: HVAC-W2-OCCUPANCY-TRUTH
   title: A room that is reloading is briefly treated as "empty" by HVAC paths that bypass the shared retreat check
   thread: hvac
-  status: shipped_organic
+  status: done
   shipped_version: v5.103.23
   groom_2026_09_29: 'MOVED parked -> in_progress (revived by the operator batching ruling batches_2026_09_28, BATCH B). Scope is C3 ONLY (the continuous_occupied_since reset), per ruling Q5 in PLANNING_hvac_w1_w2_finish.md; C1/C2/C4 stay parked in that plans Appendix A with their probe triggers. Built on feature/hvac-w1-w2-finish as commit 3300de489 "Part C (C3) - occupancy clock not reset while a room reloads".'
   created: '2026-09-26 02:15'
@@ -2243,10 +2245,11 @@ cards:
     related: [HVAC-DEGRADED-ROOM-TRIPWIRE-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1]
     context: 'HVAC-DEGRADED-ROOM-TRIPWIRE-1 fixed the retreat chokepoint; this card covers the readers that bypass
       it. HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 built the D5 occupancy gate on the raw fused read.'
-  next: 'IN PROGRESS (me): C3 in Batch B on feature/hvac-w1-w2-finish -> reviews -> deploy. C1/C2/C4 remain parked in PLANNING_hvac_w1_w2_finish.md Appendix A.'
+  next: 'DONE. Revival trigger for C1/C2/C4: PLANNING_hvac_w1_w2_finish.md Appendix A (a measured reloading-room harm event).'
   parsimony: {problem: 'paths that bypass the shared retreat check act on a reloading room''s placeholder empty', verdict: BUILD}
 
 - id: HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1
+  groom_2026_09_29_arc: 'Part of BATCH C (HVAC-CUSTOM-PRESET-RANGES-1): build together with Custom Preset Ranges; deploy only on the operators word, zone 3 first.'
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
   status: planned
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 6, time_criticality 4, effort 5 - Batch C blocker (12 cloud writes/hr/zone if enabled); Tier 2.'
@@ -2272,6 +2275,7 @@ cards:
   parsimony: {problem: 'unconditional throttle bypass = steady write-storm once the feature is on', verdict: BUILD, note: 'gate on enabling the switch'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], sibling_of: [HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1], context: 'F2 residual; blocker on guest_mode_actuation'}
 - id: HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1
+  groom_2026_09_29_arc: 'Part of BATCH C (HVAC-CUSTOM-PRESET-RANGES-1): build together with Custom Preset Ranges; deploy only on the operators word, zone 3 first.'
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
   FOLD_2026_09_17: 'From HVAC-EC-OFFSET-SELF-LOCKOUT-1 (refuted): verify the EC coast/shed OFFSET apply
     path carries a FIX-B2-style pre-write preset snapshot + set_preset_mode restore (like the nudge path),
@@ -2613,8 +2617,9 @@ cards:
   preregistered: 'Registered BEFORE looking at window data. (1) Rooms occupied / hvac_occupied by modality (mmWave/PIR/camera/BLE) -> each = phantom source (CHATTER-RATE-VS-BURST-GAP-1, kitchen mmWave, STUCK-SENSOR, BLE bleed). (2) census/unidentified count >0 or guest mode -> guest false positives (guest-mode FP backlog). (3) override_detected / manual preset on any zone -> cannot be human: tests C22 candidate rule "trust status when a genuine human override is detected" (HVAC-ZONE1-MANUAL-OSCILLATION-1, W1-B D0). (4) zone presets: all 3 away throughout except pre-arrival; count zone_1 re-issued away writes (§9.7). (5) URA light/fan turn-on -> phantom actuation. (6) perimeter alert count -> no-resident baseline (PERIMETER-ALERT-VOLUME-FATIGUE-1; note Frigate2 offline, so camera coverage is degraded). (7) hourly whole-house kWh -> empty-house baseload.'
   next: 'MEASURE (me) after the first person returns: re-run scripts/probes/empty_house_experiment_probe.py (now written; it auto-ends the window 30 min before the first return lasting >60 s, and ignores 0-second flickers). Record the final numbers per pre-registered item, add whole-house kWh from the SPAN/Emporia recorder series (item 7 is incomplete: energy_history.whole_house_energy is NULL), then dispose each touched card with the evidence.'
 - id: HVAC-OPTIMIZER-CLIMATE-FUNNEL-ROUTING-1
+  groom_2026_09_29_arc: 'Re-laned: it has a real external gate. The optimizer is shadow-only today, so no climate write bypasses the funnels in practice.'
   title: The optimizer can dispatch climate.* actions around the W1-A funnels — route them through the funnels before any L2+ promotion
-  status: planned
+  status: parked
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 2, effort 5 - only bites before an optimizer L2+ promotion.'
   rank: {value: 5, time_criticality: 2, effort: 5}
   thread: hvac
@@ -2623,7 +2628,7 @@ cards:
   updated: '2026-09-29 01:05'
   origin: 'W1-A plan F5 said the optimizer exclusion was "carded for later funnel routing" but no card existed (capture miss, found 2026-09-26 while verifying the operator question "does W1-A govern ALL HVAC writes?").'
   why: 'optimization.py:3546 / :3688 dispatch generic service actions and explicitly support climate.* targets (broker suppress_climate, A-CRIT-2 egress guard :3436). They bypass emit_set_* and write no climate_write row. Today the optimizer runs at L1 SHADOW (broker docstring: "no service call is ever dispatched"; live ura_activity_log shows only shadow_cycle_summary / clamped_cycle_summary, never a dispatch), so no live bypass exists. It is allowlisted in hvac_const.DYNAMIC_DOMAIN_ALLOWLIST so the W1-A lint tolerates it.'
-  next: 'BUILD (Tier 2) BEFORE any optimizer promotion to L2+: route optimizer climate.* actions through the matching emit_set_* funnel (site OPT_<action>, zone_id via _zone_id_for_climate_entity, reason from the action) and remove the allowlist entry so the lint enforces it. Trip-wire until then: a promotion to L2+ with this card open is a process violation.'
+  next: 'PARKED. Revival trigger: any proposal to promote the Optimization Coordinator to L2+ (actuating). Build this first (Tier 2).'
 - id: EXERCISE-ROOM-PRESENCE-MISCONFIG-1
   disposition_2026_09_26_groom_prev1: 'VERIFIED 2026-09-27 on the v5.103.17 boot: no ''claimed by multiple rooms'' WARNING in the error_log (was present on the 2026-09-26 boots for binary_sensor.mmwave_zigbee_gameroom_presence). The radar now belongs to the Exercise Room only.'
   disposition_2026_09_26_groom: 'OPERATOR DID IT 2026-09-26 20:56:21Z: Game Room presence_sensors now [''binary_sensor.0xa4c1382e60e05225_presence''] (friendly name Motion_Lux_Temp_Humidity_Zigbee_Gameroom Occupancy, live); Exercise Room keeps binary_sensor.mmwave_zigbee_gameroom_presence (friendly name Mmwave_Zigbee_ExcerciseRoom Occupancy, live). Verified in .storage/core.config_entries and live states.'
@@ -2725,9 +2730,10 @@ cards:
   evidence: 'State-of-play §9.7, C22, C23: zone_1 cloud status reads home while cloud hold_activity reads away on a named hold (reproduced after 2 Carrier reloads, hold_until None = cloud-sourced); physical evidence says the device is away. zone_2 2026-09-25/26: a human manual 70 (19:17 CDT) with the cloud hold flipping to sleep at 00:45 (co-occurring with a URA zone_3 write) while the device kept cooling at 70. ha_carrier writes hold_activity optimistically (hold_until "" = local copy). Probes: scripts/probes/carrier_feed_truth_probe.py, carrier_feed_truth_episodes.py.'
   next: 'MEASURE (me): (1) operator controlled test in the Carrier app (change zone 2 or 3 by hand at a noted time; also pick a named preset; also press resume) — requested; (2) re-run the episode probe stratified by hold_until "" vs None (cloud-sourced only) over >= 7 days incl. W1-A climate_write values_before; (3) decide the per-brand confirmation rule only when each disagreement class has >= 3 cloud-sourced episodes across >= 2 zones. Cost today: zone_1 re-issued away ~6/h while the feeds disagree.'
 - id: HVAC-HOLD-SIZING-ALL-ROOMS-1
+  groom_2026_09_29_arc: 'KITCHEN TRIGGER FIRED EARLY (raw probe, 2026-09-29 12:49). The post-fast-path window (0.75 d) already has 3 HOLD-TOO-SHORT Kitchen episodes (20:08, 22:01, 11:33) plus 1 ENTRY-RACE, about 4/day against a trigger of 2 or more per day. Kitchen gaps: returned after 0.8 / 4.8 / 15.1 min, total empty gap 14-23 min, with the current common-area hold of 180 s. Zones 1/2: no harm. Absorbs HVAC-PRESET-FLAP-1 (zone_3 6 flaps). Waiting for 3 days adds only confidence, not a different decision.'
   disposition_2026_09_26_groom: 'CORRECTION 2026-09-26 13:55 (operator asked ''what''s up with the laundry?''; I checked the raw timeline before acting). The Laundry recommendation (day hold 1200) is WITHDRAWN. Laundry has ONE sensor (Matter RGBW light PIR, no mmWave). Timeline 09-19 16:13:36 motion ON 25 s -> hvac_occupied turns ON only at 16:18:04 with no new motion; 09-20 15:17:59/15:18:44 motion blips -> hvac_occupied ON 15:21:59; 15:50:54 motion -> ON 15:52:03. i.e. HVAC occupancy registers brief (20-45 s) visits 1-4 min AFTER the person left — the 5-min decision-tick latency (state-of-play C18). The probe used hvac_occupied as its presence truth, which is exactly the lagged signal, so its ''drop->return'' episodes are mostly tick-catch-up artifacts (also why the median gap sits at ~15 min in many unrelated rooms). A longer hold would condition zone_3 for pass-throughs. VERDICT: no hold changes on this evidence; the livability lever is the W2 occupancy fast path (react on room state change, not the 5-min tick). Jaya 5400 unaffected (sized from BLE-in-suite + radar during gaps, not hvac_occupied).'
   title: Should other rooms get longer HVAC vacancy holds (like Jaya's night 5400)? Measured all 43 rooms, all hours
-  status: 'waiting_me'
+  status: waiting_operator
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 3 - probe re-base, read-only.'
   rank: {value: 5, time_criticality: 3, effort: 3}
   thread: hvac
@@ -2739,7 +2745,7 @@ cards:
   why: 'The night-sleeper probe that sized Jaya covered bedrooms at night only. Livability harm can also come from evening/day rooms where people sit still or step out briefly.'
   measured_2026_09_26: 'scripts/probes/hvac_room_return_probe.py (new, read-only; generalises the night-sleeper probe to all rooms and hours), 7 days, return window 30 min. Rooms whose HVAC occupancy dropped then returned within 30 min, and HARM = URA wrote the room''s zone to away inside that gap (ura_activity_log preset_change): Laundry z3 returned 15 (day 11/eve 4) HARM 4, median gap 15.1 min; Kitchen Pantry z3 10 / 1; Master Bathroom z1 7 / 1; Jaya Bedroom z2 14 (night 10) / 1 (now fixed by 5400); Butler Pantry z3 3 / 1; Living Room z1 19 (evening 11) / 0; every other room <=13 returns and 0 harm. TOTAL HARM 8 events/week. Harm only occurs when the dropped room was the zone''s last occupied room; zone_3 (fewer occupants) concentrates it. Limit: undercounts if the zone was already away (no write in the gap).'
   verdict: 'NO broad livability problem. One config change is worth it: Laundry day hold -> 1200 s (20 min) covers the ~15-min load-swap trip that caused 4 of 8 harms; cost = zone_3 conditioned up to ~20 min longer after a real laundry departure. Pantries / Master Bath are 1 event each — do not change on this evidence.'
-  next: 'RE-RUN (me) after 2026-10-01 18:44 CDT, when 3 full post-fast-path days exist: ssh ha "python3 -" < scripts/probes/hvac_room_return_probe_raw.py. Kitchen trigger: 2 or more HOLD-TOO-SHORT per day -> propose Kitchen hvac_vacancy_hold 900 s (a config knob, currently unset, so the 180 s common-area default applies). Otherwise close: no hold changes.'
+  next: 'APPROVE: set the Kitchen room HVAC vacancy hold (day) to 1200 s (20 min; options flow -> Kitchen -> Climate -> HVAC vacancy hold). This covers the observed 14-23 min trips; the cost is zone_3 conditioned up to about 20 min longer after a real departure. -> I set it (or you do), then re-run hvac_room_return_probe_raw.py after 3 days to confirm.'
   measured_2026_09_29_raw: 'PROBE FIXED AND RE-RUN (scripts/probes/hvac_room_return_probe_raw.py, report docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md), now based on each room''s configured raw sensors instead of the lagged hvac_occupied. Pre-ship baseline 09-21 18:44 -> 09-28 18:44, 113 zone-away episodes: 43 clean; 45 transit-returns (back in 30 min but under 5 min, not harm, mostly Kitchen/zone_3); 14 Kitchen under a forgotten Override Vacant switch (card ROOM-OVERRIDE-SWITCH-FORGOTTEN-1); 6 policy (house-away / energy shed, by design); 2 Jaya stuck-sensor exclusions (see HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1); only 3 real HOLD-TOO-SHORT (Living Room 1, Kitchen 2), and 0 still-body-missed / motion-only. VERDICT: no broad livability problem, and no hold change on this evidence. Post-ship (v5.103.20 fast path) data is only 0.31 days, too little to size: 3 Kitchen events, each re-conditioned within 0-1 min of return, vs a 5-10 min median before. Side notes: Study A''s Athom mmWave sits under the orphan mmwave_sensors key that nothing reads (already known; see the STUCK-SENSOR-1 notes).'
 - id: HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1
   disposition_2026_09_29: 'DISPOSED (probe PASS). hvac_night_sleeper_probe over 2 clean nights (09-27/28 and 09-28/29 to 03:00; validator run 2026-09-29): zero zone_2 away writes inside a Jaya Bedroom drop that later returned. The one apparent hit, 23:39-23:40 CDT 09-28, is excluded as a boot transient of the 23:36 restart (all three zones flipped at 23:41). The Jaya night hold of 5400 s is doing its job, so the full degradation defense stays unbuilt. 2 nights, not the planned 3 (the operator asked to run it now).'
@@ -14717,6 +14723,7 @@ cards:
   - hvac.py:1788-1795, aggregation.py:4017-4019, :4152-4154 (the three zone_persons-gated suppressions)
   ack_reconciled_2026_09_19: 'Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: post-sensor-swap residual re-measure still owed. So the ack is recorded as the operator having SEEN the update, and the card deliberately stays in shipped_organic with its discriminator open. Noted so a later session does not read the ack as an acceptance and close it prematurely, and does not re-raise the same question.'
 - id: HVAC-PRESET-FLAP-1
+  groom_2026_09_29_arc: 'DEDUPE -> HVAC-HOLD-SIZING-ALL-ROOMS-1. Its gates are resolved: HVAC-MANUAL-PRESET-CONTRACT-1 landed as W1-B (v5.103.18) and the re-measure is done. Since v5.103.20 (09-28 18:53 to 09-29 12:28): away-then-back within 20 min = zone_1 0, zone_2 1, zone_3 6. The zone_3 residual is the Kitchen hold (the raw probe classes it HOLD-TOO-SHORT and TRANSIT-RETURN), which is exactly HOLD-SIZINGs Kitchen question. The operators ruled design axis (person/transit-aware, not a global debounce) is what v5.103.20 built.'
   workstream: HVAC-W4-ARC-CLOSURE
   seq_2026_09_16: 'STEP 9 (closeout) of HVAC-SUPPLE-SEQUENCE-1 — superseded_by step 6 for the BUILD; survives only as the evidence ledger. It CLOSES at step 9 with a recorded disposition, not by being forgotten. Read it before any new work here; do NOT re-derive tuning recommendations from it.'
   PRECONDITION_2_CLEARED_2026_09_15: 'OPERATOR TASK DONE + RE-MEASURED. The card gated unparking on
@@ -14838,7 +14845,7 @@ cards:
   title: HVAC zone preset flaps home<->away every 5-15 min during occupied evenings (survives Writer-B
     removal)
   thread: hvac
-  status: parked
+  status: done
   updated: '2026-09-26 02:40'
   refinement_status: refined
   TUNING_SIMULATION_2026_08_20: 'MEASURED, not assumed. Simulated both knobs against the real 48h zone_3
@@ -15117,21 +15124,7 @@ cards:
     at and died on the next fact. The history query I ran FOURTH should have been FIRST; I had last_changed
     timestamps in the opening read and looked past them. Rule: for any "it keeps doing X" complaint, pull
     the state history BEFORE proposing a mechanism.'
-  next: 'BLOCKED ON PRECONDITIONS, not awaiting a decision — the design axis is ALREADY RULED by the operator
-    (person-assignment-aware + transit-aware zone policy, explicitly NOT a global debounce). Gates, in
-    order: (1) the manual-write half — v5.88.0 shipped the borrow restore so URA-induced manual is largely
-    addressed, but HVAC-MANUAL-PRESET-CONTRACT-1 (the decider/writer split) has NOT landed; (2) the operator-owned
-    Garage Hallway sensor swap; (3) RE-MEASURE the flap rate after both, because the operator suspicion
-    is that much of the apparent flapping IS the manual writes — if so the residual flap is smaller and
-    differently shaped than todays numbers suggest. Only then size any knob turn. Do NOT tune before the
-    re-measure: grace=10 is deliberate (it spans TWO ticks), grace_constrained=5 is meant to be a FRACTION
-    of grace rather than an independent value, and entry dwell was already moved 3 -> 5 by the operator.
-    SUPERSEDED PRIOR NEXT (kept for the record, it predates and contradicts the rulings above it): it
-    framed this as an open DESIGN question about arbitrating the coast duty-limiter against occupied-zone
-    comfort, with candidates (a) exempt the limiter when the zone is occupied and recovering from a large
-    delta, (b) let the limiter win but HOLD it so it stops re-writing, (c) consult battery SOC. Those
-    remain useful sub-options for the eventual build, but they are not a blocking question — they are
-    implementation choices inside the ruled axis.'
+  next: 'DONE (merged into HVAC-HOLD-SIZING-ALL-ROOMS-1).'
   refs:
   - docs/planning/kanban.data.yaml card P1P3 (the falsification)
   - custom_components/universal_room_automation/domain_coordinators/hvac.py:1569-1610 (reason ladder),
@@ -17896,6 +17889,7 @@ cards:
   next: One-line fix (log the eval snapshot decision.reason) + anchor test; fold into next URA deploy
     batch (Tier 1).
 - id: ARRESTER-BOOT-BLIND-1
+  groom_2026_09_29_arc: 'Shipped v5.103.23 (Batch B Part A). Gap (2) is fixed: within-manual human changes are detected and, during a non-nudge borrow, end the borrow (ruling "the person interrupts, we end and revert"). Gap (1) (manual holds that predate the listener) is covered by the arrester startup audit, which arms a grace for zones already in manual at boot (observed live: tao_restore_evaluated at 03:06).'
   title: Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable
   thread: hvac
   status: shipped_organic
@@ -17925,7 +17919,7 @@ cards:
     at 10 (local number + envoy sensor + cloud HACS). Write-leg reconfirmation pending next write-verify
     cycle (URA commanding 99 peak-hold, backoff active).'
   operator_ruling_2026_09_28: 'OPERATOR (verbatim): "The person interrupts. We end and revert. Closest to my intent." i.e. option A: a human change during a URA non-nudge borrow ENDS the borrow, and the arrester then treats it as an ordinary human override (grace, compromise, revert). Nudges keep D13 (nudge wins).'
-  next: 'IN PROGRESS (me): Batch B Part A on feature/hvac-w1-w2-finish -> Tier 2-DB reviews (three framing-disjoint plus the adversarial-completeness pass, per Q6) -> deploy -> live validation + README write-back. No operator input pending.'
+  next: 'VALIDATE (me, one-shot, on the next human change during a pre-cool/pre-heat): ura_activity_log override_detected with a human_interrupt borrow end and no later climate_write carrying that excursion id. Dispose by 2026-10-06; if no such event occurs, close as in-suite-proven with a revival trigger.'
 - id: NM-BB-IMAGE-1
   title: iMessage photo delivery unblocked — BlueBubbles v0.5/0.6 added attachment + media_url
   thread: notifications
@@ -18523,6 +18517,7 @@ cards:
   next: move the check into the READY handler; pin with a test that asserts the WARNING fires when install
     fails
 - id: ARREST-SUNSET-1
+  groom_2026_09_29_arc: 'Stale next fixed: SECC-1 is closed (history), so "fold into SECC-1" is dead. Exposure is bounded: TAO has a hard 6 h max (COMFORT_OVERRIDE_MAX_S) and now persists across restarts (W1-B), so a TAO left on when the house goes away holds at most 6 h.'
   title: Temp Arrester Override does not sunset on away/vacation (only sleep)
   thread: hvac
   status: parked
@@ -18551,7 +18546,7 @@ cards:
     problem: override survives away/vacation -> arrester suppressed in an empty house
     verdict: BUILD
     note: one-predicate fix; sibling function already has the correct form
-  next: fold into the SECC-1 build batch; Tier 2-DB (HVAC governance)
+  next: 'PARKED. Revival trigger: a TAO found still on during house away/vacation with a zone held against energy policy (switch.ura_hvac_coordinator_temp_arrester_override on while the house state is away/vacation for more than 30 min).'
   refs:
   - domain_coordinators/hvac_override.py:584-624
   - domain_coordinators/hvac_const.py:206
@@ -24911,6 +24906,7 @@ cards:
   - docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:822
   - energy_const.py:980
 - id: HVAC-BASELINE-MAXSAMPLES-1
+  groom_2026_09_29_arc: 'Given a real revival trigger (it had none).'
   workstream: HVAC-W4-ARC-CLOSURE
   title: HVAC anomaly baselines never forget — an accumulator matured on August cooling will misjudge
     October; scope a bounded/windowed sample count into the shared detector
@@ -24968,8 +24964,7 @@ cards:
   parsimony:
     problem: An unbounded baseline trained on one season will misjudge the next, with no forgetting mechanism.
     verdict: BUILD
-  next: Scope the accumulation model (decay vs fixed window vs max_samples cap), decide default and per-metric
-    opt-in, and enumerate blast radius across the 5 consumers. Then Tier 2-DB plan + review before build.
+  next: 'PARKED. Revival triggers: (a) the operators PICK on HVAC-ANOMALY-BLIND-1 (same detector; plan both together), or (b) the first heating-season week (a cooling-matured baseline starts judging heating), whichever comes first.'
   refs:
   - docs/planning/SESSION_HANDOFF_2026-08-24_evse_split.md (decision
   - coordinator_diagnostics.py (AnomalyDetector)
@@ -30153,6 +30148,7 @@ cards:
   verify_2026_09_29_overnight: 'CARD-WAS-WRONG on scope. It said last_motion was the ONLY changing attribute. Recorder, last 26h: binary_sensor.living_room_occupied had 22,722 rows, 22,653 of them rewrites with the same state, driven by idle_duration 12,828, last_motion 6,020 and timeout 3,845. binary_sensor.living_room_living_room_hvac_occupied had 4,234 rows, 4,193 same-state rewrites, driven by last_evidence_at 3,942. A last_motion-only fix removes a minority of the writes. First build (feature/ura-attribute-churn @a25ad2043): last_motion dropped from OccupiedBinarySensor; the safety cooldowns sensor now publishes a static last_alert + cooldown_until (age_seconds / max_remaining_seconds dropped). Consumers checked: no live automation or dashboard reads these attributes, and the PWA reads the cooldowns STATE only. The tick''s root is coordinator.py:3604 _last_motion_time = now on every inference pass. Builder sent back to extend. Sweep candidates for a follow-up (not fixed here): sensor.py:2517, 3751, 3900-3912, 13241, 14018, 14232-14276, 14631, 16388.'
   fixup2_2026_09_29_overnight: 'Both reviews returned FIX-REQUIRED on fix-up 1 (converged HIGH): timeout_at and last_occupied_at were built from stamps the coordinator re-stamps on every refresh (coordinator.py:3604, 3638-3640), so the churn moved instead of stopping in occupied rooms, and the clock-only tests were hollow. Fix-up 2 (bef9d9aef): timeout_at is published only in the countdown phase, and last_occupied_at only while vacant; both are None otherwise, so the dict changes only on real phase changes. last_evidence_at is dropped. The cooldowns sub-dict is now {last_alert, window_until} (renamed: 3600 s upper bound, real windows are shorter by severity). Comments corrected: _unrecorded_attributes only strips the stored blob and does NOT stop state_changed rows. 5 behavioural tests advance the INTERNAL stamps (not just the clock). 4 mutation drills, each red on the right test. Targeted: 103 passed, 1 pre-existing failure (test_low_cleanup::test_hvac_observation_switch_has_deferred_restore, also fails on develop). Full-suite name-diff pending.'
 - id: HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1
+  groom_2026_09_29_arc: 'Shipped v5.103.23 (Batch B Part B).'
   title: A pre-arrival pre-cool keeps the zone on URA's temporary setpoints for up to 2 hours and lowers them another 2 degrees on every decision pass
   thread: hvac
   status: shipped_organic
@@ -30170,7 +30166,7 @@ cards:
   - 'End the pre-arrival borrow (return to the zone''s preset, then S1 decides) when the person arrives (zone occupied), when the pre-arrival window times out, or when a human interrupts (ARRESTER-BOOT-BLIND-1 ruling A).'
   - 'Apply the -2 F offset ONCE, from the baseline (_resolve_baseline_range), never compounding per cycle.'
   - 'Numbers get knobs: the pre-arrival window (today PRE_ARRIVAL_TIMEOUT_MINUTES = 30, const) -> a named Number if the operator wants it tunable. EXCURSION_LEASE_MAX_S stays a module constant (safety cap, rung 1).'
-  next: 'IN PROGRESS (me): Batch B Part B on feature/hvac-w1-w2-finish -> Tier 2-DB reviews -> deploy -> live validation.'
+  next: 'VALIDATE (me, one-shot, after the next pre-arrival): hvac_excursion_events for S12_pre_arrival shows exactly one write and a trigger in {pre_arrival_arrived, pre_arrival_timeout, pre_arrival_max_age, human_interrupt, pre_arrival_inactive}, never lease_expiry. Dispose by 2026-10-06.'
   links:
     related: [ARRESTER-BOOT-BLIND-1, BORROW-BANKING-LEASE-NOT-RELEASED-1, HVAC-PRECOOL-WINDOW-TOU-DERIVED-1]
   rank:
@@ -30199,9 +30195,10 @@ cards:
   measured_2026_09_29_overnight: 'CONFIRMED, with a CORRECTED mechanism: the card''s Envoy ''production today reports lifetime'' is WRONG. Probe: scripts/probes/energy_consumption_forecast_poison_probe.py. Report: docs/planning/AUDIT_energy_consumption_forecast_poisoning_2026_09_29.md. The real source is sensor.envoy_482543015950_lifetime_energy_production intermittently reading a constant 0.045505 MWh instead of ~15-19 MWh: 346 hourly readings since 04-11, and 12 of 28 September midnights. A midnight snapshot that catches it makes the next day''s delta equal the whole lifetime counter, which is written as that day''s solar (energy.py:2771-2823) and flows into consumption. There is no plausibility bound (only >=10 kWh on accuracy restore, energy.py:1446). Orchestrator re-verified: energy_daily has exactly 4 poisoned rows (06-19 6,803.6 / 08-20 14,646.5 / 08-28 15,583.5 / 08-30 15,897.3 kWh consumption), and each equals (next-midnight lifetime - 0.045505)x1000 to 0.1 kWh. The lifetime sensor read 0.045505 at 00:18 today, so the 09-29 row will land around 18,850 kWh unless fixed first. The same glitch also explains 83/198 empty consumption days and undercounts (09-24 48, 09-25 78 kWh). Forecast: Thu/Fri/Sun weekday baselines 3,049/2,089/2,126 vs ~150-165 clean; the regression refit gives base 1,375, slope -64.4 (clean 135.6/+1.85); current prediction 327 kWh vs 146 from the shadow estimator. Decision impact: 30/31 Battery-Aware EV evaluations since 09-21 used forecast/24 as house load (13.6 kW vs SPAN 5.5-7.9), but all 30 exited early at the drain target, and a counterfactual on 18 older evaluations changed 0 outcomes. LATENT, not realised.'
   plan_2026_09_29_overnight: 'PLANNED and plan-reviewed overnight. Plan: docs/planning/PLANNING_energy_lifetime_counter_poisoning.md. Rev 1 FAILED plan review (2 CRITICAL + 6 HIGH, docs/reviews/code-review/plan_review_energy_lifetime_counter_poisoning.md). The ceiling was placed after the in-memory forecast learning had already used the bad day; the restore rule accepted the exact glitched snapshot now in the DB; last-known-good was defined three incompatible ways; there was no reset policy; one guarded site was unreachable; and the fix created a new mid-day-seed undercount. Rev 2 fixes all of these and adds Option S vs F. D-1 measurement gate satisfied (scripts/probes/lifetime_counter_noise_probe.py): legitimate counter noise is at most 0.000074 MWh, so the tolerance is the 0.001 MWh floor. NEW: the battery charged/discharged counters also glitched in August to about HALF their value (4.245747 -> 2.123309), a shape only the last-known-good guard catches. Not built: this is energy accounting feeding a trust consumer and needs a destructive DB cleanup, so the pick and the cleanup are yours. TIME NOTE: tonight''s midnight row (09-29) will land poisoned (lifetime production read 0.045505 at 00:18). The cleanup covers it; nothing can prevent it without a deploy.'
 - id: HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1
+  groom_2026_09_29_arc: 'DISPOSED, live PASS (README_v5.103.22 follow-up). zone_3 12:02:29: release 11:59:50, away_due_at 12:04:50, None at 12:04:52 once passed. Arrester grace_until for Upstairs 07:08:53 and for E+MS 08:54:19, then compromise_until 08:59:19. The v8 Climate cards read both (wired 2026-09-29).'
   title: Publish each HVAC zone's "away due at" time and the arrester's grace/compromise end times, so the dashboard can show countdowns
   thread: hvac
-  status: shipped_organic
+  status: done
   soak_check_2026_09_29: 'NOT YET EVALUABLE (overnight). Live 00:5x: zone_1/2/3_status away_due_at = null and hvac_release_at = null in house sleep, which is correct (L2a behaviour; unbounded night release). L2b needs a daytime empty-zone release; L3 needs an arrester grace. The dashboard consumer of these attributes is the open residual on DASHBOARD-V8-FIX-BATCH-1.'
   shipped_version: v5.103.22
   created: '2026-09-28 22:50'
@@ -30212,7 +30209,7 @@ cards:
     date: '2026-09-28'
     gist: 'operator: "add the zone back off timer(s) for hvac (like in the rooms). HVAC arrester information on the climate tab. Zone away countdown"'
   why: 'Audit: zone status sensors already carry hvac_release_at, hvac_empty_since and pending_arm_rooms, but not the away-due time. The helper exists (zone_away_due_at, hvac_zones.py:1925) and is unpublished. Arrester grace/compromise timers are set at hvac_override.py:2319 / :3608 / :3675, but only the state name is published (:7114), so there are no end times. Additive attributes only; display-only.'
-  next: 'BUILD (Tier 1, additive attributes): away_due_at on sensor.ura_hvac_coordinator_zone_{n}_status, and grace_until / compromise_until per zone on the arrester sensor. Then wire them into the v8 Climate tab cards from the audit.'
+  next: 'DONE.'
   links:
     related: [DASHBOARD-V8-FIX-BATCH-1]
   rank: {value: 5, time_criticality: 3, effort: 1}
@@ -30330,6 +30327,22 @@ cards:
   why: 'All three climate entities were unavailable 09-28 14:24-17:21 CDT (177 min, a ha_carrier outage). During it, zone_1 alone got 37 B1_heat_cool_enforcer set_hvac_mode writes (reason heat_cool_enforcer_drift_revert; values_before.hvac_mode = unavailable) and repeated S1 vacant_past_grace away writes (values_before all null, hvac_mode unavailable). Other zones are likely the same (unmeasured). Pointless cloud calls into a dead integration, which also muddies the write ledger (the validator first read it as the zone_1 oscillation defect). Bug Class #7: an unavailable reading treated as a real value. Precedent: a 09-26 note recorded all 3 thermostats unavailable 20:24-21:15 with ha_carrier loaded but dead.'
   next: 'BUILD (Tier 1): the enforcer and S1 (and any emit_* funnel caller) skip a zone whose climate entity is unavailable/unknown, with one INFO/ledger row per outage episode rather than per tick. Test with an unavailable entity: no write. Measure zones 2/3 counts in the same window first (one query).'
   rank: {value: 4, time_criticality: 3, effort: 1}
+- id: HVAC-CUSTOM-PRESET-RANGES-1
+  title: 'Batch C: turn on Custom Preset Ranges (URA writes its own range into each preset instead of Carrier''s defaults), plus its three blockers'
+  thread: hvac
+  status: planned
+  created: '2026-09-29 13:10'
+  updated: '2026-09-29 13:10'
+  approval: explicit
+  tags: [hvac, batch-c, w1-tail]
+  origin:
+    date: '2026-09-27'
+    gist: 'operator CPR answers: "Won''t the app just reflect the new preset? Yes URA wins"; restore Carrier originals on off; default OFF; heat bug separately; "Run it in zone 3. Btw don''t deploy after building until I say so"'
+  why: 'CPR is the last W1 tail item (state-of-play §11 step 5). Plan PLANNING_hvac_enable_custom_preset_ranges.md REV 2 with operator answers (D0 item 5 PASS). It cannot be enabled until its three blockers are fixed in the same cycle: HVAC-S10-DPM-VS-S1-1 (S10 and S1 fight each tick), HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 (unconditional throttle bypass = 12 writes/h/zone) and HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1 (restore writers do not update _last_emitted_range). Before this card existed, CPR had no card of its own; it lived only in the plan and the W1 card.'
+  next: 'BUILD (Tier 2-DB, after a plan re-check against v5.103.23 since Batch B touched the same write paths): CPR plus its 3 blockers in one cycle; default OFF; zone 3 first. DEPLOY GATE (real): the operator''s explicit go.'
+  links:
+    children: [HVAC-S10-DPM-VS-S1-1, HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1, HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1]
+  rank: {value: 6, time_criticality: 3, effort: 4}
 - id: ENPHASE-BATTERY-CUTOUTS-1
   title: At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time
   thread: energy
@@ -30371,6 +30384,7 @@ cards:
     effort: 2
   verify_2026_09_29_overnight: 'STILL-NEEDS-OPERATOR. Recorder over the last 1h: 69.2 total rows/s, down from 83.9 after the 23:37 restart applied the recorder exclusions. SPAN 1,747 rows/min, unchanged, so (a) is not done. binary_sensor low_flow_leak 41,413 rows/24h (~29/min), still flapping, so (c) is not done. CORRECTION to option (b): the Frigate bridge automation writes ~7 state rows/min (9,864/24h), not the ~115/min the card cites. The 115 is probably runs or events, not state rows. Re-measure trigger count (automation_triggered events) before you pick (b).'
 - id: HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1
+  groom_2026_09_29_arc: 'Partial re-measure after Batch B (since 2026-09-29 03:02): 16 borrow writes (S5 nudge start 5, S7 restore 10, S3 compromise 1), 0 without an excursion id (nudge starts were 5/35 null before). The S12 pre-cool and auto_return paths have not fired since, so their gaps are not yet re-measured.'
   title: Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered
   thread: hvac
   status: investigating
@@ -30411,10 +30425,7 @@ cards:
     docs/BACKLOG.md (none); PLANNING_hvac_w1a_thermostat_write_governance.md (F6 invariant = the source rule);
     PLANNING_hvac_w1_w2_finish.md P2 (S12 NULL ids, ADJACENT); HVAC state of play section 125 (funnel forwards
     optional excursion_id). Verdict: NEW, linked; the S12 slice is ADJACENT to Batch B.'
-  next: 'MEASURE (me, read-only): after Batch B merges, re-run the null-id query. For each site still null, read
-    the call path (hvac_excursion.py auto_return / lease-expiry sweep, the S5/S6 human_manual branch, S12 re-entry)
-    and name where the token is dropped. Also evaluate the deferred W1-A criterion 6 (external-or-bypass recorder
-    changes <= pre-ship baseline + 10%). Then a Tier 1 fix if it is plumbing only.'
+  next: 'MEASURE (me, one-shot): re-run the null-id query after the next S12 pre-cool and the next lease/auto return. Close if 0 null; otherwise name the site. Dispose by 2026-10-06.'
   parsimony: {problem: 'borrow writes are logged without the borrow id on 4 site families, breaking write-to-episode attribution', verdict: BUILD}
   refs: [docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md, docs/planning/PLANNING_hvac_w1_w2_finish.md, docs/readmes/README_v5.103.16.md]
 - id: ROOM-OVERRIDE-SWITCH-FORGOTTEN-1
