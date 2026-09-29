@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.21
+# Universal Room Automation vv5.103.22
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -2996,13 +2996,15 @@ class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
 
 
 class HVACConsensusDeferGateSwitch(SwitchEntity, RestoreEntity):
-    """v4.7.15 D6: Toggle HVAC consensus defer gate.
+    """v4.7.15 D6: Toggle HVAC consensus defer gate ("Wait for Presence").
 
     When ON (default): _apply_house_state_presets skips preset writes when
     signal_consensus < 0.5 AND last house-state transition < 30 s ago.
     When OFF: gate disabled — HVAC reverts to pre-v4.7.15 behaviour.
 
-    Entity: switch.ura_hvac_consensus_defer_gate
+    Entity: switch.ura_hvac_coordinator_hvac_consensus_defer_gate
+    (the 2026-09-28 display-name rename does not touch the unique_id, so
+    the registry keeps this entity_id)
     Device: URA: HVAC Coordinator
     """
 
@@ -3014,7 +3016,7 @@ class HVACConsensusDeferGateSwitch(SwitchEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_consensus_defer_gate"
-        self._attr_name = "HVAC Consensus Defer Gate"
+        self._attr_name = "Wait for Presence"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -3147,13 +3149,15 @@ class HVACD5EnableSwitch(SwitchEntity, RestoreEntity):
 
 
 class ComplianceConsensusDeferGateSwitch(SwitchEntity, RestoreEntity):
-    """v4.7.15 D6: Toggle compliance violation defer gate.
+    """v4.7.15 D6: Toggle compliance violation defer gate ("Compliance Presence Wait").
 
     When ON (default): _emit_compliance_violation_anomaly suppresses emits
     when signal_consensus < 0.6 sustained for >= 60 s.
     When OFF: gate disabled — compliance violations emit at v4.7.14 cadence.
 
-    Entity: switch.ura_compliance_consensus_defer_gate
+    Entity: switch.ura_coordinator_manager_compliance_consensus_defer_gate
+    (the 2026-09-28 display-name rename does not touch the unique_id, so
+    the registry keeps this entity_id)
     Device: URA: Coordinator Manager
     """
 
@@ -3165,7 +3169,7 @@ class ComplianceConsensusDeferGateSwitch(SwitchEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_compliance_consensus_defer_gate"
-        self._attr_name = "Compliance Consensus Defer Gate"
+        self._attr_name = "Compliance Presence Wait"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "coordinator_manager")},
             name="URA: Coordinator Manager",

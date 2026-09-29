@@ -596,7 +596,8 @@ class HVACCoordinator(BaseCoordinator):
 
         # v4.7.15 D6: HVAC consensus defer gate.
         # Master toggle (default ON). Operator can disable via
-        # switch.ura_hvac_consensus_defer_gate for rollback without restart.
+        # switch.ura_hvac_coordinator_hvac_consensus_defer_gate ("Wait for
+        # Presence") for rollback without restart.
         # When ON, _apply_house_state_presets skips writes if signal_consensus
         # < 0.5 AND last house-state transition < 30 s ago.
         # v4.7.15 fix-up A5-H1: also implement asymmetric hysteresis — once

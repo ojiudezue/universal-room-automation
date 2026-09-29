@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "159",
+  "author": "ojiudezue",
+  "session_id": "claude_20260929_043521_ship_v5_103_22",
+  "timestamp": "2026-09-29T04:35:21Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.22 shipped: HVAC: plain names for presence-wait and weather-adjust settings, zone away and arrester countdowns published, pre-cool restore uses Heat Low",
+  "summary": "HVAC: plain names for presence-wait and weather-adjust settings, zone away and arrester countdowns published, pre-cool restore uses Heat Low",
+  "why": "Batch A of the consolidated HVAC W1/W2 finish. The operator asked for plain labels (the consensus defer gate and settle time names meant nothing) and for zone-away and arrester countdowns on the v8 dashboard; the countdown values were computed but never published, so the dashboard could only estimate them. The restore fallback bug (cool minus 7 instead of the configured Heat Low) would heat an empty winter zone to about 73 F. The planned HIGH-1 manual-skip deletion was dropped because the skip is still reachable after a restart during a compromise (C26).",
+  "implications": "Shipped HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1, HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1 at v5.103.22; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.22.md (Live criteria).",
+  "revisit_trigger": "If away_due_at disagrees with the actual exit write time, or a restore writes a heat value that is not the configured Heat Low",
+  "refs": {
+    "cards": [
+      "HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1",
+      "HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.22.md"
+    ],
+    "release_notes": "Renames: Wait for Presence, Compliance Presence Wait, Weather Adjust Delay, Weather Adjust Margin (entity ids unchanged). New display attributes: away_due_at on each HVAC zone status sensor; grace_until and compromise_until per zone on the arrester. Pre-cool/pre-heat restore fallback now uses the configured Heat Low instead of cool minus 7."
+  }
+}

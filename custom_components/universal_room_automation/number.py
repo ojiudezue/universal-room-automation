@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.21
+# Universal Room Automation vv5.103.22
 # Build: 2026-01-02
 # File: number.py
 #
@@ -2961,7 +2961,7 @@ class DynamicPresetDwellMinutesNumber(NumberEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_energy_dynamic_preset_dwell_minutes"
-        self._attr_name = "03 · Settle Time (min)"
+        self._attr_name = "03 · Weather Adjust Delay"
         self._attr_native_min_value = 15.0
         self._attr_native_max_value = 240.0
         self._attr_device_info = DeviceInfo(
@@ -3038,7 +3038,7 @@ class DynamicPresetHysteresisFNumber(NumberEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_energy_dynamic_preset_hysteresis_f"
-        self._attr_name = "04 · Preset Margin (°F)"
+        self._attr_name = "04 · Weather Adjust Margin"
         self._attr_native_min_value = 0.5
         self._attr_native_max_value = 5.0
         self._attr_device_info = DeviceInfo(

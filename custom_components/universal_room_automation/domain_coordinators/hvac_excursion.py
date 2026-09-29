@@ -644,9 +644,17 @@ async def _auto_return(
     **HIGH-1 skip rule:** if ``token.pre_preset in {None, "", "manual"}``
     the preset write is SKIPPED and the ended event is logged with
     ``restore_ok=None`` (three-way ReturnOutcome — neither PASS nor
-    FAIL, "no legitimate preset to restore to"). Nothing recovers the
-    zone from ``manual`` in the D1-only build; that is D3's job and
-    D3 is parked. This is a known, documented gap.
+    FAIL, "no legitimate preset to restore to").
+
+    2026-09-28: the "recover from manual" gap this rule used to leave
+    open is now closed at S1 (W1-B four-gate rule, v5.103.18 — S1
+    reclaims a ``manual`` zone once no gate holds). The skip itself is
+    still LIVE and must stay: COMPROMISE rows snapshot ``pre_preset ==
+    "manual"`` (they begin while the human override holds the zone), a
+    restart drops the arrester's compromise timer while the boot audit
+    rehydrates the row, and the sweep then lands here. Without the skip
+    the sweep would WRITE preset ``manual`` (or ``None``) back to the
+    thermostat. Pinned by ``test_hvac_excursion_d1_auto_release.py``.
 
     Never raises. All wire failures are swallowed after logging.
     """

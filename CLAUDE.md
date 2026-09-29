@@ -49,7 +49,7 @@ For URA cycles, route each phase to the designated subagent. Do NOT default to `
 |---|---|---|
 | Planning doc / architecture | `ura-planner` | Writing PLANNING_v*.md, critiquing scope, tier classification |
 | Implementation | `ura-builder` | Code changes to `custom_components/universal_room_automation/`, tests |
-| Implementation — **Tier 3** | `ura-super-builder` (Fable 5.1, low effort) | Tier-3 / delicate shared-primitive / invariant-critical builds (operator 2026-09-27). Same rules as ura-builder + Tier-3 build discipline |
+| Implementation — **Tier 3** | `ura-super-builder` (opus-5-5; Fable retired 2026-09-28, out of tokens) | Tier-3 / delicate shared-primitive / invariant-critical builds (operator 2026-09-27). Same rules as ura-builder + Tier-3 build discipline |
 | Test execution + baseline-diff | `ura-validator` | After build, before review. Runs pytest, compares against `pre-review-vX.Y.Z`. Never edits code. |
 | Code review | `ura-reviewer` | Tier 1 = one pass; Tier 2 = TWO parallel passes with different framings; Tier 2-DB = THREE parallel passes per Tier 2-DB protocol below |
 | Deploy | `/deploy` skill OR `./scripts/deploy.sh` directly | `ura-deployer` is redundant — slated for deletion |

@@ -342,8 +342,8 @@ class ComplianceTracker:
         # v4.7.15 D6: Compliance defer gate.
         # When ON, suppress compliance-violation anomalies if signal_consensus
         # has been below 0.6 for >= 60 s sustained. Operator can disable via
-        # switch.ura_compliance_consensus_defer_gate for rollback without
-        # restart. Default ON.
+        # switch.ura_coordinator_manager_compliance_consensus_defer_gate
+        # ("Compliance Presence Wait") for rollback without restart. Default ON.
         self._compliance_defer_gate_enabled: bool = True
         # UNLOAD-SYMMETRY-TASK-HYGIENE-1: retained one-shot ``async_call_later``
         # unsubs from ``schedule_check`` so an entry unload can cancel any
@@ -590,7 +590,8 @@ class ComplianceTracker:
         v4.7.15 D6: Defer gate. When signal_consensus has been below 0.6 for
         >= 60 s sustained, suppress the emit — the disagreement is the more
         likely cause of the apparent override than a true user override.
-        Operator can disable via switch.ura_compliance_consensus_defer_gate.
+        Operator can disable via
+        switch.ura_coordinator_manager_compliance_consensus_defer_gate.
         """
         # v4.7.15 D6: Consult signal_consensus before emit.
         try:
