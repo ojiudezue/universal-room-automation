@@ -280,6 +280,15 @@ stationary-in-suite episodes returned (max 55.6 min), 0/9 genuine exits stationa
 `hvac_vacancy_hold_night` knob for Jaya Bedroom (awaiting operator approval); code build parked.** Zigbee radar
 **unavailable since 2026-09-25 19:32**; `sensor.seeedstudio_mmwave_kit_047d34_existence_energy` unavailable both nights.
 Card `HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1`. Constraint: zone-scoped only, never "anyone home".
+**Refined 2026-09-29 (C27):** the room did not go vacant because a radar lost a still sleeper. `binary_sensor.jaya_3_presence`
+(Seeed) follows `fan.fanswitch_treat_wifi_jayabedroom`: its on-edges land 15–20 s after the fan's (09-24 20:06:15→20:06:32,
+02:40:05→02:40:21, 02:56:57→02:57:10), so while the fan runs the radar reports the fan, not Jaya. On 09-24 it read on
+continuously 21:22:23→01:37:12. URA's stuck-sensor rule (`coordinator.py:364`, `_stuck_sensor_hours = 4.0`, a hard-coded
+literal with no knob) then excludes a sensor that has been on for 4 h, which is 01:22. The room goes vacant at 01:31:18, URA turns
+the fan off at 01:36:38 because the room is vacant, and the radar drops 34 s later. The 09-25 night follows the same shape
+(probe `scripts/probes/hvac_room_return_probe_raw.py`, report `docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md`,
+9 stuck exclusions in 7 days). So the radar never held her; a longer night hold only masks the gap, and the real fix is the
+sensor (re-aim/tune/replace it so it does not see the fan). The 5400 s night hold still covers the observed gaps (≤ 69 min).
 
 **9.4 Readers that act on a reloading room's synthetic "empty"** (pre-existing; reviewers B+D of v5.103.15): D5 coast
 defer `hvac.py:2271-2289` can force an occupied zone away for one tick (and retreat an all-dead zone under coast); D6
@@ -444,6 +453,13 @@ skip would WRITE preset `manual` (or `None`) to the thermostat. What W1-B actual
 recovers the zone from manual — D3's job" (S1 now reclaims); docstring corrected. "Parked D3" has no code in the HVAC
 modules — only the `(D3 recovery parked)` log text. Pinned by `test_hvac_excursion_d1_auto_release.py`
 (`test_auto_return_skips_preset_when_pre_preset_{manual,none,empty}`). NOT deleted.
+
+**C27 (2026-09-29) — INCOMPLETE: C19's "the radars simply lost a still sleeper" (§9.3).** The Seeed radar
+`binary_sensor.jaya_3_presence` tracks the bedroom fan (on-edges 15–20 s after the fan's), so it never sensed Jaya. It was
+removed by the hard-coded 4 h stuck-sensor rule (`coordinator.py:364`) about 4 h after its last on-edge (09-24: on 21:22:23 → excluded
+≈01:22 → vacant 01:31:18 → fan off 01:36:38 → radar off 01:37:12). C19's ordering (vacant before fan-off) stands; its
+cause does not. Evidence: HA recorder state history for both entities, 09-23→09-25 and 09-28 (verified 2026-09-29),
+`AUDIT_hvac_hold_sizing_raw_2026_09_29.md`.
 
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 
