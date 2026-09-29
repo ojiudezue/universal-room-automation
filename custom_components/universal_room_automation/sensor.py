@@ -12259,11 +12259,18 @@ class HVACZoneStatusSensor(AggregationEntity, SensorEntity):
         hvac = manager.coordinators.get("hvac")
         if hvac is None:
             return {}
+        # HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1: the LIVE vacancy
+        # grace (knob 48, or 49 under coast/shed) for `away_due_at`.
+        try:
+            away_grace_s = hvac._exit_grace_seconds()
+        except Exception:  # noqa: BLE001
+            away_grace_s = None
         # B-M2 (fix-up): route the duty-cycle denominator through the
         # live window knob rather than the module constant.
         return hvac.zone_manager.get_zone_status_attrs(
             self._zone_id,
             window_seconds=getattr(hvac, "duty_cycle_window_seconds", None),
+            away_grace_s=away_grace_s,
         )
 
     async def async_added_to_hass(self) -> None:

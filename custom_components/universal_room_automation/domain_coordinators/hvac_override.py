@@ -220,6 +220,14 @@ class OverrideArrester:
         self._grace_timers: dict[str, CALLBACK_TYPE] = {}
         self._compromise_timers: dict[str, CALLBACK_TYPE] = {}
         self._reset_timers: dict[str, CALLBACK_TYPE] = {}
+        # HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1: DISPLAY-ONLY end
+        # instants (UTC) of the grace / compromise timers, stamped when the
+        # timer is armed. Published only while the zone is still in the
+        # matching live timer dict (get_arrester_detail), so every cancel /
+        # fire path that pops the timer also retires the published value.
+        # No decision may read these.
+        self._grace_until: dict[str, datetime] = {}
+        self._compromise_until: dict[str, datetime] = {}
 
         # Per-zone override state
         self._override_active: dict[str, bool] = {}
@@ -2321,6 +2329,7 @@ class OverrideArrester:
                 grace_seconds,
                 _on_startup_grace_fire,
             )
+            self._stamp_timer_end("_grace_until", zone.zone_id, grace_seconds)
 
             self.hass.async_create_task(
                 self._send_nm_alert(
@@ -3610,6 +3619,7 @@ class OverrideArrester:
             grace_seconds,
             _on_severe_grace_fire,
         )
+        self._stamp_timer_end("_grace_until", zone_id, grace_seconds)
 
         # NM alert
         self.hass.async_create_task(
@@ -3677,6 +3687,7 @@ class OverrideArrester:
             grace_seconds,
             _on_normal_grace_fire,
         )
+        self._stamp_timer_end("_grace_until", zone_id, grace_seconds)
 
         # NM alert
         self.hass.async_create_task(
@@ -3800,6 +3811,7 @@ class OverrideArrester:
             compromise_seconds,
             _on_compromise_fire,
         )
+        self._stamp_timer_end("_compromise_until", zone_id, compromise_seconds)
 
     def _supports_heat_cool(self, climate_entity: str) -> bool:
         """True if the climate entity advertises heat_cool in its hvac_modes.
@@ -7026,6 +7038,31 @@ class OverrideArrester:
         # Return the delta with the largest absolute value
         return max(deltas, key=abs)
 
+    def _stamp_timer_end(self, attr: str, zone_id: str, seconds: float) -> None:
+        """DISPLAY-ONLY: remember when an arrester grace / compromise timer
+        will fire (UTC). Never read by a decision; never raises."""
+        try:
+            ends = self.__dict__.setdefault(attr, {})
+            ends[zone_id] = dt_util.utcnow() + timedelta(seconds=float(seconds))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("arrester: timer end stamp failed for %s", zone_id, exc_info=True)
+
+    def _published_timer_end(
+        self, ends_attr: str, timers: dict[str, Any], zone_id: str,
+    ) -> str | None:
+        """ISO local end time of a LIVE timer, else None. Gated on the live
+        timer dict so every cancel / fire path that pops the timer retires
+        the published value by construction."""
+        if zone_id not in timers:
+            return None
+        end = (getattr(self, ends_attr, None) or {}).get(zone_id)
+        if not isinstance(end, datetime):
+            return None
+        try:
+            return dt_util.as_local(end).isoformat()
+        except Exception:  # noqa: BLE001
+            return None
+
     def _cancel_zone_timers(self, zone_id: str) -> None:
         """Cancel all active timers for a zone."""
         for timer_dict in (
@@ -7129,6 +7166,13 @@ class OverrideArrester:
                 detail["state"] = "idle"
             if zone.last_override_direction:
                 detail["last_direction"] = zone.last_override_direction
+            # HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1 (display only).
+            detail["grace_until"] = self._published_timer_end(
+                "_grace_until", self._grace_timers, zone_id,
+            )
+            detail["compromise_until"] = self._published_timer_end(
+                "_compromise_until", self._compromise_timers, zone_id,
+            )
             zones_detail[zone.zone_name] = detail
         # Arrester Operator-Immunity — surface state for the operator
         # dashboard (per-zone immune-hold user + started_ts + Comfort
