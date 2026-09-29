@@ -1410,6 +1410,16 @@ class HVACPredictor:
                 # changed the thermostat) — the CM must not also close it
                 # as a wire failure.
                 _s12_guard.mark_committed()
+                # Fix-up 3 (D2-1): the token was never stored, so the
+                # interrupted-clear cannot see it — spend the arrival episode
+                # here, or the next pass would begin a second pre-arrival.
+                if reason == "pre_arrival":
+                    _spend = getattr(self._hvac_coord, "_spend_pre_arrival_episode", None)
+                    if _spend is not None:
+                        try:
+                            _spend(zone.zone_id)
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.debug("pre-arrival spend failed", exc_info=True)
                 _LOGGER.info(
                     "HVAC: pre-cool (%s) on %s dropped — a person interrupted "
                     "the borrow while it began", reason, zone.zone_name,

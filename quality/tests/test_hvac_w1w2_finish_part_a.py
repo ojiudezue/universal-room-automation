@@ -1704,3 +1704,75 @@ def test_latch_level_check_keeps_manual(mods, monkeypatch):
     H.set_climate(hass, E2, preset_mode="manual", hold_activity="manual", low=68.0, high=71.0)
     assert arr.latch_level_check() == 0
     assert arr.interrupt_latched(E2)
+
+
+# ==========================================================================
+# Fix-up round 3
+# ==========================================================================
+
+
+@pytest.mark.asyncio
+async def test_interrupt_during_pre_arrival_begin_spends_episode(mods, monkeypatch):
+    """D2-1: a person's change lands inside `begin_excursion`'s DB save for a
+    PRE-ARRIVAL pre-cool. The pre-cool drops via the M1 exit before its
+    token is stored; the arrival episode must still be spent, so after the
+    grace fires (S4 pins home, latch discharged) the next pass writes NO
+    S12."""
+    from unittest.mock import AsyncMock
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="away",
+                                         low=68.0, high=80.0)
+    coord._pre_arrival_enabled = True
+    coord._pre_arrival_sources = ["ble"]
+    coord._person_zone_map = {"person.jaya": [Z2]}
+    coord._async_decision_cycle = AsyncMock()
+    coord._pre_arrival_zones.add(Z2)
+    coord._pre_arrival_start[Z2] = datetime.now(timezone.utc)
+
+    async def _hook(row):
+        arr._handle_climate_change(
+            _ev(E2, ("away", 68.0, 80.0), ("manual", 68.0, 71.0)))
+        await asyncio.sleep(0)
+    db.save_hook = _hook
+    await coord._predictor._check_pre_conditioning(
+        None, "home_night", datetime(2026, 9, 28, 22, 3, 51),
+        pre_arrival_zones=set(coord._pre_arrival_zones), zone_intelligence_enabled=True)
+    await H.drain(hass, rounds=6)
+    assert _cw_rows(hass, mods, "S12_pre_cool") == []
+    assert db.events and db.events[-1]["trigger"] == "human_interrupt"
+    assert Z2 not in coord._pre_arrival_zones and Z2 in coord._pre_arrival_spent
+    # The grace fires: S4 pins home; the thermostat reports home -> latch off.
+    for _d, cb, _c in list(sched.live()):
+        cb(None)
+    await H.drain(hass, rounds=8)
+    assert H.preset_writes(hass, E2, "home")
+    z = coord.zone_manager.zones[Z2]
+    z.preset_mode, z.target_temp_low, z.target_temp_high = "home", 70.0, 76.0
+    H.set_climate(hass, E2, preset_mode="home", hold_activity="home", low=70.0, high=76.0)
+    arr.unsuppress(E2)
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 71.0), ("home", 70.0, 76.0)))
+    assert not arr.interrupt_latched(E2)
+    # A repeat trigger + the next pass: still no S12.
+    coord._handle_person_arriving({"person_entity": "person.jaya", "source": "ble"})
+    await coord._predictor._check_pre_conditioning(
+        None, "home_night", datetime(2026, 9, 28, 22, 20),
+        pre_arrival_zones=set(coord._pre_arrival_zones), zone_intelligence_enabled=True)
+    await H.drain(hass)
+    assert _cw_rows(hass, mods, "S12_pre_cool") == []
+
+
+@pytest.mark.asyncio
+async def test_interrupt_during_energy_begin_does_not_spend(mods, monkeypatch):
+    """D2-1 guard: the spend is for PRE-ARRIVAL only — an energy pre-cool
+    dropped at the M1 exit leaves a pending pre-arrival zone alone."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="home",
+                                         low=68.0, high=76.0)
+    coord._pre_arrival_zones.add(Z2)
+
+    async def _hook(row):
+        arr._interrupt_latch.add(E2)
+    db.save_hook = _hook
+    await coord._predictor._execute_zone_pre_cool(
+        coord.zone_manager.zones[Z2], offset=-3.0, reason="energy_precool")
+    await H.drain(hass)
+    assert _cw_rows(hass, mods, "S12_pre_cool") == []
+    assert Z2 in coord._pre_arrival_zones and Z2 not in coord._pre_arrival_spent

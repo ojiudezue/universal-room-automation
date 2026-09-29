@@ -971,3 +971,29 @@ async def test_master_off_on_within_window_does_not_rebegin(mods, monkeypatch):
         pre_arrival_zones=set(coord._pre_arrival_zones), zone_intelligence_enabled=True)
     await H.drain(hass)
     assert len(_s12(hass, mods)) == 1
+
+
+# ==========================================================================
+# Fix-up round 3
+# ==========================================================================
+
+
+@pytest.mark.asyncio
+async def test_spent_episode_keyed_by_last_trigger_not_spend_time(mods, monkeypatch):
+    """C-L1: the spent episode is keyed by the LAST TRIGGER (`start`), not
+    the spend time. Trigger at T0 (window 30 min), the episode is spent at
+    T0+20 (an interrupt well after the trigger), a new trigger at T0+40 —
+    after start+window (T0+30) but before spend+window (T0+50) — begins a
+    new pre-arrival."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    _arrive_setup(coord)
+    t0 = datetime(2026, 9, 28, 22, 0, tzinfo=timezone.utc)
+    _freeze_hvac_clock(mods, monkeypatch, t0)
+    coord._handle_person_arriving({"person_entity": "person.jaya", "source": "ble"})
+    assert Z2 in coord._pre_arrival_zones
+    _freeze_hvac_clock(mods, monkeypatch, t0 + timedelta(minutes=20))
+    coord._spend_pre_arrival_episode(Z2)
+    assert Z2 not in coord._pre_arrival_zones
+    _freeze_hvac_clock(mods, monkeypatch, t0 + timedelta(minutes=40))
+    coord._handle_person_arriving({"person_entity": "person.jaya", "source": "ble"})
+    assert Z2 in coord._pre_arrival_zones
