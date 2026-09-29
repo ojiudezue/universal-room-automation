@@ -330,6 +330,12 @@ def test_last_updated_mixed_naive_aware_normalised():
     assert det.get_status_summary()["metrics"]["m2"]["last_updated"] == (
         "2026-09-02T01:00:00+00:00"
     )
+    # A lone naive value (pre-A-M2 MF row shape) is read as UTC, emitted aware.
+    det3 = _det(["m3"])
+    _seed(det3, "m3", "house", 5, last_updated="2026-05-12T04:48:24.220732")
+    assert det3.get_coverage()["m3"]["last_updated"] == "2026-05-12T04:48:24.220732+00:00"
+    _seed(det3, "m3", "house", 0, last_updated=None)
+    assert det3.get_coverage()["m3"]["last_updated"] is None
 
 
 # ---------------------------------------------------------------------------
