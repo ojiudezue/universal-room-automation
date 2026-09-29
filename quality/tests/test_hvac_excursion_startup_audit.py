@@ -160,11 +160,14 @@ def test_F1_boot_audit_skips_preset_restore_when_snapshot_empty():
     db.clear_excursion_row.assert_awaited_with("zone_a")
 
 
-def test_F1_boot_audit_manual_snapshot_writes_manual_back():
-    """§13.5 UNFILTERED snapshot: pre_preset='manual' MUST be restored.
-    Operator verified live that 'manual' IS in preset_modes on all three
-    Bryants — writing it back is a legal no-op (equality) on this
-    hardware. Refutes the Review B concern."""
+def test_F1_boot_audit_manual_snapshot_is_not_pinned():
+    """SUPERSEDED 2026-09-28 by HVAC W1/W2 finish D6 (Batch A LOW-4): the
+    old contract here was "pre_preset='manual' MUST be restored". Pinning
+    the anonymous `manual` hold restores nothing and re-creates the S1
+    lockout (a NUDGE can begin on a manual zone, D48/D52). The boot audit
+    now SKIPS the preset write for a `manual` snapshot (same rule as the
+    HIGH-1 skip in `_auto_return`) and still clears the row; the S9 ramp
+    audit restores the setpoints and S1's §9e reclaim returns the zone."""
     from datetime import datetime, timezone
     rows = [{
         "zone_id": "zone_a",
@@ -182,5 +185,5 @@ def test_F1_boot_audit_manual_snapshot_writes_manual_back():
     }]
     hass, coord, db, captured = _make_env(rows)
     _run(_ex_mod.async_startup_excursion_audit(hass, coord))
-    assert len(captured) == 1
-    assert captured[0]["preset"] == "manual"
+    assert captured == []
+    db.clear_excursion_row.assert_awaited_with("zone_a")
