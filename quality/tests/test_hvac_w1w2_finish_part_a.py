@@ -1638,8 +1638,20 @@ async def test_pre_arrival_interrupt_during_startup_audit_uses_arrival_reference
 async def test_rehydrate_drops_latch_for_unmapped_entity(mods, monkeypatch):
     """N5: a stored latch for a thermostat no longer in any zone is dropped."""
     coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    coord._zone_state_store = H.FakeStore()
     await coord._rehydrate_arrester_state({"__interrupt_latch": ["climate.gone", E2]})
+    await H.drain(hass, rounds=6)
     assert arr.interrupt_latched(E2) and not arr.interrupt_latched("climate.gone")
+    assert _saved(coord).get("__interrupt_latch") == [E2]
+
+
+@pytest.mark.asyncio
+async def test_rehydrate_keeps_latch_while_zone_map_empty(mods, monkeypatch):
+    """N5 guard at boot: no zones known yet -> nothing is dropped."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    coord.zone_manager._zones.clear()
+    await coord._rehydrate_arrester_state({"__interrupt_latch": ["climate.gone", E2]})
+    assert arr.interrupt_latched(E2) and arr.interrupt_latched("climate.gone")
 
 
 @pytest.mark.asyncio
@@ -1648,8 +1660,9 @@ async def test_zones_updated_prunes_latch(mods, monkeypatch):
     coord._zone_state_store = H.FakeStore()
     arr._interrupt_latch.update({"climate.gone", E2})
     coord._handle_zm_zones_updated({"deleted_zone_name": "No Such Zone"})
-    await H.drain(hass)
+    await H.drain(hass, rounds=6)
     assert arr.interrupt_latched(E2) and not arr.interrupt_latched("climate.gone")
+    assert _saved(coord).get("__interrupt_latch") == [E2]
 
 
 def test_latch_prune_skipped_while_zone_map_empty(mods, monkeypatch):

@@ -5348,8 +5348,9 @@ class HVACCoordinator(BaseCoordinator):
                 exc_info=True,
             )
         # HVAC W1/W2 finish fix-up 2 (N5): drop person-interrupt latches for
-        # thermostats no longer mapped to any zone (the rewrite below then
-        # persists the pruned latch).
+        # thermostats no longer mapped to any zone (the arrester schedules
+        # the snapshot save that persists the pruned `__interrupt_latch`;
+        # the store rewrite below does not touch that key).
         self._prune_interrupt_latch()
         # 2) Persisted snapshot rewrite (LOAD-BEARING — else restart
         #    resurrects the zone via restore_state_snapshot at line 503).
