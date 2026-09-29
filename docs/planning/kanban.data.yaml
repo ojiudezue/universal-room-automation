@@ -30233,17 +30233,19 @@ cards:
 - id: HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1
   title: A new arrester episode cancels a pending AC hard-reset restore, so a zone can stay off for about 2-20 minutes after a reset
   thread: hvac
-  status: planned
+  status: 'in_progress'
   created: '2026-09-29 04:10'
-  updated: '2026-09-29 04:10'
+  updated: '2026-09-29 03:05'
   approval: implied
   tags: [hvac, arrester, ac-reset, pre-existing, found-in-review]
   origin:
     date: '2026-09-29'
     gist: Batch B review B-L3 (docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md); flagged by the builder; exists on develop
   why: 'A governed override dispatch (hvac_override.py ~4055/4123) calls _cancel_zone_timers (~7624-7633), which also cancels a pending AC-reset RESTORE timer. If a manual change is booked inside the Carrier lag window after the reset''s `off` write (up to ~79 s), the zone stays off until the arrester''s own revert re-asserts heat_cool (B4): ~2 min on the severe path, up to ~20 min on grace + compromise. If the revert stands down, the zone stays off. Present on develop through the transition path; Batch B only slightly widens reachability.'
-  next: 'BUILD (Tier 1): dispatch cancels only grace/compromise timers (mirror _defer_arrester_to_borrow at ~3953), never the AC-reset restore. Add a test: a reset is pending, a human change is booked, the restore still fires.'
+  next: 'IN PROGRESS (me, overnight): built on fix/arrester-episode-keeps-ac-reset-restore @4e5d7d900; two static reviews (A correctness, B race/lifecycle) running, then a serial test run. Ends in review; no deploy. Rebase after Batch B lands (same file, same 3 callers, no new ones).'
   rank: {value: 4, time_criticality: 3, effort: 1}
+  build_2026_09_29_overnight: 'BUILT (ura-builder, worktree, branch fix/arrester-episode-keeps-ac-reset-restore @4e5d7d900, base = develop d8397a070). The helper was renamed _cancel_zone_timers -> _cancel_arrester_timers, and its scope was cut to grace + compromise, dropping _reset_timers (hvac_override.py:7066). All 3 callers (startup audit :2315, severe :3601, normal :3659) are arrester-episode arm sites, and all want the narrower scope. The legitimate reset-timer cancels are untouched: teardown :2360, ac_reset_enabled setter :3038, and the fire-time pop :4411. 5 tests in quality/tests/test_arrester_episode_preserves_ac_reset_restore.py: 3 positive (wire-in through _handle_severe/_handle_normal + the helper contract) and 2 negative (teardown and disable still cancel). Mutation drill (re-add _reset_timers): exactly the 3 positive tests failed, the 2 negative passed. Targeted run: 89 passed. Orchestrator check: Batch B has the same 3 callers and no new ones, so a rebase is textual only.'
+  subfinding_2026_09_29_restore_clobbers_human_mode: 'ADJACENT sub-finding, parked here with no new card. _restore_after_reset (~4391) writes heat_cool without checking the zone''s current mode. If a human changes hvac_mode ITSELF inside the ~79 s lag window after the reset''s off write, the restore overwrites them. A setpoint-only change (preset=manual, mode stays heat_cool) is fine. Parsimony: PARK. The window is short and a human mode change is rare, and a naive ''still off?'' gate would suppress real restores while Carrier has not yet echoed the off (state-of-play §5, 42-79 s lag), which is exactly the harm this card fixes. Revival trigger: an observed case in the climate-write ledger of a restore overwriting a non-off human mode.'
 - id: ENPHASE-BATTERY-CUTOUTS-1
   title: At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time
   thread: energy
