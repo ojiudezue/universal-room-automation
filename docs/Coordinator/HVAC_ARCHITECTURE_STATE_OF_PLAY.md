@@ -8,7 +8,7 @@
 **v5.103.23 (built 2026-09-29, `feature/hvac-w1-w2-finish`, NOT deployed — Tier 2-DB + 4th D review) — HVAC W1/W2 finish.**
 - **Part A, "the person interrupts; we end and revert":**
   - A person's change within a manual hold is now detected: `classify_manual_setpoint_change`, both states `heat_cool`, changed legs only, compared with URA's last 4 `set_temperature` values from a read-only record in `emit_set_temperature` (ruling Q1).
-  - A person's change ends a live BANKING / PREHEAT / ownerless COMPROMISE borrow with NO write (`human_interrupt`, restore_ok None) and supersedes an arrester episode in flight. It re-dispatches against ONE reference preset per case (a pre-arrival pre-cool uses the house S1 target — Q7).
+  - A person's change ends a live BANKING / PREHEAT / ownerless COMPROMISE borrow with NO write (`human_interrupt`, restore_ok None) and supersedes an arrester episode in flight. It re-dispatches against ONE reference preset per case (a pre-arrival pre-cool uses the house's ARRIVAL target — Q7, fix-up 1: sleep in sleep/waking, else home).
   - A latch blocks S12/S13 begins until the zone leaves manual (Q3).
   - S4 never pins `manual`; the boot audit never pins a NUDGE `manual` (D6).
 - **Part B:**
@@ -18,6 +18,12 @@
 - **Part C:** C3 only — the stuck-occupancy clock is not reset while a room reloads.
 - Plan `docs/planning/PLANNING_hvac_w1_w2_finish.md` REV 2 + Builder notes; README `docs/readmes/README_v5.103.23.md`.
 - §3.2 / §4.2 / §6 / §7 / §9.4 / §9e / §10 C27–C28 updated below.
+- **Fix-up round 1 (2026-09-29):**
+  - Q7 is now the ARRIVAL target (Home unless the house sleeps; never Away).
+  - The latch is persisted (`__interrupt_latch`) and survives unavailable flaps.
+  - The compromise post-write race is closed.
+  - Pre-arrival: spent-episode bound, HVAC-off / master-off / removed-zone ends.
+  - See §9e and review record `docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md`.
 **2026-09-28 (`feature/hvac-labels-and-timer-attrs`, not deployed) — display-only: zone `away_due_at` (§3.2), arrester `grace_until` / `compromise_until` (§7); label renames "Wait for Presence" / "Compliance Presence Wait" / "Weather Adjust Delay/Margin" (no behaviour change, §8).**
 **Scope:** everything URA does with the thermostats — decide, write, borrow/return, read back — and the occupancy
 model that drives it. Covers releases v5.103.0 → v5.103.18.
@@ -232,7 +238,7 @@ lockout, arrester, S1 — trusts `preset_mode`**, which is the lagging field (§
 |---|---|---|
 | S1 refuses to write a preset over `manual`: "Don't fight manual — that's the arrester's job" — **SUPERSEDED 2026-09-27 (§9e); REPLACED in v5.103.18 (2026-09-27)** | `hvac_preset.py:212-217`; S1 logs `preset_change_locked_out` `hvac.py:2484-2539`; only bypass = forced vacancy/runtime away `:2481-2483` | locked out until the zone leaves manual |
 | Arrester reverts only if setpoints moved ≥ `OVERRIDE_NORMAL_DELTA` 1 °F (severe 3 °F); +1 °F under coast | `hvac_const.py:531-532`; `_handle_climate_change` | delta ≈ 0 → "within tolerance" → no revert |
-| **Within-manual detection (v5.103.23 D1):** a change while ALREADY in manual is booked only when both states are `heat_cool`, all four legs are numeric, a leg changed, and no changed leg matches (±0.5 °F, inclusive) one of URA's last 4 `set_temperature` values for the entity (RAM record in `emit_set_temperature`, boot-seeded from rehydrated rows). Delta is measured on the CHANGED legs against ONE reference preset: A (BANKING/PREHEAT ended: the named pre-borrow preset; a pre-arrival pre-cool uses the house S1 target, Q7), B (episode in flight: its original preset), C (plain / ownerless compromise: the house S1 target); a plain transition is unchanged. No resolvable reference → booked, not dispatched | `classify_manual_setpoint_change`; `_transition_is_human`; resolver registered by `HVACCoordinator` (`set_baseline_resolver`) | the arrester now also acts on a person fine-tuning an existing manual hold |
+| **Within-manual detection (v5.103.23 D1):** a change while ALREADY in manual is booked only when both states are `heat_cool`, all four legs are numeric, a leg changed, and no changed leg matches (±0.5 °F, inclusive) one of URA's last 4 `set_temperature` values for the entity (RAM record in `emit_set_temperature`, boot-seeded from rehydrated rows). Delta is measured on the CHANGED legs against ONE reference preset: A (BANKING/PREHEAT ended: the named pre-borrow preset; a pre-arrival pre-cool uses the house's ARRIVAL target `pre_arrival_reference_preset`, Q7), B (episode in flight: its original preset), C (plain / ownerless compromise: the house S1 target); a plain transition is unchanged. No resolvable reference → booked, not dispatched | `classify_manual_setpoint_change`; `_transition_is_human`; resolver registered by `HVACCoordinator` (`set_baseline_resolver`) | the arrester now also acts on a person fine-tuning an existing manual hold |
 | Operator-immune hold (`CONF_HVAC_ARRESTER_IMMUNE_PERSONS`) sunset: next_activity / durable house state / 4 h | `hvac_const.py:189-198`; `hvac_override.py:713-811` | sunset hands back to the arrester — does NOT clear the hold (`:727-729`) |
 | Temp Arrester Override switch (live off), max 6 h | `hvac_const.py:205`; `switch.py:2429-2468` | same — hands back only |
 | Arrester timer end times (2026-09-28, display only) | `get_arrester_detail()["zones"][<zone name>]` `grace_until` / `compromise_until` (ISO local or None), stamped at the four arm sites (startup audit, severe, normal grace; compromise) via `_stamp_timer_end`; published only while the zone is still in `_grace_timers` / `_compromise_timers`, so every cancel/fire path retires them. After a restart `compromise_until` reads None even while a rehydrated COMPROMISE borrow row is live — there is no arrester timer then (the row is closed by the lease-expiry sweep, C26) | no decision reads them |
@@ -368,9 +374,17 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 **Ruling 2026-09-28 "The person interrupts. We end and revert." (v5.103.23, plan `PLANNING_hvac_w1_w2_finish.md`).**
 - A person's change (D1 within-manual, or a transition INTO manual whose changed legs match no recent URA write) ENDS a live BANKING / PREHEAT / ownerless COMPROMISE borrow with no write, BEFORE the precedence ladder, so the `borrow_active` rung no longer applies to them. EGRESS still books `borrow_active` (Q2).
 - **D13 kept:** a live nudge still wins and is not ended.
-- **D48 narrowed (Q3):** after an interrupt, no S12/S13 begins on the zone until it leaves manual. The latch is discharged only at the manual-exit boundary and at teardown; its backstop is RAM (restart).
+  - Fix-up 1 (D-L3): a NON-NUDGE borrow under a live nudge is still ended `human_interrupt`, and the zone is latched.
+- **D48 narrowed (Q3):** after an interrupt, no S12/S13 begins on the zone until it leaves manual, and S11 never writes over a latched zone (fix-up 1, D-L1).
+  - **Discharge (fix-up 1, D-M1):** only when the zone moves to a readable, named, non-`manual` preset; an unavailable/unknown flap keeps it.
+  - **Backstop (fix-up 1, D-M2):** the latch is PERSISTED in the `_zone_state_store` side-key `__interrupt_latch` — saved on set and discharge, and in the shutdown snapshot. It is restored at boot only while the zone still reads `manual` (kept while unreadable).
 - **Compromise in flight:** superseded — grace/compromise timers cancelled (AC-reset timers kept), generation bumped, own row released `human_interrupt`, and the change re-dispatched against the episode's original preset. `_apply_compromise` / `_revert_override` tasks stand down on a generation change.
-- **One reference preset per case; Q7:** a pre-arrival interrupt uses the house's CURRENT S1 target.
+- **Compromise supersede (fix-up 1):** re-checked after the S3 write await. A superseded compromise closes its row and arms no timer. Stood-down tasks drop their own timer handle. The startup-audit revert is a recorded, generation-aware episode. Disabling the arrester bumps every zone's generation.
+- **One reference preset per case; Q7 (fix-up 1 ruling "Home for pre-arrivals"):** a pre-arrival interrupt uses the house's ARRIVAL target — `pre_arrival_reference_preset` (`hvac_const.py`): sleep in sleep/waking, else home; never away/vacation. Other kinds keep the named pre-borrow preset (H3).
+- **Pre-arrival lifetime (fix-up 1):**
+  - A max-age end turns the zone's pre-arrival fans off and SPENDS the arrival episode (`_pre_arrival_spent`). No new pre-cool starts until HVAC arrival or a whole window with no trigger. ZI off → on inside the window does not re-begin.
+  - The HVAC coordinator switched off, ZI off, or pre-conditioning master OFF each end the borrow `pre_arrival_inactive` (never `lease_expiry`).
+  - A removed zone or a missing baseline closes the row with no write.
 - **Q4 kept:** an empty zone is still sent Away by S1.
 - **D2f:** disabling the arrester releases owned compromise rows.
 

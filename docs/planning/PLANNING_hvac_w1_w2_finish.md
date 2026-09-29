@@ -289,7 +289,11 @@ On `human`, set `is_override = True` and `within_manual = True`. On `ura_echo`, 
   - in `teardown()`.
   Later bookings in the same episode do not touch it.
 - Pure accessor `interrupt_latched(entity_id)`. The predictor checks it before the S12 begin (both reasons) and the S13 begin.
-- Discharge: the zone leaves manual (S4 pin, S1 reclaim or a human preset). Backstop: RAM, so a restart loses it. At boot, BANKING rows are released with a preset pin, and that ends the manual episode.
+- Discharge: the zone leaves manual (S4 pin, S1 reclaim or a human preset). ~~Backstop: RAM, so a restart loses it. At boot, BANKING rows are released with a preset pin, and that ends the manual episode.~~ **CORRECTED fix-up 1 (D-M1, D-M2):**
+  - Discharge happens only when the new state is readable (not unavailable/unknown) AND the new preset is a non-empty named preset other than `manual`. A manual → unavailable → manual flap keeps the latch.
+  - The latch is PERSISTED in the `_zone_state_store` side-key `__interrupt_latch` (precedent `__immune_holds` / `__tao_state`). It is saved on every set and discharge, and it is part of the shutdown snapshot taken before the arrester teardown.
+  - At boot it is restored only while the zone still reads `manual`. It is also kept while the state is unreadable, and discharged if the zone reads a named preset.
+  - So a restart mid-interrupt begins no S12/S13 on the zone.
 - **L5 (accepted, documented):** a status-feed flicker manual→named→manual also discharges it. That flicker ends the arrester's episode by the same rule.
 - `_expire_pre_arrival_zones` also clears a zone whose pre-arrival token is `returned`, with reason `interrupted` (a pull, not a callback). The fans are left on.
 
@@ -803,3 +807,187 @@ Each: one site neutered in source, `PYTHONDONTWRITEBYTECODE=1`, `__pycache__` cl
 
 ### Name-diff
 `scripts/suite_namediff.py --isolate` vs `develop` (base trees 2635d35e2 / 32931dc80, identical code) over 133 test files, in 6 foreground chunks: **CLEAN, 0 NEW, 0 GONE** at branch HEAD 432119ba7.
+
+
+---
+
+## Builder notes — fix-up round 1 (2026-09-29, after reviews A / B / C / D)
+
+Review record: `docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md`. Every item below has its own behavioural test and a per-site drill.
+
+| Item | Change | Where |
+|---|---|---|
+| A-M1 | Max-age pre-arrival end turns the zone's pre-arrival fans off (like the timeout) | `hvac.py` `_async_end_pre_arrival_borrows` |
+| A-L1 = B-M1 | `_apply_compromise` re-checks the generation AFTER the S3 await. If superseded, the row closes `human_interrupt`/None, no token is stored and no timer is armed. Stood-down `_apply_compromise` / `_revert_override` pop their OWN timer handle (identity via a per-closure holder) | `hvac_override.py` |
+| A-L2 | The startup-audit revert records an episode (original = the audit target) and captures generation + handle | `async_startup_audit` |
+| B-L4 | `enabled=False` bumps every zone's generation | `enabled` setter |
+| A-L4 = B-L1 (Q7) | `pre_arrival_reference_preset(house_state)`: sleep in sleep/waking, else home. The resolver's `arrival=True` path uses it; the arrester passes `arrival=_is_pa`. Other borrow kinds keep H3 (named pre-borrow preset). The redundant `not _is_pa` conjunct was dropped | `hvac_const.py`, `hvac.py` resolver, `hvac_override.py` case A |
+| D-M1 | Latch discharge only when the new state is readable AND the new preset is named and not `manual` | manual-exit block |
+| D-M2 | `__interrupt_latch` side-key: saved on set, discharge and in the snapshot; `rehydrate_interrupt_latch` at boot (kept while manual or unreadable, discharged and persisted otherwise). D2e above is corrected | `hvac_override.py`, `hvac.py` |
+| D-L1 | S11 skips a person-latched zone (closes its row `human_interrupt`/None, no write). This covers the flip-off, the orphan path at `hvac_predict.py` ~524-544 (it routes through S11) and D3 | `_release_banked_zones` |
+| D-L2 | Latched zones are not added to `_pre_conditioning_zones` / `_energy_precool_zones` / `_last_precool_zones` | energy loop, pre-arrival branch |
+| D-L3 | A live nudge on a non-nudge borrow: `nudge_win` kept, the nudge not ended and no episode touched, but the underlying borrow is ended `human_interrupt` and the zone latched (orchestrator decision) | D2 block |
+| D-L4 | HVAC coordinator disabled → `_async_end_pre_arrival_borrows({}, all_inactive=True)` on each tick. A removed zone and a missing baseline close the row with no write (`s11_zone_removed` / `s11_no_baseline`) instead of `continue` | `_async_decision_cycle`, `_release_banked_zones` |
+| D-L5 | `_pre_arrival_spent` (zone → last trigger). Set on a max-age end and on an inactive end (ZI or coordinator off). A trigger inside the window only refreshes it and does not re-add the zone. Discharged by HVAC arrival or a whole window without a trigger | `hvac.py` |
+| D-L7 | Master OFF releases pre-arrival borrows with `pre_arrival_inactive`, `update_throttle=False` | `_check_pre_conditioning` |
+| A-L6 | C3 comment corrected | `hvac_zones.py` |
+| C-F1..F5 | See the review record | tests |
+
+**Not fixed here — B-L3 (pre-existing, needs a card).** A NEW governed episode (`_handle_severe_override` / `_handle_normal_override` call `_cancel_zone_timers`) still cancels a pending AC-reset restore timer (`_reset_timers`). A person's override during a hard reset can therefore leave the zone's restore-to-heat_cool timer cancelled. Suggested card: `HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1`.
+
+**Probe P1b (A-L7 = B-L2), read-only, since 09-26:**
+- 7 transitions INTO manual with a live non-nudge borrow.
+- 5 are URA echoes: they match URA's writes and all fall inside 15 s, so they are dropped before D2.
+- 1 is a reconnect (unavailable → manual; the classifier needs both sides `heat_cool`).
+- 1 is a person (09-28 23:03:51).
+- **False-human = 0.**
+
+**Unknown:** D-L6 was not in the fix-up brief. The orchestrator should confirm its disposition.
+
+### Drill table after fix-up 1 — 142 sites, 142 RED
+The build table above is superseded where anchors moved. Tree clean after every drill.
+
+| Site | File | Test that went RED | Result |
+|---|---|---|---|
+| D1.record-call | `hvac_setpoint.py` | `test_emit_set_temperature_records_before_await` | RED |
+| D1.record-after-await | `hvac_setpoint.py` | `test_emit_set_temperature_records_before_await` | RED |
+| D1.ring-depth | `hvac_const.py` | `test_recent_writes_depth_bound` | RED |
+| D1.cls-old-heat_cool | `hvac_override.py` | `test_classify_mode_change_is_none[off-heat_cool-old0-new0]` | RED |
+| D1.cls-new-heat_cool | `hvac_override.py` | `test_classify_mode_change_is_none[heat_cool-off-old1-new1]` | RED |
+| D1.cls-numeric-legs | `hvac_override.py` | `test_classify_mode_change_is_none[heat_cool-heat_cool-old3-new3]` | RED |
+| D1.cls-tolerance-inclusive | `hvac_override.py` | `test_classify_tolerance_boundary_inclusive[77.5-ura_echo]` | RED |
+| D1.cls-changed-legs-only | `hvac_override.py` | `test_classify_only_changed_legs_must_match` | RED |
+| D1.within-manual-branch | `hvac_override.py` | `test_within_manual_change_books_override_detected_row` | RED |
+| D1.transition-ring-check | `hvac_override.py` | `test_transition_late_ura_echo_does_not_end_borrow` | RED |
+| D1.boot-seed-call | `hvac.py` | `test_boot_seed_from_rehydrated_rows` | RED |
+| D-L3.nudge-live-still-ends-underlying | `hvac_override.py` | `test_nudge_live_human_change_nudge_win_not_ended` | RED |
+| D-L3.nudge-live-no-episode-supersede | `hvac_override.py` | `test_nudge_live_does_not_supersede_arrester_episode` | RED |
+| D2a.interrupt-eligible | `hvac_override.py` | `test_transition_late_ura_echo_does_not_end_borrow` | RED |
+| D2a.end-call | `hvac_override.py` | `test_human_interrupt_ends_banking_borrow_bookkeeping_only` | RED |
+| D2a.force-borrow-row | `hvac_override.py` | `test_human_interrupt_ends_banking_borrow_bookkeeping_only` | RED |
+| D2a.kinds-preheat | `hvac_override.py` | `test_human_interrupt_ends_preheat_borrow` | RED |
+| D2a.ownerless-branch | `hvac_override.py` | `test_ownerless_compromise_row_ended_by_human` | RED |
+| D2a.ownerless-no-timer | `hvac_override.py` | `test_compromise_row_with_timer_only_is_not_ownerless` | RED |
+| D2a.ownerless-no-token | `hvac_override.py` | `test_owned_compromise_is_not_ownerless` | RED |
+| D2a.ownerless-not-active | `hvac_override.py` | `test_compromise_row_being_applied_is_not_ownerless` | RED |
+| D2a.egress-excluded(kind-set) | `hvac_override.py` | `test_egress_row_not_ended_by_human` | RED |
+| D2e.latch-add | `hvac_override.py` | `test_interrupt_latch_survives_second_human_change` | RED |
+| D2e.latch-discard-manual-exit | `hvac_override.py` | `test_interrupt_latch_discharges_on_manual_exit` | RED |
+| D2e.latch-teardown | `hvac_override.py` | `test_interrupt_latch_cleared_by_teardown` | RED |
+| D2e.latch-predict-precool | `hvac_predict.py` | `test_interrupt_latch_survives_second_human_change` | RED |
+| D2e.latch-predict-preheat | `hvac_predict.py` | `test_interrupt_latch_blocks_preheat` | RED |
+| D2e.latch-strict-True | `hvac_predict.py` | `test_interrupt_latch_survives_second_human_change` | RED |
+| D2c.in-flight-grace | `hvac_override.py` | `test_d2c_gen_bump_without_redispatch` | RED |
+| D2c.in-flight-comp-timer | `hvac_override.py` | `test_compromise_row_with_timer_only_is_not_ownerless` | RED |
+| D2c.in-flight-owned-token | `hvac_override.py` | `test_owned_compromise_is_not_ownerless` | RED |
+| D2c.in-flight-active | `hvac_override.py` | `test_compromise_row_being_applied_is_not_ownerless` | RED |
+| D2c.cancel-timers | `hvac_override.py` | `test_human_change_during_compromise_redispatches` | RED |
+| D2c.gen-bump | `hvac_override.py` | `test_d2c_gen_bump_without_redispatch` | RED |
+| D2c.release-owned | `hvac_override.py` | `test_human_change_during_compromise_redispatches` | RED |
+| D2c.force-borrow-row(H2) | `hvac_override.py` | `test_human_change_during_compromise_redispatches` | RED |
+| D2c.force-comp-live(H2) | `hvac_override.py` | `test_human_change_during_compromise_redispatches` | RED |
+| D2c.case-B | `hvac_override.py` | `test_human_change_during_compromise_redispatches` | RED |
+| D2c.episode-write-normal | `hvac_override.py` | `test_human_change_during_compromise_redispatches` | RED |
+| D2c.episode-write-severe | `hvac_override.py` | `test_case_c_plain_within_manual_dispatch_against_resolver` | RED |
+| L6.severe-gen-capture | `hvac_override.py` | `test_stale_revert_stands_down` | RED |
+| L6.normal-gen-capture | `hvac_override.py` | `test_d2c_gen_bump_without_redispatch` | RED |
+| L6.compromise-gen-capture | `hvac_override.py` | `test_fired_compromise_revert_stands_down_on_supersede` | RED |
+| L6.apply-start-check | `hvac_override.py` | `test_pending_apply_compromise_stands_down_on_gen_bump` | RED |
+| L6.apply-after-begin-check | `hvac_override.py` | `test_apply_compromise_stands_down_when_superseded_during_begin` | RED |
+| L6.revert-start-check (re-anchored) | `hvac_override.py` | `test_stale_revert_stands_down` | RED |
+| L6.revert-before-S4-check | `hvac_override.py` | `test_revert_stands_down_when_superseded_during_mode_write` | RED |
+| BASE.caseA-named-pre-preset | `hvac_override.py` | `test_case_a_single_reference_preset` | RED |
+| BASE.Q7-arrival-flag | `hvac_override.py` | `test_empty_house_pre_arrival_interrupt_reverts_home_not_away` | RED |
+| BASE.Q7-arrival-resolver | `hvac.py` | `test_empty_house_pre_arrival_interrupt_reverts_home_not_away` | RED |
+| BASE.Q7-sleep-states | `hvac_const.py` | `test_pre_arrival_reference_preset_helper[waking-sleep]` | RED |
+| BASE.Q7-helper-home | `hvac_const.py` | `test_pre_arrival_reference_preset_helper[home_night-home]` | RED |
+| BASE.human-manual-snapshot | `hvac_override.py` | `test_case_a_human_manual_snapshot_uses_house_target` | RED |
+| BASE.changed-high-only | `hvac_override.py` | `test_delta_and_compromise_count_only_changed_legs` | RED |
+| BASE.resolver-none-no-dispatch | `hvac_override.py` | `test_case_c_resolver_none_books_no_dispatch` | RED |
+| BASE.ref-preset-severe | `hvac_override.py` | `test_case_c_plain_within_manual_dispatch_against_resolver` | RED |
+| BASE.ref-preset-normal | `hvac_override.py` | `test_case_a_single_reference_preset` | RED |
+| BASE.normal-changed-legs | `hvac_override.py` | `test_delta_and_compromise_count_only_changed_legs` | RED |
+| BASE.resolver-wiring | `hvac.py` | `test_coordinator_wires_real_resolver` | RED |
+| D2d.token-named-check | `hvac_override.py` | `test_s4_revert_never_pins_manual` | RED |
+| D2d.no-named-skip | `hvac_override.py` | `test_s4_revert_no_named_preset_skips` | RED |
+| D2f.disable-release | `hvac_override.py` | `test_arrester_disable_releases_compromise_rows` | RED |
+| D6.boot-nudge-manual-skip | `hvac_excursion.py` | `test_boot_audit_nudge_manual_snapshot_no_pin` | RED |
+| EX.live_token_for | `hvac_excursion.py` | `test_human_interrupt_ends_banking_borrow_bookkeeping_only` | RED |
+| EX.returned-property | `hvac_excursion.py` | `test_release_banked_zones_skips_returned_token` | RED |
+| D2b.S11-returned | `hvac_predict.py` | `test_release_banked_zones_skips_returned_token` | RED |
+| D2b.S13-return-returned | `hvac_predict.py` | `test_return_preheat_skips_returned_token` | RED |
+| M1.S12-returned-conjunct | `hvac_predict.py` | `test_m1_returned_token_blocks_s12_write` | RED |
+| M1.S12-latch-conjunct | `hvac_predict.py` | `test_m1_latch_blocks_s12_write` | RED |
+| M1.S12-mark-committed | `hvac_predict.py` | `test_m1_latch_blocks_s12_write` | RED |
+| M1.S13-returned-conjunct | `hvac_predict.py` | `test_m1_returned_token_blocks_s13_write` | RED |
+| M1.S13-latch-conjunct | `hvac_predict.py` | `test_m1_latch_blocks_s13_write` | RED |
+| D4.no-second-begin | `hvac_predict.py` | `test_pre_arrival_single_write_across_three_triggers[True]` | RED |
+| D4.from-baseline-arg | `hvac_predict.py` | `test_pre_arrival_value_from_baseline_not_live` | RED |
+| D4.from-baseline-value | `hvac_predict.py` | `test_pre_arrival_value_from_baseline_not_live` | RED |
+| D4.baseline-none-skip | `hvac_predict.py` | `test_pre_arrival_baseline_none_no_write` | RED |
+| D4.offset-const | `hvac_const.py` | `test_pre_arrival_single_write_across_three_triggers[False]` | RED |
+| D4.floor-kept(solar_bank_floor) | `hvac_predict.py` | `test_precool_floor_reads_runtime_solar_bank_floor` | RED |
+| D3.site-S12_pre_arrival | `hvac_predict.py` | `test_pre_arrival_single_write_across_three_triggers[False]` | RED |
+| D4b.S12-foreign | `hvac_predict.py` | `test_s12_never_writes_over_foreign_row` | RED |
+| D4b.S12-same-id | `hvac_predict.py` | `test_s12_stale_own_token_does_not_license_foreign_row` | RED |
+| D4b.S12-same-site | `hvac_predict.py` | `test_energy_precool_does_not_write_over_pre_arrival_row` | RED |
+| D4b.S13-foreign | `hvac_predict.py` | `test_s13_never_writes_over_foreign_row` | RED |
+| D3.full-pass-call | `hvac.py` | `test_pre_arrival_ends_on_hvac_arrival_before_s1` | RED |
+| D3.fast-run-call | `hvac.py` | `test_fast_run_ends_only_its_zone` | RED |
+| D3.fast-run-expire-filter | `hvac.py` | `test_fast_run_ends_only_its_zone` | RED |
+| D3.fast-run-reconcile-filter | `hvac.py` | `test_fast_run_ends_only_its_zone` | RED |
+| D3.arrival-hvac-occupancy | `hvac.py` | `test_hallway_lighting_does_not_end_pre_arrival` | RED |
+| D3.interrupted-clear | `hvac.py` | `test_interrupted_zone_cleared_and_fans_left_on` | RED |
+| D3.timeout-reads-knob | `hvac.py` | `test_pre_arrival_ends_on_timeout_knob[20-1260-True]` | RED |
+| D3.zi-off-inactive | `hvac.py` | `test_zi_off_ends_pre_arrival_borrows` | RED |
+| D3.max-aged-dropped | `hvac.py` | `test_pre_arrival_max_age_with_repeated_triggers[1800-True]` | RED |
+| D3.recon-inactive-release | `hvac_predict.py` | `test_pre_arrival_ends_on_timeout_knob[20-1260-True]` | RED |
+| D3.recon-max-age | `hvac_predict.py` | `test_pre_arrival_max_age_with_repeated_triggers[1800-True]` | RED |
+| D3.recon-max-age-inclusive | `hvac_predict.py` | `test_pre_arrival_max_age_with_repeated_triggers[1800-True]` | RED |
+| D3.recon-zone-filter | `hvac_predict.py` | `test_fast_run_ends_only_its_zone` | RED |
+| D3.recon-site-filter | `hvac_predict.py` | `test_reconciliation_ignores_energy_precool_borrows` | RED |
+| D3.no-throttle-write | `hvac_predict.py` | `test_pre_arrival_release_does_not_touch_last_emitted_range` | RED |
+| D3.trigger-passed | `hvac_predict.py` | `test_pre_arrival_ends_on_hvac_arrival_before_s1` | RED |
+| D5.ctor-clamp | `hvac.py` | `test_pre_arrival_window_clamped_in_constructor` | RED |
+| D5.clamp-max | `hvac_const.py` | `test_pre_arrival_window_clamp[200-110]` | RED |
+| D5.number-live-push | `number.py` | `test_pre_arrival_window_knob_live_and_persisted` | RED |
+| D5.form-field | `config_flow.py` | `test_pre_arrival_window_on_hvac_settings_form` | RED |
+| D5.suppress-key | `__init__.py` | `test_pre_arrival_window_key_in_reload_suppress_set` | RED |
+| D5.apply-in-place | `__init__.py` | `test_apply_in_place_pushes_pre_arrival_window_live` | RED |
+| D5.setup-kwarg | `__init__.py` | `test_pre_arrival_window_seeded_from_cm_options_at_boot[saved0-45]` | RED |
+| C3.guard | `hvac_zones.py` | `test_continuous_clock_not_reset_while_room_reloading` | RED |
+| C3.guard-wraps-whole-else(M4) | `hvac_zones.py` | `test_backfill_still_runs_while_room_reloading` | RED |
+| A-M1.max-age-fans-off | `hvac.py` | `test_max_age_end_turns_pre_arrival_fans_off` | RED |
+| A-L1.post-emit-gen-check | `hvac_override.py` | `test_compromise_superseded_during_s3_write_arms_no_timer` | RED |
+| A-L1.no-timer-after-supersede | `hvac_override.py` | `test_compromise_superseded_during_s3_write_arms_no_timer` | RED |
+| B-M1.revert-pops-own-timer | `hvac_override.py` | `test_stale_revert_pops_its_own_timer_entry` | RED |
+| B-M1.apply-pops-own-timer | `hvac_override.py` | `test_stale_apply_pops_its_own_grace_entry` | RED |
+| B-M1.identity-check | `hvac_override.py` | `test_stale_revert_stands_down` | RED |
+| B-M1.severe-handle-capture | `hvac_override.py` | `test_stale_revert_pops_its_own_timer_entry` | RED |
+| B-M1.normal-handle-capture | `hvac_override.py` | `test_stale_apply_pops_its_own_grace_entry` | RED |
+| A-L2.startup-gen | `hvac_override.py` | `test_startup_audit_revert_stands_down_on_supersede` | RED |
+| A-L2.startup-episode | `hvac_override.py` | `test_startup_audit_revert_stands_down_on_supersede` | RED |
+| B-L4.disable-bumps-gen | `hvac_override.py` | `test_disable_bumps_generation_so_queued_compromise_stands_down` | RED |
+| D-M1.readable-state | `hvac_override.py` | `test_latch_kept_when_unavailable_state_carries_old_preset` | RED |
+| D-M1.named-preset | `hvac_override.py` | `test_latch_kept_when_preset_empty` | RED |
+| D-M2.persist-on-set | `hvac_override.py` | `test_latch_persisted_on_set_and_discharge` | RED |
+| D-M2.persist-on-discharge | `hvac_override.py` | `test_latch_persisted_on_set_and_discharge` | RED |
+| D-M2.snapshot-key | `hvac.py` | `test_latch_in_shutdown_snapshot` | RED |
+| D-M2.rehydrate-call | `hvac.py` | `test_restart_mid_interrupt_no_s12_or_s13_begin` | RED |
+| D-M2.restore-discharge-non-manual | `hvac_override.py` | `test_latch_restore_discharged_when_zone_left_manual` | RED |
+| D-M2.restore-keep-unreadable | `hvac_override.py` | `test_latch_restore_kept_while_zone_unreadable` | RED |
+| D-M2.restore-persist-shorter | `hvac_override.py` | `test_latch_restore_discharged_when_zone_left_manual` | RED |
+| D-L1.s11-skip-latched | `hvac_predict.py` | `test_s11_skips_person_latched_zone` | RED |
+| D-L2.energy-set-membership | `hvac_predict.py` | `test_latched_zone_not_tracked_as_precool_zone` | RED |
+| D-L2.pre-arrival-set-membership | `hvac_predict.py` | `test_latched_zone_not_tracked_in_pre_arrival_branch` | RED |
+| D-L4.disabled-path-call | `hvac.py` | `test_hvac_disabled_ends_pre_arrival_borrow_inactive` | RED |
+| D-L4.zone-removed-close | `hvac_predict.py` | `test_zone_removed_mid_borrow_returns_token` | RED |
+| D-L4.no-baseline-close | `hvac_predict.py` | `test_release_without_baseline_returns_token` | RED |
+| D-L5.trigger-gate | `hvac.py` | `test_max_age_then_repeat_trigger_does_not_rebegin` | RED |
+| D-L5.trigger-gate-window | `hvac.py` | `test_spent_episode_ends_after_a_window_of_silence` | RED |
+| D-L5.spent-on-max-age | `hvac.py` | `test_max_age_then_repeat_trigger_does_not_rebegin` | RED |
+| D-L5.spent-on-inactive | `hvac.py` | `test_zi_off_on_within_window_does_not_rebegin` | RED |
+| D-L5.prune-on-arrival | `hvac.py` | `test_spent_episode_ends_on_arrival` | RED |
+| D-L5.prune-after-window | `hvac.py` | `test_spent_episode_pruned_after_a_window_without_trigger` | RED |
+| D-L7.master-off-split | `hvac_predict.py` | `test_master_off_ends_pre_arrival_with_inactive_trigger` | RED |
+| F2.refresh-before-s1 | `hvac.py` | `test_pre_arrival_release_refreshes_zone_preset_before_s1` | RED |
