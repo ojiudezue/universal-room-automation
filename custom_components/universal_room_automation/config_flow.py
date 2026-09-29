@@ -5928,6 +5928,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ZONE_VACANCY_SWEEP_ENABLED,
             CONF_PRE_ARRIVAL_SOURCES,
             DEFAULT_PRE_ARRIVAL_SOURCES,
+            # HVAC W1/W2 finish D5: knob 35 "Pre-arrival window (minutes)"
+            CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES,
+            DEFAULT_HVAC_PRE_ARRIVAL_WINDOW_MINUTES,
+            HVAC_PRE_ARRIVAL_WINDOW_MINUTES_MAX,
+            HVAC_PRE_ARRIVAL_WINDOW_MINUTES_MIN,
+            HVAC_PRE_ARRIVAL_WINDOW_MINUTES_STEP,
             CONF_HVAC_ZONE_ENTRY_DWELL,
             DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
             # v5.103.20 fix-up 2: knob 52 "Return window (minutes)"
@@ -6440,6 +6446,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     ],
                     multiple=True,
                     mode=selector.SelectSelectorMode.LIST,
+                )
+            ),
+            # HVAC W1/W2 finish D5 (M6, knob-52 precedent): the pre-arrival
+            # window is on the form next to its trigger sources; the Number
+            # entity `35 · Pre-Arrival Window (min)` stays as well.
+            vol.Optional(
+                CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES,
+                default=self._get_current(
+                    CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES,
+                    DEFAULT_HVAC_PRE_ARRIVAL_WINDOW_MINUTES,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=HVAC_PRE_ARRIVAL_WINDOW_MINUTES_MIN,
+                    max=HVAC_PRE_ARRIVAL_WINDOW_MINUTES_MAX,
+                    step=HVAC_PRE_ARRIVAL_WINDOW_MINUTES_STEP,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
                 )
             ),
             # Presence-timer cluster — collapsed "Advanced — presence

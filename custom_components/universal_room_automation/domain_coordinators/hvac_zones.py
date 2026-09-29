@@ -969,7 +969,18 @@ class ZoneManager:
                     zone.continuous_occupied_since = now
             else:
                 # Row 2c reset: mirrors write source above.
-                zone.continuous_occupied_since = None
+                # HVAC W1/W2 finish C3 (INV-C, W2-2 ruling Q5): a zone with a
+                # TRANSIENT (reloading) room reads a synthetic "empty" for
+                # that room, so the stuck-occupancy failsafe's clock is NOT
+                # reset on such a pass. Guards ONLY this assignment — the
+                # back-fill below stays unconditional (M4). Rooms are
+                # classified EARLIER in this same call (`_classify_all_rooms`),
+                # so the guard already applies on the first pass after a
+                # restart (a restored clock survives while rooms load). It
+                # discharges when the room is LOADED or excluded
+                # (transient >= 300 s).
+                if not self.is_zone_transient_blocked(zone.zone_id):
+                    zone.continuous_occupied_since = None
                 # v5.103.20 (plan §4.5, INV-2): back-fill the exact release
                 # instant — evidence and night states ONLY (legacy states
                 # keep v5.103.19 byte-for-byte). `last_occupied_time` is the

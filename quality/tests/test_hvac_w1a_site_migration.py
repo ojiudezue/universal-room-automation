@@ -193,6 +193,11 @@ def _mk_arrester(hass, freeze=False):
     a._ac_reset_off_duration_s = 60
     a._nudge_excursion_tokens = {}
     a._compromise_excursion_tokens = {}
+    # HVAC W1/W2 finish (D2c / D2e / L6): state the __init__ now creates.
+    a._interrupt_latch = set()
+    a._arrest_episode = {}
+    a._arrest_gen = {}
+    a._baseline_resolver = None
     a._nudge_post_restore_ts = {}
     a._nudge_kwh_rate_before = {}
     a._nudge_start_ts = {}

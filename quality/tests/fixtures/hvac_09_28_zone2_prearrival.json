@@ -1,0 +1,32 @@
+{
+  "_source": "Live recorder + URA DB, read-only, 2026-09-29 (scripts/probes/hvac_borrow_end_probe.py P1 and a zone_2 detail query). climate.up_hallway_zone_2, times CDT. Expected class per consecutive state pair taken from P1 (L1): 'none' = not a within-manual change (transition, flag flip, or no leg changed); 'ura_echo' = within-manual, matches one of URA's last 4 set_temperature writes on every changed leg (tol 0.5 F); 'human' = within-manual, matches none. in_temp_window = arrived <= 15 s after URA's last temp write (the arrester drops it before D1 runs).",
+  "entity_id": "climate.up_hallway_zone_2",
+  "pre_arrival_ts": "2026-09-28T22:03:51-05:00",
+  "ura_writes": [
+    {"ts": "2026-09-28T18:38:57-05:00", "low": 68.0, "high": 76.0, "site": "S12_pre_cool"},
+    {"ts": "2026-09-28T18:39:18-05:00", "low": 68.0, "high": 76.0, "site": "S12_pre_cool"},
+    {"ts": "2026-09-28T22:04:05-05:00", "low": 68.0, "high": 78.0, "site": "S12_pre_cool", "excursion_id": "banking:zone_2:1790651045042"},
+    {"ts": "2026-09-28T22:04:26-05:00", "low": 68.0, "high": 76.0, "site": "S12_pre_cool", "excursion_id": null},
+    {"ts": "2026-09-28T22:06:02-05:00", "low": 68.0, "high": 74.0, "site": "S12_pre_cool", "excursion_id": null}
+  ],
+  "rows": [
+    {"ts": "2026-09-28T22:03:51-05:00", "state": "heat_cool", "preset_mode": "away", "hold_activity": "away", "low": 68.0, "high": 80.0, "expected": "none", "in_temp_window": false},
+    {"ts": "2026-09-28T22:04:05-05:00", "state": "heat_cool", "preset_mode": "manual", "hold_activity": "manual", "low": 68.0, "high": 78.0, "expected": "none", "in_temp_window": true, "note": "transition INTO manual (away -> manual) - classifier 'none'; the 15 s temp window drops it"},
+    {"ts": "2026-09-28T22:04:20-05:00", "state": "heat_cool", "preset_mode": "manual", "hold_activity": "away", "low": 68.0, "high": 78.0, "expected": "none", "in_temp_window": true, "note": "hold_activity flicker, no leg changed"},
+    {"ts": "2026-09-28T22:04:28-05:00", "state": "heat_cool", "preset_mode": "manual", "hold_activity": "manual", "low": 68.0, "high": 76.0, "expected": "ura_echo", "in_temp_window": true},
+    {"ts": "2026-09-28T22:04:49-05:00", "state": "heat_cool", "preset_mode": "manual", "hold_activity": "manual", "low": 68.0, "high": 76.0, "expected": "none", "in_temp_window": false},
+    {"ts": "2026-09-28T22:06:04-05:00", "state": "heat_cool", "preset_mode": "manual", "hold_activity": "manual", "low": 68.0, "high": 74.0, "expected": "ura_echo", "in_temp_window": true},
+    {"ts": "2026-09-28T22:06:17-05:00", "state": "heat_cool", "preset_mode": "manual", "hold_activity": "manual", "low": 68.0, "high": 74.0, "expected": "none", "in_temp_window": false},
+    {"ts": "2026-09-28T22:14:14-05:00", "state": "heat_cool", "preset_mode": "manual", "hold_activity": "manual", "low": 68.0, "high": 74.0, "expected": "none", "in_temp_window": false},
+    {"ts": "2026-09-28T22:15:40-05:00", "state": "heat_cool", "preset_mode": "manual", "hold_activity": "manual", "low": 68.0, "high": 71.0, "expected": "human", "in_temp_window": false, "note": "a person sets 71 - 577 s after URA's last write"}
+  ],
+  "rows_23_03": [
+    {"ts": "2026-09-28T22:59:28-05:00", "state": "heat_cool", "preset_mode": "sleep", "hold_activity": "sleep", "low": 70.0, "high": 76.0, "expected": "none", "in_temp_window": false},
+    {"ts": "2026-09-28T23:03:51-05:00", "state": "heat_cool", "preset_mode": "manual", "hold_activity": "manual", "low": 68.0, "high": 71.0, "expected": "none", "in_temp_window": false, "note": "transition INTO manual (sleep -> manual): not a within-manual change; the D2 interrupt rule counts it as a person (changed legs 70->68 and 76->71 match no URA write)"},
+    {"ts": "2026-09-28T23:03:51-05:00", "state": "heat_cool", "preset_mode": "manual", "hold_activity": "manual", "low": 69.0, "high": 71.0, "expected": "human", "in_temp_window": false}
+  ],
+  "boot": {
+    "restart_ts": "2026-09-28T23:40:08-05:00",
+    "observed_without_fix": "stale_boot_release restored preset 'away' over the person's 71 (auto_return:banking, trigger stale_boot_release, excursion banking:zone_2:1790651045042)"
+  }
+}

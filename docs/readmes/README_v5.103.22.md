@@ -85,3 +85,15 @@ The W1-B plan said to delete the `hvac_excursion.py` HIGH-1 skip once live valid
 ## Rollback
 
 Revert the merge commits. There is no schema, options or entity-id change.
+
+## Validated 2026-09-28 23:42 CDT (HACS v5.103.22, HA restarted 23:36)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1 | Renamed friendly names show; entity ids unchanged | **PASS** | `switch.ura_hvac_coordinator_hvac_consensus_defer_gate` = "URA: HVAC Coordinator Wait for Presence"; `switch.ura_coordinator_manager_compliance_consensus_defer_gate` = "... Compliance Presence Wait"; `number.ura_energy_coordinator_dynamic_preset_dwell_minutes` = "03 · Weather Adjust Delay"; `..._hysteresis` = "04 · Weather Adjust Margin" |
+| L2a | `away_due_at` None while the zone is HVAC-occupied | **PASS** | zone_1 (sleep, occupied) and zone_2 (occupied) both `away_due_at: null` |
+| L2b | `away_due_at` set on an empty zone with a bounded release | **PENDING** | only zone_3 was empty (since 23:25), in house sleep/night, where the release is unbounded by design, so `hvac_release_at` and `away_due_at` are null. Check on the first daytime empty-zone release |
+| L3 | `grace_until` during an arrester grace | **PENDING** | no arrester grace armed since the restart |
+| L4 | Banking/pre-heat restore writes the configured Heat Low | **PENDING (rare path)** | only fires on a raw (human-manual) banking release via the preset fallback |
+
+Boot observation (not caused by this release; evidence for Batch B `PLANNING_hvac_w1_w2_finish.md`): at 23:03:51 a human set zone_2 76→71 during a live pre-arrival banking borrow (`override_detected` gated `borrow_active`). At the 23:40 restart, the boot audit's stale-boot release restored the borrow's snapshot preset `away`, erasing the human's 71. S1 then set `home` at 23:41:21 (house `home_night`). Batch B's "person interrupts ends the borrow" would have closed the row at 23:03, so the restart would have had nothing to restore.

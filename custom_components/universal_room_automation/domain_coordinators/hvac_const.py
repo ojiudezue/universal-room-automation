@@ -348,6 +348,19 @@ CONF_ZONE_PERSONS: Final = "zone_persons"
 CONF_ZONE_CAMERAS: Final = "zone_cameras"
 CONF_PRE_ARRIVAL_SOURCES: Final = "pre_arrival_sources"
 DEFAULT_PRE_ARRIVAL_SOURCES: Final = ["geofence", "ble", "camera_face"]
+# HVAC W1/W2 finish D5 (HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1): knob 35
+# "Pre-Arrival Window (min)". RUNG 3 (Number entity + settings-form field,
+# knob-52 precedent) — the operator asked for it and tunes it by
+# observation. How long a pre-arrival stays active with no arrival, AND the
+# longest a pre-arrival pre-cool borrow may live (counted from the borrow's
+# own start). Range 5-110: max 110 plus one 5-min pass stays under the 7200 s
+# EXCURSION_LEASE_MAX_S backstop, so a pre-arrival borrow never reaches
+# `lease_expiry`. 0 is not allowed; switching pre-arrival off is the job of
+# the `35 · Pre-Arrival Conditioning` switch. Default = PRE_ARRIVAL_TIMEOUT_MINUTES.
+CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES: Final = "hvac_pre_arrival_window_minutes"
+HVAC_PRE_ARRIVAL_WINDOW_MINUTES_MIN: Final = 5
+HVAC_PRE_ARRIVAL_WINDOW_MINUTES_MAX: Final = 110
+HVAC_PRE_ARRIVAL_WINDOW_MINUTES_STEP: Final = 5
 
 # v3.19.0: Face-confirmed arrivals
 FACE_FRESHNESS_SECONDS: Final = 30
@@ -463,6 +476,50 @@ MIN_DEADBAND: Final = 2.0  # °F — Ecobee auto mode minimum
 # v3.17.0: Pre-arrival
 PRE_ARRIVAL_FAN_TIMEOUT: Final = 15  # Minutes before auto-off
 PRE_ARRIVAL_TIMEOUT_MINUTES: Final = 30  # Minutes before stale pre-arrival cleared
+# Knob 35 default (see CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES above).
+DEFAULT_HVAC_PRE_ARRIVAL_WINDOW_MINUTES: Final = PRE_ARRIVAL_TIMEOUT_MINUTES
+
+
+def clamp_hvac_pre_arrival_window_minutes(value: Any) -> int:
+    """Clamp knob 35 into [MIN, MAX]; malformed -> default. Every reader
+    (setup, options apply, Number entity) goes through this so a stored value
+    above 110 can never push a pre-arrival borrow past the lease cap."""
+    try:
+        raw = int(value)
+    except (TypeError, ValueError):
+        raw = DEFAULT_HVAC_PRE_ARRIVAL_WINDOW_MINUTES
+    return max(
+        HVAC_PRE_ARRIVAL_WINDOW_MINUTES_MIN,
+        min(HVAC_PRE_ARRIVAL_WINDOW_MINUTES_MAX, raw),
+    )
+
+
+# HVAC W1/W2 finish D4: the pre-arrival pre-cool offset from the BASELINE
+# cool setpoint (one write, no ratchet). RUNG 1 (module constant) — a comfort
+# magnitude with no evidence yet for a live knob.
+PRE_ARRIVAL_PRECOOL_OFFSET_F: Final = -2.0
+# The excursion `caller_site` a pre-arrival pre-cool borrow begins with (its
+# `climate_write` site stays `S12_pre_cool`). Read by the D3 reconciliation,
+# the Q7 reference-preset rule and the interrupt pull in
+# `_expire_pre_arrival_zones`.
+S12_PRE_ARRIVAL_SITE: Final = "S12_pre_arrival"
+# Q7 (operator ruling, fix-up 1: "Home for pre-arrivals"): house states whose
+# ARRIVAL target is `sleep`; every other house state arrives to `home`.
+PRE_ARRIVAL_SLEEP_ARRIVAL_STATES: Final = ("sleep", "waking")
+
+
+def pre_arrival_reference_preset(house_state: Any) -> str:
+    """The S1 preset a person arriving would get — the reference preset for
+    an interrupted PRE-ARRIVAL pre-cool. Never `away` / `vacation`: a
+    pre-arrival means someone is expected (an empty-house `away` state
+    still arrives to `home`)."""
+    return "sleep" if house_state in PRE_ARRIVAL_SLEEP_ARRIVAL_STATES else "home"
+# HVAC W1/W2 finish D1: how many of URA's own recent `set_temperature` writes
+# per entity the arrester compares a within-manual change against. RUNG 1
+# (module constant) — it DEFINES what counts as a human, so changing it must
+# require review. Measured (P1, 09-26 -> 09-28, N = 53): every URA echo
+# matched within the last 4 writes.
+ARRESTER_URA_WRITE_RING_DEPTH: Final = 4
 
 # v3.17.0: Duty cycle
 # HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1 (D-b3): the three duty-cycle

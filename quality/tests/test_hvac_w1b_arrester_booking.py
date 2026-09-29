@@ -153,19 +153,34 @@ async def test_nudge_win_booked_no_revert(mods, src):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("src", ["row", "compromise_timer"])
+@pytest.mark.parametrize("src", ["egress_row", "compromise_timer"])
 async def test_borrow_active_booked_for_non_nudge_kinds(mods, src):
+    """UPDATED 2026-09-28 (HVAC W1/W2 finish, ruling "The person interrupts.
+    We end and revert."): a person's change now ENDS a BANKING / PREHEAT /
+    ownerless COMPROMISE borrow and SUPERSEDES a compromise in flight — those
+    cases are pinned in test_hvac_w1w2_finish_part_a.py
+    (test_human_interrupt_ends_banking_borrow_bookkeeping_only,
+    test_human_change_during_compromise_redispatches). The egress pause is
+    excluded from the rule (Q2), so it still books `borrow_active`."""
     coord, hass, arr = _arr(mods)
     ex = mods["hvac_excursion"]
-    if src == "row":
-        ex._test_seed_row(zone_id=ZONE, kind=ex.EXCURSION_KIND.BANKING, duration_s=None)
+    if src == "egress_row":
+        ex._test_seed_row(zone_id=ZONE, kind=ex.EXCURSION_KIND.EGRESS_PAUSE, duration_s=3600)
     else:
+        # Fix-up 1 (review C F1): a compromise timer still books
+        # `borrow_active` for a change that is NOT a person — here the
+        # transition's values match URA's own recorded write (a late echo
+        # of the compromise), so the D2 interrupt rule does not apply.
+        mods["hvac_setpoint"]._test_clear_ura_setpoints()
+        mods["hvac_setpoint"].record_ura_setpoint(ENT, 64.0, 64.0)
         arr._compromise_timers[ZONE] = lambda: None
     await _fire(hass, arr, _severe())
     d = _rows(hass, mods)[0]["details"]
     assert d["gated_reason"] == "borrow_active"
-    assert d["gate_snapshot"]["borrow_row" if src == "row" else "compromise_timer"] is True
+    assert d["gate_snapshot"]["borrow_row" if src == "egress_row" else "compromise_timer"] is True
+    assert d["human_interrupt"] is False
     assert ZONE not in arr._grace_timers
+    mods["hvac_setpoint"]._test_clear_ura_setpoints()
     ex._test_clear_leases()
 
 
@@ -254,7 +269,10 @@ async def test_arrester_gated_reason_precedence(mods, pair, expect):
     ev = _severe()
     for g in (hi, lo):
         if g == "borrow":
-            ex._test_seed_row(zone_id=ZONE, kind=ex.EXCURSION_KIND.COMPROMISE, duration_s=600)
+            # HVAC W1/W2 finish: an ownerless COMPROMISE row is now ended by
+            # a person's change; the egress pause (Q2) is the borrow that
+            # still outranks the lower rungs.
+            ex._test_seed_row(zone_id=ZONE, kind=ex.EXCURSION_KIND.EGRESS_PAUSE, duration_s=600)
         elif g == "immune":
             _immune_person(hass, arr); ev.context.user_id = "u-oji"
         elif g == "tao":

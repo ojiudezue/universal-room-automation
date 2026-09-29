@@ -210,6 +210,7 @@ def _load_ns(*, kill_switch: bool = True,
         "SIGNAL_URA_FACE_RECOGNITION_CHANGED": "ura_face_recognition_changed",
         # CM/HVAC/EC CONF aliases (referenced by module-level frozensets;
         # values don't matter for these tests — string identity only).
+        "_clamp_hvac_pre_arrival_window_minutes": lambda v: max(5, min(110, int(v))),
         **{k: k.lower() for k in [
             "_CONF_HVAC_VACANCY_GRACE_MINUTES",
             "_CONF_HVAC_VACANCY_GRACE_CONSTRAINED",
@@ -217,6 +218,7 @@ def _load_ns(*, kill_switch: bool = True,
             "_CONF_HVAC_ZONE_ENTRY_DWELL",
             "_CONF_HVAC_RETURN_WINDOW_MINUTES",
             "_CONF_HVAC_SKIP_ENTRY_WAIT",
+            "_CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES",
             "_CONF_DYNAMIC_PRESET_DWELL_MINUTES",
             "_CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA",
             "_CONF_HVAC_COVER_CLOSE_TEMP",

@@ -327,12 +327,12 @@ class TestSubControllerWiring:
             assert field in body, f"HVACPredictor must store {field}"
 
     def test_predictor_uses_runtime_fields_at_decision_sites(self, predict_src):
-        # Find _execute_zone_pre_cool — must use self._solar_bank_floor
-        idx = predict_src.find("def _execute_zone_pre_cool")
-        body = predict_src[idx:idx + 1500]
-        assert "self._solar_bank_floor" in body, (
-            "_execute_zone_pre_cool must use self._solar_bank_floor (not module constant)"
-        )
+        # `_execute_zone_pre_cool` must use `self._solar_bank_floor`: the
+        # former source grep here is CONVERTED to a behavioural test (HVAC
+        # W1/W2 finish, rule 7) —
+        # test_hvac_w1w2_finish_part_b.py::test_precool_floor_reads_runtime_solar_bank_floor
+        # (floor knob 68 with a -20 F offset must write 68, not the 72 F
+        # module constant).
         # v5.7.1: _should_weather_pre_cool + _should_solar_bank were
         # unified into _should_energy_precool. Both runtime fields
         # (`self._solar_bank_soc_min` cool-day SOC floor + the

@@ -43,13 +43,63 @@ from typing import Any, Callable, Final
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from collections import deque
+
 from .hvac_const import (
+    ARRESTER_URA_WRITE_RING_DEPTH,
     CLIMATE_WRITE_LOG_IMPORTANCE,
     FREEZE_FLOOR,
     MIN_DEADBAND,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# ==========================================================================
+# HVAC W1/W2 finish D1 (operator ruling Q1, 2026-09-28): a READ-ONLY record
+# of URA's own recent `set_temperature` values per entity. The ONE narrow
+# exception to the W1-B "nothing added to the emit_* funnels" constraint:
+# the alternative (a record at each of 8+ write sites) fails open on one
+# missed site, while the AST funnel-completeness lint guarantees every URA
+# setpoint write passes through `emit_set_temperature`. Record only — no
+# behaviour change to the write path. RAM-only (no DB read on the decision
+# path); boot-seeded from rehydrated borrow rows by the HVAC coordinator.
+# Consumer: OverrideArrester's within-manual classifier
+# (`classify_manual_setpoint_change`), which books a change inside a manual
+# hold as HUMAN only when it matches none of these values.
+# ==========================================================================
+_URA_SETPOINT_WRITES: dict[str, deque] = {}
+
+
+def record_ura_setpoint(
+    entity_id: str, low: float | None, high: float | None,
+) -> None:
+    """Append one (low, high) pair to the entity's bounded record. Never
+    raises — a record failure must never block a thermostat write."""
+    try:
+        if not entity_id:
+            return
+        ring = _URA_SETPOINT_WRITES.get(entity_id)
+        if ring is None:
+            ring = deque(maxlen=ARRESTER_URA_WRITE_RING_DEPTH)
+            _URA_SETPOINT_WRITES[entity_id] = ring
+        ring.append((
+            float(low) if low is not None else None,
+            float(high) if high is not None else None,
+        ))
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("URA setpoint record failed for %s", entity_id, exc_info=True)
+
+
+def recent_ura_setpoints(entity_id: str) -> tuple:
+    """Pure read: URA's last <= ARRESTER_URA_WRITE_RING_DEPTH (low, high)
+    writes to ``entity_id``, oldest first."""
+    ring = _URA_SETPOINT_WRITES.get(entity_id)
+    return tuple(ring) if ring else ()
+
+
+def _test_clear_ura_setpoints() -> None:
+    _URA_SETPOINT_WRITES.clear()
 
 
 def _capture_preset_reason(
@@ -429,6 +479,11 @@ async def emit_set_temperature(
         service_data["target_temp_low"] = low
     if high is not None:
         service_data["target_temp_high"] = high
+
+    # HVAC W1/W2 finish D1 (ruling Q1): record the POST-guard values BEFORE
+    # the wire await, so a write whose call raises is still recognised when
+    # its echo arrives. Record only.
+    record_ura_setpoint(entity_id, low, high)
 
     # HVAC-W1-A INV-A: snapshot BEFORE the wire await (F6).
     _values_before = _snapshot_climate_state(hass, entity_id)

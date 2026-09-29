@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "160",
+  "author": "ojiudezue",
+  "session_id": "claude_20260929_080112_ship_v5_103_23",
+  "timestamp": "2026-09-29T08:01:12Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.23 shipped: HVAC: a person's thermostat change ends URA's temporary change; pre-arrival pre-cool ends on arrival, window or interrupt",
+  "summary": "HVAC: a person's thermostat change ends URA's temporary change; pre-arrival pre-cool ends on arrival, window or interrupt",
+  "why": "On 09-28 zone 2 sat in a URA pre-arrival pre-cool manual hold for up to 2 hours; a person set 71 twice and the arrester could not see it (it only watched transitions INTO manual) and stood aside for the live borrow, and a restart then restored Away over the person. The operator ruled: the person interrupts, URA ends its change and reverts (Home for pre-arrivals). Built as Tier 2-DB with a 4th completeness reviewer; three fix-up rounds closed 3 medium leaks per round-1 D review, 3 more in round 2 (stale latch, re-begin within an arrival, case-B away revert) and one low in round 3; 164 per-site mutation drills, name-diff clean.",
+  "implications": "Shipped ARRESTER-BOOT-BLIND-1, HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1, HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1 at v5.103.23; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.23.md (Live criteria).",
+  "revisit_trigger": "If a zone is found written by a URA borrow after a person's change (climate_write after an override_detected with human_interrupt), or a pre-arrival borrow ends as lease_expiry",
+  "refs": {
+    "cards": [
+      "ARRESTER-BOOT-BLIND-1",
+      "HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1",
+      "HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.23.md"
+    ],
+    "release_notes": "When a person changes a zone's setpoint during a URA pre-cool, pre-heat or leftover compromise, URA now ends its temporary change without writing, and the arrester handles it as a normal manual override (grace, compromise, revert). URA remembers the interrupt (saved across restarts and Carrier dropouts) and won't start a new pre-cool or pre-heat on that zone until it leaves manual. Pre-arrival pre-cool writes once from the normal setting (no more 2-degree steps), ends when the person arrives, when the new 35 \u00b7 Pre-Arrival Window (min) runs out, or on an interrupt, and never runs to the 2-hour cap. An interrupted pre-arrival reverts to Home (or Sleep at night). Also: compromise revert no longer re-pins manual, a restart mid-nudge no longer restores manual, and a reloading room no longer resets its zone's occupied clock."
+  }
+}
