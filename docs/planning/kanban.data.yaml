@@ -9,6 +9,21 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1@2026-09-29T04:27:00'
+    at: '2026-09-29T04:27:00'
+    outcome: measured
+    headline: 'Jaya''s bedroom radar was sensing the fan, not Jaya: it switches on with the fan every time. The 4-hour stuck-sensor rule then dropped it, the room went ''empty'' and URA turned the fan off. The night hold covers it, but the real fix is the sensor. Corrected in the HVAC state-of-play doc (C27).'
+    acknowledged: false
+  - fid: 'ROOM-OVERRIDE-SWITCH-FORGOTTEN-1@2026-09-29T04:26:00'
+    at: '2026-09-29T04:26:00'
+    outcome: escalated
+    headline: 'The Exercise Room ''Override Vacant'' switch has been on since 09-21, so URA treats the room as empty. The Kitchen one was on for 6 days and caused 14 wrong HVAC retreats. DO: turn it off if not deliberate. Then PICK: close, or approve a small reminder for long-running overrides.'
+    acknowledged: false
+  - fid: 'HVAC-HOLD-SIZING-ALL-ROOMS-1@2026-09-29T04:25:00'
+    at: '2026-09-29T04:25:00'
+    outcome: measured
+    headline: 'Re-measured HVAC hold lengths from raw room sensors: no broad problem. Only 3 of 113 away episodes in the week before the fast-path ship were a hold that was too short. Most bad retreats came from a forgotten override and a radar that sees Jaya''s fan. I re-run on 10-01 once 3 post-ship days exist.'
+    acknowledged: false
   - fid: 'WAITING-OP-LANE-SWEEP@overnight@2026-09-29T02:59:00'
     at: '2026-09-29T02:59:00'
     outcome: measured
@@ -2698,19 +2713,20 @@ cards:
 - id: HVAC-HOLD-SIZING-ALL-ROOMS-1
   disposition_2026_09_26_groom: 'CORRECTION 2026-09-26 13:55 (operator asked ''what''s up with the laundry?''; I checked the raw timeline before acting). The Laundry recommendation (day hold 1200) is WITHDRAWN. Laundry has ONE sensor (Matter RGBW light PIR, no mmWave). Timeline 09-19 16:13:36 motion ON 25 s -> hvac_occupied turns ON only at 16:18:04 with no new motion; 09-20 15:17:59/15:18:44 motion blips -> hvac_occupied ON 15:21:59; 15:50:54 motion -> ON 15:52:03. i.e. HVAC occupancy registers brief (20-45 s) visits 1-4 min AFTER the person left — the 5-min decision-tick latency (state-of-play C18). The probe used hvac_occupied as its presence truth, which is exactly the lagged signal, so its ''drop->return'' episodes are mostly tick-catch-up artifacts (also why the median gap sits at ~15 min in many unrelated rooms). A longer hold would condition zone_3 for pass-throughs. VERDICT: no hold changes on this evidence; the livability lever is the W2 occupancy fast path (react on room state change, not the 5-min tick). Jaya 5400 unaffected (sized from BLE-in-suite + radar during gaps, not hvac_occupied).'
   title: Should other rooms get longer HVAC vacancy holds (like Jaya's night 5400)? Measured all 43 rooms, all hours
-  status: investigating
+  status: 'waiting_me'
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 3 - probe re-base, read-only.'
   rank: {value: 5, time_criticality: 3, effort: 3}
   thread: hvac
   workstream: HVAC-W2-OCCUPANCY-TRUTH
   created: '2026-09-26'
-  updated: '2026-09-29 01:05'
+  updated: '2026-09-29 04:25'
   sibling_of: HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1
   origin: 'Operator 2026-09-26 after setting Jaya night hold 5400: "Should we do other rooms? Card an investigation. Config changes are cheap if it makes the house more livable".'
   why: 'The night-sleeper probe that sized Jaya covered bedrooms at night only. Livability harm can also come from evening/day rooms where people sit still or step out briefly.'
   measured_2026_09_26: 'scripts/probes/hvac_room_return_probe.py (new, read-only; generalises the night-sleeper probe to all rooms and hours), 7 days, return window 30 min. Rooms whose HVAC occupancy dropped then returned within 30 min, and HARM = URA wrote the room''s zone to away inside that gap (ura_activity_log preset_change): Laundry z3 returned 15 (day 11/eve 4) HARM 4, median gap 15.1 min; Kitchen Pantry z3 10 / 1; Master Bathroom z1 7 / 1; Jaya Bedroom z2 14 (night 10) / 1 (now fixed by 5400); Butler Pantry z3 3 / 1; Living Room z1 19 (evening 11) / 0; every other room <=13 returns and 0 harm. TOTAL HARM 8 events/week. Harm only occurs when the dropped room was the zone''s last occupied room; zone_3 (fewer occupants) concentrates it. Limit: undercounts if the zone was already away (no write in the gap).'
   verdict: 'NO broad livability problem. One config change is worth it: Laundry day hold -> 1200 s (20 min) covers the ~15-min load-swap trip that caused 4 of 8 harms; cost = zone_3 conditioned up to ~20 min longer after a real laundry departure. Pantries / Master Bath are 1 event each — do not change on this evidence.'
-  next: 'FIX THE PROBE (me, read-only): re-base hvac_room_return_probe.py on RAW presence/motion/BLE per room (the room''s configured sensors) instead of hvac_occupied, and count ''person present per raw sensors while the zone was written away''. Re-run after the W2 fast path ships (the fast path removes most of the lag this probe tripped on). No operator action.'
+  next: 'RE-RUN (me) after 2026-10-01 18:44 CDT, when 3 full post-fast-path days exist: ssh ha "python3 -" < scripts/probes/hvac_room_return_probe_raw.py. Kitchen trigger: 2 or more HOLD-TOO-SHORT per day -> propose Kitchen hvac_vacancy_hold 900 s (a config knob, currently unset, so the 180 s common-area default applies). Otherwise close: no hold changes.'
+  measured_2026_09_29_raw: 'PROBE FIXED AND RE-RUN (scripts/probes/hvac_room_return_probe_raw.py, report docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md), now based on each room''s configured raw sensors instead of the lagged hvac_occupied. Pre-ship baseline 09-21 18:44 -> 09-28 18:44, 113 zone-away episodes: 43 clean; 45 transit-returns (back in 30 min but under 5 min, not harm, mostly Kitchen/zone_3); 14 Kitchen under a forgotten Override Vacant switch (card ROOM-OVERRIDE-SWITCH-FORGOTTEN-1); 6 policy (house-away / energy shed, by design); 2 Jaya stuck-sensor exclusions (see HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1); only 3 real HOLD-TOO-SHORT (Living Room 1, Kitchen 2), and 0 still-body-missed / motion-only. VERDICT: no broad livability problem, and no hold change on this evidence. Post-ship (v5.103.20 fast path) data is only 0.31 days, too little to size: 3 Kitchen events, each re-conditioned within 0-1 min of return, vs a 5-10 min median before. Side notes: Study A''s Athom mmWave sits under the orphan mmwave_sensors key that nothing reads (already known; see the STUCK-SENSOR-1 notes).'
 - id: HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1
   operator_2026_09_27: 'Operator "ok" to NOT building the full degradation defense now: the practical fix (Jaya night hold 5400 s) is a setting; the full machinery has no observed case. First night that counts is 2026-09-27 (house was empty 09-26). Note: after the night-tail B fix, night holds start at house sleep (22:00) not 21:00 — fine for a sleeper.'
   disposition_2026_09_26_groom: 'OPERATOR SET IT 2026-09-26: Jaya Bedroom (Bedroom 4) hvac_vacancy_hold_night = 5400.0 (day 60.0), .storage/core.config_entries modified_at 2026-09-26T18:21:55Z, verified stored.'
@@ -2720,7 +2736,7 @@ cards:
   rank: {value: 5, time_criticality: 5, effort: 2}
   thread: hvac
   created: '2026-09-16'
-  updated: '2026-09-29 01:05'
+  updated: '2026-09-29 04:25'
   tags: [hvac, parked-with-trigger, night-trust, suppression-discharge, do-not-retire]
   possible_trigger_2026_09_25: 'README v5.103.7 INV-1 write-back found 2 suspect night retreats: zone_2 went
     away at 02:47 (09-24) and 02:09 (09-25) with Jaya home; her bedroom last read occupied 02:10 / 01:30 (past
@@ -2788,6 +2804,7 @@ cards:
     context: 'Split out of HVAC-ZONE-CONDITIONING-DEMAND-1 D8 when the Ziri degradation evidence was refuted.
       Step-4-B keeps a MODEST grace (D8); THIS card is the FULL degradation-defense version, parked with an
       observed-degradation revival trigger so it survives compaction and can be uncorked.'
+  INSTANCE_2026_09_29_radar_sees_fan: 'REFINES the mechanism (state-of-play §9.3 + ledger C27, written this turn). binary_sensor.jaya_3_presence (Seeed) follows fan.fanswitch_treat_wifi_jayabedroom: its on-edges land 15-20 s after the fan''s (09-24 20:06:15->20:06:32, 02:40:05->02:40:21, 02:56:57->02:57:10). So with the fan running it reports the fan, not Jaya. On 09-24 it read on continuously 21:22:23 -> 01:37:12. URA''s stuck-sensor rule (coordinator.py:364, _stuck_sensor_hours = 4.0, a hard-coded literal with no knob, a Numbers-Get-Knobs gap) excluded it at about 01:22. The room went vacant at 01:31:18, URA turned the fan off at 01:36:38, and the radar dropped at 01:37:12. There were 9 stuck exclusions of this radar in 7 days. So ''the radars lost a still sleeper'' was incomplete: this radar never saw her, and the Zigbee radar was unavailable. The 5400 s night hold covers the observed gaps (up to 69 min), but the durable fix is the SENSOR (re-aim, tune its distance gate, or replace it so it ignores the fan). Your 09-30 re-probe should read with this in mind: a quiet night may just mean the fan stayed off.'
 - id: ZIRI-PRESENCE-SENSOR-DEAD-1
   title: Ziri Bedroom presence redundancy degraded — ziri_3_presence mmWave is dead (never fired 7 nights),
     leaving one live mmWave with 360+min overnight OFF stretches
@@ -29303,7 +29320,7 @@ cards:
   thread: presence
   status: parked
   created: '2026-09-19'
-  updated: '2026-09-19'
+  updated: '2026-09-29 04:30'
   tags: [presence, hvac, mmwave, fan-phantom, jaya, config-fix]
   problem_solution:
   - 'Root cause (verified 2026-09-18/19, supersedes the refuted STUCK-MOTION-FROZEN-ON-BLINDSPOT-1): the
@@ -29339,6 +29356,7 @@ cards:
      supersession-audit claim) - still_energy is recorder-EXCLUDED + per-gate needs engineering_mode; requires
      forward capture (phantom vs known-occupied) + per-unit fit; intra-device (fragile). Revisit only if the
      pause-recheck route proves insufficient across the mmwave-only fan rooms.'
+  INSTANCE_2026_09_29_night_face: 'Same radar, reverse face, measured 2026-09-29 (state-of-play C27). With Jaya asleep and the fan ON, binary_sensor.jaya_3_presence still tracks the fan (on-edges 15-20 s after the fan''s), so the fan-phantom is indistinguishable from her. The 4 h stuck rule (coordinator.py:364) drops the radar, the room goes vacant, URA turns the fan off, and the radar goes quiet. The pause-recheck fix this card relied on covers the EMPTY-room daytime case; it does not make the radar see a sleeper. Not reopened: the live thread is HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1 (waiting_me, 09-30 re-probe). Revival signal for this card: if the operator chooses a sensor fix (re-aim, distance gate, replace), it lands here.'
 - id: ENVOY-STREAM-TRUST-MEASURE-1
   native_status_2026_09_25_2345: 'Operator: "Envoy connected. Is it still flapping?" Native enphase_envoy entry LOADED;
     sensor.envoy_482543015950_battery down-events: 23 between 12:08 and 21:07 CDT, 0 since 21:07 (~2.5 h, right after the
@@ -30337,6 +30355,33 @@ cards:
     changes <= pre-ship baseline + 10%). Then a Tier 1 fix if it is plumbing only.'
   parsimony: {problem: 'borrow writes are logged without the borrow id on 4 site families, breaking write-to-episode attribution', verdict: BUILD}
   refs: [docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md, docs/planning/PLANNING_hvac_w1_w2_finish.md, docs/readmes/README_v5.103.16.md]
+- id: ROOM-OVERRIDE-SWITCH-FORGOTTEN-1
+  title: A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21)
+  thread: presence
+  status: waiting_operator
+  created: '2026-09-29 04:20'
+  updated: '2026-09-29 04:20'
+  refinement_status: initial
+  approval: unreviewed
+  tags: [tier-1, found-during-probe, config-first]
+  problem_solution:
+  - 'Problem: the per-room Override Vacant switch forces URA to treat a room as empty. It has no expiry and nothing reminds anyone it is on, so it gets forgotten: the Kitchen one was on 09-21 23:20 -> 09-27 19:40 (6 days, 14 wrong HVAC retreats while both kitchen radars saw people), and the Exercise Room one has been on since 09-21 23:23 and still is. Solution: first, you turn the Exercise Room switch off if it is not deliberate (a setting, no code). Then, if forgotten overrides are worth guarding, a small reminder when an override has been on longer than a set time (a knob), rather than an automatic expiry that could fight a deliberate long override.'
+  origin:
+    date: '2026-09-29'
+    gist: 'overnight HVAC hold-sizing raw-sensor probe (docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md): 14 of 113 pre-ship away episodes were Kitchen under a forgotten override'
+  why: 'An override that silently outlives its purpose is a phantom config fault: the room looks broken (no lights, no HVAC) and every occupancy investigation reads it as a sensor or code problem first. Both kitchen and exercise overrides were switched on within 3 min of each other on 09-21 ~23:20, which suggests one session or scene set them together.'
+  adjacency_2026_09_29: 'NEW. Swept: board (override_vacant appears only as evidence on KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 and the resolved kitchen-occupancy card), BACKLOG.md (no override-expiry item; 474 is TOU overrides), PLANNING_*/AUDIT_* (override switches listed only as sensor inputs). Code: OverrideVacantSwitch (switch.py ~5063) is a RestoreEntity with no expiry or on-since tracking.'
+  measured_2026_09_29: 'Recorder: switch.exercise_room_override_vacant = on (restored on at every restart 09-28 18:51, 19:20, 23:39); switch.kitchen_override_vacant = off since 09-27 19:40.'
+  constraints:
+  - 'Do not auto-expire a deliberate override without the operator choosing that policy.'
+  knobs:
+  - 'override reminder after N hours (entity Number or options field; rung decided at plan time)'
+  parsimony: {problem: 'A vacant override stays on for days unnoticed and hides a room from automation.', verdict: 'CONFIG-FIRST now; reminder build only if you want it'}
+  next: 'DO: turn off switch.exercise_room_override_vacant if it is not deliberate (it has been on since 09-21 23:23). PICK: (A) close this card after that, forgotten overrides are rare; or (B) APPROVE a small reminder (NM digest line or dashboard chip when any room override has been on > N h). -> on B I plan it as Tier 1.'
+  links:
+    related: [KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1, HVAC-HOLD-SIZING-ALL-ROOMS-1]
+    context: 'HVAC-HOLD-SIZING-ALL-ROOMS-1 raw probe surfaced both overrides; KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 carried the kitchen override as evidence while diagnosing kitchen lights.'
+  rank: {value: 4, time_criticality: 4, effort: 2}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
