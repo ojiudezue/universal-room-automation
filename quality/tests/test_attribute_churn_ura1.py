@@ -180,10 +180,12 @@ def test_safety_active_cooldowns_extra_attrs_omit_age_and_remaining():
         "'last_alert' — a consumer of `cooldown_until - last_alert` "
         "would lose its source"
     )
-    assert "cooldown_until" in keys, (
-        "SafetyActiveCooldownsSensor missing static 'cooldown_until' "
+    assert "window_until" in keys, (
+        "SafetyActiveCooldownsSensor missing static 'window_until' "
         "— consumers of a live countdown lose their source (the "
-        "value is derivable client-side from `last_alert`)"
+        "value is derivable client-side from `last_alert`). Renamed "
+        "from `cooldown_until` in fix-up 2 to make the upper-bound "
+        "semantics explicit (per-severity windows are shorter)."
     )
 
 
