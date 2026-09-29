@@ -259,6 +259,39 @@ async def test_energy_precool_own_row_behaviour_unchanged(mods, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_s12_stale_own_token_does_not_license_foreign_row(mods, monkeypatch):
+    """D4b conjunct `same id`: the path's token map still holds an OLD
+    S12_pre_cool token, but the live row is a DIFFERENT borrow -> no write."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    ex = mods["hvac_excursion"]
+    old = ex._test_seed_row(zone_id=Z2, kind=ex.EXCURSION_KIND.BANKING, duration_s=None,
+                            pre_preset="away", site="S12_pre_cool")
+    ex._rows.pop(Z2)
+    coord._predictor._banking_excursion_tokens = {Z2: old}
+    live = ex._test_seed_row(zone_id=Z2, kind=ex.EXCURSION_KIND.BANKING, duration_s=None,
+                             pre_preset="away", site="S12_pre_cool")
+    live.excursion_id = "banking:zone_2:other"
+    z = coord.zone_manager.zones[Z2]
+    await coord._predictor._execute_zone_pre_cool(z, offset=-3.0, reason="energy_precool")
+    await H.drain(hass)
+    assert _s12(hass, mods) == []
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_ignores_energy_precool_borrows(mods, monkeypatch):
+    """Only S12_pre_arrival borrows are ended by D3; an energy pre-cool on a
+    zone outside the pre-arrival set keeps running."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    z = coord.zone_manager.zones[Z2]
+    await coord._predictor._execute_zone_pre_cool(z, offset=-3.0, reason="energy_precool")
+    tok = _tok(coord)
+    assert tok.caller_site == "S12_pre_cool"
+    await coord._async_end_pre_arrival_borrows({})
+    await H.drain(hass)
+    assert tok.returned is False
+
+
+@pytest.mark.asyncio
 async def test_energy_precool_does_not_write_over_pre_arrival_row(mods, monkeypatch):
     """The pre-arrival row is not the ENERGY path's own row (same id but a
     different caller_site): no energy write over it."""
@@ -507,6 +540,33 @@ async def test_pre_arrival_release_does_not_touch_last_emitted_range(mods, monke
 # ==========================================================================
 # D5 — knob 35
 # ==========================================================================
+
+
+def test_pre_arrival_window_on_hvac_settings_form(mods):
+    """Knob 35 is a field of the HVAC settings step with the persisted value
+    as its default, 5..110 min, step 5 (knob-52 precedent, M6)."""
+    import asyncio as _aio
+    from types import SimpleNamespace
+    from custom_components.universal_room_automation import config_flow as _cf
+    from test_hvac_vacancy_hold_ui_defaults import _walk_schema
+    entry = SimpleNamespace(entry_id="cm", options={"hvac_pre_arrival_window_minutes": 45}, data={})
+    flow = _cf.UniversalRoomAutomationOptionsFlow(entry)
+    flow.hass = MagicMock()
+    flow.hass.states.async_all.return_value = []
+    flow.hass.states.get.return_value = None
+    result = _aio.new_event_loop().run_until_complete(
+        flow.async_step_coordinator_hvac_settings(user_input=None)
+    )
+    found = None
+    for marker, value in _walk_schema(result["data_schema"]):
+        if getattr(marker, "schema", None) == "hvac_pre_arrival_window_minutes":
+            found = (marker, value)
+    assert found is not None, "knob 35 missing from the HVAC settings form"
+    marker, value = found
+    d = marker.default
+    assert (d() if callable(d) else d) == 45
+    cfg = value.config
+    assert (cfg["min"], cfg["max"], cfg["step"], cfg["unit_of_measurement"]) == (5, 110, 5, "min")
 
 
 @pytest.mark.asyncio

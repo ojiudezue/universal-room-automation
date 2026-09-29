@@ -412,6 +412,7 @@ def test_new_presence_timer_keys_present(strings_json, translations_en):
         "hvac_vacancy_grace_constrained",
         "hvac_max_occupancy_hours",
         "hvac_return_window_minutes",        # v5.103.20 fix-up 2
+        "hvac_pre_arrival_window_minutes",   # HVAC W1/W2 finish D5 (knob 35)
     ):
         assert key in s["data"], f"strings.json missing {key} in data"
         assert key in s["data_description"], f"strings.json missing {key} in data_description"

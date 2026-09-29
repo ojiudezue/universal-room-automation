@@ -5928,10 +5928,11 @@ class HVACCoordinator(BaseCoordinator):
             _LOGGER.debug("HVAC: URA setpoint record boot seed failed", exc_info=True)
 
     def _pre_arrival_window_s(self) -> float:
-        """Knob 35 in seconds (clamped [5, 110] min)."""
-        return float(clamp_hvac_pre_arrival_window_minutes(
-            getattr(self, "_pre_arrival_window_minutes",
-                    DEFAULT_HVAC_PRE_ARRIVAL_WINDOW_MINUTES),
+        """Knob 35 in seconds. Every writer (constructor, in-place options
+        apply, Number entity) clamps to [5, 110] min."""
+        return float(getattr(
+            self, "_pre_arrival_window_minutes",
+            DEFAULT_HVAC_PRE_ARRIVAL_WINDOW_MINUTES,
         )) * 60.0
 
     def _expire_pre_arrival_zones(

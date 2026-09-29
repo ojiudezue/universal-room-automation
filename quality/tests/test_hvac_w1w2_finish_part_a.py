@@ -55,7 +55,9 @@ Z1, E1 = "zone_1", "climate.test_zone_1"
 Z2, E2 = "zone_2", "climate.test_zone_2"
 
 # Hand-typed seasonal profiles (independent oracle for the resolver).
-SEASONAL = {"home": (76.0, 70.0), "away": (80.0, 68.0), "sleep": (76.0, 70.0)}
+# `sleep` deliberately differs from `home` so a case-B / case-C mix-up can
+# never pass by coincidence (Bug Class #63).
+SEASONAL = {"home": (76.0, 70.0), "away": (80.0, 68.0), "sleep": (78.0, 66.0)}
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -456,6 +458,30 @@ async def test_ownerless_compromise_row_ended_by_human(mods, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_compromise_row_with_timer_only_is_not_ownerless(mods, monkeypatch):
+    """Ownerless conjunct `no _compromise_timers entry`, on its own."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    tok = _seed(mods, Z2, "COMPROMISE", pre_preset="manual", site="S3_compromise", duration_s=900)
+    arr._compromise_timers[Z2] = lambda: None
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 74.0), ("manual", 68.0, 71.0)))
+    d = _od_rows(hass, mods)[0]["details"]
+    assert d["interrupted_kind"] is None and d["episode_superseded"] is True
+
+
+@pytest.mark.asyncio
+async def test_compromise_row_being_applied_is_not_ownerless(mods, monkeypatch):
+    """Ownerless conjunct `not _compromise_active` (an `_apply_compromise`
+    in flight between begin and the timer), on its own."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    tok = _seed(mods, Z2, "COMPROMISE", pre_preset="manual", site="S3_compromise", duration_s=900)
+    arr._compromise_active[Z2] = True
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 74.0), ("manual", 68.0, 71.0)))
+    d = _od_rows(hass, mods)[0]["details"]
+    assert d["interrupted_kind"] is None and d["episode_superseded"] is True
+    assert d["gated_reason"] is None     # own in-flight row does not block
+
+
+@pytest.mark.asyncio
 async def test_owned_compromise_is_not_ownerless(mods, monkeypatch):
     """Discriminator for the ownerless rule: the SAME row with an owning
     token is superseded (D2c), not ended as an orphan (D2a)."""
@@ -538,7 +564,7 @@ async def test_coordinator_wires_real_resolver(mods, monkeypatch):
     """Wire-in anchor: the coordinator constructor registers the resolver;
     None -> house S1 target, a named preset -> that preset's setpoints."""
     coord, hass, arr, sched, db = _setup(mods, monkeypatch, house_state="sleep")
-    assert arr._resolve_reference(Z2) == ("sleep", 76.0, 70.0)
+    assert arr._resolve_reference(Z2) == ("sleep", 78.0, 66.0)
     assert arr._resolve_reference(Z2, "away") == ("away", 80.0, 68.0)
 
 
@@ -603,8 +629,11 @@ async def _normal_then_compromise(mods, hass, arr, sched):
 
 @pytest.mark.asyncio
 async def test_human_change_during_compromise_redispatches(mods, monkeypatch):
+    """H2. House state `sleep` (resolver -> sleep 78) makes case B (episode
+    original = home 76) and case C distinguishable: delta must be +4 vs the
+    EPISODE, not +2 vs the house target."""
     coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="home",
-                                         low=70.0, high=76.0)
+                                         low=70.0, high=76.0, house_state="sleep")
     tok = await _normal_then_compromise(mods, hass, arr, sched)
     old_comp = [r for r in sched.live() if r[0] == 900.0][0]
     arr.unsuppress(E2)   # the compromise write's 15 s temp window has passed
@@ -621,6 +650,58 @@ async def test_human_change_during_compromise_redispatches(mods, monkeypatch):
     await H.drain(hass, rounds=8)
     assert H.preset_writes(hass, E2, "home")  # original preset, never manual
     assert not H.preset_writes(hass, E2, "manual")
+
+
+@pytest.mark.asyncio
+async def test_d2c_gen_bump_without_redispatch(mods, monkeypatch):
+    """The supersede alone (no new episode: the person goes back within
+    tolerance) must make the pending grace task stand down."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="home",
+                                         low=70.0, high=76.0)
+    await _fire(hass, arr, _ev(E2, ("home", 70.0, 76.0), ("manual", 70.0, 78.0)))
+    (_d, grace_cb, _c), = sched.live()
+    arr.unsuppress(E2)
+    await _fire(hass, arr, _ev(E2, ("manual", 70.0, 78.0), ("manual", 70.0, 76.5)))
+    assert _od_rows(hass, mods)[-1]["details"]["episode_superseded"] is True
+    assert sched.live() == []                 # nothing re-dispatched
+    grace_cb(None)                            # the old task was already due
+    await H.drain(hass, rounds=8)
+    assert _cw_rows(hass, mods, "S3_compromise") == []
+
+
+@pytest.mark.asyncio
+async def test_fired_compromise_revert_stands_down_on_supersede(mods, monkeypatch):
+    """The compromise timer fired (its revert task is queued) and a person
+    supersedes before it runs: no S4 for the old episode."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="home",
+                                         low=70.0, high=76.0)
+    await _normal_then_compromise(mods, hass, arr, sched)
+    comp_cb = [r for r in sched.live() if r[0] == 900.0][0][1]
+    comp_cb(None)                             # revert task created, not run
+    arr.unsuppress(E2)
+    # 76.2 is outside the 0.5 tolerance of URA's 77 compromise write, and
+    # within 1 F of the episode's home 76 -> no new episode is dispatched.
+    arr._handle_climate_change(_ev(E2, ("manual", 70.0, 77.0), ("manual", 70.0, 76.2)))
+    await H.drain(hass, rounds=8)
+    assert _od_rows(hass, mods)[-1]["details"]["episode_superseded"] is True
+    assert H.preset_writes(hass, E2) == []
+
+
+@pytest.mark.asyncio
+async def test_delta_and_compromise_count_only_changed_legs(mods, monkeypatch):
+    """P3: an unchanged low (S12's synthetic low, 60 here) never enters the
+    delta or the compromise. 75 vs home 76 on the changed leg = -1 (normal);
+    counting the low would give -10 (severe). Compromise low stays 70."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, low=60.0, high=74.0)
+    await _fire(hass, arr, _ev(E2, ("manual", 60.0, 74.0), ("manual", 60.0, 75.0)))
+    d = _od_rows(hass, mods)[0]["details"]
+    assert d["delta_f"] == -1.0 and d["changed_legs"] == ["high"]
+    (delay, cb, _c), = sched.live()
+    assert delay == 300.0
+    cb(None)
+    await H.drain(hass, rounds=8)
+    s3 = _cw_rows(hass, mods, "S3_compromise")[-1]["values_after"]
+    assert s3["target_temp_high"] == 75.5 and s3["target_temp_low"] == 70.0
 
 
 @pytest.mark.asyncio
@@ -1053,8 +1134,7 @@ async def test_replay_09_28_occupied_high_soc_comfort_grant(mods, monkeypatch):
         mods, monkeypatch, occupied=True, soc=90)
     d = _od_rows(hass, mods)[0]["details"]
     assert d["gated_reason"] == "comfort_grant" and tok.returned
-    for _d, cb, _c in list(sched.live()):
-        pass
+    assert Z2 not in arr._grace_timers and Z2 not in arr._arrest_episode
     assert H.preset_writes(hass, E2) == []
 
 

@@ -3886,15 +3886,9 @@ class OverrideArrester:
             return
 
         # ---- governed path: severity dispatch (pre-existing) ----------
-        if _resolver_missing:
-            # D2 (M9): no reference preset resolvable — the row is booked,
-            # nothing is dispatched, and S1's §9e reclaim owns the zone.
-            zone.override_count_today += 1
-            _LOGGER.info(
-                "Arrester: override on %s booked (case %s) with no resolvable "
-                "reference preset — no dispatch", zone.zone_name, baseline_case,
-            )
-            return
+        # D2 (M9): with no resolvable reference preset `delta` is None — the
+        # row above is booked, nothing is dispatched (`delta is None` below),
+        # and S1's §9e reclaim owns the zone.
         if not _delta_parse_ok:
             _LOGGER.debug("Override: invalid old setpoint values")
             return

@@ -1161,7 +1161,8 @@ class HVACPredictor:
         stretch it to ``lease_expiry`` (M5). Walks ``_banking_excursion_tokens``
         (within ``zone_filter`` when given — M10: a fast run touches only its
         own zone):
-          * token already returned (a person ended it)  -> pop, no write;
+          * token already returned (a person ended it)  -> popped, no write
+            (by the D2b guard inside the release);
           * zone not in ``active_zones``                -> presets-only release,
             trigger ``pre_arrival_<reason or 'inactive'>``;
           * borrow age >= ``window_s``                  -> the same release,
@@ -1180,9 +1181,10 @@ class HVACPredictor:
                 continue
             if getattr(tok, "caller_site", None) != S12_PRE_ARRIVAL_SITE:
                 continue
-            if tok.returned:
-                tokens.pop(zone_id, None)
-                continue
+            # A token a person already ended (human_interrupt) needs no
+            # special case: its zone left the set as `interrupted` in the
+            # same pass, and the D2b guard in `_release_banked_zones` pops
+            # it with no write.
             trig: str | None = None
             if zone_id not in active_zones:
                 trig = f"pre_arrival_{reasons.get(zone_id) or 'inactive'}"
