@@ -50,6 +50,7 @@ from .hvac_const import (
     # HVAC W1/W2 finish D5: knob 35 "Pre-Arrival Window (min)".
     DEFAULT_HVAC_PRE_ARRIVAL_WINDOW_MINUTES,
     S12_PRE_ARRIVAL_SITE,
+    HVAC_CLIMATE_UNREADABLE_STATES,
     clamp_hvac_pre_arrival_window_minutes,
     pre_arrival_reference_preset,
     COMFORT_SOC_FLOOR_PCT,
@@ -544,6 +545,9 @@ class HVACCoordinator(BaseCoordinator):
         # key of the limiter exemption (§5.4) and of the quick-return
         # trip-wire (§5.7).
         self._zone_last_s1_write: dict[str, tuple[str, str, datetime]] = {}
+        # HVAC Batch D: per-zone "thermostat unreadable" outage episodes
+        # (`_climate_unreadable`) — one INFO line + one ledger row each.
+        self._climate_unreadable_episodes: dict[str, dict[str, Any]] = {}
         # Rolling-hour buckets (UTC datetimes) for the write ceiling and the
         # runaway guard; per-zone tick-only fallback until local midnight.
         self._fp_writes_bucket: dict[str, deque] = {}
@@ -2372,6 +2376,84 @@ class HVACCoordinator(BaseCoordinator):
         """
         return []
 
+    def _climate_unreadable(self, zone_id: str, zone: Any) -> bool:
+        """HVAC Batch D (HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1).
+
+        True while the zone's climate entity reads ``unavailable`` /
+        ``unknown`` (``HVAC_CLIMATE_UNREADABLE_STATES``) — the heat_cool
+        enforcer (B1) and S1 then hold their writes. Read from the LIVE
+        state: ``ZoneState`` keeps its last readable values (or boot
+        defaults), which is why both sites re-sent the same write every tick
+        through an outage (09-28 14:24-17:21, zone_1: 37 B1 writes with
+        ``values_before.hvac_mode = unavailable``, plus S1 away writes).
+
+        Per outage EPISODE (opened on the first unreadable read, closed on
+        the first readable one): one INFO line and one ``ura_activity_log``
+        row ``climate_write_held_unreadable``. The close is DEBUG. A missing
+        entity or a failed read is treated as readable (behaviour unchanged).
+        Never raises.
+        """
+        try:
+            st = self.hass.states.get(zone.climate_entity)
+            state_val = getattr(st, "state", None) if st is not None else None
+        except Exception:  # noqa: BLE001
+            return False
+        episodes = getattr(self, "_climate_unreadable_episodes", None)
+        if episodes is None:
+            episodes = {}
+            self._climate_unreadable_episodes = episodes
+        unreadable = (
+            isinstance(state_val, str)
+            and state_val in HVAC_CLIMATE_UNREADABLE_STATES
+        )
+        if not unreadable:
+            ended = episodes.pop(zone_id, None)
+            if ended is not None:
+                _LOGGER.debug(
+                    "HVAC: %s thermostat readable again (unreadable since %s)",
+                    getattr(zone, "zone_name", zone_id), ended.get("since"),
+                )
+            return False
+        if zone_id not in episodes:
+            since = dt_util.utcnow()
+            episodes[zone_id] = {"since": since.isoformat(), "state": state_val}
+            _LOGGER.info(
+                "HVAC: %s thermostat %s is %s — holding the heat_cool enforcer "
+                "and S1 preset writes until it reads again",
+                getattr(zone, "zone_name", zone_id), zone.climate_entity,
+                state_val,
+            )
+            try:
+                activity_logger = self.hass.data.get(DOMAIN, {}).get(
+                    "activity_logger",
+                )
+                if activity_logger is not None:
+                    self.hass.async_create_task(
+                        activity_logger.log(
+                            coordinator="hvac",
+                            action="climate_write_held_unreadable",
+                            description=(
+                                f"{getattr(zone, 'zone_name', zone_id)} "
+                                f"thermostat is {state_val}; URA holds its "
+                                f"heat_cool and preset writes until it reads again"
+                            ),
+                            zone=zone_id,
+                            importance="notable",
+                            entity_id=zone.climate_entity,
+                            details={
+                                "state": state_val,
+                                "since": since.isoformat(),
+                                "sites": ["B1_heat_cool_enforcer", "S1_reason_ladder"],
+                            },
+                        )
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "climate_write_held_unreadable ledger write failed",
+                    exc_info=True,
+                )
+        return True
+
     async def _apply_house_state_presets(
         self,
         *,
@@ -2489,6 +2571,11 @@ class HVACCoordinator(BaseCoordinator):
             list(self._zone_manager.zones.items()) if zone_filter is None else []
         ):
             if self._egress_manager.is_paused(zone_id):
+                continue
+            # HVAC Batch D: never write to an unreadable thermostat — the
+            # zone's cached `hvac_mode` is stale (or a boot default) and the
+            # same write repeated every tick of the outage.
+            if self._climate_unreadable(zone_id, zone):
                 continue
             if (
                 zone.hvac_mode != "heat_cool"
@@ -3457,6 +3544,13 @@ class HVACCoordinator(BaseCoordinator):
                 in ("house_state_transition", "pre_arrival")
             ):
                 preset_change_reason = "energy_shed_cap_deferred_occupied"
+
+            # HVAC Batch D: S1 holds its write while the thermostat is
+            # unreadable (one INFO + one ledger row per outage episode; no
+            # suppress stamp, no write bookkeeping). The next tick after it
+            # reads again writes as normal.
+            if self._climate_unreadable(zone_id, zone):
+                continue
 
             # Suppress arrester for URA-initiated changes.
             # HVAC W1-B §5.P3 (M4): kind="preset" (120 s window) — S1 is a
