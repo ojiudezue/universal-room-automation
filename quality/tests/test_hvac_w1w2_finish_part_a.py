@@ -1867,6 +1867,62 @@ async def test_batch_d_unresolvable_reference_falls_back_to_snapshot_restore(mod
     assert presets == ["manual"]
 
 
+async def _protected_scenario(mods, monkeypatch, protect):
+    """Nudge on top of an energy BANKING borrow; a person sets 68/71, which
+    ends the borrow (D-L3). `protect(arr)` arms gate (a/b)."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, house_state="sleep")
+    _seed(mods, Z2, "BANKING", pre_preset="away", site="S12_pre_cool")
+    _nudge_on_top_of(arr, Z2)
+    protect(arr)
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 74.0), ("manual", 68.0, 71.0)))
+    rec = arr._nudge_restore_reference.get(Z2)
+    assert rec == {"arrival": False, "high": 71.0, "low": 68.0}
+    return coord, hass, arr
+
+
+def _tao_on(arr):
+    arr._temp_arrester_override_active = True
+
+
+def _immune_hold(arr):
+    arr._immune_holds[Z2] = {"person": "person.guest"}
+
+
+@pytest.mark.parametrize("protect", [_tao_on, _immune_hold], ids=["tao", "immune"])
+@pytest.mark.asyncio
+async def test_batch_d_protected_person_gets_their_own_values_back(mods, monkeypatch, protect):
+    """Fix-up 1 (operator ruling YES): with gate (a/b) active, the nudge
+    restore returns the zone to the PERSON's own setpoints (S6, HUMAN_MANUAL
+    raw restore) and does NOT pin a preset (no S7)."""
+    coord, hass, arr = await _protected_scenario(mods, monkeypatch, protect)
+    temps, presets = await _restore(coord, hass, arr, Z2, 74.0)
+    assert len(temps) == 1
+    assert temps[0][2]["target_temp_low"] == 68.0
+    assert temps[0][2]["target_temp_high"] == 71.0
+    assert presets == []
+    rows = [r for r in _cw_rows(hass, mods) if r["site"] == "S6_nudge_restore_setpoint"]
+    assert rows[-1]["reason"] == "human_manual_soft_nudge_person_restore"
+
+
+@pytest.mark.asyncio
+async def test_batch_d_protected_person_values_missing_falls_back_to_snapshot(mods, monkeypatch):
+    """Person protected, but their values were not captured -> the pre-B
+    snapshot restore (S6 raw original_target + S7 snapshot)."""
+    coord, hass, arr = await _protected_scenario(mods, monkeypatch, _tao_on)
+    arr._nudge_restore_reference[Z2]["high"] = None
+    temps, presets = await _restore(coord, hass, arr, Z2, 74.0)
+    assert len(temps) == 1 and temps[0][2]["target_temp_high"] == 74.0
+    assert presets == ["manual"]
+
+
+@pytest.mark.asyncio
+async def test_batch_d_unprotected_zone_keeps_ruling_b(mods, monkeypatch):
+    """No gate (a/b): ruling B as built — the S1 target preset, no S6."""
+    coord, hass, arr = await _protected_scenario(mods, monkeypatch, lambda a: None)
+    temps, presets = await _restore(coord, hass, arr, Z2, 74.0)
+    assert temps == [] and presets == ["sleep"]
+
+
 @pytest.mark.asyncio
 async def test_batch_d_reference_record_does_not_outlive_its_nudge(mods, monkeypatch):
     """A record left from a previous nudge is dropped when a NEW nudge

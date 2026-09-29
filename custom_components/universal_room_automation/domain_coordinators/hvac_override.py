@@ -380,13 +380,15 @@ class OverrideArrester:
         self._nudge_pre_preset: dict[str, str] = {}
         # HVAC Batch D (INFO-1, operator ruling "B"): zones whose live nudge
         # ran on top of a NON-NUDGE borrow that a person's change ENDED
-        # (D13 + D-L3). Value = True when the ended borrow was a pre-arrival
-        # pre-cool (restore to the ARRIVAL target, Q7). `_restore_after_nudge`
-        # then restores the zone's CURRENT S1 target preset (presets only) —
-        # never the ended borrow's pre-cool values. Set in
-        # `_handle_climate_change`; popped at the restore and at every new
-        # nudge start; cleared at teardown.
-        self._nudge_restore_reference: dict[str, bool] = {}
+        # (D13 + D-L3). Value = {"arrival": bool — the ended borrow was a
+        # pre-arrival pre-cool (ARRIVAL target, Q7); "high"/"low": the
+        # PERSON's own setpoints from that change}. `_restore_after_nudge`
+        # then restores the zone's CURRENT S1 target preset (presets only),
+        # or — while gate (a/b) protects the person (TAO / immune hold) —
+        # the person's own setpoints. Never the ended borrow's pre-cool
+        # values. Set in `_handle_climate_change`; popped at the restore and
+        # at every new nudge start; cleared at teardown.
+        self._nudge_restore_reference: dict[str, Any] = {}
         # HVAC-GOVERNED-EXCURSION-1 D3: per-zone ExcursionToken issued at
         # nudge start; consumed by restore/cancel/audit paths to call
         # return_excursion (which clears the persisted lease row).
@@ -1404,7 +1406,7 @@ class OverrideArrester:
         except Exception:  # noqa: BLE001
             return None
 
-    def _nudge_ref_map(self) -> dict[str, bool]:
+    def _nudge_ref_map(self) -> dict[str, Any]:
         """HVAC Batch D: the `_nudge_restore_reference` map (created lazily
         for arresters built without `__init__`)."""
         m = getattr(self, "_nudge_restore_reference", None)
@@ -3847,7 +3849,19 @@ class OverrideArrester:
         # must not write the ended borrow's values back: record the zone for
         # a reference-preset restore (the arrival target for a pre-arrival).
         if _nudge_live and _ended_tok is not None:
-            self._nudge_ref_map()[zone_id_b] = bool(_ended_pa)
+            # Fix-up 1 (operator ruling 2026-09-29, INFO-1 under person
+            # protection): also keep the PERSON's own values from this
+            # change — restored by S6 when gate (a/b) is active at restore.
+            def _num(v):
+                try:
+                    return float(v) if v is not None else None
+                except (TypeError, ValueError):
+                    return None
+            self._nudge_ref_map()[zone_id_b] = {
+                "arrival": bool(_ended_pa),
+                "high": _num(new_high),
+                "low": _num(new_low),
+            }
             _LOGGER.info(
                 "Arrester: %s — person ended the %s borrow under a live "
                 "nudge; the nudge restore will return the zone to its %s "
@@ -5933,8 +5947,43 @@ class OverrideArrester:
         # (the ARRIVAL target for an interrupted pre-arrival, Q7) — presets
         # only, so S6 is skipped. No resolvable reference -> the pre-ruling
         # snapshot restore (fix-up 1, A10).
-        _ref_arrival = self._nudge_ref_map().pop(zone_id, None)
-        _reference_restore = _ref_arrival is not None
+        _ref_rec = self._nudge_ref_map().pop(zone_id, None)
+        _reference_restore = _ref_rec is not None
+        _person_restore = False
+        _p_high = _p_low = None
+        _ref_arrival = False
+        if _reference_restore:
+            if isinstance(_ref_rec, dict):
+                _ref_arrival = bool(_ref_rec.get("arrival"))
+                _p_high, _p_low = _ref_rec.get("high"), _ref_rec.get("low")
+            else:  # legacy bool record
+                _ref_arrival = bool(_ref_rec)
+            # Fix-up 1 (operator ruling 2026-09-29): while the PERSON is
+            # protected (gate a/b — Temp Arrester Override or an immune hold,
+            # read LIVE now), restore the person's OWN setpoints from the
+            # change that ended the borrow (S6, HUMAN_MANUAL raw restore) and
+            # skip S7's preset pin. Their values unavailable -> the pre-ruling
+            # snapshot restore. No protection -> ruling B (S1 target) below.
+            try:
+                _protected = bool(self._corrective_writes_suppressed(zone_id))
+            except Exception:  # noqa: BLE001
+                _protected = False
+            if _protected:
+                _reference_restore = False
+                if _p_high is not None and _p_low is not None:
+                    _person_restore = True
+                    pre_preset = ""  # no S7 pin over the person's hold
+                    _LOGGER.info(
+                        "Soft nudge restore on %s: person-protected zone — "
+                        "restoring the person's own %.1f/%.1f (no preset pin)",
+                        zone.zone_name, _p_low, _p_high,
+                    )
+                else:
+                    _LOGGER.info(
+                        "Soft nudge restore on %s: person-protected but their "
+                        "values are unknown — falling back to the snapshot "
+                        "restore", zone.zone_name,
+                    )
         if _reference_restore:
             _ref = self._resolve_reference(zone_id, None, arrival=_ref_arrival)
             if _ref is None:
@@ -5961,7 +6010,28 @@ class OverrideArrester:
                 _snap_preset,
             )
         from .hvac_strategy import strategy_for as _strategy_for  # noqa: PLC0415
-        if not _reference_restore and _strategy_for(
+        if _person_restore:
+            try:
+                # HUMAN_MANUAL raw restore (W1-B rule: raw setpoints only for
+                # a person's own hold; reason prefix `human_manual_`).
+                await emit_set_temperature(
+                    self.hass,
+                    zone.climate_entity,
+                    target_temp_low=_p_low,
+                    target_temp_high=_p_high,
+                    freeze_active=self._freeze_active(),
+                    blocking=False,
+                    site="S6_nudge_restore_setpoint",
+                    zone_id=zone_id,
+                    reason="human_manual_soft_nudge_person_restore",
+                    excursion_id=_nudge_eid,
+                )
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.error(
+                    "Soft nudge person restore: set_temperature failed on "
+                    "%s: %s", zone.climate_entity, e,
+                )
+        elif not _reference_restore and _strategy_for(
             self.hass, zone.climate_entity,
         ).is_human_manual_snapshot(_snap_preset):
             try:
