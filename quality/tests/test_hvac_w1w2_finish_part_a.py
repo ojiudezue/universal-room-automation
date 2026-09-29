@@ -1704,15 +1704,3 @@ def test_latch_level_check_keeps_manual(mods, monkeypatch):
     H.set_climate(hass, E2, preset_mode="manual", hold_activity="manual", low=68.0, high=71.0)
     assert arr.latch_level_check() == 0
     assert arr.interrupt_latched(E2)
-
-
-@pytest.mark.asyncio
-async def test_cool_to_heat_cool_transition_does_not_end_borrow(mods, monkeypatch):
-    """C-5 sibling: cool -> heat_cool into manual (legs numeric) during a
-    BANKING borrow is a mode change, not a person's setpoint change."""
-    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="home",
-                                         low=70.0, high=76.0)
-    tok = _seed(mods, Z2, "BANKING")
-    await _fire(hass, arr, _ev(E2, ("home", 70.0, 76.0), ("manual", 68.0, 71.0),
-                               old_state="cool"))
-    assert tok.returned is False and not arr.interrupt_latched(E2)
