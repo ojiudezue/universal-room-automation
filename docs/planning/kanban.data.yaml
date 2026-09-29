@@ -30297,6 +30297,21 @@ cards:
   why: 'Teardown cancels _pending_tasks (hvac.py ~7074-7076), then awaits the snapshot save (~7084) while the arrester listener is still subscribed (arrester teardown ~7093). A latch set or discharge in that window schedules a new save task that nothing cancels; it can run after teardown clears the latch and persist []. The same shape applies to __immune_holds / __tao_state today (W1-B). The window is milliseconds.'
   next: 'PARKED. Revival trigger: an observed lost immune hold, TAO or interrupt latch after a restart. Fix shape: unsubscribe the arrester listener (or set a teardown flag) BEFORE the snapshot save, and drop saves scheduled after teardown begins.'
   rank: {value: 2, time_criticality: 1, effort: 1}
+- id: HOUSE-STATE-SLEEP-LOST-ON-RESTART-1
+  title: An HA restart at night loses the house Sleep state (it comes back Away, then Home Night), so HVAC switches bedrooms' zones from Sleep to Home
+  thread: presence
+  status: investigating
+  created: '2026-09-29 03:20'
+  updated: '2026-09-29 03:20'
+  tags: [presence, house-state, restart, hvac-impact, live-incident]
+  origin:
+    date: '2026-09-29'
+    gist: 'observed after the 03:01 v5.103.23 deploy restart (orchestrator restarted during sleep, against the hostile-timing rule; memory feedback_no_restart_during_sleep)'
+  why: 'Recorder: sensor.ura_coordinator_manager_house_state went sleep (since 00:09:28) -> away at 03:03:40 (boot) -> arriving 03:07:08 -> home_night 03:08:08, and stayed home_night. HVAC then wrote zone_1 and zone_2 sleep -> home at 03:07:41 (S1 house_state_transition), giving Home 70-76 at 3 AM. So house state is not restored across a restart; it re-infers from scratch, starts at away, and the inference cannot reach sleep again mid-night. Sibling: HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1 (manual override does not reach HVAC). Whether earlier night restarts (restart storm ~8/night, reload-storm memo) did the same: UNVERIFIED.'
+  next: 'MEASURE (me): count past restarts during sleep and what house state came back after each (recorder). Then plan the fix: restore the last house state across restart when it is recent (e.g. < 30 min old), at least for sleep, instead of starting at away. Tier 2-DB (house-state machine = shared primitive).'
+  links:
+    related: [HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1]
+  rank: {value: 7, time_criticality: 6, effort: 3}
 - id: ENPHASE-BATTERY-CUTOUTS-1
   title: At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time
   thread: energy
