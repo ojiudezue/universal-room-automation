@@ -328,9 +328,14 @@ def _make_predictor(zones=None):
     # registry (D4: no second begin while a borrow is live). Real
     # `_execute_zone_pre_cool` calls in earlier tests leave BANKING rows in
     # that module-global registry — clear it so each test starts clean.
-    _ex = sys.modules.get(f"{_dc_name}.hvac_excursion")
-    if _ex is not None and hasattr(_ex, "_test_clear_leases"):
-        _ex._test_clear_leases()
+    # `from . import hvac_excursion` resolves through the PACKAGE attribute,
+    # which can hold a different module object than sys.modules after a
+    # sibling file's scoped purge — clear both.
+    _pkg = sys.modules.get(_dc_name)
+    for _ex in (sys.modules.get(f"{_dc_name}.hvac_excursion"),
+                getattr(_pkg, "hvac_excursion", None) if _pkg else None):
+        if _ex is not None and hasattr(_ex, "_test_clear_leases"):
+            _ex._test_clear_leases()
     hass = MagicMock()
     hass.data = {}
     hass.services = MagicMock()

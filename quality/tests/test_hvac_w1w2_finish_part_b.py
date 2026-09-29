@@ -57,7 +57,11 @@ def _scoped():
 
 @pytest.fixture
 def mods():
-    return H.load_real()
+    m = H.load_real()
+    yield m
+    # Leave no residue in module-global registries for later files.
+    m["hvac_excursion"]._test_clear_leases()
+    m["hvac_setpoint"]._test_clear_ura_setpoints()
 
 
 @pytest.fixture
