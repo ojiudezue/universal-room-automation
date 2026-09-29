@@ -3,7 +3,7 @@ v5.103.23 W1/W2 finish review, pre-existing on develop).
 
 A NEW governed override episode routes through the arrester's
 `_handle_severe_override` / `_handle_normal_override` (and the
-startup-audit stale-override branch in `async_startup_arrester_audit`,
+startup-audit stale-override branch in `async_startup_audit`,
 hvac_override.py:2214). All three previously called
 `_cancel_zone_timers`, which ALSO popped `_reset_timers` — the pending
 AC hard-reset RESTORE timer. If a manual change was booked inside the
@@ -19,7 +19,7 @@ The fix renames `_cancel_zone_timers` -> `_cancel_arrester_timers` and
 drops `_reset_timers` from its scope (mirroring the shape of
 `_defer_arrester_to_borrow` after Round 3 LOW-2). Three sites updated:
 `_handle_severe_override`, `_handle_normal_override`, and the
-startup-audit stale-override branch in `async_startup_arrester_audit`.
+startup-audit stale-override branch in `async_startup_audit`.
 
 Legitimate cancel sites for the reset restore timer — `teardown()`,
 `ac_reset_enabled = False`, and the fire-time pop in
