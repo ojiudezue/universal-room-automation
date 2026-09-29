@@ -1,264 +1,264 @@
 # PLANNING — Energy lifetime-counter poisoning of `energy_daily`
 
 **Card:** ENERGY-CONSUMPTION-FORECAST-POISONED-1
-**Date:** 2026-09-29
-**Tier:** **Tier 2-DB** (3 framing-disjoint reviews) — see §Tier classification
+**Date:** 2026-09-29 (rev 2 after PLAN-FIX-REQUIRED)
+**Tier:** see §Tier classification (per-option: **S = Tier 2**, **F = Tier 2-DB**)
 **Companion:** `docs/planning/AUDIT_energy_consumption_forecast_poisoning_2026_09_29.md`, `scripts/probes/energy_consumption_forecast_poison_probe.py`
-**Adjacent (do NOT re-scope here):** ENVOY-FLAKINESS-181243-1 (physical cause of the 0.045505 MWh glitch), COVERAGE-EVENING-ATTRIBUTION-DRIFT-1 (net-vs-total consumption sensor selection).
+**Adjacent (non-goal):** ENVOY-FLAKINESS-181243-1 (physical cause), COVERAGE-EVENING-ATTRIBUTION-DRIFT-1 (net vs total sensor selection).
 
 ---
 
-## Falsifiable invariant
+## Falsifiable invariant (restated per HIGH-3)
 
-> **INV-LCP1:** No row in `energy_daily` (from now on) has `consumption_kwh` or `solar_production_kwh` derived from a lifetime-counter snapshot that regressed vs the last-known-good value for that counter, and no such row exceeds the daily plausibility ceiling. Equivalently: for every persisted daily delta `Δ = (current − snapshot) × 1000`, either `current ≥ snapshot − ε_regress` AND `Δ ≤ CEILING`, OR the field is stored NULL and an anomaly is emitted.
+Let **LKG(counter)** = the maximum reading ever ACCEPTED for that lifetime counter, together with the wall-clock `ts` of acceptance. A reading `x` at time `t` is **accepted** iff:
+`x is not None AND x ≥ LKG − ε_regress AND x ≤ LKG + MAX_LIFETIME_JUMP_MWH(t − LKG.ts, counter)`
+(the upper bound is a physical-throughput cap; the lower bound tolerates only float/quantisation noise).
 
-Falsifier: replay the recorded 0.045505 MWh glitch sequence against the producer; if any resulting row is written with `solar_production_kwh` or `consumption_kwh` ≥ CEILING (or with a non-NULL value derived from a regressed snapshot), INV-LCP1 fails.
+**INV-LCP1 (Option F):** every persisted `energy_daily.consumption_kwh` and `.solar_production_kwh` for date `D` is derived from a Δ whose **both endpoints** (the midnight-D snapshot AND the midnight-D+1 reading) were accepted under the LKG rule, AND `Δ_kWh ≤ DAILY_*_MAX_KWH`. If either endpoint is unaccepted OR the row was mid-day-seeded within the same day, the row is stored NULL for the affected field(s) and marked `partial_day = 1`.
 
-Discriminating live check (2026-09-30 00:00, first post-deploy midnight): today's `energy_midnight_snapshot.lifetime_production = 0.045505` is a *known-glitched* baseline. Under the fix, tomorrow's `energy_daily` row for 2026-09-29 must be either NULL (baseline rejected as regressed on Δ compute) OR a plausible value (baseline replaced by an accepted, monotonic reading). It must **not** be ≈ 18,850 kWh (raw glitch consumed) and must **not** silently be 0.
+**INV-LCP1-S (Option S):** every stored `consumption_kwh` / `solar_production_kwh` satisfies `≤ DAILY_*_MAX_KWH`; every value that reaches `record_actual_consumption` / `evaluate_accuracy` / `_solar_forecast_error_baseline` satisfies the same; and any day whose midnight snapshot was seeded mid-day (restart or first-boot) is marked `partial_day = 1` with actual/solar/error NULL.
+
+Falsifier (both options): replay the recorded 0.045505 MWh sequence from `energy_midnight_snapshot` (live today) against the producer; if any resulting row is written with the affected field non-NULL AND ≥ CEILING, or if any DOW deque entry / adjustment-factor input exceeds the ceiling, the invariant fails.
 
 ---
 
-## Institutional context verified
+## Institutional context verified (revised)
 
-### Prior planning docs consulted (skim unless marked)
-- `docs/planning/PLANNING_envoy_telemetry_failover_map.md` + `_D5_addendum.md` — measurement-before-build precedent for Envoy freshness; no lifetime-snapshot guard proposed.
-- `docs/planning/PLANNING_enphase_cloud_reliance.md`, `PLANNING_ec_envoy_boot_decoupling.md`, `PLANNING_envoy_write_verification_and_redundancy.md` — Envoy input hygiene; none touch `_get_lifetime_*` or midnight-snapshot arithmetic.
-- `docs/planning/PLANNING_energy_unit_normalization_and_attribution.md`, `PLANNING_v4.6.8_ec_tou_rate_reconciliation.md`, `PLANNING_v4.x_B4_ENERGY_INTEGRATION.md`, `PLANNING_forecast_accuracy_fix.md` — establish `energy_daily` semantics and the pre-v3.14 CT bug that motivated the `>= 10` accuracy filter (energy.py:1446). No producer-side monotonic guard was ever introduced.
-- `PLANNING_net_energy_program_R1_R7_R2.md` — R1/legacy estimator + shadow arm; relevant to consumer map (energy_forecast.py:352-417).
-- `PLANNING_envoy_local_witness_and_solar_follow.md` — the local-MQTT stream is what a future substitution feed would use; not consumed here.
-- No prior plan proposes a lifetime-counter monotonic guard, daily plausibility ceiling, or `energy_daily` read-side range filter.
+### Prior planning docs consulted
+- `PLANNING_envoy_telemetry_failover_map.md` + `_D5_addendum.md` — measurement-before-build precedent.
+- `PLANNING_forecast_accuracy_fix.md` — **explicitly kept the live control-path `pct_error` unclamped**; `PCT_ERROR_BOUND=200` (`energy_forecast.py:41-42`) and `pct_error_bounded` helper (`energy_forecast.py:829-875`) exist for the display path. HIGH-8 requires an explicit decision to extend the bound onto the control path.
+- `PLANNING_enphase_cloud_reliance.md`, `PLANNING_ec_envoy_boot_decoupling.md`, `PLANNING_envoy_write_verification_and_redundancy.md`, `PLANNING_v4.6.8_ec_tou_rate_reconciliation.md`, `PLANNING_energy_unit_normalization_and_attribution.md`, `PLANNING_v4.x_B4_ENERGY_INTEGRATION.md`, `PLANNING_net_energy_program_R1_R7_R2.md`, `PLANNING_envoy_local_witness_and_solar_follow.md` — skimmed; none proposes a monotonic guard.
 
 ### Memory bodies pulled
-- `project_envoy_boot_incident_2026_06_12.md` — RestoreEntity unavailable→OFF poisoning + one-shot EC validation race; different failure surface but the same *lesson*: a single glitched read at a lifecycle boundary corrupts downstream. Reinforces guarding snapshot-set sites, not just steady-state reads.
-- `project_battery_soc_envoy_not_span.md` — reminds that URA reads Envoy for battery SOC; unrelated to lifetime counters.
-- `feedback_measure_before_build.md`, `feedback_falsify_before_asserting.md`, `feedback_verification_needs_disjoint_framings.md` — process anchors observed in the audit (discriminator identity to 0.1 kWh proved the mechanism).
+- `project_envoy_boot_incident_2026_06_12.md` — RestoreEntity unavailable→OFF poisoning; different surface but same lesson (glitched read at lifecycle boundary corrupts downstream).
+- `feedback_measure_before_build.md`, `feedback_marginal_benefit_pushback.md`, `feedback_do_robust_fix_not_bandaid_and_card.md`, `feedback_falsify_before_asserting.md`, `feedback_verification_needs_disjoint_framings.md`.
 
-### Design docs read
-- No `docs/Coordinator/ENERGY_*.md` covers midnight-snapshot derivation (the EC manual sections cited by memories concern reserve/arbitrage, not `energy_daily`). Producer arithmetic read end-to-end at `energy.py:2745-2919`, `:3013-3097`, `:2301-2359`, `:1420-1458`, `:2225-2274`.
+### Design docs
+- No `docs/Coordinator/ENERGY_*.md` covers midnight-snapshot derivation; canonical spec = the code at cited lines.
 
-### Prior-art scan for proposed additions (Tier 2+ rule)
-Grep surfaces: `custom_components/universal_room_automation/**/energy*.py`, `const.py`, `database.py`, `config_flow.py`, `sensor.py`, `select.py`.
-
-| Proposed piece | Verdict | Existing (file:line) or justification |
+### Prior-art scan (MED-9 corrections applied)
+| Proposed piece | Verdict | Existing (file:line) or note |
 |---|---|---|
-| Lifetime-counter monotonic guard (`_accept_lifetime_reading` or inline in `_get_lifetime_*` / snapshot-set sites) | **NEW** | grep of `backwards|monotonic|last_known_good|lifetime` in `domain_coordinators/energy*.py`: only `time.monotonic()` bookkeeping in `energy_pool.py`; no counter-monotonicity guard anywhere. `_get_state_float` (`energy.py:10577-10587`) rejects only `unknown`/`unavailable`. |
-| `_last_known_good_lifetime_*` in-memory per-counter (persisted with midnight snapshot) | **NEW** | Snapshot payload today (`energy.py:2371-2375`, DB `save_midnight_snapshot`) carries only the six counters plus `snapshot_date`. Need to add LKG fields (or a sibling table row); operator-visible knob not required. |
-| `DAILY_CONSUMPTION_MAX_KWH`, `DAILY_SOLAR_MAX_KWH`, `LIFETIME_REGRESS_TOLERANCE_MWH` module constants | **NEW** | grep `DAILY_CONSUMPTION_MAX|PLAUSIBILITY|MAX_KWH|CEILING` in `energy_const.py` returns zero hits. Rung 1 (module constant, review-gated) per Numbers-Get-Knobs — see §Knob ladder. |
-| DAO read-side range filter helpers | **EXTEND** | `get_energy_daily_recent(days=30)` already has a `consumption_kwh >= 10` lower bound at consumer (`energy.py:1446`). Add symmetric upper bound at the same site + parallel filters in `get_consumption_history` / `get_energy_temp_pairs` callers. Prefer filtering at the caller (energy.py) to avoid changing DAO shape (Tier 2-DB migration-correctness constraint). |
-| NM/anomaly trip-wire on rejected lifetime read or ceiling hit | **REUSE** | Anomaly dispatch pattern already used across coordinators (grep `anomaly` in `domain_coordinators/`); reuse the existing dispatch shape rather than a new channel. Exact channel to be picked in build from a reader of one existing energy anomaly emitter. |
-| `select.ura_energy_coordinator_dp_house_load_source` = `live_span` (D0) | **REUSE** | Live entity already exists — `config_flow.py:4637-4645, 5777-5861`, `select.py:767-788`, `energy_const.py:1585` default `max_span_r1`. D0 is an operator flip, zero code. |
-| Data-cleanup DB write | **NEW (one-shot)** | No general "null-out row" service exists; will be a supervised SQL script under `scripts/one_shots/`. No permanent code. |
-| Docstring correction at `_dp_house_load_kw` | **EXTEND** | `energy.py:4352-4394` docstring says "R1 fitted-model" but reads legacy `predicted_consumption_kwh`. Documentation-only. |
+| **LKG persistence** (Option F) | **REUSE** — `save_energy_state` / `restore_energy_state` KV DAO (`database.py:4959`, `:4972`), already used for `peak_avoidance_snapshot` at `energy.py:2390`. NO schema change needed — store `lkg_lifetime_<counter>` = `{value, ts_iso}` as a KV blob. `lkg.py`'s `LkgValue.to_blob/from_blob` is the serialisation prior art. |
+| Extend `save_midnight_snapshot` payload with per-counter LKG | **DROPPED** in favour of KV above (MED-9). Midnight-snapshot payload shape unchanged → DAO migration risk removed (Tier consideration below shifts). |
+| `_accept_lifetime_reading` guard helper (Option F, on-getter) | **NEW**, but **NOT placed in shared `_get_state_float`** (LOW-17). Wrap only the six `_get_lifetime_*` (2714-2736). |
+| `_apply_daily_ceiling(actual_kwh, solar_kwh) -> (a', s', tripped: bool)` | **NEW** — module-local helper in `energy.py`. |
+| `DAILY_CONSUMPTION_MAX_KWH`, `DAILY_SOLAR_MAX_KWH`, `LIFETIME_REGRESS_TOLERANCE_MWH`, `MAX_LIFETIME_JUMP_KW`, `LKG_STALE_REBASELINE_HOURS` | **NEW** module constants (`energy_const.py`) — rung 1 (see §Knob ladder). Solar ceiling **derived from `CONF_ENERGY_SOLAR_NAMEPLATE_W`** (`energy_const.py:915`, 19.4 kW) × 24 h × safety factor 1.05 ≈ 490 kWh; DO NOT hardcode 300 (MED-9). |
+| `energy_daily.partial_day` column | **NEW** additive column (nullable, default 0). This IS a schema change — kept minimal, additive, INSERT OR REPLACE unaffected. |
+| Anomaly emission | **REUSE** `_store_crosscheck_anomaly_event` (`energy.py:3099`) shape; **rate-limit once per counter per rejection episode ≤1/day** per MED-11. |
+| Read-side ceiling in `get_energy_daily_recent` caller | **EXTEND caller-side only.** MED-10: existing `>= 10` filter at `energy.py:1446` is consumption-only, and `get_energy_daily_recent` (`database.py:4528`) does **NOT** select `solar_production_kwh` — so any "symmetric solar bound at 1446" is a no-op. Apply solar bound where solar is actually read (regression pairs `energy.py:2225-2258` do not use solar; DOW history / `get_consumption_history` at `database.py:5041` also does not use solar). **The solar ceiling belongs at the producer / _save_daily_snapshot, not at these DAOs.** |
+| Split "DOW deque feed" audit locus | Restore path: `energy.py:2264-2274` → `energy_forecast.py:736-764`. Live per-day push: `energy.py:2840` → `energy_forecast.py:766-774`. HIGH-8 concerns the live path. |
+| D0 knob flip | **REUSE** — `select.ura_energy_coordinator_dp_house_load_source` at `select.py:767-788`, `config_flow.py:4637-4645, 5777-5861`, `energy_const.py:1585`. |
+| D3 backup | **REUSE** SQLite `.backup` / `VACUUM INTO` (MED-13). `cp` on a WAL DB is unsafe; corrected. |
 
-### Code locations surveyed end-to-end
-- `energy.py`: 1370-1460 (restore path), 2225-2360 (regression restore + midnight-snapshot restore/save), 2470-2500 (snapshot payload), 2700-2950 (lifetime getters + daily derivation + rollover snapshot set + `_save_daily_snapshot`), 3010-3100 (cross-check re-seed), 4340-4400 (`_dp_house_load_kw`), 8521 & 9136 (extra `_save_midnight_snapshot` callers, no snapshot mutation), 10577-10600 (`_get_state_float`).
-- `energy_forecast.py`: 129-170, 300-420, 730-780, 880-910 (estimator + adjustment factor + DOW deque).
-- `database.py`: 4438-4560, 4519, 4542, 5041-5070 (`log_energy_daily`, `get_energy_daily_recent`, `get_energy_temp_pairs`, `get_consumption_history`), 2321-2328 restore path.
-- `energy_const.py`: 136 (D-MED-1 R2-flip note), 170 `CONF_R1_ESTIMATOR_SHADOW_ONLY`, 1585 default house-load source.
-- `config_flow.py:4637-4645, 5777-5861`, `select.py:767-788` — the D0 knob.
+### Correction to earlier institutional claim
+`energy.py:2491-2496` is the **envoy_cache** payload (feeds `save_envoy_cache`), NOT the midnight-snapshot payload. Midnight-snapshot payload lives at `energy.py:2371-2375` (`_save_midnight_snapshot`). MED-9. Prior draft was wrong; corrected in the site enumeration below.
 
 ### Kanban adjacency
-- `ENVOY-FLAKINESS-181243-1` — physical cause of the 0.045505 glitch (Session-closed / firmware-check bug). **Non-goal here.** This card unblocks *tolerance*, not *cause*.
-- `COVERAGE-EVENING-ATTRIBUTION-DRIFT-1` — separate concern (net vs total consumption sensor). Uses different lifetime sensor and different math; the D2 read-side ceiling helps both by evicting the same poisoned rows, but the coverage arithmetic is not otherwise re-scoped here.
+- ENVOY-FLAKINESS-181243-1 — physical cause; non-goal.
+- COVERAGE-EVENING-ATTRIBUTION-DRIFT-1 — separate concern (net vs total consumption sensor selection). LOW-16: **do NOT claim `energy_daily` "feeds billing"** — billing/cost coverage runs off different sensors. Consumers of `energy_daily.consumption_kwh` here are the accuracy/adj-factor / regression / DOW paths + `get_energy_daily_for_cycle` (`database.py:4482`) which sums the columns for a cycle summary (a display consumer; but see D3 note — do NOT DELETE, NULL).
 
 ---
 
-## Independent site enumeration
+## Independent site enumeration (revised per HIGH-5, MED-14)
 
-### Lifetime-counter READ sites (grep `_get_lifetime_` in energy.py)
-`_get_lifetime_consumption` (2714), `_get_lifetime_production` (2718), `_get_lifetime_net_import` (2722), `_get_lifetime_net_export` (2726), `_get_lifetime_battery_discharged` (2730), `_get_lifetime_battery_charged` (2734). All six ultimately call `_get_state_float` at 10577 which lacks a monotonic guard.
+### Lifetime-counter READ sites (6)
+`_get_lifetime_consumption` (2714), `_..._production` (2718), `_..._net_import` (2722), `_..._net_export` (2726), `_..._battery_discharged` (2730), `_..._battery_charged` (2734). All call `_get_state_float` (`energy.py:10577`). **The guard MUST be applied here, NOT in `_get_state_float` (which is shared with SPAN power reads etc. — LOW-17).**
 
-### Snapshot payload construction (must include LKG)
-`energy.py:2491-2496` (snapshot-payload dict — sibling to save site).
+### Snapshot SET sites (revised — 3 live, not 4)
+| # | Site | Lines | Status |
+|---|---|---|---|
+| 1 | **Rollover** — assigns all 6 snapshots to current readings | `energy.py:2895-2900` (MED-14: six counters, not two) | LIVE |
+| 2 | **Seed-if-None** — per-counter first-availability seed | `energy.py:2908-2919` | LIVE |
+| 3 | **Same-day DB restore** | `energy.py:2321-2328` (only runs when `snapshot_date == today` per `:2320`) | LIVE |
+| ~~4~~ | ~~Cross-check re-seed~~ | ~~`energy.py:3077-3097`~~ | **UNREACHABLE (HIGH-5).** Sits inside `elif divergence_pct < 5` (`:3065`) AND further gated by `envoy_today_kwh > our_delta_kwh * 2 and our_delta_kwh < 5` (`:3077`). Those two conditions are mutually exclusive at any reasonable magnitude (`divergence < 5%` cannot coexist with a 2× ratio when the smaller side is < 5 kWh). Live check today: `lifetime_consumption` currently NULL → `:3014` early-return keeps the whole method dark. Introduced in v4.3.0 commit `2c8f9c389`; stranded since. **Drop from guarded sites.** Disposition: **KEEP + DOCUMENT** — do not delete in this cycle (out-of-scope surgery); add a one-line comment "stranded since v4.3.0 — reachability proof in PLANNING_energy_lifetime_counter_poisoning.md" and card a follow-up. |
 
-### Snapshot SET sites (mutate `_lifetime_*_snapshot`) — hypothesis check vs audit
-The audit lists three (2895-2919 rollover + seed-if-None, 3081-3097 cross-check re-seed, restore 2321-2328). Independent re-grep confirms the same three, no fourth:
+Two additional callers of `_save_midnight_snapshot()` (`energy.py:8521, 9136`) do NOT mutate snapshot values — persistence only; transitively protected.
 
-1. **Rollover** — `energy.py:2895-2896` (`_lifetime_consumption_snapshot = current_lifetime; _lifetime_production_snapshot = current_production`), then `_save_midnight_snapshot()` scheduled at 2905.
-2. **Seed-if-None** — `energy.py:2908-2911` (post-rollover safety net for a None counter earlier in the day).
-3. **Cross-check re-seed** — `energy.py:3081-3097` (`_check_and_correct_snapshots`, re-seeds ALL six counters if any drift exceeds the internal cross-check).
-4. **DB restore** — `energy.py:2321-2328` (same-day restore of the six counters + `snapshot_date`).
+### Δ-compute (subtraction) endpoints
+`energy.py:2745-2823` — six subtractions of (current − snapshot). Per HIGH-6, we guard by **enforcing that BOTH endpoints were accepted**: current is checked by the getter guard; snapshot carries a per-counter `_snapshot_accepted: bool` flag set at every SET site. Δ compute reads the flag; a False flag → field NULL + `partial_day = 1`.
 
-All four MUST route through the new `_accept_lifetime_reading` guard, and (3) must also validate DB-restored values against the live reading (else a stale glitched DB row poisons a fresh boot).
-
-**Two additional `_save_midnight_snapshot()` callers** (`energy.py:8521, 9136`) do NOT mutate snapshot values — they only re-persist the current in-memory state — but they DO become poison-persistence channels if the in-memory state is already poisoned. No new logic needed; they are protected transitively by guarding the four sites above.
-
-### Daily-derivation site (Δ compute)
-`energy.py:2745-2823` — must consult the LKG guard on both `current_*` and `_..._snapshot` before subtracting; existing negative-delta guard (`:2789`) and `actual_kwh <= 0` guard (`:2825`) remain but do NOT catch the overcount case.
-
-### `energy_daily` READER sites (grep confirmed)
-- `energy.py:1441` → `db.get_energy_daily_recent(30)` — accuracy / adjustment-factor refit. Only lower-bound `>= 10` filter at 1446.
-- `energy.py:2235` → `db.get_energy_temp_pairs(min_days=30)` — temperature regression refit on every startup (`:1371`).
-- `energy.py:2270` → `db.get_consumption_history(days=60)` — DOW deques.
-- `energy_forecast.py:766-774` `record_actual_consumption` — in-memory DOW push during a running day.
-- Display sensors (no trust): `sensor.py:11652-11774` via `energy.forecast_today` / `energy.py:10052/10095-10126`; diagnostics `energy.py:10733`.
-- `_dp_house_load_kw` (`energy.py:4352-4394`) — **TRUST** consumer of `predicted_consumption_kwh`, feeds Battery-Aware EV Charging.
-
-All READER sites must apply the plausibility ceiling before feeding the value into (a) regression fit, (b) DOW deque, (c) adjustment factor, (d) in-memory `record_actual_consumption`.
+### `energy_daily` READER sites (revised per MED-10)
+| Site | Reads | Filter needed |
+|---|---|---|
+| `energy.py:1441` → `get_energy_daily_recent(30)` | `consumption_kwh`, `predicted_consumption_kwh`, `prediction_error_pct`, `avg_temperature` | Existing `>= 10` at `:1446`. Add upper `≤ DAILY_CONSUMPTION_MAX_KWH` and `abs(pct_error) ≤ PCT_ERROR_BOUND`. Solar NOT selected here (MED-10). |
+| `energy.py:2235` → `get_energy_temp_pairs(min_days=30)` | `consumption_kwh`, `avg_temperature` | Add upper `≤ DAILY_CONSUMPTION_MAX_KWH`; also require `partial_day = 0` if column present. |
+| `energy.py:2270` (restore path) → `get_consumption_history(60)` → `energy_forecast.py:736-764` | `consumption_kwh` | Add upper ceiling + partial-day filter. |
+| `energy.py:2840` (live daily push) → `record_actual_consumption` → `energy_forecast.py:766-774` | `actual_kwh` (in-memory) | **CRIT-1 target** — ceiling applied BEFORE this call. |
+| `energy_forecast.py:661` | Display consumer (LOW-17). | Display only; no bounds required beyond D2. |
+| `_dp_house_load_kw` `energy.py:4352-4394` | `predicted_consumption_kwh` (post-adjust) | Downstream of adj factor; protected by D2 bound on `pct_error`. |
+| `get_energy_daily_for_cycle` `database.py:4482` | Sums `consumption_kwh` / `solar_production_kwh` for cycle summary | Display only. **MED-13:** do NOT DELETE cleaned rows — SUM(NULL) skips, SUM over dropped rows silently under-reports. |
 
 ---
 
-## Deliverables
+## Producer AND Consumer map
 
-### D0 — Config-first: operator knob flip (OPERATOR DECISION)
-Flip `select.ura_energy_coordinator_dp_house_load_source` from `max_span_r1` to `live_span`. Zero code, reversible, removes the only *decision* consumer's exposure while D1–D3 land.
+**Producer chain (all 6 counters):** `_get_lifetime_*` (2714-2736) → `_get_state_float` (10577) → Δ at 2745-2823 → snapshot mutation (2895-2900 / 2908-2919 / 2321-2328) → `_save_daily_snapshot` (2921) → `log_energy_daily` (`database.py:4438`).
 
-**Trade-off (must be surfaced to operator):** `live_span` uses SPAN R1+R2 minus EV load. SPAN occasionally reads ~0 kW (e.g. 09-06 21:09) → `_dp_house_load_kw` may return near-zero → DP evaluates with unusually low load → abstains with `MISSING_INPUTS` or `already_below_target` more often (audit §6 counterfactual). The audit shows 0 measured verdict flips even under the poisoned `max_span_r1` state, so this is a small-margin change either way.
+**Dependency health:** production lifetime glitched at 12/28 September midnights (audit §1); currently glitched (`energy_midnight_snapshot.lifetime_production = 0.045505`). Consumption counter equally exposed via identical transport.
 
-**Acceptance criteria**
-- **Operator confirms:** knob observed at `live_span` in the UI; `select.py:785` `_conf_key` persists via options flow.
-- **Live:** next DP eval snapshot in `sensor.ura_energy_coordinator_ev_charging_plan` shows `house_load_kw` no longer equal to `predicted_consumption_kwh / 24` within ±0.02 (the current 30/31 pattern breaks).
-- **Discriminating:** if `live_span` reads 0 during eval, the eval reports `MISSING_INPUTS`, not a decision using 0.
+**Consumers:** table above. TRUST consumers: `_dp_house_load_kw` (decision), accuracy → adj factor (self-referential feedback), regression refit (every startup), DOW deques (live + restore), `_solar_forecast_error_baseline` update at `energy.py:2863`. Display: forecast sensors `sensor.py:11652-11774`, diagnostics `energy.py:10733`, `get_energy_daily_for_cycle` summary.
 
-### D1 — Producer guard: monotonic lifetime + daily ceiling + anomaly
-Add `_accept_lifetime_reading(counter_name: str, value_mwh: float | None, last_known_good_mwh: float | None) -> float | None`. Returns `value_mwh` if `value_mwh is not None AND (last_known_good_mwh is None OR value_mwh >= last_known_good_mwh - LIFETIME_REGRESS_TOLERANCE_MWH)`; else returns `None` and increments an anomaly counter.
+---
 
-Wire at:
-1. Each of the six `_get_lifetime_*` (2714-2736) — read-path: reject regressed values BEFORE they reach any snapshot-set site or Δ compute.
-2. Rollover snapshot set (2895-2896): guard `current_lifetime` / `current_production` against the outgoing `_lifetime_*_snapshot` (which becomes the new LKG) before overwriting.
-3. Seed-if-None (2908-2911): a None snapshot may accept a first reading only if it passes the persisted LKG (from restore or last save).
-4. Cross-check re-seed (3081-3097): the "corrected" value MUST pass the guard vs the incumbent snapshot; if not, keep incumbent and emit anomaly.
-5. Restore (2321-2328): reject a restored snapshot that is `> live_current + ε` (a stale DB row from a glitched save poisons the boot — same 0.045505 sequence). If rejected, treat as no-snapshot and let seed-if-None do its job at rollover.
+## Option S (SIMPLIFY) vs Option F (FULL) — marginal-benefit decomposition (per CLAUDE.md)
 
-Persist LKG per counter in the midnight-snapshot payload (extend `_save_midnight_snapshot` `energy.py:2371-2375` + DAO shape; **additive column, no back-compat migration risk beyond Tier 2-DB DAO change** — Review B target).
+### Option S — minimum-shape fix, Tier 2
+1. **D0** operator flip to `live_span`.
+2. **CRIT-1** ceiling correctly placed: `_apply_daily_ceiling` invoked immediately after the `actual_kwh <= 0` guard at `energy.py:2825-2830` and BEFORE `record_actual_consumption` (`:2840`), `evaluate_accuracy` (`:2845`), `get_adjustment_factor` (`:2854`), `_solar_forecast_error_baseline.update` (`:2860`), and the DAO write (`:2878`). On trip → both `actual_kwh` and `solar_produced_kwh` set None; anomaly emitted (rate-limited, MED-11).
+3. **HIGH-7 minimal** — add `energy_daily.partial_day` column; set to 1 whenever the row is derived from a snapshot that was **mid-day seed-if-None** (`:2908-2919`) rather than the previous midnight rollover, OR whenever the ceiling trips. Row is still written but with `consumption_kwh`/`solar_production_kwh` NULL for the partial fields. Readers (D2) skip `partial_day = 1` rows.
+4. **HIGH-8 decision** — extend `pct_error_bounded` (energy_forecast.py:829-875, bound `PCT_ERROR_BOUND = 200`) to the LIVE control path `evaluate_accuracy` (`energy.py:2845` → `energy_forecast.py:852-880`). Explicit override of `PLANNING_forecast_accuracy_fix.md`'s "raw on control path" choice, justified by the 213,147% row.
+5. **D2** caller-side upper-bound filters at the three DAO readers (as tabulated).
+6. **D3** cleanup (backup via `sqlite3 ".backup"` / `VACUUM INTO`; NULL not DELETE; do NOT null `predicted_consumption_kwh` per MED-13; scope 4 poisoned + 09-24/25; today's row if written pre-fix).
 
-Daily-ceiling guard in `_save_daily_snapshot` (2921) BEFORE `log_energy_daily`: if `actual_kwh > DAILY_CONSUMPTION_MAX_KWH` or `solar_produced_kwh > DAILY_SOLAR_MAX_KWH`, write NULL for that field and emit anomaly `energy.daily_plausibility_reject` with the raw computed value + counter LKGs in the payload.
+**What Option S still misses (measured):**
+- **Both-ends-glitched undercount** (09-24 48 kWh, 09-25 78 kWh; audit §1 second-order): both midnight reads glitched → both Δ endpoints "valid" numbers → `solar = 0.0`, `consumption ≈ 48-78`. Ceiling does NOT trip (48 kWh < 600, 0 < 490). `partial_day` marker does NOT trip (both endpoints came from rollover, not seed-if-None). **Frequency in audit data: 2/198 rows = 1.0%.** These rows still poison DOW deques (48 kWh vs ~190 kWh clean).
+- **Restore-of-glitched-snapshot**: if HA restarts today with `energy_midnight_snapshot.lifetime_production = 0.045505` and boots into a moment where the live sensor also glitches, restore accepts 0.045505; at next accepted live read the Δ blows up. Ceiling catches the Δ (goes NULL) — but ONLY for that day; the restored snapshot lingers until next rollover. Under Option S, no restore-time cross-check exists.
+- **Silent adj-factor drift from clean-but-poisoned prediction rows** (audit: 09-01 predicted 0.1 → error 213,147%). CRIT-1 + HIGH-8 fix this on the write side and the live-eval side; older poisoned prediction rows still corrupt adj factor until D3 cleanup + one restart.
 
-**Acceptance criteria**
-- **Test:** `test_lifetime_reading_regression_rejected` — feed the recorded 0.045505 sequence into a stubbed `_get_state_float`; assert `_lifetime_production_snapshot` never adopts 0.045505 once LKG ≥ 10 MWh; assert `energy_daily` write is either NULL or plausible.
-- **Test (each of 4 SET sites):** per-site mutation — comment out the guard at each site individually; a distinct test must fail per site. If any bypass leaves the suite green, that site is untested.
-- **Test:** `test_daily_ceiling_writes_null_and_anomaly` — a synthetic Δ of 18,850 kWh writes NULL + fires anomaly with the expected payload keys.
-- **Test:** `test_restore_rejects_stale_glitched_snapshot` — DB restore path (2321-2328) with `lifetime_production = 0.045505` and live `_get_lifetime_production` = 15.8 MWh must not adopt 0.045505.
-- **Sensor:** `sensor.ura_energy_coordinator_energy_forecast_today` — after next full-day cycle, `predicted_consumption_kwh` returns to the 126-175 kWh envelope of the shadow v1 arm within 1 restart.
-- **Live (2026-09-30 00:00):** the 2026-09-29 `energy_daily` row is EITHER NULL (baseline rejected) OR ≤ `DAILY_CONSUMPTION_MAX_KWH` — **not** ≈ 18,850 and **not** silently 0. Cross-check: an anomaly of type `energy.daily_plausibility_reject` OR `energy.lifetime_regress_reject` appears in the anomaly table with a today-dated `at`.
-- **Live (discriminator):** `energy_midnight_snapshot` row for 2026-09-30 carries `lifetime_production ≥ last_known_good − ε`, never 0.045505.
+### Option F — full LKG design, Tier 2-DB
+Everything in S plus:
+- **LKG ratchet** per counter, persisted via `save_energy_state` KV (reuse; no schema change), storing `{value, ts_iso}`. Getters (2714-2736) apply `_accept_lifetime_reading` against LKG (HIGH-3, HIGH-6).
+- **Restore rule (CRIT-2 corrected):** on same-day restore (`:2321-2328`), for each counter reject the restored snapshot iff `snapshot < LKG − ε` OR `(live − snapshot) × 1000 > DAILY_*_MAX_KWH`. If live is None at restore, defer acceptance to first accepted live read. Restore LKG **irrespective of `snapshot_date`** (LKG survives across day boundaries; `snapshot_date` gates only the snapshot values). This IS the check that would reject today's `0.045505` on the next boot.
+- **Legit-reset policy (HIGH-4):** the glitch is a **constant, non-growing** 0.045505 value; a real firmware reset produces a **low but monotonically-growing** series. Re-baseline LKG downward iff we observe `N ≥ 6` consecutive accepted reads (spanning ≥ `LKG_STALE_REBASELINE_HOURS = 6` h) all monotonically increasing below the current LKG, AND the operator sees an anomaly for it. Add upper-jump bound `MAX_LIFETIME_JUMP_KW` (throughput cap: production ≤ nameplate × elapsed, consumption ≤ 240 A × 240 V × elapsed).
+- **HIGH-7 full** — seed-if-None consults LKG: if LKG for that counter is ≤ `LKG_STALE_REBASELINE_HOURS` old, seed from LKG (production is flat overnight; consumption drifts modestly — acceptable for undercount-avoidance vs day-loss). Else set `partial_day = 1` and let the day's row go NULL.
+- Guard drills (HIGH-6): drill the 3 subtraction endpoints, the restore site, and the getter guard — **not** the getters + SET sites separately (the two-layer design was insulating the drills).
 
-### D2 — Consumer/read-side range filter
-At the three DAO consumers (`energy.py:1441`, `:2235`, `:2270`), apply symmetric bounds:
-- `energy.py:1446` (existing lower-bound filter): also drop rows where `consumption_kwh > DAILY_CONSUMPTION_MAX_KWH` OR `solar_production_kwh > DAILY_SOLAR_MAX_KWH`. Bound `prediction_error_pct` to ±500 % before feeding `get_adjustment_factor` (`energy_forecast.py:893-908`).
-- Regression pairs (2235): drop pairs whose `consumption > DAILY_CONSUMPTION_MAX_KWH`.
-- DOW history (2270): drop rows above ceiling before the `record_actual_consumption` push.
+**What Option F additionally catches:**
+- **Both-ends-glitched undercount** (Option S miss): the second-endpoint glitch value 0.045505 is < LKG − ε, so the getter rejects it → snapshot un-accepted → row NULL for that day. Frequency: measured 1.0% of days, but each one poisons DOW deques → material for the regression fit.
+- **Restore-of-glitched-snapshot** at boot: LKG comparison at `:2321-2328` rejects 0.045505 vs LKG ~18 MWh; today's live row is preserved intact after next accepted read.
+- **Adj-factor drift from prediction rows the ceiling didn't see** — LKG prevents the underlying Δ from ever being stored, so the pct_error path never sees the poisoned actual.
 
-Prefer caller-side filtering (leaves `database.py` DAO shape stable → passes Review B migration-correctness). Add a single `_is_plausible_daily_row(row)` helper.
+### Recommendation — Option F, on measured margin
 
-**Acceptance criteria**
-- **Test:** `test_read_side_filters_evict_poisoned_rows` — a fixture DB with the 4 real poisoned rows (2026-06-19 / 08-20 / 08-28 / 08-30) yields a regression fit with base ≈ 135.6 and coeff ≈ +1.85 (matches the audit's clean numbers within 5%).
-- **Test:** `test_adjustment_factor_bounded_error` — an 8,014 % error row does NOT drag adj to 1.3.
-- **Live:** post-restart, `sensor.ura_energy_coordinator_energy_forecast_today` `shadow_predicted_consumption_kwh` and `predicted_consumption_kwh` differ by < 30 kWh (currently 327 vs 146 = 181 kWh gap).
-- **Live discriminator:** even BEFORE D3 cleanup, restarting HA post-D2 produces a plausible regression fit (base < 300, coeff > 0). If not, D2 is broken.
+- **S captures ~most-value-per-code:** CRIT-1 alone stops the 30/31 recent DP evals from picking up the poisoned forecast, and the ceiling stops the write. On the operator's 2026-08-25 "prefer simple" test, S looks tempting.
+- **BUT the F-only failure shapes are measured, not hypothetical:** the both-ends-glitched undercount at 09-24/25 is exactly the shape S misses, and it fired **2/6 days** in the tail week (33% of glitch days that reached both endpoints). Once every 3-5 glitch days is not tail risk.
+- **Marginal ingredient cost is small and containable:** LKG uses an existing KV DAO (no schema change), the reset policy is a bounded counter + timestamp, and the guard placement (HIGH-6) is a single new helper on 6 getters + one restore check. No cross-coordinator state, no shared-primitive edit, no time-machine machinery.
+- **The elevated review cost (Tier 2-DB vs Tier 2) is one extra framing-disjoint reviewer**, which is cheap relative to the "restore poisons Tuesday" scenario (audit's live evidence: today's snapshot is already 0.045505; Option S ships a fix that would let a Tuesday boot re-poison Tuesday's row).
+- **Verdict: Option F**, with Option S kept documented as the fallback if plan review or build turns up a load-bearing complication in the LKG restore rule (CRIT-2's revised form).
 
-### D3 — Data cleanup (DESTRUCTIVE — OPERATOR APPROVAL REQUIRED, SUPERVISED)
-One-shot SQL under `scripts/one_shots/cleanup_energy_daily_poisoned_rows.py` (invoked via `ssh ha "python3 -" < script`). Behaviour:
+**Option S kept in-doc** as fallback per marginal-benefit rule — do not delete this section if Option F ships.
 
-1. **Backup first (MANDATORY):** `cp /config/universal_room_automation/data/universal_room_automation.db /config/universal_room_automation/data/universal_room_automation.db.bak_YYYYMMDD_HHMM` — verify `ls -la` shows same byte count before proceeding.
-2. **Confirm target rows** by re-running the audit-B discriminator on those 4 dates (proves nothing new has landed).
-3. **Execute:**
+---
+
+## Deliverables (Option F — chosen)
+
+### D-1 — Measurement gate (before D1 ε is chosen) — per MED-12
+One-shot recorder probe over all 6 lifetime sensors: hour-to-hour decreases in `statistics` for the last 90 days (excludes the 0.045505 glitch by pre-filtering `state > 1.0`; measures pure float/quantisation noise). Report max decrement per counter → ε_regress = 3× that max, floor 0.001 MWh. Committed as `scripts/probes/lifetime_counter_noise_probe.py`. **Gate: no D1 code changes ship until this probe reports.**
+
+**Acceptance:** probe output committed with per-counter max-decrement; `LIFETIME_REGRESS_TOLERANCE_MWH` constant chosen with cited value.
+
+### D0 — Operator knob flip (OPERATOR DECISION)
+As in rev 1. Trade-off: `live_span` may read ~0 on SPAN blind spots → DP abstains `MISSING_INPUTS` rather than deciding on wrong load.
+
+**Acceptance:** knob observed at `live_span`; next DP eval `house_load_kw ≠ predicted_consumption_kwh / 24` (± 0.02); if `live_span` = 0, eval reports `MISSING_INPUTS`.
+
+### D1 — Producer guard + ceiling + partial-day marker + anomaly
+Land in this order:
+
+**D1a — Ceiling at the correct position (CRIT-1).** In `_maybe_reset_daily` between `:2830` and `:2839`, call `_apply_daily_ceiling(actual_kwh, solar_produced_kwh)`. On trip: both → None; increment per-episode anomaly counter (MED-11) via `_store_daily_plausibility_anomaly` (new sibling of `_store_crosscheck_anomaly_event`). Downstream `if actual_kwh is not None:` block at `:2839` naturally skips learning.
+
+**D1b — LKG ratchet (Option F only).** Add `self._lkg_lifetime: dict[str, tuple[float, str]]` (counter → (value_mwh, ts_iso)); persist per-counter via `save_energy_state("lkg_lifetime_<counter>", blob)` (reuse KV, MED-9). Initialise from `restore_energy_state` at coord init (before restore of midnight snapshot). Update on every accepted getter read.
+
+**D1c — Getter guard (LOW-17, HIGH-6).** In each `_get_lifetime_*` (2714-2736), pass raw `_get_state_float` result through `_accept_lifetime_reading(name, x, lkg, now)`. Rejected → return None (existing None-tolerant callers). **Do NOT modify `_get_state_float`.**
+
+**D1d — Snapshot acceptance flags (HIGH-6).** Add `self._snapshot_accepted: dict[str, bool]`. Set at rollover (`:2895-2900`): True iff the current getter returned non-None. Set at seed-if-None (`:2908-2919`): True iff seeded from LKG within `LKG_STALE_REBASELINE_HOURS`, else False (mid-day partial). Set at restore (`:2321-2328`): True iff CRIT-2 rule passes; else counter left None to be seeded later.
+
+**D1e — Δ endpoint gate.** In the Δ compute (`:2745-2823`), guard each per-counter subtraction with `if not (snapshot_accepted[name] and current is not None)` → treat that term as None; ceiling still runs on the aggregate.
+
+**D1f — CRIT-2 restore rule.** In `_restore_midnight_snapshot` at `:2321-2328`: for each of the 6 counters, if the persisted snapshot value `s` satisfies `s < LKG − ε` OR `(live − s) × 1000 > DAILY_*_MAX_KWH`, reject (leave `_lifetime_*_snapshot = None`, `_snapshot_accepted[name] = False`, emit `snapshot_restore_reject` anomaly). If live is None at restore time, defer acceptance to first accepted live read. Restore LKG irrespective of `snapshot_date`.
+
+**D1g — Legit-reset policy (HIGH-4).** New in-memory rolling window per counter of the last 12 accepted reads. If we observe `N ≥ 6` monotonically increasing reads spanning `≥ 6 h` all below current LKG → re-baseline LKG downward to newest value, emit `lkg_rebaselined` anomaly. Upper-jump bound: reject any accepted read with `(x − LKG) / (t − LKG.ts) > MAX_LIFETIME_JUMP_KW / 1000`.
+
+**D1h — `partial_day` column.** Additive nullable column on `energy_daily`, default 0. `_save_daily_snapshot` sets to 1 iff any endpoint was un-accepted or the ceiling tripped. Existing readers unaffected (SELECTs listed above do not project this column).
+
+**D1i — Anomaly rate-limit (MED-11).** Reuse `_store_crosscheck_anomaly_event` shape: one row per counter per rejection episode; episode ends when the counter re-accepts.
+
+**Acceptance criteria (all F):**
+- **Test (fixture from probe, LOW-18):** `test_lifetime_regression_fixture_replay` — feed the audit's exact 0.045505 sequence from `scripts/probes/energy_consumption_forecast_poison_probe.py` (section B ground-truth window `stat_at_midnight()` output for 08-20 / 08-28 / 08-30 / today) into the guarded getter; assert no `_lifetime_production_snapshot` mutation adopts 0.045505 once LKG ≥ 10 MWh.
+- **Test (per-site mutation, 3 sites):** getter guard, restore CRIT-2 check, Δ-endpoint gate. Comment out each → a distinct named test fails per site.
+- **Test:** `test_daily_ceiling_writes_null_and_partial_day` — synthetic Δ of 18,850 kWh writes NULL + `partial_day = 1` + one anomaly.
+- **Test:** `test_restore_rejects_glitched_snapshot_below_lkg` — DB restore with `lifetime_production = 0.045505` and LKG = 15.8 MWh → snapshot not adopted, anomaly emitted.
+- **Test:** `test_legit_reset_rebaselines_after_6h_growth` — synthetic 6× monotonic accepted reads below LKG over 6 h → LKG re-baselined, no rejection loop.
+- **Test:** `test_both_ends_glitched_writes_null` — 09-24 replay; row NULL for solar AND consumption; DOW deque unchanged.
+- **Live (condition-based per MED-15):** on the **first midnight where the 00:00 read or the outgoing snapshot equals 0.045505 (measured from `energy_midnight_snapshot` at `now − 60s`)**, the `energy_daily` row written for that date has `consumption_kwh` and `solar_production_kwh` EITHER NULL OR ≤ ceiling, `partial_day = 1`, AND a matching `energy.lifetime_regress_reject` or `energy.daily_plausibility_reject` anomaly is present, AND `sensor.ura_energy_coordinator_energy_forecast_today.predicted_consumption_kwh` does NOT jump into the 300-2000 kWh band on the next `evaluate_accuracy` cycle (stays within ± 50 kWh of `shadow_predicted_consumption_kwh`).
+- **Live discriminator (CRIT-1 specific):** on that same midnight, `record_actual_consumption` is NOT called with a value > ceiling (assert via absence of any DOW deque entry > 600 kWh at coordinator's post-midnight state).
+
+### D2 — Read-side caller filters
+As tabulated. Extend `pct_error_bounded` (`energy_forecast.py:829-875`) into the **live** `evaluate_accuracy` path (`energy_forecast.py:852-880`) per HIGH-8 decision. Explicitly note the reversal of `PLANNING_forecast_accuracy_fix.md` on the control-path clamp; document why (213,147% row destabilises adj-factor Bayesian update).
+
+**Acceptance:** as rev 1, plus `test_pct_error_bounded_on_control_path` — a synthetic 8,014% error does NOT drag adj to 1.3.
+
+### D3 — Cleanup (DESTRUCTIVE, OPERATOR APPROVAL, SUPERVISED)
+Corrected per MED-13:
+1. **Backup:** `sqlite3 /config/universal_room_automation/data/universal_room_automation.db ".backup /config/universal_room_automation/data/universal_room_automation.db.bak_$(date +%Y%m%d_%H%M)"` OR `VACUUM INTO`. NOT `cp` (WAL DB unsafe). Free-space check: `df -h /config` shows ≥ 2× DB size free before proceeding.
+2. Re-run probe section A + B to reconfirm.
+3. **UPDATE (not DELETE — MED-13; sums-over-cycle at `database.py:4482` would drop billing columns):**
    ```sql
    UPDATE energy_daily
       SET consumption_kwh = NULL,
           solar_production_kwh = NULL,
-          predicted_consumption_kwh = NULL,
           prediction_error_pct = NULL
-    WHERE date IN ('2026-06-19', '2026-08-20', '2026-08-28', '2026-08-30');
+    WHERE date IN ('2026-06-19','2026-08-20','2026-08-28','2026-08-30',
+                   '2026-09-24','2026-09-25');
+   -- If 2026-09-29 written poisoned pre-D1, add it.
    ```
-4. **Consider (operator decides row-by-row):** the two zero-solar undercount rows 2026-09-24 (48 kWh) and 2026-09-25 (78 kWh). Recommendation: NULL them too, same UPDATE with `date IN ('2026-09-24','2026-09-25')` — they poison DOW deques asymmetrically.
-5. **Consider:** if the 2026-09-29 row was written poisoned before D1 shipped, add it to the same UPDATE.
-6. **Verify:** re-run probe section A; assert 0 rows with `consumption_kwh > 1000` OR `solar_production_kwh > 300`.
+   **Do NOT null `predicted_consumption_kwh`** (MED-13) — the prediction itself was the model's output at the time and is diagnostically useful; only the error/actual are wrong.
+4. Verify with the constants (not the >1000 heuristic): `SELECT COUNT(*) FROM energy_daily WHERE consumption_kwh > <DAILY_CONSUMPTION_MAX_KWH> OR solar_production_kwh > <DAILY_SOLAR_MAX_KWH>` → 0.
 
-**Acceptance criteria**
-- **Operator:** explicit "go" logged in vibememo; backup path confirmed.
-- **DB:** `SELECT COUNT(*) FROM energy_daily WHERE consumption_kwh > 1000 OR solar_production_kwh > 300` returns 0.
-- **Live post-restart:** temperature regression fit reports base ≈ 135, coeff ≈ +1.85 in coordinator init log (`energy.py:2225-2258` refit path).
-- **Discriminating:** the 4 dates now return NULL for both columns; other dates are untouched (`SELECT COUNT(*) FROM energy_daily WHERE consumption_kwh IS NOT NULL` decreases by exactly the number of cleaned rows).
+**Acceptance:** operator "go" logged; backup verified via `sqlite3 <bak> "PRAGMA integrity_check"`; post-restart regression fit base ≈ 135, coeff ≈ +1.85.
 
-### D4 — Docstring / concept-split fix (OPTIONAL, small)
-At `_dp_house_load_kw` (`energy.py:4352-4394`): docstring claims "R1 fitted-model", but reads `predicted_consumption_kwh` = the **legacy** arm while `CONF_R1_ESTIMATOR_SHADOW_ONLY = True`. Fix docstring to name the legacy arm explicitly, OR (parsimony alternative, tracked separately) point the reader at `shadow_predicted_consumption_kwh`. **D4 in this cycle = docstring only.** Repointing is a decision-changing edit and belongs to the R2-flip cycle (`energy_const.py:136`).
-
-**Acceptance criteria**
-- Docstring names the actual field read; grep of the fix returns the corrected wording.
+### D4 — Docstring fix at `_dp_house_load_kw`
+Unchanged; docstring-only.
 
 ---
 
 ## Non-goals
-
-- **Physical cause of Envoy's 0.045505 MWh glitch** — ENVOY-FLAKINESS-181243-1. This cycle *tolerates* the glitch; it does not *fix* Envoy.
-- **Net vs total consumption sensor selection** — COVERAGE-EVENING-ATTRIBUTION-DRIFT-1.
-- **`CONF_R1_ESTIMATOR_SHADOW_ONLY` flip** — the v1 arm is history-immune but flipping it is a decision change (see `energy_const.py:170` and D-MED-1 note at `:136`). Tracked separately; recommended AFTER D1–D3 land and refit is clean.
-- **Net Energy sign convention** (audit §Not measured) — dashboard/audit card, separate scope.
-- **Repoint `_dp_house_load_kw` to shadow v1** — belongs to R2-flip cycle, not here.
-- **Retrofit anomaly channel taxonomy** — reuse existing channel shape; no channel-registry redesign.
+Unchanged: physical Envoy cause; net-vs-total sensor; R1 flip; Net Energy sign; repoint `_dp_house_load_kw` to shadow v1; anomaly-registry redesign; **cross-check re-seed dead-code deletion** (KEEP + DOCUMENT this cycle; separate card).
 
 ---
 
 ## Numbers get knobs — ladder placement
 
-| Number | Value (proposed) | Rung | Why |
+| Number | Value | Rung | Why |
 |---|---|---|---|
-| `DAILY_CONSUMPTION_MAX_KWH` | 600 | 1 (module constant, `energy_const.py`) | Safety bound on stored history; changing it invites drift in the DOW / regression fit and the accuracy adj factor. Must require review. |
-| `DAILY_SOLAR_MAX_KWH` | 300 | 1 | Same argument. Roughly 2× nameplate day; leaves room for real edge highs, catches 6,700-15,900 poisoning. |
-| `LIFETIME_REGRESS_TOLERANCE_MWH` | 0.001 (1 kWh) | 1 | Guards against float noise on legit Envoy reads; a wider tolerance would admit small regressions. Review-gated. |
-| Anomaly channel name | `energy.daily_plausibility_reject`, `energy.lifetime_regress_reject` | Constants (module) | Named, greppable; not user-tunable. |
-| `select.ura_energy_coordinator_dp_house_load_source` (D0) | flip to `live_span` | 3 (live entity) | Already at correct rung; operator turns it now, may revert after D1-D3. |
-| `CONF_R1_ESTIMATOR_SHADOW_ONLY` (out of scope) | still `True` | 1 today | Flip is decision-changing; separate cycle. |
+| `DAILY_CONSUMPTION_MAX_KWH` | 600 | 1 | Safety bound; drift risk. |
+| `DAILY_SOLAR_MAX_KWH` | derive from `CONF_ENERGY_SOLAR_NAMEPLATE_W × 24 × 1.05` (≈ 490 kWh at 19.4 kW) | Rung 1 (constant) with formula reading a Rung 2 config (nameplate) at coord init | Do NOT hardcode; MED-9. |
+| `LIFETIME_REGRESS_TOLERANCE_MWH` (ε) | **measured by D-1 probe**, floor 0.001 | 1 | MED-12. |
+| `MAX_LIFETIME_JUMP_KW` | 25 (nameplate 19.4 kW + margin for production; 240 V × 240 A = 57.6 kW for consumption) — per-counter | 1 | Physical throughput cap; HIGH-4. |
+| `LKG_STALE_REBASELINE_HOURS` | 6 | 1 | Reset detection window; HIGH-4. |
+| `PCT_ERROR_BOUND` (control path extension) | 200 (existing display-path value) | 1 | HIGH-8. |
+| Anomaly channel names | consts | Constants | Greppable. |
+| D0 knob | `live_span` | 3 (live entity) | Existing. |
+| `partial_day` column | additive | Schema | Additive; nullable default 0. |
 
 ---
 
-## Producer AND Consumer map (per operator 2026-08-16 rule)
+## Tier classification (per-option)
 
-**Producer of `energy_daily.consumption_kwh` / `.solar_production_kwh`:**
-- Six lifetime getters (2714-2736) → `_get_state_float` (10577, no monotonic guard) → deltas at 2745-2823 → snapshot mutate (2895-2919 / 3081-3097 / 2321-2328) → `_save_daily_snapshot` (2921) → `log_energy_daily` (database.py:4438-4480).
-- **Health of dependency:** production lifetime sensor glitched at 12/28 September midnights (audit §1). Currently glitched right now (`energy_midnight_snapshot.lifetime_production = 0.045505`). Consumption lifetime sensor equally exposed by symmetry (same Envoy transport, same `_get_state_float`).
+- **Option S: Tier 2** (2 framing-disjoint reviews + live validation). Justified: CRIT-1 is a single-locus placement fix; the `partial_day` column is additive; no LKG cross-day state.
+- **Option F (chosen): Tier 2-DB** (3 framing-disjoint reviews). Justified: adds LKG state persistence path (reused KV, so no DAO shape change — this lowers B risk vs rev 1), adds a schema column (`partial_day`), extends control-path clamp (`pct_error_bounded`), includes destructive DB write (D3). **Not Tier 3:** invariant is local (INV-LCP1); 3 live SET sites are finite and enumerated; measured decision impact still zero.
+- **Operator may elevate F → Tier 3** if they want a 4th adversarial-completeness pass on the SET-site enumeration (a missed 4th site is exactly the Tier 3 failure shape).
 
-**Consumers (trust vs display):**
-| Consumer | Site | Class |
-|---|---|---|
-| `_dp_house_load_kw` → EV Battery-Aware charging | `energy.py:4352-4394` → `energy_drain_precedence.py:673-678` | **TRUST** (decision) |
-| Accuracy / adjustment factor (self-referential feedback) | `energy.py:1420-1458` + `energy_forecast.py:893-908` | **TRUST** (feeds next prediction) |
-| Temperature regression refit (every startup) | `energy.py:2225-2258` | **TRUST** (feeds legacy estimator) |
-| Per-DOW deque | `energy.py:2264-2274` + `energy_forecast.py:766-774` | **TRUST** (feeds legacy estimator) |
-| Forecast display sensors | `sensor.py:11652-11774` | display |
-| Diagnostics blob | `energy.py:10733` | display |
-| `_solar_forecast_error_baseline` | `energy.py:2863`, restored `:8792` | persisted only, no decision consumer found by grep |
+### Review framings (Option F)
+- **Review A — arithmetic + guard correctness.** `_accept_lifetime_reading`, ceiling math, ε application, legit-reset policy, throughput cap.
+- **Review B — lifecycle + restore/rollover/seed-if-None interplay across restart in a glitch window; DAO shape (KV LKG round-trip, `partial_day` additive column).** Verifies CRIT-2 revised rule: on today's live state (snapshot=0.045505, LKG=~18.8 MWh) restore rejects; not a re-verification of getter arithmetic.
+- **Review C — test authority.** Per-site mutation on 3 sites (getter guard, restore CRIT-2, Δ endpoint gate). Fixture drawn from probe (LOW-18: fixture source = `scripts/probes/energy_consumption_forecast_poison_probe.py` section B midnight-LTS reads for the four poisoned dates + today).
 
----
-
-## Tier classification
-
-**Tier 2-DB (3 framing-disjoint reviews) + Plan Review (1 pass, per operator 2026-08-11 rule).**
-
-**Why Tier 2-DB (not Tier 1 or 2):**
-- Touches the producer that feeds daily billing / consumption accounting.
-- Changes DAO-adjacent payload shape (adds LKG fields to `save_midnight_snapshot` / `restore_midnight_snapshot`).
-- Includes a destructive DB write (D3).
-- Under the standing 2026-06-08 policy (`feedback_tier2db_for_regression_prone`), regression-prone work defaults to Tier 2-DB even absent DAO changes.
-
-**Why NOT Tier 3:**
-- The invariant is **local and simple** (INV-LCP1: no persisted delta with regressed baseline or above ceiling), not threaded through many emission sites. The four snapshot-set sites are enumerated and finite.
-- **No measured decision impact today** (audit §6: 0 verdict flips in the 18 rebuildable evals). Tier 3 is reserved for cost-AND-safety-impacting cycles with live blast radius or multi-site emission surfaces (the v5.5.3 arbitrage archetype).
-- D0 is a config flip, not code; blast radius per code deliverable is one file (energy.py), one DAO row shape (database.py), and one one-shot script (D3).
-- **Operator may elevate to Tier 3 if:** they judge the DAO-shape extension (LKG columns) high-blast; or they want a fourth adversarial-completeness pass on the snapshot-set enumeration (a 4th snapshot site the plan missed would be exactly the Tier 3 failure mode).
-
-### Review framings
-- **Review A — arithmetic + guard correctness.** Δ math at 2745-2823 with the new guard interposed; `_accept_lifetime_reading` behaviour incl. **Envoy-legitimate resets** (a real firmware/battery reset that lowers a lifetime counter — should this stay latched to old LKG forever? Recommended policy: latched forever unless operator "reset LKG" button; document explicitly). Ceiling values vs nameplate.
-- **Review B — restart / restore / midnight-boundary interplay + DAO shape.** Interaction of restore (2321-2328) ↔ seed-if-None (2908-2911) ↔ cross-check re-seed (3081-3097) ↔ rollover (2895-2896) across a HA restart in the middle of a glitch window. DAO payload extension safety; existing readers unaffected; INSERT OR REPLACE preserves the new columns; migration path for existing DB.
-- **Review C — test authority + new-surfaces round-trip.** Per-site mutation drill on each of the 4 SET sites (Tier-2-DB test-authority discipline elevated toward Tier 3's C framing — appropriate given the "one missed site" failure shape). Fixture replays the recorded 0.045505 sequence from the probe. Anomaly emissions round-trip through the existing dispatch shape.
-
-Plan-review (single pass) verifies: institutional-context section complete; INV-LCP1 falsifiable; independent re-grep of the 4 snapshot sites (this plan's list is a hypothesis); knob-ladder placement; D3 backup gate present; D0 trade-off surfaced to operator.
+Plan-review (single pass, per operator 2026-08-11): verify institutional-context complete, INV-LCP1 falsifiable and matched by tests, ε chosen from D-1 probe not guessed, 3-site enumeration re-greped, `partial_day` schema additive, D3 backup command correct.
 
 ---
 
 ## Plan completion tracking
-
-Items deferred (not dropped):
-- **`CONF_R1_ESTIMATOR_SHADOW_ONLY` flip** → tracked at `energy_const.py:136` D-MED-1 note; new card recommended after D1–D3 ship.
-- **Repoint `_dp_house_load_kw` to `shadow_predicted_consumption_kwh`** → carded with the R2-flip cycle.
-- **Envoy 0.045505 physical cause** → ENVOY-FLAKINESS-181243-1.
-- **Net-consumption sensor selection** → COVERAGE-EVENING-ATTRIBUTION-DRIFT-1.
-- **381 `dp_eval` rows with stale-reason logging quirk** → audit §6 flagged; recommend new card if operator wants.
-- **"Reset LKG" operator button** — mentioned in Review A framing; deferred to a follow-up card unless the review requires it in-cycle.
+Deferred (tracked, not dropped):
+- R1 shadow-only flip → follow-up card after F ships clean.
+- Repoint `_dp_house_load_kw` to shadow v1 → R2-flip cycle.
+- Cross-check re-seed dead-code deletion (HIGH-5) → new card, out of scope this cycle.
+- ENVOY-FLAKINESS-181243-1 → adjacent, non-goal.
+- 381 stale-reason `dp_eval` rows → operator decision on a new card.
+- "Reset LKG" operator button → deferred; not required in F (auto-rebaseline handles it).
 
 ---
 
 ## Post-ship supersession & consumer-gap audit (scheduled)
-
-After D1-D3 ship and one clean day passes, run the standing post-ship audit against the *pre-existing energy-hygiene domain*: any old ad-hoc plausibility comments/heuristics in `energy.py` / `energy_forecast.py` that are superseded by `_accept_lifetime_reading` + the D2 filter, and any downstream that OUGHT to consume the new anomaly channel but doesn't yet (e.g. an NM tile summarising energy-hygiene rejects). Do not delete on that pass — bucket into DELETE / KEEP+WIRE / KEEP+DOCUMENT.
+After F + one clean day: sweep energy-hygiene prior art in `energy.py` / `energy_forecast.py` for now-superseded ad-hoc plausibility comments/heuristics; bucket DELETE / KEEP+WIRE / KEEP+DOCUMENT. Do not delete on that pass; card the delete list.
