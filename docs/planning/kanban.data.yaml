@@ -1739,10 +1739,11 @@ cards:
     verbatim in prior_next_2026_09_18 so nothing was lost.'
   prior_next_2026_09_18: '''BUILD (implied approval): verify PIR-stuck-on leak is legit + verify camera-motion-not-occupancy claim; if leak real, the built D1 corroboration-demote already targets CONF motion sensors (incl. PIR) — re-scope to PIR, drop camera D1prime/D2prime, fix the A/B review bugs, ship.'''
 - id: HVAC-PRECOOL-WINDOW-TOU-DERIVED-1
+  disposition_2026_09_29_w3: 'PARKED by W3 G0 (operator agreed 2026-09-29). Measured: the TOU engine matches the tariff on 8760/8760 hours; summer [10,14) is right by coincidence (first price rise 14:00); the shoulder mismatch (window ends 3 h before the 17:00 rise) is worth a realistic $14.5/yr (upper bound $43; grid-only $3-6/yr because the battery covers 5-9 pm; SOC never above the 80% target at 21:00 on 28 days). That is below the $25/yr bar. Probe: scripts/probes/hvac_w3_g0_q3_shoulder_value.py; results in PLANNING_hvac_w3_energy_aware.md.'
   workstream: HVAC-W3-ENERGY-AWARE
   approval: explicit
   approved_by: 'operator 2026-09-18 (board approve button)'
-  status: pre_planning
+  status: parked
   rank: {value: 8, time_criticality: 5, effort: 5}
   thread: hvac
   created: '2026-09-18'
@@ -1762,9 +1763,7 @@ cards:
   why: 'Corrects my (assistant) wrong claim that the window constants are structural/no-gap. Seasonal peak
     responsiveness is real; the constants make Path A summer-only-correct. Related to the phase-aware theme
     of the deleted EC branch.'
-  next: 'Scope: replace the fixed [10,14) hour gate with a peak-relative window derived from the TOU next-
-    transition; keep a knob for the lead hours. Measure-first: check shoulder/winter peak times vs the fixed
-    window before building. Tier 2 (decision-logic, seasonal).'
+  next: 'PARKED. Revival trigger: a tariff change, OR the battery no longer covering the 5-9 pm shoulder peak (grid share of 17-21h shoulder load > 0.5 in a re-run of hvac_w3_g0_q3_shoulder_value.py), OR the Q3 realistic value >= $25/yr.'
   parsimony: {problem: 'summer-hardcoded pre-cool window, phase-blind to shoulder/winter', verdict: BUILD, note: 'real seasonal gap; measure peak-time shift first'}
   links: {related: [EC-GRID-ANTICIPATORY-PRECOOL-GAP-1, HVAC-PRECOOL-SKIP-REASON-OBS-1], context: 'operator quick-check pushback 2026-09-18'}
 - id: EC-GRID-ANTICIPATORY-PRECOOL-GAP-1
@@ -1968,6 +1967,7 @@ cards:
   parsimony: {problem: 'daytime solar forecast possibly consumed by night EC decisions', verdict: BUILD, note: 'read-only trace first; cheap, decisive'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'D5 fire-frequency audit 2026-09-18; operator: solar_class is a daytime forecast'}
 - id: HVAC-EQUIPMENT-HEALTH-OBSERVABILITY-1
+  disposition_2026_09_29_w3: 'PARKED by W3 G0, operator agreed 2026-09-29. Drift alerts fail the telemetry gate: static-pressure update p95 gap is 64-86 min against a 30 min limit (Q5); superheat has 36 stable buckets, but that is 7 days of autocorrelated samples (Q6). Filter alert DROPPED (the Bryant app already reminds). The 9 history template sensors are not created (no consumer until a drift detector is justified). Reset vs nudge (Q9) is inconclusive at n=6. Operator info: zone 1 static pressure has roughly doubled since April 2026 and its filter reads 40%, so a filter change is advised (not a code item).'
   workstream: HVAC-W3-ENERGY-AWARE
   DOC_2026_09_17: 'Possibilities written up in priority order (P1 health-anomaly -> SC/anomaly->NM;
     P2 reset-vs-nudge -> maybe kill resets; P3 closed-loop energy attribution+tuning; P4 re-ground D5 on
@@ -1975,7 +1975,7 @@ cards:
     health_observability.md. Operator process: doc-first -> card -> link (this). Live Zone-1 reset A/B is
     CLEARED by operator but deferred (passive-first). Data gap found: no nudge/ramp-named rows for zone_1
     -> first sub-probe = locate nudge logging.'
-  status: pre_planning
+  status: parked
   rank: {value: 8, time_criticality: 5, effort: 5}
   thread: hvac
   created: '2026-09-17'
@@ -1996,16 +1996,7 @@ cards:
     (sensor.thermostat_bryant_wifi_*_odu_status/idu_status/filter_remaining, sensor.office_b_odu_status=
     Stage 5 with full refrigerant telemetry). New capability, additive, low-risk observation. Operator
     explicitly wants ONE workstream, not a flurry.'
-  next: 'MEASURE-FIRST pass (read-only, gates everything): (1) theory-of-not-great-state = hard physical
-    limits for this equipment/refrigerant (superheat floodback floor, discharge ceiling, static-pressure
-    airflow limit ~>0.8in, line-voltage brownout <~210 / over >~264) + per-stage/per-outdoor-temp
-    SELF-BASELINE from recorder history (superheat@Stage5@82F distribution); (2) reset-vs-nudge: correlate
-    URA action log vs ODU STAGE moves - does a reset (force-away) slam compressor off then restart Stage 5
-    (short-cycle) while a nudge modulates 5->3 gracefully? -> empirical verdict on kill-resets + informs D5
-    reframe/S14; (3) closed-loop energy: ODU stage + cooling_energy_* + action log -> did vacancy/coast/
-    pre-cool actually save kWh, and tune knobs to measured energy. Output = docs/planning/AUDIT + not-great-
-    state doc; THEN scope the SC/anomaly wiring + dirty-filter detector (static_pressure UP + filter_remaining
-    DOWN, cross-corroborated).'
+  next: 'PARKED. Revival triggers: (a) ha_carrier telemetry cadence improves (static-pressure p95 gap < 30 min in a re-run of hvac_w3_g0_q5_telemetry.py); (b) >= 10 hard resets accumulated, then re-run hvac_w3_g0_q9_reset_vs_nudge.py for a reset-vs-nudge verdict.'
   parsimony: {problem: 'rich HVAC health+duty telemetry unconsumed; open-loop energy claims', verdict: BUILD, note: 'high value, low risk, additive; measure-first before wiring'}
   links: {related: [HVAC-D5-REGROUND-ON-ODU-VAR-1, HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1, HVAC-HOT-ENTRY-LATENCY-1], context: 'Bryant duty-cycle audit 2026-09-17 + live ODU/IDU telemetry'}
   SUB_IDEAS_2026_09_17: 'Checklist inside this one workstream (do NOT mint separate cards): (a) compressor/
@@ -2016,8 +2007,9 @@ cards:
     SAFETY_METRICS (operator: "add to SC"), confirmed safety.py:904 already registers metrics + emits
     anomalies + tracks degraded.'
 - id: HVAC-D5-REGROUND-ON-ODU-VAR-1
+  disposition_2026_09_29_w3: 'CLOSED (DROPPED, not built) by W3 G0, operator agreed 2026-09-29. Premise corrected: the units ARE variable-speed (type proteusac), but no Var % entity exists (ha_carrier only creates it for varcapac/varcaphp). The D5 input swap does not pay: only 1 outcome-changing D5 fire since v5.103.9 (reason-field match, house not already away), about 2.7 per 30 days against a threshold of 3; true-off blind minutes are 7.9% (< 10%). The running-signal intent moves to ARRESTER-GATE4-LOW-STAGE-THRESHOLD-1 (ODU stage as the shared running predicate).'
   workstream: HVAC-W3-ENERGY-AWARE
-  status: parked
+  status: done
   thread: hvac
   created: '2026-09-17'
   updated: '2026-09-26 02:40'
@@ -2032,8 +2024,7 @@ cards:
     actual compressor work rather than a hvac_action on/off integral.'
   why: 'Bryant audit option (d). Strictly better duty signal, but a larger design change than reframe+gate;
     Marginal-Benefit says reframe+gate (HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1) captures most of the value now.'
-  next: 'PARKED - revive if, after reframe+gate ships, the ledger shows the duty estimate still mis-fires on
-    modulating units (occupied zones shed while ODU Var is low). Then measure ODU Var live first (measure-before-build).'
+  next: 'CLOSED. Reopen only if a re-run of scripts/probes/hvac_w3_g0_q8_d5_outcome.py shows >= 3 outcome-changing D5 fires per 30 days.'
   parsimony: {problem: 'coarse duty proxy vs available richer signal', verdict: PARK, note: 'follow-up to reframe; marginal benefit'}
   links: {related: [HVAC-D5-REFRAME-AND-OCCUPANCY-GATE-1], context: 'Bryant duty-cycle redundancy audit 2026-09-17'}
 - id: HVAC-D5-WINDOW-START-RESTORE-1
@@ -2355,8 +2346,7 @@ cards:
   origin: {date: '2026-09-26', gist: 'operator approved the 4-workstream consolidation of the HVAC arc (see HVAC-SUPPLE-SEQUENCE-1 RESEQUENCE_PROPOSAL_2026_09_26)'}
   why: 'Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.'
   children: [HVAC-PRECOOL-WINDOW-TOU-DERIVED-1, HVAC-D5-REGROUND-ON-ODU-VAR-1, HVAC-EQUIPMENT-HEALTH-OBSERVABILITY-1]
-  next: 'After W1 Stage A (so every write is attributable) and W2''s fast path.'
-
+  next: 'ONE build group: ARRESTER-GATE4-LOW-STAGE-THRESHOLD-1 (ODU-stage running predicate for Gate 4 + short-cycle). Everything else adjudicated 2026-09-29: pre-cool window PARKED, D5 re-ground CLOSED (dropped), equipment-health drift/filter PARKED/DROPPED; anomaly-blind, baseline-maxsamples and grid-anticipatory stay separate. Plan REV 3, then plan review, then build after Batch B.'
 - id: HVAC-W4-ARC-CLOSURE
   title: 'W4 — Close the HVAC arc: dispose shipped work, clear residuals, keep the record true'
   thread: hvac
@@ -30400,6 +30390,7 @@ cards:
     related: [LOVELACE-V8-STALE-ENTITY-REFS-1, ENERGY-CONSUMPTION-FORECAST-POISONED-1, HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1]
   rank: {value: 6, time_criticality: 4, effort: 3}
 - id: ARRESTER-GATE4-LOW-STAGE-THRESHOLD-1
+  disposition_2026_09_29_w3: 'PROMOTED to THE W3 build group (operator agreed 2026-09-29): a per-zone ODU-stage running predicate (odu_status "off" vs "Stage N", type proteusac) shared by arrester Gate 4 AND the short-cycle producer, replacing single-kW thresholds (0.5 kW flaps 58% on zones 2/3 low stage; no single threshold fits all zones). G0: ODU stage agrees with SPAN >= 0.2 kW on 98-99% of cool-mode time. Absorbs the G2-SC short-cycle re-source (with the compressor_short_cycle_rate rename and the ~14-day relearn per the REV 2 plan) and the running-signal intent of the closed HVAC-D5-REGROUND-ON-ODU-VAR-1.'
   correction_2026_09_29_variable_unit: 'OPERATOR: "It''s a variable unit." CORRECT. All three ODUs report type `proteusac` (sensor.thermostat_bryant_wifi_upstairs_odu_status, sensor.thermostat_bryant_wifi_backhallway_odu_status, sensor.office_b_odu_status; IDUs furnace2stg). Proteus is Carrier''s variable-speed Infinity outdoor unit. The W3 plan''s "no ODU Var entity, so not variable-capacity" was WRONG as an inference: ha_carrier creates OutdoorUnitVarSensor only for outdoor_unit_type in ["varcaphp","varcapac"] (ha_carrier/sensor.py ~90), so proteusac falls through. The entity is missing because of the integration''s type list, not the hardware. What IS available: odu_status state = "Stage N" (live "Stage 5" / "Stage 3" / "off"), plus coil/discharge/suction/superheat/line-voltage attributes. G0 found ODU stage agrees with SPAN >= 0.2 kW on 98-99% of cool-mode time. RE-PLAN: use ODU stage (off vs Stage N) as the per-zone running signal for the short-cycle producer and for arrester Gate 4, instead of any single SPAN kW threshold. That dissolves the zone 2/3 low-stage flap. Possible upstream: ask ha_carrier to add proteusac to the Var sensor type list.'
   title: The arrester's "is the AC running" check uses 0.5 kW, but upstairs and back-hall units run their low stage at 0.3-0.5 kW, so it reads them as off while they are cooling
   thread: hvac
@@ -30412,7 +30403,7 @@ cards:
     date: '2026-09-28'
     gist: W3 G0 probe Q7 (scripts/probes/hvac_w3_g0_q7_action_vs_span.py)
   why: 'Measured (G0 Q7, 7 d): with a 0.5 kW running threshold on SPAN AC-circuit draw, 58% of on-cycles flap on zones 2 and 3, because those units run low stage at 0.3-0.5 kW. At 0.2 kW zones 2/3 pass, but zone 1 flaps 13.8%, so no single threshold fits all zones. Arrester Gate 4 (hvac_override.py:1915-1963) uses the same 0.5 kW cut and treats missing as not cooling, so during low-stage runs it misreads zones 2/3 as not running. ODU stage_status agrees with SPAN >= 0.2 kW on 98-99% of cool-mode time: a candidate second signal. Consequence of the misread is UNVERIFIED (which Gate 4 decisions flip).'
-  next: 'MEASURE then PLAN (Tier 2): (1) which Gate 4 decisions would flip under a per-zone threshold or ODU stage_status; (2) fix = a per-zone threshold (config, if a knob exists) or a stage-aware predicate. Config-first: check for an existing per-zone Gate 4 threshold knob before any code.'
+  next: 'PLAN (Tier 2-DB): W3 plan REV 3 re-scoped to this one group. Stage predicate (tri-state running/off/unknown, stale-guarded), wired into Gate 4 + the short-cycle producer; the other hvac_action readers keep their current input per the REV 2 triage. Plan review, then build after Batch B merges.'
   links:
     related: [HVAC-W3-ENERGY-AWARE]
   rank: {value: 5, time_criticality: 4, effort: 2}
