@@ -51,7 +51,7 @@ Operator ruling 2026-09-28: *"The person interrupts. We end and revert."*
 - It can never run longer than the window, counted from when the pre-cool itself started. Repeated arrival signals no longer stretch it to the 2-hour safety cap (`lease_expiry`).
 - When the window ends it with nobody arrived, the zone's pre-arrival fans are turned off (same as a timeout). Further arrival signals for the same arrival do not start a second pre-cool. A new pre-cool can start only after someone arrives in the zone, or after a whole window with no arrival signal.
 - If the HVAC coordinator is switched off, Zone Intelligence is switched off, or pre-conditioning is switched off while a pre-arrival pre-cool is running, it ends as `pre_arrival_inactive`. Turning Zone Intelligence or pre-conditioning back on inside the window does not restart it (fix-up 2).
-- When a person's change ends a pre-arrival pre-cool, that arrival is also used up. After the arrester puts the zone back to Home, further arrival signals for the same arrival do not start a second pre-cool (fix-up 2).
+- When a person's change ends a pre-arrival pre-cool (also when it lands while the pre-cool is still starting — fix-up 3), that arrival is also used up. After the arrester puts the zone back to Home, further arrival signals for the same arrival do not start a second pre-cool (fix-up 2).
 - Each further arrival signal restarts the "whole window with no signal" count, so repeated signals keep the arrival used up.
 - The pre-cool never writes over another running borrow (also true for pre-heat now).
 
@@ -75,9 +75,9 @@ The stuck-occupancy safety clock (`continuous_occupied_hours` on `sensor.ura_hva
 - **P7** (`scripts/probes/hvac_borrow_end_p7_probe.py`): 13 out-of-window S12 borrows with no pre-arrival row within 2 min. 12 are from 08-26 → 08-29, before `ura_activity_log` begins (08-30), so they cannot be classified. The 13th (09-28 09:00:20) is a pre-arrival pre-cool that started 2.4 min after its trigger, which Part B covers. No new Part B case and no new card.
 
 ## 3. Tests
-- New: `quality/tests/test_hvac_w1w2_finish_part_a.py` (108), `…_part_b.py` (55), `…_part_c.py` (7); fixture `quality/tests/fixtures/hvac_09_28_zone2_prearrival.json` (09-28 rows with the P1 class for each).
-- Review record: `docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md` (reviews A/B/C/D, fix-up rounds 1 and 2).
-- **Per-site mutation drills:** after fix-up round 2, **161 sites, 161 red**, every one re-run in round 2 (each neutered alone, `PYTHONDONTWRITEBYTECODE=1`, caches cleared, restored, `git status` clean). A drill counts as red only when pytest reports a FAILED line for one of its named tests; a missing test id or a collection error is a bad run, not red. Table in the plan Builder notes (fix-up 2).
+- New: `quality/tests/test_hvac_w1w2_finish_part_a.py` (110), `…_part_b.py` (56), `…_part_c.py` (7); fixture `quality/tests/fixtures/hvac_09_28_zone2_prearrival.json` (09-28 rows with the P1 class for each).
+- Review record: `docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md` (reviews A/B/C/D, fix-up rounds 1, 2 and 3).
+- **Per-site mutation drills:** after fix-up round 3, **164 sites, 164 red** (161 re-run in round 2, plus the 3 round-3 sites) (each neutered alone, `PYTHONDONTWRITEBYTECODE=1`, caches cleared, restored, `git status` clean). A drill counts as red only when pytest reports a FAILED line for one of its named tests; a missing test id or a collection error is a bad run, not red. Table in the plan Builder notes (fix-up 2).
 - **`--isolate` name-diff** vs `develop` over 133 test files (every file importing hvac / hvac_override / hvac_excursion / hvac_predict / hvac_zones / hvac_setpoint / presence, plus every touched file): **CLEAN, 0 new, 0 gone**.
 - Existing tests updated to the new contract:
   - the boot-audit "write manual back" test (superseded by D6);

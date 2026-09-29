@@ -390,6 +390,7 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 - **Pre-arrival lifetime (fix-up 1):**
   - A max-age end turns the zone's pre-arrival fans off and SPENDS the arrival episode (`_pre_arrival_spent`, via `HVACCoordinator._spend_pre_arrival_episode`). No new pre-cool starts until HVAC arrival or a whole window with no trigger; each repeat trigger inside the window refreshes the spent time. ZI off → on inside the window does not re-begin.
   - **Fix-up 2:** the episode is also spent when a person's change ended the pre-arrival (`interrupted` clear, N2 — so after S4 pins Home and discharges the latch, a repeat trigger does not start a second pre-cool) and when pre-conditioning master OFF released it (D-L7 release, N3).
+  - **Fix-up 3 (D2-1):** also spent when the person's change lands inside `begin_excursion`'s DB save — the M1 exit of `_execute_zone_pre_cool` spends a `pre_arrival` episode (the token was never stored, so the interrupted clear cannot see it). Accepted LOWs (review record Round 3): L5 early discharge on a discarded pin (`HVAC-WRITE-CONFIRMATION-ORACLE-1`); Q7 reference not kept across a restart mid-grace; shutdown-save race on `__interrupt_latch`.
   - The HVAC coordinator switched off, ZI off, or pre-conditioning master OFF each end the borrow `pre_arrival_inactive` (never `lease_expiry`).
   - A removed zone or a missing baseline closes the row with no write.
 - **Q4 kept:** an empty zone is still sent Away by S1.

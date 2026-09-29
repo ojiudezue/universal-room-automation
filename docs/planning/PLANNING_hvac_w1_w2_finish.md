@@ -1182,3 +1182,28 @@ This supersedes the build and fix-up-1 tables. Tree clean after every drill.
 | 159 | C-3.cm-registration | `number.py` | `test_pre_arrival_window_number_registered_for_cm` | RED |
 | 160 | C-5.transition-new-state-gate | `hvac_override.py` | `test_heat_cool_to_cool_transition_does_not_end_borrow` | RED |
 | 161 | C-5.transition-old-state-gate | `hvac_override.py` | `test_cool_to_heat_cool_transition_does_not_end_borrow` | RED |
+
+
+## Builder notes — fix-up round 3 (2026-09-29, final re-reviews)
+
+| Item | Change | Where |
+|---|---|---|
+| D2-1 | At the M1 exit of `_execute_zone_pre_cool` (a person interrupted during `begin_excursion`), a pre-arrival pre-cool calls the coordinator's `_spend_pre_arrival_episode(zone_id)` | `hvac_predict.py` |
+| C-L1 | Discriminating test for the spent key (`start or now`) | Part B test |
+| INFO-1 | HELD, not changed | — |
+| Accepted LOWs from D | L5 early discharge on a discarded pin (`HVAC-WRITE-CONFIRMATION-ORACLE-1`); Q7 not kept across a restart mid-grace; shutdown-save race — see the review record | — |
+
+### Round 3 drill rows (each executed; FAILED line required)
+
+| Site (drill id) | File | Test(s) that went RED | Result |
+|---|---|---|---|
+| D2-1.spend-call | `hvac_predict.py` | `test_interrupt_during_pre_arrival_begin_spends_episode` | RED |
+| D2-1.pre-arrival-only | `hvac_predict.py` | `test_interrupt_during_energy_begin_does_not_spend` | RED |
+| C-L1.spent-keyed-by-start | `hvac.py` | `test_spent_episode_keyed_by_last_trigger_not_spend_time` | RED |
+| M1.S12-returned-conjunct | `hvac_predict.py` | `test_m1_returned_token_blocks_s12_write` | RED |
+| M1.S12-latch-conjunct | `hvac_predict.py` | `test_m1_latch_blocks_s12_write` | RED |
+| M1.S12-mark-committed | `hvac_predict.py` | `test_m1_latch_blocks_s12_write` | RED |
+| D-L5.spend-helper-records | `hvac.py` | `test_max_age_then_repeat_trigger_does_not_rebegin`, `test_zi_off_on_within_window_does_not_rebegin`, `test_master_off_on_within_window_does_not_rebegin`, `test_interrupted_episode_spent_no_second_precool_after_s4` | RED |
+| N3.master-off-spend | `hvac_predict.py` | `test_master_off_on_within_window_does_not_rebegin` | RED |
+
+Extra check: with the D2-1 call neutered and the intermediate state assertion removed, the test's final "no second S12" assertion fails (a second `S12_pre_cool` row with reason `pre_arrival` is written) — D's repro reproduced. Total drill set: 164 sites (161 from round 2 + 3 new).
