@@ -346,7 +346,7 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 
 **Operator constraint:** the rule lives ONLY at the S1 decision site (plus the arrester's existing detection path reading gate (e) for the nudge-wins booking). Nothing added to borrow code (`begin_excursion` / `return_excursion`) or to the `emit_*` funnels; resume-then-pin is a Carrier quirk and stays.
 
-**What it makes unnecessary:** W1-B provenance / URA-owned-manual machinery + strand gate (dropped); the separate BORROW_LOCK (collapsed into gate (e)); former problem 4 (TAO/immune sunset reclaim — closed free: gate (a/b) drops, S1 reclaims next tick); after live validation — `hvac_excursion.py:629-650` HIGH-1 skip + parked D3 (DELETE), lockout ledger → `preset_change_deferred` (KEEP+WIRE), cards HVAC-PRESET-LOCKOUT-ESCAPE-1 + HVAC-ZONE1-MANUAL-OSCILLATION-1 (close). Cost: ~160 extra Carrier writes/day (nudge-return reclaims via resume-then-pin), covered by 120 s preset-kind suppression.
+**What it makes unnecessary:** W1-B provenance / URA-owned-manual machinery + strand gate (dropped); the separate BORROW_LOCK (collapsed into gate (e)); former problem 4 (TAO/immune sunset reclaim — closed free: gate (a/b) drops, S1 reclaims next tick); after live validation — ~~`hvac_excursion.py:629-650` HIGH-1 skip + parked D3 (DELETE)~~ **REFUTED 2026-09-28 (C26): the skip is live and stays; D3 has no code**, lockout ledger → `preset_change_deferred` (KEEP+WIRE), cards HVAC-PRESET-LOCKOUT-ESCAPE-1 + HVAC-ZONE1-MANUAL-OSCILLATION-1 (close). Cost: ~160 extra Carrier writes/day (nudge-return reclaims via resume-then-pin), covered by 120 s preset-kind suppression.
 
 **Precedence rulings (operator, 2026-09-27, W1-B ledger):** D13 nudges win over a human change during the nudge; D48 borrow STARTS (nudge, pre-cool, pre-heat, pre-arrival, compromise) proceed even when a zone is person-protected — *"URA has more information and should win"*; D49 vacancy-away bypass waits for (a/b) and (e) only (it does defer during a compromise because `_compromise_timers` is a gate-(e) source); D50 an immune person wins over a live compromise; D51 excursion kill switch retired; D52 hard reset gated only on (a/b). Gate (e) as shipped = fresh registry row OR `_nudge_restore_timers` / `_nudge_in_flight` / `_compromise_timers` (token dicts and predictor/egress leftovers are NOT evidence — they outlived their borrow). The arrester re-checks (a/b), gate (e) and egress pause when its grace/compromise timer FIRES and stands down with one `arrester_deferred_to_borrow` row.
 
@@ -433,6 +433,17 @@ borrows" (`hvac_excursion.py:6-16`).** The arrester only handles manuals it book
 delta; URA-caused manuals (borrow returns, echoes, compromises) fall through, so the guard locked URA out of its own zones
 (§9.1). And "protects borrows" meant the guard was an undocumented safety dependency. SUPERSEDED by §9e; do not cite the
 old guard as design intent, and do not remove it without the four §9e gates.
+
+**C26 (2026-09-28) — WRONG: "after W1-B live validation, delete the `hvac_excursion.py` HIGH-1 manual-skip + parked D3
+(now dead)" (§9e, W1-B plan §5.P2, README_v5.103.18, card disposition).** The skip in `_auto_return` (`pre_preset in
+(None, "", "manual")` → no preset write, `restore_ok=None`) is LIVE: `pre_preset` is the unfiltered `preset_mode` snapshot at
+`begin_excursion`; COMPROMISE borrows begin while the human override holds the zone in `manual`; after a restart the boot
+audit rehydrates the COMPROMISE row, the arrester's in-memory compromise timer is gone and its startup audit stands down
+under the live row (gate (e)), so the lease-expiry sweep reaches `_auto_return` with `pre_preset="manual"`. Deleting the
+skip would WRITE preset `manual` (or `None`) to the thermostat. What W1-B actually superseded is only the docstring's "nothing
+recovers the zone from manual — D3's job" (S1 now reclaims); docstring corrected. "Parked D3" has no code in the HVAC
+modules — only the `(D3 recovery parked)` log text. Pinned by `test_hvac_excursion_d1_auto_release.py`
+(`test_auto_return_skips_preset_when_pre_preset_{manual,none,empty}`). NOT deleted.
 
 ## 11. The approved arc (operator-approved 2026-09-26: "The workstreams are approved. Recard.")
 
