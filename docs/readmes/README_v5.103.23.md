@@ -121,7 +121,7 @@ The stuck-occupancy safety clock (`continuous_occupied_hours` on `sensor.ura_hva
   - person `hvac_mode` changes;
   - the S7 `manual` re-pin (idempotent);
   - egress under the interrupt rule (Q2).
-- **Not fixed here (B-L3, pre-existing):** a new governed override episode still cancels a pending AC-reset restore timer (`_cancel_zone_timers`). It needs its own card.
+- **B-L3 (pre-existing) — FIXED in v5.103.24 (Batch D):** a new governed override episode no longer cancels a pending AC-reset restore timer (`_cancel_zone_timers` → `_cancel_arrester_timers`, grace + compromise only). Card `HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1`; review record `docs/reviews/code-review/arrester_episode_keeps_ac_reset_restore.md`.
 - **Known, accepted:**
   - A single human action that the Carrier feed reports as several same-second within-manual rows (e.g. 09-27 21:31:30: 68/72 → 70/80 → 70/72) books one row per step and re-dispatches each time; the last value wins. `override_count_today` counts each step.
   - Pre-existing and unchanged: a new governed episode still cancels a pending AC-reset restore timer (`_cancel_zone_timers` in the severe/normal handlers).

@@ -678,7 +678,7 @@ Mandatory reads done in full: the state of play (§0–§12, §9e, §10 C1–C26
 7. **D4's latch conjunct is folded into `_execute_zone_pre_cool`.** That is one site for both reasons, rather than a second, redundant check in the pre-arrival branch that could never be mutation-anchored.
 8. **Resolver = the house-state preset** (`get_preset_for_house_state`, the startup-audit arithmetic), not the per-zone vacancy target. Q4 leaves vacancy to S1.
 9. **C3 boot pass.** The plan says the first boot pass "behaves as today". In code, `_classify_all_rooms` runs inside the same `update_room_conditions` call **before** the rollup (`hvac_zones.py` classification then the `else` at ~:970). So the guard already applies on the first pass, and a restored clock survives while rooms are still loading. That is the intended direction (P6 BOOT-RESET). Pinned by `test_boot_pass_keeps_restored_continuous_clock`.
-10. **`test_interrupt_does_not_cancel_reset_timers`** pins the interrupt step (passive mode, so no dispatch). A governed re-dispatch still runs the pre-existing `_cancel_zone_timers` in the severe/normal handler, which cancels a pending AC-reset restore timer. That is pre-existing and not changed (flag for Review B).
+10. **`test_interrupt_does_not_cancel_reset_timers`** pins the interrupt step (passive mode, so no dispatch). A governed re-dispatch still runs the pre-existing `_cancel_zone_timers` in the severe/normal handler, which cancels a pending AC-reset restore timer. That is pre-existing and not changed (flag for Review B). **FIXED in v5.103.24 (Batch D): the helper is now `_cancel_arrester_timers` and leaves `_reset_timers` alone (B-L3).**
 11. **Three duplicate sites removed** because no mutation could ever turn them red:
     - the `_resolver_missing` early return (`delta = None` already blocks the dispatch);
     - the reconciliation's own returned-token branch (the D2b guard in `_release_banked_zones` pops it with no write);
@@ -833,7 +833,7 @@ Review record: `docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md`. Every 
 | A-L6 | C3 comment corrected | `hvac_zones.py` |
 | C-F1..F5 | See the review record | tests |
 
-**Not fixed here — B-L3 (pre-existing, needs a card).** A NEW governed episode (`_handle_severe_override` / `_handle_normal_override` call `_cancel_zone_timers`) still cancels a pending AC-reset restore timer (`_reset_timers`). A person's override during a hard reset can therefore leave the zone's restore-to-heat_cool timer cancelled. Suggested card: `HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1`.
+**B-L3 (pre-existing) — FIXED in v5.103.24 (Batch D), card `HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1`.** Original note: A NEW governed episode (`_handle_severe_override` / `_handle_normal_override` call `_cancel_zone_timers`) still cancels a pending AC-reset restore timer (`_reset_timers`). A person's override during a hard reset can therefore leave the zone's restore-to-heat_cool timer cancelled. Suggested card: `HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1`.
 
 **Probe P1b (A-L7 = B-L2), read-only, since 09-26:**
 - 7 transitions INTO manual with a live non-nudge borrow.
