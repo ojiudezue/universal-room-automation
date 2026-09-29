@@ -30281,6 +30281,19 @@ cards:
   reviews_2026_09_29_overnight: 'Two static framing-disjoint reviews (A local correctness, B race/lifecycle). Both SHIP. Converged MEDIUM (A-M1 = B-LOW-1): now that the episode keeps the reset alive, the reset verify''s preset restore (_verify_restore success, ~4533-4558, ungated) lands at about T0+90 s while grace is pending. That erases the person''s hold early, and then the compromise writes over it (72 -> 76 -> 74 -> 76). Fix-up dispatched: skip the preset restore while an episode is armed (the arrester owns the preset return), plus an end-to-end test (A-L3). B-LOW-2 (redundant B4/S4 writes from stale zone.hvac_mode) and B-LOW-3 (reset preset restore can cut a compromise short, only when off duration is 270 s or more) are pre-existing in kind; recorded, not fixed. B confirmed a rebase after Batch B is semantically safe: Batch B''s D2c interrupt already spares _reset_timers (test_interrupt_does_not_cancel_reset_timers).'
   correction_2026_09_29_harm: 'CORRECTION (Review A, A-L2): the why overstates the harm. Once the reset timer was cancelled, has_active_ac_reset went False and the B1 heat_cool enforcer (hvac.py:2415-2419, every tick outside observation mode) re-asserted heat_cool within about one 5-min tick plus Carrier lag. The pre-fix strand was bounded at roughly 5 min plus lag, NOT ''2-20 min / indefinitely''. The fix is still correct and cheap, but its value is smaller than the card claimed.'
   validated_2026_09_29_overnight: 'READY FOR SHIP. Both reviews SHIP. The converged MEDIUM was fixed in fix-up 1 (a513919fb). Orchestrator ran two mutation drills: re-adding _reset_timers to the helper turns 3 tests red, and neutralising the defer guard turns test_episode_armed_before_verify_defers_preset_restore red; both were restored clean. Full-suite name-diff (ura-validator) vs develop d8397a070: 0 new failures, 0 disappeared (150 failed + 3 errors already on baseline), +7 passing. Review record: docs/reviews/code-review/arrester_episode_keeps_ac_reset_restore.md.'
+- id: HVAC-SHUTDOWN-SAVE-RACE-STATE-STORE-1
+  title: A person-protection change during HA shutdown can overwrite the saved latch / immune holds / TAO with an empty list
+  thread: hvac
+  status: parked
+  created: '2026-09-29 06:00'
+  updated: '2026-09-29 06:00'
+  tags: [hvac, restart, persistence, pre-existing, found-in-review]
+  origin:
+    date: '2026-09-29'
+    gist: Batch B final review D (docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md)
+  why: 'Teardown cancels _pending_tasks (hvac.py ~7074-7076), then awaits the snapshot save (~7084) while the arrester listener is still subscribed (arrester teardown ~7093). A latch set or discharge in that window schedules a new save task that nothing cancels; it can run after teardown clears the latch and persist []. The same shape applies to __immune_holds / __tao_state today (W1-B). The window is milliseconds.'
+  next: 'PARKED. Revival trigger: an observed lost immune hold, TAO or interrupt latch after a restart. Fix shape: unsubscribe the arrester listener (or set a teardown flag) BEFORE the snapshot save, and drop saves scheduled after teardown begins.'
+  rank: {value: 2, time_criticality: 1, effort: 1}
 - id: ENPHASE-BATTERY-CUTOUTS-1
   title: At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time
   thread: energy
