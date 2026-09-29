@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-29T13:45:53-05:00_ - _Data commit: `d27d35cde5ac`_ - _last_reconciled: 2026-09-29_
+_Generated: 2026-09-29T13:49:25-05:00_ - _Data commit: `4233304dcc46`_ - _last_reconciled: 2026-09-29_
 
 
 ## Columns
@@ -665,12 +665,13 @@ thread: **energy** - status: **waiting_operator**
 _created 2026-09-28 20:10 · updated 2026-09-29 01:05_
 - **Origin:** 2026-09-28 - operator: "Why is grid powering the house rn?"; the Enphase app shows it flipping between battery and grid
 - **Why:** SPAN battery power (5 s cadence) confirms about 30 cutouts since 18:16 CDT at loads from 7 to 16 kW, so this is NOT an overload. Between cutouts the battery delivers 10-15.5 kW. Two long gaps: 19:11-19:20 (Envoy relay/mode readings reset...
-- **Next:** DO: pull the Enphase app Events log since 18:15, and open a case with Enphase or the installer if it shows battery or system-controller faults -> I get the Envoy integration back, read per-battery status, and compute grid kWh during the ...
+- **Next:** waiting_me: final 16-21h readout after 21:00 09-29. If it stays near baseline -> recommend keeping the stream add-on off permanently, park ENVOY-STREAM tier card (its premise fails), close this card. If dropouts return late -> Enphase-si...
 - **Tags:** enphase, battery, incident, peak-cost
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `groom_2026_09_29`: Links fixed: related ENVOY-FLAKINESS (a non-existent id) -> ENVOY-FLAKINESS-181243-1. Added blocks ENVOY-STREAM-SOC-TIER-1, mirrored there. Lane unchanged: the DO (pull the Enphase app events log / open a case) is still the operators, an...
   - `test_2026_09_28`: Hypothesis (co-occurrence only): the Envoy stream add-on (13e68335_envoy_to_mqtt_json) was armed at 17:38 on 09-25. That evening battery dropouts at peak rose from 3-10 a night (09-21..24) to 39-81 a night (09-25..28), while Envoy integr...
   - `result_2026_09_28_2107`: Same-evening check, 26-min windows (SPAN, load over 3 kW, reserve 15 or below): stream ON 19:48-20:15 gave 35 dropouts, idle 47%. Stream OFF 20:41-21:07 gave 17 dropouts, idle 24%. The same clock window on 09-25 and 09-26 (stream ON) gav...
+  - `interim_2026_09_29_1830`: Stream OFF, 09-29 16:00-18:29 (SPAN, same method re-run across all days): 4 dropouts, 2 min idle, 0.1 kWh, $0.03. Same method: 09-23 4/$0.01, 09-24 4/$0.30, 09-25 8/$0.58, 09-26 37/$0.09, 09-27 29/$0.31, 09-28 85/$1.19. Reading so far: b...
 
 ### `CAMERA-SEAM-VALIDATION-1` - Exterior camera seams (handoff points) listed for operator validation — 12 cameras, 27 seams — _#2 · WSJF 6.5 · v6 tc3 u4 /e2_
 thread: **perimeter** - status: **waiting_operator**
