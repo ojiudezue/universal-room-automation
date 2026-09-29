@@ -827,6 +827,16 @@ _AUDIT_SPEC = [
 ]
 
 
+# HVAC-ANOMALY-BLIND-1 residual A (D4): declared-unwired constant per coordinator.
+_UNWIRED_SPEC = {
+    "hvac": "HVAC_UNWIRED_METRICS",
+    "security": "SECURITY_UNWIRED_METRICS",
+    "music_following": "MUSIC_FOLLOWING_UNWIRED_METRICS",
+    "presence": "PRESENCE_UNWIRED_METRICS",
+    "safety": "SAFETY_UNWIRED_METRICS",
+}
+
+
 def _resolve(relpath: str) -> Path:
     """Resolve a file path relative to _COORD_DIR."""
     return _COORD_DIR / relpath
@@ -889,6 +899,29 @@ def test_every_metric_is_wired_or_suppressed():
             "safety": "safety.py",
         }[coord_name]
         coord_src = _non_comment_src(_read(coord_source_file))
+
+        # HVAC-ANOMALY-BLIND-1 residual A (D4): the *_UNWIRED_METRICS
+        # declaration must be a subset of the suppression set, and no
+        # declared-unwired metric may have a record_observation site (a
+        # producer makes the declaration stale).
+        unwired_var = _UNWIRED_SPEC[coord_name]
+        unwired_file = "hvac_const.py" if coord_name == "hvac" else coord_source_file
+        unwired_src = _resolve(unwired_file).read_text()
+        if not re.search(rf"{re.escape(unwired_var)}\s*(?::\s*[\w\[\]., ]+\s*)?=\s*frozenset\(", unwired_src):
+            failures.append(f"{coord_name}: {unwired_var} missing (or not a frozenset) in {unwired_file}")
+        unwired = _parse_list_literal(unwired_src, unwired_var)
+        if unwired - suppressed:
+            failures.append(
+                f"{coord_name}: {unwired_var} not a subset of {supp_var}: "
+                f"{sorted(unwired - suppressed)}"
+            )
+        for metric in sorted(unwired):
+            pattern = rf'record_observation\(\s*["\']{re.escape(metric)}["\']'
+            if re.search(pattern, coord_src):
+                failures.append(
+                    f"{coord_name}.{metric} is declared in {unwired_var} but has a "
+                    f"record_observation site in {coord_source_file} (stale declaration)"
+                )
 
         for metric in sorted(metrics):
             if metric in suppressed:

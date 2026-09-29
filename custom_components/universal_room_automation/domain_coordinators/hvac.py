@@ -81,6 +81,7 @@ from .hvac_const import (
     HVAC_COORDINATOR_PRIORITY,
     HVAC_METRICS,
     HVAC_SUPPRESSED_FROM_PERSISTENCE,
+    HVAC_UNWIRED_METRICS,
     PRE_ARRIVAL_TIMEOUT_MINUTES,
     SIGNAL_HVAC_ENTITIES_UPDATE,
 )
@@ -1681,6 +1682,8 @@ class HVACCoordinator(BaseCoordinator):
             # toward get_worst_severity() so the per-coordinator anomaly
             # sensor reflects anomaly_log-eligible signal.
             suppressed_metric_names=HVAC_SUPPRESSED_FROM_PERSISTENCE,
+            # HVAC-ANOMALY-BLIND-1 residual A (D4): declared-unwired metrics.
+            unwired_metric_names=HVAC_UNWIRED_METRICS,
             # HVAC-ANOMALY-BLIND-1 D1a: short_cycle_rate is 1 obs/day/zone;
             # 336-day maturation is infeasible. Override to 14 days —
             # matches the probe window that established the fixture.
@@ -6933,13 +6936,9 @@ class HVACCoordinator(BaseCoordinator):
         """Return anomaly status string for sensor."""
         if self.anomaly_detector is None:
             return "not_configured"
-        learning = self.anomaly_detector.get_learning_status()
-        if hasattr(learning, "value") and learning.value in (
-            "insufficient_data",
-            "learning",
-        ):
-            return learning.value
-        return self.anomaly_detector.get_worst_severity().value
+        # HVAC-ANOMALY-BLIND-1 residual A: delegate to the one shared
+        # projection (severity → learning → partial → nominal).
+        return self.anomaly_detector.get_sensor_state()
 
     def get_compliance_summary(self) -> dict[str, Any]:
         """Return compliance summary for sensor."""

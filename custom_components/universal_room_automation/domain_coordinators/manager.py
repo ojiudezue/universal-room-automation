@@ -776,10 +776,25 @@ class CoordinatorManager:
                 rank = 0
                 active_count = 0
                 sev_label = "nominal"
+            # HVAC-ANOMALY-BLIND-1 residual A: additive coverage key. `status`
+            # stays SEVERITY (PWA badge + health_status unchanged); coverage
+            # is "full" | "partial" per detector, "not_configured" without one.
+            if det is not None:
+                try:
+                    coverage = det.get_coverage_state()
+                except Exception:
+                    _LOGGER.debug(
+                        "get_summary: coverage read failed for %s", coord_id,
+                        exc_info=True,
+                    )
+                    coverage = "unknown"
+            else:
+                coverage = "not_configured"
             status_per_coordinator[coord_id] = {
                 "status": sev_label,
                 "active_anomalies": active_count,
                 "enabled": coordinator.enabled,
+                "coverage": coverage,
             }
 
         if worst_rank == 0:
@@ -896,6 +911,8 @@ class CoordinatorManager:
         worst_metric = ""
         learning_status: dict[str, str] = {}
         coordinators_with_anomalies: list[str] = []
+        # HVAC-ANOMALY-BLIND-1 residual A: detectors with a blind metric.
+        coordinators_partial: list[str] = []
 
         # Same ordering as module-level _SEVERITY_RANK.
         severity_order = _SEVERITY_RANK
@@ -917,6 +934,8 @@ class CoordinatorManager:
 
             if active > 0:
                 coordinators_with_anomalies.append(coord_id)
+            if summary.get("coverage") == "partial":
+                coordinators_partial.append(coord_id)
 
             coord_severity = detector.get_worst_severity()
             if severity_order.get(coord_severity, 0) > severity_order.get(
@@ -935,6 +954,7 @@ class CoordinatorManager:
             "worst_coordinator": worst_coordinator,
             "worst_metric": worst_metric,
             "coordinators_with_anomalies": coordinators_with_anomalies,
+            "coordinators_partial": coordinators_partial,
             "learning_status": learning_status,
         }
 

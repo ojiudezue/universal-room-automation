@@ -118,7 +118,7 @@ The five duplicated projections become one call. Severity semantics are untouche
 | music_following | cooldown_frequency | `music_following.py:383` | idle | 1572 | 2026-05-12 | YES (mean 0.0, variance 0.0) | ″ |
 | **coordinator_manager** | setup_duration_seconds | `__init__.py:4226`, per boot, saved each time | YES | 367 | 2026-09-29 08:06 | no | **no sensor**. 27 `anomaly_log` rows in 30 d (restart storm): the only detector that fires |
 
-**Note (N-5):** the D0 Q1 output printed raw variance for every Presence row, but the orchestrator's transcription in §2.3 did not carry those values. The Presence "no" entries are **derived from input shape**: none of the three producers can emit a single repeated value across hundreds of samples. §12 turns that into a discriminating live check (`metrics_constant == []`). **Orchestrator:** paste the three Presence variances from the D0 output here when checking these edits. If any is exactly 0.0, fix §8/§12 for Presence before build.
+**Note (N-5):** the D0 Q1 output printed raw variance for every Presence row, but the orchestrator's transcription in §2.3 did not carry those values. The Presence "no" entries are **derived from input shape**: none of the three producers can emit a single repeated value across hundreds of samples. §12 turns that into a discriminating live check (`metrics_constant == []`). **Orchestrator-confirmed D0 variances (2026-09-29, pasted at build):** census_count **3.294**; transition_count_daily **1358.371**; zone_occupied_count per zone **0.242 / 0.244 / 0.240 / 0.088 / 0.233**. All non-zero, so Presence `metrics_constant == []` stands.
 
 **Not AnomalyDetector-backed (out of scope):**
 - the NM heuristic `notification_manager.py:845-867`;
@@ -280,14 +280,15 @@ for e in ENT:
 - **Reasons (M4a).** Evaluate these top to bottom; the **first match wins**:
   1. `stale`: reserved; only if D5 ships.
   2. `ok`: best n ≥ `_min_samples_for(metric)`.
-  3. `learning`: 0 < best n < gate.
-  4. `not_wired`: best n == 0 and the metric is in `unwired_metric_names`.
-  5. `never_fed`: best n == 0 and the metric is not declared unwired (a wired producer is starved, i.e. a bug).
+  3. `learning`: 0 < best n < gate **and the newest sample (max `last_updated` across the metric's scopes) is within `ANOMALY_LEARNING_STALL_DAYS` (7)**. *(Operator ruling 2026-09-29; see §14.)*
+  4. `not_collecting`: 0 < best n < gate and the newest sample is older than that (a parseable timestamp is required; none → `learning`). *(Operator ruling 2026-09-29.)*
+  5. `not_wired`: best n == 0 and the metric is in `unwired_metric_names`.
+  6. `never_fed`: best n == 0 and the metric is not declared unwired (a wired producer is starved, i.e. a bug).
 - **Data-derived reasons win over the declaration.** If a metric is declared unwired but has data, its reason is `ok` / `learning`, and a **one-time WARNING** names the stale declaration (a per-detector flag, so there is no log spam). The D4 meta-test catches it in CI.
 - **Annotations** (never a reason, never in the blind set):
   - `suppressed: bool` (fed but muted).
   - **`constant_baseline: bool`**: best-scope n ≥ gate **AND raw `variance == 0.0` exactly**. It reads the stored field, never `.std`. Exact zero cannot flap, because variance never returns to exactly 0 after a deviation. There is no ε and no knob.
-- **Blind set** = reason ∈ {`learning`, `never_fed`, `not_wired`, `stale`}. Blindness is about **data**. Suppressed = muted; constant = hair-triggered. Neither is blind.
+- **Blind set** = reason ∈ {`learning`, `not_collecting`, `never_fed`, `not_wired`, `stale`}. Blindness is about **data**. Suppressed = muted; constant = hair-triggered. Neither is blind.
 
 **Constructor**
 - Adds `unwired_metric_names: Optional[frozenset[str]] = None` (empty by default).
@@ -438,13 +439,13 @@ If it is ever built:
 
 The PWA badge stays a separate card (`DASH-ANOMALY-COVERAGE-BADGE-1`).
 
-**Also for the operator (pre-existing, not changed here):** the v8 anomalies exclude has no `learning`, so Safety (`learning`, 42/720) is already listed there today. Is `learning` an anomaly? Decide alongside this ruling.
+**Resolved (operator ruling 2026-09-29):** `learning` is NOT excluded. It stays visible on the anomalies list, because after this cycle it appears only while a metric is genuinely collecting. D6 excludes only `partial`; the optional "also exclude `learning`" op is dropped. Safety moves from `learning` to `partial`, so it leaves the list and appears on the hero.
 
 #### Acceptance Criteria
 - **Verify:** the pre-D6 backups are committed before the write (git log shows the backup commit precedes any dashboard change).
 - **Verify:** the post-write semantic diff against the backup shows exactly 3 changes (2 exclude entries, 1 label); it is recorded in the README.
 - **Live:** the "URA Anomalies" card does **not** list `sensor.ura_hvac_coordinator_hvac_anomaly` while it is `partial`.
-- **Live:** the Coordinators hero label still begins with `mem ` and contains `partial: hvac, security`.
+- **Live:** the Coordinators hero label still begins with `mem ` and contains `partial: ` followed by exactly hvac, safety and security (registration order; safety per the 2026-09-29 ruling).
 - **Live:** the v5.103.22 zone `away_due_at` and arrester `grace_until` cards are still present in live v8.
 - **Discriminates:** without D6 the Anomalies card lists both sensors. A label replace instead of append drops the `mem`/accuracy segments. A `config=` write from the stale snapshot drops the 00:53 cards.
 
@@ -452,7 +453,7 @@ The PWA badge stays a separate card (`DASH-ANOMALY-COVERAGE-BADGE-1`).
 
 ## 6. Falsifiable invariants
 
-> **INV-COVERAGE.** For every AnomalyDetector-backed anomaly sensor, in any reachable state, the sensor reports `nominal` **only if** every declared metric has a best-scope `sample_count ≥ _min_samples_for(metric)` (and is not `stale`, if D5 exists). If any declared metric fails that, the state ∈ {insufficient_data, learning, partial, advisory, alert, critical}, and `metrics_blind` names every such metric with its reason. **`constant_baseline` and `suppressed` never affect the state.**
+> **INV-COVERAGE.** For every AnomalyDetector-backed anomaly sensor, in any reachable state, the sensor reports `nominal` **only if** every declared metric has a best-scope `sample_count ≥ _min_samples_for(metric)` (and is not `stale`, if D5 exists). If any declared metric fails that, the state ∈ {insufficient_data, learning, partial, advisory, alert, critical}, and `metrics_blind` names every such metric with its reason. **`constant_baseline` and `suppressed` never affect the state.** *(Operator ruling 2026-09-29:)* the state is `learning` **only while some declared metric is actively collecting** (reason `learning`: below its gate with a sample inside `ANOMALY_LEARNING_STALL_DAYS`). A below-gate metric with no sample in that window is `not_collecting`; when nothing is collecting and the detector is not ACTIVE, the aggregate is `paused` and the state is `partial` (never `learning` forever).
 
 > **INV-SEVERITY-PRECEDENCE.** If `get_worst_severity() ≠ nominal`, the state equals that severity, **whatever the learning status or coverage.**
 
@@ -486,7 +487,7 @@ The PWA badge stays a separate card (`DASH-ANOMALY-COVERAGE-BADGE-1`).
 | HVAC | **`partial`** | `metrics_blind {comfort_deviation_hours: not_wired, egress_pause_frequency: not_wired}`; short_cycle_rate `ok` via zone scope; active ratio **3/5**. After W3: plus `compressor_short_cycle_rate: learning` for about 14 days | `HVAC-COMFORT-DEVIATION-PRODUCER-1` + disposition card act |
 | Security | **`partial`** (or its persisted severity if a non-LOW verdict has occurred since D0) | `metrics_blind {entry_anomaly_score: not_wired}`; `metrics_constant [alert_trigger_frequency]` | Disposition card undeclares entry_anomaly_score → **`nominal`** + constant annotation |
 | Presence | **`nominal`** | active **3/3**; zone_occupied_count `ok` (122k, zone scope); `metrics_constant []` | — |
-| Safety | **`learning`** (42/720) | unchanged | `SAFETY-ANOMALY-STRUCTURALLY-INERT-1` |
+| Safety | **`partial`** *(was `learning` before the 2026-09-29 ruling)* | `metrics_blind {active_hazard_count: not_collecting}` (42/720, last sample 2026-09-04 > 7 d); `learning_status: paused` | `SAFETY-ANOMALY-STRUCTURALLY-INERT-1` |
 | MF | **`nominal`** (or **`critical`** if the operator's test transfer today lands; see §3 hair trigger) | `metrics_constant [transfer_success_rate, cooldown_frequency]` | `MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1` (feature decision + baseline reset) |
 
 **Why `partial` on HVAC/Security is right:**
@@ -556,14 +557,14 @@ WHERE coordinator_id IN ('music_following','security') AND timestamp >= '2026-09
 - **Live:** `sensor.ura_presence_coordinator_presence_anomaly`:
   - **Expected:** `nominal`; `metrics_active_ratio == "3/3"`; zone_occupied_count `reason: ok`, `best_scope` a `zone:` scope; **`metrics_constant == []`** (N-5).
   - Old code: `2/3` + silent.
-- **Live:** `sensor.ura_safety_coordinator_safety_anomaly`: **expected** `learning` (unchanged).
+- **Live:** `sensor.ura_safety_coordinator_safety_anomaly`: **expected** `partial`; `metrics_blind == {active_hazard_count: not_collecting}`; `learning_status == "paused"` *(operator ruling 2026-09-29; before the ruling this read `learning` forever)*. Caveat: if a hazard fired since the last boot, the in-RAM sample is fresh and the expected state is `learning` (the ruling working, not a failure); check `metrics.active_hazard_count.last_updated`.
 - **Live:** `sensor.ura_coordinator_manager_coordinator_summary`:
   - **Expected:** `status_per_coordinator.hvac.status == "nominal"` (severity) and `.coverage == "partial"`; `.presence.coverage == "full"`.
 - **Live (DB, one-shot, after the next HVAC rollover save):**
   - **Expected:** `SELECT count(*) FROM metric_baselines WHERE sample_count=0 AND last_updated IS NULL` is **≤ 5** (the D0 baseline; it never grows).
   - **If W3 has shipped:** no `(hvac, compressor_short_cycle_rate, house)` row ever exists. The old code creates it on the first sensor read and saves it at rollover.
 - **Live:** the D6 checks (§5 D6), including that the 00:53 v8 cards survived.
-- **Live:** press the Anomaly Subsystem Diagnostic Dump button once; the logged JSON contains `anomaly_summary.system_anomaly.coordinators_partial` = `["hvac", "security"]`, and **no** `anomaly_summary_error` key. Today that section is silently absent.
+- **Live:** press the Anomaly Subsystem Diagnostic Dump button once; the logged JSON contains `anomaly_summary.system_anomaly.coordinators_partial` whose set is `{"hvac", "safety", "security"}` (registration order; safety joins per the 2026-09-29 ruling), and **no** `anomaly_summary_error` key. Today that section is silently absent.
 - **Proven in-suite only:** the severity path is untouched (INV-NOOP golden + precedence matrix). A live `anomaly_log` rate check is not used: hvac has 0 rows in 30 d, so ±25% of 0 is vacuous.
 - **Log scan:** no new WARNING/ERROR from `coordinator_diagnostics`, except any one-time "declared unwired but fed" warning. **Expected: zero.**
 
@@ -577,4 +578,31 @@ WHERE coordinator_id IN ('music_following','security') AND timestamp >= '2026-09
 - `max_samples` forgetting.
 - The PWA badge / `status_per_coordinator.status` semantics.
 - A CM setup-detector sensor.
-- Whether `learning` belongs on the v8 anomalies list (operator question, §9).
+- ~~Whether `learning` belongs on the v8 anomalies list (operator question, §9).~~ Resolved by the 2026-09-29 ruling: it stays (§5 D6, §14).
+
+## 14. Builder notes (2026-09-29, `feature/anomaly-blind-metrics`)
+
+### Operator-ruled deviations (2026-09-29, relayed by the orchestrator)
+1. **"learning" means actively collecting** (operator: *"we shouldn't use learning if it has learned or there is enough data samples"*).
+   - New per-metric reason `not_collecting` (BLIND): 0 < best n < gate and the newest sample (max `last_updated` across scopes, naive = UTC) is older than `ANOMALY_LEARNING_STALL_DAYS = 7` (`coordinator_diagnostics.py`; rung 1 module constant, because it is a protocol window whose change should be reviewed). No parseable timestamp → not judged stalled (`learning`).
+   - `get_learning_status`: a stalled metric counts as neither active nor learning, and LEARNING now requires a genuinely learning metric. When the detector is not ACTIVE and nothing is collecting but some data exists (a mature metric below the floor(n/2) threshold, or a stalled one), the aggregate is **`paused`**. This REUSES `LearningStatus.PAUSED` (`coordinator_diagnostics.py:58`), which existed but was never produced. The projection's step 2 returns only `insufficient_data` / `learning`, so `paused` falls through to `partial`. INSUFFICIENT_DATA keeps its meaning (no metric has any data).
+   - Reviewer note: the "mature below threshold, nothing collecting" branch used to return LEARNING (the pre-existing `active_metrics > 0` branch). Under the ruling it is `paused` → `partial`. It is not reachable on the live detectors today (HVAC is ACTIVE at 3/5; the others have 1-2 metrics and threshold 1).
+   - Interplay (not new, now more visible): Presence / Security / Safety / MF baselines are saved only on entry unload (§3, `ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1`). After an HA restart, a slow below-gate metric's in-RAM `last_updated` reverts to its DB value, so it can read `not_collecting` (→ `partial`) until its next sample. That card owns it.
+   - Tests: `test_stalled_below_gate_metric_is_not_collecting_and_partial`, `test_below_gate_metric_still_gaining_is_learning`, `test_below_gate_metric_without_timestamp_is_not_judged_stalled`, `test_mature_below_threshold_with_nothing_collecting_is_partial_not_learning`, and the matrix row `stalled_only → partial`. Drilled both ways: stall never fires / always fires; aggregate counts stalled as learning; PAUSED branch removed.
+2. **D6 excludes only `partial`.** The optional separate "also exclude `learning`" op was dropped before it was written. §8, §12 and D6 are updated: Safety is `partial`, so `coordinators_partial` and the hero list hvac, safety and security.
+
+### Other build deviations / clarifications
+- **`best_scope` is also emitted per metric in `get_status_summary`** (additive). D3 lists `reason / suppressed / constant_baseline / last_updated`; §12's Presence check reads `best_scope`, so it has to be on the sensor.
+- **`status_per_coordinator[*].coverage` is `"not_configured"` for coordinators without a detector**, matching the `learning_status` vocabulary of `get_system_anomaly_status`. A coverage read that raises gives `"unknown"` (logged at debug). Severity keys are untouched.
+- **`coverage == "partial"` iff `metrics_blind` is non-empty.** So a coordinator in `learning` is `partial` on the roll-ups even while its sensor state reads `learning` (precedence step 2). This is consistent with INV-COVERAGE (`metrics_blind` names every blind metric).
+- **The D4 behavioural ctor twin is in its own file** (`quality/tests/test_anomaly_coverage_ctor_wiring.py`), not next to `test_v465_observability_gap.py:1312`, because it imports the real coordinator modules; the v4.6.5 file stays a pure source audit.
+  - It runs each real setup method until the detector is constructed.
+  - It patches each module's `*_UNWIRED_METRICS` to a non-empty probe. Three coordinators declare an EMPTY set, which cannot be told apart from a missing kwarg (Bug Class #63).
+  - The first version, without probes, left the Safety / MF / Presence drills GREEN. With probes, all 5 drills are RED.
+- **`_is_stalled` guards a naive `dt_util.utcnow()`** (treated as UTC). Production `utcnow()` is aware; the guard costs one line and survives test stubs.
+- **The D6 `python_transform` contract is UNVERIFIED.** The builder could not reach ha-mcp. `docs/ha-config-snapshots/d6_anomaly_partial_dashboard_patch.py` provides:
+  - pure transforms;
+  - RFC 6902 op lists, with `test` ops pinned to the 2026-09-29 live pointers;
+  - a `verify` that allows exactly the 3 changes.
+  Its `selftest` passed in memory against the live `.storage` read; nothing was written.
+

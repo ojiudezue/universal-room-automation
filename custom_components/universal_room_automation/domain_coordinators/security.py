@@ -95,6 +95,17 @@ SECURITY_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset({
     "entry_anomaly_score",
 })
 
+# HVAC-ANOMALY-BLIND-1 residual A (D4): metrics DECLARED on purpose without a
+# producer. Passed to AnomalyDetector(unwired_metric_names=...). With no data
+# they read coverage reason `not_wired` (declared gap) rather than `never_fed`
+# (starved producer = bug); either way they are blind, so the anomaly sensor
+# reads `partial`, not `nominal`. Must be a subset of the SUPPRESSED set and
+# have no record_observation site (meta-test in test_v465_observability_gap.py).
+# Disposition card: ANOMALY-UNWIRED-METRIC-DISPOSITION-1.
+SECURITY_UNWIRED_METRICS: frozenset[str] = frozenset({
+    "entry_anomaly_score",
+})
+
 
 # ============================================================================
 # Enums
@@ -767,6 +778,8 @@ class SecurityCoordinator(BaseCoordinator):
             sensitivity_multiplier=_security_sensitivity_mult,
             # v4.6.5.3 surface fix
             suppressed_metric_names=SECURITY_SUPPRESSED_FROM_PERSISTENCE,
+            # HVAC-ANOMALY-BLIND-1 residual A (D4)
+            unwired_metric_names=SECURITY_UNWIRED_METRICS,
         )
         try:
             await self.anomaly_detector.load_baselines()
@@ -2479,13 +2492,9 @@ class SecurityCoordinator(BaseCoordinator):
         """Return anomaly status string."""
         if self.anomaly_detector is None:
             return "not_configured"
-        learning = self.anomaly_detector.get_learning_status()
-        if hasattr(learning, "value") and learning.value in (
-            "insufficient_data",
-            "learning",
-        ):
-            return learning.value
-        return self.anomaly_detector.get_worst_severity().value
+        # HVAC-ANOMALY-BLIND-1 residual A: delegate to the one shared
+        # projection (severity → learning → partial → nominal).
+        return self.anomaly_detector.get_sensor_state()
 
     # =========================================================================
     # Internal helpers

@@ -62,6 +62,15 @@ MUSIC_FOLLOWING_METRICS = [
 # maintainers an obvious place to add a suppression rationale.
 MUSIC_FOLLOWING_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset()
 
+# HVAC-ANOMALY-BLIND-1 residual A (D4): metrics DECLARED on purpose without a
+# producer. Passed to AnomalyDetector(unwired_metric_names=...). With no data
+# they read coverage reason `not_wired` (declared gap) rather than `never_fed`
+# (starved producer = bug); either way they are blind, so the anomaly sensor
+# reads `partial`, not `nominal`. Must be a subset of the SUPPRESSED set and
+# have no record_observation site (meta-test in test_v465_observability_gap.py).
+# Empty: both MF metrics have a producer.
+MUSIC_FOLLOWING_UNWIRED_METRICS: frozenset[str] = frozenset()
+
 
 class MusicFollowingCoordinator(BaseCoordinator):
     """Domain coordinator for music following.
@@ -242,6 +251,8 @@ class MusicFollowingCoordinator(BaseCoordinator):
             sensitivity_multiplier=_music_sensitivity_mult,
             # v4.6.5.3 surface fix (set is empty today — both MF metrics wired)
             suppressed_metric_names=MUSIC_FOLLOWING_SUPPRESSED_FROM_PERSISTENCE,
+            # HVAC-ANOMALY-BLIND-1 residual A (D4)
+            unwired_metric_names=MUSIC_FOLLOWING_UNWIRED_METRICS,
         )
         try:
             await self.anomaly_detector.load_baselines()

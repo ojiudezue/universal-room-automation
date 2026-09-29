@@ -258,6 +258,9 @@ class BaseCoordinator(ABC):
                 "anomalies_today": anomaly_summary.get("anomalies_today", 0),
                 "worst_severity": self.anomaly_detector.get_worst_severity().value,
                 "metrics": anomaly_summary.get("metrics", {}),
+                # HVAC-ANOMALY-BLIND-1 residual A: coverage roll-up (additive).
+                "coverage": anomaly_summary.get("coverage"),
+                "metrics_blind": anomaly_summary.get("metrics_blind", {}),
             }
         else:
             summary["anomaly"] = {"learning_status": "not_configured"}
