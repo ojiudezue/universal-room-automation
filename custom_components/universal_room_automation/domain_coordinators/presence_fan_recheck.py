@@ -467,7 +467,7 @@ class FanRecheckManager:
         ):
             return sink.veto(room_name, "room_disabled")
         # D5 / HVAC Batch D (v5.103.24): the recheck follows the OWNER
-        # (const.fan_owner). A person-owned fan (Comfort Fan Control off)
+        # (const.fan_owner). A person-owned fan (Fan Mode "Off")
         # is never paused — the same rule for HVAC- and room-owned rooms.
         if fan_owner(merged) is None:
             return sink.veto(room_name, "fan_control_off")

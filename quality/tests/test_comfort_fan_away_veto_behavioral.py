@@ -361,31 +361,49 @@ class TestSiteAutomationRoomTier:
 
 
 class TestBatchDRoomTierOwnership:
-    """HVAC Batch D (v5.103.24): the room tier follows ``const.fan_owner``.
+    """HVAC Batch D (v5.103.24): the room tier follows the per-room Fan Mode
+    (``const.fan_owner``).
 
-    One case per ownership-table row, plus the pre-existing fallback: an
-    "hvac"-owned room whose HVAC tier is NOT actually running it (HVAC
-    coordinator off / room not in an HVAC zone) stays with the room tier.
+    One case per mode, plus the fallback: "Follow thermostat" on a room the
+    HVAC tier is NOT actually running (HVAC coordinator off / room not in an
+    HVAC zone) is run as "Room temperature" by the room tier.
     """
 
     @pytest.mark.parametrize(
-        "hvac,fce,hvac_running,writes",
+        "mode,hvac_running,writes",
         [
-            (True, True, True, False),    # "hvac", HVAC runs it -> room defers
-            (True, True, False, True),    # "hvac", HVAC not running -> fallback
-            (True, False, True, False),   # seam row: person-owned
-            (True, False, False, False),  # person-owned even with no HVAC
-            (False, True, False, True),   # "room"
-            (False, False, False, False), # person-owned (Guest Bedroom 2)
+            ("follow_thermostat", True, False),   # HVAC runs it -> room defers
+            ("follow_thermostat", False, True),   # not possible -> room temp
+            ("room_temperature", False, True),
+            ("off", False, False),                # person-owned (guest)
+            ("off", True, False),
         ],
     )
-    def test_room_tier_follows_owner(self, hvac, fce, hvac_running, writes):
+    def test_room_tier_follows_fan_mode(self, mode, hvac_running, writes):
         auto, log = _make_room_automation(HouseState.HOME_DAY)
-        auto.config["hvac_coordination_enabled"] = hvac
-        auto.config[CONF_FAN_CONTROL_ENABLED] = fce
+        auto.config["room_fan_mode"] = mode
         auto._is_hvac_managing_fans = lambda: hvac_running
         _run(auto.handle_temperature_based_fan_control(TEMP_ABOVE, occupied=True))
         assert bool(log) is writes, log
+
+    @pytest.mark.parametrize(
+        "mode,expected", [
+            ("follow_thermostat", True), ("room_temperature", False), ("off", False),
+        ],
+    )
+    def test_is_hvac_managing_fans_derives_from_fan_mode(self, mode, expected):
+        """`_is_hvac_managing_fans` (the room tier's defer check) is True only
+        for "Follow thermostat" on a room the HVAC FanController registered."""
+        auto, _log = _make_room_automation(HouseState.HOME_DAY)
+        del auto._is_hvac_managing_fans  # use the real method
+        auto.config["room_fan_mode"] = mode
+        fc = MagicMock()
+        fc._room_fans = {ROOM_NAME: object()}
+        hvac = MagicMock()
+        hvac.enabled = True
+        hvac.fan_controller = fc
+        auto.hass.data[DOMAIN]["coordinator_manager"].coordinators["hvac"] = hvac
+        assert auto._is_hvac_managing_fans() is expected
 
 
 # ---------------------------------------------------------------------------
@@ -557,20 +575,18 @@ class TestBatchDReconcilerOwnership:
     as the room tier; the reconciler re-asserts the room tier's intent)."""
 
     @pytest.mark.parametrize(
-        "hvac,fce,hvac_running,resolves_on",
+        "mode,hvac_running,resolves_on",
         [
-            (True, True, True, False),
-            (True, True, False, True),
-            (True, False, True, False),
-            (False, True, False, True),
-            (False, False, False, False),
+            ("follow_thermostat", True, False),
+            ("follow_thermostat", False, True),
+            ("room_temperature", False, True),
+            ("off", False, False),
         ],
     )
-    def test_reconciler_follows_owner(self, hvac, fce, hvac_running, resolves_on):
+    def test_reconciler_follows_fan_mode(self, mode, hvac_running, resolves_on):
         recon = _make_reconciler(HouseState.HOME_DAY)
         cfg = recon._config()
-        cfg["hvac_coordination_enabled"] = hvac
-        cfg[CONF_FAN_CONTROL_ENABLED] = fce
+        cfg["room_fan_mode"] = mode
         recon._automation()._is_hvac_managing_fans = lambda: hvac_running
         data = {STATE_TEMPERATURE: TEMP_ABOVE, STATE_OCCUPIED: True}
         result = recon._resolve_fan(FAN_ENTITY, data)

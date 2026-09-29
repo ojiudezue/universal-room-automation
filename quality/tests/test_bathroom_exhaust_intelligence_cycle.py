@@ -1010,10 +1010,14 @@ def test_d6_new_humidity_fan_sensors_registered():
 
 def test_d6_new_humidity_fan_switches_registered():
     src = _read(os.path.join(_ura_root, "switch.py"))
-    assert "class RoomComfortFanControlSwitch" in src
     assert "class RoomHumidityFanControlSwitch" in src
-    assert "RoomComfortFanControlSwitch(coordinator)" in src
     assert "RoomHumidityFanControlSwitch(coordinator)" in src
+    # HVAC Batch D (v5.103.24): the comfort toggle is retired — the per-room
+    # "Fan Mode" select (select.RoomFanModeSelect) replaces it.
+    assert "RoomComfortFanControlSwitch(coordinator)" not in src
+    assert "RoomFanModeSelect(coordinator)" in _read(
+        os.path.join(_ura_root, "select.py"),
+    )
 
 
 # ---------------------------------------------------------------------------

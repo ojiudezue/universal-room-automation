@@ -1940,16 +1940,15 @@ class RoomAutomation:
         # (or the zone lacks a thermostat). Emit ONCE per HA restart so
         # the config gap is discoverable without spamming the log.
         if not self._fan_hvac_mismatch_warned:
-            if (
-                self.config.get(CONF_HVAC_COORDINATION_ENABLED, False)
-                and self.config.get(CONF_CLIMATE_ENTITY)
-                and fans
-            ):
+            # HVAC Batch D: this is also the ONE warning for a stored
+            # "Follow thermostat" that is no longer possible (room not in an
+            # HVAC zone) — the room tier runs it as "Room temperature".
+            if _owner == FAN_OWNER_HVAC and fans:
                 _LOGGER.warning(
-                    "Room %s expects HVAC fan management "
-                    "(hvac_coordination_enabled=True, climate_entity=%s) "
-                    "but is not in HVAC fan_controller._room_fans — "
-                    "room-tier is owning fans. Check Zone Manager "
+                    "Room %s Fan Mode is 'Follow thermostat' "
+                    "(climate_entity=%s) but the room is not HVAC-managed "
+                    "(not in an HVAC zone, or the HVAC coordinator is off) — "
+                    "running it as 'Room temperature'. Check Zone Manager "
                     "zone_rooms wiring.",
                     self.config.get("room_name", "Unknown"),
                     self.config.get(CONF_CLIMATE_ENTITY),
@@ -2883,8 +2882,13 @@ class RoomAutomation:
 
         v3.18.1: When HVAC coordinator has discovered this room's fans,
         room-level fan control defers to avoid dual-control fighting.
+
+        HVAC Batch D: derives from the shared rule — only a room whose Fan
+        Mode is "Follow thermostat" (``const.fan_owner`` == "hvac") can be
+        HVAC-managed; the HVAC coordinator must also be on and have
+        registered the room (it sits in an HVAC zone).
         """
-        if not self.config.get(CONF_HVAC_COORDINATION_ENABLED, False):
+        if fan_owner(self.config) != FAN_OWNER_HVAC:
             return False
         mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if not mgr:

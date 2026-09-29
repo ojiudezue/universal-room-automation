@@ -442,9 +442,12 @@ async def async_setup_entry(
         # L2 is an unconditional safety veto).
         RoomFanRecheckEnabledSwitch(coordinator),
         RoomFanRecheckL2AllowedSwitch(coordinator),
-        # D6 (bathroom-exhaust intelligence cycle): per-room mirrors of
-        # options-flow toggles #2 (comfort) and #3 (humidity).
-        RoomComfortFanControlSwitch(coordinator),
+        # D6 (bathroom-exhaust intelligence cycle): per-room mirror of the
+        # options-flow humidity toggle (#3). HVAC Batch D (v5.103.24): the
+        # comfort toggle (#2, RoomComfortFanControlSwitch) is RETIRED —
+        # replaced by the per-room "Fan Mode" select (select.py
+        # RoomFanModeSelect). Its registry entry is left for the operator to
+        # remove (Bug Class #46: never delete registry entries from code).
         RoomHumidityFanControlSwitch(coordinator),
         # v5.8.0 D2.12: reconcile-on-return per-room gate (guard 9). Default ON.
         AutoRecoverySwitch(coordinator),
@@ -6005,19 +6008,10 @@ class _RoomBooleanOptionSwitch(
         self.async_write_ha_state()
 
 
-class RoomComfortFanControlSwitch(_RoomBooleanOptionSwitch):
-    """D6 — per-room Comfort Fan Control toggle (mirrors CONF_FAN_CONTROL_ENABLED)."""
-
-    _attr_icon = "mdi:fan-auto"
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        from .const import CONF_FAN_CONTROL_ENABLED
-        super().__init__(
-            coordinator, "comfort_fan_control", "Comfort Fan Control",
-        )
-        self._conf_key = CONF_FAN_CONTROL_ENABLED
-        self._default = False
-        self._attr_is_on = self._read_default()
+# HVAC Batch D (v5.103.24): RoomComfortFanControlSwitch (D6 mirror of
+# CONF_FAN_CONTROL_ENABLED) was RETIRED — the per-room "Fan Mode" select
+# (select.RoomFanModeSelect, CONF_ROOM_FAN_MODE) replaces it and the
+# options-flow "Enable HVAC-Managed Fans" field. See const.fan_owner.
 
 
 class RoomHumidityFanControlSwitch(_RoomBooleanOptionSwitch):

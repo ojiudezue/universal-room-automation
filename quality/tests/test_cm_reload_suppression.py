@@ -306,6 +306,8 @@ def _load_init_listener_helpers():
         # switch toggles no longer full-reload the ROOM entry (~90 entities).
         "_CONF_FAN_CONTROL_ENABLED":              "fan_control_enabled",
         "_CONF_HUMIDITY_FAN_CONTROL_ENABLED":     "humidity_fan_control_enabled",
+        # HVAC Batch D (v5.103.24): per-room Fan Mode select key.
+        "_CONF_ROOM_FAN_MODE":                    "room_fan_mode",
         # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D1 (2026-09-19) — climate-
         # step LIVE + REFRESHED-with-coverage keys added to
         # _ROOM_SUPPRESS_KEYS. Referenced by the sliced ROOM branch of

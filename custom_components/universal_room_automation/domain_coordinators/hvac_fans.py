@@ -19,11 +19,9 @@ from homeassistant.util import dt as dt_util
 
 from ..const import (
     CONF_ENTRY_TYPE,
-    CONF_FAN_CONTROL_ENABLED,
     CONF_FAN_MANUAL_ON_HOLD_S,
     CONF_FAN_SLEEP_POLICY,
     CONF_FANS,
-    CONF_HVAC_COORDINATION_ENABLED,
     CONF_ROOM_NAME,
     CONF_ROOM_TYPE,
     CONF_SLEEP_FAN_ON_TEMP_F,
@@ -67,7 +65,7 @@ from .signals import EnergyConstraint
 # .const + .domain_coordinators.house_state, no back-reference to hvac_fans).
 from ..fan_veto import should_veto_comfort_fan, is_veto_relevant  # noqa: E402
 from ..fan_veto import sleep_onset_fan_target  # noqa: E402
-from ..const import FAN_OWNER_HVAC, fan_owner  # noqa: E402
+from ..const import FAN_OWNER_HVAC, fan_owner, room_fan_mode  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,7 +90,7 @@ def room_hvac_fans_managed(merged: Any) -> bool:
 
     True iff the shared ownership rule (``const.fan_owner``, the ONE
     helper every fan writer uses — see its table) says ``"hvac"``:
-    "Comfort Fan Control" on AND "Enable HVAC-Managed Fans" on. ``merged``
+    the room's Fan Mode is "Follow thermostat". ``merged``
     is the room entry's ``{**data, **options}``, read LIVE at every
     actuation (both keys change without a room reload).
 
@@ -351,7 +349,7 @@ class RoomFanState:
         self.fan_recheck_suppress_until = fan_recheck_suppress_until
         self.fan_sleep_policy = fan_sleep_policy
         # HVAC Batch D: last observed `room_hvac_fans_managed` verdict (both
-        # room toggles). The LIVE read (`FanController._is_room_hvac_managed`)
+        # Fan Mode). The LIVE read (`FanController._is_room_hvac_managed`)
         # is the authority; this field is its fallback and edge detector.
         self.hvac_managed = bool(hvac_managed)
     # NOTE: humidity exhaust state was previously tracked on this dataclass
@@ -458,11 +456,8 @@ class FanController:
             if not _managed:
                 _LOGGER.info(
                     "HVAC Fans: %s registered for fan recheck only — not "
-                    "HVAC-managed (hvac_coordination_enabled=%s, "
-                    "fan_control_enabled=%s)",
-                    room_name,
-                    merged.get(CONF_HVAC_COORDINATION_ENABLED, False),
-                    merged.get(CONF_FAN_CONTROL_ENABLED),
+                    "HVAC-managed (Fan Mode %s)",
+                    room_name, room_fan_mode(merged),
                 )
 
             self._room_fans[room_name] = RoomFanState(
@@ -641,7 +636,7 @@ class FanController:
         oracle = _get_fan_oracle(self.hass)
         for room_name, room_fan in self._room_fans.items():
             # HVAC Batch D site G2: the room no longer hands its fans to the
-            # HVAC tier (either room toggle off) — URA does not manage this room's fans at all this tick: no
+            # HVAC tier (Fan Mode changed) — URA does not manage its fans this tick: no
             # external-change sync (no cooldown / hold opened from the
             # person's own use), no adoption, no temp on/off/speed.
             if not self._is_room_hvac_managed(room_name):
@@ -1129,7 +1124,7 @@ class FanController:
                 )
                 continue
             # HVAC Batch D: honour the chokepoint's verdict — a suppressed ON
-            # (a room toggle switched off during the stagger, or an
+            # (Fan Mode changed during the stagger, or an
             # oracle DEFER/VETO) sent nothing, so do not book the fan as on
             # nor write a `fan_on` row for it.
             if not dispatched:
@@ -1230,9 +1225,9 @@ class FanController:
 
         The presence-owned recheck pauses / restores through this
         controller for EVERY registered room, including rooms whose fans the
-        ROOM tier owns (Enable HVAC-Managed Fans off). The recheck follows
+        ROOM tier owns (Fan Mode "Room temperature"). The recheck follows
         the owner: allowed iff ``fan_owner`` is "hvac" or "room" — never for
-        a person-owned fan (Comfort Fan Control off). Missing entry /
+        a person-owned fan (Fan Mode "Off"). Missing entry /
         unreadable read -> allowed (the recheck's own eligibility check has
         already applied the same rule to the same live config).
         """
@@ -1245,20 +1240,20 @@ class FanController:
         """HVAC Batch D: LIVE read — may the HVAC tier actuate this room's fans?
 
         ``room_hvac_fans_managed`` over the room entry (merged data +
-        options), read at ACTUATION time: both "Enable HVAC-Managed Fans"
-        (``hvac_coordination_enabled``, a reload-suppressed key) and
-        "Comfort Fan Control" (``RoomComfortFanControlSwitch`` writes
-        options at runtime) change without a room reload, so the discovery
+        options), read at ACTUATION time: the Fan Mode select
+        (``room_fan_mode``, a reload-suppressed key) writes options at
+        runtime without a room reload, so the discovery
         snapshot alone is not enough. A room with no entry, or an unreadable
         config, falls back to the last observed verdict.
 
-        Transition (decided 2026-09-29): when either toggle goes OFF, the
-        HVAC tier STOPS MANAGING the room's fans — it releases its tracking
-        (``is_on`` / trigger / speed / timers) and does NOT turn the fan off.
-        The person's device is left exactly as it is; ``turn_off_all_managed``
-        is never called per room on a toggle. When both allow it again the
-        HVAC tier resumes; a fan that is physically on is then adopted like
-        any externally-lit fan (manual-ON hold), not forced off.
+        Transition (decided 2026-09-29): when the Fan Mode leaves "Follow
+        thermostat", the HVAC tier STOPS MANAGING the room's fans — it
+        releases its tracking (``is_on`` / trigger / speed / timers) and
+        does NOT turn the fan off. The person's device is left exactly as it
+        is; ``turn_off_all_managed`` is never called per room on a change.
+        Back to "Follow thermostat": the HVAC tier resumes; a fan that is
+        physically on is then adopted like any externally-lit fan (manual-ON
+        hold), not forced off.
         """
         room_fan = self._room_fans.get(room_name)
         cached = room_fan.hvac_managed if room_fan is not None else True
@@ -1756,7 +1751,7 @@ class FanController:
         HVAC Batch D site G1 (v5.103.24), two rules by OWNER of the write:
           * the HVAC tier's OWN writes (temp on/off/speed, sleep-onset,
             ``turn_off_all_managed``) need ``room_hvac_fans_managed`` —
-            "Enable HVAC-Managed Fans" on AND "Comfort Fan Control" not off.
+            Fan Mode "Follow thermostat".
             ``turn_off_all_managed`` therefore leaves an unmanaged room's
             fan as it is.
           * the presence-owned fan RECHECK (``FAN_TRIGGER_RECHECK_PAUSE`` /
@@ -1776,7 +1771,7 @@ class FanController:
                 _allowed = self._is_room_hvac_managed(room_name)
             if not _allowed:
                 _LOGGER.debug(
-                    "HVAC Fans: %s %s skipped — room toggle does not allow "
+                    "HVAC Fans: %s %s skipped — Fan Mode does not allow "
                     "this write (trigger=%s)", room_name,
                     "ON" if on else "OFF", trigger_path or "unknown",
                 )
@@ -2106,11 +2101,11 @@ class FanController:
             return
         room_fan.fan_recheck_suppress_until = ""
         # HVAC Batch D site G4: the fan became person-owned during the
-        # recheck (Comfort Fan Control went OFF) — restore NOTHING (no ON,
+        # recheck (Fan Mode set to "Off") — restore NOTHING (no ON,
         # no preset / oscillate / direction attribute writes, which bypass
         # the chokepoint). The fan stays as the pause (or the person) left
         # it. The recheck follows the owner, so a room-tier-owned room
-        # (Enable HVAC-Managed Fans off) is still restored.
+        # (Fan Mode "Room temperature") is still restored.
         if not self._is_room_fan_owned(room_name):
             room_fan.manual_on_hold_paused_at = ""
             _LOGGER.info(

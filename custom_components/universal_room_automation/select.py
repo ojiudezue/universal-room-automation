@@ -12,7 +12,19 @@ from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from .const import (
+    # HVAC Batch D: per-room Fan Mode select (RoomFanModeSelect).
+    CONF_ROOM_FAN_MODE,
+    FAN_MODE_FOLLOW_THERMOSTAT,
+    FAN_MODE_ROOM_TEMPERATURE,
+    fan_mode_options,
+    room_fan_mode,
+    room_in_hvac_zone,
+)
+from .entity import UniversalRoomEntity
 
 from .const import (
     CONF_ENTRY_TYPE,
@@ -99,15 +111,100 @@ async def async_setup_entry(
     if entry_type == ENTRY_TYPE_ZONE:
         return
 
-    # Room entry — no select entities (2026-07-26: AutomationModeSelect
-    # deleted; it was an inert knob with no consumer. The real enable
-    # control is `switch.<room>_automation`. Existing
-    # `select.<room>_automation_mode` entities will remain in the entity
-    # registry as unavailable/restored until the operator removes them
-    # from the registry — this integration deliberately does NOT clean
-    # them up automatically (Bug Class #46: never delete registry
-    # entries from code).
-    return
+    # Room entry. (2026-07-26: AutomationModeSelect deleted; it was an inert
+    # knob with no consumer. Existing `select.<room>_automation_mode`
+    # entities remain in the registry until the operator removes them —
+    # Bug Class #46: never delete registry entries from code.)
+    # HVAC Batch D (v5.103.24): the per-room "Fan Mode" select.
+    coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if coordinator is None:
+        return
+    async_add_entities([RoomFanModeSelect(coordinator)])
+
+
+# ============================================================================
+# HVAC Batch D (v5.103.24): per-room "Fan Mode" select
+# ============================================================================
+
+
+class RoomFanModeSelect(UniversalRoomEntity, SelectEntity):
+    """Who drives this room's COMFORT fans: const.fan_owner is fed from it.
+
+    Options (stored values; labels in the entity translations):
+      follow_thermostat — "Follow thermostat": the HVAC tier (zone setpoint
+                          + fan assist). Offered ONLY when the room is in an
+                          HVAC zone (`const.room_in_hvac_zone`).
+      room_temperature  — "Room temperature": the room tier's °F thresholds.
+      off               — "Off": person-owned; URA never touches the fan,
+                          including the fan recheck.
+
+    Rung 3 (live-tunable): the operator can turn a guest room off from the
+    dashboard. Persisted in the room entry's options (CONF_ROOM_FAN_MODE —
+    the single source of truth, like RoutineNotificationModeSelect); it is a
+    reload-suppressed key, so a change applies on the next tick with no room
+    reload. Humidity (exhaust) fans are not affected.
+
+    A stored "Follow thermostat" on a room that is no longer in an HVAC zone
+    is SHOWN as "Room temperature" (that is how the room tier runs it; the
+    room tier logs the one warning); the stored value is left alone so
+    re-adding the room to a zone restores it.
+    """
+
+    _attr_icon = "mdi:fan-auto"
+    _attr_translation_key = "room_fan_mode"
+
+    def __init__(self, coordinator) -> None:
+        """Initialize (room device, unique_id ``<entry_id>_room_fan_mode``).
+
+        A CoordinatorEntity (via UniversalRoomEntity), so its state refreshes
+        on every room tick — an options-flow change (no reload: the key is
+        reload-suppressed) shows up without a restart.
+        """
+        super().__init__(coordinator, "room_fan_mode", "Fan Mode")
+        self._entry = coordinator.entry
+        self._attr_entity_category = EntityCategory.CONFIG
+
+    def _in_hvac_zone(self) -> bool:
+        return room_in_hvac_zone(self.hass, self._entry.entry_id)
+
+    @property
+    def options(self) -> list[str]:
+        """Only the modes actually possible for this room."""
+        return fan_mode_options(self._in_hvac_zone())
+
+    @property
+    def current_option(self) -> str:
+        """The room's Fan Mode, as the fan writers run it.
+
+        A stored "Follow thermostat" on a room no longer in an HVAC zone
+        reads "Room temperature" — what the room tier actually runs. The ONE
+        warning for that case is the room tier's (automation.py, logged once
+        per restart where the fallback happens), not repeated here.
+        """
+        mode = room_fan_mode({**self._entry.data, **self._entry.options})
+        if mode == FAN_MODE_FOLLOW_THERMOSTAT and not self._in_hvac_zone():
+            return FAN_MODE_ROOM_TEMPERATURE
+        return mode
+
+    async def async_select_option(self, option: str) -> None:
+        """Persist the new Fan Mode to the room entry's options."""
+        if option not in self.options:
+            _LOGGER.warning(
+                "Room %s Fan Mode %r is not available for this room "
+                "(options: %s) — ignored",
+                self._entry.data.get("room_name", self._entry.entry_id),
+                option, self.options,
+            )
+            return
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, CONF_ROOM_FAN_MODE: option},
+        )
+        _LOGGER.info(
+            "Room %s Fan Mode set to %s",
+            self._entry.data.get("room_name", self._entry.entry_id), option,
+        )
+        self.async_write_ha_state()
 
 
 # ============================================================================

@@ -173,6 +173,7 @@ def _load_ns() -> dict:
         "_CONF_COMFORT_HUMIDITY_MAX",
         "_CONF_MF_SLEEP_SUPPRESS", "_CONF_MF_NIGHT_SUPPRESS_MODE",
         "_CONF_FAN_CONTROL_ENABLED", "_CONF_HUMIDITY_FAN_CONTROL_ENABLED",
+        "_CONF_ROOM_FAN_MODE",  # HVAC Batch D
         "_CONF_ENERGY_DP_ENABLE", "_CONF_ENERGY_DP_EVAL_DELAY_MIN",
         "_CONF_ENERGY_DP_MARGIN_MIN", "_CONF_ENERGY_DP_MUST_START_BY_MIN",
         "_CONF_ENERGY_DP_NEEDED_KWH_GARAGE_A", "_CONF_ENERGY_DP_NEEDED_KWH_GARAGE_B",
@@ -268,6 +269,7 @@ def _load_ns() -> dict:
         "_CONF_COMFORT_HUMIDITY_MAX": "comfort_humidity_max",
         "_CONF_FAN_CONTROL_ENABLED": "fan_control_enabled",
         "_CONF_HUMIDITY_FAN_CONTROL_ENABLED": "humidity_fan_control_enabled",
+        "_CONF_ROOM_FAN_MODE": "room_fan_mode",  # HVAC Batch D
     }
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")

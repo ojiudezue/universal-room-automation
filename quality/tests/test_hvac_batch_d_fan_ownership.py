@@ -1,26 +1,25 @@
-"""HVAC Batch D (v5.103.24) — room comfort-fan OWNERSHIP, HVAC-tier FanController.
+"""HVAC Batch D (v5.103.24) — per-room "Fan Mode" ownership, HVAC-tier side.
 
-The incident: Guest Bedroom 2 had "Comfort Fan Control" OFF and "Enable
-HVAC-Managed Fans" OFF, yet the HVAC-tier fan controller switched the guest's
-fan on at sleep onset (23:43, 03:09) and off on its temp path — it never read
-either toggle.
+The incident: Guest Bedroom 2 had comfort fan control OFF and HVAC-managed
+fans OFF, yet the HVAC-tier fan controller switched the guest's fan on at
+sleep onset (23:43, 03:09) and off on its temp path — it read neither toggle.
 
-The rule (``const.fan_owner``, ONE helper for every fan writer):
+Operator ruling (option C): ONE per-room Fan Mode feeds ``const.fan_owner``:
 
-    hvac_coordination | fan_control | owner
-    on                | on          | "hvac"
-    on                | off         | None  (person-owned)
-    off               | on          | "room"
-    off               | off         | None  (person-owned)
+    follow_thermostat -> "hvac"   (HVAC tier: zone setpoint + fan assist)
+    room_temperature  -> "room"   (room tier: the room's °F thresholds)
+    off               -> None     (person-owned; URA never touches the fan,
+                                   including the recheck)
 
-This file drives the REAL ``hvac_fans.FanController`` for three rooms shaped
-like the live house (2026-09-29 ``.storage``):
+This file drives the REAL ``hvac_fans.FanController`` for three rooms, one
+per mode, shaped like the live house:
 
-* Study-A-like   — hvac on  / comfort on  -> "hvac"
-* Jaya-like      — hvac off / comfort on  -> "room" (recheck still works)
-* Guest-2-like   — hvac off / comfort off -> None   (zero fan writes)
+* Study-A-like  — Follow thermostat
+* Jaya-like     — Room temperature (recheck still works through the
+                  FanController write registry)
+* Guest-2-like  — Off (zero fan writes)
 
-plus the seam row (hvac on / comfort off -> None).
+plus the const helpers (mode -> owner, migration mapping, option lists).
 
 Loader: the REAL sources are loaded under a PRIVATE package name so the file
 behaves the same standalone (``suite_namediff --isolate``) and in suite
@@ -63,29 +62,28 @@ def _load():
 
 
 CONST, HF = _load()
-fan_owner = CONST.fan_owner
+FOLLOW = CONST.FAN_MODE_FOLLOW_THERMOSTAT
+ROOMT = CONST.FAN_MODE_ROOM_TEMPERATURE
+OFF = CONST.FAN_MODE_OFF
 
 ROOMS = {
-    # name: (hvac_coordination_enabled, fan_control_enabled, fan entity)
-    "Study A": (True, True, "fan.study_a"),
-    "Jaya Bedroom": (False, True, "fan.jaya"),
-    "Guest Bedroom 2": (False, False, "fan.guest2"),
-    "Seam Room": (True, False, "fan.seam"),
+    # name: (Fan Mode, fan entity)
+    "Study A": (FOLLOW, "fan.study_a"),
+    "Jaya Bedroom": (ROOMT, "fan.jaya"),
+    "Guest Bedroom 2": (OFF, "fan.guest2"),
 }
 
 
 class _Entry:
-    def __init__(self, name, hvac, fce, fans, room_type="bedroom"):
+    def __init__(self, name, mode, fans, room_type="bedroom"):
         self.entry_id = f"entry_{name}"
         self.data = {
             "entry_type": "room",
             "room_name": name,
             "fans": list(fans),
             "room_type": room_type,
-            "hvac_coordination_enabled": hvac,
-            "fan_control_enabled": fce,
         }
-        self.options: dict = {}
+        self.options: dict = {CONST.CONF_ROOM_FAN_MODE: mode}
 
 
 class _State:
@@ -110,8 +108,8 @@ def _world(fan_on: dict | None = None, rooms=ROOMS):
     hass.data = {}
     states: dict = {}
     entries = []
-    for name, (hvac, fce, fan) in rooms.items():
-        entries.append(_Entry(name, hvac, fce, [fan]))
+    for name, (mode, fan) in rooms.items():
+        entries.append(_Entry(name, mode, [fan]))
         states[fan] = _State(
             "on" if fan_on.get(name) else "off", {"percentage": 33},
         )
@@ -144,33 +142,80 @@ def _world(fan_on: dict | None = None, rooms=ROOMS):
     return fc, entries, states, log
 
 
+def _entry_of(entries, name):
+    return next(e for e in entries if e.data["room_name"] == name)
+
+
 def _fan_writes(log, entity):
     return [(d, s) for (d, s, data) in log if data.get("entity_id") == entity]
 
 
 # ---------------------------------------------------------------------------
-# The shared helper — one assertion per table row (+ missing keys).
+# const helpers
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize(
-    "hvac,fce,owner",
+    "mode,owner",
+    [(FOLLOW, "hvac"), (ROOMT, "room"), (OFF, None), ("bogus", None)],
+)
+def test_fan_owner_follows_fan_mode(mode, owner):
+    assert CONST.fan_owner({CONST.CONF_ROOM_FAN_MODE: mode}) == owner
+
+
+def test_fan_mode_wins_over_legacy_toggles():
+    cfg = {
+        CONST.CONF_ROOM_FAN_MODE: OFF,
+        "hvac_coordination_enabled": True,
+        "fan_control_enabled": True,
+    }
+    assert CONST.fan_owner(cfg) is None
+
+
+@pytest.mark.parametrize(
+    "hvac,fce,in_zone,mode",
     [
-        (True, True, "hvac"),
-        (True, False, None),     # the seam row: person-owned
-        (False, True, "room"),
-        (False, False, None),
+        (True, True, True, FOLLOW),
+        (True, False, True, FOLLOW),       # hvac on wins (operator rule)
+        (True, True, False, ROOMT),        # not in a zone -> room temperature
+        (False, True, True, ROOMT),
+        (False, True, False, ROOMT),
+        (False, False, True, OFF),
+        (None, None, True, OFF),           # missing keys read as off
     ],
 )
-def test_fan_owner_table(hvac, fce, owner):
-    cfg = {"hvac_coordination_enabled": hvac, "fan_control_enabled": fce}
-    assert fan_owner(cfg) == owner
+def test_migration_mapping(hvac, fce, in_zone, mode):
+    cfg = {}
+    if hvac is not None:
+        cfg["hvac_coordination_enabled"] = hvac
+    if fce is not None:
+        cfg["fan_control_enabled"] = fce
+    assert CONST.fan_mode_from_legacy(cfg, in_hvac_zone=in_zone) == mode
 
 
-def test_fan_owner_missing_keys_are_off():
-    assert fan_owner({}) is None
-    assert fan_owner(None) is None
-    assert fan_owner({"fan_control_enabled": True}) == "room"
-    assert fan_owner({"hvac_coordination_enabled": True}) is None
+def test_unmigrated_room_reads_legacy_toggles():
+    """Legacy keys stay readable for one release (no CONF_ROOM_FAN_MODE)."""
+    assert CONST.room_fan_mode({"hvac_coordination_enabled": True}) == FOLLOW
+    assert CONST.room_fan_mode({"fan_control_enabled": True}) == ROOMT
+    assert CONST.room_fan_mode({}) == OFF
+
+
+def test_fan_mode_options_depend_on_hvac_zone():
+    assert CONST.fan_mode_options(True) == [FOLLOW, ROOMT, OFF]
+    assert CONST.fan_mode_options(False) == [ROOMT, OFF]
+
+
+def test_room_in_hvac_zone_needs_a_thermostat_zone():
+    zm = MagicMock()
+    zm.data = {"entry_type": "zone_manager"}
+    zm.options = {"zones": {
+        "Upstairs": {"zone_thermostat": "climate.up", "zone_rooms": ["r1"]},
+        "Patio": {"zone_rooms": ["r2"]},                  # no thermostat
+    }}
+    hass = MagicMock()
+    hass.config_entries.async_entries = lambda domain: [zm]
+    assert CONST.room_in_hvac_zone(hass, "r1") is True
+    assert CONST.room_in_hvac_zone(hass, "r2") is False
+    assert CONST.room_in_hvac_zone(hass, "r3") is False
 
 
 # ---------------------------------------------------------------------------
@@ -186,16 +231,15 @@ def test_discovery_registers_all_rooms_and_marks_hvac_managed():
 
 
 # ---------------------------------------------------------------------------
-# G1 — the `_set_fan_state` chokepoint.
+# G1 — the `_set_fan_state` chokepoint, per mode.
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("room,allowed", [
-    ("Study A", True), ("Jaya Bedroom", False),
-    ("Guest Bedroom 2", False), ("Seam Room", False),
+    ("Study A", True), ("Jaya Bedroom", False), ("Guest Bedroom 2", False),
 ])
-def test_chokepoint_hvac_own_write_needs_hvac_owner(room, allowed):
+def test_chokepoint_hvac_own_write_needs_follow_thermostat(room, allowed):
     fc, _e, _s, log = _world()
-    fan = ROOMS[room][2]
+    fan = ROOMS[room][1]
     ok = _run(fc._set_fan_state(
         [fan], True, 66, room_name=room,
         trigger_path=CONST.FAN_TRIGGER_TEMP_HVAC,
@@ -205,12 +249,11 @@ def test_chokepoint_hvac_own_write_needs_hvac_owner(room, allowed):
 
 
 @pytest.mark.parametrize("room,allowed", [
-    ("Study A", True), ("Jaya Bedroom", True),
-    ("Guest Bedroom 2", False), ("Seam Room", False),
+    ("Study A", True), ("Jaya Bedroom", True), ("Guest Bedroom 2", False),
 ])
 def test_chokepoint_recheck_write_follows_owner(room, allowed):
     fc, _e, _s, log = _world()
-    fan = ROOMS[room][2]
+    fan = ROOMS[room][1]
     ok = _run(fc._set_fan_state(
         [fan], True, 66, room_name=room,
         trigger_path=CONST.FAN_TRIGGER_RECHECK_RESTORE,
@@ -227,15 +270,15 @@ def test_turn_off_all_managed_leaves_unmanaged_fans_on():
         rf.is_on = True
     _run(fc.turn_off_all_managed())
     assert _fan_writes(log, "fan.study_a") == [("fan", "turn_off")]
-    for room in ("Jaya Bedroom", "Guest Bedroom 2", "Seam Room"):
-        assert _fan_writes(log, ROOMS[room][2]) == [], room
+    for room in ("Jaya Bedroom", "Guest Bedroom 2"):
+        assert _fan_writes(log, ROOMS[room][1]) == [], room
 
 
 # ---------------------------------------------------------------------------
 # G2 — update() temp path + external sync / adoption.
 # ---------------------------------------------------------------------------
 
-def test_update_temp_path_only_for_hvac_owner():
+def test_update_temp_path_only_for_follow_thermostat():
     fc, *_ = _world()
     fc._set_fan_state = AsyncMock(return_value=True)
     _run(fc.update(None, "home_day"))
@@ -254,15 +297,14 @@ def test_update_does_not_adopt_person_owned_running_fan():
     assert _fan_writes(log, "fan.guest2") == []
 
 
-def test_switch_off_releases_without_forcing_the_fan_off():
-    """Comfort Fan Control goes OFF while URA holds the fan ON: URA stops
-    managing it and does NOT turn it off; the person later turning it off
-    opens no URA cooldown."""
+def test_mode_set_to_off_releases_without_forcing_the_fan_off():
+    """Fan Mode goes to Off while URA holds the fan ON: URA stops managing
+    it and does NOT turn it off; the person later turning it off opens no URA
+    cooldown."""
     fc, entries, states, log = _world(fan_on={"Study A": True})
     rf = fc._room_fans["Study A"]
     rf.is_on, rf.trigger, rf.speed_pct = True, "temperature", 66
-    study = next(e for e in entries if e.data["room_name"] == "Study A")
-    study.options = {"fan_control_enabled": False}
+    _entry_of(entries, "Study A").options = {CONST.CONF_ROOM_FAN_MODE: OFF}
     _run(fc.update(None, "home_day"))
     assert _fan_writes(log, "fan.study_a") == []
     assert rf.is_on is False and rf.hvac_managed is False
@@ -276,7 +318,7 @@ def test_switch_off_releases_without_forcing_the_fan_off():
 # G3 — sleep-onset burst.
 # ---------------------------------------------------------------------------
 
-def test_sleep_onset_only_for_hvac_owner():
+def test_sleep_onset_only_for_follow_thermostat():
     fc, *_ = _world()
     fc._set_fan_state = AsyncMock(return_value=True)
     _run(fc._sleep_onset_activation(HF.dt_util.now()))
@@ -294,12 +336,13 @@ def test_sleep_onset_suppressed_on_is_not_booked():
 
 
 # ---------------------------------------------------------------------------
-# G4 + recheck pause / restore through the real controller, per row.
+# G4 + recheck pause / restore through the real controller, per mode.
 # ---------------------------------------------------------------------------
 
-def test_recheck_jaya_like_pause_and_restore_work():
-    """Room-tier-owned fan: the HVAC tier never tracked it, yet the recheck
-    pauses the RUNNING fan and restores it; tracking stays untouched."""
+def test_recheck_room_temperature_pause_and_restore_work():
+    """Jaya-like (room tier owns): the HVAC tier never tracked the fan, yet
+    the recheck pauses the RUNNING fan and restores it; the HVAC tier's own
+    tracking stays untouched, and it makes no temp / sleep-onset writes."""
     fc, _e, states, log = _world(fan_on={"Jaya Bedroom": True})
     snap = _run(fc.pause_for_recheck("Jaya Bedroom", "2099-01-01T00:00:00+00:00"))
     assert snap is not None and snap["is_on"] is True
@@ -308,9 +351,14 @@ def test_recheck_jaya_like_pause_and_restore_work():
     _run(fc.restore_after_recheck("Jaya Bedroom", snap))
     assert _fan_writes(log, "fan.jaya")[-1] == ("fan", "turn_on")
     assert fc._room_fans["Jaya Bedroom"].is_on is False
+    n = len(_fan_writes(log, "fan.jaya"))
+    fc._room_fans["Jaya Bedroom"].fan_recheck_suppress_until = ""
+    _run(fc.update(None, "home_day"))
+    _run(fc._sleep_onset_activation(HF.dt_util.now()))
+    assert len(_fan_writes(log, "fan.jaya")) == n
 
 
-def test_recheck_study_a_like_unchanged():
+def test_recheck_follow_thermostat_unchanged():
     fc, _e, states, log = _world(fan_on={"Study A": True})
     rf = fc._room_fans["Study A"]
     rf.is_on, rf.speed_pct, rf.trigger = True, 66, "temperature"
@@ -322,23 +370,25 @@ def test_recheck_study_a_like_unchanged():
     assert rf.is_on is True
 
 
-def test_recheck_guest2_like_zero_writes():
+def test_recheck_off_zero_writes():
     fc, _e, _s, log = _world(fan_on={"Guest Bedroom 2": True})
     snap = _run(fc.pause_for_recheck("Guest Bedroom 2", "2099-01-01T00:00:00+00:00"))
     _run(fc.restore_after_recheck("Guest Bedroom 2", snap))
+    _run(fc.update(None, "home_day"))
+    _run(fc._sleep_onset_activation(HF.dt_util.now()))
+    _run(fc.turn_off_all_managed())
     assert _fan_writes(log, "fan.guest2") == []
 
 
-def test_restore_skipped_when_fan_becomes_person_owned_mid_recheck():
-    """G4: Comfort Fan Control OFF during the recheck -> restore NOTHING,
+def test_restore_skipped_when_mode_set_to_off_mid_recheck():
+    """G4: Fan Mode set to Off during the recheck -> restore NOTHING,
     including the attribute writes that bypass the chokepoint."""
     fc, entries, states, log = _world(fan_on={"Study A": True})
     states["fan.study_a"] = _State("on", {"percentage": 66, "preset_mode": "breeze"})
     rf = fc._room_fans["Study A"]
     rf.is_on, rf.speed_pct = True, 66
     snap = _run(fc.pause_for_recheck("Study A", "2099-01-01T00:00:00+00:00"))
-    study = next(e for e in entries if e.data["room_name"] == "Study A")
-    study.options = {"fan_control_enabled": False}
+    _entry_of(entries, "Study A").options = {CONST.CONF_ROOM_FAN_MODE: OFF}
     n_before = len(log)
     _run(fc.restore_after_recheck("Study A", snap))
     assert log[n_before:] == []

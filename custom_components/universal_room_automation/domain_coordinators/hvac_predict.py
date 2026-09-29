@@ -1491,8 +1491,8 @@ class HVACPredictor:
             if not fans:
                 continue
             # HVAC Batch D site G7: the room does not hand its fans to the
-            # HVAC tier ("Enable HVAC-Managed Fans" off, or "Comfort Fan
-            # Control" off) — pre-arrival never turns its fans on.
+            # HVAC tier (Fan Mode not "Follow thermostat") — pre-arrival
+            # never turns its fans on.
             from .hvac_fans import hvac_tier_owns_room_fans as _owns  # noqa: PLC0415
             _fc = getattr(
                 getattr(self, "_hvac_coord", None), "_fan_controller", None,

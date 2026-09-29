@@ -975,23 +975,22 @@ def test_w4_chokepoint_allows_on_when_oracle_clear():
 # HVAC Batch D (v5.103.24) — room comfort-fan OWNERSHIP at the HVAC-tier
 # writers OUTSIDE FanController: the zone vacancy sweep (G5), pre-arrival
 # fan-off (G6, both hvac.py) and pre-arrival fan-on (G7, hvac_predict.py).
-# One case per ownership-table row; only an "hvac" owner is written.
+# One case per Fan Mode; only "Follow thermostat" (owner "hvac") is written.
 # ===========================================================================
 
 _BD_ROWS = [
-    # (room, hvac_coordination_enabled, fan_control_enabled, written?)
-    ("StudyA", True, True, True),
-    ("SeamRoom", True, False, False),
-    ("JayaRoom", False, True, False),
-    ("GuestTwo", False, False, False),
+    # (room, Fan Mode, written?)  — the stub entries' data carry the legacy
+    # toggles both ON; the Fan Mode in options must win.
+    ("StudyA", "follow_thermostat", True),
+    ("JayaRoom", "room_temperature", False),
+    ("GuestTwo", "off", False),
 ]
 
 
 def _bd_apply_rows(entries):
     by_name = {e.data[CONF_ROOM_NAME]: e for e in entries}
-    for room, hvac, fce, _w in _BD_ROWS:
-        by_name[room].data["hvac_coordination_enabled"] = hvac
-        by_name[room].data["fan_control_enabled"] = fce
+    for room, mode, _w in _BD_ROWS:
+        by_name[room].options = {"room_fan_mode": mode}
 
 
 def _bd_turn(log, svc):
@@ -999,7 +998,7 @@ def _bd_turn(log, svc):
 
 
 def _bd_expected():
-    return {f"fan.{r.lower()}" for (r, _h, _f, w) in _BD_ROWS if w}
+    return {f"fan.{r.lower()}" for (r, _m, w) in _BD_ROWS if w}
 
 
 def test_batch_d_g5_vacancy_sweep_only_sweeps_hvac_owned_fans():
@@ -1067,5 +1066,5 @@ def test_batch_d_g7_prearrival_fan_on_only_for_hvac_owned_fans():
     assert _bd_turn(log, "turn_on") == _bd_expected()
     skipped = {s["room"]: s["reason"] for s in pred._last_fan_skipped_rooms}
     assert skipped == {
-        r: "not_hvac_managed" for (r, _h, _f, w) in _BD_ROWS if not w
+        r: "not_hvac_managed" for (r, _m, w) in _BD_ROWS if not w
     }

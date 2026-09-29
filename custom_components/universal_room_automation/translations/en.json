@@ -328,10 +328,9 @@
       },
       "climate": {
         "title": "Climate & Fans",
-        "description": "Configure fans first (HVAC-managed, comfort, humidity/exhaust), then the climate backstop at the bottom (comfort range + thermostat fallback).",
+        "description": "Configure fans first (fan mode, humidity/exhaust), then the climate backstop at the bottom (comfort range + thermostat fallback). The fan start and speed temperatures are used only when Fan mode is Room temperature.",
         "data": {
-          "hvac_coordination_enabled": "Enable HVAC-Managed Fans",
-          "fan_control_enabled": "Enable Comfort Fan Control",
+          "room_fan_mode": "Fan mode",
           "humidity_fan_control_enabled": "Enable Humidity/Exhaust Fan Control",
           "wet_room": "Wet Room (bathroom/laundry)",
           "humidity_fan_spike_enabled": "Enable Humidity Spike Detection",
@@ -345,8 +344,7 @@
           "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time"
         },
         "data_description": {
-          "hvac_coordination_enabled": "When ON, comfort fans follow the whole-house cooling plan instead of just this room's temperature.",
-          "fan_control_enabled": "Automatically control comfort/ceiling fans based on temperature (speed thresholds in next step).",
+          "room_fan_mode": "Who controls this room's comfort fan: the thermostat zone, this room's own temperature settings, or nobody (you control it).",
           "humidity_fan_control_enabled": "Master switch for humidity/exhaust automation. When OFF, URA does not actuate the humidity fans at all.",
           "wet_room": "When ON, this room is treated as a wet room: enables humidity spike + post-vacancy runtime by default and exempts the exhaust from sleep-policy force-off.",
           "humidity_fan_spike_enabled": "Adaptive baseline detection — fires the fan when humidity rises sharply above its running baseline (catches showers before the absolute threshold).",
@@ -354,7 +352,7 @@
           "humidity_fan_presence_runtime_base_s": "Minimum post-vacancy runtime (seconds).",
           "humidity_fan_presence_runtime_per_min_s": "Additional seconds of post-vacancy runtime per minute of prior occupancy.",
           "humidity_fan_presence_runtime_cap_s": "Hard cap on the post-vacancy runtime; must be ≤ Humidity Fan Max Runtime.",
-          "fan_temp_threshold": "Temperature above which comfort fans turn on.",
+          "fan_temp_threshold": "Used only when Fan mode is Room temperature: the temperature above which comfort fans turn on.",
           "humidity_fan_threshold": "Humidity % above which exhaust fans turn on (absolute threshold; OR-companion to spike detection).",
           "humidity_fan_timeout": "Minimum continuous runtime before the fan is allowed to turn off after humidity drops below threshold. Prevents short-cycling.",
           "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces off if humidity stays elevated longer than this — protects against stuck humidity sensors and runaway runs."
@@ -1920,10 +1918,9 @@
       },
       "climate": {
         "title": "Climate & Fans",
-        "description": "Configure fans first (HVAC-managed, comfort, humidity/exhaust), then the climate backstop at the bottom.",
+        "description": "Configure fans first (fan mode, humidity/exhaust), then the climate backstop at the bottom. The fan start and speed temperatures are used only when Fan mode is Room temperature.",
         "data": {
-          "hvac_coordination_enabled": "Enable HVAC-Managed Fans",
-          "fan_control_enabled": "Enable Comfort Fan Control",
+          "room_fan_mode": "Fan mode",
           "humidity_fan_control_enabled": "Enable Humidity/Exhaust Fan Control",
           "wet_room": "Wet Room (bathroom/laundry)",
           "humidity_fan_spike_enabled": "Enable Humidity Spike Detection",
@@ -1938,6 +1935,13 @@
           "humidity_fan_threshold": "Humidity Fan Threshold (%)",
           "humidity_fan_timeout": "Humidity Fan Minimum Run Time (s)",
           "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time (s)"
+        },
+        "data_description": {
+          "room_fan_mode": "Who controls this room's comfort fan: the thermostat zone, this room's own temperature settings, or nobody (you control it).",
+          "fan_temp_threshold": "Used only when Fan mode is Room temperature. The temperature above which comfort fans turn on.",
+          "fan_speed_low_temp": "Used only when Fan mode is Room temperature.",
+          "fan_speed_med_temp": "Used only when Fan mode is Room temperature.",
+          "fan_speed_high_temp": "Used only when Fan mode is Room temperature."
         },
         "sections": {
           "humidity_fan_advanced": {
@@ -2087,6 +2091,14 @@
   },
   "entity": {
     "select": {
+      "room_fan_mode": {
+        "name": "Fan Mode",
+        "state": {
+          "follow_thermostat": "Follow thermostat",
+          "room_temperature": "Room temperature",
+          "off": "Off"
+        }
+      },
       "optimizer_autonomy_level": {
         "name": "Autonomy Level",
         "state": {

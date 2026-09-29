@@ -171,8 +171,9 @@ _CYCLE_TOUCHED_KEYS = (
     ("sensors", "data_description", "is_egress_window"),
     # -- Room setup helper
     ("room_setup", "data_description", "occupancy_debounce"),
-    # -- Climate hvac_coordination_enabled helper
-    ("climate", "data_description", "hvac_coordination_enabled"),
+    # -- Climate fan helper. HVAC Batch D (v5.103.24): the
+    #    hvac_coordination_enabled helper was replaced by room_fan_mode.
+    ("climate", "data_description", "room_fan_mode"),
     # -- HVAC-coordinator-settings label + dpm adjustment (touched via
     #    denylist sweep; parent step is coordinator_hvac_settings, not
     #    a room step)
@@ -479,6 +480,15 @@ _ALLOWED_REMOVED_KEYS = frozenset(
     "options.step.coordinator_baec.data_description.energy_dp_enable",
     "options.step.coordinator_baec.data_description.energy_dp_must_start_by_min",
     "options.step.coordinator_baec.sections.baec_advanced",
+    # HVAC Batch D (v5.103.24, operator ruling option C): the two room fan
+    # toggles are retired — ONE "Fan mode" field (`room_fan_mode`) replaces
+    # them in both Climate & Fans steps.
+    "config.step.climate.data.hvac_coordination_enabled",
+    "config.step.climate.data.fan_control_enabled",
+    "config.step.climate.data_description.hvac_coordination_enabled",
+    "config.step.climate.data_description.fan_control_enabled",
+    "options.step.climate.data.hvac_coordination_enabled",
+    "options.step.climate.data.fan_control_enabled",
 })
 
 
