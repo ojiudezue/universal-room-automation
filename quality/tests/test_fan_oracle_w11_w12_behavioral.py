@@ -358,6 +358,9 @@ class _StubEntry:
             CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
             CONF_ROOM_NAME: room_name,
             CONF_FANS: fans,
+            # HVAC Batch D: an HVAC-managed room carries both toggles.
+            "hvac_coordination_enabled": True,
+            "fan_control_enabled": True,
         }
         self.options: dict = {}
 
@@ -966,3 +969,103 @@ def test_w4_chokepoint_allows_on_when_oracle_clear():
     assert dispatched is True, (
         f"W4 chokepoint: dispatched flag MUST be True under ALLOW. Got {dispatched}"
     )
+
+
+# ===========================================================================
+# HVAC Batch D (v5.103.24) — room comfort-fan OWNERSHIP at the HVAC-tier
+# writers OUTSIDE FanController: the zone vacancy sweep (G5), pre-arrival
+# fan-off (G6, both hvac.py) and pre-arrival fan-on (G7, hvac_predict.py).
+# One case per ownership-table row; only an "hvac" owner is written.
+# ===========================================================================
+
+_BD_ROWS = [
+    # (room, hvac_coordination_enabled, fan_control_enabled, written?)
+    ("StudyA", True, True, True),
+    ("SeamRoom", True, False, False),
+    ("JayaRoom", False, True, False),
+    ("GuestTwo", False, False, False),
+]
+
+
+def _bd_apply_rows(entries):
+    by_name = {e.data[CONF_ROOM_NAME]: e for e in entries}
+    for room, hvac, fce, _w in _BD_ROWS:
+        by_name[room].data["hvac_coordination_enabled"] = hvac
+        by_name[room].data["fan_control_enabled"] = fce
+
+
+def _bd_turn(log, svc):
+    return {d.get("entity_id") for (_dom, s, d) in log if s == svc}
+
+
+def _bd_expected():
+    return {f"fan.{r.lower()}" for (r, _h, _f, w) in _BD_ROWS if w}
+
+
+def test_batch_d_g5_vacancy_sweep_only_sweeps_hvac_owned_fans():
+    fake_now = datetime(2026, 9, 29, 12, 0, 0, tzinfo=timezone.utc)
+    _set_now(fake_now)
+    coord, log, entries = _make_hvac_coord(
+        {r: {"fan_state": "on"} for (r, *_x) in _BD_ROWS},
+        seeded_oracle=FanPolicyOracle(),
+    )
+    _bd_apply_rows(entries)
+    coord._fan_controller.is_room_in_manual_on_hold = lambda room: False
+    _install_real_snapshot_builder(coord, fake_now)
+    _run(coord._execute_vacancy_sweep(
+        _make_zone_stub("Z1", [r for (r, *_x) in _BD_ROWS]),
+    ))
+    assert _bd_turn(log, "turn_off") == _bd_expected()
+
+
+def test_batch_d_g5_sweep_skips_room_not_registered_by_fan_controller():
+    """A room the FanController never registered stays with the room tier
+    (`_is_hvac_managing_fans` reads the registry) — the sweep must not act."""
+    fake_now = datetime(2026, 9, 29, 12, 0, 0, tzinfo=timezone.utc)
+    _set_now(fake_now)
+    coord, log, entries = _make_hvac_coord(
+        {"StudyA": {"fan_state": "on"}}, seeded_oracle=FanPolicyOracle(),
+    )
+    coord._fan_controller.is_room_in_manual_on_hold = lambda room: False
+    coord._fan_controller._room_fans = {}  # registry without StudyA
+    _install_real_snapshot_builder(coord, fake_now)
+    _run(coord._execute_vacancy_sweep(_make_zone_stub("Z1", ["StudyA"])))
+    assert _bd_turn(log, "turn_off") == set()
+
+
+def test_batch_d_g6_prearrival_fan_off_only_for_hvac_owned_fans():
+    fake_now = datetime(2026, 9, 29, 12, 0, 0, tzinfo=timezone.utc)
+    _set_now(fake_now)
+    coord, log, entries = _make_hvac_coord(
+        {r: {"fan_state": "on"} for (r, *_x) in _BD_ROWS},
+        seeded_oracle=FanPolicyOracle(),
+    )
+    _bd_apply_rows(entries)
+    coord._fan_controller.is_room_in_manual_on_hold = lambda room: False
+    _install_real_snapshot_builder(coord, fake_now)
+    _prime_predictor(coord, [r for (r, *_x) in _BD_ROWS])
+    _run(coord._deactivate_zone_fans(
+        _make_zone_stub("Z1", [r for (r, *_x) in _BD_ROWS]),
+    ))
+    assert _bd_turn(log, "turn_off") == _bd_expected()
+
+
+def test_batch_d_g7_prearrival_fan_on_only_for_hvac_owned_fans():
+    fake_now = datetime(2026, 9, 29, 12, 0, 0, tzinfo=timezone.utc)
+    _set_now(fake_now)
+    coord, log, entries = _make_hvac_coord(
+        {r: {"fan_state": "off"} for (r, *_x) in _BD_ROWS},
+        seeded_oracle=FanPolicyOracle(),
+    )
+    _bd_apply_rows(entries)
+    _make_hvac_coord_get_room(coord, entries)
+    pred = _make_predictor(coord.hass)
+    pred._get_room_coordinator = coord._get_room_coordinator
+    zone = _StubZone("Z1", [r for (r, *_x) in _BD_ROWS])
+    zone.room_conditions = [_RoomCondition(r, 80.0) for (r, *_x) in _BD_ROWS]
+    _run(pred._activate_zone_fans(zone))
+    assert _bd_turn(log, "turn_on") == _bd_expected()
+    skipped = {s["room"]: s["reason"] for s in pred._last_fan_skipped_rooms}
+    assert skipped == {
+        r: "not_hvac_managed" for (r, _h, _f, w) in _BD_ROWS if not w
+    }

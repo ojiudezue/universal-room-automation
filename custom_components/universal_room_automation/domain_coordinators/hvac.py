@@ -5644,6 +5644,15 @@ class HVACCoordinator(BaseCoordinator):
             # per-room fan sweep. INV-FMH — a fresh manual instruction
             # outranks the zone-level vacancy sweep for the duration of
             # the hold. Lights are UNAFFECTED (the hold is fan-scoped).
+            # HVAC Batch D site G5: the room does not hand its fans to HVAC —
+            # the zone sweep leaves its fans as they are (lights unaffected).
+            from .hvac_fans import hvac_tier_owns_room_fans as _owns  # noqa: PLC0415
+            if not _owns(self._fan_controller, room_name, config):
+                _LOGGER.debug(
+                    "HVAC: Vacancy sweep skipped fans for %s — Comfort Fan "
+                    "Control is off", room_name,
+                )
+                continue
             fan_hold_active = False
             try:
                 automation = getattr(coordinator, "automation", None)
@@ -6161,6 +6170,15 @@ class HVACCoordinator(BaseCoordinator):
                 continue
             config = {**coordinator.config_entry.data, **coordinator.config_entry.options}
             fans = config.get(CONF_FANS, [])
+            # HVAC Batch D site G6: fans not HVAC-managed — the pre-arrival
+            # fan-off leaves this room's fans as they are.
+            from .hvac_fans import hvac_tier_owns_room_fans as _owns  # noqa: PLC0415
+            if not _owns(self._fan_controller, room_name, config):
+                _LOGGER.debug(
+                    "HVAC: Pre-arrival fan deactivation skipped for %s — "
+                    "fans not HVAC-managed", room_name,
+                )
+                continue
             # FAN-MANUAL-1 (MED-B1 fix-up, 2026-08-10): skip pre-arrival
             # deactivation while a manual-ON hold is live for this room.
             # Same INV-FMH gate as the zone-vacancy sweep (_execute_vacancy_sweep).

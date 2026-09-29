@@ -65,6 +65,7 @@ from ..const import (
     ROOM_TYPE_MEDIA_ROOM,
     ROOM_TYPE_RECHECK_FACTOR,
 )
+from ..const import fan_owner
 from ._ble_corroboration import trustworthy_persons_in_room
 from .house_state import HouseState
 from .hvac_const import FAN_TRUST_STATES
@@ -465,8 +466,10 @@ class FanRecheckManager:
             CONF_ROOM_FAN_RECHECK_ENABLED, DEFAULT_ROOM_FAN_RECHECK_ENABLED,
         ):
             return sink.veto(room_name, "room_disabled")
-        # D5: operator fan-control disabled = forbidden zone for us.
-        if merged.get(CONF_FAN_CONTROL_ENABLED) is False:
+        # D5 / HVAC Batch D (v5.103.24): the recheck follows the OWNER
+        # (const.fan_owner). A person-owned fan (Comfort Fan Control off)
+        # is never paused — the same rule for HVAC- and room-owned rooms.
+        if fan_owner(merged) is None:
             return sink.veto(room_name, "fan_control_off")
 
         # Sleep-scoped veto (FAN-RECHECK-SLEEP-VETO-SCOPE-1, folded in
@@ -950,7 +953,8 @@ class FanRecheckManager:
             CONF_ROOM_FAN_RECHECK_ENABLED, DEFAULT_ROOM_FAN_RECHECK_ENABLED,
         ):
             return False
-        if merged.get(CONF_FAN_CONTROL_ENABLED) is False:
+        # HVAC Batch D: same owner rule as `_evaluate_eligibility`.
+        if fan_owner(merged) is None:
             return False
         # Sleep-scoped abort (FAN-RECHECK-SLEEP-VETO-SCOPE-1 fold-in,
         # 2026-08-19): mirrors ``_evaluate_eligibility`` — bedroom rooms

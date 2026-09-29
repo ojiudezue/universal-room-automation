@@ -189,6 +189,7 @@ from .const import (
 # B-L1 fix: hoisted to module top (no import cycle — fan_veto imports
 # .const + .domain_coordinators.house_state, no back-reference to automation).
 from .fan_veto import should_veto_comfort_fan  # noqa: E402
+from .const import FAN_OWNER_HVAC, fan_owner  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1891,7 +1892,13 @@ class RoomAutomation:
         
         v3.2.9: Added support for switch domain (fans on smart outlets/switches).
         """
-        if not self.config.get(CONF_FAN_CONTROL_ENABLED, False):
+        # HVAC Batch D (v5.103.24): the shared ownership rule
+        # (const.fan_owner). None = person-owned (Comfort Fan Control
+        # off) — the room tier writes nothing. "hvac" = the HVAC tier owns
+        # the fans; the room tier stands down while HVAC is actually running
+        # the room (below) and keeps the pre-existing fallback otherwise.
+        _owner = fan_owner(self.config)
+        if _owner is None:
             return
 
         fans = self.config.get(CONF_FANS, [])
@@ -1899,7 +1906,9 @@ class RoomAutomation:
             return
 
         # v3.18.1: Defer to HVAC coordinator if it's managing this room's fans
-        hvac_manages = self._is_hvac_managing_fans()
+        hvac_manages = (
+            _owner == FAN_OWNER_HVAC and self._is_hvac_managing_fans()
+        )
         if hvac_manages:
             return
 

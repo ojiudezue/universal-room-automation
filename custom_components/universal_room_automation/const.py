@@ -977,6 +977,64 @@ CONF_HVAC_COORDINATION_ENABLED: Final = "hvac_coordination_enabled"
 CONF_TARGET_TEMP_COOL: Final = "target_temp_cool"
 CONF_TARGET_TEMP_HEAT: Final = "target_temp_heat"
 CONF_FAN_CONTROL_ENABLED: Final = "fan_control_enabled"
+
+# ----------------------------------------------------------------------------
+# HVAC Batch D (v5.103.24): room comfort-fan OWNERSHIP — ONE rule for every fan
+# writer. A pure function of the two toggles above; it lives here because
+# const.py is the one module every fan writer AND every fan test harness
+# already loads (the presence fan-recheck harnesses load only the real const).
+#
+#   * CONF_FAN_CONTROL_ENABLED — "Comfort Fan Control" (RoomComfortFanControl
+#     Switch mirrors it into the entry's options at runtime). OFF = URA does
+#     not automate the room's comfort fans at all: the fan belongs to the
+#     person (a guest's fan is never paused, swept or switched on by URA).
+#   * CONF_HVAC_COORDINATION_ENABLED — "Enable HVAC-Managed Fans". Chooses
+#     WHICH tier drives the fans while Comfort Fan Control is on.
+#
+#   hvac_coordination | fan_control | owner
+#   ------------------+-------------+-----------------------------------
+#   on                | on          | "hvac" (HVAC tier FanController)
+#   on                | off         | None   (person-owned)
+#   off               | on          | "room" (room tier automation.py)
+#   off               | off         | None   (person-owned)
+#
+# A missing key reads as OFF for both (the room tier's and the switches' own
+# default). Consumers:
+#   * HVAC tier (hvac_fans FanController sites, the zone sweep and pre-arrival
+#     fans in hvac.py / hvac_predict.py) acts only for "hvac".
+#   * Room tier (automation.handle_temperature_based_fan_control,
+#     actuator_reconciler._resolve_fan) acts for "room" — or for "hvac" when
+#     the HVAC tier is not actually running the room (_is_hvac_managing_fans
+#     False: HVAC coordinator off / room not in an HVAC zone), the
+#     pre-existing fallback.
+#   * Fan recheck (presence_fan_recheck) is eligible only when the owner is
+#     not None; its pause/restore writes pass the FanController chokepoint
+#     under the same rule. The recheck follows the owner.
+# Humidity (exhaust) fans are NOT covered — always room-owned.
+# ----------------------------------------------------------------------------
+FAN_OWNER_HVAC: Final = "hvac"
+FAN_OWNER_ROOM: Final = "room"
+
+
+def fan_owner(room_config) -> str | None:
+    """Return "hvac", "room" or None (person-owned) for a room's comfort fans.
+
+    ``room_config`` is the room entry's MERGED ``{**data, **options}`` —
+    callers read it LIVE (both keys change without a room reload). Never
+    raises; an unreadable config is person-owned (URA writes nothing).
+    """
+    try:
+        if not room_config:
+            return None
+        if not bool(room_config.get(CONF_FAN_CONTROL_ENABLED, False)):
+            return None
+        if bool(room_config.get(CONF_HVAC_COORDINATION_ENABLED, False)):
+            return FAN_OWNER_HVAC
+        return FAN_OWNER_ROOM
+    except Exception:  # noqa: BLE001
+        return None
+
+
 CONF_FAN_TEMP_THRESHOLD: Final = "fan_temp_threshold"
 CONF_FAN_SPEED_LOW_TEMP: Final = "fan_speed_low_temp"
 CONF_FAN_SPEED_MED_TEMP: Final = "fan_speed_med_temp"

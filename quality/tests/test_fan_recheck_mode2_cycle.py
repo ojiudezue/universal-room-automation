@@ -616,6 +616,47 @@ async def test_fan_control_disabled_blocks_trigger():
     assert mgr.get_room_state("exercise") == mod.STATE_IDLE
 
 
+@pytest.mark.parametrize(
+    "hvac,fce,arms",
+    [
+        (True, True, True),     # owner "hvac" (Study A)
+        (True, False, False),   # seam row: person-owned -> never paused
+        (False, True, True),    # owner "room" (Jaya Bedroom)
+        (False, False, False),  # person-owned (Guest Bedroom 2)
+    ],
+)
+@pytest.mark.asyncio
+async def test_batch_d_recheck_eligibility_follows_fan_owner(hvac, fce, arms):
+    """HVAC Batch D: the recheck follows ``const.fan_owner`` — eligible for an
+    "hvac" or "room" owner, never for a person-owned fan (closes the seam
+    where HVAC-Managed on + Comfort off was evaluated as eligible-by-hvac
+    elsewhere but keyed on Comfort here)."""
+    # Drives the live evaluator directly (`_is_eligible`): the full
+    # `async_setup` -> tick -> ARMED flow needs HA timer / dispatcher stubs
+    # this harness only has when no real HA is installed.
+    mod, hass, mgr, rc, fc, pc, db = _build_world(fan_control_enabled=fce)
+    rc.entry.data["hvac_coordination_enabled"] = hvac
+    ctx = mod._RoomCtx(room_name="exercise", entry_id=rc.entry.entry_id)
+    assert mgr._is_eligible(ctx, rc) is arms
+    if not arms:
+        assert mgr._veto_counts["exercise"].get("fan_control_off") == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_d_still_armed_aborts_when_fan_becomes_person_owned():
+    """HVAC Batch D: the post-arm-delay re-check applies the same owner rule —
+    Comfort Fan Control switched off during the arm delay aborts the pause
+    (for an "hvac" AND a "room" owner)."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world()
+    ctx = mod._RoomCtx(room_name="exercise", entry_id=rc.entry.entry_id)
+    for hvac in (True, False):
+        rc.entry.data["hvac_coordination_enabled"] = hvac
+        rc.entry.options = {}
+        assert mgr._still_armed_eligible(ctx, rc) is True
+        rc.entry.options = {"fan_control_enabled": False}
+        assert mgr._still_armed_eligible(ctx, rc) is False
+
+
 @pytest.mark.asyncio
 async def test_no_fan_on_blocks_trigger():
     mod, hass, mgr, rc, fc, pc, db = _build_world(with_fan_on=False)

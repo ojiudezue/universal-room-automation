@@ -1490,6 +1490,25 @@ class HVACPredictor:
             fans = config.get(CONF_FANS, [])
             if not fans:
                 continue
+            # HVAC Batch D site G7: the room does not hand its fans to the
+            # HVAC tier ("Enable HVAC-Managed Fans" off, or "Comfort Fan
+            # Control" off) — pre-arrival never turns its fans on.
+            from .hvac_fans import hvac_tier_owns_room_fans as _owns  # noqa: PLC0415
+            _fc = getattr(
+                getattr(self, "_hvac_coord", None), "_fan_controller", None,
+            )
+            if not _owns(_fc, room_name, config):
+                self._last_fan_skipped_rooms.append({
+                    "room": room_name,
+                    "temp": None,
+                    "setpoint": setpoint_high,
+                    "reason": "not_hvac_managed",
+                })
+                _LOGGER.info(
+                    "HVAC: Pre-arrival fan skipped %s (fans not HVAC-managed)",
+                    room_name,
+                )
+                continue
 
             # Get room temperature from zone conditions
             room_temp = None

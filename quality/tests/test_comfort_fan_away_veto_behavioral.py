@@ -360,6 +360,34 @@ class TestSiteAutomationRoomTier:
         )
 
 
+class TestBatchDRoomTierOwnership:
+    """HVAC Batch D (v5.103.24): the room tier follows ``const.fan_owner``.
+
+    One case per ownership-table row, plus the pre-existing fallback: an
+    "hvac"-owned room whose HVAC tier is NOT actually running it (HVAC
+    coordinator off / room not in an HVAC zone) stays with the room tier.
+    """
+
+    @pytest.mark.parametrize(
+        "hvac,fce,hvac_running,writes",
+        [
+            (True, True, True, False),    # "hvac", HVAC runs it -> room defers
+            (True, True, False, True),    # "hvac", HVAC not running -> fallback
+            (True, False, True, False),   # seam row: person-owned
+            (True, False, False, False),  # person-owned even with no HVAC
+            (False, True, False, True),   # "room"
+            (False, False, False, False), # person-owned (Guest Bedroom 2)
+        ],
+    )
+    def test_room_tier_follows_owner(self, hvac, fce, hvac_running, writes):
+        auto, log = _make_room_automation(HouseState.HOME_DAY)
+        auto.config["hvac_coordination_enabled"] = hvac
+        auto.config[CONF_FAN_CONTROL_ENABLED] = fce
+        auto._is_hvac_managing_fans = lambda: hvac_running
+        _run(auto.handle_temperature_based_fan_control(TEMP_ABOVE, occupied=True))
+        assert bool(log) is writes, log
+
+
 # ---------------------------------------------------------------------------
 # Site 2: hvac_fans.py::FanController.update (ON-edge branch)
 # ---------------------------------------------------------------------------
@@ -373,6 +401,9 @@ def _make_fan_controller(house_state: str, veto_enabled: bool = True):
         "entry_type": "room",
         CONF_ROOM_NAME: ROOM_NAME,
         CONF_COMFORT_FAN_AWAY_VETO_ENABLED: veto_enabled,
+        # HVAC Batch D: an HVAC-managed room carries both toggles.
+        "hvac_coordination_enabled": True,
+        "fan_control_enabled": True,
     }
     entry.options = {}
     hass.config_entries.async_entries = MagicMock(return_value=[entry])
@@ -519,6 +550,32 @@ class TestSiteReconcilerResolveFan:
         assert result is not None and result.state == "on", (
             "Kill switch OFF must let reconciler return ON in AWAY"
         )
+
+
+class TestBatchDReconcilerOwnership:
+    """HVAC Batch D: `_resolve_fan` follows ``const.fan_owner`` (same rows
+    as the room tier; the reconciler re-asserts the room tier's intent)."""
+
+    @pytest.mark.parametrize(
+        "hvac,fce,hvac_running,resolves_on",
+        [
+            (True, True, True, False),
+            (True, True, False, True),
+            (True, False, True, False),
+            (False, True, False, True),
+            (False, False, False, False),
+        ],
+    )
+    def test_reconciler_follows_owner(self, hvac, fce, hvac_running, resolves_on):
+        recon = _make_reconciler(HouseState.HOME_DAY)
+        cfg = recon._config()
+        cfg["hvac_coordination_enabled"] = hvac
+        cfg[CONF_FAN_CONTROL_ENABLED] = fce
+        recon._automation()._is_hvac_managing_fans = lambda: hvac_running
+        data = {STATE_TEMPERATURE: TEMP_ABOVE, STATE_OCCUPIED: True}
+        result = recon._resolve_fan(FAN_ENTITY, data)
+        got_on = result is not None and result.state == "on"
+        assert got_on is resolves_on, result
 
 
 # ---------------------------------------------------------------------------

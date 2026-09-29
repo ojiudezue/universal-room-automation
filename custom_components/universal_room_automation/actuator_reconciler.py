@@ -45,6 +45,7 @@ from homeassistant.helpers.event import (
 # B-L1 fix: hoisted to module top (no import cycle — fan_veto imports
 # .const + .domain_coordinators.house_state, no back-reference here).
 from .fan_veto import should_veto_comfort_fan  # noqa: E402
+from .const import FAN_OWNER_HVAC, fan_owner  # noqa: E402
 from .const import (
     CONF_ENTRY_LIGHT_ACTION,
     CONF_EXIT_LIGHT_ACTION,
@@ -838,7 +839,10 @@ class ActuatorReconciler:
         if entity_id in (cfg.get(CONF_HUMIDITY_FANS) or []):
             return None
 
-        if not cfg.get(CONF_FAN_CONTROL_ENABLED, False):
+        # HVAC Batch D (v5.103.24): shared ownership rule
+        # (const.fan_owner) — None = person-owned, write nothing.
+        _owner = fan_owner(cfg)
+        if _owner is None:
             return None
         temperature = data.get(STATE_TEMPERATURE)
         if temperature is None:
@@ -856,7 +860,7 @@ class ActuatorReconciler:
         # short-circuit here without depending on the possibly-stale
         # automation attribute; if it's enabled we still consult the
         # HVAC manager for the room-fans membership check.
-        if not cfg.get(CONF_HVAC_COORDINATION_ENABLED, False):
+        if _owner != FAN_OWNER_HVAC:
             pass  # room-owned fans; do not defer
         elif automation is not None and automation._is_hvac_managing_fans():
             return None
