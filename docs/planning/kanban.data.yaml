@@ -30360,6 +30360,35 @@ cards:
   links:
     related: [GUEST-ROOM-FAN-HOLD-1, HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1]
   rank: {value: 9, time_criticality: 9, effort: 2}
+- id: ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1
+  title: Presence, security, safety and music-following anomaly baselines are only saved when the integration unloads, which never happens on an HA restart, so their learning is thrown away every restart
+  thread: platform
+  status: planned
+  created: '2026-09-29 15:00'
+  updated: '2026-09-29 15:00'
+  approval: implied
+  tags: [anomaly, persistence, restart, found-in-review]
+  origin:
+    date: '2026-09-29'
+    gist: anomaly-blind plan review M1 (docs/reviews/code-review/plan_review_anomaly_detector_blind_metrics.md)
+  why: 'HA does not unload config entries on stop (config_entries.py:931-933, :2176-2180 in the venv HA 2026.2.3; live 2026.9.x source not yet checked), and URA has no stop listener, so teardown-only baseline saves never run on a restart. Live DB metric_baselines last_updated: presence 2026-09-14, security 2026-09-04, safety 2026-09-04, music_following 2026-05-12. HVAC (saved at daily rollover) and coordinator_manager (saved each boot) are current. With the restart storm (8+ restarts on 09-28), those coordinators relearn from a 2-week-old snapshot each boot.'
+  next: 'BUILD (Tier 1-2): save baselines on a periodic cadence (e.g. the existing daily rollover, or every N minutes via the write queue) and on EVENT_HOMEASSISTANT_STOP, for every coordinator. Verify the stop-event behaviour against live HA 2026.9.x source first. Test: a stop event persists; after a restart the loaded sample_count equals the pre-stop count.'
+  links:
+    related: [ANOMALY-SAVE-BASELINES-DICT-MUTATION-1, HVAC-ANOMALY-BLIND-1]
+  rank: {value: 5, time_criticality: 4, effort: 2}
+- id: MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1
+  title: Music following has recorded no transfers since 2026-05-12 - idle, broken, or unused?
+  thread: music
+  status: investigating
+  created: '2026-09-29 15:00'
+  updated: '2026-09-29 15:00'
+  tags: [music-following, found-in-review]
+  origin:
+    date: '2026-09-29'
+    gist: anomaly D0 probe + plan review
+  why: 'metric_baselines for music_following (transfer_success_rate, cooldown_frequency) hold 1572 samples, mean 0 / std 0, last updated 2026-05-12, identical live and in the DB. Either the feature has not fired a transfer in 4.5 months (disabled / broken / unused), or its metrics stopped recording. Its anomaly sensor reads "nominal", which means nothing.'
+  next: 'MEASURE (me, read-only): is music following enabled; any transfer attempts in logs/DB since May; when the last one happened. Then either disposition (retire / fix / leave) or ANSWER operator: do you still use music following?'
+  rank: {value: 3, time_criticality: 2, effort: 1}
 - id: ENPHASE-BATTERY-CUTOUTS-1
   title: At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time
   thread: energy
