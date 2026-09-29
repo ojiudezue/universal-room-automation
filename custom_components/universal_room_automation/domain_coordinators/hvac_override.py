@@ -4246,11 +4246,8 @@ class OverrideArrester:
         )
 
         # Defense-in-depth (fix-up 2, C-6): the timer's own handle, so the
-
         # callback pops only ITS timer (`_pop_own_timer`). The generation
-
         # check is the primary stale-callback guard.
-
         _sv_h: dict[str, Any] = {}
 
         @callback
@@ -4328,11 +4325,8 @@ class OverrideArrester:
         )
 
         # Defense-in-depth (fix-up 2, C-6): the timer's own handle, so the
-
         # callback pops only ITS timer (`_pop_own_timer`). The generation
-
         # check is the primary stale-callback guard.
-
         _nm_h: dict[str, Any] = {}
 
         @callback
@@ -4523,11 +4517,8 @@ class OverrideArrester:
         compromise_seconds = self._compromise_minutes * 60
 
         # Defense-in-depth (fix-up 2, C-6): the timer's own handle, so the
-
         # callback pops only ITS timer (`_pop_own_timer`). The generation
-
         # check is the primary stale-callback guard.
-
         _cp_h: dict[str, Any] = {}
 
         @callback
