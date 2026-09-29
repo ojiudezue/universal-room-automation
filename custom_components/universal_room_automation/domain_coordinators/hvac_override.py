@@ -3777,7 +3777,9 @@ class OverrideArrester:
                 )
             except Exception:  # noqa: BLE001
                 _is_pa, _named = False, False
-            if not _is_pa and _named:
+            # (A pre-arrival borrow's snapshot is ignored: the resolver's
+            # arrival path below decides its reference.)
+            if _named:
                 _want = _ended_tok.pre_preset
             # Q7 (fix-up 1 ruling "Home for pre-arrivals"): an interrupted
             # PRE-ARRIVAL pre-cool is judged against the house's ARRIVAL

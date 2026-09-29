@@ -882,3 +882,16 @@ async def test_master_off_ends_pre_arrival_with_inactive_trigger(mods, monkeypat
     await H.drain(hass)
     assert tok.returned and tok._return_outcome.trigger == "pre_arrival_inactive"
     assert Z2 not in coord._last_emitted_range
+
+
+@pytest.mark.asyncio
+async def test_spent_episode_pruned_after_a_window_without_trigger(mods, monkeypatch):
+    """D-L5 discharge on the pass side: a spent episode with no trigger for a
+    whole window ends at the next expiry pass."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    coord._pre_arrival_spent[Z2] = datetime.now(timezone.utc) - timedelta(minutes=31)
+    coord._expire_pre_arrival_zones(datetime.now(timezone.utc))
+    assert Z2 not in coord._pre_arrival_spent
+    coord._pre_arrival_spent[Z2] = datetime.now(timezone.utc) - timedelta(minutes=29)
+    coord._expire_pre_arrival_zones(datetime.now(timezone.utc))
+    assert Z2 in coord._pre_arrival_spent
