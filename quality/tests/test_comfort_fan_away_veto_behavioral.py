@@ -386,6 +386,24 @@ class TestBatchDRoomTierOwnership:
         _run(auto.handle_temperature_based_fan_control(TEMP_ABOVE, occupied=True))
         assert bool(log) is writes, log
 
+    def test_room_temperature_runs_with_the_old_climate_automation_switch_off(self):
+        """Fix-up 1 (operator ruling): the retired Climate Automation switch
+        reading OFF does not stop a "Room temperature" room's fan logic."""
+        auto, log = _make_room_automation(HouseState.HOME_DAY)
+        auto.config["room_fan_mode"] = "room_temperature"
+        _fan_state = auto.hass.states.get
+
+        def _get(eid):
+            if eid.endswith("_climate_automation"):
+                s = MagicMock()
+                s.state = "off"
+                return s
+            return _fan_state(eid)
+
+        auto.hass.states.get = _get
+        _run(auto.handle_temperature_based_fan_control(TEMP_ABOVE, occupied=True))
+        assert [e for e in log if e[1] == "turn_on"], log
+
     @pytest.mark.parametrize(
         "mode,expected", [
             ("follow_thermostat", True), ("room_temperature", False), ("off", False),

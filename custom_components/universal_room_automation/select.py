@@ -152,6 +152,10 @@ class RoomFanModeSelect(UniversalRoomEntity, SelectEntity):
 
     _attr_icon = "mdi:fan-auto"
     _attr_translation_key = "room_fan_mode"
+    # Fix-up 1 (operator 2026-09-29): prominent on the room device page —
+    # enabled by default (it replaces the retired, hidden-by-default Climate
+    # Automation switch and the Comfort Fan Control switch).
+    _attr_entity_registry_enabled_default = True
 
     def __init__(self, coordinator) -> None:
         """Initialize (room device, unique_id ``<entry_id>_room_fan_mode``).

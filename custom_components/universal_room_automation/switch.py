@@ -431,7 +431,10 @@ async def async_setup_entry(
         AutomationSwitch(coordinator),
         OverrideOccupiedSwitch(coordinator),
         OverrideVacantSwitch(coordinator),
-        ClimateAutomationSwitch(coordinator),
+        # HVAC Batch D fix-up 1 (operator ruling 2026-09-29):
+        # ClimateAutomationSwitch RETIRED — the per-room "Fan Mode" select
+        # alone decides the comfort fan. Existing registry entries are left
+        # orphaned for the operator to remove (Bug Class #46).
         CoverAutomationSwitch(coordinator),
         ManualModeSwitch(coordinator),
         AiAutomationSwitch(coordinator),
@@ -5099,39 +5102,11 @@ class OverrideVacantSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
         _LOGGER.info("Override vacant disabled for room: %s", self.coordinator.entry.data.get("room_name"))
 
 
-class ClimateAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
-    """Switch to enable/disable climate-specific automation."""
-
-    _attr_icon = "mdi:thermostat-auto"
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the switch."""
-        super().__init__(coordinator, "climate_automation", "Climate Automation")
-        self._attr_is_on = True  # Default to enabled
-
-    async def async_added_to_hass(self) -> None:
-        """Restore last state."""
-        await super().async_added_to_hass()
-        if (last_state := await self.async_get_last_state()) is not None:
-            self._attr_is_on = last_state.state == "on"
-
-    @property
-    def available(self) -> bool:
-        """Switch is always available."""
-        return True
-
-    async def async_turn_on(self, **kwargs) -> None:
-        """Turn on climate automation."""
-        self._attr_is_on = True
-        self.async_write_ha_state()
-        _LOGGER.info("Climate automation enabled for room: %s", self.coordinator.entry.data.get("room_name"))
-
-    async def async_turn_off(self, **kwargs) -> None:
-        """Turn off climate automation."""
-        self._attr_is_on = False
-        self.async_write_ha_state()
-        _LOGGER.info("Climate automation disabled for room: %s", self.coordinator.entry.data.get("room_name"))
+# HVAC Batch D fix-up 1 (operator ruling 2026-09-29): ClimateAutomationSwitch
+# (v3.20.0, "climate_automation") is RETIRED. Its only consumer was the gate on
+# the room-tier temperature fan path (coordinator.py), found by a slug-built
+# entity id; the per-room "Fan Mode" select (select.RoomFanModeSelect) now
+# decides alone. Registry entries are orphaned, not deleted (Bug Class #46).
 
 
 class CoverAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
@@ -5172,7 +5147,7 @@ class CoverAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
 class AutoRecoverySwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
     """Per-room reconcile-on-return gate (v5.8.0, D2.12, guard 9).
 
-    Straight sibling of AutomationSwitch / ClimateAutomationSwitch /
+    Straight sibling of AutomationSwitch / (retired) ClimateAutomationSwitch /
     CoverAutomationSwitch. SEPARATE from the master AutomationSwitch and
     manual_mode — this gates ONLY whether the ActuatorReconciler dispatches a
     service call. When OFF, the reconciler STILL computes would_reconcile for

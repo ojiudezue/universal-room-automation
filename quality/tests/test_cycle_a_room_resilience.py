@@ -63,12 +63,6 @@ def make_coordinator_with_switches(mock_hass, room_name="bedroom"):
             return True
         return auto
 
-    def _is_climate_automation_enabled():
-        state = coord._get_room_switch_state("climate_automation")
-        if state is None:
-            return True
-        return state
-
     def _is_cover_automation_enabled():
         state = coord._get_room_switch_state("cover_automation")
         if state is None:
@@ -82,7 +76,6 @@ def make_coordinator_with_switches(mock_hass, room_name="bedroom"):
         return coord._get_room_switch_state("override_vacant") is True
 
     coord._is_automation_enabled = _is_automation_enabled
-    coord._is_climate_automation_enabled = _is_climate_automation_enabled
     coord._is_cover_automation_enabled = _is_cover_automation_enabled
     coord._is_override_occupied = _is_override_occupied
     coord._is_override_vacant = _is_override_vacant
@@ -393,28 +386,9 @@ class TestManualModeSwitch:
         assert coord._is_automation_enabled() is False
 
 
-class TestClimateAutomationSwitch:
-    """Tests for ClimateAutomationSwitch gating climate/fan actions."""
-
-    def test_climate_switch_off_disables_climate(self, mock_hass):
-        """ClimateAutomationSwitch OFF should disable climate actions."""
-        coord = make_coordinator_with_switches(mock_hass, "bedroom")
-        mock_hass.set_state("switch.bedroom_climate_automation", "off")
-
-        assert coord._is_climate_automation_enabled() is False
-
-    def test_climate_switch_on_enables_climate(self, mock_hass):
-        """ClimateAutomationSwitch ON should enable climate actions."""
-        coord = make_coordinator_with_switches(mock_hass, "bedroom")
-        mock_hass.set_state("switch.bedroom_climate_automation", "on")
-
-        assert coord._is_climate_automation_enabled() is True
-
-    def test_climate_switch_missing_defaults_enabled(self, mock_hass):
-        """If ClimateAutomationSwitch doesn't exist, default to enabled."""
-        coord = make_coordinator_with_switches(mock_hass, "bedroom")
-
-        assert coord._is_climate_automation_enabled() is True
+# HVAC Batch D fix-up 1 (operator ruling 2026-09-29): ClimateAutomationSwitch
+# is RETIRED — the per-room Fan Mode alone decides the room-tier comfort fan
+# (see test_hvac_batch_d_fan_ownership). Its tests were removed with it.
 
 
 class TestCoverAutomationSwitch:
@@ -995,17 +969,12 @@ class TestCrossDeliverableIntegration:
         assert covers_should_run is False
 
     def test_manual_mode_blocks_climate_actions(self, mock_hass):
-        """ManualMode ON should block climate even if ClimateAutomationSwitch is ON."""
+        """ManualMode ON blocks the master automation gate the room-tier
+        comfort-fan path runs under (Climate Automation retired, Batch D)."""
         coord = make_coordinator_with_switches(mock_hass, "bedroom")
         mock_hass.set_state("switch.bedroom_manual_mode", "on")
-        mock_hass.set_state("switch.bedroom_climate_automation", "on")
 
-        if not coord._is_automation_enabled():
-            climate_should_run = False
-        else:
-            climate_should_run = coord._is_climate_automation_enabled()
-
-        assert climate_should_run is False
+        assert coord._is_automation_enabled() is False
 
     def test_override_occupied_with_automation_disabled(self, mock_hass):
         """OverrideOccupied should force state even with automation disabled.

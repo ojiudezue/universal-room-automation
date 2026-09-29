@@ -334,6 +334,59 @@ def test_wire_in_anchors():
     assert "vol.Optional(CONF_HVAC_COORDINATION_ENABLED" not in cf
 
 
+def test_climate_automation_no_longer_gates_the_room_tier_fan_path():
+    """Fix-up 1 (operator ruling 2026-09-29): the coordinator calls the
+    room-tier temperature fan handler with NO enclosing Climate Automation
+    gate — the Fan Mode (inside the handler) alone decides."""
+    import ast
+    src = (_URA / "coordinator.py").read_text()
+    tree = ast.parse(src)
+    parents = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+    calls = [
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and getattr(n.func, "attr", None) == "handle_temperature_based_fan_control"
+    ]
+    assert calls, "the room-tier fan handler call site is gone"
+    for call in calls:
+        node = call
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, ast.If):
+                assert "climate_automation" not in ast.unparse(node.test)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                break
+    assert "_is_climate_automation_enabled" not in src
+    switch_src = (_URA / "switch.py").read_text()
+    assert "ClimateAutomationSwitch(coordinator)" not in switch_src
+    assert "class ClimateAutomationSwitch" not in switch_src
+
+
+def test_fan_mode_select_is_enabled_by_default_with_an_icon():
+    assert RoomFanModeSelect._attr_entity_registry_enabled_default is True
+    assert RoomFanModeSelect._attr_icon == "mdi:fan-auto"
+
+
+def test_migration_ignores_the_retired_climate_automation_switch():
+    """The migration derives Fan Mode only from the two legacy toggles —
+    never from the old Climate Automation switch (many were switched off on
+    2026-09-29 as a stop-gap)."""
+    src = _extract(
+        _URA / "__init__.py",
+        "def _migrate_room_fan_mode(",
+        "\nasync def async_setup_entry(",
+    )
+    assert "climate_automation" not in src
+    room = _Entry("r1", {"entry_type": "room", "room_name": "X",
+                         "fan_control_enabled": True})
+    hass = _hass([_zm_entry({}), room])
+    hass.states.get = lambda eid: MagicMock(state="off")  # any switch "off"
+    assert _migrate(hass, room) == ROOMT
+
+
 def test_translations_carry_the_exact_labels():
     import json
     for rel in ("strings.json", "translations/en.json"):
