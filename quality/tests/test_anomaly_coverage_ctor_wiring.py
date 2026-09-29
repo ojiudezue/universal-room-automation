@@ -25,15 +25,25 @@ _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E402
-    coordinator_diagnostics as diag,
-    hvac as hvac_mod,
-    hvac_const,
-    music_following as mf_mod,
-    presence as presence_mod,
-    safety as safety_mod,
-    security as security_mod,
+_HERE = os.path.dirname(__file__)
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+import _anomaly_noop_scenario as NOOP  # noqa: E402
+
+_P = "custom_components.universal_room_automation.domain_coordinators."
+# Suite-order hygiene: see _anomaly_noop_scenario.import_isolated.
+(diag, hvac_mod, hvac_const, mf_mod, presence_mod, safety_mod, security_mod) = (
+    NOOP.import_isolated(
+        _P + "coordinator_diagnostics", _P + "hvac", _P + "hvac_const",
+        _P + "music_following", _P + "presence", _P + "safety", _P + "security",
+    )
 )
+assert diag is NOOP._diag()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_modules(monkeypatch):
+    NOOP.reinstall(monkeypatch)
 
 _REAL_DETECTOR = diag.AnomalyDetector
 

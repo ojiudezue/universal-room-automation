@@ -40,10 +40,59 @@ GOLDEN_PATH = _REPO_ROOT / "quality" / "fixtures" / "anomaly_noop_golden.json"
 PINNED_TS = "2026-09-28T12:00:00+00:00"
 
 
-# Bound at import (collection) time: some sibling test files replace
-# `custom_components.*` in sys.modules with stubs at run time.
-from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E402
-    coordinator_diagnostics as _DIAG,
+# ---------------------------------------------------------------------------
+# Import isolation (suite-order hygiene).
+#
+# These tests drive the REAL production modules. But several sibling files
+# (e.g. test_house_state_rung2a.py) stub HA and then import coordinator
+# modules FRESH, relying on nothing having imported them first. So the
+# anomaly-coverage test files import what they need at collection, keep the
+# module objects, and REMOVE every `custom_components.*` entry they added from
+# sys.modules (plus the parent-package attribute). `reinstall(monkeypatch)`
+# puts exactly those objects back for the duration of one test, so runtime
+# relative imports inside production code (`from .coordinator_diagnostics
+# import AnomalyDetector`) resolve to the same objects the test patched.
+# ---------------------------------------------------------------------------
+ISOLATED: dict = {}
+
+
+def _is_cc(name: str) -> bool:
+    return name == "custom_components" or name.startswith("custom_components.")
+
+
+def import_isolated(*module_names):
+    import importlib  # noqa: PLC0415
+    before = {k for k in sys.modules if _is_cc(k)}
+    # Re-seat modules isolated by an earlier call so every anomaly-coverage
+    # test file shares ONE copy of each production module.
+    for name, mod in ISOLATED.items():
+        if name not in sys.modules:
+            sys.modules[name] = mod
+    try:
+        mods = [importlib.import_module(n) for n in module_names]
+    finally:
+        added = {k: sys.modules[k] for k in list(sys.modules)
+                 if _is_cc(k) and k not in before}
+    for name, mod in added.items():
+        ISOLATED[name] = mod
+        sys.modules.pop(name, None)
+        parent_name, _, child = name.rpartition(".")
+        parent = sys.modules.get(parent_name)
+        if parent is not None and getattr(parent, child, None) is mod:
+            try:
+                delattr(parent, child)
+            except AttributeError:
+                pass
+    return mods
+
+
+def reinstall(monkeypatch) -> None:
+    for name, mod in ISOLATED.items():
+        monkeypatch.setitem(sys.modules, name, mod)
+
+
+(_DIAG,) = import_isolated(
+    "custom_components.universal_room_automation.domain_coordinators.coordinator_diagnostics",
 )
 
 

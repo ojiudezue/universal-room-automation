@@ -41,17 +41,24 @@ if _REPO_ROOT not in sys.path:
 
 import _anomaly_noop_scenario as NOOP  # noqa: E402
 
-from custom_components.universal_room_automation import (  # noqa: E402
-    button as button_mod,
-    sensor as sensor_mod,
+_P = "custom_components.universal_room_automation."
+# Suite-order hygiene: see _anomaly_noop_scenario.import_isolated.
+(button_mod, sensor_mod, base_mod, diag, hvac_mod, manager_mod, security_mod) = (
+    NOOP.import_isolated(
+        _P + "button", _P + "sensor",
+        _P + "domain_coordinators.base",
+        _P + "domain_coordinators.coordinator_diagnostics",
+        _P + "domain_coordinators.hvac",
+        _P + "domain_coordinators.manager",
+        _P + "domain_coordinators.security",
+    )
 )
-from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E402
-    base as base_mod,
-    coordinator_diagnostics as diag,
-    hvac as hvac_mod,
-    manager as manager_mod,
-    security as security_mod,
-)
+assert diag is NOOP._diag()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_modules(monkeypatch):
+    NOOP.reinstall(monkeypatch)
 
 AnomalyDetector = diag.AnomalyDetector
 MetricBaseline = diag.MetricBaseline
