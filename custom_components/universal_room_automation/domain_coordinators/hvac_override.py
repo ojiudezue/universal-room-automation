@@ -2312,7 +2312,7 @@ class OverrideArrester:
 
             # Use severe grace (short) since this override already persisted
             # through a restart — user has already had their grace period
-            self._cancel_zone_timers(zone.zone_id)
+            self._cancel_arrester_timers(zone.zone_id)
             grace_seconds = OVERRIDE_SEVERE_GRACE_MINUTES * 60
 
             _zone = zone
@@ -3598,7 +3598,7 @@ class OverrideArrester:
         self._override_active[zone_id] = True
 
         # Cancel any existing timers for this zone
-        self._cancel_zone_timers(zone_id)
+        self._cancel_arrester_timers(zone_id)
 
         grace_seconds = OVERRIDE_SEVERE_GRACE_MINUTES * 60
 
@@ -3656,7 +3656,7 @@ class OverrideArrester:
         self._override_active[zone_id] = True
 
         # Cancel any existing timers
-        self._cancel_zone_timers(zone_id)
+        self._cancel_arrester_timers(zone_id)
 
         grace_seconds = OVERRIDE_NORMAL_GRACE_MINUTES * 60
 
@@ -7063,12 +7063,30 @@ class OverrideArrester:
         except Exception:  # noqa: BLE001
             return None
 
-    def _cancel_zone_timers(self, zone_id: str) -> None:
-        """Cancel all active timers for a zone."""
+    def _cancel_arrester_timers(self, zone_id: str) -> None:
+        """Cancel ONLY the arrester's own grace / compromise timers for a
+        zone.
+
+        HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1 (B-L3 in the
+        v5.103.23 W1/W2 finish review): a NEW governed override
+        episode (`_handle_severe_override` / `_handle_normal_override`
+        / the startup-audit stale-override branch) must NOT cancel a
+        pending AC hard-reset RESTORE timer (`_reset_timers`) — that
+        timer belongs to a different subsystem and, if the arrester
+        cancels it inside the Carrier lag window after the reset's
+        `off` write, the zone stays off until the arrester's own revert
+        re-asserts heat_cool (~2 min on the severe path, up to ~20 min
+        on grace+compromise; indefinitely if the revert stands down).
+        Mirrors the scope of `_defer_arrester_to_borrow`
+        (Round 3 LOW-2). Legitimate cancel sites for the reset restore
+        timer — teardown (§4.1 line ~2360), `ac_reset_enabled` setter
+        (line ~3038), and the fire-time pop in `_restore_after_reset`
+        (line ~4411) — handle `_reset_timers` directly and are
+        unaffected.
+        """
         for timer_dict in (
             self._grace_timers,
             self._compromise_timers,
-            self._reset_timers,
         ):
             cancel = timer_dict.pop(zone_id, None)
             if cancel:
