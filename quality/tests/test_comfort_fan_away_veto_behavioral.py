@@ -592,6 +592,16 @@ class TestBatchDReconcilerOwnership:
     """HVAC Batch D: `_resolve_fan` follows ``const.fan_owner`` (same rows
     as the room tier; the reconciler re-asserts the room tier's intent)."""
 
+    def test_reconciler_defers_while_the_recheck_paused_the_fan(self):
+        """Fix-up 1 (B-M1): never re-assert a fan the recheck has paused."""
+        recon = _make_reconciler(HouseState.HOME_DAY)
+        recon._config()["room_fan_mode"] = "room_temperature"
+        data = {STATE_TEMPERATURE: TEMP_ABOVE, STATE_OCCUPIED: True}
+        recon._automation().is_recheck_paused = lambda: False
+        assert recon._resolve_fan(FAN_ENTITY, data).state == "on"
+        recon._automation().is_recheck_paused = lambda: True
+        assert recon._resolve_fan(FAN_ENTITY, data) is None
+
     @pytest.mark.parametrize(
         "mode,hvac_running,resolves_on",
         [

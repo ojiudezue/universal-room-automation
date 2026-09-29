@@ -490,6 +490,18 @@ def test_hvac_kill_keeps_holds_of_rooms_it_does_not_own():
 # Fix-up 1 — A9: recheck speed from the first ON entity
 # ---------------------------------------------------------------------------
 
+def test_restore_tracks_by_live_ownership_not_the_pause_snapshot():
+    """Fix-up 1 (B-LOW-1): the room became "Follow thermostat" during the
+    recheck -> the restore books the fan into HVAC-tier tracking (ownership
+    re-read live, not the pause-time snapshot)."""
+    fc, entries, states, log = _world(fan_on={"Jaya Bedroom": True})
+    snap = _run(fc.pause_for_recheck("Jaya Bedroom", "2099-01-01T00:00:00+00:00"))
+    assert snap["hvac_managed"] is False
+    _entry_of(entries, "Jaya Bedroom").options = {CONST.CONF_ROOM_FAN_MODE: FOLLOW}
+    _run(fc.restore_after_recheck("Jaya Bedroom", snap))
+    assert fc._room_fans["Jaya Bedroom"].is_on is True
+
+
 def test_recheck_snapshot_speed_is_the_first_on_entity():
     rooms = {"Jaya Bedroom": (ROOMT, "fan.jaya_a")}
     fc, entries, states, log = _world(rooms=rooms)
