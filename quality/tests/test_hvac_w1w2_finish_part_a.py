@@ -437,16 +437,35 @@ async def test_egress_row_not_ended_by_human(mods, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_nudge_live_human_change_nudge_win_not_ended(mods, monkeypatch):
-    """INV-A4 (D13). A BANKING row AND a live nudge: the nudge wins, nothing
-    is ended, no latch, no arrester timer."""
+    """INV-A4 (D13) + fix-up 1 (D-L3, orchestrator decision). A live nudge
+    riding on top of a BANKING row: the nudge WINS — it is not ended, the
+    change books `nudge_win`, no arrester timer. But the non-nudge borrow
+    underneath is ended as the person's interrupt and the zone is latched,
+    so its snapshot is never restored over them."""
     coord, hass, arr, sched, db = _setup(mods, monkeypatch)
     tok = _seed(mods, Z2, "BANKING")
     arr._nudge_in_flight.add(Z2)
     await _fire(hass, arr, _ev(E2, ("manual", 68.0, 74.0), ("manual", 68.0, 71.0)))
     d = _od_rows(hass, mods)[0]["details"]
-    assert d["gated_reason"] == "nudge_win" and d["human_interrupt"] is False
-    assert tok.returned is False and not arr.interrupt_latched(E2)
+    assert d["gated_reason"] == "nudge_win" and d["human_interrupt"] is True
+    assert Z2 in arr._nudge_in_flight              # the nudge is not ended
+    assert tok.returned and tok._return_outcome.trigger == "human_interrupt"
+    assert arr.interrupt_latched(E2)
     assert sched.live() == [] and Z2 not in arr._grace_timers
+
+
+@pytest.mark.asyncio
+async def test_nudge_live_does_not_supersede_arrester_episode(mods, monkeypatch):
+    """D13: with a live nudge, a pending arrester grace is left alone (the
+    nudge owns the zone; the grace defers at fire time)."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    arr._nudge_in_flight.add(Z2)
+    grace = lambda: None
+    arr._grace_timers[Z2] = grace
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 74.0), ("manual", 68.0, 71.0)))
+    d = _od_rows(hass, mods)[0]["details"]
+    assert d["gated_reason"] == "nudge_win" and d["episode_superseded"] is False
+    assert arr._grace_timers.get(Z2) is grace
 
 
 @pytest.mark.asyncio
@@ -1191,3 +1210,266 @@ async def test_replay_23_03_control_without_interrupt_restores_away(mods, monkey
     await ex.async_startup_excursion_audit(hass, coord)
     await H.drain(hass)
     assert H.preset_writes(hass, E2, "away")
+
+
+# ==========================================================================
+# Fix-up round 1 (reviews A / B / C / D)
+# ==========================================================================
+
+
+def _grace_entry(sched, delay):
+    return [r for r in sched.live() if r[0] == delay]
+
+
+@pytest.mark.asyncio
+async def test_compromise_superseded_during_s3_write_arms_no_timer(mods, monkeypatch):
+    """A-L1 = B-M1: a person supersedes the episode WHILE the S3 write
+    awaits. The compromise row closes as `human_interrupt`, no token is
+    stored and NO 900 s compromise timer is armed (a dead timer would keep
+    S1 gates (c)/(e) armed)."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="home",
+                                         low=70.0, high=76.0)
+    await _fire(hass, arr, _ev(E2, ("home", 70.0, 76.0), ("manual", 70.0, 78.0)))
+    (_d, grace_cb, _c), = sched.live()
+    real_call = hass.services.async_call
+
+    async def _hooked(domain, service, data=None, blocking=False, **kw):
+        await real_call(domain, service, data, blocking=blocking, **kw)
+        if service == "set_temperature":
+            arr._handle_climate_change(
+                _ev(E2, ("manual", 70.0, 78.0), ("manual", 70.0, 81.0)))
+    monkeypatch.setattr(hass.services, "async_call", _hooked)
+    grace_cb(None)
+    await H.drain(hass, rounds=8)
+    assert _grace_entry(sched, 900.0) == []
+    assert Z2 not in arr._compromise_timers
+    assert Z2 not in arr._compromise_excursion_tokens
+    assert any(e["kind"] == "compromise" and e["trigger"] == "human_interrupt"
+               for e in db.events)
+
+
+@pytest.mark.asyncio
+async def test_stale_revert_pops_its_own_timer_entry(mods, monkeypatch):
+    """B-M1: a stood-down revert removes ITS OWN still-registered handle."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="home",
+                                         low=70.0, high=76.0)
+    await _fire(hass, arr, _ev(E2, ("home", 70.0, 76.0), ("manual", 70.0, 64.0)))
+    (_d, cb, _c), = sched.live()
+    assert Z2 in arr._grace_timers
+    arr._bump_arrest_gen(Z2)          # superseded without popping the timer
+    cb(None)
+    await H.drain(hass, rounds=8)
+    assert Z2 not in arr._grace_timers
+    assert H.preset_writes(hass, E2) == []
+
+
+@pytest.mark.asyncio
+async def test_stale_apply_pops_its_own_grace_entry(mods, monkeypatch):
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="home",
+                                         low=70.0, high=76.0)
+    await _fire(hass, arr, _ev(E2, ("home", 70.0, 76.0), ("manual", 70.0, 78.0)))
+    (_d, cb, _c), = sched.live()
+    arr._bump_arrest_gen(Z2)
+    cb(None)
+    await H.drain(hass, rounds=8)
+    assert Z2 not in arr._grace_timers
+    assert _cw_rows(hass, mods, "S3_compromise") == []
+
+
+@pytest.mark.asyncio
+async def test_startup_audit_revert_stands_down_on_supersede(mods, monkeypatch):
+    """A-L2: the startup-audit revert is generation-aware and recorded as an
+    episode — a person's later change supersedes it (case B) and the queued
+    audit revert writes nothing."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="manual",
+                                         low=70.0, high=64.0)
+    await arr.async_startup_audit(coord._preset_manager, "home_night")
+    (delay, old_cb, _c), = sched.live()
+    assert delay == 120.0 and arr._arrest_episode[Z2]["original_preset"] == "home"
+    arr.unsuppress(E2)
+    await _fire(hass, arr, _ev(E2, ("manual", 70.0, 64.0), ("manual", 70.0, 65.0)))
+    assert _od_rows(hass, mods)[-1]["details"]["baseline_case"] == "B"
+    old_cb(None)
+    await H.drain(hass, rounds=8)
+    assert H.preset_writes(hass, E2) == []
+
+
+@pytest.mark.asyncio
+async def test_disable_bumps_generation_so_queued_compromise_stands_down(mods, monkeypatch):
+    """B-L4: a compromise task already queued when the arrester is disabled
+    writes nothing."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="home",
+                                         low=70.0, high=76.0)
+    await _fire(hass, arr, _ev(E2, ("home", 70.0, 76.0), ("manual", 70.0, 78.0)))
+    (_d, grace_cb, _c), = sched.live()
+    grace_cb(None)                 # task created, not yet run
+    arr.enabled = False
+    await H.drain(hass, rounds=8)
+    assert _cw_rows(hass, mods, "S3_compromise") == []
+
+
+@pytest.mark.parametrize("house_state,expected", [
+    ("sleep", "sleep"), ("waking", "sleep"), ("home_night", "home"),
+    ("home_evening", "home"), ("home_day", "home"), ("away", "home"),
+    ("vacation", "home"), (None, "home"),
+])
+def test_pre_arrival_reference_preset_helper(mods, house_state, expected):
+    assert mods["hvac_const"].pre_arrival_reference_preset(house_state) == expected
+
+
+@pytest.mark.asyncio
+async def test_empty_house_pre_arrival_interrupt_reverts_home_not_away(mods, monkeypatch):
+    """Q7 ruling (fix-up 1): house `away`, a pre-arrival pre-cool snapshotted
+    away is interrupted -> judged against and reverted to HOME."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, house_state="away")
+    _seed(mods, Z2, "BANKING", pre_preset="away", site="S12_pre_arrival")
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 74.0), ("manual", 68.0, 71.0)))
+    d = _od_rows(hass, mods)[0]["details"]
+    assert d["reference_preset"] == "home" and d["delta_f"] == -5.0
+    (_d, cb, _c), = sched.live()
+    cb(None)
+    await H.drain(hass, rounds=8)
+    s4 = [c[2]["preset_mode"] for c in H.preset_writes(hass, E2)
+          if c[2]["preset_mode"] != "resume"]
+    assert s4 == ["home"]
+
+
+@pytest.mark.asyncio
+async def test_sleeping_house_pre_arrival_interrupt_uses_sleep(mods, monkeypatch):
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, house_state="sleep")
+    _seed(mods, Z2, "BANKING", pre_preset="away", site="S12_pre_arrival")
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 74.0), ("manual", 68.0, 71.0)))
+    d = _od_rows(hass, mods)[0]["details"]
+    assert d["reference_preset"] == "sleep" and d["delta_f"] == -7.0   # vs sleep 78
+
+
+def _ev_state(ent, old, new_preset, new_state, low=68.0, high=71.0):
+    return _ev(ent, old, (new_preset, low, high), new_state=new_state)
+
+
+@pytest.mark.asyncio
+async def test_latch_kept_through_unavailable_flap(mods, monkeypatch):
+    """D-M1: manual -> unavailable (preset empty) -> manual keeps the latch."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    arr._interrupt_latch.add(E2)
+    await _fire(hass, arr, _ev_state(E2, ("manual", 68.0, 71.0), None, "unavailable"))
+    assert arr.interrupt_latched(E2)
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 71.0), ("manual", 68.0, 71.0),
+                               old_state="unavailable"))
+    assert arr.interrupt_latched(E2)
+
+
+@pytest.mark.asyncio
+async def test_latch_kept_when_unavailable_state_carries_old_preset(mods, monkeypatch):
+    """Conjunct `state not unavailable/unknown`, on its own."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    arr._interrupt_latch.add(E2)
+    await _fire(hass, arr, _ev_state(E2, ("manual", 68.0, 71.0), "home", "unavailable"))
+    assert arr.interrupt_latched(E2)
+
+
+@pytest.mark.asyncio
+async def test_latch_kept_when_preset_empty(mods, monkeypatch):
+    """Conjunct `named preset`, on its own (state readable, preset empty)."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    arr._interrupt_latch.add(E2)
+    await _fire(hass, arr, _ev_state(E2, ("manual", 68.0, 71.0), "", "heat_cool"))
+    assert arr.interrupt_latched(E2)
+
+
+def _saved(coord):
+    return coord._zone_state_store.saves[-1] if coord._zone_state_store.saves else {}
+
+
+@pytest.mark.asyncio
+async def test_latch_persisted_on_set_and_discharge(mods, monkeypatch):
+    """D-M2: `__interrupt_latch` side-key saved on set and on discharge."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    coord._zone_state_store = H.FakeStore()
+    _seed(mods, Z2, "BANKING")
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 74.0), ("manual", 68.0, 71.0)))
+    await H.drain(hass, rounds=6)
+    assert _saved(coord).get("__interrupt_latch") == [E2]
+    arr.unsuppress(E2)
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 71.0), ("home", 70.0, 76.0)))
+    await H.drain(hass, rounds=6)
+    assert _saved(coord).get("__interrupt_latch") == []
+
+
+@pytest.mark.asyncio
+async def test_latch_in_shutdown_snapshot(mods, monkeypatch):
+    """The shutdown save (taken BEFORE the arrester teardown clears RAM)
+    carries the latch."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    arr._interrupt_latch.add(E2)
+    assert coord._build_zone_state_snapshot()["__interrupt_latch"] == [E2]
+
+
+@pytest.mark.asyncio
+async def test_restart_mid_interrupt_no_s12_or_s13_begin(mods, monkeypatch):
+    """D-M2: a restart mid-interrupt restores the latch (zone still manual)
+    -> no pre-cool (either reason) and no pre-heat begins."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="manual",
+                                         low=68.0, high=76.0)
+    await coord._rehydrate_arrester_state({"__interrupt_latch": [E2]})
+    await H.drain(hass)
+    assert arr.interrupt_latched(E2)
+    z = coord.zone_manager.zones[Z2]
+    await coord._predictor._execute_zone_pre_cool(z, offset=-3.0, reason="energy_precool")
+    coord._pre_arrival_zones.add(Z2)
+    await coord._predictor._check_pre_conditioning(
+        None, "home_night", datetime(2026, 9, 28, 22, 3, 51), pre_arrival_zones={Z2},
+        zone_intelligence_enabled=True)
+    for zid in coord.zone_manager.zones:
+        _occ(mods, coord, zid, hvac=(zid == Z2))
+    await coord._predictor._execute_pre_heat()
+    await H.drain(hass)
+    assert _cw_rows(hass, mods, "S12_pre_cool") == []
+    assert _cw_rows(hass, mods, "S13_pre_heat") == []
+    assert mods["hvac_excursion"].live_token_for(Z2) is None
+
+
+@pytest.mark.asyncio
+async def test_latch_restore_discharged_when_zone_left_manual(mods, monkeypatch):
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="home",
+                                         low=70.0, high=76.0)
+    coord._zone_state_store = H.FakeStore()
+    await coord._rehydrate_arrester_state({"__interrupt_latch": [E2]})
+    await H.drain(hass, rounds=6)
+    assert not arr.interrupt_latched(E2)
+    assert _saved(coord).get("__interrupt_latch") == []
+
+
+@pytest.mark.asyncio
+async def test_latch_restore_kept_while_zone_unreadable(mods, monkeypatch):
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    H.set_climate(hass, E2, preset_mode="home", state="unavailable")
+    await coord._rehydrate_arrester_state({"__interrupt_latch": [E2]})
+    assert arr.interrupt_latched(E2)
+
+
+@pytest.mark.asyncio
+async def test_stale_row_past_lease_max_not_ended_as_human(mods, monkeypatch):
+    """F3: a row already past EXCURSION_LEASE_MAX_S (7200 s) is not live —
+    the person's change does not end it as `human_interrupt` (the sweep owns
+    it)."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    ex = mods["hvac_excursion"]
+    tok = ex._test_seed_row(zone_id=Z2, kind=ex.EXCURSION_KIND.BANKING, duration_s=None,
+                            pre_preset="away", site="S12_pre_cool",
+                            started_ts=ex._now() - 7201)
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 74.0), ("manual", 68.0, 71.0)))
+    assert tok.returned is False
+    assert _od_rows(hass, mods)[0]["details"]["interrupted_kind"] is None
+
+
+@pytest.mark.asyncio
+async def test_cool_to_heat_cool_transition_does_not_end_borrow(mods, monkeypatch):
+    """F4: a MODE change into manual (cool -> heat_cool, legs numeric) with a
+    BANKING row live is not a person's setpoint change (H1 / INV-A5)."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="home",
+                                         low=70.0, high=76.0)
+    tok = _seed(mods, Z2, "BANKING")
+    await _fire(hass, arr, _ev(E2, ("home", 70.0, 76.0), ("manual", 68.0, 71.0),
+                               old_state="cool"))
+    assert tok.returned is False and not arr.interrupt_latched(E2)

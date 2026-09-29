@@ -503,6 +503,17 @@ PRE_ARRIVAL_PRECOOL_OFFSET_F: Final = -2.0
 # the Q7 reference-preset rule and the interrupt pull in
 # `_expire_pre_arrival_zones`.
 S12_PRE_ARRIVAL_SITE: Final = "S12_pre_arrival"
+# Q7 (operator ruling, fix-up 1: "Home for pre-arrivals"): house states whose
+# ARRIVAL target is `sleep`; every other house state arrives to `home`.
+PRE_ARRIVAL_SLEEP_ARRIVAL_STATES: Final = ("sleep", "waking")
+
+
+def pre_arrival_reference_preset(house_state: Any) -> str:
+    """The S1 preset a person arriving would get — the reference preset for
+    an interrupted PRE-ARRIVAL pre-cool. Never `away` / `vacation`: a
+    pre-arrival means someone is expected (an empty-house `away` state
+    still arrives to `home`)."""
+    return "sleep" if house_state in PRE_ARRIVAL_SLEEP_ARRIVAL_STATES else "home"
 # HVAC W1/W2 finish D1: how many of URA's own recent `set_temperature` writes
 # per entity the arrester compares a within-manual change against. RUNG 1
 # (module constant) — it DEFINES what counts as a human, so changing it must

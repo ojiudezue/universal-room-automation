@@ -51,6 +51,7 @@ from .hvac_const import (
     DEFAULT_HVAC_PRE_ARRIVAL_WINDOW_MINUTES,
     S12_PRE_ARRIVAL_SITE,
     clamp_hvac_pre_arrival_window_minutes,
+    pre_arrival_reference_preset,
     COMFORT_SOC_FLOOR_PCT,
     COMFORT_GRACE_MIN,
     # HVAC W1-B: P2 classifier thresholds + §5.P5 reclaim-rate trip-wire.
@@ -319,11 +320,17 @@ class HVACCoordinator(BaseCoordinator):
         # (`get_preset_for_house_state`, the startup-audit arithmetic); the
         # per-zone vacancy retreat stays S1's job (ruling Q4). Returns
         # (preset, cool, heat) or None.
-        def _arrester_reference(zone_id: str, preset: str | None = None):
+        def _arrester_reference(
+            zone_id: str, preset: str | None = None, arrival: bool = False,
+        ):
             pm = self._preset_manager
-            target = preset or pm.get_preset_for_house_state(
-                self._house_state or "home_day",
-            )
+            if arrival:
+                # Q7 (fix-up 1): the ARRIVAL target, never away / vacation.
+                target = pre_arrival_reference_preset(self._house_state)
+            else:
+                target = preset or pm.get_preset_for_house_state(
+                    self._house_state or "home_day",
+                )
             if not target:
                 return None
             season = pm.current_season or pm.determine_season()
@@ -686,6 +693,13 @@ class HVACCoordinator(BaseCoordinator):
         self._pre_arrival_zones: set[str] = set()
         self._pre_arrival_persons: dict[str, str] = {}  # zone_id -> person_entity
         self._pre_arrival_start: dict[str, Any] = {}  # zone_id -> datetime
+        # HVAC W1/W2 finish fix-up 1 (D-L5): arrival episodes whose pre-cool
+        # already ran its course (max age) or was ended as inactive (ZI /
+        # coordinator off). zone_id -> last trigger time. While a zone is
+        # here, a repeat trigger inside the window only refreshes this time
+        # and does NOT re-add the zone (no second pre-cool). Discharge:
+        # HVAC arrival in the zone, or a whole window with no trigger.
+        self._pre_arrival_spent: dict[str, Any] = {}
         # RESTART-SAFETY-DOCTRINE-1 F14. restart: RESET WITH REASON —
         # display-only counter surfaced via property vacancy_sweeps_today
         # and the HVAC diagnostics sensor. Zone-vacancy behaviour is
@@ -1746,6 +1760,11 @@ class HVACCoordinator(BaseCoordinator):
         trigger still runs the full site list.
         """
         if not self._enabled:
+            # HVAC W1/W2 finish fix-up 1 (D-L4): a pre-arrival pre-cool
+            # borrow live when the coordinator is switched off is ended as
+            # `pre_arrival_inactive` here (never left to `lease_expiry`).
+            if self._boot_settle_done:
+                await self._async_end_pre_arrival_borrows({}, all_inactive=True)
             return
 
         # Cold-boot away-actuation storm mitigation — Gate 2. The first
@@ -1973,6 +1992,12 @@ class HVACCoordinator(BaseCoordinator):
             arr.rehydrate_immune_holds(data.get("__immune_holds") or {})
         except Exception:  # noqa: BLE001
             _LOGGER.warning("HVAC: immune-hold rehydration failed", exc_info=True)
+        # HVAC W1/W2 finish fix-up 1 (D-M2): restore the interrupt latch
+        # (kept only while the zone still reads manual).
+        try:
+            arr.rehydrate_interrupt_latch(data.get("__interrupt_latch") or [])
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("HVAC: interrupt-latch rehydration failed", exc_info=True)
 
         tao = data.get("__tao_state") or {}
         if not isinstance(tao, dict):
@@ -2308,6 +2333,8 @@ class HVACCoordinator(BaseCoordinator):
         snapshot["__tao_state"] = (
             arr.export_tao_state() if arr else {"started_ts": None, "expires_at": None}
         )
+        # HVAC W1/W2 finish fix-up 1 (D-M2): the person-interrupt latch.
+        snapshot["__interrupt_latch"] = arr.export_interrupt_latch() if arr else []
         return snapshot
 
     async def async_save_zone_state(self) -> None:
@@ -5870,8 +5897,20 @@ class HVACCoordinator(BaseCoordinator):
             return
 
         now = dt_util.utcnow()
+        _win = timedelta(seconds=self._pre_arrival_window_s())
         for zone_id in preferred_zones:
             if zone_id in self._zone_manager.zones:
+                # D-L5: a repeat trigger inside a spent arrival episode only
+                # extends that episode — no new pre-arrival, no new pre-cool.
+                _spent_at = self._pre_arrival_spent.get(zone_id)
+                if _spent_at is not None and (now - _spent_at) <= _win:
+                    self._pre_arrival_spent[zone_id] = now
+                    _LOGGER.info(
+                        "HVAC: Pre-arrival for zone %s ignored — this arrival "
+                        "episode's pre-cool already ended", zone_id,
+                    )
+                    continue
+                self._pre_arrival_spent.pop(zone_id, None)
                 self._pre_arrival_zones.add(zone_id)
                 self._pre_arrival_persons[zone_id] = person_entity
                 self._pre_arrival_start[zone_id] = now
@@ -5955,6 +5994,17 @@ class HVACCoordinator(BaseCoordinator):
         timeout = timedelta(seconds=self._pre_arrival_window_s())
         zones_to_defan: list = []
         cleared: dict[str, str] = {}
+        # D-L5: end spent arrival episodes on HVAC arrival or after a whole
+        # window with no trigger.
+        for _sz in list(self._pre_arrival_spent):
+            if zone_filter is not None and _sz not in zone_filter:
+                continue
+            _zs = self._zone_manager.zones.get(_sz)
+            if _zs is None or bool(getattr(_zs, "any_room_hvac_occupied", False)):
+                self._pre_arrival_spent.pop(_sz, None)
+                continue
+            if (now - self._pre_arrival_spent[_sz]) > timeout:
+                self._pre_arrival_spent.pop(_sz, None)
         tokens = getattr(self._predictor, "_banking_excursion_tokens", None) or {}
         for zone_id in list(self._pre_arrival_zones):
             if zone_filter is not None and zone_id not in zone_filter:
@@ -6004,6 +6054,7 @@ class HVACCoordinator(BaseCoordinator):
     async def _async_end_pre_arrival_borrows(
         self, reasons: dict[str, str] | None,
         zone_filter: set[str] | None = None,
+        all_inactive: bool = False,
     ) -> None:
         """HVAC W1/W2 finish D3 call-site helper: run the predictor's
         reconciliation BEFORE S1 (INV-B.3), then drop max-aged zones from the
@@ -6015,7 +6066,8 @@ class HVACCoordinator(BaseCoordinator):
         try:
             active = (
                 set(self._pre_arrival_zones)
-                if self._zone_intelligence_enabled else set()
+                if self._zone_intelligence_enabled and not all_inactive
+                else set()
             )
             _toks = getattr(self._predictor, "_banking_excursion_tokens", None) or {}
             _before = set(_toks.keys())
@@ -6023,10 +6075,30 @@ class HVACCoordinator(BaseCoordinator):
                 active, reasons or {}, self._pre_arrival_window_s(),
                 zone_filter=zone_filter,
             )
+            _now_sp = dt_util.utcnow()
             for _zid in max_aged:
+                # D-L5: the arrival EPISODE is spent — no new pre-cool for
+                # this zone until the episode ends (arrival, or no trigger
+                # for a whole window). Keyed by the last trigger time.
+                self._pre_arrival_spent[_zid] = self._pre_arrival_start.get(_zid) or _now_sp
                 self._pre_arrival_zones.discard(_zid)
                 self._pre_arrival_start.pop(_zid, None)
                 self._pre_arrival_persons.pop(_zid, None)
+                # A-M1: the max-age end turns the zone's pre-arrival fans off
+                # exactly like the timeout branch.
+                _z_fan = self._zone_manager.zones.get(_zid)
+                if _z_fan is not None:
+                    self.hass.async_create_task(self._deactivate_zone_fans(_z_fan))
+            if all_inactive or not self._zone_intelligence_enabled:
+                # D-L5: ZI off (or the coordinator off) ended every live
+                # pre-arrival borrow as inactive — mark those episodes spent
+                # too, so ZI off->on within the window does not re-begin.
+                for _zid in _before - set((getattr(self._predictor, "_banking_excursion_tokens", None) or {}).keys()):
+                    if _zid in self._pre_arrival_zones:
+                        self._pre_arrival_spent[_zid] = self._pre_arrival_start.get(_zid) or _now_sp
+                        self._pre_arrival_zones.discard(_zid)
+                        self._pre_arrival_start.pop(_zid, None)
+                        self._pre_arrival_persons.pop(_zid, None)
             # Refresh ONLY the zones whose borrow was ended here (no-op pass
             # stays byte-identical).
             _after = set((getattr(self._predictor, "_banking_excursion_tokens", None) or {}).keys())

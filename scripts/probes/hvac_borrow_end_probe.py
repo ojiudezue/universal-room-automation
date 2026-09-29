@@ -173,6 +173,59 @@ print(f"\nP1 GATE: unmatched rows inside a URA echo window (<=5 min of a URA tem
 for x in cands:
     print("  ", json.dumps({k: v for k, v in x.items() if k != "ts"}, default=str))
 
+# P1b (fix-up 1, A-L7 = B-L2): transitions INTO manual while a borrow is
+# live — the D2 interrupt rule (`_transition_is_human`: both sides
+# heat_cool, a changed leg, no changed leg within tol of URA's last 4
+# writes). A "false human" is a transition the rule calls human that sits
+# inside a URA echo window (<= 5 min after a URA temp write, or a nudge
+# window) — the harmful direction. Transitions within 15 s of a URA temp
+# write are dropped by the arrester's suppression before D2 runs.
+trans = []
+for z, ent in ENT.items():
+    prev = None
+    for st, t, a in attrs(ent):
+        try:
+            a = json.loads(a or "{}")
+        except Exception:
+            continue
+        cur = (st, a.get("preset_mode"), num(a.get("target_temp_low")),
+               num(a.get("target_temp_high")), t)
+        if prev is not None:
+            ps, pp, pl, ph, _ = prev
+            cs, cp, cl, ch, _ = cur
+            if pp != "manual" and cp == "manual":
+                lw = [w for w in live_window(z, t) if w != "nudge"]
+                if lw:
+                    recent = [w for w in writes[ent] if w[0] <= t][-DEPTH:]
+                    lag = (t - recent[-1][0]) if recent else None
+                    both_hc = ps == cs == "heat_cool"
+                    changed = [leg for leg, o, n in (("low", pl, cl), ("high", ph, ch))
+                               if o is not None and n is not None and o != n]
+                    new = {"low": cl, "high": ch}
+                    matched = any(all(
+                        (w[1] if leg == "low" else w[2]) is not None and new[leg] is not None
+                        and abs((w[1] if leg == "low" else w[2]) - new[leg]) <= TOL
+                        for leg in changed) for w in recent) if changed else False
+                    human = both_hc and bool(changed) and not matched
+                    suppressed = lag is not None and lag <= TEMP_SUPPRESS_S
+                    in_echo = (lag is not None and lag <= FULL_READ_S) or bool(
+                        [w for w in live_window(z, t) if w == "nudge"])
+                    trans.append({"zone": z, "t": f(t), "borrow": lw, "old": (ps, pp, pl, ph),
+                                  "new": (cs, cp, cl, ch), "changed": changed,
+                                  "matched": matched, "human": human,
+                                  "lag_s": None if lag is None else round(lag, 1),
+                                  "suppressed_15s": suppressed,
+                                  "false_human": human and not suppressed and in_echo})
+        prev = cur
+print(f"\nP1b transitions INTO manual with a live non-nudge borrow: N={len(trans)}")
+print("  human (would interrupt):", sum(1 for x in trans if x["human"] and not x["suppressed_15s"]),
+      "| URA-echo matched:", sum(1 for x in trans if x["matched"]),
+      "| dropped by 15 s window:", sum(1 for x in trans if x["suppressed_15s"]),
+      "| FALSE-HUMAN (human inside a URA echo window):",
+      sum(1 for x in trans if x["false_human"]))
+for x in trans:
+    print("  ", json.dumps(x, default=str))
+
 # P5
 print("\nP5 S4_revert rows pinning manual / startup-audit nudge restores pinning manual:")
 for ts, dj in u.execute(

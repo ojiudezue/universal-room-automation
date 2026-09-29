@@ -470,6 +470,18 @@ class HVACPredictor:
                 set(self._last_pre_conditioning_zones)
                 | set(self._last_precool_zones)
             )
+            # HVAC W1/W2 finish fix-up 1 (D-L7): a PRE-ARRIVAL borrow ends
+            # with an INV-B.2 trigger and never writes the DPM throttle map.
+            _toks_m = getattr(self, "_banking_excursion_tokens", {}) or {}
+            _pa_rel = {
+                z for z in release_set
+                if getattr(_toks_m.get(z), "caller_site", None) == S12_PRE_ARRIVAL_SITE
+            }
+            if _pa_rel:
+                await self._release_banked_zones(
+                    _pa_rel, trigger="pre_arrival_inactive", update_throttle=False,
+                )
+            release_set -= _pa_rel
             if release_set:
                 await self._release_banked_zones(release_set)
             self._last_pre_conditioning_zones = set()
@@ -600,6 +612,10 @@ class HVACPredictor:
                 await self._execute_zone_pre_cool(
                     zone, offset=offset_f, reason="energy_precool",
                 )
+                # Fix-up 1 (D-L2): a person-interrupted zone is not a
+                # pre-cool zone — do not track it for release / display.
+                if self._interrupt_latched(zone):
+                    continue
                 self._pre_conditioning_zones.add(zone_id)
                 self._energy_precool_zones.add(zone_id)
                 self._last_precool_zones.add(zone_id)
@@ -663,7 +679,9 @@ class HVACPredictor:
                     # Fans as comfort bridge (skip during sleep — Critique 5 fix)
                     if house_state != "sleep":
                         await self._activate_zone_fans(zone)
-                    self._pre_conditioning_zones.add(zone_id)
+                    # Fix-up 1 (D-L2): not re-added while person-latched.
+                    if not self._interrupt_latched(zone):
+                        self._pre_conditioning_zones.add(zone_id)
 
         # --- Pre-heat (winter, before off-peak ends; occupant-comfort driven) ---
         if not is_unoccupied:
@@ -991,6 +1009,20 @@ class HVACPredictor:
                 continue
             zone = self._zone_manager.zones.get(zone_id)
             if zone is None:
+                # Fix-up 1 (D-L4): the zone was removed mid-borrow — close
+                # its row now (nothing to write to) instead of leaving it to
+                # `lease_expiry`.
+                await self._close_banking_token_no_write(
+                    zone_id, trigger, "s11_zone_removed",
+                )
+                continue
+            # Fix-up 1 (D-L1): a person interrupted this zone — S11 never
+            # writes over them (energy flip-off, orphan reconciliation and
+            # the D3 pre-arrival end all route through here).
+            if self._interrupt_latched(zone):
+                await self._close_banking_token_no_write(
+                    zone_id, "human_interrupt", "s11_skipped_person_latched",
+                )
                 continue
             baseline = self._resolve_baseline_range(zone_id)
             if baseline is None:
@@ -998,6 +1030,10 @@ class HVACPredictor:
                     "HVAC: cannot release banked zone %s — no baseline "
                     "(no _last_emitted_range entry and preset fallback "
                     "unavailable)", zone_id,
+                )
+                # Same D-L4 class: close the row (restore not attempted).
+                await self._close_banking_token_no_write(
+                    zone_id, trigger, "s11_no_baseline",
                 )
                 continue
             base_low, base_high = baseline
@@ -1144,6 +1180,22 @@ class HVACPredictor:
                         "banking release: return_excursion failed for %s: %s",
                         zone_id, _rc,
                     )
+
+    async def _close_banking_token_no_write(
+        self, zone_id: str, trigger: str, detail: str,
+    ) -> None:
+        """Pop the zone's banking token and close its row with NO wire write
+        (restore_ok=None — policy did not attempt a restore). Never raises."""
+        tok = getattr(self, "_banking_excursion_tokens", {}).pop(zone_id, None)
+        if tok is None or tok.returned:
+            return
+        try:
+            from . import hvac_excursion as _ex_c  # noqa: PLC0415
+            await _ex_c.return_excursion(
+                tok, trigger=trigger, restore_ok=None, trigger_detail=detail,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("banking token close failed for %s", zone_id, exc_info=True)
 
     async def async_end_pre_arrival_borrows(
         self,

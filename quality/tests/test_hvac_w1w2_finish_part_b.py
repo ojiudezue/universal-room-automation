@@ -617,3 +617,268 @@ async def test_pre_arrival_window_knob_live_and_persisted(mods, monkeypatch):
     now = datetime.now(timezone.utc)
     coord._pre_arrival_start[Z2] = now - timedelta(minutes=21)
     assert coord._expire_pre_arrival_zones(now) == {Z2: "timeout"}
+
+
+# ==========================================================================
+# Fix-up round 1 (reviews A / B / C / D)
+# ==========================================================================
+
+
+@pytest.mark.asyncio
+async def test_max_age_end_turns_pre_arrival_fans_off(mods, monkeypatch):
+    """A-M1: the max-age end deactivates the zone's pre-arrival fans exactly
+    like the timeout branch."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    await _pre_arrival(coord, hass)
+    tok = _tok(coord)
+    defan: list = []
+    monkeypatch.setattr(coord, "_deactivate_zone_fans",
+                        AsyncMock(side_effect=lambda z: defan.append(z.zone_id)))
+    _age(mods, tok, 31 * 60, monkeypatch)
+    await coord._async_end_pre_arrival_borrows({})
+    await H.drain(hass)
+    assert tok._return_outcome.trigger == "pre_arrival_max_age"
+    assert defan == [Z2]
+
+
+@pytest.mark.asyncio
+async def test_pre_arrival_release_refreshes_zone_preset_before_s1(mods, monkeypatch):
+    """F2: after the arrival release pins the snapshot preset, the zone's
+    `preset_mode` is refreshed from the entity BEFORE S1 reads it."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    await _pre_arrival(coord, hass)
+    coord._startup_audit_done = True
+    z = coord.zone_manager.zones[Z2]
+    z.preset_mode = "manual"
+    H.set_climate(hass, E2, preset_mode="manual", hold_activity="manual", low=68.0, high=74.0)
+    real_call = hass.services.async_call
+
+    async def _apply(domain, service, data=None, blocking=False, **kw):
+        await real_call(domain, service, data, blocking=blocking, **kw)
+        if service == "set_preset_mode" and data.get("preset_mode") not in ("resume",):
+            H.set_climate(hass, data["entity_id"], preset_mode=data["preset_mode"],
+                          hold_activity=data["preset_mode"], low=68.0, high=80.0)
+    monkeypatch.setattr(hass.services, "async_call", _apply)
+    _occ(mods, coord, Z2, lighting=True, hvac=True)
+    seen: list = []
+
+    async def _s1(*a, **k):
+        seen.append(coord.zone_manager.zones[Z2].preset_mode)
+        return False
+    from unittest.mock import patch as _p
+    ps = [
+        _p.object(coord.zone_manager, "update_all_zones"),
+        _p.object(coord.zone_manager, "update_room_conditions"),
+        _p.object(coord, "_drain_hvac_degraded_room_events", new=AsyncMock()),
+        _p.object(coord, "_check_carrier_freshness", new=AsyncMock()),
+        _p.object(coord._egress_manager, "async_tick", new=AsyncMock()),
+        _p.object(coord._override_arrester, "check_ac_reset", new=AsyncMock()),
+        _p.object(coord._fan_controller, "update", new=AsyncMock()),
+        _p.object(coord._cover_controller, "update", new=AsyncMock()),
+        _p.object(coord._predictor, "update", new=AsyncMock()),
+        _p.object(coord, "_record_anomaly_observations", new=AsyncMock()),
+        _p.object(coord, "async_save_zone_state", new=AsyncMock()),
+        _p.object(coord, "_emit_and_reset_short_cycles", new=AsyncMock()),
+        _p.object(coord, "_apply_house_state_presets", new=_s1),
+    ]
+    for p in ps:
+        p.start()
+    try:
+        await coord._run_decision_cycle()
+    finally:
+        for p in ps:
+            p.stop()
+    assert seen == ["away"]
+
+
+def _install_cm(hass, mods, *, pre_cond=True, energy_on=True):
+    DOMAIN = mods["const"].DOMAIN
+    hv = MagicMock(); hv.pre_conditioning_enabled = pre_cond
+    en = MagicMock(); en.energy_precool_enabled = energy_on
+    en.energy_precool_offset = -3.0; en.energy_precool_scope = "whole_house"
+    hass.data[DOMAIN]["coordinator_manager"] = MagicMock(coordinators={"hvac": hv, "energy": en})
+
+
+@pytest.mark.asyncio
+async def test_s11_skips_person_latched_zone(mods, monkeypatch):
+    """D-L1: S11 never writes over a person-latched zone; the row closes as
+    `human_interrupt` with no restore attempted."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    z = coord.zone_manager.zones[Z2]
+    await coord._predictor._execute_zone_pre_cool(z, offset=-3.0, reason="energy_precool")
+    tok = _tok(coord)
+    coord._override_arrester._interrupt_latch.add(E2)
+    n = len(hass.services.calls)
+    await coord._predictor._release_banked_zones({Z2})
+    await H.drain(hass)
+    assert hass.services.calls[n:] == []
+    assert tok.returned and tok._return_outcome.trigger == "human_interrupt"
+    assert tok._return_outcome.restore_ok is None
+
+
+@pytest.mark.asyncio
+async def test_orphan_reconciliation_skips_person_latched_zone(mods, monkeypatch):
+    """D-L1: the post-restart orphan release (gate OFF, live high below the
+    baseline) also skips a latched zone (it routes through S11)."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    _install_cm(hass, mods, energy_on=False)
+    pred = coord._predictor
+    pred._first_eval_done = False
+    z = coord.zone_manager.zones[Z2]
+    z.target_temp_high = 72.0                       # below home 76 - 0.5
+    coord._override_arrester._interrupt_latch.add(E2)
+    await pred._check_pre_conditioning(None, "home_night", datetime(2026, 9, 28, 12, 0),
+                                       pre_arrival_zones=set(), zone_intelligence_enabled=True)
+    await H.drain(hass)
+    assert H.preset_writes(hass, E2) == [] and H.temp_writes(hass, E2) == []
+
+
+@pytest.mark.asyncio
+async def test_latched_zone_not_tracked_as_precool_zone(mods, monkeypatch):
+    """D-L2: an energy pre-cool pass does not re-add a person-latched zone to
+    the pre-cool tracking sets."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    _install_cm(hass, mods, energy_on=True)
+    pred = coord._predictor
+    pred._first_eval_done = True
+    monkeypatch.setattr(pred, "_should_energy_precool", lambda c, n: True)
+    coord._override_arrester._interrupt_latch.add(E2)
+    await pred._check_pre_conditioning(None, "home_day", datetime(2026, 6, 11, 11, 0),
+                                       pre_arrival_zones=set(), zone_intelligence_enabled=True)
+    assert Z2 not in pred._last_precool_zones
+    assert Z2 not in pred._energy_precool_zones
+    assert Z2 not in pred._pre_conditioning_zones
+    assert "zone_1" in pred._last_precool_zones      # unlatched zones still tracked
+
+
+@pytest.mark.asyncio
+async def test_latched_zone_not_tracked_in_pre_arrival_branch(mods, monkeypatch):
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    coord._override_arrester._interrupt_latch.add(E2)
+    coord._pre_arrival_zones.add(Z2)
+    await coord._predictor._check_pre_conditioning(
+        None, "home_night", datetime(2026, 9, 28, 22, 3, 51), pre_arrival_zones={Z2},
+        zone_intelligence_enabled=True)
+    assert Z2 not in coord._predictor._pre_conditioning_zones
+
+
+@pytest.mark.asyncio
+async def test_hvac_disabled_ends_pre_arrival_borrow_inactive(mods, monkeypatch):
+    """D-L4: HVAC coordinator switched off mid pre-arrival -> the borrow ends
+    as `pre_arrival_inactive` on the next tick, never `lease_expiry`."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    await _pre_arrival(coord, hass)
+    tok = _tok(coord)
+    coord._enabled = False
+    await coord._async_decision_cycle()
+    await H.drain(hass)
+    assert tok.returned and tok._return_outcome.trigger == "pre_arrival_inactive"
+
+
+@pytest.mark.asyncio
+async def test_zone_removed_mid_borrow_returns_token(mods, monkeypatch):
+    """D-L4: the zone vanished while its pre-arrival borrow was live — the
+    release closes the row instead of skipping it forever."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    await _pre_arrival(coord, hass)
+    tok = _tok(coord)
+    del coord.zone_manager._zones[Z2]
+    coord._pre_arrival_zones.discard(Z2)
+    await coord._async_end_pre_arrival_borrows({})
+    await H.drain(hass)
+    assert tok.returned and tok._return_outcome.detail == "s11_zone_removed"
+    assert Z2 not in coord._predictor._banking_excursion_tokens
+
+
+@pytest.mark.asyncio
+async def test_release_without_baseline_returns_token(mods, monkeypatch):
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    await _pre_arrival(coord, hass)
+    tok = _tok(coord)
+    monkeypatch.setattr(coord._predictor, "_resolve_baseline_range", lambda z: None)
+    coord._pre_arrival_zones.discard(Z2)
+    await coord._async_end_pre_arrival_borrows({})
+    await H.drain(hass)
+    assert tok.returned and tok._return_outcome.detail == "s11_no_baseline"
+
+
+def _arrive_setup(coord):
+    coord._pre_arrival_enabled = True
+    coord._pre_arrival_sources = ["ble"]
+    coord._person_zone_map = {"person.jaya": [Z2]}
+    coord._async_decision_cycle = AsyncMock()
+
+
+@pytest.mark.asyncio
+async def test_max_age_then_repeat_trigger_does_not_rebegin(mods, monkeypatch):
+    """D-L5: after a max-age end, a repeat trigger inside the window neither
+    re-adds the zone nor begins a second pre-cool."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    _arrive_setup(coord)
+    await _pre_arrival(coord, hass)
+    tok = _tok(coord)
+    _age(mods, tok, 31 * 60, monkeypatch)
+    await coord._async_end_pre_arrival_borrows({})
+    await H.drain(hass)
+    assert tok._return_outcome.trigger == "pre_arrival_max_age"
+    coord._handle_person_arriving({"person_entity": "person.jaya", "source": "ble"})
+    assert Z2 not in coord._pre_arrival_zones
+    await coord._predictor._check_pre_conditioning(
+        None, "home_night", datetime(2026, 9, 28, 22, 40),
+        pre_arrival_zones=set(coord._pre_arrival_zones), zone_intelligence_enabled=True)
+    await H.drain(hass)
+    assert len(_s12(hass, mods)) == 1
+
+
+@pytest.mark.asyncio
+async def test_spent_episode_ends_after_a_window_of_silence(mods, monkeypatch):
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    _arrive_setup(coord)
+    coord._pre_arrival_spent[Z2] = datetime.now(timezone.utc) - timedelta(minutes=31)
+    coord._handle_person_arriving({"person_entity": "person.jaya", "source": "ble"})
+    assert Z2 in coord._pre_arrival_zones and Z2 not in coord._pre_arrival_spent
+
+
+@pytest.mark.asyncio
+async def test_spent_episode_ends_on_arrival(mods, monkeypatch):
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    coord._pre_arrival_spent[Z2] = datetime.now(timezone.utc)
+    _occ(mods, coord, Z2, lighting=True, hvac=True)
+    coord._expire_pre_arrival_zones(datetime.now(timezone.utc))
+    assert Z2 not in coord._pre_arrival_spent
+
+
+@pytest.mark.asyncio
+async def test_zi_off_on_within_window_does_not_rebegin(mods, monkeypatch):
+    """D-L5: ZI off ends the borrow (inactive) and spends the episode; ZI
+    back on inside the window begins nothing."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    await _pre_arrival(coord, hass)
+    tok = _tok(coord)
+    coord._zone_intelligence_enabled = False
+    await coord._async_end_pre_arrival_borrows({})
+    await H.drain(hass)
+    assert tok._return_outcome.trigger == "pre_arrival_inactive"
+    coord._zone_intelligence_enabled = True
+    await coord._predictor._check_pre_conditioning(
+        None, "home_night", datetime(2026, 9, 28, 22, 10),
+        pre_arrival_zones=set(coord._pre_arrival_zones), zone_intelligence_enabled=True)
+    await H.drain(hass)
+    assert len(_s12(hass, mods)) == 1
+
+
+@pytest.mark.asyncio
+async def test_master_off_ends_pre_arrival_with_inactive_trigger(mods, monkeypatch):
+    """D-L7: pre-conditioning master OFF ends a pre-arrival borrow with an
+    INV-B.2 trigger and never writes the DPM throttle map."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    await _pre_arrival(coord, hass)
+    tok = _tok(coord)
+    coord._last_emitted_range.pop(Z2, None)
+    _install_cm(hass, mods, pre_cond=False)
+    await coord._predictor._check_pre_conditioning(
+        None, "home_night", datetime(2026, 9, 28, 22, 10),
+        pre_arrival_zones={Z2}, zone_intelligence_enabled=True)
+    await H.drain(hass)
+    assert tok.returned and tok._return_outcome.trigger == "pre_arrival_inactive"
+    assert Z2 not in coord._last_emitted_range
