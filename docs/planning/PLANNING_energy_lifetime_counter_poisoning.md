@@ -148,6 +148,20 @@ One-shot recorder probe over all 6 lifetime sensors: hour-to-hour decreases in `
 
 **Acceptance:** probe output committed with per-counter max-decrement; `LIFETIME_REGRESS_TOLERANCE_MWH` constant chosen with cited value.
 
+**D-1 RESULT (run 2026-09-29 ~04:45 CDT, orchestrator, `scripts/probes/lifetime_counter_noise_probe.py`; gate SATISFIED):**
+
+| Counter (`sensor.envoy_482543015950_lifetime_*`) | Legit decreases (hourly stats 90 d / raw states) | Max legit decrement | Glitch reads |
+|---|---|---|---|
+| `energy_production` | 9 / 0 | 0.000001 MWh | 197 hourly / 104 raw, all exactly 0.045505 |
+| `energy_consumption` | 11 / 73 | 0.000074 MWh (0.074 kWh) | 0 |
+| `net_energy_consumption`, `net_energy_production` | 0 / 0 | 0 | 0 |
+| `battery_energy_discharged` | 13 hourly, incl. ~1.9 MWh drops | see note | HALVING glitch (see note) |
+| `battery_energy_charged` | 7 hourly, incl. ~2.4 MWh drops | see note | HALVING glitch (see note) |
+
+→ **ε_regress = 0.001 MWh**: 3× the largest legit decrement is 0.00022 MWh, so the floor wins.
+
+**NEW failure shape found by D-1:** the battery counters had a second glitch in August (hourly statistics): the value fell to about HALF, then recovered. Examples: charged 4.245747 → 2.123309 (08-07 13:00Z), 4.413131 → 2.210022 (08-11 15:00Z), 4.491997 → 2.245999 (08-13 00:00Z); discharged drops of about 1.78–1.94 MWh. No instances appear in raw-state retention (the last ~10 days). These values are > 1 MWh, so any "value > 1.0" or constant-0.045505 filter misses them. The LKG lower bound (`x ≥ LKG − ε`) rejects them. **This is evidence for Option F over Option S**, if any consumer takes daily deltas of the battery counters. The builder/plan must enumerate the battery-counter delta consumers (if none, note it and keep the getters guarded anyway, since the guard is uniform).
+
 ### D0 — Operator knob flip (OPERATOR DECISION)
 As in rev 1. Trade-off: `live_span` may read ~0 on SPAN blind spots → DP abstains `MISSING_INPUTS` rather than deciding on wrong load.
 
