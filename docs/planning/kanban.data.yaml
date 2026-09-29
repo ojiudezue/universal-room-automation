@@ -2209,7 +2209,8 @@ cards:
   workstream: HVAC-W2-OCCUPANCY-TRUTH
   title: A room that is reloading is briefly treated as "empty" by HVAC paths that bypass the shared retreat check
   thread: hvac
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.23
   groom_2026_09_29: 'MOVED parked -> in_progress (revived by the operator batching ruling batches_2026_09_28, BATCH B). Scope is C3 ONLY (the continuous_occupied_since reset), per ruling Q5 in PLANNING_hvac_w1_w2_finish.md; C1/C2/C4 stay parked in that plans Appendix A with their probe triggers. Built on feature/hvac-w1-w2-finish as commit 3300de489 "Part C (C3) - occupancy clock not reset while a room reloads".'
   created: '2026-09-26 02:15'
   updated: '2026-09-29 01:05'
@@ -17893,7 +17894,8 @@ cards:
 - id: ARRESTER-BOOT-BLIND-1
   title: Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable
   thread: hvac
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.23
   groom_2026_09_29: 'MOVED waiting_operator -> in_progress. The operator input this lane waited on already arrived (operator_ruling_2026_09_28: "The person interrupts. We end and revert."), and the build is running: Batch B "HVAC W1/W2 finish" (PLANNING_hvac_w1_w2_finish.md REV 2, Part A) on branch feature/hvac-w1-w2-finish in worktree .claude/worktrees/agent-a06fc29a3fde3ca11; git log develop..feature/hvac-w1-w2-finish shows df6ee96bc "Parts A+B - a person ends a borrow; pre-arrival borrow lifetime" plus test commits up to 7500895d9. Rank scored (was default).'
   rank: {value: 7, time_criticality: 6, effort: 8}
   updated: '2026-09-29 01:05'
@@ -30149,7 +30151,8 @@ cards:
 - id: HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1
   title: A pre-arrival pre-cool keeps the zone on URA's temporary setpoints for up to 2 hours and lowers them another 2 degrees on every decision pass
   thread: hvac
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.23
   groom_2026_09_29: 'MOVED planned -> in_progress. Batch B Part B is being built on feature/hvac-w1-w2-finish (commit df6ee96bc "Parts A+B - a person ends a borrow; pre-arrival borrow lifetime"; plan PLANNING_hvac_w1_w2_finish.md REV 2 D3/D5).'
   created: '2026-09-28 22:30'
   updated: '2026-09-29 01:05'
