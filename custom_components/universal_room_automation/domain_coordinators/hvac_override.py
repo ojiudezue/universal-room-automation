@@ -1293,33 +1293,85 @@ class OverrideArrester:
         """Serialise the latch for `__interrupt_latch` (sorted entity ids)."""
         return sorted(self._interrupt_latch)
 
+    @staticmethod
+    def _latch_state_discharges(st: Any) -> bool:
+        """THE latch discharge predicate (fix-up 2, N1 — LEVEL-triggered):
+        the thermostat is readable (not unavailable / unknown) AND shows a
+        non-empty named preset other than `manual`. A missing state, an
+        unavailable flap or an empty preset never discharges."""
+        if st is None:
+            return False
+        if getattr(st, "state", None) in ("unavailable", "unknown", None):
+            return False
+        pm = (getattr(st, "attributes", None) or {}).get("preset_mode")
+        return bool(pm) and pm != "manual"
+
+    def _zone_entities(self) -> set[str]:
+        try:
+            return {
+                z.climate_entity for z in self._zone_manager.zones.values()
+                if getattr(z, "climate_entity", None)
+            }
+        except Exception:  # noqa: BLE001
+            return set()
+
+    def prune_interrupt_latch(self) -> int:
+        """Fix-up 2 (N5): drop latches for entities no longer mapped to any
+        zone (a deleted / remapped zone). Persists when anything dropped."""
+        valid = self._zone_entities()
+        if not valid:
+            return 0              # zone map not known yet — cannot tell
+        stale = [e for e in self._interrupt_latch if e not in valid]
+        for e in stale:
+            self._interrupt_latch.discard(e)
+        if stale:
+            self._persist_arrester_state("interrupt_latch_pruned")
+        return len(stale)
+
+    def latch_level_check(self) -> int:
+        """Fix-up 2 (N1): discharge every latched entity whose CURRENT
+        state satisfies `_latch_state_discharges` — covers a thermostat
+        that became readable at a named preset without an event URA saw
+        (e.g. ha_carrier loaded after the HVAC setup and the first event
+        had old_state=None). Run every decision cycle. Returns the count."""
+        n = 0
+        for ent in list(self._interrupt_latch):
+            try:
+                st = self.hass.states.get(ent)
+            except Exception:  # noqa: BLE001
+                st = None
+            if self._latch_state_discharges(st):
+                self._latch_discharge(ent)
+                n += 1
+        return n
+
     def rehydrate_interrupt_latch(self, data: Any) -> int:
         """Boot restore. Kept only while the entity still reads `manual` —
-        or cannot be read yet (missing / unavailable / unknown: never drop a
-        person's protection on an unreadable boot state). A zone that reads
-        a named non-manual preset is discharged (its manual episode ended
-        while URA was down). Returns the number restored."""
+        or cannot be read yet (missing / unavailable / unknown / empty
+        preset: never drop a person's protection on an unreadable boot
+        state). A zone that reads a named non-manual preset is discharged
+        (its manual episode ended while URA was down); an entity no longer
+        mapped to any zone is dropped (N5). Returns the number restored."""
         if not isinstance(data, (list, tuple, set)):
             return 0
         data = list(data)
+        valid = self._zone_entities()
         restored = 0
         for ent in data:
             ent = str(ent)
+            if valid and ent not in valid:
+                continue          # N5: not a zone thermostat any more
             st = None
             try:
                 st = self.hass.states.get(ent)
             except Exception:  # noqa: BLE001
                 st = None
-            if st is not None and getattr(st, "state", None) not in (
-                "unavailable", "unknown",
-            ):
-                pm = (getattr(st, "attributes", None) or {}).get("preset_mode")
-                if pm and pm != "manual":
-                    continue      # episode ended while down — discharge
+            if self._latch_state_discharges(st):
+                continue          # episode ended while down — discharge
             self._interrupt_latch.add(ent)
             restored += 1
         if restored != len(data):
-            # Some entries were discharged — persist the shorter latch.
+            # Some entries were discharged / pruned — persist the shorter latch.
             self._persist_arrester_state("interrupt_latch_rehydrated")
         return restored
 
@@ -2549,6 +2601,9 @@ class OverrideArrester:
                 "expected_heat": expected_heat,
                 "gen": _sa_gen,
             }
+            # Defense-in-depth (fix-up 2, C-6): the timer's own handle, so the
+            # callback pops only ITS timer (`_pop_own_timer`). The generation
+            # check is the primary stale-callback guard.
             _sa_h: dict[str, Any] = {}
 
             @callback
@@ -3369,6 +3424,18 @@ class OverrideArrester:
         new_state = event.data.get("new_state")
         old_state = event.data.get("old_state")
 
+        # HVAC W1/W2 finish fix-up 2 (N1): the person-interrupt latch is
+        # discharged LEVEL-triggered — whenever a latched thermostat's NEW
+        # state is readable at a named non-manual preset, whatever the old
+        # state was (incl. old_state None: the first event after
+        # ha_carrier loads). Runs BEFORE the early return below.
+        if new_state is not None and entity_id in self._interrupt_latch:
+            try:
+                if self._latch_state_discharges(new_state):
+                    self._latch_discharge(entity_id)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("latch level discharge failed", exc_info=True)
+
         if new_state is None or old_state is None:
             return
 
@@ -3383,20 +3450,8 @@ class OverrideArrester:
             _ep_old = (getattr(old_state, "attributes", None) or {}).get("preset_mode", "")
             if _ep_old == "manual" and _ep_new != "manual":
                 self._last_detection.pop(entity_id, None)
-                # HVAC W1/W2 finish D2e: the interrupt latch's ONLY runtime
-                # discharge — the zone left manual to a NAMED preset (S4 pin,
-                # S1 reclaim or a person choosing one). Fix-up 1 (D-M1): an
-                # unavailable / unknown flap (manual -> unavailable ->
-                # manual, preset attr empty) is NOT an exit and keeps the
-                # latch. L5 (accepted): a manual->named->manual status-feed
-                # flicker still discharges it.
-                _ep_ent_state = getattr(new_state, "state", None)
-                if (
-                    _ep_ent_state not in ("unavailable", "unknown")
-                    and _ep_new
-                    and _ep_new != "manual"
-                ):
-                    self._latch_discharge(entity_id)
+                # (The interrupt latch is discharged level-triggered at the
+                # top of this handler — fix-up 2, N1.)
         except Exception:  # noqa: BLE001
             pass
 
@@ -3756,7 +3811,25 @@ class OverrideArrester:
         ref_preset = old_preset
         baseline_case = "transition"
         _resolver_missing = False
-        if _episode_rec is not None:
+        # Fix-up 2 (N4): an ended PRE-ARRIVAL pre-cool takes the ARRIVAL
+        # reference even when an arrester episode (case B, incl. the
+        # startup-audit episode) is also in flight — its original preset
+        # may be `away`, and a pre-arrival means someone is expected.
+        _ended_pa = False
+        if _ended_tok is not None:
+            try:
+                from .hvac_const import S12_PRE_ARRIVAL_SITE as _s12pa_n4  # noqa: PLC0415
+                _ended_pa = _ended_tok.caller_site == _s12pa_n4
+            except Exception:  # noqa: BLE001
+                _ended_pa = False
+        if _ended_pa:
+            baseline_case = "A"
+            _ref = self._resolve_reference(zone_id_b, None, arrival=True)
+            if _ref is None:
+                _resolver_missing = True
+            else:
+                ref_preset, expected_cool, expected_heat = _ref
+        elif _episode_rec is not None:
             baseline_case = "B"
             ref_preset = _episode_rec.get("original_preset") or old_preset
             expected_cool = _episode_rec.get("expected_cool")
@@ -3766,26 +3839,21 @@ class OverrideArrester:
             and _K is not None
             and _ended_tok.kind in (_K.BANKING, _K.PREHEAT)
         ):
+            # Energy BANKING / PREHEAT (H3): the named pre-borrow preset, else
+            # the house S1 target. (A PRE-ARRIVAL borrow never reaches here —
+            # it takes the arrival reference above, fix-up 2 N4.)
             baseline_case = "A"
             _want: str | None = None
             try:
-                from .hvac_const import S12_PRE_ARRIVAL_SITE as _s12pa  # noqa: PLC0415
                 from .hvac_strategy import strategy_for as _strat  # noqa: PLC0415
-                _is_pa = _ended_tok.caller_site == _s12pa
                 _named = not _strat(self.hass, entity_id).is_human_manual_snapshot(
                     _ended_tok.pre_preset,
                 )
             except Exception:  # noqa: BLE001
-                _is_pa, _named = False, False
-            # (A pre-arrival borrow's snapshot is ignored: the resolver's
-            # arrival path below decides its reference.)
+                _named = False
             if _named:
                 _want = _ended_tok.pre_preset
-            # Q7 (fix-up 1 ruling "Home for pre-arrivals"): an interrupted
-            # PRE-ARRIVAL pre-cool is judged against the house's ARRIVAL
-            # target (`pre_arrival_reference_preset`: sleep in sleep/waking,
-            # else home) — never away / vacation.
-            _ref = self._resolve_reference(zone_id_b, _want, arrival=_is_pa)
+            _ref = self._resolve_reference(zone_id_b, _want)
             if _ref is None:
                 _resolver_missing = True
             else:
@@ -4177,6 +4245,12 @@ class OverrideArrester:
             zone.last_override_direction, grace_seconds,
         )
 
+        # Defense-in-depth (fix-up 2, C-6): the timer's own handle, so the
+
+        # callback pops only ITS timer (`_pop_own_timer`). The generation
+
+        # check is the primary stale-callback guard.
+
         _sv_h: dict[str, Any] = {}
 
         @callback
@@ -4252,6 +4326,12 @@ class OverrideArrester:
             zone.zone_name, abs(delta),
             zone.last_override_direction, grace_seconds,
         )
+
+        # Defense-in-depth (fix-up 2, C-6): the timer's own handle, so the
+
+        # callback pops only ITS timer (`_pop_own_timer`). The generation
+
+        # check is the primary stale-callback guard.
 
         _nm_h: dict[str, Any] = {}
 
@@ -4441,6 +4521,12 @@ class OverrideArrester:
 
         # Schedule full revert after compromise period
         compromise_seconds = self._compromise_minutes * 60
+
+        # Defense-in-depth (fix-up 2, C-6): the timer's own handle, so the
+
+        # callback pops only ITS timer (`_pop_own_timer`). The generation
+
+        # check is the primary stale-callback guard.
 
         _cp_h: dict[str, Any] = {}
 

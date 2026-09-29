@@ -1473,3 +1473,202 @@ async def test_cool_to_heat_cool_transition_does_not_end_borrow(mods, monkeypatc
     await _fire(hass, arr, _ev(E2, ("home", 70.0, 76.0), ("manual", 68.0, 71.0),
                                old_state="cool"))
     assert tok.returned is False and not arr.interrupt_latched(E2)
+
+
+# ==========================================================================
+# Fix-up round 2
+# ==========================================================================
+
+
+@pytest.mark.asyncio
+async def test_latch_discharged_runtime_unavailable_to_home(mods, monkeypatch):
+    """N1 (level-triggered): a latched thermostat coming back from
+    `unavailable` straight to a named preset discharges the latch (the old
+    edge rule needed old_state == manual)."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    arr._interrupt_latch.add(E2)
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 71.0), ("home", 70.0, 76.0),
+                               old_state="unavailable"))
+    assert not arr.interrupt_latched(E2)
+
+
+@pytest.mark.asyncio
+async def test_latch_discharged_on_first_event_after_missing_boot_state(mods, monkeypatch):
+    """N1: at boot the thermostat has no state yet (ha_carrier not loaded) ->
+    the latch is kept; its first event arrives with old_state=None at `home`
+    -> discharged (before the handler's old_state-None early return)."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    hass.states._states.pop(E2, None)
+    await coord._rehydrate_arrester_state({"__interrupt_latch": [E2]})
+    assert arr.interrupt_latched(E2)
+    ev = _ev(E2, ("manual", 68.0, 71.0), ("home", 70.0, 76.0))
+    ev.data["old_state"] = None
+    await _fire(hass, arr, ev)
+    assert not arr.interrupt_latched(E2)
+
+
+@pytest.mark.asyncio
+async def test_latch_level_check_each_full_pass(mods, monkeypatch):
+    """N1 periodic check: the thermostat reads `home` without URA having seen
+    the event -> the next full decision pass discharges the latch."""
+    from unittest.mock import AsyncMock, patch as _p
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    arr._interrupt_latch.add(E2)
+    H.set_climate(hass, E2, preset_mode="home", hold_activity="home", low=70.0, high=76.0)
+    coord._startup_audit_done = True
+    coord._boot_settle_done = True
+    ps = [
+        _p.object(coord.zone_manager, "update_all_zones"),
+        _p.object(coord.zone_manager, "update_room_conditions"),
+        _p.object(coord, "_drain_hvac_degraded_room_events", new=AsyncMock()),
+        _p.object(coord, "_check_carrier_freshness", new=AsyncMock()),
+        _p.object(coord._egress_manager, "async_tick", new=AsyncMock()),
+        _p.object(coord._override_arrester, "check_ac_reset", new=AsyncMock()),
+        _p.object(coord._fan_controller, "update", new=AsyncMock()),
+        _p.object(coord._cover_controller, "update", new=AsyncMock()),
+        _p.object(coord._predictor, "update", new=AsyncMock()),
+        _p.object(coord, "_record_anomaly_observations", new=AsyncMock()),
+        _p.object(coord, "async_save_zone_state", new=AsyncMock()),
+        _p.object(coord, "_emit_and_reset_short_cycles", new=AsyncMock()),
+        _p.object(coord, "_apply_house_state_presets", new=AsyncMock(return_value=False)),
+    ]
+    for p_ in ps:
+        p_.start()
+    try:
+        await coord._run_decision_cycle()
+    finally:
+        for p_ in ps:
+            p_.stop()
+    assert not arr.interrupt_latched(E2)
+
+
+@pytest.mark.parametrize("preset", ["", None])
+@pytest.mark.asyncio
+async def test_latch_restore_kept_on_readable_state_with_empty_preset(mods, monkeypatch, preset):
+    """Re-review C-4: readable (heat_cool) but EMPTY / None preset at boot ->
+    not a discharge; the latch is kept."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    H.set_climate(hass, E2, preset_mode=preset, state="heat_cool")
+    await coord._rehydrate_arrester_state({"__interrupt_latch": [E2]})
+    assert arr.interrupt_latched(E2)
+
+
+@pytest.mark.asyncio
+async def test_interrupted_episode_spent_no_second_precool_after_s4(mods, monkeypatch):
+    """N2: interrupt -> the zone leaves pre-arrival as `interrupted` -> S4
+    pins home (latch discharged) -> a repeat arrival trigger inside the
+    window starts NO second pre-cool."""
+    from unittest.mock import AsyncMock
+    coord, hass, arr, sched, db, tok = await _replay_until_person(mods, monkeypatch)
+    coord._pre_arrival_enabled = True
+    coord._pre_arrival_sources = ["ble"]
+    coord._person_zone_map = {"person.jaya": [Z2]}
+    coord._async_decision_cycle = AsyncMock()
+    now = datetime.now(timezone.utc)
+    assert coord._expire_pre_arrival_zones(now) == {Z2: "interrupted"}
+    (delay, cb, _c), = sched.live()
+    cb(None)
+    await H.drain(hass, rounds=8)
+    assert H.preset_writes(hass, E2, "home")
+    z = coord.zone_manager.zones[Z2]
+    z.preset_mode, z.target_temp_low, z.target_temp_high = "home", 70.0, 76.0
+    H.set_climate(hass, E2, preset_mode="home", hold_activity="home", low=70.0, high=76.0)
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 71.0), ("home", 70.0, 76.0)))
+    assert not arr.interrupt_latched(E2)
+    coord._handle_person_arriving({"person_entity": "person.jaya", "source": "ble"})
+    await coord._predictor._check_pre_conditioning(
+        None, "home_night", datetime(2026, 9, 28, 22, 20),
+        pre_arrival_zones=set(coord._pre_arrival_zones), zone_intelligence_enabled=True)
+    await H.drain(hass)
+    assert len(_cw_rows(hass, mods, "S12_pre_cool")) == 1
+
+
+@pytest.mark.parametrize("house_state,expected", [
+    ("home_night", "home"), ("away", "home"), ("sleep", "sleep"),
+])
+@pytest.mark.asyncio
+async def test_pre_arrival_interrupt_inside_grace_uses_arrival_reference(
+    mods, monkeypatch, house_state, expected,
+):
+    """N4 repro: the zone is Away; a person's change arms a grace (episode
+    original = away); a pre-arrival pre-cool begins inside the grace; the
+    person sets 71 -> the reference is the ARRIVAL target, never away."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="away",
+                                         low=68.0, high=80.0, house_state=house_state)
+    await _fire(hass, arr, _ev(E2, ("away", 68.0, 80.0), ("manual", 68.0, 79.0)))
+    assert arr._arrest_episode[Z2]["original_preset"] == "away"
+    z = coord.zone_manager.zones[Z2]
+    z.preset_mode, z.target_temp_high = "manual", 79.0
+    await coord._predictor._execute_zone_pre_cool(
+        z, offset=-2.0, reason="pre_arrival", from_baseline=True)
+    await H.drain(hass)
+    tok = coord._predictor._banking_excursion_tokens[Z2]
+    assert tok.caller_site == "S12_pre_arrival"
+    arr.unsuppress(E2)
+    wrote_high = _cw_rows(hass, mods, "S12_pre_cool")[-1]["values_after"]["target_temp_high"]
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, wrote_high), ("manual", 68.0, 71.0)))
+    d = _od_rows(hass, mods)[-1]["details"]
+    assert d["reference_preset"] == expected and d["episode_superseded"] is True
+    assert d["interrupted_kind"] == "banking"
+    assert arr._arrest_episode[Z2]["original_preset"] == expected
+
+
+@pytest.mark.asyncio
+async def test_pre_arrival_interrupt_during_startup_audit_uses_arrival_reference(mods, monkeypatch):
+    """N4, startup-audit episode: empty house (audit target away), a
+    pre-arrival pre-cool begins during the audit grace, the person sets 71
+    -> reference home, never away."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="manual",
+                                         low=68.0, high=86.0, house_state="away")
+    await arr.async_startup_audit(coord._preset_manager, "away")
+    assert arr._arrest_episode[Z2]["original_preset"] == "away"
+    z = coord.zone_manager.zones[Z2]
+    await coord._predictor._execute_zone_pre_cool(
+        z, offset=-2.0, reason="pre_arrival", from_baseline=True)
+    await H.drain(hass)
+    assert coord._predictor._banking_excursion_tokens[Z2].caller_site == "S12_pre_arrival"
+    arr.unsuppress(E2)
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 78.0), ("manual", 68.0, 71.0)))
+    d = _od_rows(hass, mods)[-1]["details"]
+    assert d["reference_preset"] == "home"
+    assert arr._arrest_episode[Z2]["original_preset"] == "home"
+
+
+@pytest.mark.asyncio
+async def test_rehydrate_drops_latch_for_unmapped_entity(mods, monkeypatch):
+    """N5: a stored latch for a thermostat no longer in any zone is dropped."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    await coord._rehydrate_arrester_state({"__interrupt_latch": ["climate.gone", E2]})
+    assert arr.interrupt_latched(E2) and not arr.interrupt_latched("climate.gone")
+
+
+@pytest.mark.asyncio
+async def test_zones_updated_prunes_latch(mods, monkeypatch):
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    coord._zone_state_store = H.FakeStore()
+    arr._interrupt_latch.update({"climate.gone", E2})
+    coord._handle_zm_zones_updated({"deleted_zone_name": "No Such Zone"})
+    await H.drain(hass)
+    assert arr.interrupt_latched(E2) and not arr.interrupt_latched("climate.gone")
+
+
+def test_latch_prune_skipped_while_zone_map_empty(mods, monkeypatch):
+    """N5 guard: with no zones known (discovery not done), nothing is
+    pruned — URA cannot tell a stale latch from a live one."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch)
+    arr._interrupt_latch.add(E2)
+    coord.zone_manager._zones.clear()
+    assert arr.prune_interrupt_latch() == 0
+    assert arr.interrupt_latched(E2)
+
+
+@pytest.mark.asyncio
+async def test_heat_cool_to_cool_transition_does_not_end_borrow(mods, monkeypatch):
+    """Re-review C-5: heat_cool -> cool into manual (legs numeric) during a
+    BANKING borrow is a mode change, not a person's setpoint change."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, preset="home",
+                                         low=70.0, high=76.0)
+    tok = _seed(mods, Z2, "BANKING")
+    await _fire(hass, arr, _ev(E2, ("home", 70.0, 76.0), ("manual", 68.0, 71.0),
+                               new_state="cool"))
+    assert tok.returned is False and not arr.interrupt_latched(E2)

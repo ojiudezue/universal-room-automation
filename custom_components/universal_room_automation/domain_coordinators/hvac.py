@@ -2212,6 +2212,14 @@ class HVACCoordinator(BaseCoordinator):
             # D3: Clear stale pre-arrival zones
             _pa_reasons = self._expire_pre_arrival_zones(now_utc)
 
+        # HVAC W1/W2 finish fix-up 2 (N1): level check of the person-
+        # interrupt latch every full pass — a thermostat now readable at a
+        # named non-manual preset discharges it even if no event was seen.
+        try:
+            self._override_arrester.latch_level_check()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("HVAC: latch level check failed", exc_info=True)
+
         # HVAC W1/W2 finish D3 (INV-B.3): end pre-arrival pre-cool borrows
         # (arrival / timeout / interrupt / inactive / max age) BEFORE S1 in
         # this same pass, whatever the ZI toggle or observation mode.
@@ -5339,6 +5347,10 @@ class HVACCoordinator(BaseCoordinator):
                 "HVAC: in-memory zone prune failed for %r", deleted_name,
                 exc_info=True,
             )
+        # HVAC W1/W2 finish fix-up 2 (N5): drop person-interrupt latches for
+        # thermostats no longer mapped to any zone (the rewrite below then
+        # persists the pruned latch).
+        self._prune_interrupt_latch()
         # 2) Persisted snapshot rewrite (LOAD-BEARING — else restart
         #    resurrects the zone via restore_state_snapshot at line 503).
         # D1 guard mirror: `guard_spared_ids` was recorded INLINE above
@@ -5966,6 +5978,27 @@ class HVACCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             _LOGGER.debug("HVAC: URA setpoint record boot seed failed", exc_info=True)
 
+    def _spend_pre_arrival_episode(self, zone_id: str, now: Any = None) -> None:
+        """D-L5 / fix-up 2: the zone's current arrival EPISODE is spent (its
+        pre-cool ended by max age, inactivity, master OFF or a person's
+        interrupt). Records the last trigger time in `_pre_arrival_spent` and
+        drops the zone from the pre-arrival set. Discharge: HVAC arrival in
+        the zone, or a whole window with no trigger (see
+        `_expire_pre_arrival_zones` / `_handle_person_arriving`)."""
+        now = now or dt_util.utcnow()
+        self._pre_arrival_spent[zone_id] = self._pre_arrival_start.get(zone_id) or now
+        self._pre_arrival_zones.discard(zone_id)
+        self._pre_arrival_start.pop(zone_id, None)
+        self._pre_arrival_persons.pop(zone_id, None)
+
+    def _prune_interrupt_latch(self) -> None:
+        """Fix-up 2 (N5): hand the arrester the current zone map so latches
+        for unmapped thermostats are dropped. Never raises."""
+        try:
+            self._override_arrester.prune_interrupt_latch()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("HVAC: interrupt-latch prune failed", exc_info=True)
+
     def _pre_arrival_window_s(self) -> float:
         """Knob 35 in seconds. Every writer (constructor, in-place options
         apply, Number entity) clamps to [5, 110] min."""
@@ -6017,9 +6050,11 @@ class HVACCoordinator(BaseCoordinator):
                 and getattr(_tok, "caller_site", None) == S12_PRE_ARRIVAL_SITE
                 and _tok.returned
             ):
-                self._pre_arrival_zones.discard(zone_id)
-                self._pre_arrival_start.pop(zone_id, None)
-                self._pre_arrival_persons.pop(zone_id, None)
+                # Fix-up 2 (N2): the person ended this arrival's pre-cool —
+                # the arrival EPISODE is spent, so a repeat trigger inside
+                # the window does not start a second pre-cool once the S4 /
+                # S1 pin has discharged the latch.
+                self._spend_pre_arrival_episode(zone_id, now)
                 cleared[zone_id] = "interrupted"
                 _LOGGER.info("HVAC: Pre-arrival cleared for zone %s (interrupted)", zone_id)
                 continue
@@ -6080,10 +6115,7 @@ class HVACCoordinator(BaseCoordinator):
                 # D-L5: the arrival EPISODE is spent — no new pre-cool for
                 # this zone until the episode ends (arrival, or no trigger
                 # for a whole window). Keyed by the last trigger time.
-                self._pre_arrival_spent[_zid] = self._pre_arrival_start.get(_zid) or _now_sp
-                self._pre_arrival_zones.discard(_zid)
-                self._pre_arrival_start.pop(_zid, None)
-                self._pre_arrival_persons.pop(_zid, None)
+                self._spend_pre_arrival_episode(_zid, _now_sp)
                 # A-M1: the max-age end turns the zone's pre-arrival fans off
                 # exactly like the timeout branch.
                 _z_fan = self._zone_manager.zones.get(_zid)
@@ -6095,10 +6127,7 @@ class HVACCoordinator(BaseCoordinator):
                 # too, so ZI off->on within the window does not re-begin.
                 for _zid in _before - set((getattr(self._predictor, "_banking_excursion_tokens", None) or {}).keys()):
                     if _zid in self._pre_arrival_zones:
-                        self._pre_arrival_spent[_zid] = self._pre_arrival_start.get(_zid) or _now_sp
-                        self._pre_arrival_zones.discard(_zid)
-                        self._pre_arrival_start.pop(_zid, None)
-                        self._pre_arrival_persons.pop(_zid, None)
+                        self._spend_pre_arrival_episode(_zid, _now_sp)
             # Refresh ONLY the zones whose borrow was ended here (no-op pass
             # stays byte-identical).
             _after = set((getattr(self._predictor, "_banking_excursion_tokens", None) or {}).keys())

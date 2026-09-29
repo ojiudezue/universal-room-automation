@@ -850,9 +850,12 @@ async def test_spent_episode_ends_on_arrival(mods, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_zi_off_on_within_window_does_not_rebegin(mods, monkeypatch):
-    """D-L5: ZI off ends the borrow (inactive) and spends the episode; ZI
-    back on inside the window begins nothing."""
+    """D-L5 (rewritten fix-up 2 — the old version was hollow: it never fired
+    a new trigger). ZI off ends the borrow as inactive and SPENDS the arrival
+    episode; ZI back on inside the window, then a REAL repeat arrival
+    trigger: the zone is not re-added and no second pre-cool is written."""
     coord, hass, db, _ = _setup(mods, monkeypatch)
+    _arrive_setup(coord)
     await _pre_arrival(coord, hass)
     tok = _tok(coord)
     coord._zone_intelligence_enabled = False
@@ -860,6 +863,8 @@ async def test_zi_off_on_within_window_does_not_rebegin(mods, monkeypatch):
     await H.drain(hass)
     assert tok._return_outcome.trigger == "pre_arrival_inactive"
     coord._zone_intelligence_enabled = True
+    coord._handle_person_arriving({"person_entity": "person.jaya", "source": "ble"})
+    assert Z2 not in coord._pre_arrival_zones
     await coord._predictor._check_pre_conditioning(
         None, "home_night", datetime(2026, 9, 28, 22, 10),
         pre_arrival_zones=set(coord._pre_arrival_zones), zone_intelligence_enabled=True)
@@ -895,3 +900,74 @@ async def test_spent_episode_pruned_after_a_window_without_trigger(mods, monkeyp
     coord._pre_arrival_spent[Z2] = datetime.now(timezone.utc) - timedelta(minutes=29)
     coord._expire_pre_arrival_zones(datetime.now(timezone.utc))
     assert Z2 in coord._pre_arrival_spent
+
+
+# ==========================================================================
+# Fix-up round 2
+# ==========================================================================
+
+
+def _freeze_hvac_clock(mods, monkeypatch, t):
+    from homeassistant.util import dt as real_dt
+    monkeypatch.setattr(real_dt, "utcnow", lambda: t)
+
+
+@pytest.mark.asyncio
+async def test_spent_episode_refreshed_by_repeat_trigger(mods, monkeypatch):
+    """Re-review C-2: max-age end at T0; a repeat trigger at T0+25 min
+    REFRESHES the spent episode; at T0+35 min it is still spent (only 10 min
+    since the last trigger) and a further trigger does not re-add the zone.
+    Without the refresh the episode would have lapsed at T0+30."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    _arrive_setup(coord)
+    t0 = datetime(2026, 9, 28, 22, 0, tzinfo=timezone.utc)
+    coord._pre_arrival_spent[Z2] = t0                       # max-age end at T0
+    _freeze_hvac_clock(mods, monkeypatch, t0 + timedelta(minutes=25))
+    coord._handle_person_arriving({"person_entity": "person.jaya", "source": "ble"})
+    assert Z2 not in coord._pre_arrival_zones
+    t35 = t0 + timedelta(minutes=35)
+    _freeze_hvac_clock(mods, monkeypatch, t35)
+    coord._expire_pre_arrival_zones(t35)
+    assert Z2 in coord._pre_arrival_spent
+    coord._handle_person_arriving({"person_entity": "person.jaya", "source": "ble"})
+    assert Z2 not in coord._pre_arrival_zones
+
+
+def test_pre_arrival_window_number_registered_for_cm(mods):
+    """Re-review C-3: the Coordinator Manager's `number.async_setup_entry`
+    actually yields the knob-35 entity."""
+    import asyncio as _aio
+    from custom_components.universal_room_automation import number as number_mod
+    from runtime_harness import StubConfigEntry
+    coord, hass = H.make_coord(mods)
+    hass.data[mods["const"].DOMAIN]["coordinator_manager"] = MagicMock(coordinators={"hvac": coord})
+    entry = StubConfigEntry(entry_id="cm", entry_type=mods["const"].ENTRY_TYPE_COORDINATOR_MANAGER)
+    added: list = []
+    _aio.new_event_loop().run_until_complete(
+        number_mod.async_setup_entry(hass, entry, lambda ents, *a, **k: added.extend(ents)))
+    assert any(type(e).__name__ == "PreArrivalWindowMinutesNumber" for e in added)
+
+
+@pytest.mark.asyncio
+async def test_master_off_on_within_window_does_not_rebegin(mods, monkeypatch):
+    """N3: master OFF ends the pre-arrival borrow and spends the episode;
+    master back ON inside the window + a REAL repeat trigger -> no second
+    pre-cool."""
+    coord, hass, db, _ = _setup(mods, monkeypatch)
+    _arrive_setup(coord)
+    await _pre_arrival(coord, hass)
+    tok = _tok(coord)
+    _install_cm(hass, mods, pre_cond=False)
+    await coord._predictor._check_pre_conditioning(
+        None, "home_night", datetime(2026, 9, 28, 22, 10),
+        pre_arrival_zones=set(coord._pre_arrival_zones), zone_intelligence_enabled=True)
+    await H.drain(hass)
+    assert tok._return_outcome.trigger == "pre_arrival_inactive"
+    assert Z2 not in coord._pre_arrival_zones
+    _install_cm(hass, mods, pre_cond=True, energy_on=False)
+    coord._handle_person_arriving({"person_entity": "person.jaya", "source": "ble"})
+    await coord._predictor._check_pre_conditioning(
+        None, "home_night", datetime(2026, 9, 28, 22, 12),
+        pre_arrival_zones=set(coord._pre_arrival_zones), zone_intelligence_enabled=True)
+    await H.drain(hass)
+    assert len(_s12(hass, mods)) == 1

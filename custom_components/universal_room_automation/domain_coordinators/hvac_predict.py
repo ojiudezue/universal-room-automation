@@ -481,6 +481,12 @@ class HVACPredictor:
                 await self._release_banked_zones(
                     _pa_rel, trigger="pre_arrival_inactive", update_throttle=False,
                 )
+                # Fix-up 2 (N3): the arrival episode is spent — master
+                # OFF->ON inside the window must not re-begin a pre-cool.
+                _spend = getattr(self._hvac_coord, "_spend_pre_arrival_episode", None)
+                if _spend is not None:
+                    for _z in _pa_rel:
+                        _spend(_z)
             release_set -= _pa_rel
             if release_set:
                 await self._release_banked_zones(release_set)
