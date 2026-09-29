@@ -30095,9 +30095,9 @@ cards:
 - id: URA-ATTRIBUTE-CHURN-1
   title: Two URA entities re-publish every couple of seconds only because a timestamp or countdown attribute ticked, adding HA CPU load and a history row each time
   thread: platform
-  status: planned
+  status: 'in_progress'
   created: '2026-09-28 19:10'
-  updated: '2026-09-28 19:10'
+  updated: '2026-09-29 03:20'
   approval: implied
   tags: [tier-1, ha-cpu, recorder]
   origin:
@@ -30109,13 +30109,14 @@ cards:
   - 'last_motion: grep consumers (dashboards/PWA/automations/URA readers) before dropping; if something reads it, keep it on a slower-changing surface (e.g. the room occupancy sensor only) and mark it unrecorded.'
   - 'cooldowns: publish last_alert + cooldown_until (static per alert); drop age_seconds / max_remaining_seconds.'
   - Sweep every URA entity for the same shape (live-ticking attributes with a steady state), not just these two; measure each against the recorder.
-  next: 'BUILD (Tier 1): drop or stop live-ticking attributes per the RECORDER-BLOAT-LOGFLOOD-1 pattern after a consumer grep; include an all-entity recorder sweep for the same shape. Live check: those entities write < 1 row/min when the state is steady.'
+  next: 'IN PROGRESS (me, overnight): builder is extending feature/ura-attribute-churn to cover idle_duration, timeout and last_evidence_at, then 2 reviews + a serial test run -> review. No deploy.'
   links:
     related: [RECORDER-BLOAT-LOGFLOOD-1, HA-CPU-LOAD-REVIEW-1]
   rank:
     value: 4
     time_criticality: 3
     effort: 2
+  verify_2026_09_29_overnight: 'CARD-WAS-WRONG on scope. It said last_motion was the ONLY changing attribute. Recorder, last 26h: binary_sensor.living_room_occupied had 22,722 rows, 22,653 of them rewrites with the same state, driven by idle_duration 12,828, last_motion 6,020 and timeout 3,845. binary_sensor.living_room_living_room_hvac_occupied had 4,234 rows, 4,193 same-state rewrites, driven by last_evidence_at 3,942. A last_motion-only fix removes a minority of the writes. First build (feature/ura-attribute-churn @a25ad2043): last_motion dropped from OccupiedBinarySensor; the safety cooldowns sensor now publishes a static last_alert + cooldown_until (age_seconds / max_remaining_seconds dropped). Consumers checked: no live automation or dashboard reads these attributes, and the PWA reads the cooldowns STATE only. The tick''s root is coordinator.py:3604 _last_motion_time = now on every inference pass. Builder sent back to extend. Sweep candidates for a follow-up (not fixed here): sensor.py:2517, 3751, 3900-3912, 13241, 14018, 14232-14276, 14631, 16388.'
 - id: HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1
   title: A pre-arrival pre-cool keeps the zone on URA's temporary setpoints for up to 2 hours and lowers them another 2 degrees on every decision pass
   thread: hvac
@@ -30146,7 +30147,7 @@ cards:
   status: planned
   groom_2026_09_29: 'ADJACENCY sweep: ENVOY-FLAKINESS-181243-1 (its title names "corrupt consumption_today") and COVERAGE-EVENING-ATTRIBUTION-DRIFT-1 share this producer family. That makes them ADJACENT, not DUPLICATE: different fix surfaces (forecast history hygiene vs integration flaps vs coverage audit input). Linked with context; the dangling link id ENVOY-FLAKINESS was fixed. Rank unchanged.'
   created: '2026-09-28 22:50'
-  updated: '2026-09-29 01:05'
+  updated: '2026-09-29 03:35'
   approval: implied
   tags: [energy, forecast, data-integrity, found-during-audit]
   origin:
@@ -30159,6 +30160,7 @@ cards:
   next: 'MEASURE then PLAN (Tier 2-DB, energy_daily writes + a consumer decision path): the poisoned-row count and a decision-impact probe first.'
   links: {related: [DASHBOARD-V8-FIX-BATCH-1, ENVOY-FLAKINESS-181243-1, COVERAGE-EVENING-ATTRIBUTION-DRIFT-1], context: 'ENVOY-FLAKINESS-181243-1 carries the same producer defect (Envoy today counters reporting lifetime values, its corrupt consumption_today cross-check); the old link id ENVOY-FLAKINESS did not exist. COVERAGE-EVENING-ATTRIBUTION-DRIFT-1 reads the same Envoy consumption family for the coverage audit. DASHBOARD-V8-FIX-BATCH-1 surfaced the -74 kWh Net Energy tile.'}
   rank: {value: 7, time_criticality: 6, effort: 3}
+  measured_2026_09_29_overnight: 'CONFIRMED, with a CORRECTED mechanism: the card''s Envoy ''production today reports lifetime'' is WRONG. Probe: scripts/probes/energy_consumption_forecast_poison_probe.py. Report: docs/planning/AUDIT_energy_consumption_forecast_poisoning_2026_09_29.md. The real source is sensor.envoy_482543015950_lifetime_energy_production intermittently reading a constant 0.045505 MWh instead of ~15-19 MWh: 346 hourly readings since 04-11, and 12 of 28 September midnights. A midnight snapshot that catches it makes the next day''s delta equal the whole lifetime counter, which is written as that day''s solar (energy.py:2771-2823) and flows into consumption. There is no plausibility bound (only >=10 kWh on accuracy restore, energy.py:1446). Orchestrator re-verified: energy_daily has exactly 4 poisoned rows (06-19 6,803.6 / 08-20 14,646.5 / 08-28 15,583.5 / 08-30 15,897.3 kWh consumption), and each equals (next-midnight lifetime - 0.045505)x1000 to 0.1 kWh. The lifetime sensor read 0.045505 at 00:18 today, so the 09-29 row will land around 18,850 kWh unless fixed first. The same glitch also explains 83/198 empty consumption days and undercounts (09-24 48, 09-25 78 kWh). Forecast: Thu/Fri/Sun weekday baselines 3,049/2,089/2,126 vs ~150-165 clean; the regression refit gives base 1,375, slope -64.4 (clean 135.6/+1.85); current prediction 327 kWh vs 146 from the shadow estimator. Decision impact: 30/31 Battery-Aware EV evaluations since 09-21 used forecast/24 as house load (13.6 kW vs SPAN 5.5-7.9), but all 30 exited early at the drain target, and a counterfactual on 18 older evaluations changed 0 outcomes. LATENT, not realised.'
 - id: HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1
   title: Publish each HVAC zone's "away due at" time and the arrester's grace/compromise end times, so the dashboard can show countdowns
   thread: hvac
@@ -30235,7 +30237,7 @@ cards:
   thread: hvac
   status: 'in_progress'
   created: '2026-09-29 04:10'
-  updated: '2026-09-29 03:05'
+  updated: '2026-09-29 03:50'
   approval: implied
   tags: [hvac, arrester, ac-reset, pre-existing, found-in-review]
   origin:
@@ -30246,6 +30248,8 @@ cards:
   rank: {value: 4, time_criticality: 3, effort: 1}
   build_2026_09_29_overnight: 'BUILT (ura-builder, worktree, branch fix/arrester-episode-keeps-ac-reset-restore @4e5d7d900, base = develop d8397a070). The helper was renamed _cancel_zone_timers -> _cancel_arrester_timers, and its scope was cut to grace + compromise, dropping _reset_timers (hvac_override.py:7066). All 3 callers (startup audit :2315, severe :3601, normal :3659) are arrester-episode arm sites, and all want the narrower scope. The legitimate reset-timer cancels are untouched: teardown :2360, ac_reset_enabled setter :3038, and the fire-time pop :4411. 5 tests in quality/tests/test_arrester_episode_preserves_ac_reset_restore.py: 3 positive (wire-in through _handle_severe/_handle_normal + the helper contract) and 2 negative (teardown and disable still cancel). Mutation drill (re-add _reset_timers): exactly the 3 positive tests failed, the 2 negative passed. Targeted run: 89 passed. Orchestrator check: Batch B has the same 3 callers and no new ones, so a rebase is textual only.'
   subfinding_2026_09_29_restore_clobbers_human_mode: 'ADJACENT sub-finding, parked here with no new card. _restore_after_reset (~4391) writes heat_cool without checking the zone''s current mode. If a human changes hvac_mode ITSELF inside the ~79 s lag window after the reset''s off write, the restore overwrites them. A setpoint-only change (preset=manual, mode stays heat_cool) is fine. Parsimony: PARK. The window is short and a human mode change is rare, and a naive ''still off?'' gate would suppress real restores while Carrier has not yet echoed the off (state-of-play §5, 42-79 s lag), which is exactly the harm this card fixes. Revival trigger: an observed case in the climate-write ledger of a restore overwriting a non-off human mode.'
+  reviews_2026_09_29_overnight: 'Two static framing-disjoint reviews (A local correctness, B race/lifecycle). Both SHIP. Converged MEDIUM (A-M1 = B-LOW-1): now that the episode keeps the reset alive, the reset verify''s preset restore (_verify_restore success, ~4533-4558, ungated) lands at about T0+90 s while grace is pending. That erases the person''s hold early, and then the compromise writes over it (72 -> 76 -> 74 -> 76). Fix-up dispatched: skip the preset restore while an episode is armed (the arrester owns the preset return), plus an end-to-end test (A-L3). B-LOW-2 (redundant B4/S4 writes from stale zone.hvac_mode) and B-LOW-3 (reset preset restore can cut a compromise short, only when off duration is 270 s or more) are pre-existing in kind; recorded, not fixed. B confirmed a rebase after Batch B is semantically safe: Batch B''s D2c interrupt already spares _reset_timers (test_interrupt_does_not_cancel_reset_timers).'
+  correction_2026_09_29_harm: 'CORRECTION (Review A, A-L2): the why overstates the harm. Once the reset timer was cancelled, has_active_ac_reset went False and the B1 heat_cool enforcer (hvac.py:2415-2419, every tick outside observation mode) re-asserted heat_cool within about one 5-min tick plus Carrier lag. The pre-fix strand was bounded at roughly 5 min plus lag, NOT ''2-20 min / indefinitely''. The fix is still correct and cheap, but its value is smaller than the card claimed.'
 - id: ENPHASE-BATTERY-CUTOUTS-1
   title: At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time
   thread: energy
