@@ -3414,6 +3414,27 @@ class RoomAutomation:
         except Exception as e:
             _LOGGER.error("Error during warning flash: %s", e)
 
+    def _fan_hvac_owned_elsewhere(self, fan_entity: str) -> bool:
+        """HVAC Batch D fix-up 1 (B-M2, operator-pending): True when ANOTHER
+        room lists ``fan_entity`` among its comfort fans with Fan Mode
+        "Follow thermostat" (the HVAC tier owns that shared fan). Never
+        raises (False on error)."""
+        try:
+            own = self.config.get(CONF_ROOM_NAME)
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get("entry_type") != "room":
+                    continue
+                if entry.data.get(CONF_ROOM_NAME) == own:
+                    continue
+                merged = {**entry.data, **entry.options}
+                if fan_entity not in (merged.get(CONF_FANS) or []):
+                    continue
+                if fan_owner(merged) == FAN_OWNER_HVAC:
+                    return True
+        except Exception:  # noqa: BLE001
+            return False
+        return False
+
     async def _shared_space_turn_off_all(self) -> None:
         """Turn off all devices in shared space."""
         # Turn off lights — Bug Class #4 fix: separate domains
@@ -3440,6 +3461,22 @@ class RoomAutomation:
 
         # Turn off fans — Bug Class #4 fix: use homeassistant domain for mixed lists
         fans = self.config.get(CONF_FANS, [])
+        # HVAC Batch D fix-up 1 (B-M2 / A8 — OPERATOR-PENDING, separate
+        # commit so it can be dropped): the scheduled shared-space auto-off
+        # follows the Fan Mode too.
+        #   * Fan Mode "Off" (person-owned): the room's comfort fans are
+        #     left alone.
+        #   * a fan another room drives under "Follow thermostat" (e.g. the
+        #     Breakfast Nook / Kitchen shared fan) is never turned off here —
+        #     the HVAC tier owns it.
+        if fans and fan_owner(self.config) is None:
+            _LOGGER.debug(
+                "Shared space: fans left alone — Fan Mode is Off (%s)",
+                self.config.get(CONF_ROOM_NAME, "Unknown"),
+            )
+            fans = []
+        if fans:
+            fans = [f for f in fans if not self._fan_hvac_owned_elsewhere(f)]
         if fans:
             await self._safe_service_call(
                 "homeassistant",
