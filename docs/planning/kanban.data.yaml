@@ -2231,7 +2231,8 @@ cards:
   next: 'CLOSED 2026-09-28 (overnight pass). Reopen only if the operator knows people were in the dining room on 09-26 or 09-27 and the radar stayed off.'
 - id: EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1
   title: 'Arbitrage release can turn a car on that fill-priority should still hold; attain reason text mislabels a latched state'
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.103.21
   thread: energy
   created: '2026-09-28'
   updated: '2026-09-28 13:20'
