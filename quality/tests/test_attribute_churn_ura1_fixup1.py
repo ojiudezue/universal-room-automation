@@ -164,11 +164,13 @@ def test_occupied_extra_attrs_identical_across_clock_advance_when_occupied():
         f"15s clock advance under steady occupied state — write-"
         f"amplification regression. Diffs: {diffs}"
     )
-    # Positive confirmations: the static substitutes are present, the
-    # dropped keys are absent.
-    assert "last_occupied_at" in a1
-    assert a1["last_occupied_at"] == T0.isoformat()
-    assert "timeout_at" in a1
+    # Positive confirmations. Fix-up 2 gates `last_occupied_at` off
+    # while occupied and `timeout_at` off when source != "timeout";
+    # both are keys-present-but-None in this phase (the occupied
+    # branch on a "motion" source per _make_occupied_entity). The
+    # cross-clock equality above is the load-bearing invariant.
+    assert "last_occupied_at" in a1 and a1["last_occupied_at"] is None
+    assert "timeout_at" in a1 and a1["timeout_at"] is None
     assert "idle_duration" not in a1
     assert "timeout" not in a1
     assert "last_motion" not in a1

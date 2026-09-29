@@ -14333,11 +14333,15 @@ class SafetyActiveCooldownsSensor(AggregationEntity, SensorEntity):
     _attr_has_entity_name = True
     _attr_icon = "mdi:timer-sand"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    # URA-ATTRIBUTE-CHURN-1 (2026-09-29): backstop against re-adding
-    # a live-ticking `age_seconds` / `max_remaining_seconds` — those
-    # were dropped in favor of static `last_alert` + `cooldown_until`
-    # so the attribute payload is time-invariant for a fixed
-    # `_last_alert` snapshot. See fix note in extra_state_attributes.
+    # URA-ATTRIBUTE-CHURN-1 fix-up 2 (2026-09-29): NAME-ONLY GUARD
+    # against a future re-add of the ticking `age_seconds` /
+    # `max_remaining_seconds` — the load-bearing fix is their removal
+    # from `extra_state_attributes` (see fix note there).
+    # `_unrecorded_attributes` only strips the attribute blob from the
+    # state_attributes table; it does NOT prevent EVENT_STATE_CHANGED
+    # / the States row (HA core.py:2313-2314 compares the full
+    # attributes dict). The static replacement is `window_until`
+    # (upper-bound suppression window; see fix note).
     _unrecorded_attributes = frozenset(
         {"age_seconds", "max_remaining_seconds"}
     )
@@ -14398,19 +14402,28 @@ class SafetyActiveCooldownsSensor(AggregationEntity, SensorEntity):
         if not last_alerts:
             return {"cooldowns": {}}
 
-        # URA-ATTRIBUTE-CHURN-1 (2026-09-29): publish only static
-        # timestamps (`last_alert`, `cooldown_until`) — dropping the
-        # `age_seconds` / `max_remaining_seconds` fields that ticked
-        # every refresh (~119 state_changed rows / 5 min under a
-        # stable "1 recent" state, measured 2026-09-28 19:07). Both
-        # were derivable from `last_alert` by any consumer that needs
-        # a live countdown. No consumer of the dropped fields was
-        # found (grep of custom_components/, quality/tests/, dashboards,
+        # URA-ATTRIBUTE-CHURN-1 fix-up 2 (2026-09-29): publish only
+        # static timestamps — `last_alert` (the exact stamp) and
+        # `window_until` (last_alert + 3600 s, the UPPER-BOUND
+        # suppression window; actual per-severity windows are shorter
+        # — safety.py:864-869 — CRITICAL=60s, HIGH=300s, MEDIUM=900s,
+        # LOW=3600s — but the dedup cache keys omit severity so 3600s
+        # is a legitimate upper bound for the "will still suppress?"
+        # test). Dropped the ticking `age_seconds` /
+        # `max_remaining_seconds` fields (~119 state_changed rows / 5
+        # min under a stable "1 recent" state, measured 2026-09-28
+        # 19:07). Both were derivable from `last_alert`; any consumer
+        # needing a live countdown does the arithmetic client-side.
+        # No consumer of the dropped fields was found (grep of
+        # custom_components/, quality/tests/, dashboards,
         # ~/Code/ura-dashboard-pwa on 2026-09-29 — Safety.tsx reads
-        # only state, not attributes). The membership filter (age <
-        # 3600) still uses `now()` so an entry drops out at expiry,
-        # but the payload emitted for a stable set of alerts is now
-        # time-invariant.
+        # only state, not attributes). Rename `cooldown_until` ->
+        # `window_until` in fix-up 2 makes the upper-bound semantics
+        # explicit (per Review LOW-3).
+        # The membership filter (age < 3600) still uses `now()` so an
+        # entry drops OUT of the map at expiry — that is a legitimate
+        # set change, not payload churn; the emitted payload for a
+        # stable set of alerts is time-invariant.
         now = dt_util.utcnow()
         cooldowns: dict[str, Any] = {}
         for key, last_time in last_alerts.items():
@@ -14422,7 +14435,7 @@ class SafetyActiveCooldownsSensor(AggregationEntity, SensorEntity):
             if age < 3600:
                 cooldowns[key] = {
                     "last_alert": last_time.isoformat(),
-                    "cooldown_until": (
+                    "window_until": (
                         last_time + timedelta(seconds=3600)
                     ).isoformat(),
                 }
