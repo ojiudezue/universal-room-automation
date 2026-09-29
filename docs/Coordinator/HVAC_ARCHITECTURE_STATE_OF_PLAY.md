@@ -24,6 +24,10 @@
   - The compromise post-write race is closed.
   - Pre-arrival: spent-episode bound, HVAC-off / master-off / removed-zone ends.
   - See §9e and review record `docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md`.
+- **Fix-up round 2 (2026-09-29):**
+  - The latch discharge is LEVEL-triggered (any readable named non-manual state, incl. the first event after boot), checked every full pass; latches of unmapped thermostats are pruned.
+  - A person-interrupted or master-off pre-arrival also spends the arrival episode.
+  - An ended pre-arrival always takes the arrival reference, even over an in-flight episode (incl. the startup audit).
 **2026-09-28 (`feature/hvac-labels-and-timer-attrs`, not deployed) — display-only: zone `away_due_at` (§3.2), arrester `grace_until` / `compromise_until` (§7); label renames "Wait for Presence" / "Compliance Presence Wait" / "Weather Adjust Delay/Margin" (no behaviour change, §8).**
 **Scope:** everything URA does with the thermostats — decide, write, borrow/return, read back — and the occupancy
 model that drives it. Covers releases v5.103.0 → v5.103.18.
@@ -376,13 +380,16 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 - **D13 kept:** a live nudge still wins and is not ended.
   - Fix-up 1 (D-L3): a NON-NUDGE borrow under a live nudge is still ended `human_interrupt`, and the zone is latched.
 - **D48 narrowed (Q3):** after an interrupt, no S12/S13 begins on the zone until it leaves manual, and S11 never writes over a latched zone (fix-up 1, D-L1).
-  - **Discharge (fix-up 1, D-M1):** only when the zone moves to a readable, named, non-`manual` preset; an unavailable/unknown flap keeps it.
-  - **Backstop (fix-up 1, D-M2):** the latch is PERSISTED in the `_zone_state_store` side-key `__interrupt_latch` — saved on set and discharge, and in the shutdown snapshot. It is restored at boot only while the zone still reads `manual` (kept while unreadable).
+  - **Discharge (fix-up 2, N1 — LEVEL-triggered; replaces the fix-up-1 edge rule):** one predicate, `OverrideArrester._latch_state_discharges` (`hvac_override.py`): the state is readable (not unavailable / unknown / missing) AND `preset_mode` is non-empty and not `manual`. It is applied (i) at the TOP of `_handle_climate_change` to every event's new state, whatever the old state, BEFORE the `old_state is None` return; (ii) every full decision pass (`latch_level_check`, called in `_run_decision_cycle` before the D3 reconciliation); (iii) at boot restore. An unavailable/unknown flap or an empty preset keeps it; a manual → named → manual status flicker still discharges it (accepted, L5).
+  - **Backstop (fix-up 1, D-M2):** the latch is PERSISTED in the `_zone_state_store` side-key `__interrupt_latch` — saved on set, discharge and prune, and in the shutdown snapshot. At boot it is restored unless the entity reads a discharging state (kept while missing / unreadable / empty preset).
+  - **Prune (fix-up 2, N5):** latches for thermostats no longer mapped to any zone are dropped at boot restore and on the Zone Manager's zones-updated signal (`_handle_zm_zones_updated` → `prune_interrupt_latch`, which persists). Skipped while the zone map is empty (boot before discovery).
 - **Compromise in flight:** superseded — grace/compromise timers cancelled (AC-reset timers kept), generation bumped, own row released `human_interrupt`, and the change re-dispatched against the episode's original preset. `_apply_compromise` / `_revert_override` tasks stand down on a generation change.
 - **Compromise supersede (fix-up 1):** re-checked after the S3 write await. A superseded compromise closes its row and arms no timer. Stood-down tasks drop their own timer handle. The startup-audit revert is a recorded, generation-aware episode. Disabling the arrester bumps every zone's generation.
 - **One reference preset per case; Q7 (fix-up 1 ruling "Home for pre-arrivals"):** a pre-arrival interrupt uses the house's ARRIVAL target — `pre_arrival_reference_preset` (`hvac_const.py`): sleep in sleep/waking, else home; never away/vacation. Other kinds keep the named pre-borrow preset (H3).
+  - **Precedence (fix-up 2, N4):** an ended `S12_pre_arrival` token takes the arrival reference FIRST, even when an arrester episode is in flight (case B — including the startup-audit episode, whose original preset may be `away`). Order in `_handle_climate_change`: ended pre-arrival → case B episode → case A energy BANKING/PREHEAT → case C.
 - **Pre-arrival lifetime (fix-up 1):**
-  - A max-age end turns the zone's pre-arrival fans off and SPENDS the arrival episode (`_pre_arrival_spent`). No new pre-cool starts until HVAC arrival or a whole window with no trigger. ZI off → on inside the window does not re-begin.
+  - A max-age end turns the zone's pre-arrival fans off and SPENDS the arrival episode (`_pre_arrival_spent`, via `HVACCoordinator._spend_pre_arrival_episode`). No new pre-cool starts until HVAC arrival or a whole window with no trigger; each repeat trigger inside the window refreshes the spent time. ZI off → on inside the window does not re-begin.
+  - **Fix-up 2:** the episode is also spent when a person's change ended the pre-arrival (`interrupted` clear, N2 — so after S4 pins Home and discharges the latch, a repeat trigger does not start a second pre-cool) and when pre-conditioning master OFF released it (D-L7 release, N3).
   - The HVAC coordinator switched off, ZI off, or pre-conditioning master OFF each end the borrow `pre_arrival_inactive` (never `lease_expiry`).
   - A removed zone or a missing baseline closes the row with no write.
 - **Q4 kept:** an empty zone is still sent Away by S1.

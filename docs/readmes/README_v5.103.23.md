@@ -13,14 +13,16 @@ Operator ruling 2026-09-28: *"The person interrupts. We end and revert."*
 
 - If someone changes the thermostat while URA's pre-cool (solar or pre-arrival), pre-heat or an arrester compromise is running, URA **stops that change without writing anything**. It is recorded as `human_interrupt`.
 - URA then treats the person's change like any other override, measured against **one** reference preset:
-  - **Pre-arrival pre-cool** (Q7, fix-up ruling "Home for pre-arrivals"): the preset the house would give someone ARRIVING — Sleep when the house is in Sleep or Waking, otherwise **Home**. Never Away, even when the house is empty (a pre-arrival means someone is expected).
+  - **Pre-arrival pre-cool** (Q7, fix-up ruling "Home for pre-arrivals"): the preset the house would give someone ARRIVING — Sleep when the house is in Sleep or Waking, otherwise **Home**. Never Away, even when the house is empty (a pre-arrival means someone is expected). This holds even when an earlier override on the zone (or the startup check) was still in its grace period with Away as its reference (fix-up 2).
   - **Solar pre-cool / pre-heat:** the preset the zone was in before URA started (e.g. Away), or the house target if that was already a manual hold.
   - **A compromise in progress:** the original preset of that override. The compromise is replaced, never stacked.
   - **A person fine-tuning an existing manual hold with no borrow running** (new): measured against the house's current target. The arrester now acts on these too.
 - Only the setting the person actually changed counts (the other one is often a leftover URA value).
 - Until the zone leaves Manual, URA starts **no new pre-cool or pre-heat** on that zone (ruling Q3), and a solar pre-cool release never writes over it either.
-  - The block survives a restart: it is saved with the zone state, and restored at boot only while the zone still reads Manual.
-  - A thermostat that briefly drops offline and comes back (manual → unavailable → manual) does not clear it. Only the zone going to a named preset (Home, Away, Sleep…) clears it.
+  - The block survives a restart: it is saved with the zone state, and restored at boot unless the zone already reads a named preset. It is also kept while the thermostat is unreadable or shows no preset at all.
+  - It clears whenever the thermostat reads a named preset (Home, Away, Sleep…), whatever it read before. This includes coming back from offline straight to Home, and the first reading after a restart. URA also checks this every decision pass, so a missed event cannot leave the zone blocked (fix-up 2).
+  - A thermostat that briefly drops offline and comes back still in Manual (manual → unavailable → manual) does not clear it.
+  - It is dropped for a thermostat that no longer belongs to any zone (zone deleted or remapped), but never while the zone list is still loading at boot.
 - If a nudge is running on top of a pre-cool when a person changes the thermostat, the nudge still finishes, but the pre-cool underneath ends and the block above applies.
 - **Not changed:** a nudge in progress still wins over a person's change (D13), and the open-door pause is not affected (Q2). An empty zone is still sent to Away by the normal occupancy rule (Q4).
 - URA now recognises the thermostat echoing URA's own recent values (its last 4 setpoint writes per thermostat, within 0.5 °F) and does not mistake them for a person. A change of mode (off, cool, heat) is never read as a person's setpoint change.
@@ -48,7 +50,9 @@ Operator ruling 2026-09-28: *"The person interrupts. We end and revert."*
 - It is put back by restoring the saved preset (no raw setpoint write).
 - It can never run longer than the window, counted from when the pre-cool itself started. Repeated arrival signals no longer stretch it to the 2-hour safety cap (`lease_expiry`).
 - When the window ends it with nobody arrived, the zone's pre-arrival fans are turned off (same as a timeout). Further arrival signals for the same arrival do not start a second pre-cool. A new pre-cool can start only after someone arrives in the zone, or after a whole window with no arrival signal.
-- If the HVAC coordinator is switched off, Zone Intelligence is switched off, or pre-conditioning is switched off while a pre-arrival pre-cool is running, it ends as `pre_arrival_inactive`. Turning Zone Intelligence back on inside the window does not restart it.
+- If the HVAC coordinator is switched off, Zone Intelligence is switched off, or pre-conditioning is switched off while a pre-arrival pre-cool is running, it ends as `pre_arrival_inactive`. Turning Zone Intelligence or pre-conditioning back on inside the window does not restart it (fix-up 2).
+- When a person's change ends a pre-arrival pre-cool, that arrival is also used up. After the arrester puts the zone back to Home, further arrival signals for the same arrival do not start a second pre-cool (fix-up 2).
+- Each further arrival signal restarts the "whole window with no signal" count, so repeated signals keep the arrival used up.
 - The pre-cool never writes over another running borrow (also true for pre-heat now).
 
 ### New setting: `35 · Pre-Arrival Window (min)`
@@ -71,9 +75,9 @@ The stuck-occupancy safety clock (`continuous_occupied_hours` on `sensor.ura_hva
 - **P7** (`scripts/probes/hvac_borrow_end_p7_probe.py`): 13 out-of-window S12 borrows with no pre-arrival row within 2 min. 12 are from 08-26 → 08-29, before `ura_activity_log` begins (08-30), so they cannot be classified. The 13th (09-28 09:00:20) is a pre-arrival pre-cool that started 2.4 min after its trigger, which Part B covers. No new Part B case and no new card.
 
 ## 3. Tests
-- New: `quality/tests/test_hvac_w1w2_finish_part_a.py` (91), `…_part_b.py` (52), `…_part_c.py` (7); fixture `quality/tests/fixtures/hvac_09_28_zone2_prearrival.json` (09-28 rows with the P1 class for each).
-- Review record: `docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md` (reviews A/B/C/D and fix-up round 1).
-- **Per-site mutation drills:** after fix-up round 1, 142 sites, **142 red** (each neutered alone, `PYTHONDONTWRITEBYTECODE=1`, caches cleared, restored, `git status` clean). Table in the builder report / plan Builder notes.
+- New: `quality/tests/test_hvac_w1w2_finish_part_a.py` (108), `…_part_b.py` (55), `…_part_c.py` (7); fixture `quality/tests/fixtures/hvac_09_28_zone2_prearrival.json` (09-28 rows with the P1 class for each).
+- Review record: `docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md` (reviews A/B/C/D, fix-up rounds 1 and 2).
+- **Per-site mutation drills:** after fix-up round 2, **161 sites, 161 red**, every one re-run in round 2 (each neutered alone, `PYTHONDONTWRITEBYTECODE=1`, caches cleared, restored, `git status` clean). A drill counts as red only when pytest reports a FAILED line for one of its named tests; a missing test id or a collection error is a bad run, not red. Table in the plan Builder notes (fix-up 2).
 - **`--isolate` name-diff** vs `develop` over 133 test files (every file importing hvac / hvac_override / hvac_excursion / hvac_predict / hvac_zones / hvac_setpoint / presence, plus every touched file): **CLEAN, 0 new, 0 gone**.
 - Existing tests updated to the new contract:
   - the boot-audit "write manual back" test (superseded by D6);
