@@ -977,6 +977,149 @@ CONF_HVAC_COORDINATION_ENABLED: Final = "hvac_coordination_enabled"
 CONF_TARGET_TEMP_COOL: Final = "target_temp_cool"
 CONF_TARGET_TEMP_HEAT: Final = "target_temp_heat"
 CONF_FAN_CONTROL_ENABLED: Final = "fan_control_enabled"
+
+# ----------------------------------------------------------------------------
+# HVAC Batch D (v5.103.24, operator ruling "option C"): ONE per-room "Fan Mode"
+# choice decides who drives a room's COMFORT fans. It replaces the two toggles
+# above (CONF_HVAC_COORDINATION_ENABLED "Enable HVAC-Managed Fans" and
+# CONF_FAN_CONTROL_ENABLED "Enable Comfort Fan Control"); those stay READABLE
+# for one release only, through `fan_mode_from_legacy` (a room whose options
+# carry no CONF_ROOM_FAN_MODE yet). The one-time per-room migration lives in
+# __init__._migrate_room_fan_mode.
+#
+#   Fan Mode (stored value)  | label               | owner (fan_owner)
+#   -------------------------+---------------------+-------------------------
+#   follow_thermostat        | Follow thermostat   | "hvac"  HVAC tier: zone
+#                            |                     |         setpoint + fan assist
+#   room_temperature         | Room temperature    | "room"  room tier: the
+#                            |                     |         room's °F thresholds
+#   off                      | Off                 | None    person-owned: URA
+#                            |                     |         never touches the fan,
+#                            |                     |         including the recheck
+#
+# "Follow thermostat" is offered only to a room in an HVAC zone
+# (`room_in_hvac_zone`). A stored "Follow thermostat" on a room that is no
+# longer in one is shown and run as "Room temperature" (one WARNING) — see
+# select.RoomFanModeSelect and the room-tier fallback below.
+#
+# Consumers of `fan_owner` (each keeps its own extra conditions):
+#   * HVAC tier (hvac_fans FanController sites, the zone sweep and pre-arrival
+#     fans in hvac.py / hvac_predict.py) acts only for "hvac".
+#   * Room tier (automation.handle_temperature_based_fan_control,
+#     automation._is_hvac_managing_fans, actuator_reconciler._resolve_fan)
+#     acts for "room" — or for "hvac" when the HVAC tier is not actually
+#     running the room (HVAC coordinator off / room not in an HVAC zone).
+#   * Fan recheck (presence_fan_recheck) is eligible only when the owner is
+#     not None; its pause/restore writes pass the FanController chokepoint
+#     under the same rule. The recheck follows the owner.
+# Humidity (exhaust) fans are NOT covered — always room-owned.
+# Lives in const.py because it is the one module every fan writer AND every
+# fan test harness already loads.
+# ----------------------------------------------------------------------------
+CONF_ROOM_FAN_MODE: Final = "room_fan_mode"
+FAN_MODE_FOLLOW_THERMOSTAT: Final = "follow_thermostat"
+FAN_MODE_ROOM_TEMPERATURE: Final = "room_temperature"
+FAN_MODE_OFF: Final = "off"
+FAN_MODE_OPTIONS: Final = (
+    FAN_MODE_FOLLOW_THERMOSTAT, FAN_MODE_ROOM_TEMPERATURE, FAN_MODE_OFF,
+)
+FAN_MODE_LABELS: Final = {
+    FAN_MODE_FOLLOW_THERMOSTAT: "Follow thermostat",
+    FAN_MODE_ROOM_TEMPERATURE: "Room temperature",
+    FAN_MODE_OFF: "Off",
+}
+FAN_OWNER_HVAC: Final = "hvac"
+FAN_OWNER_ROOM: Final = "room"
+_FAN_MODE_OWNER: Final = {
+    FAN_MODE_FOLLOW_THERMOSTAT: FAN_OWNER_HVAC,
+    FAN_MODE_ROOM_TEMPERATURE: FAN_OWNER_ROOM,
+    FAN_MODE_OFF: None,
+}
+
+
+def fan_mode_from_legacy(room_config, in_hvac_zone: bool = True) -> str:
+    """Map the two retired toggles to a Fan Mode (the migration rule).
+
+    hvac_coordination_enabled on  -> "follow_thermostat" (or
+    "room_temperature" when the room is not in an HVAC zone); else
+    fan_control_enabled on -> "room_temperature"; else "off". Missing keys
+    read as off. Never raises (unreadable -> "off").
+    """
+    try:
+        cfg = room_config or {}
+        if bool(cfg.get(CONF_HVAC_COORDINATION_ENABLED, False)):
+            return (
+                FAN_MODE_FOLLOW_THERMOSTAT if in_hvac_zone
+                else FAN_MODE_ROOM_TEMPERATURE
+            )
+        if bool(cfg.get(CONF_FAN_CONTROL_ENABLED, False)):
+            return FAN_MODE_ROOM_TEMPERATURE
+    except Exception:  # noqa: BLE001
+        pass
+    return FAN_MODE_OFF
+
+
+def room_fan_mode(room_config) -> str:
+    """The room's stored Fan Mode; legacy toggles when not yet migrated.
+
+    An unknown stored value reads as "off" (URA writes nothing). Never
+    raises.
+    """
+    try:
+        cfg = room_config or {}
+        mode = cfg.get(CONF_ROOM_FAN_MODE)
+        if mode is None:
+            return fan_mode_from_legacy(cfg)
+        return mode if mode in _FAN_MODE_OWNER else FAN_MODE_OFF
+    except Exception:  # noqa: BLE001
+        return FAN_MODE_OFF
+
+
+def fan_owner(room_config) -> str | None:
+    """Return "hvac", "room" or None (person-owned) for a room's comfort fans.
+
+    Fed by the room's Fan Mode (``room_fan_mode``). ``room_config`` is the
+    room entry's MERGED ``{**data, **options}`` — callers read it LIVE (the
+    Fan Mode select writes options without a room reload). Never raises; an
+    unreadable config is person-owned (URA writes nothing).
+    """
+    try:
+        return _FAN_MODE_OWNER.get(room_fan_mode(room_config))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def room_in_hvac_zone(hass, room_entry_id: str) -> bool:
+    """True iff a Zone Manager zone WITH a thermostat lists this room.
+
+    The same source the HVAC tier discovers from
+    (``hvac_zones.ZoneManager.async_discover_zones``: ZM ``zones`` ->
+    ``zone_thermostat`` + ``zone_rooms`` entry ids). Decides whether
+    "Follow thermostat" is offered. Never raises (False on any error).
+    """
+    try:
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+                continue
+            merged = {**entry.data, **entry.options}
+            for zone_cfg in (merged.get("zones") or {}).values():
+                if not zone_cfg.get(CONF_ZONE_THERMOSTAT):
+                    continue
+                rooms = zone_cfg.get(CONF_ZONE_ROOMS) or []
+                if isinstance(rooms, list) and room_entry_id in rooms:
+                    return True
+    except Exception:  # noqa: BLE001
+        return False
+    return False
+
+
+def fan_mode_options(in_hvac_zone: bool) -> list[str]:
+    """Fan Mode choices actually possible for a room."""
+    if in_hvac_zone:
+        return list(FAN_MODE_OPTIONS)
+    return [FAN_MODE_ROOM_TEMPERATURE, FAN_MODE_OFF]
+
+
 CONF_FAN_TEMP_THRESHOLD: Final = "fan_temp_threshold"
 CONF_FAN_SPEED_LOW_TEMP: Final = "fan_speed_low_temp"
 CONF_FAN_SPEED_MED_TEMP: Final = "fan_speed_med_temp"

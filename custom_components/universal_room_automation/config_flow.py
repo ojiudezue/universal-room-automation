@@ -213,6 +213,15 @@ from .const import (
     CONF_COMFORT_FAN_AWAY_VETO_ENABLED,
     DEFAULT_COMFORT_FAN_AWAY_VETO_ENABLED,
     CONF_FAN_CONTROL_ENABLED,
+    # HVAC Batch D: the per-room Fan Mode (replaces the two toggles above).
+    CONF_ROOM_FAN_MODE,
+    FAN_MODE_FOLLOW_THERMOSTAT,
+    FAN_MODE_LABELS,
+    FAN_MODE_OFF,
+    FAN_MODE_ROOM_TEMPERATURE,
+    fan_mode_options,
+    room_fan_mode,
+    room_in_hvac_zone,
     CONF_FAN_TEMP_THRESHOLD,
     CONF_FAN_SPEED_LOW_TEMP,
     CONF_FAN_SPEED_MED_TEMP,
@@ -573,6 +582,40 @@ def _room_name_collides(room_entries, name: str, exclude_entry_id: str | None = 
 # =============================================================================
 # Bathroom-exhaust intelligence cycle — climate-fans form validation
 # =============================================================================
+def _fan_mode_selector(in_hvac_zone: bool):
+    """HVAC Batch D: the "Fan mode" dropdown — only the modes possible for the
+    room ("Follow thermostat" needs an HVAC zone)."""
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=[
+                {"value": m, "label": FAN_MODE_LABELS[m]}
+                for m in fan_mode_options(in_hvac_zone)
+            ],
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    )
+
+
+def _zone_name_has_thermostat(hass, zone_name) -> bool:
+    """HVAC Batch D (initial room flow, no entry id yet): does the room's
+    chosen zone have a thermostat? At setup `_sync_room_zone_to_zm` adds the
+    new room to that zone's `zone_rooms`, which makes it an HVAC-zone room
+    (`const.room_in_hvac_zone`). Never raises."""
+    if not zone_name:
+        return False
+    try:
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+                continue
+            merged = {**entry.data, **entry.options}
+            cfg = (merged.get("zones") or {}).get(zone_name) or {}
+            if cfg.get(CONF_ZONE_THERMOSTAT):
+                return True
+    except Exception:  # noqa: BLE001
+        return False
+    return False
+
+
 def _validate_climate_fans_form(user_input: dict) -> str | None:
     """Cross-field validation for the "Climate & Fans" step.
 
@@ -2617,7 +2660,9 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                 # async_step_notifications so it also covers create paths that
                 # skip this step. See PLANNING_onboarding_simplify.md §D2/§D9.
                 self._data.update(user_input)
-                if user_input.get(CONF_FAN_CONTROL_ENABLED):
+                # HVAC Batch D: the speed thresholds are used only by the
+                # room tier ("Room temperature" Fan Mode).
+                if user_input.get(CONF_ROOM_FAN_MODE) == FAN_MODE_ROOM_TEMPERATURE:
                     return await self.async_step_fan_speeds()
                 return await self.async_step_sleep_protection()
 
@@ -2632,10 +2677,15 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         # voluptuous fills the Optional default first.
         ble_cap_default = ROOM_TYPE_BLE_HOLD_CAP_DEFAULT.get(room_type, False)
 
+        # HVAC Batch D: "Follow thermostat" only when the chosen zone has one.
+        _in_zone = _zone_name_has_thermostat(self.hass, self._data.get(CONF_ZONE))
         data_schema = vol.Schema({
             # --- Fans first ---
-            vol.Optional(CONF_HVAC_COORDINATION_ENABLED, default=False): selector.BooleanSelector(),
-            vol.Optional(CONF_FAN_CONTROL_ENABLED, default=False): selector.BooleanSelector(),
+            # HVAC Batch D (v5.103.24): ONE "Fan mode" choice replaces
+            # "Enable HVAC-Managed Fans" + "Enable Comfort Fan Control".
+            vol.Optional(
+                CONF_ROOM_FAN_MODE, default=FAN_MODE_OFF,
+            ): _fan_mode_selector(_in_zone),
             # Comfort-fan house-AWAY veto (mmwave-corroboration Tier-3 D3).
             # Default ON — suppresses comfort-fan turn_on when house is
             # AWAY/VACATION and the room lacks trusted presence
@@ -11546,6 +11596,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             climate_group = user_input.pop("climate_backstop", None)
             if isinstance(climate_group, dict):
                 user_input.update(climate_group)
+            # Batch D fix-up 1 (A5): a stored "Follow thermostat" on a room no
+            # longer in an HVAC zone is SHOWN as "Room temperature" (not an
+            # offered option). Saving that unchanged display must keep the
+            # stored value — the same rule as the Fan Mode select — so
+            # re-adding the room to a zone restores it.
+            _stored_fan_mode = room_fan_mode({
+                **self._config_entry.data, **self._config_entry.options,
+            })
+            if (
+                user_input.get(CONF_ROOM_FAN_MODE) == FAN_MODE_ROOM_TEMPERATURE
+                and _stored_fan_mode == FAN_MODE_FOLLOW_THERMOSTAT
+                and not room_in_hvac_zone(self.hass, self._config_entry.entry_id)
+            ):
+                user_input[CONF_ROOM_FAN_MODE] = FAN_MODE_FOLLOW_THERMOSTAT
             err = _validate_climate_fans_form(user_input)
             if err:
                 errors["base"] = err
@@ -11624,16 +11688,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             )
         )
 
+        # HVAC Batch D (v5.103.24): ONE "Fan mode" choice at the top replaces
+        # "Enable HVAC-Managed Fans" + "Enable Comfort Fan Control". Only the
+        # modes possible for this room are offered; the default is the mode
+        # the fan writers run (a stored "Follow thermostat" on a room no
+        # longer in an HVAC zone shows as "Room temperature").
+        _in_zone = room_in_hvac_zone(self.hass, self._config_entry.entry_id)
+        _mode_now = room_fan_mode({
+            **self._config_entry.data, **self._config_entry.options,
+        })
+        if _mode_now == FAN_MODE_FOLLOW_THERMOSTAT and not _in_zone:
+            _mode_now = FAN_MODE_ROOM_TEMPERATURE
         data_schema = vol.Schema({
             # --- Fans first ---
             vol.Optional(
-                CONF_HVAC_COORDINATION_ENABLED,
-                default=self._get_current(CONF_HVAC_COORDINATION_ENABLED, False),
-            ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_FAN_CONTROL_ENABLED,
-                default=self._get_current(CONF_FAN_CONTROL_ENABLED, False),
-            ): selector.BooleanSelector(),
+                CONF_ROOM_FAN_MODE, default=_mode_now,
+            ): _fan_mode_selector(_in_zone),
             # Comfort-fan house-AWAY veto (mmwave-corroboration Tier-3 D3).
             vol.Optional(
                 CONF_COMFORT_FAN_AWAY_VETO_ENABLED,

@@ -360,6 +360,70 @@ class TestSiteAutomationRoomTier:
         )
 
 
+class TestBatchDRoomTierOwnership:
+    """HVAC Batch D (v5.103.24): the room tier follows the per-room Fan Mode
+    (``const.fan_owner``).
+
+    One case per mode, plus the fallback: "Follow thermostat" on a room the
+    HVAC tier is NOT actually running (HVAC coordinator off / room not in an
+    HVAC zone) is run as "Room temperature" by the room tier.
+    """
+
+    @pytest.mark.parametrize(
+        "mode,hvac_running,writes",
+        [
+            ("follow_thermostat", True, False),   # HVAC runs it -> room defers
+            ("follow_thermostat", False, True),   # not possible -> room temp
+            ("room_temperature", False, True),
+            ("off", False, False),                # person-owned (guest)
+            ("off", True, False),
+        ],
+    )
+    def test_room_tier_follows_fan_mode(self, mode, hvac_running, writes):
+        auto, log = _make_room_automation(HouseState.HOME_DAY)
+        auto.config["room_fan_mode"] = mode
+        auto._is_hvac_managing_fans = lambda: hvac_running
+        _run(auto.handle_temperature_based_fan_control(TEMP_ABOVE, occupied=True))
+        assert bool(log) is writes, log
+
+    def test_room_temperature_runs_with_the_old_climate_automation_switch_off(self):
+        """Fix-up 1 (operator ruling): the retired Climate Automation switch
+        reading OFF does not stop a "Room temperature" room's fan logic."""
+        auto, log = _make_room_automation(HouseState.HOME_DAY)
+        auto.config["room_fan_mode"] = "room_temperature"
+        _fan_state = auto.hass.states.get
+
+        def _get(eid):
+            if eid.endswith("_climate_automation"):
+                s = MagicMock()
+                s.state = "off"
+                return s
+            return _fan_state(eid)
+
+        auto.hass.states.get = _get
+        _run(auto.handle_temperature_based_fan_control(TEMP_ABOVE, occupied=True))
+        assert [e for e in log if e[1] == "turn_on"], log
+
+    @pytest.mark.parametrize(
+        "mode,expected", [
+            ("follow_thermostat", True), ("room_temperature", False), ("off", False),
+        ],
+    )
+    def test_is_hvac_managing_fans_derives_from_fan_mode(self, mode, expected):
+        """`_is_hvac_managing_fans` (the room tier's defer check) is True only
+        for "Follow thermostat" on a room the HVAC FanController registered."""
+        auto, _log = _make_room_automation(HouseState.HOME_DAY)
+        del auto._is_hvac_managing_fans  # use the real method
+        auto.config["room_fan_mode"] = mode
+        fc = MagicMock()
+        fc._room_fans = {ROOM_NAME: object()}
+        hvac = MagicMock()
+        hvac.enabled = True
+        hvac.fan_controller = fc
+        auto.hass.data[DOMAIN]["coordinator_manager"].coordinators["hvac"] = hvac
+        assert auto._is_hvac_managing_fans() is expected
+
+
 # ---------------------------------------------------------------------------
 # Site 2: hvac_fans.py::FanController.update (ON-edge branch)
 # ---------------------------------------------------------------------------
@@ -373,6 +437,9 @@ def _make_fan_controller(house_state: str, veto_enabled: bool = True):
         "entry_type": "room",
         CONF_ROOM_NAME: ROOM_NAME,
         CONF_COMFORT_FAN_AWAY_VETO_ENABLED: veto_enabled,
+        # HVAC Batch D: an HVAC-managed room carries both toggles.
+        "hvac_coordination_enabled": True,
+        "fan_control_enabled": True,
     }
     entry.options = {}
     hass.config_entries.async_entries = MagicMock(return_value=[entry])
@@ -519,6 +586,40 @@ class TestSiteReconcilerResolveFan:
         assert result is not None and result.state == "on", (
             "Kill switch OFF must let reconciler return ON in AWAY"
         )
+
+
+class TestBatchDReconcilerOwnership:
+    """HVAC Batch D: `_resolve_fan` follows ``const.fan_owner`` (same rows
+    as the room tier; the reconciler re-asserts the room tier's intent)."""
+
+    def test_reconciler_defers_while_the_recheck_paused_the_fan(self):
+        """Fix-up 1 (B-M1): never re-assert a fan the recheck has paused."""
+        recon = _make_reconciler(HouseState.HOME_DAY)
+        recon._config()["room_fan_mode"] = "room_temperature"
+        data = {STATE_TEMPERATURE: TEMP_ABOVE, STATE_OCCUPIED: True}
+        recon._automation().is_recheck_paused = lambda: False
+        assert recon._resolve_fan(FAN_ENTITY, data).state == "on"
+        recon._automation().is_recheck_paused = lambda: True
+        assert recon._resolve_fan(FAN_ENTITY, data) is None
+
+    @pytest.mark.parametrize(
+        "mode,hvac_running,resolves_on",
+        [
+            ("follow_thermostat", True, False),
+            ("follow_thermostat", False, True),
+            ("room_temperature", False, True),
+            ("off", False, False),
+        ],
+    )
+    def test_reconciler_follows_fan_mode(self, mode, hvac_running, resolves_on):
+        recon = _make_reconciler(HouseState.HOME_DAY)
+        cfg = recon._config()
+        cfg["room_fan_mode"] = mode
+        recon._automation()._is_hvac_managing_fans = lambda: hvac_running
+        data = {STATE_TEMPERATURE: TEMP_ABOVE, STATE_OCCUPIED: True}
+        result = recon._resolve_fan(FAN_ENTITY, data)
+        got_on = result is not None and result.state == "on"
+        assert got_on is resolves_on, result
 
 
 # ---------------------------------------------------------------------------

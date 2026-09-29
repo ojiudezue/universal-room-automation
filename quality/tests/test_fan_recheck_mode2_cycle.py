@@ -616,6 +616,44 @@ async def test_fan_control_disabled_blocks_trigger():
     assert mgr.get_room_state("exercise") == mod.STATE_IDLE
 
 
+@pytest.mark.parametrize(
+    "mode,arms",
+    [
+        ("follow_thermostat", True),   # owner "hvac" (Study A)
+        ("room_temperature", True),    # owner "room" (Jaya Bedroom)
+        ("off", False),                # person-owned (Guest Bedroom 2)
+    ],
+)
+@pytest.mark.asyncio
+async def test_batch_d_recheck_eligibility_follows_fan_mode(mode, arms):
+    """HVAC Batch D: the recheck follows the Fan Mode (``const.fan_owner``) —
+    eligible for "Follow thermostat" or "Room temperature", never for "Off"
+    (a person-owned fan, e.g. a guest's, is never paused)."""
+    # Drives the live evaluator directly (`_is_eligible`): the full
+    # `async_setup` -> tick -> ARMED flow needs HA timer / dispatcher stubs
+    # this harness only has when no real HA is installed.
+    mod, hass, mgr, rc, fc, pc, db = _build_world()
+    rc.entry.options = {"room_fan_mode": mode}
+    ctx = mod._RoomCtx(room_name="exercise", entry_id=rc.entry.entry_id)
+    assert mgr._is_eligible(ctx, rc) is arms
+    if not arms:
+        assert mgr._veto_counts["exercise"].get("fan_control_off") == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_d_still_armed_aborts_when_fan_mode_set_to_off():
+    """HVAC Batch D: the post-arm-delay re-check applies the same owner rule —
+    Fan Mode set to Off during the arm delay aborts the pause (from either
+    owning mode)."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world()
+    ctx = mod._RoomCtx(room_name="exercise", entry_id=rc.entry.entry_id)
+    for mode in ("follow_thermostat", "room_temperature"):
+        rc.entry.options = {"room_fan_mode": mode}
+        assert mgr._still_armed_eligible(ctx, rc) is True
+        rc.entry.options = {"room_fan_mode": "off"}
+        assert mgr._still_armed_eligible(ctx, rc) is False
+
+
 @pytest.mark.asyncio
 async def test_no_fan_on_blocks_trigger():
     mod, hass, mgr, rc, fc, pc, db = _build_world(with_fan_on=False)

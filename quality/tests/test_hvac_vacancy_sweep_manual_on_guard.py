@@ -345,6 +345,9 @@ class _StubEntry:
             CONF_ROOM_NAME: room_name,
             CONF_FANS: fans,
             CONF_LIGHTS: lights,
+            # HVAC Batch D: an HVAC-managed room carries both toggles.
+            "hvac_coordination_enabled": True,
+            "fan_control_enabled": True,
         }
         self.options: dict = {}
 

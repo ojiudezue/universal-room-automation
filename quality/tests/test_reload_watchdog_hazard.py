@@ -278,6 +278,7 @@ def _load_ns(*, kill_switch: bool = True,
             "_CONF_MF_NIGHT_SUPPRESS_MODE",
             "_CONF_FAN_CONTROL_ENABLED",
             "_CONF_HUMIDITY_FAN_CONTROL_ENABLED",
+            "_CONF_ROOM_FAN_MODE",  # HVAC Batch D
             "_CONF_ENERGY_DP_ENABLE",
             "_CONF_ENERGY_DP_EVAL_DELAY_MIN",
             "_CONF_ENERGY_DP_MARGIN_MIN",

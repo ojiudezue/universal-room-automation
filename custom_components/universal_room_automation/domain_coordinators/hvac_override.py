@@ -378,6 +378,17 @@ class OverrideArrester:
         # it. Empty snapshot (unknown/unavailable at nudge time) = skip
         # restore = fail-safe (no worse than pre-fix behavior).
         self._nudge_pre_preset: dict[str, str] = {}
+        # HVAC Batch D (INFO-1, operator ruling "B"): zones whose live nudge
+        # ran on top of a NON-NUDGE borrow that a person's change ENDED
+        # (D13 + D-L3). Value = {"arrival": bool — the ended borrow was a
+        # pre-arrival pre-cool (ARRIVAL target, Q7); "high"/"low": the
+        # PERSON's own setpoints from that change}. `_restore_after_nudge`
+        # then restores the zone's CURRENT S1 target preset (presets only),
+        # or — while gate (a/b) protects the person (TAO / immune hold) —
+        # the person's own setpoints. Never the ended borrow's pre-cool
+        # values. Set in `_handle_climate_change`; popped at the restore and
+        # at every new nudge start; cleared at teardown.
+        self._nudge_restore_reference: dict[str, Any] = {}
         # HVAC-GOVERNED-EXCURSION-1 D3: per-zone ExcursionToken issued at
         # nudge start; consumed by restore/cancel/audit paths to call
         # return_excursion (which clears the persisted lease row).
@@ -1394,6 +1405,15 @@ class OverrideArrester:
             return str(p), float(cool), float(heat)
         except Exception:  # noqa: BLE001
             return None
+
+    def _nudge_ref_map(self) -> dict[str, Any]:
+        """HVAC Batch D: the `_nudge_restore_reference` map (created lazily
+        for arresters built without `__init__`)."""
+        m = getattr(self, "_nudge_restore_reference", None)
+        if m is None:
+            m = {}
+            self._nudge_restore_reference = m
+        return m
 
     def _pop_own_timer(self, zone_id: str, handle: Any) -> None:
         """Remove ``handle`` from the grace / compromise timer maps ONLY if it
@@ -2585,7 +2605,7 @@ class OverrideArrester:
 
             # Use severe grace (short) since this override already persisted
             # through a restart — user has already had their grace period
-            self._cancel_zone_timers(zone.zone_id)
+            self._cancel_arrester_timers(zone.zone_id)
             grace_seconds = OVERRIDE_SEVERE_GRACE_MINUTES * 60
 
             _zone = zone
@@ -2665,6 +2685,7 @@ class OverrideArrester:
         for cancel in self._nudge_restore_timers.values():
             cancel()
         self._nudge_restore_timers.clear()
+        getattr(self, "_nudge_restore_reference", {}).clear()
         for cancel in self._nudge_eval_timers.values():
             cancel()
         self._nudge_eval_timers.clear()
@@ -3822,6 +3843,32 @@ class OverrideArrester:
                 _ended_pa = _ended_tok.caller_site == _s12pa_n4
             except Exception:  # noqa: BLE001
                 _ended_pa = False
+        # HVAC Batch D (INFO-1, operator ruling "B"): a person's change ENDED
+        # the non-nudge borrow underneath a live nudge (D13 + D-L3). The
+        # nudge's snapshot was taken on top of that borrow, so its restore
+        # must not write the ended borrow's values back: record the zone for
+        # a reference-preset restore (the arrival target for a pre-arrival).
+        if _nudge_live and _ended_tok is not None:
+            # Fix-up 1 (operator ruling 2026-09-29, INFO-1 under person
+            # protection): also keep the PERSON's own values from this
+            # change — restored by S6 when gate (a/b) is active at restore.
+            def _num(v):
+                try:
+                    return float(v) if v is not None else None
+                except (TypeError, ValueError):
+                    return None
+            self._nudge_ref_map()[zone_id_b] = {
+                "arrival": bool(_ended_pa),
+                "high": _num(new_high),
+                "low": _num(new_low),
+            }
+            _LOGGER.info(
+                "Arrester: %s — person ended the %s borrow under a live "
+                "nudge; the nudge restore will return the zone to its %s "
+                "preset", zone.zone_name,
+                "pre-arrival" if _ended_pa else "non-nudge",
+                "arrival" if _ended_pa else "current S1 target",
+            )
         if _ended_pa:
             baseline_case = "A"
             _ref = self._resolve_reference(zone_id_b, None, arrival=True)
@@ -4225,7 +4272,7 @@ class OverrideArrester:
         self._override_active[zone_id] = True
 
         # Cancel any existing timers for this zone
-        self._cancel_zone_timers(zone_id)
+        self._cancel_arrester_timers(zone_id)
 
         # HVAC W1/W2 finish D2c / L6: record the episode and bump its
         # generation; the grace task captures it.
@@ -4299,7 +4346,7 @@ class OverrideArrester:
         self._override_active[zone_id] = True
 
         # Cancel any existing timers
-        self._cancel_zone_timers(zone_id)
+        self._cancel_arrester_timers(zone_id)
 
         # HVAC W1/W2 finish D2c / L6 (see _handle_severe_override).
         _gen = self._bump_arrest_gen(zone_id)
@@ -5310,8 +5357,47 @@ class OverrideArrester:
                 # exists to fix) as a full success. combined restore_ok
                 # is now mode_ok AND preset_ok.
                 _mode_ok = True  # branch is the success branch of mode verify
-                _preset_ok: bool = True
-                if original_preset:
+                _preset_ok: bool | None = True
+                # HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1
+                # fix-up 1 (A-M1 / B-LOW-1): DEFER the preset restore
+                # when an arrester episode is armed on this zone. Now
+                # that the arrester's grace no longer cancels the reset
+                # restore timer, this success-branch preset write would
+                # otherwise land at ~T0+90 s while grace is still
+                # pending (~2 min severe / up to ~20 min normal +
+                # compromise), erase the human's manual hold early, and
+                # then get compromised over by `_apply_compromise`
+                # (72->76->74->76 flap). The arrester's own revert owns
+                # the preset in that case; the mode/setpoint restore
+                # already succeeded and stays. `_preset_ok = None`
+                # records the outcome as DEFERRED (preset_restore_ok
+                # column stays NULL) and `_combined_ok` is scored on
+                # mode-ok alone so `restore_ok` still reads True.
+                # Batch D fix-up 1 (review M46-M48): the three terms overlap
+                # by design — `_override_active` is set by every arm site
+                # together with a grace timer, and a compromise replaces the
+                # grace. They are kept as DEFENSE IN DEPTH (any one surviving
+                # a partial teardown still defers), so a single-term mutation
+                # is expected to stay green; the anchor is the whole guard
+                # (`test_episode_armed_before_verify_defers_preset_restore`).
+                _episode_armed = bool(
+                    self._override_active.get(zone_id)
+                    or zone_id in self._grace_timers
+                    or zone_id in self._compromise_timers
+                )
+                if original_preset and _episode_armed:
+                    _LOGGER.debug(
+                        "HVAC AC Reset: Zone %s preset restore DEFERRED "
+                        "— arrester episode armed (override_active=%s, "
+                        "grace=%s, compromise=%s); arrester revert owns "
+                        "the preset",
+                        zone_name,
+                        self._override_active.get(zone_id, False),
+                        zone_id in self._grace_timers,
+                        zone_id in self._compromise_timers,
+                    )
+                    _preset_ok = None
+                elif original_preset:
                     self.suppress(climate_entity, kind="preset")
                     try:
                         await emit_set_preset_mode(
@@ -5340,7 +5426,12 @@ class OverrideArrester:
                 # F9: combined restore_ok reflects the AND of mode-ok
                 # AND preset-ok. Also record preset_restore_ok as its
                 # own signal so downstream analytics can discriminate.
-                _combined_ok = bool(_mode_ok and _preset_ok)
+                # DEFERRED (fix-up 1) = mode-only success: score
+                # combined on mode alone, keep preset_restore_ok NULL.
+                _combined_ok = bool(
+                    _mode_ok if _preset_ok is None
+                    else (_mode_ok and _preset_ok)
+                )
                 await self._backfill_restore_ok(
                     zone_id, _combined_ok, preset_ok=_preset_ok,
                 )
@@ -5557,6 +5648,9 @@ class OverrideArrester:
         new_target = original_target + self._nudge_size_f
         duration_s = self._nudge_duration_min * 60
         started_ts = dt_util.now().isoformat()
+        # HVAC Batch D (INFO-1): a new nudge starts clean — a reference
+        # restore recorded for a PREVIOUS nudge never carries over.
+        self._nudge_ref_map().pop(zone_id, None)
 
         # CRITICAL ORDER (R1): DB first, setpoint second.
         if self._db is not None:
@@ -5845,10 +5939,101 @@ class OverrideArrester:
             else (_ram_pre_preset or None)
         )
         pre_preset = _snap_preset or ""
+        _s7_reason = "soft_nudge_preset_restore"
+        # HVAC Batch D (INFO-1, operator ruling "B"): a person ended the
+        # non-nudge borrow this nudge ran on top of (D13 + D-L3). Its
+        # snapshot (`manual` + the borrow's pre-cool setpoints) must NOT be
+        # written back: restore the zone's CURRENT S1 target preset instead
+        # (the ARRIVAL target for an interrupted pre-arrival, Q7) — presets
+        # only, so S6 is skipped. No resolvable reference -> the pre-ruling
+        # snapshot restore (fix-up 1, A10).
+        _ref_rec = self._nudge_ref_map().pop(zone_id, None)
+        _reference_restore = _ref_rec is not None
+        _person_restore = False
+        _p_high = _p_low = None
+        _ref_arrival = False
+        if _reference_restore:
+            if isinstance(_ref_rec, dict):
+                _ref_arrival = bool(_ref_rec.get("arrival"))
+                _p_high, _p_low = _ref_rec.get("high"), _ref_rec.get("low")
+            else:  # legacy bool record
+                _ref_arrival = bool(_ref_rec)
+            # Fix-up 1 (operator ruling 2026-09-29): while the PERSON is
+            # protected (gate a/b — Temp Arrester Override or an immune hold,
+            # read LIVE now), restore the person's OWN setpoints from the
+            # change that ended the borrow (S6, HUMAN_MANUAL raw restore) and
+            # skip S7's preset pin. Their values unavailable -> the pre-ruling
+            # snapshot restore. No protection -> ruling B (S1 target) below.
+            try:
+                _protected = bool(self._corrective_writes_suppressed(zone_id))
+            except Exception:  # noqa: BLE001
+                _protected = False
+            if _protected:
+                _reference_restore = False
+                if _p_high is not None and _p_low is not None:
+                    _person_restore = True
+                    pre_preset = ""  # no S7 pin over the person's hold
+                    _LOGGER.info(
+                        "Soft nudge restore on %s: person-protected zone — "
+                        "restoring the person's own %.1f/%.1f (no preset pin)",
+                        zone.zone_name, _p_low, _p_high,
+                    )
+                else:
+                    _LOGGER.info(
+                        "Soft nudge restore on %s: person-protected but their "
+                        "values are unknown — falling back to the snapshot "
+                        "restore", zone.zone_name,
+                    )
+        if _reference_restore:
+            _ref = self._resolve_reference(zone_id, None, arrival=_ref_arrival)
+            if _ref is None:
+                # Fix-up 1 (A10): no resolvable reference (e.g. house
+                # `arriving` / no seasonal setpoints / resolver unwired) —
+                # fall back to the pre-ruling restore (S6/S7 from the
+                # snapshot) rather than leave the nudge's +°F setpoint on
+                # the thermostat.
+                _reference_restore = False
+                _LOGGER.info(
+                    "Soft nudge restore on %s: no reference preset resolvable "
+                    "— falling back to the snapshot restore", zone.zone_name,
+                )
+        if _reference_restore:
+            pre_preset = _ref[0]
+            _s7_reason = (
+                "soft_nudge_restore_arrival_target" if _ref_arrival
+                else "soft_nudge_restore_s1_target"
+            )
+            _LOGGER.info(
+                "Soft nudge restore on %s: the borrow under it was ended by a "
+                "person — restoring %s (preset only), not the snapshot %r",
+                zone.zone_name, pre_preset,
+                _snap_preset,
+            )
         from .hvac_strategy import strategy_for as _strategy_for  # noqa: PLC0415
-        if _strategy_for(self.hass, zone.climate_entity).is_human_manual_snapshot(
-            _snap_preset,
-        ):
+        if _person_restore:
+            try:
+                # HUMAN_MANUAL raw restore (W1-B rule: raw setpoints only for
+                # a person's own hold; reason prefix `human_manual_`).
+                await emit_set_temperature(
+                    self.hass,
+                    zone.climate_entity,
+                    target_temp_low=_p_low,
+                    target_temp_high=_p_high,
+                    freeze_active=self._freeze_active(),
+                    blocking=False,
+                    site="S6_nudge_restore_setpoint",
+                    zone_id=zone_id,
+                    reason="human_manual_soft_nudge_person_restore",
+                    excursion_id=_nudge_eid,
+                )
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.error(
+                    "Soft nudge person restore: set_temperature failed on "
+                    "%s: %s", zone.climate_entity, e,
+                )
+        elif not _reference_restore and _strategy_for(
+            self.hass, zone.climate_entity,
+        ).is_human_manual_snapshot(_snap_preset):
             try:
                 # ARREST-COMFORT-1 §3.7 S6: ALLOW (restoration path).
                 # HVAC-W1-A F3: required site/zone_id/reason kwargs added.
@@ -5906,7 +6091,7 @@ class OverrideArrester:
                     blocking=True,
                     site="S7_nudge_restore_preset",
                     zone_id=zone_id,
-                    reason="soft_nudge_preset_restore",
+                    reason=_s7_reason,
                     excursion_id=_nudge_eid,
                 )
                 _LOGGER.info(
@@ -7842,12 +8027,33 @@ class OverrideArrester:
         except Exception:  # noqa: BLE001
             return None
 
-    def _cancel_zone_timers(self, zone_id: str) -> None:
-        """Cancel all active timers for a zone."""
+    def _cancel_arrester_timers(self, zone_id: str) -> None:
+        """Cancel ONLY the arrester's own grace / compromise timers for a
+        zone.
+
+        HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1 (B-L3 in the
+        v5.103.23 W1/W2 finish review): a NEW governed override
+        episode (`_handle_severe_override` / `_handle_normal_override`
+        / the startup-audit stale-override branch) must NOT cancel a
+        pending AC hard-reset RESTORE timer (`_reset_timers`) — that
+        timer belongs to a different subsystem and, if the arrester
+        cancels it inside the Carrier lag window after the reset's
+        `off` write, the zone stays off longer than intended. Bound
+        on the pre-fix strand: the B1 heat_cool enforcer
+        (`hvac.py:2415-2419`) re-asserts heat_cool within ~one
+        `HVAC_DECISION_TICK` (5 min) plus Carrier lag once the reset
+        timer is gone — so the strand was bounded at ~5 min + lag on
+        the periodic path (worse than the design ~1 min restore, but
+        not indefinite). Mirrors the scope of
+        `_defer_arrester_to_borrow` (Round 3 LOW-2). Legitimate
+        cancel sites for the reset restore timer — `teardown()`,
+        `ac_reset_enabled` setter, and the fire-time pop in
+        `_restore_after_reset` — handle `_reset_timers` directly and
+        are unaffected.
+        """
         for timer_dict in (
             self._grace_timers,
             self._compromise_timers,
-            self._reset_timers,
         ):
             cancel = timer_dict.pop(zone_id, None)
             if cancel:

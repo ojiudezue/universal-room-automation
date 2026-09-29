@@ -431,7 +431,10 @@ async def async_setup_entry(
         AutomationSwitch(coordinator),
         OverrideOccupiedSwitch(coordinator),
         OverrideVacantSwitch(coordinator),
-        ClimateAutomationSwitch(coordinator),
+        # HVAC Batch D fix-up 1 (operator ruling 2026-09-29):
+        # ClimateAutomationSwitch RETIRED — the per-room "Fan Mode" select
+        # alone decides the comfort fan. Existing registry entries are left
+        # orphaned for the operator to remove (Bug Class #46).
         CoverAutomationSwitch(coordinator),
         ManualModeSwitch(coordinator),
         AiAutomationSwitch(coordinator),
@@ -442,9 +445,12 @@ async def async_setup_entry(
         # L2 is an unconditional safety veto).
         RoomFanRecheckEnabledSwitch(coordinator),
         RoomFanRecheckL2AllowedSwitch(coordinator),
-        # D6 (bathroom-exhaust intelligence cycle): per-room mirrors of
-        # options-flow toggles #2 (comfort) and #3 (humidity).
-        RoomComfortFanControlSwitch(coordinator),
+        # D6 (bathroom-exhaust intelligence cycle): per-room mirror of the
+        # options-flow humidity toggle (#3). HVAC Batch D (v5.103.24): the
+        # comfort toggle (#2, RoomComfortFanControlSwitch) is RETIRED —
+        # replaced by the per-room "Fan Mode" select (select.py
+        # RoomFanModeSelect). Its registry entry is left for the operator to
+        # remove (Bug Class #46: never delete registry entries from code).
         RoomHumidityFanControlSwitch(coordinator),
         # v5.8.0 D2.12: reconcile-on-return per-room gate (guard 9). Default ON.
         AutoRecoverySwitch(coordinator),
@@ -5096,39 +5102,11 @@ class OverrideVacantSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
         _LOGGER.info("Override vacant disabled for room: %s", self.coordinator.entry.data.get("room_name"))
 
 
-class ClimateAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
-    """Switch to enable/disable climate-specific automation."""
-
-    _attr_icon = "mdi:thermostat-auto"
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the switch."""
-        super().__init__(coordinator, "climate_automation", "Climate Automation")
-        self._attr_is_on = True  # Default to enabled
-
-    async def async_added_to_hass(self) -> None:
-        """Restore last state."""
-        await super().async_added_to_hass()
-        if (last_state := await self.async_get_last_state()) is not None:
-            self._attr_is_on = last_state.state == "on"
-
-    @property
-    def available(self) -> bool:
-        """Switch is always available."""
-        return True
-
-    async def async_turn_on(self, **kwargs) -> None:
-        """Turn on climate automation."""
-        self._attr_is_on = True
-        self.async_write_ha_state()
-        _LOGGER.info("Climate automation enabled for room: %s", self.coordinator.entry.data.get("room_name"))
-
-    async def async_turn_off(self, **kwargs) -> None:
-        """Turn off climate automation."""
-        self._attr_is_on = False
-        self.async_write_ha_state()
-        _LOGGER.info("Climate automation disabled for room: %s", self.coordinator.entry.data.get("room_name"))
+# HVAC Batch D fix-up 1 (operator ruling 2026-09-29): ClimateAutomationSwitch
+# (v3.20.0, "climate_automation") is RETIRED. Its only consumer was the gate on
+# the room-tier temperature fan path (coordinator.py), found by a slug-built
+# entity id; the per-room "Fan Mode" select (select.RoomFanModeSelect) now
+# decides alone. Registry entries are orphaned, not deleted (Bug Class #46).
 
 
 class CoverAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
@@ -5169,7 +5147,7 @@ class CoverAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
 class AutoRecoverySwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
     """Per-room reconcile-on-return gate (v5.8.0, D2.12, guard 9).
 
-    Straight sibling of AutomationSwitch / ClimateAutomationSwitch /
+    Straight sibling of AutomationSwitch / (retired) ClimateAutomationSwitch /
     CoverAutomationSwitch. SEPARATE from the master AutomationSwitch and
     manual_mode — this gates ONLY whether the ActuatorReconciler dispatches a
     service call. When OFF, the reconciler STILL computes would_reconcile for
@@ -6005,19 +5983,10 @@ class _RoomBooleanOptionSwitch(
         self.async_write_ha_state()
 
 
-class RoomComfortFanControlSwitch(_RoomBooleanOptionSwitch):
-    """D6 — per-room Comfort Fan Control toggle (mirrors CONF_FAN_CONTROL_ENABLED)."""
-
-    _attr_icon = "mdi:fan-auto"
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        from .const import CONF_FAN_CONTROL_ENABLED
-        super().__init__(
-            coordinator, "comfort_fan_control", "Comfort Fan Control",
-        )
-        self._conf_key = CONF_FAN_CONTROL_ENABLED
-        self._default = False
-        self._attr_is_on = self._read_default()
+# HVAC Batch D (v5.103.24): RoomComfortFanControlSwitch (D6 mirror of
+# CONF_FAN_CONTROL_ENABLED) was RETIRED — the per-room "Fan Mode" select
+# (select.RoomFanModeSelect, CONF_ROOM_FAN_MODE) replaces it and the
+# options-flow "Enable HVAC-Managed Fans" field. See const.fan_owner.
 
 
 class RoomHumidityFanControlSwitch(_RoomBooleanOptionSwitch):

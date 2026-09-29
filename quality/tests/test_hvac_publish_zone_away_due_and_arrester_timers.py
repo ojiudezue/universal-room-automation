@@ -201,7 +201,7 @@ async def test_grace_until_set_on_normal_override_and_cleared_on_cancel(mods):
         )
         assert d["compromise_until"] is None
         # Cancel (the path every re-arm / deferral uses).
-        arr._cancel_zone_timers(ZONE)
+        arr._cancel_arrester_timers(ZONE)
         assert _zone_detail(arr)["grace_until"] is None
 
 
