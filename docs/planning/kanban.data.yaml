@@ -30530,6 +30530,20 @@ cards:
   links:
     related: [ARRESTER-GATE4-LOW-STAGE-THRESHOLD-1, HVAC-W3-ENERGY-AWARE]
   rank: {value: 4, time_criticality: 2, effort: 2}
+- id: HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1
+  title: A new arrester episode cancels a pending AC hard-reset restore, so a zone can stay off for about 2-20 minutes after a reset
+  thread: hvac
+  status: planned
+  created: '2026-09-29 04:10'
+  updated: '2026-09-29 04:10'
+  approval: implied
+  tags: [hvac, arrester, ac-reset, pre-existing, found-in-review]
+  origin:
+    date: '2026-09-29'
+    gist: Batch B review B-L3 (docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md); flagged by the builder; exists on develop
+  why: 'A governed override dispatch (hvac_override.py ~4055/4123) calls _cancel_zone_timers (~7624-7633), which also cancels a pending AC-reset RESTORE timer. If a manual change is booked inside the Carrier lag window after the reset''s `off` write (up to ~79 s), the zone stays off until the arrester''s own revert re-asserts heat_cool (B4): ~2 min on the severe path, up to ~20 min on grace + compromise. If the revert stands down, the zone stays off. Present on develop through the transition path; Batch B only slightly widens reachability.'
+  next: 'BUILD (Tier 1): dispatch cancels only grace/compromise timers (mirror _defer_arrester_to_borrow at ~3953), never the AC-reset restore. Add a test: a reset is pending, a human change is booked, the restore still fires.'
+  rank: {value: 4, time_criticality: 3, effort: 1}
 - id: ENPHASE-BATTERY-CUTOUTS-1
   title: At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time
   thread: energy
