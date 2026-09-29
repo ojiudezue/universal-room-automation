@@ -136,8 +136,18 @@ def _tok(coord, zid=Z2):
     return getattr(coord._predictor, "_banking_excursion_tokens", {}).get(zid)
 
 
-def _age(mods, tok, seconds):
-    tok.started_ts = mods["hvac_excursion"]._now() - float(seconds)
+FROZEN = 1_900_000_000.0
+
+
+def _age(mods, tok, seconds, monkeypatch=None):
+    """Age the token by exactly ``seconds``; with ``monkeypatch`` the
+    excursion clock is frozen so boundary tests are exact."""
+    ex = mods["hvac_excursion"]
+    if monkeypatch is not None:
+        monkeypatch.setattr(ex, "_now", lambda: FROZEN)
+        tok.started_ts = FROZEN - float(seconds)
+    else:
+        tok.started_ts = ex._now() - float(seconds)
 
 
 # ==========================================================================
@@ -145,13 +155,18 @@ def _age(mods, tok, seconds):
 # ==========================================================================
 
 
+@pytest.mark.parametrize("status_lag", [False, True])
 @pytest.mark.asyncio
-async def test_pre_arrival_single_write_across_three_triggers(mods, monkeypatch):
+async def test_pre_arrival_single_write_across_three_triggers(mods, monkeypatch, status_lag):
+    """With `status_lag` the zone keeps reading away 80 (the STATUS feed
+    lags the hold, §5 / C22): the value would be identical each time, so
+    only the no-second-begin guard keeps it to ONE write under the id."""
     coord, hass, db, _ = _setup(mods, monkeypatch)
     for _ in range(3):
         await _pre_arrival(coord, hass)
         z = coord.zone_manager.zones[Z2]
-        z.target_temp_high = 74.0   # the zone now reads the pre-cool value
+        if not status_lag:
+            z.target_temp_high = 74.0   # the zone now reads the pre-cool value
     rows = _s12(hass, mods)
     assert len(rows) == 1
     assert rows[0]["values_after"]["target_temp_high"] == 74.0
@@ -404,7 +419,7 @@ async def test_pre_arrival_max_age_with_repeated_triggers(mods, monkeypatch, age
     await _pre_arrival(coord, hass)
     tok = _tok(coord)
     coord._pre_arrival_window_minutes = 30
-    _age(mods, tok, age_s)
+    _age(mods, tok, age_s, monkeypatch)
     coord._pre_arrival_start[Z2] = datetime.now(timezone.utc)   # a fresh trigger
     reasons = coord._expire_pre_arrival_zones(datetime.now(timezone.utc))
     assert reasons == {}
@@ -433,7 +448,7 @@ async def test_knob_extremes_end_before_lease_sweep(mods, monkeypatch, window, a
     await _pre_arrival(coord, hass)
     tok = _tok(coord)
     coord._pre_arrival_window_minutes = window
-    _age(mods, tok, age_s)
+    _age(mods, tok, age_s, monkeypatch)
     ex = mods["hvac_excursion"]
     assert await ex._auto_release_sweep(coord) == 0
     await coord._async_end_pre_arrival_borrows({})
@@ -506,6 +521,9 @@ async def test_fast_run_ends_only_its_zone(mods, monkeypatch):
     t1, t2 = _tok(coord, Z1), _tok(coord, Z2)
     for zid in (Z1, Z2):
         _occ(mods, coord, zid, lighting=True, hvac=True)
+    # Z1 is ALSO end-eligible (aged past the window) — only the zone scope
+    # of the fast run keeps it untouched.
+    t1.started_ts = mods["hvac_excursion"]._now() - 31 * 60
     coord._fast_path_enabled = True
     ps = [patch.object(coord.zone_manager, "update_room_conditions"),
           patch.object(coord, "_apply_house_state_presets", new=AsyncMock(return_value=False))]

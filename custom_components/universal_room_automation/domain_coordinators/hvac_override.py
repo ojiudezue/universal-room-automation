@@ -3438,12 +3438,12 @@ class OverrideArrester:
                 old_state, new_state, _recent_vals, _tol,
             )
             if _cls == MANUAL_CHANGE_URA_ECHO:
+                # Not booked: is_override stays False (return below).
                 _LOGGER.debug(
                     "Arrester: within-manual change on %s matches a recent URA "
                     "write (%s -> %s) — URA echo, not booked",
                     entity_id, (old_low, old_high), (new_low, new_high),
                 )
-                return
             if _cls == MANUAL_CHANGE_HUMAN:
                 is_override = True
                 within_manual = True

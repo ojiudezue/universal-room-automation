@@ -719,6 +719,9 @@ async def test_pending_apply_compromise_stands_down_on_gen_bump(mods, monkeypatc
     await H.drain(hass)
     assert _cw_rows(hass, mods, "S3_compromise") == []
     assert mods["hvac_excursion"].live_token_for(Z2) is None
+    # Stood down BEFORE touching episode state or opening a row.
+    assert arr._compromise_active.get(Z2) is not True
+    assert not [e for e in db.events if e["kind"] == "compromise"]
 
 
 @pytest.mark.asyncio
@@ -753,6 +756,9 @@ async def test_stale_revert_stands_down(mods, monkeypatch):
     old_cb(None)          # the superseded episode's timer (already pending)
     await H.drain(hass, rounds=8)
     assert H.preset_writes(hass, E2) == []
+    # The stale task never touched the NEW episode's state.
+    assert Z2 in arr._grace_timers and Z2 in arr._arrest_episode
+    assert arr._override_active.get(Z2) is True
 
 
 @pytest.mark.asyncio
@@ -860,6 +866,7 @@ async def test_interrupt_latch_blocks_preheat(mods, monkeypatch):
     await coord._predictor._execute_pre_heat()
     await H.drain(hass)
     assert _cw_rows(hass, mods, "S13_pre_heat") == []
+    assert mods["hvac_excursion"].live_token_for(Z2) is None   # nothing begun
 
 
 @pytest.mark.asyncio
