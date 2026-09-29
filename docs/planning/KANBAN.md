@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-29T02:01:33-05:00_ - _Data commit: `d8397a070f98`_ - _last_reconciled: 2026-09-29_
+_Generated: 2026-09-29T02:05:33-05:00_ - _Data commit: `2ed5494da2e3`_ - _last_reconciled: 2026-09-29_
 
 
 ## Columns
@@ -15,11 +15,11 @@ _Generated: 2026-09-29T02:01:33-05:00_ - _Data commit: `d8397a070f98`_ - _last_r
 | 📝 Planned | 22 |
 | 🔨 In progress | 4 |
 | 🔍 Review | 2 |
-| ⏸️ Waiting on operator | 24 |
+| ⏸️ Waiting on operator | 22 |
 | ⏳ Waiting on me (Claude) | 3 |
 | 🚀 Shipped (organic open) | 6 |
 | 🅿️ Parked | 72 |
-| ✅ Done | 243 |
+| ✅ Done | 245 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -665,7 +665,7 @@ _created 2026-09-27 02:40 · updated 2026-09-29 01:05 · initial_
   - `gate_2026_09_27`: (1) VALIDITY: still real, 3 junk alerts in 16 days, code path confirmed. (1b) CONFIG-FIRST: no knob covers it. LOW_HUMIDITY_THRESHOLDS are rung-1 constants, and swapping each room to a different humidity sensor is whack-a-mole because an...
   - `open_question_garage`: NOT BUILT, and flagged for the operator: the zone chip treats garages as humidity-EXEMPT ("garage RH tracks weather"), but the safety coordinator still fires low-humidity for garages (09-26 "30.0% in Garage A", LOW). The coordinator and ...
 
-## ⏸️ Waiting on operator (24)
+## ⏸️ Waiting on operator (22)
 _needs a human call — groomed first_
 
 ### `ENPHASE-BATTERY-CUTOUTS-1` - At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time — _#1 · WSJF 10.0 · v8 tc8 u4 /e2_
@@ -723,7 +723,7 @@ _created 2026-08-20 14:15 · updated 2026-09-29 01:05 · initial_
 
 ### `FRONT-SIDE-PTZ-CHATTER-1` - front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling — _#4 · WSJF 4.7 · v7 tc5 u2 /e3_
 thread: **perimeter** - status: **waiting_operator**
-_created 2026-09-14 00:20 · updated 2026-09-28 03:30 · refined_
+_created 2026-09-14 00:20 · updated 2026-09-29 02:55 · refined_
 - **Problem / Solution:**
   - Problem: one exterior camera reports "person detected" far more than any other — it is active 21% of the time, its busiest hours are 3-5am when nobody is about, and it once stayed "on" continuously for 29.5 hours. Because the system link...
 - **Origin:** 2026-09-14 - fell out of the CIRCLING-FOUNDING-CASE-ARTIFACT-1 measurement — the control-pair comparison isolated front_side_ptz as the anomaly
@@ -731,7 +731,7 @@ _created 2026-09-14 00:20 · updated 2026-09-28 03:30 · refined_
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
 - **Refs:** docs/planning/VALIDATE_exterior_camera_seams.md
-- **Forensic keys (10):**
+- **Forensic keys (11):**
   - `datapoint_2026_09_28`: Data point (overnight 2026-09-28, HA history): since Frigate2 came back (09-27 21:12Z) front_side_ptz_person_occupancy_2 went ON 0 times, while front_side_ptz_motion_3 went ON 140 times. That is the same pattern as your pending ANSWER (p...
   - `UNBLOCKED_2026_09_25`: THE MEASUREMENT BLOCKER IS RESOLVED — by an operator fact, not by a probe. Operator 2026-09-25: "the camera fleet is fine now. Frigate is having periodic degrades on the hardware side that I am working on. The quick fix is a docker reloa...
   - `CONTAMINATION_WARNING_2026_09_23`: DO NOT READ ANY CHATTER MEASUREMENT TAKEN AFTER 2026-09-20 19:00 AS EVIDENCE. Measured tonight on PERIMETER-DETECTION-WENT-DARK-1: exterior detection has been fully dark since about 19:00 on 2026-09-20 and is STILL dark ~60h later — 18 o...
@@ -742,18 +742,9 @@ _created 2026-09-14 00:20 · updated 2026-09-28 03:30 · refined_
   - `RE_MEASURED_2026_09_17`: THE CHATTER IS GONE, BUT DO NOT BANK IT AS A WIN — this camera has stopped detecting people ENTIRELY, and it is the only one that has. Measured from the HA recorder (immutable=1, verified live-fresh). front_side_ptz person detections per...
   - `groom_2026_09_14`: LANE FIX (overnight groom): this card sat in `investigating` while its own `next` read "OPERATOR OWNS THIS ... Nothing queued on my side" — i.e. there is no measurement left for me to run, which is the entry condition for the investigati...
   - `reverified_2026_09_19`: CARD-WAS-WRONG on one detail, and the correction matters to the question being asked. This card states front_side_ptz went to "exactly 1" person-detection a day and "stayed there for three days". Re-measured tonight: over 09-16 -> 09-19 ...
+  - `verify_2026_09_29_overnight`: STILL-REAL and MORE URGENT. Recorder: binary_sensor.front_side_ptz_person_occupancy_2 had 0 ON rows in the last 5 days. The card's 1/day was already down from 204/day. Sibling cameras ARE detecting in the same 24h (pool_equipment 11, bac...
 
-### `HA-CPU-LOAD-REVIEW-1` - HA runs at about 2x the CPU it used 4 months ago; the biggest non-URA sources need owner decisions — _#5 · WSJF 4.5 · v4 tc3 u2 /e2_
-thread: **platform** - status: **waiting_operator**
-_created 2026-09-28 19:10_
-- **Origin:** 2026-09-28 - operator pasted an external review of HA CPU and asked me to check it and implement some changes
-- **Why:** Measured 2026-09-28 (5-min recorder window): 83.9 rows/s total. By integration: span_panel ~1,677/min (206 entities, 2 real panels, 5 s snapshot interval; the simulator is already off), bermuda ~793/min, mqtt ~637/min, URA ~555/min, unif...
-- **Next:** PICK: (a) raise SPAN snapshot_update_interval 5 s -> 15 s (I would first check which URA energy paths read SPAN); (b) retrigger the Frigate MQTT->events bridge automation (~115 runs/min, the top single entity) only on new/end events; (c)...
-- **Tags:** ha-cpu, recorder, config
-- **Forensic keys (1):**
-  - `done_2026_09_28`: DONE: (1) UniFi option allow_bandwidth_sensors -> false (live rx/tx sensors 1,742 -> 6; none had consumers). (2) configuration.yaml recorder exclude globs: sensor.*_unfiltered_distance_to_* (Bermuda, no readers), sensor.envoy_stream_data...
-
-### `FRIGATE-THRESHOLD-CLAIM-DISPUTED-1` - The '98-99% of detections score below 0.70' claim is DISPUTED by the operator and unverified by me — _#6 · WSJF 4.5 · v5 tc2 u2 /e2_
+### `FRIGATE-THRESHOLD-CLAIM-DISPUTED-1` - The '98-99% of detections score below 0.70' claim is DISPUTED by the operator and unverified by me — _#5 · WSJF 4.5 · v5 tc2 u2 /e2_
 thread: **perimeter** - status: **waiting_operator**
 _created 2026-09-14 03:05 · updated 2026-09-29 01:05 · initial_
 - **Problem / Solution:**
@@ -767,6 +758,17 @@ _created 2026-09-14 03:05 · updated 2026-09-29 01:05 · initial_
   - `groom_2026_09_29`: next normalised to open with an operator verb (was "ANSWER or DELEGATE"). Content unchanged. Still real: nothing on the board since 09-14 settles the score distribution.
   - `MY_RECOMMENDATION_IS_WITHDRAWN`: I recommended sweeping seven ring cameras from threshold 0.7 to 0.6 and called it "the high-value item". THAT RECOMMENDATION IS WITHDRAWN pending verification. It rested entirely on an agent-reported figure I did not reproduce, and the o...
   - `what_would_settle_it`: A read of the Frigate host's `events` table for a recent window: per camera, the count of person events and the distribution of `top_score` (median, p90, and the fraction >= 0.70). That single query decides whether 0.7 is a sensible cut ...
+
+### `HA-CPU-LOAD-REVIEW-1` - HA runs at about 2x the CPU it used 4 months ago; the biggest non-URA sources need owner decisions — _#6 · WSJF 4.5 · v4 tc3 u2 /e2_
+thread: **platform** - status: **waiting_operator**
+_created 2026-09-28 19:10 · updated 2026-09-29 02:55_
+- **Origin:** 2026-09-28 - operator pasted an external review of HA CPU and asked me to check it and implement some changes
+- **Why:** Measured 2026-09-28 (5-min recorder window): 83.9 rows/s total. By integration: span_panel ~1,677/min (206 entities, 2 real panels, 5 s snapshot interval; the simulator is already off), bermuda ~793/min, mqtt ~637/min, URA ~555/min, unif...
+- **Next:** PICK: (a) raise SPAN snapshot_update_interval 5 s -> 15 s (I would first check which URA energy paths read SPAN); (b) retrigger the Frigate MQTT->events bridge automation (~115 runs/min, the top single entity) only on new/end events; (c)...
+- **Tags:** ha-cpu, recorder, config
+- **Forensic keys (2):**
+  - `done_2026_09_28`: DONE: (1) UniFi option allow_bandwidth_sensors -> false (live rx/tx sensors 1,742 -> 6; none had consumers). (2) configuration.yaml recorder exclude globs: sensor.*_unfiltered_distance_to_* (Bermuda, no readers), sensor.envoy_stream_data...
+  - `verify_2026_09_29_overnight`: STILL-NEEDS-OPERATOR. Recorder over the last 1h: 69.2 total rows/s, down from 83.9 after the 23:37 restart applied the recorder exclusions. SPAN 1,747 rows/min, unchanged, so (a) is not done. binary_sensor low_flow_leak 41,413 rows/24h (...
 
 ### `COVERAGE-EVENING-ATTRIBUTION-DRIFT-1` - Every evening the room-by-room energy totals creep past the whole-house meter and keep growing until midnight, and nobody has explained why — _#7 · WSJF 4.3 · v7 tc4 u2 /e3_
 thread: **energy** - status: **waiting_operator** - approval: **unreviewed**
@@ -969,19 +971,7 @@ _updated 2026-09-29 01:05_
   - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
   - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
 
-### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped) — _#19 · WSJF 1.6 · v7 tc4 u2 /e8_
-thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
-_updated 2026-09-19 03:50_
-- **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
-- **Why:** BUG, live now (smoking gun: jaya_3_presence=on w/ substrate_kinds all-false). The 08-13 20:51 away transition fired THROUGH occupied Upstairs precisely because the house tier could not see the two renamed rooms. Blast radius: away/veto/c...
-- **Next:** PICK timing: (a) run the Tier-2-DB room-rename write-back cycle now, or (b) after the sensors work lands. -> I plan-review then build. (Note: the write-through itself already shipped v5.75.0; this is the further hardening cycle.)
-- **Forensic keys (4):**
-  - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: rename/zone write-through at all 5 sites + boot migration + name-consistency invariant tests SHIPPED v5.75.0 (2697c59a9). next -> operator: CONFIRM whether any...
-  - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You pick (a) do the Tier-2-DB rename-desync cycle now vs (b) after the sensor work; plan review first.
-  - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
-  - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real...
-
-### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#20 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#19 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-27 02:40 · refined_
 - **Problem / Solution:**
@@ -996,7 +986,7 @@ _created 2026-09-27 02:40 · refined_
   - `refinement_2026_09_27`: Assumed the fix was "repair the window" -> replay shows the repair would flood about 12 alerts/day once z-score mode engages, so the choice is retire vs redesign, not repair.
   - `verified_2026_09_27`: CODE: RateOfChangeDetector.get_rate (safety.py ~636-675) sets window_start = now - WINDOW_MINUTES(30), takes the oldest reading >= window_start, and returns None unless latest - oldest >= MIN_WINDOW_SECONDS (1800, safety.py:618). Because...
 
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#21 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#20 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -1016,20 +1006,7 @@ _updated 2026-09-29 01:05_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _#22 · WSJF 1.2 · v5 tc3 u2 /e8_
-thread: **diagnostics** - status: **waiting_operator**
-_created 2026-08-19 09:00 · updated 2026-09-23 04:45 · refined_
-- **Next:** APPROVE building D7 (switch+Numbers+telemetry+shadow mode+config-flow migration) as a SHADOW-FIRST ship. NOTE: approving STARTS a hard 2-day forcing gate (flip to acting within 2 days of shadow deploy or declare moot).
-- **Forensic keys (7):**
-  - `CONTAMINATION_WARNING_2026_09_23`: DO NOT READ ANY CHATTER MEASUREMENT TAKEN AFTER 2026-09-20 19:00 AS EVIDENCE. Measured tonight on PERIMETER-DETECTION-WENT-DARK-1: exterior detection has been fully dark since about 19:00 on 2026-09-20 and is STILL dark ~60h later — 18 o...
-  - `SHADOW_RESULT_2026_08_22`: Was `in_progress`. SHADOW HAS RUN AND ITS RESULT IS IN — and it is not a tuning problem. Shadow mode shipped v5.85.0, T_floor was raised 1.0 -> 5.0 on 2026-08-20 to widen the net, and it detected NOTHING across the house. Measurement on ...
-  - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: shadow mode (v5.85.0, T_floor 5.0) detected NOTHING — this house's chatter is sustained-moderate-rate, not sub-T_floor bursts, so D7 as designed cannot fire. next ...
-  - `program`: sensor-trust-exclusion
-  - `problem`: STEP chatter shipped default-ON quarantine (ACTS on occupancy) but you can neither WATCH its performance nor REACH its knobs from where you would watch: control is buried in an options-flow step (async_step_coordinator_notifications_volu...
-  - `build_2026_08_19`: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
-  - `reviews_2026_08_19`: D7 TIER-3 REVIEWS: A+D SHIP-WITH-FIX, B+C DO-NOT-SHIP — INDEPENDENTLY CONVERGED on the HIGH. Boot-safety CLEAN (no repeat of the v5.84.0 import-shadow incident class). HIGH: act->shadow/off mode-flip leaves stale chatter exclusions (occu...
-
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#23 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#21 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -1044,17 +1021,17 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#24 · WSJF 1.0 · v7 tc4 u2 /e13_
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#22 · WSJF 1.0 · v7 tc4 u2 /e13_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-17 23:58 · updated 2026-09-28 03:25 · refined_
+_created 2026-08-17 23:58 · updated 2026-09-29 02:55 · refined_
 - **Problem / Solution:**
   - Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house is away) even when no other camera watching the area agreed — because the alert records which cameras fired but throws that agreement away...
   - Solution (Tier 3, NARROW remit per operator): make the already-recorded cross-camera/NVR agreement MATTER to the notification severity — a single-source detection DEMOTES (floor LOW, never silenced, so a lone-camera real threat still pag...
 - **Why:** Perimeter alerts are a security surface — false alarms train the operator to ignore them (alert fatigue), and a double-send doubles the noise. Cross-NVR correlation is the same principle the operator just mandated for cycle-3 face ID: ne...
-- **Next:** DO + PICK (operator): (1) DO, config-first: remove or relocate the cloth pile in the pool-equipment enclosure, or add a Frigate2 motion/object mask over it on pool_equipment, and review back_yards Frigate zone/threshold (88 phantom perso...
+- **Next:** ANSWER first: did you do step (1) (clear or move the cloth pile in the pool-equipment enclosure, or add a Frigate2 mask) around 09-27/28? The phantom rate has dropped (below). YES -> I re-measure 3 days and close or narrow this card. NO ...
 - **Tags:** tier-3
 - **Refs:** custom_components/universal_room_automation/perimeter_alert.py; EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
-- **Forensic keys (21):**
+- **Forensic keys (22):**
   - `measured_2026_09_28_F2_back`: MEASURED (overnight 2026-09-28; read-only agent plus orchestrator spot-checks). Window: 09-27 21:12Z (Frigate2 back) to 03:00Z, with 36 logical exterior_person alerts (one [audit] row each), all analysed. RESULTS: (1) 31/36 (86%) single-...
   - `disposition_2026_09_26_groom`: RE-LANED: the next action is a measurement (mine). BLOCKED right now: Frigate2 (192.168.13.18) is off the network since 09-25 19:18 CDT (see PERIMETER-DETECTION-WENT-DARK-1), so fresh alerts cannot be traced until it is back.
   - `verify_2026_09_27`: RE-VERIFIED STILL BLOCKED (overnight 2026-09-27 02:01): Frigate2 is still off the network (no ping, ARP incomplete, all _2 person_occupancy unavailable since 09-25 19:18), so fresh alerts cannot be hand-traced across NVRs. No work done. ...
@@ -1076,6 +1053,7 @@ _created 2026-08-17 23:58 · updated 2026-09-28 03:25 · refined_
   - `fleet_correction_2026_08_18`: OPERATOR CORRECTIONS 2026-08-18: (1) "All unmasked at the moment" — the front-PTZ mask/zone hypothesis is WRONG; no camera is masked. front_side_ptz 11.4x over-trigger cause is UNKNOWN (candidate: PTZ MOVEMENT — a panning/zooming PTZ cre...
   - `dead_leg_claim_retracted_2026_08_18`: RETRACTION: earlier notes said the dead Frigate-1 bare leg is a "stale corpse leg counted as coverage" that skews leg-agreement telemetry. WRONG — the audit found the dead F1 legs are REMOVED from the registry, so resolve_detection_legs ...
   - `ptz_rebooted_2026_08_18`: Operator REBOOTED the front PTZ 2026-08-18 (~02:40). Re-check the front_side_ptz Frigate-2/Protect ratio (was 11.4x, sole fleet outlier) after the reboot — if it drops toward the fleet norm (~0.5-1x), the over-trigger was a PTZ state/mot...
+  - `verify_2026_09_29_overnight`: PREMISE PARTLY CHANGED. Recorder person_occupancy_2 ON rows/day: back_yard 88 (09-27) -> 7 (09-28); pool_equipment 13 -> 8 -> 3 (09-29 so far, to 02:00). The cause is unknown: your DO, or just a quiet day. Not closing on one day.
 
 ## ⏳ Waiting on me (Claude) (3)
 _I owe something_
@@ -2233,8 +2211,35 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (243)
+## ✅ Done (245)
 _closed, evidence in refs_
+
+### `ROOM-NAME-DESYNC-1` - Options-flow room rename without data write-back — house tier permanently blind to 3 renamed rooms (substrate edges name-dropped) — _WSJF 1.6 · v7 tc4 u2 /e8_
+thread: **presence** - status: **done** - approval: **unreviewed**
+_updated 2026-09-29 02:55_
+- **Origin:** 2026-08-13 - ZONE-TIER-DIVERGE-1 thorough trace: presence house tier keys rooms by entry.data room_name (presence.py:2868); substrate dispatches under options-first merged name (occupancy_substrate.py:197-202). 3 rooms renamed via option...
+- **Why:** BUG, live now (smoking gun: jaya_3_presence=on w/ substrate_kinds all-false). The 08-13 20:51 away transition fired THROUGH occupied Upstairs precisely because the house tier could not see the two renamed rooms. Blast radius: away/veto/c...
+- **Next:** NONE (closed 2026-09-29, already done). Reopen only if a room's data and options room_name diverge again.
+- **Forensic keys (5):**
+  - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: rename/zone write-through at all 5 sites + boot migration + name-consistency invariant tests SHIPPED v5.75.0 (2697c59a9). next -> operator: CONFIRM whether any...
+  - `relane_2026_09_10`: Not a soak -> WAITING_OPERATOR. You pick (a) do the Tier-2-DB rename-desync cycle now vs (b) after the sensor work; plan review first.
+  - `operator_decision`: SEQUENCING TRADE: (a) config-mitigate NOW (re-align 3 entries names) = house tier regains sight, but away gets HARDER (3 more phantom-holdable mmWave zones until corroborators arrive — rec 1 hardware is operator-owned); (b) sequence the ...
+  - `build_dispatched_2026_08_13`: Plan rev-2 (plan review: 4 HIGH fixed incl. double-reload + setup-reload-watchdog ordering + 3rd write site + CONF_ZONE fold-in). Build in flight (worktree). Hand-sync mitigation VERIFIED live same evening (Upstairs zone occupied w/ real...
+  - `verify_2026_09_29_overnight`: ALREADY-DONE. Live read of .storage/core.config_entries (ssh ha): 43 room entries, 0 mismatches between data.room_name and options.room_name. The only difference is the entry TITLE for Jaya (title Jaya Bedroom (Bedroom 4) vs room_name), ...
+
+### `CHATTER-OBSERVE-CONTROL-D7-1` - STEP D7: chatter observe+control panel + shadow-first rollout (2-day forcing gate) — _WSJF 1.2 · v5 tc3 u2 /e8_
+thread: **diagnostics** - status: **done**
+_created 2026-08-19 09:00 · updated 2026-09-29 02:55 · refined_
+- **Next:** NONE (closed 2026-09-29). The open value question (build or drop a RATE-based chatter detector) lives on CHATTER-RATE-VS-BURST-GAP-1.
+- **Forensic keys (8):**
+  - `CONTAMINATION_WARNING_2026_09_23`: DO NOT READ ANY CHATTER MEASUREMENT TAKEN AFTER 2026-09-20 19:00 AS EVIDENCE. Measured tonight on PERIMETER-DETECTION-WENT-DARK-1: exterior detection has been fully dark since about 19:00 on 2026-09-20 and is STILL dark ~60h later — 18 o...
+  - `SHADOW_RESULT_2026_08_22`: Was `in_progress`. SHADOW HAS RUN AND ITS RESULT IS IN — and it is not a tuning problem. Shadow mode shipped v5.85.0, T_floor was raised 1.0 -> 5.0 on 2026-08-20 to widen the net, and it detected NOTHING across the house. Measurement on ...
+  - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: shadow mode (v5.85.0, T_floor 5.0) detected NOTHING — this house's chatter is sustained-moderate-rate, not sub-T_floor bursts, so D7 as designed cannot fire. next ...
+  - `program`: sensor-trust-exclusion
+  - `problem`: STEP chatter shipped default-ON quarantine (ACTS on occupancy) but you can neither WATCH its performance nor REACH its knobs from where you would watch: control is buried in an options-flow step (async_step_coordinator_notifications_volu...
+  - `build_2026_08_19`: D7 BUILD dispatched (additive on STEP core; shadow default; full re-review after).
+  - `reviews_2026_08_19`: D7 TIER-3 REVIEWS: A+D SHIP-WITH-FIX, B+C DO-NOT-SHIP — INDEPENDENTLY CONVERGED on the HIGH. Boot-safety CLEAN (no repeat of the v5.84.0 import-shadow incident class). HIGH: act->shadow/off mode-flip leaves stale chatter exclusions (occu...
+  - `verify_2026_09_29_overnight`: ALREADY-DONE (stale ask). The next asked you to APPROVE building D7, but D7 shipped in v5.85.0 (docs/readmes/README_v5.85.0.md: select.ura_chatter_mode off/shadow/act, CONF_CHATTER_MODE reconcile at __init__.py:4523-4541). Live recorder:...
 
 ### `HVAC-GATE8-OVERSHOOT-STAMP-NOT-CLEARED-1` - The nudge overshoot timer (Gate 8) is not reset when Gate 7 fails, so an old overshoot can make a later nudge fire early — _WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **hvac** - status: **done**
