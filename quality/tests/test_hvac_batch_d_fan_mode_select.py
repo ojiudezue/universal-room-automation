@@ -278,6 +278,18 @@ def test_migration_is_one_time_and_skips_non_rooms():
     assert _migrate(_hass([zm]), zm) is None
 
 
+def test_migration_keeps_a_fan_mode_stored_only_in_entry_data():
+    """Fix-up 1 (HIGH): a NEW room's config flow writes Fan Mode into
+    entry.DATA (no legacy toggles). The migration must not overwrite it
+    with the legacy-derived "off"."""
+    room = _Entry("r1", {"entry_type": "room", "room_name": "New",
+                         C.CONF_ROOM_FAN_MODE: ROOMT})
+    hass = _hass([_zm_entry(_IN_ZONE), room])
+    assert _migrate(hass, room) is None
+    assert C.CONF_ROOM_FAN_MODE not in room.options
+    assert C.fan_owner({**room.data, **room.options}) == "room"
+
+
 # ---------------------------------------------------------------------------
 # Options-flow dropdown — the REAL config_flow._fan_mode_selector.
 # ---------------------------------------------------------------------------

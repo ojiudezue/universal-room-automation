@@ -1852,6 +1852,22 @@ async def test_batch_d_nudge_restore_unchanged_without_an_ended_borrow(mods, mon
 
 
 @pytest.mark.asyncio
+async def test_batch_d_unresolvable_reference_falls_back_to_snapshot_restore(mods, monkeypatch):
+    """Fix-up 1 (A10): no resolvable reference -> the pre-ruling restore
+    (S6 raw original_target + S7 snapshot) instead of leaving the nudge's
+    +°F setpoint on the thermostat."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, house_state="sleep")
+    _seed(mods, Z2, "BANKING", pre_preset="away", site="S12_pre_cool")
+    _nudge_on_top_of(arr, Z2)
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 74.0), ("manual", 68.0, 71.0)))
+    assert Z2 in arr._nudge_restore_reference
+    monkeypatch.setattr(arr, "_resolve_reference", lambda *a, **k: None)
+    temps, presets = await _restore(coord, hass, arr, Z2, 74.0)
+    assert len(temps) == 1 and temps[0][2]["target_temp_high"] == 74.0
+    assert presets == ["manual"]
+
+
+@pytest.mark.asyncio
 async def test_batch_d_reference_record_does_not_outlive_its_nudge(mods, monkeypatch):
     """A record left from a previous nudge is dropped when a NEW nudge
     starts, so a later ordinary restore is unchanged."""

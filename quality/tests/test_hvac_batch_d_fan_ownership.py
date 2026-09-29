@@ -62,6 +62,7 @@ def _load():
 
 
 CONST, HF = _load()
+AUTOMATION = importlib.import_module(f"{_PKG}.automation")
 FOLLOW = CONST.FAN_MODE_FOLLOW_THERMOSTAT
 ROOMT = CONST.FAN_MODE_ROOM_TEMPERATURE
 OFF = CONST.FAN_MODE_OFF
@@ -392,3 +393,108 @@ def test_restore_skipped_when_mode_set_to_off_mid_recheck():
     n_before = len(log)
     _run(fc.restore_after_recheck("Study A", snap))
     assert log[n_before:] == []
+
+
+# ---------------------------------------------------------------------------
+# Fix-up 1 — B-M1: the room tier across a recheck pause + restore
+# ---------------------------------------------------------------------------
+
+def _room_tier_for(fc, entries, name, fan):
+    """A REAL RoomAutomation for `name`, registered where the FanController's
+    handshake finds it (hass.data[DOMAIN][entry_id].automation)."""
+    hass = fc.hass
+    entry = _entry_of(entries, name)
+    coord = MagicMock()
+    coord.entry = entry
+    config = {
+        **entry.data, **entry.options,
+        "fans": [fan], "fan_temp_threshold": 80,
+        "sleep_protection_enabled": False,
+    }
+    auto = AUTOMATION.RoomAutomation(hass=hass, config=config, coordinator=coord)
+    auto.is_sleep_mode_active = lambda: False
+    auto._refresh_config = lambda: None
+    room_log: list = []
+
+    async def _svc(domain, service, data=None, **kw):
+        room_log.append((domain, service, dict(data or {})))
+
+    auto._safe_service_call = _svc
+    coord.automation = auto
+    hass.data = {CONST.DOMAIN: {entry.entry_id: coord}}
+    return auto, room_log
+
+
+def test_room_tier_does_not_book_the_recheck_as_a_person():
+    """Jaya-like ("Room temperature"): the room tier owns the running fan.
+    The presence recheck pauses it (OFF) and restores it (ON) through the
+    FanController. The room tier must open NO 1 h off-cooldown and NO
+    manual-ON hold, and must not re-drive the fan mid-pause."""
+    fc, entries, states, log = _world(fan_on={"Jaya Bedroom": True})
+    auto, room_log = _room_tier_for(fc, entries, "Jaya Bedroom", "fan.jaya")
+    # The room tier already owns the running fan (URA-lit — the boot-edge
+    # "fan seen on at tick 1" hold is covered by its own tests).
+    auto._last_seen_any_fan_on = True
+    _run(auto.handle_temperature_based_fan_control(85.0, True))   # baseline: on
+    assert auto._last_seen_any_fan_on is True
+    assert auto._fan_manual_on_until is None
+    assert auto._fan_manual_off_until is None
+    n_room = len(room_log)
+
+    snap = _run(fc.pause_for_recheck("Jaya Bedroom", "2099-01-01T00:00:00+00:00"))
+    states["fan.jaya"] = _State("off")
+    _run(auto.handle_temperature_based_fan_control(85.0, True))   # mid-pause
+    assert auto._fan_manual_off_until is None
+    assert len(room_log) == n_room          # no room-tier write mid-pause
+
+    _run(fc.restore_after_recheck("Jaya Bedroom", snap))
+    states["fan.jaya"] = _State("on", {"percentage": 33})
+    _run(auto.handle_temperature_based_fan_control(85.0, True))   # after restore
+    assert auto._fan_manual_off_until is None
+    assert auto._fan_manual_on_until is None
+    assert auto._recheck_pause_until is None
+
+
+def test_room_tier_pause_window_has_a_backstop():
+    """The pause window discharges by itself at the recheck's suppress-until
+    (a lost restore cannot freeze the room tier)."""
+    fc, entries, states, log = _world(fan_on={"Jaya Bedroom": True})
+    auto, _room_log = _room_tier_for(fc, entries, "Jaya Bedroom", "fan.jaya")
+    _run(fc.pause_for_recheck("Jaya Bedroom", "2000-01-01T00:00:00+00:00"))
+    assert auto._recheck_pause_until is not None
+    _run(auto.handle_temperature_based_fan_control(85.0, True))
+    assert auto._recheck_pause_until is None
+    assert auto.is_recheck_paused() is False
+
+
+# ---------------------------------------------------------------------------
+# Fix-up 1 — B-M3: the HVAC Fan Control kill keeps room-tier holds
+# ---------------------------------------------------------------------------
+
+def test_hvac_kill_keeps_holds_of_rooms_it_does_not_own():
+    fc, _e, _s, _log = _world()
+    future = "2099-01-01T00:00:00+00:00"
+    for name in ROOMS:
+        rf = fc._room_fans[name]
+        rf.manual_off_cooldown_until = future
+        rf.manual_on_hold_until = future
+    _run(fc.turn_off_all_managed())
+    assert fc._room_fans["Study A"].manual_off_cooldown_until == ""
+    assert fc._room_fans["Study A"].manual_on_hold_until == ""
+    for name in ("Jaya Bedroom", "Guest Bedroom 2"):
+        assert fc._room_fans[name].manual_off_cooldown_until == future, name
+        assert fc._room_fans[name].manual_on_hold_until == future, name
+
+
+# ---------------------------------------------------------------------------
+# Fix-up 1 — A9: recheck speed from the first ON entity
+# ---------------------------------------------------------------------------
+
+def test_recheck_snapshot_speed_is_the_first_on_entity():
+    rooms = {"Jaya Bedroom": (ROOMT, "fan.jaya_a")}
+    fc, entries, states, log = _world(rooms=rooms)
+    fc._room_fans["Jaya Bedroom"].fan_entities = ["fan.jaya_a", "fan.jaya_b"]
+    states["fan.jaya_a"] = _State("off", {"percentage": 20})
+    states["fan.jaya_b"] = _State("on", {"percentage": 66})
+    snap = fc.snapshot_room_fan("Jaya Bedroom")
+    assert snap["is_on"] is True and snap["speed_pct"] == 66

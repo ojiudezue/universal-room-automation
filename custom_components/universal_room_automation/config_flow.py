@@ -11596,6 +11596,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             climate_group = user_input.pop("climate_backstop", None)
             if isinstance(climate_group, dict):
                 user_input.update(climate_group)
+            # Batch D fix-up 1 (A5): a stored "Follow thermostat" on a room no
+            # longer in an HVAC zone is SHOWN as "Room temperature" (not an
+            # offered option). Saving that unchanged display must keep the
+            # stored value — the same rule as the Fan Mode select — so
+            # re-adding the room to a zone restores it.
+            _stored_fan_mode = room_fan_mode({
+                **self._config_entry.data, **self._config_entry.options,
+            })
+            if (
+                user_input.get(CONF_ROOM_FAN_MODE) == FAN_MODE_ROOM_TEMPERATURE
+                and _stored_fan_mode == FAN_MODE_FOLLOW_THERMOSTAT
+                and not room_in_hvac_zone(self.hass, self._config_entry.entry_id)
+            ):
+                user_input[CONF_ROOM_FAN_MODE] = FAN_MODE_FOLLOW_THERMOSTAT
             err = _validate_climate_fans_form(user_input)
             if err:
                 errors["base"] = err

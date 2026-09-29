@@ -875,6 +875,10 @@ class ActuatorReconciler:
             try:
                 if automation.is_fan_in_manual_cooldown():
                     return None
+                # HVAC Batch D fix-up 1 (B-M1): never re-assert a fan the
+                # fan recheck has paused.
+                if automation.is_recheck_paused() is True:
+                    return None
             except AttributeError:
                 # Older RoomAutomation without the accessor: fall through.
                 pass

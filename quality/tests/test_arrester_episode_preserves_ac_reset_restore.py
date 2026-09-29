@@ -419,6 +419,10 @@ class TestEndToEndResetRestorePresetDefer:
         a._grace_timers[ZONE_ID] = _sentinel_cancel()
         a._override_active[ZONE_ID] = True
 
+        # Batch D fix-up 1 (M49): capture the restore_ok back-fill.
+        backfill = AsyncMock(return_value=None)
+        monkeypatch.setattr(a, "_backfill_restore_ok", backfill)
+
         # Drive `_verify_restore` -> success branch, episode armed -> DEFER.
         await _drive_verify(a.hass)
 
@@ -427,6 +431,11 @@ class TestEndToEndResetRestorePresetDefer:
             "preset restore MUST be deferred when an arrester episode "
             "is armed"
         )
+        # M49: a DEFERRED preset = mode-only success: combined restore_ok
+        # True, preset_restore_ok NULL (None) — never False.
+        backfill.assert_awaited_once()
+        args, kwargs = backfill.call_args
+        assert args[1] is True and kwargs.get("preset_ok") is None
 
     @pytest.mark.asyncio
     async def test_no_episode_armed_preset_restore_still_fires(
@@ -460,8 +469,13 @@ class TestEndToEndResetRestorePresetDefer:
         assert ZONE_ID not in a._compromise_timers
         assert not a._override_active.get(ZONE_ID, False)
 
+        backfill = AsyncMock(return_value=None)
+        monkeypatch.setattr(a, "_backfill_restore_ok", backfill)
         await _drive_verify(a.hass)
 
+        # M49 control: preset written -> preset_ok True, combined True.
+        _bargs, _bkw = backfill.call_args
+        assert _bargs[1] is True and _bkw.get("preset_ok") is True
         assert preset_emit.await_count == 1, (
             "no episode armed -> preset restore MUST fire "
             "(byte-identical no-episode path)"
@@ -469,3 +483,39 @@ class TestEndToEndResetRestorePresetDefer:
         _, kwargs = preset_emit.call_args
         assert kwargs.get("site") == "ac_reset_verify_preset_restore"
         assert kwargs.get("reason") == "ac_reset_preset_restore"
+
+
+# ===========================================================================
+# Batch D fix-up 1 (M50): the startup-audit stale-override branch (the third
+# `_cancel_arrester_timers` call site) must not cancel a pending AC-reset
+# restore either.
+# ===========================================================================
+
+class TestStartupAuditKeepsResetRestore:
+
+    @pytest.mark.asyncio
+    async def test_startup_audit_stale_override_does_not_cancel_reset_restore(
+        self, fake_clock,
+    ):
+        a = _make_arrester()
+        restore_cancel = _sentinel_cancel()
+        a._reset_timers[ZONE_ID] = restore_cancel
+        stale = MagicMock()
+        stale.state = "heat_cool"
+        stale.attributes = {
+            "preset_mode": "manual",
+            "target_temp_high": 70.0, "target_temp_low": 64.0,
+        }
+        a.hass.states.get = MagicMock(return_value=stale)
+        pm = MagicMock()
+        pm.current_season = "summer"
+        pm.get_preset_for_house_state = MagicMock(return_value="home")
+        pm.get_seasonal_setpoints = MagicMock(return_value=(76.0, 70.0))
+
+        await a.async_startup_audit(pm, "home_day")
+
+        # The audit armed its revert (proves the branch ran)...
+        assert ZONE_ID in a._grace_timers
+        # ...and left the pending AC-reset restore alone.
+        assert a._reset_timers.get(ZONE_ID) is restore_cancel
+        restore_cancel.assert_not_called()

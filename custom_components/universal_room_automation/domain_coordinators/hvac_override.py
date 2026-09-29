@@ -5359,6 +5359,13 @@ class OverrideArrester:
                 # records the outcome as DEFERRED (preset_restore_ok
                 # column stays NULL) and `_combined_ok` is scored on
                 # mode-ok alone so `restore_ok` still reads True.
+                # Batch D fix-up 1 (review M46-M48): the three terms overlap
+                # by design — `_override_active` is set by every arm site
+                # together with a grace timer, and a compromise replaces the
+                # grace. They are kept as DEFENSE IN DEPTH (any one surviving
+                # a partial teardown still defers), so a single-term mutation
+                # is expected to stay green; the anchor is the whole guard
+                # (`test_episode_armed_before_verify_defers_preset_restore`).
                 _episode_armed = bool(
                     self._override_active.get(zone_id)
                     or zone_id in self._grace_timers
@@ -5924,12 +5931,25 @@ class OverrideArrester:
         # snapshot (`manual` + the borrow's pre-cool setpoints) must NOT be
         # written back: restore the zone's CURRENT S1 target preset instead
         # (the ARRIVAL target for an interrupted pre-arrival, Q7) — presets
-        # only, so S6 is skipped. No resolvable reference -> no write at all.
+        # only, so S6 is skipped. No resolvable reference -> the pre-ruling
+        # snapshot restore (fix-up 1, A10).
         _ref_arrival = self._nudge_ref_map().pop(zone_id, None)
         _reference_restore = _ref_arrival is not None
         if _reference_restore:
             _ref = self._resolve_reference(zone_id, None, arrival=_ref_arrival)
-            pre_preset = _ref[0] if _ref is not None else ""
+            if _ref is None:
+                # Fix-up 1 (A10): no resolvable reference (e.g. house
+                # `arriving` / no seasonal setpoints / resolver unwired) —
+                # fall back to the pre-ruling restore (S6/S7 from the
+                # snapshot) rather than leave the nudge's +°F setpoint on
+                # the thermostat.
+                _reference_restore = False
+                _LOGGER.info(
+                    "Soft nudge restore on %s: no reference preset resolvable "
+                    "— falling back to the snapshot restore", zone.zone_name,
+                )
+        if _reference_restore:
+            pre_preset = _ref[0]
             _s7_reason = (
                 "soft_nudge_restore_arrival_target" if _ref_arrival
                 else "soft_nudge_restore_s1_target"
@@ -5937,7 +5957,7 @@ class OverrideArrester:
             _LOGGER.info(
                 "Soft nudge restore on %s: the borrow under it was ended by a "
                 "person — restoring %s (preset only), not the snapshot %r",
-                zone.zone_name, pre_preset or "nothing (no reference)",
+                zone.zone_name, pre_preset,
                 _snap_preset,
             )
         from .hvac_strategy import strategy_for as _strategy_for  # noqa: PLC0415

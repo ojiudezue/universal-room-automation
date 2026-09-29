@@ -348,6 +348,9 @@ _CLIMATE_FORM_KEYS_ALLOWLISTED = (
     # v5.103.20 fix-up 1 (ruling 3): read LIVE every producer pass
     # (`hvac_zones.update_room_conditions` merges entry.options) -> no reload.
     "hvac_skip_entry_wait",
+    # HVAC Batch D (v5.103.24): the per-room Fan Mode (select + options
+    # form) — read LIVE through const.fan_owner -> no reload.
+    "room_fan_mode",
 )
 
 _CLIMATE_FORM_KEY_EXCLUDED_ENTITY = "climate_entity"

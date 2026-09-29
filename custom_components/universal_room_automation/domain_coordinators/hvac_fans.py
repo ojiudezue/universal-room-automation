@@ -547,6 +547,12 @@ class FanController:
             room_fan.speed_pct = 0
             room_fan.last_on_time = ""
             room_fan.vacancy_detected_time = ""
+            # HVAC Batch D fix-up 1 (B-M3): the manual cooldown / ON-hold
+            # ledger is SHARED with the room tier (key room:<name>). The HVAC
+            # kill switch may only clear it for fans the HVAC tier owns — a
+            # "Room temperature" or "Off" room keeps the person's holds.
+            if not self._is_room_hvac_managed(room_name):
+                continue
             # FAN-LAYER-2 §5.4 sites #1 + #2 (locked_setter_required): kill
             # switch races an in-flight URA-OFF's consult; the locked setter
             # serializes the clear behind the emitting critical section.
@@ -2042,13 +2048,33 @@ class FanController:
             snapshot["speed_pct"] = 0
             snapshot["trigger"] = ""
             snapshot["last_on_time"] = ""
-            for _attrs in snapshot["entity_attrs"].values():
+            # Fix-up 1 (A9): the speed of the first entity that is ON (an OFF
+            # sibling's stale percentage must not win).
+            for _eid in room_fan.fan_entities:
+                if not self._is_entity_on(_eid):
+                    continue
+                _attrs = snapshot["entity_attrs"].get(_eid) or {}
                 try:
                     snapshot["speed_pct"] = int(float(_attrs.get("percentage")))
                     break
                 except (TypeError, ValueError):
                     continue
         return snapshot
+
+    def _room_automation(self, room_name: str):
+        """HVAC Batch D fix-up 1 (B-M1): the ROOM tier's RoomAutomation for a
+        room (hass.data[DOMAIN][entry_id].automation), or None. Never raises."""
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                if entry.data.get(CONF_ROOM_NAME) != room_name:
+                    continue
+                coord = self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+                return getattr(coord, "automation", None)
+        except Exception:  # noqa: BLE001
+            return None
+        return None
 
     async def pause_for_recheck(
         self, room_name: str, suppress_until_iso: str,
@@ -2071,6 +2097,23 @@ class FanController:
         # not be silently truncated by a diagnostic pause.
         if self._is_manual_on_hold_live(room_fan):
             room_fan.manual_on_hold_paused_at = dt_util.now().isoformat()
+        # HVAC Batch D fix-up 1 (B-M1): a room-tier-owned fan ("Room
+        # temperature"). Tell the room tier BEFORE the pause OFF that the
+        # recheck owns the fan until `suppress_until_iso`, so it neither books
+        # the OFF / later restore ON as a person (false 1 h cooldown /
+        # manual-ON hold) nor re-drives the fan mid-recheck.
+        if not snapshot.get("hvac_managed", True):
+            _auto = self._room_automation(room_name)
+            if _auto is not None and hasattr(_auto, "note_recheck_pause"):
+                try:
+                    _auto.note_recheck_pause(
+                        dt_util.parse_datetime(suppress_until_iso),
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "HVAC Fans: %s recheck-pause handshake failed",
+                        room_name, exc_info=True,
+                    )
         if snapshot["is_on"]:
         # FAN-LAYER-2 D2 W10-pause: thread room_name + FAN_TRIGGER_RECHECK_PAUSE
         # so the W4 chokepoint's oracle.actuate wrap can hold the per-room
@@ -2100,6 +2143,31 @@ class FanController:
         if room_fan is None:
             return
         room_fan.fan_recheck_suppress_until = ""
+        # HVAC Batch D fix-up 1 (B-M1): discharge the room tier's recheck-
+        # pause window on EVERY exit (skip, veto, restore). A restored ON is
+        # marked URA-issued so the room tier does not book it as a person.
+        _auto = self._room_automation(room_name)
+        _restored = [False]
+        try:
+            await self._restore_after_recheck_body(
+                room_name, room_fan, snapshot, _restored,
+            )
+        finally:
+            if _auto is not None and hasattr(_auto, "note_recheck_restore"):
+                try:
+                    _auto.note_recheck_restore(_restored[0])
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "HVAC Fans: %s recheck-restore handshake failed",
+                        room_name, exc_info=True,
+                    )
+
+    async def _restore_after_recheck_body(
+        self, room_name: str, room_fan: RoomFanState,
+        snapshot: dict[str, Any] | None, restored: list,
+    ) -> None:
+        """Body of `restore_after_recheck` (split for the B-M1 discharge).
+        Sets ``restored[0] = True`` when it re-issues the ON."""
         # HVAC Batch D site G4: the fan became person-owned during the
         # recheck (Fan Mode set to "Off") — restore NOTHING (no ON,
         # no preset / oscillate / direction attribute writes, which bypass
@@ -2109,8 +2177,8 @@ class FanController:
         if not self._is_room_fan_owned(room_name):
             room_fan.manual_on_hold_paused_at = ""
             _LOGGER.info(
-                "HVAC Fans: %s restore-after-recheck skipped — Comfort Fan "
-                "Control is off", room_name,
+                "HVAC Fans: %s restore-after-recheck skipped — Fan Mode is "
+                "Off", room_name,
             )
             return
         # FAN-MANUAL-1 ruling 2 / FAN-LAYER-2 §5.4a site #15: R-M-W across
@@ -2231,9 +2299,12 @@ class FanController:
                 room_name=room_name,
                 trigger_path=FAN_TRIGGER_RECHECK_RESTORE,
             )
+            restored[0] = True
             # HVAC Batch D: a room the HVAC tier does not manage stays
             # untracked (the room tier owns it) — restore the fan only.
-            if snapshot.get("hvac_managed", True):
+            # Fix-up 1 (B-LOW-1): ownership re-read LIVE, not the pause-
+            # time snapshot (the Fan Mode may have changed mid-recheck).
+            if self._is_room_hvac_managed(room_name):
                 room_fan.is_on = True
                 room_fan.speed_pct = speed
                 room_fan.trigger = snapshot.get("trigger", "") or ""

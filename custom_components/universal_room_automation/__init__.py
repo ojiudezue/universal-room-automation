@@ -1762,7 +1762,7 @@ async def _check_and_notify_room_name_desync(
 def _migrate_room_fan_mode(hass: HomeAssistant, entry: ConfigEntry) -> str | None:
     """HVAC Batch D (v5.103.24): one-time per-room "Fan Mode" migration.
 
-    A ROOM entry whose options carry no ``CONF_ROOM_FAN_MODE`` gets one,
+    A ROOM entry whose data AND options carry no ``CONF_ROOM_FAN_MODE`` gets one,
     mapped from the two retired toggles (``const.fan_mode_from_legacy``):
     hvac_coordination_enabled on -> "follow_thermostat" (or
     "room_temperature" when the room is not in an HVAC zone); else
@@ -1776,9 +1776,13 @@ def _migrate_room_fan_mode(hass: HomeAssistant, entry: ConfigEntry) -> str | Non
         if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
             return None
         options = entry.options or {}
-        if CONF_ROOM_FAN_MODE in options:
-            return None
         merged = {**(entry.data or {}), **options}
+        # Fix-up 1 (HIGH, A/B/C): a new room created through the config flow
+        # carries its Fan Mode in entry.DATA (the create path writes data,
+        # not options). Present anywhere in the merged view = already chosen:
+        # never overwrite it from the (absent) legacy toggles.
+        if CONF_ROOM_FAN_MODE in merged:
+            return None
         mode = fan_mode_from_legacy(
             merged, in_hvac_zone=room_in_hvac_zone(hass, entry.entry_id),
         )

@@ -475,6 +475,8 @@ class RoomAutomation:
         # our own off-write from an external off transition. Cleared on
         # every entry to handle_temperature_based_fan_control.
         self._fan_off_issued_this_tick: bool = False
+        # HVAC Batch D fix-up 1 (B-M1): recheck-pause window (None = none).
+        self._recheck_pause_until: datetime | None = None
         # FIX C D2: once-per-boot HVAC-managed-mismatch WARN gate.
         self._fan_hvac_mismatch_warned: bool = False
         # feature/sleep-fans-and-flash: room-tier sleep-onset one-shot latch.
@@ -524,6 +526,35 @@ class RoomAutomation:
             return dt_util.now() < until
         except Exception:  # noqa: BLE001
             return False
+
+    def note_recheck_pause(self, until: datetime | None) -> None:
+        """HVAC Batch D fix-up 1 (B-M1): the presence fan RECHECK paused this
+        room's comfort fan (Fan Mode "Room temperature" — the room tier owns
+        it, the write went through the HVAC FanController).
+
+        Until the recheck restores it (``note_recheck_restore`` — the
+        discharge) or ``until`` passes (the backstop: the recheck's own
+        suppress-until), ``handle_temperature_based_fan_control`` neither
+        reads the pause OFF / restore ON as a person (no 1 h off-cooldown,
+        no manual-ON hold) nor re-drives the fan over the recheck.
+        """
+        self._recheck_pause_until = until
+        self._last_seen_any_fan_on = False
+
+    def is_recheck_paused(self) -> bool:
+        """True while a fan recheck pause owns this room's fan (B-M1)."""
+        try:
+            until = getattr(self, "_recheck_pause_until", None)
+            return until is not None and dt_util.now() < until
+        except Exception:  # noqa: BLE001
+            return False
+
+    def note_recheck_restore(self, restored_on: bool) -> None:
+        """HVAC Batch D fix-up 1 (B-M1): the recheck is over (discharge).
+        A restored ON is URA's own write (``mark_fan_on_issued``)."""
+        self._recheck_pause_until = None
+        if restored_on:
+            self.mark_fan_on_issued()
 
     def mark_fan_on_issued(self) -> None:
         """Authored-by marker: this coordinator issued a fan turn_on.
@@ -1893,8 +1924,8 @@ class RoomAutomation:
         v3.2.9: Added support for switch domain (fans on smart outlets/switches).
         """
         # HVAC Batch D (v5.103.24): the shared ownership rule
-        # (const.fan_owner). None = person-owned (Comfort Fan Control
-        # off) — the room tier writes nothing. "hvac" = the HVAC tier owns
+        # (const.fan_owner). None = person-owned (Fan Mode "Off") — the
+        # room tier writes nothing. "hvac" = the HVAC tier owns
         # the fans; the room tier stands down while HVAC is actually running
         # the room (below) and keeps the pre-existing fallback otherwise.
         _owner = fan_owner(self.config)
@@ -1968,6 +1999,16 @@ class RoomAutomation:
             (s := self.hass.states.get(f)) is not None and s.state == STATE_ON
             for f in fans
         )
+        # HVAC Batch D fix-up 1 (B-M1): the fan recheck owns the fan while it
+        # is paused (note_recheck_pause). Skip the external-change detection
+        # and every fan write; keep the baseline current. Discharge:
+        # note_recheck_restore; backstop: the recheck's suppress-until.
+        _rp_until = getattr(self, "_recheck_pause_until", None)
+        if _rp_until is not None:
+            if dt_util.now() < _rp_until:
+                self._last_seen_any_fan_on = any_fan_on_now
+                return
+            self._recheck_pause_until = None
         if cooldown_s > 0:
             if (
                 self._last_seen_any_fan_on
