@@ -75,20 +75,26 @@ def _setup_call(site):
     raise KeyError(site)
 
 
-_EXPECTED = {
-    "hvac": (hvac_const.HVAC_UNWIRED_METRICS, hvac_const.HVAC_SUPPRESSED_FROM_PERSISTENCE),
-    "security": (security_mod.SECURITY_UNWIRED_METRICS,
+# (module owning the constant the ctor site reads, constant name, a REAL metric
+# of that coordinator used as a non-empty probe, suppression constant).
+# The probe matters: three coordinators declare an EMPTY set, and an empty set
+# is indistinguishable from "kwarg missing" (the ctor default) — Bug Class #63.
+# Patching the constant to a non-empty probe makes the kwarg load-bearing.
+_SITES = {
+    "hvac": (hvac_mod, "HVAC_UNWIRED_METRICS", "comfort_deviation_hours",
+             hvac_const.HVAC_SUPPRESSED_FROM_PERSISTENCE),
+    "security": (security_mod, "SECURITY_UNWIRED_METRICS", "entry_anomaly_score",
                  security_mod.SECURITY_SUPPRESSED_FROM_PERSISTENCE),
-    "safety": (safety_mod.SAFETY_UNWIRED_METRICS,
+    "safety": (safety_mod, "SAFETY_UNWIRED_METRICS", "active_hazard_count",
                safety_mod.SAFETY_SUPPRESSED_FROM_PERSISTENCE),
-    "music_following": (mf_mod.MUSIC_FOLLOWING_UNWIRED_METRICS,
+    "music_following": (mf_mod, "MUSIC_FOLLOWING_UNWIRED_METRICS", "cooldown_frequency",
                         mf_mod.MUSIC_FOLLOWING_SUPPRESSED_FROM_PERSISTENCE),
-    "presence": (presence_mod.PRESENCE_UNWIRED_METRICS,
+    "presence": (presence_mod, "PRESENCE_UNWIRED_METRICS", "census_count",
                  presence_mod.PRESENCE_SUPPRESSED_FROM_PERSISTENCE),
 }
 
 
-@pytest.mark.parametrize("site", sorted(_EXPECTED))
+@pytest.mark.parametrize("site", sorted(_SITES))
 def test_coordinator_builds_detector_with_unwired_declaration(site, monkeypatch):
     # Each setup imports `from .coordinator_diagnostics import AnomalyDetector`
     # at call time; patch the module object that import will resolve to.
@@ -102,11 +108,15 @@ def test_coordinator_builds_detector_with_unwired_declaration(site, monkeypatch)
     # music_following binds the class at module import (top-level import).
     monkeypatch.setattr(mf_mod, "AnomalyDetector", _capturing_detector)
 
+    owner, const_name, probe_metric, suppressed = _SITES[site]
+    probe = frozenset({probe_metric})
+    monkeypatch.setattr(owner, const_name, probe)
+
     with pytest.raises(_Built) as built:
         asyncio.run(_setup_call(site))
     det = built.value.det
-    unwired, suppressed = _EXPECTED[site]
-    assert det._unwired_metric_names == unwired
+    assert probe_metric in det.metric_names
+    assert det._unwired_metric_names == probe
     assert det._suppressed_metric_names == suppressed
 
 
