@@ -517,6 +517,17 @@ class EVChargerController:
         # surfaced as `fill_priority_solar_ok` on the EV status sensor.
         self._fill_priority_solar_ok: bool = False
 
+        # EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1: last fill-priority
+        # evaluation's "battery-first hold wanted" verdict (not inert, SOC
+        # below the fill target, forecast healthy, no force-charge). The
+        # arbitrage release runs BEFORE fill-priority in the decision tick,
+        # and fill-priority only claims chargers that are ON, so a car the
+        # arbitrage hold kept OFF is never in `_paused_by_fill_priority`.
+        # The release reads this to hand the car to fill-priority instead of
+        # turning it on for one tick. Reset by the inert path and by
+        # `release_all_fill_priority` (toggle OFF) so it cannot go stale.
+        self._fill_priority_would_hold: bool = False
+
         # ==============================================================
         # Blind-window EVSE guard (see PLANNING_ec_blind_window_evse_guard.md)
         # --------------------------------------------------------------
@@ -2648,6 +2659,7 @@ class EVChargerController:
             # v4.7.6 fix-up A-M4: also release fill_priority's dispatch
             # ownership so a stale dispatch entry doesn't linger on the sensor
             # surface for an EVSE no rule still owns.
+            self._fill_priority_would_hold = False
             for evse_id in list(self._paused_by_fill_priority):
                 self._paused_by_fill_priority.discard(evse_id)
                 self._release_pause_dispatch_owner(evse_id, "fill_priority")
@@ -2659,6 +2671,11 @@ class EVChargerController:
             and forecast_healthy
         )
         resume_soc_met = soc is not None and soc >= soc_threshold
+        # EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1: publish the verdict
+        # for the (earlier-in-tick) arbitrage release to consult next tick.
+        self._fill_priority_would_hold = bool(
+            pause_conditions_global and not force_charge_active
+        )
 
         for evse_id, config in self._evse.items():
             switch_entity = config.get("switch", "")
@@ -2962,6 +2979,9 @@ class EVChargerController:
                 # the onset hold window. Precedence-preserving one-line
                 # peer add — no arbitrage decision changed.
                 or evse_id in self._proactive_offpeak_holds
+                # EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1: fill-priority
+                # peer (mirrors ensure-on's `_stronger_peer_holds`).
+                or evse_id in self._paused_by_fill_priority
             ):
                 _LOGGER.info(
                     "EV %s arbitrage release (%s): another pause reason holds — leaving paused",
@@ -2969,6 +2989,31 @@ class EVChargerController:
                 )
                 continue
             state = self._get_evse_state(evse_id)
+            # EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1: grid charging
+            # ended with the battery still below the fill target in a
+            # fill-priority window. Fill-priority only claims chargers that
+            # are ON, so it never claimed this one while arbitrage kept it
+            # OFF. Hand the charger to fill-priority instead of turning it
+            # on (which fill-priority would undo a moment later, and which
+            # ensure-on would repeat next tick if nobody owned it).
+            # Fill-priority's own resume turns it on at the fill target.
+            if (
+                not state["is_on"]
+                and self._fill_priority_would_hold
+                and not self._is_force_charge_active()
+            ):
+                self._paused_by_fill_priority.add(evse_id)
+                # Mirror the fill-priority pause bookkeeping so its manual-
+                # override detection works (charger already observed OFF).
+                self._pause_dispatch_ts[evse_id] = _time.monotonic()
+                self._observed_off_since_pause[evse_id] = True
+                self._claim_pause_dispatch_owner(evse_id, "fill_priority")
+                _LOGGER.info(
+                    "EV %s arbitrage release (%s): battery still below fill "
+                    "target — handed to fill-priority, leaving paused",
+                    evse_id, prior_label or "unknown",
+                )
+                continue
             if not state["is_on"]:
                 actions.append({
                     "service": "switch.turn_on",
@@ -3290,6 +3335,8 @@ class EVChargerController:
     def release_all_fill_priority(self) -> list[dict[str, Any]]:
         """Drain `_paused_by_fill_priority` when the excess-solar toggle is OFF."""
         actions: list[dict[str, Any]] = []
+        # Fill-priority is not running → it cannot want a hold.
+        self._fill_priority_would_hold = False
         for evse_id in list(self._paused_by_fill_priority):
             self._paused_by_fill_priority.discard(evse_id)
             if (
