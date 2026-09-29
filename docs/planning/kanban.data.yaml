@@ -2297,6 +2297,7 @@ cards:
   next: 'Order: nudge-echo fix -> (dwell-clock fix if operator parks the W2 fast path) -> W1-B REV 4 (problems 1-5; fold plan-review #1/#2 findings; borrow-lock scope decision deferred to the re-plan) -> Tier-3 plan reviews -> operator go.'
 
 - id: HVAC-W2-OCCUPANCY-TRUTH
+  batches_2026_09_28: 'OPERATOR 2026-09-28: "Green on W1 finish. Green on W2 and you can start w3. Clearly we need to batch them and consolidate." BATCH A (Tier 1, one release): HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1 (built, SHIP) + label renames (Wait for Presence / Weather adjust delay+margin) + HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1 + W1-B dead-code delete (HIGH-1 skip, D3). BATCH B (Tier 2-DB, one plan PLANNING_hvac_w1_w2_finish.md, three reviews): ARRESTER-BOOT-BLIND-1 + HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1 + HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1. BATCH C (Custom Preset Ranges + its blockers HVAC-S10-DPM-VS-S1-1 / HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 / HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1): build after B merges; deploy only on operator word, zone 3 first. READOUTS (no build): v5.103.20 L1-L15 (09-29 eve), still-sleeper probe (09-30), hold-sizing re-probe on raw sensors. W3: one consolidated plan PLANNING_hvac_w3_energy_aware.md.'
   disposition_2026_09_26_groom: 'OPERATOR DECISION 2026-09-26 evening: W2-1 FAST PATH PARKED (plan REV 4 failed its 2nd plan review with 4 HIGH — a whole-house cycle triggered off-schedule keeps leaking into other zones: wrong-zone reruns, heat_cool/egress/fan/cover writes, sibling-zone wake-ups; benefit ~2.5 min on ~17 zone-cold entries/day). INSTEAD: zone entry dwell set 2 -> 0 min (number.ura_hvac_coordinator_zone_entry_dwell, verified 0, set by orchestrator on operator instruction). hvac.py:2442 guards the dwell skip with `dwell_minutes > 0`, so 0 disables the skip and the FIRST tick that sees occupancy acts — removes C18''s second tick with ZERO code. The planned ''dwell-clock'' code fix is therefore UNNECESSARY at dwell 0 (it would only matter if the dwell is raised again) — not built. Expected entry latency: today avg ~7.5 / worst 10 min -> avg ~2.5 / worst 5 min (wait for next tick). Accepted trade-off: brief transits that register HVAC occupancy can flip a zone to home and back (the dwell existed to prevent that; hallways already excluded).'
   disposition_2026_09_26_groom: '2026-09-26 16:20: builder correctly REFUSED the fast-path dispatch — plan §9 gates the BUILD (not only the merge) on W1-A live >= 1 day because D0 must size HVAC_FAST_PATH_MIN_INTERVAL_S / _GLOBAL_MIN_INTERVAL_S / _SLA_S / FAST_PATH_DWELL_SLACK_S and provide the climate_write baseline D3''s acceptance compares against. Orchestrator misread the plan as merge-only; corrected. D0 part 1 (recorder-only: rising edges, armed-gate replay, gaps/bursts, tick coverage, fail-out check) dispatched now; part 2 (per-zone climate_write/day baseline) after >= 1 day of W1-A rows (from ~2026-09-27 15:25 CDT).'
   override_switches_2026_09_26: 'Operator: "try to understand what happens to HVAC occupancy when a room is forced
@@ -2335,6 +2336,8 @@ cards:
   next: 'MEASURE (me) after >= 3 occupied days (house empty until 2026-09-27): (a) entry latency = room occupied rising edge -> S1 climate_write (preset home/sleep) on that zone, per zone-cold entry; (b) flap rate = S1 home/sleep write followed by a vacant_past_grace away within 20 min on the same zone. REVIVE the parked fast path (docs/planning/PLANNING_hvac_w2_occupancy_fast_path.md REV 4 + the REV-4 re-review findings) only if (a) p90 > 5 min or the operator reports hot entries; raise the dwell back toward 1 min only if (b) shows material flapping. W2-2 (reloading-room placeholder readers) remains next in W2.'
 
 - id: HVAC-W3-ENERGY-AWARE
+  g0_result_2026_09_29: 'G0 MEASURED (probe agent, per plan-review corrections; results in PLANNING_hvac_w3_energy_aware.md). G1 pre-cool window: PARK. The TOU engine matches the tariff 8760/8760 h, but realistic shoulder value is $14.5/yr (< $25 bar); upper bound $43; grid-only $3-6/yr because the battery covers 5-9 pm. G2 short-cycle re-source: STOP/re-plan (a 0.5 kW threshold flaps 58% on zones 2/3 low stage; no single threshold fits). G2 D5 swap: DROP (1 outcome-changing fire since v5.103.9). G3-a reset vs nudge: inconclusive (n=6). G3-b drift alerts: PARK (static-pressure p95 gap 64-86 min > 30). Orchestrator cross-check: 61 of the 73 out-of-window banking borrows start within 2 min of a pre_arrival row, so they are pre-arrival pre-cools (Batch B, HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1); 12 remain unexplained. New card ARRESTER-GATE4-LOW-STAGE-THRESHOLD-1. Operator info: zone 1 static pressure has roughly doubled since April 2026 (filter reads 40%).'
+  batches_2026_09_28: 'OPERATOR 2026-09-28: "Green on W1 finish. Green on W2 and you can start w3. Clearly we need to batch them and consolidate." BATCH A (Tier 1, one release): HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1 (built, SHIP) + label renames (Wait for Presence / Weather adjust delay+margin) + HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1 + W1-B dead-code delete (HIGH-1 skip, D3). BATCH B (Tier 2-DB, one plan PLANNING_hvac_w1_w2_finish.md, three reviews): ARRESTER-BOOT-BLIND-1 + HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1 + HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1. BATCH C (Custom Preset Ranges + its blockers HVAC-S10-DPM-VS-S1-1 / HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 / HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1): build after B merges; deploy only on operator word, zone 3 first. READOUTS (no build): v5.103.20 L1-L15 (09-29 eve), still-sleeper probe (09-30), hold-sizing re-probe on raw sensors. W3: one consolidated plan PLANNING_hvac_w3_energy_aware.md.'
   title: 'W3 — HVAC spends energy at the right times'
   thread: hvac
   status: planned
@@ -18086,7 +18089,8 @@ cards:
 - id: ARRESTER-BOOT-BLIND-1
   title: Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable
   thread: hvac
-  status: parked
+  status: waiting_operator
+  revived_2026_09_28: 'REVIVAL TRIGGER FIRED 2026-09-28 22:15 CDT (operator: "Why is the arrester not arresting zone 2?"). Gap (2) is CONFIRMED FROM SOURCE: hvac_override.py:3218 books an override ONLY when new_preset == "manual" and old_preset != "manual"; :3220 ignores setpoint changes while not manual; a setpoint change while ALREADY manual matches neither branch, so is_override stays False and it returns silently (no override_detected row, no gated_reason row). Live sequence (W1-A climate_write ledger plus recorder): 22:03:51 pre-arrival for Jaya (geofence), then S12 pre-cool banking borrow banking:zone_2:1790651045042 stepped 80 -> 78 (22:04:05, zone goes manual) -> 76 (22:04:26) -> 74 (22:06:02). 22:15:40 the setpoint went to 71 with NO URA climate_write, so a human (manual -> manual). override_count_today = 0. Even if detected, precedence would gate it as borrow_active (gate (e), row fresh) and the arrester would stand down. So two questions: (i) DETECT within-manual human changes (compare against URA''s last written values for the zone, from the W1-A ledger / suppress record, not preset transitions), and (ii) POLICY: during a URA borrow that is NOT a nudge (pre-cool / banking / pre-heat / egress), does a human change win or does URA revert? D13 covers nudges only; D48 covers borrow STARTS only. Gap (1) (boot window) is unchanged.'
   approval: unreviewed
   parked_2026_08_12: 'OPERATOR: "Park #2 until another incident." Revisit trigger: next boot-coincident
     manual hold the arrester misses (same signature: zone flips to manual during boot window, setpoint
@@ -18107,8 +18111,8 @@ cards:
     alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent
     at 10 (local number + envoy sensor + cloud HACS). Write-leg reconfirmation pending next write-verify
     cycle (URA commanding 99 peak-hold, backoff active).'
-  next: 'Incident investigation: verify both gaps from source; probe-first (recorder: boot-coincident
-    manual holds frequency); fix cycle Tier 2-DB.'
+  operator_ruling_2026_09_28: 'OPERATOR (verbatim): "The person interrupts. We end and revert. Closest to my intent." i.e. option A: a human change during a URA non-nudge borrow ENDS the borrow, and the arrester then treats it as an ordinary human override (grace, compromise, revert). Nudges keep D13 (nudge wins).'
+  next: 'PLAN (Tier 2-DB, arrester precedence): (1) detect a within-manual human change by comparing against URA''s last written values for the zone; (2) on detection during a non-nudge borrow, end the borrow and hand off to the normal arrester path per the 09-28 ruling. Pair with HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1 (same borrow end-condition surface).'
 - id: NM-BB-IMAGE-1
   title: iMessage photo delivery unblocked — BlueBubbles v0.5/0.6 added attachment + media_url
   thread: notifications
@@ -30318,6 +30322,115 @@ cards:
   rank:
     value: 4
     time_criticality: 3
+    effort: 2
+- id: HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1
+  title: A pre-arrival pre-cool keeps the zone on URA's temporary setpoints for up to 2 hours and lowers them another 2 degrees on every decision pass
+  thread: hvac
+  status: planned
+  created: '2026-09-28 22:30'
+  updated: '2026-09-28 22:30'
+  approval: implied
+  tags: [hvac, borrow, pre-arrival, tier-2-db]
+  origin:
+    date: '2026-09-28'
+    gist: 'operator: "pre cool is 2 hours? Is this a knob? Seems rather long." (after zone 2 sat in a pre-arrival pre-cool manual hold)'
+  why: 'SOURCE: the S12 pre-arrival pre-cool starts a BANKING borrow with duration_s=None (hvac_predict.py:1154-1163), so its lease falls to EXCURSION_LEASE_MAX_S = 7200 s, a MODULE CONSTANT safety cap (hvac_excursion.py:79, :146-149), not a knob. The pre-arrival ZONE set itself clears when the zone becomes occupied or after PRE_ARRIVAL_TIMEOUT_MINUTES = 30 (hvac.py:5857-5884, hvac_const.py:465, also a const), but clearing it does NOT return the borrow it started. MEASURED (hvac_excursion_events, zone_2): 09-25 banking ran 7249 s and 09-27 ran 7202 s, both lease_expiry, i.e. the full 2 h cap; 09-28 was cut at 793 s only by the deploy restart. While the row is live, gate (e) blocks S1 (preset_change_deferred vacancy_bypass_deferred:active_borrow at 23:38 and 03:04 UTC) and the arrester stands down. RATCHET: _execute_zone_pre_cool is called on EVERY cycle while the zone is in pre_arrival_zones (hvac_predict.py:646-649) with offset -2 applied to the zone''s CURRENT target_temp_high (:1134), so each extra cycle lowers it again: 80 -> 78 -> 76 -> 74 in 2 min on 09-28 22:04-22:06 (three pre-arrival-triggered cycles: geofence, ble, tick), bounded only by the solar-bank floor / deadband.'
+  constraints:
+  - 'End the pre-arrival borrow (return to the zone''s preset, then S1 decides) when the person arrives (zone occupied), when the pre-arrival window times out, or when a human interrupts (ARRESTER-BOOT-BLIND-1 ruling A).'
+  - 'Apply the -2 F offset ONCE, from the baseline (_resolve_baseline_range), never compounding per cycle.'
+  - 'Numbers get knobs: the pre-arrival window (today PRE_ARRIVAL_TIMEOUT_MINUTES = 30, const) -> a named Number if the operator wants it tunable. EXCURSION_LEASE_MAX_S stays a module constant (safety cap, rung 1).'
+  next: 'PLAN (Tier 2-DB, pairs with ARRESTER-BOOT-BLIND-1): pre-arrival borrow end conditions + no-ratchet offset + the pre-arrival window knob. Plan review before build. Builder: ura-builder or ura-super-builder on opus-5-5 (no Fable).'
+  links:
+    related: [ARRESTER-BOOT-BLIND-1, BORROW-BANKING-LEASE-NOT-RELEASED-1, HVAC-PRECOOL-WINDOW-TOU-DERIVED-1]
+  rank:
+    value: 6
+    time_criticality: 5
+    effort: 3
+- id: ENERGY-CONSUMPTION-FORECAST-POISONED-1
+  title: The daily consumption forecast is poisoned by days where Envoy "production today" reported its lifetime total, so Net Energy reads -74 kWh and forecasts swing to 2,000 kWh
+  thread: energy
+  status: planned
+  created: '2026-09-28 22:50'
+  updated: '2026-09-28 22:50'
+  approval: implied
+  tags: [energy, forecast, data-integrity, found-during-audit]
+  origin:
+    date: '2026-09-28'
+    gist: 'operator: "Home/Now tab - forecast, net energy seems off and wrong - correct it"; v8 dashboard audit (docs/planning/AUDIT_ura_v8_dashboard_2026_09_28.md)'
+  why: 'Audit finding: sensor.ura_energy_coordinator_energy_forecast_today = -73.7 kWh (Solcast minus predicted consumption). The prediction swung 55 -> 500 kWh today and read 1,234-2,274 kWh on earlier days, against about 185-225 kWh/day real. The audit traced this to Envoy "production today" sometimes reporting its lifetime total (~15,000-18,000 kWh), and those days being stored in URA daily energy history that the consumption forecast averages. Possible decision impact, traced in code only and not measured: energy.py:4377-4394 takes max(SPAN load, forecast/24) as house load for EV/battery drain. Also, "Net Energy" uses the opposite sign to "Net Tomorrow".'
+  constraints:
+  - 'Measure first: how many energy_daily/energy_history rows are poisoned, and whether any drain/EV decision used forecast/24 over SPAN on those days.'
+  - 'Fix both halves: reject implausible daily values at write (the producer), and clean or exclude poisoned history rows (the consumer).'
+  next: 'MEASURE then PLAN (Tier 2-DB, energy_daily writes + a consumer decision path): the poisoned-row count and a decision-impact probe first.'
+  links:
+    related: [DASHBOARD-V8-FIX-BATCH-1, ENVOY-FLAKINESS]
+  rank: {value: 7, time_criticality: 6, effort: 3}
+- id: HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1
+  title: Publish each HVAC zone's "away due at" time and the arrester's grace/compromise end times, so the dashboard can show countdowns
+  thread: hvac
+  status: planned
+  created: '2026-09-28 22:50'
+  updated: '2026-09-28 22:50'
+  approval: implied
+  tags: [hvac, dashboard, observability, tier-1]
+  origin:
+    date: '2026-09-28'
+    gist: 'operator: "add the zone back off timer(s) for hvac (like in the rooms). HVAC arrester information on the climate tab. Zone away countdown"'
+  why: 'Audit: zone status sensors already carry hvac_release_at, hvac_empty_since and pending_arm_rooms, but not the away-due time. The helper exists (zone_away_due_at, hvac_zones.py:1925) and is unpublished. Arrester grace/compromise timers are set at hvac_override.py:2319 / :3608 / :3675, but only the state name is published (:7114), so there are no end times. Additive attributes only; display-only.'
+  next: 'BUILD (Tier 1, additive attributes): away_due_at on sensor.ura_hvac_coordinator_zone_{n}_status, and grace_until / compromise_until per zone on the arrester sensor. Then wire them into the v8 Climate tab cards from the audit.'
+  links:
+    related: [DASHBOARD-V8-FIX-BATCH-1]
+  rank: {value: 5, time_criticality: 3, effort: 1}
+- id: DASHBOARD-V8-FIX-BATCH-1
+  title: 'URA v8 dashboard fix batch: wrong Home/Now energy numbers, dead security ids, duplicate cards, a phone-first layout, and new Climate/Energy/People cards'
+  thread: dashboarding
+  status: waiting_operator
+  created: '2026-09-28 22:50'
+  updated: '2026-09-28 22:50'
+  tags: [dashboard, lovelace, audit]
+  origin:
+    date: '2026-09-28'
+    gist: 'operator asked to review the v8 Lovelace dashboard and recommend updates, paying attention to aesthetics and layout'
+  why: 'Full audit in docs/planning/AUDIT_ura_v8_dashboard_2026_09_28.md (955 refs checked; snippets test-rendered live). BUGS: Net Energy -73.7 (see ENERGY-CONSUMPTION-FORECAST-POISONED-1); Cost Today shows $0.11 from a still-learning prediction (real accrued $3.71); Solar Forecast is the whole-day Solcast total, ~20% above the Envoy over 7 days; House Draw falls to 0 on Envoy dropouts (switch it to the SPAN sum); security "all closed" reads two renamed door ids while Garage A is open, and 20 of 26 window sensors are not reporting; 27 dead _current_occupants refs (real: _identified_people); "Occupied Now" double-counts HVAC-occupied sensors; the AV Closet switch was replaced by switch.av_closet_shelly1pmminig4_avcloset (the CLAUDE.md troubleshooting example is stale too); 183 disabled entities in room pop-ups. ADDITIONS: Climate zone timers and arrester card, Energy rate/cost/sync-mismatch cards, People presence cards. LAYOUT: Now tab status row first with 3 heroes in one row, music moved out, duplicates removed, one switch style, rename table.'
+  next: 'APPROVE: apply the audit bug fixes + layout (dashboard-only, reversible; I back up lovelace.ura_v8 first) -> I apply them in one pass, then add the zone/arrester timer cards after HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1 ships.'
+  links:
+    related: [LOVELACE-V8-STALE-ENTITY-REFS-1, ENERGY-CONSUMPTION-FORECAST-POISONED-1, HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1]
+  rank: {value: 6, time_criticality: 4, effort: 3}
+- id: ARRESTER-GATE4-LOW-STAGE-THRESHOLD-1
+  title: The arrester's "is the AC running" check uses 0.5 kW, but upstairs and back-hall units run their low stage at 0.3-0.5 kW, so it reads them as off while they are cooling
+  thread: hvac
+  status: planned
+  created: '2026-09-29 00:10'
+  updated: '2026-09-29 00:10'
+  approval: implied
+  tags: [hvac, arrester, found-during-probe]
+  origin:
+    date: '2026-09-28'
+    gist: W3 G0 probe Q7 (scripts/probes/hvac_w3_g0_q7_action_vs_span.py)
+  why: 'Measured (G0 Q7, 7 d): with a 0.5 kW running threshold on SPAN AC-circuit draw, 58% of on-cycles flap on zones 2 and 3, because those units run low stage at 0.3-0.5 kW. At 0.2 kW zones 2/3 pass, but zone 1 flaps 13.8%, so no single threshold fits all zones. Arrester Gate 4 (hvac_override.py:1915-1963) uses the same 0.5 kW cut and treats missing as not cooling, so during low-stage runs it misreads zones 2/3 as not running. ODU stage_status agrees with SPAN >= 0.2 kW on 98-99% of cool-mode time: a candidate second signal. Consequence of the misread is UNVERIFIED (which Gate 4 decisions flip).'
+  next: 'MEASURE then PLAN (Tier 2): (1) which Gate 4 decisions would flip under a per-zone threshold or ODU stage_status; (2) fix = a per-zone threshold (config, if a knob exists) or a stage-aware predicate. Config-first: check for an existing per-zone Gate 4 threshold knob before any code.'
+  links:
+    related: [HVAC-W3-ENERGY-AWARE]
+  rank: {value: 5, time_criticality: 4, effort: 2}
+- id: ENPHASE-BATTERY-CUTOUTS-1
+  title: At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time
+  thread: energy
+  status: waiting_operator
+  created: '2026-09-28 20:10'
+  updated: '2026-09-28 20:10'
+  tags: [enphase, battery, incident, peak-cost]
+  origin:
+    date: '2026-09-28'
+    gist: 'operator: "Why is grid powering the house rn?"; the Enphase app shows it flipping between battery and grid'
+  why: 'SPAN battery power (5 s cadence) confirms about 30 cutouts since 18:16 CDT at loads from 7 to 16 kW, so this is NOT an overload. Between cutouts the battery delivers 10-15.5 kW. Two long gaps: 19:11-19:20 (Envoy relay/mode readings reset at 19:15:46; backup reserve briefly read 30) and 19:28-19:38 (operator breaker reset). The reset did NOT fix it: about 15 more cutouts from 19:41 to 19:59. Not URA: mode stayed self_consumption, reserve stayed 10, the charge-from-grid schedule is 11:10-16:00, and URA sent no battery commands. System controller (enpower) about 120 F. Batteries 100-108 F. The enphase_envoy config entry has been stuck in setup_in_progress since the 19:22 HA restart, and reload did not clear it, so per-battery status is invisible. Envoy stream totals are unreliable tonight (half-leg and inconsistent frames); SPAN was the better witness.'
+  test_2026_09_28: 'Hypothesis (co-occurrence only): the Envoy stream add-on (13e68335_envoy_to_mqtt_json) was armed at 17:38 on 09-25. That evening battery dropouts at peak rose from 3-10 a night (09-21..24) to 39-81 a night (09-25..28), while Envoy integration flaps FELL (109-163 a day down to 9-83). Dropouts do not coincide with integration flaps: 36 of 355 fell within 90 s of a flap, against about 58 expected by chance. Web search found no report of sc_stream causing battery dropouts. Enphase designs sc_stream to auto-disable after 15 min, and the add-on keeps it on 24/7. TEST STARTED 20:15 CDT 09-28: add-on stopped and boot set to manual. URA code has no envoy_stream consumers (grep); only configuration.yaml and packages/envoy_mqtt.yaml read it. Discriminator: dropouts 16:00-21:00 on 09-29 near the 3-10 baseline means the stream is implicated; 40-80 means Enphase-side. Caveat: the Enphase app Live Status view also arms sc_stream for 15 min, so avoid it during the test window. Cost of cutouts (grid cost, 16-21h, SPAN-measured, excluding solar and holds): 09-25 $1.90, 09-27 $1.20, 09-28 $1.67; 8-day total $5.59 gross, $2.97 net vs off-peak.'
+  result_2026_09_28_2107: 'Same-evening check, 26-min windows (SPAN, load over 3 kW, reserve 15 or below): stream ON 19:48-20:15 gave 35 dropouts, idle 47%. Stream OFF 20:41-21:07 gave 17 dropouts, idle 24%. The same clock window on 09-25 and 09-26 (stream ON) gave 1-2 dropouts, about 1%; 09-21..24 (no stream) gave 0. Reading: turning the stream off roughly halved tonight''s rate, but tonight is anomalous regardless. Something else, most likely Enphase-side and escalating after the 19:15 relay reset, is layered on top. The stream is NOT a sufficient explanation. Confound: operator used the app''s live view, which re-arms sc_stream for 15 min. The 09-29 16-21h test stands (stream off, no app live view).'
+  next: 'DO: pull the Enphase app Events log since 18:15, and open a case with Enphase or the installer if it shows battery or system-controller faults -> I get the Envoy integration back, read per-battery status, and compute grid kWh during the cutouts from SPAN.'
+  links:
+    related: [ENVOY-FLAKINESS]
+  rank:
+    value: 8
+    time_criticality: 8
     effort: 2
 - id: HA-CPU-LOAD-REVIEW-1
   title: HA runs at about 2x the CPU it used 4 months ago; the biggest non-URA sources need owner decisions
