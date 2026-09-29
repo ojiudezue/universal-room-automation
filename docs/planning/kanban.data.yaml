@@ -30377,6 +30377,7 @@ cards:
     related: [ANOMALY-SAVE-BASELINES-DICT-MUTATION-1, HVAC-ANOMALY-BLIND-1]
   rank: {value: 5, time_criticality: 4, effort: 2}
 - id: MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1
+  operator_2026_09_29: 'Operator: "Rarely use it. But will test today."'
   title: Music following has recorded no transfers since 2026-05-12 - idle, broken, or unused?
   thread: music
   status: investigating
@@ -30387,7 +30388,7 @@ cards:
     date: '2026-09-29'
     gist: anomaly D0 probe + plan review
   why: 'metric_baselines for music_following (transfer_success_rate, cooldown_frequency) hold 1572 samples, mean 0 / std 0, last updated 2026-05-12, identical live and in the DB. Either the feature has not fired a transfer in 4.5 months (disabled / broken / unused), or its metrics stopped recording. Its anomaly sensor reads "nominal", which means nothing.'
-  next: 'MEASURE (me, read-only): is music following enabled; any transfer attempts in logs/DB since May; when the last one happened. Then either disposition (retire / fix / leave) or ANSWER operator: do you still use music following?'
+  next: 'CHECK (me, one-shot, after the operator''s test on 2026-09-29): read music_following transfer records, logs and metric_baselines. A transfer recorded means working-but-idle: close, and note the stale pre-v4.6.5.2 baseline. No transfer recorded despite the test means broken: card the fix.'
   rank: {value: 3, time_criticality: 2, effort: 1}
 - id: ENPHASE-BATTERY-CUTOUTS-1
   title: At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time

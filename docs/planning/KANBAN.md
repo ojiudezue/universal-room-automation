@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-29T13:43:01-05:00_ - _Data commit: `bf7ea12fbfeb`_ - _last_reconciled: 2026-09-29_
+_Generated: 2026-09-29T13:45:53-05:00_ - _Data commit: `d27d35cde5ac`_ - _last_reconciled: 2026-09-29_
 
 
 ## Columns
@@ -34,8 +34,10 @@ thread: **music** - status: **investigating**
 _created 2026-09-29 15:00_
 - **Origin:** 2026-09-29 - anomaly D0 probe + plan review
 - **Why:** metric_baselines for music_following (transfer_success_rate, cooldown_frequency) hold 1572 samples, mean 0 / std 0, last updated 2026-05-12, identical live and in the DB. Either the feature has not fired a transfer in 4.5 months (disable...
-- **Next:** MEASURE (me, read-only): is music following enabled; any transfer attempts in logs/DB since May; when the last one happened. Then either disposition (retire / fix / leave) or ANSWER operator: do you still use music following?
+- **Next:** CHECK (me, one-shot, after the operator's test on 2026-09-29): read music_following transfer records, logs and metric_baselines. A transfer recorded means working-but-idle: close, and note the stale pre-v4.6.5.2 baseline. No transfer rec...
 - **Tags:** music-following, found-in-review
+- **Forensic keys (1):**
+  - `operator_2026_09_29`: Operator: "Rarely use it. But will test today."
 
 ### `HOUSE-STATE-SLEEP-LOST-ON-RESTART-1` - An HA restart at night loses the house Sleep state (it comes back Away, then Home Night), so HVAC switches bedrooms' zones from Sleep to Home — _#2 · WSJF 5.0 · v7 tc6 u2 /e3_
 thread: **presence** - status: **investigating**
