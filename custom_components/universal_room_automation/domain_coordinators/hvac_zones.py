@@ -1009,8 +1009,14 @@ class ZoneManager:
         self,
         zone_id: str,
         window_seconds: int | None = None,
+        away_grace_s: float | None = None,
     ) -> dict[str, Any]:
         """Return rich attribute dict for a zone status sensor.
+
+        `away_grace_s` (HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1):
+        the LIVE vacancy grace the HVAC coordinator uses now
+        (`HVACCoordinator._exit_grace_seconds`). When None, `away_due_at`
+        is published as None. Display only.
 
         B-M2 (fix-up) — duty_cycle_pct denominator honors the LIVE window
         knob when the caller passes it; falls back to the module constant
@@ -1047,6 +1053,7 @@ class ZoneManager:
                 self.zone_release_at(zone_id).isoformat()
                 if self.zone_release_at(zone_id) is not None else None
             ),
+            "away_due_at": self._away_due_at_attr(zone, away_grace_s),
             "pending_arm_rooms": list(getattr(zone, "hvac_pending_arm_rooms", []) or []),
             # fix-up 1 (A-LOW-5): the CURRENT spell accrues live, not only
             # once it closes.
@@ -1929,6 +1936,19 @@ class ZoneManager:
         if rel is None:
             return None
         return rel + _td(seconds=float(grace_s))
+
+    def _away_due_at_attr(self, zone, away_grace_s: float | None) -> str | None:
+        """DISPLAY-ONLY `away_due_at` (ISO local) for the zone status sensor:
+        `zone_away_due_at` (= live release + grace) while the zone is
+        HVAC-empty; None while it is HVAC-occupied, when the grace is unknown,
+        or when the release is unknown / unbounded. Never raises."""
+        try:
+            if away_grace_s is None or zone.any_room_hvac_occupied:
+                return None
+            due = self.zone_away_due_at(zone.zone_id, float(away_grace_s))
+            return dt_util.as_local(due).isoformat() if due is not None else None
+        except Exception:  # noqa: BLE001
+            return None
 
     def _zone_release_bound(self, zone, now: datetime, house_state: str | None) -> datetime | None:
         """Back-fill helper (plan §4.5): max release over the zone's rooms
