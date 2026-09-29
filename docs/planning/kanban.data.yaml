@@ -2210,7 +2210,8 @@ cards:
   build_2026_09_28: 'BUILT (ura-builder, feature/hvac-precool-restore-heat-low @ e478e0368, pushed). One site: HVACPredictor._resolve_baseline_range fallback (hvac_predict.py ~929) now returns (configured heat from PresetManager.get_seasonal_setpoints, hvac_preset.py:126-180, cool). REUSED accessor, no new constant. OWNERSHIP: hvac.py:3541 (cool - 7) is CPRs, since the CPR plan deletes it (PLANNING_hvac_enable_custom_preset_ranges.md:395, :659), so it is untouched. Tests: 3 new in test_v5_7_1_energy_precool.py::TestResolveBaselineRangeHeatLow. Mutation: reverting to -7.0 turns 2 of 3 red (winter 80/65 gives 73 instead of 65; summer 78/70 gives 71 instead of 70). The last-emitted-range test correctly stays green. Note that summer behaviour also shifts slightly: home low goes from 71 (derived) to 70 (configured). Related files 95 pass, 1 fail: TestD5Migration::test_restore_entity_off_overrides_options_true, which the orchestrator confirmed also fails on unmodified develop in isolation (pre-existing). The state-of-play doc does not describe this fallback, so no doc change. Review A (consumers, incl. restore_ok / arrester value-match against a range computed elsewhere) dispatched.'
   gate_2026_09_28: 'GATE (overnight 2026-09-28): (1) VALIDITY still real: hvac_predict.py:918 still returns (baseline_cool - 7.0, baseline_cool). The sibling hvac.py:3541 baseline_low = baseline_cool - 7.0 also exists, and the builder is to establish from the CPR plan which site CPR owns. (1b) CONFIG-FIRST: no knob covers it, since the fallback ignores the configured Heat Low. (2) PRIOR ART: reuse the existing configured-range accessor, with no new constant. (3) BUILD: the smallest fix. (4) Winter cost only; fail direction is colder-when-empty. Tier 1. Dispatched ura-builder in worktree overnight-0928-heatminus7 (feature/hvac-precool-restore-heat-low), with the state-of-play full read mandatory. Built to review only; no merge or deploy.'
   title: 'Pre-cool / pre-heat restore fallback computes heat as cooling minus 7 and ignores the configured Heat Low'
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.22
   thread: hvac
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
   created: '2026-09-27'
@@ -30368,7 +30369,8 @@ cards:
 - id: HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1
   title: Publish each HVAC zone's "away due at" time and the arrester's grace/compromise end times, so the dashboard can show countdowns
   thread: hvac
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.22
   created: '2026-09-28 22:50'
   updated: '2026-09-28 22:50'
   approval: implied
