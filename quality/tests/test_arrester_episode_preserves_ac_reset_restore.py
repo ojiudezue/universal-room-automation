@@ -3,13 +3,17 @@ v5.103.23 W1/W2 finish review, pre-existing on develop).
 
 A NEW governed override episode routes through the arrester's
 `_handle_severe_override` / `_handle_normal_override` (and the
-startup-audit stale-override branch). All three previously called
+startup-audit stale-override branch in `async_startup_arrester_audit`,
+hvac_override.py:2214). All three previously called
 `_cancel_zone_timers`, which ALSO popped `_reset_timers` — the pending
 AC hard-reset RESTORE timer. If a manual change was booked inside the
 Carrier lag window after the reset's `off` write, the zone stayed off
-until the arrester's own revert re-asserted heat_cool (~2 min on the
-severe path, up to ~20 min on grace+compromise; indefinitely if the
-revert stood down).
+longer than intended. The B1 heat_cool enforcer
+(`hvac.py:2415-2419`) re-asserts heat_cool within ~one
+`HVAC_DECISION_TICK` (5 min) plus Carrier lag once the reset timer is
+gone, so the pre-fix strand was bounded at ~5 min + lag on the
+periodic path (not indefinite, but well past the intended ~1 min
+restore).
 
 The fix renames `_cancel_zone_timers` -> `_cancel_arrester_timers` and
 drops `_reset_timers` from its scope (mirroring the shape of
@@ -322,3 +326,146 @@ class TestLegitimateResetRestoreCancelSites:
 
         restore_cancel.assert_called_once()
         assert ZONE_ID not in a._reset_timers
+
+
+# ===========================================================================
+# END-TO-END (fix-up 1 A-L3): reset restore -> episode arms -> verify success
+# ===========================================================================
+#
+# Drives the actual production path in `_restore_after_reset` and its inline
+# `_verify_restore` closure to prove the fix-up 1 A-M1 / B-LOW-1 gate: when a
+# governed arrester episode is armed on the zone by the time the delayed
+# verify-restore runs, the success-branch preset write is DEFERRED (the
+# arrester revert owns the preset). The mode/setpoint restore already
+# succeeded and stays. Includes the inverse: with no episode armed, the
+# preset restore still fires (byte-identical no-episode path).
+
+from unittest.mock import AsyncMock  # noqa: E402
+
+
+async def _drive_verify(hass_mock) -> None:
+    """Await every coroutine that `_restore_after_reset` handed to
+    `hass.async_create_task`. The `async_create_task` mock returns a
+    MagicMock; we captured the raw coroutines separately so we can
+    drive `_verify_restore` end-to-end from the test body."""
+    captured = hass_mock._captured_coros  # type: ignore[attr-defined]
+    while captured:
+        coro = captured.pop(0)
+        await coro
+
+
+def _wire_capture(hass_mock) -> None:
+    """Make `hass.async_create_task` record the coroutine (so the test
+    can drive it) while still returning a task-like object."""
+    hass_mock._captured_coros = []
+
+    def _capture(coro):
+        hass_mock._captured_coros.append(coro)
+        t = MagicMock()
+        t.cancel = MagicMock()
+        return t
+
+    hass_mock.async_create_task = MagicMock(side_effect=_capture)
+
+
+class TestEndToEndResetRestorePresetDefer:
+
+    @pytest.mark.asyncio
+    async def test_episode_armed_before_verify_defers_preset_restore(
+        self, fake_clock, monkeypatch,
+    ):
+        """Fires B6 mode restore; then arms an arrester episode; then
+        drives `_verify_restore` success -> asserts NO preset write
+        while armed AND assert the mode restore was actually issued."""
+        a = _make_arrester()
+        zone = a._zone_manager.zones[ZONE_ID]
+        _wire_capture(a.hass)
+
+        # Simulate that the reset timer has just fired and is being popped
+        # by `_restore_after_reset`. Pre-load it so the fire-time pop finds
+        # something (matches production shape).
+        a._reset_timers[ZONE_ID] = _sentinel_cancel()
+
+        # Success path for `_verify_restore`: state reads target_mode.
+        _post = MagicMock()
+        _post.state = "heat_cool"
+        _post.attributes = {"preset_mode": "manual"}
+        a.hass.states.get = MagicMock(return_value=_post)
+
+        # Stub `_supports_heat_cool` so restore targets heat_cool.
+        monkeypatch.setattr(a, "_supports_heat_cool", lambda _e: True)
+
+        # Capture emit_* calls without hitting HA services.
+        mode_emit = AsyncMock(return_value=None)
+        preset_emit = AsyncMock(return_value=None)
+        monkeypatch.setattr(hvac_override, "emit_set_hvac_mode", mode_emit)
+        monkeypatch.setattr(hvac_override, "emit_set_preset_mode", preset_emit)
+
+        # No 30 s wait in the verify closure.
+        async def _no_sleep(_s):
+            return None
+        monkeypatch.setattr(hvac_override.asyncio, "sleep", _no_sleep)
+
+        # Fire the restore callback (what the reset timer would invoke).
+        await a._restore_after_reset(zone, "heat_cool", "home")
+
+        # B6 mode restore issued.
+        assert mode_emit.await_count == 1, "B6 restore must fire"
+        _, kwargs = mode_emit.call_args
+        assert kwargs.get("site") == "B6_ac_reset_restore"
+        assert kwargs.get("reason") == "ac_reset_restore"
+
+        # A governed arrester episode arms while verify is waiting.
+        a._grace_timers[ZONE_ID] = _sentinel_cancel()
+        a._override_active[ZONE_ID] = True
+
+        # Drive `_verify_restore` -> success branch, episode armed -> DEFER.
+        await _drive_verify(a.hass)
+
+        # NO preset write while an episode is armed.
+        assert preset_emit.await_count == 0, (
+            "preset restore MUST be deferred when an arrester episode "
+            "is armed"
+        )
+
+    @pytest.mark.asyncio
+    async def test_no_episode_armed_preset_restore_still_fires(
+        self, fake_clock, monkeypatch,
+    ):
+        """Inverse: no arrester episode armed -> success branch still
+        writes the preset (byte-identical to pre-fix-up behaviour on
+        the no-episode path)."""
+        a = _make_arrester()
+        zone = a._zone_manager.zones[ZONE_ID]
+        _wire_capture(a.hass)
+
+        a._reset_timers[ZONE_ID] = _sentinel_cancel()
+        _post = MagicMock()
+        _post.state = "heat_cool"
+        _post.attributes = {"preset_mode": "manual"}
+        a.hass.states.get = MagicMock(return_value=_post)
+        monkeypatch.setattr(a, "_supports_heat_cool", lambda _e: True)
+        mode_emit = AsyncMock(return_value=None)
+        preset_emit = AsyncMock(return_value=None)
+        monkeypatch.setattr(hvac_override, "emit_set_hvac_mode", mode_emit)
+        monkeypatch.setattr(hvac_override, "emit_set_preset_mode", preset_emit)
+
+        async def _no_sleep(_s):
+            return None
+        monkeypatch.setattr(hvac_override.asyncio, "sleep", _no_sleep)
+
+        await a._restore_after_reset(zone, "heat_cool", "home")
+        # NO episode armed here.
+        assert ZONE_ID not in a._grace_timers
+        assert ZONE_ID not in a._compromise_timers
+        assert not a._override_active.get(ZONE_ID, False)
+
+        await _drive_verify(a.hass)
+
+        assert preset_emit.await_count == 1, (
+            "no episode armed -> preset restore MUST fire "
+            "(byte-identical no-episode path)"
+        )
+        _, kwargs = preset_emit.call_args
+        assert kwargs.get("site") == "ac_reset_verify_preset_restore"
+        assert kwargs.get("reason") == "ac_reset_preset_restore"
