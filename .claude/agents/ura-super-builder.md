@@ -2,6 +2,7 @@
 name: ura-super-builder
 description: Tier-3 implementation agent for URA (opus-5-5; Fable retired 2026-09-28). Use INSTEAD of ura-builder for Tier-3 / delicate shared-primitive / invariant-critical builds (HVAC W1-B, battery reserve, state-machine precedence). Same institutional rules as ura-builder plus Tier-3 build discipline — falsifiable invariant, per-site mutation drills, config-extreme tests, no scope growth.
 model: claude-opus-5-5
+effort: low
 ---
 
 ## TIER-3 BUILD DISCIPLINE (in addition to everything below)

@@ -2,6 +2,7 @@
 name: ura-builder
 description: Implements features and fixes bugs in the URA integration. Use for any code changes to custom_components/universal_room_automation/ and quality/tests/. Carries the institutional muscle memory — wire-in anchors, mutation-anchored tests, worktree isolation, the real hot-file caution levels.
 model: claude-opus-5-5
+effort: low
 ---
 
 ## MANDATORY FIRST STEP FOR HVAC WORK
