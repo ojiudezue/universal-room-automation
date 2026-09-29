@@ -2328,12 +2328,13 @@ cards:
   next: 'MEASURE (me) after >= 3 occupied days (house empty until 2026-09-27): (a) entry latency = room occupied rising edge -> S1 climate_write (preset home/sleep) on that zone, per zone-cold entry; (b) flap rate = S1 home/sleep write followed by a vacant_past_grace away within 20 min on the same zone. REVIVE the parked fast path (docs/planning/PLANNING_hvac_w2_occupancy_fast_path.md REV 4 + the REV-4 re-review findings) only if (a) p90 > 5 min or the operator reports hot entries; raise the dwell back toward 1 min only if (b) shows material flapping. W2-2 (reloading-room placeholder readers) remains next in W2.'
 
 - id: HVAC-W3-ENERGY-AWARE
+  disposition_2026_09_29_closed: 'W3 CLOSED by measurement (measure-before-build). G0: pre-cool window $14.5/yr (PARK), D5 re-ground 1 fire (DROP), drift alerts telemetry too sparse (PARK), filter alert DROP. M0: stage-signal build group PARKED (no harm to fix on zones 2/3; regresses zone_1). Zero code shipped for W3, by design.'
   correction_2026_09_29_variable_unit: 'OPERATOR: "It''s a variable unit." CORRECT. All three ODUs report type `proteusac` (sensor.thermostat_bryant_wifi_upstairs_odu_status, sensor.thermostat_bryant_wifi_backhallway_odu_status, sensor.office_b_odu_status; IDUs furnace2stg). Proteus is Carrier''s variable-speed Infinity outdoor unit. The W3 plan''s "no ODU Var entity, so not variable-capacity" was WRONG as an inference: ha_carrier creates OutdoorUnitVarSensor only for outdoor_unit_type in ["varcaphp","varcapac"] (ha_carrier/sensor.py ~90), so proteusac falls through. The entity is missing because of the integration''s type list, not the hardware. What IS available: odu_status state = "Stage N" (live "Stage 5" / "Stage 3" / "off"), plus coil/discharge/suction/superheat/line-voltage attributes. G0 found ODU stage agrees with SPAN >= 0.2 kW on 98-99% of cool-mode time. RE-PLAN: use ODU stage (off vs Stage N) as the per-zone running signal for the short-cycle producer and for arrester Gate 4, instead of any single SPAN kW threshold. That dissolves the zone 2/3 low-stage flap. Possible upstream: ask ha_carrier to add proteusac to the Var sensor type list.'
   g0_result_2026_09_29: 'G0 MEASURED (probe agent, per plan-review corrections; results in PLANNING_hvac_w3_energy_aware.md). G1 pre-cool window: PARK. The TOU engine matches the tariff 8760/8760 h, but realistic shoulder value is $14.5/yr (< $25 bar); upper bound $43; grid-only $3-6/yr because the battery covers 5-9 pm. G2 short-cycle re-source: STOP/re-plan (a 0.5 kW threshold flaps 58% on zones 2/3 low stage; no single threshold fits). G2 D5 swap: DROP (1 outcome-changing fire since v5.103.9). G3-a reset vs nudge: inconclusive (n=6). G3-b drift alerts: PARK (static-pressure p95 gap 64-86 min > 30). Orchestrator cross-check: 61 of the 73 out-of-window banking borrows start within 2 min of a pre_arrival row, so they are pre-arrival pre-cools (Batch B, HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1); 12 remain unexplained. New card ARRESTER-GATE4-LOW-STAGE-THRESHOLD-1. Operator info: zone 1 static pressure has roughly doubled since April 2026 (filter reads 40%).'
   batches_2026_09_28: 'OPERATOR 2026-09-28: "Green on W1 finish. Green on W2 and you can start w3. Clearly we need to batch them and consolidate." BATCH A (Tier 1, one release): HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1 (built, SHIP) + label renames (Wait for Presence / Weather adjust delay+margin) + HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1 + W1-B dead-code delete (HIGH-1 skip, D3). BATCH B (Tier 2-DB, one plan PLANNING_hvac_w1_w2_finish.md, three reviews): ARRESTER-BOOT-BLIND-1 + HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1 + HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1. BATCH C (Custom Preset Ranges + its blockers HVAC-S10-DPM-VS-S1-1 / HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 / HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1): build after B merges; deploy only on operator word, zone 3 first. READOUTS (no build): v5.103.20 L1-L15 (09-29 eve), still-sleeper probe (09-30), hold-sizing re-probe on raw sensors. W3: one consolidated plan PLANNING_hvac_w3_energy_aware.md.'
   title: 'W3 — HVAC spends energy at the right times'
   thread: hvac
-  status: planned
+  status: done
   created: '2026-09-26 02:40'
   updated: '2026-09-26 02:40'
   refinement_status: initial
@@ -2346,7 +2347,7 @@ cards:
   origin: {date: '2026-09-26', gist: 'operator approved the 4-workstream consolidation of the HVAC arc (see HVAC-SUPPLE-SEQUENCE-1 RESEQUENCE_PROPOSAL_2026_09_26)'}
   why: 'Consolidation so the arc can finish: ~25 open HVAC cards grouped under 4 problems. Children keep their evidence; this card owns the problem and the order. READ docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md FIRST.'
   children: [HVAC-PRECOOL-WINDOW-TOU-DERIVED-1, HVAC-D5-REGROUND-ON-ODU-VAR-1, HVAC-EQUIPMENT-HEALTH-OBSERVABILITY-1]
-  next: 'ONE build group: ARRESTER-GATE4-LOW-STAGE-THRESHOLD-1 (ODU-stage running predicate for Gate 4 + short-cycle). Everything else adjudicated 2026-09-29: pre-cool window PARKED, D5 re-ground CLOSED (dropped), equipment-health drift/filter PARKED/DROPPED; anomaly-blind, baseline-maxsamples and grid-anticipatory stay separate. Plan REV 3, then plan review, then build after Batch B.'
+  next: 'CLOSED: W3 measured out. Nothing passed its build gate; all children adjudicated with revival triggers. The only live follow-up is the Gate-8 overshoot-stamp investigation (HVAC-GATE8-OVERSHOOT-STAMP-NOT-CLEARED-1).'
 - id: HVAC-W4-ARC-CLOSURE
   title: 'W4 — Close the HVAC arc: dispose shipped work, clear residuals, keep the record true'
   thread: hvac
@@ -30390,11 +30391,12 @@ cards:
     related: [LOVELACE-V8-STALE-ENTITY-REFS-1, ENERGY-CONSUMPTION-FORECAST-POISONED-1, HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1]
   rank: {value: 6, time_criticality: 4, effort: 3}
 - id: ARRESTER-GATE4-LOW-STAGE-THRESHOLD-1
+  disposition_2026_09_29_m0: 'PARKED by M0 (PLANNING_hvac_w3_energy_aware.md "M0 results (measured 2026-09-29)"). Mapping confirmed (office_b=zone_1/ac1, upstairs=zone_2/ac_2, backhallway=zone_3/ac_3; orchestrator independent re-derivation: upstairs ODU vs ac_2 = 99.1% sample agreement, vs ac1 69.0%, vs ac_3 56.5%). But: (1) NO HARM TO FIX. The 0.5 kW low-stage misread on zones 2/3 changed ZERO nudge dispatches in the Gate-4 replay (444 flip ticks, 0 dispatch changes). (2) The ODU predicate REGRESSES zone_1. 23 min on 09-27 23:05-23:28 the ODU read "off" (fresh) while ac1 drew 3.2 kW; 2 dispatches fired 10 min EARLY via the Gate-8 stamp path; 1 was delayed 15 min. (3) Short-cycle swap: ODU short cycles overlap hvac_action almost entirely (4/7, 1/1, 12/13 same events); little benefit. Build does not pay (parsimony: PARK).'
   disposition_2026_09_29_w3: 'PROMOTED to THE W3 build group (operator agreed 2026-09-29): a per-zone ODU-stage running predicate (odu_status "off" vs "Stage N", type proteusac) shared by arrester Gate 4 AND the short-cycle producer, replacing single-kW thresholds (0.5 kW flaps 58% on zones 2/3 low stage; no single threshold fits all zones). G0: ODU stage agrees with SPAN >= 0.2 kW on 98-99% of cool-mode time. Absorbs the G2-SC short-cycle re-source (with the compressor_short_cycle_rate rename and the ~14-day relearn per the REV 2 plan) and the running-signal intent of the closed HVAC-D5-REGROUND-ON-ODU-VAR-1.'
   correction_2026_09_29_variable_unit: 'OPERATOR: "It''s a variable unit." CORRECT. All three ODUs report type `proteusac` (sensor.thermostat_bryant_wifi_upstairs_odu_status, sensor.thermostat_bryant_wifi_backhallway_odu_status, sensor.office_b_odu_status; IDUs furnace2stg). Proteus is Carrier''s variable-speed Infinity outdoor unit. The W3 plan''s "no ODU Var entity, so not variable-capacity" was WRONG as an inference: ha_carrier creates OutdoorUnitVarSensor only for outdoor_unit_type in ["varcaphp","varcapac"] (ha_carrier/sensor.py ~90), so proteusac falls through. The entity is missing because of the integration''s type list, not the hardware. What IS available: odu_status state = "Stage N" (live "Stage 5" / "Stage 3" / "off"), plus coil/discharge/suction/superheat/line-voltage attributes. G0 found ODU stage agrees with SPAN >= 0.2 kW on 98-99% of cool-mode time. RE-PLAN: use ODU stage (off vs Stage N) as the per-zone running signal for the short-cycle producer and for arrester Gate 4, instead of any single SPAN kW threshold. That dissolves the zone 2/3 low-stage flap. Possible upstream: ask ha_carrier to add proteusac to the Var sensor type list.'
   title: The arrester's "is the AC running" check uses 0.5 kW, but upstairs and back-hall units run their low stage at 0.3-0.5 kW, so it reads them as off while they are cooling
   thread: hvac
-  status: planned
+  status: parked
   created: '2026-09-29 00:10'
   updated: '2026-09-29 00:10'
   approval: implied
@@ -30403,10 +30405,25 @@ cards:
     date: '2026-09-28'
     gist: W3 G0 probe Q7 (scripts/probes/hvac_w3_g0_q7_action_vs_span.py)
   why: 'Measured (G0 Q7, 7 d): with a 0.5 kW running threshold on SPAN AC-circuit draw, 58% of on-cycles flap on zones 2 and 3, because those units run low stage at 0.3-0.5 kW. At 0.2 kW zones 2/3 pass, but zone 1 flaps 13.8%, so no single threshold fits all zones. Arrester Gate 4 (hvac_override.py:1915-1963) uses the same 0.5 kW cut and treats missing as not cooling, so during low-stage runs it misreads zones 2/3 as not running. ODU stage_status agrees with SPAN >= 0.2 kW on 98-99% of cool-mode time: a candidate second signal. Consequence of the misread is UNVERIFIED (which Gate 4 decisions flip).'
-  next: 'PLAN (Tier 2-DB): W3 plan REV 3 re-scoped to this one group. Stage predicate (tri-state running/off/unknown, stale-guarded), wired into Gate 4 + the short-cycle producer; the other hvac_action readers keep their current input per the REV 2 triage. Plan review, then build after Batch B merges.'
+  next: 'PARKED. Revival trigger: a measured nudge dispatch on zone_2/3 that was wrong BECAUSE of the 0.5 kW Gate-4 misread (re-run scripts/probes/hvac_w3_m0_p4_gate4_replay.py; >= 1 dispatch change per week on zones 2/3), OR ha_carrier exposing a Var % for proteusac (a capacity signal better than stage).'
   links:
     related: [HVAC-W3-ENERGY-AWARE]
   rank: {value: 5, time_criticality: 4, effort: 2}
+- id: HVAC-GATE8-OVERSHOOT-STAMP-NOT-CLEARED-1
+  title: The nudge overshoot timer (Gate 8) is not reset when Gate 7 fails, so an old overshoot can make a later nudge fire early
+  thread: hvac
+  status: investigating
+  created: '2026-09-29 01:30'
+  updated: '2026-09-29 01:30'
+  tags: [hvac, nudge, arrester, found-during-probe]
+  origin:
+    date: '2026-09-29'
+    gist: W3 REV 3 plan + M0 probe P4 (scripts/probes/hvac_w3_m0_p4_gate4_replay.py)
+  why: 'last_overshoot_started (Gate 8) is cleared only on Gate 4 / Gate 6 fails, not on Gate 7 fails. In the 7-day replay, clearing it on a Gate-7 fail would remove 13 of the replayed nudge dispatches; 2 zone_1 dispatches with the ODU predicate fired 10 min early off a 45-50 min old stamp. Whether today''s 13 are premature (wasted nudges or discomfort) or correct is UNMEASURED; nudges are 97% effective per earlier evidence, so they may be fine.'
+  next: 'MEASURE (me, read-only): for the 13 stamp-carried dispatches, compare nudge outcome (ac_ramp_events settled verdict, kWh avoided) vs dispatches with a fresh stamp. If materially worse -> PLAN a Tier 2 fix (clear on Gate-7 fail); if not -> close as working-as-intended.'
+  links:
+    related: [ARRESTER-GATE4-LOW-STAGE-THRESHOLD-1, HVAC-W3-ENERGY-AWARE]
+  rank: {value: 4, time_criticality: 2, effort: 2}
 - id: ENPHASE-BATTERY-CUTOUTS-1
   title: At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time
   thread: energy
