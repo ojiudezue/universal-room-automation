@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-29T01:36:17-05:00_ - _Data commit: `6e56d692372f`_ - _last_reconciled: 2026-09-29_
+_Generated: 2026-09-29T02:01:33-05:00_ - _Data commit: `d8397a070f98`_ - _last_reconciled: 2026-09-29_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-09-29T01:36:17-05:00_ - _Data commit: `6e56d692372f`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 0 |
-| 🔬 Investigating | 3 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 10 |
 | 📝 Planned | 22 |
 | 🔨 In progress | 4 |
@@ -19,25 +19,17 @@ _Generated: 2026-09-29T01:36:17-05:00_ - _Data commit: `6e56d692372f`_ - _last_r
 | ⏳ Waiting on me (Claude) | 3 |
 | 🚀 Shipped (organic open) | 6 |
 | 🅿️ Parked | 72 |
-| ✅ Done | 242 |
+| ✅ Done | 243 |
 
 ## 📥 Inbox (0)
 _raw capture_
 
 _(none)_
 
-## 🔬 Investigating (3)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
-### `HVAC-GATE8-OVERSHOOT-STAMP-NOT-CLEARED-1` - The nudge overshoot timer (Gate 8) is not reset when Gate 7 fails, so an old overshoot can make a later nudge fire early — _#1 · WSJF 4.0 · v4 tc2 u2 /e2_
-thread: **hvac** - status: **investigating**
-_created 2026-09-29 01:30_
-- **Origin:** 2026-09-29 - W3 REV 3 plan + M0 probe P4 (scripts/probes/hvac_w3_m0_p4_gate4_replay.py)
-- **Why:** last_overshoot_started (Gate 8) is cleared only on Gate 4 / Gate 6 fails, not on Gate 7 fails. In the 7-day replay, clearing it on a Gate-7 fail would remove 13 of the replayed nudge dispatches; 2 zone_1 dispatches with the ODU predicate...
-- **Next:** MEASURE (me, read-only): for the 13 stamp-carried dispatches, compare nudge outcome (ac_ramp_events settled verdict, kWh avoided) vs dispatches with a fresh stamp. If materially worse -> PLAN a Tier 2 fix (clear on Gate-7 fail); if not -...
-- **Tags:** hvac, nudge, arrester, found-during-probe
-
-### `HVAC-HOLD-SIZING-ALL-ROOMS-1` - Should other rooms get longer HVAC vacancy holds (like Jaya's night 5400)? Measured all 43 rooms, all hours — _#2 · WSJF 3.3 · v5 tc3 u2 /e3_
+### `HVAC-HOLD-SIZING-ALL-ROOMS-1` - Should other rooms get longer HVAC vacancy holds (like Jaya's night 5400)? Measured all 43 rooms, all hours — _#1 · WSJF 3.3 · v5 tc3 u2 /e3_
 thread: **hvac** - status: **investigating**
 _created 2026-09-26 · updated 2026-09-29 01:05_
 - **Why:** The night-sleeper probe that sized Jaya covered bedrooms at night only. Livability harm can also come from evening/day rooms where people sit still or step out briefly.
@@ -49,7 +41,7 @@ _created 2026-09-26 · updated 2026-09-29 01:05_
   - `measured_2026_09_26`: scripts/probes/hvac_room_return_probe.py (new, read-only; generalises the night-sleeper probe to all rooms and hours), 7 days, return window 30 min. Rooms whose HVAC occupancy dropped then returned within 30 min, and HARM = URA wrote the...
   - `verdict`: NO broad livability problem. One config change is worth it: Laundry day hold -> 1200 s (20 min) covers the ~15-min load-swap trip that caused 4 of 8 harms; cost = zone_3 conditioned up to ~20 min longer after a real laundry departure. Pa...
 
-### `HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1` - Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered — _#3 · WSJF 3.3 · v5 tc3 u2 /e3_
+### `HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1` - Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered — _#2 · WSJF 3.3 · v5 tc3 u2 /e3_
 thread: **hvac** - status: **investigating** - approval: **implied**
 _created 2026-09-29 01:05 · initial_
 - **Problem / Solution:**
@@ -2241,8 +2233,18 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (242)
+## ✅ Done (243)
 _closed, evidence in refs_
+
+### `HVAC-GATE8-OVERSHOOT-STAMP-NOT-CLEARED-1` - The nudge overshoot timer (Gate 8) is not reset when Gate 7 fails, so an old overshoot can make a later nudge fire early — _WSJF 4.0 · v4 tc2 u2 /e2_
+thread: **hvac** - status: **done**
+_created 2026-09-29 01:30 · updated 2026-09-29 02:40_
+- **Origin:** 2026-09-29 - W3 REV 3 plan + M0 probe P4 (scripts/probes/hvac_w3_m0_p4_gate4_replay.py)
+- **Why:** last_overshoot_started (Gate 8) is cleared only on Gate 4 / Gate 6 fails, not on Gate 7 fails. In the 7-day replay, clearing it on a Gate-7 fail would remove 13 of the replayed nudge dispatches; 2 zone_1 dispatches with the ODU predicate...
+- **Next:** NONE (closed 2026-09-29, refuted). REVIVE only if the Gate-4 check changes (e.g. the parked ODU wiring): that change must re-run scripts/probes/hvac_gate8_stamp_outcomes.py or clear the stamp on a Gate-7 fail within its own scope.
+- **Tags:** hvac, nudge, arrester, found-during-probe
+- **Forensic keys (1):**
+  - `verdict_2026_09_29`: REFUTED, working as intended; no code change. Overnight read-only probe (scripts/probes/hvac_gate8_stamp_outcomes.py, report docs/planning/AUDIT_hvac_gate8_stamp_outcomes_2026_09_29.md). The code claim holds: hvac_override.py:4136 (Gate ...
 
 ### `HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1` - HVAC night tail-holds (15-30 min) kick in at 21:00 home_night while the house is still active — common rooms hold zones home long after people leave — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **done**

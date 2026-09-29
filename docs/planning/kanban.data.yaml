@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'HVAC-GATE8-OVERSHOOT-STAMP-NOT-CLEARED-1@2026-09-29T02:40:00'
+    at: '2026-09-29T02:40:00'
+    outcome: done
+    headline: 'The nudge overshoot timer surviving a Gate-7 fail is harmless. Only 6 of 108 real nudges carried an old timer; 5 of those 6 worked (vs 95% for the rest, not a real difference), and comfort was no worse. The earlier count of 13 came from a replay bug. Closed with no code change.'
+    acknowledged: false
   - fid: 'ARRIVAL-DEPARTURE-NOTIFY-1@2026-09-29T01:10:00'
     at: '2026-09-29T01:10:00'
     outcome: done
@@ -30187,18 +30192,19 @@ cards:
 - id: HVAC-GATE8-OVERSHOOT-STAMP-NOT-CLEARED-1
   title: The nudge overshoot timer (Gate 8) is not reset when Gate 7 fails, so an old overshoot can make a later nudge fire early
   thread: hvac
-  status: investigating
+  status: 'done'
   created: '2026-09-29 01:30'
-  updated: '2026-09-29 01:30'
+  updated: '2026-09-29 02:40'
   tags: [hvac, nudge, arrester, found-during-probe]
   origin:
     date: '2026-09-29'
     gist: W3 REV 3 plan + M0 probe P4 (scripts/probes/hvac_w3_m0_p4_gate4_replay.py)
   why: 'last_overshoot_started (Gate 8) is cleared only on Gate 4 / Gate 6 fails, not on Gate 7 fails. In the 7-day replay, clearing it on a Gate-7 fail would remove 13 of the replayed nudge dispatches; 2 zone_1 dispatches with the ODU predicate fired 10 min early off a 45-50 min old stamp. Whether today''s 13 are premature (wasted nudges or discomfort) or correct is UNMEASURED; nudges are 97% effective per earlier evidence, so they may be fine.'
-  next: 'MEASURE (me, read-only): for the 13 stamp-carried dispatches, compare nudge outcome (ac_ramp_events settled verdict, kWh avoided) vs dispatches with a fresh stamp. If materially worse -> PLAN a Tier 2 fix (clear on Gate-7 fail); if not -> close as working-as-intended.'
+  next: 'NONE (closed 2026-09-29, refuted). REVIVE only if the Gate-4 check changes (e.g. the parked ODU wiring): that change must re-run scripts/probes/hvac_gate8_stamp_outcomes.py or clear the stamp on a Gate-7 fail within its own scope.'
   links:
     related: [ARRESTER-GATE4-LOW-STAGE-THRESHOLD-1, HVAC-W3-ENERGY-AWARE]
   rank: {value: 4, time_criticality: 2, effort: 2}
+  verdict_2026_09_29: 'REFUTED, working as intended; no code change. Overnight read-only probe (scripts/probes/hvac_gate8_stamp_outcomes.py, report docs/planning/AUDIT_hvac_gate8_stamp_outcomes_2026_09_29.md). The code claim holds: hvac_override.py:4136 (Gate 4 fail) and :4192 (Gate 6 fail) clear last_overshoot_started, Gate 7 fail (:4219-4225) only resets the sample counter, and a nudge dispatch clears it (:4952). CORRECTION: the 13 in the why was WRONG. The M0 P4 replay never cleared the stamp on dispatch, which the real code does. Corrected, only 4 dispatches would be removed (3 zone_1, 1 zone_3), and both of those that match a real detection_fired row were effective. The 2 early zone_1 nudges need the ODU Gate-4 wiring, which M0 already parked, so they cannot happen today. Outcomes over 108 real dispatches (09-21 to 09-29): carried 6, 5/6 effective (83%), 1 hard reset, median 0.89 kWh avoided, 3 min above target+1F. Fresh 102, 97/102 effective (95%), 5 hard resets, median 1.16 kWh, 101 min above target. Fisher p=0.30, not distinguishable. The kWh gap tracks lower pre-nudge draw; per kW the saving is the same (0.48 vs 0.44). Gate 7 must still pass two consecutive samples before any dispatch, so a carried stamp only shortens the 7-min wait.'
 - id: HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1
   title: A new arrester episode cancels a pending AC hard-reset restore, so a zone can stay off for about 2-20 minutes after a reset
   thread: hvac
