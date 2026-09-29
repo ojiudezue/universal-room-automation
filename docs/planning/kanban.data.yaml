@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'ENERGY-CONSUMPTION-FORECAST-POISONED-1@2026-09-29T04:50:00'
+    at: '2026-09-29T04:50:00'
+    outcome: escalated
+    headline: 'The energy forecast is poisoned by an Envoy counter that sometimes reads 45 kWh instead of its ~18,000 kWh lifetime total. Four stored days read 6,800 to 15,900 kWh, and tonight''s will too. No EV or battery decision has changed yet. Plan written and reviewed. Your calls: flip the house-load source to live SPAN now; pick the full or simple fix; approve a supervised cleanup of the bad rows.'
+    acknowledged: false
   - fid: 'HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1@2026-09-29T04:27:00'
     at: '2026-09-29T04:27:00'
     outcome: measured
@@ -30162,11 +30167,11 @@ cards:
 - id: ENERGY-CONSUMPTION-FORECAST-POISONED-1
   title: The daily consumption forecast is poisoned by days where Envoy "production today" reported its lifetime total, so Net Energy reads -74 kWh and forecasts swing to 2,000 kWh
   thread: energy
-  status: planned
+  status: 'waiting_operator'
   groom_2026_09_29: 'ADJACENCY sweep: ENVOY-FLAKINESS-181243-1 (its title names "corrupt consumption_today") and COVERAGE-EVENING-ATTRIBUTION-DRIFT-1 share this producer family. That makes them ADJACENT, not DUPLICATE: different fix surfaces (forecast history hygiene vs integration flaps vs coverage audit input). Linked with context; the dangling link id ENVOY-FLAKINESS was fixed. Rank unchanged.'
   created: '2026-09-28 22:50'
-  updated: '2026-09-29 03:35'
-  approval: implied
+  updated: '2026-09-29 04:50'
+  approval: 'blocked'
   tags: [energy, forecast, data-integrity, found-during-audit]
   origin:
     date: '2026-09-28'
@@ -30175,10 +30180,11 @@ cards:
   constraints:
   - 'Measure first: how many energy_daily/energy_history rows are poisoned, and whether any drain/EV decision used forecast/24 over SPAN on those days.'
   - 'Fix both halves: reject implausible daily values at write (the producer), and clean or exclude poisoned history rows (the consumer).'
-  next: 'MEASURE then PLAN (Tier 2-DB, energy_daily writes + a consumer decision path): the poisoned-row count and a decision-impact probe first.'
+  next: 'Three calls, all laid out in docs/planning/PLANNING_energy_lifetime_counter_poisoning.md (rev 2, plan-reviewed; D-1 measurement done). (1) APPROVE or decline, now and no code: set select.ura_energy_coordinator_dp_house_load_source to live_span, which removes the only decision the bad forecast can reach (EV/battery house-load estimate). Trade-off: when SPAN minus EV reads about 0, the drain plan skips its decision instead of using a wrong load. (2) PICK Option F (recommended: a per-counter last-known-good guard that also catches the battery halving glitch D-1 found; Tier 2-DB) or Option S (a daily ceiling placed before the forecast learns from the day, plus partial-day marking; Tier 2; misses both-ends-glitched undercounts, 2/198 rows, and the battery shape). (3) APPROVE the supervised cleanup (D3): back up the DB with sqlite3 .backup, then NULL consumption/solar on the 4 poisoned rows plus 09-24/09-25 and tonight''s 09-29 row, keeping the predicted column. -> On (2) I build to review (3 reviews); (3) runs only with you present.'
   links: {related: [DASHBOARD-V8-FIX-BATCH-1, ENVOY-FLAKINESS-181243-1, COVERAGE-EVENING-ATTRIBUTION-DRIFT-1], context: 'ENVOY-FLAKINESS-181243-1 carries the same producer defect (Envoy today counters reporting lifetime values, its corrupt consumption_today cross-check); the old link id ENVOY-FLAKINESS did not exist. COVERAGE-EVENING-ATTRIBUTION-DRIFT-1 reads the same Envoy consumption family for the coverage audit. DASHBOARD-V8-FIX-BATCH-1 surfaced the -74 kWh Net Energy tile.'}
   rank: {value: 7, time_criticality: 6, effort: 3}
   measured_2026_09_29_overnight: 'CONFIRMED, with a CORRECTED mechanism: the card''s Envoy ''production today reports lifetime'' is WRONG. Probe: scripts/probes/energy_consumption_forecast_poison_probe.py. Report: docs/planning/AUDIT_energy_consumption_forecast_poisoning_2026_09_29.md. The real source is sensor.envoy_482543015950_lifetime_energy_production intermittently reading a constant 0.045505 MWh instead of ~15-19 MWh: 346 hourly readings since 04-11, and 12 of 28 September midnights. A midnight snapshot that catches it makes the next day''s delta equal the whole lifetime counter, which is written as that day''s solar (energy.py:2771-2823) and flows into consumption. There is no plausibility bound (only >=10 kWh on accuracy restore, energy.py:1446). Orchestrator re-verified: energy_daily has exactly 4 poisoned rows (06-19 6,803.6 / 08-20 14,646.5 / 08-28 15,583.5 / 08-30 15,897.3 kWh consumption), and each equals (next-midnight lifetime - 0.045505)x1000 to 0.1 kWh. The lifetime sensor read 0.045505 at 00:18 today, so the 09-29 row will land around 18,850 kWh unless fixed first. The same glitch also explains 83/198 empty consumption days and undercounts (09-24 48, 09-25 78 kWh). Forecast: Thu/Fri/Sun weekday baselines 3,049/2,089/2,126 vs ~150-165 clean; the regression refit gives base 1,375, slope -64.4 (clean 135.6/+1.85); current prediction 327 kWh vs 146 from the shadow estimator. Decision impact: 30/31 Battery-Aware EV evaluations since 09-21 used forecast/24 as house load (13.6 kW vs SPAN 5.5-7.9), but all 30 exited early at the drain target, and a counterfactual on 18 older evaluations changed 0 outcomes. LATENT, not realised.'
+  plan_2026_09_29_overnight: 'PLANNED and plan-reviewed overnight. Plan: docs/planning/PLANNING_energy_lifetime_counter_poisoning.md. Rev 1 FAILED plan review (2 CRITICAL + 6 HIGH, docs/reviews/code-review/plan_review_energy_lifetime_counter_poisoning.md). The ceiling was placed after the in-memory forecast learning had already used the bad day; the restore rule accepted the exact glitched snapshot now in the DB; last-known-good was defined three incompatible ways; there was no reset policy; one guarded site was unreachable; and the fix created a new mid-day-seed undercount. Rev 2 fixes all of these and adds Option S vs F. D-1 measurement gate satisfied (scripts/probes/lifetime_counter_noise_probe.py): legitimate counter noise is at most 0.000074 MWh, so the tolerance is the 0.001 MWh floor. NEW: the battery charged/discharged counters also glitched in August to about HALF their value (4.245747 -> 2.123309), a shape only the last-known-good guard catches. Not built: this is energy accounting feeding a trust consumer and needs a destructive DB cleanup, so the pick and the cleanup are yours. TIME NOTE: tonight''s midnight row (09-29) will land poisoned (lifetime production read 0.045505 at 00:18). The cleanup covers it; nothing can prevent it without a deploy.'
 - id: HVAC-PUBLISH-ZONE-AWAY-DUE-AND-ARRESTER-TIMERS-1
   title: Publish each HVAC zone's "away due at" time and the arrester's grace/compromise end times, so the dashboard can show countdowns
   thread: hvac
