@@ -14333,6 +14333,14 @@ class SafetyActiveCooldownsSensor(AggregationEntity, SensorEntity):
     _attr_has_entity_name = True
     _attr_icon = "mdi:timer-sand"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # URA-ATTRIBUTE-CHURN-1 (2026-09-29): backstop against re-adding
+    # a live-ticking `age_seconds` / `max_remaining_seconds` — those
+    # were dropped in favor of static `last_alert` + `cooldown_until`
+    # so the attribute payload is time-invariant for a fixed
+    # `_last_alert` snapshot. See fix note in extra_state_attributes.
+    _unrecorded_attributes = frozenset(
+        {"age_seconds", "max_remaining_seconds"}
+    )
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
@@ -14390,6 +14398,19 @@ class SafetyActiveCooldownsSensor(AggregationEntity, SensorEntity):
         if not last_alerts:
             return {"cooldowns": {}}
 
+        # URA-ATTRIBUTE-CHURN-1 (2026-09-29): publish only static
+        # timestamps (`last_alert`, `cooldown_until`) — dropping the
+        # `age_seconds` / `max_remaining_seconds` fields that ticked
+        # every refresh (~119 state_changed rows / 5 min under a
+        # stable "1 recent" state, measured 2026-09-28 19:07). Both
+        # were derivable from `last_alert` by any consumer that needs
+        # a live countdown. No consumer of the dropped fields was
+        # found (grep of custom_components/, quality/tests/, dashboards,
+        # ~/Code/ura-dashboard-pwa on 2026-09-29 — Safety.tsx reads
+        # only state, not attributes). The membership filter (age <
+        # 3600) still uses `now()` so an entry drops out at expiry,
+        # but the payload emitted for a stable set of alerts is now
+        # time-invariant.
         now = dt_util.utcnow()
         cooldowns: dict[str, Any] = {}
         for key, last_time in last_alerts.items():
@@ -14399,11 +14420,11 @@ class SafetyActiveCooldownsSensor(AggregationEntity, SensorEntity):
             # Report all entries within the maximum suppression window (upper bound;
             # actual window depends on severity: CRITICAL=60s, HIGH=300s, MEDIUM=900s, LOW=3600s)
             if age < 3600:
-                remaining = max(0, 3600 - age)
                 cooldowns[key] = {
                     "last_alert": last_time.isoformat(),
-                    "age_seconds": round(age, 1),
-                    "max_remaining_seconds": round(remaining, 1),
+                    "cooldown_until": (
+                        last_time + timedelta(seconds=3600)
+                    ).isoformat(),
                 }
 
         return {"cooldowns": cooldowns}

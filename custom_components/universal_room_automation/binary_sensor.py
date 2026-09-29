@@ -41,7 +41,6 @@ from .const import (
     STATE_TEMPERATURE,
     STATE_HUMIDITY,
     STATE_TIME_SINCE_OCCUPIED,
-    ATTR_LAST_MOTION,
     ATTR_TIMEOUT,
     CONF_DOOR_SENSORS,
     CONF_DOOR_TYPE,
@@ -257,6 +256,17 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
     """
 
     _attr_device_class = BinarySensorDeviceClass.OCCUPANCY
+    # URA-ATTRIBUTE-CHURN-1 (2026-09-29): backstop against a future
+    # re-add of a per-motion-event ticking attribute. `last_motion` was
+    # dropped from `extra_state_attributes` because it changed every
+    # ~2.5s under steady "on" and generated ~119 state_changed rows in
+    # 5 min despite no state transition. Same pattern as the
+    # RECORDER-BLOAT-LOGFLOOD-1 `last_check` drop on SafetyStatusSensor
+    # (sensor.py). No consumer of the attribute was found in
+    # custom_components/, quality/tests/, dashboards, or the PWA
+    # (grep 2026-09-29). `_last_motion_time` on the coordinator remains
+    # available for internal logic and aggregation.py.
+    _unrecorded_attributes = frozenset({"last_motion"})
 
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the sensor."""
@@ -395,9 +405,20 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
     @property
     def extra_state_attributes(self) -> dict:
         """Return additional state attributes."""
+        # URA-ATTRIBUTE-CHURN-1 (2026-09-29): `last_motion` dropped —
+        # it changed on every motion event (~every 2.5s) while state
+        # stayed steady "on", generating a state_changed + a recorder
+        # state_attributes row per tick (~119 rows / 5 min measured on
+        # binary_sensor.living_room_occupied 2026-09-28 19:07). No
+        # programmatic consumer found (grep of custom_components/,
+        # quality/tests/, docs/ha-config-snapshots/, and ~/Code/ura-
+        # dashboard-pwa on 2026-09-29). Same fix pattern as
+        # RECORDER-BLOAT-LOGFLOOD-1 (SafetyStatus `last_check`).
+        # `_unrecorded_attributes` above is the belt-and-suspenders.
+        # Consumers needing "when did we last see motion" can read
+        # `sensor.<room>_time_since_motion` or the entity's
+        # last_reported / last_updated.
         attrs = {
-            ATTR_LAST_MOTION: self.coordinator._last_motion_time.isoformat()
-            if self.coordinator._last_motion_time else None,
             ATTR_TIMEOUT: self.coordinator.data.get("timeout_remaining", 0) if self.coordinator.data else 0,
             # Persisted state for restart resilience
             "became_occupied_time": self.coordinator._became_occupied_time.isoformat()

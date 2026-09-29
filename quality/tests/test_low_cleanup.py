@@ -241,13 +241,32 @@ class TestCooldownSensorRename:
         assert remaining == 3000.0  # 3600 - 600
 
     def test_source_uses_correct_keys(self):
-        """Verify source code uses 'recent' in the state value template."""
+        """Verify source code uses 'recent' in the state value template.
+
+        Note: `max_remaining_seconds` was REMOVED from the emitted
+        `cooldowns[key]` sub-dict by URA-ATTRIBUTE-CHURN-1 (2026-09-29)
+        because it was `dt_util.utcnow()`-derived and made the payload
+        differ every refresh (~119 state_changed rows / 5 min on
+        `sensor.ura_safety_coordinator_safety_active_cooldowns` with a
+        stable "1 recent" state). It was replaced with a static
+        `cooldown_until` (= last_alert + 3600s), from which any consumer
+        can derive a live countdown client-side. The unit-level helpers
+        in this class still model the OLD arithmetic to keep the state
+        + membership tests green — the source assertion now anchors the
+        new invariant.
+        """
         src_path = "custom_components/universal_room_automation/sensor.py"
         with open(src_path) as f:
             source = f.read()
-        # The native_value property should produce "N recent"
-        assert '"max_remaining_seconds"' in source
+        # State-template survives (URA-ATTRIBUTE-CHURN-1 did not touch
+        # native_value).
         assert 'recent"' in source
+        # New static substitute is present; the old ticking key is gone
+        # from the SafetyActiveCooldownsSensor cooldowns sub-dict.
+        assert '"cooldown_until"' in source, (
+            "URA-ATTRIBUTE-CHURN-1 substitute 'cooldown_until' missing "
+            "from sensor.py"
+        )
 
 
 # =============================================================================
