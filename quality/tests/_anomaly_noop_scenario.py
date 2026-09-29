@@ -60,29 +60,31 @@ def _is_cc(name: str) -> bool:
     return name == "custom_components" or name.startswith("custom_components.")
 
 
+def _is_stub_aiosqlite(name: str) -> bool:
+    if name != "aiosqlite" and not name.startswith("aiosqlite."):
+        return False
+    return not getattr(sys.modules.get(name), "__file__", None)
+
+
 def import_isolated(*module_names):
+    """Import REAL production modules regardless of what sibling files left in
+    sys.modules, then leave sys.modules exactly as found."""
     import importlib  # noqa: PLC0415
-    before = {k for k in sys.modules if _is_cc(k)}
+    # Shelve whatever custom_components.* (often stubs) and stubbed aiosqlite
+    # entries sibling files installed, so the import below binds real code.
+    shelved = {k: m for k, m in list(sys.modules.items())
+               if _is_cc(k) or _is_stub_aiosqlite(k)}
+    for k in shelved:
+        sys.modules.pop(k, None)
     # Re-seat modules isolated by an earlier call so every anomaly-coverage
     # test file shares ONE copy of each production module.
-    for name, mod in ISOLATED.items():
-        if name not in sys.modules:
-            sys.modules[name] = mod
+    sys.modules.update(ISOLATED)
     try:
         mods = [importlib.import_module(n) for n in module_names]
     finally:
-        added = {k: sys.modules[k] for k in list(sys.modules)
-                 if _is_cc(k) and k not in before}
-    for name, mod in added.items():
-        ISOLATED[name] = mod
-        sys.modules.pop(name, None)
-        parent_name, _, child = name.rpartition(".")
-        parent = sys.modules.get(parent_name)
-        if parent is not None and getattr(parent, child, None) is mod:
-            try:
-                delattr(parent, child)
-            except AttributeError:
-                pass
+        for k in [k for k in sys.modules if _is_cc(k)]:
+            ISOLATED[k] = sys.modules.pop(k)
+        sys.modules.update(shelved)
     return mods
 
 
