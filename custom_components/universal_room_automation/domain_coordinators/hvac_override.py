@@ -4531,8 +4531,40 @@ class OverrideArrester:
                 # exists to fix) as a full success. combined restore_ok
                 # is now mode_ok AND preset_ok.
                 _mode_ok = True  # branch is the success branch of mode verify
-                _preset_ok: bool = True
-                if original_preset:
+                _preset_ok: bool | None = True
+                # HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1
+                # fix-up 1 (A-M1 / B-LOW-1): DEFER the preset restore
+                # when an arrester episode is armed on this zone. Now
+                # that the arrester's grace no longer cancels the reset
+                # restore timer, this success-branch preset write would
+                # otherwise land at ~T0+90 s while grace is still
+                # pending (~2 min severe / up to ~20 min normal +
+                # compromise), erase the human's manual hold early, and
+                # then get compromised over by `_apply_compromise`
+                # (72->76->74->76 flap). The arrester's own revert owns
+                # the preset in that case; the mode/setpoint restore
+                # already succeeded and stays. `_preset_ok = None`
+                # records the outcome as DEFERRED (preset_restore_ok
+                # column stays NULL) and `_combined_ok` is scored on
+                # mode-ok alone so `restore_ok` still reads True.
+                _episode_armed = bool(
+                    self._override_active.get(zone_id)
+                    or zone_id in self._grace_timers
+                    or zone_id in self._compromise_timers
+                )
+                if original_preset and _episode_armed:
+                    _LOGGER.debug(
+                        "HVAC AC Reset: Zone %s preset restore DEFERRED "
+                        "— arrester episode armed (override_active=%s, "
+                        "grace=%s, compromise=%s); arrester revert owns "
+                        "the preset",
+                        zone_name,
+                        self._override_active.get(zone_id, False),
+                        zone_id in self._grace_timers,
+                        zone_id in self._compromise_timers,
+                    )
+                    _preset_ok = None
+                elif original_preset:
                     self.suppress(climate_entity, kind="preset")
                     try:
                         await emit_set_preset_mode(
@@ -4561,7 +4593,12 @@ class OverrideArrester:
                 # F9: combined restore_ok reflects the AND of mode-ok
                 # AND preset-ok. Also record preset_restore_ok as its
                 # own signal so downstream analytics can discriminate.
-                _combined_ok = bool(_mode_ok and _preset_ok)
+                # DEFERRED (fix-up 1) = mode-only success: score
+                # combined on mode alone, keep preset_restore_ok NULL.
+                _combined_ok = bool(
+                    _mode_ok if _preset_ok is None
+                    else (_mode_ok and _preset_ok)
+                )
                 await self._backfill_restore_ok(
                     zone_id, _combined_ok, preset_ok=_preset_ok,
                 )
@@ -7074,15 +7111,18 @@ class OverrideArrester:
         pending AC hard-reset RESTORE timer (`_reset_timers`) — that
         timer belongs to a different subsystem and, if the arrester
         cancels it inside the Carrier lag window after the reset's
-        `off` write, the zone stays off until the arrester's own revert
-        re-asserts heat_cool (~2 min on the severe path, up to ~20 min
-        on grace+compromise; indefinitely if the revert stands down).
-        Mirrors the scope of `_defer_arrester_to_borrow`
-        (Round 3 LOW-2). Legitimate cancel sites for the reset restore
-        timer — teardown (§4.1 line ~2360), `ac_reset_enabled` setter
-        (line ~3038), and the fire-time pop in `_restore_after_reset`
-        (line ~4411) — handle `_reset_timers` directly and are
-        unaffected.
+        `off` write, the zone stays off longer than intended. Bound
+        on the pre-fix strand: the B1 heat_cool enforcer
+        (`hvac.py:2415-2419`) re-asserts heat_cool within ~one
+        `HVAC_DECISION_TICK` (5 min) plus Carrier lag once the reset
+        timer is gone — so the strand was bounded at ~5 min + lag on
+        the periodic path (worse than the design ~1 min restore, but
+        not indefinite). Mirrors the scope of
+        `_defer_arrester_to_borrow` (Round 3 LOW-2). Legitimate
+        cancel sites for the reset restore timer — `teardown()`,
+        `ac_reset_enabled` setter, and the fire-time pop in
+        `_restore_after_reset` — handle `_reset_timers` directly and
+        are unaffected.
         """
         for timer_dict in (
             self._grace_timers,
