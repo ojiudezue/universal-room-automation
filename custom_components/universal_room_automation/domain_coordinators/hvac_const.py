@@ -1285,6 +1285,19 @@ HVAC_SUPPRESSED_FROM_PERSISTENCE: Final = frozenset({
     "egress_pause_frequency",
 })
 
+# HVAC-ANOMALY-BLIND-1 residual A (D4): metrics DECLARED on purpose without a
+# producer. Passed to AnomalyDetector(unwired_metric_names=...). With no data
+# they read coverage reason `not_wired` (declared gap) rather than `never_fed`
+# (starved producer = bug); either way they are blind, so the anomaly sensor
+# reads `partial`, not `nominal`. Must be a subset of the SUPPRESSED set and
+# have no record_observation site (meta-test in test_v465_observability_gap.py).
+# Disposition card: ANOMALY-UNWIRED-METRIC-DISPOSITION-1 (egress_pause_frequency);
+# producer card: HVAC-COMFORT-DEVIATION-PRODUCER-1 (comfort_deviation_hours).
+HVAC_UNWIRED_METRICS: Final = frozenset({
+    "comfort_deviation_hours",
+    "egress_pause_frequency",
+})
+
 # Minimum samples before anomaly detection activates (14 days * 24/day)
 HVAC_ANOMALY_MIN_SAMPLES: Final = 336
 

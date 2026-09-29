@@ -161,6 +161,15 @@ PRESENCE_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset({
     "zone_occupied_count",
 })
 
+# HVAC-ANOMALY-BLIND-1 residual A (D4): metrics DECLARED on purpose without a
+# producer. Passed to AnomalyDetector(unwired_metric_names=...). With no data
+# they read coverage reason `not_wired` (declared gap) rather than `never_fed`
+# (starved producer = bug); either way they are blind, so the anomaly sensor
+# reads `partial`, not `nominal`. Must be a subset of the SUPPRESSED set and
+# have no record_observation site (meta-test in test_v465_observability_gap.py).
+# Empty: every presence metric has a producer.
+PRESENCE_UNWIRED_METRICS: frozenset[str] = frozenset()
+
 
 # ============================================================================
 # v4.7.15 D1: Bug Class #48 shared veto helper — types
@@ -2377,6 +2386,8 @@ class PresenceCoordinator(BaseCoordinator):
                 # are suppressed from persistence — exclude them from the sensor's
                 # severity calculation so it doesn't permanently show critical.
                 suppressed_metric_names=PRESENCE_SUPPRESSED_FROM_PERSISTENCE,
+                # HVAC-ANOMALY-BLIND-1 residual A (D4)
+                unwired_metric_names=PRESENCE_UNWIRED_METRICS,
             )
             try:
                 await self.anomaly_detector.load_baselines()

@@ -6209,11 +6209,9 @@ class PresenceAnomalySensor(AggregationEntity, SensorEntity):
             return "disabled"
         if presence.anomaly_detector is None:
             return "not_configured"
-        # Show learning status if not yet active
-        learning = presence.anomaly_detector.get_learning_status()
-        if hasattr(learning, 'value') and learning.value in ("insufficient_data", "learning"):
-            return learning.value
-        return presence.anomaly_detector.get_worst_severity().value
+        # HVAC-ANOMALY-BLIND-1 residual A: the one shared projection
+        # (severity → learning → partial → nominal).
+        return presence.anomaly_detector.get_sensor_state()
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -6825,10 +6823,9 @@ class SafetyAnomalySensor(AggregationEntity, SensorEntity):
             return "disabled"
         if safety.anomaly_detector is None:
             return "not_configured"
-        learning = safety.anomaly_detector.get_learning_status()
-        if hasattr(learning, 'value') and learning.value in ("insufficient_data", "learning"):
-            return learning.value
-        return safety.anomaly_detector.get_worst_severity().value
+        # HVAC-ANOMALY-BLIND-1 residual A: the one shared projection
+        # (severity → learning → partial → nominal).
+        return safety.anomaly_detector.get_sensor_state()
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -7788,10 +7785,9 @@ class MusicFollowingAnomalySensor(AggregationEntity, SensorEntity):
             return "disabled"
         if mf_coord.anomaly_detector is None:
             return "not_configured"
-        learning = mf_coord.anomaly_detector.get_learning_status()
-        if hasattr(learning, 'value') and learning.value in ("insufficient_data", "learning"):
-            return learning.value
-        return mf_coord.anomaly_detector.get_worst_severity().value
+        # HVAC-ANOMALY-BLIND-1 residual A: the one shared projection
+        # (severity → learning → partial → nominal).
+        return mf_coord.anomaly_detector.get_sensor_state()
 
     @property
     def extra_state_attributes(self) -> dict:

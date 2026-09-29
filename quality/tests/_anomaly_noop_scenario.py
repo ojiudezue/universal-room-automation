@@ -40,11 +40,37 @@ GOLDEN_PATH = _REPO_ROOT / "quality" / "fixtures" / "anomaly_noop_golden.json"
 PINNED_TS = "2026-09-28T12:00:00+00:00"
 
 
+# Bound at import (collection) time: some sibling test files replace
+# `custom_components.*` in sys.modules with stubs at run time.
+from custom_components.universal_room_automation.domain_coordinators import (  # noqa: E402
+    coordinator_diagnostics as _DIAG,
+)
+
+
 def _diag():
-    from custom_components.universal_room_automation.domain_coordinators import (  # noqa: PLC0415
-        coordinator_diagnostics as diag,
-    )
-    return diag
+    return _DIAG
+
+
+def _load_real_aiosqlite():
+    """The REAL aiosqlite, even if a sibling test left a stub in sys.modules
+    (the stub is restored afterwards so that test's expectations hold)."""
+    mod = sys.modules.get("aiosqlite")
+    if mod is not None and getattr(mod, "__file__", None):
+        return mod
+    saved = {k: v for k, v in sys.modules.items()
+             if k == "aiosqlite" or k.startswith("aiosqlite.")}
+    for k in saved:
+        sys.modules.pop(k, None)
+    try:
+        import aiosqlite as real  # noqa: PLC0415
+    finally:
+        for k in [k for k in sys.modules if k == "aiosqlite" or k.startswith("aiosqlite.")]:
+            sys.modules.pop(k, None)
+        sys.modules.update(saved)
+    return real
+
+
+_AIOSQLITE = _load_real_aiosqlite()
 
 
 def extract_metric_baselines_ddl() -> str:
@@ -70,20 +96,26 @@ class AiosqliteDB:
         self.execute_calls = 0
 
     async def setup(self) -> None:
-        import aiosqlite  # noqa: PLC0415
-        async with aiosqlite.connect(self.path) as db:
+        async with _AIOSQLITE.connect(self.path) as db:
             await db.execute(extract_metric_baselines_ddl())
             await db.commit()
 
     @contextlib.asynccontextmanager
     async def _db(self):
-        import aiosqlite  # noqa: PLC0415
         outer = self
 
-        async with aiosqlite.connect(self.path) as real:
+        async with _AIOSQLITE.connect(self.path) as real:
 
             class _Conn:
-                row_factory = None
+                # load_baselines sets `db.row_factory = aiosqlite.Row`; proxy it
+                # to the real connection so rows come back as Row objects.
+                @property
+                def row_factory(self):
+                    return real.row_factory
+
+                @row_factory.setter
+                def row_factory(self, value):
+                    real.row_factory = value
 
                 async def execute(self, sql, params=()):
                     outer.execute_calls += 1
@@ -99,8 +131,7 @@ class AiosqliteDB:
             yield _Conn()
 
     async def rows(self) -> list:
-        import aiosqlite  # noqa: PLC0415
-        async with aiosqlite.connect(self.path) as db:
+        async with _AIOSQLITE.connect(self.path) as db:
             cur = await db.execute(
                 "SELECT coordinator_id, metric_name, scope, mean, variance, "
                 "sample_count, last_updated FROM metric_baselines "
@@ -110,7 +141,9 @@ class AiosqliteDB:
 
 
 def make_hass(database=None):
-    return types.SimpleNamespace(data={DOMAIN: {"database": database}})
+    # Key by the detector module's own DOMAIN binding (robust to const stubs).
+    domain = getattr(_DIAG, "DOMAIN", DOMAIN)
+    return types.SimpleNamespace(data={domain: {"database": database}})
 
 
 def _seed(det, metric, scope, mean, variance, n):
