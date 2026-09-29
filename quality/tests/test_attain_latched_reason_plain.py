@@ -131,3 +131,35 @@ def test_latched_continuation_passes_latched_true(monkeypatch):
     monkeypatch.setattr(strat, "_get_attainability_decision", _spy)
     strat.determine_mode("off_peak", "summer", now=_ANCHOR)
     assert seen == [True], seen
+
+
+def test_rounded_projection_equal_to_target_uses_plain_text():
+    """LOW-3: 79.6 prints as '80%' — must not read '80% < target 80%'."""
+    strat, _ = _build_strategy(soc=72, peak_buffer_target=80)
+    decision = strat._get_attainability_decision(
+        soc=72.0, now=_ANCHOR,
+        target_day_class="normal", tomorrow_class="normal",
+        current_mode=None, season="summer",
+        projected=79.6, rate=1.0, mins=103,
+        tou_period="off_peak",
+    )
+    reason = decision.get("reason", "")
+    _assert_no_false_less_than(reason)
+    assert "80% < target 80%" not in reason, reason
+    assert "Charging the battery from the grid to 80% before " in reason
+
+
+def test_plain_text_keeps_stage_note():
+    """LOW-2: the plain wording keeps the mid_peak stage note."""
+    strat, _ = _build_strategy(soc=72, peak_buffer_target=80)
+    decision = strat._get_attainability_decision(
+        soc=72.0, now=_ANCHOR,
+        target_day_class="normal", tomorrow_class="normal",
+        current_mode=None, season="summer",
+        projected=129.0, rate=39.7, mins=103,
+        tou_period="off_peak", stage_note="mid_peak→peak coverage",
+        latched=True,
+    )
+    reason = decision.get("reason", "")
+    assert "Charging the battery from the grid to 80%" in reason, reason
+    assert "(mid_peak→peak coverage)" in reason, reason

@@ -4165,12 +4165,14 @@ class BatteryStrategy:
         # observed rate now includes attain's own grid charge, so the raw
         # projection overshoots, e.g. 129%-191% live 2026-09-28). Never
         # print "<" unless it is true; say what is happening instead.
+        # LOW-3: compare on the same whole-percent value that gets printed,
+        # so 79.6 vs 80 never renders as "80% < target 80%".
         target = self._peak_buffer_target
         if (
             not latched
             and projected is not None
             and target is not None
-            and projected < target
+            and int(f"{projected:.0f}") < int(f"{target:.0f}")
         ):
             reason = (
                 f"Peak-buffer attainability{stage} — projected SOC "
@@ -4184,7 +4186,7 @@ class BatteryStrategy:
             now_str = f"{soc:.0f}%" if soc is not None else "unknown"
             reason = (
                 f"Charging the battery from the grid to {target}% "
-                f"before {boundary_str} (now {now_str})"
+                f"before {boundary_str} (now {now_str}){stage}"
             )
         floored = self._floor_reserve(
             self._peak_buffer_target, effective_reserve, hold_depth,

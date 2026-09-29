@@ -256,3 +256,13 @@ class TestArbitrageReleaseRespectsFillPriority:
         actions = _fill_priority_tick(ev, soc=75.0)
         assert not any(a["service"] == "switch.turn_off" for a in actions)
         assert "garage_a" not in ev._paused_by_fill_priority
+
+    def test_force_charge_blocks_handoff_to_fill_priority(self):
+        """Force-charge outranks fill-priority: the release must NOT hand
+        the car to fill-priority even if the stored verdict says 'hold'."""
+        ev, hass = _make_ev(on=True)
+        _grid_charge_holds_car(ev, hass)
+        ev._fill_priority_would_hold = True
+        ev._is_force_charge_active = lambda: True
+        _release(ev)
+        assert "garage_a" not in ev._paused_by_fill_priority
