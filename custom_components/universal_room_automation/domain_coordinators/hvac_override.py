@@ -378,6 +378,15 @@ class OverrideArrester:
         # it. Empty snapshot (unknown/unavailable at nudge time) = skip
         # restore = fail-safe (no worse than pre-fix behavior).
         self._nudge_pre_preset: dict[str, str] = {}
+        # HVAC Batch D (INFO-1, operator ruling "B"): zones whose live nudge
+        # ran on top of a NON-NUDGE borrow that a person's change ENDED
+        # (D13 + D-L3). Value = True when the ended borrow was a pre-arrival
+        # pre-cool (restore to the ARRIVAL target, Q7). `_restore_after_nudge`
+        # then restores the zone's CURRENT S1 target preset (presets only) —
+        # never the ended borrow's pre-cool values. Set in
+        # `_handle_climate_change`; popped at the restore and at every new
+        # nudge start; cleared at teardown.
+        self._nudge_restore_reference: dict[str, bool] = {}
         # HVAC-GOVERNED-EXCURSION-1 D3: per-zone ExcursionToken issued at
         # nudge start; consumed by restore/cancel/audit paths to call
         # return_excursion (which clears the persisted lease row).
@@ -1394,6 +1403,15 @@ class OverrideArrester:
             return str(p), float(cool), float(heat)
         except Exception:  # noqa: BLE001
             return None
+
+    def _nudge_ref_map(self) -> dict[str, bool]:
+        """HVAC Batch D: the `_nudge_restore_reference` map (created lazily
+        for arresters built without `__init__`)."""
+        m = getattr(self, "_nudge_restore_reference", None)
+        if m is None:
+            m = {}
+            self._nudge_restore_reference = m
+        return m
 
     def _pop_own_timer(self, zone_id: str, handle: Any) -> None:
         """Remove ``handle`` from the grace / compromise timer maps ONLY if it
@@ -2665,6 +2683,7 @@ class OverrideArrester:
         for cancel in self._nudge_restore_timers.values():
             cancel()
         self._nudge_restore_timers.clear()
+        getattr(self, "_nudge_restore_reference", {}).clear()
         for cancel in self._nudge_eval_timers.values():
             cancel()
         self._nudge_eval_timers.clear()
@@ -3822,6 +3841,20 @@ class OverrideArrester:
                 _ended_pa = _ended_tok.caller_site == _s12pa_n4
             except Exception:  # noqa: BLE001
                 _ended_pa = False
+        # HVAC Batch D (INFO-1, operator ruling "B"): a person's change ENDED
+        # the non-nudge borrow underneath a live nudge (D13 + D-L3). The
+        # nudge's snapshot was taken on top of that borrow, so its restore
+        # must not write the ended borrow's values back: record the zone for
+        # a reference-preset restore (the arrival target for a pre-arrival).
+        if _nudge_live and _ended_tok is not None:
+            self._nudge_ref_map()[zone_id_b] = bool(_ended_pa)
+            _LOGGER.info(
+                "Arrester: %s — person ended the %s borrow under a live "
+                "nudge; the nudge restore will return the zone to its %s "
+                "preset", zone.zone_name,
+                "pre-arrival" if _ended_pa else "non-nudge",
+                "arrival" if _ended_pa else "current S1 target",
+            )
         if _ended_pa:
             baseline_case = "A"
             _ref = self._resolve_reference(zone_id_b, None, arrival=True)
@@ -5594,6 +5627,9 @@ class OverrideArrester:
         new_target = original_target + self._nudge_size_f
         duration_s = self._nudge_duration_min * 60
         started_ts = dt_util.now().isoformat()
+        # HVAC Batch D (INFO-1): a new nudge starts clean — a reference
+        # restore recorded for a PREVIOUS nudge never carries over.
+        self._nudge_ref_map().pop(zone_id, None)
 
         # CRITICAL ORDER (R1): DB first, setpoint second.
         if self._db is not None:
@@ -5882,10 +5918,32 @@ class OverrideArrester:
             else (_ram_pre_preset or None)
         )
         pre_preset = _snap_preset or ""
+        _s7_reason = "soft_nudge_preset_restore"
+        # HVAC Batch D (INFO-1, operator ruling "B"): a person ended the
+        # non-nudge borrow this nudge ran on top of (D13 + D-L3). Its
+        # snapshot (`manual` + the borrow's pre-cool setpoints) must NOT be
+        # written back: restore the zone's CURRENT S1 target preset instead
+        # (the ARRIVAL target for an interrupted pre-arrival, Q7) — presets
+        # only, so S6 is skipped. No resolvable reference -> no write at all.
+        _ref_arrival = self._nudge_ref_map().pop(zone_id, None)
+        _reference_restore = _ref_arrival is not None
+        if _reference_restore:
+            _ref = self._resolve_reference(zone_id, None, arrival=_ref_arrival)
+            pre_preset = _ref[0] if _ref is not None else ""
+            _s7_reason = (
+                "soft_nudge_restore_arrival_target" if _ref_arrival
+                else "soft_nudge_restore_s1_target"
+            )
+            _LOGGER.info(
+                "Soft nudge restore on %s: the borrow under it was ended by a "
+                "person — restoring %s (preset only), not the snapshot %r",
+                zone.zone_name, pre_preset or "nothing (no reference)",
+                _snap_preset,
+            )
         from .hvac_strategy import strategy_for as _strategy_for  # noqa: PLC0415
-        if _strategy_for(self.hass, zone.climate_entity).is_human_manual_snapshot(
-            _snap_preset,
-        ):
+        if not _reference_restore and _strategy_for(
+            self.hass, zone.climate_entity,
+        ).is_human_manual_snapshot(_snap_preset):
             try:
                 # ARREST-COMFORT-1 §3.7 S6: ALLOW (restoration path).
                 # HVAC-W1-A F3: required site/zone_id/reason kwargs added.
@@ -5943,7 +6001,7 @@ class OverrideArrester:
                     blocking=True,
                     site="S7_nudge_restore_preset",
                     zone_id=zone_id,
-                    reason="soft_nudge_preset_restore",
+                    reason=_s7_reason,
                     excursion_id=_nudge_eid,
                 )
                 _LOGGER.info(

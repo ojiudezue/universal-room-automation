@@ -1776,3 +1776,87 @@ async def test_interrupt_during_energy_begin_does_not_spend(mods, monkeypatch):
     await H.drain(hass)
     assert _cw_rows(hass, mods, "S12_pre_cool") == []
     assert Z2 in coord._pre_arrival_zones and Z2 not in coord._pre_arrival_spent
+
+
+# ==========================================================================
+# HVAC Batch D — INFO-1 (operator ruling "B"): a nudge that ran on top of a
+# non-nudge borrow a PERSON ended (D13 + D-L3) restores the zone's CURRENT S1
+# target preset (arrival target for a pre-arrival) — presets only, never the
+# ended borrow's pre-cool values via S6's raw `original_target`.
+# ==========================================================================
+
+
+def _nudge_on_top_of(arr, zone):
+    """A live nudge whose snapshot was taken ON TOP of the borrow: `manual`
+    (the borrow's raw setpoints) — the value S6 would write back."""
+    arr._nudge_in_flight.add(zone)
+    arr._nudge_pre_preset[zone] = "manual"
+
+
+async def _restore(coord, hass, arr, zone, original_target):
+    n_temp = len(H.temp_writes(hass, coord.zone_manager.zones[zone].climate_entity))
+    n_preset = len(H.preset_writes(hass, coord.zone_manager.zones[zone].climate_entity))
+    await arr._restore_after_nudge(coord.zone_manager.zones[zone], original_target)
+    await H.drain(hass, rounds=6)
+    ent = coord.zone_manager.zones[zone].climate_entity
+    # `resume` is the funnel's resume-then-pin clear of the anonymous hold,
+    # not a destination — drop it.
+    return (
+        H.temp_writes(hass, ent)[n_temp:],
+        [
+            c[2]["preset_mode"] for c in H.preset_writes(hass, ent)[n_preset:]
+            if c[2]["preset_mode"] != "resume"
+        ],
+    )
+
+
+@pytest.mark.asyncio
+async def test_batch_d_nudge_restore_after_ended_borrow_uses_s1_target(mods, monkeypatch):
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, house_state="sleep")
+    _seed(mods, Z2, "BANKING", pre_preset="away", site="S12_pre_cool")
+    _nudge_on_top_of(arr, Z2)
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 74.0), ("manual", 68.0, 71.0)))
+    temps, presets = await _restore(coord, hass, arr, Z2, 74.0)
+    assert temps == []                       # no S6 raw `original_target`
+    assert presets == ["sleep"]              # house S1 target (sleep)
+    rows = [r for r in _cw_rows(hass, mods) if r["site"].startswith("S7_nudge_restore_preset")]
+    assert rows and rows[-1]["reason"] == "soft_nudge_restore_s1_target"
+    assert Z2 not in arr._nudge_restore_reference   # one-shot
+
+
+@pytest.mark.asyncio
+async def test_batch_d_nudge_restore_after_ended_pre_arrival_uses_arrival_target(mods, monkeypatch):
+    """Interrupted PRE-ARRIVAL under the nudge: the arrival target (Q7) —
+    `home` even though the empty house's S1 target is `away`."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, house_state="away")
+    _seed(mods, Z2, "BANKING", pre_preset="away", site="S12_pre_arrival")
+    _nudge_on_top_of(arr, Z2)
+    await _fire(hass, arr, _ev(E2, ("manual", 68.0, 74.0), ("manual", 68.0, 71.0)))
+    temps, presets = await _restore(coord, hass, arr, Z2, 74.0)
+    assert temps == []
+    assert presets == ["home"]
+    rows = [r for r in _cw_rows(hass, mods) if r["site"].startswith("S7_nudge_restore_preset")]
+    assert rows[-1]["reason"] == "soft_nudge_restore_arrival_target"
+
+
+@pytest.mark.asyncio
+async def test_batch_d_nudge_restore_unchanged_without_an_ended_borrow(mods, monkeypatch):
+    """Control: same nudge snapshot, no person-ended borrow -> today's
+    behaviour (S6 raw restore for a `manual` snapshot). Proves the reference
+    path above is what changes the outcome."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, house_state="sleep")
+    _nudge_on_top_of(arr, Z2)
+    temps, presets = await _restore(coord, hass, arr, Z2, 74.0)
+    assert len(temps) == 1 and temps[0][2]["target_temp_high"] == 74.0
+    assert presets == ["manual"]
+
+
+@pytest.mark.asyncio
+async def test_batch_d_reference_record_does_not_outlive_its_nudge(mods, monkeypatch):
+    """A record left from a previous nudge is dropped when a NEW nudge
+    starts, so a later ordinary restore is unchanged."""
+    coord, hass, arr, sched, db = _setup(mods, monkeypatch, house_state="sleep")
+    arr._nudge_ref_map()[Z2] = False
+    await arr._perform_soft_nudge(coord.zone_manager.zones[Z2], 2.0)
+    await H.drain(hass, rounds=6)
+    assert Z2 not in arr._nudge_restore_reference
