@@ -134,6 +134,13 @@ class ExcursionToken:
     _returned: bool = False
     _return_outcome: Any = None
 
+    @property
+    def returned(self) -> bool:
+        """HVAC W1/W2 finish D2b — PURE READ: has ``return_excursion`` closed
+        this token? Owner sites (S11 / S12 / S13) check it before any write so
+        a borrow a person ended (``human_interrupt``) is never written for."""
+        return bool(self._returned)
+
     def stale_ts(self) -> float:
         """Time at which this row becomes stale for boot-audit purposes.
 
@@ -592,6 +599,17 @@ def excursion_id_for(zone_id: str) -> Optional[str]:
     if tok is None or _now() >= tok.stale_ts():
         return None
     return tok.excursion_id
+
+
+def live_token_for(zone_id: str) -> Optional[ExcursionToken]:
+    """HVAC W1/W2 finish D2a — PURE READ: the live (non-stale) borrow token
+    for ``zone_id``, or None. Same predicate as ``is_borrow_active``; no
+    reaping, no DB, no NM. The arrester reads it to decide whether a human
+    change ends the borrow; ending goes through ``return_excursion``."""
+    tok = _rows.get(zone_id)
+    if tok is None or _now() >= tok.stale_ts():
+        return None
+    return tok
 
 
 def _reap_stale(zone_id: str, tok: ExcursionToken) -> None:
@@ -1141,7 +1159,19 @@ async def async_startup_excursion_audit(hass, coord) -> None:
                     zone_obj = getattr(zm, "zones", {}).get(zone_id)
                     if zone_obj is not None:
                         entity_id = getattr(zone_obj, "climate_entity", None)
-            if pre_preset and entity_id and hass is not None:
+            # HVAC W1/W2 finish D6 (Batch A LOW-4): a NUDGE can begin on a
+            # zone that reads `manual` (D48/D52), so its snapshot can be the
+            # anonymous hold. Pinning `manual` restores nothing and re-creates
+            # the lockout — same rule as the HIGH-1 skip in `_auto_return`.
+            # The S9 ramp audit restores the setpoints and S1's §9e reclaim
+            # returns the zone to its target on the next tick.
+            if pre_preset == "manual":
+                _LOGGER.info(
+                    "excursion.startup_audit: "
+                    "startup_audit_nudge_preset_restore_skipped_manual "
+                    "zone=%s (snapshot preset is the anonymous hold)", zone_id,
+                )
+            elif pre_preset and entity_id and hass is not None:
                 try:
                     from .hvac_setpoint import emit_set_preset_mode  # noqa: PLC0415
                     await emit_set_preset_mode(

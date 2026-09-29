@@ -95,6 +95,7 @@ def button_tree(button_src) -> ast.Module:
 PRESENCE_TIMER_NUMBER_CLASSES = (
     "ZoneEntryDwellNumber",
     "ReturnWindowMinutesNumber",   # v5.103.20 fix-up 1 (ruling 2)
+    "PreArrivalWindowMinutesNumber",   # HVAC W1/W2 finish D5 (knob 35)
     "VacancyGraceMinutesNumber",
     "VacancyGraceConstrainedNumber",
     "MaxOccupancyHoursNumber",
@@ -104,6 +105,7 @@ PRESENCE_TIMER_NUMBER_CLASSES = (
 PRESENCE_TIMER_CONF_KEYS = {
     "ZoneEntryDwellNumber": "CONF_HVAC_ZONE_ENTRY_DWELL",
     "ReturnWindowMinutesNumber": "CONF_HVAC_RETURN_WINDOW_MINUTES",
+    "PreArrivalWindowMinutesNumber": "CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES",
     "VacancyGraceMinutesNumber": "CONF_HVAC_VACANCY_GRACE_MINUTES",
     "VacancyGraceConstrainedNumber": "CONF_HVAC_VACANCY_GRACE_CONSTRAINED",
     "MaxOccupancyHoursNumber": "CONF_HVAC_MAX_OCCUPANCY_HOURS",
@@ -113,6 +115,7 @@ PRESENCE_TIMER_CONF_KEYS = {
 PRESENCE_TIMER_HVAC_ATTRS = {
     "ZoneEntryDwellNumber": "_zone_entry_dwell",
     "ReturnWindowMinutesNumber": "_return_window_minutes",
+    "PreArrivalWindowMinutesNumber": "_pre_arrival_window_minutes",
     "VacancyGraceMinutesNumber": "_vacancy_grace",
     "VacancyGraceConstrainedNumber": "_vacancy_grace_constrained",
     "MaxOccupancyHoursNumber": "_max_occupancy_hours",
@@ -273,8 +276,10 @@ def test_reset_presence_timers_button_single_writeback(button_tree):
             f"ResetPresenceTimersButton.async_press must reference "
             f"{const_name} when resetting."
         )
-    # All four live attrs pushed.
-    for attr in PRESENCE_TIMER_HVAC_ATTRS.values():
+    # All four live attrs pushed. Knob 35 (pre-arrival window) is NOT a
+    # presence timer and is not reset by this button.
+    for attr in (a for c, a in PRESENCE_TIMER_HVAC_ATTRS.items()
+                 if c != "PreArrivalWindowMinutesNumber"):
         assert f"hvac.{attr}" in src, (
             f"ResetPresenceTimersButton.async_press must push hvac.{attr}."
         )
@@ -412,6 +417,7 @@ def test_new_presence_timer_keys_present(strings_json, translations_en):
         "hvac_vacancy_grace_constrained",
         "hvac_max_occupancy_hours",
         "hvac_return_window_minutes",        # v5.103.20 fix-up 2
+        "hvac_pre_arrival_window_minutes",   # HVAC W1/W2 finish D5 (knob 35)
     ):
         assert key in s["data"], f"strings.json missing {key} in data"
         assert key in s["data_description"], f"strings.json missing {key} in data_description"
@@ -717,6 +723,9 @@ def _make_entry(opts: dict | None = None) -> MagicMock:
         # v5.103.20 fix-up 1 (ruling 2): "52 · Return Window (min)"
         ("ReturnWindowMinutesNumber", "_return_window_minutes",
          "hvac_return_window_minutes", 7),
+        # HVAC W1/W2 finish D5: "35 · Pre-Arrival Window (min)"
+        ("PreArrivalWindowMinutesNumber", "_pre_arrival_window_minutes",
+         "hvac_pre_arrival_window_minutes", 45),
     ],
 )
 def test_set_native_value_end_to_end(class_name, attr, conf_key, value):

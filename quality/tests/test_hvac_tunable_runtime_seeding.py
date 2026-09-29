@@ -807,3 +807,22 @@ def test_return_window_ctor_kwarg_lands_on_the_live_attribute():
         assert coord._return_window_minutes == 3 and coord._return_window_s() == 180.0
     finally:
         H.restore_shims(base)
+
+
+# HVAC W1/W2 finish D5 (M6): knob 35 "Pre-Arrival Window (min)" is seeded at
+# boot through the HVACCoordinator constructor kwarg in async_setup_entry;
+# the constructor clamps it to [5, 110]. Drill: delete the kwarg -> RED.
+@pytest.mark.parametrize("saved,expected", [
+    ({"hvac_pre_arrival_window_minutes": 45}, 45),
+    ({}, 30),
+    ({"hvac_pre_arrival_window_minutes": 200}, 200),   # raw; the ctor clamps
+])
+def test_pre_arrival_window_seeded_from_cm_options_at_boot(saved, expected):
+    expr = _hvac_ctor_kwarg_expr("pre_arrival_window_minutes")
+    code = compile(ast.Expression(body=expr), "<hvac-ctor-kwarg>", "eval")
+    ns = {
+        "cm_config": dict(saved),
+        "CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES": "hvac_pre_arrival_window_minutes",
+        "DEFAULT_HVAC_PRE_ARRIVAL_WINDOW_MINUTES": 30,
+    }
+    assert eval(code, ns) == expected  # noqa: S307 — production expression under test
