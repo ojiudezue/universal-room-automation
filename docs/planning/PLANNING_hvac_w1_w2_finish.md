@@ -1,514 +1,598 @@
-# PLANNING — HVAC W1/W2 finish
+# PLANNING — HVAC W1/W2 finish (REV 2)
 
 **Cards:**
 - Part A: `ARRESTER-BOOT-BLIND-1` gap (2), revived 2026-09-28. Operator ruling: "The person interrupts. We end and revert. Closest to my intent."
 - Part B: `HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1`, approved.
-- Part C: `HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1` (W2-2). Parked 2026-09-27; the operator green-lit it on 2026-09-28 to finish W2.
+- Part C: `HVAC-RELOADING-ROOM-PLACEHOLDER-READERS-1` (W2-2). Cut to the occupancy-clock fix only, per ruling Q5.
 
-**Author:** ura-planner, 2026-09-28. Snapshot: `develop` @`37b678966` (v5.103.21). v5.103.20 is built but not deployed.
-**Status:** PLAN ONLY. Each part is gated by the §2 probe. A plan review is required before build (Tier 2 plan-review rule).
-**Tier:** Tier 2-DB. Three framing-disjoint reviews, live validation, then the README write-back. §12 explains why and asks whether to elevate Part A.
+**Author:** ura-planner. REV 1 2026-09-28; REV 2 2026-09-28 (answers the plan review).
+**Snapshot:** `develop` @`37b678966` (v5.103.21). v5.103.20 is built but not deployed.
+**Status:** PLAN ONLY. Each deliverable is gated by the §2 probe. REV 2 must be re-checked by the plan reviewer before build.
+**Tier:** Tier 2-DB with four reviews (Q6): three framing-disjoint reviews plus one adversarial-completeness pass. Then live validation and the README write-back (§6).
+**Plan review:** `docs/reviews/code-review/plan_review_hvac_w1_w2_finish.md`, verdict FIX-PLAN-FIRST (5 HIGH, 10 MED, 7 LOW).
 
-Each part is a separate deliverable group with its own falsifiable invariant, so each reviewer can cover the whole plan along one axis.
+Each part is a separate deliverable group with its own falsifiable invariant.
+
+---
+
+## REV 2 — revision table
+
+| Finding | Fix in REV 2 | Where |
+|---|---|---|
+| **H1** — a mode change was read as a human setpoint change | A change counts as within-manual only if both states are `heat_cool` and all four legs are numeric. Otherwise the classifier returns `none`. Verified: ha_carrier sets both legs to None outside HEAT_COOL (`climate.py:230-240`). New test `test_classify_mode_change_is_none` | D1 rule steps 1–2 |
+| **H2** — D2c could not re-dispatch | D2c forces `_borrow_row` and `_comp_live` to False for the zone and rebuilds `gate_snapshot` before the precedence runs. The test asserts a NEW timer, and that `gated_reason` is not `borrow_active` | D2c |
+| **H3** — the case-A revert target and delta basis came from different presets | ONE reference preset per case. Case A uses `T.pre_preset` for BOTH the revert target and the delta (that preset's seasonal setpoints). The 09-28 replay outcome is written into the AC and into "What the operator will see". Q7 asks the operator to confirm | D2 baseline table; A.2; Q7 |
+| **H4** — the latch was erased by the next booking | Separate `_interrupt_latch: set[entity_id]` on the arrester. Removed only at the manual-exit boundary (`hvac_override.py:3109-3115`), plus teardown. Two-change test added | D2e |
+| **H5** — Part C not scoped to Q5 | Part C = C3 only. C1, C2 and C4 are PARKED in Appendix A with a trigger you can evaluate (a named probe and threshold). INV-C is (b) only. §6 framing fixed | Part C; Appendix A; §6 |
+| **M1** — S12/S13 write after an interrupt that lands inside `begin` | A returned-token check immediately before each emit | D2b table |
+| **M2** — S13 writes over a foreign row | The D4b foreign-row guard now also covers S13 | D4b |
+| **M3** — orphan COMPROMISE rows | A COMPROMISE row with no arrester timer and no token counts as endable (case C baseline). The `enabled=False` setter now releases compromise rows. The three orphan paths are listed in §3 | D2a; D2f; §3 |
+| **M4** — C3's edit shape would skip the back-fill | Guard ONLY the single assignment `zone.continuous_occupied_since = None`. The v5.103.20 back-fill in the same `else` is untouched | C3 |
+| **M5** — the pre-arrival borrow could reach `lease_expiry` | D3 also ends the borrow when its age reaches the window, measured from the borrow's START. Knob max = 110 | D3; D5 |
+| **M6** — knob wiring under-specified | All five `__init__.py` sites named, including `OPTIONS_RELOAD_SUPPRESS_KEYS`. Settings-form field too (knob-52 precedent). CONF placed in `hvac_const.py` | D5 |
+| **M7** — P1 could not discriminate | Window from 2026-09-26 (when `climate_write` coverage began), changed-legs rule, minimum N, late-arrival split, a named remediation branch, and D1 decoupled from the other gates | §2 P1 |
+| **M8** — INV-A.3 / INV-B.2 mis-stated | Restated with explicit carve-outs (D48/D52 nudge and hard reset, egress mode, heat_cool enforcer, S1, arrester; `stale_boot_release`, CM wire-fail) | A.1; B.1 |
+| **M9** — case C had no test or AC | Tests for case C and for the resolver-None branch; a README line | D2 AC |
+| **M10** — fast-run D3 acted on other zones | In a fast run, expiry and ending are scoped to `{Z}`. Other zones wait for the next full pass, which ends them before S1 | D3 |
+| **L1** — fixture expected classes | Expected result per row, taken from the P1 rows | D1 AC |
+| **L2** — boot seed runs after the listener | Accepted and documented (a window of seconds, safe direction) | D1 |
+| **L3** — funnel escapes | Named as INV-A5 carve-outs | A.1 |
+| **L4** — reason vocabulary | No new `reason=` literal is planned. Any literal a builder adds must go into `HVAC_PRESET_REASONS` (`const.py:1321`) | §4 |
+| **L5** — latch discharge on a feed flicker | Documented as accepted | D2e |
+| **L6** — D2c race with an already-pending `_apply_compromise` | Per-zone episode generation counter; stale tasks stand down | D2c |
+| **L7** — doc hygiene | One §8; four reviews; `monotonic_ts` dropped from the record; INV timestamps use the `climate_write` row timestamp (the wall-clock issue time) | throughout |
+| **Batch A, LOW-4** — boot audit re-pins `manual` after a mid-nudge restart | New deliverable **D6**: HIGH-1-style skip in the boot-audit NUDGE branch. Added to §3 | D6; §3 |
+| **W3 G0** — 12 unexplained out-of-window S12 borrows | New probe **P7** classifies them | §2 P7 |
 
 ---
 
 ## 0. Institutional context verified
 
-**State of play read completely.** I read `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md`, all 472 lines: §1–§12, §9e (the four S1 gates and rulings D13/D48/D49/D50/D52) and the §10 ledger C1–C25. This plan does not re-assert any §10 claim. It respects:
-- C13: `return_excursion` writes nothing; each return site does its own writes.
-- C17/C23: suppression is 15 s for temperature writes and 120 s for preset writes.
-- C24: HVAC occupancy rides lighting occupancy plus a tail.
-- C25: the old S1 "don't fight manual" guard is superseded.
+**State of play read completely.** `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md`, all 472 lines: §1–§12, §9e (the four S1 gates and rulings D13/D48/D49/D50/D52) and the §10 ledger C1–C25. This plan re-asserts no §10 claim. It respects C13 (return sites write, not the primitive), C16/C21 (the ha_carrier 5-min guard and full-read release), C17/C23 (15 s / 120 s suppression), C24 and C25.
 
-**Stale citations in the state-of-play doc.** The code wins. Fix these in the commit that lands this plan:
+**Stale citations in the state-of-play doc** (fix in the landing commit):
+- §9e: HIGH-1 skip `hvac_excursion.py:629-650` → `:644-666`.
+- §3.2 / §9.4: D5 coast defer `hvac.py:2271-2289` → `:2882-2962`.
+- D6: `hvac.py:2063` → `:2676-2685`. Presence Source 1 is `presence.py:2100-2122`; Source 4 is `:2147-2159`.
+- `continuous_occupied_since`: `hvac_zones.py:746-754` → `:964-985`.
+- §4.2: S12 `hvac_predict.py:1160` → begin `:1154`, write `:1193`.
+- Card: pre-cool offset `:1134` → `:1135`.
 
-| Doc says | Code today (`develop`) |
-|---|---|
-| §9e: HIGH-1 skip at `hvac_excursion.py:629-650` | `hvac_excursion.py:644-666` (`_auto_return`) |
-| §3.2 / §9.4: D5 coast defer at `hvac.py:2271-2289` | `hvac.py:2882-2962` |
-| §3.2: D6 at `hvac.py:2063`; §9.4: Source-4 at `presence.py:2148-2157` | D6 entry is `hvac.py:2676-2685`. Source 1 is `presence.py:2100-2122`; Source 4 is `:2147-2159` |
-| §3.2 / §9.4: `continuous_occupied_since` at `hvac_zones.py:746-754` | `hvac_zones.py:964-972` |
-| Card: pre-cool offset at `hvac_predict.py:1134` | `hvac_predict.py:1135` |
-| §4.2: S12 at `hvac_predict.py:1160` | begin `:1154`, write `:1193` |
-
-**Re-verified card facts.** All were checked against source:
-- The arrester books an override only on a transition INTO manual, `hvac_override.py:3218`. A setpoint change while already manual matches neither branch (`:3220-3226`) and returns silently. Confirmed.
-- S12 begins a BANKING borrow with `duration_s=None` (`hvac_predict.py:1154-1164`). Its `stale_ts` then falls to `EXCURSION_LEASE_MAX_S = 7200` (`hvac_excursion.py:79`, `:146-148`). The lease-expiry sweep (`:733-778`) is the only thing that ends it. Confirmed.
-- `_expire_pre_arrival_zones` (`hvac.py:5857-5887`) clears the zone set when the zone is occupied (lighting `any_room_occupied`, `:5868`) or on `PRE_ARRIVAL_TIMEOUT_MINUTES = 30` (`hvac_const.py:465`). It never touches the borrow. Confirmed.
-- The ratchet is real. The pre-arrival loop calls `_execute_zone_pre_cool(zone, offset=-2.0, …)` on every pass while the zone is in the set (`hvac_predict.py:645-649`), and the offset is applied to the LIVE `zone.target_temp_high` (`:1135`). Confirmed.
-- **NEW finding (widens D4).** On the 2nd and later passes, `begin_excursion` REJECTS because a row already exists and returns `None` (`hvac_excursion.py:805-813`). The CM is a no-op for `None` (`:1321-1322`), and the S12 write still goes out (`hvac_predict.py:1193-1205`). So S12 writes over ANY live row on the zone, including a foreign nudge, compromise or pre-heat row. Only egress is guarded (`:1127-1131`).
-- A live row arms gate (e) (`hvac_preset.py:302-317`). The vacancy bypass then defers with `vacancy_bypass_deferred:active_borrow` (`hvac.py:3229-3236`). Confirmed.
-
-**NEW latent defect found on the D2 path.** `_revert_override` restores `_cmp_token.pre_preset` whenever that value is truthy (`hvac_override.py:3938-3942`). A compromise always begins while the zone is already `manual`, because the human's change put it there. So the snapshot is `"manual"`, and S4 pins `manual`, which is a no-op revert. Today S1's §9e reclaim hides this on the next pass. The only test seeds `pre_preset="home"` (`quality/tests/test_hvac_excursion_compromise_migration.py:185`), so this path has never been exercised. The §2 probe P5 measures it.
+### Re-verified facts, each with its source
+- The arrester books an override only on a transition INTO manual (`hvac_override.py:3218`). A setpoint change while already manual returns silently (`:3220-3226`).
+- S12 begins BANKING with `duration_s=None` (`hvac_predict.py:1154-1164`). The row is stale only at `EXCURSION_LEASE_MAX_S = 7200` (`hvac_excursion.py:79`, `:146-148`).
+- `_expire_pre_arrival_zones` (`hvac.py:5857-5887`) never touches the borrow.
+- The ratchet: the offset is applied to the LIVE high on every pass (`hvac_predict.py:645-649`, `:1135`).
+- **Write-despite-reject.** A rejected `begin_excursion` returns None (`hvac_excursion.py:805-813`), and S12 (`hvac_predict.py:1193`) and S13 (`:1482`) still write.
+- **Mode legs.** ha_carrier reports `target_temp_high/low = None` in every mode except HEAT_COOL (`/config/custom_components/ha_carrier/climate.py:230-240`). Egress (`hvac_egress.py:721`) and AC hard-reset mode writes open no suppression window.
+- **S4 re-pins `manual`.** `_revert_override` uses the compromise token's `pre_preset` whenever it is truthy (`hvac_override.py:3938-3942`). The value is snapshotted after the human's change, so it reads `manual`. The write itself does go through the funnel; the VALUE is wrong (operator follow-up, §8).
+- **Boot audit re-pins `manual` after a nudge** (Batch A builder, LOW-4). A NUDGE can begin on a zone that reads `manual`: `check_ac_reset` checks only `_override_active`, and the force-nudge button checks no preset. `begin_excursion` then snapshots `pre_preset="manual"`. The boot-audit NUDGE branch pins any non-empty `pre_preset` (`hvac_excursion.py:1126-1148`) and has no manual skip.
+- **Orphan COMPROMISE rows.**
+  - The `enabled=False` setter cancels compromise timers but never returns the row (`hvac_override.py:3070-3091`).
+  - `teardown()` is synchronous and cancels timers (`:2346-2362`).
+  - The boot audit rehydrates COMPROMISE rows with no arrester owner (`hvac_excursion.py:1240-1256`).
+- **Knob wiring precedent (knob 52).**
+  - `__init__.py`: setup read `:3776`/`:3899`, import `:6201`, `OPTIONS_RELOAD_SUPPRESS_KEYS` `:6859`, apply-in-place set `:7287`, dispatch `:7389-7400`.
+  - `config_flow.py`: `:5934`, `:6497-6499`.
+  - `number.py`: `:511-587`.
+- **Reason vocabulary.** `HVAC_PRESET_REASONS` (`const.py:1321-1352`) is enforced by tests. `_auto_return` passes `reason=trigger` (`hvac_excursion.py:675`), so `lease_expiry` and `stale_boot_release` are in it.
 
 ### Greps run
-`begin_excursion(|return_excursion(|_compromise_release_lease(|site="S[0-9]`, `_pre_arrival_zones|PRE_ARRIVAL_TIMEOUT_MINUTES`, `_last_emitted_range[`, `last_sent|values_after|_last_write`, `last_detection_for`, `override_count_today`, `caller_site`, `S12_pre_cool`, `set_on_.*|_on_sunset_notify`, `vacancy_bypass_deferred|manual_guard_verdict`, `any_room_occupied|is_zone_transient_blocked` (arrester), `continuous_occupied_since =`, `CONF_HVAC_PRE_ARRIVAL|pre_arrival` (const, number, switch, config_flow), plus Number-name prefixes.
+`begin_excursion(|return_excursion(|_compromise_release_lease(|site="S[0-9]`, `_pre_arrival_zones|PRE_ARRIVAL_TIMEOUT_MINUTES`, `_last_emitted_range[`, `last_sent|values_after`, `last_detection_for`, `override_count_today`, `caller_site`, `S12_pre_cool`, `set_on_.*`, `vacancy_bypass_deferred|manual_guard_verdict`, `any_room_occupied|is_zone_transient_blocked`, `continuous_occupied_since =`, `CONF_HVAC_RETURN_WINDOW_MINUTES` (`__init__`, `config_flow`), `HVAC_PRESET_REASONS`, `def teardown`.
 
 ### Prior plans consulted
-- `PLANNING_hvac_w1b_thermostat_definition.md`, full read of the rulings, §2 non-goals and §5.P1. Its non-goals "no changes inside `emit_*` funnels" and "no changes to borrow code beyond accessors" were scoped to W1-B. §5 D1 and Q1 surface where this plan needs one read-only exception.
-- `PLANNING_hvac_governed_excursion.md`, row table and rev-6 banner. Row 11 already required the S12 snapshot to come from `_resolve_baseline_range` "to sidestep the ratchet". `:753` explicitly left the ratchet itself unscoped. This plan closes it for pre-arrival.
-- `PLANNING_hvac_fast_occupancy_response.md` REV 7. Pre-arrival zones bypass the D5 transit filter (`_zone_away_edge`, `hvac.py:4316`). Expiry also runs in fast runs (`hvac.py:4780`).
-- `PLANNING_hvac_enable_custom_preset_ranges.md` §consumer table. It lists "Pre-cool / banking (reads live high; known ratchet)" as a trust reader.
-- `PLANNING_hvac_reloading_room_placeholder_readers.md`, full read. Part C reuses its design. Its §5a D0 result (2026-09-27): 0 reloading-room samples, 0 boot resets. Verdict: PARK.
-- `PLANNING_hvac_w2_night_sleeper_and_placeholder_readers.md` Piece B. Superseded by the dedicated plan above.
-- `PLANNING_hvac_arrester_nudge_echo.md` (by name and the §10 C23 summary). It raised the 5→15 s window. Its residual is late echoes past 15 s, which Part A's value match covers.
+- `PLANNING_hvac_w1b_thermostat_definition.md`: rulings, §2 non-goals, §5.P1. Its funnel non-goal gets one exception, granted by ruling Q1.
+- `PLANNING_hvac_governed_excursion.md`: row 11, the ratchet left unscoped at `:753`, and the rev-6 banner.
+- `PLANNING_hvac_fast_occupancy_response.md` REV 7: pre-arrival bypasses D5; expiry runs in fast runs.
+- `PLANNING_hvac_enable_custom_preset_ranges.md`: its consumer table lists banking as a "known ratchet" reader.
+- `PLANNING_hvac_reloading_room_placeholder_readers.md`, full read. Part C and Appendix A reuse it; its §5a D0 result was PARK.
+- `PLANNING_hvac_w2_night_sleeper_and_placeholder_readers.md` Piece B, now superseded.
+- `PLANNING_hvac_arrester_nudge_echo.md` (via §10 C23).
 
-### Memory bodies pulled
-- `project_reload_storm_refuted_restart_storm_live`: restarts, not reloads, are the live trigger. This bears on Part C's value case.
-- `feedback_suppression_needs_discharge`: every latch in this plan names its discharge, backstop and restart behaviour.
-- Index lines: `reference_hvac_state_of_play`, `feedback_extend_existing_never_rebuild`, `feedback_marginal_benefit_pushback`, `feedback_wire_in_anchor_mandatory`, `feedback_hollow_test_anchors`.
+### Memory bodies
+- `project_reload_storm_refuted_restart_storm_live`: restarts, not reloads, are the live trigger.
+- `feedback_suppression_needs_discharge`: every latch here names its discharge, backstop and restart behaviour.
+- Index lines: `feedback_extend_existing_never_rebuild`, `feedback_marginal_benefit_pushback`, `feedback_wire_in_anchor_mandatory`, `feedback_hollow_test_anchors`.
 
-### Code read for scope
-- `hvac_override.py`: `:2628-2676`, `:2690-2722`, `:2973-3008`, `:3094-3560`, `:3569-4015`, `:6490-6530`.
+### Code read
+- `hvac_override.py`: `:2206-2400`, `:2628-2722`, `:2973-3091`, `:3094-4015`, `:5040-5130`, `:6490-6530`.
 - `hvac_excursion.py`: `:60-230`, `:540-1370`.
 - `hvac_predict.py`: `:400-690`, `:860-1226`, `:1409-1627`.
 - `hvac_egress.py`: `:425-454`, `:635-905`.
-- `hvac.py`: `:1048-1068`, `:2120-2230`, `:2380-2560`, `:2560-2620`, `:2640-2975`, `:3200-3340`, `:3385-3435`, `:3900-3985`, `:4290-4340`, `:4760-4800`, `:5797-5888`, `:6011-6045`.
+- `hvac.py`: `:1048-1068`, `:2120-2230`, `:2380-2975`, `:3200-3435`, `:3900-3985`, `:4290-4340`, `:4760-4800`, `:5797-5888`, `:6011-6045`.
 - `hvac_preset.py`: `:225-376`. `hvac_strategy.py`: full. `hvac_setpoint.py`: `:100-485`.
-- `hvac_zones.py`: `:950-980`, `:2347-2371`. `presence.py`: `:2100-2161`.
-- `number.py`: `:505-590`. `switch.py`: `:4232-4261`.
+- `hvac_zones.py`: `:950-985`, `:2347-2371`. `presence.py`: `:2100-2161`.
+- `number.py`: `:505-590`. `switch.py`: `:4232-4261`. `const.py`: `:1321-1352`.
+- `ha_carrier/climate.py`: `:222-243`.
 
 ### REUSE-or-BUILD per piece
 
-| Piece | Verdict | Symbol (file:line) |
+| Piece | Verdict | Symbol |
 |---|---|---|
-| Suppression / echo windows for D1 | REUSE, no new window | `_is_genuine_manual` `hvac_override.py:2628-2676`; for a within-manual change it returns False in-window (`:2666-2667`) |
-| Reconnect / cloud-flap guard | REUSE | `hvac_override.py:3145-3191` |
-| Setpoint match tolerance | REUSE | `LAST_SENT_TOLERANCE_F = 0.5` `hvac_strategy.py:53` |
-| Record of URA's recent setpoint writes (in RAM) | NEW, small | Nothing equivalent exists. Strategy `last_sent` records only S1 preset holds (`hvac_strategy.py:141-149`, `:216`). The W1-A `climate_write` row is DB-only and fire-and-forget (`hvac_setpoint.py:163-255`), and there is no DB read on the decision path (N4). See §5 D1 and Q1 |
-| Manual-episode boundary for the latch | REUSE | `_last_detection` is popped on leaving manual (`hvac_override.py:3109-3115`); accessor `last_detection_for` (`:3561-3567`) |
-| Borrow end (bookkeeping, no wire) | REUSE | `return_excursion(..., restore_ok=None)` (`hvac_excursion.py:879`); precedent `force_reset` (`hvac_override.py:6517-6525`) |
-| Registry reads | REUSE + one pure accessor | `is_borrow_active` / `excursion_id_for` (`:570-594`); NEW `live_token_for(zone_id)` pure read (same shape) |
-| Cancelling the arrester's own timers | REUSE | the cancel loop in `_defer_arrester_to_borrow` (`hvac_override.py:3528-3533`), NOT `_cancel_zone_timers`, which also kills `_reset_timers` |
-| HUMAN_MANUAL snapshot classifier | REUSE | `strategy_for(...).is_human_manual_snapshot` (`hvac_strategy.py:155-168`, `:231-235`) |
-| Baseline preset and setpoints for a revert | REUSE the arithmetic | startup-audit shape (`hvac_override.py:2222-2229`); the arrester gets it through a NEW callback setter mirroring `set_on_sunset_notify` (`:1130-1137`) |
-| Pre-arrival end writer (presets-only return) | REUSE + extend | `_release_banked_zones` (`hvac_predict.py:922-1099`). Adds a `trigger` param, an `update_throttle` param and a returned-token guard |
-| No-ratchet baseline | REUSE | `_resolve_baseline_range` (`hvac_predict.py:864-920`) |
-| Arrival signal | REUSE | `any_room_hvac_occupied`, with the defensive fallback pattern of `hvac_predict.py:583-586` |
-| Pre-arrival window knob | NEW Number, REUSE the pattern | `ReturnWindowMinutesNumber` (`number.py:511-587`, Bug Class #32 options writeback) |
-| Part C predicates | REUSE (unchanged from the parked plan) | `_zone_conditioning_retreat_ok` (`hvac.py:5679`); `is_zone_transient_blocked` (`hvac_zones.py:2347`); the local `_transient_blocked_row1` (`hvac.py:2567-2575`); `HVAC_LIVE_ROOM_TRANSIENT_GRACE_S = 300` (`hvac_const.py:1029`) |
-| Probe | NEW read-only script (Parts A/B); REUSE `scripts/probes/hvac_reloading_room_probe.py` (Part C) | — |
+| Suppression windows | REUSE, no new window | `_is_genuine_manual` `hvac_override.py:2628-2676` |
+| Reconnect guard | REUSE | `:3145-3191` |
+| Match tolerance | REUSE | `LAST_SENT_TOLERANCE_F` `hvac_strategy.py:53` |
+| Record of URA's recent setpoint writes | NEW, small, allowed by ruling Q1 | Only strategy `last_sent` exists, and it holds S1 presets only (`hvac_strategy.py:141-149`). No DB read on the decision path (N4) |
+| Manual-episode boundary | REUSE | `hvac_override.py:3109-3115` |
+| Interrupt latch | NEW set, discharged at the REUSED boundary | — |
+| Borrow end with no write | REUSE | `return_excursion(..., restore_ok=None)`; precedent `force_reset` `:6517-6525` |
+| Registry reads | REUSE + 1 pure accessor + 1 property | `is_borrow_active` / `excursion_id_for` (`:570-594`); NEW `live_token_for`; NEW `ExcursionToken.returned` |
+| Arrester timer cancel | REUSE | the `_defer_arrester_to_borrow` loop `:3528-3533` |
+| HUMAN_MANUAL classifier | REUSE | `is_human_manual_snapshot` (`hvac_strategy.py:155-168`, `:231-235`) |
+| Preset → seasonal setpoints | REUSE arithmetic via a NEW callback setter | startup audit `:2222-2229`; setter pattern `set_on_sunset_notify` `:1130-1137` |
+| Pre-arrival end writer | REUSE + extend | `_release_banked_zones` `hvac_predict.py:922-1099` |
+| Baseline | REUSE | `_resolve_baseline_range` `:864-920` |
+| Arrival signal | REUSE | `any_room_hvac_occupied`, with the fallback pattern of `hvac_predict.py:583-586` |
+| Window knob | NEW, REUSE pattern | knob 52, all sites listed above |
+| Part C predicate | REUSE | `is_zone_transient_blocked` `hvac_zones.py:2347` |
+| Probes | NEW `hvac_borrow_end_probe.py`; REUSE `hvac_reloading_room_probe.py` | — |
 
 ---
 
-## 1. Decisions this plan makes (reviewers: check these first)
+## 1. Decisions this plan makes
 
-| # | Question | Decision | Why |
-|---|---|---|---|
-| P1 | Which borrows does a human interrupt end? | **BANKING (pre-arrival and energy pre-cool), PREHEAT and COMPROMISE.** NUDGE is excluded (D13 unchanged). EGRESS_PAUSE is excluded (Q2) | Egress writes only `hvac_mode=off` for an open door (`hvac_egress.py:721-730`). A setpoint change does not conflict with the pause, and ending the bookkeeping would leave `_paused_by_egress` (the real owner state) inconsistent: S1 would keep skipping the zone while the row is gone. Egress already ignores comfort grace on purpose (`:717-719`) |
-| P2 | Compromise | **END and RE-DISPATCH.** A human change during the arrester's own grace or compromise cancels those timers, returns the compromise row (`human_interrupt`, `restore_ok=None`), and re-runs the ordinary delta rules for the new value against the episode's ORIGINAL baseline and preset | A compromise is the arrester's answer to an earlier human value. After a newer change, that answer is stale (halfway to an outdated request). Re-dispatching against the original baseline is exactly "the arrester treats it as an ordinary human override". The revert target never drifts because the baseline is the pre-episode one. Unbounded re-grace needs a human action each time. D50 is unchanged: an immune person still wins |
-| P3 | Delta basis for a within-manual change | Compare against the **baseline** (§5 D2 table), counting **only the legs the human changed**. Not against the old value | The old value is URA's borrow value. Comparing against it would make the compromise "halfway between the pre-cool and the human" and then revert to a preset: incoherent. The changed-legs rule stops the S12 snapshot's synthetic low (`cool − 7`, `hvac_predict.py:918`) from inventing a heat-leg delta |
-| P4 | Arrival signal for the pre-arrival end | **`any_room_hvac_occupied`** (hallway-excluded), with the lighting value as fallback. Lighting is what `hvac.py:5868` reads today | With the lighting signal, a hallway crossing (zone_2 contains the up hallway) would end the pre-cool before the person reaches their room. Pre-arrival zones already bypass the D5 transit filter (`hvac.py:4316`), so the room arms on its first evidence |
-| P5 | What the pre-arrival end writes | **Presets-only return of the snapshot preset** (the S11 path), run **before** S1 in the same pass, followed by a zone state refresh so S1 decides at once | This is the established borrow contract: each return restores its own snapshot (W1-B D2.4). A bookkeeping-only end that relies on S1 leaves a strand when gate (d) (arrester passive) or (a/b) refuses. Running before S1 means an `away`→`home` arrival costs two back-to-back pins with no comfort gap |
-| P6 | Stop URA re-starting over the human | A **latch**: no S12 or S13 begin on a zone whose current manual episode has a `human_interrupt` detection. It clears when the zone leaves manual. The interrupted pre-arrival episode also ends (the zone leaves the set) | Without the latch, the next pass (≤5 min) begins a new pre-cool over the human and the interrupt is meaningless. This narrows D48 only after an interrupt (Q3) |
-
----
-
-## 2. Measure first — one read-only probe, gating all three parts
-
-NEW script: `scripts/probes/hvac_borrow_end_probe.py`. It follows the access pattern of `hvac_reloading_room_probe.py`: recorder opened with `mode=ro`, URA DB read-only. Run with `ssh ha "python3 - --days 14" < scripts/probes/hvac_borrow_end_probe.py`. The orchestrator runs it; the builder does not.
-
-| Id | Question | Go / no-go use |
+| # | Decision | Why |
 |---|---|---|
-| P1 | For the 3 zones, find every recorder state change where `preset_mode` is `manual` on both sides and a setpoint changed. For each, is there a URA `climate_write` `set_temperature` in the 4 writes before it on that entity whose `values_after` matches the new values within 0.5 °F? Split into matched (URA echo), unmatched-with-a-borrow-live and unmatched-no-borrow. Report echo lag for matched rows | **D1 gate.** The 2026-09-28 22:15:40 zone_2 event (71, no URA write) must come out unmatched. If any KNOWN URA echo (inside an `ac_ramp_events` nudge window or a borrow window) is unmatched with ring depth 4, raise the depth, or stop and report. **Hand-build the fixture:** commit the 09-28 22:03-22:16 zone_2 sequence as `quality/tests/fixtures/hvac_09_28_zone2_prearrival.json` |
-| P2 | Every `hvac_excursion_events` row with `site='S12_pre_cool'` over 14 d: duration, trigger, and the count of `climate_write` rows sharing its `excursion_id` plus the S12 writes with a NULL `excursion_id` in the same window | Sizes the ratchet and the lifetime problem. Expect `lease_expiry` at about 7200 s and more than one write per borrow |
-| P3 | Minutes between pre-arrival (`ura_activity_log` `pre_arrival`) and the zone's first HVAC-occupied sample; share of events that reach 30 min without arrival | Chooses the D5 default (30 stays unless the median arrival is well past it) |
-| P4 | Live seasonal setpoints the baseline resolver returns now, per house state (URA config), next to the Bryant profile values seen on the entity when the zone sits in a named preset | Checks the P3/D2 baseline. If they disagree by ≥ 1 °F, use the token snapshot (the §5 D2 table already prefers it for case A) and say so in the README |
-| P5 | `climate_write` rows with `site='S4_revert'` and `values_after.preset_mode='manual'` | Confirms the §0 latent defect (D2d) |
-| P6 (Part C) | Re-run `hvac_reloading_room_probe.py` P1/P3 over the span since v5.103.15 | Refreshes the evidence. The operator's green light stands whatever the result, but the README must quote it |
+| P1 | A human change ends BANKING (pre-arrival and energy), PREHEAT and COMPROMISE borrows, including ownerless COMPROMISE rows. It does not end NUDGE (D13) or EGRESS_PAUSE (Q2) | Egress writes only mode `off` for an open door (`hvac_egress.py:721`). Ending its bookkeeping would leave `_paused_by_egress` inconsistent |
+| P2 | During a grace or compromise, a new human change ENDS the compromise and RE-DISPATCHES against the episode's ORIGINAL preset and baseline | The compromise answered an older value. Using the original baseline keeps the revert target fixed |
+| P3 | **One reference preset per case** (H3). That preset is the revert target, and its seasonal setpoints are the delta basis, counting only the legs the human changed | Mixing presets produced "compromise toward home, then pin away". Counting only changed legs keeps S12's synthetic low (`cool − 7`) out of the delta |
+| P4 | Arrival = `any_room_hvac_occupied`, hallway-excluded | A hallway crossing must not end the pre-cool |
+| P5 | The pre-arrival end is a presets-only return of the snapshot, run before S1 in the same pass | The borrow contract. It also leaves no strand when S1 gates (a/b) or (d) refuse |
+| P6 | Interrupt latch: no S12/S13 begin on the zone until it leaves manual (Q3). The interrupted pre-arrival episode also ends | Otherwise the next pass pre-cools over the person |
 
 ---
 
-## PART A — A human change ends a non-nudge borrow (ARRESTER-BOOT-BLIND-1 gap 2)
+## 2. Measure first — read-only probes
+
+NEW `scripts/probes/hvac_borrow_end_probe.py`. It uses the access pattern of `hvac_reloading_room_probe.py` (recorder `mode=ro`, URA DB read-only). The orchestrator runs it.
+
+**Gates are decoupled.** D1/D2 (Part A) depend on P1. D3/D4/D5, D6 and C3 do not, and can build even if P1 sends D1 back to the plan.
+
+| Id | Question | Use |
+|---|---|---|
+| **P1** (M7) | **Window 2026-09-26 00:00 CDT onward**, when `climate_write` coverage began (v5.103.16). Take every recorder change where both sides are `heat_cool`, `preset_mode == manual` and all four legs are numeric, and at least one leg changed. Apply the D1 changed-legs rule against the last 4 URA `set_temperature` rows (`values_after`) for that entity. Classes: `matched`, `unmatched_borrow_live`, `unmatched_no_borrow`. Report echo lag, and split out arrivals more than 5 min after the last URA write (the ha_carrier full-read release, C16/C21). **Minimum N = 20 within-manual changes.** If N < 20, extend back to 2026-09-12 for nudge windows only, using `ac_ramp_events` nudge values as the "URA writes". | **D1 gate:** 0 unmatched rows inside a known URA window (an `ac_ramp_events` nudge window or a borrow window). The 09-28 22:15:40 zone_2 row must come out unmatched. **Named remediation branch:** if any unmatched row falls inside a known URA window, STOP D1/D2. Return to the plan with those rows (value, lag, legs) and decide between a wider match rule and a feed-specific exclusion then. Do not raise the depth blindly. **Fixture:** commit the 09-28 22:03–22:16 zone_2 rows as `quality/tests/fixtures/hvac_09_28_zone2_prearrival.json`, with the expected class per row taken from P1 (L1) |
+| P2 | Every `S12_pre_cool` borrow over 14 d: duration, trigger, and the count of `climate_write` rows with its `excursion_id`, plus NULL-id S12 writes in its window | Sizes the lifetime and ratchet problems |
+| P3 | Minutes from `pre_arrival` to the zone's first HVAC-occupied sample; share with no arrival inside 30 / 60 / 110 min | Default for the D5 window |
+| P4 | Seasonal setpoints the resolver returns for home / away / sleep now, compared with Bryant profile values seen when a zone sits in that named preset | Checks P3's basis. If a preset disagrees by ≥ 1 °F, the README says so and the fixture AC uses the live values |
+| P5 | `climate_write` rows with `site='S4_revert'` and `values_after.preset_mode='manual'`; also `site='startup_audit_nudge_preset_restore'` with `manual` | Confirms D2d and D6 |
+| P6 | Re-run `hvac_reloading_room_probe.py` P1/P3 since v5.103.15 | README evidence for C3, and the Appendix A trigger |
+| **P7** (W3 G0) | Classify the 12 out-of-window S12 BANKING borrows that are not pre-arrival (of the 73 found by the W3 G0 cross-check). For each borrow, from `climate_write.reason`, `hvac_excursion_events`, `ura_activity_log` and recorder: (a) the `reason` on its first write; (b) any `pre_arrival` row in the 30 min before; (c) master or energy gate flips; (d) the post-restart orphan reconciliation (`hvac_predict.py:522-543`) or a boot `stale_boot_release`; (e) a time-zone slip, UTC vs local, against the window; (f) other. Output one row per borrow | Any class that is a pre-arrival variant Part B does not cover → add it to Part B before build. Any other class → a new card. P7 does not block Part A |
+
+---
+
+## PART A — A human change ends a non-nudge borrow
 
 ### A.0 Producer / consumer
 
-**Producer: "human within-manual change".**
-- Inputs:
-  - The HA `state_changed` event on the climate entity, read by `_handle_climate_change`.
-  - The status feed's `preset_mode`, `target_temp_high` and `target_temp_low`. §5 of the state of play: status setpoints can be stale and then jump when a full poll lands. ha_carrier's 5-min post-write guard can re-post URA's own values into HA's local copy (C16/C21).
-  - The NEW recent-writes record.
-- Health: the status feed is a known-lagging, known-stale source. That is why a match against a timing window alone is not enough, and why the record keeps the last K writes rather than only the last one.
-- Failure direction: an unmatched URA echo would be read as a human, and URA would end its own borrow and revert. That is the harmful direction; P1 measures it. A human value that happens to equal a recent URA value is missed, which is today's behaviour and the safe direction.
+**Producer: the within-manual human change.**
+- Inputs: the HA `state_changed` event, which carries status-feed values. §5 of the state of play warns that status values lag, and that ha_carrier's 5-min guard can hide a cloud revert and then release it on a full read (C16/C21). Also the NEW record of URA writes.
+- Failure direction:
+  - An unmatched URA echo read as human is the harmful direction. P1 measures it, and H1 removes the mode-change form of it.
+  - A human value that equals a recent URA value is missed. That is today's behaviour and the safe direction.
 
-**Consumers of the new detection:**
+**Consumers:**
 
-| Consumer | file:line | Kind | Effect |
-|---|---|---|---|
-| `override_detected` ledger row (gains keys) | `hvac_override.py:3366-3388` | Durable, display | Tier 2-DB trigger: the payload changes |
-| `_last_detection`, read by S1's `_classify_manual_episode` (`manual_class`) | `hvac_override.py:3363`; `hvac.py:3398-3406` | Ledger label on S1's `preset_change` row | `manual_class` now also sees within-manual bookings |
-| `zone.override_count_today` | `hvac_override.py:3396/3432/3444/3459` | Trust (optimizer advisory at ≥ 10/day, `optimization.py:2471-2508`); display (comfort penalty, `sensor.py:1596`) | More human changes are counted. A misread echo would inflate it, which P1 guards |
-| Borrow end (D2) | new | Trust | Ends BANKING, PREHEAT or COMPROMISE |
-| Predictor latch (D2e) | new, reads `last_detection_for` | Trust | Blocks S12/S13 begins |
-| Governed severity dispatch | `hvac_override.py:3466-3496` | Trust (writes S3/S4) | Uses the §5 D2 baseline |
+| Consumer | file:line | Kind |
+|---|---|---|
+| `override_detected` row (new keys) | `hvac_override.py:3366-3388` | Durable; Tier 2-DB trigger |
+| `_last_detection` → S1 `_classify_manual_episode` | `:3363`; `hvac.py:3398-3406` | Ledger label |
+| `override_count_today` | `hvac_override.py:3396/3432/3444/3459` | Optimizer advisory at ≥ 10/day (`optimization.py:2471-2508`); comfort-score penalty (`sensor.py:1596`) |
+| D2 end, D2e latch, governed dispatch | new; `:3466-3496` | Trust |
 
-### A.1 Falsifiable invariant
+### A.1 Falsifiable invariants
 
-> **INV-A.** Suppose a change on zone Z's thermostat at time t is classified HUMAN by D1: outside the suppression windows, and not matching any of URA's last K setpoint writes to that entity. Suppose also that a BANKING, PREHEAT or COMPROMISE borrow B is live on Z at t. Then, until Z next leaves `manual`:
-> 1. no `climate_write` row for Z's entity carries `excursion_id = B.id` with `ts_issued > t`;
+> **INV-A.** Suppose D1 classifies a change on zone Z at wall-clock time t as HUMAN: both states `heat_cool`, `manual` → `manual`, legs numeric, outside suppression, and no match among URA's last 4 setpoint writes to that entity. Suppose also that a BANKING, PREHEAT or COMPROMISE borrow B is live on Z at t (owned or ownerless). Then, until Z next leaves `manual`:
+> 1. no `climate_write` row for Z's entity has `excursion_id = B.id` and a row timestamp after t (the wall-clock issue time);
 > 2. no `climate_write` row for Z has `site ∈ {S12_pre_cool, S13_pre_heat}`;
-> 3. the only URA setpoint or preset writes to Z are the arrester's S3 compromise or S4 revert (tagged with the NEW episode), or S1 under the §9e gates;
-> 4. B's `hvac_excursion_events` row has `trigger='human_interrupt'` and `restore_ok` NULL.
+> 3. B's `hvac_excursion_events` row has `trigger='human_interrupt'` and a NULL `restore_ok`.
 >
-> **INV-A4 (D13 held).** If a NUDGE is live on Z at t (`_nudge_in_flight` or `_nudge_restore_timers`), the change is booked `gated_reason='nudge_win'`, the nudge is not ended, and no arrester timer is created.
+> **Allowed writes to Z in that period (carve-outs, M8):** S1 under the §9e gates; the arrester's S3/S4 for the NEW episode; S5 nudge starts and AC hard resets (D48/D52); egress mode writes; the heat_cool enforcer.
 >
-> **INV-A5 (no self-interrupt).** Every URA `set_temperature` echo that arrives outside suppression but matches one of the last K URA writes is never booked as HUMAN.
-
-How to falsify live: join `climate_write` × `hvac_excursion_events` × `override_detected` (`details.within_manual`) per zone for 14 d after deploy.
+> **INV-A4 (D13).** With a nudge live on Z, the change is booked `nudge_win`, the nudge is not ended, and no arrester timer is created.
+>
+> **INV-A5.** A URA `set_temperature` echo that matches one of the last 4 URA writes is never booked HUMAN. A mode change (either side not `heat_cool`) is never booked HUMAN by D1.
+> Carve-outs (L3): writes that bypass the funnel, namely the optimizer's allowlisted raw call (`optimization.py:3545`, shadow by default) and AI-rule chained scripts/scenes (`coordinator.py:1104-1137`). Both are out of scope.
 
 ### D1: Detect a human within-manual change
 
-**Where.** `hvac_override.py:3216-3226`, inside `_handle_climate_change`. It runs after the reconnect guard (`:3145-3191`) and after `_is_genuine_manual` (`:3198`), so the existing 15 s / 120 s windows are REUSED and no new window is added.
+**Where.** `_handle_climate_change`, replacing the test at `hvac_override.py:3216-3226`. It runs after the reconnect guard and after `_is_genuine_manual` (REUSED windows).
 
-**Rule.** Put it in a pure function, `classify_manual_setpoint_change(old_attrs, new_attrs, recent, tol) -> "none" | "ura_echo" | "human"`, so it can be tested on its own:
-1. The change is within-manual only if `old.preset_mode == new.preset_mode == "manual"`.
-2. `changed_legs` = the `target_temp_high` / `target_temp_low` legs whose value differs, None-safe. If there are none → `"none"`.
-3. If ANY entry in `recent` matches the new value on every changed leg within `tol`, inclusive → `"ura_echo"`. A leg missing from an entry counts as a match.
-4. Otherwise → `"human"`.
+**The rule.** A pure function, `classify_manual_setpoint_change(old_state, new_state, recent, tol) -> "none" | "ura_echo" | "human"`:
+1. **(H1)** Return `none` unless `old.state == new.state == "heat_cool"` AND `old.preset_mode == new.preset_mode == "manual"`.
+2. **(H1)** Return `none` unless all four legs (old/new high/low) are numeric (`float()` succeeds).
+3. `changed_legs` = the legs whose value differs. If none, return `none`.
+4. If ANY entry in `recent` has `abs(entry.leg − new.leg) ≤ tol` for every changed leg, return `ura_echo`.
+5. Otherwise return `human`.
 
-`"human"` sets `is_override = True` with `within_manual=True`. `"ura_echo"` returns silently, as today, plus one DEBUG line. The transition-into-manual branch (`:3218`) is unchanged.
+On `human`, set `is_override = True` and `within_manual = True`. On `ura_echo`, return with one DEBUG line. The into-manual branch (`:3218`) is unchanged.
 
-**The recent-writes record (NEW, RAM only).** A module-level map in `hvac_setpoint.py`: `entity_id → deque[(low, high, monotonic_ts)]` with `maxlen = ARRESTER_URA_WRITE_RING_DEPTH`. It is appended inside `emit_set_temperature` right after `service_data` is built (post-guard values, `:427-431`) and BEFORE the wire await. Recording the intent, including failed calls, errs toward "URA". Read it through a pure accessor, `recent_ura_setpoints(entity_id)`.
-- Nothing else in the funnel changes: no gate, no transform, no wire difference.
-- The AST completeness lint (`test_hvac_climate_write_funnel_completeness.py`) already guarantees that every URA `set_temperature` passes through here. So the record is complete by construction, where suppressing per site would need N callers.
-- **This is the one exception to the W1-B non-goal "no changes inside `emit_*` funnels" (Q1).**
+**The record (ruling Q1).**
+- A module-level map in `hvac_setpoint.py`: `entity_id → deque[(low, high)]`, `maxlen = ARRESTER_URA_WRITE_RING_DEPTH` (4). No timestamp (L7).
+- Appended in `emit_set_temperature` right after the post-guard `service_data` is built (`:427-431`), BEFORE the wire await, so failed calls are recorded too.
+- Read through the pure accessor `recent_ura_setpoints(entity_id)`.
+- No other funnel change. The AST funnel lint guarantees it is complete apart from the L3 carve-outs.
 
-**Boot seeding.** Right after `async_startup_excursion_audit` (`hvac.py:1432`), seed the record from every rehydrated row's `excursion_target_low/high` (pure read of `hvac_excursion._rows`). This stops a post-restart poll of a live PREHEAT or COMPROMISE value from being read as human. Rows that are not rehydrated are either released at boot with a preset pin (NUDGE, BANKING) or dropped.
+**Boot seed.** After `async_startup_excursion_audit` (`hvac.py:1432`), seed the record from each rehydrated row's `excursion_target_low/high`.
+- L2: the listener is live from `hvac.py:1401`. For those few seconds of awaits, an unseeded echo could be read as human. Accepted: the first post-restart state change has `old_state=None` and is dropped (`:3100`), and no URA write happens in that window.
 
-**Ledger.** The one `override_detected` row gains `details.within_manual` (bool), `details.changed_legs` (list) and `details.ura_write_match` (always False on a booked row). The in-memory `_last_detection` record gains `within_manual`.
+**Ledger.** `override_detected` details gain `within_manual`, `changed_legs`, `human_interrupt`, `interrupted_excursion_id`, `interrupted_kind`, `baseline_case` (A/B/C/transition) and `gate_snapshot_pre_interrupt`.
 
 #### Acceptance criteria
-- **Verify:** on the committed 09-28 fixture, the classifier returns `ura_echo` for the replayed 78, 76 and 74 echoes and `human` for 71.
-- **Verify:** within-manual changes inside a 15 s temp or 120 s preset window are not booked. They go through the REUSED `_is_genuine_manual` path.
-- **Test:** `test_classify_within_manual_human_vs_echo_fixture_09_28`. Oracle values are typed by hand from the P1 rows, not derived from the code.
-- **Test:** `test_within_manual_change_books_override_detected_row` drives the real `_handle_climate_change` with a manual→manual event and asserts one row with `within_manual=True`. **Mutation:** restore the `:3218` two-branch test and this must go red.
-- **Test:** `test_emit_set_temperature_records_recent_write_before_await` makes the service call raise and asserts the entry still exists. **Mutation:** move the append after the await and this must go red.
-- **Test:** `test_recent_writes_ring_depth_bound` (depth 4, oldest evicted).
+- **Verify:** fixture rows are classified per P1 (L1). Expected:
+  - 22:04:05 (into manual, 78): classifier `none`. This is the transition branch, dropped by the 15 s temp window.
+  - 22:04:26 (76) and 22:06:02 (74): `ura_echo`, or dropped in-window.
+  - 22:15:40 (71): `human`.
+- **Test:** `test_classify_within_manual_fixture_09_28`. Oracle classes are typed by hand from P1.
+- **Test:** `test_classify_mode_change_is_none`. off↔heat_cool, cool→heat_cool, and legs → None (H1).
+- **Test:** `test_egress_mode_off_during_banking_not_booked_human` (the H1 repro).
+- **Test:** `test_within_manual_change_books_override_detected_row`. **Mutation:** restore the `:3218` two-branch test → red.
+- **Test:** `test_emit_set_temperature_records_before_await` (the service call raises and the entry still exists). **Mutation:** append after the await → red.
+- **Test:** `test_recent_writes_depth_bound`.
 - **Test:** `test_boot_seed_from_rehydrated_rows`.
-- **Test:** `test_reconnect_within_manual_ignored` (the REUSED guard still wins).
-- **Live:** during a live zone_1 nudge (about one every 25 min), the operator changes the setpoint by 2 °F in the Carrier app. Expect one `override_detected` with `within_manual=true` and `gated_reason='nudge_win'`, no arrester timer, and the nudge restores on schedule (INV-A4). **Discriminates:** before the fix there is no row at all; if the nudge were wrongly ended there would be an `ac_ramp_events` restore before `nudge_duration`.
-- **Live:** 7 d after deploy, `override_detected` rows with `within_manual=true` whose values match a URA `climate_write` of the same entity within the prior 4 writes = **0** (INV-A5). One `sqlite3` query.
+- **Test:** `test_reconnect_within_manual_ignored`.
+- **Live:** operator-staged. During a live zone_1 nudge, change the setpoint by 2 °F in the app. Expect `override_detected` with `within_manual=true` and `gated_reason='nudge_win'`, no arrester timer, and the nudge restoring on schedule. **Discriminates:** before the fix there is no row.
+- **Live:** 7 d after deploy, `override_detected` rows with `within_manual=true` whose values match one of the prior 4 `climate_write` rows for the entity = 0. Rows with either state not `heat_cool` = 0.
 
-### D2: Apply the ruling — end, then take the ordinary path
+### D2: Apply the ruling
 
-**D2a — End.** In `_handle_climate_change`, after `is_override` and after the `_nudge_live` check (`:3307-3310`, still first):
-- Let `T = live_token_for(zone_id)`.
-- If `T.kind ∈ {BANKING, PREHEAT}`, schedule `return_excursion(T, trigger="human_interrupt", restore_ok=None, trigger_detail=f"human_change:{old_high}->{new_high}")`. This is bookkeeping only; nothing is written to the thermostat.
-- Set `_detect_rec["human_interrupt"]=True` and `interrupted_excursion_id=T.excursion_id`, and treat `_borrow_row` as False for the rest of the precedence.
-- Scheduling the return (rather than awaiting it in a `@callback`) is safe. If an S1 pass runs before the task, it reads gate (e) armed and defers once. The arrester's own timers fire ≥ 2 min later, by which time the row is gone. Deferring is the safe direction.
-- The precedence after this rung is unchanged: `immune_stamp` → `borrow_active` (EGRESS rows, and a fresh NUDGE row without live timers, only) → `temp_arrester_override` → `comfort_grant` → `passive_mode` → governed. So an immune person, TAO, a comfort grant or passive mode each handle the change exactly as they would with no borrow. The borrow still ends in all of those cases.
+**D2a — End.** After `is_override` and after the unchanged `_nudge_live` check (`:3307-3310`):
+- Let `T = live_token_for(zone_id)`. T is endable if:
+  - `T.kind ∈ {BANKING, PREHEAT}`; or
+  - `T.kind == COMPROMISE` and the zone has neither a `_compromise_timers` entry nor a `_compromise_excursion_tokens` entry (an ownerless row, M3).
+- If T is endable: schedule `return_excursion(T, trigger="human_interrupt", restore_ok=None, trigger_detail=...)`. Add the entity to `_interrupt_latch`. Force `_borrow_row=False` and rebuild `gate_snapshot`.
+- The owned-compromise case is D2c.
+- Precedence after this point is unchanged: `immune_stamp` → `borrow_active` (EGRESS rows, and a fresh NUDGE row with no live timers) → `temp_arrester_override` → `comfort_grant` → `passive_mode` → governed.
+- Scheduling (rather than awaiting) is safe: an S1 pass that sees the row first defers once.
 
-**D2b — Owner guards.** Each place that can still write for an ended token must first check `token.returned` (NEW read-only property over `_returned`). If it is set, pop the token and write nothing:
+**D2b — Owner guards on `token.returned`.** Pop the token and write nothing:
 
 | Site | file:line |
 |---|---|
-| `_release_banked_zones` (S11; used by master flip-off, gate flip-off, post-restart orphans, and D3) | `hvac_predict.py:922-1099` |
-| `_return_preheat` (S13) | `hvac_predict.py:1518-1606` |
+| S11 `_release_banked_zones` | `hvac_predict.py:922-1099` (before any emit) |
+| S13 `_return_preheat` | `:1518-1606` |
+| **(M1)** S12, immediately before `emit_set_temperature` | `:1193` (also unsuppress) |
+| **(M1)** S13 start, immediately before its emit | `:1482` (also unsuppress; no return timer) |
 
-This also closes a pre-existing hole. After a `lease_expiry` sweep, the stale S12 token stays in `_banking_excursion_tokens`, so a later master flip-off would pin its `pre_preset` over whatever the zone holds by then.
+**D2c — Compromise and grace re-dispatch (H2, L6).** If the zone has `_grace_timers` or `_compromise_timers`:
+1. Cancel ONLY those two timers (the `:3528-3533` loop; `_reset_timers` survives). Clear `_override_active` / `_compromise_active`.
+2. Bump `_arrest_episode[zone]["gen"]`.
+3. If an owned compromise token exists, schedule `_compromise_release_lease(zone, trigger="human_interrupt", restore_ok=None, trigger_detail="compromise_superseded_by_human")`.
+4. **Force `_borrow_row = False` and `_comp_live = False` for this evaluation and rebuild `gate_snapshot` BEFORE the precedence ladder**, so the ladder cannot reach `borrow_active` (`:3317`) for this zone.
+5. Dispatch using case B.
 
-**D2c — Compromise and grace re-dispatch.** If the zone has an arrester episode in flight (`zone_id in _grace_timers or _compromise_timers`):
-- Cancel ONLY those two timers (REUSE the `:3528-3533` loop) and clear `_override_active` / `_compromise_active`.
-- If a compromise token exists, schedule `_compromise_release_lease(zone_id, trigger="human_interrupt", restore_ok=None, trigger_detail="compromise_superseded_by_human")`.
-- Then dispatch through the same precedence, using the stored episode baseline.
-- NEW dict `_arrest_episode[zone_id] = {original_preset, expected_cool, expected_heat}`. It is written in `_handle_severe_override` / `_handle_normal_override` and cleared in `_revert_override`, `_defer_arrester_to_borrow`, the `enabled=False` setter (`:3070-3091`) and teardown. It is not persisted; grace and compromise already are not (W1-B non-goal).
+**L6 race.** `_apply_compromise` and `_revert_override` capture `gen` when scheduled and return without writing if it has changed. This covers a task that was already pending when its timer handle was cancelled.
 
-**Baseline for the governed dispatch** (decision P3):
+`_arrest_episode[zone] = {original_preset, expected_cool, expected_heat, gen}` is written in `_handle_severe_override` / `_handle_normal_override`. It is cleared in `_revert_override`, `_defer_arrester_to_borrow`, the `enabled=False` setter and `teardown()`. It lives in RAM, as grace and compromise already do.
 
-| Situation | Revert target `original_preset` | Expected value per CHANGED leg |
+**Baseline — one reference preset per case (H3, P3):**
+
+| Case | Reference preset R (the revert target) | Delta basis per CHANGED leg |
 |---|---|---|
-| A: a BANKING/PREHEAT borrow T was just ended | `T.pre_preset` if named (not `is_human_manual_snapshot`), else the resolver's preset | `T.pre_target_<leg>` if numeric, else the resolver's seasonal value |
-| B: an arrester episode was in flight | `episode.original_preset` | `episode.expected_<leg>` |
-| C: a plain within-manual change (no borrow, no episode) | the resolver's preset | the resolver's seasonal value |
-| A transition INTO manual with no interrupt | today's `old_preset` | today's `old_high` / `old_low` (unchanged) |
+| A: BANKING/PREHEAT borrow T ended | `T.pre_preset` if named (not `is_human_manual_snapshot`), else the resolver's house-target preset | the seasonal setpoints of R |
+| B: arrester episode in flight | `episode.original_preset` | `episode.expected_*` (itself derived from R when the episode began) |
+| C: plain within-manual change (no borrow/episode), or an ownerless compromise ended | the resolver's house-target preset | the seasonal setpoints of R |
+| Transition into manual, no interrupt | today's `old_preset` | today's `old_high/low` (unchanged) |
 
-- Resolver: a NEW arrester setter, `set_baseline_resolver(cb)`, mirroring `set_on_sunset_notify` (`:1130-1137`). HVACCoordinator implements `cb(zone_id) -> (preset, cool, heat) | None` with the startup-audit arithmetic (`:2222-2229`): house target preset plus seasonal setpoints.
-- If the resolver returns None: book the row, do not dispatch, and let S1's §9e reclaim own the zone.
-- The delta counts changed legs only, and applies the same `OVERRIDE_NORMAL_DELTA` / `OVERRIDE_SEVERE_DELTA` / coast bonus (`hvac_override.py:3476-3496`).
+- Resolver: NEW `arrester.set_baseline_resolver(cb)`, mirroring `set_on_sunset_notify`. `cb(zone_id, preset=None) -> (preset, cool, heat) | None`, using the startup-audit arithmetic. `preset=None` means the house target.
+- If it returns None: book the row, do not dispatch, and let S1 reclaim.
+- Thresholds are unchanged (`OVERRIDE_NORMAL_DELTA` 1, `OVERRIDE_SEVERE_DELTA` 3, coast bonus).
 
-**D2d — S4 revert target (the §0 latent defect).** At `hvac_override.py:3938-3942`, use `_cmp_token.pre_preset` only when it is NOT a HUMAN_MANUAL snapshot (REUSE `strategy_for(...).is_human_manual_snapshot`). Otherwise use `original_preset`. If neither is named, skip the S4 write and close the lease with `restore_ok=None`, `trigger_detail="revert_no_named_preset"`; S1 then reclaims.
+**D2d — The S4 revert value.**
+- At `hvac_override.py:3938-3942`, `_revert_preset` = the compromise token's `pre_preset` only if it is not a HUMAN_MANUAL snapshot; otherwise `original_preset`.
+- If neither is named, skip the S4 write and close the lease with `restore_ok=None` and `trigger_detail="revert_no_named_preset"`.
+- The reason literal stays `severe_override_revert`.
 
-**D2e — Predictor latch.** Before the S12 begin (both reasons) and the S13 begin, skip zone Z when `arrester.last_detection_for(Z.climate_entity)` has `human_interrupt=True`.
-- Discharge: Z leaves `manual`. The record is popped at `hvac_override.py:3109-3115`, by an S4 revert, an S1 reclaim or a human preset choice.
-- Backstop: the record is RAM. A restart loses it, and the boot audit then releases BANKING rows with a preset pin (`hvac_excursion.py:1169-1215`), which ends the manual episode anyway.
-- In the same pass, `_expire_pre_arrival_zones` clears Z from the pre-arrival set with reason `human_interrupt` when Z's pre-arrival token is `returned`. This is a pull, not a new callback. The fans are left on.
+**D2e — Interrupt latch (H4).**
+- `OverrideArrester._interrupt_latch: set[str]` holds entity_ids and is added to by D2a/D2c.
+- It is removed ONLY:
+  - in the manual-exit block `hvac_override.py:3109-3115`, next to `_last_detection.pop`;
+  - in `teardown()`.
+  Later bookings in the same episode do not touch it.
+- Pure accessor `interrupt_latched(entity_id)`. The predictor checks it before the S12 begin (both reasons) and the S13 begin.
+- Discharge: the zone leaves manual (S4 pin, S1 reclaim or a human preset). Backstop: RAM, so a restart loses it. At boot, BANKING rows are released with a preset pin, and that ends the manual episode.
+- **L5 (accepted, documented):** a status-feed flicker manual→named→manual also discharges it. That flicker ends the arrester's episode by the same rule.
+- `_expire_pre_arrival_zones` also clears a zone whose pre-arrival token is `returned`, with reason `interrupted` (a pull, not a callback). The fans are left on.
+
+**D2f — Disable releases compromise rows (M3).** In the `enabled=False` setter (`:3070-3091`), for each zone with an owned compromise token, schedule `_compromise_release_lease(zone, trigger="arrester_disabled", restore_ok=None)`. Rehydrated and teardown orphans are handled by the D2a ownerless rule, or the sweep at `stale_ts` (a 15-min compromise plus 30 s).
+
+#### What the operator will see — the 09-28 zone_2 replay (H3)
+
+1. 22:03:51 — pre-arrival for Jaya. **One** pre-cool write: away's baseline − 2 °F (D4). No 78 → 76 → 74 walk.
+2. 22:15:40 — someone sets 71. URA books "override detected (within manual)" and ends the pre-cool borrow with no write. The zone leaves pre-arrival on the next pass, and no new pre-cool starts.
+3. The arrester treats 71 against **Away** (the preset the zone was in before the pre-cool). That is 9 °F cooler, a severe override. **If** a room upstairs is occupied (lighting) and the battery is at or above 85 %, the person gets comfort grace (20 min) and nothing is written. **Otherwise**, after the 2-min severe grace, URA pins **Away at about 22:17:40**. If the zone is empty, S1's empty-zone retreat may send it to Away on its next pass even sooner (ruling Q4).
+4. When Jaya arrives, the zone becomes HVAC-occupied and S1 sets **Home** (fast run, within about 1–2 min).
+
+So "we end and revert" means: the person's 71 lasts about 2 minutes, unless they are in the zone with enough battery; then the zone goes back to Away until someone arrives. **Q7: the operator must confirm this is the intended meaning.** The alternative reference preset is the house target (Home), which would revert to Home 76 instead of Away.
 
 #### Acceptance criteria
-- **Verify:** a human change during a pre-arrival pre-cool ends the borrow with no URA write carrying its `excursion_id`. The arrester then grants grace, compromises or reverts by the P3 delta against the snapshot preset.
-- **Verify:** a human change during a compromise restarts the episode against the ORIGINAL baseline. The revert target is the pre-episode named preset, never `manual`.
-- **Verify:** an egress-paused zone keeps booking `borrow_active` (P1), unchanged.
-- **Test:** `test_human_interrupt_ends_banking_borrow_bookkeeping_only`. Real `_handle_climate_change` plus the real registry; the `hvac_excursion_events` row has trigger `human_interrupt`, and there are no `climate_write` rows from the borrow. **Mutation:** delete the D2a end call and this must go red.
-- **Test:** `test_human_interrupt_ends_preheat_and_return_preheat_writes_nothing`. **Mutation:** remove the D2b guard in `_return_preheat` and this must go red.
-- **Test:** `test_release_banked_zones_skips_returned_token` (the D2b S11 guard; mutation-anchored).
-- **Test:** `test_human_change_during_compromise_redispatches_against_original_baseline`. Asserts `_arrest_episode` is used and the S4 preset is the original. **Mutation:** use `old_high` as the basis and this must go red.
-- **Test:** `test_nudge_live_human_change_nudge_win_not_ended` (INV-A4). **Mutation:** move the D2a end above the `_nudge_live` check and this must go red.
+- **Test:** `test_replay_09_28_zone2_expected_writes`. Drives the fixture through the real `_handle_climate_change` and predictor. Expected:
+  - exactly one S12 write;
+  - a `human_interrupt` event at 22:15:40;
+  - no S12/S13 write afterwards;
+  - (unoccupied branch) an S4 `set_preset_mode away` at 22:17:40 ± 5 s;
+  - (occupied + SOC ≥ 85 branch) a comfort grant and no S4 write.
+- **Test:** `test_human_interrupt_ends_banking_borrow_bookkeeping_only`. **Mutation:** delete the D2a end → red.
+- **Test:** `test_interrupt_inside_begin_await_blocks_s12_write` (M1; mutation → red) and `test_interrupt_inside_begin_await_blocks_s13_write`.
+- **Test:** `test_return_preheat_skips_returned_token` and `test_release_banked_zones_skips_returned_token` (mutation-anchored).
+- **Test:** `test_human_change_during_compromise_redispatches`. Asserts a NEW grace or compromise timer, `gated_reason != 'borrow_active'`, and the S4 target is the original preset. **Mutation:** drop the H2 forcing → red.
+- **Test:** `test_pending_apply_compromise_stands_down_on_gen_bump` (L6).
+- **Test:** `test_ownerless_compromise_row_ended_by_human` (M3).
+- **Test:** `test_arrester_disable_releases_compromise_rows` (D2f).
+- **Test:** `test_nudge_live_human_change_nudge_win_not_ended` (INV-A4). **Mutation:** move the end above `_nudge_live` → red.
+- **Test:** `test_case_c_plain_within_manual_dispatch_against_resolver` (M9). Asserts the severity path against the house-target preset.
+- **Test:** `test_case_c_resolver_none_books_no_dispatch` (M9).
+- **Test:** `test_case_a_single_reference_preset` (H3). A human 78 with pre_preset away (80) and house target home (76) gives delta −2 vs away, a compromise at 79, then S4 away. **Mutation:** use resolver setpoints for the delta → red.
+- **Test:** `test_interrupt_latch_survives_second_human_change` (H4 repro: 71, then 70, then no S12 begin). **Mutation:** keep the latch in `_last_detection` → red.
+- **Test:** `test_interrupt_latch_discharges_on_manual_exit`.
+- **Test:** `test_s4_revert_never_pins_manual` (D2d). **Mutation:** restore the truthy test → red.
 - **Test:** `test_immune_person_interrupt_ends_borrow_and_stamps` and `test_passive_mode_interrupt_ends_borrow_no_revert`.
-- **Test:** `test_s4_revert_never_pins_manual` (D2d). Real compromise begin on a manual zone, then revert; assert the S4 `values_after.preset_mode` is named. **Mutation:** restore the truthy test and this must go red.
-- **Test:** `test_predictor_latch_blocks_s12_s13_begin_until_manual_exit`. Includes the discharge: after the zone leaves manual, a begin is allowed.
-- **Test:** `test_interrupt_clears_pre_arrival_zone_next_pass`.
-- **Test:** `test_detect_interrupt_uses_defer_cancel_loop_not_cancel_zone_timers`. A pending `_reset_timers` entry survives.
-- **Live:** for the next organic (or operator-staged) human change during a pre-arrival pre-cool: `hvac_excursion_events` shows `trigger='human_interrupt'`, `restore_ok` NULL; `override_detected` shows `within_manual=true` and `gated_reason` NULL or a person rung; there is no S12 `climate_write` for that zone until the manual episode ends; and an S4 or S1 write follows within grace. **Discriminates:** before the fix the borrow ends `lease_expiry` about 7200 s later and there is no `override_detected` row. A wrong-direction fix would show S12 writes after t.
-- **Live:** 7 d query, S4 `climate_write` rows with `values_after.preset_mode='manual'` = 0 (D2d).
+- **Test:** `test_interrupt_does_not_cancel_reset_timers`.
+- **Live:** the next organic or operator-staged human change during a pre-arrival pre-cool shows:
+  - event `trigger='human_interrupt'` with a NULL `restore_ok`;
+  - `override_detected.within_manual=true`;
+  - no S12 `climate_write` for the zone until it leaves manual;
+  - an S4, comfort-grant or S1 write per the replay paragraph.
+  **Discriminates:** today's outcome is a `lease_expiry` row about 7200 s later and no detection row.
+- **Live:** 7 d, count of S4 `climate_write` rows with `values_after.preset_mode='manual'` = 0.
+- **README:** one line stating case C. The arrester now also acts on a person fine-tuning an existing manual hold, measured against the house-target preset (M9).
+
+### D6: The boot audit never pins `manual` after a nudge (Batch A, LOW-4)
+- In `async_startup_excursion_audit`'s NUDGE branch (`hvac_excursion.py:1126-1148`), skip the `set_preset_mode` when `pre_preset in (None, "", "manual")`. This is the same rule as HIGH-1 at `:660`.
+- Log `startup_audit_nudge_preset_restore_skipped_manual` and still clear the row.
+- The S9 ramp audit restores the setpoints, and S1's §9e reclaim returns the zone to its target on the next tick.
+- Sibling noted, not changed: S7 (`hvac_override.py:5108-5129`) re-pins `manual` after S6's raw restore for a HUMAN_MANUAL snapshot. That pin is idempotent over the just-restored values, so it is left as is (a candidate for a later cleanup card).
+
+#### Acceptance criteria
+- **Test:** `test_boot_audit_nudge_manual_snapshot_no_pin`. **Mutation:** remove the skip → red.
+- **Test:** `test_boot_audit_nudge_named_snapshot_still_pins` (byte-identical twin).
+- **Live:** P5 query, `startup_audit_nudge_preset_restore` rows with `manual` after deploy = 0.
 
 ---
 
-## PART B — Pre-arrival borrow lifetime (HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1)
+## PART B — Pre-arrival borrow lifetime
 
 ### B.0 Producer / consumer
 
 **Producers:**
-- The `_pre_arrival_zones` set. Writer: `_handle_person_arriving` (`hvac.py:5798-5855`); each trigger resets `_pre_arrival_start`.
-- The S12 pre-arrival borrow (`hvac_predict.py:1118-1225`), whose baseline comes from `_resolve_baseline_range`. That function prefers `_last_emitted_range`, which is written only by S10 (dormant), an S11 release and an S13 return (`hvac.py:3977`, `hvac_predict.py:1065`, `:1590`). So on the live house it is usually either empty or a pair left behind by an earlier release. That is a Bug Class #7 risk: the pair can come from an earlier release made under a different house state. The fallback is the house target preset's seasonal cool, and the low is synthetic (`cool − 7`).
+- The `_pre_arrival_zones` set (`hvac.py:5798-5855`). Each trigger resets `_pre_arrival_start`.
+- The S12 pre-arrival borrow. Its baseline comes from `_resolve_baseline_range`, which prefers `_last_emitted_range`. That map is written only by S10 (dormant), S11 and S13, so on the live house it is often stale or empty (Bug Class #7). The fallback is the house-target preset: seasonal cool, and a synthetic low of `cool − 7`.
 
 **Consumers of set membership:**
 
 | Consumer | file:line | Kind |
 |---|---|---|
 | Row-1 hold eligibility | `hvac.py:2586` | Trust |
-| S1 reason ladder | `hvac.py:3335` | Ledger |
-| D5 away edge | `hvac.py:4316` | Trust |
-| `zone_presence_state` | `hvac.py:6031` | Display |
-| Sensor attrs | `hvac.py:6716`, `:6785` | Display |
-| Predictor loop | `hvac.py:2215` → `hvac_predict.py:645-653` | Trust |
+| Reason ladder | `:3335` | Ledger |
+| D5 away edge | `:4316` | Trust |
+| `zone_presence_state` | `:6031` | Display |
+| Sensor attrs | `:6716`, `:6785` | Display |
+| Predictor | `:2215` | Trust |
 
-Keeping a zone in the set until HVAC arms (P4) lengthens its membership. Every trust consumer then treats it as "arriving", which is the intent.
-
-**Consumers of the borrow:** gate (e) (`hvac_preset.py:302-317`), the arrester precedence, the borrows sensor (`sensor.py:18199`) and `hvac_excursion_events`.
+Borrow consumers: gate (e), the arrester, the borrows sensor (`sensor.py:18199`) and `hvac_excursion_events`.
 
 ### B.1 Falsifiable invariant
 
 > **INV-B.** For every borrow with `caller_site='S12_pre_arrival'` on zone Z:
-> 1. exactly ONE S12 `set_temperature` for Z carries its `excursion_id`, and its `target_temp_high = max(baseline_high + PRE_ARRIVAL_PRECOOL_OFFSET_F, floor)`;
-> 2. its `hvac_excursion_events.trigger ∈ {pre_arrival_arrived, pre_arrival_timeout, pre_arrival_inactive, human_interrupt}`, and never `lease_expiry`;
-> 3. it ends within the same decision pass that removes Z from the pre-arrival set (or finds pre-arrival inactive), before S1 runs in that pass;
-> 4. no S12 write lands on Z while any other borrow row is live on Z.
+> 1. exactly one S12 `set_temperature` carries its id, with `target_temp_high = max(baseline_high + PRE_ARRIVAL_PRECOOL_OFFSET_F, floor)`;
+> 2. its trigger ∈ {`pre_arrival_arrived`, `pre_arrival_timeout`, `pre_arrival_interrupted`, `pre_arrival_inactive`, `pre_arrival_max_age`, `human_interrupt`}. Carve-outs (M8): `stale_boot_release` (a restart mid-borrow) and the CM `s12_banking_wire_failed` release. Never `lease_expiry`;
+> 3. it ends in the first FULL pass, or the first fast run scoped to Z, that removes Z from the set, finds pre-arrival inactive, or finds the borrow at least `window` old. It ends before S1 in that pass;
+> 4. no S12 or S13 write lands on Z while another borrow row is live on Z.
 
 ### D3: End conditions
 
-**Arrival.** `_expire_pre_arrival_zones` (`hvac.py:5857-5887`) takes arrival from `any_room_hvac_occupied`, falling back to `any_room_occupied` only when the attribute is missing (P4). It returns `{zone_id: reason}`, where reason is one of `arrived`, `timeout` or `interrupted` (D2e).
+**Arrival.** `_expire_pre_arrival_zones` gains a `zone_filter` parameter.
+- Arrival is read from `any_room_hvac_occupied`, falling back to lighting only when the attribute is missing (P4).
+- It returns `{zone_id: reason}` with reason ∈ {`arrived`, `timeout`, `interrupted`}.
+- The timeout reads the D5 knob.
 
-**Ending, before S1.** A NEW predictor method, `async_end_pre_arrival_borrows(active_zones, reasons)`, is the single reconciliation. It walks `_banking_excursion_tokens`:
-- a token with `caller_site == "S12_pre_arrival"` that is `returned` → pop it and write nothing;
-- such a token whose zone ∉ `active_zones` → `_release_banked_zones({Z}, trigger=f"pre_arrival_{reason or 'inactive'}", update_throttle=False)`, a presets-only pin of `pre_preset` (P5).
+**The single reconciliation (NEW).** `predictor.async_end_pre_arrival_borrows(active_zones, reasons, window_s, zone_filter=None)` walks `_banking_excursion_tokens` for tokens with `caller_site == "S12_pre_arrival"`, within `zone_filter` if one is given:
+- `returned` → pop the token, no write;
+- zone not in `active_zones` → `_release_banked_zones({Z}, trigger=f"pre_arrival_{reason or 'inactive'}", update_throttle=False)`;
+- **(M5)** `now − token.started_ts ≥ window_s` → the same release with trigger `pre_arrival_max_age`, AND drop Z from the pre-arrival set. This bounds repeated triggers by the borrow's own start, not the last trigger.
 
-HVACCoordinator calls it with `active_zones = self._pre_arrival_zones if zone_intelligence else set()`:
-- in `_async_decision_cycle`, AFTER the ZI block (`hvac.py:2145-2149`) and BEFORE `_apply_house_state_presets` (`:2174`), outside the `if zi` guard, so Zone Intelligence OFF also ends them;
-- in the fast run, after `hvac.py:4780` and before `:4782`.
+The S11 preset emit keeps `reason="banking_release"`, so no new reason literal is added.
 
-Then refresh the zone state (`self._zone_manager.update_zone_climate_state(zone_id)`, `hvac_zones.py:600`) so S1 reads the post-pin preset. The call runs whatever the observation mode, because the S12 start also runs regardless (`hvac.py:2212` is outside the observation `if`). Leaving the borrow open would strand the zone.
+**Call sites.** Both run before S1, then refresh the zone's climate state (`update_zone_climate_state`, `hvac_zones.py:600`):
+- **Full pass:** after the ZI block (`hvac.py:2145-2149`) and before `_apply_house_state_presets` (`:2174`), outside the `if zi` guard, with `active = self._pre_arrival_zones if zi else set()`.
+- **Fast run (M10):** `_expire_pre_arrival_zones(now, zone_filter={Z})` and `async_end_pre_arrival_borrows(..., zone_filter={Z})` at `:4780`, before `:4782`. Other zones are left untouched; the next full pass ends them before its S1.
 
-**Site string.** S12 begins with `site="S12_pre_arrival"` when `reason == "pre_arrival"`. The `climate_write` site stays `S12_pre_cool`, with `reason="pre_arrival"`. `caller_site` consumers are the DB (free text, `database.py:1553`) and the borrows sensor attr (display, `sensor.py:18199`). No logic keys on the value. Tests that pin `S12_pre_cool` for the pre-arrival path are updated.
+It runs whatever the observation mode (S12 starts regardless, `hvac.py:2212`).
 
-**Backstops.** The lease sweep (`hvac_excursion.py:733`) and the boot audit (`:1169-1215`) are unchanged. After this fix, reaching them is itself an INV-B failure.
+**Site string.** S12 begins with site `S12_pre_arrival` for the pre-arrival reason. The `climate_write` site is unchanged (`S12_pre_cool`, `reason="pre_arrival"`). `caller_site` consumers are display and DB only. Tests that pin `S12_pre_cool` for this path are updated.
 
 #### Acceptance criteria
-- **Verify:** the pre-arrival borrow ends on arrival (HVAC-occupied), on window expiry, on a human interrupt, or when pre-arrival goes inactive (ZI OFF). In each case a named-preset pin follows, then S1 on the same pass.
-- **Test:** `test_pre_arrival_borrow_ends_on_hvac_arrival_before_s1`. Asserts the order: preset pin, then S1 write; no gate (e) deferral row. **Mutation:** move the call after `_apply_house_state_presets` and this must go red.
-- **Test:** `test_pre_arrival_borrow_ends_on_timeout` (window from the D5 knob).
-- **Test:** `test_hallway_lighting_does_not_end_pre_arrival` (P4). **Mutation:** revert to `any_room_occupied` and this must go red.
+- **Test:** `test_pre_arrival_ends_on_hvac_arrival_before_s1` (the order is pin, then S1). **Mutation:** move the call after `_apply_house_state_presets` → red.
+- **Test:** `test_pre_arrival_ends_on_timeout_knob`.
+- **Test:** `test_pre_arrival_max_age_with_repeated_triggers` (M5: triggers every 10 min, and it ends at `window` from the start).
+- **Test:** `test_knob_max_ends_before_lease_sweep` (window 110, no arrival, never `lease_expiry`).
+- **Test:** `test_hallway_lighting_does_not_end_pre_arrival` (P4). **Mutation:** revert to lighting → red.
 - **Test:** `test_zi_off_ends_pre_arrival_borrows`.
-- **Test:** `test_fast_run_path_ends_pre_arrival_borrow`.
+- **Test:** `test_fast_run_ends_only_its_zone` (M10: Y is untouched in Z's fast run and ended on the next full pass before S1).
 - **Test:** `test_pre_arrival_release_does_not_touch_last_emitted_range`.
-- **Live:** for the next pre-arrival on any zone, the `hvac_excursion_events` row has `site='S12_pre_arrival'`, trigger `pre_arrival_arrived` or `pre_arrival_timeout`, and `duration_actual_s ≤ window + 300`. **Discriminates:** today it is `lease_expiry` at about 7200 s (09-25 7249 s, 09-27 7202 s). Pre-arrivals are about daily, so this is observable within the disposal window.
-- **Live:** `preset_change_deferred` rows with `vacancy_bypass_deferred:active_borrow` on a zone after its pre-arrival ended = 0.
+- **Live:** the next pre-arrival shows `site='S12_pre_arrival'`, a trigger from INV-B.2, and `duration_actual_s ≤ window + 300`. **Discriminates:** today it is `lease_expiry` at about 7200 s.
+- **Live:** after a zone's pre-arrival ends, it has 0 `vacancy_bypass_deferred:active_borrow` rows.
 
 ### D4: No ratchet — one write, from the baseline
-
-**The pre-arrival guard.** In the pre-arrival branch (`hvac_predict.py:645-653`), call `_execute_zone_pre_cool` only if `not is_borrow_active(zone_id)` and the D2e latch is not set. So there is exactly one begin and one write per pre-arrival borrow. Another trigger for the same zone resets the window (existing behaviour) but writes nothing.
-
-**Computing the value.** NEW keyword `from_baseline: bool = False` on `_execute_zone_pre_cool`. When True: `banked_high = baseline_high + offset`, with `baseline = _resolve_baseline_range(zone_id)`. If the baseline is None, skip; there is no write, and failing closed is correct. The floor (`:1137`) and the "never warm the zone" check (`:1140`, against the live high) are kept. The pre-arrival call passes `from_baseline=True`. The energy pre-cool call is unchanged; its own ratchet is a non-goal and gets a new card.
-
-**The offset literal.** The `-2.0` at `:649` becomes the named rung-1 constant `PRE_ARRIVAL_PRECOOL_OFFSET_F = -2.0`.
-
-**D4b — Never write over a foreign row (all reasons).** In `_execute_zone_pre_cool`, if `begin_excursion` returned None and the live row (`excursion_id_for`) is not this path's own token (the same `excursion_id` in `_banking_excursion_tokens` AND the same `caller_site`), return before the suppress and the write. Energy pre-cool on its own row keeps today's behaviour. Energy pre-cool meeting a live pre-arrival row, nudge, compromise or pre-heat row now skips.
-
-**Consequence to call out in the README.** The first write moves from "live − 2" to "baseline − 2". With the zone at `away` 80 and home 76, today writes 78 → 76 → 74 over several passes; after the fix, one write of 74. P4 confirms the baseline values.
+- **The guard.** In the pre-arrival branch (`hvac_predict.py:645-653`), call `_execute_zone_pre_cool` only if `not is_borrow_active(zone_id)` and `not interrupt_latched(entity)`.
+- **The value.** NEW keyword `from_baseline=True`: `banked_high = baseline_high + PRE_ARRIVAL_PRECOOL_OFFSET_F`. If the baseline is None, skip. The floor (`:1137`) and the "never warm the zone" check (`:1140`) are kept.
+- **D4b — foreign-row guard at S12 AND S13 (M2).** If `begin_excursion` returned None and the live row's id is not this path's own token (same id and same `caller_site`), return before the suppress and the emit. S12 energy pre-cool on its own row is unchanged (its ratchet is a non-goal and a card).
+- **README:** the first pre-arrival write moves from "live − 2" to "baseline − 2".
 
 #### Acceptance criteria
-- **Test:** `test_pre_arrival_single_write_across_three_triggers`. Geofence, BLE, tick, as on 09-28. Exactly one S12 `set_temperature`. **Mutation:** drop the `is_borrow_active` guard and this must go red (3 writes).
-- **Test:** `test_pre_arrival_value_from_baseline_not_live` (live 78, baseline 76 → 74).
+- **Test:** `test_pre_arrival_single_write_across_three_triggers`. **Mutation:** drop the guard → 3 writes → red.
+- **Test:** `test_pre_arrival_value_from_baseline_not_live`.
 - **Test:** `test_pre_arrival_baseline_none_no_write`.
-- **Test:** `test_s12_never_writes_over_foreign_row` (a nudge row live → no write). **Mutation:** remove D4b and this must go red.
-- **Test:** `test_energy_precool_own_row_behaviour_unchanged` (a byte-identical twin).
-- **Live:** for each `S12_pre_arrival` `excursion_id`, the count of `climate_write` rows = 1. **Discriminates:** P2 today shows several writes per borrow, plus NULL-id writes.
+- **Test:** `test_s12_never_writes_over_foreign_row` and `test_s13_never_writes_over_foreign_row`. **Mutation:** remove each guard → red.
+- **Test:** `test_energy_precool_own_row_behaviour_unchanged`.
+- **Live:** for each `S12_pre_arrival` id, count of `climate_write` rows = 1.
 
 ### D5: Knobs
 
 | Number | Rung | Knob | Why |
 |---|---|---|---|
-| Pre-arrival window, 30 min (`PRE_ARRIVAL_TIMEOUT_MINUTES`, const) | **3: Number entity** | NEW `CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES`; default = `PRE_ARRIVAL_TIMEOUT_MINUTES` (30, REUSED as the default); entity `35 · Pre-Arrival Window (min)` next to `35 · Pre-Arrival Conditioning` (`switch.py:4253`); range 5–120, step 5, CONFIG category; pattern `number.py:511-587` (live-attr push, then options writeback) | The operator asked for it. Commute lead times vary, and it is tuned by observation. 120 is the ceiling because the lease cap would cut anything longer. It has no kill-switch value: turning pre-arrival off is the switch's job |
-| Pre-arrival offset, −2 °F (inline literal) | 1: module constant | NEW `PRE_ARRIVAL_PRECOOL_OFFSET_F` | Comfort magnitude, with no observation evidence yet for a live knob. Raise it to rung 3 only on an operator ask |
-| Recent-writes depth, 4 | 1 | NEW `ARRESTER_URA_WRITE_RING_DEPTH` | Part of how URA's own echoes are recognised. Changing it changes what counts as human, so it should need review |
-| Match tolerance, 0.5 °F | 1 | REUSE `LAST_SENT_TOLERANCE_F` | Already the "half a displayed degree" rule |
-| `EXCURSION_LEASE_MAX_S`, 7200 | 1, unchanged | — | A safety cap and the backstop, not a lifetime |
+| Pre-arrival window, 30 min | **3** | NEW `CONF_HVAC_PRE_ARRIVAL_WINDOW_MINUTES` in `hvac_const.py` next to `CONF_PRE_ARRIVAL_SOURCES` (`:349`). Default `PRE_ARRIVAL_TIMEOUT_MINUTES` (30, REUSED). Entity `35 · Pre-Arrival Window (min)` (`number.ura_hvac_coordinator_35_pre_arrival_window_min`), range **5–110** (M5), step 5, CONFIG category. Settings-form field "Pre-arrival window (minutes)" as well (knob-52 precedent) | The operator asked for it and it is tuned by observation. Max 110, plus one 5-min pass, stays under the 7200 s lease. 0 is not allowed; turning pre-arrival off is the switch's job |
+| Offset, −2 °F | 1 | NEW `PRE_ARRIVAL_PRECOOL_OFFSET_F` | Comfort magnitude; no evidence yet for a live knob |
+| Record depth, 4 | 1 | NEW `ARRESTER_URA_WRITE_RING_DEPTH` | Defines what counts as human, so a change should need review |
+| Tolerance, 0.5 °F | 1 | REUSE `LAST_SENT_TOLERANCE_F` | — |
+| `EXCURSION_LEASE_MAX_S`, 7200 | 1, unchanged | — | A backstop, not a lifetime |
+
+**Knob wiring (M6)** — every site of the knob-52 precedent, or the knob either reloads the CM or silently does nothing:
+1. `number.py`: new class following `ReturnWindowMinutesNumber` (`:511-587`), registered in the HVAC numbers list. It pushes `hvac._pre_arrival_window_minutes` BEFORE the options writeback.
+2. `__init__.py`: setup read (`:3776` / `:3899`), import (`:6201`), `OPTIONS_RELOAD_SUPPRESS_KEYS` (`:6859` — **mandatory, or a knob turn reloads the CM**), apply-in-place set (`:7287`), dispatch branch (`:7389-7400`).
+3. `config_flow.py`: the settings step (`:5934`, `:6497-6499`), plus `strings.json` / `translations/en.json`.
+4. `hvac.py`: `_pre_arrival_window_minutes`, read by `_expire_pre_arrival_zones` and D3.
 
 #### Acceptance criteria
-- **Sensor:** `number.ura_hvac_coordinator_35_pre_arrival_window_min` shows 30 after deploy.
-- **Test:** `test_pre_arrival_window_knob_live_and_persisted`. Set it to 10, and `_expire_pre_arrival_zones` uses 600 s with no restart; the options entry carries the value. **Mutation:** read the constant instead and this must go red.
-- **Live:** set it to 20 and confirm the attr on `sensor.ura_hvac_coordinator_*pre_arrival*` and the options write, then set it back to 30.
+- **Sensor:** `number.ura_hvac_coordinator_35_pre_arrival_window_min` = 30 after deploy.
+- **Test:** `test_pre_arrival_window_knob_live_and_persisted`. **Mutation:** read the const → red.
+- **Test:** `test_pre_arrival_window_key_in_reload_suppress_set`.
+- **Live:** set it to 20. The CM does NOT reload (sibling `last_changed` is unchanged), the options value is 20, and the expiry uses 20. Then set it back to 30.
 
-**Answer to the operator's question ("pre-cool is 2 hours? Is this a knob?").** No. Pre-cool was meant to last until you arrive, or 30 minutes. The 2 hours was a safety cap it fell back on, because nothing ended the borrow. After this fix it ends on arrival, on the window, or when someone changes the thermostat. The window becomes the knob `35 · Pre-Arrival Window (min)`.
+**Answer to the operator ("pre-cool is 2 hours? Is this a knob?").** No. Pre-cool was meant to last until you arrive, or 30 minutes. The 2 hours was a safety cap it fell back on because nothing ended it. Now it ends on arrival, on the window, or when someone changes the thermostat. The window becomes the knob `35 · Pre-Arrival Window (min)` (5–110 min).
 
 ---
 
-## PART C — Reloading-room placeholder readers (W2-2)
+## PART C — Reloading-room readers: the occupancy clock only (ruling Q5)
 
-This reuses the design of `PLANNING_hvac_reloading_room_placeholder_readers.md` §4. Its D1–D4 are renamed C1–C4 here. Line numbers are re-verified on `develop`.
+The design is reused from `PLANNING_hvac_reloading_room_placeholder_readers.md` §4 D3. The other three readers are in Appendix A.
 
-**Pushback, recorded as required.** That plan's D0 (2026-09-27) measured 0 reloading-room samples and 0 boot resets, so every build gate failed and the verdict was PARK. The operator's 2026-09-28 green light overrides that for W2 closure. The value is latent-defect insurance, not measured harm. About 40 production lines. P6 refreshes the evidence. Q5 offers to cut the part down to C3, the only one guarding a failsafe clock.
+**Recorded pushback:** that plan's D0 (2026-09-27) found 0 reloading-room samples and 0 boot resets. C3 is insurance for the stuck-occupancy failsafe's clock. P6 refreshes the evidence for the README.
 
-### C.0 Producer / consumer
-Unchanged from the parked plan §1–§2. Producer: the placeholder in `update_room_conditions` (`hvac_zones.py:623+`), with classification at `:779`. The trust readers that bypass the gate are R2 (D5), R3 (D6), R4 (the occupancy clock) and R9 (the row-11 grant). Part B's P4 switches the pre-arrival clear (R12) to the HVAC-fused signal. The placeholder reads False there, so the clear is delayed, which is the safe direction.
+### C.1 Falsifiable invariant
 
-### C.1 Falsifiable invariant (unchanged)
-> **INV-C.** On any decision pass where zone Z contains a TRANSIENT room:
-> (a) no `away` write to Z has reason `stale_occupancy`, or reason `energy_shed_cap_reached` with `constraint_mode != "shed"`;
-> (b) if fused HVAC occupancy is False, `Z.continuous_occupied_since` after the pass equals its value before;
-> (c) a manual change on Z is never refused comfort grace for want of lighting occupancy.
->
-> Carve-outs: house away/vacation, and EC shed.
-
-### C1: D5 coast defers unless retreat is authorized
-- Store the row-1 `_zone_conditioning_retreat_ok(zone)` result (`hvac.py:2540`) in `_retreat_ok_row1`, hoisted to the loop top with the other locals (`:2501-2510`). This avoids the UnboundLocalError when zi is off. Do not call it a second time.
-- At `hvac.py:2896-2900`, replace `_row2054_fused` in the defer condition with `not _retreat_ok_row1`.
-- The ledger row (`:2908-2948`) gains `details.defer_basis ∈ {occupied, room_reloading, unestablished}`, and `defer_basis` joins `_ep_key` (`:2912-2915`).
-- Shed still forces away and still clears both holds (`:2949-2962`).
-- **Tests:** `test_d5_coast_defers_when_zone_has_reloading_room` (mutation: restore `_row2054_fused` → red); `test_d5_coast_all_dead_zone_defers`; `test_d5_coast_established_empty_zone_still_forces_away`; `test_d5_shed_with_reloading_room_still_forces_away_and_clears_hold`; `test_d5_retreat_ok_local_hoisted_zi_off_no_unboundlocal` (real `_apply_house_state_presets`, no exception-swallowing helper).
-- **Live:** every new D5 `preset_change_suppressed` row carries `defer_basis`. No coast `energy_shed_cap_reached` away coincides with a non-empty `transient_rooms`.
-
-### C2: D6 skips its verdict while a room is reloading
-- At `hvac.py:2679-2685`, add `and not _transient_blocked_row1` (computed at `:2567-2575`, before this point).
-- No change to `presence.py`: Sources 1 and 4 (`:2100-2122`, `:2147-2159`) both lose the room, so excluding it cannot restore the lost confirmation.
-- Discharge: the 300 s grace, after which the room is EXCLUDED.
-- **Tests:** `test_d6_skips_verdict_while_room_reloading` (mutation: drop the conjunct → red); `test_d6_resumes_after_room_excluded_past_grace`.
-- **Live:** in-suite only (a 4 h occupancy plus a reload on a tick cannot be staged).
+> **INV-C.** On any pass where zone Z contains a TRANSIENT room and fused HVAC occupancy is False, `Z.continuous_occupied_since` after the pass equals its value before the pass. The v5.103.20 `last_occupied_time` back-fill runs exactly as it does today.
 
 ### C3: The occupancy clock is not reset while a room is reloading
-- At `hvac_zones.py:970-972`, the reset becomes `elif not self.is_zone_transient_blocked(zone.zone_id): zone.continuous_occupied_since = None`.
-- Note: `is_zone_transient_blocked` returns False until classification is ready (`hvac_zones.py:2362-2363`). The very first boot pass therefore behaves as today; P3 measured 0 boot resets.
-- **Tests:** `test_continuous_clock_not_reset_while_room_reloading` (real `update_room_conditions` and a real `ConfigEntryState`; mutation → red); `test_continuous_clock_resets_after_room_excluded`; `test_boot_pass_keeps_restored_continuous_clock`.
-- **Live:** after the next HA restart, for zones HVAC-occupied on both sides, `continuous_occupied_hours` at the first sample is ≥ the last sample before the stop.
+- In `hvac_zones.py`, the `else:` branch starting at `:970`: guard ONLY the single assignment `zone.continuous_occupied_since = None` (`:972`) with `if not self.is_zone_transient_blocked(zone.zone_id):`.
+- The rest of that `else` block, including the v5.103.20 back-fill (`:973+`), stays unconditional (M4).
+- `is_zone_transient_blocked` returns False until classification is ready (`:2362-2363`), so the first boot pass behaves as today.
 
-### C4: The row-11 grant counts a reloading room
-- At `hvac_override.py:2718`: `occupied = bool(any_room_occupied) or (_tb is True)`, with `_tb = zm.is_zone_transient_blocked(zone_id)`.
-- Only an exact `True` counts, so a MagicMock zone manager keeps legacy behaviour.
-- **Tests:** `test_row11_grants_grace_when_only_occupied_room_reloading` (mutation → red); `test_row11_magicmock_zone_manager_keeps_legacy_behaviour`.
-- **Live:** in-suite only.
-
-**Cross-part note.** Part A's within-manual detections flow into row 11 through `_comfort_request_qualifies`. C4 therefore also applies to a human interrupt made while a room is reloading, which is consistent.
+#### Acceptance criteria
+- **Test:** `test_continuous_clock_not_reset_while_room_reloading` (real `update_room_conditions` and a real `ConfigEntryState`). **Mutation:** remove the guard → red.
+- **Test:** `test_backfill_still_runs_while_room_reloading` (M4). **Mutation:** move the guard to wrap the whole `else` → red.
+- **Test:** `test_continuous_clock_resets_after_room_excluded` (the 300 s discharge).
+- **Test:** `test_boot_pass_keeps_restored_continuous_clock`.
+- **Live:** after the next HA restart, for zones HVAC-occupied on both sides of it, `continuous_occupied_hours` on `sensor.ura_hvac_coordinator_zone_{n}_status` at the first sample is ≥ the last sample before the stop.
 
 ---
 
-## 3. Emission-site enumeration: every borrow begin, every return, every end
+## 3. Emission-site enumeration
 
-"Change" says what this plan does at each site. Reviewers must re-run this enumeration independently (Tier 2 plan-review rule); the list below is a hypothesis.
+The reviewers re-run this independently.
 
 **Begins**
 
 | Site | Kind | file:line | Change |
 |---|---|---|---|
-| S3 compromise begin | COMPROMISE | `hvac_override.py:3732-3742` | none. Ended by D2c |
-| S5 nudge start | NUDGE | `hvac_override.py:4823-4831` | none (D13) |
-| S12 pre-cool, energy | BANKING | `hvac_predict.py:598` → `:1154` | D2e latch; D4b foreign-row guard |
-| S12 pre-cool, pre-arrival | BANKING | `hvac_predict.py:649` → `:1154` | site `S12_pre_arrival`; D4 one-shot from baseline; D4b; D2e latch |
-| S13 pre-heat | PREHEAT | `hvac_predict.py:1445-1455` | D2e latch |
-| S15 egress pause | EGRESS_PAUSE | `hvac_egress.py:688-696` | none (P1) |
-| Boot rehydrate (PREHEAT/COMPROMISE/EGRESS) | — | `hvac_excursion.py:1240-1256` | D1 boot seed reads it |
+| S3 compromise | COMPROMISE | `hvac_override.py:3732` | L6 gen check in `_apply_compromise` |
+| S5 nudge start | NUDGE | `:4823` | none (D13/D52). May begin on a `manual` zone, hence D6 |
+| S12 energy | BANKING | `hvac_predict.py:598` → `:1154` / `:1193` | D2e latch; D4b; M1 returned-check |
+| S12 pre-arrival | BANKING | `:649` → `:1154` / `:1193` | site `S12_pre_arrival`; D4; D4b; D2e; M1 |
+| S13 pre-heat | PREHEAT | `:1445` / `:1482` | D2e latch; D4b (M2); M1 |
+| S15 egress | EGRESS_PAUSE | `hvac_egress.py:688` | none (Q2) |
+| Boot rehydrate | PREHEAT / COMPROMISE / EGRESS | `hvac_excursion.py:1240-1256` | D1 boot seed; ownerless COMPROMISE is endable (D2a) |
 
 **Returns and ends**
 
 | Site | Kind | file:line | Change |
 |---|---|---|---|
-| S4 revert → `_compromise_release_lease` (4 exits) | COMPROMISE | `hvac_override.py:3817-3981`, `:3983-4014` | D2d revert target; D2c adds a `human_interrupt` exit |
-| S6/S7 nudge restore → return | NUDGE | `hvac_override.py:5071`, `:5116`, `:5293-5297` | none |
-| S8 cancel-nudge | NUDGE | `hvac_override.py:6298`, `:6326`, `:6408-6412` | none |
-| force_ac_reset | NUDGE | `hvac_override.py:6517-6525` | none |
-| S9 boot ramp audit | NUDGE (setpoint/preset) | `hvac_override.py:6770`, `:6791` | none |
-| S11 `_release_banked_zones` (callers `hvac_predict.py:472`, `:542`, `:551`, and NEW D3) | BANKING | `hvac_predict.py:922-1099` | D2b returned guard; `trigger` / `update_throttle` params |
-| S13 `_return_preheat` (timer) | PREHEAT | `hvac_predict.py:1518-1606` | D2b returned guard |
-| Egress resume / abort / rehydrate-orphan | EGRESS_PAUSE | `hvac_egress.py:773-904`, `:799-811`, `:442-453` | none |
-| Lease-expiry sweep → `_auto_return` | non-nudge | `hvac_excursion.py:733-778`, `:632-730` | none (becomes an INV-B failure for pre-arrival) |
-| Boot audit NUDGE / BANKING / stale | all | `hvac_excursion.py:1126-1238` | none |
-| CM auto-release on an incomplete write | all | `hvac_excursion.py:1297-1365` | none |
-| `_reap_stale` (from begin) | all | `hvac_excursion.py:597-608` | none |
-| NEW human-interrupt end | BANKING / PREHEAT | `hvac_override.py` (`_handle_climate_change`) | D2a |
-| NEW pre-arrival end | BANKING (`S12_pre_arrival`) | `hvac_predict.py` `async_end_pre_arrival_borrows` | D3 |
+| S4 revert → `_compromise_release_lease` | COMPROMISE | `hvac_override.py:3817-4014` | D2d value; L6 gen check; D2c new exit |
+| S6/S7 nudge restore | NUDGE | `:5040-5130`, `:5293` | none (S7 `manual` pin noted in D6) |
+| S8 cancel-nudge / force_ac_reset | NUDGE | `:6298-6412`, `:6517-6525` | none |
+| S9 boot ramp audit | NUDGE | `:6770`, `:6791` | none |
+| S11 `_release_banked_zones` (callers `:472`, `:542`, `:551`, D3) | BANKING | `hvac_predict.py:922-1099` | D2b guard; `trigger` / `update_throttle` params |
+| S13 `_return_preheat` | PREHEAT | `:1518-1606` | D2b guard |
+| Egress resume / abort / orphan | EGRESS | `hvac_egress.py:773-904`, `:442-453` | none |
+| Lease sweep → `_auto_return` | non-nudge | `hvac_excursion.py:733-778`, `:632-730` | none (an INV-B failure for pre-arrival) |
+| Boot audit NUDGE | NUDGE | `:1126-1167` | **D6 manual skip** |
+| Boot audit BANKING / stale | BANKING / all | `:1169-1238` | none |
+| CM auto-release; `_reap_stale` | all | `:1297-1365`; `:597-608` | none |
+| NEW human-interrupt end | BANKING / PREHEAT / ownerless COMPROMISE | `_handle_climate_change` | D2a |
+| NEW compromise supersede | COMPROMISE | `_handle_climate_change` | D2c |
+| NEW pre-arrival end | BANKING (`S12_pre_arrival`) | `async_end_pre_arrival_borrows` | D3 |
 
-**Everything else that can end or override a borrow's effect on the wire.** Checked, and none changes:
-- the S1 vacancy bypass and reclaim, which stay gated by (e) while the row lives;
-- the heat_cool enforcer (`hvac.py:2409-2440`, mode only);
-- AC hard reset;
-- S10 DPM (dormant).
+**End paths WITHOUT a return (orphaning), per M3:**
+
+| Path | file:line | How it is covered |
+|---|---|---|
+| `enabled=False` setter | `hvac_override.py:3070-3091` | D2f releases compromise rows |
+| `teardown()` | `:2346-2362` | synchronous; the orphan is rehydrated at next boot, then D2a ownerless rule or the sweep |
+| Rehydrated COMPROMISE / PREHEAT with no owner | `hvac_excursion.py:1240-1256` | D2a ownerless rule (COMPROMISE); PREHEAT: D2a ends it on a human change, the sweep otherwise |
+
+**Other wire writers:** S1 (§9e), the heat_cool enforcer, AC hard reset, egress mode, and S10 (dormant). No change.
 
 ---
 
-## 4. Edge cases (against QUALITY_CONTEXT classes)
+## 4. Edge cases (QUALITY_CONTEXT)
 
-- **#53 (computed but not consumed).** "Ended" must be honoured by every writer that holds a token: the two D2b guards, the D3 pop, and the D2e latch at S12 and S13. Reviewer C mutates each one.
-- **#7 (stale data source).** `_last_emitted_range` can be stale for D4's baseline. D3 passes `update_throttle=False`, so pre-arrival never writes the throttle map. S11 and S13 still do, which is pre-existing; card it if P4 shows a mismatch.
-- **#22 (enum mismatch).** New strings:
-  - site: `S12_pre_arrival`;
-  - triggers: `human_interrupt`, `pre_arrival_arrived`, `pre_arrival_timeout`, `pre_arrival_interrupted`, `pre_arrival_inactive`;
-  - trigger_details: `compromise_superseded_by_human`, `revert_no_named_preset`.
-  Grep every consumer of `trigger` / `site` values (DB, borrows sensor, probes) before merge.
-- **#23 (observation mode).** D3 ends borrows in observation mode, matching S12, which starts them in observation mode too. The D2 arrester path already respects observation mode through its own writes.
-- **#32 (options writeback).** The D5 Number follows the Return Window pattern exactly.
-- **#43 / Part C.** The placeholder carries egress and window state; untouched.
-- **D49 interplay (Q4).** After D2 ends a borrow in an EMPTY zone, S1's vacancy bypass ignores gate (c). It writes `away` on the next pass, over the human's value. That is today's ordinary behaviour for a remote change to an empty zone.
-- **Restart.** Everything new is RAM: the recent-writes record (seeded at boot), `_arrest_episode`, the latch and the pre-arrival set. At boot, BANKING rows are released with a preset pin and `_pre_arrival_zones` starts empty, so no pre-arrival borrow survives a restart. That is today's behaviour too.
-- **Pre-arrival switch turned OFF mid-episode.** The episode runs to the window (now bounded), as today. Non-goal.
+- **#53.** Every site that can still write for an ended token has a guard: the D2b table (4 sites), D3 pop, the D2e latch (S12, S13) and the L6 gen checks. Reviewer C mutates each.
+- **#7.** D3 does not write `_last_emitted_range`. The existing S11/S13 writes stay pre-existing; card them if P4 shows a mismatch.
+- **#22 / L4.**
+  - New site: `S12_pre_arrival`.
+  - New triggers: `human_interrupt`, `pre_arrival_{arrived,timeout,interrupted,inactive,max_age}`, `arrester_disabled`.
+  - New details: `compromise_superseded_by_human`, `revert_no_named_preset`.
+  - None of these reaches `reason=` (S11 keeps `banking_release`; S4 keeps `severe_override_revert`). A builder who adds any `reason=` literal must add it to `HVAC_PRESET_REASONS` (`const.py:1321`).
+  - Grep every consumer of trigger and site values before merge.
+- **#23.** D3 ends borrows in observation mode, symmetric with S12 starts.
+- **#32.** The D5 wiring list.
+- **D49 / Q4.** A human change to an empty zone is still sent to Away by S1 on its next pass. That is the ruling.
+- **Restart.** The record (boot-seeded), `_arrest_episode`, the latch and the pre-arrival set are all RAM. BANKING rows are released at boot.
 
 ---
 
 ## 5. Non-goals
-
-- Boot-window reconciliation (ARRESTER-BOOT-BLIND-1 gap (1), manual holds that predate the listener). Stays parked.
-- A human NAMED-preset choice during a borrow (a preset→preset change, which the arrester ignores at `:3220`). The borrow's return would pin its snapshot over it. Card it.
-- A human `hvac_mode` change within manual.
-- The energy pre-cool ratchet on its own row (`hvac_predict.py:598` path). NEW card: `HVAC-ENERGY-PRECOOL-RATCHET-1`.
-- Any change to `begin_excursion` / `return_excursion` semantics. Only `live_token_for` and `ExcursionToken.returned` are added, and both are pure reads.
-- A DB-seeded recent-writes record (reading `climate_write` at boot). Seeding from rehydrated rows is enough.
-- Egress under the interrupt rule (P1, Q2).
-- Persisting grace, compromise or the episode (W1-B non-goal).
-- Part C: everything in the parked plan's §9 non-goals.
-- No new DB table, DAO or signal.
+- Boot-window reconciliation (ARRESTER-BOOT-BLIND-1 gap (1)).
+- A human choosing a NAMED preset during a borrow (card it).
+- Human `hvac_mode` changes. D1 now explicitly returns `none` for them.
+- The energy pre-cool ratchet on its own row: NEW card `HVAC-ENERGY-PRECOOL-RATCHET-1`.
+- Nudge starts on a `manual` zone (D48/D52). Only their boot-restore consequence is fixed (D6).
+- The S7 `manual` re-pin (idempotent, noted).
+- Changes to `begin_excursion` / `return_excursion` semantics. Only the pure `live_token_for` and the `returned` property are added.
+- A DB-seeded record.
+- Egress under the interrupt rule (Q2).
+- Persisting grace or episodes.
+- Part C readers C1/C2/C4 (Appendix A).
+- No new table, DAO or signal.
 
 ---
 
-## 6. Tier and reviews
+## 6. Tier and reviews (fixed for H5 and L7)
 
-**Tier 2-DB, as the orchestrator directed.** Triggers:
-- persisted payload shape changes (`override_detected` details keys; excursion `site` / `trigger` values);
-- trust-hierarchy ripple: arrester ↔ S1 gates ↔ predictor ↔ egress;
-- strategy change on a comfort and cost path.
+**Tier 2-DB, plus a 4th adversarial-completeness review (ruling Q6).** Triggers:
+- persisted payload changes (`override_detected` keys; excursion site and trigger values);
+- trust-hierarchy ripple across the arrester, S1 gates, predictor and egress;
+- a comfort and cost strategy change.
 
-**Three parallel reviews with disjoint framings:**
-- **A: correctness and edge cases.** The D1 classifier and ring semantics against the P1 fixture; the baseline table and changed-legs delta; D4 arithmetic and floor; Part C truth tables and the D5 knob bounds.
-- **B: cross-coordinator precedence, lifecycle and no-flap.** Arrester precedence with the new rung vs D13/D48/D49/D50; ordering of the D3 end before S1 in both the tick and the fast run; task-scheduling races with gate (e); restart and RAM discharges; shed dominance in C1.
-- **C: test authority and DB surfaces.** Real per-site source mutation for EVERY row of §3 marked changed, and every mutation named above. Also: the ledger/event payload shapes and values; the Number round-trip and persistence; and that `climate_write` rows are byte-identical except for the new RAM record.
+**Four parallel reviews:**
+- **A — correctness and edge cases.**
+  - The D1 classifier (H1 mode rules, changed legs) against the P1 fixture.
+  - The one-reference-preset baseline table and the replay outcome.
+  - D4 arithmetic.
+  - D3 max-age.
+  - The knob bounds.
+  - C3's single-assignment guard.
+- **B — cross-coordinator precedence, lifecycle and no-flap.**
+  - The new rung vs D13/D48/D49/D50/D52.
+  - D2c forcing and gen races.
+  - D3 ordering before S1 in full and fast runs (M10).
+  - Task scheduling vs gate (e).
+  - Latch discharge.
+  - Orphan paths.
+  - Restart.
+- **C — test authority and DB surfaces.**
+  - Real per-site source mutation for every "Change" row in §3 and every named mutation.
+  - Ledger and event payload shapes and values.
+  - Knob round-trip, including reload suppression.
+  - `climate_write` rows unchanged.
+- **D — adversarial completeness (diff-blind).** State INV-A / INV-B / INV-C falsifiably and break them. Re-enumerate every begin, return, end and orphan path, including pre-existing code.
 
-Plus ONE plan review before build (Tier 2 rule), which re-runs the §3 enumeration with greps. Then live validation and the README write-back.
+Then live validation and the README write-back.
 
 ---
 
 ## 7. Open operator questions
-
-1. **Q1.** D1 needs ONE read-only in-memory record inside `emit_set_temperature` of what URA just wrote. That is an exception to W1-B's "no changes inside the funnels". The alternative, having every write site pass its values to the arrester, has 8+ places to miss, and a miss makes URA "interrupt" itself. OK to add the record?
-2. **Q2.** Egress pause is left out of "person interrupts" (the door-open pause keeps the zone off). OK?
-3. **Q3.** After a person interrupts, URA does not start a NEW pre-cool or pre-heat on that zone until it leaves manual. This narrows D48 ("URA wins on starts") for that one case. OK?
-4. **Q4.** If someone changes an EMPTY zone (for example from the app on the way home), the arrester takes over, but S1's empty-zone retreat still sends it to Away on the next pass (≤ 5 min), as it does today. Keep that, or hold such a zone until arrival or the window ends?
-5. **Q5.** Part C has measured zero exposure. Build all four (C1–C4) as green-lit, or only C3 (the occupancy clock that feeds the stuck-sensor failsafe)?
-6. **Q6.** Part A changes the arrester's core detection, and one missed return site means URA overwrites the person. That is the Tier 3 "one missed site" shape. Keep Tier 2-DB with mandatory per-site mutation, or add a 4th adversarial completeness reviewer?
-
-## 8. State-of-play updates due with the build
-
-- §0 stale-citation table.
-- §6: interruptible borrow kinds.
-- §7: within-manual detection.
-- §9e: a new ruling row for 2026-09-28 "person interrupts" (D13 kept; D48 narrowed per Q3; compromise re-dispatch).
-- §4.2: `S12_pre_arrival`.
-- §10: a new correction entry for the S4 `manual`-pin defect, if P5 confirms it.
+- Q1–Q6 are answered in §8.
+- **Q7 (NEW).** Confirm the replay: after someone overrides a pre-cool, the arrester measures their change against the preset the zone was in BEFORE the pre-cool (Away on 09-28). It reverts to Away after 2 minutes, unless they are in the zone with the battery at or above 85 %, in which case they get 20 minutes. S1 then sets Home when someone arrives. The alternative is to measure and revert against the house's current target (Home), so the zone would go to Home 76, not Away 80. Is Away what "We end and revert" means?
 
 ## 8. Operator rulings 2026-09-28 (binding; answers to §7)
 
@@ -524,3 +608,30 @@ Operator: **"all recommendations"**.
 | Q6 | ADD a 4th adversarial-completeness review (diff-blind, missed return/end sites) on top of the three framing-disjoint reviews, plus the mandatory per-site mutation tests. |
 
 Operator follow-up on D2d (compromise revert re-pins `manual`): it did NOT escape the funnel. S4 writes through `emit_set_preset_mode` (`hvac_override.py:3945-3957`, logged as `climate_write` site=S4_revert). The defect is the VALUE: `_revert_preset` comes from the compromise token's `pre_preset` (`:3938-3942`), which is snapshotted after the human's change already put the zone in `manual`. D2d fixes the value source (the zone's pre-override preset), not the write path.
+
+## 9. State-of-play updates due with the build
+- The §0 stale citations.
+- §6: interruptible kinds.
+- §7: within-manual detection (heat_cool only).
+- §9e: a ruling row for 2026-09-28 "person interrupts" (D13 kept; D48 narrowed per Q3; compromise re-dispatch; one reference preset per case, per Q7).
+- §4.2: `S12_pre_arrival`.
+- §10: new entries for the S4 `manual` pin and the boot-audit NUDGE `manual` pin, if P5 confirms them.
+
+---
+
+## Appendix A — PARKED W2-2 readers (C1 D5 coast defer, C2 D6 skip, C4 row-11 grant)
+
+The design is preserved verbatim in `PLANNING_hvac_reloading_room_placeholder_readers.md` §4 (D1, D2, D4 there). Re-verified sites:
+- D5 defer: `hvac.py:2896-2900` (ledger `:2908-2948`, shed `:2949-2962`).
+- D6 entry: `:2679-2685`.
+- Row 11: `hvac_override.py:2718`.
+
+**Revival trigger (evaluable).** Run `scripts/probes/hvac_reloading_room_probe.py` (P1 and P4) at each HVAC cycle close (the soak-exit forcing hook). Revive the matching reader when ONE `sensor.ura_hvac_coordinator_zone_{n}_status` sample with a non-empty `transient_rooms` falls within ±300 s of any of:
+- a `preset_change` `away` with reason `energy_shed_cap_reached` and `constraint_mode='coast'` (→ C1);
+- a `preset_change` `away` with reason `stale_occupancy` (→ C2);
+- an `override_detected` row on that zone with no comfort grant (→ C4).
+
+Threshold: ≥ 1 coincidence in the probe window. Until then these readers stay parked. That is a clean result, not a deferral.
+
+### Q7 ruling (operator 2026-09-28 23:50, binding)
+Operator: **"Agree"** to the orchestrator recommendation: when a person interrupts a **pre-arrival** pre-cool (S12 with reason `pre_arrival`), the reference preset for BOTH the arrester delta and the revert target is the house's CURRENT S1 target for that zone (e.g. `home` in `home_evening`/`home_night`, `sleep` in `sleep`), not the borrow's pre-borrow snapshot (`away`). Rationale: a pre-arrival run means URA already expects someone, so reverting to Away only to flip to Home minutes later is churn. ALL OTHER borrow kinds (energy banking, pre-heat, compromise) keep the pre-borrow preset as the reference (H3 single-reference rule unchanged for them). 09-28 fixture expectation under this ruling: 71 is judged against Home 76 (delta 5 °F, severe); after grace, the revert pins `home`, not `away`. The builder must add this as a distinct case with its own test and replay assertion, and the README must state it. Also required (boot evidence, README_v5.103.22): at 23:40 the stale-boot release restored `away` over a human 71 set at 23:03. Once the 23:03 interrupt ends the row, the boot audit must have nothing to restore; add a replay test.
