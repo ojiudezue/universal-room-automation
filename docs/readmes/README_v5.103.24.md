@@ -282,6 +282,9 @@ The 12 fan rooms, from the live `.storage` on 2026-09-29. All 12 are in an HVAC 
 **Name-diffs vs `origin/develop` @ `ef836342a` (`scripts/suite_namediff.py`, branch @ `2eeb02075`):**
 - `--isolate --files` over the 21 touched and new files: **CLEAN, 0 new, 0 gone** (15 failing on both sides, all pre-existing).
 - Full suite: **CLEAN, 0 new, 0 gone**. 153 failing/erroring on both sides (pre-existing). Branch 11,429 passed vs baseline 11,347 (+82).
+- **After fix-up 1** (branch @ `4fc7c6eae`):
+  - `--isolate --files` over 28 touched/new files: **CLEAN, 0 new, 0 gone** (15 pre-existing on both sides).
+  - Full suite: **CLEAN, 0 new, 0 gone**. 153 pre-existing on both sides; 11,458 passed vs 11,347 (+111).
 
 ## 6. Live acceptance criteria (prospective — write the observed results back after the restart)
 | # | Criterion | How to check (discriminating) |
