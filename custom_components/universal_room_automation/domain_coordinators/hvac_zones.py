@@ -1940,13 +1940,17 @@ class ZoneManager:
     def _away_due_at_attr(self, zone, away_grace_s: float | None) -> str | None:
         """DISPLAY-ONLY `away_due_at` (ISO local) for the zone status sensor:
         `zone_away_due_at` (= live release + grace) while the zone is
-        HVAC-empty; None while it is HVAC-occupied, when the grace is unknown,
-        or when the release is unknown / unbounded. Never raises."""
+        HVAC-empty and the due time is still ahead; None while it is
+        HVAC-occupied, once the due time has passed (the exit is done or
+        overdue — never show a past instant), when the grace is unknown, or
+        when the release is unknown / unbounded. Never raises."""
         try:
             if away_grace_s is None or zone.any_room_hvac_occupied:
                 return None
             due = self.zone_away_due_at(zone.zone_id, float(away_grace_s))
-            return dt_util.as_local(due).isoformat() if due is not None else None
+            if due is None or dt_util.utcnow() >= due:
+                return None
+            return dt_util.as_local(due).isoformat()
         except Exception:  # noqa: BLE001
             return None
 

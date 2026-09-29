@@ -3002,8 +3002,9 @@ class HVACConsensusDeferGateSwitch(SwitchEntity, RestoreEntity):
     signal_consensus < 0.5 AND last house-state transition < 30 s ago.
     When OFF: gate disabled — HVAC reverts to pre-v4.7.15 behaviour.
 
-    Entity: switch.ura_hvac_coordinator_hvac_consensus_defer_gate (entity_id
-    and unique_id unchanged by the 2026-09-28 display-name rename)
+    Entity: switch.ura_hvac_coordinator_hvac_consensus_defer_gate
+    (the 2026-09-28 display-name rename does not touch the unique_id, so
+    the registry keeps this entity_id)
     Device: URA: HVAC Coordinator
     """
 
@@ -3154,8 +3155,9 @@ class ComplianceConsensusDeferGateSwitch(SwitchEntity, RestoreEntity):
     when signal_consensus < 0.6 sustained for >= 60 s.
     When OFF: gate disabled — compliance violations emit at v4.7.14 cadence.
 
-    Entity: switch.ura_compliance_consensus_defer_gate (entity_id and
-    unique_id unchanged by the 2026-09-28 display-name rename)
+    Entity: switch.ura_coordinator_manager_compliance_consensus_defer_gate
+    (the 2026-09-28 display-name rename does not touch the unique_id, so
+    the registry keeps this entity_id)
     Device: URA: Coordinator Manager
     """
 

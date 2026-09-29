@@ -95,6 +95,26 @@ def test_away_due_at_published_when_zone_empty_past_release(mods):
     assert due == coord._exit_due(ZONE)[0] - S(seconds=2)
 
 
+def test_away_due_at_none_once_due_time_has_passed(mods):
+    """Review L2: after the exit instant (T0+840) the zone has retreated (or
+    is overdue); the sensor must not keep showing a past instant. One second
+    before due it still publishes; at due and after it reads None."""
+    with _Clock(T0) as clk:
+        coord, hass, coords, _sched = _exit_setup(mods, clk, grace=10, constrained=3)
+        coords["bed1"].active = False
+        clk.t = T0 + S(seconds=300)
+        coord.zone_manager.update_room_conditions(house_state="home_day")
+        clk.t = T0 + S(seconds=839)
+        before = _zone_status_attrs(mods, hass, coord)["away_due_at"]
+        clk.t = T0 + S(seconds=840)
+        at_due = _zone_status_attrs(mods, hass, coord)["away_due_at"]
+        clk.t = T0 + S(seconds=1200)
+        after = _zone_status_attrs(mods, hass, coord)["away_due_at"]
+    assert datetime.fromisoformat(before) == T0 + S(seconds=840)
+    assert at_due is None
+    assert after is None
+
+
 def test_away_due_at_follows_constrained_grace(mods):
     """Under coast the LIVE grace is knob 49 (3 min) -> T0+240+180."""
     with _Clock(T0) as clk:
