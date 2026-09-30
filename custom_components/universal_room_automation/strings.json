@@ -384,7 +384,8 @@
               "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set."
-            }
+            },
+            "description": "Defaults — day: closets 1 min, media/utility/general/garage 2, bath/living 3, bedrooms 4. Night: bedrooms/media 30, living 15, bath/garage/utility 10, closets 5."
           }
         }
       },
@@ -434,7 +435,7 @@
         "data_description": {
           "power_sensors": "Sensors showing current power draw (watts)",
           "energy_sensors": "Sensors showing cumulative energy usage (kWh). Select multiple for rooms with separate circuits.",
-          "electricity_rate": "Per-room fallback used only when the Energy Coordinator is not configured. With the Energy Coordinator active, room costs follow the live TOU rate and this value is ignored.",
+          "electricity_rate": "Price per kWh used for this room's energy cost figures. Leave blank to use the house-wide rate.",
           "notify_daily_energy_summary": "Send daily energy usage summary notification"
         }
       },
@@ -1993,10 +1994,11 @@
               "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set.",
-              "hvac_vacancy_hold": "Extra seconds HVAC keeps a room 'occupied' after the last sign of someone, during the day and evening. Blank = room-type default; 0 = no extra time.",
-              "hvac_vacancy_hold_night": "Same as above, used while the house is asleep or waking up. Must be greater than or equal to the day value. Blank = room-type default; 0 = no extra time.",
+              "hvac_vacancy_hold": "Seconds HVAC holds this room 'occupied' after the last sign of someone (day/evening) — guards people sitting still. 9pm→sleep and while away/arriving/guests, counts from room-empty. Blank = default; 0 = hold while seen.",
+              "hvac_vacancy_hold_night": "Used while the house is asleep or waking up; counts from when the room reads empty. Must be ≥ day. Blank = default; 0 = no extra time once empty.",
               "hvac_skip_entry_wait": "For rooms with short-pulse sensors. When on, any detection immediately switches an Away zone back to Home — no entry wait."
-            }
+            },
+            "description": "Defaults — day: closets 1 min, media/utility/general/garage 2, bath/living 3, bedrooms 4. Night: bedrooms/media 30, living 15, bath/garage/utility 10, closets 5."
           }
         },
         "data_description": {
@@ -2064,7 +2066,7 @@
         "data_description": {
           "power_sensors": "Power (W or kW) sensors for this room. Used for room-level energy monitoring.",
           "energy_sensors": "Cumulative energy (kWh) sensors for this room. Used for room-level energy monitoring.",
-          "electricity_rate": "Used only when the Energy Coordinator is not configured. When active, the coordinator's live TOU rate is used instead.",
+          "electricity_rate": "Price per kWh used for this room's energy cost figures. Leave blank to use the house-wide rate.",
           "notify_daily_energy_summary": "Send a daily summary notification with this room's energy use."
         }
       },
