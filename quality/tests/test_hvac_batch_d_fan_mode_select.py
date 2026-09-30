@@ -405,3 +405,11 @@ def test_translations_carry_the_exact_labels():
         )
         assert "hvac_coordination_enabled" not in opts_step["data"]
         assert "fan_control_enabled" not in opts_step["data"]
+
+
+def test_select_is_a_control_not_configuration():
+    """Operator 2026-09-29: Fan Mode sits in the device page's Controls card
+    (where Climate Automation was), so it must carry no entity_category."""
+    room = _Entry("r1", {"room_name": "Guest Bedroom 2"}, {C.CONF_ROOM_FAN_MODE: OFF})
+    sel, _ = _select_for(room, _IN_ZONE)
+    assert sel.entity_category is None
