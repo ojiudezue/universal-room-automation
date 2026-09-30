@@ -1,3 +1,5 @@
+> **REV 3 scope addition (operator 2026-09-30):** fold in a SIMPLE / ADVANCED model for EVERY URA config + options flow (room, zone, house, coordinators). Use HA's built-in per-user profile **Advanced mode** (`show_advanced_options`, verified homeassistant/data_entry_flow.py:645-667; fields marked `description={"advanced": True}` are dropped when off) instead of a custom toggle. Tiers: Simple (default) = the fields most people set; collapsed sections = visible-but-folded; Advanced mode = tuning values + trimmed steps revealed (subsumes most of "More settings…"). Deliverable: classify every field of every flow (table), apply markers, tests per flow for both modes, and a check that no stored value becomes unreachable (Advanced mode reveals all). First instance already built on the lighting branch: the two manual-hold windows are advanced fields. Needs a plan re-review after this rewrite.
+
 # PLANNING — ROOM-TYPE-TRIMMED-MENU-1
 
 **Card:** `ROOM-TYPE-TRIMMED-MENU-1` (kanban.data.yaml:30597)
