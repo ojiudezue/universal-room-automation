@@ -1,3 +1,5 @@
+> **Operator rulings 2026-09-30 (all 5 open questions, answered as recommended):** (1) P3 ships in the normal release to both houses — profiles are auto-detected, no house-specific flag. (2) The ecobee profile reuses the existing per-zone Home/Sleep/Away setpoint fields; no ecobee-only set. (3) A Thermostat-type override persists; if detection later sees different hardware (swap), raise a repair/NM and ask — never silently revert. (4) Every notification string is templated by profile name ("your ecobee", "your Carrier"); no hard-coded "Bryant app". (5) P1 byte-identity proof = one parametrized suite (S-site × WriteStatus table), not per-site files.
+
 # HVAC W1-C — Thermostat Profiles (brand-owned semantics; Generic net; ecobee first non-Carrier target)
 
 Card: `HVAC-W1C-GENERIC-THERMOSTAT-1` (kanban.data.yaml:1975; workstream `HVAC-W1-THERMOSTAT-DEFINITION`; revival trigger fired 2026-09-29). Author: ura-planner. Deploys **held** for the operator throughout. Second home ("Home", 192.168.17.243) goes live weekend of 2026-10-03 with HVAC OFF until P3 validates the ecobee profile there.
