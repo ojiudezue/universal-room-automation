@@ -103,3 +103,12 @@ changes stashed; same 7). None touch database.py or the watchdog.
 
 - README v5.103.24 line 309 corrected on develop (66950d1cf): it is the per-boot event-loop freeze, not a DB pool warm-up.
 - The house-state restore/override cycle (v5.103.27) is NOT in this release; it is in three-framing review.
+
+## Validated 2026-09-30 (restarts 07:46 and 08:00)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| L1/L2 | Watchdog installed; one stall WARNING with a main-thread stack | PASS | 07:48:23 `Event loop stalled >= 10.0s (phase=boot)` + stack ending `bayesian_predictor.py:743 scan_data_quality`; 07:50:44 `recovered after stall (total_stall=153.3s)`. Named the root cause (fixed v5.103.28). |
+| L2 (post-fix) | No stall on the 08:00 restart | PASS | no `Event loop stalled` line; HVAC boot-settle released 08:02:41 (~2.3 min after restart vs 5-9 min before) |
+| L6 | Fan Mode in Controls | not re-checked live | registry change applies on load; verify on device page |
+| L8 | HVAC + Energy return to correct state | PASS | 07:46 snapshot vs post-boot: battery reserve 19, self_consumption, charge_from_grid on, TOU off_peak unchanged; strategy sensor `unknown` for ~2 min while the Envoy was unavailable, then `self_consumption`. Zones 1-2 unchanged; zone 3 Back Hallway home<->away = its known vacancy flap, not boot-caused. |

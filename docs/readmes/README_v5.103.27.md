@@ -189,3 +189,11 @@ Interpreter: `.venv-ha/bin/python`; `PYTHONDONTWRITEBYTECODE=1`; no
 - No new operator-visible entity; staleness + heartbeat are rung-1 consts.
 - No change to inference logic apart from the R2-2 deferral during
   boot-settle when `_boot_restore_active` is True.
+
+## Validated 2026-09-30
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| First restart after install walks (no store yet) | as expected | 07:46 restart: `away -> arriving -> home_day` (guest lost); store file `.storage/universal_room_automation.house_state` written 07:52 (state home_day, saved_at 12:52:19Z) |
+| Restart restores the saved state, no walk | PASS | 08:00 restart: zero `house_state_change` rows after boot; house state stayed `home_day` |
+| Forced override dispatch | pending | needs a daytime forced Sleep test (operator) |
