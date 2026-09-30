@@ -1,0 +1,82 @@
+"""Room lighting set resolver (Slice A — additive, zero-behaviour-change).
+
+`effective_entry_set(cfg, is_sleep_hours)` returns the list of light-domain
+entity_ids the entry path would turn ON for this room right now, matching
+today's live derivation at:
+
+  * `automation.py:_control_lights_entry` (:1000-1064)
+      - sleep hours + night_lights present → night lights only
+      - otherwise                          → CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS
+  * `actuator_reconciler.py` entry-action path (:748-813) — same union
+
+`effective_exit_set(cfg)` returns the list of light-domain entity_ids the
+exit / vacancy path would turn OFF, matching today's live union at:
+
+  * `automation.py:_control_lights_exit` (:1079-1082)
+  * `actuator_reconciler.py:109` (`_LIGHT_KEYS = (CONF_LIGHTS, CONF_NIGHT_LIGHTS)`)
+
+Later slices extend this module (never re-derive inline). Order is
+preserved because HA services accept the list as given and dashboards
+render it in order. Duplicates are removed while preserving first
+occurrence — matches today's exit path (see line 1081 `if e not in regular`).
+
+This module has NO Home Assistant imports so it can be unit-tested
+without the full HA harness. It reads only string keys from a plain
+dict-like ``cfg``.
+"""
+from __future__ import annotations
+
+from typing import Any, Iterable
+
+from ..const import CONF_LIGHTS, CONF_NIGHT_LIGHTS
+
+
+def _dedup_preserving_order(items: Iterable[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for e in items:
+        if e in seen:
+            continue
+        seen.add(e)
+        out.append(e)
+    return out
+
+
+def _as_list(value: Any) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(v) for v in value]
+    # single-string fallback (defensive; today's config-flow saves lists)
+    return [str(value)]
+
+
+def effective_entry_set(cfg: dict, is_sleep_hours: bool) -> list[str]:
+    """Return the entities entry should turn ON for this room right now.
+
+    Args:
+        cfg: room config dict (``self.config`` in automation.py, ``options``
+            in the reconciler path).
+        is_sleep_hours: value of ``RoomAutomation.is_sleep_mode_active()``.
+    """
+    lights = _as_list(cfg.get(CONF_LIGHTS))
+    night = _as_list(cfg.get(CONF_NIGHT_LIGHTS))
+    if is_sleep_hours and night:
+        # matches automation.py:1023-1027 — night lights only
+        return _dedup_preserving_order(night)
+    # day (or sleep with no night lights): union, LIGHTS first
+    return _dedup_preserving_order(lights + night)
+
+
+def effective_exit_set(cfg: dict) -> list[str]:
+    """Return the entities the vacancy / exit path should turn OFF.
+
+    Matches today's unconditional union at ``automation.py:1079-1082`` and
+    ``actuator_reconciler.py:109``. Sleep gating is intentionally NOT
+    applied here — night lights are treated like any occupancy light on
+    vacancy per the NIGHT-LIGHT-NO-OFF-PATH-1 rule (operator ruling
+    2026-09-01, cited at automation.py:1072-1077).
+    """
+    lights = _as_list(cfg.get(CONF_LIGHTS))
+    night = _as_list(cfg.get(CONF_NIGHT_LIGHTS))
+    return _dedup_preserving_order(lights + night)
