@@ -81,25 +81,48 @@ Surface these two questions at the pre-deploy checkpoint.
 
 ## Acceptance criteria (prospective — populate at Live Validation)
 
-### Unit / integration (run pre-deploy)
+### Unit / integration / drills (all in `test_house_state_restore_override.py`)
 
-- Machine restore round-trips SLEEP + fresh `saved_at` -> `_state==SLEEP`,
-  `_boot_restore_active==True`, `_state_since` re-armed.
-- Stale / disabled / corrupt / missing records -> AWAY default with
-  `_boot_restore_active==False`.
-- Heartbeat invariant: `HOUSE_STATE_HEARTBEAT_S <=
-  HOUSE_STATE_RESTORE_MAX_STALE_S // 3` (meta-test).
-- Persist hook fires on `transition`/`force_state`/`set_override`/
-  `clear_override`.
-- Dispatch hook: F6 four idempotence cases pass (see
-  `test_house_state_restore_override.py::test_set_override_dispatches_*` +
-  `test_transition_clears_override_but_hook_suppressed`).
-- Real Store I/O round-trip via `pytest-homeassistant-custom-component`'s
-  `async_test_home_assistant` (F11).
-- Mutation drill: neuter `_fire_persist_change` in-process; every persist
-  test flat-lines to zero calls (proves single-site load-bearingness).
-- Memory-writer boot-suppression vocab: `boot_restore_confirmed` suppresses;
-  `boot_restore_diverged` and `boot_settle_release` emit rows.
+| # | Test | Purpose | Result |
+|---|---|---|---|
+| 1 | `test_heartbeat_less_than_third_of_stale_max` | Meta-invariant: `HEARTBEAT_S <= STALE_MAX_S/3` | PASS |
+| 2 | `test_store_constants_have_expected_shape` | Store key/version pinned | PASS |
+| 3 | `test_to_persisted_dict_shape` | Persisted payload contract | PASS |
+| 4 | `test_apply_restored_fresh_reapplies_state_and_rearms_dwell` | F3 dwell re-arm on restore | PASS |
+| 5 | `test_apply_restored_stale_falls_back_to_away_default` | Staleness bound honoured | PASS |
+| 6 | `test_apply_restored_disabled_when_max_stale_zero` | Kill-switch (0 disables restore) | PASS |
+| 7 | `test_apply_restored_corrupt_payload_falls_back` | Corrupt payload -> AWAY, no crash | PASS |
+| 8 | `test_apply_restored_no_record` | Missing record -> AWAY | PASS |
+| 9 | `test_override_survives_restart_can_be_disabled` | Operator-flip flag works | PASS |
+| 10 | `test_persist_hook_fires_on_transition_and_override` | All 4 mutation paths save | PASS |
+| 11-15 | `test_set_override_*` / `test_clear_override_*` / `test_transition_clears_override_but_hook_suppressed` | F6 idempotence + double-dispatch guard | PASS |
+| 16 | `test_store_roundtrip_real_io` | REAL `helpers.storage.Store` I/O against tmp path (F11) | PASS |
+| 17 | `test_r2_1_diverged_dispatches_boot_restore_diverged` | Real `PresenceCoordinator._release_boot_settle` -> R2-1 tick dispatches `trigger=boot_restore_diverged` | PASS |
+| 18 | `test_r2_1_no_restore_uses_boot_settle_release_trigger` | Cold-boot path dispatches `trigger=boot_settle_release` | PASS |
+| 19 | `test_r2_1_mutation_drill_scheduling_line_is_load_bearing` | Runtime-neutered `hass.async_create_task` -> tick never runs | PASS |
+| 20 | `test_r2_2_deferral_predicate_gates_transition` | Real `_should_defer_transition_for_boot_restore` returns True during boot-settle-with-restore, False otherwise | PASS |
+| 21 | `test_r2_2_guard_is_wired_at_the_transition_call_site` | AST anchor — guard referenced inside `_run_inference` | PASS |
+| 22 | `test_r2_2_mutation_drill_removing_guard_breaks_predicate_test` | Guard replaced with `return False` -> True/False flips detectable | PASS |
+| 23 | `test_d2_service_path_reaches_dispatch_helper_once` | REAL `CoordinatorManager._wire_house_state_persistence` -> `set_house_state_override("sleep")` -> exactly one `SIGNAL_HOUSE_STATE_CHANGED` with canonical `{old_state,new_state,trigger,confidence}` payload received | PASS |
+| 24 | `test_d2_bypassing_dispatch_helper_hook_yields_no_signal` | Hook unwired -> zero signals (proves the hook is load-bearing) | PASS |
+| 25 | `test_mutation_drill_deleting_persist_hook_call_breaks_persist_test` | `_fire_persist_change` neutered -> zero saves | PASS |
+
+### Real-source mutation drills (operator wire-in anchor rule)
+
+Every drill: edit production source in place -> run the tests -> restore
+via a `cp` from `/tmp/*.bak` -> confirm marker count == 0 in the file.
+
+| Drill | Source edit | Expected red | Observed |
+|---|---|---|---|
+| R2-1 | Delete `self.hass.async_create_task(self._boot_settle_reconciliation_tick())` in `presence._release_boot_settle` | tests 17 + 18 fail | **CONFIRMED**: `test_r2_1_diverged_dispatches_boot_restore_diverged` FAILED; `test_r2_1_no_restore_uses_boot_settle_release_trigger` FAILED; test 19 still passes (independent). Restored clean. |
+| R2-2 | Replace `_should_defer_transition_for_boot_restore` body with `return False` | tests 20 + 22 fail | **CONFIRMED**: both failed; test 21 (AST anchor) still passed (guard reference intact). Restored clean. |
+| D2 | Replace `machine.on_state_change = _on_state_change` with `pass` in `manager._wire_house_state_persistence` | test 23 fails | **CONFIRMED**: `test_d2_service_path_reaches_dispatch_helper_once` FAILED (0 signals received); test 24 still passes (hook-bypass symmetric drill). Restored clean. |
+
+Interpreter: `.venv-ha/bin/python`; `PYTHONDONTWRITEBYTECODE=1`; no
+`.pyc` staleness risk. Full-suite serial (`no -n`) baseline diff:
+pre-existing `datetime.utcnow()` tz-mixup failures in
+`test_presence_coordinator.py` and `test_v47x_weather_manager.py`
+reproduce on `develop@d01ed874c` — NOT introduced by this cycle.
 
 ### Live (F9 — DAYTIME override, no night restart)
 

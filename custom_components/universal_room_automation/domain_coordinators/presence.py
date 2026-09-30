@@ -2287,14 +2287,36 @@ class PresenceCoordinator(BaseCoordinator):
                 exc_info=True,
             )
 
+    def _should_defer_transition_for_boot_restore(self, manager: Any) -> bool:
+        """R2-2 guard: True iff boot-settle is still up AND the machine
+        has an active restore. Extracted so behavioural tests can drive
+        the SAME predicate the ``_run_inference`` call site uses (no
+        forked copy).
+        """
+        if self._boot_settle_done:
+            return False
+        try:
+            machine = manager.house_state_machine
+        except AttributeError:
+            return False
+        return bool(getattr(machine, "boot_restore_active", False))
+
     async def _boot_settle_reconciliation_tick(self) -> None:
         """R2-1 tick: one reconciliation inference after settle release.
 
-        Uses R2-3 trigger labels:
-          * boot_restore_confirmed  — restored & inference agrees (no dispatch,
-                                      writer boot-suppresses).
-          * boot_restore_diverged   — restored & inference disagrees (one dispatch).
-          * boot_settle_release     — no restore was active (cold-boot walk).
+        R2-3 trigger labels:
+          * boot_restore_diverged  — restored & inference disagrees (the
+              inference tick's ``machine.transition()`` fires under this
+              label; one dispatch, one D7 row, one activity-log row).
+          * boot_restore_confirmed — restored & inference agrees (no
+              transition proposed; the log line is emitted, no dispatch).
+          * boot_settle_release   — no restore was active (cold-boot walk).
+
+        Trigger is chosen BEFORE running inference so any dispatch
+        emitted from inside ``_run_inference`` carries the correct label.
+        When restore was active AND inference agrees, ``transition()``
+        is not called (state==state), so no dispatch/row fires and the
+        "confirmed" label lives only in the log.
         """
         try:
             manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -2304,22 +2326,21 @@ class PresenceCoordinator(BaseCoordinator):
             ) if machine is not None else False
             restored_state = machine._state if (machine is not None and restore_active) else None
             trigger = (
-                "boot_restore_confirmed"
+                "boot_restore_diverged"
                 if restore_active
                 else "boot_settle_release"
             )
             await self._run_inference(trigger)
             if machine is not None and restore_active:
-                # Post-tick: if inference kept us at the restored state,
-                # already labeled as *confirmed*. Otherwise the transition
-                # inside _run_inference will have carried its own trigger;
-                # but the R2-3 semantics say we should dispatch under
-                # boot_restore_diverged. To keep behaviour correct, if
-                # the inferred state moved, we relabel by inspecting the
-                # machine post-tick.
-                if machine._state != restored_state:
+                if machine._state == restored_state:
                     _LOGGER.info(
-                        "Boot-settle reconciliation: restore diverged "
+                        "Boot-settle reconciliation: boot_restore_confirmed "
+                        "(state=%s — no dispatch)",
+                        restored_state,
+                    )
+                else:
+                    _LOGGER.info(
+                        "Boot-settle reconciliation: boot_restore_diverged "
                         "(restored=%s inferred=%s)",
                         restored_state,
                         machine._state,
@@ -6686,14 +6707,7 @@ class PresenceCoordinator(BaseCoordinator):
             # transient AWAY/HOME_* proposal that contradicts the
             # restored value. Cold-boot behaviour is preserved when
             # nothing was restored (_boot_restore_active=False).
-            if (
-                not self._boot_settle_done
-                and getattr(
-                    manager.house_state_machine,
-                    "boot_restore_active",
-                    False,
-                )
-            ):
+            if self._should_defer_transition_for_boot_restore(manager):
                 _LOGGER.info(
                     "Boot-settle (restore active): DEFERRING transition "
                     "proposal %s -> %s (trigger=%s)",
