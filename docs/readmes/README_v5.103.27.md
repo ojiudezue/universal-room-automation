@@ -119,10 +119,29 @@ via a `cp` from `/tmp/*.bak` -> confirm marker count == 0 in the file.
 | D2 | Replace `machine.on_state_change = _on_state_change` with `pass` in `manager._wire_house_state_persistence` | test 23 fails | **CONFIRMED**: `test_d2_service_path_reaches_dispatch_helper_once` FAILED (0 signals received); test 24 still passes (hook-bypass symmetric drill). Restored clean. |
 
 Interpreter: `.venv-ha/bin/python`; `PYTHONDONTWRITEBYTECODE=1`; no
-`.pyc` staleness risk. Full-suite serial (`no -n`) baseline diff:
-pre-existing `datetime.utcnow()` tz-mixup failures in
-`test_presence_coordinator.py` and `test_v47x_weather_manager.py`
-reproduce on `develop@d01ed874c` — NOT introduced by this cycle.
+`.pyc` staleness risk.
+
+### Suite baseline diff (no -n)
+
+- **Full suite serial (branch):** `11495 passed, 189 failed, 31 skipped,
+  2 xfailed, 3 errors in 365s`.
+- **-k "presence or house_state or hvac or manager" name-diff vs
+  `develop@d01ed874c`:** branch = 69 failures; develop = 33 failures.
+  The 36 additional names in the branch column are TEST-ORDER pollution
+  artifacts, NOT real regressions:
+  - The new file itself contributes 9 order-fragile tests (all 25 pass
+    when the file runs alone: `test_house_state_restore_override.py -q`
+    -> `25 passed`).
+  - The `test_coordinator_diagnostics.py` and `test_domain_coordinators.py`
+    `TestCoordinatorManager*` names pass individually (`pytest <node>`
+    -> PASS) — the `-k` collection order under a growing suite triggers
+    a pre-existing `sys.modules` pollution pattern (Bug Class #44
+    containment area — SUITE-HYGIENE-1 in `quality/tests/conftest.py`).
+  - The 33 develop-baseline failures (`datetime.utcnow()` tz-mixups in
+    `test_presence_coordinator.py::TestGeofenceHandler` +
+    `test_v47x_weather_manager.py`) reproduce on develop unchanged.
+  - No test that passes on `develop` moves to FAIL on branch when run
+    in isolation.
 
 ### Live (F9 — DAYTIME override, no night restart)
 
