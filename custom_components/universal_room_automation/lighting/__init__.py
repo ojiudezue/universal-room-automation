@@ -10,6 +10,7 @@ re-deriving the set inline at each writer.
 See ``docs/planning/PLANNING_room_dialog_cleanup_and_lighting_roles.md``.
 """
 
+from .darkness import is_dark_fallback
 from .resolver import effective_entry_set, effective_exit_set
 
-__all__ = ["effective_entry_set", "effective_exit_set"]
+__all__ = ["effective_entry_set", "effective_exit_set", "is_dark_fallback"]

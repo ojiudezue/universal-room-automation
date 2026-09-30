@@ -919,6 +919,20 @@ CONF_LIGHT_BRIGHTNESS_PCT: Final = "light_brightness_pct"
 CONF_LIGHT_TRANSITION_ON: Final = "light_transition_seconds_on"
 CONF_LIGHT_TRANSITION_OFF: Final = "light_transition_seconds_off"
 
+# ROOM-LIGHTING-SETUP-REDESIGN-1 Slice B (v5.103.28) — darkness fallback.
+# When the room's primary illuminance sensor returns None (no sensor
+# configured, or state unavailable / unknown), the room falls through
+# to (a) an optional borrowed lux source, then (b) sun elevation.
+# Kill-switch default TRUE per operator P0 ruling (2026-09-29). A room
+# whose stored options set this to False preserves today's
+# `is_dark(None) == False` behaviour.
+CONF_LIGHT_DARK_USE_SUN_FALLBACK: Final = "light_dark_use_sun_fallback"
+CONF_LIGHT_DARK_LUX_SOURCE: Final = "light_dark_lux_source"
+# Module-const safety bound (civil dusk). Sun elevation strictly less
+# than this ⇒ dark for fallback purposes. Not exposed as a knob —
+# safety bound per the knob-rung ladder in the plan.
+SUN_DARK_ELEVATION_DEG: Final = -6.0
+
 # Light actions
 LIGHT_ACTION_NONE: Final = "none"
 LIGHT_ACTION_TURN_ON: Final = "turn_on"

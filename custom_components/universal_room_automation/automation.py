@@ -931,11 +931,28 @@ class RoomAutomation:
         self._sleep_motion_count = 0
 
     def is_dark(self, illuminance: float | None) -> bool:
-        """Check if room is dark based on illuminance threshold."""
-        if illuminance is None:
-            return False  # Assume not dark if no sensor
-        threshold = self.config.get(CONF_ILLUMINANCE_THRESHOLD, 20)
-        return illuminance < threshold
+        """Check if room is dark based on illuminance threshold.
+
+        ROOM-LIGHTING-SETUP-REDESIGN-1 Slice B (v5.103.28): when the
+        primary lux reading is None (no sensor, or sensor `unavailable`
+        / `unknown`), fall through to
+        ``lighting.darkness.is_dark_fallback`` — optional borrowed lux
+        then sun elevation. Kill-switch per-room via
+        ``CONF_LIGHT_DARK_USE_SUN_FALLBACK`` (default True). Both
+        callers reach this fallback: automation.py entry path (:1032)
+        and actuator_reconciler.py entry-action (:794 via
+        ``automation.is_dark``).
+        """
+        if illuminance is not None:
+            threshold = self.config.get(CONF_ILLUMINANCE_THRESHOLD, 20)
+            return illuminance < threshold
+        # Primary lux unusable — try borrowed lux, then sun.
+        try:
+            from .lighting.darkness import is_dark_fallback
+            return is_dark_fallback(self.config, getattr(self, "hass", None))
+        except Exception:  # noqa: BLE001 — fail-safe
+            _LOGGER.debug("is_dark fallback path failed", exc_info=True)
+            return False
 
     def should_execute_automation(self, state_data: dict[str, Any]) -> bool:
         """Check if automation should execute (respects sleep mode)."""
