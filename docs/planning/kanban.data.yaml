@@ -2595,7 +2595,7 @@ cards:
   interim_2026_09_28: 'INTERIM (overnight 2026-09-28 02:30 CDT; not yet discriminating). (a) Blip count: HA history for all 4 person entities from 22:26 UTC 09-27 (17:26 CDT, the tracker trim) to 07:30 UTC 09-28: each had 4 transitions, all around the HA restart, and 0 home states shorter than 60 s. (b) Other persons checked live: ezinne = ezinne_iphone + ezinne_iphone_bermuda_tracker; jaya = jjs_iphone + private_ble_device_249050 + iphone_jaya_bermuda_tracker; ziri = ziri_iphone. All are phone-carried, with no home-stationary trackers (no mac mini, tablet or entry pad), so the second half of next is DONE and nobody else needs the trim. CAVEAT: the household was home all night, so the phone tracker never dropped while away. Zero blips tonight therefore cannot discriminate the fix, because the old failure needs Oji away AND the cflare tracker dropping. The real test is a day with an away period. Stays waiting_me; re-check on 09-30 over 09-28/29 away windows.'
   operator_action_2026_09_27: 'Operator trimmed person.oji_udezue trackers 19 -> 5, all phone-carried (verified live 17:26 CDT): phalanxiphone15promax, phalanxiphone15promaxcflare, iphone_oji_bermuda_tracker, unifi_default_12_83_ec_78_6d_6c, private_ble_device_8ce182. Other persons not yet checked.'
   title: person.oji_udezue blips home for <1 s when the phone tracker drops, because home-stationary trackers are attached to the person - fires phantom pre-arrivals
-  status: waiting_me
+  status: waiting_operator
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 4, time_criticality 5, effort 2 - verification due 09-30; phantom pre-arrivals.'
   rank: {value: 4, time_criticality: 5, effort: 2}
   thread: presence
@@ -2604,7 +2604,8 @@ cards:
   origin: 'Empty-house natural experiment item 8 (not pre-registered), 2026-09-27.'
   why: '4 zero-second home blips on 09-26 each within 0.4-1.2 s of device_tracker.phalanxiphone15promaxcflare going unavailable; person.oji_udezue has 19 trackers incl. home-stationary ones (mac minis, tablets, entrypad). One blip fired a phantom pre-arrival (zone_1 pre-cool). Hypothesis (HA person fallback to a stationary tracker) NOT verified in HA core source.'
   sweep_2026_09_27: 'Board + BACKLOG grepped for blip/flicker/cflare/geofence pre-arrival: only this experiment card carries it. NEW.'
-  next: 'VERIFY (me) on 2026-09-30: count person.oji_udezue home states < 60 s over 09-28/09-29, restricted to periods when Oji was away (the discriminating condition). 0 -> close done. Other-person tracker check is DONE (all phone-carried).'
+  verify_2026_09_30_overnight: 'STILL-REAL, and CARD-WAS-WRONG on one point. HA recorder, person.oji_udezue 09-28 00:00 -> 09-30 03:00 CDT with same-state rows merged (attribute-only updates excluded): 4 away periods, 3.8 h away in total. Exactly ONE cflare drop fell inside an away period (09-28 07:51:08, device_tracker.phalanxiphone15promaxcflare -> unavailable) and it produced exactly ONE home blip (0.1 s, 07:51:08) between two not_home runs. So the failure reproduced 1 of 1 AFTER the 09-27 tracker trim. It fired a phantom pre-arrival: ura_activity_log 2026-09-28T12:51:08.104Z hvac pre_arrival "Pre-arrival for person.oji_udezue -> zones [zone_1] (source=geofence)". CORRECTION: the card says the trim left 5 trackers, all phone-carried. Live now (REST 03:00 CDT) the person has SIX: the 5 plus device_tracker.m4promacmini_2, a Mac mini that never leaves the house - a home-stationary tracker is attached again (when it was re-added is not established). Most likely mechanism (not verified in HA core source): when the phone tracker goes unavailable, the person entity briefly takes the state of another attached tracker that still says home.'
+  next: 'DO: remove device_tracker.m4promacmini_2 from person.oji_udezue (Settings > People; a setting, no code). -> I re-run the blip count after the next away day with a cflare drop; 0 blips -> close. If blips persist with only phone trackers, I plan a small URA-side guard (ignore a geofence home that lasts under a few seconds before firing pre-arrival; knob) as a Tier 1-2 card.'
   links: {related: [NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26]}
 - id: NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26
   final_readout_2026_09_27: 'FINAL (window 09-26 14:35 -> 09-27 12:13 CDT, 21.6 h; first real return person.jaya 12:43). (1) PHANTOM OCCUPANCY: 21 room entries in 2 rooms: Kitchen Hallway Garage 20 (source motion = the room''s OWN Zigbee presence sensor binary_sensor.occupancy_lux_temp_humidity_garagekitchenhallway_presence — CORRECTED 2026-09-27, NOT the garage opener; stuck-signal shadow flagged it 14x WOULD-quarantine) -> STUCK-SENSOR-1; Master Bathroom 1 (mmWave, 16 min, 23:35-23:51). No other room produced a phantom. (2) CENSUS/GUEST: house total 0 in all 931 snapshots, 0 house-state transitions -> NO guest false positive with nobody home. Property 1/unidentified in 16 snapshots (passers-by, alongside perimeter alerts). (3) OVERRIDE/MANUAL: 0 rows. The C22 candidate rule could not be tested (no manual arose) - neutral. (4) PRESETS: zone_1 got 130 away writes (6.0/h) + 126 climate_write rows; zones 2/3 ZERO -> re-issued-away loop confirmed with no human possible (HVAC-WRITE-CONFIRMATION-ORACLE-1). (5) ACTUATION: no phantom light/fan turn-on (27 shared_space_auto_off are OFFs); 1 phantom pre-arrival (15:03:51) from a 0.2 s person.oji_udezue home blip (item 8 -> PERSON-STATIONARY-TRACKER-BLIP-1). (6) NOTIFICATIONS: 25 perimeter notification rows = ~5 distinct UniFi Protect person_detected events (rear_ptz, g5_bullet; 07:34, 08:21, 11:26, 20:20) each fanned to ~4 recipients/channels + audit rows (CORRECTED 2026-09-27: Protect person detection is independent of Frigate2; operator: Protect still sees persons) -> PERIMETER-ALERT-VOLUME-FATIGUE-1; 28 Envoy Offline HIGH; 1 false safety low-humidity 0.0% (SAFETY-HUMIDITY-JUNK-READING-1). (7) LOAD — CORRECTED 2026-09-27: first read used sensor.span_panel_current_power, which is the GRID FEED (battery covers the house at night), so 1.7 kW was wrong. House consumption (Envoy consumption CT, kW): empty overnight 02-06 CDT 3.0 kW (AC ~0.5 kW -> non-AC ~2.5 kW; EVSE ~0.18 kW); occupied nights 09-23..25 5-6 kW, 09-20..22 9-12 kW. No pets (operator).'
@@ -24544,7 +24545,7 @@ cards:
     range, fix/disable pantry adaptive-lighting automation, resolve camera_census ids (via FRIGATE-LEG-NAMING).'
   shipped_version: v5.101.1
   created: 2026-08-20 14:15
-  updated: '2026-09-29 01:05'
+  updated: '2026-09-30 02:45'
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -24567,6 +24568,7 @@ cards:
     are HA-config, not URA code. Verdict: NEW as a platform-hygiene card, with the camera_census component
     pointed at FRIGATE-LEG-NAMING-1.'
   sibling_of: FRIGATE-LEG-NAMING-1
+  verify_2026_09_30_overnight: 'STILL-NEEDS-OPERATOR, PARTLY UNVERIFIED. REST read 02:45 CDT: automation.pantry_plug_in_adaptive_lighting is still ON and last ran 2026-09-30 01:35Z, so it was not disabled; number.switch_sonoffduo_zigbee_garagebporchinside_delayed_power_on_time_l1/_l2 read unknown (range 0.5-3599.5). LOG-READ GAP: the home-assistant MCP was down this run, so I could NOT check whether the pantry automation still fails (color_temp error) or whether the mqtt.number range errors continue. This is NOT an all-clear on either flood; re-check the error log next session with a working log reader.'
   next: 'DO: fix the Sonoff number range and fix or disable the pantry adaptive-lighting automation (both config-level, outside URA). -> I re-measure recorder growth. The camera_census entity-id flood is handled on FRIGATE-LEG-NAMING-1.'
   refs:
   - ha_get_system_health 2026-08-20
@@ -29490,10 +29492,11 @@ cards:
   title: The battery brain goes blind and freezes whenever both its data sources age out — give it a
     third, local, fast (~5-6s) source so it can keep deciding
   thread: energy
-  status: waiting_operator
+  status: parked
+  parked_2026_09_30_overnight: 'PARKED by this card''s own rule ("If the cutout test shows the stream causes dropouts, this card parks instead"). ENPHASE-BATTERY-CUTOUTS-1 final readout 09-29 16:00-21:00: stream never on 0/6/8/6 dropouts, stream on 55/37/54/94, stream off 9 -> the stream add-on (sc_stream held on 24/7) drives the peak cutouts, so it cannot be a permanent SOC source. Verified 2026-09-30 02:40 CDT: all sensor.envoy_stream_* unavailable since the 00:17Z restart (add-on still stopped). REVIVAL TRIGGER: a way to read the stream without holding sc_stream on 24/7 (e.g. a duty-cycled or on-demand arm that measures no cutout increase), OR Enphase firmware that removes the cutout interaction. Side effect to note: SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1 uses the stream as its grid fallback; with the stream off it falls back to its older source.'
   groom_2026_09_29: 'ADJACENCY FOUND, now linked as blocked_by ENPHASE-BATTERY-CUTOUTS-1. That card stopped the Envoy stream add-on at 20:15 CDT 09-28 to test whether the stream (sc_stream kept on 24/7, against Enphases 15-min auto-disable design) drives the peak battery cutouts. The same-evening A/B roughly halved dropouts with the stream off, but that did not explain them fully. Live now: sensor.envoy_stream_grid_power = unavailable. The approval ask stays, but it is gated on that readout: a stream that has to stay off cannot become a SOC tier.'
   created: '2026-09-25 18:00'
-  updated: '2026-09-29 01:05'
+  updated: '2026-09-30 02:40'
   unblocked_2026_09_27: 'OVERNIGHT 2026-09-27: blocker ENVOY-STREAM-TRUST-MEASURE-1 closed done with Run 2 (AUDIT_envoy_mqtt_trust_measurement.md). Every criterion this card needed now has a number: 3.1 PASS, 3.2 PASS on transport, 3.3b PASS (p95 1 pp vs native), 3.5 PASS, 3.7 PASS. Moved planned -> waiting_operator because the next step is the operator tier call the card already named; not auto-built (overnight pass is bounded; this is Tier-3-class and cost-affecting).'
   binding_constraint_3_8_2026_09_27: 'BINDING CONSTRAINT from Run 2 criterion 3.8, observed live 09-26 23:14:11: when the Envoy re-enumerates (reboot), the stream publishes SOC=0 and backup_reserve 0 then 30 for ~36 s before true values (SOC 36, reserve 10). The plan MUST gate stream SOC/reserve on (a) microinverter/device count back at fleet size OR a settle window after unavailable->value, and (b) never accept a 0 that directly follows unavailable. A test must feed that exact sequence (unavailable, 0, 36) and assert the tier is not taken on the 0.'
   refinement_status: refined
@@ -29925,7 +29928,7 @@ cards:
     all-fresh ages should read data_anomaly_age_seconds first.'
   title: "Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today"
   thread: energy
-  status: waiting_me
+  status: waiting_operator
   groom_2026_09_29: 'MOVED waiting_operator -> waiting_me. Its next is my measurement (envoy_flap_rate_probe.py on 09-30 against the ha_2026_9_4_tracking discriminator), not an operator decision. NOTE for that read: the Envoy stream add-on was stopped 2026-09-28 20:15 for the ENPHASE-BATTERY-CUTOUTS-1 test, a new confound for the 09-28/09-29 flap counts.'
   created: '2026-09-21'
   updated: '2026-09-29 01:05'
@@ -29980,7 +29983,8 @@ cards:
     Envoy fine. homeassistant.reload_config_entry at 21:05 timed out (queued behind the hung setup).
     A setup that never returns and never logs = a missing timeout somewhere in setup, not a network
     fault. Recovery needs a core restart / host reboot.'
-  next: 'MEASURE (me) on 09-30: run scripts/probes/envoy_flap_rate_probe.py and apply the ha_2026_9_4_tracking discriminator (09-28 + 09-29 full days). Fixed -> close; not fixed -> upstream report with our RuntimeError path.'
+  measured_2026_09_30_overnight: 'READOUT of the ha_2026_9_4_tracking discriminator (scripts/probes/envoy_flap_rate_probe.py, HA recorder, sensor.envoy_482543015950_battery unavailable-transitions per local day): 09-22 120, 09-23 109, 09-24 120, 09-25 52, 09-26 15, 09-27 83, 09-28 10 (longest outage 231.6 min), 09-29 19 (longest 36.4 min); since the 00:17Z 09-30 core start 3 in 6.8 h (~11/day pace). VERDICT: PARTIAL, not fixed. The rate is down about 6-10x from the 110-160 baseline but above the <=5/day bar, and outages over 10 min continue on both days (the 231-min one on 09-28 matches the setup-hang shape, entry stuck in setup_in_progress after the 19:22 restart per ENPHASE-BATTERY-CUTOUTS-1). CONFOUNDS, so the drop cannot be credited to 2026.9.4: the Envoy stream add-on was stopped 09-28 20:15 (and 09-26 on 2026.9.3 already read 15). This matches the pre-registered prediction that the upstream fix does not cover our RuntimeError path. LOG-READ GAP: the home-assistant MCP was down this run, so I could not count Session is closed RuntimeErrors directly; this verdict rests on the recorder only.'
+  next: 'PICK: (A) I draft an upstream report for home-assistant/core (the setup hang that never returns and never logs, plus the EnvoyClientClosedError-is-a-RuntimeError path the #181243 fix misses), for you to review and post - posting is outward-facing, so it is yours; (B) accept the reduced rate, close this card, and keep the probe for regressions. -> On A I write the draft into docs/planning and hand it to you; on B I close.'
   links:
     related: [ENERGY-ACCOUNTING-DIVERGENCE-1]
 - id: TEST-SILENT-WHOLE-FILE-SKIPS-1
@@ -30437,10 +30441,11 @@ cards:
 - id: ENPHASE-BATTERY-CUTOUTS-1
   title: At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time
   thread: energy
-  status: waiting_operator
+  status: done
+  disposition_2026_09_30_overnight: 'CLOSED done. Cause found and removed: the Envoy stream add-on held sc_stream on 24/7 and drove the peak battery cutouts (final readout 09-29: 9 dropouts with it off vs 37-94 with it on; 0-8 before it existed). Verified 2026-09-30 02:40 CDT the add-on is still stopped (all sensor.envoy_stream_* unavailable). Not URA. ENVOY-STREAM-SOC-TIER-1 parked per its own rule. Residual for you (no card needed): keep the add-on at boot=manual and avoid long Enphase app live-view sessions (each arms the same stream for 15 min). Revive if peak dropouts climb back above ~10 a night with the add-on off.'
   groom_2026_09_29: 'Links fixed: related ENVOY-FLAKINESS (a non-existent id) -> ENVOY-FLAKINESS-181243-1. Added blocks ENVOY-STREAM-SOC-TIER-1, mirrored there. Lane unchanged: the DO (pull the Enphase app events log / open a case) is still the operators, and the stream-off window test runs 09-29 16-21h.'
   created: '2026-09-28 20:10'
-  updated: '2026-09-29 01:05'
+  updated: '2026-09-30 02:40'
   tags: [enphase, battery, incident, peak-cost]
   origin:
     date: '2026-09-28'
@@ -30450,7 +30455,7 @@ cards:
   result_2026_09_28_2107: 'Same-evening check, 26-min windows (SPAN, load over 3 kW, reserve 15 or below): stream ON 19:48-20:15 gave 35 dropouts, idle 47%. Stream OFF 20:41-21:07 gave 17 dropouts, idle 24%. The same clock window on 09-25 and 09-26 (stream ON) gave 1-2 dropouts, about 1%; 09-21..24 (no stream) gave 0. Reading: turning the stream off roughly halved tonight''s rate, but tonight is anomalous regardless. Something else, most likely Enphase-side and escalating after the 19:15 relay reset, is layered on top. The stream is NOT a sufficient explanation. Confound: operator used the app''s live view, which re-arms sc_stream for 15 min. The 09-29 16-21h test stands (stream off, no app live view).'
   interim_2026_09_29_1830: 'Stream OFF, 09-29 16:00-18:29 (SPAN, same method re-run across all days): 4 dropouts, 2 min idle, 0.1 kWh, $0.03. Same method: 09-23 4/$0.01, 09-24 4/$0.30, 09-25 8/$0.58, 09-26 37/$0.09, 09-27 29/$0.31, 09-28 85/$1.19. Reading so far: back at the pre-stream baseline, which implicates the stream. Not final: 18:30-21:00 is the worst window. Final readout after 21:00 09-29.'
   result_2026_09_29_final: 'FINAL 16:00-21:00, SPAN battery power, dropout = battery >=1.5 kW then idle within one sample, load >3 kW, reserve <=15. Stream NEVER (09-21..24): 0, 6, 8, 6. Stream ON (09-25..28): 55, 37, 54, 94. Stream OFF (09-29): 9. Back to the pre-stream baseline on the first full peak with the add-on stopped. The idle-minutes column in this pass also counts legitimate solar-covered idle, so it does not discriminate; dropout count does. Verdict: the Envoy stream add-on (sc_stream held on 24/7) drives the peak battery cutouts. Enphase-side fault NOT indicated.'
-  next: 'OPERATOR (optional): keep the stream add-on stopped (boot=manual, as now) and avoid long Enphase app live-view sessions (they arm the same stream for 15 min). Me: park ENVOY-STREAM-SOC-TIER-1 (premise fails: the stream cannot stay on) and close this card.'
+  next: 'Closed. (Optional for you: keep the stream add-on at boot=manual; avoid long Enphase app live-view sessions.)'
   links: {related: [ENVOY-FLAKINESS-181243-1], blocks: [ENVOY-STREAM-SOC-TIER-1], context: 'ENVOY-FLAKINESS-181243-1 is the Envoy integration fault (the old link id ENVOY-FLAKINESS did not exist). ENVOY-STREAM-SOC-TIER-1 waits on this test: if the stream add-on causes the dropouts, it cannot become a permanent SOC source.'}
   rank:
     value: 8
