@@ -30516,7 +30516,8 @@ cards:
 - id: BOOT-EVENT-LOOP-FREEZE-1
   title: Every HA restart freezes the whole event loop for about 2.5 minutes, so the house is dead and every integration times out
   thread: platform
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.26
   tier: 2
   created: '2026-09-29 20:05'
   origin: 'Operator 2026-09-29 on the post-restart DB warnings: "The db slowness warnings are a flag... Not urgent but super important. Check on the logging as well." Audit docs/planning/AUDIT_db_write_worker_slow_2026_09_29.md.'
@@ -30527,7 +30528,8 @@ cards:
 - id: DB-WAIT-WARNING-REWORK-1
   title: The DB "write worker slow, no connection" warning is wrong and noisy - one line per waiting write, misnamed, no recovery line
   thread: platform
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.26
   tier: 1
   created: '2026-09-29 20:05'
   origin: 'Same audit (AUDIT_db_write_worker_slow_2026_09_29.md), operator asked to check the logging.'
@@ -30548,7 +30550,8 @@ cards:
 - id: ROOM-DIALOGS-USABILITY-SWEEP-1
   title: Room settings dialogs look unfinished - raw underscore labels, fields with no helper text, and helper texts that are far too long
   thread: ux
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.26
   tier: 1
   created: '2026-09-29 20:15'
   origin: 'Operator 2026-09-29 (screenshots of Climate & Fans): "this dialogs is really poor. Some things have weird looking lables with underscores. A bunch have no helper text. The ones that do have them too long. It needs to be cleaned up to look presentable. Might as well sweep the other room dialogs as well for usability."'
