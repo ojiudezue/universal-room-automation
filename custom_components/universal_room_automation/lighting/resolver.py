@@ -29,11 +29,21 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 from ..const import (
+    CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
+    CONF_LIGHT_EVENING_COLOR_KELVIN,
+    CONF_LIGHT_SCENE_DAY,
+    CONF_LIGHT_SCENE_EVENING,
+    CONF_LIGHT_SCENE_SLEEP,
     CONF_LIGHTS,
     CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY,
     CONF_LIGHTS_ON_ENTRY,
     CONF_LIGHTS_ON_ENTRY_DARK_ONLY,
+    CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
+    CONF_NIGHT_LIGHT_EVENING_COLOR,
     CONF_NIGHT_LIGHTS,
+    LIGHT_SLOT_DAY,
+    LIGHT_SLOT_EVENING,
+    LIGHT_SLOT_SLEEP,
 )
 
 
@@ -119,3 +129,99 @@ def effective_exit_set(cfg: dict) -> list[str]:
         # lights too — see plan Vacancy rule.
         return [e for e in union if e not in leave_on]
     return union
+
+
+# ---------------------------------------------------------------------------
+# Slice E (v5.103.29) — time-of-day slots (Day / Evening / Sleep).
+#
+# Slot boundaries reuse existing URA time notions — no new timers, no clock
+# reads inside this module. The caller supplies ``is_sleep_hours`` (from
+# ``RoomAutomation.is_sleep_mode_active()``) and ``is_dark`` (from
+# ``RoomAutomation.is_dark()``), both already injectable in tests.
+# ---------------------------------------------------------------------------
+
+_SCENE_KEY_BY_SLOT = {
+    LIGHT_SLOT_DAY: CONF_LIGHT_SCENE_DAY,
+    LIGHT_SLOT_EVENING: CONF_LIGHT_SCENE_EVENING,
+    LIGHT_SLOT_SLEEP: CONF_LIGHT_SCENE_SLEEP,
+}
+
+
+def resolve_slot(is_sleep_hours: bool, is_dark: bool | None) -> str:
+    """Return the current time-of-day slot for this room.
+
+    * ``sleep``   — ``is_sleep_hours`` True (Slice D precedence: per-room
+      sleep clock OR HouseState=="sleep").
+    * ``evening`` — not sleep AND ``is_dark is True`` (dark but awake).
+    * ``day``     — otherwise (sun up, or is_dark unknown / False).
+    """
+    if is_sleep_hours:
+        return LIGHT_SLOT_SLEEP
+    if is_dark is True:
+        return LIGHT_SLOT_EVENING
+    return LIGHT_SLOT_DAY
+
+
+def slot_scene(cfg: dict, slot: str) -> str | None:
+    """Return the operator-configured scene entity_id for this slot, or None.
+
+    Absent / empty ⇒ None (per-light brightness/colour path is used).
+    """
+    key = _SCENE_KEY_BY_SLOT.get(slot)
+    if not key:
+        return None
+    value = cfg.get(key)
+    if not value or not isinstance(value, str):
+        return None
+    return value
+
+
+def slot_regular_light_overrides(cfg: dict, slot: str) -> dict:
+    """Return ``{brightness_pct?, color_kelvin?}`` overrides for regular lights.
+
+    Only the Evening slot has NEW keys in Slice E. Absent evening keys ⇒
+    empty dict, so the caller keeps today's ``CONF_LIGHT_BRIGHTNESS_PCT``
+    default and adds no color. Day and Sleep return ``{}`` unconditionally
+    (today's behaviour — regular lights have no per-slot settings).
+    """
+    if slot != LIGHT_SLOT_EVENING:
+        return {}
+    out: dict = {}
+    b = cfg.get(CONF_LIGHT_EVENING_BRIGHTNESS_PCT)
+    if b is not None:
+        try:
+            out["brightness_pct"] = int(b)
+        except (TypeError, ValueError):
+            pass
+    c = cfg.get(CONF_LIGHT_EVENING_COLOR_KELVIN)
+    if c is not None:
+        try:
+            out["color_kelvin"] = int(c)
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def slot_night_light_overrides(cfg: dict, slot: str) -> dict:
+    """Return ``{brightness?, color?}`` overrides for night lights.
+
+    Only the Evening slot has NEW keys. Day / Sleep return ``{}`` and the
+    caller uses today's ``CONF_NIGHT_LIGHT_DAY_*`` / ``_SLEEP_*`` defaults
+    (byte-identical to pre-Slice-E behaviour).
+    """
+    if slot != LIGHT_SLOT_EVENING:
+        return {}
+    out: dict = {}
+    b = cfg.get(CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS)
+    if b is not None:
+        try:
+            out["brightness"] = int(b)
+        except (TypeError, ValueError):
+            pass
+    c = cfg.get(CONF_NIGHT_LIGHT_EVENING_COLOR)
+    if c is not None:
+        try:
+            out["color"] = int(c)
+        except (TypeError, ValueError):
+            pass
+    return out

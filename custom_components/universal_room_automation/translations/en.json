@@ -2106,7 +2106,7 @@
       },
       "options_lighting_behaviour": {
         "title": "Lighting behaviour",
-        "description": "Role pickers for this room's lights. {summary}",
+        "description": "Role pickers for this room's lights. {summary}\n\n{advanced_hint}",
         "data": {
           "lights_on_entry": "Turn on when someone enters",
           "lights_on_entry_dark_only": "\u2026but only when the room is dark",
@@ -2117,7 +2117,14 @@
           "light_manual_on_hold_s": "Keep lights I turn on (seconds)",
           "light_manual_off_cooldown_s": "Keep lights I turn off (seconds)",
           "light_dark_use_sun_fallback": "Use outdoor light when there's no room sensor",
-          "light_dark_lux_source": "Borrow another room's light sensor"
+          "light_dark_lux_source": "Borrow another room's light sensor",
+          "light_evening_brightness_pct": "Evening brightness",
+          "light_evening_color_kelvin": "Evening colour temperature",
+          "night_light_evening_brightness": "Evening night-light brightness",
+          "night_light_evening_color": "Evening night-light colour",
+          "light_scene_day": "Day scene",
+          "light_scene_evening": "Evening scene",
+          "light_scene_sleep": "Sleep scene"
         },
         "data_description": {
           "lights_on_entry": "The lights that come on when someone enters. Leave empty to use every light in this room.",
@@ -2129,7 +2136,14 @@
           "light_manual_on_hold_s": "Advanced. When someone turns a light on by hand, the room will not turn it off while occupied. It goes off once the room is empty. 0 turns this off.",
           "light_manual_off_cooldown_s": "Advanced. When someone turns a light off by hand, the room will not turn it back on for this long. 0 turns this off.",
           "light_dark_use_sun_fallback": "When this room has no working light sensor, treat outdoor light as the source of truth. Off preserves today's 'never dark' behaviour.",
-          "light_dark_lux_source": "Use this sensor's reading if the room's own sensor is missing or offline."
+          "light_dark_lux_source": "Use this sensor's reading if the room's own sensor is missing or offline.",
+          "light_evening_brightness_pct": "Advanced. Brightness for regular lights after dusk but before sleep. Leave empty to use the day setting.",
+          "light_evening_color_kelvin": "Advanced. Colour temperature for regular lights in the evening. Leave empty for no colour change.",
+          "night_light_evening_brightness": "Advanced. Brightness for night lights in the evening. Leave empty to use the day setting.",
+          "night_light_evening_color": "Advanced. Colour temperature for night lights in the evening. Leave empty to use the day setting.",
+          "light_scene_day": "Advanced. When set, entry activates this scene during the day instead of turning lights on one by one.",
+          "light_scene_evening": "Advanced. When set, entry activates this scene in the evening instead of turning lights on one by one.",
+          "light_scene_sleep": "Advanced. When set, entry activates this scene during sleep hours instead of turning night lights on one by one."
         },
         "sections": {
           "auto_manual_devices": {

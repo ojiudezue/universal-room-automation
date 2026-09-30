@@ -906,6 +906,45 @@ DEFAULT_NIGHT_LIGHT_SLEEP_COLOR: Final = 2000  # Warm red (Kelvin)
 DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS: Final = 100  # Full brightness
 DEFAULT_NIGHT_LIGHT_DAY_COLOR: Final = 4000  # Cool white (Kelvin)
 
+# ROOM-LIGHTING-SETUP-REDESIGN-1 Slice E (v5.103.29) — time-of-day slots.
+# Slot boundaries REUSE existing URA time notions — no new timers:
+#   sleep = ``RoomAutomation.is_sleep_mode_active()`` (per-room sleep clock
+#           + HouseState=="sleep" precedence from Slice D)
+#   evening = NOT sleep AND ``is_dark == True`` (room lux, borrowed lux,
+#             configured outdoor illuminance, or sun elevation <
+#             ``SUN_DARK_ELEVATION_DEG`` — the ladder Slice B/B′ built)
+#   day = otherwise
+# See ``lighting/resolver.py::resolve_slot``. ABSENT new keys ⇒ today's
+# behaviour exactly (resolver-equivalence tests still green).
+# The Day and Sleep slots REUSE the existing night-light day/sleep settings
+# above; Slice E adds ONLY the Evening slot's settings + optional per-slot
+# scenes. Absent evening keys ⇒ the slot resolves to today's day/sleep
+# behaviour depending on sun state, i.e. no visible change.
+CONF_LIGHT_EVENING_BRIGHTNESS_PCT: Final = "light_evening_brightness_pct"
+CONF_LIGHT_EVENING_COLOR_KELVIN: Final = "light_evening_color_kelvin"
+CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS: Final = "night_light_evening_brightness"
+CONF_NIGHT_LIGHT_EVENING_COLOR: Final = "night_light_evening_color"
+CONF_LIGHT_SCENE_DAY: Final = "light_scene_day"
+CONF_LIGHT_SCENE_EVENING: Final = "light_scene_evening"
+CONF_LIGHT_SCENE_SLEEP: Final = "light_scene_sleep"
+
+# Slot names (used as dict keys in the resolver + call sites).
+LIGHT_SLOT_DAY: Final = "day"
+LIGHT_SLOT_EVENING: Final = "evening"
+LIGHT_SLOT_SLEEP: Final = "sleep"
+
+# Slice E D6 — no extra scene quiet-window needed:
+#   Verified against installed HA 2026.2.3 that ``scene.async_activate``
+#   propagates the caller's context via
+#   ``async_reproduce_state(context=self._context)`` (scene.py:369) and
+#   the ``apply`` service does the same (scene.py:224). Because URA calls
+#   ``scene.turn_on`` with the URA parent_id context (via
+#   ``URA_LIGHT_WRITE_DOMAINS`` including "scene"), the light.* /
+#   switch.* state_changed events fired by the reproduce path already
+#   carry the URA parent_id and the existing D2 listener filter
+#   (``is_ura_context``) ignores them. A per-scene quiet-window would
+#   only add value if HA stopped propagating context; document + defer.
+
 # Cover types
 COVER_TYPE_SHADE: Final = "shade"
 COVER_TYPE_TILT: Final = "tilt"

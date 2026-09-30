@@ -38,6 +38,31 @@ except Exception:  # noqa: BLE001 — tests may mock without data_entry_flow
 
 _LOGGER = logging.getLogger(__name__)
 
+
+# ROOM-LIGHTING-SETUP-REDESIGN-1 Slice E (v5.103.29) — Advanced-mode hint.
+# The Lighting behaviour step has Advanced-only fields (manual-hold windows
+# from Slice D, and the Slice E evening brightness/colour + scenes below).
+# HA hides ``description={"advanced": True}`` fields when the user profile
+# does NOT have Advanced mode on. Wording verified against the current HA
+# frontend: the user profile is reached by clicking the user name at the
+# bottom-left of the sidebar and toggling "Advanced mode".
+from typing import Final  # noqa: E402
+LIGHTING_ADVANCED_HINT_HIDDEN: Final = (
+    "Some rarely-used settings are hidden. To show them, turn on Advanced "
+    "mode in your HA profile (click your name at the bottom left -> "
+    "Advanced mode). Hidden settings keep working."
+)
+LIGHTING_ADVANCED_HINT_SHOWN: Final = "Advanced settings shown."
+
+
+def lighting_advanced_hint(show_advanced_options: bool) -> str:
+    """Return the correct Advanced-mode hint variant for the Lighting step."""
+    return (
+        LIGHTING_ADVANCED_HINT_SHOWN
+        if show_advanced_options
+        else LIGHTING_ADVANCED_HINT_HIDDEN
+    )
+
 # CONFIG-FLOW-SLOW-ONBOARDING-1: diagnostic entry/exit timing on every
 # async_step_* handler. See _cflow_timing.py for gate + log format.
 from ._cflow_timing import instrument_flow  # noqa: E402
@@ -185,6 +210,13 @@ from .const import (
     CONF_LIGHTS_ON_ENTRY,
     CONF_LIGHTS_ON_ENTRY_DARK_ONLY,
     CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY,
+    CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
+    CONF_LIGHT_EVENING_COLOR_KELVIN,
+    CONF_LIGHT_SCENE_DAY,
+    CONF_LIGHT_SCENE_EVENING,
+    CONF_LIGHT_SCENE_SLEEP,
+    CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
+    CONF_NIGHT_LIGHT_EVENING_COLOR,
     CONF_AWAY_TURN_OFF_LEAVE_ON,
     CONF_LIGHT_MANUAL_ON_HOLD_S,
     CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
@@ -11670,6 +11702,79 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
+            # Slice E D5 (v5.103.29): evening slot brightness/colour for
+            # regular AND night lights. Absent ⇒ Day / Sleep defaults are
+            # used (byte-identical to pre-Slice-E behaviour). Advanced-only:
+            # rarely tuned; day/sleep already have their own knobs elsewhere.
+            vol.Optional(
+                CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
+                default=self._get_current(CONF_LIGHT_EVENING_BRIGHTNESS_PCT)
+                or vol.UNDEFINED,
+                description={"advanced": True},
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=100, step=1, unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_LIGHT_EVENING_COLOR_KELVIN,
+                default=self._get_current(CONF_LIGHT_EVENING_COLOR_KELVIN)
+                or vol.UNDEFINED,
+                description={"advanced": True},
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1000, max=8000, step=50, unit_of_measurement="K",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
+                default=self._get_current(CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS)
+                or vol.UNDEFINED,
+                description={"advanced": True},
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=100, step=1, unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_NIGHT_LIGHT_EVENING_COLOR,
+                default=self._get_current(CONF_NIGHT_LIGHT_EVENING_COLOR)
+                or vol.UNDEFINED,
+                description={"advanced": True},
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1000, max=8000, step=50, unit_of_measurement="K",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            # Slice E D6: optional per-slot scenes. When set, entry calls
+            # scene.turn_on instead of computing per-light brightness/colour;
+            # URA write mark propagates from scene → constituent lights
+            # (see ura_context.URA_LIGHT_WRITE_DOMAINS).
+            vol.Optional(
+                CONF_LIGHT_SCENE_DAY,
+                default=self._get_current(CONF_LIGHT_SCENE_DAY) or vol.UNDEFINED,
+                description={"advanced": True},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="scene")
+            ),
+            vol.Optional(
+                CONF_LIGHT_SCENE_EVENING,
+                default=self._get_current(CONF_LIGHT_SCENE_EVENING) or vol.UNDEFINED,
+                description={"advanced": True},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="scene")
+            ),
+            vol.Optional(
+                CONF_LIGHT_SCENE_SLEEP,
+                default=self._get_current(CONF_LIGHT_SCENE_SLEEP) or vol.UNDEFINED,
+                description={"advanced": True},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="scene")
+            ),
             # Auto/Manual sub-block (moved from Devices per D8).
             vol.Optional("auto_manual_devices"): _ha_section(
                 vol.Schema({
@@ -11700,10 +11805,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         filtered_schema = self.add_suggested_values_to_schema(
             vol.Schema(schema_dict), {},
         )
+        # Slice E (v5.103.29): tell the user in plain words that some
+        # settings are hidden and how to reveal them. Short variant when
+        # Advanced mode is already on. ``self.show_advanced_options`` is
+        # set by HA's data_entry_flow from the profile flag.
+        advanced_hint = lighting_advanced_hint(
+            bool(getattr(self, "show_advanced_options", False))
+        )
         return self.async_show_form(
             step_id="options_lighting_behaviour",
             data_schema=filtered_schema,
-            description_placeholders={"summary": summary},
+            description_placeholders={
+                "summary": summary,
+                "advanced_hint": advanced_hint,
+            },
         )
 
     async def async_step_options_covers(self, user_input=None):

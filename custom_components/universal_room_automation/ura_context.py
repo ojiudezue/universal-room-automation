@@ -68,7 +68,13 @@ def ura_write_context() -> Any:
 # Room lights are ``light.*`` or ``switch.*`` (CONF_LIGHTS picker allows both,
 # config_flow.py:1777). Only writes to these domains carry the mark, so every
 # other URA write (climate, cover, fan, lock, number ...) stays byte-identical.
-URA_LIGHT_WRITE_DOMAINS: Final = frozenset({"light", "switch"})
+URA_LIGHT_WRITE_DOMAINS: Final = frozenset({"light", "switch", "scene"})
+# ``scene`` is included so a URA-issued ``scene.turn_on`` carries the same
+# URA parent_id; the scene's ``async_activate`` propagates it via
+# ``async_reproduce_state(context=self._context)``
+# (homeassistant/components/homeassistant/scene.py:369, verified against
+# installed HA 2026.2.3), so the light.* / switch.* writes the scene fans out
+# to arrive at the D2 manual-hold listener already marked and are ignored.
 
 
 def ura_ctx_kwargs(domain: str) -> dict:

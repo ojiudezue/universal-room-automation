@@ -1,4 +1,4 @@
-# v5.103.29 — Room lighting roles + role-vs-inventory sweep (Slices A–D)
+# v5.103.29 — Room lighting roles + role-vs-inventory sweep (Slices A–E)
 
 **Status:** DRAFT, deploy HELD for operator go.
 Branch: `feature/room-lighting-roles`.
@@ -604,3 +604,251 @@ Post-restart validation table filled per CLAUDE.md rule.
   `options_lighting_behaviour` step; the room-device dashboard exposes
   no entity for them (operator ruling: "not on the room device").
 
+
+---
+
+## Slice E — 2026-09-30 (D5 time-of-day slots + D6 scenes + Advanced hint)
+
+### Falsifiable invariant
+**Absent every new Slice E key ⇒ byte-identical to Slice D behaviour
+(resolver-equivalence still green; entry writes the same
+brightness/colour/entities). Present ⇒ (1) `resolve_slot(is_sleep,
+is_dark)` returns `sleep`/`evening`/`day` in that precedence, (2) the
+Evening slot may override regular-light and night-light
+brightness/colour, and (3) an operator-configured per-slot scene
+short-circuits the per-light path via `scene.turn_on` while the URA
+context still propagates to the constituent lights (verified against
+installed HA 2026.2.3, so the D2 manual-hold listener still ignores
+them — no separate quiet-window needed).**
+Falsifier: any config with no Slice E keys whose entry set / brightness
+/ colour differs from Slice D; any Evening entry that fails to use an
+override that was set; any scene-configured entry that keeps calling
+`light.turn_on` under the per-light path.
+
+### What shipped
+
+- `const.py` — new keys `CONF_LIGHT_EVENING_BRIGHTNESS_PCT`,
+  `CONF_LIGHT_EVENING_COLOR_KELVIN`, `CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS`,
+  `CONF_NIGHT_LIGHT_EVENING_COLOR`, `CONF_LIGHT_SCENE_DAY`,
+  `CONF_LIGHT_SCENE_EVENING`, `CONF_LIGHT_SCENE_SLEEP` + slot-name
+  constants `LIGHT_SLOT_DAY`/`_EVENING`/`_SLEEP`. Slot BOUNDARIES REUSE
+  existing URA time notions with zero new timers or clock reads: sleep =
+  `RoomAutomation.is_sleep_mode_active()` (already fuses per-room sleep
+  clock + HouseState=="sleep" precedence from Slice D); evening = NOT
+  sleep AND `is_dark == True` (already the room→borrowed→outdoor→sun
+  ladder Slice B/B′ built); day = otherwise.
+- `lighting/resolver.py` — new pure helpers `resolve_slot`, `slot_scene`,
+  `slot_regular_light_overrides`, `slot_night_light_overrides`. Clock is
+  INJECTED via the two bool arguments — no `datetime.now()` inside the
+  module; tests set both directly.
+- `ura_context.py` — `URA_LIGHT_WRITE_DOMAINS` now includes `"scene"` so
+  a URA-issued `scene.turn_on` carries the URA parent_id. Verified
+  against installed HA 2026.2.3 that `homeassistant.scene.async_activate`
+  propagates the caller context through
+  `async_reproduce_state(context=self._context)` (scene.py:369) and
+  `apply` service does the same (scene.py:224); the child light.* /
+  switch.* state_changed events therefore arrive at the D2 listener
+  already carrying the URA parent_id and the existing `is_ura_context`
+  filter drops them. No separate quiet-window infrastructure was
+  needed; the fallback path is documented in `const.py` for the case
+  where a future HA change stops propagating context.
+- `automation.py::_control_lights_entry` — resolves the current slot
+  after the sleep branch, then checks `_maybe_activate_slot_scene(slot,
+  entry_set)`; on hit, dispatches `scene.turn_on` (URA-stamped) and
+  records `set_last_action("turn_on", "Activated <slot> scene", ...)`.
+  On miss, runs today's per-light path with the slot passed down.
+- `automation.py::_control_lights_entry` (sleep branch) — same scene
+  short-circuit before `_turn_on_night_lights(mode="sleep")`. The
+  non-night sweep still runs afterwards so the sleep contract ("only
+  night lights on") holds even when a scene is used.
+- `automation.py::_maybe_activate_slot_scene` — new helper. Returns
+  False on no scene / unavailable scene entity / any exception (fail-open
+  to today's per-light path). Uses `_safe_service_call` which now stamps
+  URA context on scene calls.
+- `automation.py::_turn_on_regular_lights(slot=LIGHT_SLOT_DAY)` — new
+  keyword parameter. Applies `slot_regular_light_overrides` for
+  brightness (all capabilities) and colour (FULL only). Day path is
+  byte-identical to pre-Slice-E when no evening keys are set.
+- `automation.py::_turn_on_night_lights(mode=...)` — accepts `"evening"`
+  as a third mode. Evening REUSES the existing day defaults for any key
+  the operator did not override (no duplicated defaults).
+- `config_flow.py::async_step_options_lighting_behaviour` — adds seven
+  Advanced-only fields for evening brightness/colour + three per-slot
+  scene pickers (`scene`-domain EntitySelector each). Step description
+  now interpolates `{advanced_hint}` (per operator instruction 2026-09-30).
+- `config_flow.py::lighting_advanced_hint(show_advanced_options)` — new
+  helper. Returns `LIGHTING_ADVANCED_HINT_HIDDEN` (long form, plain
+  words, HA-profile path verified: "click your name at the bottom left
+  → Advanced mode") when the profile is NOT in Advanced mode, else the
+  short `LIGHTING_ADVANCED_HINT_SHOWN` ("Advanced settings shown.").
+  Wired into `async_show_form(description_placeholders=...)` for the
+  Lighting behaviour step.
+- `strings.json` + `translations/en.json` — 7 new field labels + helpers
+  (Advanced tag on every helper), and step `description` gains
+  `\n\n{advanced_hint}` so the hint renders inline. All field labels are
+  ≤4 words, plain wording, no nerd terms.
+- `quality/tests/test_lighting_slice_e_slots_scenes.py` — 23 new tests
+  covering: `resolve_slot` precedence (sleep > evening > day); slot
+  getters absent/present; absent-keys resolver-equivalence; scene domain
+  in URA_LIGHT_WRITE_DOMAINS + parent_id verification; wire-in tests for
+  `_turn_on_regular_lights` (evening overrides + day identity) and
+  `_turn_on_night_lights(mode="evening")` (evening falls back to day
+  defaults, and uses overrides when set); `_maybe_activate_slot_scene`
+  three branches (no scene, unavailable, dispatched); Advanced-hint
+  variants + helper + strings placeholder assertion.
+
+### What was intentionally deferred
+
+- **No day/sleep-specific per-slot color/brightness for regular lights.**
+  Regular lights still have only `CONF_LIGHT_BRIGHTNESS_PCT` (no colour)
+  outside evening. Rationale: minimises visible surface; today's
+  regular-light path had no colour by design; if operators want to add
+  a "day colour" or "sleep brightness" for regular lights, that is a
+  follow-up card and needs its own strings block.
+- **No scene quiet-window `LIGHT_SCENE_URA_QUIET_S` constant.** The
+  installed HA source shows context propagates from `scene.turn_on`
+  through `async_reproduce_state` to the child light/switch writes, so
+  the D2 filter already covers scene-fanned changes. Documented in
+  `const.py` with the file:line citation; revisit only if a future HA
+  version breaks propagation.
+- **Custom slot boundaries (per-room "evening starts at" time field).**
+  The plan said "Boundaries per-room time fields (defaults sunset /
+  sleep-clock window)" — Slice E reuses the sunset-equivalent
+  (`is_dark`) and sleep-clock unchanged. Adding a per-room override
+  time field introduces a new timer / clock read and per-operator
+  guidance was "no new timers"; if operators want to shift the evening
+  boundary later, revisit as a Numbers-Get-Knobs Number entity.
+- **Absent `evening` mode for `_turn_off_non_night_lights` / exit.** Exit
+  path is unchanged; slots only affect entry brightness/colour/scene.
+
+### Per-site mutation drills
+
+Ran 2026-09-30, `PYTHONDONTWRITEBYTECODE=1`, `__pycache__` cleared
+(`shutil.rmtree`) before AND after every drill; source restored via
+Python rewrite; `git status --short` clean after the loop.
+
+| # | Site | Mutation | Test that went RED |
+|---:|---|---|---|
+| S1 | `resolver.py::resolve_slot` sleep branch | `if False and is_sleep_hours:` | 1 test (`resolve_slot_sleep_wins_over_dark`) |
+| S2 | `resolver.py::resolve_slot` evening branch | `if False and is_dark is True:` | 1 test (`resolve_slot_evening_when_dark_and_not_sleep`) |
+| S3 | `resolver.py::slot_scene` cfg lookup | force `value = None` | 2 tests (present + scene-dispatch wiring) |
+| S4 | `resolver.py::slot_regular_light_overrides` evening read | force `b = None` | 1 test (evening overrides brightness) |
+| S5 | `resolver.py::slot_night_light_overrides` evening read | force `b = None` | 1 test (evening night uses overrides) |
+| S6 | `automation.py::_maybe_activate_slot_scene` dispatch | early `return False` | 1 test (scene dispatch happy path) |
+| S7 | `config_flow.py::lighting_advanced_hint` variant picker | always return HIDDEN | 1 test (helper picks variant) |
+| S8 | `ura_context.py::URA_LIGHT_WRITE_DOMAINS` | drop `"scene"` | 1 test (domains include scene) |
+| S9 | `resolver.py::slot_regular_light_overrides` slot gate | leak into day/sleep | 1 test (evening-only invariant) |
+
+All 9 drills turn a NAMED Slice E test red; tree restored; `git status
+--short` clean after the loop.
+
+### Test selection + name-diff vs develop
+
+Selection: `-k "light or automation or reconciler or house_state or presence or switch or ai_rule"`.
+Baseline: `.claude/worktrees/validator-develop-0930` (develop @ `1d1625480`) — same worktree Slice D name-diffed against.
+
+| Run | Passed | Failed |
+|---|---:|---:|
+| develop @ `1d1625480` baseline | 1213 | 17 (pre-existing) |
+| Slices A + B + B′ + C + D (prior) | 1347 | 16 (subset of develop's) |
+| Slices A + B + B′ + C + D + E (this ship) | 1377 | 16 (same subset) |
+| Delta E over D | **+30 new (23 Slice E + 7 Slice E strings-field asserts extending `test_room_dialog_strings.py`)** | **0 new** |
+
+Name-diff cross-check: `comm -23 dev.fail branch.fail` shows exactly one
+develop-only failure not in the branch's selected set
+(`test_chatter_tick_helper::test_apply_chatter_tick_b_low_4_kill_switch_flip_discharges_latch`,
+same as Slice D). `comm -13` empty ⇒ zero new failures introduced.
+
+### Live acceptance criteria (Slice E, prospective — deploy HELD)
+
+- Verify: with no Slice E keys set on any room, entry brightness/colour
+  is identical to Slice D (visual regression: dim living-room lights on
+  entry at dusk are the same as before).
+- Verify: with `CONF_LIGHT_EVENING_BRIGHTNESS_PCT=40` +
+  `CONF_LIGHT_EVENING_COLOR_KELVIN=2400` on a FULL-capability room, a
+  dark-but-not-sleep entry sets brightness_pct=40 + color_kelvin=2400
+  (developer-tools state history on the light shows those attributes).
+- Verify: with `CONF_LIGHT_SCENE_EVENING=scene.sunset` on a room, entry
+  during evening dispatches `scene.turn_on` for `scene.sunset` and does
+  NOT dispatch a `light.turn_on` for that room's lights.
+- Verify: a scene-triggered light change during occupancy does NOT open
+  a D2 manual hold (URA context propagates through the scene).
+- Verify: unsetting the scene reverts to per-light behaviour next entry.
+- Verify: the Lighting behaviour step description shows the
+  `LIGHTING_ADVANCED_HINT_HIDDEN` phrase when the user profile is NOT
+  in Advanced mode; toggling Advanced mode on shows the short
+  `LIGHTING_ADVANCED_HINT_SHOWN` phrase; the seven Advanced fields
+  appear only when Advanced mode is on.
+- Verify: activating the Sleep scene during a sleep entry still sweeps
+  non-night lights off (`_turn_off_non_night_lights` runs after the
+  scene dispatch).
+
+Post-restart validation table filled per CLAUDE.md rule.
+
+---
+
+## Whole-branch summary of deferrals (Slices A → E)
+
+Consolidated from each slice's "deferrals" section for a single planning
+pass BEFORE deploy.
+
+### Deferred within scope of the plan (Slice E-adjacent)
+- **Custom evening boundary time knob** — Slice E boundaries reuse
+  `is_dark` (sunset-equivalent) + `is_sleep_mode_active()`; no per-room
+  "evening starts at" field. Follow-up card only if operators ask to
+  shift boundaries.
+- **Day / Sleep colour + brightness for regular lights** — Slice E
+  added Evening only; today's Day/Sleep for regular lights use
+  `CONF_LIGHT_BRIGHTNESS_PCT` + no colour. Follow-up card.
+- **Scene URA quiet-window backstop** — not built; installed HA verified
+  to propagate context; documented in `const.py` with revisit trigger.
+
+### Deferred from Slice D
+- `CONF_LIGHTS_GUEST_MODE` (plan D4 Guest semantics) — code not wired;
+  today's HOME-equivalent behaviour preserved. Required before ROADMAP
+  v12 6.0.0 (IDENTITY-DRIVEN AUTONOMY).
+- Away sweep depends on the coordinator being `loaded` at the Home→Away
+  edge (not a new gap — every signal handler).
+- No room-device dashboard entity for manual-hold window knobs.
+
+### Deferred from Slice C
+- SecurityDelegate `release()` hook (operator question open — is one
+  wanted?).
+- Late device echo > 5 s residual (HA drops context after 5 s;
+  value-matched last-write guard not in plan).
+- Optimizer / AI-rule light writes stamped but do not consult hold
+  (open question).
+- Manual Mode ON: vacancy transition unobserved so hold lives its full
+  window (harmless).
+- Holds are RAM-only; restart forgets them (fan-oracle precedent).
+- `sensor.<room>_light_manual_hold_remaining_s` NOT built (conflicts
+  with plan non-goal "only new entity is the switch").
+- D3 uses the room's real darkness for the dark-only subset (plan
+  silent — treated as an implementation decision).
+
+### Deferred from Slice B′
+- Night light brightness/colour field MOVE from Devices → Lighting
+  behaviour step (value tunables, not role pickers).
+- Reconciler-with-leave-on behavioural harness (Slice B′ drill #5 gap;
+  Slice C harness covers the D2 hold surface but not the
+  reconciler-vacant-leave-on carve-out explicitly).
+- Away-turn-off-leave-on ACTUATION was inert in Slice B′; Slice D
+  activated it.
+
+### Deferred from Slice B
+- Per-room `CONF_LIGHT_DARK_USE_SUN_FALLBACK` UI toggle — Slice B set
+  code to respect the key from stored options; Slice B′ added the UI.
+
+### Plan items NOT built (broad)
+- **D7 — Walk-through rooms.** Dropped by REV 2.3.2 (operator: no new
+  timers; still needs a 15 s exit cap). Revive on operator request.
+- **Stored-data migration (F4).** Not built by design — absent new
+  keys ⇒ today's behaviour, so no migration needed.
+- **Zone / House dialog cleanups** — separate cards (ZONE-DIALOGS-CLEANUP-1,
+  HOUSE-DIALOGS-CLEANUP-1).
+- **Adaptive-lighting integration** — plan non-goal.
+- **D5 slot count > 3** — plan non-goal.
+
+None of the deferrals block the ship; each is either an operator
+question, a follow-up card triggered by post-deploy behaviour, or an
+explicit plan non-goal.

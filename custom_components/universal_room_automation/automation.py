@@ -199,6 +199,9 @@ from .const import (  # noqa: E402
     CONF_LIGHT_MANUAL_ON_HOLD_S,
     DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S,
     DEFAULT_LIGHT_MANUAL_ON_HOLD_S,
+    LIGHT_SLOT_DAY,
+    LIGHT_SLOT_EVENING,
+    LIGHT_SLOT_SLEEP,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1234,8 +1237,15 @@ class RoomAutomation:
                        room_name, is_sleep_hours, night_lights)
 
         if is_sleep_hours and night_lights:
-            # SLEEP MODE: Only night lights, no darkness check
+            # SLEEP MODE: Only night lights, no darkness check.
+            # Slice E D6: an operator-configured Sleep scene wins over the
+            # per-light night-lights path.
             _LOGGER.info("Sleep mode active - turning on night lights only")
+            if await self._maybe_activate_slot_scene(LIGHT_SLOT_SLEEP, night_lights):
+                # scene.turn_on already dispatched; still sweep non-night
+                # so the sleep contract "only night lights on" holds.
+                await self._turn_off_non_night_lights()
+                return
             await self._turn_on_night_lights(mode="sleep")
             await self._turn_off_non_night_lights()
             return
@@ -1272,6 +1282,20 @@ class RoomAutomation:
         switches_as_lights = [e for e in entry_set if e.startswith("switch.")]
         lights = entry_set
 
+        # Slice E D5: resolve the current time-of-day slot (day / evening
+        # / sleep). Sleep is handled above; this branch is day-or-evening.
+        # D6: if a scene is configured for this slot, activate it instead
+        # of computing per-light brightness/colour.
+        from .lighting.resolver import resolve_slot
+        slot = resolve_slot(is_sleep_hours=False, is_dark=is_dark)
+        if await self._maybe_activate_slot_scene(slot, entry_set):
+            self.coordinator.set_last_action(
+                "turn_on",
+                f"Activated {slot} scene",
+                entry_set,
+            )
+            return
+
         has_on_entry = bool(self.config.get(CONF_LIGHTS_ON_ENTRY))
         if has_on_entry:
             # Slice C D2: a light a person turned OFF while occupied stays
@@ -1288,8 +1312,16 @@ class RoomAutomation:
                     "transition": self.config.get(CONF_LIGHT_TRANSITION_ON, 1),
                 }
                 capability = self.config.get(CONF_LIGHT_CAPABILITIES, LIGHT_CAPABILITY_BASIC)
+                # Slice E D5: evening slot may override brightness / colour.
+                from .lighting.resolver import slot_regular_light_overrides
+                overrides = slot_regular_light_overrides(self.config, slot)
                 if capability in [LIGHT_CAPABILITY_BRIGHTNESS, LIGHT_CAPABILITY_FULL]:
-                    svc_data["brightness_pct"] = self.config.get(CONF_LIGHT_BRIGHTNESS_PCT, 100)
+                    svc_data["brightness_pct"] = overrides.get(
+                        "brightness_pct",
+                        self.config.get(CONF_LIGHT_BRIGHTNESS_PCT, 100),
+                    )
+                if capability == LIGHT_CAPABILITY_FULL and "color_kelvin" in overrides:
+                    svc_data["color_kelvin"] = overrides["color_kelvin"]
                 await self._safe_service_call("light", SERVICE_TURN_ON, svc_data, blocking=False)
             if switches_as_lights:
                 await self._safe_service_call(
@@ -1297,11 +1329,17 @@ class RoomAutomation:
                     {"entity_id": switches_as_lights}, blocking=False,
                 )
         else:
-            # Turn on all lights (regular + night lights with day settings)
-            await self._turn_on_regular_lights()
+            # Turn on all lights (regular + night lights).
+            # Slice E D5: slot picks brightness/colour. Day/Evening only
+            # here (sleep handled above). Absent evening keys ⇒ today's
+            # day settings.
+            await self._turn_on_regular_lights(slot=slot)
             if night_lights:
-                # Night lights also turn on during day with day settings
-                await self._turn_on_night_lights(mode="day")
+                # Night lights follow the same slot; evening resolves to
+                # day defaults when no evening overrides are set.
+                await self._turn_on_night_lights(
+                    mode=("evening" if slot == LIGHT_SLOT_EVENING else "day"),
+                )
         _LOGGER.info(
             "Room entry automation: Turned on %d light(s) and %d switch(es)",
             len(actual_lights), len(switches_as_lights)
@@ -1382,8 +1420,69 @@ class RoomAutomation:
 
     # === v3.2.2.5: NIGHT LIGHT HELPER METHODS ===
     
-    async def _turn_on_regular_lights(self) -> None:
-        """Turn on regular lights (non-night lights) with standard settings."""
+    async def _maybe_activate_slot_scene(
+        self, slot: str, entry_set: list[str],
+    ) -> bool:
+        """Slice E D6: if the current slot has a scene, activate it.
+
+        Returns True when a scene was dispatched (caller must skip the
+        per-light brightness/colour path). Returns False when no scene is
+        configured for this slot, when the scene entity is missing /
+        unavailable, or on any failure — the caller then runs today's
+        per-light path.
+
+        The URA context on the ``scene.turn_on`` call propagates to the
+        scene's inner light.* / switch.* writes (verified against installed
+        HA 2026.2.3, see ``ura_context.URA_LIGHT_WRITE_DOMAINS``), so the
+        D2 manual-hold listener already ignores them.
+        """
+        try:
+            from .lighting.resolver import slot_scene
+
+            scene_id = slot_scene(self.config, slot)
+            if not scene_id:
+                return False
+            # Guard: scene must exist and be reachable. A missing / unavailable
+            # scene falls back to the per-light path (fail-open).
+            try:
+                st = self.hass.states.get(scene_id)
+                if st is None or getattr(st, "state", None) in (
+                    "unavailable", "unknown",
+                ):
+                    _LOGGER.debug(
+                        "Slot %s scene %s not usable (state=%s); falling back",
+                        slot, scene_id,
+                        getattr(st, "state", None) if st else None,
+                    )
+                    return False
+            except Exception:  # noqa: BLE001
+                # Fail-open: HA state read blew up ⇒ try the scene anyway
+                # (scene.turn_on will simply no-op if the entity is gone).
+                pass
+            _LOGGER.info(
+                "Room entry [%s]: activating slot=%s scene=%s (skipping per-light path); entry_set had %d entities",
+                self.config.get("room_name", "unknown"), slot, scene_id, len(entry_set),
+            )
+            await self._safe_service_call(
+                "scene", SERVICE_TURN_ON,
+                {"entity_id": scene_id}, blocking=False,
+            )
+            return True
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception(
+                "Slice E scene branch failed for slot=%s; falling back to per-light path",
+                slot,
+            )
+            return False
+
+    async def _turn_on_regular_lights(self, slot: str = LIGHT_SLOT_DAY) -> None:
+        """Turn on regular lights (non-night lights) with standard settings.
+
+        Slice E (v5.103.29): ``slot`` is the current time-of-day slot.
+        The Evening slot may override brightness / colour via
+        ``slot_regular_light_overrides``; Day is byte-identical to today's
+        path (empty overrides ⇒ ``CONF_LIGHT_BRIGHTNESS_PCT`` + no colour).
+        """
         lights = self.config.get(CONF_LIGHTS, [])
         night_lights = self.config.get(CONF_NIGHT_LIGHTS, [])
         
@@ -1408,14 +1507,21 @@ class RoomAutomation:
             
             # Add brightness if supported
             capability = self.config.get(CONF_LIGHT_CAPABILITIES, LIGHT_CAPABILITY_BASIC)
+            # Slice E D5: slot overrides brightness / colour when set.
+            from .lighting.resolver import slot_regular_light_overrides
+            overrides = slot_regular_light_overrides(self.config, slot)
             if capability in [LIGHT_CAPABILITY_BRIGHTNESS, LIGHT_CAPABILITY_FULL]:
-                brightness_pct = self.config.get(CONF_LIGHT_BRIGHTNESS_PCT, 100)
-                service_data["brightness_pct"] = brightness_pct
-            
+                service_data["brightness_pct"] = overrides.get(
+                    "brightness_pct",
+                    self.config.get(CONF_LIGHT_BRIGHTNESS_PCT, 100),
+                )
+            if capability == LIGHT_CAPABILITY_FULL and "color_kelvin" in overrides:
+                service_data["color_kelvin"] = overrides["color_kelvin"]
+
             await self._safe_service_call(
                 "light", SERVICE_TURN_ON, service_data, blocking=False
             )
-            _LOGGER.debug("Turned on %d regular light(s)", len(actual_lights))
+            _LOGGER.debug("Turned on %d regular light(s) (slot=%s)", len(actual_lights), slot)
 
         # Turn on switch.* entities
         if switches_as_lights:
@@ -1427,9 +1533,12 @@ class RoomAutomation:
     
     async def _turn_on_night_lights(self, mode: str = "sleep") -> None:
         """Turn on night lights with mode-specific settings.
-        
+
         Args:
-            mode: "sleep" for dim/warm settings, "day" for bright/cool settings
+            mode: "sleep" for dim/warm settings, "day" for bright/cool
+                settings, or "evening" for Slice E D5 evening overrides
+                (falls back to day defaults for keys the operator did not
+                set — absent evening keys ⇒ day behaviour).
         """
         night_lights = self.config.get(CONF_NIGHT_LIGHTS, [])
         # Slice C D2: skip night lights a person turned OFF (cooldown).
@@ -1441,12 +1550,31 @@ class RoomAutomation:
         # Get settings based on mode
         if mode == "sleep":
             brightness = self.config.get(
-                CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS, 
+                CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
                 DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS
             )
             color_temp = self.config.get(
                 CONF_NIGHT_LIGHT_SLEEP_COLOR,
                 DEFAULT_NIGHT_LIGHT_SLEEP_COLOR
+            )
+        elif mode == "evening":
+            # Slice E D5: evening slot. REUSE day defaults for any key
+            # the operator did not override.
+            from .lighting.resolver import slot_night_light_overrides
+            ov = slot_night_light_overrides(self.config, LIGHT_SLOT_EVENING)
+            brightness = ov.get(
+                "brightness",
+                self.config.get(
+                    CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
+                    DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
+                ),
+            )
+            color_temp = ov.get(
+                "color",
+                self.config.get(
+                    CONF_NIGHT_LIGHT_DAY_COLOR,
+                    DEFAULT_NIGHT_LIGHT_DAY_COLOR,
+                ),
             )
         else:  # day mode
             brightness = self.config.get(
