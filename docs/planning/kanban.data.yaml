@@ -30509,6 +30509,38 @@ cards:
     related: [KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1, HVAC-HOLD-SIZING-ALL-ROOMS-1]
     context: 'HVAC-HOLD-SIZING-ALL-ROOMS-1 raw probe surfaced both overrides; KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 carried the kitchen override as evidence while diagnosing kitchen lights.'
   rank: {value: 4, time_criticality: 4, effort: 2}
+- id: BOOT-EVENT-LOOP-FREEZE-1
+  title: Every HA restart freezes the whole event loop for about 2.5 minutes, so the house is dead and every integration times out
+  thread: platform
+  status: planned
+  tier: 2
+  created: '2026-09-29 20:05'
+  origin: 'Operator 2026-09-29 on the post-restart DB warnings: "The db slowness warnings are a flag... Not urgent but super important. Check on the logging as well." Audit docs/planning/AUDIT_db_write_worker_slow_2026_09_29.md.'
+  why: 'All 12 restarts since 09-25 show exactly one loop freeze of 133-156 s, 55-260 s after shutdown (recorder state-change gaps; nothing over 7 s otherwise). On 09-29 19:17 the log went silent from EVERY logger for 148.6 s (19:17:26.8-19:19:55.5); afterwards Meross reported being 154 s behind, ElkM1/MQTT/Protect timed out. The URA DB wait warnings (elapsed 150-158 s against a 35 s timer) are a symptom, not the cause. Cause NOT established: URA has no sync SQLite in the boot path; the last URA lines before and after are Living Room fan-oracle reads (automation.py:337) - a lead only. Also explains the boot-time house-state away placeholder window (house state inferred 19:19:57, 2 s after the loop resumed) and likely the boot stage 2 timeouts.'
+  next: 'BUILD (Tier 2, ~70 LoC): a daemon-thread loop-stall watchdog that, when the loop stops responding for >10 s, dumps the main thread stack once per freeze (faulthandler/sys._current_frames) at WARNING, and in steady state (not boot) raises an NM alert. Then one restart names the culprit: outside URA -> URA cleared and we chase that integration; inside -> fix that site. Acceptance: next restart log carries one stall line with a main-thread stack pointing at a named file:line.'
+  links: {related: [DB-WAIT-WARNING-REWORK-1, HOUSE-STATE-SLEEP-LOST-ON-RESTART-1, ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1, RELOAD-WATCHDOG-HAZARD], context: 'Adjacency swept 2026-09-29: RELOAD-WATCHDOG-HAZARD (done) and ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 are reload-triggered stalls, not boot; no existing card covers the per-boot freeze. NEW.'}
+  rank: {value: 4, time_criticality: 2, effort: 2}
+- id: DB-WAIT-WARNING-REWORK-1
+  title: The DB "write worker slow, no connection" warning is wrong and noisy - one line per waiting write, misnamed, no recovery line
+  thread: platform
+  status: planned
+  tier: 1
+  created: '2026-09-29 20:05'
+  origin: 'Same audit (AUDIT_db_write_worker_slow_2026_09_29.md), operator asked to check the logging.'
+  why: 'database.py:435 logs one WARNING per waiting write (23 lines in 2 ms), says "no connection" when the connection is fine and the write is only queued, never distinguishes a loop stall (elapsed >> timer) from a real worker backlog, and logs nothing when the episode clears. Worker-start and DB-stats lines are INFO and never kept (no logger: block). README_v5.103.24.md:309 wrongly calls it "boot-time DB pool warm-up" (there is no pool). Past DB invariants (single writer/queue/connection, no dropped rows, 300 s hard cap) all held on 09-29.'
+  next: 'BUILD (Tier 1, ~40 LoC, logging only): one WARNING per episode labelled loop-stall vs worker-backlog, "not yet served" wording, one summary line on clear (max wait, peak depth, callers, dropped); INFO during boot, WARNING in steady state. Fix README_v5.103.24.md:309. Operator (config-first, optional): add logger: custom_components.universal_room_automation.database: info.'
+  links: {related: [BOOT-EVENT-LOOP-FREEZE-1]}
+  rank: {value: 2, time_criticality: 1, effort: 1}
+- id: DB-SIZE-GROWTH-1
+  title: The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables
+  thread: platform
+  status: investigating
+  created: '2026-09-29 20:05'
+  origin: 'Side finding of AUDIT_db_write_worker_slow_2026_09_29.md. Not the cause of the boot freeze.'
+  why: 'Unmeasured growth; the incremental vacuum (v5.5.7) should keep free pages low, so growth is live rows. Need a per-table size breakdown before deciding retention changes.'
+  next: 'MEASURE (me, read-only): per-table row counts + bytes (dbstat or page counts) on a copy of the DB; compare to retention settings. Exit: a retention card if a table is unbounded, else close.'
+  links: {related: [DB-WAIT-WARNING-REWORK-1]}
+  rank: {value: 2, time_criticality: 1, effort: 1}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
