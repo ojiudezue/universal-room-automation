@@ -30731,6 +30731,16 @@ cards:
   next: 'BUILD (Tier 1, deploy held): room cover automation skips device_class garage/gate covers in every room-tier path (entry, exit, timed open, timed close, sleep block), with a one-time INFO naming the skipped cover; Security keeps sole control. Grep every room cover writer first. Tests + per-site drill.'
   links: {related: [ROOM-TYPE-TRIMMED-MENU-1]}
   rank: {value: 4, time_criticality: 3, effort: 1}
+- id: LIGHTS-GUEST-MODE-BEHAVIOUR-1
+  title: Decide how room lights behave when the house is in Guest mode (normal / off / night lights only)
+  thread: ux
+  status: waiting_operator
+  created: '2026-09-30 08:40'
+  origin: 'Deferred from lighting Slice D (feature/room-lighting-roles, README_v5.103.29): the plan listed Guest values but left the choice open; today''s behaviour kept.'
+  why: 'Guest mode changes who is in the house; lighting may want guest rooms to behave differently (e.g. night-lights only in hallways). No behaviour change until decided.'
+  next: 'PICK (operator): Guest lighting per room = today''s behaviour (recommended default) / off / night lights only -> I add it as a per-room Lighting option (Advanced unless you want it simple).'
+  links: {related: [ROOM-LIGHTING-SETUP-REDESIGN-1]}
+  rank: {value: 2, time_criticality: 1, effort: 1}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

@@ -29,7 +29,7 @@
 - **W2 — occupancy truth.** First the live-room gate (v5.103.15, in review: failed rooms act as if not defined in URA; loading rooms block; the hold covers only the occupancy un-retreat). Then the fast path, scoped to shaving the 5-minute tick only. Then a night still-sleeper hold (Jaya was lost by radar twice after her fan stopped, with her phone stationary in the suite). Room override switches stay as they are, documented.
 - **W3 — energy-aware HVAC. W4 — closure** (dispose shipped cards, README write-backs, keep the doc current).
 
-## Energy thread (2026-09-25)
+## Energy thread (2026-09-25) — *superseded in part by [167](entries/167_envoy_stream_addon_drives_peak_battery_cutouts.json): the stream add-on is off pending an A/B/A test, so stream-as-SOC-tier is on hold*
 
 The upstream HA Envoy fix does **not** close our path: `EnvoyClientClosedError` subclasses RuntimeError, not EnvoyError, so the "wait for 2026.9.4" plan is retracted. The local MQTT stream is independent — up 99.78% of native-down time — but after an Envoy reboot it read fresh-yet-wrong: a partial fleet made SOC read 87→20 while the battery was about 90%. So any stream SOC tier needs a device-completeness and slew guard, not just freshness. Trust run 2 is due ≥ 2026-09-26 20:15. → [147](entries/147_envoy_stream_trust_and_emporia_primary.json)
 
@@ -38,7 +38,7 @@ The upstream HA Envoy fix does **not** close our path: `EnvoyClientClosedError` 
 - After W1-B ships: does the post-return manual strand class (§9.1) disappear in the write log, and does the reclaim trip-wire stay quiet?
 - Night still-sleeper hold for W2: which corroborator is trustworthy — stationary in-suite BLE, radar micro-blips, or both — without re-introducing "anyone home"?
 - When do zones 2/3's Bryant schedules get reduced, so URA is the only controller (the working assumption)?
-- Stream-as-SOC-tier: does run 2 close stream-vs-native agreement and the reserve witness?
+- Envoy stream A/B/A: do peak dropouts return when the add-on is re-enabled? (replaces the stream-as-SOC-tier question)
 
 ## Scope pivot + UX refinement (2026-09-29)
 
@@ -47,3 +47,7 @@ The upstream HA Envoy fix does **not** close our path: `EnvoyClientClosedError` 
 **Refinement over features.** The operator called the room dialog "the absolute core of URA" and "a power-user mess". v5.103.26 fixed wording (every field labelled, helpers ≤220 chars, meta-test). The structural rule → [164](entries/164_room_dialog_enumeration_vs_automation_light_roles.json): Devices/Sensors enumerate; behaviour steps hold roles. Lighting becomes per-light roles with one "counts as empty" timeout — no new timers (the operator's call: one clock answers "why did it turn off"). Next: trim the menu by room type instead of inventing a "mini room" kind → [165](entries/165_mini_room_is_menu_attenuation_by_room_type.json), gated on the operator liking the cleanup.
 
 **Energy:** the Envoy stream add-on looks like the driver of peak battery cutouts (37–94/day on vs 9 off) → [167](entries/167_envoy_stream_addon_drives_peak_battery_cutouts.json); A/B/A pending.
+
+**Boot freeze solved (2026-09-30).** The v5.103.26 watchdog named URA's own startup scan (Bayesian data-quality, O(n²)) as the ~150 s freeze on every restart; fixed in v5.103.28, and the saved house state (v5.103.27) now restores across restarts → [168](entries/168_v5_103_28_boot_freeze_fixed_bayesian_scan_o_n_2_.json).
+
+**Second home + generalization.** Thermostats become code profiles auto-detected per zone with a Generic safety net; the ecobee-over-HomeKit home runs HVAC off until its profile is proven → [169](entries/169_thermostat_profiles_in_code_autodetected_generic_net.json). Settings go Simple-by-default with HA's Advanced mode for tuning → [170](entries/170_simple_advanced_via_ha_advanced_mode.json).
