@@ -219,7 +219,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">17<span class="den"> / 148</span></span>
+<span class="metric">17<span class="den"> / 150</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
 <details open><summary>recent autonomous work — 63 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
@@ -605,7 +605,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </ul></details>
 </section>
 <div class="summary">
-<span>Inbox <b>0</b></span>
+<span>Inbox <b>2</b></span>
 <span>Investigating <b>4</b></span>
 <span>Pre-planning <b>12</b></span>
 <span>Planned <b>23</b></span>
@@ -619,8 +619,11 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 </div>
 <main class="board">
 <section class="lane" data-col="inbox">
-<h2>Inbox <span class="count">0</span><span class="hint">raw capture</span></h2>
-<div class="none">(none)</div>
+<h2>Inbox <span class="count">2</span><span class="hint">raw capture</span></h2>
+<div class="cards">
+<details class="card" data-id="ZONE-DIALOGS-CLEANUP-1" draggable="true"><summary><span class="id">ZONE-DIALOGS-CLEANUP-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#1 · WSJF 2.0 · v3 tc1 u2 /e3</span><span class="title">Zone settings dialogs are a power-user mess - apply the room cleanup rules (plain labels, short helpers, enumeration vs automation, roles in behaviour steps)</span><div class="tagline">ux</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-29 22:30</div><dt>Why</dt><dd>Same problems as the room dialogs (ROOM-DIALOGS-USABILITY-SWEEP-1 shipped wording, ROOM-LIGHTING-SETUP-REDESIGN-1 structure). The room plan PLANNING_room_dialog_cleanup_and_lighting_roles.md lists zone problems in a short section; start ...</dd><dt>Next</dt><dd>Me: after the room cleanup ships, plan the zone pass using the same meta-test (labels/helpers/length) extended to zone steps.</dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div></div></details>
+<details class="card" data-id="HOUSE-DIALOGS-CLEANUP-1" draggable="true"><summary><span class="id">HOUSE-DIALOGS-CLEANUP-1</span><span class="wsjf" style="font-size:11px;font-weight:600;color:#c65;background:#c651;border-radius:4px;padding:0 5px;margin-left:4px">#2 · WSJF 2.0 · v3 tc1 u2 /e3</span><span class="title">House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs)</span><div class="tagline">ux</div></summary><div class="body"><dl class="kv"><div class="cardmeta">created 2026-09-29 22:30</div><dt>Why</dt><dd>Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.</dd><dt>Next</dt><dd>Me: after the room and zone passes, plan house then coordinators with the same rules and meta-test.</dd></dl><div class="actions"><button type="button" data-action="done">✓ done</button><button type="button" data-action="deferred">⏸ deferred</button><button type="button" data-action="declined">✕ declined</button><button type="button" data-action="approve">▶ approve</button><button type="button" data-action="investigate">🔍 investigate</button></div></div></details>
+</div>
 </section>
 <section class="lane" data-col="investigating">
 <h2>Investigating <span class="count">4</span><span class="hint">measuring; truth not yet known</span></h2>

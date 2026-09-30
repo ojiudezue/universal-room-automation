@@ -9,7 +9,7 @@ _Generated: 2026-09-29T22:05:41-05:00_ - _Data commit: `65ee4241f20a`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
+| 📥 Inbox | 2 |
 | 🔬 Investigating | 4 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 23 |
@@ -21,10 +21,20 @@ _Generated: 2026-09-29T22:05:41-05:00_ - _Data commit: `65ee4241f20a`_ - _last_r
 | 🅿️ Parked | 71 |
 | ✅ Done | 253 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (2)
 _raw capture_
 
-_(none)_
+### `ZONE-DIALOGS-CLEANUP-1` - Zone settings dialogs are a power-user mess - apply the room cleanup rules (plain labels, short helpers, enumeration vs automation, roles in behaviour steps) — _#1 · WSJF 2.0 · v3 tc1 u2 /e3_
+thread: **ux** - status: **inbox**
+_created 2026-09-29 22:30_
+- **Why:** Same problems as the room dialogs (ROOM-DIALOGS-USABILITY-SWEEP-1 shipped wording, ROOM-LIGHTING-SETUP-REDESIGN-1 structure). The room plan PLANNING_room_dialog_cleanup_and_lighting_roles.md lists zone problems in a short section; start ...
+- **Next:** Me: after the room cleanup ships, plan the zone pass using the same meta-test (labels/helpers/length) extended to zone steps.
+
+### `HOUSE-DIALOGS-CLEANUP-1` - House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs) — _#2 · WSJF 2.0 · v3 tc1 u2 /e3_
+thread: **ux** - status: **inbox**
+_created 2026-09-29 22:30_
+- **Why:** Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.
+- **Next:** Me: after the room and zone passes, plan house then coordinators with the same rules and meta-test.
 
 ## 🔬 Investigating (4)
 _measuring; truth not yet known_
