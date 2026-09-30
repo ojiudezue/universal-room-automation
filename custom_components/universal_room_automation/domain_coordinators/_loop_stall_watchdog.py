@@ -220,9 +220,9 @@ class _LoopStallWatchdog:
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug("watchdog NM emit failed", exc_info=True)
 
-            self.hass.loop.call_soon_threadsafe(
-                lambda: self.hass.async_create_task(_emit())
-            )
+            # Bug Class #42: never wrap async_create_task in a lambda;
+            # hand the coroutine to the loop from this thread directly.
+            asyncio.run_coroutine_threadsafe(_emit(), self.hass.loop)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("watchdog: scheduling NM emit failed", exc_info=True)
 

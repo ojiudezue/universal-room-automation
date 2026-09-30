@@ -343,9 +343,7 @@
           "humidity_fan_timeout": "Humidity Fan Minimum Run Time",
           "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time",
           "comfort_fan_away_veto_enabled": "Comfort fan off when away",
-          "ble_hold_cap_enabled": "Limit phone-only occupancy",
-          "hvac_coordination_enabled": "Enable HVAC-Managed Fans",
-          "fan_control_enabled": "Enable Comfort Fan Control"
+          "ble_hold_cap_enabled": "Limit phone-only occupancy"
         },
         "data_description": {
           "room_fan_mode": "Who controls this room's comfort fan: the thermostat zone, this room's own temperature settings, or nobody (you control it).",
@@ -361,9 +359,7 @@
           "humidity_fan_timeout": "Minimum continuous runtime before the fan is allowed to turn off after humidity drops below threshold. Prevents short-cycling.",
           "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces off if humidity stays elevated longer than this — protects against stuck humidity sensors and runaway runs.",
           "comfort_fan_away_veto_enabled": "Keep this room's comfort fan off while the house is Away, even if a sensor says someone is here. Turn off if you want the fan to run while you're out (e.g. for pets). Humidity and exhaust fans are not affected.",
-          "ble_hold_cap_enabled": "After a while, stop keeping the room occupied on a phone's Bluetooth signal alone unless motion or presence sensors agree. Stops a phone left behind from holding the room on.",
-          "hvac_coordination_enabled": "When ON, comfort fans follow the whole-house cooling plan instead of just this room's temperature.",
-          "fan_control_enabled": "Automatically control comfort/ceiling fans based on temperature (speed thresholds in next step)."
+          "ble_hold_cap_enabled": "After a while, stop keeping the room occupied on a phone's Bluetooth signal alone unless motion or presence sensors agree. Stops a phone left behind from holding the room on."
         },
         "sections": {
           "humidity_fan_advanced": {
@@ -1971,9 +1967,7 @@
           "humidity_fan_timeout": "Humidity Fan Minimum Run Time",
           "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time",
           "comfort_fan_away_veto_enabled": "Comfort fan off when away",
-          "ble_hold_cap_enabled": "Limit phone-only occupancy",
-          "hvac_coordination_enabled": "Enable HVAC-Managed Fans",
-          "fan_control_enabled": "Enable Comfort Fan Control"
+          "ble_hold_cap_enabled": "Limit phone-only occupancy"
         },
         "sections": {
           "humidity_fan_advanced": {
@@ -2018,8 +2012,6 @@
           "fan_speed_high_temp": "Fan mode Room temperature only. Temperature at which fans step to HIGH.",
           "comfort_fan_away_veto_enabled": "Keep this room's comfort fan off while the house is Away, even if a sensor says someone is here. Turn off if you want the fan to run while you're out (e.g. for pets). Humidity and exhaust fans are not affected.",
           "ble_hold_cap_enabled": "After a while, stop keeping the room occupied on a phone's Bluetooth signal alone unless motion or presence sensors agree. Stops a phone left behind from holding the room on.",
-          "hvac_coordination_enabled": "When ON, comfort fans follow the whole-house cooling plan instead of just this room's temperature.",
-          "fan_control_enabled": "Automatically control comfort/ceiling fans based on temperature (speed thresholds below).",
           "humidity_fan_control_enabled": "Master switch for humidity/exhaust automation. When OFF, URA does not touch the humidity fan.",
           "wet_room": "Treat this room as a wet room: enables spike detection and post-vacancy run-on by default, and exempts the exhaust from sleep-time force-off.",
           "humidity_fan_spike_enabled": "Fires the fan when humidity rises sharply above its recent baseline — catches showers before the absolute threshold trips.",
