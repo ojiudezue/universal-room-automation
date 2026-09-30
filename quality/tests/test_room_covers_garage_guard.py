@@ -246,3 +246,43 @@ async def test_shade_in_garage_room_still_actuates_via_available():
     assert failed == []
     assert hass.services.async_call.call_count == 1
     assert hass.services.async_call.call_args_list[0].args[2]["entity_id"] == shade
+
+
+# ---------------------------------------------------------------------------
+# Review LOW: AI rules must not move a garage door either.
+# ---------------------------------------------------------------------------
+
+
+def _ai_rule_harness(device_class):
+    """Drive the REAL coordinator._execute_rule_action on a minimal self."""
+    import types
+
+    coord_mod = importlib.import_module(
+        "custom_components.universal_room_automation.coordinator"
+    )
+    hass = MagicMock()
+    st = MagicMock()
+    st.attributes = {"device_class": device_class}
+    hass.states.get = MagicMock(return_value=st)
+    hass.services.async_call = AsyncMock()
+    self_ns = types.SimpleNamespace(
+        hass=hass,
+        _AI_RULE_ALLOWED_DOMAINS=coord_mod.UniversalRoomCoordinator._AI_RULE_ALLOWED_DOMAINS,
+    )
+    return coord_mod.UniversalRoomCoordinator._execute_rule_action, self_ns, hass
+
+
+def test_ai_rule_cannot_open_a_garage_door():
+    fn, self_ns, hass = _ai_rule_harness("garage")
+    action = {"domain": "cover", "service": "open_cover",
+              "target": {"entity_id": "cover.garage_door"}, "rule_id": "r1"}
+    asyncio.get_event_loop().run_until_complete(fn(self_ns, action, "Garage A"))
+    hass.services.async_call.assert_not_called()
+
+
+def test_ai_rule_can_still_open_a_shade():
+    fn, self_ns, hass = _ai_rule_harness("shade")
+    action = {"domain": "cover", "service": "open_cover",
+              "target": {"entity_id": "cover.shade"}, "rule_id": "r2"}
+    asyncio.get_event_loop().run_until_complete(fn(self_ns, action, "Study A"))
+    hass.services.async_call.assert_awaited_once()

@@ -1140,6 +1140,19 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             return
 
         entity_id = target.get("entity_id")
+        # ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1 (review LOW): AI rules must not
+        # move a garage door / gate either — Security owns those covers.
+        if domain == "cover" and entity_id:
+            from .cover_ownership import is_security_owned_cover  # noqa: PLC0415
+
+            _ids = [entity_id] if isinstance(entity_id, str) else list(entity_id)
+            if any(is_security_owned_cover(self.hass, e) for e in _ids):
+                _LOGGER.warning(
+                    "[%s] AI rule %s blocked: cover.%s targets a garage door "
+                    "or gate, which only Security controls",
+                    room_name, action.get("rule_id") or "<unknown>", service,
+                )
+                return
         if entity_id:
             data["entity_id"] = entity_id
 
