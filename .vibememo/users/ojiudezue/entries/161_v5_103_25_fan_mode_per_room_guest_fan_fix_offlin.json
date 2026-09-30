@@ -1,0 +1,27 @@
+{
+  "format_version": "2.1",
+  "entry_id": "161",
+  "author": "ojiudezue",
+  "session_id": "claude_20260930_001512_ship_v5_103_25",
+  "timestamp": "2026-09-30T00:15:12Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.25 shipped: Fan Mode per room + guest fan fix + offline-thermostat hold (Batch D) and anomaly partial/blind metrics",
+  "summary": "Fan Mode per room + guest fan fix + offline-thermostat hold (Batch D) and anomaly partial/blind metrics",
+  "why": "A guest in Guest Bedroom 2 had the fan cycling after both fan toggles were off, because the HVAC fan controller never read either toggle. Two overlapping toggles were the root confusion, so the operator chose one visible 3-way Fan Mode (option C) over a hidden fix. Anomaly sensors claimed nominal while most metrics were blind, which hid real outages; partial makes blindness visible. Shipped together to spend one restart while the house is awake.",
+  "implications": "Shipped HVAC-FANS-IGNORE-ROOM-COMFORT-FAN-SWITCH-1, HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1, HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1, HVAC-ANOMALY-BLIND-1, ANOMALY-SAVE-BASELINES-DICT-MUTATION-1 at v5.103.25; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.25.md (Live criteria).",
+  "revisit_trigger": "If any room fan runs while its Fan Mode is Off, or an anomaly sensor reads nominal with blind metrics, reopen.",
+  "refs": {
+    "cards": [
+      "HVAC-FANS-IGNORE-ROOM-COMFORT-FAN-SWITCH-1",
+      "HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1",
+      "HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1",
+      "HVAC-ANOMALY-BLIND-1",
+      "ANOMALY-SAVE-BASELINES-DICT-MUTATION-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.25.md"
+    ],
+    "release_notes": "v5.103.25 carries two cycles. Batch D (v5.103.24): one per-room Fan Mode select (Follow thermostat / Room temperature / Off) decides who runs each room fan; Climate Automation switch retired; no heat_cool/S1 writes while a thermostat is unavailable; person-ended borrows restore correctly; arrester no longer cancels AC-reset restore. Anomaly: sensors report partial instead of nominal when metrics are blind; learning means actively collecting; baseline dict-mutation fix. See README_v5.103.24.md and README_v5.103.25.md."
+  }
+}

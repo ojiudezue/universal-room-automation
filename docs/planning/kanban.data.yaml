@@ -23346,7 +23346,8 @@ cards:
   title: save_baselines iterates the baseline dict while awaiting, so a concurrent new metric can
     raise mid-save and silently abandon the remaining writes
   thread: platform
-  status: parked
+  status: shipped_organic
+  shipped_version: v5.103.25
   created: '2026-09-16 04:00'
   updated: '2026-09-26 02:40'
   refinement_status: initial
@@ -23627,14 +23628,14 @@ cards:
     and egress_pause_frequency are both event-driven accumulators over rare events, which per RESTART-SAFETY-DOCTRINE-1
     is the hazard class that stays structurally inert; wire them only with an explicit statement of expected
     samples-per-day, or leave them declared-and-suppressed.'
-  status: waiting_operator
+  status: shipped_organic
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 8 - detector partly blind; fix may touch the shared detector (Tier 2-DB).'
   rank: {value: 5, time_criticality: 3, effort: 8}
   groom_2026_09_29_dupkeys: 'HYGIENE: this card carried the key "disposition_2026_09_26_groom" more than once. YAML keeps only the LAST copy, so the earlier text was invisible to the renderer and to every status read. Earlier copies renamed to <key>_prevN (text preserved verbatim). The effective value is unchanged, verified by a before/after parse of status/next/updated for every card.'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: short_cycle_rate now wired (hvac.py:4077). NARROW to the 2 still-unproduced metrics: comfort_deviation_hours (no call site, :4160) + egress_pause_frequency (0 hits). 4/5 wired.'
   relane_2026_09_10: Not a soak -> PRE-PLANNING. Plan the short-cycle producer carrying measured distributions
     as acceptance fixture; decide rolling-24h-per-tick vs per-completed-cycle-log.
-  shipped_version: v5.103.4
+  shipped_version: v5.103.25
   created: 2026-08-20 14:15
   updated: '2026-09-29 01:05'
   refinement_status: refined
@@ -30270,7 +30271,8 @@ cards:
 - id: HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1
   title: A new arrester episode cancels a pending AC hard-reset restore, so a zone can stay off for about 2-20 minutes after a reset
   thread: hvac
-  status: 'review'
+  status: shipped_organic
+  shipped_version: v5.103.25
   created: '2026-09-29 04:10'
   updated: '2026-09-29 05:15'
   approval: implied
@@ -30317,7 +30319,8 @@ cards:
 - id: HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1
   title: While the Carrier thermostats are unavailable, URA keeps writing to them (the heat_cool enforcer treats 'unavailable' as drift, and S1 re-sends Away every tick)
   thread: hvac
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.25
   created: '2026-09-29 11:40'
   updated: '2026-09-29 11:40'
   approval: implied
@@ -30347,7 +30350,8 @@ cards:
 - id: HVAC-FANS-IGNORE-ROOM-COMFORT-FAN-SWITCH-1
   title: The HVAC fan controller keeps turning a room's fan on and off even after the room's Comfort Fan Control switch is turned off (a guest was woken by it)
   thread: hvac
-  status: in_progress
+  status: shipped_organic
+  shipped_version: v5.103.25
   created: '2026-09-29 14:10'
   updated: '2026-09-29 14:10'
   approval: implied
