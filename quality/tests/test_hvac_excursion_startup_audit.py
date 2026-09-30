@@ -81,11 +81,13 @@ def _make_env(rows):
     captured = []
 
     async def _capture(hass_, entity_id, preset, *, blocking, gate=None,
-                       site=None, zone_id=None, reason=None):
+                       site=None, zone_id=None, reason=None,
+                       excursion_id=None):
         captured.append({
             "entity_id": entity_id, "preset": preset,
             "blocking": blocking, "site": site,
             "zone_id": zone_id, "reason": reason,
+            "excursion_id": excursion_id,
         })
         return True
 
@@ -129,6 +131,11 @@ def test_F1_boot_audit_restores_nudge_preset_from_snapshot():
     assert call["blocking"] is True, (
         "F1: preset restore must use blocking=True so a settled read "
         "after boot sees the write, not a racing cloud poll."
+    )
+    assert call["excursion_id"] == "nudge:zone_a:1", (
+        "HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1 (W1-A F6): startup_audit "
+        "NUDGE preset restore must forward the row's excursion_id so the "
+        "climate_write ledger row carries it."
     )
     db.clear_excursion_row.assert_awaited_with("zone_a")
 

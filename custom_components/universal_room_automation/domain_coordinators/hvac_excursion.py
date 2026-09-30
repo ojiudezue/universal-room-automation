@@ -714,6 +714,7 @@ async def _auto_return(
                     site=f"auto_return:{token.kind.value}",
                     zone_id=token.zone_id,
                     reason=trigger,
+                    excursion_id=token.excursion_id,
                 )
                 preset_after = pre_preset if wrote else None
                 restore_ok = True if wrote else False
@@ -1183,6 +1184,7 @@ async def async_startup_excursion_audit(hass, coord) -> None:
                         site="startup_audit_nudge_preset_restore",
                         zone_id=zone_id,
                         reason="startup_audit_nudge_preset_restore",
+                        excursion_id=row.get("excursion_id"),
                     )
                     nudge_preset_restored += 1
                     _LOGGER.info(
