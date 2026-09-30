@@ -1994,7 +1994,7 @@
               "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set.",
-              "hvac_vacancy_hold": "Seconds HVAC holds this room 'occupied' after the last sign of someone (day/evening) — guards people sitting still. 9pm→sleep and while away/arriving/guests, counts from room-empty. Blank = default; 0 = hold while seen.",
+              "hvac_vacancy_hold": "Seconds HVAC keeps this room occupied after the last sign of someone, day and evening. After 9 pm, or when away or with guests, it counts from when the room reads empty. Blank = default; 0 = only while seen.",
               "hvac_vacancy_hold_night": "Used while the house is asleep or waking up; counts from when the room reads empty. Must be ≥ day. Blank = default; 0 = no extra time once empty.",
               "hvac_skip_entry_wait": "For rooms with short-pulse sensors. When on, any detection immediately switches an Away zone back to Home — no entry wait."
             },
