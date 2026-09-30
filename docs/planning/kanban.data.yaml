@@ -9,6 +9,41 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'DB-SIZE-GROWTH-1@2026-09-30T02:30:00'
+    at: '2026-09-30T02:30:00'
+    outcome: escalated
+    headline: 'The URA database is 1.35 GB because three room-history tables (temperature/humidity, energy, occupancy) have never been trimmed since November. With their indexes they are 72% of the file, growing ~3 MB a day. The code only ever looks back 30 days. Deleting history is irreversible, so it''s your pick: keep 90 days (my recommendation), 365, or everything.'
+    acknowledged: false
+  - fid: 'ENPHASE-BATTERY-CUTOUTS-1@2026-09-30T02:40:00'
+    at: '2026-09-30T02:40:00'
+    outcome: done
+    headline: 'Closed the peak battery cut-out card: with the Envoy stream add-on off, the 09-29 peak had 9 cut-outs against 37-94 when it was on. It''s still off. The stream-as-battery-source idea is parked for the same reason.'
+    acknowledged: false
+  - fid: 'PERSON-STATIONARY-TRACKER-BLIP-1@2026-09-30T03:00:00'
+    at: '2026-09-30T03:00:00'
+    outcome: escalated
+    headline: 'Your phantom ''home'' blip is still happening after the tracker trim: on 09-28 at 07:51, while you were away, your phone tracker dropped and you read ''home'' for 0.1 s, which fired a zone 1 pre-arrival. A Mac mini tracker (m4promacmini_2) is attached to your person again. Remove it in Settings > People and I''ll re-check.'
+    acknowledged: false
+  - fid: 'ENVOY-FLAKINESS-181243-1@2026-09-30T03:00:00'
+    at: '2026-09-30T03:00:00'
+    outcome: escalated
+    headline: 'Envoy after the 2026.9.4 update: drops are down to 10 and 19 a day (from 110-160), but that''s not fixed. A 3.9 h hang still happened on 09-28, and stopping the stream add-on muddies the comparison. Pick: I draft an upstream bug report for you to post, or we accept this rate and close.'
+    acknowledged: false
+  - fid: 'RECORDER-BLOAT-LOGFLOOD-1@2026-09-30T02:45:00'
+    at: '2026-09-30T02:45:00'
+    outcome: measured
+    headline: 'Recorder log-flood check: the pantry adaptive-lighting automation is still on and still running, so it wasn''t disabled. I couldn''t read HA logs tonight (the HA MCP was down), so this is NOT an all-clear on either error flood.'
+    acknowledged: false
+  - fid: 'ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1@2026-09-30T03:15:00'
+    at: '2026-09-30T03:15:00'
+    outcome: measured
+    headline: 'The garage-door guard for room covers was already built and reviewed on its branch last night; I moved the card to review. Still owed before merging: a full-suite comparison. Not deployed.'
+    acknowledged: false
+  - fid: 'ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1@2026-09-30T03:15:00'
+    at: '2026-09-30T03:15:00'
+    outcome: parked
+    headline: 'Confirmed that presence, security and safety anomaly learning is thrown away at every restart (last saved 09-04 to 09-14). Not built tonight because the anomaly cycle already in progress edits the same save code. It goes right after that merges.'
+    acknowledged: false
   - fid: 'HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1@2026-09-29T05:15:00'
     at: '2026-09-29T05:15:00'
     outcome: built
@@ -2600,7 +2635,7 @@ cards:
   rank: {value: 4, time_criticality: 5, effort: 2}
   thread: presence
   created: '2026-09-27'
-  updated: '2026-09-29 01:05'
+  updated: '2026-09-30 03:00'
   origin: 'Empty-house natural experiment item 8 (not pre-registered), 2026-09-27.'
   why: '4 zero-second home blips on 09-26 each within 0.4-1.2 s of device_tracker.phalanxiphone15promaxcflare going unavailable; person.oji_udezue has 19 trackers incl. home-stationary ones (mac minis, tablets, entrypad). One blip fired a phantom pre-arrival (zone_1 pre-cool). Hypothesis (HA person fallback to a stationary tracker) NOT verified in HA core source.'
   sweep_2026_09_27: 'Board + BACKLOG grepped for blip/flicker/cflare/geofence pre-arrival: only this experiment card carries it. NEW.'
@@ -29548,7 +29583,7 @@ cards:
     its two siblings; explicitly NOT an entity knob)'
   - 'energy_local_stream_battery_soc_entity (rung 2, CM config field — REUSES the shape of the
     existing energy_cloud_battery_soc_fallback_entity at energy_const.py:305, not a new pattern)'
-  next: 'APPROVE (operator), AFTER ENPHASE-BATTERY-CUTOUTS-1 reads out: (1) the tier. I recommend Tier 3, because this puts a new source into the battery-reserve decision path (cost-and-safety; one missed site = silent loss). (2) Whether the reserve-witness deliverable ships in the same cycle. If the cutout test shows the stream causes dropouts, this card parks instead. -> On approval I write the plan, run the tiered plan review, and dispatch the build.'
+  next: 'PARKED - nothing to do until the revival trigger in parked_2026_09_30_overnight fires (a way to read the stream without holding it on 24/7).'
   parsimony: {problem: 'Every SOC tier can be simultaneously disqualified, leaving the EC unable to
     decide for hours at a time, because no tier is both local and fast.', verdict: BUILD}
   links: {blocked_by: [ENPHASE-BATTERY-CUTOUTS-1], related: [ENVOY-FLAKINESS-181243-1, SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1], context: 'ENPHASE-BATTERY-CUTOUTS-1 is testing whether the Envoy stream add-on itself provokes the peak battery dropouts (add-on stopped 2026-09-28 20:15). If it does, the stream cannot be kept on 24/7 and this card''s premise, a permanent third SOC source, fails. Decide the tier only after that test reads out. ENVOY-FLAKINESS-181243-1 is the native-integration fault this mitigates. SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1 already uses the stream as a fallback.'}
@@ -29931,7 +29966,7 @@ cards:
   status: waiting_operator
   groom_2026_09_29: 'MOVED waiting_operator -> waiting_me. Its next is my measurement (envoy_flap_rate_probe.py on 09-30 against the ha_2026_9_4_tracking discriminator), not an operator decision. NOTE for that read: the Envoy stream add-on was stopped 2026-09-28 20:15 for the ENPHASE-BATTERY-CUTOUTS-1 test, a new confound for the 09-28/09-29 flap counts.'
   created: '2026-09-21'
-  updated: '2026-09-29 01:05'
+  updated: '2026-09-30 03:00'
   measured_2026_09_27_rate_collapse: 'OVERNIGHT 2026-09-27 02:02, from envoy_stream_trust_probe.py 3.6 (native sensor.envoy_482543015950_battery -> unavailable transitions per local day, recorder): 09-19 122, 09-20 134, 09-21 140, 09-22 163, 09-23 109, 09-24 120, 09-25 52, 09-26 15, 09-27 4 (partial). CONFOUNDED: the operator did four things on the evening of 09-25 (Envoy reboot, core/UDM network-stack restart, core 2026.9.2->2026.9.3, MQTT add-on live), so which one fixed it cannot be separated from this data. The upstream analysis (EnvoyClientClosedError not caught) is NOT refuted by this: the unguarded path can still fire, it is just firing ~10x less. Recommendation moved to (D) accept + re-measure; see next.'
   refinement_status: refined
   rank: {value: 6, time_criticality: 6, effort: 3}
@@ -30379,13 +30414,14 @@ cards:
   thread: platform
   status: planned
   created: '2026-09-29 15:00'
-  updated: '2026-09-29 15:00'
+  updated: '2026-09-30 03:15'
   approval: implied
   tags: [anomaly, persistence, restart, found-in-review]
   origin:
     date: '2026-09-29'
     gist: anomaly-blind plan review M1 (docs/reviews/code-review/plan_review_anomaly_detector_blind_metrics.md)
   why: 'HA does not unload config entries on stop (config_entries.py:931-933, :2176-2180 in the venv HA 2026.2.3; live 2026.9.x source not yet checked), and URA has no stop listener, so teardown-only baseline saves never run on a restart. Live DB metric_baselines last_updated: presence 2026-09-14, security 2026-09-04, safety 2026-09-04, music_following 2026-05-12. HVAC (saved at daily rollover) and coordinator_manager (saved each boot) are current. With the restart storm (8+ restarts on 09-28), those coordinators relearn from a 2-week-old snapshot each boot.'
+  gate_2026_09_30_overnight: 'VALIDITY: STILL-REAL (live metric_baselines last_updated: presence 2026-09-14, security 2026-09-04, safety 2026-09-04, safety_rate 2026-09-11, music_following 2026-05-12; energy/hvac/memory/CM current). PRIOR-ART: a STOP hook pattern already exists (manager.py:617-633 house-state _on_ha_stop via async_listen_once(EVENT_HOMEASSISTANT_STOP)) - REUSE it; save_baselines per coordinator already exists. NOT BUILT overnight - COLLISION: the anomaly-blind-metrics cycle (PLANNING_anomaly_detector_blind_metrics.md, worktree feature/anomaly-blind-metrics) is in flight and edits the same coordinator_diagnostics.py save_baselines (D1, the list() snapshot at :1392), and RESTART-SAFETY-DOCTRINE-1 F1/F2 cover the same stop-time saves. Build this right after that cycle merges, on top of its D1 fix.'
   next: 'BUILD (Tier 1-2): save baselines on a periodic cadence (e.g. the existing daily rollover, or every N minutes via the write queue) and on EVENT_HOMEASSISTANT_STOP, for every coordinator. Verify the stop-event behaviour against live HA 2026.9.x source first. Test: a stop event persists; after a restart the loaded sample_count equals the pre-stop count.'
   links:
     related: [ANOMALY-SAVE-BASELINES-DICT-MUTATION-1, HVAC-ANOMALY-BLIND-1]
@@ -30682,9 +30718,11 @@ cards:
 - id: ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1
   title: Room cover automation (open at sunrise, timed close, close on exit) has no garage-door exclusion
   thread: ux
-  status: planned
+  status: review
+  reconcile_2026_09_30_overnight: 'LANE FIX planned -> review. Ground truth: branch fix/room-covers-garage-guard already carries the build, 2 commits ahead of develop - a22e0bb5a (23:21 09-29, room automation refuses garage/gate covers) and 614c9f391 (23:23, blocks AI-rule cover actions on garage doors/gates, review LOW + tests). The card was never moved. NOT deployed (deploy held, per the card). I did not re-run its suite or reviews overnight; the validator name-diff is still owed before merge.'
   measured_2026_09_29: 'Operator thought garage doors live only in Security. MEASURED: they are ALSO in room covers - Garage A covers = cover.konnected_f0f5bd523b00_garage_door, Garage B covers = cover.ratgdov25i_dbfe2a_door (both device_class garage, stored cover_type shade). Both have entry/exit cover action none and open mode none, but timed_close_enabled = True (sunset). ura_activity_log has no cover actions for either room (not proof the timed close never ran). Operator: "the protection is a good idea".'
   created: '2026-09-29 23:20'
+  updated: '2026-09-30 03:15'
   origin: 'Found by the plan review of ROOM-TYPE-TRIMMED-MENU-1 (docs/reviews/code-review/plan_review_room_type_trimmed_menu.md): only hvac_covers.py:795 excludes garage doors; the room-tier cover behaviour does not.'
   why: 'A garage door added to a room''s covers could be opened at sunrise or on entry by URA. Safety/security-relevant. Pre-existing, not caused by the menu work.'
   next: 'BUILD (Tier 1, deploy held): room cover automation skips device_class garage/gate covers in every room-tier path (entry, exit, timed open, timed close, sleep block), with a one-time INFO naming the skipped cover; Security keeps sole control. Grep every room cover writer first. Tests + per-site drill.'
