@@ -1,10 +1,20 @@
-# v5.103.26 — boot event-loop-freeze diagnosis (DRAFT)
+# v5.103.26: room settings dialogs cleaned up, Fan Mode on the Controls card, and a watchdog that names what freezes HA at boot
 
-**Status:** NOT DEPLOYED — held for operator go.
-**Branch:** `feature/boot-freeze-watchdog`.
+**Status:** deployed 2026-09-29 (install only; HA restart held until the house is awake — guest in house, no night restart).
+**Operator go:** "Ship the next version" (2026-09-29).
 
-Two diagnostic-only cards. No automation behavior changes: the watchdog
-only observes the loop, and the DB wait-warning rework is logging-only.
+**Cards:** `ROOM-DIALOGS-USABILITY-SWEEP-1`, `BOOT-EVENT-LOOP-FREEZE-1`, `DB-WAIT-WARNING-REWORK-1`, plus the Fan Mode placement fix and two label fixes (tail of `HVAC-FANS-IGNORE-ROOM-COMFORT-FAN-SWITCH-1`).
+
+## User-facing changes
+
+- **Room settings dialogs (all room steps, config + options, incl. collapsible groups):** every field has a plain label (no raw key names, no repeated units) and a short helper (≤ 220 characters); the Empty-room hold day/night texts went from 770/433 characters to one or two sentences, with the per-room-type defaults moved to one note at the top of that group. Enforced by a meta-test (`quality/tests/test_room_dialog_strings.py`) that fails on any raw label, missing helper, or over-long helper.
+- **Accuracy fixes found in review:** the room electricity-rate helper now says what the code does (room rate, else house rate, else default — no time-of-use); the day hold says "day and evening".
+- **Labels:** `comfort_fan_away_veto_enabled` → "Comfort fan off when away"; `ble_hold_cap_enabled` → "Limit phone-only occupancy", both with helpers.
+- **Fan Mode select** now sits in the room device page's **Controls** card (no entity category), where Climate Automation was. The 43 retired Climate Automation switch entities were removed from the registry on 2026-09-29 (operator request).
+
+## Diagnostics (no automation behaviour change)
+
+Two diagnostic-only cards: the watchdog only observes the loop, and the DB wait-warning rework is logging-only.
 
 ## Cards
 
@@ -84,13 +94,12 @@ changes stashed; same 7). None touch database.py or the watchdog.
 | L2 | One stall WARNING with a main-thread stack | If the boot freeze recurs: exactly ONE `Event loop stalled >= 10.0s` WARNING per stall episode, followed by a `Main-thread stack:` block whose innermost frame names a URA file:line. Followed by exactly ONE `Event loop recovered after stall (total_stall=X.Xs)` line. Boot episode logs but does NOT fire NM. |
 | L3 | DB wait episode logging is one-per-episode | For each boot event-loop freeze: exactly ONE `DB write not yet served after X.Xs (classification=..., queue_depth=..., phase=...)` line + ONE `DB write wait episode cleared (max_wait=..., peak_queue=..., callers=..., dropped=...)` line. In particular the ~23 per-waiter `DB write worker slow: ...` lines from v5.103.24-era boots are GONE. |
 | L4 | No lingering thread on unload/removal | If URA is removed or reloaded such that no entries remain: `Loop-stall watchdog stopped` appears; `threading.enumerate()` (via py_profile) shows no thread named `ura_loop_stall_watchdog`. |
+| L6 | Fan Mode in Controls | Room device page (e.g. Guest Bedroom 2) shows Fan Mode under Controls; registry entry `select.guest_bedroom_2_guest_bedroom_2_fan_mode` has `entity_category` null. |
+| L7 | Dialog strings live | Room options > Climate & Fans shows plain labels and short helpers (no `comfort_fan_away_veto_enabled` / `ble_hold_cap_enabled` raw keys). |
+| L8 | HVAC + Energy return to correct state after the restart (operator ask) | House state after boot settles matches pre-restart; zone presets match the house state (no zone written to Home/Away by the boot walk); Energy battery reserve / TOU mode / EVSE state match pre-restart snapshot. |
 | L5 | No automation regression | No new WARNING/ERROR lines from `hvac`, `presence`, `energy`, `safety` domains attributable to this diff. |
 
 ## Not done / deferred
 
-- README v5.103.24 line 309 "boot-time DB pool warm-up" text: the
-  operator task references this string, but `docs/readmes/README_v5.103.24.md`
-  on `origin/develop` does not contain it. Nothing to correct in-place;
-  future READMEs should describe the boot freeze as an event-loop stall,
-  not a "DB pool warm-up" (there is no DB pool — there is a single
-  serial write worker whose queue drains once the loop recovers).
+- README v5.103.24 line 309 corrected on develop (66950d1cf): it is the per-boot event-loop freeze, not a DB pool warm-up.
+- The house-state restore/override cycle (v5.103.27) is NOT in this release; it is in three-framing review.
