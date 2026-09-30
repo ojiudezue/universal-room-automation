@@ -1,6 +1,6 @@
 """Base entity for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.23
+# Universal Room Automation vv5.103.25
 # Build: 2026-01-02
 # File: entity.py
 #
