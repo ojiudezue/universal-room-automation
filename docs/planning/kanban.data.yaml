@@ -30593,6 +30593,16 @@ cards:
   next: 'Me: after the room and zone passes, plan house then coordinators with the same rules and meta-test.'
   links: {related: [ZONE-DIALOGS-CLEANUP-1, CM-CONFIG-FLOW-UX-1, ROOM-LIGHTING-SETUP-REDESIGN-1]}
   rank: {value: 3, time_criticality: 1, effort: 3}
+- id: ROOM-TYPE-TRIMMED-MENU-1
+  title: Show only the settings a room type needs (closet/hallway/utility get sensors + lights + exhaust; bedrooms get everything), with a Show-all escape
+  thread: ux
+  status: pre_planning
+  created: '2026-09-29 22:55'
+  origin: 'Operator 2026-09-29: "We had suggested a mini room at some point. Like a regular room but limited scope, like a hallway or closet. Or maybe we attenuate the configuration once the room type is set? Limit the options?"'
+  why: 'Sweep: no prior card/plan found for "mini room" (grep kanban + planning + BACKLOG). Room type already exists (const.py:437-450) and drives defaults (hold times, BLE hold cap). Recommendation: attenuate the options menu by room type instead of a new entry kind (no second setup path, no migrations); hidden steps keep stored values and keep working; a "Show all settings" choice escapes. Behaviour unchanged - menu logic only. Adjacent: ROOM-LIGHTING-SETUP-REDESIGN-1 (same dialog cleanup arc).'
+  next: 'APPROVE (operator): attenuate-by-type with a Show-all escape -> I plan it after the lighting slices land (Tier 2: options-flow menu only, plus a test that every hidden step still round-trips its stored values).'
+  links: {related: [ROOM-LIGHTING-SETUP-REDESIGN-1, ROOM-DIALOGS-USABILITY-SWEEP-1, ZONE-DIALOGS-CLEANUP-1]}
+  rank: {value: 4, time_criticality: 1, effort: 2}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
