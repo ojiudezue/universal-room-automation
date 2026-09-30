@@ -131,7 +131,7 @@ restart in the window. This is the empirical prior for the staleness bound (`STA
 - 20 restarts in 10 days. `homeassistant_start` fires 5-9 min after the shutdown (boot includes the ~140 s event-loop freeze, AUDIT_db_write_worker_slow_2026_09_29.md), so the boot walk lands BEFORE the start event.
 - **Every restart walks through the boot placeholder**: the last house_state_change before nearly every start event is `arriving -> <state> (trigger=deferred_retry)` (the boot walk itself), e.g. 09-29 19:17 away->arriving->home_evening; 09-29 03:01 away->arriving->home_night (Sleep lost, zones 1-2 Sleep->Home at 03:07); 09-27 22:21 arriving->home_night.
 - **Actioned consequences observed:** 09-29 03:01 (HVAC Sleep->Home, the incident). 09-28 14:24-16:34 (5 restarts during the all-thermostat outage): house flapped home_day<->away<->arriving for 15-30 min after each boot with every-zone `-> away` preset writes (confounded by the outage; the writes themselves are now held by v5.103.24 item 2). Awake evening restarts (09-28 18:53, 19:22, 09-29 19:17): no actioned transition, because the walk completes during coordinator start-up.
-- Staleness prior: all 20 restarts had the pre-restart state < 15 min old at shutdown; the 1800 s default for HOUSE_STATE_RESTORE_MAX_STALE_S covers every observed restart with margin.
+- Staleness prior: NOT measured. The restore age that matters is shutdown-to-restore (the down time), not the state's age; observed down times are ~5-10 min (shutdown to `homeassistant_start`), well inside the proposed 1800 s default. The builder should log the actual restore age at each boot.
 
 ## Deliverables
 
