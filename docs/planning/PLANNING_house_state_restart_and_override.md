@@ -33,6 +33,51 @@ Plan review: `docs/reviews/code-review/plan_review_house_state_restart_and_overr
 - F10 (LOW): heartbeat knob rung named; Store key + version get const names.
 - F11 (build prediction): manager.py load point pinned; tests use real `Store` I/O.
 
+## REV 2.1 changelog (2026-09-29)
+
+Plan re-review returned READY-after-four-edits. All four applied here.
+
+- **R2-1** — Boot-settle reconciliation tick. All three release paths converge at
+  `presence._release_boot_settle` (`presence.py:2213`; Predicate A real-input, Predicate B
+  `ha_started` at `:~2270`, `timeout` at `:~2274`). Its own docstring
+  (`:2214-2219`) makes it the single idempotent gate-flip. **Design edit**: at the END of
+  `_release_boot_settle`, schedule ONE reconciliation tick via
+  `self.hass.async_create_task(self._run_inference("boot_settle_release"))`. Doing it at
+  the convergence point (a) covers all three release paths without three edits, (b) honors
+  the "idempotent" contract, (c) avoids double-fire if two release paths race. See
+  R2-3 for the trigger label used inside the tick. Review-C mutation drill: delete this
+  scheduled call — the R2-1 integration test (below) MUST fail.
+- **R2-2** — HVAC boot seed vs preset writes during settle. Grep verified: HVAC has its OWN
+  boot-settle window (`hvac.py:746` `_boot_settle_done=False`, `:1164` released on
+  `not_cold_boot`, `:1695` `_release_boot_settle`, `:1724` reports
+  `_boot_settle_hvac_suppressed` count). The `hvac.py:1420` boot seed of `_house_state`
+  is a **read-only** cache; HVAC does not issue preset writes while its gate is up. Design
+  rule refinement: **the F3 "no `transition()` during presence boot-settle" rule applies
+  only when a fresh state was restored from Store**. When NOTHING was restored (record
+  missing OR older than `HOUSE_STATE_RESTORE_MAX_STALE_S` OR corrupt), the machine starts
+  AWAY per today's behaviour and settle-time inference transitions are allowed to proceed
+  unchanged (no regression on cold boots that never had a persisted state). Codified as a
+  new machine flag `_boot_restore_active: bool` set True only on successful in-window load.
+- **R2-3** — Distinct trigger labels. Three trigger strings, all distinct:
+  * `boot_restore_confirmed` — restore succeeded AND the R2-1 reconciliation tick's
+    inference equals the restored state. No dispatch. (Memory-writer suppresses; matches the
+    existing `trigger="boot"` suppression at `memory_writers.py:576-604`.)
+  * `boot_restore_diverged` — restore succeeded AND the R2-1 tick's inference differs.
+    One dispatch, one D7 row, one activity-log row.
+  * `boot_settle_release` — no restore was active (`_boot_restore_active=False`); the R2-1
+    tick fires normally and, if inference differs from the AWAY default, dispatches with
+    this trigger. Preserves today's cold-boot walk semantics but names the source.
+  Memory-writer trigger vocabulary extended for all three; only `boot_restore_confirmed`
+  is boot-suppressed.
+- **R2-4** — Heartbeat cadence and burst debounce. `HOUSE_STATE_HEARTBEAT_S = 300` (5 min),
+  not 60. Rung-1 module constant with a **docstring invariant**: `HOUSE_STATE_HEARTBEAT_S
+  <= HOUSE_STATE_RESTORE_MAX_STALE_S / 3` (300 <= 600 at the 1800 s default). Additionally:
+  transitions no longer write synchronously — the change-hook calls
+  `Store.async_delay_save(_data_provider, delay=1.0)` (HA canonical debounced-save
+  pattern), so a burst of transitions coalesces into one file write. Heartbeat and
+  `homeassistant_stop` remain the two forced-flush paths. This drops the peak write
+  cadence by ~5x and eliminates a per-tick I/O risk the reviewer flagged implicitly.
+
 ## Falsifiable invariant
 
 > (A) Across an HA restart, no consumer of `SIGNAL_HOUSE_STATE_CHANGED` shall observe a
@@ -64,6 +109,9 @@ Plan review: `docs/reviews/code-review/plan_review_house_state_restart_and_overr
 - `domain_coordinators/presence.py:6789` — the **only** current dispatcher of
   `SIGNAL_HOUSE_STATE_CHANGED`. Payload shape `{old_state, new_state, trigger, confidence}`
   (`:6792-6797`). Boot-settle gate at `:6768`, observation-mode gate at `:6780`.
+- `domain_coordinators/presence.py:2213` `_release_boot_settle` — R2-1 convergence point;
+  its docstring `:2214-2219` states all three release paths (Predicate A real-input +
+  Predicate B `ha_started` at `~2270` + `timeout` at `~2274`) converge here idempotently.
 - `domain_coordinators/presence.py:7602` `set_house_state_override` — routes to
   `manager.house_state_machine.set_override` / `clear_override` at `:7613` / `:7621`.
 
@@ -83,7 +131,7 @@ Plan review: `docs/reviews/code-review/plan_review_house_state_restart_and_overr
 **Direct readers of `manager.house_state` (D1 changes what each sees at boot):**
 | File:line | Reader | Effect of restore |
 |---|---|---|
-| `hvac.py:1425` | HVAC boot seed of `_house_state` | **This is D1's mechanism for HVAC**; seed reads restored value instead of `away`. |
+| `hvac.py:1420` | HVAC boot seed of `_house_state` | **This is D1's mechanism for HVAC**; seed reads restored value instead of `away`. Preset writes suppressed by HVAC's own boot-settle gate (`hvac.py:746, :1695`) until its release. R2-2 verified. |
 | `manager.py:623` `get_status` | Diag | Restored value in status snapshot. |
 | `manager.py:808` snapshot | Diag | Same. |
 | `energy.py:7378` | Energy read | Restored value. |
@@ -105,6 +153,7 @@ exercised directly) so all writers are proven to reach dispatch.
 **Persistence prior art (REUSE):**
 - `hvac.py:32` `from homeassistant.helpers.storage import Store`; `hvac.py:844`
   `Store(hass, 1, f"{DOMAIN}.hvac_zone_state")` — canonical URA persistence pattern.
+- `Store.async_delay_save(data_func, delay)` — HA canonical debounced-save (R2-4).
 - `memory_writers.write_house_state_transition` (`memory_writers.py:565`) — canonical D7 DB
   writer, already boot-suppresses `trigger="boot"` (`:576-604`).
 
@@ -121,10 +170,12 @@ exercised directly) so all writers are proven to reach dispatch.
 | Piece | REUSE / NEW | Cite |
 |---|---|---|
 | Persist last house-state across restart | **REUSE** `helpers.storage.Store` pattern | `hvac.py:32,844` |
+| Debounced save on transitions | **REUSE** `Store.async_delay_save` | HA helper |
 | Restore-at-boot on the machine | NEW methods | `house_state.py:117` |
 | Heartbeat save (liveness) | NEW (uses `async_track_time_interval`) | REUSE HA helper |
+| Boot-settle reconciliation tick (R2-1) | NEW one-line at `presence._release_boot_settle` end | `presence.py:2213` |
 | Staleness bound | NEW rung-1 const | `house_state.py` |
-| Heartbeat interval | NEW rung-1 const | `house_state.py` |
+| Heartbeat interval (300 s, invariant `<= stale/3`) | NEW rung-1 const | `house_state.py` |
 | Store key + version consts | NEW named consts | `house_state.py` |
 | Dispatch on override set/clear | REUSE payload shape + gates | `presence.py:6789, :6768, :6780` |
 | Presence-owned dispatch helper (shared) | NEW small helper on presence | `presence.py:6789` |
@@ -184,8 +235,8 @@ SQL"
   by v5.103.24 item 2). Awake evening restarts (09-28 18:53, 19:22, 09-29 19:17): no actioned
   transition, because the walk completed during coordinator start-up under the ~140 s freeze.
 - **Down-time distribution (proxy: shutdown -> `homeassistant_start`):** 5-10 min for all 20
-  restarts observed. Well inside the proposed 1800 s default. Heartbeat (F2) makes this the
-  authoritative age at run time.
+  restarts observed. Well inside the proposed 1800 s default. Heartbeat (F2 / R2-4) makes this
+  the authoritative age at run time.
 
 ## Deliverables
 
@@ -196,29 +247,31 @@ SQL"
 - `HOUSE_STATE_STORE_VERSION: Final[int] = 1`
 - `HOUSE_STATE_RESTORE_MAX_STALE_S: Final[int] = 1800` (30 min). Kill-switch: `0` disables
   restore (machine always starts AWAY; current behaviour).
-- `HOUSE_STATE_HEARTBEAT_S: Final[int] = 60` (F2). Rationale: makes `saved_at` accurate to
-  ~1 min. Rung 1 (behavioural, safety-adjacent; no operator entity). Kill-switch: `0`
-  disables the heartbeat (falls back to change-only + stop saves).
+- `HOUSE_STATE_HEARTBEAT_S: Final[int] = 300` (5 min, R2-4). Rationale: liveness anchor so
+  `saved_at` reflects down time; rung 1 (behavioural, safety-adjacent; no operator entity).
+  **Docstring invariant**: `HOUSE_STATE_HEARTBEAT_S <= HOUSE_STATE_RESTORE_MAX_STALE_S / 3`.
+  Kill-switch: `0` disables the heartbeat (falls back to change-only + stop saves).
 
-**Design (F3, F2, F5 explicit):**
+**Design (F3, F2, F5, R2-1, R2-2, R2-3, R2-4 explicit):**
 
 1. **Persisted record shape** (Store v1):
    `{state: str, state_since: iso8601, saved_at: iso8601, override: str|null,
      override_since: iso8601|null}`.
-2. **Save triggers** (F2):
+2. **Save triggers** (F2 + R2-4):
    - (a) On every accepted `transition()` / `force_state()` / `set_override()` /
-     `clear_override()` via an in-machine `_on_change` hook (change save).
-   - (b) On `hass` stop (single graceful flush).
-   - (c) **Heartbeat**: `async_track_time_interval(HOUSE_STATE_HEARTBEAT_S)` — updates
-     `saved_at` only (state/override unchanged unless they moved). This is the liveness
-     discharge (memory `feedback_suppression_needs_discharge`).
+     `clear_override()` via an in-machine `_on_change` hook that calls
+     `Store.async_delay_save(_data_provider, delay=1.0)` — bursts coalesce into one write.
+   - (b) On `hass` stop (single forced graceful flush).
+   - (c) **Heartbeat**: `async_track_time_interval(HOUSE_STATE_HEARTBEAT_S)` — forced flush
+     that updates `saved_at` only (state/override unchanged unless they moved). This is the
+     liveness discharge (memory `feedback_suppression_needs_discharge`).
    - The heartbeat is registered by the manager; unsubscribed on unload; disabled when the
      const is `0`.
 3. **Load** (F11 — pinned location): in `CoordinatorManager.async_start` **BEFORE the
    `for coord_id, coordinator in self._coordinators.items()` loop at `manager.py:417`**.
    No coordinator has been set up yet, so no consumer has read `manager.house_state` and no
    listeners exist to dispatch to. Behaviour:
-   - Read the record. If `now - saved_at <= HOUSE_STATE_RESTORE_MAX_STALE_S`:
+   - Read the record. If present AND `now - saved_at <= HOUSE_STATE_RESTORE_MAX_STALE_S`:
      - `_state = restored.state`.
      - **`_state_since = now`** (F3: re-arm dwell; do NOT preserve the original because it
        would let the first inference bypass hysteresis). The trade-off: hysteresis
@@ -226,27 +279,42 @@ SQL"
        and symmetric with today's behaviour where inference-only would take longer to reach
        SLEEP anyway.
      - Re-apply `_override` if present (F7 — see below).
-   - Else (stale, missing, or corrupt): fall through to `AWAY` default; INFO log with
-     `restore_age_s`, `staleness_max_s`, and reason.
-   - Always log the actual `restore_age_s` at boot (D0 says this is what the builder should log).
-4. **Presence interaction at boot (F3 — the anti-divergence rule):**
+     - **`_boot_restore_active = True`** (R2-2 marker that enables the no-transition-during-
+       settle rule).
+   - Else (stale, missing, or corrupt): fall through to `AWAY` default;
+     `_boot_restore_active = False`; INFO log with `restore_age_s`, `staleness_max_s`, and
+     reason. Today's cold-boot walk semantics preserved (R2-2).
+   - Always log the actual `restore_age_s` at boot.
+4. **Presence interaction at boot (F3 anti-divergence + R2-1 + R2-2):**
    - The machine is at the restored state before presence coordinator setup runs. HVAC seeds
-     `_house_state` from `manager.house_state` at `hvac.py:1425` — that now matches the
-     restored state (this is D1's actual HVAC mechanism, per F1).
+     `_house_state` from `manager.house_state` at `hvac.py:1420` — matches the restored
+     state. HVAC's own boot-settle gate (`hvac.py:746, :1695`) holds preset writes until
+     its release (R2-2 verified — no daytime-writes-during-settle risk).
    - Presence's first-tick inference runs INSIDE the boot-settle gate
      (`presence.py:6768`). Because inference may propose a transition (e.g. AWAY on
      cold-boot when census is empty), `transition()` today mutates the machine BEFORE the
-     dispatch gate at `:6789`. **Rule**: while `self._boot_settle_done` is False, presence
-     MUST NOT call `machine.transition()` at all — it may compute the proposal, log it, and
-     defer. When boot-settle lifts, presence re-computes and calls `transition()` once; a
-     real change dispatches through the signal path; a match to the restored state is a no-op.
-   - This closes the divergence hole: HVAC's cached state and the machine's state are always
-     kept in lock-step by the signal, and the machine is never silently mutated during
-     boot-settle.
-   - Trigger label on the first post-boot dispatch (if any): `"boot_restore_diverged"`.
-     If inference matches restored: no dispatch, log `boot_restore_confirmed`.
+     dispatch gate at `:6789`. **Rule (R2-2 refinement)**: while
+     `self._boot_settle_done` is False AND `machine._boot_restore_active` is True, presence
+     MUST NOT call `machine.transition()` — it may compute the proposal, log it, and defer.
+     When `_boot_restore_active` is False (no fresh restore), today's behaviour is
+     preserved: settle-time transitions proceed as they do today.
+   - **R2-1 reconciliation tick**: at the end of `presence._release_boot_settle`
+     (`presence.py:2213`, the single idempotent convergence point per its docstring
+     `:2214-2219`), schedule
+     `self.hass.async_create_task(self._run_inference("boot_settle_release"))`. This
+     guarantees exactly one reconciliation tick after ANY of the three release paths
+     (Predicate A real-input, Predicate B `ha_started` at `:~2270`, `timeout` at
+     `:~2274`) fires first.
+   - **R2-3 trigger labels applied by the reconciliation tick:**
+     * If `_boot_restore_active` AND inference == restored `state`: log
+       `boot_restore_confirmed`, no dispatch.
+     * If `_boot_restore_active` AND inference != restored `state`: dispatch with
+       `trigger="boot_restore_diverged"`.
+     * If NOT `_boot_restore_active` (cold boot, stale, missing): dispatch (or not) with
+       `trigger="boot_settle_release"` per today's rules.
    - Extend `memory_writers.write_house_state_transition` boot-suppression vocab to include
-     `boot_restore_confirmed` (still emit for `boot_restore_diverged` — it is a real change).
+     `boot_restore_confirmed`. `boot_restore_diverged` and `boot_settle_release` emit
+     real rows.
 
 **Override survives restart (F7 — explicit declaration):**
 - **Recommended: YES** (override is persisted and re-applied if within staleness bound).
@@ -260,35 +328,50 @@ SQL"
 - **Operator flag:** this is a behaviour change (override was ephemeral before). If the
   operator rejects it, set `override` to `null` on save. Default in code: persist.
 
-**Files touched:** `house_state.py` (+methods, +consts, +change hook, +load/save),
-`manager.py` (+`Store` construct, +load before `:417`, +stop-hook, +heartbeat interval),
-`memory_writers.py` (extend boot-trigger vocab), `presence.py` (defer `transition()` during
-boot-settle; add restored-state matcher; new trigger labels).
+**Files touched:** `house_state.py` (+methods, +consts, +change hook, +load/save,
++`_boot_restore_active`), `manager.py` (+`Store` construct, +load before `:417`,
++stop-hook, +heartbeat interval), `memory_writers.py` (extend boot-trigger vocab),
+`presence.py` (defer `transition()` during boot-settle when `_boot_restore_active`; add
+R2-1 reconciliation tick at end of `_release_boot_settle`; new trigger labels).
 
 **Acceptance criteria (F3 rewritten so the criterion matches the design):**
 - **Verify (unit):** save SLEEP with `state_since=t0`, `saved_at=t0`; construct fresh
-  machine; load at `now=t0+60s` -> `state==SLEEP`, `_state_since==now` (F3), override
-  round-trips. Load at `now=t0+STALE_MAX+1` -> `state==AWAY`, logs `restore_age_s` and
-  reason.
-- **Verify (unit):** heartbeat — with `HOUSE_STATE_HEARTBEAT_S=60`, machine unchanged for
-  10 min; save file's `saved_at` advances every ~60 s; `state`, `state_since`, `override`
-  unchanged.
-- **Verify (integration):** restored SLEEP + census=0 at boot (would newly infer AWAY).
-  During boot-settle, presence's proposed AWAY is DEFERRED (no `transition()` call, no
-  mutation, no signal). After boot-settle lifts, presence re-computes; if still AWAY and
-  dwell has elapsed, exactly ONE `SIGNAL_HOUSE_STATE_CHANGED` fires with
-  `old="sleep", new="away", trigger="boot_restore_diverged"`. If inference converged back to
-  SLEEP by then, zero signals fire and log records `boot_restore_confirmed`.
+  machine; load at `now=t0+60s` -> `state==SLEEP`, `_state_since==now` (F3),
+  `_boot_restore_active==True`, override round-trips. Load at `now=t0+STALE_MAX+1` ->
+  `state==AWAY`, `_boot_restore_active==False`, logs `restore_age_s` and reason.
+- **Verify (unit):** heartbeat — with `HOUSE_STATE_HEARTBEAT_S=300`, machine unchanged for
+  20 min; save file's `saved_at` advances ~4 times; `state`, `state_since`, `override`
+  unchanged. Docstring invariant asserted in a meta-test:
+  `HOUSE_STATE_HEARTBEAT_S <= HOUSE_STATE_RESTORE_MAX_STALE_S // 3`.
+- **Verify (unit, R2-4):** burst-debounce — issue 5 `transition()` calls in <1 s;
+  `Store.async_save` runs at most once inside a 2 s window (assert via a spy on the
+  Store).
+- **Verify (integration, F3 + R2-1 + R2-3, restore path):** restored SLEEP +
+  `_boot_restore_active=True` + census=0 at boot (would newly infer AWAY). During
+  boot-settle, presence's proposed AWAY is DEFERRED (no `transition()` call, no
+  mutation, no signal). Trigger `_release_boot_settle("timeout")`; the R2-1 tick runs.
+  If still AWAY after dwell: exactly ONE `SIGNAL_HOUSE_STATE_CHANGED` fires with
+  `old="sleep", new="away", trigger="boot_restore_diverged"`. If inference converged
+  back to SLEEP: zero signals, log records `boot_restore_confirmed`.
+- **Verify (integration, R2-2 no-restore path):** empty Store (or stale). Machine boots
+  AWAY, `_boot_restore_active=False`. Presence during settle is allowed today's
+  behaviour. `_release_boot_settle` triggers the R2-1 tick; a legitimate cold-boot
+  transition dispatches with `trigger="boot_settle_release"`. (Regression check on
+  today's cold-boot walk.)
+- **Verify (R2-1 mutation drill, Review C):** delete the
+  `hass.async_create_task(self._run_inference("boot_settle_release"))` line inside
+  `_release_boot_settle`. The two integration tests above MUST fail with a named
+  assertion (no dispatch observed after release), not silently pass.
 - **Verify (real Store I/O, F11):** load/save use `helpers.storage.Store` against a tmp
   path, not a hand-built dict.
 - **Sensor:** `sensor.ura_house_state` reads `sleep` immediately post-restart when the D0
   record was `sleep` and fresh (no `arriving`/`home_*` walk visible on the sensor).
 - **DB:** `ura_activity_log` shows zero `house_state_change` rows in the +15 min boot
   window when restore matched inference; one row with `trigger=boot_restore_diverged` when
-  it did not.
+  it did not; one row with `trigger=boot_settle_release` on cold-boot walk.
 - **Live (F9 — daytime, no night restart):** at daytime, force `sleep` via
-  `ura.set_house_state`, wait 60 s for a heartbeat, restart HA. After boot: house state is
-  `sleep`, HVAC bedroom presets are at sleep values, no zone flip to Home, no
+  `ura.set_house_state`, wait 300 s for a heartbeat, restart HA. After boot: house state
+  is `sleep`, HVAC bedroom presets are at sleep values, no zone flip to Home, no
   `house_state_change` row within the +15 min boot window. Clear override -> D2 exercises
   its own live path.
 
@@ -360,35 +443,44 @@ boot-settle; add restored-state matcher; new trigger labels).
 
 ## Non-goals
 
-- No change to inference logic (only boot-settle deferral of `transition()`).
+- No change to inference logic (only boot-settle deferral of `transition()` when
+  `_boot_restore_active`).
 - No new operator-visible entity (staleness + heartbeat are rung-1 consts this cycle).
 - No change to `force_state` semantics (safety path).
 - No change to guest / vacation transitions.
 - **Zone sleep restore is out of scope** — the 03:01 incident trace (D0 RESULTS) proves the
   house-state signal drove the flip; zone sleep persistence is not required for this
   incident. If a future incident is traced to a zone-mode-only cause, card it separately.
-- No change to the boot-settle window or observation-mode gating apart from adding the
-  deferral of `transition()` inside boot-settle.
+- No change to the boot-settle window duration or observation-mode gating apart from adding
+  the R2-1 reconciliation-tick schedule at `_release_boot_settle` end and the deferral of
+  `transition()` inside boot-settle when `_boot_restore_active`.
 
 ## Tier and review framings (3 disjoint, parallel)
 
 - **Review A — correctness + edge cases + override-restore decision:** staleness math
   (monotonic vs wall clock, DST, missing `saved_at`); corrupt/partial Store payload;
-  heartbeat drift; override + restore interaction (owns the F7 decision — including
-  operator flag); the three F6 idempotence cases; `state_since=now` re-arm consequences;
-  loop-thread assertion.
+  heartbeat drift and the invariant `heartbeat <= stale/3`; debounce coalescing behaviour
+  (R2-4); override + restore interaction (owns the F7 decision — including operator flag);
+  the three F6 idempotence cases; `state_since=now` re-arm consequences; loop-thread
+  assertion.
 - **Review B — cross-coordinator ripple + lifecycle:** every consumer in the census (signal
   subscribers AND direct readers) behaves correctly on `override_set`/`override_clear` and
-  on boot with a restored state (esp. HVAC boot seed at `hvac.py:1425`); arrester-sunset
-  side-effect (`hvac_override.py:903`); ordering — load completes before the coordinator
-  loop at `manager.py:417`; stop-hook and heartbeat unsub exactly once on unload; no
-  dispatch during observation mode or boot-settle for either path.
+  on boot with a restored state (esp. HVAC boot seed at `hvac.py:1420` and HVAC's own
+  boot-settle interaction, R2-2); arrester-sunset side-effect (`hvac_override.py:903`);
+  ordering — load completes before the coordinator loop at `manager.py:417`; the R2-1
+  reconciliation tick fires from all three release paths (Predicate A / `ha_started` /
+  `timeout`) and is idempotent; stop-hook, delayed-save cancel, and heartbeat unsub
+  exactly once on unload; no dispatch during observation mode or boot-settle for either
+  path.
 - **Review C — persistence authority + test authority:** `Store` version + migration story;
-  real-`Store` I/O in tests (tmp path), not dict; per-site mutation drill on the
-  `_dispatch_house_state_change` helper (delete the `async_dispatcher_send` line — BOTH
-  D1's post-boot-diverged test AND D2's integration test must fail with named
-  assertions, not silently pass); at least one fallback-path (`select.py`) integration
-  test; D0 SQL reproducible from this doc (Q1 + Q2 above).
+  `async_delay_save` cancellation semantics on unload; real-`Store` I/O in tests (tmp
+  path), not dict; per-site mutation drill on the `_dispatch_house_state_change` helper
+  (delete the `async_dispatcher_send` line — BOTH D1's post-boot-diverged test AND D2's
+  integration test must fail with named assertions, not silently pass); **R2-1 mutation
+  drill** (delete the scheduled reconciliation task line inside `_release_boot_settle` —
+  both restore-path AND no-restore-path integration tests must fail); at least one
+  fallback-path (`select.py`) integration test; D0 SQL reproducible from this doc (Q1 +
+  Q2 above).
 
 Plan review before build: ONE adversarial pass per Tier 2-DB. Reviewer re-greps consumer
 census (signal + direct) and re-runs Q1/Q2 independently.
@@ -396,7 +488,8 @@ census (signal + direct) and re-runs Q1/Q2 independently.
 ## Sequence
 
 1. D0 measurement — DONE (see D0 RESULTS).
-2. Plan review — REV 1 returned REVISE; REV 2 addresses all findings; re-review before build.
+2. Plan review — REV 1 REVISE; REV 2 addressed all findings; REV 2.1 addressed the four
+   READY-after-edits; ready for build dispatch.
 3. Build D1 + D2 together (same primitive, one PR).
 4. Suite + name-diff vs `pre-review-v<version>` baseline.
 5. Three parallel Tier 2-DB reviews (A / B / C).
