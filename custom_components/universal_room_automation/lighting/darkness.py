@@ -32,6 +32,9 @@ from ..const import (
     CONF_ILLUMINANCE_THRESHOLD,
     CONF_LIGHT_DARK_LUX_SOURCE,
     CONF_LIGHT_DARK_USE_SUN_FALLBACK,
+    CONF_OUTDOOR_DARK_LUX,
+    CONF_OUTDOOR_LIGHT_SENSOR,
+    DEFAULT_OUTDOOR_DARK_LUX,
     SUN_DARK_ELEVATION_DEG,
 )
 
@@ -77,27 +80,93 @@ def _read_sun_elevation(hass: Any) -> float | None:
         return None
 
 
+def _integration_options(hass: Any) -> dict:
+    """Return the URA integration entry's merged data+options, or {}.
+
+    The outdoor-light knobs live at integration level (Global Sensors
+    options step). Room-scope darkness code needs to reach up to read
+    them. Fail-safe: any exception ⇒ {} (falls through to sun tier).
+    """
+    if hass is None:
+        return {}
+    try:
+        from ..const import CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_INTEGRATION
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                return {**entry.data, **entry.options}
+    except Exception:  # noqa: BLE001
+        return {}
+    return {}
+
+
+def discover_outdoor_illuminance_suggestion(hass: Any) -> str | None:
+    """Return the first enabled `illuminance`-platform entity_id, or None.
+
+    Used by the Global Sensors form as the SUGGESTED value for
+    CONF_OUTDOOR_LIGHT_SENSOR when unset. Not consumed by the runtime
+    darkness fallback — the runtime reads ONLY the configured field.
+    """
+    if hass is None:
+        return None
+    try:
+        from homeassistant.helpers import entity_registry as er
+        registry = er.async_get(hass)
+        for entry in registry.entities.values():
+            try:
+                if entry.platform != "illuminance":
+                    continue
+                if entry.disabled_by is not None:
+                    continue
+                return entry.entity_id
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 def is_dark_fallback(cfg: dict, hass: Any) -> bool:
     """Return True iff the room should be treated as dark right now,
     given that the primary lux read did not resolve.
 
-    Ordering matches the plan:
-      1. Borrowed lux (CONF_LIGHT_DARK_LUX_SOURCE)
-      2. Sun fallback (CONF_LIGHT_DARK_USE_SUN_FALLBACK, default TRUE)
-      3. False
+    Ordering (v5.103.28 Slice B' REV 2.4):
+      1. Borrowed lux (CONF_LIGHT_DARK_LUX_SOURCE) — room-scale threshold.
+      2. Outdoor illuminance (auto-discovered from HA `illuminance`
+         integration) — compared against OUTDOOR_DARK_LUX (module const,
+         400). Gated by CONF_LIGHT_DARK_USE_SUN_FALLBACK (renamed:
+         "Use outdoor light when there's no room sensor").
+      3. Sun elevation < SUN_DARK_ELEVATION_DEG — only when no outdoor
+         illuminance sensor exists. Same kill-switch as tier 3.
+      4. False — preserves today's `is_dark(None) == False`.
+
+    Availability-only freshness for all sensor reads.
     """
     try:
         threshold = cfg.get(CONF_ILLUMINANCE_THRESHOLD, 20)
-        # 1. Borrowed lux
+        # 1. Borrowed lux (room-scale threshold)
         borrow = cfg.get(CONF_LIGHT_DARK_LUX_SOURCE)
         if borrow:
             lux = _read_lux(hass, borrow)
             if lux is not None:
                 return lux < threshold
-        # 2. Sun fallback (kill switch default TRUE)
-        use_sun = cfg.get(CONF_LIGHT_DARK_USE_SUN_FALLBACK, True)
-        if not use_sun:
+        # Kill switch disables tiers 3 AND 4 (outdoor + sun).
+        use_outdoor = cfg.get(CONF_LIGHT_DARK_USE_SUN_FALLBACK, True)
+        if not use_outdoor:
             return False
+        # 2. Outdoor illuminance (configured at integration level; visible
+        # in Global Sensors). No silent auto-discovery: unset ⇒ skip to sun.
+        integration = _integration_options(hass)
+        outdoor_eid = integration.get(CONF_OUTDOOR_LIGHT_SENSOR)
+        outdoor_threshold = float(
+            integration.get(CONF_OUTDOOR_DARK_LUX, DEFAULT_OUTDOOR_DARK_LUX)
+        )
+        if outdoor_eid:
+            outdoor_lux = _read_lux(hass, outdoor_eid)
+            if outdoor_lux is not None:
+                return outdoor_lux < outdoor_threshold
+            # outdoor sensor unavailable/unknown → fall through to sun.
+        # 3. Sun elevation (only reached when no outdoor sensor
+        # configured OR its state was unavailable).
         elev = _read_sun_elevation(hass)
         if elev is None:
             return False

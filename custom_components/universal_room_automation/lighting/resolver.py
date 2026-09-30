@@ -28,7 +28,13 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from ..const import CONF_LIGHTS, CONF_NIGHT_LIGHTS
+from ..const import (
+    CONF_LIGHTS,
+    CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY,
+    CONF_LIGHTS_ON_ENTRY,
+    CONF_LIGHTS_ON_ENTRY_DARK_ONLY,
+    CONF_NIGHT_LIGHTS,
+)
 
 
 def _dedup_preserving_order(items: Iterable[str]) -> list[str]:
@@ -51,21 +57,47 @@ def _as_list(value: Any) -> list[str]:
     return [str(value)]
 
 
-def effective_entry_set(cfg: dict, is_sleep_hours: bool) -> list[str]:
+def effective_entry_set(
+    cfg: dict,
+    is_sleep_hours: bool,
+    is_dark: bool | None = None,
+) -> list[str]:
     """Return the entities entry should turn ON for this room right now.
 
     Args:
         cfg: room config dict (``self.config`` in automation.py, ``options``
             in the reconciler path).
         is_sleep_hours: value of ``RoomAutomation.is_sleep_mode_active()``.
+        is_dark: current dark state. Only consulted when the room has
+            ``CONF_LIGHTS_ON_ENTRY_DARK_ONLY`` set — those entries are
+            removed when ``is_dark is False`` (explicitly False, not
+            None). ``None`` preserves today's "always include" behaviour.
+
+    Slice B' (v5.103.28): when ``CONF_LIGHTS_ON_ENTRY`` is set on the
+    room, the entry set is exactly that list (intersected with sleep
+    semantics + dark-only carve-out). ABSENT ⇒ today's
+    ``CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS`` union.
     """
     lights = _as_list(cfg.get(CONF_LIGHTS))
     night = _as_list(cfg.get(CONF_NIGHT_LIGHTS))
+    on_entry = _as_list(cfg.get(CONF_LIGHTS_ON_ENTRY))
+    dark_only = set(_as_list(cfg.get(CONF_LIGHTS_ON_ENTRY_DARK_ONLY)))
+
     if is_sleep_hours and night:
         # matches automation.py:1023-1027 — night lights only
         return _dedup_preserving_order(night)
-    # day (or sleep with no night lights): union, LIGHTS first
-    return _dedup_preserving_order(lights + night)
+
+    if on_entry:
+        # Slice B' explicit picker: honour operator's on-entry list.
+        base = on_entry
+    else:
+        # ABSENT ⇒ today: union, LIGHTS first
+        base = lights + night
+
+    if dark_only and is_dark is False:
+        base = [e for e in base if e not in dark_only]
+
+    return _dedup_preserving_order(base)
 
 
 def effective_exit_set(cfg: dict) -> list[str]:
@@ -79,4 +111,11 @@ def effective_exit_set(cfg: dict) -> list[str]:
     """
     lights = _as_list(cfg.get(CONF_LIGHTS))
     night = _as_list(cfg.get(CONF_NIGHT_LIGHTS))
-    return _dedup_preserving_order(lights + night)
+    leave_on = set(_as_list(cfg.get(CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY)))
+    union = _dedup_preserving_order(lights + night)
+    if leave_on:
+        # Slice B' (v5.103.28): carve out leave-on-when-empty entries.
+        # ABSENT ⇒ today's unconditional union. Applies to hand-switched
+        # lights too — see plan Vacancy rule.
+        return [e for e in union if e not in leave_on]
+    return union

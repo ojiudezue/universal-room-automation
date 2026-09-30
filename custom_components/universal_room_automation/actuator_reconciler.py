@@ -797,6 +797,17 @@ class ActuatorReconciler:
             )
             if not should_on:
                 return None
+            # Slice B' (v5.103.28): if operator set an explicit
+            # CONF_LIGHTS_ON_ENTRY list, non-members must not be asserted
+            # ON by the reconciler. Dark-only carve-out honoured via
+            # effective_entry_set(is_dark=...). ABSENT ⇒ today's union
+            # (entity_id was already reachable via _LIGHT_KEYS).
+            from .lighting.resolver import effective_entry_set
+            entry_set = effective_entry_set(
+                cfg, is_sleep_hours=sleep, is_dark=is_dark,
+            )
+            if entity_id not in entry_set:
+                return None
             params = {}
             capability = cfg.get(CONF_LIGHT_CAPABILITIES)
             if domain == "light" and capability in (
@@ -814,10 +825,10 @@ class ActuatorReconciler:
         # Mirror that here — no sleep gate. Under sleep, the sleep branch
         # above (D2b) falls through for night+vacant, so this branch is
         # the OFF-authority for that cell; both sides now agree.
-        regular_lights = cfg.get(CONF_LIGHTS) or []
-        off_set = list(regular_lights) + [
-            e for e in night_lights if e not in regular_lights
-        ]
+        # Slice B' (v5.103.28): honour CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY.
+        # ABSENT ⇒ today's unconditional union.
+        from .lighting.resolver import effective_exit_set
+        off_set = effective_exit_set(cfg)
         if exit_action == LIGHT_ACTION_TURN_OFF and entity_id in off_set:
             return DesiredState(
                 state="off", domain=domain, service="turn_off",

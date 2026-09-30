@@ -42,6 +42,8 @@ from .const import (
     CONF_LIGHT_BRIGHTNESS_PCT,
     CONF_LIGHT_TRANSITION_ON,
     CONF_LIGHT_TRANSITION_OFF,
+    # Slice B' role pickers
+    CONF_LIGHTS_ON_ENTRY,
     CONF_ENTRY_COVER_ACTION,
     CONF_EXIT_COVER_ACTION,
     CONF_OPEN_TIMING_MODE,
@@ -1059,17 +1061,49 @@ class RoomAutomation:
             _LOGGER.debug("Entry light control [%s]: conditions not met, skipping", room_name)
             return
 
+        # Slice B' (v5.103.28): resolver decides the entry set. ABSENT
+        # CONF_LIGHTS_ON_ENTRY ⇒ today's CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS
+        # (day mode). PRESENT ⇒ operator's picker wins; dark-only subset
+        # is removed when not is_dark.
+        from .lighting.resolver import effective_entry_set
+        entry_set = effective_entry_set(
+            self.config, is_sleep_hours=False, is_dark=is_dark
+        )
+        _LOGGER.debug(
+            "Entry light control [%s]: entry_set=%s (%d)", room_name, entry_set, len(entry_set),
+        )
         # v3.2.5 FIX: Calculate actual_lights and switches_as_lights locally
         # (Previously these were undefined, causing NameError)
-        actual_lights = [e for e in lights if e.startswith("light.")]
-        switches_as_lights = [e for e in lights if e.startswith("switch.")]
+        actual_lights = [e for e in entry_set if e.startswith("light.")]
+        switches_as_lights = [e for e in entry_set if e.startswith("switch.")]
+        lights = entry_set
 
-        # Turn on all lights (regular + night lights with day settings)
-        await self._turn_on_regular_lights()
-        
-        if night_lights:
-            # Night lights also turn on during day with day settings
-            await self._turn_on_night_lights(mode="day")
+        has_on_entry = bool(self.config.get(CONF_LIGHTS_ON_ENTRY))
+        if has_on_entry:
+            # Operator has an explicit on-entry list. Turn on exactly
+            # that resolver-computed set (dark-only carve-out applied
+            # inside the resolver). Domain-split so light.* and switch.*
+            # go to their respective services.
+            if actual_lights:
+                svc_data = {
+                    "entity_id": actual_lights,
+                    "transition": self.config.get(CONF_LIGHT_TRANSITION_ON, 1),
+                }
+                capability = self.config.get(CONF_LIGHT_CAPABILITIES, LIGHT_CAPABILITY_BASIC)
+                if capability in [LIGHT_CAPABILITY_BRIGHTNESS, LIGHT_CAPABILITY_FULL]:
+                    svc_data["brightness_pct"] = self.config.get(CONF_LIGHT_BRIGHTNESS_PCT, 100)
+                await self._safe_service_call("light", SERVICE_TURN_ON, svc_data, blocking=False)
+            if switches_as_lights:
+                await self._safe_service_call(
+                    "switch", SERVICE_TURN_ON,
+                    {"entity_id": switches_as_lights}, blocking=False,
+                )
+        else:
+            # Turn on all lights (regular + night lights with day settings)
+            await self._turn_on_regular_lights()
+            if night_lights:
+                # Night lights also turn on during day with day settings
+                await self._turn_on_night_lights(mode="day")
         _LOGGER.info(
             "Room entry automation: Turned on %d light(s) and %d switch(es)",
             len(actual_lights), len(switches_as_lights)
@@ -1093,9 +1127,11 @@ class RoomAutomation:
         # sleep gate is needed here; both sides agree OFF-when-vacant.
         # Bug Class #4: the widened set still passes through the domain
         # split below so light.* and switch.* are batched separately.
-        regular = self.config.get(CONF_LIGHTS, []) or []
-        night = self.config.get(CONF_NIGHT_LIGHTS, []) or []
-        off_set = list(regular) + [e for e in night if e not in regular]
+        # Slice B' (v5.103.28): route through effective_exit_set so
+        # CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY is honoured. ABSENT ⇒ today's
+        # unconditional union.
+        from .lighting.resolver import effective_exit_set
+        off_set = effective_exit_set(self.config)
         lights = off_set
         if not lights:
             return

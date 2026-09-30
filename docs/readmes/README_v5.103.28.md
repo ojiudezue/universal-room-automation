@@ -215,6 +215,145 @@ Live validation results table filled in post-restart.
 
 ---
 
+## Slice B′ — 2026-09-30 (Lighting behaviour step + role picker MOVE + outdoor-light tier)
+
+D1 (Lighting step / role pickers) + D8 physical picker MOVE + Slice B REV 2.4
+(weather-adjusted outdoor illuminance tier, integration-level Global Sensors
+knobs).
+
+### What shipped
+
+- `const.py` — new keys: `CONF_LIGHTS_ON_ENTRY`, `CONF_LIGHTS_ON_ENTRY_DARK_ONLY`,
+  `CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY`, `CONF_AWAY_TURN_OFF_LEAVE_ON`,
+  `CONF_OUTDOOR_LIGHT_SENSOR`, `CONF_OUTDOOR_DARK_LUX`, `DEFAULT_OUTDOOR_DARK_LUX=400.0`.
+  All additive; ABSENT preserves today's resolver output.
+- `lighting/resolver.py` — `effective_entry_set` gains an `is_dark`
+  parameter and honours `CONF_LIGHTS_ON_ENTRY` (subset semantics) and
+  `CONF_LIGHTS_ON_ENTRY_DARK_ONLY` (removed when `is_dark is False`).
+  `effective_exit_set` subtracts `CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY`.
+  Sleep-hours night-only path unchanged.
+- `automation.py::_control_lights_entry` — routes through the resolver.
+  When `CONF_LIGHTS_ON_ENTRY` is set, turns on exactly the resolved set
+  (domain-split); otherwise today's `_turn_on_regular_lights` +
+  `_turn_on_night_lights(mode="day")` path.
+- `automation.py::_control_lights_exit` — off_set now sourced from
+  `effective_exit_set(self.config)` (leave-on carve-out).
+- `actuator_reconciler.py::_resolve_light` — occupied branch restricts
+  to `effective_entry_set(cfg, sleep, is_dark)` when
+  `CONF_LIGHTS_ON_ENTRY` is set. Vacant branch off_set sourced from
+  `effective_exit_set(cfg)`.
+- `lighting/darkness.py` — `is_dark_fallback` tier order:
+  1. Borrowed lux (room-scale threshold).
+  2. Outdoor illuminance from the OPERATOR-CONFIGURED
+     `CONF_OUTDOOR_LIGHT_SENSOR` at integration level, compared against
+     `CONF_OUTDOOR_DARK_LUX` (default 400). No silent auto-discovery.
+  3. Sun elevation < `SUN_DARK_ELEVATION_DEG`.
+  4. False.
+  Same `CONF_LIGHT_DARK_USE_SUN_FALLBACK` kill switch disables tiers 3
+  AND 4. New helper `discover_outdoor_illuminance_suggestion(hass)` is
+  used ONLY by the form (visible pre-fill).
+- `config_flow.py` room options — new `async_step_options_lighting_behaviour`
+  step added to the room options menu. Fields (in order): on-entry
+  picker, dark-only subset, night lights, leave-on-when-empty,
+  `CONF_AWAY_TURN_OFF_LEAVE_ON` (default TRUE), alert lights,
+  `CONF_LIGHT_DARK_USE_SUN_FALLBACK`, `CONF_LIGHT_DARK_LUX_SOURCE`,
+  collapsed Auto/Manual sub-block. Picker `include_entities` built from
+  in-flight state (`LIGHTS ∪ NIGHT_LIGHTS ∪ ALERT_LIGHTS ∪ stored value`)
+  so a saved entity outside `CONF_LIGHTS` is never dropped on save (F5
+  round-trip guarantee). Read-only per-light feature summary from
+  `state.attributes.supported_color_modes`.
+- `config_flow.py` options `async_step_devices` — Night Lights entity
+  picker + Auto/Manual switch pickers REMOVED (moved to the new step).
+  Night brightness/color fields stay in Devices (value tunables, not
+  role pickers). Same keys, no stored-data migration.
+- `config_flow.py` options `async_step_notifications` — Alert Lights
+  entity picker REMOVED (moved); `CONF_ALERT_LIGHT_COLOR` stays.
+- `config_flow.py` options `async_step_global_sensors` — new
+  `CONF_OUTDOOR_LIGHT_SENSOR` (illuminance-device-class entity picker,
+  visible suggested pre-fill from `illuminance` platform when unset)
+  and `CONF_OUTDOOR_DARK_LUX` (Number, default 400).
+- `strings.json` + `translations/en.json` — new step + Global Sensors
+  fields. Labels plain (≤4 words, no nerd terms).
+- `quality/tests/test_lighting_slice_b_prime.py` — 19 tests: resolver
+  new-key semantics + darkness tier ordering + threshold discrimination
+  (399/401) + kill switch + form-prefill discovery + disabled entries.
+- `quality/tests/test_room_dialog_strings.py` — extended
+  `ROOM_OPTIONS_STEPS` with `options_lighting_behaviour`; 257/257 pass
+  (30 new field assertions).
+
+### Per-site mutation drills
+
+Ran 2026-09-30, PYTHONDONTWRITEBYTECODE=1 + `__pycache__` cleared before
+each run. Each mutation restored in Python (rewrite saved source);
+`git status --short` clean after the drill loop (only intended edits
+remain).
+
+| # | Site | Mutation | Result |
+|---:|---|---|---|
+| 1 | `resolver.py::effective_entry_set` on_entry branch | `if False and on_entry:` | 1 test FAIL (`test_on_entry_present_restricts_set`), 3 unrelated PASS; restored |
+| 2 | `resolver.py::effective_entry_set` dark-only carve-out | neuter block | 1 test FAIL (`test_on_entry_dark_only_removed_when_not_dark`); restored |
+| 3 | `resolver.py::effective_exit_set` leave-on carve-out | neuter block | 1 test FAIL (`test_leave_on_carves_out_exit`); restored |
+| 4 | `darkness.py::is_dark_fallback` outdoor tier branch | `if False and outdoor_eid:` | 1 test FAIL (`test_outdoor_configured_and_available_below_threshold`); restored |
+| 5 | `actuator_reconciler.py` exit `effective_exit_set` wiring | replace with inline union | 0 FAIL (equivalence-only when leave-on empty; no in-suite reconciler-with-leave-on harness — noted as coverage gap for Slice C behavioural harness); restored |
+
+Drills 1-4 are load-bearing on the Slice B' resolver suite. Drill 5 is
+noted: the reconciler wiring is byte-identical to the old union when
+`CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY` is absent, so a mutation to the old
+union passes all in-suite tests. Coverage of the reconciler-with-leave-on
+path is deferred to the Slice C behavioural harness (D2 hold suite),
+which already needs an actuator-reconciler test rig.
+
+### Test selection + name-diff vs develop
+
+Selection: `-k "light or automation or reconciler or config_flow or options or strings"`.
+
+| Run | Passed | Failed | Skipped | Deselected |
+|---|---:|---:|---:|---:|
+| develop @ `1bb5f72fa` baseline | 1026 | 5 (pre-existing) | 4 | 10958 |
+| Slice A + B (per prior section) | 1072 | 5 (same) | 4 | 10964 |
+| Slice A + B + B′ (this ship) | 1102 | 5 (same) | 4 | 10964 |
+| Delta B → B′ | **+30 (new B′ tests + 11 new B′ options-flow field asserts in strings test)** | 0 new failures | 0 | 0 |
+
+Same 5 pre-existing failures (listed in Slice A). Zero regressions.
+
+### Live acceptance criteria (Slice B′, prospective — deploy HELD)
+
+- Verify: Room options menu shows a new "Lighting behaviour" step
+  between "Lighting Automation" and "Cover Automation".
+- Verify: Room options → Devices no longer lists Night Lights picker
+  (brightness/color still there); no Auto/Manual switch pickers.
+- Verify: Room options → Notifications no longer lists Alert Lights
+  picker; Alert Light Color still there.
+- Verify: Integration options → Global Sensors shows "Outdoor light
+  sensor" (pre-filled with `sensor.phalanxmadrone_illuminance` because
+  that entity's platform is `illuminance`) and "Dark outside below" (400).
+- Verify: with `CONF_LIGHTS_ON_ENTRY = [light.a]` set on a room whose
+  `CONF_LIGHTS = [light.a, light.b]`, entry turns on ONLY `light.a`.
+- Verify: with `CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY = [light.a]` set, exit
+  leaves `light.a` on and sweeps `light.b` off.
+- Verify: darkness tier — with the outdoor sensor configured and
+  reading < 400, no-lux room lights on entry (dark). Above 400: no.
+- Verify: with outdoor sensor unset, previous sun-elevation behaviour
+  preserved.
+- Verify: Round-trip — save a night light outside `CONF_LIGHTS` in the
+  new step, close, reopen: value preserved (F5 guard).
+
+Post-restart validation table filled per CLAUDE.md rule.
+
+### Slice B′ deferrals (tracked)
+
+- Night light brightness/color fields MOVE (plan REV 2.3 producer/consumer map
+  says these MOVE too). Kept in Devices this ship — value tunables, not role
+  pickers; scope minimisation. Follow-up card.
+- Reconciler-with-leave-on behavioural harness (drill #5 coverage gap).
+  To be added alongside Slice C D2 hold suite.
+- D2 manual hold + D3 room-light switch: Slice C, not built.
+- Away-turn-off-leave-on ACTUATION (the boolean is stored + shown but
+  the Away-branch sweep in `automation.py` exit is not yet gated by
+  house-state=Away; that's D4). Boolean is inert until D4 lands.
+
+---
+
 ## Slice C — pending (D2 hold + D3 room-light switch)
 
 Not yet built.

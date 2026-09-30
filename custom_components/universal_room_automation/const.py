@@ -928,10 +928,33 @@ CONF_LIGHT_TRANSITION_OFF: Final = "light_transition_seconds_off"
 # `is_dark(None) == False` behaviour.
 CONF_LIGHT_DARK_USE_SUN_FALLBACK: Final = "light_dark_use_sun_fallback"
 CONF_LIGHT_DARK_LUX_SOURCE: Final = "light_dark_lux_source"
+
+# ROOM-LIGHTING-SETUP-REDESIGN-1 Slice B' (v5.103.28) — role pickers.
+# Additive: ABSENT ⇒ today's behaviour (CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS
+# entry union, unconditional exit sweep). Present ⇒ resolver honours the
+# per-role list. Same keys survive a picker MOVE from Devices step; no
+# stored-data migration needed. See PLANNING_room_dialog_cleanup_and_lighting_roles.md
+# §D1 fields 2/3/5 and REV 2.2 / REV 2.3.1.
+CONF_LIGHTS_ON_ENTRY: Final = "lights_on_entry"
+CONF_LIGHTS_ON_ENTRY_DARK_ONLY: Final = "lights_on_entry_dark_only"
+CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY: Final = "lights_leave_on_when_empty"
+# Per-room Away-turn-off-leave-on toggle. Default TRUE; meaningful only
+# when CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY is non-empty.
+CONF_AWAY_TURN_OFF_LEAVE_ON: Final = "away_turn_off_leave_on"
 # Module-const safety bound (civil dusk). Sun elevation strictly less
 # than this ⇒ dark for fallback purposes. Not exposed as a knob —
 # safety bound per the knob-rung ladder in the plan.
 SUN_DARK_ELEVATION_DEG: Final = -6.0
+# Slice B' (v5.103.28) REV 2.4 — weather-adjusted outdoor illuminance
+# tier. Integration-level (Global Sensors) config: the operator picks
+# ONE outdoor lux sensor (any illuminance sensor works; the pnbruckner
+# `illuminance` integration is one common source). No silent runtime
+# auto-discovery — the darkness code reads ONLY this configured field.
+# The form pre-fills with an enabled `illuminance`-platform entity as a
+# SUGGESTED value when unset. Threshold is a rung-2 config, default 400.
+CONF_OUTDOOR_LIGHT_SENSOR: Final = "outdoor_light_sensor"
+CONF_OUTDOOR_DARK_LUX: Final = "outdoor_dark_lux"
+DEFAULT_OUTDOOR_DARK_LUX: Final = 400.0
 
 # Light actions
 LIGHT_ACTION_NONE: Final = "none"
