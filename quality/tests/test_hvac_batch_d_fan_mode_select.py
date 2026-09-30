@@ -412,4 +412,4 @@ def test_select_is_a_control_not_configuration():
     (where Climate Automation was), so it must carry no entity_category."""
     room = _Entry("r1", {"room_name": "Guest Bedroom 2"}, {C.CONF_ROOM_FAN_MODE: OFF})
     sel, _ = _select_for(room, _IN_ZONE)
-    assert sel.entity_category is None
+    assert sel._attr_entity_category is None
