@@ -307,7 +307,9 @@ class TestPresenceWiring:
         """Source-grep: the dispatch site must contain the boot-settle
         short-circuit BEFORE the observation_mode branch (so boot-settle
         always wins the log when both apply)."""
-        assert "Boot-settle: suppressed presence away-dispatch" in PRESENCE_SRC
+        # House-state batch (v5.103.27): the gate moved into the single
+        # _dispatch_house_state_change helper; the log line was reworded.
+        assert "Boot-settle: suppressed SIGNAL_HOUSE_STATE_CHANGED" in PRESENCE_SRC
         assert "if not self._boot_settle_done:" in PRESENCE_SRC
         # Counter increments must live next to the suppress log.
         assert "self._boot_settle_presence_suppressed += 1" in PRESENCE_SRC

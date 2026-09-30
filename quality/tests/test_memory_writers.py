@@ -517,7 +517,11 @@ async def test_tracker_trust_excluded_60_flip_debounce(hass):
         ("initial", False),
         ("startup", False),
         ("restored", False),
-        ("boot_settle_release", False),
+        # R2-3 vocab: confirmed suppresses (no semantic transition);
+        # diverged + settle_release EMIT real rows.
+        ("boot_restore_confirmed", False),
+        ("boot_restore_diverged", True),
+        ("boot_settle_release", True),
         ("timer_expire", True),
         ("guest_gate_armed", True),
         ("person_arrived", True),
