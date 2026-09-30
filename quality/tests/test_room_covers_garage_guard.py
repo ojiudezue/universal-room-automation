@@ -106,6 +106,35 @@ else:
     _cv._load("cover_ownership")
 
 
+@pytest.fixture(autouse=True)
+def _pin_registry_stub(monkeypatch):
+    """Other test files replace the shared entity_registry stub; pin ours on
+    the cover_ownership module for every test so the registry-only choke
+    point reads the garage device_class regardless of suite order."""
+    import types as _types
+
+    class _E:
+        def __init__(self, dc):
+            self.device_class = dc
+            self.original_device_class = dc
+
+    class _R:
+        def async_get(self, entity_id):
+            dc = _REGISTRY_DEVICE_CLASS.get(entity_id)
+            return _E(dc) if dc is not None else None
+
+    stub = _types.SimpleNamespace(async_get=lambda _h: _R())
+    co = sys.modules["custom_components.universal_room_automation.cover_ownership"]
+    monkeypatch.setattr(co, "er", stub)
+    # The automation module may hold helpers bound to an EARLIER load of
+    # cover_ownership (suite-order dependent); pin the stub in their globals.
+    for fn_name in ("is_security_owned_cover", "is_security_owned_cover_by_registry"):
+        fn = getattr(_automation, fn_name, None)
+        if fn is not None and "er" in fn.__globals__:
+            monkeypatch.setitem(fn.__globals__, "er", stub)
+    yield
+
+
 def _make_automation(covers, fake_states):
     hass = MagicMock()
     hass.states = fake_states
