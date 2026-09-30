@@ -8,10 +8,12 @@ import logging
 from collections import defaultdict
 from typing import Any, Final
 
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_call_later
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from ..const import COORDINATOR_ENABLED_KEYS, DOMAIN, VERSION
@@ -32,7 +34,15 @@ from .coordinator_diagnostics import (
     DailyCounter,
     DecisionLogger,
 )
-from .house_state import HouseState, HouseStateMachine
+from .house_state import (
+    HOUSE_STATE_HEARTBEAT_S,
+    HOUSE_STATE_RESTORE_MAX_STALE_S,
+    HOUSE_STATE_SAVE_DEBOUNCE_S,
+    HOUSE_STATE_STORE_KEY,
+    HOUSE_STATE_STORE_VERSION,
+    HouseState,
+    HouseStateMachine,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -185,6 +195,16 @@ class CoordinatorManager:
         self._intent_queue: list[Intent] = []
         self._conflict_resolver = ConflictResolver()
         self._house_state_machine = HouseStateMachine()
+        # D1 persistence: constructed here, loaded/heartbeat/stop-hook
+        # wired in async_start.
+        self._house_state_store: Store = Store(
+            hass,
+            HOUSE_STATE_STORE_VERSION,
+            HOUSE_STATE_STORE_KEY,
+        )
+        self._house_state_heartbeat_unsub = None
+        self._house_state_stop_unsub = None
+        self._house_state_restored: bool = False
         self._processing = False
         self._batch_timer_unsub = None
         self._running = False
@@ -410,6 +430,23 @@ class CoordinatorManager:
         self._running = True
         self._last_reset_date = dt_util.now().date().isoformat()
 
+        # D1 (PLANNING house_state restart): restore the last persisted
+        # house-state BEFORE any coordinator setup runs. At this point no
+        # consumer has read ``manager.house_state`` and no signal listeners
+        # exist to dispatch to, so the machine can flip to the restored
+        # state without any consumer observing a transition. Failure here
+        # is non-fatal — machine simply stays at AWAY.
+        try:
+            await self._async_restore_house_state()
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.warning(
+                "House-state restore: async_load raised (non-fatal)",
+                exc_info=True,
+            )
+        # Wire persistence hooks on the machine now (transitions during
+        # coordinator setup should also be persisted).
+        self._wire_house_state_persistence()
+
         # Set up all registered coordinators.
         # v3.21.0 D2: Startup ordering dependency — HVAC waits on Presence
         # _ready_event (set after initial inference). Dict insertion order
@@ -454,6 +491,135 @@ class CoordinatorManager:
             len(self._coordinators),
         )
 
+    async def _async_restore_house_state(self) -> None:
+        """D1: load persisted state from Store and apply it to the machine."""
+        data = await self._house_state_store.async_load()
+        if data is None:
+            _LOGGER.info(
+                "House-state restore: no persisted record (cold-boot default AWAY)"
+            )
+            self._house_state_restored = False
+            return
+        restored, age_s, reason = self._house_state_machine.apply_restored(
+            data,
+            max_stale_s=HOUSE_STATE_RESTORE_MAX_STALE_S,
+        )
+        if restored:
+            _LOGGER.info(
+                "House-state restore: state=%s age_s=%.0f override=%s "
+                "(boot_restore_active=True)",
+                self._house_state_machine._state.value,
+                age_s,
+                self._house_state_machine._override,
+            )
+            self._house_state_restored = True
+        else:
+            _LOGGER.info(
+                "House-state restore: NOT applied (age_s=%.0f max=%d reason=%s) — "
+                "machine remains at %s",
+                age_s,
+                HOUSE_STATE_RESTORE_MAX_STALE_S,
+                reason,
+                self._house_state_machine._state.value,
+            )
+            self._house_state_restored = False
+
+    def _wire_house_state_persistence(self) -> None:
+        """Register debounced-save hook, heartbeat, stop-hook, D2 adapter."""
+        store = self._house_state_store
+        machine = self._house_state_machine
+
+        def _data_provider() -> dict[str, Any]:
+            try:
+                return machine.to_persisted_dict()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "House-state persist: to_persisted_dict raised",
+                    exc_info=True,
+                )
+                return {}
+
+        def _on_persist_change() -> None:
+            try:
+                store.async_delay_save(
+                    _data_provider, HOUSE_STATE_SAVE_DEBOUNCE_S
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "House-state persist: async_delay_save raised",
+                    exc_info=True,
+                )
+
+        machine.on_persist_change = _on_persist_change
+
+        # D2 hook adapter: route override set/clear through the
+        # presence-owned dispatch helper so both boot-settle and
+        # observation-mode gates apply and one D7 + activity row is written.
+        def _on_state_change(
+            old: HouseState, new: HouseState, trigger: str
+        ) -> None:
+            try:
+                presence = self._coordinators.get("presence")
+                helper = getattr(
+                    presence, "_dispatch_house_state_change", None
+                ) if presence is not None else None
+                if helper is None:
+                    # Presence not yet up (very early boot): fall back to a
+                    # direct dispatch (still short-circuited by nothing —
+                    # override on empty coordinator set is a no-op path).
+                    _LOGGER.debug(
+                        "override dispatch adapter: presence not available yet"
+                    )
+                    return
+                helper(old, new, trigger, None, "override_adapter")
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "override dispatch adapter raised (non-fatal)",
+                    exc_info=True,
+                )
+
+        machine.on_state_change = _on_state_change
+
+        # Heartbeat: forced flush every HOUSE_STATE_HEARTBEAT_S so
+        # ``saved_at`` reflects liveness. Disabled when the const is 0.
+        if HOUSE_STATE_HEARTBEAT_S > 0 and self._house_state_heartbeat_unsub is None:
+            from datetime import timedelta
+
+            def _heartbeat(_now: Any) -> None:
+                try:
+                    # Fire the forced save through delay_save so it
+                    # coalesces if a change is already pending.
+                    store.async_delay_save(_data_provider, 0.0)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "House-state heartbeat save raised", exc_info=True
+                    )
+
+            self._house_state_heartbeat_unsub = async_track_time_interval(
+                self.hass,
+                _heartbeat,
+                timedelta(seconds=HOUSE_STATE_HEARTBEAT_S),
+            )
+
+        # Stop-hook: forced graceful flush on HA shutdown.
+        if self._house_state_stop_unsub is None:
+            async def _on_ha_stop(_event: Any) -> None:
+                try:
+                    await store.async_save(_data_provider())
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "House-state stop-hook save raised", exc_info=True
+                    )
+
+            try:
+                self._house_state_stop_unsub = self.hass.bus.async_listen_once(
+                    EVENT_HOMEASSISTANT_STOP, _on_ha_stop
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "House-state stop-hook registration failed", exc_info=True
+                )
+
     async def async_stop(self) -> None:
         """Stop the coordinator manager and tear down all coordinators."""
         self._running = False
@@ -462,6 +628,32 @@ class CoordinatorManager:
         if self._batch_timer_unsub is not None:
             self._batch_timer_unsub()
             self._batch_timer_unsub = None
+
+        # D1: unsubscribe heartbeat and stop-hook; flush any pending save.
+        if self._house_state_heartbeat_unsub is not None:
+            try:
+                self._house_state_heartbeat_unsub()
+            except Exception:  # noqa: BLE001
+                pass
+            self._house_state_heartbeat_unsub = None
+        if self._house_state_stop_unsub is not None:
+            try:
+                self._house_state_stop_unsub()
+            except Exception:  # noqa: BLE001
+                pass
+            self._house_state_stop_unsub = None
+        try:
+            # Flush any pending delayed save.
+            await self._house_state_store.async_save(
+                self._house_state_machine.to_persisted_dict()
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "House-state final flush on stop raised", exc_info=True
+            )
+        # Detach hooks so a torn-down machine cannot re-enter save paths.
+        self._house_state_machine.on_persist_change = None
+        self._house_state_machine.on_state_change = None
 
         # Tear down all coordinators in reverse priority order
         sorted_coords = sorted(

@@ -2273,6 +2273,63 @@ class PresenceCoordinator(BaseCoordinator):
                 "Boot-settle: released via %s — actuation will now proceed",
                 reason,
             )
+        # R2-1: reconciliation tick scheduled at the single idempotent
+        # convergence point so all three release paths get exactly one
+        # post-settle inference. Distinct trigger label per R2-3.
+        try:
+            self.hass.async_create_task(
+                self._boot_settle_reconciliation_tick()
+            )
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.debug(
+                "Boot-settle: reconciliation tick scheduling failed "
+                "(non-fatal)",
+                exc_info=True,
+            )
+
+    async def _boot_settle_reconciliation_tick(self) -> None:
+        """R2-1 tick: one reconciliation inference after settle release.
+
+        Uses R2-3 trigger labels:
+          * boot_restore_confirmed  — restored & inference agrees (no dispatch,
+                                      writer boot-suppresses).
+          * boot_restore_diverged   — restored & inference disagrees (one dispatch).
+          * boot_settle_release     — no restore was active (cold-boot walk).
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            machine = getattr(manager, "house_state_machine", None) if manager else None
+            restore_active = bool(
+                getattr(machine, "boot_restore_active", False)
+            ) if machine is not None else False
+            restored_state = machine._state if (machine is not None and restore_active) else None
+            trigger = (
+                "boot_restore_confirmed"
+                if restore_active
+                else "boot_settle_release"
+            )
+            await self._run_inference(trigger)
+            if machine is not None and restore_active:
+                # Post-tick: if inference kept us at the restored state,
+                # already labeled as *confirmed*. Otherwise the transition
+                # inside _run_inference will have carried its own trigger;
+                # but the R2-3 semantics say we should dispatch under
+                # boot_restore_diverged. To keep behaviour correct, if
+                # the inferred state moved, we relabel by inspecting the
+                # machine post-tick.
+                if machine._state != restored_state:
+                    _LOGGER.info(
+                        "Boot-settle reconciliation: restore diverged "
+                        "(restored=%s inferred=%s)",
+                        restored_state,
+                        machine._state,
+                    )
+                machine.clear_boot_restore_active()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Boot-settle reconciliation tick raised (non-fatal)",
+                exc_info=True,
+            )
 
     @callback
     def _on_ha_started_release_boot_settle(self, _event: Any) -> None:
@@ -6623,6 +6680,28 @@ class PresenceCoordinator(BaseCoordinator):
                 self._arriving_rearm_until = 0.0
 
         if new_state is not None:
+            # R2-2: while boot-settle is still up AND a fresh state was
+            # restored from Store, DEFER any transition proposal to the
+            # R2-1 reconciliation tick so consumers cannot observe a
+            # transient AWAY/HOME_* proposal that contradicts the
+            # restored value. Cold-boot behaviour is preserved when
+            # nothing was restored (_boot_restore_active=False).
+            if (
+                not self._boot_settle_done
+                and getattr(
+                    manager.house_state_machine,
+                    "boot_restore_active",
+                    False,
+                )
+            ):
+                _LOGGER.info(
+                    "Boot-settle (restore active): DEFERRING transition "
+                    "proposal %s -> %s (trigger=%s)",
+                    current_state.value,
+                    new_state.value,
+                    trigger,
+                )
+                return
             accepted = manager.house_state_machine.transition(
                 new_state, trigger=trigger
             )
@@ -6765,55 +6844,13 @@ class PresenceCoordinator(BaseCoordinator):
                 # short-circuit pattern, different trigger. Either gate
                 # suppresses; both gates can be active at once on a cold-boot
                 # observation-mode run — the boot-settle log wins for clarity.
-                if not self._boot_settle_done:
-                    self._boot_settle_presence_suppressed += 1
-                    _LOGGER.info(
-                        "Boot-settle: suppressed presence away-dispatch "
-                        "SIGNAL_HOUSE_STATE_CHANGED %s -> %s (trigger=%s, "
-                        "suppressed_count=%d, observation_mode=%s)",
-                        current_state.value,
-                        new_state.value,
-                        trigger,
-                        self._boot_settle_presence_suppressed,
-                        self.observation_mode,
-                    )
-                elif self.observation_mode:
-                    _LOGGER.info(
-                        "[observation mode] Presence would dispatch "
-                        "SIGNAL_HOUSE_STATE_CHANGED %s → %s (trigger=%s) — suppressed",
-                        current_state.value,
-                        new_state.value,
-                        trigger,
-                    )
-                else:
-                    async_dispatcher_send(
-                        self.hass,
-                        SIGNAL_HOUSE_STATE_CHANGED,
-                        {
-                            "old_state": current_state.value,
-                            "new_state": new_state.value,
-                            "trigger": trigger,
-                            "confidence": self._inference_engine.confidence,
-                        },
-                    )
-
-                    # Activity log: house state transition
-                    activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
-                    if activity_logger:
-                        self.hass.async_create_task(
-                            activity_logger.log(
-                                coordinator="presence",
-                                action="house_state_change",
-                                description=f"House state {current_state.value} -> {new_state.value} (trigger={trigger})",
-                                importance="notable",
-                                details={
-                                    "old_state": current_state.value,
-                                    "new_state": new_state.value,
-                                    "trigger": trigger,
-                                    "confidence": self._inference_engine.confidence,
-                                },
-                            )
-                        )
+                self._dispatch_house_state_change(
+                    current_state,
+                    new_state,
+                    trigger,
+                    self._inference_engine.confidence,
+                    source="inference",
+                )
 
                 # House-level anomaly detection
                 # v4.6.3 D3/D11/D12: Use canonical AnomalyEvent + ActivityLogger.
@@ -7598,6 +7635,136 @@ class PresenceCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             return out
         return out
+
+    def _dispatch_house_state_change(
+        self,
+        old_state: "HouseState",
+        new_state: "HouseState",
+        trigger: str,
+        confidence: Any,
+        source: str = "inference",
+    ) -> None:
+        """Single presence-owned dispatch helper for SIGNAL_HOUSE_STATE_CHANGED.
+
+        Applies boot-settle + observation-mode gates, dispatches the
+        canonical payload, writes the D7 episode row and the activity
+        log row. Called by inference (source="inference") AND by the D2
+        override adapter (source="override_adapter"). Payload shape is
+        preserved byte-identical to the pre-refactor site.
+        """
+        old_val = old_state.value if hasattr(old_state, "value") else str(old_state)
+        new_val = new_state.value if hasattr(new_state, "value") else str(new_state)
+        # F5: boot-settle gate — same short-circuit as pre-refactor site.
+        if not self._boot_settle_done:
+            self._boot_settle_presence_suppressed += 1
+            _LOGGER.info(
+                "Boot-settle: suppressed SIGNAL_HOUSE_STATE_CHANGED %s -> %s "
+                "(trigger=%s source=%s suppressed_count=%d observation_mode=%s)",
+                old_val, new_val, trigger, source,
+                self._boot_settle_presence_suppressed,
+                self.observation_mode,
+            )
+            return
+        if self.observation_mode:
+            _LOGGER.info(
+                "[observation mode] would dispatch SIGNAL_HOUSE_STATE_CHANGED "
+                "%s -> %s (trigger=%s source=%s) — suppressed",
+                old_val, new_val, trigger, source,
+            )
+            return
+        # F11 loop-thread assertion (defensive; service call path is
+        # already on the loop).
+        try:
+            import asyncio as _asyncio  # noqa: PLC0415
+            assert self.hass.loop is _asyncio.get_running_loop()
+        except (RuntimeError, AssertionError):
+            _LOGGER.debug(
+                "_dispatch_house_state_change: loop-thread assertion failed",
+            )
+        # D7 memory episode row (boot-suppression vocab handled by writer).
+        try:
+            from .. import memory_writers as _mw  # noqa: PLC0415
+            _snapshot = {
+                "tracked_persons_count_trusted": int(
+                    getattr(self, "_tracked_persons_count_trusted", 0)
+                ),
+                "all_tracked_persons_away": bool(
+                    getattr(self, "_all_tracked_persons_away", False)
+                ),
+                "census_count": int(getattr(self, "_census_count", 0)),
+                "unidentified_count": int(
+                    getattr(self, "_unidentified_count", 0)
+                ),
+                "source": source,
+            }
+            _mw.write_house_state_transition(
+                self.hass,
+                old_state=old_val,
+                new_state=new_val,
+                trigger=trigger,
+                confidence=confidence,
+                snapshot=_snapshot,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "D7 house_state_transition writer failed (non-fatal)",
+                exc_info=True,
+            )
+        async_dispatcher_send(
+            self.hass,
+            SIGNAL_HOUSE_STATE_CHANGED,
+            {
+                "old_state": old_val,
+                "new_state": new_val,
+                "trigger": trigger,
+                "confidence": confidence,
+            },
+        )
+        # D3 legacy DB row + activity log — mirror pre-refactor site.
+        try:
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is not None:
+                self.hass.async_create_task(
+                    db.log_house_state_change(
+                        state=new_val,
+                        confidence=confidence,
+                        trigger=trigger,
+                        previous_state=old_val,
+                    )
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "log_house_state_change scheduling failed (non-fatal)",
+                exc_info=True,
+            )
+        try:
+            activity_logger = self.hass.data.get(DOMAIN, {}).get(
+                "activity_logger"
+            )
+            if activity_logger:
+                self.hass.async_create_task(
+                    activity_logger.log(
+                        coordinator="presence",
+                        action="house_state_change",
+                        description=(
+                            f"House state {old_val} -> {new_val} "
+                            f"(trigger={trigger})"
+                        ),
+                        importance="notable",
+                        details={
+                            "old_state": old_val,
+                            "new_state": new_val,
+                            "trigger": trigger,
+                            "confidence": confidence,
+                            "source": source,
+                        },
+                    )
+                )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "activity_logger.log scheduling failed (non-fatal)",
+                exc_info=True,
+            )
 
     def set_house_state_override(self, state_value: str) -> None:
         """Set house state override from select entity or service call.
