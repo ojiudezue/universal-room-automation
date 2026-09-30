@@ -669,6 +669,10 @@ class BayesianPredictor:
 
         report.total_rows = len(rows)
         seen_timestamps: dict[str, set[str]] = {}  # person -> set of timestamps
+        # BOOT-EVENT-LOOP-FREEZE-1: second-truncated ts keys per person, kept
+        # incrementally. Rebuilding this set from seen_timestamps on every row
+        # was O(n^2) and froze HA's event loop ~150 s at every boot.
+        seen_ts_keys_by_person: dict[str, set[str]] = {}
 
         for row in rows:
             person_id = row.get("person_id", "")
@@ -731,6 +735,7 @@ class BayesianPredictor:
             # concern from this reporting fix).
             if person_id not in seen_timestamps:
                 seen_timestamps[person_id] = set()
+                seen_ts_keys_by_person[person_id] = set()
             ts_key = str(ts_str)[:19]  # Truncate to seconds
             dedup_key = (ts_key, from_room, to_room)
             if dedup_key in seen_timestamps[person_id]:
@@ -740,10 +745,10 @@ class BayesianPredictor:
             # room pairs (legitimate multi-step within a cycle). Compare
             # against the set of ts_keys already seen for this person
             # WITHOUT the room-pair component.
-            seen_ts_keys = {k[0] for k in seen_timestamps[person_id]}
-            if ts_key in seen_ts_keys:
+            if ts_key in seen_ts_keys_by_person[person_id]:
                 report.same_second_distinct += 1
             seen_timestamps[person_id].add(dedup_key)
+            seen_ts_keys_by_person[person_id].add(ts_key)
 
             # Check 5: Unknown rooms
             if to_room.lower() in EXCLUDED_ROOMS or from_room.lower() in EXCLUDED_ROOMS:
