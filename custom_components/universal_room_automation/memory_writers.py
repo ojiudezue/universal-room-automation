@@ -588,15 +588,21 @@ def write_house_state_transition(
         # that presence.py uses on the initial post-restart tick. The
         # test pins the vocabulary via a parametrized fixture; any new
         # boot-trigger string added by presence.py should be added here.
+        # R2-3: only "boot_restore_confirmed" from the new restore-and-
+        # reconcile flow is boot-suppressed. "boot_restore_diverged" and
+        # "boot_settle_release" emit real rows.
         _boot_triggers = (
             "boot",
             "restore",
             "initial",
             "startup",
             "restored",
+            "boot_restore_confirmed",
         )
         trig_norm = (trigger or "").strip().lower()
-        if any(tok in trig_norm for tok in _boot_triggers):
+        # Exact-match (R2-3): "boot_restore_diverged" and "boot_settle_release"
+        # contain "boot" as a substring but must NOT be suppressed.
+        if trig_norm in _boot_triggers:
             _LOGGER.debug(
                 "house_state_transition: suppressed first-tick-post-boot "
                 "(old=%s new=%s trigger=%s)",

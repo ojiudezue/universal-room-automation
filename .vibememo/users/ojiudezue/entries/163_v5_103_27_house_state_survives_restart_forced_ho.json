@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "163",
+  "author": "ojiudezue",
+  "session_id": "claude_20260930_033923_ship_v5_103_27",
+  "timestamp": "2026-09-30T03:39:23Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.27 shipped: House state survives restart; forced house state reaches every coordinator",
+  "summary": "House state survives restart; forced house state reaches every coordinator",
+  "why": "A 03:01 restart during sleep came back away->arriving->home_night and HVAC flipped zones 1-2 from Sleep to Home for two minutes; a D0 probe showed every one of 20 restarts in 10 days walks the house through the boot placeholder. Forced overrides never reached HVAC at all. Restoring the last state (with a staleness bound, clock-skew guard and a boot-settle rule so the machine and HVAC cannot drift) removes the walk.",
+  "implications": "Shipped HOUSE-STATE-SLEEP-LOST-ON-RESTART-1, HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1 at v5.103.27; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.27.md (Live criteria).",
+  "revisit_trigger": "If a restart during Sleep produces any zone preset write, or a forced Sleep does not change HVAC presets, reopen.",
+  "refs": {
+    "cards": [
+      "HOUSE-STATE-SLEEP-LOST-ON-RESTART-1",
+      "HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.27.md"
+    ],
+    "release_notes": "The house state is saved (on change, every 5 min, and at shutdown) and restored at boot when fresh, so a restart no longer walks the house through away/arriving (the 09-29 03:07 zone Sleep->Home flip). A forced house state (e.g. Sleep) now dispatches to HVAC and every coordinator like an inferred change, survives restart, and ends arrester holds (operator rulings). Single dispatch helper with boot-settle and observation-mode gates; house-state log rows no longer double-written."
+  }
+}
