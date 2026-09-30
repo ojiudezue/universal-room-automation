@@ -856,6 +856,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     def _on_house_state_changed(self, payload) -> None:
         """Handle house state change signal → fire house_state_* trigger.
 
+        Slice D (v5.103.29) — D4 Away leave-on sweep. When the house
+        transitions INTO ``away`` (and only on the transition, no repeat
+        while already away), dispatch the room-tier leave-on sweep via
+        ``RoomAutomation.handle_away_leave_on_sweep``. The sweep's own
+        gates (boot-settle, per-room ``CONF_AWAY_TURN_OFF_LEAVE_ON``,
+        non-empty leave-on list) decide whether it does anything.
+        Manual holds do NOT block the sweep for leave-on lights (plan
+        REV 2.2 precedence); writes are URA-stamped so they cannot open
+        a new hold themselves.
+
         Gating: AI automation toggle ONLY.
 
         The master `automation` switch does NOT gate this handler — house
@@ -875,6 +885,28 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         if not new_state:
             return
+
+        # Slice D (v5.103.29): edge-only Away sweep. Track last observed
+        # state per-coordinator so a Home→Away edge dispatches ONCE and
+        # a repeat Away signal (no state change) is a no-op — this is the
+        # no-flap contract for the Away leave-on action.
+        prior_state = getattr(self, "_last_house_state_for_away", "")
+        self._last_house_state_for_away = new_state
+        if str(new_state).lower() == "away" and str(prior_state).lower() != "away":
+            auto = getattr(self, "automation", None)
+            if auto is not None and hasattr(auto, "handle_away_leave_on_sweep"):
+                try:
+                    self.entry.async_create_background_task(
+                        self.hass,
+                        auto.handle_away_leave_on_sweep(),
+                        f"ura_away_leave_on_sweep_{self.entry.entry_id[:8]}",
+                        eager_start=False,
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "away leave-on sweep dispatch failed",
+                        exc_info=True,
+                    )
 
         trigger_key = f"{TRIGGER_HOUSE_STATE_PREFIX}{new_state}"
         chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
@@ -1142,6 +1174,51 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         entity_id = target.get("entity_id")
         if entity_id:
             data["entity_id"] = entity_id
+
+        # Slice D (v5.103.29): AI-rule light writes must RESPECT the manual
+        # hold (stamped writes still never open holds — that invariant is
+        # preserved by ura_ctx_kwargs below). Filter target entity_ids
+        # through the LightPolicyOracle for light/switch turn_on/turn_off
+        # calls; a fully-suppressed target is a no-op. Non-light domains
+        # are byte-identical.
+        if (
+            domain in ("light", "switch")
+            and service in ("turn_on", "turn_off")
+            and data.get("entity_id")
+        ):
+            try:
+                from .domain_coordinators.light_policy_oracle import (  # noqa: PLC0415
+                    get_light_oracle,
+                )
+                oracle = get_light_oracle(self.hass, DOMAIN)
+                if oracle is not None:
+                    from homeassistant.util import dt as _dt_util  # noqa: PLC0415
+                    room_key = self.entry.entry_id
+                    direction = "on" if service == "turn_on" else "off"
+                    now = _dt_util.now()
+                    raw_targets = data["entity_id"]
+                    if isinstance(raw_targets, str):
+                        targets = [raw_targets]
+                    else:
+                        targets = list(raw_targets)
+                    allowed = oracle.allowed(
+                        room_key, targets, direction, now,
+                    )
+                    if not allowed:
+                        _LOGGER.info(
+                            "[%s] AI rule %s.%s suppressed by manual hold "
+                            "on %s", room_name, domain, service, targets,
+                        )
+                        return
+                    if allowed != targets:
+                        _LOGGER.debug(
+                            "[%s] AI rule %s.%s: %d/%d entities passed "
+                            "manual-hold gate", room_name, domain, service,
+                            len(allowed), len(targets),
+                        )
+                    data["entity_id"] = allowed
+            except Exception:  # noqa: BLE001 — fail-open (today's behaviour)
+                _LOGGER.debug("AI-rule hold gate failed", exc_info=True)
 
         try:
             # Room lighting Slice C (v5.103.28): an AI-rule light write is a

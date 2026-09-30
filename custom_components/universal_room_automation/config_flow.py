@@ -11626,12 +11626,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     multiple=True,
                 )
             ),
-            # Slice C (v5.103.28) D2 light manual hold windows. 0 = off.
+            # Slice D (v5.103.29): manual hold windows are ADVANCED-only.
+            # Marked description={"advanced": True} — HA hides them unless
+            # the user's profile Advanced mode is on
+            # (homeassistant/data_entry_flow.py:660-666 in
+            # add_suggested_values_to_schema — verified against installed
+            # HA 2026.2.3). The step's return routes through
+            # ``self.add_suggested_values_to_schema`` (below) so the filter
+            # is applied. Defaults are the rung-1 module constants.
+            # 0 = that kind off.
             vol.Optional(
                 CONF_LIGHT_MANUAL_ON_HOLD_S,
                 default=self._get_current(
                     CONF_LIGHT_MANUAL_ON_HOLD_S, DEFAULT_LIGHT_MANUAL_ON_HOLD_S,
                 ),
+                description={"advanced": True},
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0, max=14400, step=60, unit_of_measurement="s",
@@ -11644,6 +11653,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
                     DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S,
                 ),
+                description={"advanced": True},
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0, max=14400, step=60, unit_of_measurement="s",
@@ -11682,9 +11692,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
         }
 
+        # Slice D (v5.103.29): route through add_suggested_values_to_schema
+        # so vol.Optional keys marked description={"advanced": True} are
+        # filtered out when the user profile is NOT in Advanced mode
+        # (verified: homeassistant/data_entry_flow.py:660-666). An empty
+        # suggested_values mapping is fine — the filter runs regardless.
+        filtered_schema = self.add_suggested_values_to_schema(
+            vol.Schema(schema_dict), {},
+        )
         return self.async_show_form(
             step_id="options_lighting_behaviour",
-            data_schema=vol.Schema(schema_dict),
+            data_schema=filtered_schema,
             description_placeholders={"summary": summary},
         )
 

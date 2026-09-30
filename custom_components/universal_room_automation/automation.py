@@ -44,6 +44,8 @@ from .const import (
     CONF_LIGHT_TRANSITION_OFF,
     # Slice B' role pickers
     CONF_LIGHTS_ON_ENTRY,
+    CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY,
+    CONF_AWAY_TURN_OFF_LEAVE_ON,
     CONF_ENTRY_COVER_ACTION,
     CONF_EXIT_COVER_ACTION,
     CONF_OPEN_TIMING_MODE,
@@ -682,6 +684,10 @@ class RoomAutomation:
         oracle = self._light_oracle()
         if oracle is None:
             return
+        # Slice D (v5.103.29): Lighting-step overrides are ADVANCED-only
+        # (hidden unless the user profile is in Advanced mode). ABSENT ⇒
+        # rung-1 module constants. Stored per-room values still win when
+        # present (advanced-mode operator has legitimately opted in).
         cfg = self.config
         oracle.note_manual(
             self._light_room_key(), entity_id, direction,
@@ -700,6 +706,86 @@ class RoomAutomation:
         oracle = self._light_oracle()
         if oracle is not None:
             oracle.release_on_vacancy(self._light_room_key())
+
+    # ------------------------------------------------------------------
+    # Slice D (v5.103.29) — D4 house-state Away leave-on sweep
+    # ------------------------------------------------------------------
+    def _away_boot_settle_done(self) -> bool:
+        """Reuse the presence coordinator's existing settle primitive.
+
+        Fails OPEN (True) if presence isn't wired — same safe direction
+        as ``fan_veto._boot_settle_done``. See ``AWAY_LEAVE_ON_BOOT_SETTLE_S``
+        in const.py for the documented bound (no new listener/timer).
+        """
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if mgr is None:
+                return True
+            presence = getattr(mgr, "coordinators", {}).get("presence")
+            if presence is None:
+                return True
+            return bool(getattr(presence, "_boot_settle_done", True))
+        except Exception:  # noqa: BLE001 — fail-open
+            return True
+
+    async def handle_away_leave_on_sweep(self) -> None:
+        """Plan D4: on HouseState → away, turn off ONLY leave-on lights.
+
+        Semantics (plan REV 2.2 / REV 2.3 R2-6):
+          * Only entities in ``CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY`` are
+            touched. Everything else was already swept off when the room
+            emptied.
+          * Gated by per-room ``CONF_AWAY_TURN_OFF_LEAVE_ON`` (default True).
+            False ⇒ inert.
+          * Manual holds do NOT block this action (operator explicitly
+            opted the leave-on list into the Away sweep). Everywhere
+            else, hold vetoes URA.
+          * Boot-settle: skip while the house state is still settling
+            after a restart (``_boot_settle_done`` gate).
+
+        Writes route through ``_safe_service_call`` so they are URA-stamped
+        and cannot open a manual hold themselves (Slice C invariant).
+        """
+        self._refresh_config()
+        room_name = self.config.get("room_name", "unknown")
+
+        if not self._away_boot_settle_done():
+            _LOGGER.debug(
+                "[%s] Away leave-on sweep: boot-settle gate active — skip",
+                room_name,
+            )
+            return
+
+        if not self.config.get(CONF_AWAY_TURN_OFF_LEAVE_ON, True):
+            _LOGGER.debug(
+                "[%s] Away leave-on sweep: CONF_AWAY_TURN_OFF_LEAVE_ON=False",
+                room_name,
+            )
+            return
+
+        leave_on = list(self.config.get(CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY, []) or [])
+        if not leave_on:
+            _LOGGER.debug(
+                "[%s] Away leave-on sweep: leave-on list empty — inert",
+                room_name,
+            )
+            return
+
+        lights = [e for e in leave_on if e.startswith("light.")]
+        switches = [e for e in leave_on if e.startswith("switch.")]
+
+        _LOGGER.info(
+            "[%s] House → Away: sweeping off leave-on lights (%d entities)",
+            room_name, len(leave_on),
+        )
+        if lights:
+            await self._safe_service_call(
+                "light", "turn_off", {"entity_id": lights},
+            )
+        if switches:
+            await self._safe_service_call(
+                "switch", "turn_off", {"entity_id": switches},
+            )
 
     async def _safe_service_call(
         self,
@@ -990,9 +1076,23 @@ class RoomAutomation:
         self.config = {**self._config_entry.data, **self._config_entry.options}
 
     def is_sleep_mode_active(self) -> bool:
-        """Check if sleep protection is currently active."""
+        """Check if sleep protection is currently active.
+
+        Slice D (v5.103.29) — plan D4 precedence: HouseState=="sleep" OR
+        the per-room sleep clock ⇒ Sleep semantics; disagreement ⇒ Sleep
+        wins. Reads house_state via the same primitive the fan-onset path
+        uses (``_read_current_house_state``); fail-open (no state ⇒ clock
+        alone, today's behaviour).
+        """
         if not self.config.get(CONF_SLEEP_PROTECTION_ENABLED, False):
             return False
+
+        # Plan D4: HouseState=Sleep wins over the clock disagreement.
+        try:
+            if (self._read_current_house_state() or "").lower() == "sleep":
+                return True
+        except Exception:  # noqa: BLE001 — fail-open to clock
+            pass
 
         now = dt_util.now().time()
         sleep_start = time(hour=int(self.config.get(CONF_SLEEP_START_HOUR, 22)))

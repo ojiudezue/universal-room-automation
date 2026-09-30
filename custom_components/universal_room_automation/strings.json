@@ -2126,8 +2126,8 @@
           "lights_leave_on_when_empty": "These lights are not swept off when the room empties. Everything else is.",
           "away_turn_off_leave_on": "When the house is Away, sweep off even the leave-on lights. Only matters when the list above is non-empty.",
           "alert_lights": "Lights that briefly flash to signal notifications. Colour lives in Notifications.",
-          "light_manual_on_hold_s": "When someone turns a light on by hand, the room will not turn it off while occupied. It goes off once the room is empty. 0 turns this off.",
-          "light_manual_off_cooldown_s": "When someone turns a light off by hand, the room will not turn it back on for this long. 0 turns this off.",
+          "light_manual_on_hold_s": "Advanced. When someone turns a light on by hand, the room will not turn it off while occupied. It goes off once the room is empty. 0 turns this off.",
+          "light_manual_off_cooldown_s": "Advanced. When someone turns a light off by hand, the room will not turn it back on for this long. 0 turns this off.",
           "light_dark_use_sun_fallback": "When this room has no working light sensor, treat outdoor light as the source of truth. Off preserves today's 'never dark' behaviour.",
           "light_dark_lux_source": "Use this sensor's reading if the room's own sensor is missing or offline."
         },

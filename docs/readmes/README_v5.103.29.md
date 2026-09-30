@@ -1,4 +1,4 @@
-# v5.103.28 — Room lighting roles + role-vs-inventory sweep (Slice A)
+# v5.103.29 — Room lighting roles + role-vs-inventory sweep (Slices A–D)
 
 **Status:** DRAFT, deploy HELD for operator go.
 Branch: `feature/room-lighting-roles`.
@@ -469,6 +469,138 @@ Updated stale stubs: `test_hvac_vacancy_sweep_manual_on_guard.py` and
 
 ---
 
-## Slices D, E — pending (D4 house-state, D5/D6 slots+scenes)
+## Slice D — 2026-09-30 (D4 house-state awareness for lights)
 
-Not yet built.
+### Falsifiable invariant
+**On the Home→Away edge, a room turns OFF exactly the entities in its
+`CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY` list (or none, when the per-room
+`CONF_AWAY_TURN_OFF_LEAVE_ON` boolean is False, or when the list is
+empty, or during boot-settle). It touches nothing else. A repeated Away
+signal without a state edge is a no-op.** Everywhere else (entry / exit
+/ reconciler / HVAC-zone sweep / D3 switch) the Slice C manual-hold
+still vetoes URA — the Away sweep is the sole documented exception,
+gated by the operator opt-in.
+
+### What shipped
+
+- `automation.py::handle_away_leave_on_sweep` — new async method. Reads
+  `CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY` + per-room `CONF_AWAY_TURN_OFF_LEAVE_ON`
+  (default True), splits into `light.*` / `switch.*` and issues a
+  URA-stamped `turn_off`. Gated by `_away_boot_settle_done()` which reuses
+  the presence coordinator's existing `_boot_settle_done` primitive
+  (`fan_veto._boot_settle_done` idiom) — no new listener or timer.
+  Documentation-constant `AWAY_LEAVE_ON_BOOT_SETTLE_S=60` retained in
+  `const.py` for the plan-D4 60 s bound.
+- `automation.py::is_sleep_mode_active` — plan D4 precedence: HouseState
+  == "sleep" ⇒ True even outside the per-room sleep clock. Reads through
+  the same `_read_current_house_state()` primitive the fan-onset path
+  uses; fails open (no state read ⇒ clock alone, today's behaviour).
+- `coordinator.py::_on_house_state_changed` — edge-only Away dispatch.
+  Tracks `_last_house_state_for_away` per room-coordinator; on the
+  transition INTO `away` schedules `handle_away_leave_on_sweep()` via
+  the entry-scoped background task (`eager_start=False`, matches the
+  existing chained-automation dispatch). A repeat Away signal without a
+  state change is a no-op — the no-flap contract.
+- `coordinator.py::_execute_rule_action` — AI-rule light writes now
+  RESPECT the manual hold. For `light.turn_on/off` and
+  `switch.turn_on/off`, the target entity_ids are filtered through
+  `LightPolicyOracle.allowed(room_key=entry_id, …)` before the call
+  reaches HA. Fully-suppressed target ⇒ no-op; partial ⇒ narrowed
+  entity list. Stamped writes still never open a hold (Slice C
+  invariant preserved — the URA context mark is applied after the
+  filter). Non-light domains are byte-identical.
+- `automation.py::note_manual_light` — reads `CONF_LIGHT_MANUAL_ON_HOLD_S`
+  / `CONF_LIGHT_MANUAL_OFF_COOLDOWN_S` from the room config (advanced
+  override) and falls back to the rung-1 module constants
+  `DEFAULT_LIGHT_MANUAL_ON_HOLD_S=3600` / `DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S=900`.
+- `config_flow.py::async_step_options_lighting_behaviour` — the two
+  manual-hold-window fields Slice C added are now ADVANCED-only, each
+  marked `description={"advanced": True}`. The step's return routes
+  through `self.add_suggested_values_to_schema(vol.Schema(schema_dict), {})`
+  so HA hides them unless the user profile has Advanced mode on
+  (verified: `homeassistant/data_entry_flow.py:660-666` in installed HA
+  2026.2.3; empty suggested-values mapping still runs the filter).
+  Defaults are the module constants; 0 = that kind off; stored values
+  are still honoured at runtime when hidden.
+- `strings.json` + `translations/en.json` — helper text for the two
+  hold-window fields prefixed with "Advanced. " so operators who see
+  them in Advanced mode know why they are hidden by default.
+- `const.py` — `AWAY_LEAVE_ON_BOOT_SETTLE_S=60` added as documentation
+  constant; `CONF_LIGHT_MANUAL_*` and `DEFAULT_LIGHT_MANUAL_*` retained.
+
+### Guest — deferred (documented, code unchanged)
+Plan D4 enumerates `CONF_LIGHTS_GUEST_MODE ∈ {normal, off, night_lights_only}`
+with default `normal` = today. Per operator ruling to keep this slice tight,
+the Guest gate is not implemented in v5.103.29 — today's behaviour is
+preserved (GUEST ⇒ same as HOME for lights). Follow-up card required
+before ROADMAP_v12 6.0.0 (IDENTITY-DRIVEN AUTONOMY) closes.
+
+### Per-site mutation drills (2026-09-30; PYTHONDONTWRITEBYTECODE=1, `__pycache__` cleared, source restored via Python rewrite, `git status` clean after each drill)
+
+| # | Site | Mutation | Test that goes RED |
+|---:|---|---|---|
+| 1 | `automation.py::handle_away_leave_on_sweep` off-emit for leave-on | replace the two `_safe_service_call` awaits with `return` | `test_away_sweep_off_leave_on_only_when_boolean_true_and_list_nonempty`, `test_away_sweep_splits_domains`, `test_away_sweep_writes_are_ura_stamped`, `test_away_sweep_ignores_manual_hold_for_leave_on`, `test_home_away_home_no_double_emit` |
+| 2 | `automation.py::handle_away_leave_on_sweep` `CONF_AWAY_TURN_OFF_LEAVE_ON` gate | force branch to `if False:` | `test_away_sweep_inert_when_boolean_false` |
+| 3 | `automation.py::_away_boot_settle_done` gate | replace body with `return True` | `test_away_sweep_boot_settle_gate_suppresses` |
+| 4 | `automation.py::is_sleep_mode_active` HouseState precedence branch | remove the HouseState=="sleep" check | `test_sleep_house_state_forces_sleep_semantics_outside_clock` |
+| 5 | `coordinator.py::_execute_rule_action` AI-rule hold filter | short-circuit the `if domain in ("light","switch")` block with `if False:` | `test_ai_rule_light_write_suppressed_by_on_hold`, `test_ai_rule_light_write_partial_pass_when_only_some_held` |
+| 6 | `coordinator.py::_on_house_state_changed` edge dispatch | replace `if str(new_state).lower() == "away" …:` with `if False:` | `test_away_dispatch_edge_only_no_flap`, `test_home_away_home_no_double_emit` |
+
+All 6 mutations turn a NAMED test red; source restored by Python rewrite;
+`shutil.rmtree(__pycache__)` executed between drills; `git status --short`
+clean after each restoration.
+
+### Test selection + name-diff vs develop
+
+Selection: `-k "light or automation or reconciler or house_state or presence or switch or ai_rule"`.
+Baseline worktree: `.claude/worktrees/validator-develop-0930` (develop @ `1d1625480`).
+
+| Run | Passed | Failed | Skipped |
+|---|---:|---:|---:|
+| develop @ `1d1625480` baseline | 1213 | 17 (pre-existing) | — |
+| feature/room-lighting-roles (Slices A + B + B′ + C + D) | 1347 | 16 (all subset of develop's) | — |
+| Delta | **+134 new tests** | **0 new failures**; 1 develop-only pre-existing failure not present in the branch's selected set (`test_chatter_tick_helper::test_apply_chatter_tick_b_low_4_kill_switch_flip_discharges_latch`) | — |
+
+Slice D adds 17 new tests (`test_lighting_slice_d_house_state.py`); the
+remaining +117 are cumulative from Slices A/B/B'/C.
+
+### Live acceptance criteria (Slice D, prospective — deploy HELD)
+
+- Verify: with `CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY=[light.porch]` and
+  `CONF_AWAY_TURN_OFF_LEAVE_ON=True` on a test room, forcing house state
+  to `away` turns off `light.porch` and leaves every other room light
+  untouched.
+- Verify: with `CONF_AWAY_TURN_OFF_LEAVE_ON=False`, forcing house state
+  to `away` leaves the leave-on list untouched (opt-in inert).
+- Verify: within ~60 s of `homeassistant_started`, a house_state=away
+  boot pulse does NOT sweep the leave-on list (boot-settle gate).
+- Verify: firing house_state=away twice in succession (no intervening
+  edge) emits the sweep ONCE (no-flap).
+- Verify: with the house state forced to `sleep` OUTSIDE the room's
+  sleep clock window, entry lights up the night-lights set (Sleep
+  precedence).
+- Verify: after a person turns `light.a` ON in a room, an AI-rule that
+  targets `light.a.turn_off` does NOT dispatch (fully suppressed);
+  targeting `[light.a, light.b].turn_on` narrows to `[light.b]`.
+- Verify: room-options Lighting behaviour step no longer shows the two
+  "Keep lights I turn on/off (seconds)" fields to a default user
+  profile; enabling Advanced mode in the user profile reveals both.
+- Verify: an operator who previously set a non-default hold window (via
+  Slice C) still sees that value applied at runtime even while the
+  field is hidden (round-trip preserved).
+
+Post-restart validation table filled per CLAUDE.md rule.
+
+### Slice D deferrals (tracked)
+
+- `CONF_LIGHTS_GUEST_MODE` (plan D4 Guest semantics) — code not wired;
+  today's behaviour preserved. Requires follow-up card before 6.0.0.
+- Away sweep works on the coordinator-received `SIGNAL_HOUSE_STATE_CHANGED`
+  dispatch; a room whose coordinator is not `loaded` at the moment of
+  the edge misses the sweep for that transition. Recovery is the next
+  Away edge, or a manual dashboard action. Not a new gap (same as
+  every other signal handler on that coordinator).
+- Manual-hold-window ADVANCED fields render only inside the
+  `options_lighting_behaviour` step; the room-device dashboard exposes
+  no entity for them (operator ruling: "not on the room device").
+

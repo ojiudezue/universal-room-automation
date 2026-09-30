@@ -950,10 +950,18 @@ CONF_AWAY_TURN_OFF_LEAVE_ON: Final = "away_turn_off_leave_on"
 # turn that light back ON for the window (survives the vacancy transition;
 # protects the OFF choice against a re-triggered entry). 0 = that kind of
 # hold is off (kill switch per kind).
+# Slice D (v5.103.29): CONF_* keys retained; the Lighting-step fields are
+# now ADVANCED (hidden unless the user's profile Advanced mode is on).
+# Defaults live below and are the rung-1 module constants.
 CONF_LIGHT_MANUAL_ON_HOLD_S: Final = "light_manual_on_hold_s"
 CONF_LIGHT_MANUAL_OFF_COOLDOWN_S: Final = "light_manual_off_cooldown_s"
 DEFAULT_LIGHT_MANUAL_ON_HOLD_S: Final = 3600
 DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S: Final = 900
+# Slice D (v5.103.29): boot-settle window for the Away leave-on sweep.
+# No new listener/timer — the sweep additionally gates on the presence
+# coordinator's existing `_boot_settle_done` primitive (fan_veto.py:111).
+# This numeric bound is retained as a rung-1 documentation constant.
+AWAY_LEAVE_ON_BOOT_SETTLE_S: Final = 60
 # Module-const safety bound (civil dusk). Sun elevation strictly less
 # than this ⇒ dark for fallback purposes. Not exposed as a knob —
 # safety bound per the knob-rung ladder in the plan.
