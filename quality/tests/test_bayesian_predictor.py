@@ -1025,3 +1025,41 @@ class TestGetTopTimeBin:
         assert top["time_bin"] == 4  # Evening
         assert top["time_bin_name"] == "Evening"
         assert top["probability"] > 0.5
+
+
+# ---------------------------------------------------------------------------
+# BOOT-EVENT-LOOP-FREEZE-1: scan_data_quality froze HA's event loop ~150 s at
+# every boot (watchdog stack 2026-09-30 07:48 pointed at the per-row set
+# rebuild). The scan must stay linear and keep the exact same counts.
+# ---------------------------------------------------------------------------
+
+
+def test_scan_data_quality_same_second_distinct_counts(predictor):
+    t0 = datetime(2026, 3, 25, 8, 0, 0, tzinfo=timezone.utc)
+    rows = [
+        _make_transition(from_room="A", to_room="B", timestamp=t0),
+        _make_transition(from_room="B", to_room="C", timestamp=t0),   # same second, new pair
+        _make_transition(from_room="A", to_room="B", timestamp=t0),   # true duplicate
+        _make_transition(from_room="C", to_room="D", timestamp=t0 + timedelta(seconds=1)),
+    ]
+    report = asyncio.get_event_loop().run_until_complete(
+        predictor.scan_data_quality(None, rows=rows)
+    )
+    assert report.duplicate_timestamps == 1
+    assert report.same_second_distinct == 1
+
+
+def test_scan_data_quality_is_linear_on_large_history(predictor):
+    import time as _time
+    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    rows = [
+        _make_transition(from_room=f"R{i % 7}", to_room=f"R{(i + 1) % 7}",
+                         timestamp=t0 + timedelta(seconds=i))
+        for i in range(30000)
+    ]
+    start = _time.monotonic()
+    asyncio.get_event_loop().run_until_complete(
+        predictor.scan_data_quality(None, rows=rows)
+    )
+    # The quadratic version takes minutes on 30k rows; linear is well under 2 s.
+    assert _time.monotonic() - start < 2.0

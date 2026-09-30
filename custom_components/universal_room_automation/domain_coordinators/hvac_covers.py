@@ -177,7 +177,8 @@ class CoverController:
         2. Coordinator Manager explicit covers from CONF_HVAC_COVER_ENTITIES
            (covers not already discovered via a room).
 
-        Excludes covers with device_class 'garage'.
+        Excludes Security-owned covers (device_class 'garage' or 'gate';
+        see ``cover_ownership.is_security_owned_cover``).
 
         v4.5.9: cover_type three-tier resolution:
             - Room-derived (preferred): read from owning room's CONF_COVER_TYPE
@@ -793,11 +794,19 @@ class CoverController:
             return None
 
     def _is_garage_cover(self, entity_id: str) -> bool:
-        """Check if a cover is a garage door (should be excluded)."""
-        state = self.hass.states.get(entity_id)
-        if state is None:
-            return False
-        return state.attributes.get("device_class") == "garage"
+        """Check if a cover is Security-owned (garage or gate) and must be excluded.
+
+        ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1: delegates to the shared
+        ``cover_ownership.is_security_owned_cover`` helper (single source
+        of truth also used by room-tier ``automation.py``). Previously
+        this checked only ``device_class == 'garage'`` via the live state
+        alone. The shared helper additionally excludes ``gate`` and falls
+        back to the entity registry when the state is missing / the
+        attribute is unset, so a currently-unavailable garage door is
+        still guarded.
+        """
+        from ..cover_ownership import is_security_owned_cover
+        return is_security_owned_cover(self.hass, entity_id)
 
     def get_cover_status(self) -> dict[str, Any]:
         """Return cover status for sensor attributes.

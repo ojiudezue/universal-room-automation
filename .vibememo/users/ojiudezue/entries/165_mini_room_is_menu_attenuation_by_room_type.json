@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "entry_id": "165",
+  "author": "ojiudezue",
+  "session_id": "claude_20260929_evening_dialogs_lighting",
+  "timestamp": "2026-09-30T04:10:00Z",
+  "type": "decision",
+  "weight": "notable",
+  "title": "'Mini room' = trim the room menu by room type, not a new entry kind",
+  "summary": "Room type decides which options steps show (closet/hallway ~5, bathroom/garage/infrastructure 7, living spaces 12); every type shows Lighting; Climate & Fans also for bathroom and infrastructure. Menu-only: hidden steps keep values and keep working; any step with non-default values always shows; 'More settings…' opens the full menu for that visit. Plan written, in plan review; operator will decide after seeing the dialog cleanup (morning 2026-09-30) — may move quickly.",
+  "why": "A separate 'mini room' entry kind would be a second setup path with migrations on kind change; room type already exists and already drives defaults, so attenuating by type is cheap and behaviour-neutral. The load-bearing risk is the 'in use' check hiding a configured step.",
+  "implications": "Keep PLANNING_room_type_trimmed_menu.md in view as the next UX build after the lighting slices. Covers row still open (plan: all but utility/infrastructure).",
+  "revisit_trigger": "Operator's reaction to the v5.103.26 dialogs in the morning; any configured step found hidden.",
+  "refs": {
+    "cards": [
+      "ROOM-TYPE-TRIMMED-MENU-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_room_type_trimmed_menu.md"
+    ]
+  }
+}

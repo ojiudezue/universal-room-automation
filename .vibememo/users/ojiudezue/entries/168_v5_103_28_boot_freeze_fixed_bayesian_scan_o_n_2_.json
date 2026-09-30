@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "168",
+  "author": "ojiudezue",
+  "session_id": "claude_20260930_125942_ship_v5_103_28",
+  "timestamp": "2026-09-30T12:59:42Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.28 shipped: Boot freeze fixed (bayesian scan O(n^2)); garage doors are Security-only",
+  "summary": "Boot freeze fixed (bayesian scan O(n^2)); garage doors are Security-only",
+  "why": "Every restart left the house dead for about 2.5 minutes and walked the house state through away; the watchdog shipped in v5.103.26 caught the exact frozen line on its first restart, and it was URA's own startup scan, not another integration. Garage doors were reachable by room cover automation and AI rules with no guard; the operator agreed the protection is worth having even though Security owns them.",
+  "implications": "Shipped BOOT-EVENT-LOOP-FREEZE-1, ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1 at v5.103.28; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.28.md (Live criteria).",
+  "revisit_trigger": "If a restart still logs an Event loop stalled warning over 10 s, or any room-tier path moves a garage door, reopen.",
+  "refs": {
+    "cards": [
+      "BOOT-EVENT-LOOP-FREEZE-1",
+      "ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.28.md"
+    ],
+    "release_notes": "HA froze its event loop ~150 s at every restart: the v5.103.26 watchdog named bayesian_predictor.scan_data_quality, which rebuilt a per-person key set on every row (O(n^2)) during setup. Now incremental and linear, same counts. Room cover automation and AI rules now skip covers HA marks as garage doors or gates; Security keeps sole control (Garage A and B garage doors were in their rooms' covers with timed close at sunset)."
+  }
+}

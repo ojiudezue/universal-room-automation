@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "166",
+  "author": "ojiudezue",
+  "session_id": "claude_20260929_evening_dialogs_lighting",
+  "timestamp": "2026-09-30T04:10:00Z",
+  "type": "pivot",
+  "weight": "critical",
+  "title": "URA is going to more homes: no Carrier/house quirks in shared paths",
+  "summary": "Operator is rolling URA out to other homes ('Not everyone has a Bryant variable speed'). The thermostat-brand abstraction (W1-C) is unparked; Batch C lands Custom Preset Ranges as a Carrier-profile capability (strategy supplies the service; GenericStrategy returns unsupported). Single-install 'no back-compat' assumption is now time-limited.",
+  "why": "Carrier-specific assumptions live in shared code: borrows bypass the strategy, override detection keys on preset_mode == manual, Carrier timings, named-preset holds, ODU telemetry features. Each blocks a second brand.",
+  "implications": "Designs must put device quirks behind profiles/config. Once a second install exists, stored-config changes need real migrations. W1-C plan (inventory + profile design + phased Carrier-byte-identical P1) is the next HVAC planning item; the planner run hit the usage limit and must be restarted.",
+  "revisit_trigger": "A second thermostat brand available to test; first non-Carrier install.",
+  "refs": {
+    "cards": [
+      "HVAC-W1C-GENERIC-THERMOSTAT-1",
+      "HVAC-CUSTOM-PRESET-RANGES-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_hvac_enable_custom_preset_ranges.md"
+    ]
+  }
+}
