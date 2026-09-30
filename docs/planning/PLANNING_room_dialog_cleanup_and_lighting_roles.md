@@ -1,3 +1,5 @@
+> **REV 2.1 (2026-09-29):** operator ruling — no new light timers; CONF_LIGHT_EXIT_WAIT_S removed everywhere in this plan (use the leave-on-when-empty role for per-light exemption). This line overrides any mention of a light wait / exit wait knob below.
+
 # PLANNING — Room Dialog Cleanup: Lighting Roles + Role-vs-Inventory Sweep
 
 Card: ROOM-LIGHTING-SETUP-REDESIGN-1 (kanban.data.yaml:30559)
@@ -298,4 +300,4 @@ Recommendation: card each dialog following this document's structure (design rul
 
 43 room entries. Rooms with entry_light_action = turn_on_if_dark AND no illuminance_sensor (the only rooms the sun fallback changes): **2** — Up Guestbedroom Closet, Guest Bedroom 2 Hallway (both have lights configured). Today their lights never turn on at entry (is_dark(None) = False); with the sun fallback they turn on after dusk. Small, guest-wing blast radius.
 
-**Light wait (F8) — OPEN, operator asked for a critique 2026-09-29.** Orchestrator recommendation: NO separate light wait; one plainly labelled 'Room counts as empty after' setting (the existing occupancy timeout) drives lights; night difference handled by roles (Sleep night lights), not a second timer; decouple the sensor-trust window (2x occupancy timeout, coordinator.py:3959/4358) internally as a separate card. Builder must not build CONF_LIGHT_EXIT_WAIT_S until the operator rules.
+**Light wait (F8) — RULED 2026-09-29 (operator): NO extra timers.** "I think the architecture means I can exempt some light from the occupancy time out. Yes? But I don't want to add an extra timer(s)." Resolution: DROP CONF_LIGHT_EXIT_WAIT_S and any other new light timer. Per-light exemption from the occupancy timeout = the D1 "Leave on when the room empties" role picker (those lights are never turned off at vacancy; everything else goes off when the room counts as empty, as today). House-state rules (e.g. Away all off) still apply to exempt lights. Prior text below kept for history: Orchestrator recommendation: NO separate light wait; one plainly labelled 'Room counts as empty after' setting (the existing occupancy timeout) drives lights; night difference handled by roles (Sleep night lights), not a second timer; decouple the sensor-trust window (2x occupancy timeout, coordinator.py:3959/4358) internally as a separate card. Builder must not build CONF_LIGHT_EXIT_WAIT_S until the operator rules.
