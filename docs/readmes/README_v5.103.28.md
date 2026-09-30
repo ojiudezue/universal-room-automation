@@ -1,4 +1,20 @@
-# v5.103.28 — Room-cover garage/gate guard
+# v5.103.28: HA no longer freezes for 2.5 minutes at every restart; garage doors are Security-only
+
+**Cards:** `BOOT-EVENT-LOOP-FREEZE-1`, `ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1`.
+
+## Boot freeze — root cause found and fixed
+
+The v5.103.26 loop-stall watchdog fired on the 2026-09-30 07:46 restart: `Event loop stalled >= 10.0s ... phase=boot`, total stall **153.3 s**, main-thread stack ending in
+`__init__.py:2833 async_setup_entry -> bayesian_predictor.py:194 initialize -> :743 scan_data_quality`:
+`seen_ts_keys = {k[0] for k in seen_timestamps[person_id]}` rebuilt a set of every earlier key for the person on every row — O(n^2) over 90 days of room transitions, on the event loop. Every one of the 12+ measured restarts had the same ~140-156 s freeze (AUDIT_db_write_worker_slow_2026_09_29.md); the DB wait warnings, Meross/ElkM1/MQTT/Protect timeouts and the boot house-state "away" window were all symptoms.
+
+Fix: keep `seen_ts_keys_by_person` incrementally (same counts, linear time). Tests: count equivalence (duplicate vs same-second-distinct) and 30k rows < 2 s; drill: restoring the quadratic line makes the timing test fail (38 s run).
+
+**Live:** next restart — no `Event loop stalled` WARNING (or one far shorter, naming a different site); `homeassistant_start` within ~1-2 min of shutdown instead of 5-9.
+
+---
+
+## Room-cover garage/gate guard
 
 Card: `ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1`
 Branch: `fix/room-covers-garage-guard` (deploy HELD)
