@@ -1,6 +1,6 @@
 # v5.103.24: one "Fan Mode" per room decides who runs its fan; no thermostat writes while a thermostat is offline; a nudge no longer puts back an ended pre-cool; an override no longer cancels the AC-reset restore
 
-**Batch D.** Branch `feature/hvac-batch-d` (from `develop` @ `ef836342a`, which includes v5.103.23). **Tier 2** (two framing-disjoint reviews follow the build). Not deployed.
+**Batch D.** Branch `feature/hvac-batch-d` (from `develop` @ `ef836342a`, which includes v5.103.23). **Tier 2** (three framing-disjoint reviews + a focused fix-up review, all SHIP). **Shipped inside the v5.103.25 release on 2026-09-29** (one deploy, one restart, together with the anomaly-detector cycle).
 
 **Cards / items**
 1. PRIORITY: the HVAC fan controller ignored the room's fan settings. A guest was failed on 2026-09-28. Scope grew by operator ruling **option C**: one per-room **Fan Mode** replaces the two toggles.
