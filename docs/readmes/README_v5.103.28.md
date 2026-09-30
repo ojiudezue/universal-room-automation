@@ -354,9 +354,118 @@ Post-restart validation table filled per CLAUDE.md rule.
 
 ---
 
-## Slice C — pending (D2 hold + D3 room-light switch)
+## Slice C — 2026-09-30 (D2 light manual hold + URA write mark + D3 Room lights switch)
 
-Not yet built.
+### Falsifiable invariant
+**No URA write ever opens a manual hold; a person's change to a room light
+during occupancy is never undone by URA until the room empties.**
+Falsifier: any URA light write whose `state_changed` lands in the D2 listener
+unmarked, or any URA OFF (ON) path that moves a light under a live person
+ON-hold (OFF-cooldown) while the room is occupied.
+
+### What shipped
+- `ura_context.py` — the URA write mark. HA Context API verified in the installed
+  HA 2026.2.3 (`core.py:1208-1224` Context; `core.py:2712-2737` async_call
+  `context`; `helpers/service.py:838,868,888` `async_set_context(call.context)`;
+  `helpers/entity.py:82,932-935,1235-1248` context kept 5 s and written onto the
+  state). **Deviation from plan R2-1:** the mark rides `Context.parent_id` (a fixed
+  valid ULID, `URA_WRITE_CONTEXT_PARENT_ID`) with a fresh ULID `id` — a shared
+  non-ULID `id` would be stored NULL by the recorder (`db_schema.py:319-323`) and
+  merge all URA writes into one logbook context. Only `light.*` / `switch.*`
+  writes carry the mark (`URA_LIGHT_WRITE_DOMAINS`); every other domain
+  (climate, cover, fan, number…) is byte-identical.
+- `domain_coordinators/light_policy_oracle.py` — per-room, per-light ledger
+  (fan-oracle shape): `note_manual`, `may_turn_on/off`, `allowed`,
+  `release_on_vacancy` (ON holds only), `release`. RAM-only; any error allows the
+  URA write (today's behaviour). Room key = room entry_id.
+- Listener: the reconciler's existing room-light subscription (reuses its
+  rebuild + teardown lifecycle) books a change only if: room light, real on↔off
+  edge, not URA-marked, room occupied.
+- Hold respected at: entry on-entry branch, `_turn_on_regular_lights`,
+  `_turn_on_night_lights`, `_turn_off_non_night_lights` (sleep entry),
+  shared-space scheduled auto-off, reconciler `_reconcile_one`, HVAC zone
+  vacancy sweep (lights).
+- Hold ends when the room counts as empty: `handle_occupancy_change(False)` calls
+  `release_light_holds_on_vacancy()` before the sleep gate and the exit sweep.
+  OFF cooldowns survive vacancy (plan).
+- Knobs (rung 2, Lighting behaviour step): `light_manual_on_hold_s` "Keep lights I
+  turn on (seconds)" default 3600; `light_manual_off_cooldown_s` "Keep lights I
+  turn off (seconds)" default 900; 0 = that kind off.
+- D3 `RoomLightsSwitch` ("Room lights", `switch.<room>_room_lights`): ON = resolver
+  `effective_entry_set` for the current mode; OFF = every room light incl. leave-on;
+  both call `note_manual_light` directly; writes go through the stamped
+  `_safe_service_call`. State = any room light on.
+
+### Writer inventory (plan table + surfaced writers)
+| # | Writer | Stamp site | Hold verdict |
+|---|---|---|---|
+| 1-4 | Room entry / exit / reconciler (primary) / D3 switch / room alert lights / warning flash / shared-space off | `automation._safe_service_call` | entry+sleep+shared-space respect; exit after release |
+| 2b | Reconciler fallback direct call | `actuator_reconciler._safe_service_call` | respects (`_reconcile_one`) |
+| 5 | NM alert pattern + restore (9 calls) | `NotificationManager._ura_light_call` | exempt |
+| 6 | Aggregation alert flash (3 calls) | `_flash_light` | exempt |
+| 7-8 | Safety emergency lights, Security lights | `CoordinatorManager._execute_action` | exempt |
+| 9 | Security delegate switch | writes nothing itself (config toggle) — see deferrals | — |
+| 11 (NEW) | HVAC zone vacancy sweep (lights) | `hvac._execute_vacancy_sweep` | respects |
+| 12 (NEW) | Optimizer L2 device/config dispatch | `optimization._dispatch_*_action` | stamped only (question below) |
+| 13 (NEW) | Per-room AI rule action | `coordinator._execute_rule_action` | stamped only (question below) |
+
+### Per-site mutation drills (2026-09-30; PYTHONDONTWRITEBYTECODE=1, `__pycache__` cleared, source restored in Python, `git status` clean after)
+| Site | Test that goes RED |
+|---|---|
+| S1 room-tier stamp | `test_w1_room_tier_write_is_ura_stamped`, `test_listener_ura_write_opens_no_hold`, `test_d3_turn_on_equals_effective_entry_set[*]` |
+| S2 reconciler fallback stamp | `test_w2_reconciler_fallback_write_is_ura_stamped` |
+| S3 NM helper stamp | `test_w3_nm_alert_flash_and_restore_are_ura_stamped`, `test_listener_alert_flash_opens_no_hold_R2_1` |
+| S3b NM restore-off routed via helper | same two |
+| S4 aggregation stamp | `test_w4_aggregation_alert_flash_is_ura_stamped` |
+| S5 manager (safety + security) stamp | `test_w5_safety_security_light_actions_are_ura_stamped` |
+| S6 HVAC zone-sweep stamp | `test_slice_c_zone_sweep_light_write_is_ura_stamped` |
+| S7 optimizer device stamp | `test_optimizer_light_dispatch_is_ura_stamped` |
+| S8 AI-rule stamp | `test_w8_ai_rule_light_action_is_ura_stamped` |
+| S10a/b D3 note_manual on/off | `test_d3_turn_on_opens_hold_via_note_manual_only` / `test_d3_turn_off_includes_leave_on_and_notes_manual` |
+| L1 listener URA filter | `test_listener_ura_write_opens_no_hold`, R2_1 |
+| L2 listener occupied gate | `test_listener_vacant_room_opens_no_hold` |
+| L3 listener on/off edge gate | `test_listener_availability_edge_opens_no_hold` |
+| L4 listener entity gate | `test_listener_foreign_entity_ignored` |
+| L5 listener wire-in call | `test_listener_person_on_while_occupied_opens_hold` (+12) |
+| H1-H5 automation hold sites | `test_h1_on_entry…`, `test_h2_regular…`, `test_h3_night…`, `test_h4_sleep…`, `test_h5_shared…` |
+| H6 reconciler hold | `test_h6_reconciler_does_not_undo_person_on`, `test_h6_reconciler_respects_off_cooldown`, `test_manual_mode_and_hold_are_disjunctive` |
+| H7 HVAC sweep hold | `test_slice_c_zone_sweep_spares_person_held_light` |
+| C1 hold-clear-on-empty seam | `test_c_hold_cleared_on_vacancy_then_sleep_entry_turns_off` |
+| O1 oracle compare / O2 knob-0 | `test_oracle_boundaries_literal` / `test_knob_zero_disables_hold_and_cooldown` |
+| R1 reconciler vacant leave-on (Slice B′ drill #5 gap) | `test_reconciler_vacant_leave_on_carve_out` |
+
+Every site RED; none green. Optimizer config-action stamp is inert by construction
+(targets `number.*`, not a light domain) — not drilled.
+
+### Name-diff vs develop (separate worktree at develop 4db79ff51 = merge-base code)
+`-k "light or automation or reconciler or notification or security or safety or switch"`:
+develop 12 failed / 1506 passed; branch 12 failed / 1622 passed. **New failures: 0; fixed: 0**
+(same 12 pre-existing names). Order-robustness: the new file passes run before and
+after `test_night_light_off_path` / `test_reconcile_on_return` / `test_nm_cycle_b_safety_rails`
+(its real-HA modules live in a module-scoped fixture that restores `sys.modules`).
+Updated stale stubs: `test_hvac_vacancy_sweep_manual_on_guard.py` and
+`test_optimization_coordinator.py` fake `async_call` now accept `**kw`.
+
+### Deferrals / open questions (tracked, not dropped)
+- **Security delegate `release()` hook:** `SecurityDelegateLightsSwitch` (switch.py) is
+  a config toggle with no seize/release window; security writes are stamped so they
+  can never open a hold, and the plan's "seize + release ⇒ no residual hold" holds by
+  construction. No release hook built — operator question: is one wanted?
+- **Late device echo > 5 s:** HA drops the call context after 5 s
+  (`entity.py:1235-1240`); an echo arriving later looks like a person and opens a
+  hold (bounded by vacancy + window). A value-matched last-write guard would close it — not in plan.
+- **Optimizer / AI-rule light writes** are stamped but do not consult the hold
+  (plan inventory had no verdict). Question: should they respect it?
+- **HA automations chained by URA** (`automation.trigger`, scenes, scripts) run under
+  their own child contexts and count as a person's change.
+- Manual Mode ON: the vacancy transition is not observed (coordinator skips the
+  handler), so a hold lives until its window; harmless while URA is not acting.
+- Holds are RAM-only (fan-oracle precedent); a restart forgets them.
+- Plan live criterion `sensor.<room>_light_manual_hold_remaining_s` NOT built
+  (conflicts with the plan non-goal "only new entity is the switch").
+- D3 uses the room's real darkness for the dark-only subset (plan silent).
+
+---
 
 ---
 

@@ -380,7 +380,7 @@ def _make_hvac_coord(room_hold_map: dict):
     hass.data = {DOMAIN: {}}
     log: list[tuple[str, str, dict]] = []
 
-    async def _svc_call(domain, service, data=None, blocking=False):
+    async def _svc_call(domain, service, data=None, blocking=False, **_kw):
         log.append((domain, service, dict(data or {})))
 
     hass.services = MagicMock()
@@ -551,7 +551,7 @@ def _make_hvac_coord_with_night_lights(room: str, sleep: bool):
     hass.data = {DOMAIN: {}}
     log: list = []
 
-    async def _svc_call(domain, service, data=None, blocking=False):
+    async def _svc_call(domain, service, data=None, blocking=False, **_kw):
         log.append((domain, service, dict(data or {})))
 
     hass.services = MagicMock()
@@ -652,3 +652,42 @@ def test_D5_hvac_sweep_SLEEP_ALSO_turns_off_night_only_entity():
         f"Rev 3 D5 SLEEP-LEG: sweep MUST turn off night-only entity "
         f"{night_entity} during sleep (unconditional union). log={log}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Room lighting Slice C (v5.103.28) — zone sweep light writes are URA-stamped
+# and a person's light hold (room tier) is not swept.
+# ---------------------------------------------------------------------------
+
+
+def _capture_ctx(coord):
+    seen: list = []
+
+    async def _svc_call(domain, service, data=None, blocking=False, **kw):
+        seen.append((domain, service, dict(data or {}), kw.get("context")))
+
+    coord.hass.services.async_call = _svc_call
+    return seen
+
+
+def test_slice_c_zone_sweep_light_write_is_ura_stamped():
+    from custom_components.universal_room_automation.ura_context import (
+        is_ura_context,
+    )
+    coord, _log = _make_hvac_coord({"FreeRoom": False})
+    seen = _capture_ctx(coord)
+    _run(coord._execute_vacancy_sweep(_StubZone("ZoneA", ["FreeRoom"])))
+    lights = [s for s in seen if s[0] == "light"]
+    assert lights and all(is_ura_context(s[3]) for s in lights)
+
+
+def test_slice_c_zone_sweep_spares_person_held_light():
+    coord, _log = _make_hvac_coord({"HoldLight": False})
+    seen = _capture_ctx(coord)
+    room_coord = coord.hass.data[DOMAIN]["entry_HoldLight"]
+    room_coord.automation = type("A", (), {
+        "light_hold_allowed": staticmethod(
+            lambda ents, d: [e for e in ents if e != "light.holdlight"]),
+    })()
+    _run(coord._execute_vacancy_sweep(_StubZone("ZoneA", ["HoldLight"])))
+    assert not [s for s in seen if s[0] == "light" and s[1] == "turn_off"]
