@@ -138,10 +138,90 @@ class UniversalRoomDatabase:
         self._write_queue: asyncio.Queue = asyncio.Queue()
         self._write_task: asyncio.Task | None = None
         self._db_stats = {"writes": 0, "reads": 0, "queue_peak": 0}
+        # DB-WAIT-WARNING-REWORK-1: episode-based logging state.
+        # A "wait episode" is any contiguous stretch where >=1 writer is
+        # past the soft-warn boundary. Emit exactly ONE warning at
+        # episode entry, and ONE summary when the last waiter clears.
+        # Boot-window (from __init__ construction) downgrades entry
+        # warning to INFO; the summary is always INFO.
+        self._boot_started_at = time.monotonic()
+        self._wait_boot_window_s = 300.0  # rung 1: 5-min boot window
+        self._wait_episode_active: bool = False
+        self._wait_episode_started_at: float | None = None
+        self._wait_episode_max_wait: float = 0.0
+        self._wait_episode_peak_queue: int = 0
+        self._wait_episode_callers: int = 0
+        self._wait_episode_dropped: int = 0
+        self._wait_episode_in_flight: int = 0
+        self._wait_episode_stall_multiplier: float = 2.0  # rung 1
         _LOGGER.info("Database file: %s", self.db_file)
 
     # Tables eligible for drop-and-recreate repair on corruption
     _REPAIRABLE_TABLES: frozenset[str] = frozenset({"energy_snapshots"})
+
+    # ------------------------------------------------------------------
+    # DB-WAIT-WARNING-REWORK-1 — episode-based wait logging helpers.
+    #
+    # A "wait episode" is any contiguous stretch where >=1 writer has
+    # crossed DB_WRITE_READY_SOFT_WARN_S waiting for the worker. We log
+    # ONE warning at episode entry (INFO during boot window) and ONE
+    # summary line when the last waiter clears — instead of the pre-fix
+    # per-waiter warning that spammed ~23 lines for a single event-loop
+    # freeze. Behavior on queue/timeout/connection is unchanged.
+    # ------------------------------------------------------------------
+    def _wait_episode_classify(self, elapsed: float) -> str:
+        soft = DB_WRITE_READY_SOFT_WARN_S
+        if elapsed >= soft * self._wait_episode_stall_multiplier:
+            return "event-loop stall"
+        return "worker backlog"
+
+    def _wait_episode_note_slow(self, elapsed: float) -> None:
+        """Called by a waiter that has just crossed the soft threshold."""
+        self._wait_episode_in_flight += 1
+        self._wait_episode_callers += 1
+        if elapsed > self._wait_episode_max_wait:
+            self._wait_episode_max_wait = elapsed
+        qsz = self._write_queue.qsize()
+        if qsz > self._wait_episode_peak_queue:
+            self._wait_episode_peak_queue = qsz
+        if self._wait_episode_active:
+            return  # already logged this episode
+        self._wait_episode_active = True
+        self._wait_episode_started_at = time.monotonic() - elapsed
+        classification = self._wait_episode_classify(elapsed)
+        in_boot = (time.monotonic() - self._boot_started_at) < self._wait_boot_window_s
+        log = _LOGGER.info if in_boot else _LOGGER.warning
+        log(
+            "DB write not yet served after %.1fs (classification=%s, "
+            "queue_depth=%d, phase=%s)",
+            elapsed, classification, qsz,
+            "boot" if in_boot else "steady",
+        )
+
+    def _wait_episode_release(self, *, dropped: bool) -> None:
+        """Called when a slow waiter either got its connection or was dropped."""
+        if not self._wait_episode_active:
+            return
+        if dropped:
+            self._wait_episode_dropped += 1
+        if self._wait_episode_in_flight > 0:
+            self._wait_episode_in_flight -= 1
+        if self._wait_episode_in_flight == 0:
+            # Episode cleared — emit the one summary line and reset.
+            _LOGGER.info(
+                "DB write wait episode cleared "
+                "(max_wait=%.1fs, peak_queue=%d, callers=%d, dropped=%d)",
+                self._wait_episode_max_wait,
+                self._wait_episode_peak_queue,
+                self._wait_episode_callers,
+                self._wait_episode_dropped,
+            )
+            self._wait_episode_active = False
+            self._wait_episode_started_at = None
+            self._wait_episode_max_wait = 0.0
+            self._wait_episode_peak_queue = 0
+            self._wait_episode_callers = 0
+            self._wait_episode_dropped = 0
 
     async def start_write_worker(self) -> None:
         """Start the background write worker task (idempotent).
@@ -427,35 +507,48 @@ class UniversalRoomDatabase:
         soft = DB_WRITE_READY_SOFT_WARN_S
         hard = DB_WRITE_READY_HARD_CAP_S
         _wait_start = time.monotonic()
-        if soft < hard:
-            stage = await _wait_ready_stage(soft)
-            if stage == "timeout":
-                _elapsed = time.monotonic() - _wait_start
-                _LOGGER.warning(
-                    "DB write worker slow: no connection after %.1fs "
-                    "(queue_depth=%d, elapsed=%.1fs); continuing to wait up to %.1fs",
-                    soft, self._write_queue.qsize(), _elapsed, hard,
-                )
-                stage = await _wait_ready_stage(hard - soft)
+        _dropped = False
+        _noted = False  # Tier 1 fix: only release() waiters that were noted.
+        try:
+            if soft < hard:
+                stage = await _wait_ready_stage(soft)
                 if stage == "timeout":
-                    done.set()  # unblock worker if it runs _execute later
                     _elapsed = time.monotonic() - _wait_start
+                    self._wait_episode_note_slow(_elapsed)
+                    _noted = True
+                    stage = await _wait_ready_stage(hard - soft)
+                    if stage == "timeout":
+                        done.set()  # unblock worker if it runs _execute later
+                        _elapsed = time.monotonic() - _wait_start
+                        _dropped = True
+                        raise RuntimeError(
+                            "DB write worker did not process request within "
+                            f"{hard:.1f}s (queue_depth={self._write_queue.qsize()}, "
+                            f"elapsed={_elapsed:.1f}s) — row dropped"
+                        )
+            else:
+                # Single-stage kill-switch (SOFT >= HARD): restore raise-at-soft.
+                stage = await _wait_ready_stage(soft)
+                if stage == "timeout":
+                    done.set()
+                    _elapsed = time.monotonic() - _wait_start
+                    self._wait_episode_note_slow(_elapsed)
+                    _noted = True
+                    _dropped = True
                     raise RuntimeError(
                         "DB write worker did not process request within "
-                        f"{hard:.1f}s (queue_depth={self._write_queue.qsize()}, "
-                        f"elapsed={_elapsed:.1f}s) — row dropped"
+                        f"{soft:.1f}s (queue_depth={self._write_queue.qsize()}, "
+                        f"elapsed={_elapsed:.1f}s)"
                     )
-        else:
-            # Single-stage kill-switch (SOFT >= HARD): restore raise-at-soft.
-            stage = await _wait_ready_stage(soft)
-            if stage == "timeout":
-                done.set()
-                _elapsed = time.monotonic() - _wait_start
-                raise RuntimeError(
-                    "DB write worker did not process request within "
-                    f"{soft:.1f}s (queue_depth={self._write_queue.qsize()}, "
-                    f"elapsed={_elapsed:.1f}s)"
-                )
+        finally:
+            # Only release the episode counter for waiters that were
+            # actually noted (crossed the soft threshold). Fast waiters
+            # that never crossed must NOT decrement in_flight — doing so
+            # drops it to 0 while a slow waiter is still waiting and
+            # triggers a premature "cleared" summary + a second WARNING
+            # on the next slow waiter in the same freeze (Tier 1 MED).
+            if _noted:
+                self._wait_episode_release(dropped=_dropped)
         try:
             yield db_holder[0]
         finally:
