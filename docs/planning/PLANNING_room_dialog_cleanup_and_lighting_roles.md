@@ -1,3 +1,5 @@
+> **REV 2.2 (2026-09-29):** operator: turning exempt (leave-on) lights off at house Away must be OPTIONAL. Design: one per-room boolean under the leave-on picker in the Lighting step — "…but turn them off when the house is Away" (config-flow field, rung 2, default True; shown only when the room has leave-on lights). It is the ONLY Away light rule: non-exempt lights are already off because every room is empty at Away. Replaces any unconditional "Away = all lights off" in D4.
+>
 > **REV 2.1 (2026-09-29):** operator ruling — no new light timers; CONF_LIGHT_EXIT_WAIT_S removed everywhere in this plan (use the leave-on-when-empty role for per-light exemption). This line overrides any mention of a light wait / exit wait knob below.
 
 # PLANNING — Room Dialog Cleanup: Lighting Roles + Role-vs-Inventory Sweep
