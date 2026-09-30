@@ -30610,7 +30610,7 @@ cards:
   title: Every HA restart freezes the whole event loop for about 2.5 minutes, so the house is dead and every integration times out
   thread: platform
   status: shipped_organic
-  shipped_version: v5.103.26
+  shipped_version: v5.103.28
   tier: 2
   created: '2026-09-29 20:05'
   origin: 'Operator 2026-09-29 on the post-restart DB warnings: "The db slowness warnings are a flag... Not urgent but super important. Check on the logging as well." Audit docs/planning/AUDIT_db_write_worker_slow_2026_09_29.md.'
@@ -30720,7 +30720,8 @@ cards:
 - id: ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1
   title: Room cover automation (open at sunrise, timed close, close on exit) has no garage-door exclusion
   thread: ux
-  status: review
+  status: shipped_organic
+  shipped_version: v5.103.28
   reconcile_2026_09_30_overnight: 'LANE FIX planned -> review. Ground truth: branch fix/room-covers-garage-guard already carries the build, 2 commits ahead of develop - a22e0bb5a (23:21 09-29, room automation refuses garage/gate covers) and 614c9f391 (23:23, blocks AI-rule cover actions on garage doors/gates, review LOW + tests). The card was never moved. NOT deployed (deploy held, per the card). I did not re-run its suite or reviews overnight; the validator name-diff is still owed before merge.'
   measured_2026_09_29: 'Operator thought garage doors live only in Security. MEASURED: they are ALSO in room covers - Garage A covers = cover.konnected_f0f5bd523b00_garage_door, Garage B covers = cover.ratgdov25i_dbfe2a_door (both device_class garage, stored cover_type shade). Both have entry/exit cover action none and open mode none, but timed_close_enabled = True (sunset). ura_activity_log has no cover actions for either room (not proof the timed close never ran). Operator: "the protection is a good idea".'
   created: '2026-09-29 23:20'
