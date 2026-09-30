@@ -48,6 +48,19 @@ from .const import (
     DEFAULT_FACE_RECOGNITION_ENABLED,
     DEFAULT_EGRESS_IDENTITY_ENABLED,
     SIGNAL_URA_FACE_RECOGNITION_CHANGED,
+    # Room lighting Slice C (v5.103.28) — D3 Room lights switch.
+    CONF_LIGHTS,
+    CONF_NIGHT_LIGHTS,
+    CONF_LIGHT_CAPABILITIES,
+    CONF_LIGHT_BRIGHTNESS_PCT,
+    CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
+    CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
+    DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
+    DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
+    LIGHT_CAPABILITY_BASIC,
+    LIGHT_CAPABILITY_BRIGHTNESS,
+    LIGHT_CAPABILITY_FULL,
+    STATE_ILLUMINANCE,
 )
 from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
@@ -437,6 +450,8 @@ async def async_setup_entry(
         # orphaned for the operator to remove (Bug Class #46).
         CoverAutomationSwitch(coordinator),
         ManualModeSwitch(coordinator),
+        # v5.103.28 Slice C D3: one switch for all of the room's lights.
+        RoomLightsSwitch(coordinator),
         AiAutomationSwitch(coordinator),
         InfrastructureRoomSwitch(coordinator),
         # Fan-noise Mode-2 per-room opt-ins. Both default OFF.
@@ -5234,6 +5249,128 @@ class ManualModeSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
 # ============================================================================
 # v3.21.0 D7: AI Automation Per-Room Toggle
 # ============================================================================
+
+
+class RoomLightsSwitch(UniversalRoomEntity, SwitchEntity):
+    """D3 (v5.103.28 Slice C): one switch for all of a room's lights.
+
+    ON  → the room's entry set (``lighting.resolver.effective_entry_set`` —
+          on-entry picker, night lights in day mode, sleep → night lights
+          only), through the room's stamped ``_safe_service_call``.
+    OFF → every room light (``CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS``), leave-on
+          lights included (an explicit off).
+    Each toggle counts as a person's change: it opens / clears the D2 light
+    hold per light through ``RoomAutomation.note_manual_light`` directly
+    (its own writes are URA-stamped, so the listener does not double-book
+    them). State = any room light on. Distinct from Manual Mode (which
+    stops all automation) and from Security's light delegation.
+    """
+
+    _attr_icon = "mdi:lightbulb-group"
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        super().__init__(coordinator, "room_lights", "Room lights")
+        self._unsub_lights = None
+
+    def _cfg(self) -> dict:
+        entry = self.coordinator.entry
+        return {**(entry.data or {}), **(entry.options or {})}
+
+    def _all_lights(self) -> list[str]:
+        cfg = self._cfg()
+        regular = list(cfg.get(CONF_LIGHTS) or [])
+        night = list(cfg.get(CONF_NIGHT_LIGHTS) or [])
+        return regular + [e for e in night if e not in regular]
+
+    @property
+    def is_on(self) -> bool:
+        for eid in self._all_lights():
+            st = self.hass.states.get(eid) if self.hass else None
+            if st is not None and st.state == "on":
+                return True
+        return False
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        lights = self._all_lights()
+        if lights:
+            from homeassistant.helpers.event import (  # noqa: PLC0415
+                async_track_state_change_event,
+            )
+
+            @callback
+            def _on_light_change(_event) -> None:
+                self.async_write_ha_state()
+
+            self.async_on_remove(
+                async_track_state_change_event(self.hass, lights, _on_light_change)
+            )
+
+    async def async_turn_on(self, **kwargs) -> None:
+        from .lighting.resolver import effective_entry_set  # noqa: PLC0415
+
+        automation = getattr(self.coordinator, "automation", None)
+        if automation is None:
+            return
+        cfg = self._cfg()
+        sleep = bool(automation.is_sleep_mode_active())
+        try:
+            is_dark = bool(automation.is_dark(
+                (self.coordinator.data or {}).get(STATE_ILLUMINANCE)
+            ))
+        except Exception:  # noqa: BLE001
+            is_dark = False
+        targets = effective_entry_set(cfg, is_sleep_hours=sleep, is_dark=is_dark)
+        night = set(cfg.get(CONF_NIGHT_LIGHTS) or [])
+        capability = cfg.get(CONF_LIGHT_CAPABILITIES, LIGHT_CAPABILITY_BASIC)
+        dimmable = capability in (LIGHT_CAPABILITY_BRIGHTNESS, LIGHT_CAPABILITY_FULL)
+        regular_lights = [e for e in targets if e.startswith("light.") and e not in night]
+        night_lights = [e for e in targets if e.startswith("light.") and e in night]
+        switches = [e for e in targets if e.startswith("switch.")]
+        if regular_lights:
+            data: dict[str, Any] = {"entity_id": regular_lights}
+            if dimmable:
+                data["brightness_pct"] = cfg.get(CONF_LIGHT_BRIGHTNESS_PCT, 100)
+            await automation._safe_service_call("light", "turn_on", data, blocking=False)
+        if night_lights:
+            data = {"entity_id": night_lights}
+            if dimmable:
+                data["brightness_pct"] = (
+                    cfg.get(CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS)
+                    if sleep else
+                    cfg.get(CONF_NIGHT_LIGHT_DAY_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS)
+                )
+            await automation._safe_service_call("light", "turn_on", data, blocking=False)
+        if switches:
+            await automation._safe_service_call(
+                "switch", "turn_on", {"entity_id": switches}, blocking=False,
+            )
+        for eid in targets:
+            automation.note_manual_light(eid, "on")
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        automation = getattr(self.coordinator, "automation", None)
+        if automation is None:
+            return
+        lights = self._all_lights()
+        actual = [e for e in lights if not e.startswith("switch.")]
+        switches = [e for e in lights if e.startswith("switch.")]
+        if actual:
+            await automation._safe_service_call(
+                "light", "turn_off", {"entity_id": actual}, blocking=False,
+            )
+        if switches:
+            await automation._safe_service_call(
+                "switch", "turn_off", {"entity_id": switches}, blocking=False,
+            )
+        for eid in lights:
+            automation.note_manual_light(eid, "off")
+        self.async_write_ha_state()
 
 
 class AiAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):

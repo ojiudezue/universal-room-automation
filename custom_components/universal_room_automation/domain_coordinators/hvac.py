@@ -5721,6 +5721,20 @@ class HVACCoordinator(BaseCoordinator):
             lights = list(regular) + [e for e in night if e not in regular]
             fans = config.get(CONF_FANS, [])
 
+            # Room lighting Slice C (v5.103.28) D2: a light a person turned
+            # ON while its room was occupied is not swept (the room tier
+            # ends that hold when the room empties). The write is stamped
+            # as URA's so the manual-change listener ignores it.
+            _room_auto = getattr(coordinator, "automation", None)
+            if _room_auto is not None and hasattr(_room_auto, "light_hold_allowed"):
+                _held_ok = _room_auto.light_hold_allowed(lights, "off")
+                if isinstance(_held_ok, list):
+                    lights = _held_ok
+            try:
+                from ..ura_context import ura_ctx_kwargs  # noqa: PLC0415
+            except Exception:  # noqa: BLE001 — test harness packages
+                ura_ctx_kwargs = lambda _d: {}  # noqa: E731
+
             for entity_id in lights:
                 domain = entity_id.split(".")[0]
                 state = self.hass.states.get(entity_id)
@@ -5729,6 +5743,7 @@ class HVACCoordinator(BaseCoordinator):
                         await self.hass.services.async_call(
                             domain, "turn_off",
                             {"entity_id": entity_id}, blocking=False,
+                            **ura_ctx_kwargs(domain),
                         )
                         swept_count += 1
                     except Exception as exc:  # noqa: BLE001

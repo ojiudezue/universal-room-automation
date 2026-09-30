@@ -440,6 +440,16 @@ class ActuatorReconciler:
         old = old_state.state if old_state is not None else "unavailable"
         new = new_state.state
 
+        # Slice C (v5.103.28) D2: the same room-light subscription feeds the
+        # manual-change detector (reuses this listener's lifecycle: rebuild
+        # hook + teardown). Never raises into the reconcile path.
+        try:
+            self._note_manual_light_change(
+                entity_id, old, new, getattr(event, "context", None),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("manual light detection raised", exc_info=True)
+
         # Only care about the unavailable -> available EDGE.
         became_available = (
             old in RECONCILE_UNAVAILABLE_STATES
@@ -478,6 +488,35 @@ class ActuatorReconciler:
 
         # Schedule the reconcile (through the guard chain + coalesce).
         self._consider_reconcile(entity_id, boot_edge=False)
+
+    def _note_manual_light_change(
+        self, entity_id: str, old: str, new: str, context: Any,
+    ) -> None:
+        """Slice C D2: book a person's on/off change to a room light.
+
+        Books only when ALL hold: the entity is one of this room's lights
+        (LIGHTS ∪ NIGHT_LIGHTS), the change is a real on<->off edge (not an
+        availability edge or an attribute-only update), the write is NOT
+        URA's own (``ura_context`` mark), and the room is occupied.
+        """
+        if entity_id not in self._light_entities():
+            return
+        if old not in ("on", "off") or new not in ("on", "off") or old == new:
+            return
+        from .ura_context import is_ura_context
+
+        if is_ura_context(context):
+            return
+        if not bool((self.coordinator.data or {}).get(STATE_OCCUPIED)):
+            return
+        automation = self._automation()
+        if automation is None:
+            return
+        automation.note_manual_light(entity_id, new)
+        _LOGGER.info(
+            "ActuatorReconciler[%s]: person turned %s %s — manual light hold",
+            self._room_name(), new, entity_id,
+        )
 
     def _consider_reconcile(self, entity_id: str, boot_edge: bool) -> None:
         """Run the guard chain for ONE entity; enqueue into coalesce if ok."""
@@ -623,6 +662,16 @@ class ActuatorReconciler:
                 except AttributeError:
                     # Older RoomAutomation without the accessor — fall through.
                     pass
+        # Slice C (v5.103.28) D2: honour the light manual hold. A light a
+        # person turned ON while occupied is not re-asserted OFF; one they
+        # turned OFF is not re-asserted ON during its cooldown.
+        if not self._is_fan(entity_id):
+            automation = self._automation()
+            if automation is not None and hasattr(automation, "light_hold_allowed"):
+                direction = "off" if desired.service == "turn_off" else "on"
+                if not automation.light_hold_allowed([entity_id], direction):
+                    self._record_skip(entity_id, "light_manual_hold")
+                    return
         # FAN-MANUAL-1 (Review B-HIGH-2 / A-MED-4, 2026-08-10): before a
         # URA-owned ON dispatch, mark it as URA-issued via the shared
         # helper so the room-tier external-ON detector does NOT open a
@@ -671,9 +720,13 @@ class ActuatorReconciler:
                 domain, service, payload, blocking=False,
             )
             return
-        # Fallback (should not happen in production): direct call.
+        # Fallback (should not happen in production): direct call. Slice C:
+        # stamped as a URA write like every other URA light write.
+        from .ura_context import ura_ctx_kwargs
+
         await self.hass.services.async_call(
             domain, service, payload, blocking=False,
+            **ura_ctx_kwargs(domain),
         )
 
     def _log_activity(self, entity_id: str, desired: DesiredState) -> None:

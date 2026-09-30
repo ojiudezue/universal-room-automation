@@ -186,6 +186,10 @@ from .const import (
     CONF_LIGHTS_ON_ENTRY_DARK_ONLY,
     CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY,
     CONF_AWAY_TURN_OFF_LEAVE_ON,
+    CONF_LIGHT_MANUAL_ON_HOLD_S,
+    CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
+    DEFAULT_LIGHT_MANUAL_ON_HOLD_S,
+    DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S,
     CONF_LIGHT_DARK_USE_SUN_FALLBACK,
     CONF_LIGHT_DARK_LUX_SOURCE,
     CONF_OUTDOOR_LIGHT_SENSOR,
@@ -11620,6 +11624,30 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.EntitySelectorConfig(
                     include_entities=_include_for(CONF_ALERT_LIGHTS, stored_alert),
                     multiple=True,
+                )
+            ),
+            # Slice C (v5.103.28) D2 light manual hold windows. 0 = off.
+            vol.Optional(
+                CONF_LIGHT_MANUAL_ON_HOLD_S,
+                default=self._get_current(
+                    CONF_LIGHT_MANUAL_ON_HOLD_S, DEFAULT_LIGHT_MANUAL_ON_HOLD_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=14400, step=60, unit_of_measurement="s",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
+                default=self._get_current(
+                    CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
+                    DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=14400, step=60, unit_of_measurement="s",
+                    mode=selector.NumberSelectorMode.BOX,
                 )
             ),
             vol.Optional(

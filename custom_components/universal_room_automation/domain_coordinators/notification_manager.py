@@ -2369,13 +2369,31 @@ class NotificationManager:
                     "color_temp_kelvin": state.attributes.get("color_temp_kelvin"),
                 }
 
+    async def _ura_light_call(
+        self, service: str, data: dict[str, Any], blocking: bool = False,
+    ) -> None:
+        """Every NM light write (pattern + restore) — stamped as URA's.
+
+        Room lighting Slice C (v5.103.28): the alert flash and the restore
+        carry the URA write mark so the room D2 manual-change listener never
+        opens a hold on them (plan R2-1 discriminator).
+        """
+        try:
+            from ..ura_context import ura_ctx_kwargs  # noqa: PLC0415
+            ctx_kw = ura_ctx_kwargs("light")
+        except Exception:  # noqa: BLE001
+            ctx_kw = {}
+        await self.hass.services.async_call(
+            "light", service, data, blocking=blocking, **ctx_kw,
+        )
+
     async def _restore_alert_lights(self) -> None:
         """Restore lights to their pre-alert states."""
         for entity_id, orig in self._light_original_states.items():
             try:
                 if orig["state"] == "off":
-                    await self.hass.services.async_call(
-                        "light", "turn_off", {"entity_id": entity_id}, blocking=False
+                    await self._ura_light_call(
+                        "turn_off", {"entity_id": entity_id}, blocking=False
                     )
                 else:
                     svc_data: dict[str, Any] = {"entity_id": entity_id}
@@ -2385,8 +2403,8 @@ class NotificationManager:
                         svc_data["rgb_color"] = orig["rgb_color"]
                     elif orig.get("color_temp_kelvin"):
                         svc_data["color_temp_kelvin"] = orig["color_temp_kelvin"]
-                    await self.hass.services.async_call(
-                        "light", "turn_on", svc_data, blocking=False
+                    await self._ura_light_call(
+                        "turn_on", svc_data, blocking=False
                     )
             except Exception as e:
                 _LOGGER.warning("Failed to restore light %s: %s", entity_id, e)
@@ -2409,8 +2427,8 @@ class NotificationManager:
                 }
                 if color:
                     svc_data["rgb_color"] = list(color)
-                await self.hass.services.async_call(
-                    "light", "turn_on", svc_data, blocking=False
+                await self._ura_light_call(
+                    "turn_on", svc_data, blocking=False
                 )
                 return
 
@@ -2426,29 +2444,29 @@ class NotificationManager:
                         svc_data = {"entity_id": entities, "brightness": 255}
                         if color:
                             svc_data["rgb_color"] = list(color)
-                        await self.hass.services.async_call(
-                            "light", "turn_on", svc_data, blocking=False
+                        await self._ura_light_call(
+                            "turn_on", svc_data, blocking=False
                         )
                     else:
-                        await self.hass.services.async_call(
-                            "light", "turn_off", {"entity_id": entities}, blocking=False
+                        await self._ura_light_call(
+                            "turn_off", {"entity_id": entities}, blocking=False
                         )
                 elif effect == "pulse":
                     br = 255 if cycle % 2 == 0 else 50
                     svc_data = {"entity_id": entities, "brightness": br}
                     if color:
                         svc_data["rgb_color"] = list(color)
-                    await self.hass.services.async_call(
-                        "light", "turn_on", svc_data, blocking=False
+                    await self._ura_light_call(
+                        "turn_on", svc_data, blocking=False
                     )
                 elif effect == "sequential":
                     idx = cycle % len(entities)
                     # Turn all off, then turn one on
-                    await self.hass.services.async_call(
-                        "light", "turn_off", {"entity_id": entities}, blocking=False
+                    await self._ura_light_call(
+                        "turn_off", {"entity_id": entities}, blocking=False
                     )
-                    await self.hass.services.async_call(
-                        "light", "turn_on",
+                    await self._ura_light_call(
+                        "turn_on",
                         {"entity_id": entities[idx], "brightness": 255},
                         blocking=False,
                     )
@@ -2456,8 +2474,8 @@ class NotificationManager:
                     svc_data = {"entity_id": entities, "brightness": 255, "transition": interval}
                     if color:
                         svc_data["rgb_color"] = list(color)
-                    await self.hass.services.async_call(
-                        "light", "turn_on", svc_data, blocking=False
+                    await self._ura_light_call(
+                        "turn_on", svc_data, blocking=False
                     )
                     return  # fade is a one-shot
 

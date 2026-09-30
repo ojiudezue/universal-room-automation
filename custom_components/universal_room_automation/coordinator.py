@@ -1144,7 +1144,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             data["entity_id"] = entity_id
 
         try:
-            await self.hass.services.async_call(domain, service, data, blocking=False)
+            # Room lighting Slice C (v5.103.28): an AI-rule light write is a
+            # URA write — mark it so the D2 manual-change listener ignores it.
+            try:
+                from .ura_context import ura_ctx_kwargs  # noqa: PLC0415
+                _ctx_kw = ura_ctx_kwargs(domain)
+            except Exception:  # noqa: BLE001
+                _ctx_kw = {}
+            await self.hass.services.async_call(
+                domain, service, data, blocking=False, **_ctx_kw,
+            )
         except Exception as err:
             _LOGGER.error(
                 "[%s] AI rule action failed: %s.%s — %s", room_name, domain, service, err,

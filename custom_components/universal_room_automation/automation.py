@@ -192,8 +192,29 @@ from .const import (
 # .const + .domain_coordinators.house_state, no back-reference to automation).
 from .fan_veto import should_veto_comfort_fan  # noqa: E402
 from .const import FAN_OWNER_HVAC, fan_owner  # noqa: E402
+from .const import (  # noqa: E402
+    CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
+    CONF_LIGHT_MANUAL_ON_HOLD_S,
+    DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S,
+    DEFAULT_LIGHT_MANUAL_ON_HOLD_S,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _ura_ctx_kwargs(domain: str) -> dict:
+    """``{"context": <URA write context>}`` for light/switch writes, else ``{}``.
+
+    Slice C (v5.103.28). Import is guarded: some unit-test harnesses load
+    this module under a package stub without ``__path__``; production
+    always resolves it.
+    """
+    try:
+        from .ura_context import ura_ctx_kwargs
+
+        return ura_ctx_kwargs(domain)
+    except Exception:  # noqa: BLE001
+        return {}
 
 # v4.2.22: Cover command verification tuning.
 # Hunter Douglas (and other RF-bridged covers) accept hub-level group calls
@@ -620,6 +641,66 @@ class RoomAutomation:
         except Exception:
             return False
 
+    # ------------------------------------------------------------------
+    # Slice C (v5.103.28) — D2 light manual hold (LightPolicyOracle).
+    # ------------------------------------------------------------------
+
+    def _light_oracle(self):
+        try:
+            from .domain_coordinators.light_policy_oracle import get_light_oracle
+
+            return get_light_oracle(self.hass, DOMAIN)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _light_room_key(self) -> str:
+        try:
+            return str(self._config_entry.entry_id)
+        except Exception:  # noqa: BLE001
+            return str(self.config.get(CONF_ROOM_NAME, ""))
+
+    def light_hold_allowed(self, entities, direction: str) -> list:
+        """Subset of ``entities`` URA may turn ``direction`` ("on"/"off").
+
+        A person's ON while occupied blocks URA's OFF (until the room
+        empties); a person's OFF blocks URA's ON for the cooldown window.
+        No oracle ⇒ everything allowed (today's behaviour).
+        """
+        entities = list(entities or [])
+        oracle = self._light_oracle()
+        if oracle is None or not entities:
+            return entities
+        try:
+            return oracle.allowed(
+                self._light_room_key(), entities, direction, dt_util.now(),
+            )
+        except Exception:  # noqa: BLE001
+            return entities
+
+    def note_manual_light(self, entity_id: str, direction: str) -> None:
+        """Record a person's change to a room light (listener / Room lights)."""
+        oracle = self._light_oracle()
+        if oracle is None:
+            return
+        cfg = self.config
+        oracle.note_manual(
+            self._light_room_key(), entity_id, direction,
+            now=dt_util.now(),
+            on_hold_s=cfg.get(
+                CONF_LIGHT_MANUAL_ON_HOLD_S, DEFAULT_LIGHT_MANUAL_ON_HOLD_S,
+            ),
+            off_cooldown_s=cfg.get(
+                CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
+                DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S,
+            ),
+        )
+
+    def release_light_holds_on_vacancy(self) -> None:
+        """The room counts as empty: end ON holds so the vacancy sweep applies."""
+        oracle = self._light_oracle()
+        if oracle is not None:
+            oracle.release_on_vacancy(self._light_room_key())
+
     async def _safe_service_call(
         self,
         domain: str,
@@ -644,11 +725,17 @@ class RoomAutomation:
             self._service_failures_today = 0
             self._service_call_reset_date = today
         self._service_calls_today += 1
+        # Slice C (v5.103.28): URA-wide write mark. Every room-tier write
+        # (entry / exit / sleep / shared-space / warning flash / room alert
+        # lights / reconciler / Room lights switch) carries a URA context so
+        # the D2 manual-change listener never books it as a person's change.
+        ctx_kw = _ura_ctx_kwargs(domain)
         for attempt in range(attempts):
             try:
                 await asyncio.wait_for(
                     self.hass.services.async_call(
-                        domain, service, service_data, blocking=blocking
+                        domain, service, service_data, blocking=blocking,
+                        **ctx_kw,
                     ),
                     timeout=timeout,
                 )
@@ -972,9 +1059,16 @@ class RoomAutomation:
         """Handle occupancy state change."""
         self._refresh_config()
         room_name = self.config.get('room_name', 'Unknown')
-        _LOGGER.debug("Occupancy change [%s]: occupied=%s, should_execute=%s", 
+        _LOGGER.debug("Occupancy change [%s]: occupied=%s, should_execute=%s",
                        room_name, occupied, self.should_execute_automation(state_data))
-        
+
+        # Slice C (v5.103.28) D2 / REV 2.3.1: the manual ON hold is bounded
+        # by occupancy — the room counting as empty ends it, BEFORE the
+        # exit sweep and before the sleep gate below, so the vacancy rule
+        # applies to hand-switched lights too.
+        if not occupied:
+            self.release_light_holds_on_vacancy()
+
         if not self.should_execute_automation(state_data):
             _LOGGER.debug("Skipping automation - sleep mode active")
             return
@@ -1080,6 +1174,10 @@ class RoomAutomation:
 
         has_on_entry = bool(self.config.get(CONF_LIGHTS_ON_ENTRY))
         if has_on_entry:
+            # Slice C D2: a light a person turned OFF while occupied stays
+            # off for its cooldown.
+            actual_lights = self.light_hold_allowed(actual_lights, "on")
+            switches_as_lights = self.light_hold_allowed(switches_as_lights, "on")
             # Operator has an explicit on-entry list. Turn on exactly
             # that resolver-computed set (dark-only carve-out applied
             # inside the resolver). Domain-split so light.* and switch.*
@@ -1191,7 +1289,9 @@ class RoomAutomation:
         
         # Get lights that are NOT night lights
         regular_lights = [light for light in lights if light not in night_lights]
-        
+        # Slice C D2: skip lights a person turned OFF (cooldown).
+        regular_lights = self.light_hold_allowed(regular_lights, "on")
+
         if not regular_lights:
             return
             
@@ -1232,10 +1332,12 @@ class RoomAutomation:
             mode: "sleep" for dim/warm settings, "day" for bright/cool settings
         """
         night_lights = self.config.get(CONF_NIGHT_LIGHTS, [])
-        
+        # Slice C D2: skip night lights a person turned OFF (cooldown).
+        night_lights = self.light_hold_allowed(night_lights, "on")
+
         if not night_lights:
             return
-        
+
         # Get settings based on mode
         if mode == "sleep":
             brightness = self.config.get(
@@ -1300,7 +1402,9 @@ class RoomAutomation:
         
         # Get lights to turn off (not in night_lights list)
         lights_to_turn_off = [light for light in lights if light not in night_lights]
-        
+        # Slice C D2: a light a person turned ON while occupied stays on.
+        lights_to_turn_off = self.light_hold_allowed(lights_to_turn_off, "off")
+
         if not lights_to_turn_off:
             return
         
@@ -3496,6 +3600,9 @@ class RoomAutomation:
         regular = self.config.get(CONF_LIGHTS, []) or []
         night_ = self.config.get(CONF_NIGHT_LIGHTS, []) or []
         lights = list(regular) + [e for e in night_ if e not in regular]
+        # Slice C D2: the scheduled auto-off does not undo a person's ON
+        # while the room is still occupied (the hold ends when it empties).
+        lights = self.light_hold_allowed(lights, "off")
         if lights:
             actual_lights = [e for e in lights if e.startswith("light.")]
             switches_as_lights = [e for e in lights if e.startswith("switch.")]

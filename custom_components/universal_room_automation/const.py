@@ -941,6 +941,19 @@ CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY: Final = "lights_leave_on_when_empty"
 # Per-room Away-turn-off-leave-on toggle. Default TRUE; meaningful only
 # when CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY is non-empty.
 CONF_AWAY_TURN_OFF_LEAVE_ON: Final = "away_turn_off_leave_on"
+# ROOM-LIGHTING-SETUP-REDESIGN-1 Slice C (v5.103.28) — D2 light manual hold.
+# Rung 2 (room options, Lighting behaviour step); module-const defaults.
+# A person's light change while the room is occupied opens a per-light
+# hold. ON hold: URA does not turn that light OFF until the room counts as
+# empty (the hold is released at the vacancy transition, then the normal
+# vacancy sweep applies) or the window elapses. OFF cooldown: URA does not
+# turn that light back ON for the window (survives the vacancy transition;
+# protects the OFF choice against a re-triggered entry). 0 = that kind of
+# hold is off (kill switch per kind).
+CONF_LIGHT_MANUAL_ON_HOLD_S: Final = "light_manual_on_hold_s"
+CONF_LIGHT_MANUAL_OFF_COOLDOWN_S: Final = "light_manual_off_cooldown_s"
+DEFAULT_LIGHT_MANUAL_ON_HOLD_S: Final = 3600
+DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S: Final = 900
 # Module-const safety bound (civil dusk). Sun elevation strictly less
 # than this ⇒ dark for fallback purposes. Not exposed as a knob —
 # safety bound per the knob-rung ladder in the plan.

@@ -845,11 +845,21 @@ class CoordinatorManager:
             if action.action_type == ActionType.SERVICE_CALL:
                 if isinstance(action, ServiceCallAction) and action.service:
                     domain, service = action.service.split(".", 1)
+                    # Room lighting Slice C (v5.103.28): Safety emergency
+                    # lights + Security lights run through here — stamp
+                    # every coordinator write as URA's so the D2
+                    # manual-change listener never books it as a person.
+                    try:
+                        from ..ura_context import ura_ctx_kwargs  # noqa: PLC0415
+                        _ctx_kw = ura_ctx_kwargs(domain)
+                    except Exception:  # noqa: BLE001
+                        _ctx_kw = {}
                     await self.hass.services.async_call(
                         domain,
                         service,
                         action.service_data,
                         blocking=True,
+                        **_ctx_kw,
                     )
                     _LOGGER.info(
                         "Executed %s.%s on %s (coordinator=%s, severity=%s)",
