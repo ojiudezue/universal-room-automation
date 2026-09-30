@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-29T22:42:31-05:00_ - _Data commit: `a7e9ca2be208`_ - _last_reconciled: 2026-09-29_
+_Generated: 2026-09-29T22:55:26-05:00_ - _Data commit: `f3f4e93e060a`_ - _last_reconciled: 2026-09-29_
 
 
 ## Columns
@@ -10,7 +10,7 @@ _Generated: 2026-09-29T22:42:31-05:00_ - _Data commit: `a7e9ca2be208`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 2 |
-| 🔬 Investigating | 3 |
+| 🔬 Investigating | 4 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 20 |
 | 🔨 In progress | 3 |
@@ -36,10 +36,16 @@ _created 2026-09-29 22:30_
 - **Why:** Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.
 - **Next:** Me: after the room and zone passes, plan house then coordinators with the same rules and meta-test.
 
-## 🔬 Investigating (3)
+## 🔬 Investigating (4)
 _measuring; truth not yet known_
 
-### `MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1` - Music following has recorded no transfers since 2026-05-12 - idle, broken, or unused? — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
+### `ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1` - Room cover automation (open at sunrise, timed close, close on exit) has no garage-door exclusion — _#1 · WSJF 9.0 · v4 tc3 u2 /e1_
+thread: **ux** - status: **investigating**
+_created 2026-09-29 23:20_
+- **Why:** A garage door added to a room's covers could be opened at sunrise or on entry by URA. Safety/security-relevant. Pre-existing, not caused by the menu work.
+- **Next:** MEASURE (me): does any live room have a garage door (device_class garage/gate) in its covers list? Then decide guard (skip device_class garage/gate in room cover automation) - likely Tier 1.
+
+### `MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1` - Music following has recorded no transfers since 2026-05-12 - idle, broken, or unused? — _#2 · WSJF 7.0 · v3 tc2 u2 /e1_
 thread: **music** - status: **investigating**
 _created 2026-09-29 15:00_
 - **Origin:** 2026-09-29 - anomaly D0 probe + plan review
@@ -49,13 +55,13 @@ _created 2026-09-29 15:00_
 - **Forensic keys (1):**
   - `operator_2026_09_29`: Operator: "Rarely use it. But will test today."
 
-### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#2 · WSJF 5.0 · v2 tc1 u2 /e1_
+### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#3 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **platform** - status: **investigating**
 _created 2026-09-29 20:05_
 - **Why:** Unmeasured growth; the incremental vacuum (v5.5.7) should keep free pages low, so growth is live rows. Need a per-table size breakdown before deciding retention changes.
 - **Next:** MEASURE (me, read-only): per-table row counts + bytes (dbstat or page counts) on a copy of the DB; compare to retention settings. Exit: a retention card if a table is unbounded, else close.
 
-### `HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1` - Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered — _#3 · WSJF 3.3 · v5 tc3 u2 /e3_
+### `HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1` - Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered — _#4 · WSJF 3.3 · v5 tc3 u2 /e3_
 thread: **hvac** - status: **investigating** - approval: **implied**
 _created 2026-09-29 01:05 · initial_
 - **Problem / Solution:**

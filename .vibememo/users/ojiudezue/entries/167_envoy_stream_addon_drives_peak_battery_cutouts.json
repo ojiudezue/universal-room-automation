@@ -1,0 +1,21 @@
+{
+  "format_version": "2.1",
+  "entry_id": "167",
+  "author": "ojiudezue",
+  "session_id": "claude_20260929_evening_dialogs_lighting",
+  "timestamp": "2026-09-30T04:10:00Z",
+  "type": "observation",
+  "weight": "significant",
+  "title": "Envoy stream add-on appears to drive peak battery cutouts; kept off",
+  "summary": "Peak (16-21h) battery dropouts: 0-8/day before the stream add-on, 37-94/day with it on (09-25..28), 9 with it off (09-29). Add-on stopped (boot manual). Operator plan: second off night, then re-enable for one peak (A/B/A) to confirm. No external reports of this; ha-enphase-realtime runs the stream 24/7 without reporting it, so the cause may be our add-on's polling/session behaviour rather than the stream itself.",
+  "why": "Single-house evidence, one off night — strong but not conclusive; hence the A/B/A before closing.",
+  "implications": "ENVOY-STREAM-SOC-TIER-1 premise fails while the stream must stay off. pyenphase 4.0.5 (HA 2026.9.4) cut Envoy unavailability from ~100-150/day to 9-17/day; the remaining session-closed path waits on HA PR #183172.",
+  "revisit_trigger": "Dropouts return with the add-on off (-> Enphase-side case) or stay low when re-enabled (-> stream exonerated).",
+  "refs": {
+    "cards": [
+      "ENPHASE-BATTERY-CUTOUTS-1",
+      "ENVOY-STREAM-SOC-TIER-1"
+    ],
+    "docs": []
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "164",
+  "author": "ojiudezue",
+  "session_id": "claude_20260929_evening_dialogs_lighting",
+  "timestamp": "2026-09-30T04:10:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Room dialogs: enumeration vs automation; per-light roles, no new light timers",
+  "summary": "Devices/Sensors only list and classify; every 'which ones should URA act on' choice lives in its behaviour step. Lighting becomes per-light roles (on entry, only-when-dark, night lights, leave on when empty, alert) with one room 'counts as empty' timeout; leave-on is the per-light exemption; an optional per-room switch turns leave-on lights off at Away; vacancy off applies to every non-leave-on light and ends the manual hold. Darkness = room lux, else sun at -6 deg (P0), borrowed lux P1.",
+  "why": "Operator: room dialog is 'the absolute core of URA' and 'a power-user mess'; roles were global per room and misfiled in Devices (Night Lights, Auto/Manual devices). Operator rejected an extra light timer ('I don't want to add an extra timer(s)'): the occupancy timeout already is the light wait, and a second one makes 'which timer turned it off' unanswerable. Sun fallback is an intended change that only touches 3 rooms (no/offline lux).",
+  "implications": "Builds in slices on feature/room-lighting-roles (A resolver + B darkness done, held); C (light manual hold + URA-wide write mark across 10 writers + room light switch) is the delicate slice. Any new room field must be a role in a behaviour step, never a new timer. Occupancy timeout still doubles as the sensor-trust window (2x) — decouple internally later.",
+  "revisit_trigger": "If a real room needs lights to linger past 'empty', add an optional extra-on default 0; if the write mark misclassifies an alert flash as manual.",
+  "refs": {
+    "cards": [
+      "ROOM-LIGHTING-SETUP-REDESIGN-1",
+      "ROOM-DIALOGS-USABILITY-SWEEP-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_room_dialog_cleanup_and_lighting_roles.md"
+    ]
+  }
+}

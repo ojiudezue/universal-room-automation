@@ -39,3 +39,11 @@ The upstream HA Envoy fix does **not** close our path: `EnvoyClientClosedError` 
 - Night still-sleeper hold for W2: which corroborator is trustworthy — stationary in-suite BLE, radar micro-blips, or both — without re-introducing "anyone home"?
 - When do zones 2/3's Bryant schedules get reduced, so URA is the only controller (the working assumption)?
 - Stream-as-SOC-tier: does run 2 close stream-vs-native agreement and the reserve witness?
+
+## Scope pivot + UX refinement (2026-09-29)
+
+**URA is going to more homes** → [166](entries/166_multi_home_rollout_generalize_thermostat.json). Carrier/Bryant assumptions in shared HVAC code now block the next install, so the thermostat-brand abstraction (W1-C) is unparked and Batch C's preset-range editing lands as a Carrier-profile capability, not hard-wired. The single-install "no back-compat" rule is time-limited.
+
+**Refinement over features.** The operator called the room dialog "the absolute core of URA" and "a power-user mess". v5.103.26 fixed wording (every field labelled, helpers ≤220 chars, meta-test). The structural rule → [164](entries/164_room_dialog_enumeration_vs_automation_light_roles.json): Devices/Sensors enumerate; behaviour steps hold roles. Lighting becomes per-light roles with one "counts as empty" timeout — no new timers (the operator's call: one clock answers "why did it turn off"). Next: trim the menu by room type instead of inventing a "mini room" kind → [165](entries/165_mini_room_is_menu_attenuation_by_room_type.json), gated on the operator liking the cleanup.
+
+**Energy:** the Envoy stream add-on looks like the driver of peak battery cutouts (37–94/day on vs 9 off) → [167](entries/167_envoy_stream_addon_drives_peak_battery_cutouts.json); A/B/A pending.

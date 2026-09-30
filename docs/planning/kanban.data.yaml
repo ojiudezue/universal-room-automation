@@ -30604,6 +30604,16 @@ cards:
   next: 'APPROVE (operator): attenuate-by-type with a Show-all escape -> I plan it after the lighting slices land (Tier 2: options-flow menu only, plus a test that every hidden step still round-trips its stored values).'
   links: {related: [ROOM-LIGHTING-SETUP-REDESIGN-1, ROOM-DIALOGS-USABILITY-SWEEP-1, ZONE-DIALOGS-CLEANUP-1]}
   rank: {value: 4, time_criticality: 1, effort: 2}
+- id: ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1
+  title: Room cover automation (open at sunrise, timed close, close on exit) has no garage-door exclusion
+  thread: ux
+  status: investigating
+  created: '2026-09-29 23:20'
+  origin: 'Found by the plan review of ROOM-TYPE-TRIMMED-MENU-1 (docs/reviews/code-review/plan_review_room_type_trimmed_menu.md): only hvac_covers.py:795 excludes garage doors; the room-tier cover behaviour does not.'
+  why: 'A garage door added to a room''s covers could be opened at sunrise or on entry by URA. Safety/security-relevant. Pre-existing, not caused by the menu work.'
+  next: 'MEASURE (me): does any live room have a garage door (device_class garage/gate) in its covers list? Then decide guard (skip device_class garage/gate in room cover automation) - likely Tier 1.'
+  links: {related: [ROOM-TYPE-TRIMMED-MENU-1]}
+  rank: {value: 4, time_criticality: 3, effort: 1}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
