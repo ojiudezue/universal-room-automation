@@ -122,7 +122,7 @@
           "presence_sensors": "mmWave/radar sensors that see you even when you're still — good for reading nooks and desks",
           "occupancy_sensors": "Sensors that already fuse motion and presence into one signal — usually vendor-supplied",
           "scanner_areas": "Only needed if BLE (phone Bluetooth beacon) coverage in this room is thin. Point it at nearby rooms whose scanners can see this one.",
-          "disable_camera_presence": "Skip camera-based presence detection for this room. Use for rooms with chronic camera person-classifier false positives (TV reflections, sun-glare hallways). The room's other sensors (mmWave, PIR, BLE) continue to contribute.",
+          "disable_camera_presence": "Skip camera-based presence detection for this room. Use for chronic camera false positives (TV reflections, sun-glare hallways). Other sensors continue to contribute.",
           "temperature_sensor": "Room temperature for climate automation and alerts",
           "humidity_sensor": "Room humidity for fan control and comfort alerts",
           "illuminance_sensor": "Light level (lux) for 'turn on if dark' automation",
@@ -206,7 +206,7 @@
           "close_timing_mode": "Control when covers auto-close",
           "close_time": "Hour (0-23) for timed auto-close",
           "sunset_offset": "Minutes before/after sunset for sun-based timing",
-          "cover_hvac_managed": "When ON, the HVAC coordinator may close these covers during peak afternoon solar hours to reduce cooling load. Turn OFF to keep this room's covers exempt from HVAC management (e.g. master bedroom for naps, kid's room with light-sensitive sleep)."
+          "cover_hvac_managed": "When ON, HVAC may close these covers on hot afternoons to cut cooling load. Turn OFF to exempt this room (e.g. bedrooms for naps or light-sensitive sleep)."
         }
       },
       "automation_behavior": {
@@ -343,7 +343,9 @@
           "humidity_fan_timeout": "Humidity Fan Minimum Run Time",
           "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time",
           "comfort_fan_away_veto_enabled": "Comfort fan off when away",
-          "ble_hold_cap_enabled": "Limit phone-only occupancy"
+          "ble_hold_cap_enabled": "Limit phone-only occupancy",
+          "hvac_coordination_enabled": "Enable HVAC-Managed Fans",
+          "fan_control_enabled": "Enable Comfort Fan Control"
         },
         "data_description": {
           "room_fan_mode": "Who controls this room's comfort fan: the thermostat zone, this room's own temperature settings, or nobody (you control it).",
@@ -354,25 +356,27 @@
           "humidity_fan_presence_runtime_base_s": "Minimum post-vacancy runtime (seconds).",
           "humidity_fan_presence_runtime_per_min_s": "Additional seconds of post-vacancy runtime per minute of prior occupancy.",
           "humidity_fan_presence_runtime_cap_s": "Hard cap on the post-vacancy runtime; must be ≤ Humidity Fan Max Runtime.",
-          "fan_temp_threshold": "Used only when Fan mode is Room temperature: the temperature above which comfort fans turn on.",
+          "fan_temp_threshold": "Fan mode Room temperature only. Temperature above which comfort fans turn on.",
           "humidity_fan_threshold": "Humidity % above which exhaust fans turn on (absolute threshold; OR-companion to spike detection).",
           "humidity_fan_timeout": "Minimum continuous runtime before the fan is allowed to turn off after humidity drops below threshold. Prevents short-cycling.",
           "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces off if humidity stays elevated longer than this — protects against stuck humidity sensors and runaway runs.",
           "comfort_fan_away_veto_enabled": "Keep this room's comfort fan off while the house is Away, even if a sensor says someone is here. Turn off if you want the fan to run while you're out (e.g. for pets). Humidity and exhaust fans are not affected.",
-          "ble_hold_cap_enabled": "After a while, stop keeping the room occupied on a phone's Bluetooth signal alone unless motion or presence sensors agree. Stops a phone left behind from holding the room on."
+          "ble_hold_cap_enabled": "After a while, stop keeping the room occupied on a phone's Bluetooth signal alone unless motion or presence sensors agree. Stops a phone left behind from holding the room on.",
+          "hvac_coordination_enabled": "When ON, comfort fans follow the whole-house cooling plan instead of just this room's temperature.",
+          "fan_control_enabled": "Automatically control comfort/ceiling fans based on temperature (speed thresholds in next step)."
         },
         "sections": {
           "humidity_fan_advanced": {
             "name": "Advanced — Humidity Spike Tuning",
             "data": {
-              "humidity_fan_spike_delta_pct": "Spike Delta (% above baseline)",
-              "humidity_fan_spike_ema_alpha_s": "Baseline EMA Time-Constant (s)",
+              "humidity_fan_spike_delta_pct": "Spike Size (percentage points above baseline)",
+              "humidity_fan_spike_ema_alpha_s": "Baseline Adjustment Speed",
               "humidity_fan_spike_baseline_mode": "Baseline Mode"
             },
             "data_description": {
-              "humidity_fan_spike_delta_pct": "How many percentage points above the running baseline counts as a spike (e.g. 10 = fire when humidity rises 10pp above its baseline).",
-              "humidity_fan_spike_ema_alpha_s": "Time-constant of the EMA (exponential moving average) baseline, in seconds. Larger = slower baseline that ignores brief blips; smaller = faster baseline that adapts to room changes.",
-              "humidity_fan_spike_baseline_mode": "How the baseline is computed: EMA (adaptive average) tracks the slow drift; Window minimum uses the lowest value over a recent window."
+              "humidity_fan_spike_delta_pct": "How many percentage points above the running baseline count as a spike (e.g. 10 = fires when humidity jumps 10 above its baseline).",
+              "humidity_fan_spike_ema_alpha_s": "How quickly the humidity baseline adapts (in seconds). Larger = slower to shift and ignores brief blips; smaller = tracks changes faster.",
+              "humidity_fan_spike_baseline_mode": "How the humidity baseline is set. Adaptive average tracks slow drift; Window minimum uses the lowest reading over a recent window."
             }
           },
           "climate_backstop": {
@@ -386,7 +390,8 @@
               "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set."
-            }
+            },
+            "description": "Defaults — day: closets 1 min, media/utility/general/garage 2, bath/living 3, bedrooms 4. Night: bedrooms/media 30, living 15, bath/garage/utility 10, closets 5."
           }
         }
       },
@@ -436,7 +441,7 @@
         "data_description": {
           "power_sensors": "Sensors showing current power draw (watts)",
           "energy_sensors": "Sensors showing cumulative energy usage (kWh). Select multiple for rooms with separate circuits.",
-          "electricity_rate": "Per-room fallback used only when the Energy Coordinator is not configured. With the Energy Coordinator active, room costs follow the live TOU rate and this value is ignored.",
+          "electricity_rate": "Price per kWh used for this room's energy cost figures. Leave blank to use the house-wide rate.",
           "notify_daily_energy_summary": "Send daily energy usage summary notification"
         }
       },
@@ -491,7 +496,9 @@
           "humidity_sensor": "Optional — leave blank if none.",
           "illuminance_sensor": "Optional — leave blank if none.",
           "door_sensors": "Optional — leave blank if none.",
-          "water_leak_sensor": "Optional — leave blank if none."
+          "water_leak_sensor": "Optional — leave blank if none.",
+          "mmwave_sensors": "mmWave / radar presence binary_sensors. Optional — leave blank if none.",
+          "occupancy_sensors": "Sensors that already fuse motion + presence into one signal. Optional."
         }
       },
       "devices_confirm": {
@@ -506,7 +513,10 @@
         },
         "data_description": {
           "auto_switches": "Non-light switch actuators (e.g. relays).",
-          "humidity_fans": "Fans driven by humidity logic."
+          "humidity_fans": "Fans driven by humidity logic.",
+          "lights": "Lights this room controls.",
+          "fans": "Comfort/ceiling fans this room controls.",
+          "covers": "Blinds, shades, or covers this room controls."
         }
       },
       "room_summary": {
@@ -1692,7 +1702,9 @@
           "door_type": "Door Type (interior or exterior)",
           "window_sensor": "Window Sensor",
           "is_egress_window": "Treat as egress window",
-          "water_leak_sensor": "Water Leak Sensor"
+          "water_leak_sensor": "Water Leak Sensor",
+          "sensor_capabilities_json": "Sensor Capabilities (advanced)",
+          "clear_sensor_fields": "Clear Optional Sensors"
         },
         "data_description": {
           "motion_sensors": "PIR sensors that detect movement",
@@ -1707,7 +1719,9 @@
           "door_type": "Interior vs. egress (exterior) door",
           "window_sensor": "Window open/closed sensor",
           "is_egress_window": "When ON, leaving this window open for a few minutes pauses the HVAC for the zone that serves this room (so you're not cooling the outside). Turn OFF for small vent windows that open often but shouldn't stop HVAC.",
-          "water_leak_sensor": "Water/moisture sensor"
+          "water_leak_sensor": "Water/moisture sensor",
+          "sensor_capabilities_json": "Advanced JSON that tags each sensor with its kind and trust class. Leave as-is unless you know what you're editing.",
+          "clear_sensor_fields": "Tick a sensor to clear its current selection above (Temperature, Humidity, Light Level, or Water Leak)."
         }
       },
       "devices": {
@@ -1778,6 +1792,17 @@
           "light_brightness_pct": "Brightness level when turning lights on (1-100%)",
           "light_transition_seconds_on": "Fade-in time when turning lights on",
           "light_transition_seconds_off": "Fade-out time when turning lights off"
+        },
+        "sections": {
+          "reconcile_advanced": {
+            "name": "Return-to-room reconcile (advanced)",
+            "data": {
+              "flap_sensitivity": "Flap sensitivity"
+            },
+            "data_description": {
+              "flap_sensitivity": "How quickly to quarantine a sensor that toggles rapidly. Relaxed = tolerant of flapping; Normal = default; Aggressive = quarantine sooner."
+            }
+          }
         }
       },
       "options_covers": {
@@ -1911,6 +1936,9 @@
         "description": "{rules_summary}\n\nSelect a rule to delete it.",
         "data": {
           "selected_rule": "Select Rule"
+        },
+        "data_description": {
+          "selected_rule": "Pick a rule to edit or delete."
         }
       },
       "ai_rule_delete": {
@@ -1918,6 +1946,9 @@
         "description": "Are you sure you want to delete this rule?\n\n\"{rule_description}\"",
         "data": {
           "confirm_delete": "Confirm deletion"
+        },
+        "data_description": {
+          "confirm_delete": "Tick to permanently delete this rule. This cannot be undone."
         }
       },
       "climate": {
@@ -1929,40 +1960,33 @@
           "wet_room": "Wet Room (bathroom/laundry)",
           "humidity_fan_spike_enabled": "Enable Humidity Spike Detection",
           "humidity_fan_presence_runtime_enabled": "Enable Post-Vacancy Runtime",
-          "humidity_fan_presence_runtime_base_s": "Base Run-On Time After Vacancy (s)",
-          "humidity_fan_presence_runtime_per_min_s": "Extra Run-On per Minute Occupied (s)",
-          "humidity_fan_presence_runtime_cap_s": "Max Run-On Time After Vacancy (s)",
+          "humidity_fan_presence_runtime_base_s": "Base Run-On Time After Vacancy",
+          "humidity_fan_presence_runtime_per_min_s": "Extra Run-On per Minute Occupied",
+          "humidity_fan_presence_runtime_cap_s": "Max Run-On Time After Vacancy",
           "fan_temp_threshold": "Fan Start Temperature",
           "fan_speed_low_temp": "Low Speed Temperature",
           "fan_speed_med_temp": "Medium Speed Temperature",
           "fan_speed_high_temp": "High Speed Temperature",
-          "humidity_fan_threshold": "Humidity Fan Threshold (%)",
-          "humidity_fan_timeout": "Humidity Fan Minimum Run Time (s)",
-          "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time (s)",
+          "humidity_fan_threshold": "Humidity Fan Threshold",
+          "humidity_fan_timeout": "Humidity Fan Minimum Run Time",
+          "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time",
           "comfort_fan_away_veto_enabled": "Comfort fan off when away",
-          "ble_hold_cap_enabled": "Limit phone-only occupancy"
-        },
-        "data_description": {
-          "room_fan_mode": "Who controls this room's comfort fan: the thermostat zone, this room's own temperature settings, or nobody (you control it).",
-          "fan_temp_threshold": "Used only when Fan mode is Room temperature. The temperature above which comfort fans turn on.",
-          "fan_speed_low_temp": "Used only when Fan mode is Room temperature.",
-          "fan_speed_med_temp": "Used only when Fan mode is Room temperature.",
-          "fan_speed_high_temp": "Used only when Fan mode is Room temperature.",
-          "comfort_fan_away_veto_enabled": "Keep this room's comfort fan off while the house is Away, even if a sensor says someone is here. Turn off if you want the fan to run while you're out (e.g. for pets). Humidity and exhaust fans are not affected.",
-          "ble_hold_cap_enabled": "After a while, stop keeping the room occupied on a phone's Bluetooth signal alone unless motion or presence sensors agree. Stops a phone left behind from holding the room on."
+          "ble_hold_cap_enabled": "Limit phone-only occupancy",
+          "hvac_coordination_enabled": "Enable HVAC-Managed Fans",
+          "fan_control_enabled": "Enable Comfort Fan Control"
         },
         "sections": {
           "humidity_fan_advanced": {
             "name": "Advanced — Humidity Spike Tuning",
             "data": {
-              "humidity_fan_spike_delta_pct": "Spike Delta (% above baseline)",
-              "humidity_fan_spike_ema_alpha_s": "Baseline EMA Time-Constant (s)",
+              "humidity_fan_spike_delta_pct": "Spike Size (percentage points above baseline)",
+              "humidity_fan_spike_ema_alpha_s": "Baseline Adjustment Speed",
               "humidity_fan_spike_baseline_mode": "Baseline Mode"
             },
             "data_description": {
-              "humidity_fan_spike_delta_pct": "How many percentage points above the running baseline counts as a spike (e.g. 10 = fire when humidity rises 10pp above its baseline).",
-              "humidity_fan_spike_ema_alpha_s": "Time-constant of the EMA (exponential moving average) baseline, in seconds. Larger = slower baseline that ignores brief blips; smaller = faster baseline that adapts to room changes.",
-              "humidity_fan_spike_baseline_mode": "How the baseline is computed: EMA (adaptive average) tracks the slow drift; Window minimum uses the lowest value over a recent window."
+              "humidity_fan_spike_delta_pct": "How many percentage points above the running baseline count as a spike (e.g. 10 = fires when humidity jumps 10 above its baseline).",
+              "humidity_fan_spike_ema_alpha_s": "How quickly the humidity baseline adapts (in seconds). Larger = slower to shift and ignores brief blips; smaller = tracks changes faster.",
+              "humidity_fan_spike_baseline_mode": "How the humidity baseline is set. Adaptive average tracks slow drift; Window minimum uses the lowest reading over a recent window."
             }
           },
           "climate_backstop": {
@@ -1979,11 +2003,33 @@
               "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set.",
-              "hvac_vacancy_hold": "How many seconds heating and cooling keep treating this room as occupied during the day and evening. The time counts from the last sign of someone in the room, such as motion, presence, a camera or a phone. This covers people sitting still, and it is the only protection for someone who stays completely still. Leave blank to use the default for this room type: 1 minute for closets, 2 minutes for media, utility and general rooms and garages, 3 for bathrooms and living areas, and 4 for bedrooms. Enter 0 to hold only while a sensor still sees someone. From 9 pm until the house goes to sleep, and while the house is away, arriving or has guests, this same number (or, if left blank, a shorter built-in hold) is counted from when the room itself shows as empty instead.",
-              "hvac_vacancy_hold_night": "The hold used while the house is asleep or waking up. It counts from when the room itself shows as empty, so sleepers who lie still get extra time. Leave blank to use the default for this room type: 30 minutes for bedrooms and media rooms, 15 for living areas, 10 for bathrooms, garages and utility rooms, and 5 for closets. Enter 0 for no extra time once the room shows as empty. This form rejects a night value below the day value.",
-              "hvac_skip_entry_wait": "For rooms whose sensor only gives short pulses. When on, anyone detected in this room switches a zone set to Away back to Home at once, without the Entry wait. Only matters during the day and evening."
-            }
+              "hvac_vacancy_hold": "Seconds HVAC keeps this room occupied after the last sign of someone, day and evening. After 9 pm, or when away or with guests, it counts from when the room reads empty. Blank = default; 0 = only while seen.",
+              "hvac_vacancy_hold_night": "Used while the house is asleep or waking up; counts from when the room reads empty. Must be ≥ day. Blank = default; 0 = no extra time once empty.",
+              "hvac_skip_entry_wait": "For rooms with short-pulse sensors. When on, any detection immediately switches an Away zone back to Home — no entry wait."
+            },
+            "description": "Defaults — day: closets 1 min, media/utility/general/garage 2, bath/living 3, bedrooms 4. Night: bedrooms/media 30, living 15, bath/garage/utility 10, closets 5."
           }
+        },
+        "data_description": {
+          "room_fan_mode": "Who controls this room's comfort fan: the thermostat zone, this room's own temperature settings, or nobody (you control it).",
+          "fan_temp_threshold": "Fan mode Room temperature only. Temperature above which comfort fans turn on.",
+          "fan_speed_low_temp": "Fan mode Room temperature only. Temperature at which fans step to LOW.",
+          "fan_speed_med_temp": "Fan mode Room temperature only. Temperature at which fans step to MEDIUM.",
+          "fan_speed_high_temp": "Fan mode Room temperature only. Temperature at which fans step to HIGH.",
+          "comfort_fan_away_veto_enabled": "Keep this room's comfort fan off while the house is Away, even if a sensor says someone is here. Turn off if you want the fan to run while you're out (e.g. for pets). Humidity and exhaust fans are not affected.",
+          "ble_hold_cap_enabled": "After a while, stop keeping the room occupied on a phone's Bluetooth signal alone unless motion or presence sensors agree. Stops a phone left behind from holding the room on.",
+          "hvac_coordination_enabled": "When ON, comfort fans follow the whole-house cooling plan instead of just this room's temperature.",
+          "fan_control_enabled": "Automatically control comfort/ceiling fans based on temperature (speed thresholds below).",
+          "humidity_fan_control_enabled": "Master switch for humidity/exhaust automation. When OFF, URA does not touch the humidity fan.",
+          "wet_room": "Treat this room as a wet room: enables spike detection and post-vacancy run-on by default, and exempts the exhaust from sleep-time force-off.",
+          "humidity_fan_spike_enabled": "Fires the fan when humidity rises sharply above its recent baseline — catches showers before the absolute threshold trips.",
+          "humidity_fan_presence_runtime_enabled": "After the room empties, keep the exhaust running a little longer to finish venting.",
+          "humidity_fan_presence_runtime_base_s": "Minimum run-on after the room empties, in seconds.",
+          "humidity_fan_presence_runtime_per_min_s": "Additional run-on time added per minute the room was occupied.",
+          "humidity_fan_presence_runtime_cap_s": "Hard cap on the post-vacancy run-on. Must be less than or equal to the Humidity Fan Maximum Run Time.",
+          "humidity_fan_threshold": "Humidity level above which the exhaust turns on (absolute threshold).",
+          "humidity_fan_timeout": "Once ON, the fan runs at least this long before it's allowed to turn off. Prevents short-cycling.",
+          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces OFF if humidity stays high longer than this — guards against stuck humidity sensors."
         }
       },
       "sleep_protection": {
@@ -2026,8 +2072,14 @@
         "data": {
           "power_sensors": "Power Sensors",
           "energy_sensors": "Energy Sensors",
-          "electricity_rate": "Fallback Electricity Rate ($/kWh)",
+          "electricity_rate": "Fallback Electricity Rate",
           "notify_daily_energy_summary": "Daily Summary Notification"
+        },
+        "data_description": {
+          "power_sensors": "Power (W or kW) sensors for this room. Used for room-level energy monitoring.",
+          "energy_sensors": "Cumulative energy (kWh) sensors for this room. Used for room-level energy monitoring.",
+          "electricity_rate": "Price per kWh used for this room's energy cost figures. Leave blank to use the house-wide rate.",
+          "notify_daily_energy_summary": "Send a daily summary notification with this room's energy use."
         }
       },
       "notifications": {
@@ -2040,6 +2092,14 @@
           "notification_level": "Notification Level",
           "alert_lights": "Alert Indicator Lights",
           "alert_light_color": "Alert Color"
+        },
+        "data_description": {
+          "override_notifications": "Use per-room notification settings below instead of the house defaults.",
+          "notification_service": "Home Assistant notify service to call for this room (e.g. notify.mobile_app_john). Leave blank to use the house default.",
+          "notification_target": "Optional target passed to the notify service (device id, chat id, etc.). Leave blank if not needed.",
+          "notification_level": "Minimum severity that triggers a notification for this room.",
+          "alert_lights": "Lights used as visual alerts for this room (e.g. flash on water leak).",
+          "alert_light_color": "Color used when the alert lights flash."
         }
       },
       "hvac_baseline_presets_reset_confirm": {
