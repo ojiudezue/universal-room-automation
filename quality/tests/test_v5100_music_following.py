@@ -1189,3 +1189,69 @@ class TestSleepInvariantAdversarial:
                 f"SLEEP invariant violated for target_state={target_state}: "
                 f"{hass.services.calls}"
             )
+
+
+# ===========================================================================
+# MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1 — enabled-set name/entity_id match
+# ===========================================================================
+# Root cause: _enabled_persons holds entity IDs ("person.oji_udezue") synced
+# from CONF_TRACKED_PERSONS while the transition event carries a display
+# name ("Oji Udezue") from person_coordinator. Fix: normalize both sides at
+# the enabled check in _on_person_transition via the module helper
+# _person_key. See music_following.py.
+
+
+class TestEnabledPersonNameVsEntityIdMatch:
+    @pytest.mark.asyncio
+    async def test_display_name_transition_matches_entity_id_enabled(self):
+        """Enabled by entity_id, transition arrives with display name."""
+        mf, _ = _make_mf()
+        mf.enable_for_person("person.oji_udezue")
+        spy = AsyncMock()
+        mf._execute_transfer = spy
+        await mf._on_person_transition(
+            _transition(person="Oji Udezue",
+                        from_room="kitchen", to_room="bedroom",
+                        confidence=0.75)
+        )
+        assert spy.await_count == 1, (
+            "Enabled check must accept the display-name form when the "
+            "enabled set holds the entity_id form"
+        )
+        # Positional: (person_id, from_room, to_room, ...)
+        args, _kw = spy.await_args
+        assert args[0] == "Oji Udezue"
+        assert args[1] == "kitchen"
+        assert args[2] == "bedroom"
+
+    @pytest.mark.asyncio
+    async def test_not_enabled_person_still_blocked(self):
+        """Different person not in enabled set is still dropped."""
+        mf, _ = _make_mf()
+        mf.enable_for_person("person.oji_udezue")
+        spy = AsyncMock()
+        mf._execute_transfer = spy
+        await mf._on_person_transition(
+            _transition(person="Ziri Udezue",
+                        from_room="kitchen", to_room="bedroom",
+                        confidence=0.75)
+        )
+        assert spy.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_exact_form_match_still_works(self):
+        """Existing behavior preserved: identical form matches."""
+        mf, _ = _make_mf()
+        mf.enable_for_person("Oji")
+        spy = AsyncMock()
+        mf._execute_transfer = spy
+        await mf._on_person_transition(
+            _transition(person="Oji", confidence=0.75)
+        )
+        assert spy.await_count == 1
+
+    def test_person_key_canonicalizes_both_forms(self):
+        _person_key = _mf_mod._person_key
+        assert _person_key("person.oji_udezue") == _person_key("Oji Udezue")
+        assert _person_key("Ziri Udezue") != _person_key("person.oji_udezue")
+        assert _person_key("") == ""

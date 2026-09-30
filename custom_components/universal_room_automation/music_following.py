@@ -40,6 +40,29 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _person_key(value: str) -> str:
+    """Canonicalize a person identifier for cross-form comparison.
+
+    The music-following enabled-set is keyed by person entity_id
+    (e.g. ``person.oji_udezue``) because it is synced from
+    ``CONF_TRACKED_PERSONS``, but the transition event carries the
+    display name (e.g. ``"Oji Udezue"``) because
+    ``person_coordinator`` fires ``ura_person_location_change`` with
+    ``person_id=person_name``. The display name is derived by
+    ``entity_id.replace("person.", "").replace("_", " ").title()``
+    in ``__init__.py``. This helper inverts both forms to a single
+    casefolded canonical (e.g. ``"oji udezue"``) so the enabled
+    check in ``_on_person_transition`` matches regardless of which
+    form arrives.
+    """
+    if not value:
+        return ""
+    s = str(value)
+    if s.startswith("person."):
+        s = s[len("person."):]
+    return s.replace("_", " ").strip().casefold()
+
 # Platform identifiers
 PLATFORM_SONOS = "sonos"
 PLATFORM_LINKPLAY = "linkplay"  # Linkplay integration entities
@@ -414,13 +437,18 @@ class MusicFollowing:
             person_id, from_room, to_room, confidence
         )
 
-        # Skip if not enabled for this person
+        # Skip if not enabled for this person.
+        # The enabled set is keyed by entity_id ("person.oji_udezue")
+        # but the transition carries a display name ("Oji Udezue").
+        # Normalize both sides via _person_key so either form matches.
         if person_id not in self._enabled_persons:
-            _LOGGER.info(
-                "🎵 Music transfer skipped: %s not in enabled_persons=%s",
-                person_id, list(self._enabled_persons)
-            )
-            return
+            key = _person_key(person_id)
+            if not any(_person_key(p) == key for p in self._enabled_persons):
+                _LOGGER.info(
+                    "🎵 Music transfer skipped: %s not in enabled_persons=%s",
+                    person_id, list(self._enabled_persons)
+                )
+                return
 
         # Skip low-confidence transitions
         if confidence < self.MIN_CONFIDENCE:
