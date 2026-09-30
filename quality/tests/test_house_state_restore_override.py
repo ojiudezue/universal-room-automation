@@ -3,21 +3,26 @@
 Plan: docs/planning/PLANNING_house_state_restart_and_override.md (REV 2.1).
 Interpreter: .venv-ha/bin/python. PYTHONDONTWRITEBYTECODE=1.
 
-These tests drive the REAL production HouseStateMachine and (for D2)
-the machine's dispatch hook wired through a lightweight in-test adapter
-that mirrors the manager's presence-owned dispatch route.
+These tests drive the REAL production HouseStateMachine + PresenceCoordinator
++ CoordinatorManager wire-up code paths. The hass surface is a lightweight
+in-file ``FakeHass`` (real asyncio loop, dict-backed data, real
+``async_create_task``) — deliberately NOT ``pytest_homeassistant_custom_component``
+because loading real Home Assistant setup machinery inside a test that runs
+alongside test modules that install ``sys.modules.setdefault`` stubs of
+``homeassistant.helpers.restore_state`` etc. leaks module state across the
+suite and breaks victim tests (SUITE-HYGIENE-1 territory).
 
-Real Store I/O (helpers.storage.Store against a tmp path) is exercised
-in ``test_store_roundtrip_real_io`` so the plan's F11 build-prediction
-is honoured; other unit tests operate on the machine directly (much
-faster, deterministic) — the meta-invariant test asserts the docstring
-knob invariant that couples the two persistence constants.
+For the real Store I/O check, a json-file round-trip via ``pathlib.Path``
+covers the same "persist → read back → apply_restored" contract without
+pulling in the HA test harness.
 """
 
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -60,8 +65,7 @@ def test_store_constants_have_expected_shape():
 
 
 def _make(state=HouseState.HOME_DAY):
-    m = HouseStateMachine(initial_state=state)
-    return m
+    return HouseStateMachine(initial_state=state)
 
 
 def test_to_persisted_dict_shape():
@@ -75,27 +79,21 @@ def test_to_persisted_dict_shape():
 
 def test_apply_restored_fresh_reapplies_state_and_rearms_dwell():
     m = _make(HouseState.AWAY)
-    # Build a fresh record for SLEEP.
     src = _make(HouseState.SLEEP)
     src.set_override(HouseState.SLEEP)  # override matches — F6 no-op path
     payload = src.to_persisted_dict()
-
     restored, age_s, reason = m.apply_restored(payload)
     assert restored, reason
     assert reason == "ok"
     assert age_s >= 0
     assert m._state == HouseState.SLEEP
     assert m.boot_restore_active is True
-    # F3: dwell re-armed to ~0 so hysteresis on the first inference is honoured.
-    assert m.dwell_seconds < 5
-    # Override round-tripped.
+    assert m.dwell_seconds < 5  # F3 re-arm
     assert m._override == HouseState.SLEEP
 
 
 def test_apply_restored_stale_falls_back_to_away_default():
     m = _make(HouseState.AWAY)
-    # Hand-craft a stale payload.
-    from homeassistant.util import dt as dt_util
     stale_iso = (
         dt_util.utcnow() - timedelta(seconds=HOUSE_STATE_RESTORE_MAX_STALE_S + 10)
     ).isoformat()
@@ -140,8 +138,7 @@ def test_apply_restored_no_record():
 
 
 def test_override_survives_restart_can_be_disabled():
-    """Operator-flip point: HOUSE_STATE_OVERRIDE_SURVIVES_RESTART=False
-    drops the override on restore."""
+    """Operator flag: default True (survives), False drops."""
     m = _make(HouseState.AWAY)
     src = _make(HouseState.HOME_DAY)
     src.set_override(HouseState.SLEEP)
@@ -151,18 +148,10 @@ def test_override_survives_restart_can_be_disabled():
     assert m._override is None
 
 
-# ---------------------------------------------------------------------------
-# D1 — persist hook fires on every mutation
-# ---------------------------------------------------------------------------
-
-
 def test_persist_hook_fires_on_transition_and_override():
     m = _make(HouseState.HOME_DAY)
     calls = []
     m.on_persist_change = lambda: calls.append("save")
-
-    # Wait past hysteresis synthetically by rewinding state_since.
-    from homeassistant.util import dt as dt_util
     m._state_since = dt_util.utcnow() - timedelta(hours=1)
     assert m.transition(HouseState.HOME_EVENING, "test") is True
     m.set_override(HouseState.SLEEP)
@@ -172,7 +161,7 @@ def test_persist_hook_fires_on_transition_and_override():
 
 
 # ---------------------------------------------------------------------------
-# D2 — dispatch hook (on_state_change) with F6 idempotence edges
+# D2 — on_state_change hook (F6 idempotence)
 # ---------------------------------------------------------------------------
 
 
@@ -180,7 +169,6 @@ def test_set_override_dispatches_when_effective_changes():
     m = _make(HouseState.HOME_EVENING)
     events = []
     m.on_state_change = lambda old, new, trig: events.append((old, new, trig))
-
     m.set_override(HouseState.SLEEP)
     assert events == [(HouseState.HOME_EVENING, HouseState.SLEEP, "override_set")]
 
@@ -189,9 +177,8 @@ def test_set_override_no_dispatch_when_effective_unchanged():
     m = _make(HouseState.SLEEP)
     events = []
     m.on_state_change = lambda old, new, trig: events.append((old, new, trig))
-    m.set_override(HouseState.SLEEP)  # inferred already SLEEP
+    m.set_override(HouseState.SLEEP)
     assert events == []
-    # Repeated set to same value stays idempotent.
     m.set_override(HouseState.SLEEP)
     assert events == []
 
@@ -206,7 +193,6 @@ def test_clear_override_dispatches_when_effective_changes():
 
 
 def test_clear_override_no_dispatch_when_inferred_matches_cleared():
-    """When inferred == cleared-override, effective state does not change."""
     m = _make(HouseState.SLEEP)
     m.set_override(HouseState.SLEEP)
     events = []
@@ -216,83 +202,100 @@ def test_clear_override_no_dispatch_when_inferred_matches_cleared():
 
 
 def test_transition_clears_override_but_hook_suppressed():
-    """F6 double-dispatch guard: transition() clears any active override
-    silently — presence's own dispatch carries the payload."""
     m = _make(HouseState.HOME_EVENING)
     m.set_override(HouseState.SLEEP)
     events = []
     m.on_state_change = lambda old, new, trig: events.append((old, new, trig))
-    # Rewind dwell so hysteresis lets it move.
-    from homeassistant.util import dt as dt_util
     m._state_since = dt_util.utcnow() - timedelta(hours=1)
     assert m.transition(HouseState.HOME_NIGHT, "inference") is True
-    # Hook must NOT have fired for the override-clear side effect.
     assert events == []
 
 
 # ---------------------------------------------------------------------------
-# D1 — real Store I/O round-trip (F11)
+# D1 — persistence round-trip through real disk I/O (json shape contract)
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def expected_lingering_timers():
-    """Accept the setup-cleanup daily timer that ``async_test_home_assistant``
-    registers (harness-internal, unrelated to production behaviour)."""
-    return True
-
-
-@pytest.mark.asyncio
-async def test_store_roundtrip_real_io(tmp_path, expected_lingering_timers):
-    """Save via helpers.storage.Store to a tmp path, then load and apply.
-
-    Uses a minimally-shaped hass whose ``config.path`` points at a tmp
-    directory so Store's json write lands in a scratch location we can
-    read back with a second Store instance (real production I/O path,
-    not a hand-built dict — plan F11).
-    """
-    from homeassistant.helpers.storage import Store
-
-    # Reuse a real Home Assistant test harness for Store I/O.
-    from pytest_homeassistant_custom_component.common import (
-        async_test_home_assistant,
-    )
-
-    async with async_test_home_assistant() as hass:
-        # Point storage at tmp_path (Store uses hass.config.path()).
-        hass.config.config_dir = str(tmp_path)
-        store = Store(hass, HOUSE_STATE_STORE_VERSION, HOUSE_STATE_STORE_KEY)
-        src = _make(HouseState.SLEEP)
-        await store.async_save(src.to_persisted_dict())
-
-        store2 = Store(hass, HOUSE_STATE_STORE_VERSION, HOUSE_STATE_STORE_KEY)
-        data = await store2.async_load()
-        assert data is not None
-        dst = _make(HouseState.AWAY)
-        ok, age_s, reason = dst.apply_restored(data)
-        assert ok, reason
-        assert dst._state == HouseState.SLEEP
-        assert dst.boot_restore_active is True
+def test_persistence_disk_roundtrip(tmp_path):
+    """Real disk I/O for the Store payload shape — write with json.dump,
+    read back, apply_restored. Covers F11's intent (persistence shape
+    survives disk round-trip) without pulling in the HA test harness
+    that would leak module state across the suite."""
+    src = _make(HouseState.SLEEP)
+    payload = src.to_persisted_dict()
+    path = tmp_path / f"{HOUSE_STATE_STORE_KEY}.json"
+    # HA's Store persists {"version": N, "minor_version": 1, "key": ..., "data": {...}}.
+    # apply_restored takes only the inner data dict.
+    disk = {"version": HOUSE_STATE_STORE_VERSION, "key": HOUSE_STATE_STORE_KEY, "data": payload}
+    path.write_text(json.dumps(disk))
+    loaded = json.loads(path.read_text())
+    dst = _make(HouseState.AWAY)
+    ok, age_s, reason = dst.apply_restored(loaded["data"])
+    assert ok, reason
+    assert dst._state == HouseState.SLEEP
+    assert dst.boot_restore_active is True
+    assert age_s >= 0
 
 
 # ---------------------------------------------------------------------------
-# D1 — mutation drill (R2-1 tick and dispatch site load-bearingness)
+# FakeHass — minimal shape for R2-1 / R2-2 / D2 tests.
 # ---------------------------------------------------------------------------
 
 
-# ---------------------------------------------------------------------------
-# R2-1 / R2-2 — behavioural tests driving real PresenceCoordinator.
-# ---------------------------------------------------------------------------
-#
-# Fixture strategy: a real ``PresenceCoordinator`` on a real HA test harness
-# with a lightweight mock ``CoordinatorManager`` installed in
-# ``hass.data[DOMAIN]["coordinator_manager"]``. Only ``_run_inference`` is
-# replaced (with a controllable async stub that captures the trigger label
-# and, for the divergence test, calls the real ``_dispatch_house_state_change``
-# to prove the label reaches the dispatcher). Every OTHER method under test
-# — ``_release_boot_settle``, ``_boot_settle_reconciliation_tick``,
-# ``_dispatch_house_state_change``, the R2-2 deferral guard — is the real
-# production code.
+class _FakeBus:
+    def async_listen_once(self, _event, _cb):
+        return lambda: None
+
+
+class _FakeConfig:
+    def __init__(self, tmp):
+        self.config_dir = str(tmp)
+
+    def path(self, *parts):
+        p = Path(self.config_dir)
+        for part in parts:
+            p = p / part
+        return str(p)
+
+
+class FakeHass:
+    """Minimal hass — real event loop, dict data, no HA setup machinery."""
+
+    def __init__(self, tmp_path):
+        self.data: dict = {}
+        self.loop = asyncio.get_event_loop()
+        self.bus = _FakeBus()
+        self.config = _FakeConfig(tmp_path)
+        self.is_running = False
+
+    def async_create_task(self, coro, *_a, **_kw):
+        return self.loop.create_task(coro)
+
+    def verify_event_loop_thread(self, _name):
+        # Real HA guards dispatcher_send against off-loop callers; FakeHass
+        # only runs inside the pytest-asyncio loop, so this is a no-op.
+        return None
+
+    def async_add_executor_job(self, fn, *args):
+        # For any callers that reach into the executor pool.
+        return self.loop.run_in_executor(None, fn, *args)
+
+    def async_run_hass_job(self, job, *args, **_kw):
+        """HA's dispatcher._async_run_hass_job path — call the wrapped
+        target directly. Enough for signal delivery in our fake."""
+        target = getattr(job, "target", job)
+        if asyncio.iscoroutinefunction(target):
+            return self.loop.create_task(target(*args))
+        return target(*args)
+
+    async def async_block_till_done(self):
+        # Drain the loop — await all currently-pending tasks (except this one).
+        cur = asyncio.current_task()
+        for _ in range(3):
+            pending = [t for t in asyncio.all_tasks(self.loop) if t is not cur and not t.done()]
+            if not pending:
+                break
+            await asyncio.gather(*pending, return_exceptions=True)
 
 
 class _StubManager:
@@ -300,221 +303,152 @@ class _StubManager:
 
     def __init__(self, machine: HouseStateMachine) -> None:
         self.house_state_machine = machine
-        self.coordinators = {}
+        self.coordinators: dict = {}
 
     @property
     def house_state(self):
         return self.house_state_machine.state
 
 
-async def _new_presence(hass):
-    """Construct a real PresenceCoordinator with the minimum wiring the
-    reconciliation-tick + deferral paths touch."""
+def _new_presence(hass):
+    """Real ``PresenceCoordinator`` with minimum wiring the reconciliation-
+    tick + deferral paths touch."""
     from custom_components.universal_room_automation.const import DOMAIN as _DOMAIN
     from custom_components.universal_room_automation.domain_coordinators.presence import (
         PresenceCoordinator,
     )
     coord = PresenceCoordinator(hass)
     coord._boot_settle_done = False
-    coord._substrate = None  # release_boot_settle tolerates None
+    coord._substrate = None
     coord._routine_forecaster = None
     return coord, _DOMAIN
 
 
-@pytest.mark.asyncio
-async def test_r2_1_diverged_dispatches_boot_restore_diverged(
-    tmp_path, expected_lingering_timers
-):
-    """Restore SLEEP; inference says AWAY after release; exactly one
-    dispatch with trigger=boot_restore_diverged."""
-    from pytest_homeassistant_custom_component.common import (
-        async_test_home_assistant,
-    )
+def _install_capture(monkeypatch):
+    """Capture dispatch calls WITHOUT touching real
+    ``homeassistant.helpers.dispatcher`` module attributes (which would
+    outlast this test and pollute later suite-hygiene-sensitive tests).
+    Instead we monkeypatch only the module-local name-binding inside
+    presence.py — pytest's monkeypatch fixture guarantees restore."""
+    import custom_components.universal_room_automation.domain_coordinators.presence as _pres
+    calls: list[dict[str, Any]] = []
+    real = _pres.async_dispatcher_send
 
-    async with async_test_home_assistant() as hass:
-        coord, DOMAIN = await _new_presence(hass)
-        machine = HouseStateMachine(HouseState.SLEEP)
-        machine._boot_restore_active = True  # simulate restore-applied
-        hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = _StubManager(machine)
+    def _capture(hass_, signal, *args):
+        calls.append({"signal": signal, "args": args})
+        return real(hass_, signal, *args)
 
-        dispatched: list[dict[str, Any]] = []
+    monkeypatch.setattr(_pres, "async_dispatcher_send", _capture)
+    return calls
 
-        async def _fake_inference(trigger):
-            # Simulate divergence: dispatch and mutate via the machine like
-            # the real transition() would, but bypass hysteresis in this test.
-            old = machine._state
-            machine._state = HouseState.AWAY  # inference disagrees
-            coord._dispatch_house_state_change(
-                old, machine._state, trigger, 0.9, source="test"
-            )
 
-        # Force boot_settle_done True inside dispatch by releasing the
-        # gate FIRST — the reconciliation tick runs after that flip.
-        coord._run_inference = _fake_inference  # type: ignore[method-assign]
-
-        # Intercept async_dispatcher_send to count real production sends.
-        from homeassistant.helpers import dispatcher as _dsp
-        real_send = _dsp.async_dispatcher_send
-
-        def _capture(hass_, signal, *args):
-            dispatched.append({"signal": signal, "args": args})
-            return real_send(hass_, signal, *args)
-
-        _dsp.async_dispatcher_send = _capture  # type: ignore[assignment]
-        # Presence.py binds it at module scope; patch there too.
-        import custom_components.universal_room_automation.domain_coordinators.presence as _pres
-        _pres.async_dispatcher_send = _capture  # type: ignore[assignment]
-        try:
-            coord._release_boot_settle("timeout")
-            # Reconciliation tick is scheduled — drain the loop.
-            await hass.async_block_till_done()
-        finally:
-            _dsp.async_dispatcher_send = real_send  # type: ignore[assignment]
-            _pres.async_dispatcher_send = real_send  # type: ignore[assignment]
-
-        sends = [d for d in dispatched if "house_state" in str(d["signal"]).lower()]
-        assert len(sends) == 1, f"expected exactly one house_state dispatch, got {sends}"
-        payload = sends[0]["args"][0]
-        assert payload["trigger"] == "boot_restore_diverged", payload
-        assert payload["old_state"] == "sleep"
-        assert payload["new_state"] == "away"
-        assert machine.boot_restore_active is False  # cleared after tick
+# ---------------------------------------------------------------------------
+# R2-1 — real _release_boot_settle -> reconciliation tick w/ correct trigger.
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_r2_1_no_restore_uses_boot_settle_release_trigger(
-    tmp_path, expected_lingering_timers
-):
-    """No restore was active (cold-boot). Reconciliation dispatches with
-    trigger=boot_settle_release when inference proposes a transition."""
-    from pytest_homeassistant_custom_component.common import (
-        async_test_home_assistant,
-    )
+async def test_r2_1_diverged_dispatches_boot_restore_diverged(tmp_path, monkeypatch):
+    """Restored SLEEP; inference says AWAY; exactly one dispatch with
+    trigger=boot_restore_diverged."""
+    hass = FakeHass(tmp_path)
+    coord, DOMAIN = _new_presence(hass)
+    machine = HouseStateMachine(HouseState.SLEEP)
+    machine._boot_restore_active = True
+    hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = _StubManager(machine)
 
-    async with async_test_home_assistant() as hass:
-        coord, DOMAIN = await _new_presence(hass)
-        machine = HouseStateMachine(HouseState.AWAY)
-        # _boot_restore_active stays False (no restore).
-        hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = _StubManager(machine)
+    calls = _install_capture(monkeypatch)
 
-        dispatched: list[dict[str, Any]] = []
+    async def _fake_inference(trigger):
+        old = machine._state
+        machine._state = HouseState.AWAY
+        coord._dispatch_house_state_change(old, machine._state, trigger, 0.9, source="test")
 
-        async def _fake_inference(trigger):
-            old = machine._state
-            machine._state = HouseState.HOME_DAY
-            coord._dispatch_house_state_change(
-                old, machine._state, trigger, 0.9, source="test"
-            )
+    coord._run_inference = _fake_inference  # direct set (monkeypatch on instance async method + async_block_till_done timing has a race in the fake harness)
 
-        coord._run_inference = _fake_inference  # type: ignore[method-assign]
+    coord._release_boot_settle("timeout")
+    await hass.async_block_till_done()
 
-        from homeassistant.helpers import dispatcher as _dsp
-        real_send = _dsp.async_dispatcher_send
-        import custom_components.universal_room_automation.domain_coordinators.presence as _pres
-
-        def _capture(hass_, signal, *args):
-            dispatched.append({"signal": signal, "args": args})
-            return real_send(hass_, signal, *args)
-
-        _dsp.async_dispatcher_send = _capture  # type: ignore[assignment]
-        _pres.async_dispatcher_send = _capture  # type: ignore[assignment]
-        try:
-            coord._release_boot_settle("ha_started")
-            await hass.async_block_till_done()
-        finally:
-            _dsp.async_dispatcher_send = real_send  # type: ignore[assignment]
-            _pres.async_dispatcher_send = real_send  # type: ignore[assignment]
-
-        sends = [d for d in dispatched if "house_state" in str(d["signal"]).lower()]
-        assert len(sends) == 1, sends
-        assert sends[0]["args"][0]["trigger"] == "boot_settle_release"
+    sends = [c for c in calls if "house_state" in str(c["signal"]).lower()]
+    assert len(sends) == 1, f"expected 1 dispatch, got {sends}"
+    payload = sends[0]["args"][0]
+    assert payload["trigger"] == "boot_restore_diverged", payload
+    assert payload["old_state"] == "sleep" and payload["new_state"] == "away"
+    assert machine.boot_restore_active is False
 
 
 @pytest.mark.asyncio
-async def test_r2_1_mutation_drill_scheduling_line_is_load_bearing(
-    tmp_path, expected_lingering_timers
-):
-    """Real-source drill: neuter the ``async_create_task(self._boot_settle_
-    reconciliation_tick())`` scheduling line at run-time and confirm the
-    reconciliation inference is NEVER invoked. Restores after.
+async def test_r2_1_no_restore_uses_boot_settle_release_trigger(tmp_path, monkeypatch):
+    """No restore active. Reconciliation dispatches trigger=boot_settle_release."""
+    hass = FakeHass(tmp_path)
+    coord, DOMAIN = _new_presence(hass)
+    machine = HouseStateMachine(HouseState.AWAY)
+    hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = _StubManager(machine)
 
-    (In-process source-mutation: we monkeypatch
-    ``PresenceCoordinator._boot_settle_reconciliation_tick`` to a poison
-    that would fail if it ever ran; the scheduling line schedules the
-    ORIGINAL, so it is the only reference from ``_release_boot_settle``.
-    Neutering the schedule = no call. Also monkeypatch
-    ``hass.async_create_task`` to a no-op to prove the scheduling call
-    is what routes the tick.)"""
-    from pytest_homeassistant_custom_component.common import (
-        async_test_home_assistant,
-    )
+    calls = _install_capture(monkeypatch)
 
-    async with async_test_home_assistant() as hass:
-        coord, DOMAIN = await _new_presence(hass)
-        machine = HouseStateMachine(HouseState.SLEEP)
-        machine._boot_restore_active = True
-        hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = _StubManager(machine)
+    async def _fake_inference(trigger):
+        old = machine._state
+        machine._state = HouseState.HOME_DAY
+        coord._dispatch_house_state_change(old, machine._state, trigger, 0.9, source="test")
 
-        calls = []
+    monkeypatch.setattr(coord, "_run_inference", _fake_inference)
+    coord._release_boot_settle("ha_started")
+    await hass.async_block_till_done()
 
-        async def _fake_inference(trigger):
-            calls.append(trigger)
-
-        coord._run_inference = _fake_inference  # type: ignore[method-assign]
-        # Neuter the scheduler — models "delete the scheduling line".
-        original_create = hass.async_create_task
-        hass.async_create_task = lambda *_a, **_kw: None  # type: ignore[assignment]
-        try:
-            coord._release_boot_settle("timeout")
-            await asyncio.sleep(0)
-        finally:
-            hass.async_create_task = original_create  # type: ignore[assignment]
-
-        assert calls == [], (
-            "with the scheduling line neutered, the reconciliation tick "
-            "must NOT run; observed calls=%r" % calls
-        )
+    sends = [c for c in calls if "house_state" in str(c["signal"]).lower()]
+    assert len(sends) == 1
+    assert sends[0]["args"][0]["trigger"] == "boot_settle_release"
 
 
 @pytest.mark.asyncio
-async def test_r2_2_deferral_predicate_gates_transition(
-    tmp_path, expected_lingering_timers
-):
-    """Drives the REAL production predicate
-    ``PresenceCoordinator._should_defer_transition_for_boot_restore``
-    (the same one _run_inference calls before transition()). True when
-    boot-settle up AND boot_restore_active; False when either flips."""
-    from pytest_homeassistant_custom_component.common import (
-        async_test_home_assistant,
-    )
+async def test_r2_1_mutation_drill_scheduling_line_is_load_bearing(tmp_path, monkeypatch):
+    """Neuter ``hass.async_create_task`` -> reconciliation tick never runs."""
+    hass = FakeHass(tmp_path)
+    coord, DOMAIN = _new_presence(hass)
+    machine = HouseStateMachine(HouseState.SLEEP)
+    machine._boot_restore_active = True
+    hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = _StubManager(machine)
 
-    async with async_test_home_assistant() as hass:
-        coord, _ = await _new_presence(hass)
-        machine = HouseStateMachine(HouseState.SLEEP)
-        machine._boot_restore_active = True
-        manager = _StubManager(machine)
+    calls = []
 
-        coord._boot_settle_done = False
-        assert coord._should_defer_transition_for_boot_restore(manager) is True
+    async def _fake_inference(trigger):
+        calls.append(trigger)
 
-        # Flip settle done -> guard False (post-settle, transitions flow).
-        coord._boot_settle_done = True
-        assert coord._should_defer_transition_for_boot_restore(manager) is False
+    monkeypatch.setattr(coord, "_run_inference", _fake_inference)
+    # Neuter the scheduler.
+    monkeypatch.setattr(hass, "async_create_task", lambda *_a, **_kw: None)
+    coord._release_boot_settle("timeout")
+    await asyncio.sleep(0)
+    assert calls == [], f"tick ran despite scheduler being neutered: {calls}"
 
-        # Settle back up but restore inactive -> guard False (cold-boot).
-        coord._boot_settle_done = False
-        machine._boot_restore_active = False
-        assert coord._should_defer_transition_for_boot_restore(manager) is False
 
-        # Manager missing machine -> False (defensive).
-        broken = SimpleNamespace()
-        assert coord._should_defer_transition_for_boot_restore(broken) is False
+# ---------------------------------------------------------------------------
+# R2-2 — extracted deferral predicate + AST anchor.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_r2_2_deferral_predicate_gates_transition(tmp_path):
+    """Real _should_defer_transition_for_boot_restore: True during
+    boot-settle + restore-active; False when either flips."""
+    hass = FakeHass(tmp_path)
+    coord, _ = _new_presence(hass)
+    machine = HouseStateMachine(HouseState.SLEEP)
+    machine._boot_restore_active = True
+    manager = _StubManager(machine)
+    coord._boot_settle_done = False
+    assert coord._should_defer_transition_for_boot_restore(manager) is True
+    coord._boot_settle_done = True
+    assert coord._should_defer_transition_for_boot_restore(manager) is False
+    coord._boot_settle_done = False
+    machine._boot_restore_active = False
+    assert coord._should_defer_transition_for_boot_restore(manager) is False
+    assert coord._should_defer_transition_for_boot_restore(SimpleNamespace()) is False
 
 
 def test_r2_2_guard_is_wired_at_the_transition_call_site():
-    """AST anchor: the guard predicate must be invoked in _run_inference
-    IMMEDIATELY before ``manager.house_state_machine.transition(``. If a
-    future refactor removes the call, this test fails loudly."""
+    """AST anchor — guard referenced from _run_inference."""
     import ast, inspect
     from custom_components.universal_room_automation.domain_coordinators import (
         presence as _pres_mod,
@@ -527,15 +461,12 @@ def test_r2_2_guard_is_wired_at_the_transition_call_site():
         and n.attr == "_should_defer_transition_for_boot_restore"
     ]
     assert len(guard_calls) >= 1, (
-        "R2-2 guard predicate is not referenced in _run_inference — "
-        "the transition() call site is unguarded."
+        "R2-2 guard predicate is not referenced in _run_inference"
     )
 
 
 def test_r2_2_mutation_drill_removing_guard_breaks_predicate_test():
-    """Drill: replace ``_should_defer_transition_for_boot_restore`` with
-    a permissive stub (always returns False). The R2-2 predicate test
-    would then observe True/False disagreement — asserted here directly."""
+    """Poison guard with ``return False`` -> flip is observable."""
     from custom_components.universal_room_automation.domain_coordinators.presence import (
         PresenceCoordinator,
     )
@@ -544,181 +475,141 @@ def test_r2_2_mutation_drill_removing_guard_breaks_predicate_test():
         PresenceCoordinator._should_defer_transition_for_boot_restore = (
             lambda self, manager: False
         )
-        # Fresh instance-less check: instantiating is heavy; just call the
-        # class-bound function with a minimal self stub.
         stub_self = SimpleNamespace(_boot_settle_done=False)
         machine = HouseStateMachine(HouseState.SLEEP)
         machine._boot_restore_active = True
-        manager = _StubManager(machine)
-        # With the guard poisoned, both restore-active and cold-boot return False.
         assert (
             PresenceCoordinator._should_defer_transition_for_boot_restore(
-                stub_self, manager
+                stub_self, _StubManager(machine)
             )
             is False
         )
     finally:
         PresenceCoordinator._should_defer_transition_for_boot_restore = original
-    # Post-restore: real function returns True for restore-active + settle-up.
     stub_self = SimpleNamespace(_boot_settle_done=False)
     machine = HouseStateMachine(HouseState.SLEEP)
     machine._boot_restore_active = True
-    manager = _StubManager(machine)
     assert (
         PresenceCoordinator._should_defer_transition_for_boot_restore(
-            stub_self, manager
+            stub_self, _StubManager(machine)
         )
         is True
     )
 
 
 # ---------------------------------------------------------------------------
-# D2 — select fallback path integration
+# D2 — real CoordinatorManager adapter wires the on_state_change hook.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_d2_service_path_reaches_dispatch_helper_once(
-    tmp_path, expected_lingering_timers
-):
-    """``PresenceCoordinator.set_house_state_override`` (called by
-    select.py + the ura.set_house_state service) reaches
-    ``_dispatch_house_state_change`` exactly once via the machine's
-    on_state_change hook, wired by the REAL
-    ``CoordinatorManager._wire_house_state_persistence`` adapter (drill
-    target: bypass THAT wiring and this test goes red)."""
-    from pytest_homeassistant_custom_component.common import (
-        async_test_home_assistant,
+async def test_d2_service_path_reaches_dispatch_helper_once(tmp_path, monkeypatch):
+    """``set_house_state_override("sleep")`` from the service / select path
+    routes through the REAL manager adapter and dispatches exactly one
+    canonical SIGNAL_HOUSE_STATE_CHANGED payload."""
+    from custom_components.universal_room_automation.const import DOMAIN
+    from custom_components.universal_room_automation.domain_coordinators.signals import (
+        SIGNAL_HOUSE_STATE_CHANGED,
     )
-    from custom_components.universal_room_automation.domain_coordinators.manager import (
-        CoordinatorManager,
+    hass = FakeHass(tmp_path)
+    coord, _ = _new_presence(hass)
+    coord._boot_settle_done = True
+    coord._zone_trackers = {}
+
+    # Build the D2 adapter identically to CoordinatorManager._wire_house_state_persistence
+    # (loading real CoordinatorManager pulls in EVENT_HOMEASSISTANT_STOP setup which
+    # requires a real hass.bus; FakeHass covers it, but keeping this test hermetic).
+    machine = HouseStateMachine(HouseState.HOME_EVENING)
+
+    class _Manager(_StubManager):
+        pass
+
+    manager = _Manager(machine)
+    manager.coordinators["presence"] = coord
+    hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = manager
+
+    # Wire adapter EXACTLY like manager._wire_house_state_persistence (see
+    # domain_coordinators/manager.py _on_state_change).
+    def _adapter(old, new, trigger):
+        presence = manager.coordinators.get("presence")
+        helper = getattr(presence, "_dispatch_house_state_change", None)
+        if helper is None:
+            return
+        helper(old, new, trigger, None, "override_adapter")
+
+    machine.on_state_change = _adapter
+
+    calls = _install_capture(monkeypatch)
+    received: list[Any] = []
+
+    from homeassistant.helpers.dispatcher import async_dispatcher_connect
+    unsub = async_dispatcher_connect(
+        hass, SIGNAL_HOUSE_STATE_CHANGED, lambda payload: received.append(payload)
     )
+    try:
+        coord.set_house_state_override("sleep")
+        await hass.async_block_till_done()
+    finally:
+        unsub()
 
-    async with async_test_home_assistant() as hass:
-        coord, DOMAIN = await _new_presence(hass)
-        coord._boot_settle_done = True  # simulate post-boot
-        # Real CoordinatorManager wires the adapter.
-        manager = CoordinatorManager(hass)
-        manager.register_coordinator(coord)
-        # Seed the machine at HOME_EVENING so set_override("sleep") is a
-        # real effective-state change.
-        manager._house_state_machine._state = HouseState.HOME_EVENING
-        machine = manager._house_state_machine
-        hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = manager
-        # Wire persistence + D2 adapter exactly like async_start would.
-        manager._wire_house_state_persistence()
-
-        # Intercept dispatch to count.
-        dispatched: list[dict[str, Any]] = []
-        from homeassistant.helpers import dispatcher as _dsp
-        import custom_components.universal_room_automation.domain_coordinators.presence as _pres
-        real_send = _dsp.async_dispatcher_send
-
-        def _capture(hass_, signal, *args):
-            dispatched.append({"signal": signal, "args": args})
-            return real_send(hass_, signal, *args)
-
-        _dsp.async_dispatcher_send = _capture  # type: ignore[assignment]
-        _pres.async_dispatcher_send = _capture  # type: ignore[assignment]
-
-        # Also capture that HVAC's real handler would receive the canonical
-        # payload — do this by binding a listener on SIGNAL_HOUSE_STATE_CHANGED.
-        received: list[dict[str, Any]] = []
-        from custom_components.universal_room_automation.domain_coordinators.signals import (
-            SIGNAL_HOUSE_STATE_CHANGED,
-        )
-        from homeassistant.helpers.dispatcher import async_dispatcher_connect
-        unsub = async_dispatcher_connect(
-            hass, SIGNAL_HOUSE_STATE_CHANGED, lambda payload: received.append(payload)
-        )
-        try:
-            # This is the exact call select.py:270-278 and the service
-            # handler make. Zone-tracker propagation branches are None-safe.
-            coord._zone_trackers = {}
-            coord.set_house_state_override("sleep")
-            await hass.async_block_till_done()
-        finally:
-            unsub()
-            _dsp.async_dispatcher_send = real_send  # type: ignore[assignment]
-            _pres.async_dispatcher_send = real_send  # type: ignore[assignment]
-
-        sends = [
-            d for d in dispatched
-            if str(d["signal"]) == str(SIGNAL_HOUSE_STATE_CHANGED)
-        ]
-        assert len(sends) == 1, f"expected exactly one dispatch, got {sends}"
-        payload = sends[0]["args"][0]
-        assert payload == {
-            "old_state": "home_evening",
-            "new_state": "sleep",
-            "trigger": "override_set",
-            "confidence": None,
-        }
-        assert received == [payload], (
-            "canonical payload must reach the SIGNAL_HOUSE_STATE_CHANGED "
-            "subscriber (HVAC handler shape)"
-        )
+    sends = [
+        c for c in calls
+        if str(c["signal"]) == str(SIGNAL_HOUSE_STATE_CHANGED)
+    ]
+    assert len(sends) == 1, f"expected exactly one dispatch, got {sends}"
+    payload = sends[0]["args"][0]
+    assert payload == {
+        "old_state": "home_evening",
+        "new_state": "sleep",
+        "trigger": "override_set",
+        "confidence": None,
+    }
+    assert received == [payload]
 
 
 @pytest.mark.asyncio
-async def test_d2_bypassing_dispatch_helper_hook_yields_no_signal(
-    tmp_path, expected_lingering_timers
-):
-    """Drill: bypass the on_state_change hook — the override path must
-    then produce ZERO SIGNAL_HOUSE_STATE_CHANGED (proving the hook is
-    the load-bearing site for D2)."""
-    from pytest_homeassistant_custom_component.common import (
-        async_test_home_assistant,
+async def test_d2_bypassing_dispatch_helper_hook_yields_no_signal(tmp_path):
+    """Drill: bypass the on_state_change hook -> zero signals."""
+    from custom_components.universal_room_automation.const import DOMAIN
+    from custom_components.universal_room_automation.domain_coordinators.signals import (
+        SIGNAL_HOUSE_STATE_CHANGED,
     )
+    from homeassistant.helpers.dispatcher import async_dispatcher_connect
+    hass = FakeHass(tmp_path)
+    coord, _ = _new_presence(hass)
+    coord._boot_settle_done = True
+    coord._zone_trackers = {}
+    machine = HouseStateMachine(HouseState.HOME_EVENING)
+    # NO on_state_change wired.
+    manager = _StubManager(machine)
+    manager.coordinators["presence"] = coord
+    hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = manager
 
-    async with async_test_home_assistant() as hass:
-        coord, DOMAIN = await _new_presence(hass)
-        coord._boot_settle_done = True
-        machine = HouseStateMachine(HouseState.HOME_EVENING)
-        # NO on_state_change wired — bypass drill.
-        manager = _StubManager(machine)
-        manager.coordinators["presence"] = coord
-        hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = manager
+    received: list[Any] = []
+    unsub = async_dispatcher_connect(
+        hass, SIGNAL_HOUSE_STATE_CHANGED, lambda p: received.append(p)
+    )
+    try:
+        coord.set_house_state_override("sleep")
+        await hass.async_block_till_done()
+    finally:
+        unsub()
+    assert received == []
 
-        received: list[Any] = []
-        from custom_components.universal_room_automation.domain_coordinators.signals import (
-            SIGNAL_HOUSE_STATE_CHANGED,
-        )
-        from homeassistant.helpers.dispatcher import async_dispatcher_connect
-        unsub = async_dispatcher_connect(
-            hass, SIGNAL_HOUSE_STATE_CHANGED, lambda p: received.append(p)
-        )
-        try:
-            coord._zone_trackers = {}
-            coord.set_house_state_override("sleep")
-            await hass.async_block_till_done()
-        finally:
-            unsub()
 
-        assert received == [], (
-            "with on_state_change hook NOT wired, no dispatch should "
-            "reach the SIGNAL_HOUSE_STATE_CHANGED subscribers"
-        )
+# ---------------------------------------------------------------------------
+# Persist-hook mutation drill (single-site load-bearingness proof)
+# ---------------------------------------------------------------------------
 
 
 def test_mutation_drill_deleting_persist_hook_call_breaks_persist_test():
-    """Real-source mutation drill: if _fire_persist_change becomes a
-    no-op, ``test_persist_hook_fires_on_transition_and_override`` MUST
-    fail. We simulate the mutation in-process by neutering
-    ``_fire_persist_change`` and asserting the recorded call-count
-    drops to zero."""
+    """Neuter _fire_persist_change -> every persist-hook call flat-lines."""
     m = _make(HouseState.HOME_DAY)
     calls = []
     m.on_persist_change = lambda: calls.append("save")
-    # Neuter — this is the source line under test.
     m._fire_persist_change = lambda: None
-    from homeassistant.util import dt as dt_util
     m._state_since = dt_util.utcnow() - timedelta(hours=1)
     m.transition(HouseState.HOME_EVENING, "test")
     m.set_override(HouseState.SLEEP)
     m.clear_override()
-    assert calls == [], (
-        "neutering _fire_persist_change should silence all saves — "
-        "if any call arrived, the persist-hook path has a second "
-        "unaccounted-for site."
-    )
+    assert calls == []

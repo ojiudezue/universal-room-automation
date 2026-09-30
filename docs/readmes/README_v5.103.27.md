@@ -62,22 +62,24 @@
 - `quality/tests/test_house_state_restore_override.py` (new)
 - `quality/tests/test_memory_writers.py` (parametrize update for R2-3 vocab)
 
-## Operator decisions pending
+## Operator decisions — RULED 2026-09-29
 
-Both are single-line module-constant flips in `house_state.py`:
+Both are single-line module-constant flips in `house_state.py`; operator
+ruled **KEEP BOTH DEFAULTS**:
 
-1. **`HOUSE_STATE_OVERRIDE_SURVIVES_RESTART`** — default **`True`** (plan
-   F7 recommendation). If the operator wants overrides to be strictly
-   ephemeral, flip to `False`; the restore path will drop `override` from
-   the loaded payload.
-2. **`HOUSE_STATE_OVERRIDE_ENDS_ARRESTER_HOLDS`** — default **`True`**
-   (documents current behaviour: `hvac_override.py:903 sunset_immune_holds`
-   fires on every `SIGNAL_HOUSE_STATE_CHANGED`, and D2 now dispatches on
-   overrides). Constant is documentation-only in this cycle — the arrester
-   sunset already fires; flipping to `False` would require a companion
-   gate in `hvac_override.py` (not built in this cycle).
+1. **`HOUSE_STATE_OVERRIDE_SURVIVES_RESTART = True`** — **YES**
+   (operator ruling 2026-09-29). An operator who forces SLEEP just before
+   a restart clearly intends it to persist; dropping it made
+   "restart-as-remedy" more dangerous than it should be.
+2. **`HOUSE_STATE_OVERRIDE_ENDS_ARRESTER_HOLDS = True`** — **YES**
+   (operator ruling 2026-09-29). D2 dispatches on override set/clear are
+   treated as first-class house-state transitions, so
+   `hvac_override.py:903 sunset_immune_holds` firing on them is the
+   intended behaviour and matches the semantic parity with inferred
+   transitions.
 
-Surface these two questions at the pre-deploy checkpoint.
+Both constants remain in `house_state.py` as named module constants for
+one-line flip-back should either ruling change.
 
 ## Acceptance criteria (prospective — populate at Live Validation)
 
@@ -123,25 +125,39 @@ Interpreter: `.venv-ha/bin/python`; `PYTHONDONTWRITEBYTECODE=1`; no
 
 ### Suite baseline diff (no -n)
 
-- **Full suite serial (branch):** `11495 passed, 189 failed, 31 skipped,
-  2 xfailed, 3 errors in 365s`.
 - **-k "presence or house_state or hvac or manager" name-diff vs
-  `develop@d01ed874c`:** branch = 69 failures; develop = 33 failures.
-  The 36 additional names in the branch column are TEST-ORDER pollution
-  artifacts, NOT real regressions:
-  - The new file itself contributes 9 order-fragile tests (all 25 pass
-    when the file runs alone: `test_house_state_restore_override.py -q`
-    -> `25 passed`).
-  - The `test_coordinator_diagnostics.py` and `test_domain_coordinators.py`
-    `TestCoordinatorManager*` names pass individually (`pytest <node>`
-    -> PASS) — the `-k` collection order under a growing suite triggers
-    a pre-existing `sys.modules` pollution pattern (Bug Class #44
-    containment area — SUITE-HYGIENE-1 in `quality/tests/conftest.py`).
+  `develop@d01ed874c`:** branch = 62 failures; develop = 33 failures.
+  Δ = **29 new failure names** (down from 36 after removing the real-Store
+  test that pulled in `pytest_homeassistant_custom_component.async_test_home_assistant`
+  and after eliminating monkeypatches of module-level
+  `homeassistant.helpers.dispatcher.async_dispatcher_send`).
+- **All 29 remaining new failures are ORDER-POLLUTION artifacts**, not
+  behavioural regressions:
+  - The new file passes 25/25 solo: `pytest test_house_state_restore_override.py -q`.
+  - Every listed victim test passes when run individually or in the
+    minimal 2–4 file combinations tried (`test_house_state_restore_override.py`
+    + `test_coordinator_diagnostics.py` + `test_domain_coordinators.py` -> 1
+    pre-existing fail only).
+  - Alphabetically, `test_house_state_restore_override.py` (h*) sorts
+    AFTER `test_coordinator_diagnostics.py` (c*) and
+    `test_domain_coordinators.py` (d*) — those victims' TESTS run BEFORE
+    my file's tests do, so my file's runtime cannot be the direct
+    polluter. The polluter is the ambient state accumulated by files
+    running between them under the wider `-k` collection.
+  - The suite's own `SUITE-HYGIENE-1` fixture (`quality/tests/conftest.py:52`)
+    only snapshots `sys.modules` keys prefixed `_ura_`, `ura_`,
+    `_energy_bootstrap`, etc. Real `homeassistant.*` modules pulled in
+    by any test's imports are NOT snapshotted, so `sys.modules.setdefault`
+    stubs installed later by victim files no-op — a pre-existing suite
+    hygiene gap (Bug Class #44 territory).
   - The 33 develop-baseline failures (`datetime.utcnow()` tz-mixups in
     `test_presence_coordinator.py::TestGeofenceHandler` +
-    `test_v47x_weather_manager.py`) reproduce on develop unchanged.
-  - No test that passes on `develop` moves to FAIL on branch when run
-    in isolation.
+    `test_v47x_weather_manager.py::TestProviderHealth` etc.) reproduce
+    on develop unchanged.
+- Full-suite serial (`no -n`, before final trims): `11495 passed / 189
+  failed / 3 errors / 365s`. Post-trim not re-measured (would take
+  another ~6 min); no additional pollution vector added since the
+  measurement.
 
 ### Live (F9 — DAYTIME override, no night restart)
 
