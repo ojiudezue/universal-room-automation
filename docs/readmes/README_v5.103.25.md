@@ -1,6 +1,6 @@
 # v5.103.25: anomaly sensors stop saying "nominal" when they cannot see; "learning" now means actively collecting
 
-**This release also carries v5.103.24 (Batch D: per-room Fan Mode, guest-fan fix, offline-thermostat hold) — see `README_v5.103.24.md`.**
+**This release also carries v5.103.24 (Batch D: per-room Fan Mode, guest-fan fix, offline-thermostat hold) — see `README_v5.103.24.md`. Cards: `HVAC-FANS-IGNORE-ROOM-COMFORT-FAN-SWITCH-1`, `HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1`, `HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1`.**
 
 **Cards:** `HVAC-ANOMALY-BLIND-1` residual A; `ANOMALY-SAVE-BASELINES-DICT-MUTATION-1` (folded in).
 **Plan:** `docs/planning/PLANNING_anomaly_detector_blind_metrics.md` REV 2.1, plus the §14 Builder notes (operator rulings 2026-09-29).
