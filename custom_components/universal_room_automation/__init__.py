@@ -1841,6 +1841,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if DOMAIN not in hass.data:
         hass.data[DOMAIN] = {}
 
+    # BOOT-EVENT-LOOP-FREEZE-1: install the process-wide loop-stall
+    # watchdog. Guarded single-instance in hass.data[DOMAIN] so ~43 room
+    # config entries share ONE daemon thread. Diagnostic only — never
+    # actuates or blocks setup.
+    try:
+        from .domain_coordinators._loop_stall_watchdog import (  # noqa: PLC0415
+            install as _install_loop_stall_watchdog,
+        )
+        _install_loop_stall_watchdog(hass)
+    except Exception:  # noqa: BLE001 — diagnostic, never break setup
+        _LOGGER.debug(
+            "BOOT-EVENT-LOOP-FREEZE-1: watchdog install raised (non-fatal)",
+            exc_info=True,
+        )
+
     # MIGRATION: v2.x → v3.0.0
     if not entry.data.get(CONF_ENTRY_TYPE):
         _LOGGER.info("Detected v2.x entry '%s', migrating to v3.0.0", entry.title)
@@ -5666,6 +5681,25 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "SIGNAL_ROOM_ENTRY_LIFECYCLE dispatch (unloaded) failed (non-fatal)",
                 exc_info=True,
             )
+
+    # BOOT-EVENT-LOOP-FREEZE-1: when the last URA entry unloads, stop the
+    # loop-stall watchdog thread so tests + full-integration removal do
+    # not leave a lingering daemon. Uninstall is idempotent.
+    try:
+        remaining = [
+            e for e in hass.config_entries.async_entries(DOMAIN)
+            if e.entry_id != entry.entry_id
+        ]
+        if not remaining:
+            from .domain_coordinators._loop_stall_watchdog import (  # noqa: PLC0415
+                uninstall as _uninstall_loop_stall_watchdog,
+            )
+            _uninstall_loop_stall_watchdog(hass)
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug(
+            "BOOT-EVENT-LOOP-FREEZE-1: watchdog uninstall raised (non-fatal)",
+            exc_info=True,
+        )
 
     return unload_ok
 
