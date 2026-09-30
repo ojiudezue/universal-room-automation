@@ -12,7 +12,7 @@ except ImportError:
     class StrEnum(str, Enum):
         """String enum backport for Python < 3.11."""
         pass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Final, Optional
 
 from homeassistant.util import dt as dt_util
@@ -349,7 +349,7 @@ class HouseStateMachine:
         override_since = None
         if self._override_since is not None:
             override_since = datetime.fromtimestamp(
-                self._override_since, tz=dt_util.UTC
+                self._override_since, tz=timezone.utc
             ).isoformat()
         return {
             "state": self._state.value,

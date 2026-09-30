@@ -13,7 +13,6 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
-from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from ..const import COORDINATOR_ENABLED_KEYS, DOMAIN, VERSION
@@ -197,11 +196,11 @@ class CoordinatorManager:
         self._house_state_machine = HouseStateMachine()
         # D1 persistence: constructed here, loaded/heartbeat/stop-hook
         # wired in async_start.
-        self._house_state_store: Store = Store(
-            hass,
-            HOUSE_STATE_STORE_VERSION,
-            HOUSE_STATE_STORE_KEY,
-        )
+        # Store is created lazily (_get_house_state_store): importing
+        # homeassistant.helpers.storage at module level drags real HA helper
+        # modules into sys.modules and breaks the stubbed-module test files
+        # (order pollution found in the house-state batch name-diff).
+        self._house_state_store = None
         self._house_state_heartbeat_unsub = None
         self._house_state_stop_unsub = None
         self._house_state_restored: bool = False
@@ -425,6 +424,16 @@ class CoordinatorManager:
             del self._coordinators[coordinator_id]
             _LOGGER.info("Unregistered coordinator: %s", coordinator_id)
 
+    def _get_house_state_store(self):
+        """Return the house-state Store, creating it on first use."""
+        if self._house_state_store is None:
+            from homeassistant.helpers.storage import Store  # noqa: PLC0415
+
+            self._house_state_store = Store(
+                self.hass, HOUSE_STATE_STORE_VERSION, HOUSE_STATE_STORE_KEY,
+            )
+        return self._house_state_store
+
     async def async_start(self) -> None:
         """Start the coordinator manager."""
         self._running = True
@@ -493,7 +502,7 @@ class CoordinatorManager:
 
     async def _async_restore_house_state(self) -> None:
         """D1: load persisted state from Store and apply it to the machine."""
-        data = await self._house_state_store.async_load()
+        data = await self._get_house_state_store().async_load()
         if data is None:
             _LOGGER.info(
                 "House-state restore: no persisted record (cold-boot default AWAY)"
@@ -526,7 +535,7 @@ class CoordinatorManager:
 
     def _wire_house_state_persistence(self) -> None:
         """Register debounced-save hook, heartbeat, stop-hook, D2 adapter."""
-        store = self._house_state_store
+        store = self._get_house_state_store()
         machine = self._house_state_machine
 
         def _data_provider() -> dict[str, Any]:
@@ -644,7 +653,7 @@ class CoordinatorManager:
             self._house_state_stop_unsub = None
         try:
             # Flush any pending delayed save.
-            await self._house_state_store.async_save(
+            await self._get_house_state_store().async_save(
                 self._house_state_machine.to_persisted_dict()
             )
         except Exception:  # noqa: BLE001

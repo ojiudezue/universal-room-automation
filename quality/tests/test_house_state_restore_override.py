@@ -521,36 +521,36 @@ async def test_d2_service_path_reaches_dispatch_helper_once(tmp_path, monkeypatc
     # requires a real hass.bus; FakeHass covers it, but keeping this test hermetic).
     machine = HouseStateMachine(HouseState.HOME_EVENING)
 
-    class _Manager(_StubManager):
-        pass
+    # Wire through the REAL CoordinatorManager._wire_house_state_persistence
+    # (called unbound on a minimal namespace) so a regression in the real
+    # adapter wiring turns this test red. Heartbeat and stop-hook are
+    # pre-marked as registered so no timers/listeners are created.
+    from types import SimpleNamespace
+    from custom_components.universal_room_automation.domain_coordinators.manager import (
+        CoordinatorManager,
+    )
 
-    manager = _Manager(machine)
-    manager.coordinators["presence"] = coord
-    hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = manager
+    class _FakeStore:
+        def async_delay_save(self, *_a, **_k):
+            return None
 
-    # Wire adapter EXACTLY like manager._wire_house_state_persistence (see
-    # domain_coordinators/manager.py _on_state_change).
-    def _adapter(old, new, trigger):
-        presence = manager.coordinators.get("presence")
-        helper = getattr(presence, "_dispatch_house_state_change", None)
-        if helper is None:
-            return
-        helper(old, new, trigger, None, "override_adapter")
+        async def async_save(self, *_a, **_k):
+            return None
 
-    machine.on_state_change = _adapter
+    mgr_ns = SimpleNamespace(
+        hass=hass,
+        _house_state_machine=machine,
+        _coordinators={"presence": coord},
+        _house_state_heartbeat_unsub=object(),
+        _house_state_stop_unsub=object(),
+    )
+    mgr_ns._get_house_state_store = lambda: _FakeStore()
+    CoordinatorManager._wire_house_state_persistence(mgr_ns)
+    hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = _StubManager(machine)
 
     calls = _install_capture(monkeypatch)
-    received: list[Any] = []
-
-    from homeassistant.helpers.dispatcher import async_dispatcher_connect
-    unsub = async_dispatcher_connect(
-        hass, SIGNAL_HOUSE_STATE_CHANGED, lambda payload: received.append(payload)
-    )
-    try:
-        coord.set_house_state_override("sleep")
-        await hass.async_block_till_done()
-    finally:
-        unsub()
+    coord.set_house_state_override("sleep")
+    await hass.async_block_till_done()
 
     sends = [
         c for c in calls
@@ -564,7 +564,6 @@ async def test_d2_service_path_reaches_dispatch_helper_once(tmp_path, monkeypatc
         "trigger": "override_set",
         "confidence": None,
     }
-    assert received == [payload]
 
 
 @pytest.mark.asyncio
