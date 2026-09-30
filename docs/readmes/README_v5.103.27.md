@@ -111,14 +111,22 @@ one-line flip-back should either ruling change.
 
 ### Real-source mutation drills (operator wire-in anchor rule)
 
-Every drill: edit production source in place -> run the tests -> restore
-via a `cp` from `/tmp/*.bak` -> confirm marker count == 0 in the file.
+Every drill: edit production source in place -> `shutil.rmtree` all
+`__pycache__` -> run the target test(s) -> restore via a `cp` from
+`/tmp/*.bak` -> confirm marker count == 0 in the file + full 38/38 pass.
 
 | Drill | Source edit | Expected red | Observed |
 |---|---|---|---|
-| R2-1 | Delete `self.hass.async_create_task(self._boot_settle_reconciliation_tick())` in `presence._release_boot_settle` | tests 17 + 18 fail | **CONFIRMED**: `test_r2_1_diverged_dispatches_boot_restore_diverged` FAILED; `test_r2_1_no_restore_uses_boot_settle_release_trigger` FAILED; test 19 still passes (independent). Restored clean. |
-| R2-2 | Replace `_should_defer_transition_for_boot_restore` body with `return False` | tests 20 + 22 fail | **CONFIRMED**: both failed; test 21 (AST anchor) still passed (guard reference intact). Restored clean. |
-| D2 | Replace `machine.on_state_change = _on_state_change` with `pass` in `manager._wire_house_state_persistence` | test 23 fails | **CONFIRMED**: `test_d2_service_path_reaches_dispatch_helper_once` FAILED (0 signals received); test 24 still passes (hook-bypass symmetric drill). Restored clean. |
+| R2-1 | Delete `self.hass.async_create_task(self._boot_settle_reconciliation_tick())` in `presence._release_boot_settle` | R2-1 diverged + no-restore tests fail | CONFIRMED — both FAIL, tick never runs; mutation drill test (independent) passes; restored clean. |
+| R2-2 / C-HIGH-2 | Replace `_should_defer_transition_for_boot_restore` body with `return False` | R2-2 predicate test + drill test + `test_c_high_2_run_inference_defers_when_restore_active` fail | CONFIRMED — 3 FAIL; AST anchor still passes (guard reference intact); restored clean. |
+| D2 | Replace `machine.on_state_change = _on_state_change` with `pass` in `manager._wire_house_state_persistence` | `test_d2_service_path_reaches_dispatch_helper_once` fails | CONFIRMED — 0 signals received; hook-bypass symmetric test still passes; restored clean. |
+| A-HIGH-1 | Re-inject an inline `db.log_house_state_change(...)` block at the `_run_inference` site | `test_a_high_1_source_no_inline_dispatch_at_run_inference` fails | CONFIRMED — AST/source anchor FAILS on the reintroduced text; runtime double-write would surface via `test_a_high_1_dispatch_helper_is_only_writer`; restored clean. |
+| A-MED-2 | Replace `if machine is not None and getattr(machine, "is_overridden", False):` in `_boot_settle_reconciliation_tick` tail with `if False:` | `test_a_med_2_boot_settle_override_dispatches_once_on_release` fails | CONFIRMED — override_set never dispatched after release; sibling "no override" test still passes; restored clean. |
+| C-HIGH-1a | Neuter `apply_restored(` call in `manager._async_restore_house_state` | `test_c_high_1_restore_loads_sleep_and_sets_boot_restore_active` fails | CONFIRMED — machine stays AWAY, `boot_restore_active` False; restored clean. |
+| C-HIGH-1b | Neuter `store.async_delay_save(` in `_on_persist_change` closure | `test_c_high_1_transition_triggers_debounced_save` + `test_c_high_1_heartbeat_callback_saves` fail | CONFIRMED — 2 tests FAIL (no debounced save on transition; no save on heartbeat tick); restored clean. |
+| C-HIGH-1c | Neuter `await self._get_house_state_store().async_save(` in `async_stop` | `test_c_high_1_stop_hook_and_async_stop_flush_via_async_save` fails | CONFIRMED — `store.saves` list stays empty on stop; restored clean. |
+| C-HIGH-3a | Replace boot-settle guard `if not self._boot_settle_done:` in `_dispatch_house_state_change` with `if False:` | `test_c_high_3_boot_settle_gate_suppresses_and_counts` fails | CONFIRMED — dispatch leaks under boot-settle; suppressed count never increments; restored clean. |
+| C-HIGH-3b | Replace `if self.observation_mode:` gate in helper with `if False:` | `test_c_high_3_observation_mode_gate_suppresses` fails | CONFIRMED — dispatch leaks under observation mode; restored clean. |
 
 Interpreter: `.venv-ha/bin/python`; `PYTHONDONTWRITEBYTECODE=1`; no
 `.pyc` staleness risk.
@@ -126,38 +134,27 @@ Interpreter: `.venv-ha/bin/python`; `PYTHONDONTWRITEBYTECODE=1`; no
 ### Suite baseline diff (no -n)
 
 - **-k "presence or house_state or hvac or manager" name-diff vs
-  `develop@d01ed874c`:** branch = 62 failures; develop = 33 failures.
-  Δ = **29 new failure names** (down from 36 after removing the real-Store
-  test that pulled in `pytest_homeassistant_custom_component.async_test_home_assistant`
-  and after eliminating monkeypatches of module-level
-  `homeassistant.helpers.dispatcher.async_dispatcher_send`).
-- **All 29 remaining new failures are ORDER-POLLUTION artifacts**, not
-  behavioural regressions:
-  - The new file passes 25/25 solo: `pytest test_house_state_restore_override.py -q`.
-  - Every listed victim test passes when run individually or in the
-    minimal 2–4 file combinations tried (`test_house_state_restore_override.py`
-    + `test_coordinator_diagnostics.py` + `test_domain_coordinators.py` -> 1
-    pre-existing fail only).
-  - Alphabetically, `test_house_state_restore_override.py` (h*) sorts
-    AFTER `test_coordinator_diagnostics.py` (c*) and
-    `test_domain_coordinators.py` (d*) — those victims' TESTS run BEFORE
-    my file's tests do, so my file's runtime cannot be the direct
-    polluter. The polluter is the ambient state accumulated by files
-    running between them under the wider `-k` collection.
-  - The suite's own `SUITE-HYGIENE-1` fixture (`quality/tests/conftest.py:52`)
-    only snapshots `sys.modules` keys prefixed `_ura_`, `ura_`,
-    `_energy_bootstrap`, etc. Real `homeassistant.*` modules pulled in
-    by any test's imports are NOT snapshotted, so `sys.modules.setdefault`
-    stubs installed later by victim files no-op — a pre-existing suite
-    hygiene gap (Bug Class #44 territory).
-  - The 33 develop-baseline failures (`datetime.utcnow()` tz-mixups in
-    `test_presence_coordinator.py::TestGeofenceHandler` +
-    `test_v47x_weather_manager.py::TestProviderHealth` etc.) reproduce
-    on develop unchanged.
-- Full-suite serial (`no -n`, before final trims): `11495 passed / 189
-  failed / 3 errors / 365s`. Post-trim not re-measured (would take
-  another ~6 min); no additional pollution vector added since the
-  measurement.
+  `develop@d01ed874c`:** branch = 33 failures; develop = 33 failures.
+  Δ = **0 new failure names.** Progression across this batch:
+  original 36 -> 29 (after removing `async_test_home_assistant`) -> 0
+  (after lazy `Store` import in `manager.py`, stdlib `timezone.utc` in
+  `house_state.py`, D2 test wiring through the real
+  `CoordinatorManager._wire_house_state_persistence`, and this fix-up
+  round's 13 new tests being fully hermetic under FakeHass).
+- **Historical note (kept for the review record):** the pre-fix-up
+  ORDER-POLLUTION triage in this section previously argued the 29 fails
+  were suite-hygiene artifacts. That claim is now moot — the root cause
+  was `homeassistant.helpers.storage.Store` being imported at
+  `manager.py` module scope, which pulled real HA helper modules into
+  `sys.modules` and no-op'd the `sys.modules.setdefault` stubs used by
+  `test_domain_coordinators.py` / `test_coordinator_diagnostics.py`.
+  Lazy-loading `Store` via `_get_house_state_store()` closed the door.
+- The new file passes 38/38 solo:
+  `pytest test_house_state_restore_override.py -q` -> `38 passed`.
+- The 33 develop-baseline failures (`datetime.utcnow()` tz-mixups in
+  `test_presence_coordinator.py::TestGeofenceHandler` +
+  `test_v47x_weather_manager.py::TestProviderHealth` etc.) reproduce on
+  develop unchanged and are NOT touched by this cycle.
 
 ### Live (F9 — DAYTIME override, no night restart)
 

@@ -1621,6 +1621,9 @@ class PresenceCoordinator(BaseCoordinator):
         self._mmwave_grace_clamp_logged: bool = False
         self._boot_settle_release_reason: str = "pending"
         self._boot_settle_presence_suppressed: int = 0
+        # B-L3: handle for the R2-1 reconciliation task so async_teardown
+        # can cancel it if the config entry unloads mid-flight.
+        self._boot_reconcile_task = None
 
         # v3.19.0: Face-confirmed arrival state
         self._face_arrival_cooldown: Dict[str, datetime] = {}
@@ -2276,10 +2279,13 @@ class PresenceCoordinator(BaseCoordinator):
         # R2-1: reconciliation tick scheduled at the single idempotent
         # convergence point so all three release paths get exactly one
         # post-settle inference. Distinct trigger label per R2-3.
+        # B-L3: keep a handle so async_teardown() can cancel a pending
+        # tick if the config entry unloads before it completes.
         try:
-            self.hass.async_create_task(
+            task = self.hass.async_create_task(
                 self._boot_settle_reconciliation_tick()
             )
+            self._boot_reconcile_task = task
         except Exception:  # noqa: BLE001 — defensive
             _LOGGER.debug(
                 "Boot-settle: reconciliation tick scheduling failed "
@@ -2324,28 +2330,77 @@ class PresenceCoordinator(BaseCoordinator):
             restore_active = bool(
                 getattr(machine, "boot_restore_active", False)
             ) if machine is not None else False
-            restored_state = machine._state if (machine is not None and restore_active) else None
+            # B-L1: capture the restored (effective) state BEFORE inference
+            # so a subsequent inference-driven transition does not mask
+            # divergence when we compare state after the run.
+            restored_effective = None
+            override_effective_before = None
+            if machine is not None:
+                restored_effective = machine._state if restore_active else None
+                override_effective_before = (
+                    machine.state  # override-aware effective view
+                    if getattr(machine, "is_overridden", False)
+                    else None
+                )
             trigger = (
                 "boot_restore_diverged"
                 if restore_active
                 else "boot_settle_release"
             )
+            # B-L2: on restored SLEEP, propagate the sleep flag to zone
+            # trackers BEFORE inference runs (the inference-driven
+            # transition path at _run_inference does this, but restore
+            # bypasses transition() so the fan-out was missing).
+            if (
+                restore_active
+                and machine is not None
+                and machine._state == HouseState.SLEEP
+            ):
+                try:
+                    for tracker in self._zone_trackers.values():
+                        tracker.set_sleep(True)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "boot-restore zone set_sleep propagation raised "
+                        "(non-fatal)", exc_info=True,
+                    )
             await self._run_inference(trigger)
             if machine is not None and restore_active:
-                if machine._state == restored_state:
+                if machine._state == restored_effective:
                     _LOGGER.info(
                         "Boot-settle reconciliation: boot_restore_confirmed "
                         "(state=%s — no dispatch)",
-                        restored_state,
+                        restored_effective,
                     )
                 else:
                     _LOGGER.info(
                         "Boot-settle reconciliation: boot_restore_diverged "
                         "(restored=%s inferred=%s)",
-                        restored_state,
+                        restored_effective,
                         machine._state,
                     )
                 machine.clear_boot_restore_active()
+            # A-MED-2: if an override was set BEFORE boot-settle released
+            # (either restored across restart, or set via the service /
+            # select while the gate was still up), the D2 dispatch hook
+            # was gated. Now that consumers are listening, emit exactly
+            # one override_set signal iff the machine's *effective* state
+            # (override-aware) differs from the *inferred* state
+            # (i.e. an override is still active and hasn't been cleared
+            # by a transition). Uses the SAME helper as the D2 adapter
+            # so the double-dispatch guard + payload shape are
+            # byte-identical.
+            if machine is not None and getattr(machine, "is_overridden", False):
+                inferred_now = machine._state
+                effective_now = machine.state  # override wins
+                if effective_now != inferred_now:
+                    self._dispatch_house_state_change(
+                        inferred_now,
+                        effective_now,
+                        "override_set",
+                        1.0,
+                        source="boot_settle_override",
+                    )
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
                 "Boot-settle reconciliation tick raised (non-fatal)",
@@ -6793,60 +6848,14 @@ class PresenceCoordinator(BaseCoordinator):
                     current_state, new_state, trigger
                 )
 
-                # D3: Log house state change to database
-                db = self.hass.data.get(DOMAIN, {}).get("database")
-                if db is not None:
-                    self.hass.async_create_task(
-                        db.log_house_state_change(
-                            state=new_state.value,
-                            confidence=self._inference_engine.confidence,
-                            trigger=trigger,
-                            previous_state=current_state.value,
-                        )
-                    )
-
-                # PATH-ALPHA D7: house_state_transition memory-episode
-                # mirror with a richer gate-input snapshot. First-tick-
-                # post-boot triggers ("boot", "restore", "initial",
-                # "startup", "restored") are SUPPRESSED by the writer
-                # (see memory_writers.write_house_state_transition
-                # docstring + test_house_state_transition_boot_
-                # suppression). Observational only.
-                try:
-                    from .. import memory_writers as _mw  # noqa: PLC0415
-                    _snapshot = {
-                        "tracked_persons_count_trusted": int(
-                            getattr(self, "_tracked_persons_count_trusted", 0)
-                        ),
-                        "all_tracked_persons_away": bool(
-                            getattr(self, "_all_tracked_persons_away", False)
-                        ),
-                        "census_count": int(
-                            getattr(self, "_census_count", 0)
-                        ),
-                        "unidentified_count": int(
-                            getattr(self, "_unidentified_count", 0)
-                        ),
-                        "excluded_persons": dict(
-                            getattr(self, "_excluded_persons", {}) or {}
-                        ),
-                        "veto_path": str(
-                            getattr(self, "_veto_path", "none")
-                        ),
-                    }
-                    _mw.write_house_state_transition(
-                        self.hass,
-                        old_state=current_state.value,
-                        new_state=new_state.value,
-                        trigger=trigger,
-                        confidence=self._inference_engine.confidence,
-                        snapshot=_snapshot,
-                    )
-                except Exception:  # noqa: BLE001 — defensive
-                    _LOGGER.debug(
-                        "D7 house_state_transition writer failed "
-                        "(non-fatal)", exc_info=True,
-                    )
+                # v5.103.27 (A-HIGH-1 = B-HIGH-1) — the old inline D3
+                # database log block and the old inline D7 memory-episode
+                # writer block that used to live here have been HOISTED
+                # into ``_dispatch_house_state_change`` so the helper is
+                # the ONLY writer. Any new dispatch site (override
+                # adapter, future boot-reconcile dispatch) gets one
+                # activity row + one D7 row automatically, and inference
+                # sites cannot accidentally double-emit.
 
                 # Publish signal (async_dispatcher_send imported at module top —
                 # a function-local import here re-scopes the name as a local for
@@ -7432,6 +7441,16 @@ class PresenceCoordinator(BaseCoordinator):
             self._retry_unsub()
             self._retry_unsub = None
 
+        # B-L3: cancel a pending R2-1 reconciliation task so it cannot
+        # fire against a torn-down coordinator after unload/reload.
+        task = self._boot_reconcile_task
+        if task is not None and not task.done():
+            try:
+                task.cancel()
+            except Exception:  # noqa: BLE001
+                pass
+        self._boot_reconcile_task = None
+
         # v4.6.2.2: Cancel guest persistence recheck timer on teardown (Bug Class #19)
         self._disarm_guest_gate()
 
@@ -7709,6 +7728,13 @@ class PresenceCoordinator(BaseCoordinator):
                 "unidentified_count": int(
                     getattr(self, "_unidentified_count", 0)
                 ),
+                # A-HIGH-1: preserve fields the old inline site used to write
+                # so the D7 row is byte-identical after the double-emit
+                # deletion in _run_inference.
+                "excluded_persons": dict(
+                    getattr(self, "_excluded_persons", {}) or {}
+                ),
+                "veto_path": str(getattr(self, "_veto_path", "none")),
                 "source": source,
             }
             _mw.write_house_state_transition(

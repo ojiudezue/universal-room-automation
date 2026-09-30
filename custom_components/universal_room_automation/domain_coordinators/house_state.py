@@ -24,6 +24,12 @@ _LOGGER = logging.getLogger(__name__)
 
 # --- D1 persistence constants (PLANNING house_state restart + override) ---
 HOUSE_STATE_STORE_KEY: Final[str] = f"{DOMAIN}.house_state"
+# C-L5: bump this when the persisted-record shape changes in an
+# incompatible way (e.g. renaming/removing a field, or changing the
+# semantics of an existing one). Additive fields do NOT require a bump —
+# ``apply_restored`` reads by name and ignores unknown keys. On a bump,
+# ``Store`` receives (version, minor_version) and either loads the old
+# record or drops it per the caller's migration policy.
 HOUSE_STATE_STORE_VERSION: Final[int] = 1
 # Kill-switch: 0 disables restore (machine always starts AWAY).
 HOUSE_STATE_RESTORE_MAX_STALE_S: Final[int] = 1800
@@ -281,12 +287,14 @@ class HouseStateMachine:
                     exc_info=True,
                 )
 
-    def clear_override(self, suppress_hook: bool = False) -> None:
+    def clear_override(self) -> None:
         """Clear manual override, returning to inferred state.
 
-        ``suppress_hook`` — internal use by ``transition()`` where the
-        caller already dispatches the effective-state-change payload
-        (double-dispatch guard, plan F6).
+        Fires D2 dispatch hook iff clearing changes the *effective* state
+        (i.e. inferred != cleared value). ``transition()`` performs its own
+        override-reset inline without going through this method, so there
+        is no double-dispatch risk here (C-L6: dead ``suppress_hook`` kwarg
+        removed 2026-09-29).
         """
         if self._override is None:
             return
@@ -299,8 +307,6 @@ class HouseStateMachine:
         self._override = None
         self._override_since = None
         self._fire_persist_change()
-        if suppress_hook:
-            return
         # F6 idempotence: if inferred == cleared, effective state did not
         # change; do NOT dispatch.
         if cleared != self._state and self.on_state_change is not None:
@@ -389,8 +395,14 @@ class HouseStateMachine:
             if saved_at is None:
                 return (False, -1.0, "unparseable_saved_at")
             age = (dt_util.utcnow() - saved_at).total_seconds()
+            # A-MED-1: reject overly-negative ages as "clock_skew". A tiny
+            # negative window (a few seconds) can happen with NTP jitter
+            # and is harmless — treat that as fresh. A large negative
+            # window (saved_at more than the staleness horizon INTO THE
+            # FUTURE) indicates a bogus clock and must not be trusted.
+            if age < -float(max_stale_s):
+                return (False, age, "clock_skew")
             if age < 0:
-                # clock skew — treat as fresh
                 age = 0.0
             if age > max_stale_s:
                 return (False, age, "stale")

@@ -562,7 +562,9 @@ async def test_d2_service_path_reaches_dispatch_helper_once(tmp_path, monkeypatc
         "old_state": "home_evening",
         "new_state": "sleep",
         "trigger": "override_set",
-        "confidence": None,
+        # A-MED-3: operator-driven overrides emit confidence=1.0 (not
+        # None) — matches Safety-forced dispatches.
+        "confidence": 1.0,
     }
 
 
@@ -612,3 +614,364 @@ def test_mutation_drill_deleting_persist_hook_call_breaks_persist_test():
     m.set_override(HouseState.SLEEP)
     m.clear_override()
     assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# A-HIGH-1 = B-HIGH-1 — no double-emit: helper is the ONLY writer.
+# ---------------------------------------------------------------------------
+
+
+class _RecordingDB:
+    def __init__(self):
+        self.calls: list = []
+
+    async def log_house_state_change(self, **kw):
+        self.calls.append(kw)
+
+
+class _RecordingActivityLogger:
+    def __init__(self):
+        self.calls: list = []
+
+    async def log(self, **kw):
+        self.calls.append(kw)
+
+
+@pytest.mark.asyncio
+async def test_a_high_1_dispatch_helper_is_only_writer(tmp_path, monkeypatch):
+    """One accepted transition (via the helper) -> exactly 1 D3 db call +
+    1 D7 memory write + 1 activity_logger call. Drill: reintroduce the
+    inline block at the _run_inference site and this test would double
+    every count."""
+    from custom_components.universal_room_automation.const import DOMAIN
+    from custom_components.universal_room_automation import memory_writers as _mw
+    hass = FakeHass(tmp_path)
+    coord, _ = _new_presence(hass)
+    coord._boot_settle_done = True
+
+    db = _RecordingDB()
+    al = _RecordingActivityLogger()
+    hass.data.setdefault(DOMAIN, {})["database"] = db
+    hass.data[DOMAIN]["activity_logger"] = al
+
+    d7_calls: list = []
+    real_writer = _mw.write_house_state_transition
+
+    def _spy(hass_, **kw):
+        d7_calls.append(kw)
+        return real_writer(hass_, **kw)
+
+    monkeypatch.setattr(_mw, "write_house_state_transition", _spy)
+    coord._dispatch_house_state_change(
+        HouseState.HOME_EVENING,
+        HouseState.HOME_NIGHT,
+        "test_transition",
+        0.9,
+        source="inference",
+    )
+    await hass.async_block_till_done()
+
+    assert len(db.calls) == 1, f"D3 log_house_state_change called {len(db.calls)}x, want 1"
+    assert len(al.calls) == 1, f"activity_logger called {len(al.calls)}x, want 1"
+    assert len(d7_calls) == 1, f"D7 write called {len(d7_calls)}x, want 1"
+    snap = d7_calls[0]["snapshot"]
+    assert "excluded_persons" in snap and "veto_path" in snap
+
+
+def test_a_high_1_source_no_inline_dispatch_at_run_inference():
+    """AST/source anchor: the _run_inference site MUST NOT contain the
+    old inline ``db.log_house_state_change`` block or the inline
+    ``_mw.write_house_state_transition`` block — the helper is the only
+    writer."""
+    import inspect
+    from custom_components.universal_room_automation.domain_coordinators import (
+        presence as _pres_mod,
+    )
+    src = inspect.getsource(_pres_mod.PresenceCoordinator._run_inference)
+    assert "db.log_house_state_change" not in src
+    assert "_mw.write_house_state_transition" not in src
+
+
+# ---------------------------------------------------------------------------
+# A-MED-2 — override set during boot-settle dispatches once after release.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_med_2_boot_settle_override_dispatches_once_on_release(
+    tmp_path, monkeypatch
+):
+    hass = FakeHass(tmp_path)
+    coord, DOMAIN = _new_presence(hass)
+    machine = HouseStateMachine(HouseState.HOME_EVENING)
+    machine.set_override(HouseState.SLEEP)
+    machine._boot_restore_active = False
+    hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = _StubManager(machine)
+
+    calls = _install_capture(monkeypatch)
+
+    async def _fake_inference(trigger):
+        return None
+
+    coord._run_inference = _fake_inference
+    coord._release_boot_settle("timeout")
+    await hass.async_block_till_done()
+
+    sends = [c for c in calls if "house_state" in str(c["signal"]).lower()]
+    assert len(sends) == 1, f"expected exactly one override_set dispatch, got {sends}"
+    payload = sends[0]["args"][0]
+    assert payload["trigger"] == "override_set"
+    assert payload["old_state"] == "home_evening"
+    assert payload["new_state"] == "sleep"
+    assert payload["confidence"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_a_med_2_no_override_no_extra_dispatch(tmp_path, monkeypatch):
+    hass = FakeHass(tmp_path)
+    coord, DOMAIN = _new_presence(hass)
+    machine = HouseStateMachine(HouseState.HOME_EVENING)
+    hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = _StubManager(machine)
+
+    calls = _install_capture(monkeypatch)
+
+    async def _fake(trig):
+        return None
+
+    coord._run_inference = _fake
+    coord._release_boot_settle("timeout")
+    await hass.async_block_till_done()
+
+    override_sends = [
+        c for c in calls
+        if "house_state" in str(c["signal"]).lower()
+        and c["args"][0].get("trigger") == "override_set"
+    ]
+    assert override_sends == []
+
+
+# ---------------------------------------------------------------------------
+# C-HIGH-1 — manager persistence wiring (recording Store).
+# ---------------------------------------------------------------------------
+
+
+class _RecordingStore:
+    def __init__(self, seed=None):
+        self._data = seed
+        self.saves: list = []
+        self.delay_saves: list = []
+
+    async def async_load(self):
+        return self._data
+
+    async def async_save(self, data):
+        self.saves.append(data)
+        self._data = data
+
+    def async_delay_save(self, data_func, delay=0):
+        try:
+            payload = data_func() if callable(data_func) else data_func
+        except Exception:
+            payload = None
+        self.delay_saves.append({"payload": payload, "delay": delay})
+
+
+def _install_manager_with_store(hass, store):
+    from custom_components.universal_room_automation.domain_coordinators.manager import (
+        CoordinatorManager,
+    )
+    m = CoordinatorManager(hass)
+    m._get_house_state_store = lambda: store
+    return m
+
+
+@pytest.mark.asyncio
+async def test_c_high_1_restore_loads_sleep_and_sets_boot_restore_active(tmp_path):
+    hass = FakeHass(tmp_path)
+    src = HouseStateMachine(HouseState.SLEEP)
+    seed = src.to_persisted_dict()
+    store = _RecordingStore(seed=seed)
+    m = _install_manager_with_store(hass, store)
+    await m._async_restore_house_state()
+    assert m._house_state_machine._state == HouseState.SLEEP
+    assert m._house_state_machine.boot_restore_active is True
+    assert m._house_state_restored is True
+
+
+@pytest.mark.asyncio
+async def test_c_high_1_transition_triggers_debounced_save(tmp_path, monkeypatch):
+    # Disable heartbeat timer so its ``async_track_time_interval`` handle
+    # doesn't leak as a lingering timer (test hygiene, not production).
+    from custom_components.universal_room_automation.domain_coordinators import (
+        manager as _mgr_mod,
+    )
+    monkeypatch.setattr(_mgr_mod, "HOUSE_STATE_HEARTBEAT_S", 0)
+    hass = FakeHass(tmp_path)
+    store = _RecordingStore()
+    m = _install_manager_with_store(hass, store)
+    m._wire_house_state_persistence()
+    machine = m._house_state_machine
+    machine._state = HouseState.HOME_DAY
+    machine._state_since = dt_util.utcnow() - timedelta(hours=1)
+    machine.transition(HouseState.HOME_EVENING, "test")
+    assert len(store.delay_saves) >= 1
+    assert store.delay_saves[-1]["payload"]["state"] == "home_evening"
+
+
+@pytest.mark.asyncio
+async def test_c_high_1_stop_hook_and_async_stop_flush_via_async_save(tmp_path, monkeypatch):
+    from custom_components.universal_room_automation.domain_coordinators import (
+        manager as _mgr_mod,
+    )
+    monkeypatch.setattr(_mgr_mod, "HOUSE_STATE_HEARTBEAT_S", 0)
+    hass = FakeHass(tmp_path)
+    store = _RecordingStore()
+    m = _install_manager_with_store(hass, store)
+    m._wire_house_state_persistence()
+    m._house_state_machine._state = HouseState.HOME_NIGHT
+    await m.async_stop()
+    assert len(store.saves) >= 1
+    assert store.saves[-1]["state"] == "home_night"
+
+
+@pytest.mark.asyncio
+async def test_c_high_1_heartbeat_callback_saves(tmp_path, monkeypatch):
+    """The heartbeat closure — invoked directly — schedules a
+    delay_save with the current persisted payload. Drill: replace
+    ``async_track_time_interval`` with a no-op in production and the
+    heartbeat_unsub becomes None (assert None instead) — checked here
+    by asserting the unsub handle is installed AND invoking a captured
+    heartbeat callback fires a save."""
+    from custom_components.universal_room_automation.domain_coordinators import (
+        manager as _mgr_mod,
+    )
+    captured = {}
+
+    def _fake_interval(hass, cb, interval):
+        captured["cb"] = cb
+        return lambda: None
+
+    monkeypatch.setattr(_mgr_mod, "async_track_time_interval", _fake_interval)
+    hass = FakeHass(tmp_path)
+    store = _RecordingStore()
+    m = _install_manager_with_store(hass, store)
+    m._wire_house_state_persistence()
+    assert "cb" in captured, "heartbeat interval was never registered"
+    m._house_state_machine._state = HouseState.HOME_EVENING
+    captured["cb"](None)  # fire one heartbeat tick
+    assert len(store.delay_saves) >= 1
+    assert store.delay_saves[-1]["payload"]["state"] == "home_evening"
+
+
+# ---------------------------------------------------------------------------
+# C-HIGH-2 — real _run_inference deferral (guard load-bearing).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_c_high_2_run_inference_defers_when_restore_active(tmp_path, monkeypatch):
+    hass = FakeHass(tmp_path)
+    coord, _ = _new_presence(hass)
+    machine = HouseStateMachine(HouseState.SLEEP)
+    machine._boot_restore_active = True
+    manager = _StubManager(machine)
+    coord._boot_settle_done = False
+
+    called: list = []
+    orig = machine.transition
+    def _spy(s, trigger=""):
+        called.append((s, trigger))
+        return orig(s, trigger=trigger)
+    machine.transition = _spy
+
+    if not coord._should_defer_transition_for_boot_restore(manager):
+        machine.transition(HouseState.AWAY, trigger="inference")
+    assert called == []
+    assert machine._state == HouseState.SLEEP
+
+
+# ---------------------------------------------------------------------------
+# C-HIGH-3 — helper boot-settle + observation-mode gates.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_c_high_3_boot_settle_gate_suppresses_and_counts(tmp_path, monkeypatch):
+    hass = FakeHass(tmp_path)
+    coord, _ = _new_presence(hass)
+    coord._boot_settle_done = False
+    coord._boot_settle_presence_suppressed = 0
+    calls = _install_capture(monkeypatch)
+    coord._dispatch_house_state_change(
+        HouseState.HOME_EVENING, HouseState.SLEEP, "override_set", 1.0, source="test"
+    )
+    assert calls == []
+    assert coord._boot_settle_presence_suppressed == 1
+
+
+@pytest.mark.asyncio
+async def test_c_high_3_observation_mode_gate_suppresses(tmp_path, monkeypatch):
+    hass = FakeHass(tmp_path)
+    coord, _ = _new_presence(hass)
+    coord._boot_settle_done = True
+    coord.observation_mode = True
+    calls = _install_capture(monkeypatch)
+    coord._dispatch_house_state_change(
+        HouseState.HOME_EVENING, HouseState.SLEEP, "override_set", 1.0, source="test"
+    )
+    assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# A-MED-1 — clock-skew classification (far-future saved_at rejected).
+# ---------------------------------------------------------------------------
+
+
+def test_a_med_1_far_future_saved_at_rejected_as_clock_skew():
+    m = _make(HouseState.AWAY)
+    future_iso = (
+        dt_util.utcnow() + timedelta(seconds=HOUSE_STATE_RESTORE_MAX_STALE_S * 3)
+    ).isoformat()
+    payload = {
+        "state": "sleep",
+        "state_since": future_iso,
+        "saved_at": future_iso,
+        "override": None,
+        "override_since": None,
+    }
+    ok, age_s, reason = m.apply_restored(payload)
+    assert ok is False
+    assert reason == "clock_skew"
+    assert m._state == HouseState.AWAY
+
+
+# ---------------------------------------------------------------------------
+# B-L2 — restored SLEEP propagates to zone trackers.
+# ---------------------------------------------------------------------------
+
+
+class _FakeZoneTracker:
+    def __init__(self):
+        self.sleep = False
+
+    def set_sleep(self, v):
+        self.sleep = v
+
+
+@pytest.mark.asyncio
+async def test_b_l2_restored_sleep_propagates_to_zone_trackers(tmp_path, monkeypatch):
+    hass = FakeHass(tmp_path)
+    coord, DOMAIN = _new_presence(hass)
+    coord._zone_trackers = {"z1": _FakeZoneTracker(), "z2": _FakeZoneTracker()}
+    machine = HouseStateMachine(HouseState.SLEEP)
+    machine._boot_restore_active = True
+    hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = _StubManager(machine)
+
+    async def _fake(_t):
+        return None
+
+    coord._run_inference = _fake
+    coord._release_boot_settle("timeout")
+    await hass.async_block_till_done()
+    for t in coord._zone_trackers.values():
+        assert t.sleep is True

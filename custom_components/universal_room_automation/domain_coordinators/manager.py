@@ -580,7 +580,11 @@ class CoordinatorManager:
                         "override dispatch adapter: presence not available yet"
                     )
                     return
-                helper(old, new, trigger, None, "override_adapter")
+                # A-MED-3: operator-driven overrides are, by definition,
+                # a certain intent. Emit confidence=1.0 (not None) so
+                # subscribers see a fully-confident payload equivalent
+                # to a Safety-forced transition.
+                helper(old, new, trigger, 1.0, "override_adapter")
             except Exception:  # noqa: BLE001
                 _LOGGER.debug(
                     "override dispatch adapter raised (non-fatal)",
