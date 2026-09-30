@@ -341,7 +341,9 @@
           "fan_temp_threshold": "Fan Start Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold",
           "humidity_fan_timeout": "Humidity Fan Minimum Run Time",
-          "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time"
+          "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time",
+          "comfort_fan_away_veto_enabled": "Comfort fan off when away",
+          "ble_hold_cap_enabled": "Limit phone-only occupancy"
         },
         "data_description": {
           "room_fan_mode": "Who controls this room's comfort fan: the thermostat zone, this room's own temperature settings, or nobody (you control it).",
@@ -355,7 +357,9 @@
           "fan_temp_threshold": "Used only when Fan mode is Room temperature: the temperature above which comfort fans turn on.",
           "humidity_fan_threshold": "Humidity % above which exhaust fans turn on (absolute threshold; OR-companion to spike detection).",
           "humidity_fan_timeout": "Minimum continuous runtime before the fan is allowed to turn off after humidity drops below threshold. Prevents short-cycling.",
-          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces off if humidity stays elevated longer than this — protects against stuck humidity sensors and runaway runs."
+          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces off if humidity stays elevated longer than this — protects against stuck humidity sensors and runaway runs.",
+          "comfort_fan_away_veto_enabled": "Keep this room's comfort fan off while the house is Away, even if a sensor says someone is here. Turn off if you want the fan to run while you're out (e.g. for pets). Humidity and exhaust fans are not affected.",
+          "ble_hold_cap_enabled": "After a while, stop keeping the room occupied on a phone's Bluetooth signal alone unless motion or presence sensors agree. Stops a phone left behind from holding the room on."
         },
         "sections": {
           "humidity_fan_advanced": {
@@ -1934,14 +1938,18 @@
           "fan_speed_high_temp": "High Speed Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold (%)",
           "humidity_fan_timeout": "Humidity Fan Minimum Run Time (s)",
-          "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time (s)"
+          "humidity_fan_max_runtime": "Humidity Fan Maximum Run Time (s)",
+          "comfort_fan_away_veto_enabled": "Comfort fan off when away",
+          "ble_hold_cap_enabled": "Limit phone-only occupancy"
         },
         "data_description": {
           "room_fan_mode": "Who controls this room's comfort fan: the thermostat zone, this room's own temperature settings, or nobody (you control it).",
           "fan_temp_threshold": "Used only when Fan mode is Room temperature. The temperature above which comfort fans turn on.",
           "fan_speed_low_temp": "Used only when Fan mode is Room temperature.",
           "fan_speed_med_temp": "Used only when Fan mode is Room temperature.",
-          "fan_speed_high_temp": "Used only when Fan mode is Room temperature."
+          "fan_speed_high_temp": "Used only when Fan mode is Room temperature.",
+          "comfort_fan_away_veto_enabled": "Keep this room's comfort fan off while the house is Away, even if a sensor says someone is here. Turn off if you want the fan to run while you're out (e.g. for pets). Humidity and exhaust fans are not affected.",
+          "ble_hold_cap_enabled": "After a while, stop keeping the room occupied on a phone's Bluetooth signal alone unless motion or presence sensors agree. Stops a phone left behind from holding the room on."
         },
         "sections": {
           "humidity_fan_advanced": {
