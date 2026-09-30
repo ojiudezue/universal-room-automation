@@ -1,6 +1,8 @@
-# v5.103.27 — House-state restart restore + override dispatch (DRAFT, HELD)
+# v5.103.27: the house remembers its state across a restart, and a forced house state reaches every coordinator
 
-**Status:** DRAFT — deploy HELD until operator go.
+**Status:** deployed 2026-09-29 (install only; HA restart held until the house is awake). Operator go: "Ship the next version"; rulings: override survives restart = YES, override ends arrester holds = YES.
+**Reviews:** A (correctness), B (lifecycle), C (per-site mutation) — all FIX-REQUIRED, consolidated fix-up db7fe0562 applied; orchestrator verified single emitter (presence.py helper only) and a 0-new name-diff on the merged develop.
+**First-restart note:** the store does not exist yet on the first restart after install, so THAT restart still walks through away/arriving (no saved state to restore). Every restart after it restores.
 **Plan:** `docs/planning/PLANNING_house_state_restart_and_override.md` (REV 2.1).
 **Plan review:** `docs/reviews/code-review/plan_review_house_state_restart_and_override.md`
 (READY-after-four-edits, applied in REV 2.1).
