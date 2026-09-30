@@ -26,6 +26,11 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant, State
 from homeassistant.helpers import sun
+
+from .cover_ownership import (
+    is_security_owned_cover,
+    is_security_owned_cover_by_registry,
+)
 from homeassistant.util import dt as dt_util
 from homeassistant.const import (
     STATE_ON,
@@ -807,6 +812,35 @@ class RoomAutomation:
         target_state = "open" if action == "open_cover" else "closed"
         room_name = self.config.get("room_name", "Unknown")
 
+        # ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1: defence-in-depth. Callers
+        # already pre-filter via _get_available_covers, but any future
+        # direct caller (or a stale pre-computed list captured before a
+        # room-config edit that added a garage cover) must NOT reach the
+        # cover.open_cover / cover.close_cover service. INFO-logged once
+        # per (room, cover_id) via the same dedup set as _get_available_covers.
+        garage_skip_logged = getattr(self, "_garage_skip_logged", None)
+        if garage_skip_logged is None:
+            garage_skip_logged = set()
+            self._garage_skip_logged = garage_skip_logged
+        filtered_cover_ids: list[str] = []
+        for cover_id in cover_ids:
+            # Registry-only variant at the choke point (no hass.states.get
+            # here — device_class is static and registry is authoritative;
+            # avoids a redundant state read against a mid-flight entity).
+            if is_security_owned_cover_by_registry(self.hass, cover_id):
+                if cover_id not in garage_skip_logged:
+                    garage_skip_logged.add(cover_id)
+                    _LOGGER.info(
+                        "Room %s: refusing %s on Security-owned cover %s "
+                        "(device_class garage/gate).",
+                        room_name, action, cover_id,
+                    )
+                continue
+            filtered_cover_ids.append(cover_id)
+        cover_ids = filtered_cover_ids
+        if not cover_ids:
+            return True, []
+
         # v4.5.0.4 hotfix: dispatch tilt service for venetian blinds.
         # Pre-fix, the room form let the user pick "Venetian Blinds (Tilt)"
         # as cover_type, but `automation.py` and `_cover_at_target` ignored
@@ -1549,13 +1583,38 @@ class RoomAutomation:
         return True
 
     def _get_available_covers(self) -> list[str]:
-        """v3.20.0 Fix 1: Filter covers to only available entities."""
+        """v3.20.0 Fix 1: Filter covers to only available entities.
+
+        ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1: also filter out any cover
+        whose device_class is 'garage' or 'gate'. Security owns those
+        (see security.py + cover_ownership.py); the room tier must
+        never open/close them at entry, exit, timed-open, timed-close,
+        or sleep-block. INFO-logged once per (room, cover_id) so a
+        misconfigured room surfaces in the logs but does not spam.
+        """
         covers = self.config.get(CONF_COVERS, [])
         if not covers:
             return []
+        room_name = self.config.get("room_name", "Unknown")
         available = []
         unavailable = []
+        garage_skip_logged = getattr(self, "_garage_skip_logged", None)
+        if garage_skip_logged is None:
+            garage_skip_logged = set()
+            self._garage_skip_logged = garage_skip_logged
         for cover_id in covers:
+            # Guard FIRST — a garage/gate cover currently 'unavailable'
+            # must still be excluded (not routed to the unavailable-log
+            # path either, which would misattribute the skip).
+            if is_security_owned_cover(self.hass, cover_id):
+                if cover_id not in garage_skip_logged:
+                    garage_skip_logged.add(cover_id)
+                    _LOGGER.info(
+                        "Room %s: skipping Security-owned cover %s "
+                        "(device_class garage/gate); Security keeps sole control.",
+                        room_name, cover_id,
+                    )
+                continue
             state = self.hass.states.get(cover_id)
             if state is None or state.state in ("unavailable", "unknown"):
                 unavailable.append(cover_id)
