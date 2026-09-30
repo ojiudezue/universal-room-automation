@@ -30541,6 +30541,17 @@ cards:
   next: 'MEASURE (me, read-only): per-table row counts + bytes (dbstat or page counts) on a copy of the DB; compare to retention settings. Exit: a retention card if a table is unbounded, else close.'
   links: {related: [DB-WAIT-WARNING-REWORK-1]}
   rank: {value: 2, time_criticality: 1, effort: 1}
+- id: ROOM-DIALOGS-USABILITY-SWEEP-1
+  title: Room settings dialogs look unfinished - raw underscore labels, fields with no helper text, and helper texts that are far too long
+  thread: ux
+  status: in_progress
+  tier: 1
+  created: '2026-09-29 20:15'
+  origin: 'Operator 2026-09-29 (screenshots of Climate & Fans): "this dialogs is really poor. Some things have weird looking lables with underscores. A bunch have no helper text. The ones that do have them too long. It needs to be cleaned up to look presentable. Might as well sweep the other room dialogs as well for usability."'
+  why: 'Climate & Fans showed comfort_fan_away_veto_enabled and ble_hold_cap_enabled as raw keys (fixed on develop 2026-09-29), many toggles with no helper text, and multi-sentence helper texts (Empty-room hold day/night run 6-8 lines). Same risk across every room config/options step. Adjacency: HVAC-KNOB-LABEL-PASS-1 (done, entity names), CM-CONFIG-FLOW-UX-1/-SELECTORS-1 (done, CM menu) - different surfaces. NEW.'
+  next: 'BUILD (strings-only + a meta-test): every field in every ROOM config and options step gets a plain label and a short helper text (label style guide), long texts trimmed; meta-test fails on any raw-key label, missing helper, or over-long helper. Ship with the next restart (bundled with BOOT-EVENT-LOOP-FREEZE-1 per operator choice).'
+  links: {related: [HVAC-KNOB-LABEL-PASS-1, CM-CONFIG-FLOW-UX-1]}
+  rank: {value: 3, time_criticality: 2, effort: 2}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

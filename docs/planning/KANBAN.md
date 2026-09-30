@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-29T19:52:13-05:00_ - _Data commit: `52f063ebc6f4`_ - _last_reconciled: 2026-09-29_
+_Generated: 2026-09-29T19:56:08-05:00_ - _Data commit: `f886c4877d4c`_ - _last_reconciled: 2026-09-29_
 
 
 ## Columns
@@ -13,7 +13,7 @@ _Generated: 2026-09-29T19:52:13-05:00_ - _Data commit: `52f063ebc6f4`_ - _last_r
 | 🔬 Investigating | 4 |
 | 🧭 Pre-planning | 10 |
 | 📝 Planned | 22 |
-| 🔨 In progress | 2 |
+| 🔨 In progress | 3 |
 | 🔍 Review | 2 |
 | ⏸️ Waiting on operator | 22 |
 | ⏳ Waiting on me (Claude) | 3 |
@@ -584,7 +584,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (2)
+## 🔨 In progress (3)
 _being built_
 
 ### `URA-ATTRIBUTE-CHURN-1` - Two URA entities re-publish every couple of seconds only because a timestamp or countdown attribute ticked, adding HA CPU load and a history row each time — _#1 · WSJF 4.5 · v4 tc3 u2 /e2_
@@ -617,6 +617,14 @@ _created 2026-09-26 02:14 · updated 2026-09-29 01:05 · initial_
   - `gate_2026_09_27`: FOUR-STEP GATE (overnight 2026-09-27). (1) VALIDITY: still real. Re-grep of quality/tests files that write_text AND reference custom_components: in-place writers with 0-1 tmp refs are still test_ble_extend_not_create, test_chatter_wire_i...
   - `observed_2026_09_26`: LIVE INSTANCE, not theoretical. At about 02:04 CDT, during the overnight full-suite run in the shared main checkout, `git status` showed custom_components/universal_room_automation/domain_coordinators/energy.py modified with `return 0.0 ...
   - `scope_measured_2026_09_26`: grep for write_text plus custom_components across quality/tests: 14 files. Counting those with zero or one tmp-path reference as in-place writers gives about 9-10: test_ble_extend_not_create, test_dp_yields_to_excess_solar, test_energy_w...
+
+### `ROOM-DIALOGS-USABILITY-SWEEP-1` - Room settings dialogs look unfinished - raw underscore labels, fields with no helper text, and helper texts that are far too long — _#3 · WSJF 3.5 · v3 tc2 u2 /e2_
+thread: **ux** - status: **in_progress**
+_created 2026-09-29 20:15_
+- **Why:** Climate & Fans showed comfort_fan_away_veto_enabled and ble_hold_cap_enabled as raw keys (fixed on develop 2026-09-29), many toggles with no helper text, and multi-sentence helper texts (Empty-room hold day/night run 6-8 lines). Same ris...
+- **Next:** BUILD (strings-only + a meta-test): every field in every ROOM config and options step gets a plain label and a short helper text (label style guide), long texts trimmed; meta-test fails on any raw-key label, missing helper, or over-long ...
+- **Forensic keys (1):**
+  - `tier`: 1
 
 ## 🔍 Review (2)
 _under review_
