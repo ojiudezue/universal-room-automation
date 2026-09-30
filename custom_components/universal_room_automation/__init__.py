@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.23
+# Universal Room Automation vv5.103.25
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -32,6 +32,10 @@ from homeassistant.util import dt as dt_util  # v4.6.10 review fix A-M1: module-
 
 from .const import (
     DOMAIN,
+    # HVAC Batch D: per-room Fan Mode migration (_migrate_room_fan_mode).
+    CONF_ROOM_FAN_MODE,
+    fan_mode_from_legacy,
+    room_in_hvac_zone,
     ENTRY_TYPE_INTEGRATION,
     ENTRY_TYPE_ROOM,
     ENTRY_TYPE_ZONE,  # v3.3.2: Import zone entry type
@@ -1755,6 +1759,52 @@ async def _check_and_notify_room_name_desync(
         )
 
 
+def _migrate_room_fan_mode(hass: HomeAssistant, entry: ConfigEntry) -> str | None:
+    """HVAC Batch D (v5.103.24): one-time per-room "Fan Mode" migration.
+
+    A ROOM entry whose data AND options carry no ``CONF_ROOM_FAN_MODE`` gets one,
+    mapped from the two retired toggles (``const.fan_mode_from_legacy``):
+    hvac_coordination_enabled on -> "follow_thermostat" (or
+    "room_temperature" when the room is not in an HVAC zone); else
+    fan_control_enabled on -> "room_temperature"; else "off". The legacy
+    keys are left in place (readable for one release). Idempotent: a room
+    that already has a Fan Mode is a no-op. Runs before the update listeners
+    are attached, so the options write does not reload the room. Returns the
+    mode written, or None. Never raises.
+    """
+    try:
+        if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+            return None
+        options = entry.options or {}
+        merged = {**(entry.data or {}), **options}
+        # Fix-up 1 (HIGH, A/B/C): a new room created through the config flow
+        # carries its Fan Mode in entry.DATA (the create path writes data,
+        # not options). Present anywhere in the merged view = already chosen:
+        # never overwrite it from the (absent) legacy toggles.
+        if CONF_ROOM_FAN_MODE in merged:
+            return None
+        mode = fan_mode_from_legacy(
+            merged, in_hvac_zone=room_in_hvac_zone(hass, entry.entry_id),
+        )
+        hass.config_entries.async_update_entry(
+            entry, options={**options, CONF_ROOM_FAN_MODE: mode},
+        )
+        _LOGGER.info(
+            "HVAC Batch D: room %s Fan Mode migrated to %s "
+            "(hvac_coordination_enabled=%s, fan_control_enabled=%s)",
+            entry.data.get("room_name", entry.entry_id), mode,
+            merged.get("hvac_coordination_enabled"),
+            merged.get("fan_control_enabled"),
+        )
+        return mode
+    except Exception:  # noqa: BLE001 — never break setup
+        _LOGGER.exception(
+            "HVAC Batch D Fan Mode migration failed (non-fatal) for entry_id=%s",
+            entry.entry_id,
+        )
+        return None
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Universal Room Automation from a config entry."""
     # ROOM-NAME-DESYNC-1 D2 — reconcile pre-cycle options/data desync on
@@ -1782,6 +1832,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "(non-fatal) for entry_id=%s",
                 entry.entry_id,
             )
+        # HVAC Batch D: one-time Fan Mode migration — AFTER the zone sync
+        # above (zone membership decides "Follow thermostat"), BEFORE any
+        # update listener.
+        _migrate_room_fan_mode(hass, entry)
 
     # Initialize hass.data[DOMAIN] if needed
     if DOMAIN not in hass.data:
@@ -6309,6 +6363,7 @@ from .const import (
     CONF_COMFORT_HUMIDITY_MAX as _CONF_COMFORT_HUMIDITY_MAX,
     CONF_FAN_CONTROL_ENABLED as _CONF_FAN_CONTROL_ENABLED,
     CONF_HUMIDITY_FAN_CONTROL_ENABLED as _CONF_HUMIDITY_FAN_CONTROL_ENABLED,
+    CONF_ROOM_FAN_MODE as _CONF_ROOM_FAN_MODE,
     # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D1: climate-step LIVE +
     # REFRESHED-with-coverage keys. Per-consumer-site audit lives in the
     # audit block below the _ROOM_SUPPRESS_KEYS frozenset.
@@ -7755,6 +7810,14 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         # comment above and AUDIT §1).
         _CONF_FAN_CONTROL_ENABLED,
         _CONF_HUMIDITY_FAN_CONTROL_ENABLED,
+        # HVAC Batch D (v5.103.24): the per-room "Fan Mode" select writes
+        # this into entry.options. Every consumer reads it LIVE through
+        # const.fan_owner (HVAC tier: FanController `_live_room_merged`,
+        # hvac.py sweep / pre-arrival `coordinator.config_entry` merge,
+        # hvac_predict; recheck `_merged_config`; reconciler `_config()`) or
+        # REFRESHED (room tier `self.config` via `_refresh_config` at the top
+        # of every tick) — a change must not reload the room.
+        _CONF_ROOM_FAN_MODE,
         # ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 D1 (2026-09-19) — full
         # per-consumer-site audit; verdict = MIN over sites
         # (LIVE > REFRESHED > EXCLUDED). REFRESHED-with-coverage sites

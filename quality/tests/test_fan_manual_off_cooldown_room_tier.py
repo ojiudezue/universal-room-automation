@@ -223,7 +223,9 @@ def _make_automation(
         CONF_FAN_CONTROL_ENABLED: True,
         CONF_FANS: [FAN_ENTITY],
         CONF_FAN_TEMP_THRESHOLD: 80,
-        "hvac_coordination_enabled": False,
+        # HVAC Batch D: the room tier defers only when the owner is "hvac"
+        # (const.fan_owner) — a HVAC-managed room carries the toggle.
+        "hvac_coordination_enabled": hvac_managing,
         "sleep_protection_enabled": False,
         "room_name": "Jaya Bedroom",
     }

@@ -503,6 +503,14 @@ PRE_ARRIVAL_PRECOOL_OFFSET_F: Final = -2.0
 # the Q7 reference-preset rule and the interrupt pull in
 # `_expire_pre_arrival_zones`.
 S12_PRE_ARRIVAL_SITE: Final = "S12_pre_arrival"
+# HVAC Batch D (HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1): climate entity
+# states in which the heat_cool enforcer (B1) and S1 do NOT write — the
+# integration cannot act on them and every tick re-sent the same write (09-28
+# 14:24-17:21: 37 B1 writes on zone_1 with values_before.hvac_mode =
+# unavailable, plus an S1 away write every tick). RUNG 1 (module constant): HA
+# state vocabulary, not a tunable. A missing entity (state None) is NOT in the
+# set — that is a config gap, not an outage.
+HVAC_CLIMATE_UNREADABLE_STATES: Final = frozenset({"unavailable", "unknown"})
 # Q7 (operator ruling, fix-up 1: "Home for pre-arrivals"): house states whose
 # ARRIVAL target is `sleep`; every other house state arrives to `home`.
 PRE_ARRIVAL_SLEEP_ARRIVAL_STATES: Final = ("sleep", "waking")
@@ -1281,6 +1289,19 @@ HVAC_METRICS: Final = [
 # 3 rows/day (one per zone); typical is zero.
 HVAC_SUPPRESSED_FROM_PERSISTENCE: Final = frozenset({
     "zone_call_frequency",
+    "comfort_deviation_hours",
+    "egress_pause_frequency",
+})
+
+# HVAC-ANOMALY-BLIND-1 residual A (D4): metrics DECLARED on purpose without a
+# producer. Passed to AnomalyDetector(unwired_metric_names=...). With no data
+# they read coverage reason `not_wired` (declared gap) rather than `never_fed`
+# (starved producer = bug); either way they are blind, so the anomaly sensor
+# reads `partial`, not `nominal`. Must be a subset of the SUPPRESSED set and
+# have no record_observation site (meta-test in test_v465_observability_gap.py).
+# Disposition card: ANOMALY-UNWIRED-METRIC-DISPOSITION-1 (egress_pause_frequency);
+# producer card: HVAC-COMFORT-DEVIATION-PRODUCER-1 (comfort_deviation_hours).
+HVAC_UNWIRED_METRICS: Final = frozenset({
     "comfort_deviation_hours",
     "egress_pause_frequency",
 })

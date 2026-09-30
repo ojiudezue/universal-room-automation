@@ -92,8 +92,13 @@ Revert the merge commits. There is no schema, options or entity-id change.
 |---|---|---|---|
 | L1 | Renamed friendly names show; entity ids unchanged | **PASS** | `switch.ura_hvac_coordinator_hvac_consensus_defer_gate` = "URA: HVAC Coordinator Wait for Presence"; `switch.ura_coordinator_manager_compliance_consensus_defer_gate` = "... Compliance Presence Wait"; `number.ura_energy_coordinator_dynamic_preset_dwell_minutes` = "03 · Weather Adjust Delay"; `..._hysteresis` = "04 · Weather Adjust Margin" |
 | L2a | `away_due_at` None while the zone is HVAC-occupied | **PASS** | zone_1 (sleep, occupied) and zone_2 (occupied) both `away_due_at: null` |
-| L2b | `away_due_at` set on an empty zone with a bounded release | **PENDING** | only zone_3 was empty (since 23:25), in house sleep/night, where the release is unbounded by design, so `hvac_release_at` and `away_due_at` are null. Check on the first daytime empty-zone release |
-| L3 | `grace_until` during an arrester grace | **PENDING** | no arrester grace armed since the restart |
+| L2b | `away_due_at` set on an empty zone with a bounded release | **PASS (2026-09-29)** | zone_3 12:02:29: release 11:59:50, away_due_at 12:04:50, None at 12:04:52 (see follow-up below) |
+| L3 | `grace_until` during an arrester grace | **PASS (2026-09-29)** | Upstairs grace_until 07:08:53 at 07:07:13; E+MS grace 08:54:19, compromise_until 08:59:19 (see follow-up below) |
 | L4 | Banking/pre-heat restore writes the configured Heat Low | **PENDING (rare path)** | only fires on a raw (human-manual) banking release via the preset fallback |
 
 Boot observation (not caused by this release; evidence for Batch B `PLANNING_hvac_w1_w2_finish.md`): at 23:03:51 a human set zone_2 76→71 during a live pre-arrival banking borrow (`override_detected` gated `borrow_active`). At the 23:40 restart, the boot audit's stale-boot release restored the borrow's snapshot preset `away`, erasing the human's 71. S1 then set `home` at 23:41:21 (house `home_night`). Batch B's "person interrupts ends the borrow" would have closed the row at 23:03, so the restart would have had nothing to restore.
+
+### Follow-up validation 2026-09-29 (daytime)
+- **L2b PASS:** `sensor.ura_hvac_coordinator_zone_3_status` at 12:02:29 showed `hvac_release_at` 11:59:50 and `away_due_at` 12:04:50 (release + knob 48 = 5 min). It went back to None at 12:04:52 once the time had passed. The same happened at 12:12:30 (release 12:11:46, due 12:16:46).
+- **L3 PASS:** the arrester `zones` attribute recorded `grace_until` for Upstairs at 07:07:13 (until 07:08:53), a grace for Entertainment + Master Suite at 08:49:44 (until 08:54:19), then `compromise_until` 08:59:19 at 08:54:24.
+- L4 (Heat Low restore) remains a rare seasonal path and is proven in-suite (card closed with a revival trigger).

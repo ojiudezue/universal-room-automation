@@ -2,6 +2,7 @@
 name: ura-planner
 description: Writes, reviews, and refocuses URA planning docs. Use to plan a cycle, critique a plan before build, or trim scope. Enforces institutional-context-first, falsifiable invariants, the knob ladder, producer/consumer symmetry, and measure-before-build — and pushes back on enhancement requests that don't pay their way.
 model: claude-opus-5-5
+effort: low
 ---
 
 ## MANDATORY FIRST STEP FOR HVAC WORK

@@ -67,6 +67,46 @@ class ComplianceState(StrEnum):
 
 
 # ============================================================================
+# Anomaly coverage vocabulary (HVAC-ANOMALY-BLIND-1 residual A)
+# ============================================================================
+#
+# `partial` is a SENSOR STATE meaning "some declared metric cannot see" — it is
+# deliberately NOT an AnomalySeverity member (Bug Class #22): it must stay out
+# of `_SEVERITY_RANK`, `map_diag_severity` and every severity roll-up.
+COVERAGE_PARTIAL = "partial"
+COVERAGE_FULL = "full"
+
+# Per-metric coverage reasons (first match wins, in this order; see
+# AnomalyDetector.get_coverage). `stale` is reserved for the parked D5.
+COVERAGE_REASON_STALE = "stale"
+COVERAGE_REASON_OK = "ok"
+COVERAGE_REASON_LEARNING = "learning"
+COVERAGE_REASON_NOT_COLLECTING = "not_collecting"
+COVERAGE_REASON_NOT_WIRED = "not_wired"
+COVERAGE_REASON_NEVER_FED = "never_fed"
+
+# A metric is blind when it has no mature data. Suppressed (muted) and
+# constant-baseline (hair-triggered) metrics are annotations, never blind.
+BLIND_COVERAGE_REASONS: "frozenset[str]" = frozenset({
+    COVERAGE_REASON_LEARNING,
+    COVERAGE_REASON_NOT_COLLECTING,
+    COVERAGE_REASON_NEVER_FED,
+    COVERAGE_REASON_NOT_WIRED,
+    COVERAGE_REASON_STALE,
+})
+
+# Operator ruling 2026-09-29 ("we shouldn't use learning if it has learned or
+# there is enough data samples"): `learning` means ACTIVELY COLLECTING. A
+# below-gate metric whose newest sample (max `last_updated` across its scopes)
+# is older than this many days is `not_collecting` — blind, so the sensor
+# reads `partial`, never `learning` forever (e.g. safety.active_hazard_count,
+# 42/720, last sample 2026-09-04, fed only when a hazard fires).
+# Rung 1 (module constant): a protocol window whose change should be reviewed.
+# A metric with data but no parseable timestamp is NOT judged stalled.
+ANOMALY_LEARNING_STALL_DAYS: int = 7
+
+
+# ============================================================================
 # Data classes
 # ============================================================================
 
@@ -933,6 +973,7 @@ class AnomalyDetector:
         sensitivity_multiplier: float = 1.0,
         suppressed_metric_names: Optional["frozenset[str]"] = None,
         minimum_samples_by_metric: Optional[Dict[str, int]] = None,
+        unwired_metric_names: Optional["frozenset[str]"] = None,
     ) -> None:
         """Initialize the anomaly detector.
 
@@ -953,6 +994,12 @@ class AnomalyDetector:
                 persistence precisely because its shape is degenerate.
                 Companion to each coordinator's module-level
                 `*_SUPPRESSED_FROM_PERSISTENCE` constant from v4.6.5.1 P2.
+            unwired_metric_names: HVAC-ANOMALY-BLIND-1 residual A. Metrics
+                declared on purpose without a producer. With no data they
+                report coverage reason `not_wired` (a declared gap) instead of
+                `never_fed` (a starved producer, i.e. a bug). Either way they
+                are blind, so the sensor reads `partial`. Entries not in
+                `metric_names` are dropped with a WARNING.
         """
         self.hass = hass
         self.coordinator_id = coordinator_id
@@ -995,6 +1042,19 @@ class AnomalyDetector:
             dict(minimum_samples_by_metric) if minimum_samples_by_metric
             else {}
         )
+        # HVAC-ANOMALY-BLIND-1 residual A: declared-unwired metrics.
+        _unwired = frozenset(unwired_metric_names or ())
+        _undeclared = _unwired - set(metric_names)
+        if _undeclared:
+            _LOGGER.warning(
+                "AnomalyDetector %s: unwired_metric_names %s are not in "
+                "metric_names; ignoring them",
+                coordinator_id, sorted(_undeclared),
+            )
+        self._unwired_metric_names: "frozenset[str]" = _unwired - _undeclared
+        # One-time WARNING per metric when a declared-unwired metric has data
+        # (the declaration is stale). Per-detector, so no log spam.
+        self._warned_unwired_but_fed: set[str] = set()
 
     def _min_samples_for(self, metric_name: str) -> int:
         """Return the maturation gate for a metric.
@@ -1028,7 +1088,13 @@ class AnomalyDetector:
         return self.hass.data.get(DOMAIN, {}).get("database")
 
     def _get_baseline(self, metric_name: str, scope: str) -> MetricBaseline:
-        """Get or create a baseline for a metric+scope pair."""
+        """Get or create a baseline for a metric+scope pair.
+
+        WRITE PATH ONLY (record_observation). Read paths must use
+        `_peek_baseline` / `_scopes_for`, which never create a row: a created
+        row is a phantom `(metric, scope, 0)` that save_baselines persists,
+        and a creation during save_baselines' await is the M3 race.
+        """
         key = (metric_name, scope)
         if key not in self._baselines:
             self._baselines[key] = MetricBaseline(
@@ -1037,6 +1103,201 @@ class AnomalyDetector:
                 scope=scope,
             )
         return self._baselines[key]
+
+    def _peek_baseline(
+        self, metric_name: str, scope: str,
+    ) -> Optional[MetricBaseline]:
+        """Return the existing baseline for (metric, scope), or None. Never
+        creates."""
+        return self._baselines.get((metric_name, scope))
+
+    def _scopes_for(self, metric_name: str) -> Dict[str, MetricBaseline]:
+        """Return the existing baselines of one metric keyed by scope. Never
+        creates."""
+        return {
+            s_name: b
+            for (m_name, s_name), b in list(self._baselines.items())
+            if m_name == metric_name
+        }
+
+    def _best_scope(
+        self, metric_name: str,
+    ) -> tuple[Optional[str], Optional[MetricBaseline]]:
+        """The metric's existing scope with the highest sample_count; ties go
+        to the lexicographically smallest scope name. (None, None) when the
+        metric has no row at all (n = 0). A phantom `(metric, house, 0)` row
+        can therefore never win over a fed zone row.
+        """
+        scopes = self._scopes_for(metric_name)
+        if not scopes:
+            return None, None
+        s_name, b = min(
+            scopes.items(), key=lambda kv: (-kv[1].sample_count, kv[0]),
+        )
+        return s_name, b
+
+    def _status_metric(self, metric_name: str, scope: str) -> tuple[int, bool]:
+        """(sample_count, stalled) used by the status reads.
+
+        scope == "house" (the default and the only value production passes):
+        best-scope aggregation, so a zone-fed metric counts, and the stall
+        check looks at the newest sample in ANY scope. Any other explicit
+        scope: exactly that scope (pre-existing semantics, minus the row
+        creation).
+        """
+        if scope == "house":
+            _s, b = self._best_scope(metric_name)
+            stamps = self._scopes_for(metric_name).values()
+        else:
+            b = self._peek_baseline(metric_name, scope)
+            stamps = [b] if b is not None else []
+        n = b.sample_count if b is not None else 0
+        return n, self._is_stalled(stamps)
+
+    @staticmethod
+    def _max_last_updated_dt(baselines) -> Optional[datetime]:
+        """Max `last_updated` across baselines as an aware UTC datetime.
+
+        Naive values (pre-A-M2 rows) are treated as UTC; unparseable or None
+        values are skipped.
+        """
+        best: Optional[datetime] = None
+        for b in baselines:
+            raw = getattr(b, "last_updated", None)
+            if not raw:
+                continue
+            try:
+                parsed = dt_util.parse_datetime(str(raw))
+            except Exception:  # noqa: BLE001 - defensive parse
+                parsed = None
+            if parsed is None:
+                continue
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            if best is None or parsed > best:
+                best = parsed
+        return best.astimezone(timezone.utc) if best is not None else None
+
+    @classmethod
+    def _max_last_updated(cls, baselines) -> Optional[str]:
+        """Display form of `_max_last_updated_dt`: aware ISO `+00:00` or None."""
+        best = cls._max_last_updated_dt(baselines)
+        return best.isoformat() if best is not None else None
+
+    @classmethod
+    def _is_stalled(cls, baselines) -> bool:
+        """True when the newest sample is older than
+        ANOMALY_LEARNING_STALL_DAYS. No parseable timestamp → False (not
+        judged). Only meaningful for a below-gate metric with data."""
+        newest = cls._max_last_updated_dt(baselines)
+        if newest is None:
+            return False
+        now = dt_util.utcnow()
+        if now.tzinfo is None:  # defensive: a naive clock is UTC
+            now = now.replace(tzinfo=timezone.utc)
+        return now - newest > timedelta(days=ANOMALY_LEARNING_STALL_DAYS)
+
+    def get_coverage(self) -> Dict[str, Dict[str, Any]]:
+        """Per declared metric: can this detector see it?
+
+        Aggregates across scopes (no `scope` argument). Per metric returns
+        `reason`, `suppressed`, `constant_baseline`, `best_scope`,
+        `sample_count` (best scope) and `last_updated` (aware UTC max).
+
+        Reasons, first match wins: ok (best n ≥ gate) → learning (0 < n <
+        gate, newest sample within ANOMALY_LEARNING_STALL_DAYS) →
+        not_collecting (0 < n < gate, newest sample older than that; operator
+        ruling 2026-09-29) → not_wired (n == 0, declared unwired) → never_fed
+        (n == 0, not declared: a starved producer). Data wins over the
+        declaration: a declared-unwired metric with data gets its data reason
+        plus a one-time WARNING naming the stale declaration.
+
+        `constant_baseline` is an ANNOTATION: best-scope n ≥ gate AND the
+        stored raw `variance == 0.0` exactly (never `.std`, which is floored
+        at 0.1). It is not blindness — such a metric is hair-triggered.
+        """
+        coverage: Dict[str, Dict[str, Any]] = {}
+        for metric_name in self.metric_names:
+            gate = self._min_samples_for(metric_name)
+            scopes = self._scopes_for(metric_name)
+            best_scope, best = self._best_scope(metric_name)
+            n = best.sample_count if best is not None else 0
+            if n >= gate:
+                reason = COVERAGE_REASON_OK
+            elif n > 0:
+                reason = (
+                    COVERAGE_REASON_NOT_COLLECTING
+                    if self._is_stalled(scopes.values())
+                    else COVERAGE_REASON_LEARNING
+                )
+            elif metric_name in self._unwired_metric_names:
+                reason = COVERAGE_REASON_NOT_WIRED
+            else:
+                reason = COVERAGE_REASON_NEVER_FED
+            if (
+                n > 0
+                and metric_name in self._unwired_metric_names
+                and metric_name not in self._warned_unwired_but_fed
+            ):
+                self._warned_unwired_but_fed.add(metric_name)
+                _LOGGER.warning(
+                    "AnomalyDetector %s: metric %s is declared unwired but has "
+                    "data (%d samples at %s); the declaration is stale",
+                    self.coordinator_id, metric_name, n, best_scope,
+                )
+            coverage[metric_name] = {
+                "reason": reason,
+                "suppressed": metric_name in self._suppressed_metric_names,
+                "constant_baseline": bool(
+                    best is not None and n >= gate and best.variance == 0.0
+                ),
+                "best_scope": best_scope,
+                "sample_count": n,
+                "last_updated": self._max_last_updated(scopes.values()),
+            }
+        return coverage
+
+    def get_blind_metrics(
+        self, coverage: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Dict[str, str]:
+        """{metric: reason} for every blind declared metric (metric order)."""
+        cov = coverage if coverage is not None else self.get_coverage()
+        return {
+            m: c["reason"] for m, c in cov.items()
+            if c["reason"] in BLIND_COVERAGE_REASONS
+        }
+
+    def get_coverage_state(self) -> str:
+        """`partial` when any declared metric is blind, else `full`."""
+        return COVERAGE_PARTIAL if self.get_blind_metrics() else COVERAGE_FULL
+
+    def get_sensor_state(self) -> str:
+        """The one anomaly-sensor state projection (replaces 5 duplicates).
+
+        Precedence, top to bottom:
+          1. worst persisted severity ≠ nominal → that severity (a persisted
+             anomaly can only come from a mature metric, so it is never a
+             learning artifact and is never masked);
+          2. aggregate learning ∈ {insufficient_data, learning} → that value
+             (`learning` only while a metric is actively collecting; a
+             stalled detector aggregates to `paused` and falls through);
+          3. any blind declared metric → `partial`;
+          4. otherwise → `nominal`.
+        Severity semantics are untouched; `partial` is not a severity.
+        """
+        severity = self.get_worst_severity()
+        if severity != AnomalySeverity.NOMINAL:
+            return severity.value
+        learning = self.get_learning_status()
+        learning_value = getattr(learning, "value", learning)
+        if learning_value in (
+            LearningStatus.INSUFFICIENT_DATA.value,
+            LearningStatus.LEARNING.value,
+        ):
+            return learning_value
+        if self.get_blind_metrics():
+            return COVERAGE_PARTIAL
+        return AnomalySeverity.NOMINAL.value
 
     def _maybe_reset_daily_counter(self) -> None:
         """Reset daily anomaly counter if date changed.
@@ -1125,21 +1386,40 @@ class AnomalyDetector:
         this install. Dead metrics still show active=False in the
         per-metric details (get_status_summary), so the gap remains
         visible to operators.
+
+        HVAC-ANOMALY-BLIND-1 residual A: non-creating read; for the default
+        scope="house" each metric counts at its best scope (a zone-fed metric
+        is no longer read as silent). See `_status_metric`.
+
+        Operator ruling 2026-09-29: LEARNING means some metric is ACTIVELY
+        collecting toward its gate. A below-gate metric with no sample within
+        ANOMALY_LEARNING_STALL_DAYS is not learning. When the detector is not
+        ACTIVE, nothing is collecting, but some data exists (a mature metric
+        below the floor(n/2) threshold, or a stalled one), the aggregate is
+        PAUSED (the pre-existing, previously unproduced enum member) — so
+        the sensor projection falls through to `partial`, never `learning`.
+        INSUFFICIENT_DATA keeps its meaning: no metric has any data.
         """
         active_metrics = 0
         learning_metrics = 0
+        stalled_metrics = 0
         for metric_name in self.metric_names:
-            baseline = self._get_baseline(metric_name, scope)
-            if baseline.sample_count >= self._min_samples_for(metric_name):
+            n, stalled = self._status_metric(metric_name, scope)
+            if n >= self._min_samples_for(metric_name):
                 active_metrics += 1
-            elif baseline.sample_count > 0:
-                learning_metrics += 1
+            elif n > 0:
+                if stalled:
+                    stalled_metrics += 1
+                else:
+                    learning_metrics += 1
 
         threshold = max(1, len(self.metric_names) // 2)
         if active_metrics >= threshold:
             return LearningStatus.ACTIVE
-        elif active_metrics > 0 or learning_metrics > 0:
+        elif learning_metrics > 0:
             return LearningStatus.LEARNING
+        elif active_metrics > 0 or stalled_metrics > 0:
+            return LearningStatus.PAUSED
         return LearningStatus.INSUFFICIENT_DATA
 
     def get_worst_severity(self) -> AnomalySeverity:
@@ -1170,10 +1450,15 @@ class AnomalyDetector:
         return worst.severity
 
     def get_worst_metric(self) -> tuple[str, float]:
-        """Return the metric name and z-score of the worst active anomaly."""
-        if not self._active_anomalies:
+        """Return the metric name and z-score of the worst active anomaly.
+
+        Suppressed metrics are excluded, matching get_worst_severity (only
+        visible to tests and the diagnostic dump button).
+        """
+        persisted = self._persisted_active_anomalies()
+        if not persisted:
             return ("", 0.0)
-        worst = max(self._active_anomalies, key=lambda a: a.z_score)
+        worst = max(persisted, key=lambda a: a.z_score)
         return (worst.metric_name, worst.z_score)
 
     def get_status_summary(self, scope: str = "house") -> dict:
@@ -1185,15 +1470,22 @@ class AnomalyDetector:
         v4.5.13 lets the detector report `active` when only some metrics
         have baselines; without these summary fields, a consumer
         couldn't tell which metrics were silently dead.
+
+        HVAC-ANOMALY-BLIND-1 residual A: every read here is non-creating.
+        `metrics_active_ratio` / `metrics_silent` use best-scope aggregation
+        for scope="house". Additive keys: `coverage`, `metrics_blind`,
+        `metrics_unwired`, `metrics_constant`, and per-metric `reason`,
+        `suppressed`, `constant_baseline`, `best_scope`, `last_updated`.
+        Per-metric `active` / mean / std stay requested-scope.
         """
         self._maybe_reset_daily_counter()
         active_count = 0
         silent_metrics: list[str] = []
         for metric_name in self.metric_names:
-            baseline = self._get_baseline(metric_name, scope)
-            if baseline.sample_count >= self._min_samples_for(metric_name):
+            n, _stalled = self._status_metric(metric_name, scope)
+            if n >= self._min_samples_for(metric_name):
                 active_count += 1
-            elif baseline.sample_count == 0:
+            elif n == 0:
                 silent_metrics.append(metric_name)
         total = len(self.metric_names) or 1  # avoid "0/0" if empty
         # v4.6.5.3 surface fix: `active_anomalies` reports persisted-eligible
@@ -1225,8 +1517,17 @@ class AnomalyDetector:
         # requested_scope)` which would fabricate an empty baseline for the
         # wrong key. Only keys already present in `self._baselines` are
         # surfaced (no side-effect creation).
+        coverage = self.get_coverage()
+        blind = self.get_blind_metrics(coverage)
         for metric_name in self.metric_names:
-            baseline = self._get_baseline(metric_name, scope)
+            # Non-creating: an absent requested-scope row is rendered from a
+            # fresh, UNSTORED MetricBaseline (mean 0.0, std 1.0, n 0) — the
+            # exact pre-cycle output, minus the insert.
+            baseline = self._peek_baseline(metric_name, scope) or MetricBaseline(
+                metric_name=metric_name,
+                coordinator_id=self.coordinator_id,
+                scope=scope,
+            )
             gate = self._min_samples_for(metric_name)
             entry: Dict[str, Any] = {
                 "mean": round(baseline.mean, 4),
@@ -1240,7 +1541,7 @@ class AnomalyDetector:
                 "minimum_samples": gate,
             }
             per_scope: Dict[str, Dict[str, Any]] = {}
-            for (m_name, s_name), b in self._baselines.items():
+            for (m_name, s_name), b in list(self._baselines.items()):
                 if m_name != metric_name or s_name == scope:
                     continue
                 per_scope[s_name] = {
@@ -1252,7 +1553,21 @@ class AnomalyDetector:
                 }
             if per_scope:
                 entry["scopes"] = per_scope
+            cov = coverage[metric_name]
+            entry["reason"] = cov["reason"]
+            entry["suppressed"] = cov["suppressed"]
+            entry["constant_baseline"] = cov["constant_baseline"]
+            entry["best_scope"] = cov["best_scope"]
+            entry["last_updated"] = cov["last_updated"]
             summary["metrics"][metric_name] = entry
+        summary["coverage"] = COVERAGE_PARTIAL if blind else COVERAGE_FULL
+        summary["metrics_blind"] = blind
+        summary["metrics_unwired"] = [
+            m for m in self.metric_names if m in self._unwired_metric_names
+        ]
+        summary["metrics_constant"] = [
+            m for m in self.metric_names if coverage[m]["constant_baseline"]
+        ]
         return summary
 
     async def store_event(self, event: "AnomalyEvent") -> Optional[int]:
@@ -1389,7 +1704,11 @@ class AnomalyDetector:
 
         try:
             async with database._db() as db:
-                for _key, baseline in self._baselines.items():
+                # M3 (ANOMALY-SAVE-BASELINES-DICT-MUTATION-1, folded): snapshot
+                # the items — the loop awaits per row, and any key creator
+                # running during an await would otherwise raise "dictionary
+                # changed size during iteration" and leave a partial save.
+                for _key, baseline in list(self._baselines.items()):
                     await db.execute("""
                         INSERT OR REPLACE INTO metric_baselines
                         (coordinator_id, metric_name, scope,

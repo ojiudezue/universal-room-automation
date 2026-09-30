@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.23
+# Universal Room Automation vv5.103.25
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -2868,13 +2868,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             return True  # Default to enabled if switch not found
         return auto
 
-    def _is_climate_automation_enabled(self) -> bool:
-        """Check if climate automation switch is enabled."""
-        state = self._get_room_switch_state("climate_automation")
-        if state is None:
-            return True  # Default to enabled if switch not found
-        return state
-
     def _is_cover_automation_enabled(self) -> bool:
         """Check if cover automation switch is enabled."""
         state = self._get_room_switch_state("cover_automation")
@@ -4965,13 +4958,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             # Periodic automation tasks (refresh config for options flow changes)
             self.automation._refresh_config()
             try:
-                # Temperature-based fan control
-                # v3.20.0: Gated by ClimateAutomationSwitch
-                if self._is_climate_automation_enabled():
-                    await self.automation.handle_temperature_based_fan_control(
-                        data.get(STATE_TEMPERATURE),
-                        data.get(STATE_OCCUPIED, False)
-                    )
+                # Temperature-based fan control.
+                # HVAC Batch D fix-up 1 (operator ruling 2026-09-29): the
+                # room's Fan Mode alone decides (const.fan_owner, read inside
+                # the handler). The v3.20.0 ClimateAutomationSwitch gate is
+                # RETIRED — it was found by a slug-built entity id that did
+                # not match renamed rooms, and it was OFF on rooms whose
+                # fans were meant to run.
+                await self.automation.handle_temperature_based_fan_control(
+                    data.get(STATE_TEMPERATURE),
+                    data.get(STATE_OCCUPIED, False)
+                )
 
                 # FIX A (second fix-up — D-HIGH-1): humidity call HOISTED OUT
                 # of the master-automation gate to the post-block unconditional

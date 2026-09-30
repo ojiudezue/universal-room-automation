@@ -189,6 +189,7 @@ from .const import (
 # B-L1 fix: hoisted to module top (no import cycle — fan_veto imports
 # .const + .domain_coordinators.house_state, no back-reference to automation).
 from .fan_veto import should_veto_comfort_fan  # noqa: E402
+from .const import FAN_OWNER_HVAC, fan_owner  # noqa: E402
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -474,6 +475,8 @@ class RoomAutomation:
         # our own off-write from an external off transition. Cleared on
         # every entry to handle_temperature_based_fan_control.
         self._fan_off_issued_this_tick: bool = False
+        # HVAC Batch D fix-up 1 (B-M1): recheck-pause window (None = none).
+        self._recheck_pause_until: datetime | None = None
         # FIX C D2: once-per-boot HVAC-managed-mismatch WARN gate.
         self._fan_hvac_mismatch_warned: bool = False
         # feature/sleep-fans-and-flash: room-tier sleep-onset one-shot latch.
@@ -523,6 +526,35 @@ class RoomAutomation:
             return dt_util.now() < until
         except Exception:  # noqa: BLE001
             return False
+
+    def note_recheck_pause(self, until: datetime | None) -> None:
+        """HVAC Batch D fix-up 1 (B-M1): the presence fan RECHECK paused this
+        room's comfort fan (Fan Mode "Room temperature" — the room tier owns
+        it, the write went through the HVAC FanController).
+
+        Until the recheck restores it (``note_recheck_restore`` — the
+        discharge) or ``until`` passes (the backstop: the recheck's own
+        suppress-until), ``handle_temperature_based_fan_control`` neither
+        reads the pause OFF / restore ON as a person (no 1 h off-cooldown,
+        no manual-ON hold) nor re-drives the fan over the recheck.
+        """
+        self._recheck_pause_until = until
+        self._last_seen_any_fan_on = False
+
+    def is_recheck_paused(self) -> bool:
+        """True while a fan recheck pause owns this room's fan (B-M1)."""
+        try:
+            until = getattr(self, "_recheck_pause_until", None)
+            return until is not None and dt_util.now() < until
+        except Exception:  # noqa: BLE001
+            return False
+
+    def note_recheck_restore(self, restored_on: bool) -> None:
+        """HVAC Batch D fix-up 1 (B-M1): the recheck is over (discharge).
+        A restored ON is URA's own write (``mark_fan_on_issued``)."""
+        self._recheck_pause_until = None
+        if restored_on:
+            self.mark_fan_on_issued()
 
     def mark_fan_on_issued(self) -> None:
         """Authored-by marker: this coordinator issued a fan turn_on.
@@ -1891,7 +1923,13 @@ class RoomAutomation:
         
         v3.2.9: Added support for switch domain (fans on smart outlets/switches).
         """
-        if not self.config.get(CONF_FAN_CONTROL_ENABLED, False):
+        # HVAC Batch D (v5.103.24): the shared ownership rule
+        # (const.fan_owner). None = person-owned (Fan Mode "Off") — the
+        # room tier writes nothing. "hvac" = the HVAC tier owns
+        # the fans; the room tier stands down while HVAC is actually running
+        # the room (below) and keeps the pre-existing fallback otherwise.
+        _owner = fan_owner(self.config)
+        if _owner is None:
             return
 
         fans = self.config.get(CONF_FANS, [])
@@ -1899,7 +1937,9 @@ class RoomAutomation:
             return
 
         # v3.18.1: Defer to HVAC coordinator if it's managing this room's fans
-        hvac_manages = self._is_hvac_managing_fans()
+        hvac_manages = (
+            _owner == FAN_OWNER_HVAC and self._is_hvac_managing_fans()
+        )
         if hvac_manages:
             return
 
@@ -1931,16 +1971,15 @@ class RoomAutomation:
         # (or the zone lacks a thermostat). Emit ONCE per HA restart so
         # the config gap is discoverable without spamming the log.
         if not self._fan_hvac_mismatch_warned:
-            if (
-                self.config.get(CONF_HVAC_COORDINATION_ENABLED, False)
-                and self.config.get(CONF_CLIMATE_ENTITY)
-                and fans
-            ):
+            # HVAC Batch D: this is also the ONE warning for a stored
+            # "Follow thermostat" that is no longer possible (room not in an
+            # HVAC zone) — the room tier runs it as "Room temperature".
+            if _owner == FAN_OWNER_HVAC and fans:
                 _LOGGER.warning(
-                    "Room %s expects HVAC fan management "
-                    "(hvac_coordination_enabled=True, climate_entity=%s) "
-                    "but is not in HVAC fan_controller._room_fans — "
-                    "room-tier is owning fans. Check Zone Manager "
+                    "Room %s Fan Mode is 'Follow thermostat' "
+                    "(climate_entity=%s) but the room is not HVAC-managed "
+                    "(not in an HVAC zone, or the HVAC coordinator is off) — "
+                    "running it as 'Room temperature'. Check Zone Manager "
                     "zone_rooms wiring.",
                     self.config.get("room_name", "Unknown"),
                     self.config.get(CONF_CLIMATE_ENTITY),
@@ -1960,6 +1999,16 @@ class RoomAutomation:
             (s := self.hass.states.get(f)) is not None and s.state == STATE_ON
             for f in fans
         )
+        # HVAC Batch D fix-up 1 (B-M1): the fan recheck owns the fan while it
+        # is paused (note_recheck_pause). Skip the external-change detection
+        # and every fan write; keep the baseline current. Discharge:
+        # note_recheck_restore; backstop: the recheck's suppress-until.
+        _rp_until = getattr(self, "_recheck_pause_until", None)
+        if _rp_until is not None:
+            if dt_util.now() < _rp_until:
+                self._last_seen_any_fan_on = any_fan_on_now
+                return
+            self._recheck_pause_until = None
         if cooldown_s > 0:
             if (
                 self._last_seen_any_fan_on
@@ -2874,8 +2923,13 @@ class RoomAutomation:
 
         v3.18.1: When HVAC coordinator has discovered this room's fans,
         room-level fan control defers to avoid dual-control fighting.
+
+        HVAC Batch D: derives from the shared rule — only a room whose Fan
+        Mode is "Follow thermostat" (``const.fan_owner`` == "hvac") can be
+        HVAC-managed; the HVAC coordinator must also be on and have
+        registered the room (it sits in an HVAC zone).
         """
-        if not self.config.get(CONF_HVAC_COORDINATION_ENABLED, False):
+        if fan_owner(self.config) != FAN_OWNER_HVAC:
             return False
         mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if not mgr:
@@ -3360,6 +3414,27 @@ class RoomAutomation:
         except Exception as e:
             _LOGGER.error("Error during warning flash: %s", e)
 
+    def _fan_hvac_owned_elsewhere(self, fan_entity: str) -> bool:
+        """HVAC Batch D fix-up 1 (B-M2, operator-pending): True when ANOTHER
+        room lists ``fan_entity`` among its comfort fans with Fan Mode
+        "Follow thermostat" (the HVAC tier owns that shared fan). Never
+        raises (False on error)."""
+        try:
+            own = self.config.get(CONF_ROOM_NAME)
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get("entry_type") != "room":
+                    continue
+                if entry.data.get(CONF_ROOM_NAME) == own:
+                    continue
+                merged = {**entry.data, **entry.options}
+                if fan_entity not in (merged.get(CONF_FANS) or []):
+                    continue
+                if fan_owner(merged) == FAN_OWNER_HVAC:
+                    return True
+        except Exception:  # noqa: BLE001
+            return False
+        return False
+
     async def _shared_space_turn_off_all(self) -> None:
         """Turn off all devices in shared space."""
         # Turn off lights — Bug Class #4 fix: separate domains
@@ -3386,6 +3461,22 @@ class RoomAutomation:
 
         # Turn off fans — Bug Class #4 fix: use homeassistant domain for mixed lists
         fans = self.config.get(CONF_FANS, [])
+        # HVAC Batch D fix-up 1 (B-M2 / A8 — OPERATOR-PENDING, separate
+        # commit so it can be dropped): the scheduled shared-space auto-off
+        # follows the Fan Mode too.
+        #   * Fan Mode "Off" (person-owned): the room's comfort fans are
+        #     left alone.
+        #   * a fan another room drives under "Follow thermostat" (e.g. the
+        #     Breakfast Nook / Kitchen shared fan) is never turned off here —
+        #     the HVAC tier owns it.
+        if fans and fan_owner(self.config) is None:
+            _LOGGER.debug(
+                "Shared space: fans left alone — Fan Mode is Off (%s)",
+                self.config.get(CONF_ROOM_NAME, "Unknown"),
+            )
+            fans = []
+        if fans:
+            fans = [f for f in fans if not self._fan_hvac_owned_elsewhere(f)]
         if fans:
             await self._safe_service_call(
                 "homeassistant",

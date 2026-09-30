@@ -28,6 +28,15 @@
   - The latch discharge is LEVEL-triggered (any readable named non-manual state, incl. the first event after boot), checked every full pass; latches of unmapped thermostats are pruned.
   - A person-interrupted or master-off pre-arrival also spends the arrival episode.
   - An ended pre-arrival always takes the arrival reference, even over an in-flight episode (incl. the startup audit).
+**v5.103.24 (built 2026-09-29, `feature/hvac-batch-d`, NOT deployed — Tier 2) — Batch D.** README `docs/readmes/README_v5.103.24.md`.
+- **Fan Mode (operator ruling option C):** one per-room `select.<room>_fan_mode` (`room_fan_mode` in the room entry's options: Follow thermostat / Room temperature / Off) feeds `const.fan_owner` (hvac / room / None). It is the ONE rule for every HVAC-tier fan writer (FanController sites, zone vacancy sweep, pre-arrival fans), the room tier and the fan recheck. It replaces "Enable HVAC-Managed Fans" + "Comfort Fan Control" (one-time migration; legacy keys readable one release). See §4.2b.
+- **Unreadable thermostat:** the heat_cool enforcer (B1) and S1 do not write while the climate entity is `unavailable` / `unknown`. There is one INFO line and one `climate_write_held_unreadable` row per outage episode (§4.2).
+- **INFO-1 (ruling B):** a nudge whose underlying non-nudge borrow a person ended (D13 + D-L3) restores the zone's CURRENT S1 target preset (the arrival target for a pre-arrival), presets only; S6 is skipped (§4.2, §9e).
+  - Under person protection (gate a/b) it restores the person's own setpoints instead (fix-up 1 ruling).
+- **Fix-up round 1:** the recheck ↔ room-tier handshake; the HVAC kill keeps room-tier holds; the Climate Automation switch is retired for fans (ruling); the shared-space auto-off follows the Fan Mode (ruling); the migration keeps a data-stored Fan Mode (§4.2b).
+- **Folded in:** HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1 (§7).
+
+**2026-09-29 (`feature/anomaly-blind-metrics`, built, not deployed — Tier 2-DB) — the HVAC anomaly sensor (`sensor.ura_hvac_coordinator_hvac_anomaly`, `hvac.get_anomaly_status`) no longer reads `nominal` while metrics are blind: it delegates to the shared `AnomalyDetector.get_sensor_state()` (severity → learning → `partial` → nominal). `HVAC_UNWIRED_METRICS` (`hvac_const.py`: comfort_deviation_hours, egress_pause_frequency) is passed at the detector ctor; `short_cycle_rate` counts at its best (zone) scope. Display/diagnostic only — no decision reads the anomaly sensor; severity is unchanged. §11 W4 `ANOMALY-SAVE-BASELINES-DICT-MUTATION-1` folded. Plan `docs/planning/PLANNING_anomaly_detector_blind_metrics.md`.**
 **2026-09-28 (`feature/hvac-labels-and-timer-attrs`, not deployed) — display-only: zone `away_due_at` (§3.2), arrester `grace_until` / `compromise_until` (§7); label renames "Wait for Presence" / "Compliance Presence Wait" / "Weather Adjust Delay/Margin" (no behaviour change, §8).**
 **Scope:** everything URA does with the thermostats — decide, write, borrow/return, read back — and the occupancy
 model that drives it. Covers releases v5.103.0 → v5.103.18.
@@ -150,20 +159,42 @@ Consequences:
 ### 4.2 Write sites (verified by Explore audit 2026-09-25 against develop; spot-checked)
 | Site | Verb(s) | Via funnel | Durable record |
 |---|---|---|---|
-| S1 house-state/occupancy preset `hvac.py:2674` | preset (+hidden resume) | yes | **`ura_activity_log` `preset_change`** (`hvac.py:2716-2748`), lockout `preset_change_locked_out` (`:2504-2519`) once per episode |
-| heat_cool enforcer `hvac.py:1926-1938` | hvac_mode | **no** | INFO only |
+| S1 house-state/occupancy preset `hvac.py:2674` | preset (+hidden resume) | yes | **`ura_activity_log` `preset_change`** (`hvac.py:2716-2748`), lockout `preset_change_locked_out` (`:2504-2519`) once per episode. **v5.103.24:** held while the zone's climate entity reads `unavailable`/`unknown` (`_climate_unreadable`, `hvac.py` ~3552; live state, not the cached `ZoneState`) |
+| heat_cool enforcer `hvac.py:1926-1938` (B1, funnelled since W1-A) | hvac_mode | **no** | INFO only. **v5.103.24:** held while the climate entity reads `unavailable`/`unknown` (`hvac.py` ~2578; `HVAC_CLIMATE_UNREADABLE_STATES`, `hvac_const.py` ~513). One INFO + one `ura_activity_log` `climate_write_held_unreadable` row per outage EPISODE (opened on the first unreadable read, closed on the first readable one); the next readable tick writes as normal. Guard at the two sites, NOT in the funnels (W1-B constraint) |
 | S10 DPM custom ranges `hvac.py:3046` | setpoints | yes | INFO only (dormant) |
 | S3 arrester compromise `hvac_override.py:3393` | setpoints | yes | `hvac_excursion_events` |
 | S4 arrester revert `_revert_override` (B4 mode + S4 preset) | mode + preset | yes (W1-A) | `hvac_excursion_events`. **v5.103.23 D2d:** the preset is the compromise snapshot only when it is NAMED, else the episode's `original_preset`; neither named → S4 skipped (`revert_no_named_preset`, restore_ok None). A task whose episode a person superseded stands down (generation check at start and before S4) |
 | AC hard reset off/restore/retry/preset `hvac_override.py:3888/4006/4041/4113` | mode + preset | mode **no** | `ac_ramp_events` |
 | **S5 soft-nudge start** `hvac_override.py:4423` | setpoints (+`nudge_size` to high) | yes | `ac_ramp_events` `nudge_started` |
-| **S6/S7 nudge restore** `hvac_override.py:4595` (setpoints, no zone_id/reason) then `:4640` (preset, blocking) | setpoints then preset | yes | `ac_ramp_events` `nudge_restored` + settled verdict |
+| **S6/S7 nudge restore** `hvac_override.py:4595` (setpoints, no zone_id/reason) then `:4640` (preset, blocking) | setpoints then preset | yes | `ac_ramp_events` `nudge_restored` + settled verdict. **v5.103.24 (INFO-1, ruling B):** when a person's change ENDED the non-nudge borrow this nudge ran on top of (D13 + D-L3; recorded in `_handle_climate_change`, `_nudge_restore_reference`), S6 is SKIPPED and S7 pins the zone's CURRENT S1 target preset (`_resolve_reference(zone, None)`), or the ARRIVAL target for an `S12_pre_arrival` borrow (Q7). Presets only; reasons `soft_nudge_restore_s1_target` / `soft_nudge_restore_arrival_target`; no resolvable reference → the pre-ruling snapshot restore (S6/S7; fix-up 1, A10). **Person-protected zone (fix-up 1, operator ruling YES):** with gate (a/b) active at restore (TAO or an immune hold, `_corrective_writes_suppressed`, live), S6 writes the PERSON's own setpoints captured from the change that ended the borrow (HUMAN_MANUAL raw restore, reason `human_manual_soft_nudge_person_restore`) and S7 is skipped; values unavailable → the snapshot restore. The record is dropped at the next nudge start and at teardown. S8/S9 unchanged |
 | S8 cancel-nudge (button) `hvac_override.py:5815/5841` | setpoints + preset | yes | `ac_ramp_events` |
 | S9 boot ramp audit `hvac_override.py:6221/6245` | setpoints + preset | yes | `ac_ramp_events` |
 | Excursion lease-expiry auto-return `hvac_excursion.py:667` | preset | yes | non-nudge kinds only |
 | S11 banking release `_release_banked_zones`; S12 pre-cool `_execute_zone_pre_cool` (begin, then `climate_write` site `S12_pre_cool`); S13 pre-heat `_execute_pre_heat` / `_return_preheat` | setpoints + preset | yes | `hvac_excursion_events`. **v5.103.23:** a pre-arrival S12 begins with `caller_site='S12_pre_arrival'`, writes ONCE from the baseline, and is ended by `async_end_pre_arrival_borrows` (triggers `pre_arrival_{arrived,timeout,interrupted,inactive,max_age}`, presets-only, no `_last_emitted_range` write). S11/S12/S13 write nothing for a returned token or a latched zone; S12/S13 never write over another live row (D4b) |
 | Egress pause/resume `hvac_egress.py:683/779/795` | mode + preset | mode **no** | `hvac_excursion_events` |
 | Optimizer `optimization.py:3546` (shadow by default) | any | — | `actuated` row, no entity_id |
+
+### 4.2b Comfort fans — who owns them (v5.103.24, Batch D, operator ruling option C)
+One per-room **Fan Mode** (`select.<room>_fan_mode`, key `room_fan_mode` in the room entry's options; reload-suppressed) feeds `const.fan_owner` — the ONE rule for every fan writer. Humidity/exhaust fans are out of scope (always room tier).
+
+| Fan Mode | owner | HVAC tier (`hvac_fans` temp / sleep-onset / `turn_off_all_managed`; `hvac.py` zone sweep + pre-arrival fan off; `hvac_predict` pre-arrival fan on) | room tier (`automation` temp path, `actuator_reconciler`) | fan recheck (presence) |
+|---|---|---|---|---|
+| Follow thermostat (only offered in an HVAC zone) | `hvac` | runs it | stands down while HVAC runs the room; else runs it as Room temperature | yes |
+| Room temperature | `room` | never | runs it | yes (FanController write registry; snapshot = physical state) |
+| Off | None | never | never | never |
+
+- `_room_fans` keeps every HVAC-zone fan room registered; it is the recheck's write registry.
+- Every HVAC-tier write reads the Fan Mode LIVE at actuation (chokepoint `_set_fan_state` + per-site gates).
+- Leaving Follow thermostat RELEASES tracking and never turns the fan off.
+- Not gated: the smoke/CO safety stop.
+- The legacy toggles (`hvac_coordination_enabled`, `fan_control_enabled`) were migrated once per room and stay readable for one release.
+- Before v5.103.24 the HVAC tier read neither toggle. That is how a guest's fan (Guest Bedroom 2, 2026-09-28) was switched on at sleep onset.
+- **Fix-up 1 (2026-09-29):**
+  - The recheck pause/restore of a Room-temperature fan is handshaken with the room tier (`RoomAutomation.note_recheck_pause` / `note_recheck_restore`; backstop = the recheck's suppress-until). The room tier and the reconciler then neither book it as a person nor re-drive the fan mid-pause.
+  - `turn_off_all_managed` clears the shared cooldown / ON-hold ledger only for HVAC-owned rooms.
+  - The v3.20.0 **Climate Automation** switch is RETIRED for fans (operator ruling). It gated the room-tier temperature path through a slug-built entity id; the Fan Mode alone decides, and the registry entries are orphaned.
+  - The migration never reads it, and keeps a Fan Mode already stored in `entry.data`.
+  - Operator ruling YES: the shared-space auto-off (`automation._shared_space_turn_off_all`) skips Fan Mode Off fans and any fan another room owns under Follow thermostat (e.g. Breakfast Nook → Kitchen's shared fan).
 
 ### 4.3 Logging coverage — the answer to "do we record everything?": **YES post W1-A Stage A** (feature branch; ships next)
 
@@ -237,6 +268,10 @@ lockout, arrester, S1 — trusts `preset_mode`**, which is the lagging field (§
 ---
 
 ## 7. Arrester, lockout, hold knobs — why nothing reclaims a zero-delta manual
+
+**Arrester ↔ AC-reset interplay (fix/arrester-episode-keeps-ac-reset-restore, folded into v5.103.24 Batch D; line numbers below re-verified on `feature/hvac-batch-d`):** a new governed arrester episode (the three `_cancel_arrester_timers` call sites `hvac_override.py` ~2606 startup-audit stale-override branch, ~4261 `_handle_severe_override`, ~4335 `_handle_normal_override`) no longer cancels a pending AC hard-reset RESTORE timer (`_reset_timers`). The cancel helper (`_cancel_arrester_timers`, `hvac_override.py` ~7940) now scopes to grace + compromise only, mirroring `_defer_arrester_to_borrow` (~4152). Rationale: cancelling the reset restore inside the Carrier lag window after the reset's `off` write left the zone stranded off — the B1 heat_cool enforcer (`hvac.py` ~2578) would re-assert heat_cool within ~one `HVAC_DECISION_TICK` (5 min) plus Carrier lag, so pre-fix bound was ~5 min + lag on the periodic path (not indefinite, but well past the intended ~1 min restore). Legitimate `_reset_timers` cancel sites (teardown ~2667-2669, `ac_reset_enabled` setter ~3342-3353, fire-time pop in `_restore_after_reset` ~5223) still cancel it directly and are unaffected. Corollary: the reset's success-branch preset restore in `_verify_restore` (`hvac_override.py` ~5254; defer guard ~5367) now DEFERS the preset write when an arrester episode is armed on the zone (`_override_active` / `_grace_timers` / `_compromise_timers`) — the arrester's own revert owns the preset in that case; mode/setpoint restore already succeeded. `preset_restore_ok` column stays NULL on the deferred row; combined `restore_ok` reads True (mode-only success). Folded in after Batch B (v5.103.23) with no textual conflict; the same three callers (no new ones).
+
+
 
 | Mechanism | Site | Effect on a manual hold sitting at the preset's own setpoints |
 |---|---|---|
@@ -388,6 +423,8 @@ Operator: "The HVAC signaling from rooms that is more immediate I expect to shav
 - A person's change (D1 within-manual, or a transition INTO manual whose changed legs match no recent URA write) ENDS a live BANKING / PREHEAT / ownerless COMPROMISE borrow with no write, BEFORE the precedence ladder, so the `borrow_active` rung no longer applies to them. EGRESS still books `borrow_active` (Q2).
 - **D13 kept:** a live nudge still wins and is not ended.
   - Fix-up 1 (D-L3): a NON-NUDGE borrow under a live nudge is still ended `human_interrupt`, and the zone is latched.
+  - **v5.103.24 (INFO-1, operator ruling "B"):** when that nudge restores, it does NOT write back its snapshot (taken on top of the ended borrow). S6 is skipped and S7 pins the zone's current S1 target preset, or the ARRIVAL target for an interrupted pre-arrival (Q7). See §4.2 S6/S7.
+  - **Fix-up 1 (operator ruling YES):** if the person is protected at restore time (gate a/b: TAO or an immune hold), the person's OWN setpoints from that change are restored instead (S6, HUMAN_MANUAL), with no S7 pin.
 - **D48 narrowed (Q3):** after an interrupt, no S12/S13 begins on the zone until it leaves manual, and S11 never writes over a latched zone (fix-up 1, D-L1).
   - **Discharge (fix-up 2, N1 — LEVEL-triggered; replaces the fix-up-1 edge rule):** one predicate, `OverrideArrester._latch_state_discharges` (`hvac_override.py`): the state is readable (not unavailable / unknown / missing) AND `preset_mode` is non-empty and not `manual`. It is applied (i) at the TOP of `_handle_climate_change` to every event's new state, whatever the old state, BEFORE the `old_state is None` return; (ii) every full decision pass (`latch_level_check`, called in `_run_decision_cycle` before the D3 reconciliation); (iii) at boot restore. An unavailable/unknown flap or an empty preset keeps it; a manual → named → manual status flicker still discharges it (accepted, L5).
   - **Backstop (fix-up 1, D-M2):** the latch is PERSISTED in the `_zone_state_store` side-key `__interrupt_latch` — saved on set, discharge and prune, and in the shutdown snapshot. At boot it is restored unless the entity reads a discharging state (kept while missing / unreadable / empty preset).
@@ -522,7 +559,7 @@ cause does not. Evidence: HA recorder state history for both entities, 09-23→0
 | 4 | **W2 Occupancy truth:** night still-sleeper hold (in-suite stationary BLE + radar micro-blips extend the hold; zone-scoped), Jaya radar repair (physical), occupancy-triggered decision cycle (fast path, `82620357a`), hot entry, reloading-room placeholder readers, guest-as-zone-person | 9.3, 9.4, 9.5 | Tier 2-DB each |
 | 5 | Enable Custom Preset Ranges (D9) once W1-B removed its blockers | 9.7 | Tier 2 |
 | 6 | **W3 Energy-aware HVAC:** pre-cool window TOU-derived, D5 re-ground on ODU Var %, equipment-health telemetry | — | as ranked |
-| 7 | **W4 Closure:** parked residuals (`HVAC-ROLLOVER-DURABLE-DATE-ORDERING-1`, `ANOMALY-SAVE-BASELINES-DICT-MUTATION-1`), README write-backs, card disposal, update this doc | — | — |
+| 7 | **W4 Closure:** parked residuals (`HVAC-ROLLOVER-DURABLE-DATE-ORDERING-1`; ~~`ANOMALY-SAVE-BASELINES-DICT-MUTATION-1`~~ **FOLDED 2026-09-29 into the anomaly-coverage cycle** (`PLANNING_anomaly_detector_blind_metrics.md` D1/§3a, branch `feature/anomaly-blind-metrics`): `save_baselines` now iterates `list(self._baselines.items())`, and every detector status read is non-creating. The card's premise "not reachable — every baseline creator runs under the decision-cycle lock" was FALSE: the HVAC anomaly sensor's reads created `(metric, house)` rows outside the lock), README write-backs, card disposal, update this doc | — | — |
 
 Operator constraints carried into every step: match occupancy **in the zone**, never "anyone home"; nudges stay ON;
 per-brand behaviour discovered in detail but exposed through a simple generic interface; no corners cut

@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.23
+# Universal Room Automation vv5.103.25
 # Build: 2026-01-04
 # File: button.py
 #
@@ -1480,13 +1480,16 @@ class AnomalyDiagnosticDumpButton(ButtonEntity):
         except Exception:
             dump["activity_logger_dedup_cache_size"] = "error"
 
-        # 5. AnomalyDetector baseline counts per coordinator
+        # 5. AnomalyDetector status per coordinator (incl. coverage).
+        # HVAC-ANOMALY-BLIND-1 D3b: the old branch called a non-existent
+        # `manager.get_anomaly_summary` behind hasattr, so this section was
+        # silently absent. A failure is now recorded, like `db_error` above.
         try:
             manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
-            if manager is not None and hasattr(manager, "get_anomaly_summary"):
-                dump["anomaly_summary"] = manager.get_anomaly_summary()
-        except Exception:
-            pass
+            if manager is not None:
+                dump["anomaly_summary"] = manager.get_diagnostics_summary()
+        except Exception as e:  # noqa: BLE001 - surfaced in the dump
+            dump["anomaly_summary_error"] = repr(e)
 
         _LOGGER.error(
             "URA ANOMALY DIAGNOSTIC DUMP: %s",

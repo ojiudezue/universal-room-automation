@@ -1,0 +1,166 @@
+{
+  "all_ok_quiet": {
+    "baseline_keys": [
+      [
+        "m_alpha",
+        "house"
+      ],
+      [
+        "m_beta",
+        "house"
+      ],
+      [
+        "m_gamma",
+        "house"
+      ]
+    ],
+    "learning_status": "active",
+    "saved_rows": [
+      [
+        "noop_quiet",
+        "m_alpha",
+        "house",
+        5.0009900990099005,
+        1.9802960494069208,
+        101,
+        "2026-09-28T12:00:00+00:00"
+      ],
+      [
+        "noop_quiet",
+        "m_beta",
+        "house",
+        1.0,
+        0.5,
+        50,
+        "2026-09-28T12:00:00+00:00"
+      ],
+      [
+        "noop_quiet",
+        "m_gamma",
+        "house",
+        3.0,
+        1.5,
+        30,
+        "2026-09-28T12:00:00+00:00"
+      ]
+    ],
+    "state": "nominal",
+    "summary": {
+      "active_anomalies": 0,
+      "anomalies_today": 0,
+      "coordinator_id": "noop_quiet",
+      "learning_status": "active",
+      "metrics": {
+        "m_alpha": {
+          "active": true,
+          "mean": 5.001,
+          "minimum_samples": 24,
+          "sample_count": 101,
+          "std": 1.4072
+        },
+        "m_beta": {
+          "active": true,
+          "mean": 1.0,
+          "minimum_samples": 24,
+          "sample_count": 50,
+          "std": 0.7071
+        },
+        "m_gamma": {
+          "active": true,
+          "mean": 3.0,
+          "minimum_samples": 24,
+          "sample_count": 30,
+          "std": 1.2247
+        }
+      },
+      "metrics_active_ratio": "3/3",
+      "metrics_silent": [],
+      "minimum_samples": 24,
+      "scope": "house",
+      "suppressed_active_anomalies": 0
+    },
+    "worst_severity": "nominal"
+  },
+  "all_ok_with_anomalies": {
+    "baseline_keys": [
+      [
+        "m_alpha",
+        "house"
+      ],
+      [
+        "m_beta",
+        "house"
+      ],
+      [
+        "m_gamma",
+        "house"
+      ]
+    ],
+    "learning_status": "active",
+    "saved_rows": [
+      [
+        "noop_anom",
+        "m_alpha",
+        "house",
+        5.035005286197354,
+        2.1027350259778452,
+        101,
+        "2026-09-28T12:00:00+00:00"
+      ],
+      [
+        "noop_anom",
+        "m_beta",
+        "house",
+        1.0693241942339753,
+        0.7304882737408688,
+        51,
+        "2026-09-28T12:00:00+00:00"
+      ],
+      [
+        "noop_anom",
+        "m_gamma",
+        "house",
+        3.0076923076923077,
+        1.3853254437869822,
+        13,
+        "2026-09-28T12:00:00+00:00"
+      ]
+    ],
+    "state": "advisory",
+    "summary": {
+      "active_anomalies": 1,
+      "anomalies_today": 2,
+      "coordinator_id": "noop_anom",
+      "learning_status": "active",
+      "metrics": {
+        "m_alpha": {
+          "active": true,
+          "mean": 5.035,
+          "minimum_samples": 24,
+          "sample_count": 101,
+          "std": 1.4501
+        },
+        "m_beta": {
+          "active": true,
+          "mean": 1.0693,
+          "minimum_samples": 24,
+          "sample_count": 51,
+          "std": 0.8547
+        },
+        "m_gamma": {
+          "active": true,
+          "mean": 3.0077,
+          "minimum_samples": 10,
+          "sample_count": 13,
+          "std": 1.177
+        }
+      },
+      "metrics_active_ratio": "3/3",
+      "metrics_silent": [],
+      "minimum_samples": 24,
+      "scope": "house",
+      "suppressed_active_anomalies": 1
+    },
+    "worst_severity": "advisory"
+  }
+}

@@ -121,7 +121,18 @@ The stuck-occupancy safety clock (`continuous_occupied_hours` on `sensor.ura_hva
   - person `hvac_mode` changes;
   - the S7 `manual` re-pin (idempotent);
   - egress under the interrupt rule (Q2).
-- **Not fixed here (B-L3, pre-existing):** a new governed override episode still cancels a pending AC-reset restore timer (`_cancel_zone_timers`). It needs its own card.
+- **B-L3 (pre-existing) — FIXED in v5.103.24 (Batch D):** a new governed override episode no longer cancels a pending AC-reset restore timer (`_cancel_zone_timers` → `_cancel_arrester_timers`, grace + compromise only). Card `HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1`; review record `docs/reviews/code-review/arrester_episode_keeps_ac_reset_restore.md`.
 - **Known, accepted:**
   - A single human action that the Carrier feed reports as several same-second within-manual rows (e.g. 09-27 21:31:30: 68/72 → 70/80 → 70/72) books one row per step and re-dispatches each time; the last value wins. `override_count_today` counts each step.
   - Pre-existing and unchanged: a new governed episode still cancels a pending AC-reset restore timer (`_cancel_zone_timers` in the severe/normal handlers).
+
+## Validated 2026-09-29 03:10 CDT (HACS v5.103.23, HA restarted 03:01)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| B | Boot clean, arrester restores state | **PASS** | `tao_restore_evaluated decision=no_persisted_state` at 03:06:12; HVAC zone sensors live by 03:07 |
+| K | Knob 35 exists at its default | **PASS** | `number.ura_hvac_coordinator_35_pre_arrival_window_min` = 30, "35 · Pre-Arrival Window (min)" |
+| A1 | A person's change during a borrow ends it (`human_interrupt`) | **PENDING** | needs the next pre-arrival or energy pre-cool plus a person's change |
+| B1 | Pre-arrival writes once and ends by arrival / window / interrupt (never `lease_expiry`) | **PENDING** | next pre-arrival event; check `hvac_excursion_events.trigger` |
+
+Boot observation (not caused by this release; card HOUSE-STATE-SLEEP-LOST-ON-RESTART-1): this restart happened during sleep. House state came back `away` → `arriving` → `home_night` instead of `sleep`, so S1 moved zones 1 and 2 from Sleep to Home at 03:07:41. Restarting a sleeping house was an orchestrator timing error (memory `feedback_no_restart_during_sleep`).

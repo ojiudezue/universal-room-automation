@@ -72,25 +72,48 @@ fix-up round 1 applied on the branch (see plan §18).
 | `31 · Fast Room Response` | 3 | ON | unchanged; scope above |
 Plus D0c Gate A (residual re-probe at the ruled values).
 
-## Live acceptance (plan §9) — prospective; write the observed table back after deploy
+## Validated 2026-09-29 (timed L1–L15)
 
-| # | Check | Pass | Failure looks like |
+**Method:** one-shot read-only queries against `ura_activity_log` (`preset_change`, `climate_write` actions) and the HA
+recorder, window 2026-09-27 12:00 → 2026-09-29 03:00 CDT (`2026-09-27T17:00:00Z` → `2026-09-29T08:00:00Z`). Restarts at
+09-28 19:22, 23:36 and 09-29 03:01 CDT excluded ±~5 min. **The fast-path ledger fields (`trigger`/`edge_ts`/
+`zone_empty_since`/`exempt_reason`/`established`/`last_away_reason`) do not appear on any `preset_change` row before
+2026-09-28T23:53:15Z (18:53 CDT, the v5.103.20 boot) — 186 of 213 in-window rows predate it and ran the pre-existing
+tick-only code.** Only 27 rows in-window carry the ledger (7 `fast_entry`, 6 `fast_exit`, 8 `house_state`, 6 `periodic`),
+spanning 18:53 CDT 09-28 → 23:43 CDT 09-28 (v5.103.20/.21/.22); nothing tagged appears between 23:43 CDT 09-28 and the
+03:00 CDT cutoff other than a 3-zone simultaneous `house_state` flip at 23:41:21 CDT, 5 min after the 23:36 restart and
+excluded as a boot-settle transient. **This is a thin, ~5-hour live sample, not a full occupied day** — several criteria
+that need a multi-day baseline (D0b/D0c) are NOT-EXERCISED for lack of one; this pass reports what the mechanism
+actually did, not a statistical confirmation.
+
+| # | Check | Result | Evidence |
 |---|---|---|---|
-| L1 | Entry latency | knob 1: ≥ 90 % of away-edge `fast_entry` rows in `[60, 105] s` after `episode_start`; knob 0: ≤ 45 s | uniform 0–300 s |
-| L2 | Exit exactness | every `fast_exit` away row: `row_ts - zone_empty_since` in `[g, g + 50] s` | spread / early |
-| L3 | INV-2 | every room `release_at <= row_ts - g`; no pending room at the away | any |
-| L4 | Re-arm | same-room return `fast_entry` within 45 s (zone_1 excluded while §9.7 is open) | tick only |
-| L5 | Zone scope | no off-zone `climate_write` rows during fast runs; no heat_cool / nudge / cover / fan actions | any |
-| L6 | Clock decoupled | `release_at == last_evidence_at + hold`; the `*_hvac_occupied` off transition lands by `release_at + 335 s` | off never precedes lighting off |
-| L7 | Night / legacy unchanged | `rule` = `night` / `legacy`; no early release; no legacy back-fill | earlier release |
-| L8 | Write rate | per-zone `climate_write`/day ≤ D0b + spread + 10; no ceiling trips | trips |
-| L9 | Quick returns | 7-day per-zone `quick_returns_today` within 2× of D0c | much higher |
-| L10 | Lifecycle | one listener per room after a room reload and a restart; timers re-armed by the first full cycle | duplicates / missing |
-| L11 | Nudge skip | no `ac_ramp_events` `nudge_started` within 120 s of a fast write on that zone | a nudge seconds after a fast write |
-| L12 | D5 C1 + C1-D + C3 | `transit_filtered_today` > 0 within 2× of D0c; arm-class split within 2× | ~0 filtered while flaps persist |
-| L13 | No short arms | zero away-edge arms with `armed_at - episode_start < 60 s` and no exemption | any |
-| L14 | No away with a pending room | zero `vacant_past_grace` aways while `pending_arm_rooms` is non-empty | any |
-| L15 | No transit home write | zero S1 `preset_change` rows matching the full predicate (evidence state unchanged since the last applied away, `old_preset == away`, `last_away_reason == vacant_past_grace`, `manual_class == not_manual`, `new_preset` home/sleep, `any_room_hvac_occupied == false`, `trigger` not house_state/pre_arrival, `reason != pre_arrival`, `established == true`) | any such row |
+| L1 | Entry latency | PASS (mechanism-verified, not per-row `episode_start`-confirmed) | All 7 `fast_entry` rows are away-edges (`last_away_reason=vacant_past_grace`); `sensor.ura_hvac_coordinator_mode.last_fast_edge_to_write_s = 0.0` (edge-to-write is sub-second); knob 47 (`number.ura_hvac_coordinator_zone_entry_dwell`) is live `1`, so D5 requires 60 s of persisted evidence before an away-edge arm — total entry latency ≈ 60 s + ~0 s write dispatch, inside `[60,105] s`. Could not independently pull each event's room-level `episode_start` (the zone_3/zone_2 live-room set beyond the bedrooms in the night-sleeper probe's room list was not resolved in this pass) — flagged, not a full per-row confirmation |
+| L2 | Exit exactness | PASS 6/6 | All 6 `fast_exit` rows: `row_ts − zone_empty_since` = 302.8 s, 302.1 s, 303.3 s, 302.9 s, 303.1 s, 302.0 s (grace live 5 min = 300 s + 2 s slack ⇒ expected ≈302 s; window `[300,350]`) |
+| L3 | INV-2 | PASS (vacuous — no opportunity to violate) | `sensor.ura_hvac_coordinator_zone_2_status`/`_zone_3_status` sampled at every state-change in-window (746 / 618 rows): `pending_arm_rooms` empty at every sample. No `vacant_past_grace` away coincided with a pending room because no pending room existed in-window (the mechanism first engaged after the window — zone_3 `pending_arm_rooms=['Breakfast Nook']` as of the query, post-cutoff) |
+| L4 | Re-arm | NOT-EXERCISED | No same-room return landed inside 45 s in-window; closest zone_3 `fast_exit→fast_entry` gaps were 61 s and 106 s. `same_room_returns_today = {}` (zero) on the mode sensor. No qualifying event to test |
+| L5 | Zone scope | PASS (spot-checked, not row-by-row exhaustive) | `climate_write` site breakdown for the window (`S1_reason_ladder` 209+13, `B1_heat_cool_enforcer` 111, `S5_nudge_start` 39, `S6/S7_nudge_restore*` 91, `S12_pre_cool` 11, `S3_compromise` 4, `S4_revert*` 11, `auto_return:banking*` 9, `B5/B6_ac_reset*` 6) is consistent with the expected zone-scoped funnels; no anomalous cross-domain action names present |
+| L6 | Clock decoupled | PASS (supported by L2) | The exit fires at exactly `release + grace + 2 s` per L2, confirming `zone_empty_since` (`release_at`) is computed from the evidence clock, not the legacy lighting timeout |
+| L7 | Night/legacy unchanged | PASS | Sampled `binary_sensor.<room>_hvac_occupied` attrs: `rule=legacy` for zone_2 bedrooms during `home_night` (correct — `home_night` is not in `HVAC_NIGHT_HOLD_STATES`, so shadow/legacy applies); `rule=night` for zone_3 guest rooms during `sleep` (correct — D8 table applies only in `sleep`/`waking`). No early release or legacy back-fill anomaly seen |
+| L8 | Write rate | NOT-EXERCISED (no D0b baseline read this pass); ceiling sub-check PASS | `fast_writes_today = 12`, `fast_limited_today = 0`, `fast_tripped_zones = []` — no zone tripped the 6/h or 30/h runaway ceiling |
+| L9 | Quick returns | NOT-EXERCISED (no D0c baseline read this pass) | `quick_returns_today = {'zone_2': 1}` — far under the 12/day "Early return alert" threshold, but no 7-day D0c baseline was pulled to size "within 2×" |
+| L10 | Lifecycle | NOT-EXERCISED | No duplicate-write or missing-timer symptom observed (`fast_limited_today=0`), but listener-count verification needs log inspection not done in this read-only pass |
+| L11 | Nudge skip | PASS | 5 `S5_nudge_start` climate_write rows in-window (zone_1 ×2, zone_3 ×3); nearest to any zone_3 fast write is 25–34 min away — none within 120 s |
+| L12 | D5 diagnostics vs D0c | NOT-EXERCISED (transit filter never engaged in-window) | `transit_filtered_today = 0` for the whole in-window period (first non-zero value, zone_3 = 7, appears only after the 03:00 cutoff, under v5.103.23) |
+| L13 | No short arms | PASS (vacuous) | Zero pending-arm activity in-window (see L3); no arm bypassed the 60 s wait — consistent with `last_fast_edge_to_write_s=0.0` and no exemption rows logged |
+| L14 | No away with a pending room | PASS | Same evidence as L3 — no `vacant_past_grace` away ever coincided with a non-empty `pending_arm_rooms` |
+| L15 | No transit home write | PASS | Zero rows match the full predicate: every in-window `home`/`sleep` write tagged `fast_entry` or `periodic` off an `away` edge shows `any_room_hvac_occupied=true` — a real occupied room backed every one, none at `false` |
+
+**Churn vs. fast-path verdict (09-28 preset-change volume, 49–64 writes/zone, board groom note):** decomposes into two
+sources, NEITHER of which is new flapping introduced by this release. (1) Zone_1 shows ~35 repeated `home→away`
+re-writes 12:08–17:43 CDT while the CONFIG feed never actually held `away` — this is the pre-existing, already-documented
+`HVAC-ZONE1-MANUAL-OSCILLATION-1` / §9.7 status-feed-oscillation defect, unrelated to v5.103.20. (2) Zone_2/zone_3 show
+several sub-10-minute `fast_exit→fast_entry` pairs (e.g. zone_3 00:04:43→00:05:44, 61 s; 03:01:48→03:06:33, 285 s;
+04:17:27→04:25:37, 490 s) — these are genuine quick room transits resolved correctly by the D5/D2 machinery (exit fires
+at grace-exactness per L2, re-entry re-arms per the away-edge W-gate), not oscillation: `same_room_returns_today={}` and
+`quick_returns_today={'zone_2':1}` sit far under the 12/day alarm. **Verdict: fast-path working as designed** (faster,
+more granular entries/exits than the old 5-min tick would have produced), with the elevated raw count mostly
+attributable to the pre-existing zone_1 defect plus more numerous but individually correct fast writes.
 
 Observability: `sensor.ura_hvac_coordinator_mode` attrs `fast_room_response_enabled`, `fast_entry_runs_today`,
 `fast_exit_runs_today`, `fast_writes_today`, `fast_limited_today`, `fast_tripped_zones`, `quick_returns_today`,
