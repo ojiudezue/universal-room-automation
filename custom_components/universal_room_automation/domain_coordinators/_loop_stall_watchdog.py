@@ -102,6 +102,11 @@ class _LoopStallWatchdog:
 
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        # Tier 1 fix: store the HA-stop bus unsub so uninstall() can
+        # detach the listener if we tear down before HA stops (e.g. all
+        # URA entries unloaded). Without this the listener leaks and
+        # fires against a defunct watchdog handle at HA stop.
+        self._ha_stop_unsub: Callable[[], None] | None = None
 
     # ---- lifecycle ---------------------------------------------------------
     def start(self) -> None:
@@ -257,7 +262,9 @@ def install(hass: HomeAssistant) -> _LoopStallWatchdog:
         uninstall(hass)
 
     try:
-        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _on_stop)
+        wd._ha_stop_unsub = hass.bus.async_listen_once(
+            EVENT_HOMEASSISTANT_STOP, _on_stop,
+        )
     except Exception:  # noqa: BLE001
         _LOGGER.debug("watchdog: HA_STOP listen registration failed", exc_info=True)
     return wd
@@ -269,6 +276,16 @@ def uninstall(hass: HomeAssistant) -> None:
     wd = data.pop(_DATA_KEY, None)
     if wd is None:
         return
+    # Detach the HA-stop listener FIRST so it can't fire against a
+    # torn-down watchdog handle. Idempotent — HA's async_listen_once
+    # unsub is safe to call twice.
+    unsub = getattr(wd, "_ha_stop_unsub", None)
+    if unsub is not None:
+        try:
+            unsub()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("watchdog: HA_STOP unsub raised", exc_info=True)
+        wd._ha_stop_unsub = None
     try:
         wd.stop()
     except Exception:  # noqa: BLE001

@@ -154,6 +154,31 @@ def test_install_is_single_instance_across_many_entries():
         wd_mod.uninstall(hass)
 
 
+def test_uninstall_detaches_ha_stop_listener():
+    """Tier 1 LOW fix: install() stores the HA-stop bus unsub and
+    uninstall() calls it — otherwise the stale listener fires against
+    a torn-down handle at HA stop.
+    """
+    class _UnsubTrackingBus:
+        def __init__(self):
+            self.listeners = []
+            self.unsub_calls = 0
+
+        def async_listen_once(self, event, cb):
+            self.listeners.append((event, cb))
+
+            def _unsub():
+                self.unsub_calls += 1
+            return _unsub
+
+    hass = _FakeHass()
+    hass.bus = _UnsubTrackingBus()
+    w = wd_mod.install(hass)
+    assert w._ha_stop_unsub is not None, "install must store the unsub"
+    wd_mod.uninstall(hass)
+    assert hass.bus.unsub_calls == 1, "uninstall must call the HA-stop unsub"
+
+
 def test_uninstall_stops_thread():
     """The daemon thread must exit on uninstall (no lingering threads)."""
     hass = _FakeHass()

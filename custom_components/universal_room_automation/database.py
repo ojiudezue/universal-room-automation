@@ -508,12 +508,14 @@ class UniversalRoomDatabase:
         hard = DB_WRITE_READY_HARD_CAP_S
         _wait_start = time.monotonic()
         _dropped = False
+        _noted = False  # Tier 1 fix: only release() waiters that were noted.
         try:
             if soft < hard:
                 stage = await _wait_ready_stage(soft)
                 if stage == "timeout":
                     _elapsed = time.monotonic() - _wait_start
                     self._wait_episode_note_slow(_elapsed)
+                    _noted = True
                     stage = await _wait_ready_stage(hard - soft)
                     if stage == "timeout":
                         done.set()  # unblock worker if it runs _execute later
@@ -531,6 +533,7 @@ class UniversalRoomDatabase:
                     done.set()
                     _elapsed = time.monotonic() - _wait_start
                     self._wait_episode_note_slow(_elapsed)
+                    _noted = True
                     _dropped = True
                     raise RuntimeError(
                         "DB write worker did not process request within "
@@ -538,11 +541,14 @@ class UniversalRoomDatabase:
                         f"elapsed={_elapsed:.1f}s)"
                     )
         finally:
-            # If we crossed the soft threshold this waiter is being counted
-            # by the episode; clear it whether we got the connection or
-            # were dropped, so the episode summary can fire when
-            # in-flight reaches zero.
-            self._wait_episode_release(dropped=_dropped)
+            # Only release the episode counter for waiters that were
+            # actually noted (crossed the soft threshold). Fast waiters
+            # that never crossed must NOT decrement in_flight — doing so
+            # drops it to 0 while a slow waiter is still waiting and
+            # triggers a premature "cleared" summary + a second WARNING
+            # on the next slow waiter in the same freeze (Tier 1 MED).
+            if _noted:
+                self._wait_episode_release(dropped=_dropped)
         try:
             yield db_holder[0]
         finally:
