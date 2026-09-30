@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-29T20:14:33-05:00_ - _Data commit: `5a5f9b36176e`_ - _last_reconciled: 2026-09-29_
+_Generated: 2026-09-29T21:23:18-05:00_ - _Data commit: `e47cfcdaf5de`_ - _last_reconciled: 2026-09-29_
 
 
 ## Columns
@@ -479,7 +479,8 @@ _created 2026-09-12 17:10 · updated 2026-09-22 02:50 · refined_
 thread: **presence** - status: **planned**
 _created 2026-09-27 · updated 2026-09-29 01:05_
 - **Next:** PLAN+BUILD (me): house-state batch with HOUSE-STATE-SLEEP-LOST-ON-RESTART-1 - dispatch SIGNAL_HOUSE_STATE_CHANGED on override set/clear. Deploy held for operator go.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `operator_answer_2026_09_29_b`: Arrester sunset: YES - a dispatched override ends arrester immune holds like any house-state change (HOUSE_STATE_OVERRIDE_ENDS_ARRESTER_HOLDS=True). Survive-restart: operator asked when an override releases (answered: next accepted infer...
   - `operator_answer_2026_09_29`: YES - a forced house state (e.g. Sleep) must reach HVAC and every other coordinator exactly like an inferred change. Planned together with HOUSE-STATE-SLEEP-LOST-ON-RESTART-1 (same state machine, one cycle, Tier 2-DB). Build and hold dep...
   - `groom_2026_09_29`: MOVED inbox -> waiting_operator. The card is swept (sweep_2026_09_27: NEW) and its next is an operator ANSWER (should a manual override propagate like an inferred change), so it belongs in the decision queue, not raw intake. Still real: ...
   - `sweep_2026_09_27`: Board grep house state override: one mention inside another card as an existing path the operator floated for manual away (line ~18336); no card owns this defect. NEW.

@@ -1952,6 +1952,7 @@ cards:
 - id: HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1
   title: 'A manual house-state override (e.g. forcing Sleep) never reaches HVAC or other signal consumers — only inferred transitions are dispatched'
   status: planned
+  operator_answer_2026_09_29_b: 'Arrester sunset: YES - a dispatched override ends arrester immune holds like any house-state change (HOUSE_STATE_OVERRIDE_ENDS_ARRESTER_HOLDS=True). Survive-restart: operator asked when an override releases (answered: next accepted inferred transition, manual clear, or force_state; no timer) - persistence answer pending; build defaults True. Possible follow-up: timed override (e.g. Sleep until 06:30) if operator wants it.'
   operator_answer_2026_09_29: 'YES - a forced house state (e.g. Sleep) must reach HVAC and every other coordinator exactly like an inferred change. Planned together with HOUSE-STATE-SLEEP-LOST-ON-RESTART-1 (same state machine, one cycle, Tier 2-DB). Build and hold deploy until the operator says so.'
   groom_2026_09_29: 'MOVED inbox -> waiting_operator. The card is swept (sweep_2026_09_27: NEW) and its next is an operator ANSWER (should a manual override propagate like an inferred change), so it belongs in the decision queue, not raw intake. Still real: README_v5.103.19 documents the same path (presence.py:7591 -> house_state.py:213, no SIGNAL_HOUSE_STATE_CHANGED). Rank scored.'
   rank: {value: 5, time_criticality: 3, effort: 5}
