@@ -363,14 +363,14 @@
           "humidity_fan_advanced": {
             "name": "Advanced — Humidity Spike Tuning",
             "data": {
-              "humidity_fan_spike_delta_pct": "Spike Delta (% above baseline)",
-              "humidity_fan_spike_ema_alpha_s": "Baseline EMA Time-Constant (s)",
+              "humidity_fan_spike_delta_pct": "Spike Size (percentage points above baseline)",
+              "humidity_fan_spike_ema_alpha_s": "Baseline Adjustment Speed",
               "humidity_fan_spike_baseline_mode": "Baseline Mode"
             },
             "data_description": {
-              "humidity_fan_spike_delta_pct": "How many percentage points above the running baseline counts as a spike (e.g. 10 = fire when humidity rises 10pp above its baseline).",
-              "humidity_fan_spike_ema_alpha_s": "Time-constant of the EMA (exponential moving average) baseline, in seconds. Larger = slower baseline that ignores brief blips; smaller = faster baseline that adapts to room changes.",
-              "humidity_fan_spike_baseline_mode": "How the baseline is computed: EMA (adaptive average) tracks the slow drift; Window minimum uses the lowest value over a recent window."
+              "humidity_fan_spike_delta_pct": "How many percentage points above the running baseline count as a spike (e.g. 10 = fires when humidity jumps 10 above its baseline).",
+              "humidity_fan_spike_ema_alpha_s": "How quickly the humidity baseline adapts (in seconds). Larger = slower to shift and ignores brief blips; smaller = tracks changes faster.",
+              "humidity_fan_spike_baseline_mode": "How the humidity baseline is set. Adaptive average tracks slow drift; Window minimum uses the lowest reading over a recent window."
             }
           },
           "climate_backstop": {
@@ -1785,6 +1785,17 @@
           "light_brightness_pct": "Brightness level when turning lights on (1-100%)",
           "light_transition_seconds_on": "Fade-in time when turning lights on",
           "light_transition_seconds_off": "Fade-out time when turning lights off"
+        },
+        "sections": {
+          "reconcile_advanced": {
+            "name": "Return-to-room reconcile (advanced)",
+            "data": {
+              "flap_sensitivity": "Flap sensitivity"
+            },
+            "data_description": {
+              "flap_sensitivity": "How quickly to quarantine a sensor that toggles rapidly. Relaxed = tolerant of flapping; Normal = default; Aggressive = quarantine sooner."
+            }
+          }
         }
       },
       "options_covers": {
@@ -1958,14 +1969,14 @@
           "humidity_fan_advanced": {
             "name": "Advanced — Humidity Spike Tuning",
             "data": {
-              "humidity_fan_spike_delta_pct": "Spike Delta (% above baseline)",
-              "humidity_fan_spike_ema_alpha_s": "Baseline EMA Time-Constant (s)",
+              "humidity_fan_spike_delta_pct": "Spike Size (percentage points above baseline)",
+              "humidity_fan_spike_ema_alpha_s": "Baseline Adjustment Speed",
               "humidity_fan_spike_baseline_mode": "Baseline Mode"
             },
             "data_description": {
-              "humidity_fan_spike_delta_pct": "How many percentage points above the running baseline counts as a spike (e.g. 10 = fire when humidity rises 10pp above its baseline).",
-              "humidity_fan_spike_ema_alpha_s": "Time-constant of the EMA (exponential moving average) baseline, in seconds. Larger = slower baseline that ignores brief blips; smaller = faster baseline that adapts to room changes.",
-              "humidity_fan_spike_baseline_mode": "How the baseline is computed: EMA (adaptive average) tracks the slow drift; Window minimum uses the lowest value over a recent window."
+              "humidity_fan_spike_delta_pct": "How many percentage points above the running baseline count as a spike (e.g. 10 = fires when humidity jumps 10 above its baseline).",
+              "humidity_fan_spike_ema_alpha_s": "How quickly the humidity baseline adapts (in seconds). Larger = slower to shift and ignores brief blips; smaller = tracks changes faster.",
+              "humidity_fan_spike_baseline_mode": "How the humidity baseline is set. Adaptive average tracks slow drift; Window minimum uses the lowest reading over a recent window."
             }
           },
           "climate_backstop": {
@@ -1982,9 +1993,9 @@
               "target_temp_heat": "Lower bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set.",
-              "hvac_vacancy_hold": "How many seconds heating and cooling keep treating this room as occupied during the day and evening. The time counts from the last sign of someone in the room, such as motion, presence, a camera or a phone. This covers people sitting still, and it is the only protection for someone who stays completely still. Leave blank to use the default for this room type: 1 minute for closets, 2 minutes for media, utility and general rooms and garages, 3 for bathrooms and living areas, and 4 for bedrooms. Enter 0 to hold only while a sensor still sees someone. From 9 pm until the house goes to sleep, and while the house is away, arriving or has guests, this same number (or, if left blank, a shorter built-in hold) is counted from when the room itself shows as empty instead.",
-              "hvac_vacancy_hold_night": "The hold used while the house is asleep or waking up. It counts from when the room itself shows as empty, so sleepers who lie still get extra time. Leave blank to use the default for this room type: 30 minutes for bedrooms and media rooms, 15 for living areas, 10 for bathrooms, garages and utility rooms, and 5 for closets. Enter 0 for no extra time once the room shows as empty. This form rejects a night value below the day value.",
-              "hvac_skip_entry_wait": "For rooms whose sensor only gives short pulses. When on, anyone detected in this room switches a zone set to Away back to Home at once, without the Entry wait. Only matters during the day and evening."
+              "hvac_vacancy_hold": "Extra seconds HVAC keeps a room 'occupied' after the last sign of someone, during the day. Blank = room-type default; 0 = no extra time.",
+              "hvac_vacancy_hold_night": "Same as above, used while the house is asleep or waking up. Must be greater than or equal to the day value. Blank = room-type default; 0 = no extra time.",
+              "hvac_skip_entry_wait": "For rooms with short-pulse sensors. When on, any detection immediately switches an Away zone back to Home — no entry wait."
             }
           }
         },

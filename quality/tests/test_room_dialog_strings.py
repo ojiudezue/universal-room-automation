@@ -149,91 +149,144 @@ def _extract_step_schema_keys() -> dict[str, dict[str, set[str]]]:
     ):
         const_map.setdefault(m.group(1), m.group(2))
 
-    def _resolve_keys(fn) -> set[str]:
+    KEY_PAT = re.compile(
+        r"vol\.(?:Optional|Required)\(\s*"
+        r"(?:(CONF_[A-Z0-9_]+)|[\"']([a-z0-9_]+)[\"'])"
+        r"[^\)]*\)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)"
+    )
+    # Locate a `section(` / `_ha_section(` call and capture its LITERAL key
+    # (the vol.Optional("<key>") right before) + the inner schema body up to
+    # the matching close paren of section(...). We split on section calls in
+    # the function source and re-scan the inner slice with KEY_PAT.
+    SECTION_HEAD = re.compile(
+        r"vol\.(?:Optional|Required)\(\s*[\"']([a-z0-9_]+)[\"'][^\)]*\)"
+        r"\s*:\s*(?:section|_ha_section)\("
+    )
+
+    def _slice_balanced(src: str, start_paren: int) -> str:
+        """Return the substring inside a balanced (...) starting at start_paren
+        (index of the '(' character)."""
+        depth = 0
+        for i in range(start_paren, len(src)):
+            c = src[i]
+            if c == "(":
+                depth += 1
+            elif c == ")":
+                depth -= 1
+                if depth == 0:
+                    return src[start_paren + 1 : i]
+        return ""
+
+    def _resolve_key(cname, lit) -> str | None:
+        if cname:
+            return const_map.get(cname)
+        return lit
+
+    def _parse_step(fn):
+        """Return (top_level_keys, {section_key: [field_keys...]})."""
         src = ast.get_source_segment(_CONFIG_FLOW.read_text(), fn) or ""
-        keys: set[str] = set()
-        # vol.Optional(CONF_X, ...): <value>  -- capture value's opening token
-        # to skip `section(...)` grouping keys (HA renders those via a
-        # `sections.<key>` block, not a `data.<key>` label).
-        pat = re.compile(
-            r"vol\.(?:Optional|Required)\(\s*"
-            r"(?:(CONF_[A-Z0-9_]+)|[\"']([a-z0-9_]+)[\"'])"
-            r"[^\)]*\)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)"
-        )
-        for m in pat.finditer(src):
-            cname, lit, wrapper = m.group(1), m.group(2), m.group(3)
-            if wrapper in ("section", "_ha_section"):
-                continue
-            if cname:
-                if cname in const_map:
-                    keys.add(const_map[cname])
-            elif lit:
-                keys.add(lit)
-        return keys
+        sections: dict[str, set[str]] = {}
+        # Mask each section body so top-level scan doesn't pick up nested keys.
+        masked = list(src)
+        for m in SECTION_HEAD.finditer(src):
+            skey = m.group(1)
+            open_paren = m.end() - 1  # position of '(' of section(
+            body = _slice_balanced(src, open_paren)
+            inner_keys: set[str] = set()
+            for km in KEY_PAT.finditer(body):
+                k = _resolve_key(km.group(1), km.group(2))
+                if k and km.group(3) not in ("section", "_ha_section"):
+                    inner_keys.add(k)
+            sections[skey] = inner_keys
+            # Mask this range in the top-level source.
+            for i in range(m.start(), open_paren + 1 + len(body) + 1):
+                if i < len(masked):
+                    masked[i] = " "
+        top_src = "".join(masked)
+        top: set[str] = set()
+        for m in KEY_PAT.finditer(top_src):
+            k = _resolve_key(m.group(1), m.group(2))
+            if k and m.group(3) not in ("section", "_ha_section"):
+                top.add(k)
+        return top, sections
 
     result = {"config": {}, "options": {}}
-    for fn in config_class.body:
-        if isinstance(fn, (ast.AsyncFunctionDef, ast.FunctionDef)):
-            if fn.name.startswith("async_step_"):
-                sid = fn.name[len("async_step_"):]
-                result["config"][sid] = _resolve_keys(fn)
-    for fn in options_class.body:
-        if isinstance(fn, (ast.AsyncFunctionDef, ast.FunctionDef)):
-            if fn.name.startswith("async_step_"):
-                sid = fn.name[len("async_step_"):]
-                result["options"][sid] = _resolve_keys(fn)
+    for cls, section in ((config_class, "config"), (options_class, "options")):
+        for fn in cls.body:
+            if isinstance(fn, (ast.AsyncFunctionDef, ast.FunctionDef)):
+                if fn.name.startswith("async_step_"):
+                    sid = fn.name[len("async_step_"):]
+                    top, secs = _parse_step(fn)
+                    result[section][sid] = {"top": top, "sections": secs}
     return result
 
 
 def _cases():
     strings = _load(_STRINGS)
-    en = _load(_EN)
     schema = _extract_step_schema_keys()
-    seen: list[tuple[str, str, str]] = []
+    seen: list[tuple[str, str, str, str]] = []  # (section, step_id, section_key|"", field)
     for section, step_ids in (
         ("config", ROOM_CONFIG_STEPS),
         ("options", ROOM_OPTIONS_STEPS),
     ):
         for sid in step_ids:
-            code_keys = schema.get(section, {}).get(sid, set())
+            step_schema = schema.get(section, {}).get(sid, {"top": set(), "sections": {}})
             s_step = strings.get(section, {}).get("step", {}).get(sid, {})
-            s_data = s_step.get("data", {}) or {}
-            s_dd = s_step.get("data_description", {}) or {}
-            union = code_keys | set(s_data.keys()) | set(s_dd.keys())
-            for k in sorted(union):
-                seen.append((section, sid, k))
+            # Top-level fields.
+            top_data = s_step.get("data", {}) or {}
+            top_dd = s_step.get("data_description", {}) or {}
+            for k in sorted(step_schema["top"] | set(top_data) | set(top_dd)):
+                seen.append((section, sid, "", k))
+            # Section fields.
+            s_sections = s_step.get("sections", {}) or {}
+            all_secs = set(step_schema["sections"].keys()) | set(s_sections.keys())
+            for skey in sorted(all_secs):
+                code_keys = step_schema["sections"].get(skey, set())
+                sblock = s_sections.get(skey, {}) or {}
+                sd = sblock.get("data", {}) or {}
+                sdd = sblock.get("data_description", {}) or {}
+                for k in sorted(code_keys | set(sd) | set(sdd)):
+                    seen.append((section, sid, skey, k))
     return seen
 
 
 CASES = _cases()
 
 
-@pytest.mark.parametrize("section,step_id,key", CASES)
-def test_room_field_has_clean_label_and_helper(section, step_id, key):
+def _get_field_blocks(blob, section, step_id, section_key):
+    step = blob.get(section, {}).get("step", {}).get(step_id, {})
+    if not section_key:
+        return step, step.get("data", {}) or {}, step.get("data_description", {}) or {}
+    sblock = (step.get("sections", {}) or {}).get(section_key, {}) or {}
+    return sblock, sblock.get("data", {}) or {}, sblock.get("data_description", {}) or {}
+
+
+@pytest.mark.parametrize("section,step_id,section_key,key", CASES)
+def test_room_field_has_clean_label_and_helper(section, step_id, section_key, key):
     strings = _load(_STRINGS)
     en = _load(_EN)
 
+    where = (
+        f"{section}.{step_id}"
+        + (f".sections.{section_key}" if section_key else "")
+    )
     for src_name, blob in (("strings.json", strings), ("en.json", en)):
-        step = blob.get(section, {}).get("step", {}).get(step_id, {})
-        assert step, f"{src_name}: room {section} step '{step_id}' missing"
-        data = step.get("data", {}) or {}
-        dd = step.get("data_description", {}) or {}
+        block, data, dd = _get_field_blocks(blob, section, step_id, section_key)
+        assert block, f"{src_name}: {where} block missing"
 
         label = data.get(key)
-        assert label, f"{src_name}: {section}.{step_id}.data missing label for '{key}'"
-        assert label != key, (
-            f"{src_name}: {section}.{step_id}.{key} label equals raw key"
-        )
+        assert label, f"{src_name}: {where}.data missing label for '{key}'"
+        assert label != key, f"{src_name}: {where}.{key} label equals raw key"
         assert "_" not in label, (
-            f"{src_name}: {section}.{step_id}.{key} label {label!r} contains '_' "
+            f"{src_name}: {where}.{key} label {label!r} contains '_' "
             "(raw key leaked into UI)"
         )
 
         helper = dd.get(key)
         assert helper, (
-            f"{src_name}: {section}.{step_id}.data_description missing helper for '{key}'"
+            f"{src_name}: {where}.data_description missing helper for '{key}'"
         )
         assert len(helper) <= MAX_HELPER_LEN, (
-            f"{src_name}: {section}.{step_id}.{key} helper is {len(helper)} chars "
+            f"{src_name}: {where}.{key} helper is {len(helper)} chars "
             f"(>{MAX_HELPER_LEN}); shorten."
         )
