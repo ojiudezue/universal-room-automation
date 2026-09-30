@@ -30556,6 +30556,16 @@ cards:
   next: 'BUILD (strings-only + a meta-test): every field in every ROOM config and options step gets a plain label and a short helper text (label style guide), long texts trimmed; meta-test fails on any raw-key label, missing helper, or over-long helper. Ship with the next restart (bundled with BOOT-EVENT-LOOP-FREEZE-1 per operator choice).'
   links: {related: [HVAC-KNOB-LABEL-PASS-1, CM-CONFIG-FLOW-UX-1]}
   rank: {value: 3, time_criticality: 2, effort: 2}
+- id: ROOM-LIGHTING-SETUP-REDESIGN-1
+  title: Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time
+  thread: ux
+  status: pre_planning
+  created: '2026-09-29 22:10'
+  origin: 'Operator 2026-09-29: "lighting control and automation in room is awkward. Feels like the sequence should be: list all the lights in the room alongside their capabilities; designate which are automated on entry and if there is a conditional (darkness); which are nightlights; which turn off on exit/vacancy; how long to wait. ... how would you do this to stay simple and take the least UI space. Also what did I miss?"'
+  why: 'Today lights are split across Devices (Lights, Light Features auto-detected, Night Lights subset - config only, not in options) and Automation Behavior / Lighting (Lights on Entry, Lights on Exit, Dark Threshold, Brightness, Fade in/out) - roles are global per room, not per light. Adjacency: ROOM-DIALOGS-USABILITY-SWEEP-1 (wording only, done/held) - this is structure. NEW.'
+  next: 'PICK (operator): approve the role-picker layout proposed in chat 2026-09-29 and which of the "missed" items to include -> I write the plan (Institutional context + prior-art scan of automation.py light paths), plan review, build, deploy held.'
+  links: {related: [ROOM-DIALOGS-USABILITY-SWEEP-1]}
+  rank: {value: 4, time_criticality: 2, effort: 3}
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
