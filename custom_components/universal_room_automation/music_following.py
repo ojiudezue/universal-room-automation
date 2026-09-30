@@ -216,13 +216,30 @@ class MusicFollowing:
         )
     
     def enable_for_person(self, person_id: str) -> None:
-        """Enable music following for specific person."""
+        """Enable music following for specific person.
+
+        Dedupe by canonical key so a mixed-form set (e.g. both
+        ``"Oji Udezue"`` and ``"person.oji_udezue"``) cannot arise
+        and later defeat ``disable_for_person``.
+        """
+        key = _person_key(person_id)
+        self._enabled_persons = {
+            p for p in self._enabled_persons if _person_key(p) != key
+        }
         self._enabled_persons.add(person_id)
         _LOGGER.info("Music following enabled for: %s", person_id)
-    
+
     def disable_for_person(self, person_id: str) -> None:
-        """Disable music following for specific person."""
-        self._enabled_persons.discard(person_id)
+        """Disable music following for a specific person.
+
+        Removes every entry whose canonical key matches ``person_id``,
+        so an entry_id-form disable also drops any display-name form
+        (and vice versa).
+        """
+        key = _person_key(person_id)
+        self._enabled_persons = {
+            p for p in self._enabled_persons if _person_key(p) != key
+        }
         _LOGGER.info("Music following disabled for: %s", person_id)
 
     def sync_enabled_persons(self, tracked_persons: list[str]) -> None:
@@ -244,19 +261,29 @@ class MusicFollowing:
         so a later re-add starts fresh.
         """
         wanted = set(tracked_persons or [])
+        wanted_keys = {_person_key(p) for p in wanted}
         prefs = self._person_follow_prefs
+        # Normalize OFF pref lookup: prefs may be keyed by entity_id
+        # (from MFPersonFollowSwitch) while ``wanted`` may be display
+        # names (or vice versa). Compare by canonical key.
+        off_keys = {_person_key(k) for k, v in prefs.items() if v is False}
         target = set()
         for p in wanted:
-            if prefs.get(p) is False:
+            if _person_key(p) in off_keys:
                 # Explicit OFF pref — do NOT enable.
                 continue
             target.add(p)
-        added = target - self._enabled_persons
-        removed = self._enabled_persons - wanted  # dropped ONLY if untracked
+        added = {
+            p for p in target
+            if not any(_person_key(x) == _person_key(p) for x in self._enabled_persons)
+        }
+        removed = {
+            p for p in self._enabled_persons if _person_key(p) not in wanted_keys
+        }
         self._enabled_persons = (self._enabled_persons - removed) | added
-        # Prune prefs for untracked persons.
+        # Prune prefs for untracked persons (by canonical key).
         for p in list(prefs.keys()):
-            if p not in wanted:
+            if _person_key(p) not in wanted_keys:
                 prefs.pop(p, None)
         if added or removed:
             _LOGGER.info(
@@ -419,8 +446,50 @@ class MusicFollowing:
             "stale_transition_today": self._transfer_stats.get("stale_transition", 0),
         }
     
+    def _coordinator_enabled(self) -> bool:
+        """Return True iff the Music Following coordinator switch is ON.
+
+        Reads ``CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED`` from the
+        Coordinator-Manager entry's merged options. Fail-safe: any
+        exception, missing CM entry, or missing hass returns False so
+        that a broken kill-switch chain cannot silently allow
+        transfers.
+        """
+        try:
+            from .const import (  # noqa: PLC0415
+                CONF_ENTRY_TYPE,
+                CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED,
+                ENTRY_TYPE_COORDINATOR_MANAGER,
+            )
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+                if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    merged = {**ce.data, **ce.options}
+                    return bool(
+                        merged.get(CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED, True)
+                    )
+        except Exception:  # noqa: BLE001
+            return False
+        # No CM entry found → fail-safe DISABLED.
+        return False
+
     async def _on_person_transition(self, transition: RoomTransition) -> None:
         """Handle person transition - transfer music if appropriate."""
+        # Kill-switch: the CoordinatorEnabledSwitch
+        # (switch.ura_music_following_coordinator_enabled) only gates
+        # the WRAPPER coordinator's creation. The standalone
+        # MusicFollowing singleton is created unconditionally at setup
+        # (__init__.py) and listens directly to transitions, so
+        # toggling the switch off does NOT stop transfers. Guard here
+        # by re-reading the flag from the coordinator-manager entry.
+        # Fail-safe: on ANY error (missing entry, no CM, unreadable
+        # options) treat the coordinator as DISABLED so an operator's
+        # kill-switch can never be silently ignored.
+        if not self._coordinator_enabled():
+            _LOGGER.info(
+                "🎵 Music transfer skipped: coordinator disabled or unreadable"
+            )
+            return
+
         person_id = transition.person_id
         from_room = transition.from_room
         to_room = transition.to_room
