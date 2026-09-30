@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-29T23:06:54-05:00_ - _Data commit: `fc6d378e2051`_ - _last_reconciled: 2026-09-29_
+_Generated: 2026-09-29T23:09:43-05:00_ - _Data commit: `2ded43bce89b`_ - _last_reconciled: 2026-09-29_
 
 
 ## Columns
@@ -10,12 +10,12 @@ _Generated: 2026-09-29T23:06:54-05:00_ - _Data commit: `fc6d378e2051`_ - _last_r
 | Column | Count |
 |---|---:|
 | 📥 Inbox | 2 |
-| 🔬 Investigating | 3 |
+| 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 21 |
-| 🔨 In progress | 3 |
+| 🔨 In progress | 5 |
 | 🔍 Review | 2 |
-| ⏸️ Waiting on operator | 21 |
+| ⏸️ Waiting on operator | 22 |
 | ⏳ Waiting on me (Claude) | 3 |
 | 🚀 Shipped (organic open) | 14 |
 | 🅿️ Parked | 71 |
@@ -36,40 +36,10 @@ _created 2026-09-29 22:30_
 - **Why:** Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.
 - **Next:** Me: after the room and zone passes, plan house then coordinators with the same rules and meta-test.
 
-## 🔬 Investigating (3)
+## 🔬 Investigating (0)
 _measuring; truth not yet known_
 
-### `MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1` - Music following has recorded no transfers since 2026-05-12 - idle, broken, or unused? — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
-thread: **music** - status: **investigating**
-_created 2026-09-29 15:00_
-- **Origin:** 2026-09-29 - anomaly D0 probe + plan review
-- **Why:** metric_baselines for music_following (transfer_success_rate, cooldown_frequency) hold 1572 samples, mean 0 / std 0, last updated 2026-05-12, identical live and in the DB. Either the feature has not fired a transfer in 4.5 months (disable...
-- **Next:** CHECK (me, one-shot, after the operator's test on 2026-09-29): read music_following transfer records, logs and metric_baselines. A transfer recorded means working-but-idle: close, and note the stale pre-v4.6.5.2 baseline. No transfer rec...
-- **Tags:** music-following, found-in-review
-- **Forensic keys (1):**
-  - `operator_2026_09_29`: Operator: "Rarely use it. But will test today."
-
-### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#2 · WSJF 5.0 · v2 tc1 u2 /e1_
-thread: **platform** - status: **investigating**
-_created 2026-09-29 20:05_
-- **Why:** Unmeasured growth; the incremental vacuum (v5.5.7) should keep free pages low, so growth is live rows. Need a per-table size breakdown before deciding retention changes.
-- **Next:** MEASURE (me, read-only): per-table row counts + bytes (dbstat or page counts) on a copy of the DB; compare to retention settings. Exit: a retention card if a table is unbounded, else close.
-
-### `HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1` - Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered — _#3 · WSJF 3.3 · v5 tc3 u2 /e3_
-thread: **hvac** - status: **investigating** - approval: **implied**
-_created 2026-09-29 01:05 · initial_
-- **Problem / Solution:**
-  - Problem: since v5.103.16 every URA thermostat write is logged, and writes made on behalf of a temporary "borrow" (a nudge, a pre-cool, a return from one) are supposed to carry that borrow's id so each write can be traced to the episode t...
-- **Origin:** 2026-09-29 - Soak-exit query for HVAC-SETHVACMODE-CHOKEPOINT-1 (v5.103.16) during the 2026-09-29 board groom
-- **Why:** W1-A plan invariant F6 (PLANNING_hvac_w1a_thermostat_write_governance.md:63, :196): borrow-owning sites S3-S8, S11-S13 and egress pass their token's excursion_id; a forgotten forward becomes a null. The nulls are that failure, measured.
-- **Next:** MEASURE (me, one-shot): re-run the null-id query after the next S12 pre-cool and the next lease/auto return. Close if 0 null; otherwise name the site. Dispose by 2026-10-06.
-- **Tags:** hvac, tier-1, no-fabrication-verify, found-during-soak-exit
-- **Parsimony:** [BUILD] borrow writes are logged without the borrow id on 4 site families, breaking write-to-episode attribution
-- **Refs:** docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md; docs/planning/PLANNING_hvac_w1_w2_finish.md; docs/readmes/README_v5.103.16.md
-- **Forensic keys (3):**
-  - `groom_2026_09_29_arc`: Partial re-measure after Batch B (since 2026-09-29 03:02): 16 borrow writes (S5 nudge start 5, S7 restore 10, S3 compromise 1), 0 without an excursion id (nudge starts were 5/35 null before). The S12 pre-cool and auto_return paths have n...
-  - `evidence`: MEASURED 2026-09-29 (URA DB, read-only, ura_activity_log action=climate_write since 2026-09-26 20:20Z): S5_nudge_start 30/35 with id, S6_nudge_restore_setpoint 8/13, S7 60/70, S12_pre_cool 5/11, auto_return:banking(+resume/+pin) 0/9 (rea...
-  - `adjacency_sweep`: Swept 2026-09-29: board (grep excursion_id: one unrelated hit, ac_ramp_events design note); docs/BACKLOG.md (none); PLANNING_hvac_w1a_thermostat_write_governance.md (F6 invariant = the source rule); PLANNING_hvac_w1_w2_finish.md P2 (S12 ...
+_(none)_
 
 ## 🧭 Pre-planning (12)
 _idea being decomposed_
@@ -592,10 +562,42 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (3)
+## 🔨 In progress (5)
 _being built_
 
-### `URA-ATTRIBUTE-CHURN-1` - Two URA entities re-publish every couple of seconds only because a timestamp or countdown attribute ticked, adding HA CPU load and a history row each time — _#1 · WSJF 4.5 · v4 tc3 u2 /e2_
+### `HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1` - Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered — _#1 · WSJF 8.0 · v4 tc2 u2 /e1_
+thread: **hvac** - status: **in_progress** - approval: **implied**
+_created 2026-09-29 01:05 · updated 2026-09-30 02:30 · refined_
+- **Problem / Solution:**
+  - Problem: since v5.103.16 every URA thermostat write is logged, and writes made on behalf of a temporary "borrow" (a nudge, a pre-cool, a return from one) are supposed to carry that borrow's id so each write can be traced to the episode t...
+- **Origin:** 2026-09-29 - Soak-exit query for HVAC-SETHVACMODE-CHOKEPOINT-1 (v5.103.16) during the 2026-09-29 board groom
+- **Why:** W1-A plan invariant F6 (PLANNING_hvac_w1a_thermostat_write_governance.md:63, :196): borrow-owning sites S3-S8, S11-S13 and egress pass their token's excursion_id; a forgotten forward becomes a null. The nulls are that failure, measured.
+- **Next:** BUILD (me, overnight, Tier 1, to review only - NO deploy): pass excursion_id=token.excursion_id at hvac_excursion.py auto_return emit_set_preset_mode, with a wire-in test through the return path. After ship: one-shot check that the next ...
+- **Tags:** hvac, tier-1, no-fabrication-verify, found-during-soak-exit
+- **Parsimony:** [BUILD] borrow writes are logged without the borrow id on 4 site families, breaking write-to-episode attribution
+- **Refs:** docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md; docs/planning/PLANNING_hvac_w1_w2_finish.md; docs/readmes/README_v5.103.16.md
+- **Forensic keys (5):**
+  - `groom_2026_09_29_arc`: Partial re-measure after Batch B (since 2026-09-29 03:02): 16 borrow writes (S5 nudge start 5, S7 restore 10, S3 compromise 1), 0 without an excursion id (nudge starts were 5/35 null before). The S12 pre-cool and auto_return paths have n...
+  - `MEASURED_2026_09_30_overnight`: RE-MEASURE after Batch B (v5.103.23 deployed 2026-09-29 03:01 CDT = 08:01Z; the 09-29 groom note said "since 03:02", which was local time). URA DB, read-only, climate_write rows >= 08:01Z 09-29: S5_nudge_start 0 null (all carry ids), S7 ...
+  - `gate_2026_09_30`: VALIDITY: PARTIALLY-DONE -> narrowed to auto_return. CONFIG-FIRST: n/a (code omission). PRIOR-ART: REUSE the existing excursion_id kwarg of emit_set_preset_mode. PARSIMONY: BUILD (one kwarg + a wire-in test). COST/BENEFIT: trivial, ledge...
+  - `evidence`: MEASURED 2026-09-29 (URA DB, read-only, ura_activity_log action=climate_write since 2026-09-26 20:20Z): S5_nudge_start 30/35 with id, S6_nudge_restore_setpoint 8/13, S7 60/70, S12_pre_cool 5/11, auto_return:banking(+resume/+pin) 0/9 (rea...
+  - `adjacency_sweep`: Swept 2026-09-29: board (grep excursion_id: one unrelated hit, ac_ramp_events design note); docs/BACKLOG.md (none); PLANNING_hvac_w1a_thermostat_write_governance.md (F6 invariant = the source rule); PLANNING_hvac_w1_w2_finish.md P2 (S12 ...
+
+### `MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1` - Music following has recorded no transfers since 2026-05-12 - idle, broken, or unused? — _#2 · WSJF 7.0 · v3 tc2 u2 /e1_
+thread: **music** - status: **in_progress** - approval: **implied**
+_created 2026-09-29 15:00 · updated 2026-09-30 02:30 · refined_
+- **Problem / Solution:**
+  - Problem: music following is switched on for all four people, but it has not moved music once since at least July. When someone walks out of a room, the move event names the person as "Oji Udezue", while the list of people music should fo...
+- **Origin:** 2026-09-29 - anomaly D0 probe + plan review
+- **Why:** metric_baselines for music_following (transfer_success_rate, cooldown_frequency) hold 1572 samples, mean 0 / std 0, last updated 2026-05-12, identical live and in the DB. Either the feature has not fired a transfer in 4.5 months (disable...
+- **Next:** BUILD (me, overnight, Tier 1, to review only - NO deploy): normalize the enabled-person check at music_following.py:418 so a display-name transition matches its entity-id follower (reuse the __init__.py:2744 rule), with a wire-in test th...
+- **Tags:** music-following, found-in-review, tier-1, no-fabrication-verify
+- **Forensic keys (3):**
+  - `operator_2026_09_29`: Operator: "Rarely use it. But will test today."
+  - `MEASURED_2026_09_30_overnight`: ROOT CAUSE FOUND (read-only; HA REST states + history, URA DB room_transitions; the home-assistant MCP was DOWN this run, so NO HA LOG was read and this finding does NOT rest on logs). (1) Live sensor.universal_room_automation_music_foll...
+  - `gate_2026_09_30`: VALIDITY: STILL-REAL (above). CONFIG-FIRST: no setting fixes it (options hold entity ids by design; the event producer uses names). PRIOR-ART: REUSE the entity-id -> name rule at __init__.py:2744; no new mechanism. PARSIMONY: BUILD, a on...
+
+### `URA-ATTRIBUTE-CHURN-1` - Two URA entities re-publish every couple of seconds only because a timestamp or countdown attribute ticked, adding HA CPU load and a history row each time — _#3 · WSJF 4.5 · v4 tc3 u2 /e2_
 thread: **platform** - status: **in_progress** - approval: **implied**
 _created 2026-09-28 19:10 · updated 2026-09-29 05:00_
 - **Origin:** 2026-09-28 - operator HA CPU review ("HA CPU is double what it was 4 months ago"); recorder top-writers sweep over 5 min
@@ -607,7 +609,7 @@ _created 2026-09-28 19:10 · updated 2026-09-29 05:00_
   - `verify_2026_09_29_overnight`: CARD-WAS-WRONG on scope. It said last_motion was the ONLY changing attribute. Recorder, last 26h: binary_sensor.living_room_occupied had 22,722 rows, 22,653 of them rewrites with the same state, driven by idle_duration 12,828, last_motio...
   - `fixup2_2026_09_29_overnight`: Both reviews returned FIX-REQUIRED on fix-up 1 (converged HIGH): timeout_at and last_occupied_at were built from stamps the coordinator re-stamps on every refresh (coordinator.py:3604, 3638-3640), so the churn moved instead of stopping i...
 
-### `TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1` - About ten test files still edit real production code in place while the suite runs, so a killed run or a concurrent git operation can leave the repo silently broken — _#2 · WSJF 3.7 · v5 tc4 u2 /e3_
+### `TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1` - About ten test files still edit real production code in place while the suite runs, so a killed run or a concurrent git operation can leave the repo silently broken — _#4 · WSJF 3.7 · v5 tc4 u2 /e3_
 thread: **platform** - status: **in_progress** - approval: **implied**
 _created 2026-09-26 02:14 · updated 2026-09-29 01:05 · initial_
 - **Problem / Solution:**
@@ -626,7 +628,7 @@ _created 2026-09-26 02:14 · updated 2026-09-29 01:05 · initial_
   - `observed_2026_09_26`: LIVE INSTANCE, not theoretical. At about 02:04 CDT, during the overnight full-suite run in the shared main checkout, `git status` showed custom_components/universal_room_automation/domain_coordinators/energy.py modified with `return 0.0 ...
   - `scope_measured_2026_09_26`: grep for write_text plus custom_components across quality/tests: 14 files. Counting those with zero or one tmp-path reference as in-place writers gives about 9-10: test_ble_extend_not_create, test_dp_yields_to_excess_solar, test_energy_w...
 
-### `ROOM-LIGHTING-SETUP-REDESIGN-1` - Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time — _#3 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `ROOM-LIGHTING-SETUP-REDESIGN-1` - Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time — _#5 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **ux** - status: **in_progress**
 _created 2026-09-29 22:10_
 - **Why:** Today lights are split across Devices (Lights, Light Features auto-detected, Night Lights subset - config only, not in options) and Automation Behavior / Lighting (Lights on Entry, Lights on Exit, Dark Threshold, Brightness, Fade in/out)...
@@ -669,7 +671,7 @@ _created 2026-09-27 02:40 · updated 2026-09-29 01:05 · initial_
   - `gate_2026_09_27`: (1) VALIDITY: still real, 3 junk alerts in 16 days, code path confirmed. (1b) CONFIG-FIRST: no knob covers it. LOW_HUMIDITY_THRESHOLDS are rung-1 constants, and swapping each room to a different humidity sensor is whack-a-mole because an...
   - `open_question_garage`: NOT BUILT, and flagged for the operator: the zone chip treats garages as humidity-EXEMPT ("garage RH tracks weather"), but the safety coordinator still fires low-humidity for garages (09-26 "30.0% in Garage A", LOW). The coordinator and ...
 
-## ⏸️ Waiting on operator (21)
+## ⏸️ Waiting on operator (22)
 _needs a human call — groomed first_
 
 ### `ENPHASE-BATTERY-CUTOUTS-1` - At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time — _#1 · WSJF 10.0 · v8 tc8 u4 /e2_
@@ -969,7 +971,17 @@ _updated 2026-09-29 01:05_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#20 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#20 · WSJF 1.2 · v3 tc1 u2 /e5_
+thread: **platform** - status: **waiting_operator** - approval: **blocked**
+_created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
+- **Problem / Solution:**
+  - Problem: three history tables (room temperature/humidity readings, room energy readings, room occupancy events) are never trimmed. They have kept every row since November 2025 and, with their indexes, make up about 72% of the 1.35 GB dat...
+- **Next:** PICK the retention window: (A) 90 days (reuses the unused RETENTION_ENERGY_HISTORY; every code reader needs at most 30 days; frees roughly 700 MB, which the nightly incremental vacuum returns over time) - my recommendation; (B) 365 days ...
+- **Forensic keys (2):**
+  - `MEASURED_2026_09_30_overnight`: Read-only dbstat on the live DB (page_size 4096, 329,298 pages, freelist 48 -> the vacuum works; growth is live rows). Top: environmental_data 201 MB + idx_env_room_time 148 MB; energy_snapshots 162 MB + idx_energy_room_time 149 MB; occu...
+  - `gate_2026_09_30`: Not built overnight: a new DELETE on tables with 10 months of history is irreversible and a change to the DB write path (Tier 2-DB). The retention window is a data-policy decision (these rows may be wanted for offline learning / the fore...
+
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#21 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -984,7 +996,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#21 · WSJF 1.0 · v7 tc4 u2 /e13_
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#22 · WSJF 1.0 · v7 tc4 u2 /e13_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-29 02:55 · refined_
 - **Problem / Solution:**
