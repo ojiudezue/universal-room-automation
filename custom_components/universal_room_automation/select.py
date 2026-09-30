@@ -1,6 +1,6 @@
 """Select platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.25
+# Universal Room Automation vv5.103.26
 # File: select.py
 # v3.6.0-c1: Added house state override and zone presence mode selects
 #
@@ -166,7 +166,11 @@ class RoomFanModeSelect(UniversalRoomEntity, SelectEntity):
         """
         super().__init__(coordinator, "room_fan_mode", "Fan Mode")
         self._entry = coordinator.entry
-        self._attr_entity_category = EntityCategory.CONFIG
+        # No entity_category (operator 2026-09-29): the Fan Mode is a
+        # day-to-day control (e.g. turn a guest room's fan off), so it sits
+        # in the device page's Controls card where Climate Automation was,
+        # not under Configuration.
+        self._attr_entity_category = None
 
     def _in_hvac_zone(self) -> bool:
         return room_in_hvac_zone(self.hass, self._entry.entry_id)

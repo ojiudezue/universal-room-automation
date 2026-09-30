@@ -167,13 +167,14 @@ def test_help_text_describes_reject_on_night_below_day():
     # fast occupancy response, plan §14.2) reworded both helpers in plain
     # language: the night helper still states the rejection; the day helper
     # states what 0 means (hold only while a sensor still sees someone).
-    assert "This form rejects a night value below the day value." in en, (
+    # ROOM-DIALOGS-USABILITY-SWEEP-1 shortened both helpers.
+    assert "Must be ≥ day" in en, (
         "night helper must state the form rejects a night below day"
     )
-    assert "Enter 0 to hold only while a sensor still sees someone." in en, (
+    assert "0 = only while seen" in en, (
         "day helper must state what 0 means"
     )
-    assert "Enter 0 for no extra time once the room shows as empty." in en
+    assert "0 = no extra time once empty" in en
 
 
 # --------- v5.103.20 fix-up 1 (ruling 3): per-room "Skip entry wait" ---------

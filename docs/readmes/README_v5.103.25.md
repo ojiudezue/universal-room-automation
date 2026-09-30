@@ -114,6 +114,24 @@ D0 probe (plan §2.3, run read-only by the orchestrator on 2026-09-29):
   - Full suite: **CLEAN, 0 new, 0 gone** (153 pre-existing failing names on both sides).
 - **Suite-order hygiene:** the first full run found 7 order-dependent failures in `test_house_state_rung2a.py`. That file stubs HA and imports `security.py` fresh, so it broke when the new test files had already imported the real module. The new files now import production modules in isolation and re-install them only while their own tests run (`_anomaly_noop_scenario.import_isolated`).
 
+## 3a. Validated 2026-09-29 (post-restart, ~19:17-19:22 CDT)
+
+Restart 2026-09-29 19:17 CDT. Precondition query (no `music_following`/`security` `anomaly_log` rows since D0) confirmed indirectly: both sensors' metrics still carry their pre-D0 `last_updated` timestamps (MF: 2026-05-11, Security `alert_trigger_frequency`: 2026-09-04), i.e. no new row landed for either metric — the "no row since D0" branch applies to both.
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| `sensor.ura_hvac_coordinator_hvac_anomaly` | PASS | State = `partial`; `metrics_blind` = `{comfort_deviation_hours: not_wired, egress_pause_frequency: not_wired}` exactly; `short_cycle_rate` not in `metrics_blind`/silent, `reason: ok`, `best_scope: zone_1`; `metrics_active_ratio` = `"3/5"`; `metrics_unwired` = `["comfort_deviation_hours","egress_pause_frequency"]`. Matches the predicted "Expected" row exactly, not the old-code or half-fix rows. |
+| `sensor.ura_security_coordinator_security_anomaly` | PASS | No security row since D0 branch applies. State = `partial`; `metrics_blind` = `{entry_anomaly_score: not_wired}` exactly; `metrics_constant` = `["alert_trigger_frequency"]`; `metrics_unwired` = `["entry_anomaly_score"]`. |
+| `sensor.ura_music_following_coordinator_music_following_anomaly` | PASS | No MF row since D0 branch applies. State = `nominal`; `metrics_constant` = `["transfer_success_rate","cooldown_frequency"]` (both); `metrics_blind` = `{}`. |
+| `sensor.ura_presence_coordinator_presence_anomaly` | PASS | State = `nominal`; `metrics_active_ratio` = `"3/3"`; `zone_occupied_count.reason` = `ok`, `best_scope` = `zone:Back Hallway` (a `zone:` scope); `metrics_constant` = `[]`. |
+| `sensor.ura_safety_coordinator_safety_anomaly` | PASS | State = `partial`; `metrics_blind` = `{active_hazard_count: not_collecting}`; `learning_status` = `paused`. `active_hazard_count.last_updated` = 2026-09-04 (stale, > 7 days) — the caveat branch (a hazard firing since last boot) does not apply. |
+| `sensor.ura_coordinator_manager_coordinator_summary` | PASS | `status_per_coordinator.hvac.status` = `nominal` (severity), `.hvac.coverage` = `partial`; `.presence.coverage` = `full`; `.safety.coverage` = `partial`; `.security.coverage` = `partial`; `health_status` = `green`, unaffected by coverage. |
+| DB phantom rows (`metric_baselines`, `sample_count=0 AND last_updated IS NULL`) | PASS | `5` — exactly the D0 value, has not grown. Queried by copying the live `.db`+`-wal`+`-shm` locally (the Samba mount refused a direct read-only open, likely SMB/WAL lock behavior) and running read-only `sqlite3` against the copy, then deleting the copy. |
+| Dump button (`button.ura_coordinator_manager_90_anomaly_subsystem_diagnostic_dump`) | PASS | Pressed once (read-only diagnostic action, no automation/state changed). Logged JSON (`custom_components.universal_room_automation.button`, logged at ERROR by design for visibility) contains `anomaly_summary.system_anomaly.coordinators_partial` = `["safety","security","hvac"]` — exactly the expected set — and no `anomaly_summary_error` key. |
+| Log scan — no new WARNING/ERROR from `coordinator_diagnostics` | PASS | Structured `error_log` scan of the restart window found zero entries from `coordinator_diagnostics`, and no "declared unwired but has data" staleness warning. |
+
+**Not evaluable this pass:** D6 dashboard patch verification (orchestrator-applied, not yet run at validation time — PENDING, re-check after the orchestrator applies it) and DB row-rate growth over time (needs longer observation than this short post-restart window).
+
 ## 4. Live acceptance criteria (prospective — write the observed results back after the restart)
 
 **Precondition query (run once at validation time).** Its result decides which branch of the MF and Security checks applies:

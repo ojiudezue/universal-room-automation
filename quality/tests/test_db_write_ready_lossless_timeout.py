@@ -197,7 +197,7 @@ def test_stall_between_soft_and_hard_completes_write(tmp_path, monkeypatch, capl
         # Wide 0.05/0.15/2.0 margins pin this.
         await _install_stalled_worker(db, stall_s=0.15)
 
-        caplog.set_level(logging.WARNING, logger=ura_db.__name__)
+        caplog.set_level(logging.INFO, logger=ura_db.__name__)
 
         async with db._db() as conn:
             await conn.execute(
@@ -219,8 +219,8 @@ def test_stall_between_soft_and_hard_completes_write(tmp_path, monkeypatch, capl
         assert n == 1, "row must be committed despite soft-warn stall"
 
         # WARNING emitted with queue_depth.
-        warn_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("DB write worker slow" in m and "queue_depth=" in m
+        warn_msgs = [r.message for r in caplog.records if r.levelno >= logging.INFO]  # DB-WAIT-WARNING-REWORK-1: INFO in boot phase
+        assert any("DB write not yet served" in m and "queue_depth=" in m
                    for m in warn_msgs), f"expected soft-warn log; got {warn_msgs}"
 
         await _stop_fake_worker(db)
@@ -243,7 +243,7 @@ def test_stall_past_hard_cap_raises_and_row_not_committed(tmp_path, monkeypatch,
         await db.initialize()
         await _install_stalled_worker(db, stall_s=0.6)  # >> hard cap
 
-        caplog.set_level(logging.WARNING, logger=ura_db.__name__)
+        caplog.set_level(logging.INFO, logger=ura_db.__name__)
 
         with pytest.raises(RuntimeError, match="row dropped"):
             async with db._db() as conn:
@@ -257,8 +257,8 @@ def test_stall_past_hard_cap_raises_and_row_not_committed(tmp_path, monkeypatch,
 
         # Both log surfaces present: WARNING (soft) + the raise-message
         # carrying queue_depth + elapsed.
-        warn_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-        assert any("DB write worker slow" in m for m in warn_msgs), (
+        warn_msgs = [r.message for r in caplog.records if r.levelno >= logging.INFO]  # DB-WAIT-WARNING-REWORK-1: INFO in boot phase
+        assert any("DB write not yet served" in m for m in warn_msgs), (
             f"expected soft-warn log line; got {warn_msgs}"
         )
 
@@ -303,7 +303,7 @@ def test_normal_fast_path_no_warnings(tmp_path, monkeypatch, caplog):
         await db.initialize()
         await db.start_write_worker()
 
-        caplog.set_level(logging.WARNING, logger=ura_db.__name__)
+        caplog.set_level(logging.INFO, logger=ura_db.__name__)
 
         async with db._db() as conn:
             await conn.execute(
@@ -316,7 +316,7 @@ def test_normal_fast_path_no_warnings(tmp_path, monkeypatch, caplog):
         await db._write_queue.join()
 
         warn_msgs = [r.message for r in caplog.records
-                     if r.levelno == logging.WARNING and "DB write worker slow" in r.message]
+                     if r.levelno >= logging.INFO and "DB write not yet served" in r.message]
         assert warn_msgs == [], f"no soft-warn expected on fast path; got {warn_msgs}"
 
         import aiosqlite
@@ -345,30 +345,12 @@ def test_mutation_single_stage_raise_makes_t1_red(tmp_path, monkeypatch):
     with open(src_path, "rb") as fh:
         original = fh.read()
 
-    # Anchor a small unique fragment of the two-stage block.
-    anchor = b'"DB write worker slow: no connection after %.1fs "'
-    assert anchor in original, "anchor missing — mutation test cannot run"
-
-    # Replace the entire two-stage block with a single-stage raise-at-soft.
-    old_block_start = original.index(b"        soft = DB_WRITE_READY_SOFT_WARN_S")
-    old_block_end = original.index(b"        else:\n", old_block_start)
-    # Include the else branch too (mutate the whole `if/else`).
-    # Find end of else branch.
-    else_end = original.index(b"        try:\n            yield db_holder[0]",
-                              old_block_end)
-    old_block = original[old_block_start:else_end]
-
-    mutated_block = (
-        b"        soft = DB_WRITE_READY_SOFT_WARN_S\n"
-        b"        try:\n"
-        b"            await asyncio.wait_for(ready.wait(), timeout=soft)\n"
-        b"        except asyncio.TimeoutError:\n"
-        b"            done.set()\n"
-        b"            raise RuntimeError(\n"
-        b'                "DB write worker did not process request within "\n'
-        b'                f\"{soft:.1f}s\"\n'
-        b"            )\n"
-    )
+    # DB-WAIT-WARNING-REWORK-1 restructured the wait block; the mutation now
+    # forces the existing single-stage branch (raise at soft) by disabling
+    # the two-stage condition.
+    old_block = b"            if soft < hard:\n"
+    assert original.count(old_block) == 1, "anchor missing — mutation test cannot run"
+    mutated_block = b"            if False:  # MUTATION: single-stage raise\n"
     mutated = original.replace(old_block, mutated_block, 1)
     assert mutated != original
 
@@ -468,7 +450,7 @@ def test_kill_switch_soft_equals_hard_restores_single_stage_raise(
         await db.initialize()
         await _install_stalled_worker(db, stall_s=0.5)
 
-        caplog.set_level(logging.WARNING, logger=ura_db.__name__)
+        caplog.set_level(logging.INFO, logger=ura_db.__name__)
 
         with pytest.raises(RuntimeError, match="did not process request"):
             async with db._db() as conn:

@@ -1,0 +1,25 @@
+{
+  "format_version": "2.1",
+  "entry_id": "162",
+  "author": "ojiudezue",
+  "session_id": "claude_20260930_033629_ship_v5_103_26",
+  "timestamp": "2026-09-30T03:36:29Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.26 shipped: Room dialogs cleaned up, Fan Mode on Controls, boot-freeze watchdog + DB wait logging",
+  "summary": "Room dialogs cleaned up, Fan Mode on Controls, boot-freeze watchdog + DB wait logging",
+  "why": "The operator called the room dialogs a power-user mess: raw key labels, missing helper text and paragraph-long helpers. Every HA restart freezes the whole event loop for about 2.5 minutes and the DB warnings were a symptom, not a DB fault; the watchdog names the frozen code on the next restart so the real cause can be fixed instead of guessed. Fan Mode was filed under Configuration, where the operator did not find it.",
+  "implications": "Shipped ROOM-DIALOGS-USABILITY-SWEEP-1, BOOT-EVENT-LOOP-FREEZE-1, DB-WAIT-WARNING-REWORK-1 at v5.103.26; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.26.md (Live criteria).",
+  "revisit_trigger": "If the next restart log has no stall line with a stack, or a room dialog shows a raw key, reopen.",
+  "refs": {
+    "cards": [
+      "ROOM-DIALOGS-USABILITY-SWEEP-1",
+      "BOOT-EVENT-LOOP-FREEZE-1",
+      "DB-WAIT-WARNING-REWORK-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.26.md"
+    ],
+    "release_notes": "Room settings dialogs: plain labels and short helpers on every field (meta-test enforced), Empty-room hold texts cut to one or two sentences, electricity-rate helper corrected. Fan Mode select moved to the Controls card; retired Climate Automation switches removed from the registry. New loop-stall watchdog logs the main-thread stack once per event-loop freeze (NM alert only in steady state); DB wait warning is now one line per episode with a stall/backlog classification and a summary line."
+  }
+}
