@@ -1,6 +1,8 @@
 # v5.103.29 — Room lighting roles + role-vs-inventory sweep (Slices A–E)
 
-**Status:** DRAFT, deploy HELD for operator go.
+**Status:** deployed 2026-09-30 21:3x (operator: "Finish this"); HA restart held until the house is awake (no restart during sleep).
+**Reviews:** four framings (A correctness, B lifecycle/ripple, C per-site mutation, D adversarial completeness) — all FIX-REQUIRED; every CRIT/HIGH/MEDIUM fixed in the fix-up commit (color_temp_kelvin; auto/manual flatten; clearable fields; Away subscription for leave-on rooms + paused-room skip; scenes respect holds; room switch holds only when occupied; dark-only on the default path; leave-on exempt from shared-space + HVAC sweeps; operator REV 2.5: house Sleep only chooses night lights). Name-diff vs develop: 0 new failures.
+**Known residuals (tracked, not dropped):** review C found 6 sites with no failing test (reconciler entry gate R4; evening wiring E8/E9/E10; scene branches E5/E6 — E5/E6 now covered by the fix-up tests); chained HA automations and non-HA scenes can still look like a person (no live config uses them); devices echoing >5 s late can open a hold; holds are forgotten on restart; Guest lighting = today's behaviour (LIGHTS-GUEST-MODE-BEHAVIOUR-1).
 Branch: `feature/room-lighting-roles`.
 Card: ROOM-LIGHTING-SETUP-REDESIGN-1.
 Plan: `docs/planning/PLANNING_room_dialog_cleanup_and_lighting_roles.md` (REV 2.3 + 2.3.1 + 2.3.2).
