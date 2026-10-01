@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'SAFETY-HAZARD-NEVER-CLEARS-1@2026-10-01T06:30:00'
+    at: '2026-10-01T06:30:00'
+    outcome: escalated
+    headline: 'Safety hazards that never clear: the plan is written and at rev 3 after two tough plan reviews, which found real traps (two sensors in one room causing re-alert loops, rate alerts sticking forever). It grew to also stop the live CO2 alert flapping (about 20 alerts in 7 minutes on 09-29). Approve the wider scope, or choose humidity/temperature only.'
+    acknowledged: false
   - fid: 'EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1@2026-10-01T05:00:00'
     at: '2026-10-01T05:00:00'
     outcome: escalated
@@ -637,14 +642,15 @@ cards:
     context: 'ENVOY-FLAKINESS-181243-1 is the source of the nightly SOC dropouts; ENVOY-DRAIN-ARM-STALE-CT-1 is the mirror-image stale-data defect on the drain pause; EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 is the other arbitrage-release gate (its soak exit surfaced this).'
   rank: {value: 8, time_criticality: 7, effort: 13}
 - id: SAFETY-HAZARD-NEVER-CLEARS-1
+  plan_rev3_2026_10_01: 'PLAN AT REV 3 (docs/planning/PLANNING_safety_hazard_clear_on_recovery.md). Two adversarial plan reviews ran: rev 1 FIX-PLAN (3 HIGH), rev 2 FIX-PLAN (2 new HIGH: a second instant CO2 clear at the log-only rung safety.py ~1895-1906, and rate hazards that never clear when a sensor goes quiet). Rev 3 addresses both plus: sensor registration before the not-new early return, a per-type dead-sensor policy (smoke/CO/leak stay latched fail-safe; humidity/temperature/CO2/TVOC/HVAC drop a dead contributor after 15 min), an invariant restated against the clear threshold, a full table of every hazard pop/clear site, and the 1-min sweep placed outside the flooding guard. Rev 3 has NOT had its own re-review yet. SCOPE GREW: the card was humidity/temperature never clearing; the plan now also changes how CO2/TVOC/CO hazards clear (adds hysteresis + a 5-min hold to stop the live 09-29 CO2 flap storm), adds rate-hazard expiry (ROC_STALE_SAMPLE_S=900) and dead-sensor expiry (SENSOR_UNAVAILABLE_WINDOW_S=900), and changes is_hazard_active to an exact match. Build tier: 2-DB (3 framing-disjoint reviews).'
   refinement:
   - 'plan review: per-room key vs per-sensor clear + shared rate/absolute keys + event-only hold timer -> rev 2 must key clears by the raising sensor/origin, add a periodic pending-clear sweep, and bring the already-flapping CO2/TVOC/CO numeric path under the same hysteresis'
   plan_review_2026_10_01: 'PLAN WRITTEN (docs/planning/PLANNING_safety_hazard_clear_on_recovery.md rev 1) + adversarial plan review = FIX-PLAN. HIGH-1: there are no separate rate hazard types - rate thresholds raise OVERHEAT / HVAC_FAILURE / WATER_LEAK under the same type:location key, so a naive temperature clear would pop a rate alert and a humidity-rate leak shares a key with the real leak sensor. HIGH-2: hazards are keyed per room but would be cleared per sensor, so with two sensors in one room the fix itself would cause a clear/re-raise/re-page loop. HIGH-3: the hold timer only advances on new readings, so a sensor that settles and goes quiet would never clear. MEDIUM-4 (live evidence): on 09-29 00:04-00:11 high_co2 in Study A flapped ~20 times at 1500-1502 ppm, each a new hazard signal - the existing numeric path already storms with no hysteresis. Plus MEDIUM 5-8 (resolved per-room thresholds, set-if-absent timers, a D4 contradiction, non-discriminating anti-flap test) and LOWs (NM dedup gives no storm protection because the title embeds the value). LIVE NOW: no stale hazard active (status normal since 03:05Z); recorded latches: Garage A low_humidity 759 min from 09-26 05:12, Study A 0.0% 659 min from 09-27 04:35. Reviewer recommends elevating the build to Tier 2-DB.'
   title: A humidity or temperature safety hazard stays "active" until HA restarts, even after the reading is back to normal
   thread: safety
-  status: 'in_progress'
+  status: 'waiting_operator'
   created: '2026-09-27 02:40'
-  updated: '2026-10-01 05:40'
+  updated: '2026-10-01 06:30'
   refinement_status: 'refined'
   approval: unreviewed
   tags: [tier-2, no-fabrication-verify, mutation-drill]
@@ -663,7 +669,7 @@ cards:
   parsimony:
     problem: Humidity and temperature hazards in the safety coordinator are never cleared by a later in-range reading from the same sensor.
     verdict: BUILD (after a plan review, Tier 2; it changes safety-hazard lifecycle)
-  next: 'IN PROGRESS (me, overnight): planner writing rev 2 to fix every plan-review finding; then re-review. Build is Tier 2-DB, waits for the next session; no deploy.'
+  next: 'APPROVE the widened scope in rev 3 (humidity/temperature clear-on-recovery PLUS hysteresis on the CO2/TVOC/CO hazards, rate-hazard and dead-sensor expiry; safety alert entities stay on up to 5 min longer after recovery), or PICK the narrow version (humidity/temperature only, CO2 flap carded separately). -> On your answer I run one final re-review of rev 3, then a Tier 2-DB build to review.'
   links:
     related: [SAFETY-HUMIDITY-JUNK-READING-1, SAFETY-RECONNECT-ZERO-SIBLINGS-1, SAFETY-RATE-DETECTOR-DEAD-WINDOW-1]
     context: 'The junk-reading fix stops the bogus hazard from being CREATED; this card is why one that does get created never goes away. Siblings are the other safety-coordinator defects found in the same review.'
@@ -30264,12 +30270,13 @@ cards:
     related: [GUEST-ROOM-FAN-HOLD-1, HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1]
   rank: {value: 9, time_criticality: 9, effort: 2}
 - id: ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1
+  build_2026_10_01_overnight: 'BUILT on fix/anomaly-baselines-periodic-save (worktree overnight-1001-baselines), HEAD 93cf9eabf, NOT merged or deployed. Producer map: healthy cadences were hvac.py:6785 (daily rollover) and safety.py:1214 (30-min rate save); presence/security/safety/music_following/hvac detectors otherwise saved only at teardown (presence.py:7551, security.py:853, safety.py:3103, music_following.py:698, hvac.py:7246). Fix in domain_coordinators/manager.py: _wire_anomaly_baseline_persistence (called at the end of async_start) registers an hourly save (ANOMALY_BASELINE_SAVE_INTERVAL_S=3600, rung 1) + an EVENT_HOMEASSISTANT_STOP once-listener (reusing the house-state stop-hook pattern), both calling _persist_coordinator_baselines (per-detector try/except; safety rate baselines only on the stop path; no-op when not running; stop save bounded by ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S=30). Load guard: AnomalyDetector._baselines_loaded stops a save from overwriting mature stored rows after a failed load; discharge = WARNING once + retry load on the next save. Write volume ~1 small transaction per detector per hour (energy/memory maps not touched). REVIEWS: A FIX-REQUIRED (MEDIUM: async_start wiring untested) -> fixed with a test that drives real async_start; B SHIP (MEDIUM: safety _save_rate_baselines iterated a live dict and wrote outside the queue -> list() snapshot + stop-path only; LOWs fixed). ORCHESTRATOR VERIFY: real source mutation of manager.py:597 (await detector.save_baselines() -> pass) turned 6 tests RED, restored, 65 pass, tree clean. Builder drills: async_start wiring call -> RED; retry-load call -> RED. Targeted: 116 pass + 1 pre-existing failure (test_coordinator_enabled_keys_mapping len 8 vs 9, fails on develop). README draft: docs/readmes/drafts/ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1.md on the branch. Pending: serial full-suite name-diff.'
   gate_2026_10_01_overnight: 'FOUR-STEP GATE re-run 10-01. (1) VALIDITY: STILL-REAL - live metric_baselines (ssh sqlite3 -readonly, 10-01 02:40 CDT): presence 2026-09-14, security 09-04, safety 09-04, safety_rate 09-11, music_following 05-12, while energy/hvac/memory were saved within the last 3 h. BLOCKER CLEARED: the anomaly-blind-metrics cycle merged in v5.103.25 (7b42d34a2), so the collision noted on 09-30 is gone. (1b) CONFIG-FIRST: no setting saves baselines. (2) PRIOR ART: REUSE the cadence the healthy coordinators already use + the manager.py:617-633 stop-listener pattern; save_baselines exists (coordinator_diagnostics.py:1699). (3) PARSIMONY: BUILD the smallest version - same cadence as the healthy ones + stop save, bounded to one save per detector per period. (4) COST/BENEFIT: additive, low write volume (a write-volume test is required given the 06-09 write-flood incident); value is real because the restart storm resets these detectors to 2-8-week-old snapshots. Tier 2: build + 2 framing-disjoint reviews to review lane, NO deploy (overnight).'
   title: Presence, security, safety and music-following anomaly baselines are only saved when the integration unloads, which never happens on an HA restart, so their learning is thrown away every restart
   thread: platform
   status: 'in_progress'
   created: '2026-09-29 15:00'
-  updated: '2026-10-01 03:40'
+  updated: '2026-10-01 06:10'
   approval: implied
   tags: [anomaly, persistence, restart, found-in-review]
   origin:
@@ -30277,7 +30284,7 @@ cards:
     gist: anomaly-blind plan review M1 (docs/reviews/code-review/plan_review_anomaly_detector_blind_metrics.md)
   why: 'HA does not unload config entries on stop (config_entries.py:931-933, :2176-2180 in the venv HA 2026.2.3; live 2026.9.x source not yet checked), and URA has no stop listener, so teardown-only baseline saves never run on a restart. Live DB metric_baselines last_updated: presence 2026-09-14, security 2026-09-04, safety 2026-09-04, music_following 2026-05-12. HVAC (saved at daily rollover) and coordinator_manager (saved each boot) are current. With the restart storm (8+ restarts on 09-28), those coordinators relearn from a 2-week-old snapshot each boot.'
   gate_2026_09_30_overnight: 'VALIDITY: STILL-REAL (live metric_baselines last_updated: presence 2026-09-14, security 2026-09-04, safety 2026-09-04, safety_rate 2026-09-11, music_following 2026-05-12; energy/hvac/memory/CM current). PRIOR-ART: a STOP hook pattern already exists (manager.py:617-633 house-state _on_ha_stop via async_listen_once(EVENT_HOMEASSISTANT_STOP)) - REUSE it; save_baselines per coordinator already exists. NOT BUILT overnight - COLLISION: the anomaly-blind-metrics cycle (PLANNING_anomaly_detector_blind_metrics.md, worktree feature/anomaly-blind-metrics) is in flight and edits the same coordinator_diagnostics.py save_baselines (D1, the list() snapshot at :1392), and RESTART-SAFETY-DOCTRINE-1 F1/F2 cover the same stop-time saves. Build this right after that cycle merges, on top of its D1 fix.'
-  next: 'IN PROGRESS (me, overnight): builder on fix/anomaly-baselines-periodic-save (worktree overnight-1001-baselines); then 2 reviews + serial suite name-diff -> review lane. No deploy.'
+  next: 'IN PROGRESS (me, overnight): serial full-suite name-diff for 93cf9eabf; if clean -> review lane for your ship call (live check after deploy + one restart: metric_baselines.last_updated for presence/security/safety/music_following within the hour).'
   links:
     related: [ANOMALY-SAVE-BASELINES-DICT-MUTATION-1, HVAC-ANOMALY-BLIND-1]
   rank: {value: 5, time_criticality: 4, effort: 2}
