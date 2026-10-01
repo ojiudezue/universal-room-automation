@@ -582,12 +582,36 @@ meta:
       plus a count shown at session start so regrowth is visible instead of being noticed by accident
       nine days later.'
 cards:
+- id: EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1
+  title: The garage A charger is being switched off and on every 5-10 minutes overnight, in step with the Envoy battery reading dropping in and out
+  thread: energy
+  status: waiting_operator
+  created: '2026-10-01 05:00'
+  updated: '2026-10-01 05:00'
+  refinement_status: initial
+  approval: blocked
+  live_broken: true
+  tags: [tier-3, found-during-probe, no-fabrication-verify, mutation-drill]
+  problem_solution:
+  - 'Problem: since 01:09 CDT tonight URA has turned the garage A charger (drawing about 11.7 kW) off and back on 9 times, roughly every 5-10 minutes, and garage B with it. Each switch-off happens seconds after the Envoy battery reading comes back (8-9%), and each switch-on follows the battery reading going unavailable again. So the arbitrage protection that pauses the cars while the battery charges from the grid seems to let go every time it loses the battery reading, and grab again when the reading returns. That wears the charger contactor and the car, and if the battery really is grid-charging during an on-window, it breaks the rule that no car may charge while the battery charges from the grid (the breaker-load guard). Solution: make the arbitrage pause hold its last decision while the battery reading is unavailable (do not release on missing data), with a test that a dropout does not turn a paused car on.'
+  origin:
+    date: '2026-10-01'
+    gist: 'overnight soak-exit agent (adjacent finding while disposing EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1); orchestrator re-verified from ura_activity_log + recorder'
+  measured_2026_10_01_overnight: 'URA DB ura_activity_log (energy_pool charger_on/off, switch.garage_a): ON 06:09:44Z (pause_owners=none), OFF 06:15:13 (11,682 W, pause_owners=arbitrage), ON 06:20:09, OFF 06:25:14, ON 06:30:12, OFF 06:39:54, ON 06:45:02, OFF 06:49:55, ON 06:55:02, OFF 07:00:02, ON 07:04:56, OFF 07:14:53, ON 07:20:10, OFF 07:25:04 - garage_b mirrors each within ~0.3 s. Recorder sensor.envoy_482543015950_battery: unavailable 05:50:29, 8 at 06:39:18, unavailable 06:46:47, 8 at 06:49:54, unavailable 06:51:00, 8 at 06:59:08, unavailable 07:04:12, 8 at 07:14:12 ... The OFFs at 06:39:54, 06:49:55, 07:00:02 and 07:14:53 each land within ~1 min after SOC becomes available; the ONs follow SOC going unavailable. The energy log shows ''Envoy unavailable (SOC=None, mode=self_consumption) - holding current state'' repeatedly from 23:14 CDT. switch.enpower_482348004678_charge_from_grid is itself unavailable, so I could NOT confirm whether the battery was actually grid-charging during the ON windows (i.e. whether the breaker-load rule was really breached) - that is the open question. Cause of the dropouts is the nightly Envoy outage on ENVOY-FLAKINESS-181243-1. Code: the release branch of determine_arbitrage_actions (energy_pool.py ~2935+) runs whenever arbitrage_charging is False; the hypothesis to verify is that an unavailable SOC makes the battery side report not-charging for that tick. Hypothesis, not yet proven at file:line.'
+  adjacency_2026_10_01: 'NEW. Swept: board (EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 = release vs fill-priority, daytime, different gate; ENVOY-DRAIN-ARM-STALE-CT-1 parked = drain-pause not ARMING under a stale CT, mirror-image failure on a different pause owner; EVSE-CHARGE-ONSET-* done), BACKLOG.md (no EVSE flap / SOC-unavailable item), planning docs (breaker-safety invariant in the arbitrage attainability ladder D2).'
+  why: 'The breaker-safety invariant (no EV ON while the battery grid-charges) is cost-and-safety critical, and the failure only appears when the Envoy drops out, which now happens every night.'
+  parsimony: {problem: 'The arbitrage EV pause releases when the battery reading is missing and re-arms when it returns, cycling the chargers every 5-10 min.', verdict: 'BUILD (Tier 3 - breaker-safety invariant on a shared energy state machine; needs your approval)'}
+  next: 'APPROVE: a Tier-3 fix so the arbitrage EV pause holds (does not release) while the battery reading is unavailable, plus the 4-review protocol and a pre-deploy checkpoint with you. Optional now, no code: if the flapping bothers you tonight, turn garage A charging off by hand. -> On APPROVE I write the plan (invariant: a missing SOC can never turn a paused car ON) and run the plan reviews.'
+  links:
+    related: [ENVOY-FLAKINESS-181243-1, ENVOY-DRAIN-ARM-STALE-CT-1, EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1]
+    context: 'ENVOY-FLAKINESS-181243-1 is the source of the nightly SOC dropouts; ENVOY-DRAIN-ARM-STALE-CT-1 is the mirror-image stale-data defect on the drain pause; EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 is the other arbitrage-release gate (its soak exit surfaced this).'
+  rank: {value: 8, time_criticality: 7, effort: 13}
 - id: SAFETY-HAZARD-NEVER-CLEARS-1
   title: A humidity or temperature safety hazard stays "active" until HA restarts, even after the reading is back to normal
   thread: safety
-  status: pre_planning
+  status: 'in_progress'
   created: '2026-09-27 02:40'
-  updated: '2026-09-27 02:40'
+  updated: '2026-10-01 04:50'
   refinement_status: initial
   approval: unreviewed
   tags: [tier-2, no-fabrication-verify, mutation-drill]
@@ -606,7 +630,7 @@ cards:
   parsimony:
     problem: Humidity and temperature hazards in the safety coordinator are never cleared by a later in-range reading from the same sensor.
     verdict: BUILD (after a plan review, Tier 2; it changes safety-hazard lifecycle)
-  next: 'PLAN (me): enumerate every hazard type and how each clears today (a table), pick clear-on-recovery thresholds with hysteresis (numbers get knobs), and check which consumers read active_hazards (NM re-fire via is_hazard_active, status/alert entities, zone chip). Tier 2 plan review, then build. Not in the overnight scope beyond the plan.'
+  next: 'IN PROGRESS (me, overnight): ura-planner writing docs/planning/PLANNING_safety_hazard_clear_on_recovery.md (verify still live, hazard-type table, consumer map incl. NM re-fire, hysteresis knobs, built on top of the junk-floor branch). Then one adversarial plan review. Build waits for the next session; no deploy.'
   links:
     related: [SAFETY-HUMIDITY-JUNK-READING-1, SAFETY-RECONNECT-ZERO-SIBLINGS-1, SAFETY-RATE-DETECTOR-DEAD-WINDOW-1]
     context: 'The junk-reading fix stops the bogus hazard from being CREATED; this card is why one that does get created never goes away. Siblings are the other safety-coordinator defects found in the same review.'
@@ -10562,15 +10586,16 @@ cards:
     tracks a DROP decision, not a shipped feature. UN-WATCHABLE by HA recorder. Next step per card: confirm
     drop is recorded in planning doc and close.'
 - id: EV-SENSOR-CLEANUP-1
+  gate_2026_10_01_overnight: 'VERIFY-BEFORE-WORK, CARD-WAS-WRONG + STILL-REAL. (a) The 09-26 groom claim "no per-plug power entity config exists" is WRONG: the reader shipped in d98d31877 (2026-08-16, in develop) - energy_pool.py:4361-4362 reads plug_config[plug].get("power_entity") and uses live watts with power_source=sensor, falling back to the 1440 W estimate. That grep looked for CONF_* names and missed it. (b) But it is UNREACHABLE: the only builder of plug_config (__init__.py:3674-3685) copies just <plug>_self_modulates from the CM config, and no config-flow or options-flow field writes a power entity (grep power_entity in config_flow/options_flow: none). So the hook is computed-but-never-fed. (c) A candidate source exists: sensor.garage_plugs_power_minute_average (~281 W live). CONFIG-FIRST: no setting can feed it today. PARSIMONY: SIMPLIFY - the residual is a one-key copy in the plug_config builder (mirror self_modulates) plus one optional entity picker per smart plug in the energy options. COST/BENEFIT: value is display accuracy only (the garage outlets row reads a constant 2.9 kW); it adds a visible options field that a second home would also see. Not building unattended: it adds operator-facing config surface for a low-value display fix, so it is your call.'
   disposition_2026_09_26_groom: 'RE-LANED (residual never built; wrongly stamped shipped by v5.101.0). Verified 2026-09-26: no per-plug power entity config exists (grep CONF_*PLUG*POWER / plug_power_entity = none). Residual Tier 1: optional per-plug power entity in _plug_config wired to the Emporia garage circuit, keeping the 1440 W estimate as fallback.'
   title: 'EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real
     power (Emporia) so Moes sockets read measured not the 1440W estimate'
   thread: energy
-  status: planned
+  status: 'waiting_operator'
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 3, time_criticality 2, effort 2 - display accuracy only; small additive.'
   rank: {value: 3, time_criticality: 2, effort: 2}
   ship_approved_2026_09_12: 'APPROVED to ship on next deploy (operator 2026-09-12). Primary deliverable DONE + on develop @9f983c073 (EnergyEVChargeRateGarage{A,B}Sensor, sensor.py:330-331/10395+, sourced from ev_status per-bay power, fail-closed None). RESIDUAL (separate tail, not blocking): optional per-plug power entity wired to the Emporia garage circuit — keep carded. Moves review->shipped_organic when deploy.sh runs.'
-  updated: '2026-09-29 01:05'
+  updated: '2026-10-01 04:45'
   disposition_2026_09_12_sweep: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: dupes removed (ed37feb95) + per-plug power_entity added (d98d31877) — the stated next is DONE. Actually-open = the operator reversal: re-add + populate sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b} (do not exist in source today). REWRITE next to the reversal.'
   gate_2026_09_12: 'GATE PASS -> BUILT. VALIDITY: still-needed=yes (operator REUSE reversal 486cd1cd3,
     2026-09-01) / not-shipped=yes (grep ev_charge_rate_garage = 0 hits in source). PRIOR-ART/REUSE:
@@ -10640,9 +10665,7 @@ cards:
     wire the Moes L1 sockets to the real Emporia garage-circuit power sensor (keep L1_ESTIMATED_POWER_W=1440
     as fallback) so the outlets read MEASURED not estimated. Emporia integration root-fixed 2026-08-16
     (v0.12.3).'
-  next: 'Q3 remainder: add optional per-plug power entity in _plug_config wired to the Emporia garage
-    circuit (small additive, keeps the 1440W estimate as fallback). Small Tier-1/2; queue behind the in-flight
-    cycles.'
+  next: 'APPROVE or DECLINE: add an optional "power sensor" picker per smart plug in the energy options (so the garage L1 plug can show real watts from the Emporia garage-plugs circuit instead of a fixed 1440 W). -> On APPROVE I wire it (Tier 1: one key in the plug_config builder + the picker + a round-trip test). On DECLINE I close the card and mark the hook as available-if-revisited.'
   refs:
   - docs/planning/AUDIT_ev_sensor_surface.md
   live_validation_2026_08_16: 'v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count
