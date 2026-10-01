@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-01T02:26:55-05:00_ - _Data commit: `aeaff71dc49d`_ - _last_reconciled: 2026-09-30_
+_Generated: 2026-10-01T02:28:46-05:00_ - _Data commit: `db40c546775f`_ - _last_reconciled: 2026-09-30_
 
 
 ## Columns
@@ -561,15 +561,16 @@ _created 2026-09-28 19:10 · updated 2026-10-01 04:15_
 
 ### `SAFETY-HAZARD-NEVER-CLEARS-1` - A humidity or temperature safety hazard stays "active" until HA restarts, even after the reading is back to normal — _#4 · WSJF 2.4 · v6 tc4 u2 /e5_
 thread: **safety** - status: **in_progress** - approval: **unreviewed**
-_created 2026-09-27 02:40 · updated 2026-10-01 04:50 · initial_
+_created 2026-09-27 02:40 · updated 2026-10-01 05:40 · refined ×1_
 - **Problem / Solution:**
   - Problem: when the safety system raises a low/high humidity, freeze or overheat hazard, nothing takes it back down when the reading returns to normal. Only an HA restart clears it. So the house safety alert and the safety status can sit o...
 - **Origin:** 2026-09-27 - Review B (framing: state/lifecycle) of SAFETY-HUMIDITY-JUNK-READING-1, 2026-09-27 overnight; independently noted by Review A.
 - **Why:** A safety alert that cannot turn off stops meaning anything. It also means one junk reading (see SAFETY-HUMIDITY-JUNK-READING-1) costs a day of "warning" rather than a second.
-- **Next:** IN PROGRESS (me, overnight): ura-planner writing docs/planning/PLANNING_safety_hazard_clear_on_recovery.md (verify still live, hazard-type table, consumer map incl. NM re-fire, hysteresis knobs, built on top of the junk-floor branch). Th...
+- **Next:** IN PROGRESS (me, overnight): planner writing rev 2 to fix every plan-review finding; then re-review. Build is Tier 2-DB, waits for the next session; no deploy.
 - **Tags:** tier-2, no-fabrication-verify, mutation-drill
 - **Parsimony:** [BUILD (after a plan review, Tier 2; it changes safety-hazard lifecycle)] Humidity and temperature hazards in the safety coordinator are never cleared by a later in-range reading from the same sensor.
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `plan_review_2026_10_01`: PLAN WRITTEN (docs/planning/PLANNING_safety_hazard_clear_on_recovery.md rev 1) + adversarial plan review = FIX-PLAN. HIGH-1: there are no separate rate hazard types - rate thresholds raise OVERHEAT / HVAC_FAILURE / WATER_LEAK under the s...
   - `live_evidence_2026_09_27`: LIVE at ~02:30 CDT: binary_sensor.ura_safety_coordinator_safety_alert = on and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24, with one active hazard, low_humidity Study A value 0.0 (the junk reconnect reading). The...
   - `code_2026_09_27`: Per the reviewers, with file:line to be re-verified at plan time: _handle_humidity (safety.py ~2076-2292) never removes from _active_hazards. Removals exist only in the binary handler (~1757), the CO2 log-only rung (~1888), _handle_numer...
 

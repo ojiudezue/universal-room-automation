@@ -637,12 +637,15 @@ cards:
     context: 'ENVOY-FLAKINESS-181243-1 is the source of the nightly SOC dropouts; ENVOY-DRAIN-ARM-STALE-CT-1 is the mirror-image stale-data defect on the drain pause; EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 is the other arbitrage-release gate (its soak exit surfaced this).'
   rank: {value: 8, time_criticality: 7, effort: 13}
 - id: SAFETY-HAZARD-NEVER-CLEARS-1
+  refinement:
+  - 'plan review: per-room key vs per-sensor clear + shared rate/absolute keys + event-only hold timer -> rev 2 must key clears by the raising sensor/origin, add a periodic pending-clear sweep, and bring the already-flapping CO2/TVOC/CO numeric path under the same hysteresis'
+  plan_review_2026_10_01: 'PLAN WRITTEN (docs/planning/PLANNING_safety_hazard_clear_on_recovery.md rev 1) + adversarial plan review = FIX-PLAN. HIGH-1: there are no separate rate hazard types - rate thresholds raise OVERHEAT / HVAC_FAILURE / WATER_LEAK under the same type:location key, so a naive temperature clear would pop a rate alert and a humidity-rate leak shares a key with the real leak sensor. HIGH-2: hazards are keyed per room but would be cleared per sensor, so with two sensors in one room the fix itself would cause a clear/re-raise/re-page loop. HIGH-3: the hold timer only advances on new readings, so a sensor that settles and goes quiet would never clear. MEDIUM-4 (live evidence): on 09-29 00:04-00:11 high_co2 in Study A flapped ~20 times at 1500-1502 ppm, each a new hazard signal - the existing numeric path already storms with no hysteresis. Plus MEDIUM 5-8 (resolved per-room thresholds, set-if-absent timers, a D4 contradiction, non-discriminating anti-flap test) and LOWs (NM dedup gives no storm protection because the title embeds the value). LIVE NOW: no stale hazard active (status normal since 03:05Z); recorded latches: Garage A low_humidity 759 min from 09-26 05:12, Study A 0.0% 659 min from 09-27 04:35. Reviewer recommends elevating the build to Tier 2-DB.'
   title: A humidity or temperature safety hazard stays "active" until HA restarts, even after the reading is back to normal
   thread: safety
   status: 'in_progress'
   created: '2026-09-27 02:40'
-  updated: '2026-10-01 04:50'
-  refinement_status: initial
+  updated: '2026-10-01 05:40'
+  refinement_status: 'refined'
   approval: unreviewed
   tags: [tier-2, no-fabrication-verify, mutation-drill]
   problem_solution:
@@ -660,7 +663,7 @@ cards:
   parsimony:
     problem: Humidity and temperature hazards in the safety coordinator are never cleared by a later in-range reading from the same sensor.
     verdict: BUILD (after a plan review, Tier 2; it changes safety-hazard lifecycle)
-  next: 'IN PROGRESS (me, overnight): ura-planner writing docs/planning/PLANNING_safety_hazard_clear_on_recovery.md (verify still live, hazard-type table, consumer map incl. NM re-fire, hysteresis knobs, built on top of the junk-floor branch). Then one adversarial plan review. Build waits for the next session; no deploy.'
+  next: 'IN PROGRESS (me, overnight): planner writing rev 2 to fix every plan-review finding; then re-review. Build is Tier 2-DB, waits for the next session; no deploy.'
   links:
     related: [SAFETY-HUMIDITY-JUNK-READING-1, SAFETY-RECONNECT-ZERO-SIBLINGS-1, SAFETY-RATE-DETECTOR-DEAD-WINDOW-1]
     context: 'The junk-reading fix stops the bogus hazard from being CREATED; this card is why one that does get created never goes away. Siblings are the other safety-coordinator defects found in the same review.'
