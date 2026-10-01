@@ -9,6 +9,56 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: 'PERIMETER-DETECTION-WENT-DARK-1@2026-10-01T04:00:00'
+    at: '2026-10-01T04:00:00'
+    outcome: escalated
+    headline: 'Outside person detection has been dark for about 39 hours. Frigate2 is running and its cameras are streaming, but its object detector froze at 11:28 CDT on 09-29. Since then 33 of its 34 person and motion sensors have reported nothing (1,288 detections on 09-29, 21 on 09-30). It needs a Frigate restart on the homelab box. I sent an HA notification and did not touch it.'
+    acknowledged: false
+  - fid: 'ENERGY-CONSUMPTION-FORECAST-POISONED-1@2026-10-01T02:40:00'
+    at: '2026-10-01T02:40:00'
+    outcome: measured
+    headline: 'The daily energy table is blank (no consumption, no solar) on 14 of the last 17 days. The Envoy now goes offline at about 23:05 every night for roughly 1 h 45 m, which covers midnight, so URA''s daily rollover reads nothing. The forecast has had almost nothing to learn from since mid-September. This changes my recommendation: fold the last-known-good seeding into whichever fix you pick.'
+    acknowledged: false
+  - fid: 'ENVOY-FLAKINESS-181243-1@2026-10-01T02:40:00'
+    at: '2026-10-01T02:40:00'
+    outcome: measured
+    headline: 'The Envoy now drops at the same minute every night (~23:05 CDT) for ~1 h 45 m: seen 09-27 through 10-01. A fixed time points at something scheduled. Is anything set for 23:05?'
+    acknowledged: false
+  - fid: 'ROOM-OVERRIDE-SWITCH-FORGOTTEN-1@2026-10-01T02:30:00'
+    at: '2026-10-01T02:30:00'
+    outcome: escalated
+    headline: 'Exercise Room check after the override came off: no phantom occupancy and no stuck sensor in 36 h, but nobody used the room, so detection is unproven. Separately, the room''s automation switch has been off since at least 09-25. Is that on purpose?'
+    acknowledged: false
+  - fid: 'HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1@2026-10-01T04:10:00'
+    at: '2026-10-01T04:10:00'
+    outcome: built
+    headline: 'Ready to ship, not deployed: automatic preset hand-backs now record which borrow they belong to in the climate-write log. Rebased, drill red, two SHIP reviews, full suite identical to develop. README draft is written.'
+    acknowledged: false
+  - fid: 'TEST-BILLING-RESTORE-WALLCLOCK-FLAKE-1@2026-10-01T03:15:00'
+    at: '2026-10-01T03:15:00'
+    outcome: done
+    headline: 'Merged a test-only fix to develop. The billing-restore test no longer fails when the local date and the UTC date differ. It passes in three time zones.'
+    acknowledged: false
+  - fid: 'ANOMALY-SAVE-BASELINES-DICT-MUTATION-1@2026-10-01T04:25:00'
+    at: '2026-10-01T04:25:00'
+    outcome: done
+    headline: 'Closed by soak exit. The baseline-save crash fix is live in v5.103.25, and the logs show zero save errors.'
+    acknowledged: false
+  - fid: 'RECORDER-BLOAT-LOGFLOOD-1@2026-10-01T03:05:00'
+    at: '2026-10-01T03:05:00'
+    outcome: measured
+    headline: 'Log check: the Sonoff garage-porch number still floods the log (about 80 lines an hour). The pantry adaptive-lighting error seems to have stopped. What''s left for you is the Sonoff range fix.'
+    acknowledged: false
+  - fid: 'OVERNIGHT-PASS-NO-LOG-REACH-1@2026-10-01T03:05:00'
+    at: '2026-10-01T03:05:00'
+    outcome: measured
+    headline: 'Found why the HA MCP keeps failing overnight. The overnight script''s Python 3.9 PYTHONPATH breaks it, and macOS Local Network privacy blocks its Python. I fixed the first locally (.mcp.json) and put uvx on the script''s PATH. HA logs were read tonight via the hassio proxy, as before.'
+    acknowledged: false
+  - fid: 'FRONT-SIDE-PTZ-CHATTER-1@2026-10-01T03:25:00'
+    at: '2026-10-01T03:25:00'
+    outcome: measured
+    headline: 'Front-side camera re-measured: motion fired about 150 times a day but person detection only once in 3 days. It looks masked or tuned, not dead. Your answer about a 09-14/15 zone change still decides it.'
+    acknowledged: false
   - fid: 'DB-SIZE-GROWTH-1@2026-09-30T02:30:00'
     at: '2026-09-30T02:30:00'
     outcome: escalated
@@ -23120,14 +23170,15 @@ cards:
     in the snapshot), plus docs/BACKLOG.md. No card owns the rollover ordering or the three-site
     snapshot duplication. Linked to its parent cycle rather than merged because the parent is closing.'
 - id: ANOMALY-SAVE-BASELINES-DICT-MUTATION-1
+  soak_exit_2026_10_01: 'SOAK EXIT -> DONE (overnight 10-01). Discriminator: the folded fix is live and no save error appears. Code on develop: save_baselines iterates list(self._baselines.items()) (coordinator_diagnostics.py:1711, comment cites this card). Shipped in v5.103.25 (running since the 09-30 restart). HA core log 09-30 20:46 -> 10-01 02:11 (hassio proxy) and the 50-entry system_log: zero "Error saving baselines" lines. Energy/hvac/memory baselines were saved within the last 3 h (metric_baselines). The separate never-saved-on-restart gap is ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1 (in progress).'
   workstream: HVAC-W4-ARC-CLOSURE
   title: save_baselines iterates the baseline dict while awaiting, so a concurrent new metric can
     raise mid-save and silently abandon the remaining writes
   thread: platform
-  status: shipped_organic
+  status: 'done'
   shipped_version: v5.103.25
   created: '2026-09-16 04:00'
-  updated: '2026-09-26 02:40'
+  updated: '2026-10-01 04:25'
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -23154,10 +23205,7 @@ cards:
       change on the happy path. Held rather than shipped tonight only because it lives in the shared
       AnomalyDetector consumed by five coordinators, and an unattended pass should not touch a shared
       primitive for a low-severity pre-existing bug when it can be batched with the next change there.'
-  next: 'PARKED. REVIVE IF anyone touches coordinator_diagnostics.py save/load for any reason — fix
-    it in that cycle as a one-line rider (iterate `list(self._baselines.items())`). Also revive if a
-    log ever shows "Error saving baselines" with a RuntimeError about a dictionary changing size,
-    which would mean it has moved from theoretical to observed.'
+  next: 'DONE 2026-10-01 (soak exit).'
   links:
     related:
     - HVAC-ANOMALY-BLIND-1
@@ -29910,11 +29958,12 @@ cards:
   - quality/tests/test_owner_registry_mutation_matrix.py
   - feedback_unrestored_mutation_drill_poisons_evidence
 - id: URA-ATTRIBUTE-CHURN-1
+  reviewed_2026_10_01_overnight: 'FIX-UP 2 RE-REVIEWED + REBASED (overnight 10-01). Rebased onto develop with no conflicts -> 651216a8e (0 behind). 4 mutation drills re-run, each RED on the expected test, restored. Two framing-disjoint reviews, both SHIP: A (correctness + consumers) - attributes stable in every phase (sensor-active / countdown / held / vacant; producer coordinator.py ~3697-3757), HVAC release_at stable, cooldowns fixed per alert; no reader of the dropped/renamed keys in custom_components, the PWA repo (Safety.tsx reads the cooldowns state only), docs, live automations or lovelace. B (lifecycle/recorder) - restore path never read the dropped keys; no internal logic reads them from hass.states; HA core suppresses identical writes (core.py:2313-2314, :2333-2350 fire only state_reported), so stable dicts really stop state_changed rows. LOWs (not fixed): test helper sets the phase by hand, so a future countdown re-stamp would not be caught; no release_at test; doc mentions of last_evidence_at in README_v5.103.20 / PLANNING_hvac_fast_occupancy_response.md need a write-back at ship. Worktree hygiene: the branch worktree carries a stray uncommitted const.py edit (DEFAULT_CHATTER_BURST_K 10->20, an unrestored drill from an earlier run, NOT in any commit); my restore was permission-denied, so validation uses a fresh detached worktree at 651216a8e. Pending: serial full-suite name-diff (queued).'
   title: Two URA entities re-publish every couple of seconds only because a timestamp or countdown attribute ticked, adding HA CPU load and a history row each time
   thread: platform
   status: 'in_progress'
   created: '2026-09-28 19:10'
-  updated: '2026-09-29 05:00'
+  updated: '2026-10-01 04:15'
   approval: implied
   tags: [tier-1, ha-cpu, recorder]
   origin:
@@ -29926,7 +29975,7 @@ cards:
   - 'last_motion: grep consumers (dashboards/PWA/automations/URA readers) before dropping; if something reads it, keep it on a slower-changing surface (e.g. the room occupancy sensor only) and mark it unrecorded.'
   - 'cooldowns: publish last_alert + cooldown_until (static per alert); drop age_seconds / max_remaining_seconds.'
   - Sweep every URA entity for the same shape (live-ticking attributes with a steady state), not just these two; measure each against the recorder.
-  next: 'IN PROGRESS (me, overnight): builder is extending feature/ura-attribute-churn to cover idle_duration, timeout and last_evidence_at, then 2 reviews + a serial test run -> review. No deploy.'
+  next: 'IN PROGRESS (me, overnight): serial full-suite name-diff running from a clean checkout; if clean -> review lane for your ship call. Also DO (any time): discard the stray const.py edit in .claude/worktrees/agent-a340d6e8716b76184 (git checkout -- custom_components/universal_room_automation/const.py).'
   links:
     related: [RECORDER-BLOAT-LOGFLOOD-1, HA-CPU-LOAD-REVIEW-1]
   rank:
