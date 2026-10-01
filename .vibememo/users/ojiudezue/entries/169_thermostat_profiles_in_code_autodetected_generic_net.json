@@ -1,0 +1,22 @@
+{
+  "format_version": "2.1",
+  "entry_id": "169",
+  "author": "ojiudezue",
+  "session_id": "claude_20260930_morning_house2_profiles",
+  "timestamp": "2026-09-30T13:20:00Z",
+  "type": "decision",
+  "weight": "critical",
+  "title": "Thermostat brands = code profiles, auto-detected, visible per zone; Generic is the safety net",
+  "summary": "Each brand family is a code profile (capabilities, hold method, person-change detection, timings) in the hvac_strategy registry, matched from the device registry (integration + manufacturer, then integration, then Generic) and shown as 'Thermostat type: … — detected' in Zone HVAC with an override. No user-defined manufacturer UI or research DB. Generic = setpoint-only holds, change detection vs URA's last write, no borrows until proven. First non-Carrier target: ecobee over HomeKit in the second home (no climate presets; Home/Sleep/Away is a select; Clear Hold button).",
+  "why": "What differs between brands is behaviour (how a hold looks, how a person's change shows), which needs code and tests; a form could only hold numbers and a wrong entry would make URA fight the thermostat. The second home goes live the weekend of 2026-10-03 with an ecobee.",
+  "implications": "Second home runs with the HVAC coordinator OFF until the ecobee profile is validated there (its URA v5.103.18 has HVAC enabled with no zones — must be switched off before zones are added). Phases: P1 route every write through the profile, Carrier byte-identical; P2 detection + zone setting + Generic hardening; P3 ecobee profile against the real install.",
+  "revisit_trigger": "A third brand appears, or the ecobee needs behaviour a profile can't express.",
+  "refs": {
+    "cards": [
+      "HVAC-W1C-GENERIC-THERMOSTAT-1"
+    ],
+    "docs": [
+      "docs/planning/AUDIT_house2_ecobee_inspection_2026_09_30.md"
+    ]
+  }
+}

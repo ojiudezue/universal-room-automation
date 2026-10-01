@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "170",
+  "author": "ojiudezue",
+  "session_id": "claude_20260930_morning_house2_profiles",
+  "timestamp": "2026-09-30T13:20:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Settings: Simple by default, Advanced via HA's own profile Advanced mode",
+  "summary": "Every URA config/options flow gets a Simple view (fields most people set) and Advanced fields hidden unless the user's HA profile Advanced mode is on (show_advanced_options; fields marked description={'advanced': True}, verified data_entry_flow.py:645-667). Collapsed sections are the middle tier. Folded into the room-type trimmed-menu plan; first use: the lighting manual-hold caps (1 h on / 15 min off) as advanced fields, not device entities.",
+  "why": "Operator wants rare tuning values exposed but out of the way ('expose them in settings but not in the room device'); HA already provides a per-user switch, so no custom toggle, and it works unchanged in other homes and for family/guest users.",
+  "implications": "New numbers default to Advanced unless an operator would routinely set them. Advanced mode must reveal every trimmed step so no stored value is unreachable.",
+  "revisit_trigger": "If Advanced mode proves too coarse (all-or-nothing per user), revisit with per-flow collapsed sections.",
+  "refs": {
+    "cards": [
+      "ROOM-TYPE-TRIMMED-MENU-1",
+      "ROOM-LIGHTING-SETUP-REDESIGN-1"
+    ],
+    "docs": [
+      "docs/planning/PLANNING_room_type_trimmed_menu.md"
+    ]
+  }
+}

@@ -1442,6 +1442,16 @@ class SafetyAlertBinarySensor(AggregationEntity, BinarySensorEntity):
         
         v3.2.2.6: Improved error handling for Matter/Thread device timeouts.
         """
+        # Room lighting Slice C (v5.103.28): every alert-flash write carries
+        # the URA write mark so the room D2 manual-change listener never
+        # books it as a person's change.
+        def _ctx_kw() -> dict:
+            try:
+                from .ura_context import ura_ctx_kwargs  # noqa: PLC0415
+                return ura_ctx_kwargs("light")
+            except Exception:  # noqa: BLE001
+                return {}
+
         # Track failed devices to avoid hammering unresponsive ones
         if not hasattr(self, '_failed_alert_lights'):
             self._failed_alert_lights = {}
@@ -1469,6 +1479,7 @@ class SafetyAlertBinarySensor(AggregationEntity, BinarySensorEntity):
                     "turn_on",
                     {"entity_id": light_entity, "rgb_color": rgb, "brightness": 255},
                     blocking=True,
+                    **_ctx_kw(),
                 )
                 await self.hass.async_add_executor_job(lambda: __import__('time').sleep(0.3))
                 
@@ -1478,6 +1489,7 @@ class SafetyAlertBinarySensor(AggregationEntity, BinarySensorEntity):
                     "turn_off",
                     {"entity_id": light_entity},
                     blocking=True,
+                    **_ctx_kw(),
                 )
                 await self.hass.async_add_executor_job(lambda: __import__('time').sleep(0.3))
             
@@ -1488,8 +1500,9 @@ class SafetyAlertBinarySensor(AggregationEntity, BinarySensorEntity):
                     "turn_on",
                     {"entity_id": light_entity},
                     blocking=False,
+                    **_ctx_kw(),
                 )
-            
+
             # Clear from failed list if it succeeded
             self._failed_alert_lights.pop(light_entity, None)
             

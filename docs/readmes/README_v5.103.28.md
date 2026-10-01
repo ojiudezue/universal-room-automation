@@ -91,3 +91,10 @@ between mutations. Git status clean after restore.
   Garage A / Garage B garage-door entities in the 24h following restart.
 - Any co-configured shade in a garage room still actuates (dispose by
   checking activity log for the shade entity).
+
+## Validated 2026-09-30 (08:00 restart)
+
+| Criterion | Result | Evidence |
+|---|---|---|
+| No boot event-loop freeze | PASS | no `Event loop stalled` WARNING; boot to HVAC boot-settle release ~2.3 min (was 5-9 min with a 133-156 s freeze on every restart since 09-25) |
+| Garage doors skipped by room covers | pending event | next sunset timed close in Garage A/B: expect the one-time skip INFO and no garage-door move by the room tier |
