@@ -1676,20 +1676,21 @@ cards:
     context: 'Non-goal in W1-B; blocks D9. Both S10 and S1 are URA writers, so this is not a human-interaction issue.'
   parsimony: {problem: 'S10 and S1 fight every tick on empty night zones once D9 enabled', verdict: BUILD, note: 'gate on D9 enablement'}
 - id: TEST-BILLING-RESTORE-WALLCLOCK-FLAKE-1
+  merged_2026_10_01_overnight: 'MERGED to develop (test-only, no release needed): rebased feature/test-billing-wallclock onto develop (0d540143d), 24/24 pass in test_energy_restart_resilience.py under TZ=Pacific/Midway, TZ=Pacific/Kiritimati and host-local; re-run on develop after merge, 24 passed. The test now derives today from the production dt_util instead of the wall clock, so it no longer fails when local date != UTC date.'
   correction_2026_09_28: 'CARD-WAS-WRONG (my gate_2026_09_28 detail): I wrote that the files stub wins when it runs alone, and that the failure therefore depends on collection order. Review C refuted that. The real homeassistant.util.dt (DEFAULT_TIME_ZONE = UTC) wins even when the file runs alone; the setdefault stub never wins in practice. So the failure is purely wall-clock: 2 tests fail whenever the local date != the UTC date (19:00-24:00 CDT), in ANY ordering. The fix is unchanged and still correct. REVIEW C: SHIP for this branch. Mutations of restore_daily (always-skip, never-skip, drop _last_date) all go red. Swapping production to naive datetime.now() is caught only when the host TZ differs from UTC, which is strictly stronger than the old oracle (which could never catch it). LOWs fixed in-cycle by the fix-up builder: derive today from type(billing).restore_daily.__globals__, and test_missing_keys_default_to_zero gains an assert on _last_date (it was hollow under always-skip).'
   build_2026_09_28: 'BUILT (ura-builder, worktree .claude/worktrees/overnight-0928-billing, branch feature/test-billing-wallclock @ 259cda40b, pushed). Test-only: the 3 TestBillingRestoreDaily sites now use _energy_billing.dt_util.now() (the module-under-tests own clock). Builder evidence: (a) on develops version, with real homeassistant.util.dt imported first and TZ=Pacific/Midway (local date != UTC date at run time), 2 FAILED (test_restores_same_day, test_accumulate_continues_after_restore), with the production debug line "Midnight snapshot date 2026-09-27 != today 2026-09-28". On the fix, 5 passed. (b) Mutation: production restore_daily today + "x" makes test_restores_same_day red; restored, and git status was clean. ORCHESTRATOR INDEPENDENT VERIFY: re-ran the collection-order + TZ=Pacific/Midway repro on the branch with my own real-HA-first file: 25 passed. The diff is confined to the one test file.'
   gate_2026_09_28: 'ROOT CAUSE READ (overnight 2026-09-28). The production CostTracker.restore_daily (energy_billing.py:355) takes "today" from dt_util.now(). The test builds the snapshot date from naive datetime.now() (local), at test_energy_restart_resilience.py:259, :295 and :328. The files HA stub is installed with sys.modules.setdefault, so in a full-suite run the REAL homeassistant.util.dt from pytest-homeassistant-custom-component wins, and its default zone is UTC. From 19:00 to 24:00 CDT the UTC date is one ahead of the local date, so the dates differ, restore is skipped, and 2 tests fail. Run alone, the stub (datetime.now) is used and the tests pass. That also explains the 09-17 mis-attribution to collection order: it depends on both order AND clock. GATE: (1) still real, the code is unchanged. (1b) config: not applicable. (2) prior art: REUSE the production clock. The test derives today from the module-under-tests own dt_util (energy_billing.dt_util.now()), so the oracle matches production semantics in both stub and real-HA contexts. (3) SIMPLIFY: test-only. (4) trivial. Tier 1, built to review overnight.'
   title: test_energy_restart_resilience::TestBillingRestoreDaily fails after ~19:00 CDT on pristine develop (wall-clock coupled) and pollutes every name-diff as 2 NEW
-  status: review
+  status: 'done'
   groom_2026_09_29: 'MOVED in_progress -> review. Built (feature/test-billing-wallclock, 2 ahead / 55 behind develop, not merged) and Review C SHIP (correction_2026_09_28). Needs a rebase + merge, not build work. tc 4 because it pollutes every name-diff run after 19:00 CDT with 2 false NEW failures. Rank scored.'
   rank: {value: 4, time_criticality: 4, effort: 2}
   thread: quality
   created: '2026-09-27'
-  updated: '2026-09-29 01:05'
+  updated: '2026-10-01 03:15'
   origin: 'W1-B gates 2026-09-27: 2 NEW in full name-diff; orchestrator ran the class on a pristine develop worktree at 20:22 CDT -> 2 failed/2 passed. Also seen 2026-09-17 (HVAC-ZONE-CONDITIONING-DEMAND-1 ROUND5) and mis-attributed then to collection order.'
   sweep_2026_09_27: 'Board grep: only mentioned inside HVAC-ZONE-CONDITIONING-DEMAND-1 as a resolved NEW; no owning card. NEW.'
   why: 'Wall-clock-coupled tests (a named bad family) make every evening suite gate report false NEW entries, costing a verification round each time.'
-  next: 'MERGE (me): rebase feature/test-billing-wallclock onto develop, run the file with TZ=Pacific/Midway (local date != UTC) plus once normally, then merge (test-only, no release needed).'
+  next: 'DONE - merged 2026-10-01.'
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1]}
 - id: HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1
   operator_2026_09_27_2130: 'Operator: A "Do it." B "yes follow house state for sleep. Check on its logic" C "Yes backup. If set it uses this instead of house state. Even more useful per room. Is that the plan?". DONE A (config): hvac_vacancy_hold_night=90 s on all 9 common_area rooms (Kitchen, Dining, Living, Patio, Receiving, Breakfast Nook, Game, Exercise, Butler Pantry) via options flow; field is in the reload-suppression list (no reload); other options verified intact. SLEEP LOGIC CHECKED (presence.py:1295-1301, _is_sleep_hour :1358): house SLEEP is CLOCK-ONLY — any home state enters SLEEP when hour is inside sleep hours; live CM options sleep_start_hour=22, sleep_end_hour=6 (house-wide knob exists, default 23); WAKING at sleep_end then HOME_DAY. No activity/bed-sensor sleep detection. home_night = 21:00 (night_start_hour, hardcoded presence.py:1011). So B moves the long tails from 21:00 to 22:00 (the existing sleep-start knob) — clock-based either way.'
@@ -2856,6 +2857,7 @@ cards:
   refs:
   - docs/readmes/README_v5.99.1.md (validation error-scan)
 - id: FRONT-SIDE-PTZ-CHATTER-1
+  verify_2026_10_01_overnight: 'RE-MEASURED (HA REST history 09-28 00:00Z -> 10-01 08:00Z, ~3.3 days): binary_sensor.front_side_ptz_person_occupancy_2 turned on ONCE, while the same camera''s binary_sensor.front_side_ptz_motion_3 turned on 486 times (~150/day). Siblings: back_yard person 34, pool_equipment person 36. So the camera is alive and seeing movement; only person detection on it has gone quiet. That fits a detection zone/mask or a per-camera threshold change made around 09-14/15 rather than a dead camera or a fleet problem. Your answer still decides it.'
   datapoint_2026_09_28: 'Data point (overnight 2026-09-28, HA history): since Frigate2 came back (09-27 21:12Z) front_side_ptz_person_occupancy_2 went ON 0 times, while front_side_ptz_motion_3 went ON 140 times. That is the same pattern as your pending ANSWER (person detection near-silent, motion busy), so the ask stands.'
   UNBLOCKED_2026_09_25: 'THE MEASUREMENT BLOCKER IS RESOLVED — by an operator fact, not by a probe.
     Operator 2026-09-25: "the camera fleet is fine now. Frigate is having periodic degrades on the
@@ -2884,7 +2886,7 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-14 00:20'
-  updated: '2026-09-29 02:55'
+  updated: '2026-10-01 03:25'
   CONTAMINATION_DEEPENED_2026_09_25: 'OVERNIGHT PASS — the contamination warning above is RE-CONFIRMED
     and now stronger, and the practical consequence is that this card CANNOT be advanced by measurement
     at all; your ANSWER is the only route left. Measured tonight from the live recorder (last-state-per-entity
@@ -29839,14 +29841,15 @@ cards:
   - quality/tests/test_v4521_hc_device_ordering.py:388
   - feedback_hollow_test_anchors
 - id: TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1
+  fixup_verified_2026_10_01_overnight: 'FIX-UP VERIFIED + REBASED (overnight 10-01). Branch feature/test-mutation-sandbox-0928 rebased onto develop -> bf5cafc03 (0 behind). All 5 review-C findings ADDRESSED, checked at file:line: M1 baseline-green pre-check (_mutation_sandbox.py:155-164) + KILLED requires rc==1 AND '' failed'' (:189-197) - orchestrator read the code; M2 b2c3_fixup anchors call the sandbox with explicit anchor files; M3 chatter d7 anchor no longer builds a real Event; L4 180 s subprocess timeout; L5 vestigial autouse writers removed. 10 ported files + owner-registry matrix: 207 passed; production md5 identical before/after; no NEW in-place writers added on develop since the base. Pending: the serial full-suite name-diff (queued behind the HVAC branch). Test-only; merge needs no release.'
   review_2026_09_28: 'REVIEW C (test authority): FIX-REQUIRED, test-code only; the port weakened nothing vs develop. Verified: 4 drills made harmless all failed loudly; a marker write proved the sandbox runs the MUTATED copy; md5 is asserted on the real path; no assertions dropped (per-file test counts unchanged); no interaction with the pytest guard. MUST-FIX: M1: the helper counts ANY non-zero rc as KILLED, and 2 of 53 drills were vacuous (rc=4, no tests ran); a nonexistent anchor was accepted. This was inherited from the v5.100.9 reference. M2: b2c3_fixup :64 / :94 pass cross-file node ids through b2c1s helper, producing malformed nodes (vacuous on develop too). M3: test_chatter_wire_in::test_drill_22s anchor is red unmutated (the Event time_fired TypeError), so the drill proves nothing (pre-existing). LOWs: no subprocess timeout (the old code had 90/120 s); vestigial autouse fixtures in test_chatter_wire_in still write production. Fix-up builder dispatched for all 5.'
   build_2026_09_28: 'BUILT (ura-builder, worktree overnight-0928-mutsandbox, branch feature/test-mutation-sandbox-0928 @ 050e655fc, pushed). New shared helper quality/tests/_mutation_sandbox.py mirrors the v5.100.9 reference: it copies custom_components/ + quality/ to a tmp dir, mutates the copy, runs the anchor in a subprocess (PYTHONPATH = tmp first, -B, no cacheprovider), and asserts production md5 is unchanged. PORTED (10): evse b2a / b2b_i / b2b_ii / b2c1_fixup / b2c3_fixup, dp_drain_target_value_stamp, dp_yields_to_excess_solar (both drills), ble_extend_not_create, fan_transition_gate, chatter_wire_in. Per-file targeted runs are green, except one PRE-EXISTING failure (chatter_wire_in::test_drill_22_d7_room_telemetry_wire: its anchor in test_chatter_d7_shadow_act.py errors with "_Hass has no attribute data" on develop too). NOT PORTED: test_energy_write_verification.py, whose drill needs an in-process importlib.reload at the real import path. That incompatibility is structural, so its try/finally was kept (residual). Orchestrator read the helper: the failure mode is loud (an import that resolved to the real, unmutated tree would make an expect=KILLED drill fail), and md5 is asserted on the real path. Review (framing C) dispatched.'
   title: About ten test files still edit real production code in place while the suite runs, so a killed run or a concurrent git operation can leave the repo silently broken
   thread: platform
-  status: in_progress
+  status: 'review'
   groom_2026_09_29: 'Stays in_progress: Review C returned FIX-REQUIRED (M1 vacuous rc=4 drills counted as KILLED; M2 cross-file node ids). The fix-up round is owed on feature/test-mutation-sandbox-0928 (050e655fc, 1 ahead / 55 behind develop).'
   created: '2026-09-26 02:14'
-  updated: '2026-09-29 01:05'
+  updated: '2026-10-01 03:15'
   gate_2026_09_27: 'FOUR-STEP GATE (overnight 2026-09-27). (1) VALIDITY: still real. Re-grep of quality/tests files that write_text AND reference custom_components: in-place writers with 0-1 tmp refs are still test_ble_extend_not_create, test_chatter_wire_in, test_dp_yields_to_excess_solar, test_energy_write_verification, test_evse_drain_precedence_session_b2a / b2b_i / b2b_ii / b2c1_fixup / b2c3_fixup, test_fan_transition_gate (10). test_dp_drain_target_value_stamp, test_energy_projector_grep_singleton and test_resolver_accuracy carry tmp refs and must be verified individually. (1b) CONFIG-FIRST: not applicable (test infrastructure). (2) PRIOR ART: REUSE the SIGKILL-safe pattern in quality/tests/test_owner_registry_mutation_matrix.py:32-101 (copytree custom_components into a tempdir, symlink the rest, subprocess with a PYTHONPATH prefix, assert the real file md5 is unchanged). (3) PARSIMONY: BUILD, extracting that pattern into one shared helper instead of copying it 10 times. (4) COST/BENEFIT: test-only, zero house risk, observed live 09-26. Tier 1. Building to review overnight on feature/test-mutation-sandbox; no merge.'
   refinement_status: initial
   approval: implied
@@ -29891,8 +29894,7 @@ cards:
   parsimony:
     problem: About ten tests write production source in place, and a SIGKILL or concurrent tree operation mid-run leaves it mutated. Observed live 2026-09-26.
     verdict: BUILD
-  next: 'BUILD (Tier 1, test-only): port each in-place writer to the v5.100.9 tmp-copy pattern
-    (test_owner_registry_mutation_matrix.py). Keep each mutation drill red, and assert that the production md5 does not change.'
+  next: 'MERGE (me): after the serial full-suite name-diff shows no new failures, merge feature/test-mutation-sandbox-0928 into develop (test-only, no release).'
   links:
     related: [TEST-SOURCE-MUTATION-KILL-UNSAFE-1, TEST-STRATEGY-REARCH-1]
     parent: TEST-STRATEGY-REARCH-1
@@ -30151,11 +30153,12 @@ cards:
     related: [GUEST-ROOM-FAN-HOLD-1, HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1]
   rank: {value: 9, time_criticality: 9, effort: 2}
 - id: ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1
+  gate_2026_10_01_overnight: 'FOUR-STEP GATE re-run 10-01. (1) VALIDITY: STILL-REAL - live metric_baselines (ssh sqlite3 -readonly, 10-01 02:40 CDT): presence 2026-09-14, security 09-04, safety 09-04, safety_rate 09-11, music_following 05-12, while energy/hvac/memory were saved within the last 3 h. BLOCKER CLEARED: the anomaly-blind-metrics cycle merged in v5.103.25 (7b42d34a2), so the collision noted on 09-30 is gone. (1b) CONFIG-FIRST: no setting saves baselines. (2) PRIOR ART: REUSE the cadence the healthy coordinators already use + the manager.py:617-633 stop-listener pattern; save_baselines exists (coordinator_diagnostics.py:1699). (3) PARSIMONY: BUILD the smallest version - same cadence as the healthy ones + stop save, bounded to one save per detector per period. (4) COST/BENEFIT: additive, low write volume (a write-volume test is required given the 06-09 write-flood incident); value is real because the restart storm resets these detectors to 2-8-week-old snapshots. Tier 2: build + 2 framing-disjoint reviews to review lane, NO deploy (overnight).'
   title: Presence, security, safety and music-following anomaly baselines are only saved when the integration unloads, which never happens on an HA restart, so their learning is thrown away every restart
   thread: platform
-  status: planned
+  status: 'in_progress'
   created: '2026-09-29 15:00'
-  updated: '2026-09-30 03:15'
+  updated: '2026-10-01 03:40'
   approval: implied
   tags: [anomaly, persistence, restart, found-in-review]
   origin:
@@ -30163,7 +30166,7 @@ cards:
     gist: anomaly-blind plan review M1 (docs/reviews/code-review/plan_review_anomaly_detector_blind_metrics.md)
   why: 'HA does not unload config entries on stop (config_entries.py:931-933, :2176-2180 in the venv HA 2026.2.3; live 2026.9.x source not yet checked), and URA has no stop listener, so teardown-only baseline saves never run on a restart. Live DB metric_baselines last_updated: presence 2026-09-14, security 2026-09-04, safety 2026-09-04, music_following 2026-05-12. HVAC (saved at daily rollover) and coordinator_manager (saved each boot) are current. With the restart storm (8+ restarts on 09-28), those coordinators relearn from a 2-week-old snapshot each boot.'
   gate_2026_09_30_overnight: 'VALIDITY: STILL-REAL (live metric_baselines last_updated: presence 2026-09-14, security 2026-09-04, safety 2026-09-04, safety_rate 2026-09-11, music_following 2026-05-12; energy/hvac/memory/CM current). PRIOR-ART: a STOP hook pattern already exists (manager.py:617-633 house-state _on_ha_stop via async_listen_once(EVENT_HOMEASSISTANT_STOP)) - REUSE it; save_baselines per coordinator already exists. NOT BUILT overnight - COLLISION: the anomaly-blind-metrics cycle (PLANNING_anomaly_detector_blind_metrics.md, worktree feature/anomaly-blind-metrics) is in flight and edits the same coordinator_diagnostics.py save_baselines (D1, the list() snapshot at :1392), and RESTART-SAFETY-DOCTRINE-1 F1/F2 cover the same stop-time saves. Build this right after that cycle merges, on top of its D1 fix.'
-  next: 'BUILD (Tier 1-2): save baselines on a periodic cadence (e.g. the existing daily rollover, or every N minutes via the write queue) and on EVENT_HOMEASSISTANT_STOP, for every coordinator. Verify the stop-event behaviour against live HA 2026.9.x source first. Test: a stop event persists; after a restart the loaded sample_count equals the pre-stop count.'
+  next: 'IN PROGRESS (me, overnight): builder on fix/anomaly-baselines-periodic-save (worktree overnight-1001-baselines); then 2 reviews + serial suite name-diff -> review lane. No deploy.'
   links:
     related: [ANOMALY-SAVE-BASELINES-DICT-MUTATION-1, HVAC-ANOMALY-BLIND-1]
   rank: {value: 5, time_criticality: 4, effort: 2}
