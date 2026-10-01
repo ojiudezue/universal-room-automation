@@ -221,7 +221,9 @@ async def test_turn_on_regular_lights_evening_overrides_brightness_and_color(ra_
     domain, service, data = ra._safe_service_call.await_args.args[:3]
     assert (domain, service) == ("light", "turn_on")
     assert data["brightness_pct"] == 30
-    assert data["color_kelvin"] == 2400
+    # HA light.turn_on key is color_temp_kelvin (review A HIGH: color_kelvin is rejected by the schema).
+    assert data["color_temp_kelvin"] == 2400
+    assert "color_kelvin" not in data
 
 
 @pytest.mark.asyncio
@@ -231,7 +233,7 @@ async def test_turn_on_regular_lights_day_absent_keys_is_todays_path(ra_module):
     _, _, data = ra._safe_service_call.await_args.args[:3]
     # Absent evening keys ⇒ CONF_LIGHT_BRIGHTNESS_PCT default (100), no color.
     assert data["brightness_pct"] == 100
-    assert "color_kelvin" not in data
+    assert "color_kelvin" not in data and "color_temp_kelvin" not in data
 
 
 @pytest.mark.asyncio

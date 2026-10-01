@@ -759,6 +759,17 @@ class RoomAutomation:
             )
             return
 
+        # Operator ruling 2026-09-30: a paused room (master Automation
+        # switch off) is left alone at Away too. Checked here, not in the
+        # coordinator's house-state handler (system reactions there must
+        # not consult the per-room toggle — v4.5.8 gating model).
+        try:
+            if not self.coordinator._is_automation_enabled():
+                _LOGGER.debug("[%s] Away leave-on sweep: room automation off — skip", room_name)
+                return
+        except AttributeError:
+            pass
+
         if not self.config.get(CONF_AWAY_TURN_OFF_LEAVE_ON, True):
             _LOGGER.debug(
                 "[%s] Away leave-on sweep: CONF_AWAY_TURN_OFF_LEAVE_ON=False",
@@ -1078,24 +1089,32 @@ class RoomAutomation:
         """Refresh config from entry options (picks up options flow changes without reload)."""
         self.config = {**self._config_entry.data, **self._config_entry.options}
 
+    def is_sleep_lighting_active(self) -> bool:
+        """Sleep semantics for CHOOSING LIGHTS only (night lights on entry).
+
+        Operator ruling 2026-09-30 (REV 2.5): house-state Sleep OR the room's
+        sleep clock. Nothing else reads house-state Sleep, so an early or
+        forced house Sleep never blocks covers, exits or fans.
+        """
+        if self.is_sleep_mode_active():
+            return True
+        if not self.config.get(CONF_SLEEP_PROTECTION_ENABLED, False):
+            return False
+        try:
+            return (self._read_current_house_state() or "").lower() == "sleep"
+        except Exception:  # noqa: BLE001 — fail-open to clock
+            return False
+
     def is_sleep_mode_active(self) -> bool:
         """Check if sleep protection is currently active.
 
-        Slice D (v5.103.29) — plan D4 precedence: HouseState=="sleep" OR
-        the per-room sleep clock ⇒ Sleep semantics; disagreement ⇒ Sleep
-        wins. Reads house_state via the same primitive the fan-onset path
-        uses (``_read_current_house_state``); fail-open (no state ⇒ clock
-        alone, today's behaviour).
+        Clock-only (operator ruling 2026-09-30, REV 2.5): exits, covers,
+        fans and every other sleep consumer stay on the per-room sleep
+        clock. House-state Sleep only chooses night lights — see
+        ``is_sleep_lighting_active``.
         """
         if not self.config.get(CONF_SLEEP_PROTECTION_ENABLED, False):
             return False
-
-        # Plan D4: HouseState=Sleep wins over the clock disagreement.
-        try:
-            if (self._read_current_house_state() or "").lower() == "sleep":
-                return True
-        except Exception:  # noqa: BLE001 — fail-open to clock
-            pass
 
         now = dt_util.now().time()
         sleep_start = time(hour=int(self.config.get(CONF_SLEEP_START_HOUR, 22)))
@@ -1230,7 +1249,7 @@ class RoomAutomation:
             return
 
         # === v3.2.2.5: Check if we're in sleep hours ===
-        is_sleep_hours = self.is_sleep_mode_active()
+        is_sleep_hours = self.is_sleep_lighting_active()
         night_lights = self.config.get(CONF_NIGHT_LIGHTS, [])
 
         _LOGGER.debug("Entry light control [%s]: is_sleep_hours=%s, night_lights=%s",
@@ -1321,7 +1340,7 @@ class RoomAutomation:
                         self.config.get(CONF_LIGHT_BRIGHTNESS_PCT, 100),
                     )
                 if capability == LIGHT_CAPABILITY_FULL and "color_kelvin" in overrides:
-                    svc_data["color_kelvin"] = overrides["color_kelvin"]
+                    svc_data["color_temp_kelvin"] = overrides["color_kelvin"]
                 await self._safe_service_call("light", SERVICE_TURN_ON, svc_data, blocking=False)
             if switches_as_lights:
                 await self._safe_service_call(
@@ -1333,7 +1352,7 @@ class RoomAutomation:
             # Slice E D5: slot picks brightness/colour. Day/Evening only
             # here (sleep handled above). Absent evening keys ⇒ today's
             # day settings.
-            await self._turn_on_regular_lights(slot=slot)
+            await self._turn_on_regular_lights(slot=slot, is_dark=is_dark)
             if night_lights:
                 # Night lights follow the same slot; evening resolves to
                 # day defaults when no evening overrides are set.
@@ -1442,6 +1461,19 @@ class RoomAutomation:
             scene_id = slot_scene(self.config, slot)
             if not scene_id:
                 return False
+            # Review D HIGH (INV-2): a scene must not override a person's
+            # manual hold/cooldown on any of the room's entry lights. If any
+            # is held, fall back to the per-light path, which respects holds.
+            try:
+                allowed = self.light_hold_allowed(list(entry_set or []), "on")
+                if len(allowed) != len(list(entry_set or [])):
+                    _LOGGER.debug(
+                        "Slot %s scene %s skipped: a room light is under a manual hold",
+                        slot, scene_id,
+                    )
+                    return False
+            except Exception:  # noqa: BLE001 — fail-open to the scene
+                pass
             # Guard: scene must exist and be reachable. A missing / unavailable
             # scene falls back to the per-light path (fail-open).
             try:
@@ -1475,7 +1507,9 @@ class RoomAutomation:
             )
             return False
 
-    async def _turn_on_regular_lights(self, slot: str = LIGHT_SLOT_DAY) -> None:
+    async def _turn_on_regular_lights(
+        self, slot: str = LIGHT_SLOT_DAY, is_dark: bool | None = None,
+    ) -> None:
         """Turn on regular lights (non-night lights) with standard settings.
 
         Slice E (v5.103.29): ``slot`` is the current time-of-day slot.
@@ -1488,6 +1522,12 @@ class RoomAutomation:
         
         # Get lights that are NOT night lights
         regular_lights = [light for light in lights if light not in night_lights]
+        # Review A MEDIUM: the "only when dark" subset applies on this
+        # default path too (the reconciler already honours it).
+        if is_dark is False:
+            dark_only = set(self.config.get("lights_on_entry_dark_only", []) or [])
+            if dark_only:
+                regular_lights = [e for e in regular_lights if e not in dark_only]
         # Slice C D2: skip lights a person turned OFF (cooldown).
         regular_lights = self.light_hold_allowed(regular_lights, "on")
 
@@ -1516,7 +1556,7 @@ class RoomAutomation:
                     self.config.get(CONF_LIGHT_BRIGHTNESS_PCT, 100),
                 )
             if capability == LIGHT_CAPABILITY_FULL and "color_kelvin" in overrides:
-                service_data["color_kelvin"] = overrides["color_kelvin"]
+                service_data["color_temp_kelvin"] = overrides["color_kelvin"]
 
             await self._safe_service_call(
                 "light", SERVICE_TURN_ON, service_data, blocking=False
@@ -3828,6 +3868,9 @@ class RoomAutomation:
         regular = self.config.get(CONF_LIGHTS, []) or []
         night_ = self.config.get(CONF_NIGHT_LIGHTS, []) or []
         lights = list(regular) + [e for e in night_ if e not in regular]
+        # Review A MEDIUM: leave-on lights are exempt from this sweep too.
+        _leave_on = set(self.config.get("lights_leave_on_when_empty", []) or [])
+        lights = [e for e in lights if e not in _leave_on]
         # Slice C D2: the scheduled auto-off does not undo a person's ON
         # while the room is still occupied (the hold ends when it empties).
         lights = self.light_hold_allowed(lights, "off")

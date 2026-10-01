@@ -1676,7 +1676,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             SIGNAL_HOUSE_STATE_CHANGED: (
                 self._on_house_state_changed,
                 any(k.startswith(TRIGGER_HOUSE_STATE_PREFIX) for k in chains)
-                or any(t.startswith(TRIGGER_HOUSE_STATE_PREFIX) for t in rule_triggers),
+                or any(t.startswith(TRIGGER_HOUSE_STATE_PREFIX) for t in rule_triggers)
+                # Review B HIGH-1: the Away leave-on sweep rides this handler,
+                # so any room with leave-on lights and the Away option on
+                # must listen even without house-state chains/AI rules.
+                or (
+                    bool(self._get_config("lights_leave_on_when_empty", []) or [])
+                    and bool(self._get_config("away_turn_off_leave_on", True))
+                ),
             ),
             SIGNAL_ENERGY_CONSTRAINT: (
                 self._on_energy_constraint,

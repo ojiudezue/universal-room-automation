@@ -261,8 +261,12 @@ def test_sleep_house_state_forces_sleep_semantics_outside_clock():
     dt_util.now = lambda: datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
     try:
         assert auto.is_sleep_mode_active() is False
+        assert auto.is_sleep_lighting_active() is False
         hass.data["universal_room_automation"]["coordinator_manager"].house_state = "sleep"
-        assert auto.is_sleep_mode_active() is True
+        # Operator ruling REV 2.5: house Sleep only chooses night lights;
+        # exits/covers/fans keep the clock.
+        assert auto.is_sleep_lighting_active() is True
+        assert auto.is_sleep_mode_active() is False
     finally:
         dt_util.now = real_now
 
@@ -274,6 +278,7 @@ def test_sleep_disabled_switch_still_off_under_house_sleep():
     auto.config[M["const"].CONF_SLEEP_PROTECTION_ENABLED] = False
     hass.data["universal_room_automation"]["coordinator_manager"].house_state = "sleep"
     assert auto.is_sleep_mode_active() is False
+    assert auto.is_sleep_lighting_active() is False
 
 
 # ===========================================================================

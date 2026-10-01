@@ -5317,7 +5317,7 @@ class RoomLightsSwitch(UniversalRoomEntity, SwitchEntity):
         if automation is None:
             return
         cfg = self._cfg()
-        sleep = bool(automation.is_sleep_mode_active())
+        sleep = bool(getattr(automation, "is_sleep_lighting_active", automation.is_sleep_mode_active)())
         try:
             is_dark = bool(automation.is_dark(
                 (self.coordinator.data or {}).get(STATE_ILLUMINANCE)
@@ -5349,8 +5349,12 @@ class RoomLightsSwitch(UniversalRoomEntity, SwitchEntity):
             await automation._safe_service_call(
                 "switch", "turn_on", {"entity_id": switches}, blocking=False,
             )
-        for eid in targets:
-            automation.note_manual_light(eid, "on")
+        # Review D (INV-2 L3): a hold only makes sense while someone is in
+        # the room — holds clear when the room goes empty, so booking one in
+        # an already-empty room would pin the light for the whole window.
+        if self._room_occupied():
+            for eid in targets:
+                automation.note_manual_light(eid, "on")
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
@@ -5368,9 +5372,16 @@ class RoomLightsSwitch(UniversalRoomEntity, SwitchEntity):
             await automation._safe_service_call(
                 "switch", "turn_off", {"entity_id": switches}, blocking=False,
             )
-        for eid in lights:
-            automation.note_manual_light(eid, "off")
+        if self._room_occupied():
+            for eid in lights:
+                automation.note_manual_light(eid, "off")
         self.async_write_ha_state()
+
+    def _room_occupied(self) -> bool:
+        try:
+            return bool((self.coordinator.data or {}).get("occupied"))
+        except Exception:  # noqa: BLE001
+            return False
 
 
 class AiAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):

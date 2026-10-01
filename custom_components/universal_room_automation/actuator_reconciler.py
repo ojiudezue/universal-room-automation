@@ -797,7 +797,7 @@ class ActuatorReconciler:
         cfg = self._config()
         automation = self._automation()
         occupied = bool(data.get(STATE_OCCUPIED))
-        sleep = bool(automation.is_sleep_mode_active()) if automation else False
+        sleep = bool(getattr(automation, "is_sleep_lighting_active", automation.is_sleep_mode_active)()) if automation else False
         night_lights = cfg.get(CONF_NIGHT_LIGHTS) or []
 
         domain = "switch" if entity_id.startswith("switch.") else "light"

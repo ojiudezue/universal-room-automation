@@ -5719,6 +5719,10 @@ class HVACCoordinator(BaseCoordinator):
             regular = config.get(CONF_LIGHTS, []) or []
             night = config.get(CONF_NIGHT_LIGHTS, []) or []
             lights = list(regular) + [e for e in night if e not in regular]
+            # Lighting review A: "leave on when the room empties" lights
+            # are exempt from the zone vacancy sweep (lights only).
+            _leave_on = set(config.get("lights_leave_on_when_empty", []) or [])
+            lights = [e for e in lights if e not in _leave_on]
             fans = config.get(CONF_FANS, [])
 
             # Room lighting Slice C (v5.103.28) D2: a light a person turned

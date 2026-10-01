@@ -11575,7 +11575,30 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             try:
+                # Review A HIGH: flatten the collapsed auto/manual section so
+                # CONF_AUTO_SWITCHES / CONF_MANUAL_SWITCHES are actually saved
+                # (mirrors the reconcile_advanced flatten pattern).
+                section_vals = user_input.pop("auto_manual_devices", None)
+                if isinstance(section_vals, dict):
+                    user_input = {**user_input, **section_vals}
                 merged = {**self._config_entry.options, **user_input}
+                # Review A MEDIUM: a cleared single-value field is omitted from
+                # the submission; drop it instead of resurrecting the stored
+                # value. Advanced fields only when they were on the form.
+                clearable = [CONF_LIGHT_DARK_LUX_SOURCE]
+                if self.show_advanced_options:
+                    clearable += [
+                        CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
+                        CONF_LIGHT_EVENING_COLOR_KELVIN,
+                        CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
+                        CONF_NIGHT_LIGHT_EVENING_COLOR,
+                        CONF_LIGHT_SCENE_DAY,
+                        CONF_LIGHT_SCENE_EVENING,
+                        CONF_LIGHT_SCENE_SLEEP,
+                    ]
+                for key in clearable:
+                    if key not in user_input:
+                        merged.pop(key, None)
                 _LOGGER.info(
                     "options_lighting_behaviour save: entry_id=%s, input_keys=%d, merged_keys=%d",
                     self._config_entry.entry_id,
