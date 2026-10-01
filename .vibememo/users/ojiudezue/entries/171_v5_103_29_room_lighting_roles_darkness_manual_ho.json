@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "171",
+  "author": "ojiudezue",
+  "session_id": "claude_20261001_022306_ship_v5_103_29",
+  "timestamp": "2026-10-01T02:23:06Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.29 shipped: Room lighting roles, darkness, manual hold, room switch, evening looks",
+  "summary": "Room lighting roles, darkness, manual hold, room switch, evening looks",
+  "why": "The operator called the room dialog the core of URA and a power-user mess: lighting roles were room-wide and misfiled in Devices, there was no way to exempt a light from the timeout, and URA could undo a light someone set by hand. Per-light roles in a behaviour step with one timeout keep the enumeration-vs-automation rule and add no new timers; four framing-disjoint reviews caught an evening-colour schema bug and an Away sweep that never fired before ship.",
+  "implications": "Shipped ROOM-LIGHTING-SETUP-REDESIGN-1 at v5.103.29; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.29.md (Live criteria).",
+  "revisit_trigger": "If a hand-set light is turned off while the room is occupied, or Away leaves a leave-on light on with the option enabled, reopen.",
+  "refs": {
+    "cards": [
+      "ROOM-LIGHTING-SETUP-REDESIGN-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.29.md"
+    ],
+    "release_notes": "Lighting step with per-light roles (on entry, only when dark, night lights, leave on when empty, alert lights); darkness from room sensor, borrowed sensor, Global Sensors outdoor light sensor, then the sun; URA no longer undoes a light you change by hand while you're in the room (hold ends when the room empties; caps are Advanced fields); a Room lights switch per room; Away turns off leave-on lights when the option is on; house Sleep picks night lights; optional evening brightness/colour or scene per room (Advanced). Absent new settings = today's behaviour, except rooms with no working light sensor now use outdoor light/sun for darkness."
+  }
+}
