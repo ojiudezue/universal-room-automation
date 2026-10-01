@@ -60,6 +60,12 @@ INTENT_BATCH_WINDOW_MS: Final = 100  # milliseconds
 # incident (one periodic save per detector per hour, not per decision cycle).
 ANOMALY_BASELINE_SAVE_INTERVAL_S: Final = 3600
 
+# ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1 (B-LOW fix): bound the
+# EVENT_HOMEASSISTANT_STOP flush so a slow / wedged DB cannot delay HA
+# shutdown indefinitely. 30s is well above the normal multi-coordinator
+# save latency but below any supervisor shutdown-watchdog threshold.
+ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S: Final = 30
+
 # v4.6.11 review fix (A.M2 / C.L4): hoisted to module level so the mapping is
 # allocated once, not rebuilt on every get_summary()/get_system_anomaly_status()
 # call. AnomalySeverity is a StrEnum so dict-key equality works against either
@@ -551,18 +557,38 @@ class CoordinatorManager:
                     exc_info=True,
                 )
 
-    async def _persist_coordinator_baselines(self) -> None:
+    async def _persist_coordinator_baselines(
+        self, *, include_safety_rate: bool = False,
+    ) -> None:
         """Persist anomaly baselines for every coordinator that owns a detector.
 
         Covers presence / security / safety / music_following / HVAC
         (idempotent — HVAC also persists on genuine daily rollover) plus
-        safety's parallel ``safety_rate`` scope and the CM setup detector.
-        Per-detector failures are isolated so one broken writer cannot
-        block the others. Called at most once per
+        the CM setup detector. Per-detector failures are isolated so one
+        broken writer cannot block the others. Called at most once per
         ``ANOMALY_BASELINE_SAVE_INTERVAL_S`` from the periodic timer, plus
         once on ``EVENT_HOMEASSISTANT_STOP`` — i.e. no per-cycle write
         amplification.
+
+        ``include_safety_rate``: when True, also calls
+        ``safety._save_rate_baselines`` (the parallel ``safety_rate`` scope).
+        Default False because Safety already persists its rate baselines
+        every 30 min internally (safety.py:1214) — the periodic CM path
+        must NOT duplicate that writer; only the STOP path sets this True
+        to capture samples accrued between the last internal save and
+        shutdown. (Review B-MEDIUM.)
         """
+        # B-LOW: if the CM has been stopped (or the parent entry is tearing
+        # down), a tick already in flight should be a no-op. async_stop sets
+        # ``_running=False`` before unsubscribing the periodic/stop handles,
+        # so this bounds any lap in flight across the unwire gap. Note the
+        # EVENT_HOMEASSISTANT_STOP path fires BEFORE async_stop, so
+        # ``_running`` is still True there (verified in restart-safety tests).
+        if not getattr(self, "_running", False):
+            _LOGGER.debug(
+                "Anomaly-baseline persist: CM not running — skipping tick"
+            )
+            return
         for coord in list(self._coordinators.values()):
             detector = getattr(coord, "anomaly_detector", None)
             if detector is None:
@@ -577,17 +603,21 @@ class CoordinatorManager:
                     exc_info=True,
                 )
         # Safety carries a parallel rate-baseline table (scope=safety_rate).
-        safety = self._coordinators.get("safety")
-        save_rate = getattr(safety, "_save_rate_baselines", None)
-        if save_rate is not None:
-            try:
-                await save_rate()
-            except Exception:  # noqa: BLE001
-                _LOGGER.debug(
-                    "Anomaly-baseline persist: safety._save_rate_baselines "
-                    "failed (non-fatal)",
-                    exc_info=True,
-                )
+        # Only invoked on the STOP path — the periodic path leaves this to
+        # Safety's own 30-min internal save (safety.py:1214) to avoid double
+        # writers racing on the same table (B-MEDIUM).
+        if include_safety_rate:
+            safety = self._coordinators.get("safety")
+            save_rate = getattr(safety, "_save_rate_baselines", None)
+            if save_rate is not None:
+                try:
+                    await save_rate()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Anomaly-baseline persist: safety._save_rate_baselines "
+                        "failed (non-fatal)",
+                        exc_info=True,
+                    )
         # CM setup detector (one sample per boot). async_stop already
         # persists it, but EVENT_HOMEASSISTANT_STOP fires BEFORE async_stop
         # and async_stop does not run on an HAOS restart that kills the
@@ -612,8 +642,24 @@ class CoordinatorManager:
         self, _event: Any
     ) -> None:
         """EVENT_HOMEASSISTANT_STOP callback — awaited inline so the save
-        completes before HA finishes stopping."""
-        await self._persist_coordinator_baselines()
+        completes before HA finishes stopping.
+
+        Bounded by ``ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S`` (B-LOW fix) so
+        a wedged DB cannot stall HA shutdown; on timeout we log and move
+        on — the next boot will reload whatever did make it to disk.
+        Includes safety_rate on this path (STOP-only).
+        """
+        try:
+            async with asyncio.timeout(ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S):
+                await self._persist_coordinator_baselines(
+                    include_safety_rate=True,
+                )
+        except TimeoutError:
+            _LOGGER.warning(
+                "Anomaly-baseline STOP save exceeded %ds — abandoning flush "
+                "to avoid stalling HA shutdown",
+                ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S,
+            )
 
     async def _async_restore_house_state(self) -> None:
         """D1: load persisted state from Store and apply it to the machine."""

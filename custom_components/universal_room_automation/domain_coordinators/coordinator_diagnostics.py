@@ -1055,6 +1055,15 @@ class AnomalyDetector:
         # One-time WARNING per metric when a declared-unwired metric has data
         # (the declaration is stale). Per-detector, so no log spam.
         self._warned_unwired_but_fed: set[str] = set()
+        # ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1 (A-LOW fix): guard against
+        # overwriting stored (mature) rows with a fresh in-memory dict when
+        # load_baselines() silently failed. load_baselines swallows all DB
+        # errors to debug (above) — a subsequent CM-periodic save_baselines
+        # would then write back the still-empty / few-sample dict and clobber
+        # the authoritative rows. Default True: detectors that never call
+        # load_baselines (no persistence surface) stay freely saveable; the
+        # flag flips to False only when load_baselines is CALLED but fails.
+        self._baselines_loaded: bool = True
 
     def _min_samples_for(self, metric_name: str) -> int:
         """Return the maturation gate for a metric.
@@ -1633,6 +1642,10 @@ class AnomalyDetector:
 
         valid_metrics = set(self.metric_names)
         orphan_keys: list[tuple[str, str]] = []
+        # A-LOW fix: assume load failed until it succeeds. Prevents a
+        # downstream save_baselines from stamping a half-loaded or empty
+        # dict over mature stored rows if the SELECT raises below.
+        self._baselines_loaded = False
         try:
             async with database._db() as db:
                 db.row_factory = aiosqlite.Row
@@ -1690,6 +1703,10 @@ class AnomalyDetector:
                     "Loaded %d baselines for %s (skipped %d orphan)",
                     loaded, self.coordinator_id, len(orphan_keys),
                 )
+            # Successful load (including "nothing stored yet" — the SELECT
+            # returning zero rows is a legitimate cold-start, not a failure):
+            # enable subsequent saves.
+            self._baselines_loaded = True
         except Exception as e:
             _LOGGER.debug(
                 "Error loading baselines for %s (may not exist yet): %s",
@@ -1700,6 +1717,16 @@ class AnomalyDetector:
         """Persist baseline statistics to the database."""
         database = self._database
         if database is None:
+            return
+        # A-LOW guard: if load_baselines was called and silently failed,
+        # the in-memory dict is NOT the authoritative state and writing it
+        # back would clobber the mature stored rows with young samples.
+        if not self._baselines_loaded:
+            _LOGGER.debug(
+                "save_baselines skipped for %s: _baselines_loaded=False "
+                "(prior load_baselines failed; refusing to overwrite stored rows)",
+                self.coordinator_id,
+            )
             return
 
         try:

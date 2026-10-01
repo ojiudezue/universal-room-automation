@@ -57,15 +57,20 @@ _MGR_GLOBALS = CoordinatorManager._wire_anomaly_baseline_persistence.__globals__
 # ---------------------------------------------------------------------------
 
 
-def _make_manager():
+def _make_manager(running: bool = True):
     """Minimal CM: MagicMock hass with bus.async_listen_once returning an
-    unsub callable, and a plain dict ``hass.data``."""
+    unsub callable, and a plain dict ``hass.data``. ``running`` seeds the
+    _running flag (True by default) — the B-LOW guard in
+    _persist_coordinator_baselines early-returns when the CM is not running,
+    so tests that drive the persist path directly need the flag set."""
     hass = MagicMock()
     hass.data = {}
     hass.services = MagicMock()
     hass.bus = MagicMock()
     hass.bus.async_listen_once = MagicMock(return_value=MagicMock())
-    return CoordinatorManager(hass), hass
+    mgr = CoordinatorManager(hass)
+    mgr._running = running
+    return mgr, hass
 
 
 def _make_coord_with_detector(coord_id: str):
@@ -174,10 +179,40 @@ class TestPeriodicTimerPersists:
             mgr._coordinators[cid] = c
         mgr._setup_anomaly_detector = None
 
+        # Periodic path (default): detectors get saved; safety_rate is
+        # EXCLUDED (B-MEDIUM — Safety has its own 30-min internal writer).
         await mgr._persist_coordinator_baselines()
         for cid, c in coords.items():
             assert c.anomaly_detector.save_baselines.await_count == 1, cid
-        assert coords["safety"]._save_rate_baselines.await_count == 1
+        assert coords["safety"]._save_rate_baselines.await_count == 0, (
+            "periodic path must NOT invoke safety._save_rate_baselines "
+            "(duplicates safety.py:1214 internal writer)"
+        )
+
+    @pytest.mark.asyncio
+    async def test_stop_path_includes_safety_rate(self):
+        """The STOP path (and only the STOP path) persists safety_rate."""
+        mgr, _ = _make_manager()
+        safety = _make_coord_with_detector("safety")
+        safety._save_rate_baselines = AsyncMock()
+        mgr._coordinators["safety"] = safety
+
+        await mgr._persist_coordinator_baselines(include_safety_rate=True)
+        assert safety._save_rate_baselines.await_count == 1, (
+            "STOP path must invoke safety._save_rate_baselines"
+        )
+
+    @pytest.mark.asyncio
+    async def test_persist_noops_when_not_running(self):
+        """B-LOW: a tick scheduled before unwire must no-op after async_stop."""
+        mgr, _ = _make_manager(running=False)
+        coord = _make_coord_with_detector("presence")
+        mgr._coordinators["presence"] = coord
+        await mgr._persist_coordinator_baselines()
+        assert coord.anomaly_detector.save_baselines.await_count == 0, (
+            "_persist_coordinator_baselines must early-return when "
+            "self._running is False"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +341,202 @@ class TestListenerHygiene:
         assert mgr._anomaly_baseline_stop_unsub is None
         assert periodic_unsub.called, "periodic unsub must be invoked"
         assert stop_unsub.called, "stop unsub must be invoked"
+
+
+# ---------------------------------------------------------------------------
+# A-LOW: AnomalyDetector._baselines_loaded guard — a failed load must NOT
+# allow a subsequent save to clobber the stored (mature) rows.
+# ---------------------------------------------------------------------------
+
+
+class TestBaselinesLoadedGuard:
+    """Guards against overwriting a healthy ``metric_baselines`` row set with
+    an empty / few-sample in-memory dict when ``load_baselines`` silently
+    failed (its exception handler swallows to debug)."""
+
+    def _make_detector(self, database):
+        from custom_components.universal_room_automation.domain_coordinators.coordinator_diagnostics import (  # noqa: E402
+            AnomalyDetector,
+        )
+        from custom_components.universal_room_automation.const import DOMAIN  # noqa: E402
+        hass = MagicMock()
+        hass.data = {DOMAIN: {"database": database}}
+        return AnomalyDetector(
+            hass=hass,
+            coordinator_id="presence",
+            metric_names=["foo"],
+            minimum_samples=5,
+        )
+
+    @pytest.mark.asyncio
+    async def test_default_true_detector_without_persistence_saves(self):
+        """Detectors constructed without a persistence surface (database=None)
+        still have ``_baselines_loaded == True`` by default, so the save path
+        reaches the DB check and returns cleanly (not blocked by the guard)."""
+        det = self._make_detector(database=None)
+        assert det._baselines_loaded is True, (
+            "default must be True so detectors that never call load_baselines "
+            "can still save"
+        )
+        # save_baselines returns early on database=None without raising.
+        await det.save_baselines()
+
+    @pytest.mark.asyncio
+    async def test_failing_load_sets_flag_false_and_save_skips(self):
+        """A load_baselines whose SELECT raises must flip the flag False,
+        and the next save_baselines must early-return without touching the DB."""
+        class ExplodingDB:
+            def __init__(self):
+                self.save_calls = 0
+
+            def _db(self):
+                # Context-manager raises on enter — mimics a connection failure.
+                class _Ctx:
+                    async def __aenter__(_s):
+                        raise RuntimeError("simulated DB open failure")
+
+                    async def __aexit__(_s, *a):
+                        return False
+                return _Ctx()
+
+        db = ExplodingDB()
+        det = self._make_detector(database=db)
+        await det.load_baselines()  # swallowed to debug
+        assert det._baselines_loaded is False, (
+            "A failing load_baselines must leave _baselines_loaded False"
+        )
+
+        # Now wire a DIFFERENT db that would count save attempts; the guard
+        # should prevent the detector from ever reaching it.
+        touched = {"n": 0}
+
+        class CountingDB:
+            def _db(_s):
+                touched["n"] += 1
+
+                class _Ctx:
+                    async def __aenter__(__s):
+                        raise AssertionError(
+                            "save_baselines must not touch DB when "
+                            "_baselines_loaded is False"
+                        )
+
+                    async def __aexit__(__s, *a):
+                        return False
+                return _Ctx()
+
+        det.hass.data[
+            __import__(
+                "custom_components.universal_room_automation.const",
+                fromlist=["DOMAIN"],
+            ).DOMAIN
+        ]["database"] = CountingDB()
+        await det.save_baselines()  # must early-return
+        assert touched["n"] == 0, (
+            "guard must early-return before invoking database._db()"
+        )
+
+    @pytest.mark.asyncio
+    async def test_successful_load_allows_save(self):
+        """A load against an empty table (no rows stored yet) is a legitimate
+        cold-start and must still set the flag True so saves work."""
+        import aiosqlite
+
+        class EmptyDB:
+            def _db(_s):
+                class _Ctx:
+                    async def __aenter__(__s):
+                        # Minimal: an in-memory connection with the real schema
+                        # subset we touch (coordinator_id, metric_name, scope,
+                        # mean, variance, sample_count, last_updated).
+                        __s._conn = await aiosqlite.connect(":memory:")
+                        await __s._conn.execute(
+                            "CREATE TABLE metric_baselines ("
+                            "coordinator_id TEXT, metric_name TEXT, scope TEXT, "
+                            "mean REAL, variance REAL, sample_count INTEGER, "
+                            "last_updated TEXT)"
+                        )
+                        await __s._conn.commit()
+                        return __s._conn
+
+                    async def __aexit__(__s, *a):
+                        await __s._conn.close()
+                        return False
+                return _Ctx()
+
+        det = self._make_detector(database=EmptyDB())
+        await det.load_baselines()
+        assert det._baselines_loaded is True, (
+            "a successful load (zero rows stored) must flip the flag to True"
+        )
+
+
+# ---------------------------------------------------------------------------
+# A-MEDIUM: async_start() itself must invoke _wire_anomaly_baseline_persistence
+# (replacing the call with `pass` must break this test).
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncStartWiresBaselinePersistence:
+    """Behavioural: drive the real ``async_start`` (with house-state restore /
+    wire helpers stubbed) and prove the periodic + STOP handles are
+    registered, and that firing the stop event flushes a registered
+    detector. Replacing the wire call with ``pass`` in production source
+    MUST turn these assertions red (that is the point)."""
+
+    @pytest.mark.asyncio
+    async def test_async_start_registers_periodic_and_stop_and_flushes(
+        self, monkeypatch,
+    ):
+        mgr, hass = _make_manager(running=False)  # async_start sets _running True
+        # Stub the house-state branches — unrelated to this cycle and they
+        # touch Store I/O. The anomaly wiring runs AFTER both.
+        async def _noop_restore(self):
+            self._house_state_restored = False
+        monkeypatch.setattr(
+            CoordinatorManager, "_async_restore_house_state", _noop_restore,
+        )
+        monkeypatch.setattr(
+            CoordinatorManager, "_wire_house_state_persistence",
+            lambda self: None,
+        )
+        # Capture the periodic unsub by faking async_track_time_interval.
+        periodic_unsub = MagicMock()
+        monkeypatch.setitem(
+            _MGR_GLOBALS, "async_track_time_interval",
+            MagicMock(return_value=periodic_unsub),
+        )
+        stop_unsub = MagicMock()
+        hass.bus.async_listen_once = MagicMock(return_value=stop_unsub)
+
+        # Register a detector so the stop callback has something to flush.
+        presence = _make_coord_with_detector("presence")
+        mgr._coordinators["presence"] = presence
+
+        await mgr.async_start()
+
+        # Wiring MUST have happened as part of async_start.
+        assert mgr._anomaly_baseline_periodic_unsub is periodic_unsub, (
+            "async_start must register the periodic baseline-save timer. "
+            "If this fails, _wire_anomaly_baseline_persistence was NOT "
+            "invoked from async_start (A-MEDIUM wire-anchor regression)."
+        )
+        stop_calls = [
+            c for c in hass.bus.async_listen_once.call_args_list
+            if c.args and c.args[0] == EVENT_HOMEASSISTANT_STOP
+        ]
+        # One stop-listener per wiring (house-state is stubbed above).
+        assert len(stop_calls) == 1, (
+            "async_start must register exactly one baseline STOP once-listener; "
+            f"got {hass.bus.async_listen_once.call_args_list!r}"
+        )
+        # Firing the stop event must flush the registered detector.
+        stop_cb = stop_calls[0].args[1]
+        await stop_cb(object())
+        assert presence.anomaly_detector.save_baselines.await_count == 1, (
+            "The STOP listener wired by async_start must flush each "
+            "registered coordinator's anomaly_detector."
+        )
 
 
 # ---------------------------------------------------------------------------
