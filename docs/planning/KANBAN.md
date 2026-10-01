@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-09-30T08:16:00-05:00_ - _Data commit: `d6c3c997515d`_ - _last_reconciled: 2026-09-30_
+_Generated: 2026-09-30T21:23:06-05:00_ - _Data commit: `0b10e226a729`_ - _last_reconciled: 2026-09-30_
 
 
 ## Columns
@@ -13,11 +13,11 @@ _Generated: 2026-09-30T08:16:00-05:00_ - _Data commit: `d6c3c997515d`_ - _last_r
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 12 |
 | 📝 Planned | 20 |
-| 🔨 In progress | 5 |
+| 🔨 In progress | 4 |
 | 🔍 Review | 2 |
 | ⏸️ Waiting on operator | 23 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🚀 Shipped (organic open) | 15 |
+| 🚀 Shipped (organic open) | 16 |
 | 🅿️ Parked | 72 |
 | ✅ Done | 254 |
 
@@ -556,7 +556,7 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (5)
+## 🔨 In progress (4)
 _being built_
 
 ### `HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1` - Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered — _#1 · WSJF 8.0 · v4 tc2 u2 /e1_
@@ -623,16 +623,6 @@ _created 2026-09-26 02:14 · updated 2026-09-29 01:05 · initial_
   - `gate_2026_09_27`: FOUR-STEP GATE (overnight 2026-09-27). (1) VALIDITY: still real. Re-grep of quality/tests files that write_text AND reference custom_components: in-place writers with 0-1 tmp refs are still test_ble_extend_not_create, test_chatter_wire_i...
   - `observed_2026_09_26`: LIVE INSTANCE, not theoretical. At about 02:04 CDT, during the overnight full-suite run in the shared main checkout, `git status` showed custom_components/universal_room_automation/domain_coordinators/energy.py modified with `return 0.0 ...
   - `scope_measured_2026_09_26`: grep for write_text plus custom_components across quality/tests: 14 files. Counting those with zero or one tmp-path reference as in-place writers gives about 9-10: test_ble_extend_not_create, test_dp_yields_to_excess_solar, test_energy_w...
-
-### `ROOM-LIGHTING-SETUP-REDESIGN-1` - Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time — _#5 · WSJF 2.7 · v4 tc2 u2 /e3_
-thread: **ux** - status: **in_progress**
-_created 2026-09-29 22:10_
-- **Why:** Today lights are split across Devices (Lights, Light Features auto-detected, Night Lights subset - config only, not in options) and Automation Behavior / Lighting (Lights on Entry, Lights on Exit, Dark Threshold, Brightness, Fade in/out)...
-- **Next:** PICK (operator): approve the role-picker layout proposed in chat 2026-09-29 and which of the "missed" items to include -> I write the plan (Institutional context + prior-art scan of automation.py light paths), plan review, build, deploy ...
-- **Forensic keys (3):**
-  - `build_2026_09_29`: Plan REV 2.3 (+2.3.1/2.3.2) reviewed. Builder decomposed into slices (all committed scope). DONE on feature/room-lighting-roles @ 58936f880 (held): Slice A resolver (effective_entry_set/exit_set) + resolver-equivalence test (28) + D0/D8 ...
-  - `scope_2026_09_29`: Operator: "We separated enumeration from automation - sensors and devices are enumeration. Are you suggesting we break that pattern? That should mean other reorg, not just lights." Ruling to propose: KEEP the pattern - Devices/Sensors on...
-  - `ranking_2026_09_29`: Operator liked all missed items; ranked by livability vs effort/risk: 1 core role pickers (+ move roles out of Devices, migration; alert lights ride along); 2 respect manual light changes (reuse fan manual-hold oracle design, automation....
 
 ## 🔍 Review (2)
 _under review_
@@ -1053,7 +1043,7 @@ _created 2026-09-29 04:20 · initial_
   - `adjacency_2026_09_29`: NEW. Swept: board (override_vacant appears only as evidence on KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 and the resolved kitchen-occupancy card), BACKLOG.md (no override-expiry item; 474 is TOU overrides), PLANNING_*/AUDIT_* (override switche...
   - `measured_2026_09_29`: Recorder: switch.exercise_room_override_vacant = on (restored on at every restart 09-28 18:51, 19:20, 23:39); switch.kitchen_override_vacant = off since 09-27 19:40.
 
-## 🚀 Shipped (organic open) (15)
+## 🚀 Shipped (organic open) (16)
 _live, awaiting proof_
 
 ### `HVAC-FANS-IGNORE-ROOM-COMFORT-FAN-SWITCH-1` - The HVAC fan controller keeps turning a room's fan on and off even after the room's Comfort Fan Control switch is turned off (a guest was woken by it) — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
@@ -1174,7 +1164,17 @@ _created 2026-09-16 04:00 · updated 2026-09-26 02:40 · initial_
   - `workstream`: HVAC-W4-ARC-CLOSURE
   - `DEDUPE_2026_09_16`: NEW. Grepped the board and docs/BACKLOG.md for "dictionary changed size", "_baselines.items" and concurrent-iteration wording — zero hits. Not folded into RESTART-SAFETY-DOCTRINE-1 because that card is about state not surviving restarts,...
 
-### `HVAC-ANOMALY-BLIND-1` - The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics — including the one that would have caught the zone-3 flap — _#12 · WSJF 2.2 · v5 tc3 u10 /e8_
+### `ROOM-LIGHTING-SETUP-REDESIGN-1` - Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time — _#12 · WSJF 2.7 · v4 tc2 u2 /e3_
+thread: **ux** - status: **shipped_organic**
+_created 2026-09-29 22:10_
+- **Why:** Today lights are split across Devices (Lights, Light Features auto-detected, Night Lights subset - config only, not in options) and Automation Behavior / Lighting (Lights on Entry, Lights on Exit, Dark Threshold, Brightness, Fade in/out)...
+- **Next:** PICK (operator): approve the role-picker layout proposed in chat 2026-09-29 and which of the "missed" items to include -> I write the plan (Institutional context + prior-art scan of automation.py light paths), plan review, build, deploy ...
+- **Forensic keys (3):**
+  - `build_2026_09_29`: Plan REV 2.3 (+2.3.1/2.3.2) reviewed. Builder decomposed into slices (all committed scope). DONE on feature/room-lighting-roles @ 58936f880 (held): Slice A resolver (effective_entry_set/exit_set) + resolver-equivalence test (28) + D0/D8 ...
+  - `scope_2026_09_29`: Operator: "We separated enumeration from automation - sensors and devices are enumeration. Are you suggesting we break that pattern? That should mean other reorg, not just lights." Ruling to propose: KEEP the pattern - Devices/Sensors on...
+  - `ranking_2026_09_29`: Operator liked all missed items; ranked by livability vs effort/risk: 1 core role pickers (+ move roles out of Devices, migration; alert lights ride along); 2 respect manual light changes (reuse fan manual-hold oracle design, automation....
+
+### `HVAC-ANOMALY-BLIND-1` - The HVAC anomaly detector reports "nominal" while blind on 3 of its 5 metrics — including the one that would have caught the zone-3 flap — _#13 · WSJF 2.2 · v5 tc3 u10 /e8_
 thread: **hvac** - status: **shipped_organic** - approval: **explicit**
 _created 2026-08-20 14:15 · updated 2026-09-29 01:05 · refined ×3_
 - **Problem / Solution:**
@@ -1221,7 +1221,7 @@ _created 2026-08-20 14:15 · updated 2026-09-29 01:05 · refined ×3_
   - `BUILT_TO_REVIEW_2026_09_16`: Residual B is BUILT and sitting in review on branch feature/hvac-daily-baseline-persist (merged to develop for integration; NOT deployed — a deploy restarts HA and the house is occupied and asleep, which is the contract's hostile-timing ...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: residual B (awaited save_baselines) is scoped b...
 
-### `HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1` - A manual house-state override (e.g. forcing Sleep) never reaches HVAC or other signal consumers — only inferred transitions are dispatched — _#13 · WSJF 2.0 · v5 tc3 u2 /e5_
+### `HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1` - A manual house-state override (e.g. forcing Sleep) never reaches HVAC or other signal consumers — only inferred transitions are dispatched — _#14 · WSJF 2.0 · v5 tc3 u2 /e5_
 thread: **presence** - status: **shipped_organic**
 _created 2026-09-27 · updated 2026-09-29 01:05_
 - **Next:** PLAN+BUILD (me): house-state batch with HOUSE-STATE-SLEEP-LOST-ON-RESTART-1 - dispatch SIGNAL_HOUSE_STATE_CHANGED on override set/clear. Deploy held for operator go.
@@ -1231,7 +1231,7 @@ _created 2026-09-27 · updated 2026-09-29 01:05_
   - `groom_2026_09_29`: MOVED inbox -> waiting_operator. The card is swept (sweep_2026_09_27: NEW) and its next is an operator ANSWER (should a manual override propagate like an inferred change), so it belongs in the decision queue, not raw intake. Still real: ...
   - `sweep_2026_09_27`: Board grep house state override: one mention inside another card as an existing path the operator floated for manual away (line ~18336); no card owns this defect. NEW.
 
-### `EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1` - Arbitrage release can turn a car on that fill-priority should still hold; attain reason text mislabels a latched state — _#14 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1` - Arbitrage release can turn a car on that fill-priority should still hold; attain reason text mislabels a latched state — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **shipped_organic**
 _created 2026-09-28 · updated 2026-09-29 01:05_
 - **Why:** (1) energy_pool.py:2951-2965 arbitrage release condition omits _paused_by_fill_priority, so if grid charging ends with SOC still < fill target the release turns the car on and fill-priority re-pauses it next tick (a one-tick on/off flap)...
@@ -1239,7 +1239,7 @@ _created 2026-09-28 · updated 2026-09-29 01:05_
 - **Forensic keys (1):**
   - `soak_check_2026_09_29`: NOT YET EVALUABLE. v5.103.21 was tagged 19:15 CDT 09-28. Since then ura_activity_log energy_pool has only charger_off at 19:00Z (peak) and onset_hold rows. There has been no arbitrage release at the end of a grid charge, so L2/L3 have no...
 
-### `ARRESTER-BOOT-BLIND-1` - Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable — _#15 · WSJF 1.9 · v7 tc6 u2 /e8_
+### `ARRESTER-BOOT-BLIND-1` - Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable — _#16 · WSJF 1.9 · v7 tc6 u2 /e8_
 thread: **hvac** - status: **shipped_organic** - approval: **unreviewed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-11 - operator: "The battery is not 97%. The arrester should be seeing this as a bad action" — up-hallway manual 75->71 cool during a 26->11 SOC collapse, arrester idle w/ overrides_today=0.

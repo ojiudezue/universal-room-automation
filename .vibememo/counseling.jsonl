@@ -2985,3 +2985,4 @@
 {"timestamp":"2026-09-30T13:32:38.814Z","category":"architecture","severity":"significant","signal":"WebSocket server","source":"terminal","tier":"record","steps_shown":2,"security_free":false,"session_id":"vscode_20260915214029_f94f"}
 {"timestamp":"2026-09-30T13:39:34.809Z","category":"architecture","severity":"significant","signal":"WebSocket server","source":"terminal","tier":"record","steps_shown":2,"security_free":false,"session_id":"vscode_20260915214029_f94f"}
 {"timestamp":"2026-10-01T02:19:50.268Z","category":"architecture","severity":"significant","signal":"WebSocket server","source":"terminal","tier":"record","steps_shown":2,"security_free":false,"session_id":"vscode_20260915214029_f94f"}
+{"timestamp":"2026-10-01T03:53:41.174Z","category":"deployment","severity":"significant","signal":"Docker config","source":"terminal","tier":"record","steps_shown":2,"security_free":false,"session_id":"vscode_20260915214029_f94f"}
