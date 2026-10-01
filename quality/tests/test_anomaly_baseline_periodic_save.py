@@ -382,59 +382,150 @@ class TestBaselinesLoadedGuard:
         await det.save_baselines()
 
     @pytest.mark.asyncio
-    async def test_failing_load_sets_flag_false_and_save_skips(self):
-        """A load_baselines whose SELECT raises must flip the flag False,
-        and the next save_baselines must early-return without touching the DB."""
+    async def test_persistent_load_failure_save_skips_and_warns_once(self, caplog):
+        """ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1 fix-up test (b).
+
+        When load_baselines keeps failing, save_baselines must retry the
+        load, still refuse to INSERT (so stored rows are not clobbered),
+        AND log the one-shot WARNING exactly ONCE across repeated saves —
+        not once per hourly periodic save.
+        """
+        import logging
+
         class ExplodingDB:
             def __init__(self):
-                self.save_calls = 0
+                self.open_calls = 0
 
-            def _db(self):
-                # Context-manager raises on enter — mimics a connection failure.
+            def _db(_s):
+                _s.open_calls += 1
+
                 class _Ctx:
-                    async def __aenter__(_s):
+                    async def __aenter__(__s):
                         raise RuntimeError("simulated DB open failure")
 
-                    async def __aexit__(_s, *a):
+                    async def __aexit__(__s, *a):
                         return False
                 return _Ctx()
 
         db = ExplodingDB()
         det = self._make_detector(database=db)
         await det.load_baselines()  # swallowed to debug
-        assert det._baselines_loaded is False, (
-            "A failing load_baselines must leave _baselines_loaded False"
+        assert det._baselines_loaded is False
+        open_after_initial_load = db.open_calls  # == 1
+
+        # Seed an in-memory sample so a successful save WOULD INSERT.
+        det.record_observation("foo", "house", 1.0)
+
+        caplog.clear()
+        with caplog.at_level(
+            logging.WARNING,
+            logger=(
+                "custom_components.universal_room_automation."
+                "domain_coordinators.coordinator_diagnostics"
+            ),
+        ):
+            await det.save_baselines()
+            await det.save_baselines()
+
+        # The retry hits database._db() each save; neither save reached the
+        # INSERT (ExplodingDB raises on __aenter__ for the load retry too),
+        # and the flag stayed False.
+        assert det._baselines_loaded is False
+        assert db.open_calls == open_after_initial_load + 2, (
+            "each save must retry load_baselines (one _db open per save)"
         )
 
-        # Now wire a DIFFERENT db that would count save attempts; the guard
-        # should prevent the detector from ever reaching it.
-        touched = {"n": 0}
+        warn_hits = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "prior load_baselines failed" in r.getMessage()
+        ]
+        assert len(warn_hits) == 1, (
+            f"WARNING must fire exactly ONCE per detector across "
+            f"repeated failing saves; got {len(warn_hits)}"
+        )
 
-        class CountingDB:
+    @pytest.mark.asyncio
+    async def test_failed_load_then_db_recovers_next_save_writes(self):
+        """ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1 fix-up test (a).
+
+        A transient boot-time load failure must NOT permanently disable
+        saves. When the DB recovers, the next save_baselines retries the
+        load in-line, flips the flag True, and completes the INSERT in the
+        same call. (Mutation drill: delete the ``await self.load_baselines()``
+        retry in save_baselines — this test must go RED.)
+        """
+        import aiosqlite
+
+        class RecoveringDB:
+            def __init__(self):
+                self.mode = "broken"  # start broken; flip to "live" to recover
+                self.conn = None
+                self.insert_count = 0
+                self.open_calls = 0
+
             def _db(_s):
-                touched["n"] += 1
+                parent = _s
+                parent.open_calls += 1
 
                 class _Ctx:
                     async def __aenter__(__s):
-                        raise AssertionError(
-                            "save_baselines must not touch DB when "
-                            "_baselines_loaded is False"
-                        )
+                        if parent.mode == "broken":
+                            raise RuntimeError("simulated DB open failure")
+                        if parent.conn is None:
+                            parent.conn = await aiosqlite.connect(":memory:")
+                            await parent.conn.execute(
+                                "CREATE TABLE metric_baselines ("
+                                "coordinator_id TEXT, metric_name TEXT, "
+                                "scope TEXT, mean REAL, variance REAL, "
+                                "sample_count INTEGER, last_updated TEXT)"
+                            )
+                            await parent.conn.commit()
+                            # Wrap execute ONCE to count INSERTs.
+                            original_execute = parent.conn.execute
+
+                            async def _tracked_execute(sql, *a, **kw):
+                                if sql.lstrip().upper().startswith("INSERT"):
+                                    parent.insert_count += 1
+                                return await original_execute(sql, *a, **kw)
+
+                            parent.conn.execute = _tracked_execute
+                        return parent.conn
 
                     async def __aexit__(__s, *a):
-                        return False
+                        return False  # keep connection alive across calls
+
                 return _Ctx()
 
-        det.hass.data[
-            __import__(
-                "custom_components.universal_room_automation.const",
-                fromlist=["DOMAIN"],
-            ).DOMAIN
-        ]["database"] = CountingDB()
-        await det.save_baselines()  # must early-return
-        assert touched["n"] == 0, (
-            "guard must early-return before invoking database._db()"
+        db = RecoveringDB()
+        det = self._make_detector(database=db)
+        await det.load_baselines()  # fails -> flag False
+        assert det._baselines_loaded is False
+
+        # Seed one in-memory baseline so recovery+save actually INSERTs.
+        det.record_observation("foo", "house", 1.0)
+
+        # DB comes back.
+        db.mode = "live"
+
+        try:
+            await det.save_baselines()
+        finally:
+            # Close the aiosqlite connection to avoid a leaked worker thread
+            # (conftest fails the test on any unrecognised thread post-run).
+            if db.conn is not None:
+                await db.conn.close()
+
+        assert det._baselines_loaded is True, (
+            "save_baselines must retry load_baselines and flip the flag "
+            "True when the DB recovers"
         )
+        assert db.insert_count >= 1, (
+            "save_baselines must INSERT the in-memory baseline on the SAME "
+            "call once the retry load succeeds"
+        )
+        # One-shot warning latch must reset so a future failure cycle warns again.
+        assert det._warned_save_unloaded is False
 
     @pytest.mark.asyncio
     async def test_successful_load_allows_save(self):

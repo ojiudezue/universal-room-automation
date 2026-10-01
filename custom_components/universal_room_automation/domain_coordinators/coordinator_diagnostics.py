@@ -1055,6 +1055,11 @@ class AnomalyDetector:
         # One-time WARNING per metric when a declared-unwired metric has data
         # (the declaration is stale). Per-detector, so no log spam.
         self._warned_unwired_but_fed: set[str] = set()
+        # ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1 fix-up: one-shot WARNING
+        # per detector the first time save_baselines finds _baselines_loaded
+        # False (so a persistent load failure logs ONCE, not every hourly
+        # periodic save). Reset to False once load recovers.
+        self._warned_save_unloaded: bool = False
         # ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1 (A-LOW fix): guard against
         # overwriting stored (mature) rows with a fresh in-memory dict when
         # load_baselines() silently failed. load_baselines swallows all DB
@@ -1722,12 +1727,35 @@ class AnomalyDetector:
         # the in-memory dict is NOT the authoritative state and writing it
         # back would clobber the mature stored rows with young samples.
         if not self._baselines_loaded:
-            _LOGGER.debug(
-                "save_baselines skipped for %s: _baselines_loaded=False "
-                "(prior load_baselines failed; refusing to overwrite stored rows)",
-                self.coordinator_id,
-            )
-            return
+            # ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1 fix-up: without a
+            # discharge, one transient load failure (e.g. boot-time DB race)
+            # disabled ALL subsequent saves (periodic, HVAC rollover,
+            # teardown) silently until the next HA restart. Log a WARNING
+            # exactly once per detector so the condition is visible, then
+            # retry load_baselines in-line. load_baselines() assigns stored
+            # rows into self._baselines[key]; keys that exist ONLY in memory
+            # (sampled since the failed load) are preserved — only keys
+            # present in BOTH get overwritten with the stored baseline, which
+            # is the same end-state a normal successful boot would produce.
+            if not self._warned_save_unloaded:
+                _LOGGER.warning(
+                    "save_baselines for %s: prior load_baselines failed; "
+                    "retrying load before save (will suppress further warnings "
+                    "for this detector until recovery)",
+                    self.coordinator_id,
+                )
+                self._warned_save_unloaded = True
+            await self.load_baselines()
+            if not self._baselines_loaded:
+                _LOGGER.debug(
+                    "save_baselines skipped for %s: retry load_baselines "
+                    "still failing; refusing to overwrite stored rows",
+                    self.coordinator_id,
+                )
+                return
+            # Load recovered — clear the one-shot warning latch so a FUTURE
+            # failure+recovery cycle logs again.
+            self._warned_save_unloaded = False
 
         try:
             async with database._db() as db:
