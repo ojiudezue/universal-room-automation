@@ -47,6 +47,10 @@ from .const import (
     CONF_LIGHT_BRIGHTNESS_PCT,
     CONF_LIGHT_TRANSITION_ON,
     CONF_LIGHT_TRANSITION_OFF,
+    # Slice B' role pickers
+    CONF_LIGHTS_ON_ENTRY,
+    CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY,
+    CONF_AWAY_TURN_OFF_LEAVE_ON,
     CONF_ENTRY_COVER_ACTION,
     CONF_EXIT_COVER_ACTION,
     CONF_OPEN_TIMING_MODE,
@@ -195,8 +199,32 @@ from .const import (
 # .const + .domain_coordinators.house_state, no back-reference to automation).
 from .fan_veto import should_veto_comfort_fan  # noqa: E402
 from .const import FAN_OWNER_HVAC, fan_owner  # noqa: E402
+from .const import (  # noqa: E402
+    CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
+    CONF_LIGHT_MANUAL_ON_HOLD_S,
+    DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S,
+    DEFAULT_LIGHT_MANUAL_ON_HOLD_S,
+    LIGHT_SLOT_DAY,
+    LIGHT_SLOT_EVENING,
+    LIGHT_SLOT_SLEEP,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _ura_ctx_kwargs(domain: str) -> dict:
+    """``{"context": <URA write context>}`` for light/switch writes, else ``{}``.
+
+    Slice C (v5.103.28). Import is guarded: some unit-test harnesses load
+    this module under a package stub without ``__path__``; production
+    always resolves it.
+    """
+    try:
+        from .ura_context import ura_ctx_kwargs
+
+        return ura_ctx_kwargs(domain)
+    except Exception:  # noqa: BLE001
+        return {}
 
 # v4.2.22: Cover command verification tuning.
 # Hunter Douglas (and other RF-bridged covers) accept hub-level group calls
@@ -623,6 +651,161 @@ class RoomAutomation:
         except Exception:
             return False
 
+    # ------------------------------------------------------------------
+    # Slice C (v5.103.28) — D2 light manual hold (LightPolicyOracle).
+    # ------------------------------------------------------------------
+
+    def _light_oracle(self):
+        try:
+            from .domain_coordinators.light_policy_oracle import get_light_oracle
+
+            return get_light_oracle(self.hass, DOMAIN)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _light_room_key(self) -> str:
+        try:
+            return str(self._config_entry.entry_id)
+        except Exception:  # noqa: BLE001
+            return str(self.config.get(CONF_ROOM_NAME, ""))
+
+    def light_hold_allowed(self, entities, direction: str) -> list:
+        """Subset of ``entities`` URA may turn ``direction`` ("on"/"off").
+
+        A person's ON while occupied blocks URA's OFF (until the room
+        empties); a person's OFF blocks URA's ON for the cooldown window.
+        No oracle ⇒ everything allowed (today's behaviour).
+        """
+        entities = list(entities or [])
+        oracle = self._light_oracle()
+        if oracle is None or not entities:
+            return entities
+        try:
+            return oracle.allowed(
+                self._light_room_key(), entities, direction, dt_util.now(),
+            )
+        except Exception:  # noqa: BLE001
+            return entities
+
+    def note_manual_light(self, entity_id: str, direction: str) -> None:
+        """Record a person's change to a room light (listener / Room lights)."""
+        oracle = self._light_oracle()
+        if oracle is None:
+            return
+        # Slice D (v5.103.29): Lighting-step overrides are ADVANCED-only
+        # (hidden unless the user profile is in Advanced mode). ABSENT ⇒
+        # rung-1 module constants. Stored per-room values still win when
+        # present (advanced-mode operator has legitimately opted in).
+        cfg = self.config
+        oracle.note_manual(
+            self._light_room_key(), entity_id, direction,
+            now=dt_util.now(),
+            on_hold_s=cfg.get(
+                CONF_LIGHT_MANUAL_ON_HOLD_S, DEFAULT_LIGHT_MANUAL_ON_HOLD_S,
+            ),
+            off_cooldown_s=cfg.get(
+                CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
+                DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S,
+            ),
+        )
+
+    def release_light_holds_on_vacancy(self) -> None:
+        """The room counts as empty: end ON holds so the vacancy sweep applies."""
+        oracle = self._light_oracle()
+        if oracle is not None:
+            oracle.release_on_vacancy(self._light_room_key())
+
+    # ------------------------------------------------------------------
+    # Slice D (v5.103.29) — D4 house-state Away leave-on sweep
+    # ------------------------------------------------------------------
+    def _away_boot_settle_done(self) -> bool:
+        """Reuse the presence coordinator's existing settle primitive.
+
+        Fails OPEN (True) if presence isn't wired — same safe direction
+        as ``fan_veto._boot_settle_done``. See ``AWAY_LEAVE_ON_BOOT_SETTLE_S``
+        in const.py for the documented bound (no new listener/timer).
+        """
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if mgr is None:
+                return True
+            presence = getattr(mgr, "coordinators", {}).get("presence")
+            if presence is None:
+                return True
+            return bool(getattr(presence, "_boot_settle_done", True))
+        except Exception:  # noqa: BLE001 — fail-open
+            return True
+
+    async def handle_away_leave_on_sweep(self) -> None:
+        """Plan D4: on HouseState → away, turn off ONLY leave-on lights.
+
+        Semantics (plan REV 2.2 / REV 2.3 R2-6):
+          * Only entities in ``CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY`` are
+            touched. Everything else was already swept off when the room
+            emptied.
+          * Gated by per-room ``CONF_AWAY_TURN_OFF_LEAVE_ON`` (default True).
+            False ⇒ inert.
+          * Manual holds do NOT block this action (operator explicitly
+            opted the leave-on list into the Away sweep). Everywhere
+            else, hold vetoes URA.
+          * Boot-settle: skip while the house state is still settling
+            after a restart (``_boot_settle_done`` gate).
+
+        Writes route through ``_safe_service_call`` so they are URA-stamped
+        and cannot open a manual hold themselves (Slice C invariant).
+        """
+        self._refresh_config()
+        room_name = self.config.get("room_name", "unknown")
+
+        if not self._away_boot_settle_done():
+            _LOGGER.debug(
+                "[%s] Away leave-on sweep: boot-settle gate active — skip",
+                room_name,
+            )
+            return
+
+        # Operator ruling 2026-09-30: a paused room (master Automation
+        # switch off) is left alone at Away too. Checked here, not in the
+        # coordinator's house-state handler (system reactions there must
+        # not consult the per-room toggle — v4.5.8 gating model).
+        try:
+            if not self.coordinator._is_automation_enabled():
+                _LOGGER.debug("[%s] Away leave-on sweep: room automation off — skip", room_name)
+                return
+        except AttributeError:
+            pass
+
+        if not self.config.get(CONF_AWAY_TURN_OFF_LEAVE_ON, True):
+            _LOGGER.debug(
+                "[%s] Away leave-on sweep: CONF_AWAY_TURN_OFF_LEAVE_ON=False",
+                room_name,
+            )
+            return
+
+        leave_on = list(self.config.get(CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY, []) or [])
+        if not leave_on:
+            _LOGGER.debug(
+                "[%s] Away leave-on sweep: leave-on list empty — inert",
+                room_name,
+            )
+            return
+
+        lights = [e for e in leave_on if e.startswith("light.")]
+        switches = [e for e in leave_on if e.startswith("switch.")]
+
+        _LOGGER.info(
+            "[%s] House → Away: sweeping off leave-on lights (%d entities)",
+            room_name, len(leave_on),
+        )
+        if lights:
+            await self._safe_service_call(
+                "light", "turn_off", {"entity_id": lights},
+            )
+        if switches:
+            await self._safe_service_call(
+                "switch", "turn_off", {"entity_id": switches},
+            )
+
     async def _safe_service_call(
         self,
         domain: str,
@@ -647,11 +830,17 @@ class RoomAutomation:
             self._service_failures_today = 0
             self._service_call_reset_date = today
         self._service_calls_today += 1
+        # Slice C (v5.103.28): URA-wide write mark. Every room-tier write
+        # (entry / exit / sleep / shared-space / warning flash / room alert
+        # lights / reconciler / Room lights switch) carries a URA context so
+        # the D2 manual-change listener never books it as a person's change.
+        ctx_kw = _ura_ctx_kwargs(domain)
         for attempt in range(attempts):
             try:
                 await asyncio.wait_for(
                     self.hass.services.async_call(
-                        domain, service, service_data, blocking=blocking
+                        domain, service, service_data, blocking=blocking,
+                        **ctx_kw,
                     ),
                     timeout=timeout,
                 )
@@ -934,8 +1123,30 @@ class RoomAutomation:
         """Refresh config from entry options (picks up options flow changes without reload)."""
         self.config = {**self._config_entry.data, **self._config_entry.options}
 
+    def is_sleep_lighting_active(self) -> bool:
+        """Sleep semantics for CHOOSING LIGHTS only (night lights on entry).
+
+        Operator ruling 2026-09-30 (REV 2.5): house-state Sleep OR the room's
+        sleep clock. Nothing else reads house-state Sleep, so an early or
+        forced house Sleep never blocks covers, exits or fans.
+        """
+        if self.is_sleep_mode_active():
+            return True
+        if not self.config.get(CONF_SLEEP_PROTECTION_ENABLED, False):
+            return False
+        try:
+            return (self._read_current_house_state() or "").lower() == "sleep"
+        except Exception:  # noqa: BLE001 — fail-open to clock
+            return False
+
     def is_sleep_mode_active(self) -> bool:
-        """Check if sleep protection is currently active."""
+        """Check if sleep protection is currently active.
+
+        Clock-only (operator ruling 2026-09-30, REV 2.5): exits, covers,
+        fans and every other sleep consumer stay on the per-room sleep
+        clock. House-state Sleep only chooses night lights — see
+        ``is_sleep_lighting_active``.
+        """
         if not self.config.get(CONF_SLEEP_PROTECTION_ENABLED, False):
             return False
 
@@ -965,11 +1176,28 @@ class RoomAutomation:
         self._sleep_motion_count = 0
 
     def is_dark(self, illuminance: float | None) -> bool:
-        """Check if room is dark based on illuminance threshold."""
-        if illuminance is None:
-            return False  # Assume not dark if no sensor
-        threshold = self.config.get(CONF_ILLUMINANCE_THRESHOLD, 20)
-        return illuminance < threshold
+        """Check if room is dark based on illuminance threshold.
+
+        ROOM-LIGHTING-SETUP-REDESIGN-1 Slice B (v5.103.28): when the
+        primary lux reading is None (no sensor, or sensor `unavailable`
+        / `unknown`), fall through to
+        ``lighting.darkness.is_dark_fallback`` — optional borrowed lux
+        then sun elevation. Kill-switch per-room via
+        ``CONF_LIGHT_DARK_USE_SUN_FALLBACK`` (default True). Both
+        callers reach this fallback: automation.py entry path (:1032)
+        and actuator_reconciler.py entry-action (:794 via
+        ``automation.is_dark``).
+        """
+        if illuminance is not None:
+            threshold = self.config.get(CONF_ILLUMINANCE_THRESHOLD, 20)
+            return illuminance < threshold
+        # Primary lux unusable — try borrowed lux, then sun.
+        try:
+            from .lighting.darkness import is_dark_fallback
+            return is_dark_fallback(self.config, getattr(self, "hass", None))
+        except Exception:  # noqa: BLE001 — fail-safe
+            _LOGGER.debug("is_dark fallback path failed", exc_info=True)
+            return False
 
     def should_execute_automation(self, state_data: dict[str, Any]) -> bool:
         """Check if automation should execute (respects sleep mode)."""
@@ -987,9 +1215,16 @@ class RoomAutomation:
         """Handle occupancy state change."""
         self._refresh_config()
         room_name = self.config.get('room_name', 'Unknown')
-        _LOGGER.debug("Occupancy change [%s]: occupied=%s, should_execute=%s", 
+        _LOGGER.debug("Occupancy change [%s]: occupied=%s, should_execute=%s",
                        room_name, occupied, self.should_execute_automation(state_data))
-        
+
+        # Slice C (v5.103.28) D2 / REV 2.3.1: the manual ON hold is bounded
+        # by occupancy — the room counting as empty ends it, BEFORE the
+        # exit sweep and before the sleep gate below, so the vacancy rule
+        # applies to hand-switched lights too.
+        if not occupied:
+            self.release_light_holds_on_vacancy()
+
         if not self.should_execute_automation(state_data):
             _LOGGER.debug("Skipping automation - sleep mode active")
             return
@@ -1048,15 +1283,22 @@ class RoomAutomation:
             return
 
         # === v3.2.2.5: Check if we're in sleep hours ===
-        is_sleep_hours = self.is_sleep_mode_active()
+        is_sleep_hours = self.is_sleep_lighting_active()
         night_lights = self.config.get(CONF_NIGHT_LIGHTS, [])
 
         _LOGGER.debug("Entry light control [%s]: is_sleep_hours=%s, night_lights=%s",
                        room_name, is_sleep_hours, night_lights)
 
         if is_sleep_hours and night_lights:
-            # SLEEP MODE: Only night lights, no darkness check
+            # SLEEP MODE: Only night lights, no darkness check.
+            # Slice E D6: an operator-configured Sleep scene wins over the
+            # per-light night-lights path.
             _LOGGER.info("Sleep mode active - turning on night lights only")
+            if await self._maybe_activate_slot_scene(LIGHT_SLOT_SLEEP, night_lights):
+                # scene.turn_on already dispatched; still sweep non-night
+                # so the sleep contract "only night lights on" holds.
+                await self._turn_off_non_night_lights()
+                return
             await self._turn_on_night_lights(mode="sleep")
             await self._turn_off_non_night_lights()
             return
@@ -1076,17 +1318,81 @@ class RoomAutomation:
             _LOGGER.debug("Entry light control [%s]: conditions not met, skipping", room_name)
             return
 
+        # Slice B' (v5.103.28): resolver decides the entry set. ABSENT
+        # CONF_LIGHTS_ON_ENTRY ⇒ today's CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS
+        # (day mode). PRESENT ⇒ operator's picker wins; dark-only subset
+        # is removed when not is_dark.
+        from .lighting.resolver import effective_entry_set
+        entry_set = effective_entry_set(
+            self.config, is_sleep_hours=False, is_dark=is_dark
+        )
+        _LOGGER.debug(
+            "Entry light control [%s]: entry_set=%s (%d)", room_name, entry_set, len(entry_set),
+        )
         # v3.2.5 FIX: Calculate actual_lights and switches_as_lights locally
         # (Previously these were undefined, causing NameError)
-        actual_lights = [e for e in lights if e.startswith("light.")]
-        switches_as_lights = [e for e in lights if e.startswith("switch.")]
+        actual_lights = [e for e in entry_set if e.startswith("light.")]
+        switches_as_lights = [e for e in entry_set if e.startswith("switch.")]
+        lights = entry_set
 
-        # Turn on all lights (regular + night lights with day settings)
-        await self._turn_on_regular_lights()
-        
-        if night_lights:
-            # Night lights also turn on during day with day settings
-            await self._turn_on_night_lights(mode="day")
+        # Slice E D5: resolve the current time-of-day slot (day / evening
+        # / sleep). Sleep is handled above; this branch is day-or-evening.
+        # D6: if a scene is configured for this slot, activate it instead
+        # of computing per-light brightness/colour.
+        from .lighting.resolver import resolve_slot
+        slot = resolve_slot(is_sleep_hours=False, is_dark=is_dark)
+        if await self._maybe_activate_slot_scene(slot, entry_set):
+            self.coordinator.set_last_action(
+                "turn_on",
+                f"Activated {slot} scene",
+                entry_set,
+            )
+            return
+
+        has_on_entry = bool(self.config.get(CONF_LIGHTS_ON_ENTRY))
+        if has_on_entry:
+            # Slice C D2: a light a person turned OFF while occupied stays
+            # off for its cooldown.
+            actual_lights = self.light_hold_allowed(actual_lights, "on")
+            switches_as_lights = self.light_hold_allowed(switches_as_lights, "on")
+            # Operator has an explicit on-entry list. Turn on exactly
+            # that resolver-computed set (dark-only carve-out applied
+            # inside the resolver). Domain-split so light.* and switch.*
+            # go to their respective services.
+            if actual_lights:
+                svc_data = {
+                    "entity_id": actual_lights,
+                    "transition": self.config.get(CONF_LIGHT_TRANSITION_ON, 1),
+                }
+                capability = self.config.get(CONF_LIGHT_CAPABILITIES, LIGHT_CAPABILITY_BASIC)
+                # Slice E D5: evening slot may override brightness / colour.
+                from .lighting.resolver import slot_regular_light_overrides
+                overrides = slot_regular_light_overrides(self.config, slot)
+                if capability in [LIGHT_CAPABILITY_BRIGHTNESS, LIGHT_CAPABILITY_FULL]:
+                    svc_data["brightness_pct"] = overrides.get(
+                        "brightness_pct",
+                        self.config.get(CONF_LIGHT_BRIGHTNESS_PCT, 100),
+                    )
+                if capability == LIGHT_CAPABILITY_FULL and "color_kelvin" in overrides:
+                    svc_data["color_temp_kelvin"] = overrides["color_kelvin"]
+                await self._safe_service_call("light", SERVICE_TURN_ON, svc_data, blocking=False)
+            if switches_as_lights:
+                await self._safe_service_call(
+                    "switch", SERVICE_TURN_ON,
+                    {"entity_id": switches_as_lights}, blocking=False,
+                )
+        else:
+            # Turn on all lights (regular + night lights).
+            # Slice E D5: slot picks brightness/colour. Day/Evening only
+            # here (sleep handled above). Absent evening keys ⇒ today's
+            # day settings.
+            await self._turn_on_regular_lights(slot=slot, is_dark=is_dark)
+            if night_lights:
+                # Night lights follow the same slot; evening resolves to
+                # day defaults when no evening overrides are set.
+                await self._turn_on_night_lights(
+                    mode=("evening" if slot == LIGHT_SLOT_EVENING else "day"),
+                )
         _LOGGER.info(
             "Room entry automation: Turned on %d light(s) and %d switch(es)",
             len(actual_lights), len(switches_as_lights)
@@ -1110,9 +1416,11 @@ class RoomAutomation:
         # sleep gate is needed here; both sides agree OFF-when-vacant.
         # Bug Class #4: the widened set still passes through the domain
         # split below so light.* and switch.* are batched separately.
-        regular = self.config.get(CONF_LIGHTS, []) or []
-        night = self.config.get(CONF_NIGHT_LIGHTS, []) or []
-        off_set = list(regular) + [e for e in night if e not in regular]
+        # Slice B' (v5.103.28): route through effective_exit_set so
+        # CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY is honoured. ABSENT ⇒ today's
+        # unconditional union.
+        from .lighting.resolver import effective_exit_set
+        off_set = effective_exit_set(self.config)
         lights = off_set
         if not lights:
             return
@@ -1165,14 +1473,98 @@ class RoomAutomation:
 
     # === v3.2.2.5: NIGHT LIGHT HELPER METHODS ===
     
-    async def _turn_on_regular_lights(self) -> None:
-        """Turn on regular lights (non-night lights) with standard settings."""
+    async def _maybe_activate_slot_scene(
+        self, slot: str, entry_set: list[str],
+    ) -> bool:
+        """Slice E D6: if the current slot has a scene, activate it.
+
+        Returns True when a scene was dispatched (caller must skip the
+        per-light brightness/colour path). Returns False when no scene is
+        configured for this slot, when the scene entity is missing /
+        unavailable, or on any failure — the caller then runs today's
+        per-light path.
+
+        The URA context on the ``scene.turn_on`` call propagates to the
+        scene's inner light.* / switch.* writes (verified against installed
+        HA 2026.2.3, see ``ura_context.URA_LIGHT_WRITE_DOMAINS``), so the
+        D2 manual-hold listener already ignores them.
+        """
+        try:
+            from .lighting.resolver import slot_scene
+
+            scene_id = slot_scene(self.config, slot)
+            if not scene_id:
+                return False
+            # Review D HIGH (INV-2): a scene must not override a person's
+            # manual hold/cooldown on any of the room's entry lights. If any
+            # is held, fall back to the per-light path, which respects holds.
+            try:
+                allowed = self.light_hold_allowed(list(entry_set or []), "on")
+                if len(allowed) != len(list(entry_set or [])):
+                    _LOGGER.debug(
+                        "Slot %s scene %s skipped: a room light is under a manual hold",
+                        slot, scene_id,
+                    )
+                    return False
+            except Exception:  # noqa: BLE001 — fail-open to the scene
+                pass
+            # Guard: scene must exist and be reachable. A missing / unavailable
+            # scene falls back to the per-light path (fail-open).
+            try:
+                st = self.hass.states.get(scene_id)
+                if st is None or getattr(st, "state", None) in (
+                    "unavailable", "unknown",
+                ):
+                    _LOGGER.debug(
+                        "Slot %s scene %s not usable (state=%s); falling back",
+                        slot, scene_id,
+                        getattr(st, "state", None) if st else None,
+                    )
+                    return False
+            except Exception:  # noqa: BLE001
+                # Fail-open: HA state read blew up ⇒ try the scene anyway
+                # (scene.turn_on will simply no-op if the entity is gone).
+                pass
+            _LOGGER.info(
+                "Room entry [%s]: activating slot=%s scene=%s (skipping per-light path); entry_set had %d entities",
+                self.config.get("room_name", "unknown"), slot, scene_id, len(entry_set),
+            )
+            await self._safe_service_call(
+                "scene", SERVICE_TURN_ON,
+                {"entity_id": scene_id}, blocking=False,
+            )
+            return True
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception(
+                "Slice E scene branch failed for slot=%s; falling back to per-light path",
+                slot,
+            )
+            return False
+
+    async def _turn_on_regular_lights(
+        self, slot: str = LIGHT_SLOT_DAY, is_dark: bool | None = None,
+    ) -> None:
+        """Turn on regular lights (non-night lights) with standard settings.
+
+        Slice E (v5.103.29): ``slot`` is the current time-of-day slot.
+        The Evening slot may override brightness / colour via
+        ``slot_regular_light_overrides``; Day is byte-identical to today's
+        path (empty overrides ⇒ ``CONF_LIGHT_BRIGHTNESS_PCT`` + no colour).
+        """
         lights = self.config.get(CONF_LIGHTS, [])
         night_lights = self.config.get(CONF_NIGHT_LIGHTS, [])
         
         # Get lights that are NOT night lights
         regular_lights = [light for light in lights if light not in night_lights]
-        
+        # Review A MEDIUM: the "only when dark" subset applies on this
+        # default path too (the reconciler already honours it).
+        if is_dark is False:
+            dark_only = set(self.config.get("lights_on_entry_dark_only", []) or [])
+            if dark_only:
+                regular_lights = [e for e in regular_lights if e not in dark_only]
+        # Slice C D2: skip lights a person turned OFF (cooldown).
+        regular_lights = self.light_hold_allowed(regular_lights, "on")
+
         if not regular_lights:
             return
             
@@ -1189,14 +1581,21 @@ class RoomAutomation:
             
             # Add brightness if supported
             capability = self.config.get(CONF_LIGHT_CAPABILITIES, LIGHT_CAPABILITY_BASIC)
+            # Slice E D5: slot overrides brightness / colour when set.
+            from .lighting.resolver import slot_regular_light_overrides
+            overrides = slot_regular_light_overrides(self.config, slot)
             if capability in [LIGHT_CAPABILITY_BRIGHTNESS, LIGHT_CAPABILITY_FULL]:
-                brightness_pct = self.config.get(CONF_LIGHT_BRIGHTNESS_PCT, 100)
-                service_data["brightness_pct"] = brightness_pct
-            
+                service_data["brightness_pct"] = overrides.get(
+                    "brightness_pct",
+                    self.config.get(CONF_LIGHT_BRIGHTNESS_PCT, 100),
+                )
+            if capability == LIGHT_CAPABILITY_FULL and "color_kelvin" in overrides:
+                service_data["color_temp_kelvin"] = overrides["color_kelvin"]
+
             await self._safe_service_call(
                 "light", SERVICE_TURN_ON, service_data, blocking=False
             )
-            _LOGGER.debug("Turned on %d regular light(s)", len(actual_lights))
+            _LOGGER.debug("Turned on %d regular light(s) (slot=%s)", len(actual_lights), slot)
 
         # Turn on switch.* entities
         if switches_as_lights:
@@ -1208,24 +1607,48 @@ class RoomAutomation:
     
     async def _turn_on_night_lights(self, mode: str = "sleep") -> None:
         """Turn on night lights with mode-specific settings.
-        
+
         Args:
-            mode: "sleep" for dim/warm settings, "day" for bright/cool settings
+            mode: "sleep" for dim/warm settings, "day" for bright/cool
+                settings, or "evening" for Slice E D5 evening overrides
+                (falls back to day defaults for keys the operator did not
+                set — absent evening keys ⇒ day behaviour).
         """
         night_lights = self.config.get(CONF_NIGHT_LIGHTS, [])
-        
+        # Slice C D2: skip night lights a person turned OFF (cooldown).
+        night_lights = self.light_hold_allowed(night_lights, "on")
+
         if not night_lights:
             return
-        
+
         # Get settings based on mode
         if mode == "sleep":
             brightness = self.config.get(
-                CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS, 
+                CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
                 DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS
             )
             color_temp = self.config.get(
                 CONF_NIGHT_LIGHT_SLEEP_COLOR,
                 DEFAULT_NIGHT_LIGHT_SLEEP_COLOR
+            )
+        elif mode == "evening":
+            # Slice E D5: evening slot. REUSE day defaults for any key
+            # the operator did not override.
+            from .lighting.resolver import slot_night_light_overrides
+            ov = slot_night_light_overrides(self.config, LIGHT_SLOT_EVENING)
+            brightness = ov.get(
+                "brightness",
+                self.config.get(
+                    CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
+                    DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
+                ),
+            )
+            color_temp = ov.get(
+                "color",
+                self.config.get(
+                    CONF_NIGHT_LIGHT_DAY_COLOR,
+                    DEFAULT_NIGHT_LIGHT_DAY_COLOR,
+                ),
             )
         else:  # day mode
             brightness = self.config.get(
@@ -1281,7 +1704,9 @@ class RoomAutomation:
         
         # Get lights to turn off (not in night_lights list)
         lights_to_turn_off = [light for light in lights if light not in night_lights]
-        
+        # Slice C D2: a light a person turned ON while occupied stays on.
+        lights_to_turn_off = self.light_hold_allowed(lights_to_turn_off, "off")
+
         if not lights_to_turn_off:
             return
         
@@ -3502,6 +3927,12 @@ class RoomAutomation:
         regular = self.config.get(CONF_LIGHTS, []) or []
         night_ = self.config.get(CONF_NIGHT_LIGHTS, []) or []
         lights = list(regular) + [e for e in night_ if e not in regular]
+        # Review A MEDIUM: leave-on lights are exempt from this sweep too.
+        _leave_on = set(self.config.get("lights_leave_on_when_empty", []) or [])
+        lights = [e for e in lights if e not in _leave_on]
+        # Slice C D2: the scheduled auto-off does not undo a person's ON
+        # while the room is still occupied (the hold ends when it empties).
+        lights = self.light_hold_allowed(lights, "off")
         if lights:
             actual_lights = [e for e in lights if e.startswith("light.")]
             switches_as_lights = [e for e in lights if e.startswith("switch.")]

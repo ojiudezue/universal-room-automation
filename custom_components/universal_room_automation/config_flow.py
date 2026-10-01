@@ -38,9 +38,45 @@ except Exception:  # noqa: BLE001 — tests may mock without data_entry_flow
 
 _LOGGER = logging.getLogger(__name__)
 
+
+# ROOM-LIGHTING-SETUP-REDESIGN-1 Slice E (v5.103.29) — Advanced-mode hint.
+# The Lighting behaviour step has Advanced-only fields (manual-hold windows
+# from Slice D, and the Slice E evening brightness/colour + scenes below).
+# HA hides ``description={"advanced": True}`` fields when the user profile
+# does NOT have Advanced mode on. Wording verified against the current HA
+# frontend: the user profile is reached by clicking the user name at the
+# bottom-left of the sidebar and toggling "Advanced mode".
+from typing import Final  # noqa: E402
+LIGHTING_ADVANCED_HINT_HIDDEN: Final = (
+    "Some rarely-used settings are hidden. To show them, turn on Advanced "
+    "mode in your HA profile (click your name at the bottom left -> "
+    "Advanced mode). Hidden settings keep working."
+)
+LIGHTING_ADVANCED_HINT_SHOWN: Final = "Advanced settings shown."
+
+
+def lighting_advanced_hint(show_advanced_options: bool) -> str:
+    """Return the correct Advanced-mode hint variant for the Lighting step."""
+    return (
+        LIGHTING_ADVANCED_HINT_SHOWN
+        if show_advanced_options
+        else LIGHTING_ADVANCED_HINT_HIDDEN
+    )
+
 # CONFIG-FLOW-SLOW-ONBOARDING-1: diagnostic entry/exit timing on every
 # async_step_* handler. See _cflow_timing.py for gate + log format.
 from ._cflow_timing import instrument_flow  # noqa: E402
+
+
+def _outdoor_light_suggestion(hass):
+    """Slice B' REV 2.4: return an enabled `illuminance`-platform entity
+    to pre-fill CONF_OUTDOOR_LIGHT_SENSOR when unset. Safe on any
+    exception (returns None → form field shows nothing suggested)."""
+    try:
+        from .lighting.darkness import discover_outdoor_illuminance_suggestion
+        return discover_outdoor_illuminance_suggestion(hass)
+    except Exception:  # noqa: BLE001
+        return None
 
 from .const import (
     DOMAIN,
@@ -170,6 +206,27 @@ from .const import (
     CONF_LIGHT_BRIGHTNESS_PCT,
     CONF_LIGHT_TRANSITION_ON,
     CONF_LIGHT_TRANSITION_OFF,
+    # Slice B' (v5.103.28) role pickers + darkness fallback UI
+    CONF_LIGHTS_ON_ENTRY,
+    CONF_LIGHTS_ON_ENTRY_DARK_ONLY,
+    CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY,
+    CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
+    CONF_LIGHT_EVENING_COLOR_KELVIN,
+    CONF_LIGHT_SCENE_DAY,
+    CONF_LIGHT_SCENE_EVENING,
+    CONF_LIGHT_SCENE_SLEEP,
+    CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
+    CONF_NIGHT_LIGHT_EVENING_COLOR,
+    CONF_AWAY_TURN_OFF_LEAVE_ON,
+    CONF_LIGHT_MANUAL_ON_HOLD_S,
+    CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
+    DEFAULT_LIGHT_MANUAL_ON_HOLD_S,
+    DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S,
+    CONF_LIGHT_DARK_USE_SUN_FALLBACK,
+    CONF_LIGHT_DARK_LUX_SOURCE,
+    CONF_OUTDOOR_LIGHT_SENSOR,
+    CONF_OUTDOOR_DARK_LUX,
+    DEFAULT_OUTDOOR_DARK_LUX,
     CONF_EXIT_COVER_ACTION,
     CONF_SUNRISE_OFFSET,
     CONF_SUNSET_OFFSET,
@@ -3532,6 +3589,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "sensors",
                     "devices",
                     "options_lighting",   # v3.20.1 D3: split from automation_behavior
+                    "options_lighting_behaviour",  # v5.103.28 Slice B': role pickers
                     "options_covers",     # v3.20.1 D3: split from automation_behavior
                     "automation_chaining",  # v3.10.0
                     "ai_rules",  # v3.12.0: M3 AI NL Rules
@@ -3574,6 +3632,35 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_WEATHER_ENTITY) or vol.UNDEFINED
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="weather")
+            ),
+            # Slice B' REV 2.4 — outdoor light sensor (visible, changeable,
+            # clearable). Pre-fill with an enabled `illuminance`-platform
+            # entity as a SUGGESTED value when unset. Runtime darkness code
+            # reads ONLY this configured field — no silent auto-discovery.
+            vol.Optional(
+                CONF_OUTDOOR_LIGHT_SENSOR,
+                description={
+                    "suggested_value": (
+                        self._get_current(CONF_OUTDOOR_LIGHT_SENSOR)
+                        or _outdoor_light_suggestion(self.hass)
+                        or vol.UNDEFINED
+                    )
+                },
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="sensor", device_class="illuminance",
+                )
+            ),
+            vol.Optional(
+                CONF_OUTDOOR_DARK_LUX,
+                default=self._get_current(
+                    CONF_OUTDOOR_DARK_LUX, DEFAULT_OUTDOOR_DARK_LUX,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=2000, step=10, unit_of_measurement="lx",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
             ),
             vol.Optional(
                 CONF_SOLAR_PRODUCTION_SENSOR,
@@ -11221,12 +11308,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.SelectSelectorConfig(options=light_capabilities, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
             # === v3.2.2.5: Night lights (subset of CONF_LIGHTS) ===
-            vol.Optional(
-                CONF_NIGHT_LIGHTS,
-                default=self._get_current(CONF_NIGHT_LIGHTS, [])
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain=["light", "switch"], multiple=True)
-            ),
+            # Slice B' (v5.103.28): picker MOVED to options_lighting_behaviour
+            # per D8. Brightness/color fields stay here (they're
+            # value-tunables, not role pickers). CONF_NIGHT_LIGHTS key is
+            # unchanged; no stored-data migration.
             vol.Optional(
                 CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
                 default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS)
@@ -11322,21 +11407,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=cover_types, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
-            vol.Optional(
-                CONF_AUTO_SWITCHES,
-                default=self._get_current(CONF_AUTO_SWITCHES, [])
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="switch", multiple=True)
-            ),
-            vol.Optional(
-                CONF_MANUAL_SWITCHES,
-                default=self._get_current(CONF_MANUAL_SWITCHES, [])
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain=["switch", "light", "fan"],
-                    multiple=True,
-                )
-            ),
+            # Slice B' (v5.103.28): CONF_AUTO_SWITCHES / CONF_MANUAL_SWITCHES
+            # role pickers MOVED to options_lighting_behaviour per D8. Keys
+            # unchanged; no stored-data migration.
         })
 
         return self.async_show_form(
@@ -11456,6 +11529,319 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             step_id="options_lighting",
             data_schema=data_schema,
             description_placeholders={"name": "Reconfigure lighting automation"},
+        )
+
+    async def async_step_options_lighting_behaviour(self, user_input=None):
+        """Lighting behaviour step (v5.103.28 Slice B').
+
+        Role pickers moved out of Devices/Notifications per the D8
+        inventory. Same keys, no stored-data migration — absent new keys
+        preserve today's resolver output. Picker include_entities is
+        built from the IN-FLIGHT flow state (lights ∪ night ∪ alert ∪
+        currently-stored value) so a saved entity outside CONF_LIGHTS is
+        NEVER dropped on save (F5 guard).
+        """
+        # In-flight state: prefer newly-typed values from user_input over
+        # stored options so operator edits within this turn are honoured.
+        def _cur(key, default=None):
+            if user_input is not None and key in user_input:
+                return user_input.get(key, default)
+            return self._get_current(key, default)
+
+        stored_lights = list(_cur(CONF_LIGHTS, []) or [])
+        stored_night = list(_cur(CONF_NIGHT_LIGHTS, []) or [])
+        stored_alert = list(_cur(CONF_ALERT_LIGHTS, []) or [])
+        stored_on_entry = list(_cur(CONF_LIGHTS_ON_ENTRY, []) or [])
+        stored_dark_only = list(_cur(CONF_LIGHTS_ON_ENTRY_DARK_ONLY, []) or [])
+        stored_leave_on = list(_cur(CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY, []) or [])
+        stored_auto = list(_cur(CONF_AUTO_SWITCHES, []) or [])
+        stored_manual = list(_cur(CONF_MANUAL_SWITCHES, []) or [])
+
+        def _include_for(picker_key, stored_for_picker):
+            # Round-trip guarantee: NEVER drop a saved entity on save —
+            # include the picker's stored value even if outside LIGHTS.
+            seen: set[str] = set()
+            out: list[str] = []
+            for e in (
+                stored_lights
+                + stored_night
+                + stored_alert
+                + list(stored_for_picker or [])
+            ):
+                if e and e not in seen:
+                    seen.add(e)
+                    out.append(e)
+            return out
+
+        if user_input is not None:
+            try:
+                # Review A HIGH: flatten the collapsed auto/manual section so
+                # CONF_AUTO_SWITCHES / CONF_MANUAL_SWITCHES are actually saved
+                # (mirrors the reconcile_advanced flatten pattern).
+                section_vals = user_input.pop("auto_manual_devices", None)
+                if isinstance(section_vals, dict):
+                    user_input = {**user_input, **section_vals}
+                merged = {**self._config_entry.options, **user_input}
+                # Review A MEDIUM: a cleared single-value field is omitted from
+                # the submission; drop it instead of resurrecting the stored
+                # value. Advanced fields only when they were on the form.
+                clearable = [CONF_LIGHT_DARK_LUX_SOURCE]
+                if self.show_advanced_options:
+                    clearable += [
+                        CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
+                        CONF_LIGHT_EVENING_COLOR_KELVIN,
+                        CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
+                        CONF_NIGHT_LIGHT_EVENING_COLOR,
+                        CONF_LIGHT_SCENE_DAY,
+                        CONF_LIGHT_SCENE_EVENING,
+                        CONF_LIGHT_SCENE_SLEEP,
+                    ]
+                for key in clearable:
+                    if key not in user_input:
+                        merged.pop(key, None)
+                _LOGGER.info(
+                    "options_lighting_behaviour save: entry_id=%s, input_keys=%d, merged_keys=%d",
+                    self._config_entry.entry_id,
+                    len(user_input),
+                    len(merged),
+                )
+                return self.async_create_entry(title="", data=merged)
+            except Exception:
+                _LOGGER.exception("options_lighting_behaviour save FAILED")
+                raise
+
+        # Read-only per-light feature summary from live state.attributes.
+        # Best-effort: any state read is guarded. supported_color_modes is
+        # the canonical HA light-capability attribute (developers.home-assistant.io).
+        summary_lines: list[str] = []
+        for eid in stored_lights[:12]:  # cap the summary
+            try:
+                st = self.hass.states.get(eid)
+                if st is None:
+                    summary_lines.append(f"- {eid}: (no state)")
+                    continue
+                modes = st.attributes.get("supported_color_modes")
+                summary_lines.append(f"- {eid}: {modes if modes else 'basic on/off'}")
+            except Exception:
+                summary_lines.append(f"- {eid}: (unreadable)")
+        room_cap = _cur(CONF_LIGHT_CAPABILITIES, LIGHT_CAPABILITY_BASIC)
+        summary = "Room capability: " + str(room_cap) + "\n" + "\n".join(summary_lines)
+
+        leave_on_non_empty = bool(stored_leave_on)
+
+        schema_dict: dict = {
+            vol.Optional(
+                CONF_LIGHTS_ON_ENTRY, default=stored_on_entry,
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    include_entities=_include_for(CONF_LIGHTS_ON_ENTRY, stored_on_entry),
+                    multiple=True,
+                )
+            ),
+            vol.Optional(
+                CONF_LIGHTS_ON_ENTRY_DARK_ONLY, default=stored_dark_only,
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    include_entities=_include_for(
+                        CONF_LIGHTS_ON_ENTRY_DARK_ONLY, stored_dark_only,
+                    ),
+                    multiple=True,
+                )
+            ),
+            vol.Optional(
+                CONF_NIGHT_LIGHTS, default=stored_night,
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    include_entities=_include_for(CONF_NIGHT_LIGHTS, stored_night),
+                    multiple=True,
+                )
+            ),
+            vol.Optional(
+                CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY, default=stored_leave_on,
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    include_entities=_include_for(
+                        CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY, stored_leave_on,
+                    ),
+                    multiple=True,
+                )
+            ),
+            vol.Optional(
+                CONF_AWAY_TURN_OFF_LEAVE_ON,
+                default=self._get_current(CONF_AWAY_TURN_OFF_LEAVE_ON, True),
+                description={"suggested_value": leave_on_non_empty and self._get_current(
+                    CONF_AWAY_TURN_OFF_LEAVE_ON, True,
+                )},
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_ALERT_LIGHTS, default=stored_alert,
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    include_entities=_include_for(CONF_ALERT_LIGHTS, stored_alert),
+                    multiple=True,
+                )
+            ),
+            # Slice D (v5.103.29): manual hold windows are ADVANCED-only.
+            # Marked description={"advanced": True} — HA hides them unless
+            # the user's profile Advanced mode is on
+            # (homeassistant/data_entry_flow.py:660-666 in
+            # add_suggested_values_to_schema — verified against installed
+            # HA 2026.2.3). The step's return routes through
+            # ``self.add_suggested_values_to_schema`` (below) so the filter
+            # is applied. Defaults are the rung-1 module constants.
+            # 0 = that kind off.
+            vol.Optional(
+                CONF_LIGHT_MANUAL_ON_HOLD_S,
+                default=self._get_current(
+                    CONF_LIGHT_MANUAL_ON_HOLD_S, DEFAULT_LIGHT_MANUAL_ON_HOLD_S,
+                ),
+                description={"advanced": True},
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=14400, step=60, unit_of_measurement="s",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
+                default=self._get_current(
+                    CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
+                    DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S,
+                ),
+                description={"advanced": True},
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=14400, step=60, unit_of_measurement="s",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_LIGHT_DARK_USE_SUN_FALLBACK,
+                default=self._get_current(CONF_LIGHT_DARK_USE_SUN_FALLBACK, True),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_LIGHT_DARK_LUX_SOURCE,
+                default=self._get_current(CONF_LIGHT_DARK_LUX_SOURCE) or vol.UNDEFINED,
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            # Slice E D5 (v5.103.29): evening slot brightness/colour for
+            # regular AND night lights. Absent ⇒ Day / Sleep defaults are
+            # used (byte-identical to pre-Slice-E behaviour). Advanced-only:
+            # rarely tuned; day/sleep already have their own knobs elsewhere.
+            vol.Optional(
+                CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
+                default=self._get_current(CONF_LIGHT_EVENING_BRIGHTNESS_PCT)
+                or vol.UNDEFINED,
+                description={"advanced": True},
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=100, step=1, unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_LIGHT_EVENING_COLOR_KELVIN,
+                default=self._get_current(CONF_LIGHT_EVENING_COLOR_KELVIN)
+                or vol.UNDEFINED,
+                description={"advanced": True},
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1000, max=8000, step=50, unit_of_measurement="K",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
+                default=self._get_current(CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS)
+                or vol.UNDEFINED,
+                description={"advanced": True},
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=100, step=1, unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_NIGHT_LIGHT_EVENING_COLOR,
+                default=self._get_current(CONF_NIGHT_LIGHT_EVENING_COLOR)
+                or vol.UNDEFINED,
+                description={"advanced": True},
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1000, max=8000, step=50, unit_of_measurement="K",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            # Slice E D6: optional per-slot scenes. When set, entry calls
+            # scene.turn_on instead of computing per-light brightness/colour;
+            # URA write mark propagates from scene → constituent lights
+            # (see ura_context.URA_LIGHT_WRITE_DOMAINS).
+            vol.Optional(
+                CONF_LIGHT_SCENE_DAY,
+                default=self._get_current(CONF_LIGHT_SCENE_DAY) or vol.UNDEFINED,
+                description={"advanced": True},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="scene")
+            ),
+            vol.Optional(
+                CONF_LIGHT_SCENE_EVENING,
+                default=self._get_current(CONF_LIGHT_SCENE_EVENING) or vol.UNDEFINED,
+                description={"advanced": True},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="scene")
+            ),
+            vol.Optional(
+                CONF_LIGHT_SCENE_SLEEP,
+                default=self._get_current(CONF_LIGHT_SCENE_SLEEP) or vol.UNDEFINED,
+                description={"advanced": True},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="scene")
+            ),
+            # Auto/Manual sub-block (moved from Devices per D8).
+            vol.Optional("auto_manual_devices"): _ha_section(
+                vol.Schema({
+                    vol.Optional(
+                        CONF_AUTO_SWITCHES, default=stored_auto,
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain="switch", multiple=True,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_MANUAL_SWITCHES, default=stored_manual,
+                    ): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain=["switch", "light", "fan"], multiple=True,
+                        )
+                    ),
+                }),
+                {"collapsed": True},
+            ),
+        }
+
+        # Slice D (v5.103.29): route through add_suggested_values_to_schema
+        # so vol.Optional keys marked description={"advanced": True} are
+        # filtered out when the user profile is NOT in Advanced mode
+        # (verified: homeassistant/data_entry_flow.py:660-666). An empty
+        # suggested_values mapping is fine — the filter runs regardless.
+        filtered_schema = self.add_suggested_values_to_schema(
+            vol.Schema(schema_dict), {},
+        )
+        # Slice E (v5.103.29): tell the user in plain words that some
+        # settings are hidden and how to reveal them. Short variant when
+        # Advanced mode is already on. ``self.show_advanced_options`` is
+        # set by HA's data_entry_flow from the profile flag.
+        advanced_hint = lighting_advanced_hint(
+            bool(getattr(self, "show_advanced_options", False))
+        )
+        return self.async_show_form(
+            step_id="options_lighting_behaviour",
+            data_schema=filtered_schema,
+            description_placeholders={
+                "summary": summary,
+                "advanced_hint": advanced_hint,
+            },
         )
 
     async def async_step_options_covers(self, user_input=None):
@@ -12170,13 +12556,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.SelectSelectorConfig(options=notify_levels, mode=selector.SelectSelectorMode.DROPDOWN)
             )
 
-        # v3.1.0: Alert lights (always visible — not part of override)
-        schema_fields[vol.Optional(
-            CONF_ALERT_LIGHTS,
-            default=self._get_current(CONF_ALERT_LIGHTS, [])
-        )] = selector.EntitySelector(
-            selector.EntitySelectorConfig(domain="light", multiple=True)
-        )
+        # v3.1.0: Alert lights color (picker MOVED to
+        # options_lighting_behaviour per D8; color STAYS here per plan
+        # REV 2.3.1 — it belongs with notification chrome, not the
+        # lighting role sheet).
         schema_fields[vol.Optional(
             CONF_ALERT_LIGHT_COLOR,
             default=self._get_current(CONF_ALERT_LIGHT_COLOR, ALERT_COLOR_AMBER)

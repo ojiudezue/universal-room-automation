@@ -66,6 +66,7 @@ ROOM_OPTIONS_STEPS = [
     "sensors",
     "devices",
     "options_lighting",
+    "options_lighting_behaviour",  # v5.103.28 Slice B'
     "options_covers",
     "automation_chaining",  # menu
     "chain_occupancy",

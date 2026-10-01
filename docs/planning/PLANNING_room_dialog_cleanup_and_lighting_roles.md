@@ -1,5 +1,7 @@
 > **REV 2.5 operator rulings (2026-09-30, from the 4 build reviews):** (1) house-state Sleep is used ONLY to choose night lights on entry; exit-skip, covers, fans and every other `is_sleep_mode_active` consumer stay on the clock (fixes review B M-1 covers-open-all-night and review D 07:30 lights-stay-on). (2) The manual-change hold stays ON by default in every room — declared in the invariant/README. (3) A room with its master Automation switch off skips the Away leave-on turn-off.
 
+> **REV 2.4 (operator, 2026-09-30):** Weather-adjusted outdoor illuminance tier added to darkness fallback (Slice B′). Order: room lux → borrowed lux → operator-configured outdoor light sensor (integration-level Global Sensors, visible pre-fill from `illuminance`-platform entities) → sun elevation → False. New integration keys `CONF_OUTDOOR_LIGHT_SENSOR` + `CONF_OUTDOOR_DARK_LUX` (default 400, rung-2 config). Same `CONF_LIGHT_DARK_USE_SUN_FALLBACK` kill switch (label renamed) disables tiers 3 AND 4. No silent runtime discovery — the darkness code reads ONLY the configured field. No Sun2 dependency.
+>
 > **REV 2.3.2 (orchestrator, 2026-09-29):** D7 walk-through rooms is DROPPED from this build — the operator said no new timers, and REV 2.3's D7 still needs a 15 s exit cap. It was ranked lowest and droppable. Revive on operator request.
 
 # PLANNING — Room Dialog Cleanup: Lighting Roles + Role-vs-Inventory Sweep

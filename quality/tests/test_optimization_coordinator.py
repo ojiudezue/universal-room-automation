@@ -236,10 +236,13 @@ class _MockServices:
         self.calls = []
         self._raise = None
 
-    async def async_call(self, domain, service, data, blocking=False):
+    async def async_call(self, domain, service, data, blocking=False, **kw):
         if self._raise is not None:
             raise self._raise
         self.calls.append((domain, service, dict(data or {})))
+        # Slice C (v5.103.28): record the write context for stamp tests.
+        self.contexts = getattr(self, "contexts", [])
+        self.contexts.append(kw.get("context"))
 
 
 class _MockStates:
@@ -4389,3 +4392,28 @@ def test_dimension_is_registered_in_the_cycle_wire_in_anchor():
     assert '("camera_stuck", self._evaluate_camera_stuck_dimension)' in src, (
         "camera_stuck evaluator is not registered in the cycle"
     )
+
+
+@pytest.mark.asyncio
+async def test_optimizer_light_dispatch_is_ura_stamped():
+    """Slice C (v5.103.28): an optimizer L2 light write carries the URA mark."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator, OptimizationFinding, OptimizationDimension,
+    )
+    from custom_components.universal_room_automation.ura_context import is_ura_context
+    hass, _ = _make_hass(cm_options={"optimizer_autonomy_level": "propose_config"})
+    coord = OptimizationCoordinator(hass)
+    coord.broker.await_veto = AsyncMock(return_value=None)
+    coord.broker.fire_intent = lambda *a, **k: True
+    f = OptimizationFinding(
+        timestamp=datetime.utcnow().isoformat(),
+        level="house", target_id="house",
+        dimension=OptimizationDimension.COMFORT,
+        severity="medium", confidence=0.9, score=50.0,
+        description="bump",
+    )
+    await coord._dispatch_device_action(
+        f, "action_l1", "light.kitchen", "light.turn_on", {}, "propose_config",
+    )
+    assert hass.services.calls, "light dispatch must reach the service call"
+    assert is_ura_context(hass.services.contexts[-1])

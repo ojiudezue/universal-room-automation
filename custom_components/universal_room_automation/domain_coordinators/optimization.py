@@ -153,6 +153,19 @@ from .signals import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _ura_ctx_kwargs(domain: str) -> dict:
+    """Room lighting Slice C (v5.103.28): mark an optimizer light write as URA's.
+
+    Only ``light`` / ``switch`` writes carry the mark (see ``ura_context``);
+    every other domain is byte-identical.
+    """
+    try:
+        from ..ura_context import ura_ctx_kwargs  # noqa: PLC0415
+        return ura_ctx_kwargs(domain)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 # ============================================================================
 # Dimension enum (kept as a plain Enum / str so duck-typed callers continue
 # to work; behaves like a StrEnum for serialization).
@@ -3544,6 +3557,7 @@ class OptimizationCoordinator(BaseCoordinator):
                 data["entity_id"] = target_entity
             await self.hass.services.async_call(
                 domain, action_name, data, blocking=False,
+                **_ura_ctx_kwargs(domain),
             )
             finding.applied_outcome = OPTIMIZER_OUTCOME_APPLIED
             self._action_dispatch_history.append(dt_util.utcnow())
@@ -3686,6 +3700,7 @@ class OptimizationCoordinator(BaseCoordinator):
                 data["entity_id"] = target_entity
             await self.hass.services.async_call(
                 domain, action_name, data, blocking=False,
+                **_ura_ctx_kwargs(domain),
             )
             finding.applied_outcome = OPTIMIZER_OUTCOME_APPLIED
             self._action_dispatch_history.append(dt_util.utcnow())

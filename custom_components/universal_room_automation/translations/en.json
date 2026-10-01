@@ -37,26 +37,26 @@
         "data_description": {
           "whole_house_power_sensors": "Total home power consumption sensors. Usually from main panel CTs (SPAN, Emporia mains). Select multiple for separate CTs.",
           "whole_house_energy_sensors": "Total home energy consumption sensors (kWh cumulative). For daily tracking and cost prediction.",
-          "house_device_power_sensors": "Power sensors for standalone devices not assigned to rooms or zones — EV chargers, pool pumps, water heaters. Used in energy attribution.",
-          "house_device_energy_sensors": "Energy sensors (kWh) for standalone devices — EV chargers, pool pumps, water heaters. Used in energy attribution."
+          "house_device_power_sensors": "Power sensors for standalone devices not assigned to rooms or zones \u2014 EV chargers, pool pumps, water heaters. Used in energy attribution.",
+          "house_device_energy_sensors": "Energy sensors (kWh) for standalone devices \u2014 EV chargers, pool pumps, water heaters. Used in energy attribution."
         }
       },
       "post_integration_setup": {
-        "title": "✅ Home Setup Complete",
+        "title": "\u2705 Home Setup Complete",
         "description": "Your home defaults are configured. Would you like to set up zones to group rooms, or skip and add rooms directly?",
         "menu_options": {
-          "setup_zone": "🗂️ Set Up a Zone First",
-          "skip_to_room": "🚪 Skip to Add a Room",
-          "finish": "✅ Finish Setup"
+          "setup_zone": "\ud83d\uddc2\ufe0f Set Up a Zone First",
+          "skip_to_room": "\ud83d\udeaa Skip to Add a Room",
+          "finish": "\u2705 Finish Setup"
         }
       },
       "entry_type_select": {
         "title": "Add New Entry",
         "description": "What would you like to add to your home automation?",
         "menu_options": {
-          "add_room": "🚪 Add a Room",
-          "add_zone": "🗂️ Add a Zone",
-          "add_coordinator": "⚙️ Add a Coordinator (Coming Soon)"
+          "add_room": "\ud83d\udeaa Add a Room",
+          "add_zone": "\ud83d\uddc2\ufe0f Add a Zone",
+          "add_coordinator": "\u2699\ufe0f Add a Coordinator (Coming Soon)"
         }
       },
       "zone_setup": {
@@ -74,7 +74,7 @@
         }
       },
       "room_setup": {
-        "title": "🚪 Room Setup",
+        "title": "\ud83d\udeaa Room Setup",
         "description": "Configure the basic information for this room. The room type affects default timeout settings.",
         "data": {
           "room_name": "Room Name",
@@ -100,7 +100,7 @@
         }
       },
       "sensors": {
-        "title": "📡 Presence & Environmental Sensors",
+        "title": "\ud83d\udce1 Presence & Environmental Sensors",
         "description": "Select sensors for occupancy detection and environmental monitoring. At least one occupancy sensor (motion, presence, or combined) is required.",
         "data": {
           "motion_sensors": "Motion Sensors (PIR)",
@@ -119,8 +119,8 @@
         },
         "data_description": {
           "motion_sensors": "PIR sensors that detect movement (triggers occupancy)",
-          "presence_sensors": "mmWave/radar sensors that see you even when you're still — good for reading nooks and desks",
-          "occupancy_sensors": "Sensors that already fuse motion and presence into one signal — usually vendor-supplied",
+          "presence_sensors": "mmWave/radar sensors that see you even when you're still \u2014 good for reading nooks and desks",
+          "occupancy_sensors": "Sensors that already fuse motion and presence into one signal \u2014 usually vendor-supplied",
           "scanner_areas": "Only needed if BLE (phone Bluetooth beacon) coverage in this room is thin. Point it at nearby rooms whose scanners can see this one.",
           "disable_camera_presence": "Skip camera-based presence detection for this room. Use for chronic camera false positives (TV reflections, sun-glare hallways). Other sensors continue to contribute.",
           "temperature_sensor": "Room temperature for climate automation and alerts",
@@ -233,11 +233,11 @@
         "title": "Automation Chaining",
         "description": "Optionally bind HA automations to room triggers. These run after URA's built-in automation. Choose a trigger group or skip.",
         "menu_options": {
-          "init_chain_occupancy": "🚪 Occupancy Triggers",
-          "init_chain_light": "💡 Light Level Triggers",
-          "init_chain_house_state": "🏠 House State Triggers",
-          "init_chain_coordinator": "🤖 Coordinator Triggers",
-          "init_chain_skip": "⏭️ Skip"
+          "init_chain_occupancy": "\ud83d\udeaa Occupancy Triggers",
+          "init_chain_light": "\ud83d\udca1 Light Level Triggers",
+          "init_chain_house_state": "\ud83c\udfe0 House State Triggers",
+          "init_chain_coordinator": "\ud83e\udd16 Coordinator Triggers",
+          "init_chain_skip": "\u23ed\ufe0f Skip"
         }
       },
       "init_chain_occupancy": {
@@ -308,8 +308,8 @@
         "title": "AI Rules",
         "description": "Optionally add AI-powered natural language automation rules for this room.",
         "menu_options": {
-          "init_ai_rule_add": "➕ Add Rule",
-          "init_ai_rules_skip": "⏭️ Skip"
+          "init_ai_rule_add": "\u2795 Add Rule",
+          "init_ai_rules_skip": "\u23ed\ufe0f Skip"
         }
       },
       "init_ai_rule_add": {
@@ -349,21 +349,21 @@
           "room_fan_mode": "Who controls this room's comfort fan: the thermostat zone, this room's own temperature settings, or nobody (you control it).",
           "humidity_fan_control_enabled": "Master switch for humidity/exhaust automation. When OFF, URA does not actuate the humidity fans at all.",
           "wet_room": "When ON, this room is treated as a wet room: enables humidity spike + post-vacancy runtime by default and exempts the exhaust from sleep-policy force-off.",
-          "humidity_fan_spike_enabled": "Adaptive baseline detection — fires the fan when humidity rises sharply above its running baseline (catches showers before the absolute threshold).",
+          "humidity_fan_spike_enabled": "Adaptive baseline detection \u2014 fires the fan when humidity rises sharply above its running baseline (catches showers before the absolute threshold).",
           "humidity_fan_presence_runtime_enabled": "After vacancy, keep the exhaust running for a usage-proportional period to finish venting.",
           "humidity_fan_presence_runtime_base_s": "Minimum post-vacancy runtime (seconds).",
           "humidity_fan_presence_runtime_per_min_s": "Additional seconds of post-vacancy runtime per minute of prior occupancy.",
-          "humidity_fan_presence_runtime_cap_s": "Hard cap on the post-vacancy runtime; must be ≤ Humidity Fan Max Runtime.",
+          "humidity_fan_presence_runtime_cap_s": "Hard cap on the post-vacancy runtime; must be \u2264 Humidity Fan Max Runtime.",
           "fan_temp_threshold": "Fan mode Room temperature only. Temperature above which comfort fans turn on.",
           "humidity_fan_threshold": "Humidity % above which exhaust fans turn on (absolute threshold; OR-companion to spike detection).",
           "humidity_fan_timeout": "Minimum continuous runtime before the fan is allowed to turn off after humidity drops below threshold. Prevents short-cycling.",
-          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces off if humidity stays elevated longer than this — protects against stuck humidity sensors and runaway runs.",
+          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces off if humidity stays elevated longer than this \u2014 protects against stuck humidity sensors and runaway runs.",
           "comfort_fan_away_veto_enabled": "Keep this room's comfort fan off while the house is Away, even if a sensor says someone is here. Turn off if you want the fan to run while you're out (e.g. for pets). Humidity and exhaust fans are not affected.",
           "ble_hold_cap_enabled": "After a while, stop keeping the room occupied on a phone's Bluetooth signal alone unless motion or presence sensors agree. Stops a phone left behind from holding the room on."
         },
         "sections": {
           "humidity_fan_advanced": {
-            "name": "Advanced — Humidity Spike Tuning",
+            "name": "Advanced \u2014 Humidity Spike Tuning",
             "data": {
               "humidity_fan_spike_delta_pct": "Spike Size (percentage points above baseline)",
               "humidity_fan_spike_ema_alpha_s": "Baseline Adjustment Speed",
@@ -378,8 +378,8 @@
           "climate_backstop": {
             "name": "Thermostat and empty-room hold",
             "data": {
-              "target_temp_heat": "Comfort Range — Low (°F)",
-              "target_temp_cool": "Comfort Range — High (°F)",
+              "target_temp_heat": "Comfort Range \u2014 Low (\u00b0F)",
+              "target_temp_cool": "Comfort Range \u2014 High (\u00b0F)",
               "climate_entity": "Climate/Thermostat Entity (fallback)"
             },
             "data_description": {
@@ -387,7 +387,7 @@
               "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set."
             },
-            "description": "Defaults — day: closets 1 min, media/utility/general/garage 2, bath/living 3, bedrooms 4. Night: bedrooms/media 30, living 15, bath/garage/utility 10, closets 5."
+            "description": "Defaults \u2014 day: closets 1 min, media/utility/general/garage 2, bath/living 3, bedrooms 4. Night: bedrooms/media 30, living 15, bath/garage/utility 10, closets 5."
           }
         }
       },
@@ -488,12 +488,12 @@
         },
         "data_description": {
           "motion_sensors": "One or more motion binary_sensors.",
-          "temperature_sensor": "Optional — leave blank if none.",
-          "humidity_sensor": "Optional — leave blank if none.",
-          "illuminance_sensor": "Optional — leave blank if none.",
-          "door_sensors": "Optional — leave blank if none.",
-          "water_leak_sensor": "Optional — leave blank if none.",
-          "mmwave_sensors": "mmWave / radar presence binary_sensors. Optional — leave blank if none.",
+          "temperature_sensor": "Optional \u2014 leave blank if none.",
+          "humidity_sensor": "Optional \u2014 leave blank if none.",
+          "illuminance_sensor": "Optional \u2014 leave blank if none.",
+          "door_sensors": "Optional \u2014 leave blank if none.",
+          "water_leak_sensor": "Optional \u2014 leave blank if none.",
+          "mmwave_sensors": "mmWave / radar presence binary_sensors. Optional \u2014 leave blank if none.",
           "occupancy_sensors": "Sensors that already fuse motion + presence into one signal. Optional."
         }
       },
@@ -528,7 +528,7 @@
         "description": "Add a room now, or skip and add rooms later.",
         "menu_options": {
           "skip_to_room": "Add first room",
-          "skip_rooms_later": "Skip — add rooms later"
+          "skip_rooms_later": "Skip \u2014 add rooms later"
         }
       }
     },
@@ -559,82 +559,82 @@
         "title": "Configure Settings",
         "description": "Select a category to modify.",
         "menu_options": {
-          "global_sensors": "🌡️ Global Sensors",
-          "energy_sensors": "⚡ Energy Sensors",
-          "person_tracking": "👥 Person Tracking",
-          "default_notifications": "🔔 Default Notifications",
-          "manage_zones": "🗂️ Manage Zones",
-          "camera_census": "📷 Camera Census",
-          "perimeter_alerting": "🚨 Perimeter Alerting",
-          "domain_coordinators": "🤖 Domain Coordinators",
-          "coordinator_presence": "👥 Presence Settings",
-          "coordinator_safety": "🛡️ Safety Monitoring",
-          "coordinator_security": "🔒 Security",
-          "coordinator_music_following": "🎵 Music Following",
-          "coordinator_appliance": "🔌 Appliances",
-          "coordinator_energy": "⚡ Energy",
-          "coordinator_hvac": "🌡️ HVAC",
-          "coordinator_hvac_settings": "🌡️ HVAC Tuning",
-          "hvac_dynamic_preset": "🌡️ HVAC Dynamic Preset",
-          "hvac_baseline_presets": "📅 Baseline Presets (Seasonal)",
-          "coordinator_notifications": "🔔 Notifications",
-          "coordinator_notifications_persons": "👤 Notification Persons",
-          "coordinator_notifications_quiet": "🌙 Quiet Hours",
-          "coordinator_notifications_cooldowns": "⏱️ Cooldowns",
-          "coordinator_notifications_volume": "🔕 Notification Volume & Noise Reduction",
-          "coordinator_notifications_routing": "📮 Per-Person Routing & Hazard Overrides",
-          "coordinator_toggles": "⚙️ Enable/Disable Coordinators",
-          "coordinator_optimization": "🤖 Optimizer",
-          "signal_responses": "📶 Signal Responses",
-          "basic_setup": "🚪 Basic Setup",
-          "sensors": "📡 Sensors",
-          "devices": "💡 Devices",
-          "options_lighting": "💡 Lighting Automation",
-          "options_covers": "🪟 Cover Automation",
-          "automation_chaining": "🔗 Automation Chaining",
-          "ai_rules": "🧠 AI Rules",
-          "ai_rule_add": "➕ Add Rule",
-          "ai_rule_list": "📝 View Rules",
-          "chain_occupancy": "🚪 Occupancy Triggers",
-          "chain_light": "💡 Light Level Triggers",
-          "chain_house_state": "🏠 House State Triggers",
-          "chain_coordinator": "🤖 Coordinator Triggers",
-          "climate": "🌡️ Climate & Fans",
-          "sleep_protection": "🛏️ Sleep Protection",
-          "music_following": "🎵 Music Following",
-          "energy": "⚡ Energy",
-          "notifications": "🔔 Notifications",
-          "zone_rooms": "🏠 Zone Rooms",
-          "zone_media": "🎵 Zone Media"
+          "global_sensors": "\ud83c\udf21\ufe0f Global Sensors",
+          "energy_sensors": "\u26a1 Energy Sensors",
+          "person_tracking": "\ud83d\udc65 Person Tracking",
+          "default_notifications": "\ud83d\udd14 Default Notifications",
+          "manage_zones": "\ud83d\uddc2\ufe0f Manage Zones",
+          "camera_census": "\ud83d\udcf7 Camera Census",
+          "perimeter_alerting": "\ud83d\udea8 Perimeter Alerting",
+          "domain_coordinators": "\ud83e\udd16 Domain Coordinators",
+          "coordinator_presence": "\ud83d\udc65 Presence Settings",
+          "coordinator_safety": "\ud83d\udee1\ufe0f Safety Monitoring",
+          "coordinator_security": "\ud83d\udd12 Security",
+          "coordinator_music_following": "\ud83c\udfb5 Music Following",
+          "coordinator_appliance": "\ud83d\udd0c Appliances",
+          "coordinator_energy": "\u26a1 Energy",
+          "coordinator_hvac": "\ud83c\udf21\ufe0f HVAC",
+          "coordinator_hvac_settings": "\ud83c\udf21\ufe0f HVAC Tuning",
+          "hvac_dynamic_preset": "\ud83c\udf21\ufe0f HVAC Dynamic Preset",
+          "hvac_baseline_presets": "\ud83d\udcc5 Baseline Presets (Seasonal)",
+          "coordinator_notifications": "\ud83d\udd14 Notifications",
+          "coordinator_notifications_persons": "\ud83d\udc64 Notification Persons",
+          "coordinator_notifications_quiet": "\ud83c\udf19 Quiet Hours",
+          "coordinator_notifications_cooldowns": "\u23f1\ufe0f Cooldowns",
+          "coordinator_notifications_volume": "\ud83d\udd15 Notification Volume & Noise Reduction",
+          "coordinator_notifications_routing": "\ud83d\udcee Per-Person Routing & Hazard Overrides",
+          "coordinator_toggles": "\u2699\ufe0f Enable/Disable Coordinators",
+          "coordinator_optimization": "\ud83e\udd16 Optimizer",
+          "signal_responses": "\ud83d\udcf6 Signal Responses",
+          "basic_setup": "\ud83d\udeaa Basic Setup",
+          "sensors": "\ud83d\udce1 Sensors",
+          "devices": "\ud83d\udca1 Devices",
+          "options_lighting": "\ud83d\udca1 Lighting Automation",
+          "options_covers": "\ud83e\ude9f Cover Automation",
+          "automation_chaining": "\ud83d\udd17 Automation Chaining",
+          "ai_rules": "\ud83e\udde0 AI Rules",
+          "ai_rule_add": "\u2795 Add Rule",
+          "ai_rule_list": "\ud83d\udcdd View Rules",
+          "chain_occupancy": "\ud83d\udeaa Occupancy Triggers",
+          "chain_light": "\ud83d\udca1 Light Level Triggers",
+          "chain_house_state": "\ud83c\udfe0 House State Triggers",
+          "chain_coordinator": "\ud83e\udd16 Coordinator Triggers",
+          "climate": "\ud83c\udf21\ufe0f Climate & Fans",
+          "sleep_protection": "\ud83d\udecf\ufe0f Sleep Protection",
+          "music_following": "\ud83c\udfb5 Music Following",
+          "energy": "\u26a1 Energy",
+          "notifications": "\ud83d\udd14 Notifications",
+          "zone_rooms": "\ud83c\udfe0 Zone Rooms",
+          "zone_media": "\ud83c\udfb5 Zone Media"
         }
       },
       "manage_zones": {
-        "title": "🗂️ Manage Zones",
-        "description": "Tap a zone to configure it — the next step opens the standard categorized submenu (rooms, media, HVAC, energy, primary persons, cameras, dynamic preset, remove). Zones sharing a thermostat are marked '(shared thermostat)'; HVAC changes mirror to the sibling(s). The picker shows RAW house zones, not the merged HVAC label.",
+        "title": "\ud83d\uddc2\ufe0f Manage Zones",
+        "description": "Tap a zone to configure it \u2014 the next step opens the standard categorized submenu (rooms, media, HVAC, energy, primary persons, cameras, dynamic preset, remove). Zones sharing a thermostat are marked '(shared thermostat)'; HVAC changes mirror to the sibling(s). The picker shows RAW house zones, not the merged HVAC label.",
         "data": {
           "zone_name": "Zone"
         },
         "data_description": {
-          "zone_name": "Zones sharing a thermostat are marked '(shared thermostat)'. HVAC changes to any such zone automatically mirror to the sibling(s) — the picker shows RAW house zones, not the merged HVAC label."
+          "zone_name": "Zones sharing a thermostat are marked '(shared thermostat)'. HVAC changes to any such zone automatically mirror to the sibling(s) \u2014 the picker shows RAW house zones, not the merged HVAC label."
         }
       },
       "zone_config_menu": {
         "title": "Zone Configuration",
         "description": "What would you like to configure for this zone?{banner}",
         "menu_options": {
-          "zone_rooms": "🏠 Zone Rooms",
-          "zone_media": "🎵 Zone Media",
-          "zone_hvac": "🌡️ Zone HVAC",
-          "zone_energy": "⚡ Zone Energy",
-          "zone_persons": "👤 Primary Persons",
-          "zone_cameras": "📷 Zone Cameras",
-          "zone_dynamic_preset": "🌤️ Dynamic Preset (Weather-Driven)",
-          "zone_delete_confirm": "🗑️ Remove this zone"
+          "zone_rooms": "\ud83c\udfe0 Zone Rooms",
+          "zone_media": "\ud83c\udfb5 Zone Media",
+          "zone_hvac": "\ud83c\udf21\ufe0f Zone HVAC",
+          "zone_energy": "\u26a1 Zone Energy",
+          "zone_persons": "\ud83d\udc64 Primary Persons",
+          "zone_cameras": "\ud83d\udcf7 Zone Cameras",
+          "zone_dynamic_preset": "\ud83c\udf24\ufe0f Dynamic Preset (Weather-Driven)",
+          "zone_delete_confirm": "\ud83d\uddd1\ufe0f Remove this zone"
         }
       },
       "zone_delete_confirm": {
         "title": "Remove this zone?",
-        "description": "You are about to remove the zone **{zone_name}** from Universal Room Automation.\n\nWhat will happen:\n- {n_entities} sensors and controls for this zone will be deleted (temperature, occupancy, energy, HVAC controls, etc.).\n- {n_rooms} room(s) currently assigned to this zone will become unassigned. They will keep working; you can put them in another zone later.\n- Historical data for this zone in the URA database will be cleared ({n_db_rows} rows across {n_tables} tables).\n- If this zone shares a thermostat with another zone, the thermostat setting is NOT changed — the other zone keeps working.\n- Any dashboard cards or automations referencing this zone's sensors will show as unavailable and should be updated.\n\nThis cannot be undone. To confirm, type the zone name below.",
+        "description": "You are about to remove the zone **{zone_name}** from Universal Room Automation.\n\nWhat will happen:\n- {n_entities} sensors and controls for this zone will be deleted (temperature, occupancy, energy, HVAC controls, etc.).\n- {n_rooms} room(s) currently assigned to this zone will become unassigned. They will keep working; you can put them in another zone later.\n- Historical data for this zone in the URA database will be cleared ({n_db_rows} rows across {n_tables} tables).\n- If this zone shares a thermostat with another zone, the thermostat setting is NOT changed \u2014 the other zone keeps working.\n- Any dashboard cards or automations referencing this zone's sensors will show as unavailable and should be updated.\n\nThis cannot be undone. To confirm, type the zone name below.",
         "data": {
           "confirm_zone_name": "Type the zone name to confirm"
         },
@@ -643,7 +643,7 @@
         }
       },
       "zone_hvac": {
-        "title": "🌡️ Zone HVAC",
+        "title": "\ud83c\udf21\ufe0f Zone HVAC",
         "description": "Select the thermostat that controls this zone. If not set, falls back to the first room's thermostat. The AC Load Sensor below is used by the AC Ramp-Down feature (v4.5.11) to detect when this zone keeps burning energy past setpoint.",
         "data": {
           "zone_thermostat": "Zone Thermostat",
@@ -657,7 +657,7 @@
         }
       },
       "zone_energy": {
-        "title": "⚡ Zone Energy Sensors",
+        "title": "\u26a1 Zone Energy Sensors",
         "description": "Configure power and energy sensors for zone-level loads (HVAC circuits, subpanel meters). These track energy not attributable to individual rooms.",
         "data": {
           "zone_power_sensors": "Zone Power Sensors",
@@ -680,7 +680,7 @@
       },
       "zone_cameras": {
         "title": "Zone Cameras",
-        "description": "Select person detection cameras in zone '{zone_name}'. Face recognition from these cameras enables instant pre-arrival conditioning — no 15-minute BLE wait required.",
+        "description": "Select person detection cameras in zone '{zone_name}'. Face recognition from these cameras enables instant pre-arrival conditioning \u2014 no 15-minute BLE wait required.",
         "data": {
           "zone_cameras": "Person Detection Cameras"
         },
@@ -689,17 +689,17 @@
         }
       },
       "zone_dynamic_preset": {
-        "title": "🌡️ Zone Dynamic Preset",
+        "title": "\ud83c\udf21\ufe0f Zone Dynamic Preset",
         "description": "Enable dynamic preset for zone '{zone_name}', set a small offset if this zone runs warm or cool, and (optionally) keep a distinct sleep-window offset.",
         "data": {
           "zone_dynamic_preset_enabled": "Enable Dynamic Preset for this Zone",
-          "zone_dynamic_preset_offset": "Offset (°F)",
+          "zone_dynamic_preset_offset": "Offset (\u00b0F)",
           "zone_dynamic_preset_reset_offset_guest": "Reset offset during Guest Mode",
           "zone_dynamic_preset_sleep_enabled": "Enable sleep preset ranges"
         },
         "data_description": {
           "zone_dynamic_preset_enabled": "When enabled, DPM adjusts this zone's thermostat setpoints based on outdoor conditions.",
-          "zone_dynamic_preset_offset": "Additional °F offset applied on top of bucket adjustments (0-3°F, step 0.5). Useful for zones that consistently run warm/cool.",
+          "zone_dynamic_preset_offset": "Additional \u00b0F offset applied on top of bucket adjustments (0-3\u00b0F, step 0.5). Useful for zones that consistently run warm/cool.",
           "zone_dynamic_preset_reset_offset_guest": "When Guest Mode is active, reset this zone's offset to 0 to maintain comfortable temperatures for guests.",
           "zone_dynamic_preset_sleep_enabled": "Enable separate temperature ranges for sleep preset. When off, sleep uses the same ranges as home preset."
         }
@@ -712,14 +712,18 @@
           "outside_humidity_sensor": "Outside Humidity Sensor",
           "weather_entity": "Weather Forecast Entity",
           "solar_production_sensor": "Solar Production Sensor",
-          "electricity_rate": "Default Fallback Electricity Rate ($/kWh)"
+          "electricity_rate": "Default Fallback Electricity Rate ($/kWh)",
+          "outdoor_light_sensor": "Outdoor light sensor",
+          "outdoor_dark_lux": "Dark outside below"
         },
         "data_description": {
           "outside_temp_sensor": "Sensor for outdoor temperature",
           "outside_humidity_sensor": "Sensor for outdoor humidity",
           "weather_entity": "Weather entity for forecasts",
           "solar_production_sensor": "Current solar production",
-          "electricity_rate": "Used only when the Energy Coordinator is not configured. The Energy Coordinator's TOU-aware rate is preferred."
+          "electricity_rate": "Used only when the Energy Coordinator is not configured. The Energy Coordinator's TOU-aware rate is preferred.",
+          "outdoor_light_sensor": "Used to decide if it's dark when a room has no working light sensor. Any outdoor lux sensor works, incl. the weather-adjusted Illuminance integration.",
+          "outdoor_dark_lux": "Outdoor light level, in lux, below which rooms without a sensor count as dark."
         }
       },
       "energy_sensors": {
@@ -765,7 +769,7 @@
         }
       },
       "person_tracking": {
-        "title": "👥 Person Tracking",
+        "title": "\ud83d\udc65 Person Tracking",
         "description": "Configure which people to track and how transitions are detected.",
         "data": {
           "tracked_persons": "Tracked People",
@@ -779,8 +783,8 @@
         }
       },
       "camera_census": {
-        "title": "📷 Camera Census",
-        "description": "Set up cameras for person counting. Pick any camera entity — person detection sensors are found automatically. Works with UniFi Protect, Frigate, Reolink, and Dahua.",
+        "title": "\ud83d\udcf7 Camera Census",
+        "description": "Set up cameras for person counting. Pick any camera entity \u2014 person detection sensors are found automatically. Works with UniFi Protect, Frigate, Reolink, and Dahua.",
         "data": {
           "census_cross_validation": "Cross-Check Between Camera Platforms",
           "census_divergence_downgrade": "Downgrade Uncorroborated Camera Divergence",
@@ -799,35 +803,35 @@
           "census_cross_validation": "When you run multiple camera platforms (e.g., Frigate and UniFi Protect), person counts are compared between them for higher accuracy. Turn this off if you only use one camera platform or prefer simpler, single-source counting.",
           "census_divergence_downgrade": "When two camera platforms cover the same interior zone and disagree (one sees someone, the other sees nobody), and there is no other supporting evidence (no recognized face, no phone/BLE person, no other room reporting occupied), trust the zero and mark confidence as low. Prevents lone false detections from flipping the house into Guest mode. Turn OFF to restore the older 'max wins' behavior.",
           "camera_person_entities": "Select cameras inside your home. Each camera is automatically mapped to a room using its area assignment in Home Assistant. Works with UniFi Protect, Frigate, Reolink, and Dahua.",
-          "egress_cameras": "Cameras at your exterior doors (front door, back door, garage). Used to track who enters and leaves — not used for room occupancy. Deliveries and visitors at the door won't trigger room automation.",
+          "egress_cameras": "Cameras at your exterior doors (front door, back door, garage). Used to track who enters and leaves \u2014 not used for room occupancy. Deliveries and visitors at the door won't trigger room automation.",
           "perimeter_cameras": "Cameras covering your yard, driveway, or fence line. Used to count people on your property who are outside the house.",
-          "face_recognition_enabled": "On by default. URA uses face matches from your cameras to confirm who a person is during room presence and transitions. Turn off to fall back to path validation without faces. Requires a camera integration that provides face recognition. The device switch `switch.ura_presence_face_matching` is the live kill-switch — toggling it takes effect within seconds without an integration reload.",
+          "face_recognition_enabled": "On by default. URA uses face matches from your cameras to confirm who a person is during room presence and transitions. Turn off to fall back to path validation without faces. Requires a camera integration that provides face recognition. The device switch `switch.ura_presence_face_matching` is the live kill-switch \u2014 toggling it takes effect within seconds without an integration reload.",
           "enhanced_census": "Enable event-driven sensor fusion with hold/decay, WiFi guest VLAN detection, and Frigate face recognition differentiation. Separates 'people seen' from 'people recognized' for better guest detection.",
           "guest_vlan_ssid": "SSID of your guest WiFi network (e.g., 'Revel'). Phones connected to this SSID are counted as guests. Leave blank to disable WiFi guest detection.",
           "census_hold_interior": "How long (in minutes) to hold the peak person count for indoor cameras before starting decay. Prevents count drops when people move between rooms or sit in camera blind spots. Default: 15 minutes.",
           "census_hold_exterior": "How long (in minutes) to hold the peak person count for outdoor/perimeter cameras before dropping. Shorter than interior because outdoor detections are more transient. Default: 5 minutes.",
           "census_ble_cancel_enabled": "When someone's phone places them in the same area as a camera that sees an unrecognized person, don't count that person toward guest detection. Turn off if guest detection seems to miss real guests.",
-          "egress_identity_enabled": "On by default. People entering or leaving through your door cameras are labeled with their name from face recognition (instead of 'unidentified'), and that identity helps the house count know who's home. Requires Face Recognition (above) to be working. Turn off to count entries and exits without naming them. The device switch `switch.ura_name_people_at_doors` is the live kill-switch — takes effect on the next crossing without an integration reload."
+          "egress_identity_enabled": "On by default. People entering or leaving through your door cameras are labeled with their name from face recognition (instead of 'unidentified'), and that identity helps the house count know who's home. Requires Face Recognition (above) to be working. Turn off to count entries and exits without naming them. The device switch `switch.ura_name_people_at_doors` is the live kill-switch \u2014 takes effect on the next crossing without an integration reload."
         }
       },
       "perimeter_alerting": {
-        "title": "🚨 Perimeter Alerting",
+        "title": "\ud83d\udea8 Perimeter Alerting",
         "description": "Send notifications when a person is detected on your perimeter cameras during quiet hours. Requires at least one perimeter camera to be configured in Camera Census.",
         "data": {
-          "perimeter_alert_hours_start": "Alert Start Hour (0–23)",
-          "perimeter_alert_hours_end": "Alert End Hour (0–23)",
+          "perimeter_alert_hours_start": "Alert Start Hour (0\u201323)",
+          "perimeter_alert_hours_end": "Alert End Hour (0\u201323)",
           "perimeter_alert_notify_service": "Notification Service",
           "perimeter_alert_notify_target": "Notification Target (optional)"
         },
         "data_description": {
-          "perimeter_alert_hours_start": "Alert monitoring starts at this hour (0–23). Default: 11 PM (23). Overnight ranges are supported — e.g. start 23, end 5 alerts from 11 PM to 5 AM.",
-          "perimeter_alert_hours_end": "Alert monitoring ends at this hour (0–23). Wraps overnight when end is before start. Default: 5 AM.",
+          "perimeter_alert_hours_start": "Alert monitoring starts at this hour (0\u201323). Default: 11 PM (23). Overnight ranges are supported \u2014 e.g. start 23, end 5 alerts from 11 PM to 5 AM.",
+          "perimeter_alert_hours_end": "Alert monitoring ends at this hour (0\u201323). Wraps overnight when end is before start. Default: 5 AM.",
           "perimeter_alert_notify_service": "Notification service to call when a person is detected on your perimeter (e.g., notify.mobile_app_john). Leave blank to disable notifications.",
-          "perimeter_alert_notify_target": "Notification target (optional — leave blank to use the service default)."
+          "perimeter_alert_notify_target": "Notification target (optional \u2014 leave blank to use the service default)."
         }
       },
       "domain_coordinators": {
-        "title": "🤖 Domain Coordinators",
+        "title": "\ud83e\udd16 Domain Coordinators",
         "description": "Enable the domain coordinator system for whole-house intelligence. When enabled, a Coordinator Manager device is created and house-level coordination becomes available. Individual coordinators (Presence, Safety, Security, Energy, HVAC, Comfort) are configured in later updates.",
         "data": {
           "domain_coordinators_enabled": "Enable Domain Coordinators"
@@ -837,7 +841,7 @@
         }
       },
       "coordinator_presence": {
-        "title": "👥 Presence Settings",
+        "title": "\ud83d\udc65 Presence Settings",
         "description": "Configure the Presence Coordinator. Sleep hours determine when the house transitions to sleep/waking states. Geofence trackers detect arrivals and departures.",
         "data": {
           "sleep_start_hour": "Sleep Start Hour",
@@ -848,8 +852,8 @@
           "fan_recheck_enabled": "Fan Recheck (master)"
         },
         "data_description": {
-          "sleep_start_hour": "Hour (0–23) when the house enters sleep mode. Default: 23 (11 PM).",
-          "sleep_end_hour": "Hour (0–23) when the house exits sleep mode. Default: 6 (6 AM).",
+          "sleep_start_hour": "Hour (0\u201323) when the house enters sleep mode. Default: 23 (11 PM).",
+          "sleep_end_hour": "Hour (0\u201323) when the house exits sleep mode. Default: 6 (6 AM).",
           "geofence_entities": "Device tracker entities used for geofence-based arrival/departure detection. Select person device trackers that report home/not_home zones.",
           "guest_mode_persistence_seconds": "How long an unidentified person must persist before the house enters Guest mode. Filters transient ID failures (face DB miss, BLE coverage gap). Set to 0 to disable persistence (instant trigger). Default: 300s (5 min).",
           "guest_mode_require_confidence": "Minimum census confidence required to trigger Guest mode. 'medium' refuses to fire when cameras disagree or no camera data. 'high' requires both camera platforms agree. Default: medium.",
@@ -857,7 +861,7 @@
         },
         "sections": {
           "fan_recheck_advanced": {
-            "name": "Fan Recheck Timing (Advanced — rarely change)",
+            "name": "Fan Recheck Timing (Advanced \u2014 rarely change)",
             "description": "Timing knobs for the fan-noise Mode-2 recheck state machine. Defaults are tuned for typical mmwave + ceiling-fan setups; only adjust if you understand the trade-offs.",
             "data": {
               "fan_recheck_arm_delay_s": "Arm Delay (s)",
@@ -881,30 +885,30 @@
         }
       },
       "coordinator_safety": {
-        "title": "🛡️ Safety Monitoring",
+        "title": "\ud83d\udee1\ufe0f Safety Monitoring",
         "description": "Configure the Safety Coordinator. The water shutoff valve is activated automatically on water leak detection. Emergency lights are set to 100% brightness during evacuations.",
         "data": {
           "water_shutoff_valve": "Water Shutoff Valve",
           "emergency_light_entities": "Emergency Light Entities",
           "global_smoke_sensors": "Global Smoke/Gas Detectors",
           "global_leak_sensors": "Global Water Leak Sensors",
-          "global_aq_sensors": "Global Air Quality Sensors (CO, CO₂, VOC)",
+          "global_aq_sensors": "Global Air Quality Sensors (CO, CO\u2082, VOC)",
           "global_temp_sensors": "Global Temperature Sensors",
           "global_humidity_sensors": "Global Humidity Sensors"
         },
         "data_description": {
-          "water_shutoff_valve": "Optional valve entity to close automatically on water leak detection (HIGH severity or above). Leave empty if no shutoff valve is installed — you can add one later.",
+          "water_shutoff_valve": "Optional valve entity to close automatically on water leak detection (HIGH severity or above). Leave empty if no shutoff valve is installed \u2014 you can add one later.",
           "emergency_light_entities": "Lights to set to 100% brightness during fire/CO evacuations. Select lights along evacuation routes (hallways, stairways, exits).",
           "global_smoke_sensors": "Smoke/gas detectors not assigned to any URA room. These are monitored globally by the Safety Coordinator.",
           "global_leak_sensors": "Water leak sensors not assigned to any URA room (e.g., utility chase, water main).",
-          "global_aq_sensors": "Air quality sensors (CO, CO₂, VOC) not assigned to any URA room.",
+          "global_aq_sensors": "Air quality sensors (CO, CO\u2082, VOC) not assigned to any URA room.",
           "global_temp_sensors": "Temperature sensors not assigned to any URA room (e.g., attic, crawl space).",
           "global_humidity_sensors": "Humidity sensors not assigned to any URA room."
         }
       },
       "coordinator_security": {
-        "title": "🔒 Security",
-        "description": "Configure the Security Coordinator. Manages armed states, entry monitoring, lock control, and security camera triggers. All devices are manually configured — no auto-discovery.",
+        "title": "\ud83d\udd12 Security",
+        "description": "Configure the Security Coordinator. Manages armed states, entry monitoring, lock control, and security camera triggers. All devices are manually configured \u2014 no auto-discovery.",
         "data": {
           "security_lock_entities": "Lock Entities",
           "security_garage_entities": "Garage Door Entities",
@@ -923,18 +927,18 @@
           "security_entry_sensors": "Door/window binary sensors to monitor for entry events.",
           "security_light_entities": "Lights to activate at full brightness during security alerts. Must be manually selected.",
           "security_camera_entities": "Cameras for recording triggers during security events. Only used when recording is enabled.",
-          "security_camera_recording": "Enable camera recording triggers during alerts. Disabled by default — cameras are assumed to be on continuous recording.",
+          "security_camera_recording": "Enable camera recording triggers during alerts. Disabled by default \u2014 cameras are assumed to be on continuous recording.",
           "security_camera_record_duration": "Duration in seconds for camera recording triggers.",
           "security_alarm_panel": "Optional alarm panel entity for bidirectional armed state sync. Leave empty to manage armed state independently.",
-          "security_auto_follow": "Automatically set armed state based on house state (away → armed_away, home → armed_home). Off by default.",
+          "security_auto_follow": "Automatically set armed state based on house state (away \u2192 armed_away, home \u2192 armed_home). Off by default.",
           "security_lock_check_interval": "Minutes between periodic lock compliance checks. Runs regardless of armed state."
         }
       },
       "coordinator_energy": {
-        "title": "⚡ Energy Coordinator",
+        "title": "\u26a1 Energy Coordinator",
         "description": "Configure the Energy Coordinator. Manages battery strategy, pool/EV optimization, TOU-aware cost tracking, and daily forecasting via Enphase Envoy and Solcast.",
         "data": {
-          "energy_envoy_entity": "Envoy Sensor (pick any — serial auto-derives all energy entities)",
+          "energy_envoy_entity": "Envoy Sensor (pick any \u2014 serial auto-derives all energy entities)",
           "energy_reserve_soc": "Battery Reserve SOC (%)",
           "energy_bill_cycle_day": "Billing Cycle Start Day",
           "energy_decision_interval": "Decision Interval (minutes)",
@@ -943,7 +947,7 @@
           "energy_weather_fallback_1": "Weather Entity (Secondary / Fallback 1)",
           "energy_weather_fallback_2": "Weather Entity (Tertiary / Fallback 2)",
           "weather_staleness_max_hours": "Weather Staleness Limit (hours)",
-          "weather_divergence_threshold_f": "Weather Divergence Threshold (°F)",
+          "weather_divergence_threshold_f": "Weather Divergence Threshold (\u00b0F)",
           "inclement_nws_alerts_entity": "NWS Alerts sensor",
           "inclement_power_threat_events": "Event types that can hold the battery",
           "inclement_warn_min_severity": "Minimum severity that can hold the battery",
@@ -967,7 +971,7 @@
           "energy_load_shedding_threshold_kw": "Load Shedding Threshold (kW)",
           "energy_load_shedding_sustained_minutes": "Load Shedding Sustained Duration",
           "energy_constraint_coast_offset": "HVAC Coast Offset",
-          "energy_constraint_precool_offset": "HVAC Pre-Cool Offset (retired — no effect)",
+          "energy_constraint_precool_offset": "HVAC Pre-Cool Offset (retired \u2014 no effect)",
           "energy_constraint_preheat_offset": "HVAC Pre-Heat Offset",
           "energy_constraint_shed_offset": "HVAC Shed Offset",
           "energy_preheat_temp_threshold": "Pre-Heat Temperature Threshold",
@@ -1010,11 +1014,11 @@
           "energy_weather_fallback_1": "Secondary weather provider used when the primary is stale or unavailable. If both primary and secondary diverge beyond the threshold, the median value is used. Leave empty to disable secondary provider.",
           "energy_weather_fallback_2": "Tertiary weather provider (third in the ranked list). Used only when secondary is also unavailable. Helps compute divergence across 3 sources for higher-confidence apparent-temp readings. Leave empty to disable.",
           "weather_staleness_max_hours": "Maximum age (in hours) of a weather provider's last update before it is considered stale and skipped. Default: 3 hours.",
-          "weather_divergence_threshold_f": "If two healthy providers disagree on today's high by more than this many °F, the binary_sensor.ura_weather_divergence turns ON and a WARNING is logged. The median value is used as the authoritative reading. Default: 5°F.",
-          "inclement_nws_alerts_entity": "The Home Assistant sensor that exposes National Weather Service alerts (e.g. sensor.nws_alerts_…). Leave blank to fall back to weather-condition cross-checks only.",
-          "inclement_power_threat_events": "One per line. Case-insensitive substring match against the NWS Event name (so 'Severe Thunderstorm' matches both 'Severe Thunderstorm Warning' AND 'Severe Thunderstorm Watch'). This is the FIRST gate — any alert whose Event name does NOT match an entry here is informational only and will not hold the battery, regardless of how severe it sounds. Fire-weather alerts (Red Flag Warning, Fire Weather Watch) are notice-only by default; ADD 'Red Flag' or 'Fire Weather' here to make them hold-eligible. Flood alerts are absent by default for this elevated property; ADD 'Flood' if your location is power-vulnerable to flooding.",
-          "inclement_warn_min_severity": "Secondary noise filter applied AFTER the Event-type gate. Choose the lowest NWS Severity value that should still produce a hold. 'Extreme' — only catastrophic events; 'Severe' (recommended) — Severe + Extreme; 'Moderate' — Moderate + Severe + Extreme; 'Minor' — any non-Unknown severity. NOTE: this filter never overrides the Event-type gate — a non-power-threat event is always informational regardless of severity.",
-          "inclement_grid_precharge_on_hold": "When ON, a warning-tier hold will pull from grid during off_peak hours to top up the battery to ~90% before the storm. When OFF, the battery is held at whatever level the sun/arbitrage put it at — no expensive grid energy is used. URA defaults OFF (solar-first philosophy).",
+          "weather_divergence_threshold_f": "If two healthy providers disagree on today's high by more than this many \u00b0F, the binary_sensor.ura_weather_divergence turns ON and a WARNING is logged. The median value is used as the authoritative reading. Default: 5\u00b0F.",
+          "inclement_nws_alerts_entity": "The Home Assistant sensor that exposes National Weather Service alerts (e.g. sensor.nws_alerts_\u2026). Leave blank to fall back to weather-condition cross-checks only.",
+          "inclement_power_threat_events": "One per line. Case-insensitive substring match against the NWS Event name (so 'Severe Thunderstorm' matches both 'Severe Thunderstorm Warning' AND 'Severe Thunderstorm Watch'). This is the FIRST gate \u2014 any alert whose Event name does NOT match an entry here is informational only and will not hold the battery, regardless of how severe it sounds. Fire-weather alerts (Red Flag Warning, Fire Weather Watch) are notice-only by default; ADD 'Red Flag' or 'Fire Weather' here to make them hold-eligible. Flood alerts are absent by default for this elevated property; ADD 'Flood' if your location is power-vulnerable to flooding.",
+          "inclement_warn_min_severity": "Secondary noise filter applied AFTER the Event-type gate. Choose the lowest NWS Severity value that should still produce a hold. 'Extreme' \u2014 only catastrophic events; 'Severe' (recommended) \u2014 Severe + Extreme; 'Moderate' \u2014 Moderate + Severe + Extreme; 'Minor' \u2014 any non-Unknown severity. NOTE: this filter never overrides the Event-type gate \u2014 a non-power-threat event is always informational regardless of severity.",
+          "inclement_grid_precharge_on_hold": "When ON, a warning-tier hold will pull from grid during off_peak hours to top up the battery to ~90% before the storm. When OFF, the battery is held at whatever level the sun/arbitrage put it at \u2014 no expensive grid energy is used. URA defaults OFF (solar-first philosophy).",
           "energy_solcast_today_entity": "Sensor providing today's total solar forecast in kWh. Used for solar day classification. Default: Solcast forecast_today sensor.",
           "energy_solcast_tomorrow_entity": "Sensor providing tomorrow's total solar forecast in kWh. Used for off-peak drain targets and arbitrage decisions. Default: Solcast forecast_tomorrow sensor.",
           "energy_solcast_remaining_entity": "Sensor providing remaining solar forecast for today in kWh. Used for excess solar EV charging decisions. Default: Solcast forecast_remaining_today sensor.",
@@ -1028,13 +1032,13 @@
           "energy_solar_threshold_good": "Custom mode: forecast above this = good day. Only used when Solar Day Classification is set to Custom.",
           "energy_solar_threshold_moderate": "Custom mode: forecast above this = moderate day. Only used when Solar Day Classification is set to Custom.",
           "energy_solar_threshold_poor": "Custom mode: forecast above this = poor day. Below this = very poor. Only used when Solar Day Classification is set to Custom.",
-          "energy_tou_rate_file_enabled": "Read /config/universal_room_automation/tou_rates.json when present. Default ON. Turn OFF to explicitly use built-in PEC rates and skip filesystem access entirely (kill switch — no reload required for effect on next boot).",
+          "energy_tou_rate_file_enabled": "Read /config/universal_room_automation/tou_rates.json when present. Default ON. Turn OFF to explicitly use built-in PEC rates and skip filesystem access entirely (kill switch \u2014 no reload required for effect on next boot).",
           "energy_load_shedding_enabled": "Enable automatic load shedding during peak import events. Progressively sheds non-essential loads when grid import exceeds threshold.",
           "energy_load_shedding_mode": "Fixed uses a static kW threshold. Auto learns your baseline and triggers on anomalies.",
           "energy_load_shedding_threshold_kw": "Grid import power above which load shedding activates. Only used in Fixed mode.",
           "energy_load_shedding_sustained_minutes": "Minutes that import must exceed the threshold before load shedding begins. Prevents triggering on brief spikes.",
           "energy_constraint_coast_offset": "Temperature offset for HVAC coast mode during load shedding. Cooling setpoint raised by this amount. Default: 2.0.",
-          "energy_constraint_precool_offset": "(retired — no effect) EC pre_cool constraint was removed; grid-anticipatory pre-cool is a parked design axis.",
+          "energy_constraint_precool_offset": "(retired \u2014 no effect) EC pre_cool constraint was removed; grid-anticipatory pre-cool is a parked design axis.",
           "energy_constraint_preheat_offset": "Temperature offset for pre-heating before anticipated peak. Heating setpoint raised by this amount. Default: 2.0.",
           "energy_constraint_shed_offset": "Temperature offset for aggressive HVAC shedding. Cooling setpoint raised by this amount during active shedding. Default: 4.0.",
           "energy_preheat_temp_threshold": "Outside temperature below which pre-heat mode activates instead of pre-cool. Default: 45.",
@@ -1042,7 +1046,7 @@
           "energy_offpeak_drain_good": "Off-peak SOC drain target when tomorrow's solar is good. Default: 15%.",
           "energy_offpeak_drain_moderate": "Off-peak SOC drain target when tomorrow's solar is moderate. Default: 20%.",
           "energy_offpeak_drain_poor": "Off-peak SOC drain target when tomorrow's solar is poor. Arbitrage catches worst case. Default: 30%.",
-          "energy_arbitrage_enabled": "Enable overnight grid charging when the next high-rate window's day is forecast poor/very_poor. Charges at off-peak rate to avoid importing at higher mid-peak/peak rates. v4.5.0: gate is forecast-class only — no SOC trigger.",
+          "energy_arbitrage_enabled": "Enable overnight grid charging when the next high-rate window's day is forecast poor/very_poor. Charges at off-peak rate to avoid importing at higher mid-peak/peak rates. v4.5.0: gate is forecast-class only \u2014 no SOC trigger.",
           "energy_peak_buffer_target": "SOC target for arbitrage charging. Charging stops when battery reaches this level; HOLD locks the buffer here until the high-rate window begins. v4.5.0: replaces 'Arbitrage SOC Target'. Default: 80%.",
           "energy_solcast_day_3_entity": "Solcast forecast for D+2 (day-after-tomorrow). Used by the multi-day horizon toggle to broaden the arbitrage gate when D+2 is poor.",
           "energy_multi_day_horizon_enabled": "When ON, the arbitrage gate also fires when day-after-tomorrow (D+2) is forecast poor/very_poor. Drain-target fallback path picks the more conservative of D+1 and D+2 when arbitrage is disabled. Default: OFF (calibrate first).",
@@ -1050,12 +1054,12 @@
           "energy_excess_solar_soc": "When battery is ABOVE this percentage AND solar surplus is available, URA turns EV+L1 charging ON even during off-peak pause. Default 95%. Range 80-100%. Pair with the Pause EV Until Battery SOC threshold (default 80).",
           "energy_excess_solar_kwh": "Remaining solar forecast (kWh) above which excess solar triggers EV charging. Default: 5.0 kWh.",
           "energy_fill_priority_soc": "When battery is BELOW this percentage and solar forecast is healthy, URA pauses EV+L1 charging so the battery fills first. Default 80%. Range 50-95%. Pair with the Resume EV at Battery SOC threshold (default 95) for an asymmetric dead band.",
-          "garage_a_self_modulates": "Check this for smart EVSEs/plugs with native solar or schedule modes (Emporia, Tesla Wall Connector). URA re-pauses every cycle; use the EVSE Force-Charge button to override. Leave unchecked for any other hardware — URA detects real user toggles and backs off for 1 hour.",
-          "garage_b_self_modulates": "Check this for smart EVSEs/plugs with native solar or schedule modes (Emporia, Tesla Wall Connector). URA re-pauses every cycle; use the EVSE Force-Charge button to override. Leave unchecked for any other hardware — URA detects real user toggles and backs off for 1 hour.",
+          "garage_a_self_modulates": "Check this for smart EVSEs/plugs with native solar or schedule modes (Emporia, Tesla Wall Connector). URA re-pauses every cycle; use the EVSE Force-Charge button to override. Leave unchecked for any other hardware \u2014 URA detects real user toggles and backs off for 1 hour.",
+          "garage_b_self_modulates": "Check this for smart EVSEs/plugs with native solar or schedule modes (Emporia, Tesla Wall Connector). URA re-pauses every cycle; use the EVSE Force-Charge button to override. Leave unchecked for any other hardware \u2014 URA detects real user toggles and backs off for 1 hour.",
           "energy_grid_import_cap_enabled": "Pause EV charging when total grid import exceeds the cap. Resumes when import drops below cap minus 1 kW hysteresis.",
           "energy_grid_import_cap_kw": "Maximum grid import in kW before pausing EV charging. Default: 8 kW.",
-          "energy_arbitrage_grid_import_guard_enabled": "Enable a software cap on how much the BATTERY may import from grid while arbitrage grid-charging. Default OFF — the battery hardware already curtails to the breaker. Only enable to throttle BELOW the hardware limit. When enabled you MUST enter a kW value below — there is no default threshold.",
-          "energy_arbitrage_grid_import_guard_kw": "Software cap on how much the BATTERY may import from grid while arbitrage grid-charging. Default OFF. When enabled you MUST enter your DER breaker's continuous rating (amps × 240 × 0.8 ÷ 1000) — there is no default threshold.",
+          "energy_arbitrage_grid_import_guard_enabled": "Enable a software cap on how much the BATTERY may import from grid while arbitrage grid-charging. Default OFF \u2014 the battery hardware already curtails to the breaker. Only enable to throttle BELOW the hardware limit. When enabled you MUST enter a kW value below \u2014 there is no default threshold.",
+          "energy_arbitrage_grid_import_guard_kw": "Software cap on how much the BATTERY may import from grid while arbitrage grid-charging. Default OFF. When enabled you MUST enter your DER breaker's continuous rating (amps \u00d7 240 \u00d7 0.8 \u00f7 1000) \u2014 there is no default threshold.",
           "energy_ev_battery_drain_soc": "When the home battery is actively discharging below this SOC AND EV+L1 is charging, URA pauses to protect battery reserve. Default 50% (deep floor behind Pause EV Until Battery SOC). Range 5-95%. See README_v4.7.6.1 for the asymmetric-defaults rationale.",
           "energy_evse_charge_onset_time": "HH:MM when the overnight drain-release gate opens. When the EVSE is drain-paused (battery at reserve), URA holds the release until this local time (default 01:00, deep off-peak). Daytime solar releases (battery refilled) are NEVER gated. Blank = feature off (release immediately). Also settable live via the time entity.",
           "energy_evse_charge_onset_enabled": "Master enable for the overnight EV Charge Onset gate (Rev 6). When OFF, the gate is byte-identical to baseline (no overnight hold; EV releases immediately at reserve). When ON, the overnight leg holds until the onset time above, subject to the 8h bounded window and the 03:00 must-start-by backstop. Also mirrored by switch.ura_ev_charge_onset_enabled.",
@@ -1070,7 +1074,7 @@
         },
         "sections": {
           "inclement_advanced": {
-            "name": "Inclement Weather — Advanced",
+            "name": "Inclement Weather \u2014 Advanced",
             "description": "Tuning knobs for the inclement-weather battery hold. Defaults are recommended.",
             "data": {
               "inclement_partial_hold_reserve_floor": "Reserve floor during partial holds (%)",
@@ -1078,19 +1082,19 @@
               "inclement_condition_corroboration_mode": "Local condition cross-check"
             },
             "data_description": {
-              "inclement_partial_hold_reserve_floor": "When URA decides to partially hold (e.g. low-certainty watch during peak with sun ahead), how much battery to keep in reserve. 50% (default) — preserves a robust overnight backup while still allowing some peak savings. Set lower for more peak savings, higher for more backup.",
-              "inclement_recoverable_surplus_margin_pct": "How much projected solar SURPLUS (net of house load) must EXCEED what a partial hold would let URA discharge, before that discharge counts as 'recoverable' by sun before nightfall. Default 5% SOC. URA reuses the attainability surplus projection (which already nets house load via a 0.5 capture factor), then requires this extra margin so a cloudy / high-load day doesn't falsely read as recoverable. This is a margin over a load-net surplus, NOT a raw kWh threshold. Only consulted during mid_peak / peak rungs — off_peak holds without consulting recoverability.",
-              "inclement_condition_corroboration_mode": "'any' — over-eager (one provider stormy holds); 'majority' — balanced (recommended); 'unanimous' — under-eager (one stale provider blocks)."
+              "inclement_partial_hold_reserve_floor": "When URA decides to partially hold (e.g. low-certainty watch during peak with sun ahead), how much battery to keep in reserve. 50% (default) \u2014 preserves a robust overnight backup while still allowing some peak savings. Set lower for more peak savings, higher for more backup.",
+              "inclement_recoverable_surplus_margin_pct": "How much projected solar SURPLUS (net of house load) must EXCEED what a partial hold would let URA discharge, before that discharge counts as 'recoverable' by sun before nightfall. Default 5% SOC. URA reuses the attainability surplus projection (which already nets house load via a 0.5 capture factor), then requires this extra margin so a cloudy / high-load day doesn't falsely read as recoverable. This is a margin over a load-net surplus, NOT a raw kWh threshold. Only consulted during mid_peak / peak rungs \u2014 off_peak holds without consulting recoverability.",
+              "inclement_condition_corroboration_mode": "'any' \u2014 over-eager (one provider stormy holds); 'majority' \u2014 balanced (recommended); 'unanimous' \u2014 under-eager (one stale provider blocks)."
             }
           },
           "cloud_verification": {
             "name": "Envoy Cloud Verification (Advanced)",
             "description": "Optional Enphase cloud entities used to verify that battery commands actually took effect and to fall back on when the local Envoy is briefly unavailable. Leave defaults unless you renamed the cloud (HACS enphase_ev) integration's entities. Under H1 cloud-first writes (2026-07-13) these entities are ALSO the actual write targets for reserve / charge_from_grid / storage_mode. BLANKING a field disables that surface's verification AND coherently demotes both writes and command-state reads on that surface back to the LOCAL leg (documented via a one-time INFO log at startup).",
             "data": {
-              "energy_cloud_reserve_oracle_entity": "Battery Reserve — Cloud Verification Entity",
-              "energy_cloud_charge_from_grid_oracle_entity": "Charge From Grid — Cloud Verification Entity",
-              "energy_cloud_storage_mode_oracle_entity": "Battery Mode — Cloud Verification Entity",
-              "energy_cloud_battery_soc_fallback_entity": "Battery Charge % — Cloud Fallback Sensor",
+              "energy_cloud_reserve_oracle_entity": "Battery Reserve \u2014 Cloud Verification Entity",
+              "energy_cloud_charge_from_grid_oracle_entity": "Charge From Grid \u2014 Cloud Verification Entity",
+              "energy_cloud_storage_mode_oracle_entity": "Battery Mode \u2014 Cloud Verification Entity",
+              "energy_cloud_battery_soc_fallback_entity": "Battery Charge % \u2014 Cloud Fallback Sensor",
               "energy_soc_divergence_threshold_pp": "Battery level disagreement alert (pp)",
               "energy_soc_divergence_dwell_min": "Disagreement confirmation time (min)",
               "energy_cloud_lag_alert_s": "Cloud update delay alert (s)"
@@ -1098,16 +1102,16 @@
             "data_description": {
               "energy_cloud_reserve_oracle_entity": "Cloud number entity used to verify that the reserve % you commanded is what the Enphase cloud actually reports 15 minutes later. Leave the default (from the enphase_ev HACS integration) unless you renamed it.",
               "energy_cloud_charge_from_grid_oracle_entity": "Cloud switch entity used to verify that URA's charge-from-grid commands actually propagated. If URA commanded OFF and this reports ON with no intervening command, an anomaly is raised.",
-              "energy_cloud_storage_mode_oracle_entity": "Cloud select entity that reports the battery's active mode (Self-Consumption, Backup, Savings, Full Backup). Used to verify storage-mode writes. Unmapped values are treated as inconclusive — never as a mismatch.",
+              "energy_cloud_storage_mode_oracle_entity": "Cloud select entity that reports the battery's active mode (Self-Consumption, Backup, Savings, Full Backup). Used to verify storage-mode writes. Unmapped values are treated as inconclusive \u2014 never as a mismatch.",
               "energy_cloud_battery_soc_fallback_entity": "Cloud SOC sensor used ONLY when the local Envoy SOC sensor is unavailable and the 5-minute last-known-good cache is stale. Also cross-checked against the primary at every read for divergence.",
               "energy_soc_divergence_threshold_pp": "Warn when local and cloud battery readings disagree by more than this many percentage points. Set to 0 to turn detection off.",
-              "energy_soc_divergence_dwell_min": "How long the disagreement must persist before alerting — filters one-off blips.",
+              "energy_soc_divergence_dwell_min": "How long the disagreement must persist before alerting \u2014 filters one-off blips.",
               "energy_cloud_lag_alert_s": "Warn when Enphase cloud settings lag this far behind what we wrote. Set to 0 to disable the alert (delay still shown on the sensor)."
             }
           },
           "baec": {
             "name": "Battery-Aware EV Charging",
-            "description": "Let the home battery drain to its overnight target BEFORE the car starts charging on nights when both fit. The switch is the master kill switch; the rest of the knobs live under the collapsed Advanced section — defaults are safe.",
+            "description": "Let the home battery drain to its overnight target BEFORE the car starts charging on nights when both fit. The switch is the master kill switch; the rest of the knobs live under the collapsed Advanced section \u2014 defaults are safe.",
             "data": {
               "energy_dp_enable": "Battery-Aware EV Charging",
               "energy_dp_must_start_by_min": "Latest charge start (minutes past midnight)"
@@ -1122,8 +1126,8 @@
             "data": {
               "energy_dp_eval_delay_min": "Decision delay (minutes)",
               "energy_dp_margin_min": "Charging time buffer (minutes)",
-              "energy_dp_needed_kwh_garage_a": "Typical charge needed — Garage A (kWh)",
-              "energy_dp_needed_kwh_garage_b": "Typical charge needed — Garage B (kWh)",
+              "energy_dp_needed_kwh_garage_a": "Typical charge needed \u2014 Garage A (kWh)",
+              "energy_dp_needed_kwh_garage_b": "Typical charge needed \u2014 Garage B (kWh)",
               "energy_dp_house_load_source": "Overnight house load estimate"
             },
             "data_description": {
@@ -1136,27 +1140,27 @@
           }
         },
         "error": {
-          "guard_kw_required_when_enabled": "The Arbitrage Grid-Charge Import Guard is ON but no kW value was entered. Enter your DER breaker's continuous rating (amps × 240 × 0.8 ÷ 1000) — there is no default threshold.",
-          "drain_excellent_below_reserve": "Off-peak drain target for EXCELLENT solar forecast is below the Enphase reserve SOC — Enphase will clamp it upward, silently collapsing the operator's intent.",
-          "drain_very_poor_below_reserve": "Off-peak drain target for VERY POOR solar forecast is below the Enphase reserve SOC — Enphase will clamp it upward, silently collapsing the operator's intent.",
-          "drain_ladder_not_monotonic": "Off-peak drain targets must be non-decreasing: excellent ≤ good ≤ moderate ≤ poor ≤ very_poor (worse forecast → more protective floor).",
-          "peak_buffer_target_at_or_below_drain_poor": "Peak Buffer Target must be strictly above the highest drain target (poor / very_poor) — otherwise the drain path would immediately re-drain after arbitrage CHARGE completes.",
-          "fill_priority_above_excess_solar": "EV Fill-Priority SOC must be ≤ Excess-Solar SOC. Inverting these two knobs flips the EV pause/resume band polarity and oscillates.",
-          "ev_drain_below_reserve": "EV Battery-Drain Pause SOC must be ≥ Enphase Reserve SOC. The EV drain-pause floor cannot sit below the safety reserve.",
-          "inclement_partial_hold_below_reserve": "Inclement Partial-Hold Reserve Floor must be ≥ Enphase Reserve SOC (in the Inclement Advanced section) — a floor below the base reserve is Enphase-clamped and the operator's intent silently collapses."
+          "guard_kw_required_when_enabled": "The Arbitrage Grid-Charge Import Guard is ON but no kW value was entered. Enter your DER breaker's continuous rating (amps \u00d7 240 \u00d7 0.8 \u00f7 1000) \u2014 there is no default threshold.",
+          "drain_excellent_below_reserve": "Off-peak drain target for EXCELLENT solar forecast is below the Enphase reserve SOC \u2014 Enphase will clamp it upward, silently collapsing the operator's intent.",
+          "drain_very_poor_below_reserve": "Off-peak drain target for VERY POOR solar forecast is below the Enphase reserve SOC \u2014 Enphase will clamp it upward, silently collapsing the operator's intent.",
+          "drain_ladder_not_monotonic": "Off-peak drain targets must be non-decreasing: excellent \u2264 good \u2264 moderate \u2264 poor \u2264 very_poor (worse forecast \u2192 more protective floor).",
+          "peak_buffer_target_at_or_below_drain_poor": "Peak Buffer Target must be strictly above the highest drain target (poor / very_poor) \u2014 otherwise the drain path would immediately re-drain after arbitrage CHARGE completes.",
+          "fill_priority_above_excess_solar": "EV Fill-Priority SOC must be \u2264 Excess-Solar SOC. Inverting these two knobs flips the EV pause/resume band polarity and oscillates.",
+          "ev_drain_below_reserve": "EV Battery-Drain Pause SOC must be \u2265 Enphase Reserve SOC. The EV drain-pause floor cannot sit below the safety reserve.",
+          "inclement_partial_hold_below_reserve": "Inclement Partial-Hold Reserve Floor must be \u2265 Enphase Reserve SOC (in the Inclement Advanced section) \u2014 a floor below the base reserve is Enphase-clamped and the operator's intent silently collapses."
         }
       },
       "coordinator_hvac": {
-        "title": "🌡️ HVAC Coordinator",
+        "title": "\ud83c\udf21\ufe0f HVAC Coordinator",
         "description": "Configure HVAC Coordinator settings.",
         "menu_options": {
-          "coordinator_hvac_settings": "🌡️ HVAC Tuning",
-          "hvac_dynamic_preset": "🌡️ Dynamic Preset",
-          "hvac_baseline_presets": "📅 Baseline Presets (Seasonal)"
+          "coordinator_hvac_settings": "\ud83c\udf21\ufe0f HVAC Tuning",
+          "hvac_dynamic_preset": "\ud83c\udf21\ufe0f Dynamic Preset",
+          "hvac_baseline_presets": "\ud83d\udcc5 Baseline Presets (Seasonal)"
         }
       },
       "coordinator_hvac_settings": {
-        "title": "🌡️ HVAC Coordinator Tuning",
+        "title": "\ud83c\udf21\ufe0f HVAC Coordinator Tuning",
         "description": "Manages zone presets, override detection, fan control, cover management, and pre-conditioning.",
         "data": {
           "hvac_max_sleep_offset": "Sleep Temperature Offset",
@@ -1175,7 +1179,7 @@
           "hvac_zone_entry_dwell": "Entry wait (minutes)",
           "hvac_return_window_minutes": "Return window (minutes)",
           "hvac_vacancy_grace_minutes": "Zone Vacancy Delay (minutes)",
-          "hvac_vacancy_grace_constrained": "Zone Vacancy Delay · Energy-Saving (minutes)",
+          "hvac_vacancy_grace_constrained": "Zone Vacancy Delay \u00b7 Energy-Saving (minutes)",
           "hvac_max_occupancy_hours": "Max Zone Occupied Time (hours)",
           "hvac_occupied_cover_close_delta": "Occupied-Room Cover Close Threshold",
           "hvac_solar_gain_cover_enabled": "Solar Cover Management",
@@ -1208,114 +1212,114 @@
           "hvac_zone_entry_dwell": "How long someone must be in a room before heating and cooling switch a zone that is set to Away back to Home, during the day and evening. People passing through faster than this do not switch it. Someone coming back to a room soon after it emptied counts at once (see Return window). Enter 0 to count any sign of someone at once. Recommended: 1.",
           "hvac_vacancy_grace_minutes": "Minutes a zone waits after its last room empties before heating and cooling switch to Away. If someone comes back sooner, nothing changes. A shorter wait saves energy but switches a zone to Away more often while someone sits still.",
           "hvac_vacancy_grace_constrained": "The same wait, used while the house is saving energy. It must be no longer than the normal delay. A shorter wait saves energy but switches a zone to Away more often while someone sits still.",
-          "hvac_return_window_minutes": "If someone comes back into a room within this many minutes after its hold ends — and their earlier stay lasted at least the Entry wait — a zone set to Away switches back to Home straight away instead of waiting the Entry wait again. 0 turns this off.",
+          "hvac_return_window_minutes": "If someone comes back into a room within this many minutes after its hold ends \u2014 and their earlier stay lasted at least the Entry wait \u2014 a zone set to Away switches back to Home straight away instead of waiting the Entry wait again. 0 turns this off.",
           "hvac_max_occupancy_hours": "If a zone reads continuously occupied this long, HVAC treats the presence signal as stuck and stops trusting it. Default: 8 (hours).",
-          "hvac_occupied_cover_close_delta": "When a room is occupied, HVAC only closes its covers for solar-gain reduction if the room temp is at least this many °F above the zone's cooling setpoint. Lower = more aggressive (closes covers sooner when occupied), higher = more conservative (lets occupied rooms get warmer before closing). Default: 2.0°F.",
+          "hvac_occupied_cover_close_delta": "When a room is occupied, HVAC only closes its covers for solar-gain reduction if the room temp is at least this many \u00b0F above the zone's cooling setpoint. Lower = more aggressive (closes covers sooner when occupied), higher = more conservative (lets occupied rooms get warmer before closing). Default: 2.0\u00b0F.",
           "hvac_solar_gain_cover_enabled": "Master toggle for the entire solar-gain cover management feature. When OFF, HVAC does not close or open any covers regardless of per-room settings. Per-room cover automation (timed open/close, exit close) is unaffected.",
-          "hvac_cover_close_temp": "Outdoor temperature at which HVAC starts closing covers for solar-gain reduction (during the solar window hours). Texas summer ≥85°F is typical; humid climates may want lower. Default: 85°F.",
-          "hvac_cover_open_temp": "Outdoor temperature at which HVAC reopens previously-closed covers (hysteresis with Cover Close Temp). Must be at least 3°F below Cover Close Temp to prevent flapping. Default: 80°F.",
+          "hvac_cover_close_temp": "Outdoor temperature at which HVAC starts closing covers for solar-gain reduction (during the solar window hours). Texas summer \u226585\u00b0F is typical; humid climates may want lower. Default: 85\u00b0F.",
+          "hvac_cover_open_temp": "Outdoor temperature at which HVAC reopens previously-closed covers (hysteresis with Cover Close Temp). Must be at least 3\u00b0F below Cover Close Temp to prevent flapping. Default: 80\u00b0F.",
           "hvac_cover_override_hours": "How long HVAC respects a manual cover position change before resuming automation. After this many hours, HVAC may reapply solar-gain logic to the cover. Default: 2 hours.",
-          "hvac_solar_bank_floor": "Coolest setpoint solar banking will drive HVAC zones to. Banking applies a -3°F offset to the room's normal cool target, but never below this absolute floor. Default: 72°F.",
+          "hvac_solar_bank_floor": "Coolest setpoint solar banking will drive HVAC zones to. Banking applies a -3\u00b0F offset to the room's normal cool target, but never below this absolute floor. Default: 72\u00b0F.",
           "hvac_cover_solar_start_hour": "Hour HVAC starts watching for solar-gain conditions. Set earlier (e.g. 11) for east-facing homes; later for west-only orientations. Default: 13 (1 PM).",
           "hvac_cover_solar_end_hour": "Hour HVAC stops solar-gain cover management and reopens any HVAC-closed covers. Pair with sunset in your area. Default: 18 (6 PM).",
           "hvac_solar_bank_soc_min": "Battery state-of-charge above which surplus solar is dumped into thermal banking instead of grid export. Lower = more aggressive banking; higher = more battery headroom for evening. Default: 95%.",
-          "hvac_solar_bank_enabled": "Initial state for Solar HVAC Banking. When ON (default), HVAC pre-cools all zones during 10am–2pm whenever the battery is full and surplus solar would otherwise export to grid. Turn OFF if banking is over-cooling the house on good-solar days. NOTE: this field only seeds the initial state after install. At runtime the 'Solar HVAC Banking' switch on the Energy Coordinator device card is authoritative (its last-toggled value persists across restarts via RestoreEntity and OVERRIDES this field).",
+          "hvac_solar_bank_enabled": "Initial state for Solar HVAC Banking. When ON (default), HVAC pre-cools all zones during 10am\u20132pm whenever the battery is full and surplus solar would otherwise export to grid. Turn OFF if banking is over-cooling the house on good-solar days. NOTE: this field only seeds the initial state after install. At runtime the 'Solar HVAC Banking' switch on the Energy Coordinator device card is authoritative (its last-toggled value persists across restarts via RestoreEntity and OVERRIDES this field).",
           "hvac_pre_conditioning_enabled": "Initial state for the HVAC Predictive Conditioning master gate. When ON (default), HVAC may run weather pre-cool, solar banking, pre-arrival, and pre-heat. When OFF, ALL pre-conditioning branches short-circuit and any in-flight pre-conditioned zones release to their baseline range within one cycle. NOTE 1: this field only seeds the initial state after install. At runtime the 'HVAC Predictive Conditioning' switch on the HVAC Coordinator device card is authoritative (its last-toggled value persists across restarts and OVERRIDES this field). NOTE 2: this switch suppresses PREDICTIVE pre-conditioning only. The Energy Coordinator's REACTIVE TOU pre_heat constraint (driven by the live rate schedule) is a separate mechanism and is NOT suppressed by this switch.",
-          "hvac_precool_forecast_high": "When tomorrow's forecast high exceeds this, HVAC pre-cools occupied zones before peak hours. Lower = more pre-cooling; higher = pre-cool only on extreme days. Default: 90°F.",
-          "hvac_preheat_forecast_low": "When outdoor temp drops below this in winter, HVAC pre-heats occupied zones before off-peak ends. Higher = more pre-heating; lower = pre-heat only on coldest days. Default: 35°F."
+          "hvac_precool_forecast_high": "When tomorrow's forecast high exceeds this, HVAC pre-cools occupied zones before peak hours. Lower = more pre-cooling; higher = pre-cool only on extreme days. Default: 90\u00b0F.",
+          "hvac_preheat_forecast_low": "When outdoor temp drops below this in winter, HVAC pre-heats occupied zones before off-peak ends. Higher = more pre-heating; lower = pre-heat only on coldest days. Default: 35\u00b0F."
         },
         "sections": {
-          "presence_timing": "Advanced — presence timing (rarely change)"
+          "presence_timing": "Advanced \u2014 presence timing (rarely change)"
         }
       },
       "hvac_dynamic_preset": {
-        "title": "🌡️ Dynamic Preset Auto-Adjust",
-        "description": "When outside feels cooler than the last two weeks, DPM relaxes the upper end of Home and Sleep cool ranges (e.g. 70-75 → 70-76). When outside feels hotter, DPM tightens (70-74). Two knobs control how much. DPM is off in winter and stays off until 7 days of forecast data have been collected.",
+        "title": "\ud83c\udf21\ufe0f Dynamic Preset Auto-Adjust",
+        "description": "When outside feels cooler than the last two weeks, DPM relaxes the upper end of Home and Sleep cool ranges (e.g. 70-75 \u2192 70-76). When outside feels hotter, DPM tightens (70-74). Two knobs control how much. DPM is off in winter and stays off until 7 days of forecast data have been collected.",
         "data": {
           "dynamic_preset_enabled": "Enable Dynamic Preset Auto-Adjust",
-          "dpm_cool_day_relax_f": "Relax cool ceiling on cool-feeling days (°F)",
-          "dpm_hot_day_tighten_f": "Tighten cool ceiling on hot-feeling days (°F)",
+          "dpm_cool_day_relax_f": "Relax cool ceiling on cool-feeling days (\u00b0F)",
+          "dpm_hot_day_tighten_f": "Tighten cool ceiling on hot-feeling days (\u00b0F)",
           "dpm_relax_ceiling_mode": "Skip relax on hot days",
           "dynamic_preset_dwell_minutes": "Weather adjust delay (min)",
-          "dynamic_preset_hysteresis_f": "Weather adjust margin (°F)"
+          "dynamic_preset_hysteresis_f": "Weather adjust margin (\u00b0F)"
         },
         "data_description": {
           "dynamic_preset_enabled": "Master toggle for the Dynamic Preset feature. When off, all zones fall back to the seasonal baseline setpoints.",
-          "dpm_cool_day_relax_f": "How many °F to raise the Home/Sleep cool ceiling on days the forecast feels cooler than the last 2 weeks. 0 = off. Default 1°F (e.g., 70-75 becomes 70-76).",
-          "dpm_hot_day_tighten_f": "How many °F to lower the Home/Sleep cool ceiling on days the forecast feels hotter than the last 2 weeks. 0 = off. Default 1°F (e.g., 70-75 becomes 70-74).",
+          "dpm_cool_day_relax_f": "How many \u00b0F to raise the Home/Sleep cool ceiling on days the forecast feels cooler than the last 2 weeks. 0 = off. Default 1\u00b0F (e.g., 70-75 becomes 70-76).",
+          "dpm_hot_day_tighten_f": "How many \u00b0F to lower the Home/Sleep cool ceiling on days the forecast feels hotter than the last 2 weeks. 0 = off. Default 1\u00b0F (e.g., 70-75 becomes 70-74).",
           "dpm_relax_ceiling_mode": "When the forecast is above this temperature, the system won't widen cool ranges even if today is cooler than recent days. Auto picks a sensible value for your climate.",
           "dynamic_preset_dwell_minutes": "How long a cooler- or hotter-than-usual forecast must last before the cooling range shifts. 15-240 min. Default 60.",
-          "dynamic_preset_hysteresis_f": "How far past the usual the forecast must be before it counts as a cooler or hotter day. 0.5-5 °F. Default 2."
+          "dynamic_preset_hysteresis_f": "How far past the usual the forecast must be before it counts as a cooler or hotter day. 0.5-5 \u00b0F. Default 2."
         },
         "sections": {
           "advanced": "Advanced (rarely change)"
         }
       },
       "hvac_baseline_presets": {
-        "title": "📅 Baseline Presets (Seasonal)",
-        "description": "Edit the house-wide preset temperature ranges per season. These are the baseline setpoints that every zone uses unless Dynamic Preset is configured per-zone. Cooling setpoint must be at least 3°F above heating setpoint. To restore factory defaults, check 'Reset all to defaults' and save.",
+        "title": "\ud83d\udcc5 Baseline Presets (Seasonal)",
+        "description": "Edit the house-wide preset temperature ranges per season. These are the baseline setpoints that every zone uses unless Dynamic Preset is configured per-zone. Cooling setpoint must be at least 3\u00b0F above heating setpoint. To restore factory defaults, check 'Reset all to defaults' and save.",
         "data": {
-          "hvac_baseline_summer_home_cool": "Summer · Home — Cool High (°F)",
-          "hvac_baseline_summer_home_heat": "Summer · Home — Heat Low (°F)",
-          "hvac_baseline_summer_sleep_cool": "Summer · Sleep — Cool High (°F)",
-          "hvac_baseline_summer_sleep_heat": "Summer · Sleep — Heat Low (°F)",
-          "hvac_baseline_summer_away_cool": "Summer · Away — Cool High (°F)",
-          "hvac_baseline_summer_away_heat": "Summer · Away — Heat Low (°F)",
-          "hvac_baseline_summer_vacation_cool": "Summer · Vacation — Cool High (°F)",
-          "hvac_baseline_summer_vacation_heat": "Summer · Vacation — Heat Low (°F)",
-          "hvac_baseline_shoulder_home_cool": "Shoulder · Home — Cool High (°F)",
-          "hvac_baseline_shoulder_home_heat": "Shoulder · Home — Heat Low (°F)",
-          "hvac_baseline_shoulder_sleep_cool": "Shoulder · Sleep — Cool High (°F)",
-          "hvac_baseline_shoulder_sleep_heat": "Shoulder · Sleep — Heat Low (°F)",
-          "hvac_baseline_shoulder_away_cool": "Shoulder · Away — Cool High (°F)",
-          "hvac_baseline_shoulder_away_heat": "Shoulder · Away — Heat Low (°F)",
-          "hvac_baseline_shoulder_vacation_cool": "Shoulder · Vacation — Cool High (°F)",
-          "hvac_baseline_shoulder_vacation_heat": "Shoulder · Vacation — Heat Low (°F)",
-          "hvac_baseline_winter_home_cool": "Winter · Home — Cool High (°F)",
-          "hvac_baseline_winter_home_heat": "Winter · Home — Heat Low (°F)",
-          "hvac_baseline_winter_sleep_cool": "Winter · Sleep — Cool High (°F)",
-          "hvac_baseline_winter_sleep_heat": "Winter · Sleep — Heat Low (°F)",
-          "hvac_baseline_winter_away_cool": "Winter · Away — Cool High (°F)",
-          "hvac_baseline_winter_away_heat": "Winter · Away — Heat Low (°F)",
-          "hvac_baseline_winter_vacation_cool": "Winter · Vacation — Cool High (°F)",
-          "hvac_baseline_winter_vacation_heat": "Winter · Vacation — Heat Low (°F)",
+          "hvac_baseline_summer_home_cool": "Summer \u00b7 Home \u2014 Cool High (\u00b0F)",
+          "hvac_baseline_summer_home_heat": "Summer \u00b7 Home \u2014 Heat Low (\u00b0F)",
+          "hvac_baseline_summer_sleep_cool": "Summer \u00b7 Sleep \u2014 Cool High (\u00b0F)",
+          "hvac_baseline_summer_sleep_heat": "Summer \u00b7 Sleep \u2014 Heat Low (\u00b0F)",
+          "hvac_baseline_summer_away_cool": "Summer \u00b7 Away \u2014 Cool High (\u00b0F)",
+          "hvac_baseline_summer_away_heat": "Summer \u00b7 Away \u2014 Heat Low (\u00b0F)",
+          "hvac_baseline_summer_vacation_cool": "Summer \u00b7 Vacation \u2014 Cool High (\u00b0F)",
+          "hvac_baseline_summer_vacation_heat": "Summer \u00b7 Vacation \u2014 Heat Low (\u00b0F)",
+          "hvac_baseline_shoulder_home_cool": "Shoulder \u00b7 Home \u2014 Cool High (\u00b0F)",
+          "hvac_baseline_shoulder_home_heat": "Shoulder \u00b7 Home \u2014 Heat Low (\u00b0F)",
+          "hvac_baseline_shoulder_sleep_cool": "Shoulder \u00b7 Sleep \u2014 Cool High (\u00b0F)",
+          "hvac_baseline_shoulder_sleep_heat": "Shoulder \u00b7 Sleep \u2014 Heat Low (\u00b0F)",
+          "hvac_baseline_shoulder_away_cool": "Shoulder \u00b7 Away \u2014 Cool High (\u00b0F)",
+          "hvac_baseline_shoulder_away_heat": "Shoulder \u00b7 Away \u2014 Heat Low (\u00b0F)",
+          "hvac_baseline_shoulder_vacation_cool": "Shoulder \u00b7 Vacation \u2014 Cool High (\u00b0F)",
+          "hvac_baseline_shoulder_vacation_heat": "Shoulder \u00b7 Vacation \u2014 Heat Low (\u00b0F)",
+          "hvac_baseline_winter_home_cool": "Winter \u00b7 Home \u2014 Cool High (\u00b0F)",
+          "hvac_baseline_winter_home_heat": "Winter \u00b7 Home \u2014 Heat Low (\u00b0F)",
+          "hvac_baseline_winter_sleep_cool": "Winter \u00b7 Sleep \u2014 Cool High (\u00b0F)",
+          "hvac_baseline_winter_sleep_heat": "Winter \u00b7 Sleep \u2014 Heat Low (\u00b0F)",
+          "hvac_baseline_winter_away_cool": "Winter \u00b7 Away \u2014 Cool High (\u00b0F)",
+          "hvac_baseline_winter_away_heat": "Winter \u00b7 Away \u2014 Heat Low (\u00b0F)",
+          "hvac_baseline_winter_vacation_cool": "Winter \u00b7 Vacation \u2014 Cool High (\u00b0F)",
+          "hvac_baseline_winter_vacation_heat": "Winter \u00b7 Vacation \u2014 Heat Low (\u00b0F)",
           "_reset_all": "Reset all to defaults"
         },
         "data_description": {
-          "hvac_baseline_summer_home_cool": "Summer (Jun–Sep) Home preset cooling target. Default: 77°F.",
-          "hvac_baseline_summer_home_heat": "Summer Home preset heating floor. Default: 70°F.",
-          "hvac_baseline_summer_sleep_cool": "Summer Sleep preset cooling target. Default: 76°F.",
-          "hvac_baseline_summer_sleep_heat": "Summer Sleep preset heating floor. Default: 70°F.",
-          "hvac_baseline_summer_away_cool": "Summer Away preset cooling target. Default: 82°F.",
-          "hvac_baseline_summer_away_heat": "Summer Away preset heating floor. Default: 60°F.",
-          "hvac_baseline_summer_vacation_cool": "Summer Vacation preset cooling target. Default: 85°F.",
-          "hvac_baseline_summer_vacation_heat": "Summer Vacation preset heating floor. Default: 58°F.",
-          "hvac_baseline_shoulder_home_cool": "Shoulder (Mar–May, Oct–Nov) Home preset cooling target. Default: 74°F.",
-          "hvac_baseline_shoulder_home_heat": "Shoulder Home preset heating floor. Default: 70°F.",
-          "hvac_baseline_shoulder_sleep_cool": "Shoulder Sleep preset cooling target. Default: 73°F.",
-          "hvac_baseline_shoulder_sleep_heat": "Shoulder Sleep preset heating floor. Default: 68°F.",
-          "hvac_baseline_shoulder_away_cool": "Shoulder Away preset cooling target. Default: 80°F.",
-          "hvac_baseline_shoulder_away_heat": "Shoulder Away preset heating floor. Default: 62°F.",
-          "hvac_baseline_shoulder_vacation_cool": "Shoulder Vacation preset cooling target. Default: 82°F.",
-          "hvac_baseline_shoulder_vacation_heat": "Shoulder Vacation preset heating floor. Default: 58°F.",
-          "hvac_baseline_winter_home_cool": "Winter (Dec–Feb) Home preset cooling target. Default: 72°F.",
-          "hvac_baseline_winter_home_heat": "Winter Home preset heating floor. Default: 70°F.",
-          "hvac_baseline_winter_sleep_cool": "Winter Sleep preset cooling target. Default: 70°F.",
-          "hvac_baseline_winter_sleep_heat": "Winter Sleep preset heating floor. Default: 68°F.",
-          "hvac_baseline_winter_away_cool": "Winter Away preset cooling target. Default: 78°F.",
-          "hvac_baseline_winter_away_heat": "Winter Away preset heating floor. Default: 60°F.",
-          "hvac_baseline_winter_vacation_cool": "Winter Vacation preset cooling target. Default: 80°F.",
-          "hvac_baseline_winter_vacation_heat": "Winter Vacation preset heating floor. Default: 58°F.",
+          "hvac_baseline_summer_home_cool": "Summer (Jun\u2013Sep) Home preset cooling target. Default: 77\u00b0F.",
+          "hvac_baseline_summer_home_heat": "Summer Home preset heating floor. Default: 70\u00b0F.",
+          "hvac_baseline_summer_sleep_cool": "Summer Sleep preset cooling target. Default: 76\u00b0F.",
+          "hvac_baseline_summer_sleep_heat": "Summer Sleep preset heating floor. Default: 70\u00b0F.",
+          "hvac_baseline_summer_away_cool": "Summer Away preset cooling target. Default: 82\u00b0F.",
+          "hvac_baseline_summer_away_heat": "Summer Away preset heating floor. Default: 60\u00b0F.",
+          "hvac_baseline_summer_vacation_cool": "Summer Vacation preset cooling target. Default: 85\u00b0F.",
+          "hvac_baseline_summer_vacation_heat": "Summer Vacation preset heating floor. Default: 58\u00b0F.",
+          "hvac_baseline_shoulder_home_cool": "Shoulder (Mar\u2013May, Oct\u2013Nov) Home preset cooling target. Default: 74\u00b0F.",
+          "hvac_baseline_shoulder_home_heat": "Shoulder Home preset heating floor. Default: 70\u00b0F.",
+          "hvac_baseline_shoulder_sleep_cool": "Shoulder Sleep preset cooling target. Default: 73\u00b0F.",
+          "hvac_baseline_shoulder_sleep_heat": "Shoulder Sleep preset heating floor. Default: 68\u00b0F.",
+          "hvac_baseline_shoulder_away_cool": "Shoulder Away preset cooling target. Default: 80\u00b0F.",
+          "hvac_baseline_shoulder_away_heat": "Shoulder Away preset heating floor. Default: 62\u00b0F.",
+          "hvac_baseline_shoulder_vacation_cool": "Shoulder Vacation preset cooling target. Default: 82\u00b0F.",
+          "hvac_baseline_shoulder_vacation_heat": "Shoulder Vacation preset heating floor. Default: 58\u00b0F.",
+          "hvac_baseline_winter_home_cool": "Winter (Dec\u2013Feb) Home preset cooling target. Default: 72\u00b0F.",
+          "hvac_baseline_winter_home_heat": "Winter Home preset heating floor. Default: 70\u00b0F.",
+          "hvac_baseline_winter_sleep_cool": "Winter Sleep preset cooling target. Default: 70\u00b0F.",
+          "hvac_baseline_winter_sleep_heat": "Winter Sleep preset heating floor. Default: 68\u00b0F.",
+          "hvac_baseline_winter_away_cool": "Winter Away preset cooling target. Default: 78\u00b0F.",
+          "hvac_baseline_winter_away_heat": "Winter Away preset heating floor. Default: 60\u00b0F.",
+          "hvac_baseline_winter_vacation_cool": "Winter Vacation preset cooling target. Default: 80\u00b0F.",
+          "hvac_baseline_winter_vacation_heat": "Winter Vacation preset heating floor. Default: 58\u00b0F.",
           "_reset_all": "Check and save to restore all 24 baseline setpoints to factory defaults. This action requires confirmation on the next screen."
         },
         "sections": {
-          "summer_section": "Summer (Jun–Sep)",
-          "shoulder_section": "Shoulder (Mar–May, Oct–Nov)",
-          "winter_section": "Winter (Dec–Feb)"
+          "summer_section": "Summer (Jun\u2013Sep)",
+          "shoulder_section": "Shoulder (Mar\u2013May, Oct\u2013Nov)",
+          "winter_section": "Winter (Dec\u2013Feb)"
         }
       },
       "coordinator_music_following": {
-        "title": "🎵 Music Following",
+        "title": "\ud83c\udfb5 Music Following",
         "description": "Configure the Music Following Coordinator. Controls how music transfers when a person moves between rooms. Adjust timing parameters to tune transfer behavior for your speaker setup.",
         "data": {
           "mf_cooldown_seconds": "Transfer Cooldown (seconds)",
@@ -1337,11 +1341,11 @@
           "mf_min_confidence": "Minimum transition confidence (0.1-1.0) required to trigger a music transfer. Lower values transfer more aggressively. Default: 0.6.",
           "mf_high_confidence_distance": "Only transfer music when the person's closest BLE scanner is within this range (feet). Tighter than person tracking (10ft) to avoid BLE bleed-through from adjacent rooms. Default: 8.",
           "mf_sleep_suppress": "When on, music does not follow anyone while the house is in SLEEP state. Default: on.",
-          "mf_night_suppress_mode": "Policy for HOME_NIGHT: off (default) = follow as normal; own bedroom only = only transfer to the person's dwell room (NOTE: per-person bedroom mapping is not yet wired — this currently behaves as 'block all' and logs a warning); block all = never transfer at night."
+          "mf_night_suppress_mode": "Policy for HOME_NIGHT: off (default) = follow as normal; own bedroom only = only transfer to the person's dwell room (NOTE: per-person bedroom mapping is not yet wired \u2014 this currently behaves as 'block all' and logs a warning); block all = never transfer at night."
         }
       },
       "coordinator_appliance": {
-        "title": "🔌 Appliances",
+        "title": "\ud83d\udd0c Appliances",
         "description": "Manage the appliance records the passive Appliance Coordinator surfaces in the census. Add a new appliance, or pick one to edit or remove."
       },
       "appliance_form": {
@@ -1363,13 +1367,13 @@
           "room": "Optional room name to attribute the appliance to. Leave blank for house-scope appliances.",
           "power": "Sensors reporting instantaneous power (W). Sums across multiple refs (e.g. two-leg SPAN circuits).",
           "energy": "Cumulative energy sensors (kWh).",
-          "control": "Entities that command the appliance (switch, media_player, climate…). v1 references — v1 commands none.",
-          "state": "Entities whose state describes what the appliance is doing (media_player, climate mode, sensor…).",
+          "control": "Entities that command the appliance (switch, media_player, climate\u2026). v1 references \u2014 v1 commands none.",
+          "state": "Entities whose state describes what the appliance is doing (media_player, climate mode, sensor\u2026).",
           "remove": "When checked, this record is deleted on save."
         }
       },
       "coordinator_optimization": {
-        "title": "🤖 URA Optimizer",
+        "title": "\ud83e\udd16 URA Optimizer",
         "description": "How autonomous should the Optimizer be? Start in Shadow mode and raise only after you trust its findings. The Kill Switch on the Optimizer device pauses everything instantly.",
         "data": {
           "optimizer_autonomy_level": "Autonomy level",
@@ -1429,7 +1433,7 @@
         }
       },
       "coordinator_notifications": {
-        "title": "🔔 Notification Channels",
+        "title": "\ud83d\udd14 Notification Channels",
         "description": "Configure notification channels. Enable channels and set minimum severity thresholds for each. CRITICAL alerts always bypass quiet hours and severity filters.",
         "data": {
           "nm_pushover_enabled": "Pushover Enabled",
@@ -1467,7 +1471,7 @@
         }
       },
       "coordinator_notifications_persons": {
-        "title": "👤 Notification Persons",
+        "title": "\ud83d\udc64 Notification Persons",
         "description": "Configure per-person notification settings. Each person can have their own channel credentials and delivery preferences. Submit once per person.",
         "data": {
           "nm_person_entity": "Person Entity",
@@ -1495,7 +1499,7 @@
         }
       },
       "coordinator_notifications_quiet": {
-        "title": "🌙 Quiet Hours & Safe Word",
+        "title": "\ud83c\udf19 Quiet Hours & Safe Word",
         "description": "Configure quiet hours and the safe word for acknowledging CRITICAL alerts via text reply.",
         "data": {
           "nm_quiet_use_house_state": "Use House State (SLEEP + HOME_NIGHT = quiet)",
@@ -1513,7 +1517,7 @@
         }
       },
       "coordinator_notifications_cooldowns": {
-        "title": "⏱️ Post-Acknowledge Cooldowns",
+        "title": "\u23f1\ufe0f Post-Acknowledge Cooldowns",
         "description": "Configure how long to wait after acknowledging a CRITICAL alert before re-evaluating whether the hazard is still active. If still active, the alert re-fires.",
         "data": {
           "nm_cooldown_smoke": "Smoke / Fire Cooldown",
@@ -1535,7 +1539,7 @@
         }
       },
       "coordinator_toggles": {
-        "title": "⚙️ Enable/Disable Coordinators",
+        "title": "\u2699\ufe0f Enable/Disable Coordinators",
         "description": "Toggle individual coordinators on or off. Disabled coordinators stop processing but retain their configuration and entities. Re-enabling takes effect on next reload.",
         "data": {
           "presence_coordinator_enabled": "Presence Coordinator",
@@ -1549,8 +1553,8 @@
         }
       },
       "coordinator_notifications_volume": {
-        "title": "🔕 Notification Volume & Noise Reduction",
-        "description": "Rung-2 controls (NM Cycle A-2) that reduce alert noise without changing severity semantics: tripped-breaker windowing, lock unavailability dedup, humidity ladder thresholds, CO2/TVOC ceilings, safety-discovery blocklist, and the optimizer HIGH-severity allowlist. Fields left at defaults do not persist — future retunes reach this deployment.",
+        "title": "\ud83d\udd15 Notification Volume & Noise Reduction",
+        "description": "Rung-2 controls (NM Cycle A-2) that reduce alert noise without changing severity semantics: tripped-breaker windowing, lock unavailability dedup, humidity ladder thresholds, CO2/TVOC ceilings, safety-discovery blocklist, and the optimizer HIGH-severity allowlist. Fields left at defaults do not persist \u2014 future retunes reach this deployment.",
         "data": {
           "nm_a1_tripped_breaker_zero_window_s": "Tripped-Breaker Zero-Window (seconds)",
           "nm_a1_tripped_breaker_route_nm": "Route Tripped-Breaker Alerts to NM",
@@ -1572,7 +1576,7 @@
           "nm_a1_tripped_breaker_zero_window_s": "Wait this many seconds of consecutive zero-power reads before treating a breaker as tripped. Prevents momentary meter dropouts from being alerted. Range 0-7200s. Set 0 to disable windowing.",
           "nm_a1_tripped_breaker_route_nm": "When on, tripped-breaker events raise a notification. When off, they are still detected/logged but do not page.",
           "nm_a3_lock_unavailable_dedup_s": "Suppress duplicate 'lock unavailable' notifications for this many seconds after the first. Range 0-604800s (7 days). Set 0 to disable dedup.",
-          "nm_a4_humidity_log_only_pct": "Below this humidity (%), events are logged only — never notified. Must satisfy log-only <= medium <= high (monotonic ladder).",
+          "nm_a4_humidity_log_only_pct": "Below this humidity (%), events are logged only \u2014 never notified. Must satisfy log-only <= medium <= high (monotonic ladder).",
           "nm_a4_humidity_medium_pct": "At or above this humidity (%), events route as MEDIUM severity. Must be >= log-only and <= high.",
           "nm_a4_humidity_high_pct": "At or above this humidity (%), events route as HIGH severity. Must be >= medium.",
           "nm_a4_humidity_swing_delta_pct": "Minimum percentage-point change from prior reading to consider a swing significant. Range 0-100%.",
@@ -1582,13 +1586,13 @@
           "nm_a5_tvoc_sustained_s": "TVOC must stay above the high threshold this many seconds before escalating. Range 0-86400s.",
           "nm_a5_safety_discovery_blocklist": "Entities to exclude from safety auto-discovery (accepts sensor and binary_sensor). Use for known-noisy or non-safety devices.",
           "nm_a2_optimizer_high_allowlist_dimensions": "Optimizer dimensions permitted to raise HIGH-severity alerts. Empty (default) means no dimension escalates to HIGH.",
-          "stuck_signal_nm_enabled": "When on, the stuck-signal watchdog emits notifications for signals that stop updating. Detection continues either way — only the notification is toggled.",
+          "stuck_signal_nm_enabled": "When on, the stuck-signal watchdog emits notifications for signals that stop updating. Detection continues either way \u2014 only the notification is toggled.",
           "stuck_sensor_exclusion_enabled": "When on, stuck sensors are excluded from dutycycle computation (STUCK-SENSOR-1 D1 rung-2 kill switch)."
         }
       },
       "coordinator_notifications_routing": {
-        "title": "📮 Per-Person Routing & Hazard Overrides",
-        "description": "NM Cycle C-2: per-person channel routing matrix, hazard override channels, DND-bypass, mute-default duration, and additive-only life-safety hazard extras. Structured (dict/list) fields accept the shape documented below — the router consumes them directly.",
+        "title": "\ud83d\udcee Per-Person Routing & Hazard Overrides",
+        "description": "NM Cycle C-2: per-person channel routing matrix, hazard override channels, DND-bypass, mute-default duration, and additive-only life-safety hazard extras. Structured (dict/list) fields accept the shape documented below \u2014 the router consumes them directly.",
         "data": {
           "nm_person_routing_matrix": "Per-Person Routing Matrix",
           "nm_person_hazard_overrides": "Per-Person Hazard Overrides",
@@ -1601,12 +1605,12 @@
           "nm_person_hazard_overrides": "Structured mapping: {person_id: {hazard_type: {SEVERITY: {channel: true/false}}}}. Overrides the base matrix for a specific hazard (smoke, co, water_leak, etc.).",
           "nm_person_dnd_bypass_severities": "Structured mapping: {person_id: [SEVERITY, ...]}. Severities in the list bypass Do-Not-Disturb for that person.",
           "nm_mute_default_duration_minutes": "Default duration a mute button silences NM if the operator does not choose a length. Range 0-1440 minutes.",
-          "nm_extra_life_safety_hazards": "Additional hazard types (beyond the built-in rung-1 set) to treat as life-safety. Purely additive — cannot remove built-ins. Leave empty for defaults."
+          "nm_extra_life_safety_hazards": "Additional hazard types (beyond the built-in rung-1 set) to treat as life-safety. Purely additive \u2014 cannot remove built-ins. Leave empty for defaults."
         }
       },
       "signal_responses": {
         "title": "Signal Responses",
-        "description": "Configure how coordinators respond to cross-system signals. All toggles default OFF — enable deliberately after testing.",
+        "description": "Configure how coordinators respond to cross-system signals. All toggles default OFF \u2014 enable deliberately after testing.",
         "data": {
           "hvac_on_hazard_stop_fans": "HVAC: Stop fans on hazard",
           "security_on_hazard_unlock_egress": "Security: Unlock egress doors on hazard",
@@ -1641,7 +1645,7 @@
         }
       },
       "zone_media": {
-        "title": "🎵 Zone Media",
+        "title": "\ud83c\udfb5 Zone Media",
         "description": "Configure how music follows people within this zone.",
         "data": {
           "zone_player_entity": "Zone Media Player",
@@ -1653,7 +1657,7 @@
         }
       },
       "basic_setup": {
-        "title": "🚪 Room Setup",
+        "title": "\ud83d\udeaa Room Setup",
         "description": "Update room name, type, and basic settings.",
         "data": {
           "room_name": "Room Name",
@@ -1683,7 +1687,7 @@
         }
       },
       "sensors": {
-        "title": "📡 Sensors",
+        "title": "\ud83d\udce1 Sensors",
         "description": "Update presence and environmental sensors.",
         "data": {
           "motion_sensors": "Motion Sensors (PIR)",
@@ -1832,17 +1836,17 @@
         }
       },
       "automation_chaining": {
-        "title": "🔗 Automation Chaining",
+        "title": "\ud83d\udd17 Automation Chaining",
         "description": "Choose a trigger group to configure. Bindings are preserved across groups.",
         "menu_options": {
-          "chain_occupancy": "🚪 Occupancy Triggers",
-          "chain_light": "💡 Light Level Triggers",
-          "chain_house_state": "🏠 House State Triggers",
-          "chain_coordinator": "🤖 Coordinator Triggers"
+          "chain_occupancy": "\ud83d\udeaa Occupancy Triggers",
+          "chain_light": "\ud83d\udca1 Light Level Triggers",
+          "chain_house_state": "\ud83c\udfe0 House State Triggers",
+          "chain_coordinator": "\ud83e\udd16 Coordinator Triggers"
         }
       },
       "chain_occupancy": {
-        "title": "🚪 Occupancy Triggers",
+        "title": "\ud83d\udeaa Occupancy Triggers",
         "description": "Bind HA automations to room enter/exit events. These run after URA's built-in automation.",
         "data": {
           "chain_enter": "On room enter",
@@ -1854,7 +1858,7 @@
         }
       },
       "chain_light": {
-        "title": "💡 Light Level Triggers",
+        "title": "\ud83d\udca1 Light Level Triggers",
         "description": "Bind HA automations to lux threshold crossings.",
         "data": {
           "chain_lux_dark": "When room gets dark",
@@ -1866,7 +1870,7 @@
         }
       },
       "chain_house_state": {
-        "title": "🏠 House State Triggers",
+        "title": "\ud83c\udfe0 House State Triggers",
         "description": "Bind HA automations to house state transitions.",
         "data": {
           "chain_house_state_away": "On Away",
@@ -1892,7 +1896,7 @@
         }
       },
       "chain_coordinator": {
-        "title": "🤖 Coordinator Triggers",
+        "title": "\ud83e\udd16 Coordinator Triggers",
         "description": "Bind HA automations to coordinator signals (energy, safety, security).",
         "data": {
           "chain_energy_constraint": "On Energy Constraint",
@@ -1906,11 +1910,11 @@
         }
       },
       "ai_rules": {
-        "title": "🧠 AI Rules",
+        "title": "\ud83e\udde0 AI Rules",
         "description": "Manage AI-powered natural language automation rules for this room.",
         "menu_options": {
-          "ai_rule_add": "➕ Add Rule",
-          "ai_rule_list": "📝 View Rules"
+          "ai_rule_add": "\u2795 Add Rule",
+          "ai_rule_list": "\ud83d\udcdd View Rules"
         }
       },
       "ai_rule_add": {
@@ -1971,7 +1975,7 @@
         },
         "sections": {
           "humidity_fan_advanced": {
-            "name": "Advanced — Humidity Spike Tuning",
+            "name": "Advanced \u2014 Humidity Spike Tuning",
             "data": {
               "humidity_fan_spike_delta_pct": "Spike Size (percentage points above baseline)",
               "humidity_fan_spike_ema_alpha_s": "Baseline Adjustment Speed",
@@ -1986,8 +1990,8 @@
           "climate_backstop": {
             "name": "Thermostat and empty-room hold",
             "data": {
-              "target_temp_heat": "Comfort Range — Low (°F)",
-              "target_temp_cool": "Comfort Range — High (°F)",
+              "target_temp_heat": "Comfort Range \u2014 Low (\u00b0F)",
+              "target_temp_cool": "Comfort Range \u2014 High (\u00b0F)",
               "climate_entity": "Climate/Thermostat Entity (fallback)",
               "hvac_vacancy_hold": "Empty-room hold (day)",
               "hvac_vacancy_hold_night": "Empty-room hold (night)",
@@ -1998,10 +2002,10 @@
               "target_temp_cool": "Upper bound of the comfortable temperature range. Used by the comfort/efficiency score sensors.",
               "climate_entity": "Optional fallback thermostat for zone-thermostat resolution when the zone has no explicit thermostat set.",
               "hvac_vacancy_hold": "Seconds HVAC keeps this room occupied after the last sign of someone, day and evening. After 9 pm, or when away or with guests, it counts from when the room reads empty. Blank = default; 0 = only while seen.",
-              "hvac_vacancy_hold_night": "Used while the house is asleep or waking up; counts from when the room reads empty. Must be ≥ day. Blank = default; 0 = no extra time once empty.",
-              "hvac_skip_entry_wait": "For rooms with short-pulse sensors. When on, any detection immediately switches an Away zone back to Home — no entry wait."
+              "hvac_vacancy_hold_night": "Used while the house is asleep or waking up; counts from when the room reads empty. Must be \u2265 day. Blank = default; 0 = no extra time once empty.",
+              "hvac_skip_entry_wait": "For rooms with short-pulse sensors. When on, any detection immediately switches an Away zone back to Home \u2014 no entry wait."
             },
-            "description": "Defaults — day: closets 1 min, media/utility/general/garage 2, bath/living 3, bedrooms 4. Night: bedrooms/media 30, living 15, bath/garage/utility 10, closets 5."
+            "description": "Defaults \u2014 day: closets 1 min, media/utility/general/garage 2, bath/living 3, bedrooms 4. Night: bedrooms/media 30, living 15, bath/garage/utility 10, closets 5."
           }
         },
         "data_description": {
@@ -2014,14 +2018,14 @@
           "ble_hold_cap_enabled": "After a while, stop keeping the room occupied on a phone's Bluetooth signal alone unless motion or presence sensors agree. Stops a phone left behind from holding the room on.",
           "humidity_fan_control_enabled": "Master switch for humidity/exhaust automation. When OFF, URA does not touch the humidity fan.",
           "wet_room": "Treat this room as a wet room: enables spike detection and post-vacancy run-on by default, and exempts the exhaust from sleep-time force-off.",
-          "humidity_fan_spike_enabled": "Fires the fan when humidity rises sharply above its recent baseline — catches showers before the absolute threshold trips.",
+          "humidity_fan_spike_enabled": "Fires the fan when humidity rises sharply above its recent baseline \u2014 catches showers before the absolute threshold trips.",
           "humidity_fan_presence_runtime_enabled": "After the room empties, keep the exhaust running a little longer to finish venting.",
           "humidity_fan_presence_runtime_base_s": "Minimum run-on after the room empties, in seconds.",
           "humidity_fan_presence_runtime_per_min_s": "Additional run-on time added per minute the room was occupied.",
           "humidity_fan_presence_runtime_cap_s": "Hard cap on the post-vacancy run-on. Must be less than or equal to the Humidity Fan Maximum Run Time.",
           "humidity_fan_threshold": "Humidity level above which the exhaust turns on (absolute threshold).",
           "humidity_fan_timeout": "Once ON, the fan runs at least this long before it's allowed to turn off. Prevents short-cycling.",
-          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces OFF if humidity stays high longer than this — guards against stuck humidity sensors."
+          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces OFF if humidity stays high longer than this \u2014 guards against stuck humidity sensors."
         }
       },
       "sleep_protection": {
@@ -2045,7 +2049,7 @@
         }
       },
       "music_following": {
-        "title": "🎵 Music Following",
+        "title": "\ud83c\udfb5 Music Following",
         "description": "Configure how music follows you into this room.",
         "data": {
           "music_following_enabled": "Enable Music Following",
@@ -2099,6 +2103,61 @@
         "description": "Are you sure? This will clear all 24 saved baseline setpoints and restore factory defaults. This cannot be undone.",
         "data": {},
         "data_description": {}
+      },
+      "options_lighting_behaviour": {
+        "title": "Lighting behaviour",
+        "description": "Role pickers for this room's lights. {summary}\n\n{advanced_hint}",
+        "data": {
+          "lights_on_entry": "Turn on when someone enters",
+          "lights_on_entry_dark_only": "\u2026but only when the room is dark",
+          "night_lights": "Night lights (used during sleep hours)",
+          "lights_leave_on_when_empty": "Leave on when the room empties",
+          "away_turn_off_leave_on": "\u2026but turn them off when the house is Away",
+          "alert_lights": "Alert lights (flashes for notifications)",
+          "light_manual_on_hold_s": "Keep lights I turn on (seconds)",
+          "light_manual_off_cooldown_s": "Keep lights I turn off (seconds)",
+          "light_dark_use_sun_fallback": "Use outdoor light when there's no room sensor",
+          "light_dark_lux_source": "Borrow another room's light sensor",
+          "light_evening_brightness_pct": "Evening brightness",
+          "light_evening_color_kelvin": "Evening colour temperature",
+          "night_light_evening_brightness": "Evening night-light brightness",
+          "night_light_evening_color": "Evening night-light colour",
+          "light_scene_day": "Day scene",
+          "light_scene_evening": "Evening scene",
+          "light_scene_sleep": "Sleep scene"
+        },
+        "data_description": {
+          "lights_on_entry": "The lights that come on when someone enters. Leave empty to use every light in this room.",
+          "lights_on_entry_dark_only": "Subset of the entry list that only comes on when the room is dark.",
+          "night_lights": "Lights used instead of the regular set during sleep hours. Dim + warm settings live in Devices.",
+          "lights_leave_on_when_empty": "These lights are not swept off when the room empties. Everything else is.",
+          "away_turn_off_leave_on": "When the house is Away, sweep off even the leave-on lights. Only matters when the list above is non-empty.",
+          "alert_lights": "Lights that briefly flash to signal notifications. Colour lives in Notifications.",
+          "light_manual_on_hold_s": "Advanced. When someone turns a light on by hand, the room will not turn it off while occupied. It goes off once the room is empty. 0 turns this off.",
+          "light_manual_off_cooldown_s": "Advanced. When someone turns a light off by hand, the room will not turn it back on for this long. 0 turns this off.",
+          "light_dark_use_sun_fallback": "When this room has no working light sensor, treat outdoor light as the source of truth. Off preserves today's 'never dark' behaviour.",
+          "light_dark_lux_source": "Use this sensor's reading if the room's own sensor is missing or offline.",
+          "light_evening_brightness_pct": "Advanced. Brightness for regular lights after dusk but before sleep. Leave empty to use the day setting.",
+          "light_evening_color_kelvin": "Advanced. Colour temperature for regular lights in the evening. Leave empty for no colour change.",
+          "night_light_evening_brightness": "Advanced. Brightness for night lights in the evening. Leave empty to use the day setting.",
+          "night_light_evening_color": "Advanced. Colour temperature for night lights in the evening. Leave empty to use the day setting.",
+          "light_scene_day": "Advanced. When set, entry activates this scene during the day instead of turning lights on one by one.",
+          "light_scene_evening": "Advanced. When set, entry activates this scene in the evening instead of turning lights on one by one.",
+          "light_scene_sleep": "Advanced. When set, entry activates this scene during sleep hours instead of turning night lights on one by one."
+        },
+        "sections": {
+          "auto_manual_devices": {
+            "name": "Auto / manual devices",
+            "data": {
+              "auto_switches": "Auto-controlled switches",
+              "manual_switches": "Manual-only switches"
+            },
+            "data_description": {
+              "auto_switches": "Switches that follow room occupancy alongside the lights.",
+              "manual_switches": "Devices URA never touches; the operator controls them by hand."
+            }
+          }
+        }
       }
     },
     "error": {
@@ -2109,15 +2168,15 @@
       "envoy_required": "Envoy entity is required when Energy Coordinator is enabled.",
       "hvac_hold_night_below_day": "The night hold must be at least as long as the day hold. Raise the night value, or leave one of them blank to use the room type's default.",
       "presence_runtime_cap_above_max": "Presence-runtime cap must be less than or equal to the humidity-fan max runtime.",
-      "comfort_range_inverted": "Comfort Range — Low must be less than or equal to Comfort Range — High.",
-      "envoy_invalid_format": "Doesn't look like an Envoy entity ID — expected format: sensor.envoy_<serial>_<...>",
+      "comfort_range_inverted": "Comfort Range \u2014 Low must be less than or equal to Comfort Range \u2014 High.",
+      "envoy_invalid_format": "Doesn't look like an Envoy entity ID \u2014 expected format: sensor.envoy_<serial>_<...>",
       "envoy_entity_missing": "This entity does not exist in Home Assistant. Verify the Enphase integration is set up.",
-      "derived_entity_missing": "Auto-derived Envoy entity not found in Home Assistant — serial may be wrong, or the Enphase integration is partial.",
+      "derived_entity_missing": "Auto-derived Envoy entity not found in Home Assistant \u2014 serial may be wrong, or the Enphase integration is partial.",
       "envoy_derived_missing": "One or more critical Envoy-derived entities are missing. Check that the Enphase integration is fully set up for this Envoy serial.",
-      "cover_temp_hysteresis_too_small": "Cover Open Temp must be at least 3°F below Cover Close Temp to prevent solar-gain flapping. Adjust either value and try again.",
-      "baseline_preset_invalid_deadband": "Each season/preset row's Cool High must be at least 3°F above its Heat Low. Adjust the values and try again.",
+      "cover_temp_hysteresis_too_small": "Cover Open Temp must be at least 3\u00b0F below Cover Close Temp to prevent solar-gain flapping. Adjust either value and try again.",
+      "baseline_preset_invalid_deadband": "Each season/preset row's Cool High must be at least 3\u00b0F above its Heat Low. Adjust the values and try again.",
       "vacancy_grace_constrained_exceeds_normal": "Energy-Saving Zone Vacancy Delay must be less than or equal to the normal Zone Vacancy Delay.",
-      "cover_and_vacancy_combined": "Two settings need fixing: Cover Open Temp must be at least 3°F below Cover Close Temp, AND Energy-Saving Zone Vacancy Delay must be ≤ the normal Zone Vacancy Delay.",
+      "cover_and_vacancy_combined": "Two settings need fixing: Cover Open Temp must be at least 3\u00b0F below Cover Close Temp, AND Energy-Saving Zone Vacancy Delay must be \u2264 the normal Zone Vacancy Delay.",
       "confirm_name_mismatch": "That doesn't match the zone name. Type the zone name exactly to confirm removal.",
       "name_required": "Name is required.",
       "room_name_exists": "A room with this name already exists",
@@ -2135,12 +2194,12 @@
   "issues": {
     "energy_envoy_invalid": {
       "title": "Energy Coordinator: Envoy entity validation failed",
-      "description": "The Energy Coordinator did not start because envoy entity validation failed at startup. Errors: {errors}.\n\nFix via Coordinator Manager → Configure → Energy. Pick any Envoy sensor whose serial matches your installed Envoy. URA auto-derives all related entities from that serial.",
+      "description": "The Energy Coordinator did not start because envoy entity validation failed at startup. Errors: {errors}.\n\nFix via Coordinator Manager \u2192 Configure \u2192 Energy. Pick any Envoy sensor whose serial matches your installed Envoy. URA auto-derives all related entities from that serial.",
       "fix_flow": {
         "step": {
           "confirm": {
             "title": "Re-validate Envoy entity",
-            "description": "Current errors: {errors}.\n\n1. Open Settings → Devices & Services → URA: Coordinator Manager → Configure → Energy.\n2. Set the Envoy Sensor field to a working sensor whose serial matches your installed Envoy.\n3. Save.\n4. Come back here and click Submit — URA will re-validate and reload the integration if it passes."
+            "description": "Current errors: {errors}.\n\n1. Open Settings \u2192 Devices & Services \u2192 URA: Coordinator Manager \u2192 Configure \u2192 Energy.\n2. Set the Envoy Sensor field to a working sensor whose serial matches your installed Envoy.\n3. Save.\n4. Come back here and click Submit \u2014 URA will re-validate and reload the integration if it passes."
           }
         },
         "error": {
@@ -2162,25 +2221,25 @@
       "optimizer_autonomy_level": {
         "name": "Autonomy Level",
         "state": {
-          "advisory": "Observe only — no actions",
-          "shadow": "Shadow mode — predicted actions, no actuation (default)",
-          "reversible_device": "Reversible devices only — lights, fans, HVAC setpoints",
-          "propose_config": "Propose config changes — 30s veto window",
-          "immediate_config": "Apply config changes immediately — ±20% clamp",
-          "unbounded": "Unbounded — no allowlist, no clamp (NOT RECOMMENDED)",
-          "pending_advisory": "Pending — Observe only",
-          "pending_shadow": "Pending — Shadow mode",
-          "pending_reversible_device": "Pending — Reversible devices only",
-          "pending_propose_config": "Pending — Propose config changes",
-          "pending_immediate_config": "Pending — Apply config changes immediately",
-          "pending_unbounded": "Pending — Unbounded"
+          "advisory": "Observe only \u2014 no actions",
+          "shadow": "Shadow mode \u2014 predicted actions, no actuation (default)",
+          "reversible_device": "Reversible devices only \u2014 lights, fans, HVAC setpoints",
+          "propose_config": "Propose config changes \u2014 30s veto window",
+          "immediate_config": "Apply config changes immediately \u2014 \u00b120% clamp",
+          "unbounded": "Unbounded \u2014 no allowlist, no clamp (NOT RECOMMENDED)",
+          "pending_advisory": "Pending \u2014 Observe only",
+          "pending_shadow": "Pending \u2014 Shadow mode",
+          "pending_reversible_device": "Pending \u2014 Reversible devices only",
+          "pending_propose_config": "Pending \u2014 Propose config changes",
+          "pending_immediate_config": "Pending \u2014 Apply config changes immediately",
+          "pending_unbounded": "Pending \u2014 Unbounded"
         }
       }
     },
     "switch": {
       "presence_face_matching": {
         "name": "Presence Face Matching",
-        "description": "Use face-recognition results to identify the person during transit/path validation and presence trust. When ON, camera face events are considered by the transit validator and the presence coordinator; when OFF, the same events are still processed but not attributed to a specific person. Toggling this switch takes effect within seconds — no integration reload."
+        "description": "Use face-recognition results to identify the person during transit/path validation and presence trust. When ON, camera face events are considered by the transit validator and the presence coordinator; when OFF, the same events are still processed but not attributed to a specific person. Toggling this switch takes effect within seconds \u2014 no integration reload."
       },
       "name_people_at_doors": {
         "name": "Name People at Doors",
@@ -2195,21 +2254,21 @@
       },
       "hvac_ac_nudge": {
         "name": "AC Nudge",
-        "description": "Soft-nudge detection for AC overshoot. When ON, an overshoot + sustained kWh-rate triggers a small temporary bump of the cool setpoint to coax the compressor to ramp down. Independent of AC Reset — turning Nudge OFF skips soft-nudge detection but AC Reset (if also ON) can still be invoked by direct triggers."
+        "description": "Soft-nudge detection for AC overshoot. When ON, an overshoot + sustained kWh-rate triggers a small temporary bump of the cool setpoint to coax the compressor to ramp down. Independent of AC Reset \u2014 turning Nudge OFF skips soft-nudge detection but AC Reset (if also ON) can still be invoked by direct triggers."
       },
       "hvac_egress_window_pause": {
         "name": "Egress Window Pause",
-        "description": "When ON (default), leaving an egress window open past the Egress Pause Threshold pauses that room's HVAC zone (hvac_mode: off). Designed for kid-forgetfulness — keeps the compressor from running against an open window. Resumes after all egress windows have been closed for the Egress Resume Delay. Manual override during pause engages a 1-hour cooldown."
+        "description": "When ON (default), leaving an egress window open past the Egress Pause Threshold pauses that room's HVAC zone (hvac_mode: off). Designed for kid-forgetfulness \u2014 keeps the compressor from running against an open window. Resumes after all egress windows have been closed for the Egress Resume Delay. Manual override during pause engages a 1-hour cooldown."
       }
     },
     "number": {
       "hvac_egress_threshold_min": {
         "name": "Egress Pause Threshold",
-        "description": "Minutes an egress window must stay open before its HVAC zone pauses. Default 3 — short enough to catch a forgotten-open door, long enough to avoid pausing on a quick walk-through."
+        "description": "Minutes an egress window must stay open before its HVAC zone pauses. Default 3 \u2014 short enough to catch a forgotten-open door, long enough to avoid pausing on a quick walk-through."
       },
       "hvac_egress_resume_delay_min": {
         "name": "Egress Resume Delay",
-        "description": "Minutes ALL egress windows in a zone must stay closed before URA restores the saved HVAC mode + preset. Default 1 — keeps the compressor from short-cycling if the door is bumped back open."
+        "description": "Minutes ALL egress windows in a zone must stay closed before URA restores the saved HVAC mode + preset. Default 1 \u2014 keeps the compressor from short-cycling if the door is bumped back open."
       }
     },
     "binary_sensor": {
@@ -2242,7 +2301,7 @@
       },
       "optimizer_confirm_escalation": {
         "name": "Confirm Escalation",
-        "description": "Commit a staged Optimizer autonomy escalation. Only available when the Autonomy Level select shows a 'Pending — ...' state."
+        "description": "Commit a staged Optimizer autonomy escalation. Only available when the Autonomy Level select shows a 'Pending \u2014 ...' state."
       },
       "optimizer_cancel_escalation": {
         "name": "Cancel Escalation",
@@ -2250,7 +2309,7 @@
       },
       "optimizer_reset_settings": {
         "name": "Reset Optimizer Settings",
-        "description": "Strip every Optimizer config knob (autonomy level, confidence gate, rate cap, quiet-hours source, deny-list, LLM settings) back to defaults. The Kill Switch is preserved — release it manually if you need to."
+        "description": "Strip every Optimizer config knob (autonomy level, confidence gate, rate cap, quiet-hours source, deny-list, LLM settings) back to defaults. The Kill Switch is preserved \u2014 release it manually if you need to."
       },
       "optimizer_run_cycle_now": {
         "name": "Run Cycle Now",
