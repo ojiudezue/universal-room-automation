@@ -192,6 +192,10 @@ from .const import (
     CONF_NIGHT_LIGHTS,
     CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     CONF_NIGHT_LIGHT_SLEEP_COLOR,
+    CONF_NIGHT_LIGHT_SLEEP_HUE,
+    DEFAULT_NIGHT_LIGHT_SLEEP_HUE,
+    NIGHT_LIGHT_SLEEP_HUE_RED,
+    NIGHT_LIGHT_SLEEP_HUE_WARM_WHITE,
     CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
     CONF_NIGHT_LIGHT_DAY_COLOR,
     DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
@@ -11317,6 +11321,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS)
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=1, max=100, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="%")
+            ),
+            vol.Optional(
+                CONF_NIGHT_LIGHT_SLEEP_HUE,
+                default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_HUE, DEFAULT_NIGHT_LIGHT_SLEEP_HUE),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[NIGHT_LIGHT_SLEEP_HUE_RED, NIGHT_LIGHT_SLEEP_HUE_WARM_WHITE],
+                    translation_key="night_light_sleep_hue",
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
             ),
             vol.Optional(
                 CONF_NIGHT_LIGHT_SLEEP_COLOR,
