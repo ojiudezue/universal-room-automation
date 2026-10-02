@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "172",
+  "author": "ojiudezue",
+  "session_id": "claude_20261002_053047_ship_v5_103_30",
+  "timestamp": "2026-10-02T05:30:47Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.30 shipped: Lighting menu label + colour-temperature slider",
+  "summary": "Lighting menu label + colour-temperature slider",
+  "why": "The operator found the new lighting menu row blank and the kelvin fields unusable: most people cannot map colour to a kelvin number. HA's colour-temperature selector shows the colour itself, so no custom swatch work is needed; guard tests stop both regressions recurring.",
+  "implications": "Shipped ROOM-LIGHTING-SETUP-REDESIGN-1 at v5.103.30; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.30.md (Live criteria).",
+  "revisit_trigger": "If any room menu row is blank or a typed kelvin field reappears, reopen.",
+  "refs": {
+    "cards": [
+      "ROOM-LIGHTING-SETUP-REDESIGN-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.30.md"
+    ],
+    "release_notes": "The new Lighting step's menu item is now labelled 'Light Roles & Looks', and colour-temperature fields use HA's shaded colour-temperature slider instead of typed kelvin numbers."
+  }
+}
