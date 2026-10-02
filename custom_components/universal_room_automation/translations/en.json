@@ -606,7 +606,7 @@
           "notifications": "🔔 Notifications",
           "zone_rooms": "🏠 Zone Rooms",
           "zone_media": "🎵 Zone Media",
-          "options_lighting_behaviour": "💡 Light Roles & Looks"
+          "options_lighting_behaviour": "💡 Lighting"
         }
       },
       "manage_zones": {
@@ -2127,7 +2127,13 @@
           "night_light_evening_color": "Evening night-light colour",
           "light_scene_day": "Day scene",
           "light_scene_evening": "Evening scene",
-          "light_scene_sleep": "Sleep scene"
+          "light_scene_sleep": "Sleep scene",
+          "entry_light_action": "Lights on Entry",
+          "exit_light_action": "Lights on Exit",
+          "illuminance_dark_threshold": "Dark Threshold (lux)",
+          "light_brightness_pct": "Light Brightness %",
+          "light_transition_seconds_on": "Fade-In Time (seconds)",
+          "light_transition_seconds_off": "Fade-Out Time (seconds)"
         },
         "data_description": {
           "lights_on_entry": "The lights that come on when someone enters. Leave empty to use every light in this room.",
@@ -2146,7 +2152,13 @@
           "night_light_evening_color": "Advanced. Colour temperature for night lights in the evening. Leave empty to use the day setting.",
           "light_scene_day": "Advanced. When set, entry activates this scene during the day instead of turning lights on one by one.",
           "light_scene_evening": "Advanced. When set, entry activates this scene in the evening instead of turning lights on one by one.",
-          "light_scene_sleep": "Advanced. When set, entry activates this scene during sleep hours instead of turning night lights on one by one."
+          "light_scene_sleep": "Advanced. When set, entry activates this scene during sleep hours instead of turning night lights on one by one.",
+          "entry_light_action": "What to do with lights when someone enters the room",
+          "exit_light_action": "What to do with lights when the room becomes vacant",
+          "illuminance_dark_threshold": "Lux level below which the room is considered 'dark'",
+          "light_brightness_pct": "Brightness level when turning lights on (1-100%)",
+          "light_transition_seconds_on": "Fade-in time when turning lights on",
+          "light_transition_seconds_off": "Fade-out time when turning lights off"
         },
         "sections": {
           "auto_manual_devices": {
@@ -2158,6 +2170,15 @@
             "data_description": {
               "auto_switches": "Switches that follow room occupancy alongside the lights.",
               "manual_switches": "Devices URA never touches; the operator controls them by hand."
+            }
+          },
+          "reconcile_advanced": {
+            "name": "Return-to-room reconcile (advanced)",
+            "data": {
+              "flap_sensitivity": "Flap sensitivity"
+            },
+            "data_description": {
+              "flap_sensitivity": "How quickly to quarantine a sensor that toggles rapidly. Relaxed = tolerant of flapping; Normal = default; Aggressive = quarantine sooner."
             }
           }
         }

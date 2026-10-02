@@ -600,7 +600,10 @@ class TestD3SplitOptionsStep:
         flow = _make_options_flow(data={CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM})
         result = await flow.async_step_init()
         opts = result["menu_options"]
-        assert "options_lighting" in opts
+        # 2026-10-02: the old options_lighting fields merged into the one
+        # Lighting step (options_lighting_behaviour); one menu item, not two.
+        assert "options_lighting_behaviour" in opts
+        assert "options_lighting" not in opts
         assert "options_covers" in opts
         assert "automation_behavior" not in opts
 
