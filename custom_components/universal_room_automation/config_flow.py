@@ -2149,14 +2149,14 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             vol.Optional(CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS, default=DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=1, max=100, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="%")
             ),
-            vol.Optional(CONF_NIGHT_LIGHT_SLEEP_COLOR, default=DEFAULT_NIGHT_LIGHT_SLEEP_COLOR): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1000, max=6500, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="K")
+            vol.Optional(CONF_NIGHT_LIGHT_SLEEP_COLOR, default=DEFAULT_NIGHT_LIGHT_SLEEP_COLOR): selector.ColorTempSelector(
+                selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
             ),
             vol.Optional(CONF_NIGHT_LIGHT_DAY_BRIGHTNESS, default=DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=1, max=100, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="%")
             ),
-            vol.Optional(CONF_NIGHT_LIGHT_DAY_COLOR, default=DEFAULT_NIGHT_LIGHT_DAY_COLOR): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1000, max=6500, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="K")
+            vol.Optional(CONF_NIGHT_LIGHT_DAY_COLOR, default=DEFAULT_NIGHT_LIGHT_DAY_COLOR): selector.ColorTempSelector(
+                selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
             ),
         })
 
@@ -11321,8 +11321,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_NIGHT_LIGHT_SLEEP_COLOR,
                 default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_COLOR, DEFAULT_NIGHT_LIGHT_SLEEP_COLOR)
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1000, max=6500, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="K")
+            ): selector.ColorTempSelector(
+                selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
             ),
             vol.Optional(
                 CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
@@ -11333,8 +11333,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_NIGHT_LIGHT_DAY_COLOR,
                 default=self._get_current(CONF_NIGHT_LIGHT_DAY_COLOR, DEFAULT_NIGHT_LIGHT_DAY_COLOR)
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1000, max=6500, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="K")
+            ): selector.ColorTempSelector(
+                selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
             ),
             vol.Optional(
                 CONF_FANS,
@@ -11745,11 +11745,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_LIGHT_EVENING_COLOR_KELVIN)
                 or vol.UNDEFINED,
                 description={"advanced": True},
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1000, max=8000, step=50, unit_of_measurement="K",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
+            ): selector.ColorTempSelector(
+                selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
             ),
             vol.Optional(
                 CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
@@ -11767,11 +11764,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_NIGHT_LIGHT_EVENING_COLOR)
                 or vol.UNDEFINED,
                 description={"advanced": True},
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1000, max=8000, step=50, unit_of_measurement="K",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
+            ): selector.ColorTempSelector(
+                selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
             ),
             # Slice E D6: optional per-slot scenes. When set, entry calls
             # scene.turn_on instead of computing per-light brightness/colour;
