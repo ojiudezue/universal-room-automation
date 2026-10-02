@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "175",
+  "author": "ojiudezue",
+  "session_id": "claude_20261002_053943_ship_v5_103_33",
+  "timestamp": "2026-10-02T05:39:43Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.33 shipped: One darkness setting per room",
+  "summary": "One darkness setting per room",
+  "why": "Merging the lighting menus left two only-when-dark controls on one form; the operator asked to dedup. The room-wide choice covers almost every room, so it stays primary and the per-light list becomes an Advanced exception with plain text explaining when it applies.",
+  "implications": "Shipped ROOM-LIGHTING-SETUP-REDESIGN-1 at v5.103.33; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.33.md (Live criteria).",
+  "revisit_trigger": "If anyone sets dark-only lights expecting them to work under Only when dark, reopen.",
+  "refs": {
+    "cards": [
+      "ROOM-LIGHTING-SETUP-REDESIGN-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.33.md"
+    ],
+    "release_notes": "Turn lights on when someone enters: Never / Always / Only when dark is the room's darkness setting; the per-light 'Wait for dark' list is an Advanced exception used only when the room is set to Always. Labels only, no behaviour change."
+  }
+}
