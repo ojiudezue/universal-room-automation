@@ -9,6 +9,21 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1@2026-10-02T02:55:00"
+    at: "2026-10-02T02:55:00"
+    outcome: built-to-review
+    headline: "Music following has not moved music since May because of a person-name mismatch; the fix is reviewed and the full suite is clean vs develop. Ready for your ship call. Once shipped, music will start following people again."
+    acknowledged: false
+  - fid: "ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1@2026-10-02T02:55:00"
+    at: "2026-10-02T02:55:00"
+    outcome: built-to-review
+    headline: "Anomaly baselines were never saved across restarts for 4 coordinators; the fix adds a periodic save. Full suite vs develop: no new failures. Ready for your ship call (in review)."
+    acknowledged: false
+  - fid: "URA-ATTRIBUTE-CHURN-1@2026-10-02T02:55:00"
+    at: "2026-10-02T02:55:00"
+    outcome: built-to-review
+    headline: "Sensor attribute churn fix (stops sensors rewriting history rows every few seconds): the full test suite against current develop shows no new failures. Ready for your ship call (in review, not deployed)."
+    acknowledged: false
   - fid: "FRONT-SIDE-PTZ-CHATTER-1@2026-10-02T02:10:00"
     at: "2026-10-02T02:10:00"
     outcome: measured
@@ -688,7 +703,7 @@ cards:
   status: review
   groom_2026_09_29: 'MOVED in_progress -> review. Built and reviewed: reviews_2026_09_27 A SHIP + B SHIP. Fix-up dc513cac4 (house safety-alert floor, boundary tests), review record c8776ff26. The branch feature/safety-humidity-junk-floor is 4 ahead / 55 behind develop and NOT merged, so it needs a rebase + re-run before it rides the next release. No build work remains.'
   created: '2026-09-27 02:40'
-  updated: '2026-09-29 01:05'
+  updated: "2026-10-02 02:55"
   live_2026_09_27_0230: 'LIVE at ~02:30 CDT, and this is the discriminating observation: binary_sensor.ura_safety_coordinator_safety_alert = ON and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24. The only active hazard is low_humidity Study A value 0.0 from the junk reading, while the sensor has read 46-49% since. The house is showing a safety warning right now purely because of this defect. It will clear at the next restart (the deploy), and the reason it never self-clears is carded separately as SAFETY-HAZARD-NEVER-CLEARS-1.'
   reviews_2026_09_27: 'Review A (local correctness/edges/consumers): SHIP. M1 MEDIUM, a missed site: the whole-house SafetyAlertBinarySensor in aggregation.py:1359-1365 has its own humidity < 25 check; orchestrator-verified. Plus L1 (chip blips off for 1 s on a real trip; acceptable, snapshot semantics) and L2 (no 5.0 boundary tests at the chip / process_sensor sites). Review B (state/lifecycle/ripple): SHIP. The rate-skip is strictly better, there are no stuck or wrongly cleared hazards, and no actuation ripple (ConstraintActions are never executed). Four out-of-scope findings were carded: SAFETY-HAZARD-NEVER-CLEARS-1, SAFETY-RATE-DETECTOR-DEAD-WINDOW-1 (orchestrator-verified in the live DB: 27 rate samples ever), SAFETY-RECONNECT-ZERO-SIBLINGS-1 (freeze: 0 occurrences ever; fan: to measure), and the observability LOW, folded into the fix-up. Fix-up dispatched for M1 + L2 + the debug log.'
   refinement_status: initial
@@ -715,10 +730,11 @@ cards:
   parsimony:
     problem: Humidity readings below 5% (physically impossible indoors) raise low-humidity safety alerts and chip trips.
     verdict: SIMPLIFY (plausibility floor only)
-  next: 'SHIP (me): rebase feature/safety-humidity-junk-floor onto develop (55 behind), re-run its tests + a name-diff, merge into the next release with its README section (79a10d403).'
+  next: "SHIP (on your next deploy): merge feature/safety-humidity-junk-floor (b33174d65) with its README section (79a10d403). Merges cleanly onto develop; batch name-diff clean 10-02."
   links:
     related: [NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26, ENVOY-STREAM-SOC-TIER-1]
     context: 'Found by the empty-house experiment probe. Same failure SHAPE as ENVOY-STREAM-SOC-TIER-1 constraint 3.8, where a device emits a junk 0 on reconnect. That is a recurring pattern (reconnect-zero) worth a QUALITY_CONTEXT bug-class note.'
+  validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: WIFI-ACTUATOR-FLEET-FLAP-1
   title: About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss
   thread: presence
@@ -29980,9 +29996,9 @@ cards:
   reviewed_2026_10_01_overnight: 'FIX-UP 2 RE-REVIEWED + REBASED (overnight 10-01). Rebased onto develop with no conflicts -> 651216a8e (0 behind). 4 mutation drills re-run, each RED on the expected test, restored. Two framing-disjoint reviews, both SHIP: A (correctness + consumers) - attributes stable in every phase (sensor-active / countdown / held / vacant; producer coordinator.py ~3697-3757), HVAC release_at stable, cooldowns fixed per alert; no reader of the dropped/renamed keys in custom_components, the PWA repo (Safety.tsx reads the cooldowns state only), docs, live automations or lovelace. B (lifecycle/recorder) - restore path never read the dropped keys; no internal logic reads them from hass.states; HA core suppresses identical writes (core.py:2313-2314, :2333-2350 fire only state_reported), so stable dicts really stop state_changed rows. LOWs (not fixed): test helper sets the phase by hand, so a future countdown re-stamp would not be caught; no release_at test; doc mentions of last_evidence_at in README_v5.103.20 / PLANNING_hvac_fast_occupancy_response.md need a write-back at ship. Worktree hygiene: the branch worktree carries a stray uncommitted const.py edit (DEFAULT_CHATTER_BURST_K 10->20, an unrestored drill from an earlier run, NOT in any commit); my restore was permission-denied, so validation uses a fresh detached worktree at 651216a8e. Pending: serial full-suite name-diff (queued).'
   title: Two URA entities re-publish every couple of seconds only because a timestamp or countdown attribute ticked, adding HA CPU load and a history row each time
   thread: platform
-  status: 'in_progress'
+  status: "review"
   created: '2026-09-28 19:10'
-  updated: '2026-10-01 04:15'
+  updated: "2026-10-02 02:55"
   approval: implied
   tags: [tier-1, ha-cpu, recorder]
   origin:
@@ -29994,7 +30010,7 @@ cards:
   - 'last_motion: grep consumers (dashboards/PWA/automations/URA readers) before dropping; if something reads it, keep it on a slower-changing surface (e.g. the room occupancy sensor only) and mark it unrecorded.'
   - 'cooldowns: publish last_alert + cooldown_until (static per alert); drop age_seconds / max_remaining_seconds.'
   - Sweep every URA entity for the same shape (live-ticking attributes with a steady state), not just these two; measure each against the recorder.
-  next: 'IN PROGRESS (me, overnight): serial full-suite name-diff running from a clean checkout; if clean -> review lane for your ship call. Also DO (any time): discard the stray const.py edit in .claude/worktrees/agent-a340d6e8716b76184 (git checkout -- custom_components/universal_room_automation/const.py).'
+  next: "SHIP (on your next deploy): merge feature/ura-attribute-churn (651216a8e) with its README section; write back README_v5.103.20 / PLANNING_hvac_fast_occupancy_response.md at ship. Also DO (any time): discard the stray uncommitted const.py edit in .claude/worktrees/agent-a340d6e8716b76184 (DEFAULT_CHATTER_BURST_K 10->20, an unrestored drill; not in any commit)."
   links:
     related: [RECORDER-BLOAT-LOGFLOOD-1, HA-CPU-LOAD-REVIEW-1]
   rank:
@@ -30003,6 +30019,7 @@ cards:
     effort: 2
   verify_2026_09_29_overnight: 'CARD-WAS-WRONG on scope. It said last_motion was the ONLY changing attribute. Recorder, last 26h: binary_sensor.living_room_occupied had 22,722 rows, 22,653 of them rewrites with the same state, driven by idle_duration 12,828, last_motion 6,020 and timeout 3,845. binary_sensor.living_room_living_room_hvac_occupied had 4,234 rows, 4,193 same-state rewrites, driven by last_evidence_at 3,942. A last_motion-only fix removes a minority of the writes. First build (feature/ura-attribute-churn @a25ad2043): last_motion dropped from OccupiedBinarySensor; the safety cooldowns sensor now publishes a static last_alert + cooldown_until (age_seconds / max_remaining_seconds dropped). Consumers checked: no live automation or dashboard reads these attributes, and the PWA reads the cooldowns STATE only. The tick''s root is coordinator.py:3604 _last_motion_time = now on every inference pass. Builder sent back to extend. Sweep candidates for a follow-up (not fixed here): sensor.py:2517, 3751, 3900-3912, 13241, 14018, 14232-14276, 14631, 16388.'
   fixup2_2026_09_29_overnight: 'Both reviews returned FIX-REQUIRED on fix-up 1 (converged HIGH): timeout_at and last_occupied_at were built from stamps the coordinator re-stamps on every refresh (coordinator.py:3604, 3638-3640), so the churn moved instead of stopping in occupied rooms, and the clock-only tests were hollow. Fix-up 2 (bef9d9aef): timeout_at is published only in the countdown phase, and last_occupied_at only while vacant; both are None otherwise, so the dict changes only on real phase changes. last_evidence_at is dropped. The cooldowns sub-dict is now {last_alert, window_until} (renamed: 3600 s upper bound, real windows are shorter by severity). Comments corrected: _unrecorded_attributes only strips the stored blob and does NOT stop state_changed rows. 5 behavioural tests advance the INTERNAL stamps (not just the clock). 4 mutation drills, each red on the right test. Targeted: 103 passed, 1 pre-existing failure (test_low_cleanup::test_hvac_observation_switch_has_deferred_restore, also fails on develop). Full-suite name-diff pending.'
+  validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1
   groom_2026_09_29_arc: 'Shipped v5.103.23 (Batch B Part B).'
   title: A pre-arrival pre-cool keeps the zone on URA's temporary setpoints for up to 2 hours and lowers them another 2 degrees on every decision pass
@@ -30229,9 +30246,9 @@ cards:
   gate_2026_10_01_overnight: 'FOUR-STEP GATE re-run 10-01. (1) VALIDITY: STILL-REAL - live metric_baselines (ssh sqlite3 -readonly, 10-01 02:40 CDT): presence 2026-09-14, security 09-04, safety 09-04, safety_rate 09-11, music_following 05-12, while energy/hvac/memory were saved within the last 3 h. BLOCKER CLEARED: the anomaly-blind-metrics cycle merged in v5.103.25 (7b42d34a2), so the collision noted on 09-30 is gone. (1b) CONFIG-FIRST: no setting saves baselines. (2) PRIOR ART: REUSE the cadence the healthy coordinators already use + the manager.py:617-633 stop-listener pattern; save_baselines exists (coordinator_diagnostics.py:1699). (3) PARSIMONY: BUILD the smallest version - same cadence as the healthy ones + stop save, bounded to one save per detector per period. (4) COST/BENEFIT: additive, low write volume (a write-volume test is required given the 06-09 write-flood incident); value is real because the restart storm resets these detectors to 2-8-week-old snapshots. Tier 2: build + 2 framing-disjoint reviews to review lane, NO deploy (overnight).'
   title: Presence, security, safety and music-following anomaly baselines are only saved when the integration unloads, which never happens on an HA restart, so their learning is thrown away every restart
   thread: platform
-  status: 'in_progress'
+  status: "review"
   created: '2026-09-29 15:00'
-  updated: '2026-10-01 06:10'
+  updated: "2026-10-02 02:55"
   approval: implied
   tags: [anomaly, persistence, restart, found-in-review]
   origin:
@@ -30239,18 +30256,19 @@ cards:
     gist: anomaly-blind plan review M1 (docs/reviews/code-review/plan_review_anomaly_detector_blind_metrics.md)
   why: 'HA does not unload config entries on stop (config_entries.py:931-933, :2176-2180 in the venv HA 2026.2.3; live 2026.9.x source not yet checked), and URA has no stop listener, so teardown-only baseline saves never run on a restart. Live DB metric_baselines last_updated: presence 2026-09-14, security 2026-09-04, safety 2026-09-04, music_following 2026-05-12. HVAC (saved at daily rollover) and coordinator_manager (saved each boot) are current. With the restart storm (8+ restarts on 09-28), those coordinators relearn from a 2-week-old snapshot each boot.'
   gate_2026_09_30_overnight: 'VALIDITY: STILL-REAL (live metric_baselines last_updated: presence 2026-09-14, security 2026-09-04, safety 2026-09-04, safety_rate 2026-09-11, music_following 2026-05-12; energy/hvac/memory/CM current). PRIOR-ART: a STOP hook pattern already exists (manager.py:617-633 house-state _on_ha_stop via async_listen_once(EVENT_HOMEASSISTANT_STOP)) - REUSE it; save_baselines per coordinator already exists. NOT BUILT overnight - COLLISION: the anomaly-blind-metrics cycle (PLANNING_anomaly_detector_blind_metrics.md, worktree feature/anomaly-blind-metrics) is in flight and edits the same coordinator_diagnostics.py save_baselines (D1, the list() snapshot at :1392), and RESTART-SAFETY-DOCTRINE-1 F1/F2 cover the same stop-time saves. Build this right after that cycle merges, on top of its D1 fix.'
-  next: 'IN PROGRESS (me, overnight): serial full-suite name-diff for 93cf9eabf; if clean -> review lane for your ship call (live check after deploy + one restart: metric_baselines.last_updated for presence/security/safety/music_following within the hour).'
+  next: "SHIP (on your next deploy): merge fix/anomaly-baselines-periodic-save (93cf9eabf). Live check after deploy + one restart: metric_baselines.last_updated for presence/security/safety/music_following moves to the restart time."
   links:
     related: [ANOMALY-SAVE-BASELINES-DICT-MUTATION-1, HVAC-ANOMALY-BLIND-1]
   rank: {value: 5, time_criticality: 4, effort: 2}
+  validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1
   fixup_reviewed_2026_10_01_overnight: 'FIX-UP REVIEWED + REBASED (overnight 10-01). Rebased onto develop -> 5e3c13024 (0 behind). All three review findings ADDRESSED at file:line: HIGH kill-switch (_coordinator_enabled music_following.py:449-472, gate :487-491), MED-1 DND-off negative tests (TestCoordinatorEnabledKillSwitch), MED-2 canonical-key dedupe (:218-286, __init__.py:3036-3049). -k music: 171 passed. Drills RED then restored on both sites. Fix-up review (framing A): SHIP - the gate reads the same key and the same True default as the operator switch (switch.py:258-266, :695-697), so no silent disable; missing CM entry only possible before first-install creation, re-read every transition; no other enabled-set reader broken. LOWs noted, not fixed: INFO log on every transition while the switch is off (DEBUG would be quieter); dead fallback lambda at __init__.py:3040. README draft: docs/planning/DRAFT_README_music_following_name_match.md (flags that music will START following people again on deploy). Pending: serial full-suite name-diff (queued).'
   operator_2026_09_29: 'Operator: "Rarely use it. But will test today."'
   title: Music following has recorded no transfers since 2026-05-12 - idle, broken, or unused?
   thread: music
-  status: in_progress
+  status: "review"
   created: '2026-09-29 15:00'
-  updated: '2026-10-01 04:10'
+  updated: "2026-10-02 02:55"
   refinement_status: refined
   approval: implied
   tags: [music-following, found-in-review, tier-1, no-fabrication-verify]
@@ -30291,8 +30309,9 @@ cards:
     gist: anomaly D0 probe + plan review
   why: 'metric_baselines for music_following (transfer_success_rate, cooldown_frequency) hold 1572 samples, mean 0 / std 0, last updated 2026-05-12, identical live and in the DB. Either the feature has not fired a transfer in 4.5 months (disabled / broken / unused), or its metrics stopped recording. Its anomaly sensor reads "nominal", which means nothing.'
   build_2026_09_30_overnight: 'BUILT on fix/mf-enabled-person-name-match (652ba9863): _person_key helper + normalized enabled check at music_following.py:437-451; 4 tests incl. a wire-in through _on_person_transition; drill RED then restored; music tests 163 pass. REVIEWS: A (correctness) SHIP + 2 MEDIUM (no DND-off negative test; normalize at storage + the __init__.py:3036 boot prefs lookup keyed by name while prefs are keyed by entity id). B (newly-live path) SHIP + HIGH pre-existing-now-exposed: the Music Following coordinator enable switch does not stop transfers (the singleton is created unconditionally at __init__.py:3021; the switch only gates the wrapper, and without the wrapper no house state is fed so the sleep gate allows) -> fix-up round dispatched for the HIGH + both MEDIUMs. Residuals NOT in this cycle (pre-existing, recorded for a follow-up): (r1) MEDIUM BLE bleed - a single person at conf 0.65-0.75 can pull/stop music in a room they did not leave (source guard ignores motion/mmWave by design, music_following.py:540-548); (r2) MEDIUM anomaly baseline distortion - _on_transfer_outcome re-records the cumulative daily rates on every skip; (r3) LOW CONF_MF_COOLDOWN_SECONDS / VERIFY_DELAY / UNJOIN_DELAY are read but unused (hard-coded const.py:2894/2900/2903).'
-  next: 'IN PROGRESS (me, overnight): serial full-suite name-diff running; if clean -> review lane for your ship call. Heads-up for the ship: music following will start transferring again for everyone enabled.'
+  next: "SHIP (on your next deploy): merge fix/mf-enabled-person-name-match (5e3c13024). Heads-up: music following will start transferring again for everyone enabled."
   rank: {value: 3, time_criticality: 2, effort: 1}
+  validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: ENPHASE-BATTERY-CUTOUTS-1
   title: At peak the batteries keep cutting out and back in on their own, so the grid carries the whole house (13-16 kW) for seconds to minutes at a time
   thread: energy
@@ -30343,7 +30362,7 @@ cards:
   thread: hvac
   status: 'review'
   created: '2026-09-29 01:05'
-  updated: '2026-10-01 04:10'
+  updated: "2026-10-02 02:55"
   refinement_status: refined
   approval: implied
   rank: {value: 4, time_criticality: 2, effort: 1}
@@ -30397,6 +30416,7 @@ cards:
   next: 'SHIP (on your next deploy): merge fix/hvac-auto-return-excursion-id (e2dc7c2d2) with the README draft. After deploy, one-shot check that new auto_return rows carry an excursion_id, then close.'
   parsimony: {problem: 'borrow writes are logged without the borrow id on 4 site families, breaking write-to-episode attribution', verdict: BUILD}
   refs: [docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md, docs/planning/PLANNING_hvac_w1_w2_finish.md, docs/readmes/README_v5.103.16.md]
+  validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: ROOM-OVERRIDE-SWITCH-FORGOTTEN-1
   checked_2026_10_01_overnight: 'ONE-SHOT CHECK DONE (HA REST history 2026-09-29 19:00Z -> 2026-10-01 07:10Z, ~36 h since the override went off). CLEAN but NOT DISCRIMINATING: binary_sensor.exercise_room_occupied never turned on; the motion sensor (rgbw_motion_lux_3rd_zigbee_exercise_occupancy) and the working radar (hobeian_exercise_presence_2) also never turned on, apart from restart unavailable/unknown blips. So: no phantom occupancy and no stuck-on sensor, but also nobody used the room, so this cannot show whether real use is detected. Over the 10 days before, the motion sensor fired 4 times and the radar 17 times (last 09-28 17:10Z), so both are alive. The original radar (hobeian_exercise_presence, no _2) has been unavailable the whole window - one of the 3 sensors is effectively already gone. NEW FINDING, same forgotten-switch class: switch.exercise_room_automation is OFF and has been off at least since 09-25 23:09Z (the oldest recorder row), so even with correct occupancy URA will not drive the Exercise Room lights. Not touched: whether it is deliberate is your call.'
   operator_2026_09_29: 'Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let''s see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant turned OFF by the orchestrator 2026-09-29 (verified off). No soak: a one-shot check is scheduled instead.'
