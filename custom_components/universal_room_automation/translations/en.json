@@ -1738,7 +1738,8 @@
           "auto_switches": "Auto-On / Auto-Off Devices",
           "manual_switches": "Auto-Off Only Devices",
           "auto_devices": "Auto Devices",
-          "manual_devices": "Manual Devices"
+          "manual_devices": "Manual Devices",
+          "night_light_sleep_hue": "Night-light colour at sleep"
         },
         "data_description": {
           "lights": "Lights to control on entry/exit",
@@ -1750,7 +1751,8 @@
           "auto_switches": "Devices (lights, fans, switches, input_booleans) that auto-on and off",
           "manual_switches": "Devices (lights, fans, switches, input_booleans) that only auto-off",
           "auto_devices": "Devices (lights, fans, switches, input_booleans) that auto-on and off",
-          "manual_devices": "Devices (lights, fans, switches, input_booleans) that only auto-off"
+          "manual_devices": "Devices (lights, fans, switches, input_booleans) that only auto-off",
+          "night_light_sleep_hue": "Red is easiest on sleep and is used on colour lights. White-only lights use the sleep colour temperature below."
         }
       },
       "automation_behavior": {
@@ -2315,6 +2317,14 @@
       "optimizer_run_cycle_now": {
         "name": "Run Cycle Now",
         "description": "Trigger an Optimizer cycle immediately instead of waiting for the next 5-min interval. Debounced to one press per 30s. Unavailable while the Kill Switch is engaged."
+      }
+    }
+  },
+  "selector": {
+    "night_light_sleep_hue": {
+      "options": {
+        "red": "Red (recommended)",
+        "warm_white": "Warm white"
       }
     }
   }

@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "173",
+  "author": "ojiudezue",
+  "session_id": "claude_20261002_053534_ship_v5_103_31",
+  "timestamp": "2026-10-02T05:35:34Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.31 shipped: Night lights go red at sleep on colour lights",
+  "summary": "Night lights go red at sleep on colour lights",
+  "why": "The operator wanted night lights in a red shade to protect sleep. URA's 2000 K default is amber, not red, because kelvin cannot produce red; the house's own HA night automations already use RGB 255,30,10, so URA now matches them on colour lights while white-only lights keep the warmest white.",
+  "implications": "Shipped ROOM-LIGHTING-SETUP-REDESIGN-1 at v5.103.31; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.31.md (Live criteria).",
+  "revisit_trigger": "If a colour night light is not red at sleep, or a white-only light errors on the colour call, reopen.",
+  "refs": {
+    "cards": [
+      "ROOM-LIGHTING-SETUP-REDESIGN-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.31.md"
+    ],
+    "release_notes": "In Sleep mode, colour-capable night lights turn on deep red RGB (255,30,10), matching the house's own night automations; white-only lights keep 2000 K. New per-room choice 'Night-light colour at sleep': Red (default) / Warm white."
+  }
+}

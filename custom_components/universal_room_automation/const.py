@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.30
+# Universal Room Automation vv5.103.31
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.30"
+VERSION: Final = "v5.103.31"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -903,6 +903,15 @@ CONF_NIGHT_LIGHT_DAY_COLOR: Final = "night_light_day_color"
 # Night light defaults
 DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS: Final = 15  # 15% during sleep
 DEFAULT_NIGHT_LIGHT_SLEEP_COLOR: Final = 2000  # Warm red (Kelvin)
+# Operator 2026-10-02: sleep night lights default to the deep red the
+# house's own night automations use (RGB 255,30,10 — red light is the least
+# disruptive to sleep). Applies to colour-capable lights; white-only lights
+# keep DEFAULT_NIGHT_LIGHT_SLEEP_COLOR (2000 K, the warmest kelvin).
+CONF_NIGHT_LIGHT_SLEEP_HUE: Final = "night_light_sleep_hue"
+NIGHT_LIGHT_SLEEP_HUE_RED: Final = "red"
+NIGHT_LIGHT_SLEEP_HUE_WARM_WHITE: Final = "warm_white"
+DEFAULT_NIGHT_LIGHT_SLEEP_HUE: Final = NIGHT_LIGHT_SLEEP_HUE_RED
+NIGHT_LIGHT_SLEEP_RED_RGB: Final = (255, 30, 10)
 DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS: Final = 100  # Full brightness
 DEFAULT_NIGHT_LIGHT_DAY_COLOR: Final = 4000  # Cool white (Kelvin)
 
