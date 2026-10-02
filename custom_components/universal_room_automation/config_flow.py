@@ -2263,9 +2263,9 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             return await self.async_step_init_automation_chaining()
 
         light_entry_actions = [
-            {"label": "None (Manual Control)", "value": LIGHT_ACTION_NONE},
-            {"label": "Turn On Always", "value": LIGHT_ACTION_TURN_ON},
-            {"label": "Smart (Only When Dark)", "value": LIGHT_ACTION_TURN_ON_IF_DARK},
+            {"label": "Never (I switch them)", "value": LIGHT_ACTION_NONE},
+            {"label": "Always", "value": LIGHT_ACTION_TURN_ON},
+            {"label": "Only when dark", "value": LIGHT_ACTION_TURN_ON_IF_DARK},
         ]
 
         light_exit_actions = [
@@ -11441,9 +11441,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         merged Lighting step (2026-10-02: one lighting menu, not two).
         """
         light_entry_actions = [
-            {"label": "None (Manual Control)", "value": LIGHT_ACTION_NONE},
-            {"label": "Turn On Always", "value": LIGHT_ACTION_TURN_ON},
-            {"label": "Smart (Only When Dark)", "value": LIGHT_ACTION_TURN_ON_IF_DARK},
+            {"label": "Never (I switch them)", "value": LIGHT_ACTION_NONE},
+            {"label": "Always", "value": LIGHT_ACTION_TURN_ON},
+            {"label": "Only when dark", "value": LIGHT_ACTION_TURN_ON_IF_DARK},
         ]
 
         flap_sensitivity_options = [
@@ -11663,6 +11663,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(
                 CONF_LIGHTS_ON_ENTRY_DARK_ONLY, default=stored_dark_only,
+                description={"advanced": True},
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(
                     include_entities=_include_for(

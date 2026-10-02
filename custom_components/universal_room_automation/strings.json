@@ -1781,7 +1781,7 @@
         "title": "Lighting Automation",
         "description": "Configure how lights respond to occupancy changes.",
         "data": {
-          "entry_light_action": "Lights on Entry",
+          "entry_light_action": "Turn lights on when someone enters",
           "exit_light_action": "Lights on Exit",
           "illuminance_dark_threshold": "Dark Threshold (lux)",
           "light_brightness_pct": "Light Brightness %",
@@ -1789,7 +1789,7 @@
           "light_transition_seconds_off": "Fade-Out Time (seconds)"
         },
         "data_description": {
-          "entry_light_action": "What to do with lights when someone enters the room",
+          "entry_light_action": "Never, Always, or Only when dark. This is the room's darkness setting.",
           "exit_light_action": "What to do with lights when the room becomes vacant",
           "illuminance_dark_threshold": "Lux level below which the room is considered 'dark'",
           "light_brightness_pct": "Brightness level when turning lights on (1-100%)",
@@ -2112,7 +2112,7 @@
         "description": "Role pickers for this room's lights. {summary}\n\n{advanced_hint}",
         "data": {
           "lights_on_entry": "Turn on when someone enters",
-          "lights_on_entry_dark_only": "…but only when the room is dark",
+          "lights_on_entry_dark_only": "Wait for dark (exceptions)",
           "night_lights": "Night lights (used during sleep hours)",
           "lights_leave_on_when_empty": "Leave on when the room empties",
           "away_turn_off_leave_on": "…but turn them off when the house is Away",
@@ -2128,7 +2128,7 @@
           "light_scene_day": "Day scene",
           "light_scene_evening": "Evening scene",
           "light_scene_sleep": "Sleep scene",
-          "entry_light_action": "Lights on Entry",
+          "entry_light_action": "Turn lights on when someone enters",
           "exit_light_action": "Lights on Exit",
           "illuminance_dark_threshold": "Dark Threshold (lux)",
           "light_brightness_pct": "Light Brightness %",
@@ -2137,7 +2137,7 @@
         },
         "data_description": {
           "lights_on_entry": "The lights that come on when someone enters. Leave empty to use every light in this room.",
-          "lights_on_entry_dark_only": "Subset of the entry list that only comes on when the room is dark.",
+          "lights_on_entry_dark_only": "Advanced. Only used when the room is set to Always: these lights still wait for dark.",
           "night_lights": "Lights used instead of the regular set during sleep hours. Dim + warm settings live in Devices.",
           "lights_leave_on_when_empty": "These lights are not swept off when the room empties. Everything else is.",
           "away_turn_off_leave_on": "When the house is Away, sweep off even the leave-on lights. Only matters when the list above is non-empty.",
@@ -2153,7 +2153,7 @@
           "light_scene_day": "Advanced. When set, entry activates this scene during the day instead of turning lights on one by one.",
           "light_scene_evening": "Advanced. When set, entry activates this scene in the evening instead of turning lights on one by one.",
           "light_scene_sleep": "Advanced. When set, entry activates this scene during sleep hours instead of turning night lights on one by one.",
-          "entry_light_action": "What to do with lights when someone enters the room",
+          "entry_light_action": "Never, Always, or Only when dark. This is the room's darkness setting.",
           "exit_light_action": "What to do with lights when the room becomes vacant",
           "illuminance_dark_threshold": "Lux level below which the room is considered 'dark'",
           "light_brightness_pct": "Brightness level when turning lights on (1-100%)",
