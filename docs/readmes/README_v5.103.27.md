@@ -196,4 +196,4 @@ Interpreter: `.venv-ha/bin/python`; `PYTHONDONTWRITEBYTECODE=1`; no
 |---|---|---|
 | First restart after install walks (no store yet) | as expected | 07:46 restart: `away -> arriving -> home_day` (guest lost); store file `.storage/universal_room_automation.house_state` written 07:52 (state home_day, saved_at 12:52:19Z) |
 | Restart restores the saved state, no walk | PASS | 08:00 restart: zero `house_state_change` rows after boot; house state stayed `home_day` |
-| Forced override dispatch | pending | needs a daytime forced Sleep test (operator) |
+| Forced override dispatch | PASS | 2026-09-30 21:24 `set_house_state sleep`: `house_state_change home_night -> sleep (trigger=override_set)` and in the same second HVAC S1 wrote zone_1 and zone_2 `home -> sleep` (reason house_state_transition) |

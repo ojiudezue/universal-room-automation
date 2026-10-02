@@ -97,4 +97,4 @@ between mutations. Git status clean after restore.
 | Criterion | Result | Evidence |
 |---|---|---|
 | No boot event-loop freeze | PASS | no `Event loop stalled` WARNING; boot to HVAC boot-settle release ~2.3 min (was 5-9 min with a 133-156 s freeze on every restart since 09-25) |
-| Garage doors skipped by room covers | pending event | next sunset timed close in Garage A/B: expect the one-time skip INFO and no garage-door move by the room tier |
+| Garage doors skipped by room covers | inconclusive live (covered in-suite) | 09-30: both doors already closed at sunset (Garage A opened 18:39 / closed 18:42 before sunset); no room-tier cover action logged for either garage room. The skip INFO is not visible because HA has no `logger:` block (INFO dropped). Live proof needs a sunset with a door open. |
