@@ -3592,7 +3592,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "basic_setup",
                     "sensors",
                     "devices",
-                    "options_lighting",   # v3.20.1 D3: split from automation_behavior
                     "options_lighting_behaviour",  # v5.103.28 Slice B': role pickers
                     "options_covers",     # v3.20.1 D3: split from automation_behavior
                     "automation_chaining",  # v3.10.0
@@ -11436,36 +11435,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     # v3.20.1 D3: SPLIT OPTIONS — options_lighting + options_covers
     # =========================================================================
 
-    async def async_step_options_lighting(self, user_input=None):
-        """Reconfigure lighting automation behavior (v3.20.1 D3: split from automation_behavior).
-
-        6 fields -- lighting only.
+    def _lighting_basics_fields(self) -> dict:
+        """When/how lighting fields (entry/exit action, dark threshold,
+        brightness, fades, collapsed reconcile section). Shared by the
+        merged Lighting step (2026-10-02: one lighting menu, not two).
         """
-        if user_input is not None:
-            try:
-                # v5.8.0 D2.12: flatten the collapsed reconcile_advanced section
-                # back to a top-level CONF_FLAP_SENSITIVITY key (mirrors the
-                # fan_recheck_advanced flatten pattern) so the reconciler reads
-                # the same key it would read pre-collapse.
-                advanced = user_input.pop("reconcile_advanced", None)
-                if isinstance(advanced, dict):
-                    user_input = {**user_input, **advanced}
-                merged = {**self._config_entry.options, **user_input}
-                _LOGGER.debug(
-                    "options_lighting save: entry_id=%s, options_keys=%d, input_keys=%d, merged_keys=%d",
-                    self._config_entry.entry_id,
-                    len(self._config_entry.options),
-                    len(user_input),
-                    len(merged),
-                )
-                return self.async_create_entry(
-                    title="",
-                    data=merged,
-                )
-            except Exception:
-                _LOGGER.exception("options_lighting save FAILED")
-                raise
-
         light_entry_actions = [
             {"label": "None (Manual Control)", "value": LIGHT_ACTION_NONE},
             {"label": "Turn On Always", "value": LIGHT_ACTION_TURN_ON},
@@ -11483,7 +11457,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             {"label": "Leave On", "value": LIGHT_ACTION_LEAVE_ON},
         ]
 
-        data_schema = vol.Schema({
+        return {
             vol.Optional(
                 CONF_ENTRY_LIGHT_ACTION,
                 default=self._get_current(CONF_ENTRY_LIGHT_ACTION, LIGHT_ACTION_NONE)
@@ -11537,7 +11511,39 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 }),
                 {"collapsed": True},
             ),
-        })
+        }
+
+    async def async_step_options_lighting(self, user_input=None):
+        """Reconfigure lighting automation behavior (v3.20.1 D3: split from automation_behavior).
+
+        6 fields -- lighting only.
+        """
+        if user_input is not None:
+            try:
+                # v5.8.0 D2.12: flatten the collapsed reconcile_advanced section
+                # back to a top-level CONF_FLAP_SENSITIVITY key (mirrors the
+                # fan_recheck_advanced flatten pattern) so the reconciler reads
+                # the same key it would read pre-collapse.
+                advanced = user_input.pop("reconcile_advanced", None)
+                if isinstance(advanced, dict):
+                    user_input = {**user_input, **advanced}
+                merged = {**self._config_entry.options, **user_input}
+                _LOGGER.debug(
+                    "options_lighting save: entry_id=%s, options_keys=%d, input_keys=%d, merged_keys=%d",
+                    self._config_entry.entry_id,
+                    len(self._config_entry.options),
+                    len(user_input),
+                    len(merged),
+                )
+                return self.async_create_entry(
+                    title="",
+                    data=merged,
+                )
+            except Exception:
+                _LOGGER.exception("options_lighting save FAILED")
+                raise
+
+        data_schema = vol.Schema(self._lighting_basics_fields())
 
         return self.async_show_form(
             step_id="options_lighting",
@@ -11592,6 +11598,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 # Review A HIGH: flatten the collapsed auto/manual section so
                 # CONF_AUTO_SWITCHES / CONF_MANUAL_SWITCHES are actually saved
                 # (mirrors the reconcile_advanced flatten pattern).
+                adv = user_input.pop("reconcile_advanced", None)
+                if isinstance(adv, dict):
+                    user_input = {**user_input, **adv}
                 section_vals = user_input.pop("auto_manual_devices", None)
                 if isinstance(section_vals, dict):
                     user_input = {**user_input, **section_vals}
@@ -11834,7 +11843,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         # (verified: homeassistant/data_entry_flow.py:660-666). An empty
         # suggested_values mapping is fine — the filter runs regardless.
         filtered_schema = self.add_suggested_values_to_schema(
-            vol.Schema(schema_dict), {},
+            vol.Schema({**self._lighting_basics_fields(), **schema_dict}), {},
         )
         # Slice E (v5.103.29): tell the user in plain words that some
         # settings are hidden and how to reveal them. Short variant when
