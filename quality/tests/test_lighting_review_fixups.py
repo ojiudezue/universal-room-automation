@@ -163,3 +163,51 @@ def test_house_sleep_drives_light_choice_not_room_sleep():
         assert auto.is_sleep_lighting_active() is True
     finally:
         dt_util.now = real_now
+
+
+# ---------------------------------------------------------------------------
+# Operator 2026-10-02: sleep night lights default to red on colour lights.
+# ---------------------------------------------------------------------------
+
+
+def _night_room(hass, hue=None):
+    const = M["const"]
+    auto, _e = _make_room(hass)
+    auto.config[const.CONF_NIGHT_LIGHTS] = ["light.rgb", "light.white"]
+    auto.config[const.CONF_LIGHT_CAPABILITIES] = const.LIGHT_CAPABILITY_FULL
+    if hue is not None:
+        auto.config[const.CONF_NIGHT_LIGHT_SLEEP_HUE] = hue
+    auto.light_hold_allowed = lambda ents, kind: list(ents)
+    auto._safe_service_call = AsyncMock(return_value=True)
+    modes = {"light.rgb": ["rgb", "color_temp"], "light.white": ["color_temp"]}
+    hass.states.get = lambda eid: SimpleNamespace(attributes={"supported_color_modes": modes.get(eid, [])})
+    return auto
+
+
+def _calls(auto):
+    return [c.args[2] for c in auto._safe_service_call.await_args_list]
+
+
+def test_sleep_night_lights_red_on_colour_lights_by_default():
+    hass = FakeHass()
+    auto = _night_room(hass)
+    _run(auto._turn_on_night_lights(mode="sleep"))
+    calls = _calls(auto)
+    red = [c for c in calls if "rgb_color" in c]
+    white = [c for c in calls if "color_temp_kelvin" in c]
+    assert red and red[0]["entity_id"] == ["light.rgb"] and red[0]["rgb_color"] == [255, 30, 10]
+    assert white and white[0]["entity_id"] == ["light.white"]
+
+
+def test_sleep_night_lights_warm_white_when_chosen():
+    hass = FakeHass()
+    auto = _night_room(hass, hue="warm_white")
+    _run(auto._turn_on_night_lights(mode="sleep"))
+    assert all("rgb_color" not in c for c in _calls(auto))
+
+
+def test_day_night_lights_never_red():
+    hass = FakeHass()
+    auto = _night_room(hass)
+    _run(auto._turn_on_night_lights(mode="day"))
+    assert all("rgb_color" not in c for c in _calls(auto))

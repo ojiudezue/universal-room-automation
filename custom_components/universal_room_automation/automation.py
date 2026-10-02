@@ -169,6 +169,10 @@ from .const import (
     CONF_NIGHT_LIGHT_DAY_COLOR,
     DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     DEFAULT_NIGHT_LIGHT_SLEEP_COLOR,
+    CONF_NIGHT_LIGHT_SLEEP_HUE,
+    DEFAULT_NIGHT_LIGHT_SLEEP_HUE,
+    NIGHT_LIGHT_SLEEP_HUE_RED,
+    NIGHT_LIGHT_SLEEP_RED_RGB,
     DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
     DEFAULT_NIGHT_LIGHT_DAY_COLOR,
     # State
@@ -1680,10 +1684,39 @@ class RoomAutomation:
             # Add color temp for FULL capability only
             if capability == LIGHT_CAPABILITY_FULL:
                 service_data["color_temp_kelvin"] = color_temp
-            
-            await self._safe_service_call(
-                "light", SERVICE_TURN_ON, service_data, blocking=False
-            )
+
+            # Operator 2026-10-02: at sleep, colour-capable night lights go
+            # red (default) — kelvin cannot make red. White-only lights keep
+            # the kelvin value above.
+            red_lights: list[str] = []
+            if (
+                mode == "sleep"
+                and capability == LIGHT_CAPABILITY_FULL
+                and self.config.get(CONF_NIGHT_LIGHT_SLEEP_HUE, DEFAULT_NIGHT_LIGHT_SLEEP_HUE)
+                == NIGHT_LIGHT_SLEEP_HUE_RED
+            ):
+                for eid in actual_lights:
+                    try:
+                        st = self.hass.states.get(eid)
+                        modes = set((st.attributes.get("supported_color_modes") or []) if st else [])
+                    except Exception:  # noqa: BLE001
+                        modes = set()
+                    if modes & {"rgb", "rgbw", "rgbww", "hs", "xy"}:
+                        red_lights.append(eid)
+            if red_lights:
+                red_data = dict(service_data)
+                red_data.pop("color_temp_kelvin", None)
+                red_data["entity_id"] = red_lights
+                red_data["rgb_color"] = list(NIGHT_LIGHT_SLEEP_RED_RGB)
+                await self._safe_service_call(
+                    "light", SERVICE_TURN_ON, red_data, blocking=False
+                )
+                service_data["entity_id"] = [e for e in actual_lights if e not in red_lights]
+
+            if service_data["entity_id"]:
+                await self._safe_service_call(
+                    "light", SERVICE_TURN_ON, service_data, blocking=False
+                )
             _LOGGER.info(
                 "Turned on %d night light(s) in %s mode (brightness=%s%%, color=%sK)",
                 len(actual_lights), mode, brightness, color_temp
