@@ -291,3 +291,26 @@ def test_room_field_has_clean_label_and_helper(section, step_id, section_key, ke
             f"{src_name}: {where}.{key} helper is {len(helper)} chars "
             f"(>{MAX_HELPER_LEN}); shorten."
         )
+
+
+def test_every_room_menu_option_has_a_label():
+    """2026-10-02: the Lighting behaviour menu item rendered blank (no
+    menu_options label). Every step the room options menu can show must
+    carry a label in both string files."""
+    import json, pathlib, re
+
+    src = pathlib.Path("custom_components/universal_room_automation/config_flow.py").read_text()
+    menu_steps = set(re.findall(r'"(options_lighting_behaviour|options_lighting|options_covers)"', src))
+    for rel in ("strings.json", "translations/en.json"):
+        d = json.loads(pathlib.Path("custom_components/universal_room_automation", rel).read_text())
+        labels = d["options"]["step"]["init"]["menu_options"]
+        for step in menu_steps:
+            assert labels.get(step), f"{rel}: menu option {step} has no label"
+
+
+def test_colour_temperature_fields_use_the_colour_picker():
+    """Operator 2026-10-02: kelvin values must be picked visually, not typed."""
+    import pathlib
+
+    src = pathlib.Path("custom_components/universal_room_automation/config_flow.py").read_text()
+    assert 'unit_of_measurement="K"' not in src
