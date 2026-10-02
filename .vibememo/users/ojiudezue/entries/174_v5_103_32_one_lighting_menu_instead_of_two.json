@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "174",
+  "author": "ojiudezue",
+  "session_id": "claude_20261002_053753_ship_v5_103_32",
+  "timestamp": "2026-10-02T05:37:53Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.32 shipped: One Lighting menu instead of two",
+  "summary": "One Lighting menu instead of two",
+  "why": "The operator spotted two lighting menu items after the redesign; one area split across two entries is exactly the power-user clutter the cleanup is removing. Merging the when/how fields into the roles step keeps every key and value, so no room behaves differently.",
+  "implications": "Shipped ROOM-LIGHTING-SETUP-REDESIGN-1 at v5.103.32; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.32.md (Live criteria).",
+  "revisit_trigger": "If a lighting setting is missing from the merged step or stops saving, reopen.",
+  "refs": {
+    "cards": [
+      "ROOM-LIGHTING-SETUP-REDESIGN-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.32.md"
+    ],
+    "release_notes": "The old Lighting Automation step's fields (entry/exit action, dark threshold, brightness, fades, flap sensitivity) now open the single Lighting step; the duplicate menu item is gone. Same settings and values, no behaviour change."
+  }
+}

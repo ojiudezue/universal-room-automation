@@ -30543,7 +30543,7 @@ cards:
   title: Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time
   thread: ux
   status: shipped_organic
-  shipped_version: v5.103.31
+  shipped_version: v5.103.32
   build_2026_09_29: 'Plan REV 2.3 (+2.3.1/2.3.2) reviewed. Builder decomposed into slices (all committed scope). DONE on feature/room-lighting-roles @ 58936f880 (held): Slice A resolver (effective_entry_set/exit_set) + resolver-equivalence test (28) + D0/D8 audits; Slice B sun-elevation darkness fallback (-6 deg civil dusk, module const) with per-room kill switch default ON, availability-only lux freshness, borrowed-lux code path; drills 4/4 red; name-diff 0 new. D0: 3 rooms affected by the sun fallback. REMAINING (in order): B-prime Lighting step UI fields + picker moves (night/alert/auto-manual) with in-flight include_entities; C light oracle + URA write-context stamp on 10 writers + room light switch + hold-clear-on-empty (Tier-3 sites); D house-state (Away leave-on option, Guest, Sleep precedence); E time-of-day slots + scenes. Then ROOM-TYPE-TRIMMED-MENU-1.'
   created: '2026-09-29 22:10'
   origin: 'Operator 2026-09-29: "lighting control and automation in room is awkward. Feels like the sequence should be: list all the lights in the room alongside their capabilities; designate which are automated on entry and if there is a conditional (darkness); which are nightlights; which turn off on exit/vacancy; how long to wait. ... how would you do this to stay simple and take the least UI space. Also what did I miss?"'
