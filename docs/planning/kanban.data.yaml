@@ -9,6 +9,21 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "FRONT-SIDE-PTZ-CHATTER-1@2026-10-02T02:10:00"
+    at: "2026-10-02T02:10:00"
+    outcome: measured
+    headline: "Correction: the front-side camera is not fully blind. It detected a person 4 times on 10-01 while Frigate2 was working, and the earlier zero was partly the fleet-wide outage. That is still far below its old ~200 a day, so your answer about a zone crop still matters."
+    acknowledged: false
+  - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-10-02T02:10:00"
+    at: "2026-10-02T02:10:00"
+    outcome: measured
+    headline: "Log check done (the HA MCP was down, so I read HA's own error list another way). The garage-porch Sonoff setting is still flooding the log at about 99 errors an hour. The pantry automation error is gone. The only thing left is your Sonoff range fix."
+    acknowledged: false
+  - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-10-02T02:10:00"
+    at: "2026-10-02T02:10:00"
+    outcome: escalated
+    headline: "Outdoor person detection is dark AGAIN. Frigate2 came back on 10-01 around 11:26 (detections resumed), but its detector hung again around 16:22, about 5 hours later. It shows the same signs as 09-29: the detection rate is frozen and the Coral reading is unavailable. Since then there have been 19 detections on one sensor, compared with 492 across 24 sensors in the 5 hours before. Needs another Frigate restart, plus a decision on the Coral because it keeps hanging. Paged via an HA notification."
+    acknowledged: false
   - fid: 'SAFETY-HAZARD-NEVER-CLEARS-1@2026-10-01T06:30:00'
     at: '2026-10-01T06:30:00'
     outcome: escalated
@@ -373,72 +388,6 @@ meta:
       detectors that froze on 09-21 had started moving again before the box dropped. DO: check the
       box''s power and network port and power-cycle it. I paged you with a Home Assistant notification
       (not a phone push) and changed nothing.'
-    acknowledged: false
-  - fid: 'SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1@2026-09-24T02:30:00'
-    at: '2026-09-24T02:30:00'
-    outcome: measured
-    headline: 'THE LOG FLOOD IS STILL RUNNING AND I PINNED ITS FINGERPRINT EXACTLY — IT IS WAITING
-      ON ONE TOGGLE FROM YOU. Something on the system still asks the supervisor for status every
-      ten seconds without credentials, gets refused, and the refusal is written to the log every
-      time. Tonight''s sample: 77 of the last 100 supervisor log lines are that one message, and
-      the gap between them is exactly 10.0 seconds across 77 samples — that is a machine on a
-      timer, not a glitch. Every single one hits the same address, which matches the theory this
-      card already had about what is calling. One new thing I ruled out: I searched our own homelab
-      dashboard code, the other thing on the network that polls Home Assistant, and it is NOT the
-      culprit — so it is almost certainly one of the eleven add-ons we already listed. The ask has
-      not changed and is still one reversible switch: turn Protection mode OFF on the Advanced SSH
-      & Web Terminal add-on. Then I re-check within minutes and either close this or name whatever
-      is left. I did not touch it myself — flipping add-on settings and restarting add-ons at 2am
-      in an occupied house is exactly the kind of thing I hold for you. One caveat I want to be
-      straight about: the log route only gave me the last 100 lines tonight instead of thousands,
-      so I could measure how MUCH of the log is flood but not how far back the log now reaches —
-      please do not read that silence as the retention problem having fixed itself.'
-    acknowledged: false
-  - fid: 'CAMERA-STUCK-SENSOR-TRIPWIRE-1@2026-09-24T02:20:00'
-    at: '2026-09-24T02:20:00'
-    outcome: measured
-    headline: 'THE STUCK-CAMERA ALARM WE SHIPPED DOES WORK — BUT IT IS MISSING ALMOST EVERYTHING.
-      This one had been sitting in the "shipped, waiting for proof" pile since v5.101.3, so I
-      settled it with one query instead of letting it ride. Good news first: the alarm is genuinely
-      alive in production. It logged stuck-camera events overnight, it also catches the related
-      problems it was meant to (chattering sensors, continuously-on sensors, bad duty cycles), and
-      it correctly announces when a sensor recovers. I checked that these actually get delivered
-      rather than assuming — most did. I was careful about one trap: these rows carry an "[audit]"
-      marker that looks like "logged but not sent", and the code comments say that marker can sit
-      alongside a real send, so reading the text alone would have given a false negative. Now the
-      bad news, and it is why I am not closing this: it caught TWO stuck cameras in three days
-      while SEVENTEEN camera motion sensors have been jammed in the ON position for about nineteen
-      hours. A whole-fleet jam is precisely what this alarm exists to catch and it nearly walked
-      past it. On top of that, the part that is supposed to take the bad sensor out of service is
-      still in rehearsal mode — it writes "WOULD quarantine" and does nothing. So I have sent it
-      back to review with the evidence rather than marking it done. I have not yet worked out
-      whether it is under-counting because its per-camera timers have not elapsed, because it only
-      watches some cameras, or because it collapses one fleet-wide event into a single row — that
-      is the next question and it is cheap to answer.'
-    acknowledged: false
-  - fid: 'PERIMETER-DETECTION-WENT-DARK-1@2026-09-24T02:10:00'
-    at: '2026-09-24T02:10:00'
-    outcome: measured
-    headline: 'EXTERIOR PERSON DETECTION IS DEAD RIGHT NOW, AND I FOUND OUT WHY IT IS NOT WHAT WE
-      THOUGHT. Your outdoor cameras have not reported a person in 2.6 days. The sensors are not
-      missing and not broken-unavailable — they are frozen, all reading "no person", and they all
-      froze at the same second: 23:23:32 on 21 September. They stopped during the shutdown of that
-      evening''s restart and never started again when it came back. To be sure that was real and
-      not just how restarts look, I checked: that same restart DID write fresh values for 4,924
-      other entities, so the camera ones genuinely failed to resume. The important part is what
-      this rules out. We have been carrying two possible explanations since the 16th — either
-      something broke, or someone had deliberately turned the detection sensitivity down. It
-      cannot be the sensitivity change, because the identical freeze also hit the UniFi Protect
-      cameras, which are a different system on different hardware, at the same second. A settings
-      change in one system cannot do that. So: a genuine fault, tied to the restart, across at
-      least two camera systems. Separately, seventeen camera MOTION sensors have been stuck in the
-      ON position since 07:19 on the 23rd — those feed room occupancy, so some rooms may be being
-      held "occupied" by a jammed sensor. I did not fix any of it: the repair is reloading live
-      integrations, and it is 2am with the house asleep. I sent a silent notification rather than
-      a phone alert for the same reason. One honest gap: I could not read the Home Assistant logs
-      for the days in question — the usual log tool was offline and the fallback only returns the
-      last minute — so none of this is backed by log evidence, and nobody should read it as "the
-      logs looked fine".'
     acknowledged: false
   - fid: HA-CORE-RESTART-STORM-1@2026-09-25T02:20:00
     at: '2026-09-25T02:20:00'
@@ -2486,13 +2435,14 @@ cards:
   rank: {value: 4, time_criticality: 5, effort: 2}
   thread: presence
   created: '2026-09-27'
-  updated: '2026-10-01 02:45'
+  updated: "2026-10-02 02:10"
   origin: 'Empty-house natural experiment item 8 (not pre-registered), 2026-09-27.'
   why: '4 zero-second home blips on 09-26 each within 0.4-1.2 s of device_tracker.phalanxiphone15promaxcflare going unavailable; person.oji_udezue has 19 trackers incl. home-stationary ones (mac minis, tablets, entrypad). One blip fired a phantom pre-arrival (zone_1 pre-cool). Hypothesis (HA person fallback to a stationary tracker) NOT verified in HA core source.'
   sweep_2026_09_27: 'Board + BACKLOG grepped for blip/flicker/cflare/geofence pre-arrival: only this experiment card carries it. NEW.'
   verify_2026_09_30_overnight: 'STILL-REAL, and CARD-WAS-WRONG on one point. HA recorder, person.oji_udezue 09-28 00:00 -> 09-30 03:00 CDT with same-state rows merged (attribute-only updates excluded): 4 away periods, 3.8 h away in total. Exactly ONE cflare drop fell inside an away period (09-28 07:51:08, device_tracker.phalanxiphone15promaxcflare -> unavailable) and it produced exactly ONE home blip (0.1 s, 07:51:08) between two not_home runs. So the failure reproduced 1 of 1 AFTER the 09-27 tracker trim. It fired a phantom pre-arrival: ura_activity_log 2026-09-28T12:51:08.104Z hvac pre_arrival "Pre-arrival for person.oji_udezue -> zones [zone_1] (source=geofence)". CORRECTION: the card says the trim left 5 trackers, all phone-carried. Live now (REST 03:00 CDT) the person has SIX: the 5 plus device_tracker.m4promacmini_2, a Mac mini that never leaves the house - a home-stationary tracker is attached again (when it was re-added is not established). Most likely mechanism (not verified in HA core source): when the phone tracker goes unavailable, the person entity briefly takes the state of another attached tracker that still says home.'
   next: 'DO: remove device_tracker.m4promacmini_2 from person.oji_udezue (Settings > People; a setting, no code). -> I re-run the blip count after the next away day with a cflare drop; 0 blips -> close. If blips persist with only phone trackers, I plan a small URA-side guard (ignore a geofence home that lasts under a few seconds before firing pre-arrival; knob) as a Tier 1-2 card.'
   links: {related: [NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26]}
+  verify_2026_10_02_overnight: "STILL WAITING ON THE OPERATOR ACTION (HA REST 10-02 02:05 CDT). person.oji_udezue still lists device_tracker.m4promacmini_2 among its trackers; the list is now 7 (phalanxiphone15promax, phalanxiphone15promaxcflare, iphone_oji_bermuda_tracker, unifi_default_12_83_ec_78_6d_6c, private_ble_device_8ce182, m4promacmini_2, okosisipadmini6_2). No re-measure possible until it is removed. Next unchanged."
 - id: NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26
   final_readout_2026_09_27: 'FINAL (window 09-26 14:35 -> 09-27 12:13 CDT, 21.6 h; first real return person.jaya 12:43). (1) PHANTOM OCCUPANCY: 21 room entries in 2 rooms: Kitchen Hallway Garage 20 (source motion = the room''s OWN Zigbee presence sensor binary_sensor.occupancy_lux_temp_humidity_garagekitchenhallway_presence — CORRECTED 2026-09-27, NOT the garage opener; stuck-signal shadow flagged it 14x WOULD-quarantine) -> STUCK-SENSOR-1; Master Bathroom 1 (mmWave, 16 min, 23:35-23:51). No other room produced a phantom. (2) CENSUS/GUEST: house total 0 in all 931 snapshots, 0 house-state transitions -> NO guest false positive with nobody home. Property 1/unidentified in 16 snapshots (passers-by, alongside perimeter alerts). (3) OVERRIDE/MANUAL: 0 rows. The C22 candidate rule could not be tested (no manual arose) - neutral. (4) PRESETS: zone_1 got 130 away writes (6.0/h) + 126 climate_write rows; zones 2/3 ZERO -> re-issued-away loop confirmed with no human possible (HVAC-WRITE-CONFIRMATION-ORACLE-1). (5) ACTUATION: no phantom light/fan turn-on (27 shared_space_auto_off are OFFs); 1 phantom pre-arrival (15:03:51) from a 0.2 s person.oji_udezue home blip (item 8 -> PERSON-STATIONARY-TRACKER-BLIP-1). (6) NOTIFICATIONS: 25 perimeter notification rows = ~5 distinct UniFi Protect person_detected events (rear_ptz, g5_bullet; 07:34, 08:21, 11:26, 20:20) each fanned to ~4 recipients/channels + audit rows (CORRECTED 2026-09-27: Protect person detection is independent of Frigate2; operator: Protect still sees persons) -> PERIMETER-ALERT-VOLUME-FATIGUE-1; 28 Envoy Offline HIGH; 1 false safety low-humidity 0.0% (SAFETY-HUMIDITY-JUNK-READING-1). (7) LOAD — CORRECTED 2026-09-27: first read used sensor.span_panel_current_power, which is the GRID FEED (battery covers the house at night), so 1.7 kW was wrong. House consumption (Envoy consumption CT, kW): empty overnight 02-06 CDT 3.0 kW (AC ~0.5 kW -> non-AC ~2.5 kW; EVSE ~0.18 kW); occupied nights 09-23..25 5-6 kW, 09-20..22 9-12 kW. No pets (operator).'
   disposition_2026_09_27: 'DONE - all pre-registered items read; findings routed to the named cards. Probe: scripts/probes/empty_house_experiment_probe.py.'
@@ -3001,7 +2951,7 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-14 00:20'
-  updated: '2026-10-01 03:25'
+  updated: "2026-10-02 02:10"
   CONTAMINATION_DEEPENED_2026_09_25: 'OVERNIGHT PASS — the contamination warning above is RE-CONFIRMED
     and now stronger, and the practical consequence is that this card CANNOT be advanced by measurement
     at all; your ANSWER is the only route left. Measured tonight from the live recorder (last-state-per-entity
@@ -3129,6 +3079,7 @@ cards:
     crop it, a residual trickle is the expected signature, which makes the answer "yes" more
     consistent with the data than it looked.'
   verify_2026_09_29_overnight: 'STILL-REAL and MORE URGENT. Recorder: binary_sensor.front_side_ptz_person_occupancy_2 had 0 ON rows in the last 5 days. The card''s 1/day was already down from 204/day. Sibling cameras ARE detecting in the same 24h (pool_equipment 11, back_yard 7), so this is not a fleet blackout. The camera now looks blind rather than chattering, which makes your answer (was a zone crop or mask applied around 09-14/15?) the key to whether it needs undoing. It is also lever (A) on PERIMETER-ALERT-VOLUME-FATIGUE-1.'
+  verify_2026_10_02_overnight: "CARD-WAS-WRONG ON ONE POINT, STILL-REAL ON THE QUESTION (recorder, binary_sensor.front_side_ptz_person_occupancy_2 ON rows). The 09-29 note said 0 detections in 5 days and called the camera blind. Not quite: it fired on 09-29 02:51 and four times on 10-01 (12:54, 13:18, 13:19, 13:47 CDT) during the ~5 h window when Frigate2 was working. Part of the earlier zero was the fleet-wide detector hang (PERIMETER-DETECTION-WENT-DARK-1), not this camera. But 4 in that window is still far below its old ~200/day while back_yard did 40 and hot_tub 52 the same day, so it is detecting, just rarely. Your answer (was a zone crop or mask applied ~09-14/15?) still decides whether it needs widening. Re-measure after Frigate2 is healthy for a full day."
 - id: CIRCLING-FOUNDING-CASE-ARTIFACT-1
   title: The founding circling case may be an artifact of a seam the operator has now struck
   thread: perimeter
@@ -24433,7 +24384,7 @@ cards:
     range, fix/disable pantry adaptive-lighting automation, resolve camera_census ids (via FRIGATE-LEG-NAMING).'
   shipped_version: v5.101.1
   created: 2026-08-20 14:15
-  updated: '2026-10-01 03:05'
+  updated: "2026-10-02 02:10"
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -24457,11 +24408,12 @@ cards:
     pointed at FRIGATE-LEG-NAMING-1.'
   sibling_of: FRIGATE-LEG-NAMING-1
   verify_2026_09_30_overnight: 'STILL-NEEDS-OPERATOR, PARTLY UNVERIFIED. REST read 02:45 CDT: automation.pantry_plug_in_adaptive_lighting is still ON and last ran 2026-09-30 01:35Z, so it was not disabled; number.switch_sonoffduo_zigbee_garagebporchinside_delayed_power_on_time_l1/_l2 read unknown (range 0.5-3599.5). LOG-READ GAP: the home-assistant MCP was down this run, so I could NOT check whether the pantry automation still fails (color_temp error) or whether the mqtt.number range errors continue. This is NOT an all-clear on either flood; re-check the error log next session with a working log reader.'
-  next: 'DO: fix the Sonoff garage-porch number range (it still floods the log ~80 lines/hour; set delayed_power_on_time to a value inside 0.5-3599.5 in Zigbee2MQTT, or exclude the entity). The pantry automation error appears to have stopped (10-01 log read). -> I re-measure recorder growth and close if the Sonoff flood is gone.'
+  next: "DO: fix the Sonoff garage-porch number range (still flooding: 1,634 'Invalid value ... delayed_power_on_time_l1: 0 (range 0.5 - 3599.5)' errors since the 10-01 09:35 restart = ~99/hour; set delayed_power_on_time to a value inside 0.5-3599.5 in Zigbee2MQTT, or exclude the entity). The pantry automation error is gone (confirmed 10-02 log read). -> I re-measure recorder growth and close if the Sonoff flood is gone."
   refs:
   - ha_get_system_health 2026-08-20
   - FRIGATE-LEG-NAMING-1
   ack_reconciled_2026_09_19: 'Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the config-level fixes + re-measure are unstarted. So the ack is recorded as the operator having SEEN the update, and the card deliberately stays in shipped_organic with its discriminator open. Noted so a later session does not read the ack as an acceptance and close it prematurely, and does not re-raise the same question.'
+  verify_2026_10_02_overnight: "LOG-READ GAP CLOSED. The home-assistant MCP could not connect this run either, so I read HA's own system_log (system_log/list over the HA websocket, run on the HA host via ssh; deduplicated WARNING+ with counts since first occurrence). (1) SONOFF FLOOD STILL REAL: homeassistant.components.mqtt.number 'Invalid value for number.switch_sonoffduo_zigbee_garagebporchinside_delayed_power_on_time_l1: 0 (range 0.5 - 3599.5)' count 1,634, first 10-01 09:37, last 10-02 02:01 CDT = ~99/hour. The number entity still reads unknown (REST). (2) PANTRY AUTOMATION ERROR: no pantry / color_temp entry anywhere in the 50 system_log entries, while automation.pantry_plug_in_adaptive_lighting is on and last triggered 10-02 01:26Z, so it ran after the restart without logging an error. That confirms the 10-01 read that it stopped. Remaining operator action is the Sonoff range only."
 - id: ENVOY-PRODUCTION-STALE-1
   title: Envoy solar-production sensor read 0 kW for ~16.5h while the house was exporting 6 kW — a stale
     live sensor that URA's solar entity derives from; does any decision path trust it?
@@ -27682,7 +27634,7 @@ cards:
   thread: perimeter
   status: 'waiting_operator'
   created: '2026-09-16 03:30'
-  updated: '2026-10-01 04:00'
+  updated: "2026-10-02 02:10"
   correction_2026_09_27_rainbird: 'CARD-WAS-WRONG, CORRECTED 2026-09-27 02:20. I used RainBird (192.168.8.121) as a second device that fell off in the 09-25 network restart, and inferred a network-side common cause. That was wrong. The recorder shows RainBird has been flapping between unavailable and available all along, including BEFORE the restart: 5 unavailable transitions in the 02:00 hour on 09-25, and 56 unavailable / 55 available rows over the last 40 h. Tonight it answers ping 5/5 (253 ms, a weak-Wi-Fi signature). The two earlier fails were catching it in a down phase. So RainBird is a separate, chronic Wi-Fi flapper, not evidence for a shared fault, and the network-side hypothesis loses its only corroboration. Frigate2 is the only device that went dark and stayed dark, which points at the Frigate2 box or its own port. LOG-READ GAP (not an all-clear): the home-assistant MCP failed to connect again this run, so ha_get_logs was unavailable and no log read is claimed. This rests on ping/ARP/port and recorder evidence only. The UniFi MCPs also failed (uvx not on PATH), so switch-port/PoE state is still unread.'
   scope_addendum_2026_09_26: 'ADDENDUM 2026-09-26 02:25, SCOPE OF THE 19:18 DROP. Method: the HA recorder gives every entity
     whose LATEST state is ''unavailable'' and was written 00:10-00:45 UTC on 09-26, mapped to its
@@ -27884,7 +27836,7 @@ cards:
     restarting a service. Read-only diagnosis has gone as far as it can from here. I did not send a
     phone push: this has already been dark for 60 hours, nothing I can do at 4am shortens that, and
     waking an occupied house adds no action. Left a Home Assistant notification instead.'
-  next: 'DO: restart Frigate2 (or its Coral detector) on the homelab box - it is running but its detector has been hung since 09-29 11:28 CDT, so no exterior person detections are arriving. -> I re-count detections per camera after the restart and close this outage; the missing alarm is CAMERA-SILENT-PRODUCER-TRIPWIRE-1 (your APPROVE of the redesign).'
+  next: "DO: restart Frigate2 (or its Coral detector) on the homelab box AGAIN - it recovered on 10-01 ~11:26 CDT but the detector hung again ~16:22 CDT, about 5 hours later. -> I re-count detections per camera after the restart. Because it has now hung twice within ~2 days, ALSO PICK: (A) treat the Coral as faulty (reseat / swap / move to CPU detector) or (B) restart Frigate on a schedule as a stopgap; the missing alarm is CAMERA-SILENT-PRODUCER-TRIPWIRE-1 (your APPROVE of the redesign)."
   links:
     related:
     - CAMERA-ZERO-FIRE-DETECTORS-1
@@ -27957,6 +27909,7 @@ cards:
     glance if this area is revisited.) The remaining ask on this card is unaffected: APPROVE the
     producer-silence trip-wire is a real operator decision and stays with you.'
 
+  measured_2026_10_02_overnight: "FOURTH OUTAGE - DETECTOR HUNG AGAIN (overnight 10-02, read-only: HA recorder via ssh sqlite3 -readonly + HA REST states). RECOVERY CONFIRMED FIRST: sensor.frigate_status_2 last changed 10-01 16:26Z (Frigate restarted ~11:26 CDT), and person/motion detections resumed 10-01 11:28 CDT (10-01: hot_tub 52, back_yard 40, playroom 5, front_side_ptz 4, madrone_g6_entry 3, front_door_aerial 3, garage_a 2 person ONs). 09-30 had ZERO person ONs on any camera (the 09-29 hang). THEN IT HUNG AGAIN, SAME SIGNATURE AS 09-29: sensor.frigate_detection_fps_2 updated ~177x/hour until 10-01 16:22 CDT and has been frozen at 126 since (no rows after); sensor.frigate_coral_inference_speed_2 unavailable since 10-01 14:37Z; Frigate itself is up (uptime_2 / camera_fps_2 ~120 / skipped_fps_2 ~1-3 all still updating). Detection ONs across *_person_occupancy_2 + *_motion_3: 492 across 24 sensors in the 5 h BEFORE 16:25 CDT vs 19 on ONE sensor in the ~10 h after. So exterior person detection has been dark ~10 h as of 02:05 CDT and nothing in URA noticed (again). Last person ON fleet-wide: 10-01 16:16:51 CDT. NOT remediated: homelab-side restart in an occupied sleeping house = operator action. Paged via HA persistent_notification (no phone push at night, per the 09-26 precedent). New fact for the cause: the hang recurred ~5 h after a restart, so a restart is a stopgap, not a fix."
 - id: CAMERA-SILENT-PRODUCER-TRIPWIRE-1
   INSTANCE_2026_10_01_detector_hung: 'LIVE INSTANCE, the strongest argument yet for this card: Frigate2''s detector froze at 09-29 16:28Z while the process, its status sensor and camera fps all stayed healthy, and 33 of 34 Frigate2 detection sensors went silent for ~39 h before an overnight probe noticed (details on PERIMETER-DETECTION-WENT-DARK-1). Note for the redesign: a liveness check on frigate_status_2 or uptime would NOT have caught this - the discriminating signals are (a) fleet-wide zero on-transitions for N hours while camera fps > 0, and (b) frigate_detection_fps_2 unchanged for N minutes (a frozen stat). Both are recorder-derivable, so the tripwire can be computed from persisted history rather than in-memory counters, which also sidesteps the reload-reset defect that sank the first build.'
   INSTANCE_2026_09_28: 'SECOND UNNOTICED OUTAGE (measured 2026-09-28): the Frigate2 host was off the network from 09-25 19:18 CDT to 09-27 16:12 CDT, about 45 h (sensor.frigate_status_2 history: unavailable 09-26 00:18Z, running 09-27 21:12Z), and all its person/motion legs were unavailable. Nothing in URA flagged it; only the overnight board pass noticed. This strengthens the case for the redesign you are asked to APPROVE. Note that this outage mode is UNAVAILABLE (host down), which a simple "every leg unavailable for > N min" check would catch without the in-memory silence counter that the reload storm resets.'
@@ -30449,7 +30402,7 @@ cards:
   thread: presence
   status: 'waiting_operator'
   created: '2026-09-29 04:20'
-  updated: '2026-10-01 02:30'
+  updated: "2026-10-02 02:10"
   refinement_status: initial
   approval: unreviewed
   tags: [tier-1, found-during-probe, config-first]
@@ -30471,6 +30424,7 @@ cards:
     related: [KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1, HVAC-HOLD-SIZING-ALL-ROOMS-1]
     context: 'HVAC-HOLD-SIZING-ALL-ROOMS-1 raw probe surfaced both overrides; KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 carried the kitchen override as evidence while diagnosing kitchen lights.'
   rank: {value: 4, time_criticality: 4, effort: 2}
+  verify_2026_10_02_overnight: "STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_sensor.exercise_room_occupied = off. Nothing new to measure until you answer; next unchanged."
 - id: BOOT-EVENT-LOOP-FREEZE-1
   title: Every HA restart freezes the whole event loop for about 2.5 minutes, so the house is dead and every integration times out
   thread: platform
