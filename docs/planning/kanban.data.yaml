@@ -26899,9 +26899,9 @@ cards:
     one that fires safety-alert actions
   thread: platform
   rank: {value: 7, time_criticality: 4, effort: 5}
-  status: planned
+  status: "in_progress"
   created: '2026-09-20 03:30'
-  updated: '2026-09-23 03:50'
+  updated: "2026-10-02 02:20"
   refinement_status: initial
   approval: implied
   tags: [tier-2, thread-safety, no-fabrication-verify, ha-2026-escalation]
@@ -26953,7 +26953,7 @@ cards:
     problem: Three property getters start background work per read; one of them actuates safety alerts,
       so the action fires once per observer rather than once per event.
     verdict: BUILD
-  next: 'BUILD (me, Tier 2, 2 framing-disjoint reviews): move the safety-alert legacy flash trigger out of the property getter into the Safety Coordinator tick; make the getter pure; fix sensor.py:1817 and :16393. Queued behind the HVAC arc builds (one builder at a time).'
+  next: "IN PROGRESS (me, overnight 10-02): ura-builder in worktree overnight-1002-getters on fix/property-getter-pure; then 2 framing-disjoint reviews + name-diff -> review lane (no deploy)."
   links:
     related: [EC-SUBSWITCH-ASYNC-WRITE-THREAD-1, AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1]
     context: 'EC-SUBSWITCH-ASYNC-WRITE-THREAD-1 (done, v5.97.x) is the same THREAD-SAFETY class at a
@@ -26967,6 +26967,7 @@ cards:
   - custom_components/universal_room_automation/aggregation.py:1280-1287 (SafetyAlertBinarySensor.is_on)
   - custom_components/universal_room_automation/sensor.py:1817
   - custom_components/universal_room_automation/sensor.py:16393
+  gate_2026_10_02_overnight: "FOUR-STEP GATE PASSED. (1) VALIDITY: STILL-REAL - AST scan of develop @a2377c672 finds exactly the 3 property getters that spawn tasks: aggregation.py SafetyAlertBinarySensor.is_on (def :1322, async_create_task :1327), sensor.py native_value (def :1768, task :1817) and native_value (def :16388, task :16396). (1b) CONFIG-FIRST: no knob or setting changes where a task is spawned. (2) PRIOR ART: REUSE - the operator call (B) of 09-26 keeps the legacy _process_alerts fallback and its CM-present guard; the precedent for moving work onto the loop is EC-SUBSWITCH-ASYNC-WRITE-THREAD-1. (3) PARSIMONY: BUILD the smallest version - getters become pure, and the side effects move to event-loop callbacks; no new behaviour. (4) COST/BENEFIT: Tier 2, small and reversible. The live actuating risk is nil in this house (CM present -> legacy path returns at once), but the off-loop task spawn is an HA hard-error-in-future pattern, and a second install is coming. Build to review only; no deploy."
 - id: AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1
   title: "AggregationEntity.async_added_to_hass off-loop async_create_task (house-wide, HA 2027 deprecation)"
   thread: platform
