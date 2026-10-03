@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.28
+# Universal Room Automation vv5.103.33
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -3033,8 +3033,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     # pref (from a restored MFPersonFollowSwitch) is not
                     # clobbered by the auto-enable-all boot pass.
                     _prefs = getattr(music_following, "_person_follow_prefs", {}) or {}
+                    # v5.10.0 fix-up: prefs may be keyed by person
+                    # entity_id (MFPersonFollowSwitch) while
+                    # tracked_persons here are display names — compare
+                    # by canonical key so an OFF pref is honored.
+                    try:
+                        from .music_following import _person_key  # noqa: PLC0415
+                    except Exception:  # noqa: BLE001
+                        _person_key = lambda v: v  # noqa: E731
+                    _off_keys = {
+                        _person_key(k) for k, v in _prefs.items() if v is False
+                    }
                     for person_name in tracked_persons:
-                        if _prefs.get(person_name) is False:
+                        if _person_key(person_name) in _off_keys:
                             continue
                         music_following.enable_for_person(person_name)
 

@@ -605,7 +605,8 @@
           "energy": "⚡ Energy",
           "notifications": "🔔 Notifications",
           "zone_rooms": "🏠 Zone Rooms",
-          "zone_media": "🎵 Zone Media"
+          "zone_media": "🎵 Zone Media",
+          "options_lighting_behaviour": "💡 Lighting"
         }
       },
       "manage_zones": {
@@ -712,14 +713,18 @@
           "outside_humidity_sensor": "Outside Humidity Sensor",
           "weather_entity": "Weather Forecast Entity",
           "solar_production_sensor": "Solar Production Sensor",
-          "electricity_rate": "Default Fallback Electricity Rate ($/kWh)"
+          "electricity_rate": "Default Fallback Electricity Rate ($/kWh)",
+          "outdoor_light_sensor": "Outdoor light sensor",
+          "outdoor_dark_lux": "Dark outside below"
         },
         "data_description": {
           "outside_temp_sensor": "Sensor for outdoor temperature",
           "outside_humidity_sensor": "Sensor for outdoor humidity",
           "weather_entity": "Weather entity for forecasts",
           "solar_production_sensor": "Current solar production",
-          "electricity_rate": "Used only when the Energy Coordinator is not configured. The Energy Coordinator's TOU-aware rate is preferred."
+          "electricity_rate": "Used only when the Energy Coordinator is not configured. The Energy Coordinator's TOU-aware rate is preferred.",
+          "outdoor_light_sensor": "Used to decide if it's dark when a room has no working light sensor. Any outdoor lux sensor works, incl. the weather-adjusted Illuminance integration.",
+          "outdoor_dark_lux": "Outdoor light level, in lux, below which rooms without a sensor count as dark."
         }
       },
       "energy_sensors": {
@@ -1733,7 +1738,8 @@
           "auto_switches": "Auto-On / Auto-Off Devices",
           "manual_switches": "Auto-Off Only Devices",
           "auto_devices": "Auto Devices",
-          "manual_devices": "Manual Devices"
+          "manual_devices": "Manual Devices",
+          "night_light_sleep_hue": "Night-light colour at sleep"
         },
         "data_description": {
           "lights": "Lights to control on entry/exit",
@@ -1745,7 +1751,8 @@
           "auto_switches": "Devices (lights, fans, switches, input_booleans) that auto-on and off",
           "manual_switches": "Devices (lights, fans, switches, input_booleans) that only auto-off",
           "auto_devices": "Devices (lights, fans, switches, input_booleans) that auto-on and off",
-          "manual_devices": "Devices (lights, fans, switches, input_booleans) that only auto-off"
+          "manual_devices": "Devices (lights, fans, switches, input_booleans) that only auto-off",
+          "night_light_sleep_hue": "Red is easiest on sleep and is used on colour lights. White-only lights use the sleep colour temperature below."
         }
       },
       "automation_behavior": {
@@ -1774,7 +1781,7 @@
         "title": "Lighting Automation",
         "description": "Configure how lights respond to occupancy changes.",
         "data": {
-          "entry_light_action": "Lights on Entry",
+          "entry_light_action": "Turn lights on when someone enters",
           "exit_light_action": "Lights on Exit",
           "illuminance_dark_threshold": "Dark Threshold (lux)",
           "light_brightness_pct": "Light Brightness %",
@@ -1782,7 +1789,7 @@
           "light_transition_seconds_off": "Fade-Out Time (seconds)"
         },
         "data_description": {
-          "entry_light_action": "What to do with lights when someone enters the room",
+          "entry_light_action": "Never, Always, or Only when dark. This is the room's darkness setting.",
           "exit_light_action": "What to do with lights when the room becomes vacant",
           "illuminance_dark_threshold": "Lux level below which the room is considered 'dark'",
           "light_brightness_pct": "Brightness level when turning lights on (1-100%)",
@@ -2099,6 +2106,82 @@
         "description": "Are you sure? This will clear all 24 saved baseline setpoints and restore factory defaults. This cannot be undone.",
         "data": {},
         "data_description": {}
+      },
+      "options_lighting_behaviour": {
+        "title": "Lighting behaviour",
+        "description": "Role pickers for this room's lights. {summary}\n\n{advanced_hint}",
+        "data": {
+          "lights_on_entry": "Turn on when someone enters",
+          "lights_on_entry_dark_only": "Wait for dark (exceptions)",
+          "night_lights": "Night lights (used during sleep hours)",
+          "lights_leave_on_when_empty": "Leave on when the room empties",
+          "away_turn_off_leave_on": "…but turn them off when the house is Away",
+          "alert_lights": "Alert lights (flashes for notifications)",
+          "light_manual_on_hold_s": "Keep lights I turn on (seconds)",
+          "light_manual_off_cooldown_s": "Keep lights I turn off (seconds)",
+          "light_dark_use_sun_fallback": "Use outdoor light when there's no room sensor",
+          "light_dark_lux_source": "Borrow another room's light sensor",
+          "light_evening_brightness_pct": "Evening brightness",
+          "light_evening_color_kelvin": "Evening colour temperature",
+          "night_light_evening_brightness": "Evening night-light brightness",
+          "night_light_evening_color": "Evening night-light colour",
+          "light_scene_day": "Day scene",
+          "light_scene_evening": "Evening scene",
+          "light_scene_sleep": "Sleep scene",
+          "entry_light_action": "Turn lights on when someone enters",
+          "exit_light_action": "Lights on Exit",
+          "illuminance_dark_threshold": "Dark Threshold (lux)",
+          "light_brightness_pct": "Light Brightness %",
+          "light_transition_seconds_on": "Fade-In Time (seconds)",
+          "light_transition_seconds_off": "Fade-Out Time (seconds)"
+        },
+        "data_description": {
+          "lights_on_entry": "The lights that come on when someone enters. Leave empty to use every light in this room.",
+          "lights_on_entry_dark_only": "Advanced. Only used when the room is set to Always: these lights still wait for dark.",
+          "night_lights": "Lights used instead of the regular set during sleep hours. Dim + warm settings live in Devices.",
+          "lights_leave_on_when_empty": "These lights are not swept off when the room empties. Everything else is.",
+          "away_turn_off_leave_on": "When the house is Away, sweep off even the leave-on lights. Only matters when the list above is non-empty.",
+          "alert_lights": "Lights that briefly flash to signal notifications. Colour lives in Notifications.",
+          "light_manual_on_hold_s": "Advanced. When someone turns a light on by hand, the room will not turn it off while occupied. It goes off once the room is empty. 0 turns this off.",
+          "light_manual_off_cooldown_s": "Advanced. When someone turns a light off by hand, the room will not turn it back on for this long. 0 turns this off.",
+          "light_dark_use_sun_fallback": "When this room has no working light sensor, treat outdoor light as the source of truth. Off preserves today's 'never dark' behaviour.",
+          "light_dark_lux_source": "Use this sensor's reading if the room's own sensor is missing or offline.",
+          "light_evening_brightness_pct": "Advanced. Brightness for regular lights after dusk but before sleep. Leave empty to use the day setting.",
+          "light_evening_color_kelvin": "Advanced. Colour temperature for regular lights in the evening. Leave empty for no colour change.",
+          "night_light_evening_brightness": "Advanced. Brightness for night lights in the evening. Leave empty to use the day setting.",
+          "night_light_evening_color": "Advanced. Colour temperature for night lights in the evening. Leave empty to use the day setting.",
+          "light_scene_day": "Advanced. When set, entry activates this scene during the day instead of turning lights on one by one.",
+          "light_scene_evening": "Advanced. When set, entry activates this scene in the evening instead of turning lights on one by one.",
+          "light_scene_sleep": "Advanced. When set, entry activates this scene during sleep hours instead of turning night lights on one by one.",
+          "entry_light_action": "Never, Always, or Only when dark. This is the room's darkness setting.",
+          "exit_light_action": "What to do with lights when the room becomes vacant",
+          "illuminance_dark_threshold": "Lux level below which the room is considered 'dark'",
+          "light_brightness_pct": "Brightness level when turning lights on (1-100%)",
+          "light_transition_seconds_on": "Fade-in time when turning lights on",
+          "light_transition_seconds_off": "Fade-out time when turning lights off"
+        },
+        "sections": {
+          "auto_manual_devices": {
+            "name": "Auto / manual devices",
+            "data": {
+              "auto_switches": "Auto-controlled switches",
+              "manual_switches": "Manual-only switches"
+            },
+            "data_description": {
+              "auto_switches": "Switches that follow room occupancy alongside the lights.",
+              "manual_switches": "Devices URA never touches; the operator controls them by hand."
+            }
+          },
+          "reconcile_advanced": {
+            "name": "Return-to-room reconcile (advanced)",
+            "data": {
+              "flap_sensitivity": "Flap sensitivity"
+            },
+            "data_description": {
+              "flap_sensitivity": "How quickly to quarantine a sensor that toggles rapidly. Relaxed = tolerant of flapping; Normal = default; Aggressive = quarantine sooner."
+            }
+          }
+        }
       }
     },
     "error": {
@@ -2255,6 +2338,14 @@
       "optimizer_run_cycle_now": {
         "name": "Run Cycle Now",
         "description": "Trigger an Optimizer cycle immediately instead of waiting for the next 5-min interval. Debounced to one press per 30s. Unavailable while the Kill Switch is engaged."
+      }
+    }
+  },
+  "selector": {
+    "night_light_sleep_hue": {
+      "options": {
+        "red": "Red (recommended)",
+        "warm_white": "Warm white"
       }
     }
   }

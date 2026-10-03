@@ -1,3 +1,10 @@
+> **REV 3.2 OPERATOR RULINGS + RESEARCH (2026-09-30) — authoritative over earlier text:**
+> - **ecobee heat_cool:** ecobee "Auto" = HA `heat_cool` with target_temp_low/high (requires "Auto Heat/Cool" enabled in the ecobee installation settings; House 2's climate lists heat_cool). The ecobee profile runs zones in heat_cool with URA-written low/high ranges; B1 enforcer applies (confirm in D0b).
+> - **ecobee holds use SETPOINTS, not the Current Mode select.** HA's homekit_controller ecobee `current_mode` select is unreliable (stuck reporting "home"; HA core #84399, #85715; workaround = press Clear Hold before a mode change, discussion #1705). Hold = heat_cool range write; release = `button.<x>_clear_hold`. The select is read-only/informational (supersedes REV 3's select-hold direction).
+> - **Ranges for thermostats without presets (ecobee, Generic):** when HVAC coordination is enabled for a zone, URA asks for per-zone Home / Sleep / Away ranges (zone HVAC settings; reuse the CPR range field style) and holds with them. Missing ranges → a **Repair** asking for them (not silent no-op).
+> - **Repairs** are the surface for both "thermostat type changed" and "comfort ranges missing".
+> - **ecobee hold action** (installer setting: until next activity / indefinite / N hours) determines how long ANY URA write lasts before the ecobee schedule resumes. URA re-asserts per tick (S1) and books schedule-driven changes as DEVICE_SCHEDULE. Setup docs recommend "until I change it" / no ecobee schedule (same stance as Bryant schedules).
+
 > **REV 3.1 ERRATA (orchestrator, 2026-09-30 — authoritative over the body where they differ; both Tier-3 plan reviews READY after these):**
 > - **R1 (P1):** the suppression stores are `OverrideArrester._suppressed_until` (hvac_override.py:353) and `_suppress_kind` (:368) — NOT `_recent_suppressions` / `_preset_suppressions` (do not exist). The P1 byte-identity harness snapshots THESE two after each site.
 > - **R3-1 (P1):** the caller-side suppression list has 22 calls, not 19 — add hvac_override.py:7294 (S8 cancel-nudge preset), :7734 and :7761 (S9 boot ramp audit). The harness covers all 22.

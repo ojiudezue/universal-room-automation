@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.28
+# Universal Room Automation vv5.103.33
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.28"
+VERSION: Final = "v5.103.33"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -903,8 +903,56 @@ CONF_NIGHT_LIGHT_DAY_COLOR: Final = "night_light_day_color"
 # Night light defaults
 DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS: Final = 15  # 15% during sleep
 DEFAULT_NIGHT_LIGHT_SLEEP_COLOR: Final = 2000  # Warm red (Kelvin)
+# Operator 2026-10-02: sleep night lights default to the deep red the
+# house's own night automations use (RGB 255,30,10 — red light is the least
+# disruptive to sleep). Applies to colour-capable lights; white-only lights
+# keep DEFAULT_NIGHT_LIGHT_SLEEP_COLOR (2000 K, the warmest kelvin).
+CONF_NIGHT_LIGHT_SLEEP_HUE: Final = "night_light_sleep_hue"
+NIGHT_LIGHT_SLEEP_HUE_RED: Final = "red"
+NIGHT_LIGHT_SLEEP_HUE_WARM_WHITE: Final = "warm_white"
+DEFAULT_NIGHT_LIGHT_SLEEP_HUE: Final = NIGHT_LIGHT_SLEEP_HUE_RED
+NIGHT_LIGHT_SLEEP_RED_RGB: Final = (255, 30, 10)
 DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS: Final = 100  # Full brightness
 DEFAULT_NIGHT_LIGHT_DAY_COLOR: Final = 4000  # Cool white (Kelvin)
+
+# ROOM-LIGHTING-SETUP-REDESIGN-1 Slice E (v5.103.29) — time-of-day slots.
+# Slot boundaries REUSE existing URA time notions — no new timers:
+#   sleep = ``RoomAutomation.is_sleep_mode_active()`` (per-room sleep clock
+#           + HouseState=="sleep" precedence from Slice D)
+#   evening = NOT sleep AND ``is_dark == True`` (room lux, borrowed lux,
+#             configured outdoor illuminance, or sun elevation <
+#             ``SUN_DARK_ELEVATION_DEG`` — the ladder Slice B/B′ built)
+#   day = otherwise
+# See ``lighting/resolver.py::resolve_slot``. ABSENT new keys ⇒ today's
+# behaviour exactly (resolver-equivalence tests still green).
+# The Day and Sleep slots REUSE the existing night-light day/sleep settings
+# above; Slice E adds ONLY the Evening slot's settings + optional per-slot
+# scenes. Absent evening keys ⇒ the slot resolves to today's day/sleep
+# behaviour depending on sun state, i.e. no visible change.
+CONF_LIGHT_EVENING_BRIGHTNESS_PCT: Final = "light_evening_brightness_pct"
+CONF_LIGHT_EVENING_COLOR_KELVIN: Final = "light_evening_color_kelvin"
+CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS: Final = "night_light_evening_brightness"
+CONF_NIGHT_LIGHT_EVENING_COLOR: Final = "night_light_evening_color"
+CONF_LIGHT_SCENE_DAY: Final = "light_scene_day"
+CONF_LIGHT_SCENE_EVENING: Final = "light_scene_evening"
+CONF_LIGHT_SCENE_SLEEP: Final = "light_scene_sleep"
+
+# Slot names (used as dict keys in the resolver + call sites).
+LIGHT_SLOT_DAY: Final = "day"
+LIGHT_SLOT_EVENING: Final = "evening"
+LIGHT_SLOT_SLEEP: Final = "sleep"
+
+# Slice E D6 — no extra scene quiet-window needed:
+#   Verified against installed HA 2026.2.3 that ``scene.async_activate``
+#   propagates the caller's context via
+#   ``async_reproduce_state(context=self._context)`` (scene.py:369) and
+#   the ``apply`` service does the same (scene.py:224). Because URA calls
+#   ``scene.turn_on`` with the URA parent_id context (via
+#   ``URA_LIGHT_WRITE_DOMAINS`` including "scene"), the light.* /
+#   switch.* state_changed events fired by the reproduce path already
+#   carry the URA parent_id and the existing D2 listener filter
+#   (``is_ura_context``) ignores them. A per-scene quiet-window would
+#   only add value if HA stopped propagating context; document + defer.
 
 # Cover types
 COVER_TYPE_SHADE: Final = "shade"
@@ -918,6 +966,64 @@ CONF_ILLUMINANCE_THRESHOLD: Final = "illuminance_dark_threshold"
 CONF_LIGHT_BRIGHTNESS_PCT: Final = "light_brightness_pct"
 CONF_LIGHT_TRANSITION_ON: Final = "light_transition_seconds_on"
 CONF_LIGHT_TRANSITION_OFF: Final = "light_transition_seconds_off"
+
+# ROOM-LIGHTING-SETUP-REDESIGN-1 Slice B (v5.103.28) — darkness fallback.
+# When the room's primary illuminance sensor returns None (no sensor
+# configured, or state unavailable / unknown), the room falls through
+# to (a) an optional borrowed lux source, then (b) sun elevation.
+# Kill-switch default TRUE per operator P0 ruling (2026-09-29). A room
+# whose stored options set this to False preserves today's
+# `is_dark(None) == False` behaviour.
+CONF_LIGHT_DARK_USE_SUN_FALLBACK: Final = "light_dark_use_sun_fallback"
+CONF_LIGHT_DARK_LUX_SOURCE: Final = "light_dark_lux_source"
+
+# ROOM-LIGHTING-SETUP-REDESIGN-1 Slice B' (v5.103.28) — role pickers.
+# Additive: ABSENT ⇒ today's behaviour (CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS
+# entry union, unconditional exit sweep). Present ⇒ resolver honours the
+# per-role list. Same keys survive a picker MOVE from Devices step; no
+# stored-data migration needed. See PLANNING_room_dialog_cleanup_and_lighting_roles.md
+# §D1 fields 2/3/5 and REV 2.2 / REV 2.3.1.
+CONF_LIGHTS_ON_ENTRY: Final = "lights_on_entry"
+CONF_LIGHTS_ON_ENTRY_DARK_ONLY: Final = "lights_on_entry_dark_only"
+CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY: Final = "lights_leave_on_when_empty"
+# Per-room Away-turn-off-leave-on toggle. Default TRUE; meaningful only
+# when CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY is non-empty.
+CONF_AWAY_TURN_OFF_LEAVE_ON: Final = "away_turn_off_leave_on"
+# ROOM-LIGHTING-SETUP-REDESIGN-1 Slice C (v5.103.28) — D2 light manual hold.
+# Rung 2 (room options, Lighting behaviour step); module-const defaults.
+# A person's light change while the room is occupied opens a per-light
+# hold. ON hold: URA does not turn that light OFF until the room counts as
+# empty (the hold is released at the vacancy transition, then the normal
+# vacancy sweep applies) or the window elapses. OFF cooldown: URA does not
+# turn that light back ON for the window (survives the vacancy transition;
+# protects the OFF choice against a re-triggered entry). 0 = that kind of
+# hold is off (kill switch per kind).
+# Slice D (v5.103.29): CONF_* keys retained; the Lighting-step fields are
+# now ADVANCED (hidden unless the user's profile Advanced mode is on).
+# Defaults live below and are the rung-1 module constants.
+CONF_LIGHT_MANUAL_ON_HOLD_S: Final = "light_manual_on_hold_s"
+CONF_LIGHT_MANUAL_OFF_COOLDOWN_S: Final = "light_manual_off_cooldown_s"
+DEFAULT_LIGHT_MANUAL_ON_HOLD_S: Final = 3600
+DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S: Final = 900
+# Slice D (v5.103.29): boot-settle window for the Away leave-on sweep.
+# No new listener/timer — the sweep additionally gates on the presence
+# coordinator's existing `_boot_settle_done` primitive (fan_veto.py:111).
+# This numeric bound is retained as a rung-1 documentation constant.
+AWAY_LEAVE_ON_BOOT_SETTLE_S: Final = 60
+# Module-const safety bound (civil dusk). Sun elevation strictly less
+# than this ⇒ dark for fallback purposes. Not exposed as a knob —
+# safety bound per the knob-rung ladder in the plan.
+SUN_DARK_ELEVATION_DEG: Final = -6.0
+# Slice B' (v5.103.28) REV 2.4 — weather-adjusted outdoor illuminance
+# tier. Integration-level (Global Sensors) config: the operator picks
+# ONE outdoor lux sensor (any illuminance sensor works; the pnbruckner
+# `illuminance` integration is one common source). No silent runtime
+# auto-discovery — the darkness code reads ONLY this configured field.
+# The form pre-fills with an enabled `illuminance`-platform entity as a
+# SUGGESTED value when unset. Threshold is a rung-2 config, default 400.
+CONF_OUTDOOR_LIGHT_SENSOR: Final = "outdoor_light_sensor"
+CONF_OUTDOOR_DARK_LUX: Final = "outdoor_dark_lux"
+DEFAULT_OUTDOOR_DARK_LUX: Final = 400.0
 
 # Light actions
 LIGHT_ACTION_NONE: Final = "none"

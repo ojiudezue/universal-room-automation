@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.28
+# Universal Room Automation vv5.103.33
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
@@ -40,9 +41,6 @@ from .const import (
     STATE_DARK,
     STATE_TEMPERATURE,
     STATE_HUMIDITY,
-    STATE_TIME_SINCE_OCCUPIED,
-    ATTR_LAST_MOTION,
-    ATTR_TIMEOUT,
     CONF_DOOR_SENSORS,
     CONF_DOOR_TYPE,
     CONF_WINDOW_SENSORS,
@@ -257,6 +255,32 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
     """
 
     _attr_device_class = BinarySensorDeviceClass.OCCUPANCY
+    # URA-ATTRIBUTE-CHURN-1 (2026-09-29): backstop against a future
+    # re-add of a per-motion-event ticking attribute. `last_motion` was
+    # dropped from `extra_state_attributes` because it changed every
+    # ~2.5s under steady "on" and generated ~119 state_changed rows in
+    # 5 min despite no state transition. Same pattern as the
+    # RECORDER-BLOAT-LOGFLOOD-1 `last_check` drop on SafetyStatusSensor
+    # (sensor.py). No consumer of the attribute was found in
+    # custom_components/, quality/tests/, dashboards, or the PWA
+    # (grep 2026-09-29). `_last_motion_time` on the coordinator remains
+    # available for internal logic and aggregation.py.
+    # URA-ATTRIBUTE-CHURN-1 fix-up 2 (2026-09-29): the load-bearing
+    # fix is dropping the churning keys from the emitted attrs dict —
+    # HA core.py:2313-2314 (async_set_internal) fires
+    # EVENT_STATE_CHANGED whenever the full attributes dict differs,
+    # and the recorder writes a States row per event. Declaring keys
+    # in `_unrecorded_attributes` only strips the ATTRIBUTE BLOB from
+    # the recorder's state_attributes table (helpers/entity.py:518,563
+    # -> recorder/db_schema.py:565-568); it does NOT prevent
+    # EVENT_STATE_CHANGED or the States row. So this frozenset is a
+    # NAME-ONLY GUARD against a future re-add — not the mechanism
+    # that stops write-amplification.
+    _unrecorded_attributes = frozenset({
+        "last_motion",
+        "idle_duration",
+        "timeout",
+    })
 
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the sensor."""
@@ -395,10 +419,52 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
     @property
     def extra_state_attributes(self) -> dict:
         """Return additional state attributes."""
+        # URA-ATTRIBUTE-CHURN-1 (2026-09-29): `last_motion` dropped —
+        # it changed on every motion event (~every 2.5s) while state
+        # stayed steady "on", generating a state_changed + a recorder
+        # state_attributes row per tick (~119 rows / 5 min measured on
+        # binary_sensor.living_room_occupied 2026-09-28 19:07). No
+        # programmatic consumer found (grep of custom_components/,
+        # quality/tests/, docs/ha-config-snapshots/, and ~/Code/ura-
+        # dashboard-pwa on 2026-09-29). Same fix pattern as
+        # RECORDER-BLOAT-LOGFLOOD-1 (SafetyStatus `last_check`).
+        # `_unrecorded_attributes` above is the belt-and-suspenders.
+        # Consumers needing "when did we last see motion" can read
+        # `sensor.<room>_time_since_motion` or the entity's
+        # last_reported / last_updated.
+        # URA-ATTRIBUTE-CHURN-1 fix-up 2 (2026-09-29): `timeout`
+        # (live-countdown from STATE_TIMEOUT_REMAINING) replaced with
+        # the static `timeout_at` = `_last_motion_time +
+        # _occupancy_timeout` (the wall-clock instant the vacancy
+        # timer would expire), BUT published ONLY during the countdown
+        # phase — `occupancy_source == "timeout"` per
+        # coordinator.py:3641. The gate matters because
+        # coordinator.py:3603-3604 bumps `_last_motion_time = now` on
+        # every refresh while any sensor is active, so publishing
+        # `_last_motion_time + timeout` in the actively-sensing phase
+        # would replay the very churn we're removing. In the countdown
+        # branch (coordinator.py:3631-3641) `_last_motion_time` is
+        # frozen — that IS the branch where a timer-expiry instant is
+        # meaningful. In every other phase we publish `None` (the
+        # timer isn't running, or the entity is a hold rescued by
+        # camera/BLE/grace and there is no timeout to render).
+        _timeout_at = None
+        try:
+            _src = (
+                self.coordinator.data.get(STATE_OCCUPANCY_SOURCE)
+                if self.coordinator.data else None
+            )
+            if _src == "timeout":
+                _lmt = getattr(self.coordinator, "_last_motion_time", None)
+                _to = getattr(self.coordinator, "_occupancy_timeout", None)
+                if _lmt is not None and _to is not None:
+                    _timeout_at = (
+                        _lmt + timedelta(seconds=int(_to))
+                    ).isoformat()
+        except Exception:  # noqa: BLE001 — defensive
+            _timeout_at = None
         attrs = {
-            ATTR_LAST_MOTION: self.coordinator._last_motion_time.isoformat()
-            if self.coordinator._last_motion_time else None,
-            ATTR_TIMEOUT: self.coordinator.data.get("timeout_remaining", 0) if self.coordinator.data else 0,
+            "timeout_at": _timeout_at,
             # Persisted state for restart resilience
             "became_occupied_time": self.coordinator._became_occupied_time.isoformat()
             if self.coordinator._became_occupied_time else None,
@@ -432,18 +498,37 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             attrs["last_timed_close_date"] = (
                 self.coordinator.automation._last_timed_close_date
             )
-        # v4.6.11 D4.3: idle_duration — seconds since room was last occupied.
-        # Zero when occupied, STATE_TIME_SINCE_OCCUPIED when vacant.
+        # URA-ATTRIBUTE-CHURN-1 fix-up 2 (2026-09-29): v4.6.11 D4.3's
+        # `idle_duration` (0 when occupied, else STATE_TIME_SINCE_OCCUPIED
+        # — a live `now - _last_occupied_time` int) DROPPED. Replaced
+        # with the static `last_occupied_at` BUT published ONLY while
+        # the entity is vacant (`not self.is_on`). The gate matters:
+        # coordinator.py:3626-3628 sets `_last_occupied_time = now` on
+        # the occupied edge, and coordinator.py:3638-3640 KEEPS
+        # bumping it every countdown tick while `STATE_OCCUPIED` is
+        # still True (occupancy_source == "timeout"). Publishing
+        # `_last_occupied_time.isoformat()` unconditionally therefore
+        # replays the churn during the countdown phase. Once the timer
+        # expires and `STATE_OCCUPIED` flips False (vacant), the value
+        # is frozen at the last tick of the countdown — that IS the
+        # meaningful "when was the room last occupied?" answer, and
+        # the phase where consumers care. While occupied we publish
+        # `None` — clients can infer "occupied now" from the entity's
+        # own state. No consumer of `idle_duration` was found in
+        # custom_components/, quality/tests/ (only producer + AC test),
+        # PWA (~/Code/ura-dashboard-pwa), or live HA config
+        # (trace.saved_traces hits are historical, not live) per
+        # 2026-09-29 grep.
         try:
             if self.is_on:
-                attrs["idle_duration"] = 0
+                attrs["last_occupied_at"] = None
             else:
-                attrs["idle_duration"] = (
-                    self.coordinator.data.get(STATE_TIME_SINCE_OCCUPIED)
-                    if self.coordinator.data else None
+                _lot = getattr(self.coordinator, "_last_occupied_time", None)
+                attrs["last_occupied_at"] = (
+                    _lot.isoformat() if _lot is not None else None
                 )
-        except Exception:
-            attrs["idle_duration"] = None
+        except Exception:  # noqa: BLE001
+            attrs["last_occupied_at"] = None
         # v4.6.11 D4.4: current_persons — list of person names tracked in this room.
         # Returns [] not None (UI expects array — Bug Class #8).
         # Reads from person_coordinator registered under hass.data[DOMAIN]["person_coordinator"].
@@ -771,6 +856,18 @@ class HVACOccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
     # zone_entry_dwell migration).
     _attr_entity_registry_enabled_default = True
     _attr_icon = ICON_OCCUPIED
+    # URA-ATTRIBUTE-CHURN-1 fix-up 2 (2026-09-29): `last_evidence_at`
+    # DROPPED from the emitted attrs (was 3,942 steady-state rewrites
+    # / 26 h — the largest churn source on this entity). The
+    # coordinator method `get_last_hvac_evidence_time()` remains for
+    # HVAC coordinator/zones consumers (hvac.py:4668,
+    # hvac_zones.py:1756/1899). The frozenset below is a NAME-ONLY
+    # GUARD against a future re-add: `_unrecorded_attributes` only
+    # strips the attribute blob from the state_attributes table, it
+    # does NOT prevent EVENT_STATE_CHANGED / the States row (HA
+    # core.py:2313-2314 compares the full attributes dict). The
+    # load-bearing fix is the key removal.
+    _unrecorded_attributes = frozenset({"last_evidence_at"})
 
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         super().__init__(coordinator, "hvac_occupied", "HVAC Occupied")
@@ -928,11 +1025,20 @@ class HVACOccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
             )
             attrs["hvac_vacancy_hold_s"] = _hold_s
             attrs["rule"] = _rule
-            _ev_get = getattr(self.coordinator, "get_last_hvac_evidence_time", None)
-            _ev = _ev_get() if callable(_ev_get) else None
-            attrs["last_evidence_at"] = (
-                _ev.isoformat() if hasattr(_ev, "isoformat") else None
-            )
+            # URA-ATTRIBUTE-CHURN-1 fix-up 1 (2026-09-29):
+            # `last_evidence_at` DROPPED — the underlying
+            # `_last_hvac_evidence_time` is bumped on every motion tick
+            # (coordinator.py:5477), so publishing it via
+            # `.isoformat()` here made the attrs dict differ every
+            # refresh; measured 3,942 steady-state rewrites / 26 h on
+            # binary_sensor.living_room_living_room_hvac_occupied. No
+            # consumer of the ATTRIBUTE was found (grep of
+            # custom_components/, quality/tests/, PWA, live HA config
+            # 2026-09-29); real consumers in hvac.py:4668 and
+            # hvac_zones.py:1756/1899 call
+            # `get_last_hvac_evidence_time()` directly on the
+            # coordinator, not the entity attribute. The method is
+            # intentionally retained.
             _act_get = getattr(self.coordinator, "is_hvac_evidence_active", None)
             attrs["evidence_active"] = bool(_act_get()) if callable(_act_get) else None
             _diag = zm.hvac_occupied_diag(

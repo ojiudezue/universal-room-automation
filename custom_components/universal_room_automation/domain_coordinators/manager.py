@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from collections import defaultdict
+from datetime import timedelta
 from typing import Any, Final
 
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
@@ -47,6 +48,23 @@ _LOGGER = logging.getLogger(__name__)
 
 # Intent batching window — collect intents for this long before processing
 INTENT_BATCH_WINDOW_MS: Final = 100  # milliseconds
+
+# ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1: cadence for CM-driven anomaly
+# baseline persistence. Per-coordinator save_baselines() lived only in
+# async_teardown, which does not run on an HA restart — so presence /
+# security / safety / music_following learning was discarded every restart
+# (live DB confirmed metric_baselines.last_updated weeks stale while
+# teardown-free restarts cycle in hours). 3600s = at most one save per
+# detector per hour, keeping the per-restart loss bounded while staying
+# well within the write-volume guard that produced the v4.7 flood
+# incident (one periodic save per detector per hour, not per decision cycle).
+ANOMALY_BASELINE_SAVE_INTERVAL_S: Final = 3600
+
+# ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1 (B-LOW fix): bound the
+# EVENT_HOMEASSISTANT_STOP flush so a slow / wedged DB cannot delay HA
+# shutdown indefinitely. 30s is well above the normal multi-coordinator
+# save latency but below any supervisor shutdown-watchdog threshold.
+ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S: Final = 30
 
 # v4.6.11 review fix (A.M2 / C.L4): hoisted to module level so the mapping is
 # allocated once, not rebuilt on every get_summary()/get_system_anomaly_status()
@@ -204,6 +222,11 @@ class CoordinatorManager:
         self._house_state_heartbeat_unsub = None
         self._house_state_stop_unsub = None
         self._house_state_restored: bool = False
+        # ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1: periodic save +
+        # EVENT_HOMEASSISTANT_STOP flush handles for coordinator anomaly
+        # detectors. See _wire_anomaly_baseline_persistence.
+        self._anomaly_baseline_periodic_unsub = None
+        self._anomaly_baseline_stop_unsub = None
         self._processing = False
         self._batch_timer_unsub = None
         self._running = False
@@ -495,10 +518,148 @@ class CoordinatorManager:
                     exc_info=True,
                 )
 
+        # ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1: wire the periodic
+        # save + stop-flush AFTER all coordinators are up so their
+        # anomaly_detector attributes exist.
+        self._wire_anomaly_baseline_persistence()
+
         _LOGGER.info(
             "Coordinator Manager started with %d coordinators",
             len(self._coordinators),
         )
+
+    # ------------------------------------------------------------------
+    # ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1
+    # ------------------------------------------------------------------
+    def _wire_anomaly_baseline_persistence(self) -> None:
+        """Register the periodic save + EVENT_HOMEASSISTANT_STOP flush.
+
+        Reuses the ``async_listen_once(EVENT_HOMEASSISTANT_STOP)`` pattern
+        from the house-state stop-hook above (see ``_wire_house_state_persistence``)
+        rather than introducing a second stop-listener style. The periodic
+        timer mirrors the house-state heartbeat shape.
+        """
+        if self._anomaly_baseline_periodic_unsub is None:
+            self._anomaly_baseline_periodic_unsub = async_track_time_interval(
+                self.hass,
+                self._async_persist_coordinator_baselines_periodic,
+                timedelta(seconds=ANOMALY_BASELINE_SAVE_INTERVAL_S),
+            )
+        if self._anomaly_baseline_stop_unsub is None:
+            try:
+                self._anomaly_baseline_stop_unsub = self.hass.bus.async_listen_once(
+                    EVENT_HOMEASSISTANT_STOP,
+                    self._async_persist_coordinator_baselines_on_stop,
+                )
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.debug(
+                    "Anomaly-baseline stop-hook registration failed",
+                    exc_info=True,
+                )
+
+    async def _persist_coordinator_baselines(
+        self, *, include_safety_rate: bool = False,
+    ) -> None:
+        """Persist anomaly baselines for every coordinator that owns a detector.
+
+        Covers presence / security / safety / music_following / HVAC
+        (idempotent — HVAC also persists on genuine daily rollover) plus
+        the CM setup detector. Per-detector failures are isolated so one
+        broken writer cannot block the others. Called at most once per
+        ``ANOMALY_BASELINE_SAVE_INTERVAL_S`` from the periodic timer, plus
+        once on ``EVENT_HOMEASSISTANT_STOP`` — i.e. no per-cycle write
+        amplification.
+
+        ``include_safety_rate``: when True, also calls
+        ``safety._save_rate_baselines`` (the parallel ``safety_rate`` scope).
+        Default False because Safety already persists its rate baselines
+        every 30 min internally (safety.py:1214) — the periodic CM path
+        must NOT duplicate that writer; only the STOP path sets this True
+        to capture samples accrued between the last internal save and
+        shutdown. (Review B-MEDIUM.)
+        """
+        # B-LOW: if the CM has been stopped (or the parent entry is tearing
+        # down), a tick already in flight should be a no-op. async_stop sets
+        # ``_running=False`` before unsubscribing the periodic/stop handles,
+        # so this bounds any lap in flight across the unwire gap. Note the
+        # EVENT_HOMEASSISTANT_STOP path fires BEFORE async_stop, so
+        # ``_running`` is still True there (verified in restart-safety tests).
+        if not getattr(self, "_running", False):
+            _LOGGER.debug(
+                "Anomaly-baseline persist: CM not running — skipping tick"
+            )
+            return
+        for coord in list(self._coordinators.values()):
+            detector = getattr(coord, "anomaly_detector", None)
+            if detector is None:
+                continue
+            try:
+                await detector.save_baselines()
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Anomaly-baseline persist: save_baselines failed for %s "
+                    "(non-fatal)",
+                    getattr(coord, "coordinator_id", type(coord).__name__),
+                    exc_info=True,
+                )
+        # Safety carries a parallel rate-baseline table (scope=safety_rate).
+        # Only invoked on the STOP path — the periodic path leaves this to
+        # Safety's own 30-min internal save (safety.py:1214) to avoid double
+        # writers racing on the same table (B-MEDIUM).
+        if include_safety_rate:
+            safety = self._coordinators.get("safety")
+            save_rate = getattr(safety, "_save_rate_baselines", None)
+            if save_rate is not None:
+                try:
+                    await save_rate()
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Anomaly-baseline persist: safety._save_rate_baselines "
+                        "failed (non-fatal)",
+                        exc_info=True,
+                    )
+        # CM setup detector (one sample per boot). async_stop already
+        # persists it, but EVENT_HOMEASSISTANT_STOP fires BEFORE async_stop
+        # and async_stop does not run on an HAOS restart that kills the
+        # process; re-flushing here guarantees arrival of samples captured
+        # between the previous period and the stop.
+        if self._setup_anomaly_detector is not None:
+            try:
+                await self._setup_anomaly_detector.save_baselines()
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Anomaly-baseline persist: setup detector save failed "
+                    "(non-fatal)",
+                    exc_info=True,
+                )
+
+    @callback
+    def _async_persist_coordinator_baselines_periodic(self, _now: Any) -> None:
+        """Periodic-timer callback. Schedules the async persist."""
+        self.hass.async_create_task(self._persist_coordinator_baselines())
+
+    async def _async_persist_coordinator_baselines_on_stop(
+        self, _event: Any
+    ) -> None:
+        """EVENT_HOMEASSISTANT_STOP callback — awaited inline so the save
+        completes before HA finishes stopping.
+
+        Bounded by ``ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S`` (B-LOW fix) so
+        a wedged DB cannot stall HA shutdown; on timeout we log and move
+        on — the next boot will reload whatever did make it to disk.
+        Includes safety_rate on this path (STOP-only).
+        """
+        try:
+            async with asyncio.timeout(ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S):
+                await self._persist_coordinator_baselines(
+                    include_safety_rate=True,
+                )
+        except TimeoutError:
+            _LOGGER.warning(
+                "Anomaly-baseline STOP save exceeded %ds — abandoning flush "
+                "to avoid stalling HA shutdown",
+                ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S,
+            )
 
     async def _async_restore_house_state(self) -> None:
         """D1: load persisted state from Store and apply it to the machine."""
@@ -596,8 +757,6 @@ class CoordinatorManager:
         # Heartbeat: forced flush every HOUSE_STATE_HEARTBEAT_S so
         # ``saved_at`` reflects liveness. Disabled when the const is 0.
         if HOUSE_STATE_HEARTBEAT_S > 0 and self._house_state_heartbeat_unsub is None:
-            from datetime import timedelta
-
             def _heartbeat(_now: Any) -> None:
                 try:
                     # Fire the forced save through delay_save so it
@@ -655,6 +814,20 @@ class CoordinatorManager:
             except Exception:  # noqa: BLE001
                 pass
             self._house_state_stop_unsub = None
+        # ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1: unwire the periodic
+        # save + stop-flush. Both are idempotent to clear.
+        if self._anomaly_baseline_periodic_unsub is not None:
+            try:
+                self._anomaly_baseline_periodic_unsub()
+            except Exception:  # noqa: BLE001
+                pass
+            self._anomaly_baseline_periodic_unsub = None
+        if self._anomaly_baseline_stop_unsub is not None:
+            try:
+                self._anomaly_baseline_stop_unsub()
+            except Exception:  # noqa: BLE001
+                pass
+            self._anomaly_baseline_stop_unsub = None
         try:
             # Flush any pending delayed save.
             await self._get_house_state_store().async_save(
@@ -845,11 +1018,21 @@ class CoordinatorManager:
             if action.action_type == ActionType.SERVICE_CALL:
                 if isinstance(action, ServiceCallAction) and action.service:
                     domain, service = action.service.split(".", 1)
+                    # Room lighting Slice C (v5.103.28): Safety emergency
+                    # lights + Security lights run through here — stamp
+                    # every coordinator write as URA's so the D2
+                    # manual-change listener never books it as a person.
+                    try:
+                        from ..ura_context import ura_ctx_kwargs  # noqa: PLC0415
+                        _ctx_kw = ura_ctx_kwargs(domain)
+                    except Exception:  # noqa: BLE001
+                        _ctx_kw = {}
                     await self.hass.services.async_call(
                         domain,
                         service,
                         action.service_data,
                         blocking=True,
+                        **_ctx_kw,
                     )
                     _LOGGER.info(
                         "Executed %s.%s on %s (coordinator=%s, severity=%s)",

@@ -233,6 +233,14 @@ LOW_HUMIDITY_THRESHOLDS: dict[Severity, float] = {
     Severity.LOW: 30.0,
 }
 
+# SAFETY-HUMIDITY-JUNK-READING-1: plausibility floor for indoor RH.
+# Rung-1 safety bound (review to change — same rung as LOW_HUMIDITY_THRESHOLDS).
+# Readings strictly below it (e.g. the ~1s 0%/3% blip some sensors emit while
+# reconnecting) are reconnect artifacts, not physical indoor RH: they must not
+# raise LOW_HUMIDITY, trip the zone chip, or reset sustained-window state.
+# Kill switch: 0 disables the floor.
+HUMIDITY_PLAUSIBLE_MIN_PCT = 5.0
+
 
 # ============================================================================
 # Zone chip safety-band projection (backlog #12, v5.38.0)
@@ -438,6 +446,13 @@ def evaluate_zone_chip(
         bands = resolve_safety_bands(room_type, hass=hass)
         temp = r.temperature
         humidity = r.humidity
+        # SAFETY-HUMIDITY-JUNK-READING-1: implausible reconnect artifact → absent.
+        if (
+            humidity is not None
+            and HUMIDITY_PLAUSIBLE_MIN_PCT > 0
+            and humidity < HUMIDITY_PLAUSIBLE_MIN_PCT
+        ):
+            humidity = None
 
         # Safety-grade temperature.
         if temp is not None and not bands.temp_exempt:
@@ -1660,6 +1675,18 @@ class SafetyCoordinator(BaseCoordinator):
             if sensor_type == "temperature":
                 value = self._normalize_temperature(entity_id, value)
 
+            # SAFETY-HUMIDITY-JUNK-READING-1: implausible humidity artifact —
+            # skip before the rate detector records it (it would poison rate
+            # history and the persistent per-sensor rate baseline).
+            if (sensor_type == "humidity" and HUMIDITY_PLAUSIBLE_MIN_PCT > 0
+                    and value < HUMIDITY_PLAUSIBLE_MIN_PCT):
+                _LOGGER.debug(
+                    "Ignoring implausible humidity %s%% from %s before rate "
+                    "record (< floor %s%%)",
+                    value, entity_id, HUMIDITY_PLAUSIBLE_MIN_PCT,
+                )
+                return hazards
+
             # Record for rate-of-change detection (after normalization)
             self._rate_detector.record(entity_id, now, value)
 
@@ -2085,6 +2112,17 @@ class SafetyCoordinator(BaseCoordinator):
         # against outdoor sensors is pure noise (77% patio p50 was pre-A4
         # baseline). Discovery-time classification via CONF_ROOM_TYPE.
         if room_type == "outdoor":
+            return hazards
+
+        # SAFETY-HUMIDITY-JUNK-READING-1: implausible reconnect artifact (e.g.
+        # a ~1s 0% blip). Return before ANY threshold/sustain/swing state so it
+        # neither fires LOW_HUMIDITY nor resets _humidity_above_since /
+        # _humidity_hazard_fired / _humidity_swing_fired.
+        if HUMIDITY_PLAUSIBLE_MIN_PCT > 0 and value < HUMIDITY_PLAUSIBLE_MIN_PCT:
+            _LOGGER.debug(
+                "Ignoring implausible humidity %s%% from %s (< floor %s%%)",
+                value, entity_id, HUMIDITY_PLAUSIBLE_MIN_PCT,
+            )
             return hazards
 
         # Determine effective room type for thresholds
@@ -3039,7 +3077,12 @@ class SafetyCoordinator(BaseCoordinator):
 
         try:
             async with aiosqlite.connect(database.db_file) as db:
-                for entity_id, baseline in baselines.items():
+                # ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1 (B-MEDIUM): snapshot
+                # items() — the loop awaits per row and a concurrent key creation
+                # in _rate_baselines during the await would otherwise raise
+                # "dictionary changed size during iteration" (parallel to the
+                # M3 fix inside AnomalyDetector.save_baselines).
+                for entity_id, baseline in list(baselines.items()):
                     await db.execute("""
                         INSERT OR REPLACE INTO metric_baselines
                         (coordinator_id, metric_name, scope,

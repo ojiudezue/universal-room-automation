@@ -396,3 +396,40 @@ def test_natural_close_then_sweep_does_not_double_return():
 
     ended = [e for e in db.events if e["kind"] == "banking"]
     assert len(ended) == 1
+
+
+# ---------------------------------------------------------------------------
+# HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1 — auto_return forwards excursion_id
+# (Wire-in test: drives _auto_release_sweep -> _auto_return; asserts the
+# emit_set_preset_mode call receives token.excursion_id so the climate_write
+# ledger row carries the ID, satisfying W1-A invariant F6.)
+# ---------------------------------------------------------------------------
+
+
+def test_auto_return_forwards_excursion_id_to_emit_set_preset_mode():
+    db = _FakeDB()
+    hass = _fake_hass("climate.z1")
+    _ex._test_bind(hass=hass, db=db)
+    coord = _fake_coord_with_zone("zone_1", "climate.z1")
+    spy = _install_spy()
+
+    tok = _ex._test_seed_row(
+        zone_id="zone_1",
+        kind=_ex.EXCURSION_KIND.BANKING,
+        duration_s=1,
+        started_ts=_ex._now() - 3600,
+        pre_preset="home_day",
+        site="test_seed",
+    )
+    assert tok.excursion_id  # sanity
+
+    released = _run(_ex._auto_release_sweep(coord=coord))
+    assert released == 1
+    assert spy.await_count == 1
+
+    _, kwargs = spy.call_args
+    assert "excursion_id" in kwargs, (
+        "auto_return must forward excursion_id kwarg to emit_set_preset_mode "
+        "(W1-A F6 borrow-owning site invariant)"
+    )
+    assert kwargs["excursion_id"] == tok.excursion_id
