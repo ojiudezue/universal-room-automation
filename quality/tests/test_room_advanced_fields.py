@@ -198,5 +198,24 @@ def test_room_menu_hint_variants():
     assert cf.room_menu_hint("closet", True, True) == "Advanced settings shown."
     assert cf.room_menu_hint("closet", False, False) == cf.ADVANCED_HINT_HIDDEN
     t = cf.room_menu_hint("closet", True, False)
-    assert t.startswith("Showing the settings closet rooms usually need.")
+    assert t.startswith("Showing the settings a closet usually needs.")
+    assert cf.room_menu_hint("utility", True, False).startswith(
+        "Showing the settings a utility room usually needs.")
+    assert cf.room_menu_hint("media room", True, False).startswith(
+        "Showing the settings a media room usually needs.")
+    assert cf.room_menu_hint("infrastructure", True, False).startswith(
+        "Showing the settings an equipment room usually needs.")
     assert t.endswith(cf.ADVANCED_HINT_HIDDEN)
+
+
+def test_advanced_hint_empty_when_form_has_no_advanced_field():
+    """A-LOW 5: no Advanced-only field on the form -> no hint."""
+    import voluptuous as vol
+    plain = vol.Schema({vol.Optional("x", default=1): int})
+    marked = vol.Schema({
+        vol.Optional("y", default=1, description={"advanced": True}): int,
+    })
+    assert cf.advanced_hint_for(plain, False) == ""
+    assert cf.advanced_hint_for(plain, True) == ""
+    assert cf.advanced_hint_for(marked, False) == cf.ADVANCED_HINT_HIDDEN
+    assert cf.advanced_hint_for(marked, True) == cf.ADVANCED_HINT_SHOWN

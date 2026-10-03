@@ -66,6 +66,9 @@ def _wrap_step(cls_name: str, method):
 
     @functools.wraps(method)
     async def wrapper(self, user_input=None):
+        if getattr(self, "_cflow_timing_silent", False):
+            # Internal stand-in renders (room menu factory defaults).
+            return await method(self, user_input)
         _reset_autodetect(self)
         t0 = time.monotonic()
         _LOGGER.warning(

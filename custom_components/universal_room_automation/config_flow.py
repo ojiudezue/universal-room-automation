@@ -68,13 +68,55 @@ def advanced_hint(show_advanced_options: bool) -> str:
     )
 
 
+def _schema_has_advanced(schema) -> bool:
+    """True when any field (descending into sections) is Advanced-marked."""
+    items = getattr(schema, "schema", schema)
+    if not isinstance(items, dict):
+        return False
+    for marker, val in items.items():
+        inner = getattr(val, "schema", None)
+        if isinstance(inner, vol.Schema) or isinstance(val, vol.Schema):
+            if _schema_has_advanced(inner if inner is not None else val):
+                return True
+            continue
+        desc = getattr(marker, "description", None)
+        if isinstance(desc, dict) and desc.get("advanced"):
+            return True
+    return False
+
+
+def advanced_hint_for(schema, show_advanced_options: bool) -> str:
+    """Advanced hint for a form, or "" when the form has no Advanced-only
+    field (nothing hidden / nothing extra shown)."""
+    if not _schema_has_advanced(schema):
+        return ""
+    return advanced_hint(show_advanced_options)
+
+
+# Natural phrasing per room type for the trimmed-menu hint.
+_ROOM_TYPE_PHRASE: Final = {
+    "generic": "a room",
+    "utility": "a utility room",
+    "infrastructure": "an equipment room",
+}
+
+
+def _room_type_phrase(label: str) -> str:
+    label = label or "room"
+    if label in _ROOM_TYPE_PHRASE:
+        return _ROOM_TYPE_PHRASE[label]
+    article = "an" if label[:1].lower() in "aeiou" else "a"
+    return f"{article} {label}"
+
+
 def room_menu_hint(room_type_label: str, trimmed: bool, show_advanced: bool) -> str:
     """Hint line for the room options menu (ROOM-TYPE-TRIMMED-MENU-1 D8.3)."""
     if show_advanced:
         return ADVANCED_HINT_SHOWN
     if trimmed:
         return (
-            f"Showing the settings {room_type_label} rooms usually need. "
+            f"Showing the settings {_room_type_phrase(room_type_label)} "
+            "usually needs. "
             "Pick More settings for the rest. " + ADVANCED_HINT_HIDDEN
         )
     return ADVANCED_HINT_HIDDEN
@@ -3249,6 +3291,10 @@ class _FactoryDefaultsEntry:
         self.title = ""
 
 
+# Steps whose factory render failure was already logged at WARNING.
+_RENDER_FAIL_WARNED: set = set()
+
+
 def _collect_schema_defaults(schema) -> dict:
     """Walk a schema (descending into ``section()`` sub-schemas) and return
     ``{key: default}``; a key with no default maps to ``vol.UNDEFINED``."""
@@ -3795,12 +3841,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         shim.flow_id = self.flow_id
         shim.handler = self.handler
         shim.context = {"show_advanced_options": True}
+        # Internal render: suppress CFLOW-TIMING ENTER/EXIT noise.
+        shim._cflow_timing_silent = True
         try:
             result = await getattr(shim, f"async_step_{step}")(None)
         except Exception:  # noqa: BLE001 — never break the menu
-            _LOGGER.debug(
-                "room menu: factory render of %s failed", step, exc_info=True,
-            )
+            if step not in _RENDER_FAIL_WARNED:
+                _RENDER_FAIL_WARNED.add(step)
+                _LOGGER.warning(
+                    "room menu: factory render of %s failed; showing the "
+                    "step (fail-open)", step, exc_info=True,
+                )
+            else:
+                _LOGGER.debug(
+                    "room menu: factory render of %s failed", step,
+                    exc_info=True,
+                )
             return None
         schema = result.get("data_schema") if isinstance(result, dict) else None
         if schema is None:
@@ -12086,15 +12142,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         # filtered out when the user profile is NOT in Advanced mode
         # (verified: homeassistant/data_entry_flow.py:660-666). An empty
         # suggested_values mapping is fine — the filter runs regardless.
-        filtered_schema = self.add_suggested_values_to_schema(
-            vol.Schema({**self._lighting_basics_fields(), **schema_dict}), {},
+        full_schema = vol.Schema(
+            {**self._lighting_basics_fields(), **schema_dict}
         )
+        filtered_schema = self.add_suggested_values_to_schema(full_schema, {})
         # Slice E (v5.103.29): tell the user in plain words that some
         # settings are hidden and how to reveal them. Short variant when
         # Advanced mode is already on. ``self.show_advanced_options`` is
         # set by HA's data_entry_flow from the profile flag.
-        advanced_hint_text = advanced_hint(
-            bool(getattr(self, "show_advanced_options", False))
+        advanced_hint_text = advanced_hint_for(
+            full_schema,
+            bool(getattr(self, "show_advanced_options", False)),
         )
         return self.async_show_form(
             step_id="options_lighting_behaviour",
@@ -12240,7 +12298,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             data_schema=self._filter_advanced(data_schema),
             description_placeholders={
                 "name": "Reconfigure cover automation",
-                "advanced_hint": advanced_hint(self._show_adv()),
+                "advanced_hint": advanced_hint_for(
+                    data_schema, self._show_adv(),
+                ),
             },
         )
 
@@ -12606,7 +12666,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             errors=errors,
             description_placeholders={
                 "name": "Reconfigure climate & fans",
-                "advanced_hint": advanced_hint(self._show_adv()),
+                "advanced_hint": advanced_hint_for(
+                    data_schema, self._show_adv(),
+                ),
             },
         )
 
