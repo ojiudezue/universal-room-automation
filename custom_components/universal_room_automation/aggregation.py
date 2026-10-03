@@ -1317,15 +1317,38 @@ class SafetyAlertBinarySensor(AggregationEntity, BinarySensorEntity):
         self._attr_unique_id = f"{DOMAIN}_safety_alert"
         self._attr_name = "Safety Alert"
         self._last_alert_time: datetime | None = None
-    
+        self._alert_task: asyncio.Task | None = None
+
+    async def async_update(self) -> None:
+        """Dispatch alert actions from the poll path (on the event loop).
+
+        PROPERTY-GETTER-SIDE-EFFECT-TASKS-1: this used to live inside
+        ``is_on``, so every read (recorder, UI, templates — possibly off-loop)
+        spawned a task. The poll is now the discharge: once per scan
+        interval, on the loop, tracked + re-entry-guarded. _process_alerts
+        keeps its own CM-present guard and 60s debounce.
+        """
+        try:
+            alerts = self._get_alerts()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("SafetyAlert: alert collection failed", exc_info=True)
+            return
+        if alerts and (self._alert_task is None or self._alert_task.done()):
+            self._alert_task = self.hass.async_create_task(
+                self._process_alerts(alerts)
+            )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel any in-flight alert processing (Bug Class #19)."""
+        await super().async_will_remove_from_hass()
+        if self._alert_task is not None and not self._alert_task.done():
+            self._alert_task.cancel()
+        self._alert_task = None
+
     @property
     def is_on(self) -> bool:
-        """Return True if any safety alert active."""
-        alerts = self._get_alerts()
-        if alerts:
-            # Trigger alert actions if not recently triggered
-            self.hass.async_create_task(self._process_alerts(alerts))
-        return len(alerts) > 0
+        """Return True if any safety alert active (pure read)."""
+        return len(self._get_alerts()) > 0
     
     @property
     def extra_state_attributes(self) -> dict[str, Any]:

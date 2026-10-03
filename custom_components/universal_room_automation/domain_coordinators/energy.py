@@ -9345,16 +9345,24 @@ class EnergyCoordinator(BaseCoordinator):
 
         SCOPE (EC-SOC-LADDER-XVALIDATE-1 D1 — reviewer-corrected): this
         accessor clamps ONLY the two cross-field pairs that have LIVE
-        CONSUMERS today. It does NOT enforce:
-          * Invariant #1 (drain_targets monotonic non-decreasing)
-          * Invariant #2 (peak_buffer_target > top-drain)
-          * Invariant #6 (inclement_partial_hold_reserve_floor >= reserve)
-        Those three invariants remain detect-only via
-        :meth:`_check_threshold_ladder` (anomaly emit) + config-flow
-        save-time reject; adding clamps here without consumer wiring
-        would be dead coverage (Bug Class #53 — clamping something no
-        one reads). Full wiring of #1/#2/#6 is tracked as a separate
-        cycle.
+        CONSUMERS today. It does NOT enforce #1/#2/#6 — those are
+        enforced (or not) at battery/inclement-side seams:
+          * Invariant #1 (drain_targets monotone, >= reserve): clamped at
+            the single decision seam
+            ``BatteryStrategy._get_offpeak_drain_target`` (via
+            ``_effective_drain_targets``; the raw dict is untouched).
+          * Invariant #2 (peak_buffer_target > top-drain): DETECT-ONLY.
+            Clamp design parked in
+            docs/planning/PLANNING_ec_soc_ladder_full_wiring.md §D2;
+            revival trigger = any ``threshold_ladder_violation`` with the
+            #2 code.
+          * Invariant #6 (inclement floor >= reserve): emission and the
+            recoverability math both use
+            ``InclementFusion._partial_floor_value`` (max(reserve, floor)).
+        Operator values CAN still be inverted (Numbers are independent);
+        consumers act on clamped values while
+        :meth:`_check_threshold_ladder` reads the RAW values so the
+        anomaly still fires (detect-AND-clamp, never detect-and-swallow).
 
         Clamps applied:
           * Invariant #4: ``fill_priority_soc`` clamped DOWN to

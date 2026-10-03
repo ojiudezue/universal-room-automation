@@ -47,21 +47,107 @@ _LOGGER = logging.getLogger(__name__)
 # frontend: the user profile is reached by clicking the user name at the
 # bottom-left of the sidebar and toggling "Advanced mode".
 from typing import Final  # noqa: E402
-LIGHTING_ADVANCED_HINT_HIDDEN: Final = (
+# ROOM-TYPE-TRIMMED-MENU-1: generalised from the Lighting-only hint (renamed
+# from LIGHTING_ADVANCED_HINT_* / lighting_advanced_hint, text unchanged).
+# Used by every room options step with Advanced-only fields and by the room
+# menu. Non-translatable by choice (passed as a description placeholder).
+ADVANCED_HINT_HIDDEN: Final = (
     "Some rarely-used settings are hidden. To show them, turn on Advanced "
     "mode in your HA profile (click your name at the bottom left -> "
     "Advanced mode). Hidden settings keep working."
 )
-LIGHTING_ADVANCED_HINT_SHOWN: Final = "Advanced settings shown."
+ADVANCED_HINT_SHOWN: Final = "Advanced settings shown."
 
 
-def lighting_advanced_hint(show_advanced_options: bool) -> str:
-    """Return the correct Advanced-mode hint variant for the Lighting step."""
+def advanced_hint(show_advanced_options: bool) -> str:
+    """Return the correct Advanced-mode hint variant."""
     return (
-        LIGHTING_ADVANCED_HINT_SHOWN
+        ADVANCED_HINT_SHOWN
         if show_advanced_options
-        else LIGHTING_ADVANCED_HINT_HIDDEN
+        else ADVANCED_HINT_HIDDEN
     )
+
+
+def _schema_has_advanced(schema) -> bool:
+    """True when any field (descending into sections) is Advanced-marked."""
+    items = getattr(schema, "schema", schema)
+    if not isinstance(items, dict):
+        return False
+    for marker, val in items.items():
+        inner = getattr(val, "schema", None)
+        if isinstance(inner, vol.Schema) or isinstance(val, vol.Schema):
+            if _schema_has_advanced(inner if inner is not None else val):
+                return True
+            continue
+        desc = getattr(marker, "description", None)
+        if isinstance(desc, dict) and desc.get("advanced"):
+            return True
+    return False
+
+
+def advanced_hint_for(schema, show_advanced_options: bool) -> str:
+    """Advanced hint for a form, or "" when the form has no Advanced-only
+    field (nothing hidden / nothing extra shown)."""
+    if not _schema_has_advanced(schema):
+        return ""
+    return advanced_hint(show_advanced_options)
+
+
+# Natural phrasing per room type for the trimmed-menu hint.
+_ROOM_TYPE_PHRASE: Final = {
+    "generic": "a room",
+    "utility": "a utility room",
+    "infrastructure": "an equipment room",
+}
+
+
+def _room_type_phrase(label: str) -> str:
+    label = label or "room"
+    if label in _ROOM_TYPE_PHRASE:
+        return _ROOM_TYPE_PHRASE[label]
+    article = "an" if label[:1].lower() in "aeiou" else "a"
+    return f"{article} {label}"
+
+
+def room_menu_hint(room_type_label: str, trimmed: bool, show_advanced: bool) -> str:
+    """Hint line for the room options menu (ROOM-TYPE-TRIMMED-MENU-1 D8.3)."""
+    if show_advanced:
+        return ADVANCED_HINT_SHOWN
+    if trimmed:
+        return (
+            f"Showing the settings {_room_type_phrase(room_type_label)} "
+            "usually needs. "
+            "Pick More settings for the rest. " + ADVANCED_HINT_HIDDEN
+        )
+    return ADVANCED_HINT_HIDDEN
+
+
+def _value_is_non_default(value, factory_default) -> bool:
+    """True when a stored value differs from the factory default.
+
+    ROOM-TYPE-TRIMMED-MENU-1 D3: lists/dicts are "in use" iff non-empty;
+    a factory default that is absent (UNDEFINED/None) means any non-empty
+    stored value is in use; otherwise plain inequality.
+    """
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    if value is None or value == "" or value is vol.UNDEFINED:
+        return False
+    if factory_default is vol.UNDEFINED or factory_default is None:
+        return True
+    return value != factory_default
+
+
+def _adv(key: str, merged, factory_default) -> dict | None:
+    """Advanced marker for an Advanced-only field (D8.2, invariant I2).
+
+    Returns ``{"advanced": True}`` only when the stored value is absent or
+    equals the factory default. A non-default stored value renders the field
+    unmarked so it is reachable in Simple mode.
+    """
+    if key in merged and _value_is_non_default(merged.get(key), factory_default):
+        return None
+    return {"advanced": True}
 
 # CONFIG-FLOW-SLOW-ONBOARDING-1: diagnostic entry/exit timing on every
 # async_step_* handler. See _cflow_timing.py for gate + log format.
@@ -108,6 +194,8 @@ from .const import (
     ROOM_TYPE_GENERIC,
     ROOM_TYPE_INFRASTRUCTURE,
     ROOM_TYPE_HALLWAY,
+    ROOM_MENU_STEPS_ALL,
+    ROOM_MENU_STEPS_BY_TYPE,
     DEFAULT_OCCUPANCY_TIMEOUT,
     DEFAULT_OCCUPANCY_DEBOUNCE,
     ROOM_TYPE_TIMEOUTS,
@@ -3165,6 +3253,73 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         return UniversalRoomAutomationOptionsFlow(config_entry)
 
 
+# ---------------------------------------------------------------------------
+# ROOM-TYPE-TRIMMED-MENU-1 D3: step ownership rules for the "in use" check.
+# ---------------------------------------------------------------------------
+# Keys rendered by more than one step (or by none) get an explicit owner.
+# None = owned by no step (Fan Mode is written by migration/Select, so a
+# stored Fan Mode alone must not reveal Climate — operator ruling).
+_KEY_OWNER_OVERRIDES: dict = {
+    CONF_ROOM_FAN_MODE: None,
+    CONF_ROOM_TYPE: "basic_setup",
+    CONF_ZONE: "basic_setup",
+    CONF_COVERS: "devices",
+    CONF_COVER_TYPE: "options_covers",
+    CONF_WET_ROOM: "climate",
+}
+# Owned keys that are not rendered as top-level fields: menu-only steps
+# (no form) and the legacy singular energy key folded into energy_sensors.
+_STEP_EXTRA_OWNED_KEYS: dict = {
+    "automation_chaining": (CONF_AUTOMATION_CHAINS,),
+    "ai_rules": (CONF_AI_RULES,),
+    "energy": (CONF_ENERGY_SENSOR,),
+}
+_MENU_ONLY_ROOM_STEPS: frozenset = frozenset({"automation_chaining", "ai_rules"})
+
+
+class _FactoryDefaultsEntry:
+    """Stub config entry for the factory-default render (plan R1).
+
+    Carries only entry type + room type, so every ``_get_current`` in a
+    step handler returns its FALLBACK. Read-only by construction.
+    """
+
+    def __init__(self, entry_id, data):
+        self.entry_id = entry_id
+        self.data = dict(data)
+        self.options: dict = {}
+        self.title = ""
+
+
+# Steps whose factory render failure was already logged at WARNING.
+_RENDER_FAIL_WARNED: set = set()
+
+
+def _collect_schema_defaults(schema) -> dict:
+    """Walk a schema (descending into ``section()`` sub-schemas) and return
+    ``{key: default}``; a key with no default maps to ``vol.UNDEFINED``."""
+    out: dict = {}
+    items = getattr(schema, "schema", schema)
+    if not isinstance(items, dict):
+        return out
+    for marker, val in items.items():
+        inner = getattr(val, "schema", None)
+        if isinstance(inner, vol.Schema) or isinstance(val, vol.Schema):
+            out.update(_collect_schema_defaults(inner if inner is not None else val))
+            continue
+        key = getattr(marker, "schema", marker)
+        if not isinstance(key, str):
+            continue
+        default = getattr(marker, "default", vol.UNDEFINED)
+        if default is not vol.UNDEFINED and callable(default):
+            try:
+                default = default()
+            except Exception:  # noqa: BLE001
+                default = vol.UNDEFINED
+        out[key] = default
+    return out
+
+
 @instrument_flow
 class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     """Handle options flow for Universal Room Automation v3.3.3."""
@@ -3528,6 +3683,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "perimeter_alerting",  # v3.5.1
                     # v3.6.0-c2.4: domain_coordinators toggle moved to switch entity
                 ],
+                description_placeholders={"menu_hint": ""},
             )
         elif entry_type == ENTRY_TYPE_ZONE_MANAGER:
             # v3.6.0: Zone Manager options.
@@ -3574,6 +3730,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     # async_step_coordinator_energy). Standalone menu entry
                     # + async_step_coordinator_baec retired.
                 ],
+                description_placeholders={"menu_hint": ""},
             )
         elif entry_type == ENTRY_TYPE_ZONE:
             # Legacy zone options menu (should be migrated)
@@ -3583,26 +3740,158 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "zone_rooms",
                     "zone_media",  # v3.3.1
                 ],
+                description_placeholders={"menu_hint": ""},
             )
         else:
-            # Room options menu
+            # Room options menu. ROOM-TYPE-TRIMMED-MENU-1: ROOM_MENU_STEPS_ALL
+            # keeps the historical order (basic_setup, sensors, devices,
+            # options_lighting_behaviour, options_covers, automation_chaining,
+            # ai_rules, climate, sleep_protection, music_following, energy,
+            # notifications). Advanced mode => full menu. Simple mode => the
+            # room type's steps, plus any hidden step holding a non-default
+            # value (I1), plus "More settings" when trimmed.
+            show_adv = self._show_adv()
+            if show_adv:
+                menu = list(ROOM_MENU_STEPS_ALL)
+                room_type = ""
+            else:
+                merged = self._merged_entry_config()
+                room_type = merged.get(CONF_ROOM_TYPE) or ROOM_TYPE_GENERIC
+                visible = set(
+                    ROOM_MENU_STEPS_BY_TYPE.get(room_type, ROOM_MENU_STEPS_ALL)
+                )
+                for step in ROOM_MENU_STEPS_ALL:
+                    if step in visible:
+                        continue
+                    if await self._step_has_non_default_values(step):
+                        _LOGGER.debug(
+                            "room menu: entry_id=%s step %s revealed (holds a "
+                            "non-default value)",
+                            self._config_entry.entry_id, step,
+                        )
+                        visible.add(step)
+                menu = [s for s in ROOM_MENU_STEPS_ALL if s in visible]
+            trimmed = len(menu) != len(ROOM_MENU_STEPS_ALL)
+            if trimmed:
+                menu.append("show_all_settings")
             return self.async_show_menu(
                 step_id="init",
-                menu_options=[
-                    "basic_setup",
-                    "sensors",
-                    "devices",
-                    "options_lighting_behaviour",  # v5.103.28 Slice B': role pickers
-                    "options_covers",     # v3.20.1 D3: split from automation_behavior
-                    "automation_chaining",  # v3.10.0
-                    "ai_rules",  # v3.12.0: M3 AI NL Rules
-                    "climate",
-                    "sleep_protection",
-                    "music_following",  # v3.3.1
-                    "energy",
-                    "notifications",
-                ],
+                menu_options=menu,
+                description_placeholders={
+                    "menu_hint": room_menu_hint(
+                        str(room_type).replace("_", " "), trimmed, show_adv,
+                    ),
+                },
             )
+
+    async def async_step_show_all_settings(self, user_input=None):
+        """"More settings" — one-visit full room menu (ROOM-TYPE-TRIMMED-MENU-1).
+
+        Reveals hidden STEPS only; Advanced-only fields still need HA
+        Advanced mode (or a non-default stored value, invariant I2).
+        """
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=list(ROOM_MENU_STEPS_ALL),
+            description_placeholders={
+                "menu_hint": advanced_hint(self._show_adv()),
+            },
+        )
+
+    # ---- ROOM-TYPE-TRIMMED-MENU-1 D3: hidden-step "in use" detection ----
+
+    def _show_adv(self) -> bool:
+        """HA profile Advanced mode for this flow (False when unavailable)."""
+        return bool(getattr(self, "show_advanced_options", False))
+
+    def _filter_advanced(self, schema):
+        """Drop Advanced-marked fields outside Advanced mode via HA's
+        ``add_suggested_values_to_schema`` (empty suggestions). Falls back
+        to the unfiltered schema in harnesses without HA's FlowHandler."""
+        fn = getattr(self, "add_suggested_values_to_schema", None)
+        if fn is None:
+            return schema
+        return fn(schema, {})
+
+    def _merged_entry_config(self) -> dict:
+        """Merged room config: options win over data (legacy data-only keys)."""
+        return {**self._config_entry.data, **self._config_entry.options}
+
+    async def _render_step_schema(self, step: str) -> dict | None:
+        """Render ``step`` with FACTORY defaults; return {key: default}.
+
+        Plan R1: the live schema's ``default`` is the stored value (every
+        handler uses ``self._get_current(KEY, FALLBACK)``), so it cannot be
+        the comparison baseline. Render on a SEPARATE shim flow whose stub
+        entry carries only the entry type + room type, so every
+        ``_get_current`` returns its FALLBACK. Advanced ON so Advanced-only
+        keys are included. The live flow's context is never touched.
+        Returns None when the step is not a form or the render fails.
+        """
+        merged = self._merged_entry_config()
+        stub = _FactoryDefaultsEntry(
+            entry_id=self._config_entry.entry_id,
+            data={
+                CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
+                CONF_ROOM_TYPE: merged.get(CONF_ROOM_TYPE) or ROOM_TYPE_GENERIC,
+            },
+        )
+        shim = type(self)(stub)
+        shim.hass = self.hass
+        shim.flow_id = self.flow_id
+        shim.handler = self.handler
+        shim.context = {"show_advanced_options": True}
+        # Internal render: suppress CFLOW-TIMING ENTER/EXIT noise.
+        shim._cflow_timing_silent = True
+        try:
+            result = await getattr(shim, f"async_step_{step}")(None)
+        except Exception:  # noqa: BLE001 — never break the menu
+            if step not in _RENDER_FAIL_WARNED:
+                _RENDER_FAIL_WARNED.add(step)
+                _LOGGER.warning(
+                    "room menu: factory render of %s failed; showing the "
+                    "step (fail-open)", step, exc_info=True,
+                )
+            else:
+                _LOGGER.debug(
+                    "room menu: factory render of %s failed", step,
+                    exc_info=True,
+                )
+            return None
+        schema = result.get("data_schema") if isinstance(result, dict) else None
+        if schema is None:
+            return None
+        return _collect_schema_defaults(schema)
+
+    def _step_owned_keys(self, step: str, rendered: dict) -> set:
+        """Keys owned by ``step``: rendered keys minus cross-step owners,
+        plus menu-step / legacy keys (``_STEP_EXTRA_OWNED_KEYS``)."""
+        owned = {
+            k for k in rendered
+            if _KEY_OWNER_OVERRIDES.get(k, step) == step
+        }
+        owned.update(_STEP_EXTRA_OWNED_KEYS.get(step, ()))
+        return owned
+
+    async def _step_has_non_default_values(self, step: str) -> bool:
+        """True when any key owned by ``step`` differs from its factory default.
+
+        Fails OPEN (returns True) when the factory render fails, so a value
+        can never be hidden by a render error (invariant I1).
+        """
+        merged = self._merged_entry_config()
+        if step in _MENU_ONLY_ROOM_STEPS:
+            defaults: dict = {}
+        else:
+            defaults = await self._render_step_schema(step)
+            if defaults is None:
+                return True
+        for key in self._step_owned_keys(step, defaults):
+            if key in merged and _value_is_non_default(
+                merged.get(key), defaults.get(key, vol.UNDEFINED),
+            ):
+                return True
+        return False
 
     # =========================================================================
     # INTEGRATION OPTIONS (for integration entry)
@@ -3827,10 +4116,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="person_tracking",
             data_schema=data_schema,
-            description_placeholders={
-                "retention_info": "Set to 0 for infinite retention. Recommended: 90 days.",
-                "window_info": "Time window to detect room transitions (default: 120 seconds)."
-            }
         )
 
     async def async_step_camera_census(self, user_input=None):
@@ -4615,6 +4900,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """
         from .domain_coordinators.energy_const import (
             CONF_ENERGY_ENVOY_ENTITY,
+            CONF_ENERGY_SOLAR_ENTITY,
             CONF_ENERGY_RESERVE_SOC,
             CONF_ENERGY_BILL_CYCLE_DAY,
             CONF_ENERGY_DECISION_INTERVAL,
@@ -4993,11 +5279,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     exc_info=True,
                 )
 
+            # EC-SOLAR-ENTITY-OVERRIDE-1: the solar override is clearable.
+            # A cleared selector is omitted (or ""), and the
+            # {**options, **user_input} merge would resurrect the stored
+            # value. Drop the key so blank = derived Envoy solar entity.
+            # Never persist "": runtime setdefault would keep it and solar
+            # would silently resolve to nothing.
+            saved_options = {**self._config_entry.options, **user_input}
+            if not user_input.get(CONF_ENERGY_SOLAR_ENTITY):
+                saved_options.pop(CONF_ENERGY_SOLAR_ENTITY, None)
+
             submitted_envoy = user_input.get(CONF_ENERGY_ENVOY_ENTITY) or ""
             if submitted_envoy:
                 # Build the same energy_entity_config the runtime sees:
                 # current options + this submission, narrowed to energy_* keys.
-                merged = {**self._config_entry.options, **user_input}
+                merged = saved_options
                 energy_entity_config = {
                     k: v for k, v in merged.items() if k.startswith("energy_")
                 }
@@ -5022,7 +5318,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             if not errors:
                 return self.async_create_entry(
                     title="",
-                    data={**self._config_entry.options, **user_input},
+                    data=saved_options,
                 )
 
         # Weather entity default: inherit from house/integration entry if set
@@ -5065,6 +5361,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_ENERGY_ENVOY_ENTITY,
                 description={"suggested_value": self._get_current(CONF_ENERGY_ENVOY_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            # EC-SOLAR-ENTITY-OVERRIDE-1: optional solar power sensor. Blank =
+            # derived Envoy solar entity (explicit key wins via setdefault at
+            # setup). suggested_value so the field is clearable.
+            vol.Optional(
+                CONF_ENERGY_SOLAR_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_SOLAR_ENTITY)},
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
@@ -11609,16 +11914,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 # the submission; drop it instead of resurrecting the stored
                 # value. Advanced fields only when they were on the form.
                 clearable = [CONF_LIGHT_DARK_LUX_SOURCE]
-                if self.show_advanced_options:
-                    clearable += [
-                        CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
-                        CONF_LIGHT_EVENING_COLOR_KELVIN,
-                        CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
-                        CONF_NIGHT_LIGHT_EVENING_COLOR,
-                        CONF_LIGHT_SCENE_DAY,
-                        CONF_LIGHT_SCENE_EVENING,
-                        CONF_LIGHT_SCENE_SLEEP,
-                    ]
+                # ROOM-TYPE-TRIMMED-MENU-1 I3: an Advanced key is clearable
+                # only when it was on the form — Advanced mode, or forced
+                # onto the Simple form by a non-default value (I2).
+                _stored = self._merged_entry_config()
+                for _adv_key in (
+                    CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
+                    CONF_LIGHT_EVENING_COLOR_KELVIN,
+                    CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
+                    CONF_NIGHT_LIGHT_EVENING_COLOR,
+                    CONF_LIGHT_SCENE_DAY,
+                    CONF_LIGHT_SCENE_EVENING,
+                    CONF_LIGHT_SCENE_SLEEP,
+                ):
+                    if self._show_adv() or _adv(
+                        _adv_key, _stored, vol.UNDEFINED,
+                    ) is None:
+                        clearable.append(_adv_key)
                 for key in clearable:
                     if key not in user_input:
                         merged.pop(key, None)
@@ -11651,6 +11963,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         summary = "Room capability: " + str(room_cap) + "\n" + "\n".join(summary_lines)
 
         leave_on_non_empty = bool(stored_leave_on)
+        # ROOM-TYPE-TRIMMED-MENU-1 D8.2: Advanced markers via _adv so a
+        # non-default stored value stays reachable in Simple mode (I2).
+        _merged = self._merged_entry_config()
 
         schema_dict: dict = {
             vol.Optional(
@@ -11663,7 +11978,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(
                 CONF_LIGHTS_ON_ENTRY_DARK_ONLY, default=stored_dark_only,
-                description={"advanced": True},
+                description=_adv(CONF_LIGHTS_ON_ENTRY_DARK_ONLY, _merged, []),
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(
                     include_entities=_include_for(
@@ -11719,7 +12034,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(
                     CONF_LIGHT_MANUAL_ON_HOLD_S, DEFAULT_LIGHT_MANUAL_ON_HOLD_S,
                 ),
-                description={"advanced": True},
+                description=_adv(CONF_LIGHT_MANUAL_ON_HOLD_S, _merged, DEFAULT_LIGHT_MANUAL_ON_HOLD_S),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0, max=14400, step=60, unit_of_measurement="s",
@@ -11732,7 +12047,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_LIGHT_MANUAL_OFF_COOLDOWN_S,
                     DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S,
                 ),
-                description={"advanced": True},
+                description=_adv(CONF_LIGHT_MANUAL_OFF_COOLDOWN_S, _merged, DEFAULT_LIGHT_MANUAL_OFF_COOLDOWN_S),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0, max=14400, step=60, unit_of_measurement="s",
@@ -11757,7 +12072,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
                 default=self._get_current(CONF_LIGHT_EVENING_BRIGHTNESS_PCT)
                 or vol.UNDEFINED,
-                description={"advanced": True},
+                description=_adv(CONF_LIGHT_EVENING_BRIGHTNESS_PCT, _merged, vol.UNDEFINED),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=1, max=100, step=1, unit_of_measurement="%",
@@ -11768,7 +12083,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_LIGHT_EVENING_COLOR_KELVIN,
                 default=self._get_current(CONF_LIGHT_EVENING_COLOR_KELVIN)
                 or vol.UNDEFINED,
-                description={"advanced": True},
+                description=_adv(CONF_LIGHT_EVENING_COLOR_KELVIN, _merged, vol.UNDEFINED),
             ): selector.ColorTempSelector(
                 selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
             ),
@@ -11776,7 +12091,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
                 default=self._get_current(CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS)
                 or vol.UNDEFINED,
-                description={"advanced": True},
+                description=_adv(CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS, _merged, vol.UNDEFINED),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=1, max=100, step=1, unit_of_measurement="%",
@@ -11787,7 +12102,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_NIGHT_LIGHT_EVENING_COLOR,
                 default=self._get_current(CONF_NIGHT_LIGHT_EVENING_COLOR)
                 or vol.UNDEFINED,
-                description={"advanced": True},
+                description=_adv(CONF_NIGHT_LIGHT_EVENING_COLOR, _merged, vol.UNDEFINED),
             ): selector.ColorTempSelector(
                 selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
             ),
@@ -11798,21 +12113,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_LIGHT_SCENE_DAY,
                 default=self._get_current(CONF_LIGHT_SCENE_DAY) or vol.UNDEFINED,
-                description={"advanced": True},
+                description=_adv(CONF_LIGHT_SCENE_DAY, _merged, vol.UNDEFINED),
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="scene")
             ),
             vol.Optional(
                 CONF_LIGHT_SCENE_EVENING,
                 default=self._get_current(CONF_LIGHT_SCENE_EVENING) or vol.UNDEFINED,
-                description={"advanced": True},
+                description=_adv(CONF_LIGHT_SCENE_EVENING, _merged, vol.UNDEFINED),
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="scene")
             ),
             vol.Optional(
                 CONF_LIGHT_SCENE_SLEEP,
                 default=self._get_current(CONF_LIGHT_SCENE_SLEEP) or vol.UNDEFINED,
-                description={"advanced": True},
+                description=_adv(CONF_LIGHT_SCENE_SLEEP, _merged, vol.UNDEFINED),
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="scene")
             ),
@@ -11843,22 +12158,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         # filtered out when the user profile is NOT in Advanced mode
         # (verified: homeassistant/data_entry_flow.py:660-666). An empty
         # suggested_values mapping is fine — the filter runs regardless.
-        filtered_schema = self.add_suggested_values_to_schema(
-            vol.Schema({**self._lighting_basics_fields(), **schema_dict}), {},
+        full_schema = vol.Schema(
+            {**self._lighting_basics_fields(), **schema_dict}
         )
+        filtered_schema = self.add_suggested_values_to_schema(full_schema, {})
         # Slice E (v5.103.29): tell the user in plain words that some
         # settings are hidden and how to reveal them. Short variant when
         # Advanced mode is already on. ``self.show_advanced_options`` is
         # set by HA's data_entry_flow from the profile flag.
-        advanced_hint = lighting_advanced_hint(
-            bool(getattr(self, "show_advanced_options", False))
+        advanced_hint_text = advanced_hint_for(
+            full_schema,
+            bool(getattr(self, "show_advanced_options", False)),
         )
         return self.async_show_form(
             step_id="options_lighting_behaviour",
             data_schema=filtered_schema,
             description_placeholders={
                 "summary": summary,
-                "advanced_hint": advanced_hint,
+                "advanced_hint": advanced_hint_text,
             },
         )
 
@@ -11915,6 +12232,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             {"label": "Specific Hour", "value": TIME_SOURCE_SPECIFIC_HOUR},
         ]
 
+        # ROOM-TYPE-TRIMMED-MENU-1 D7/D8: sunrise/sunset offsets are
+        # Advanced-only (shown anyway when they hold a non-default value).
+        _merged = self._merged_entry_config()
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_COVER_TYPE,
@@ -11943,7 +12263,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(
                 CONF_SUNRISE_OFFSET,
-                default=self._get_current(CONF_SUNRISE_OFFSET, DEFAULT_SUNRISE_OFFSET)
+                default=self._get_current(CONF_SUNRISE_OFFSET, DEFAULT_SUNRISE_OFFSET),
+                description=_adv(CONF_SUNRISE_OFFSET, _merged, DEFAULT_SUNRISE_OFFSET),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=-60, max=120, step=15, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
             ),
@@ -11972,7 +12293,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(
                 CONF_SUNSET_OFFSET,
-                default=self._get_current(CONF_SUNSET_OFFSET, DEFAULT_SUNSET_OFFSET)
+                default=self._get_current(CONF_SUNSET_OFFSET, DEFAULT_SUNSET_OFFSET),
+                description=_adv(CONF_SUNSET_OFFSET, _merged, DEFAULT_SUNSET_OFFSET),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=-60, max=120, step=15, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
             ),
@@ -11983,10 +12305,19 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.BooleanSelector(),
         })
 
+        # D8.1: route through add_suggested_values_to_schema so HA drops the
+        # Advanced-marked fields when the profile is not in Advanced mode
+        # (homeassistant/data_entry_flow.py:661-667). Empty suggested
+        # values, as Lighting does — defaults already carry stored values.
         return self.async_show_form(
             step_id="options_covers",
-            data_schema=data_schema,
-            description_placeholders={"name": "Reconfigure cover automation"},
+            data_schema=self._filter_advanced(data_schema),
+            description_placeholders={
+                "name": "Reconfigure cover automation",
+                "advanced_hint": advanced_hint_for(
+                    data_schema, self._show_adv(),
+                ),
+            },
         )
 
     async def async_step_climate(self, user_input=None):
@@ -12103,6 +12434,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         })
         if _mode_now == FAN_MODE_FOLLOW_THERMOSTAT and not _in_zone:
             _mode_now = FAN_MODE_ROOM_TEMPERATURE
+        # ROOM-TYPE-TRIMMED-MENU-1 D7/D8: fan-speed temperatures and the
+        # humidity-fan max runtime are Advanced-only (shown anyway when
+        # they hold a non-default value).
+        _merged = self._merged_entry_config()
         data_schema = vol.Schema({
             # --- Fans first ---
             vol.Optional(
@@ -12179,18 +12514,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_FAN_SPEED_LOW_TEMP,
                 default=self._get_current(CONF_FAN_SPEED_LOW_TEMP, DEFAULT_FAN_SPEED_LOW),
+                description=_adv(CONF_FAN_SPEED_LOW_TEMP, _merged, DEFAULT_FAN_SPEED_LOW),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
             ),
             vol.Optional(
                 CONF_FAN_SPEED_MED_TEMP,
                 default=self._get_current(CONF_FAN_SPEED_MED_TEMP, DEFAULT_FAN_SPEED_MED),
+                description=_adv(CONF_FAN_SPEED_MED_TEMP, _merged, DEFAULT_FAN_SPEED_MED),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
             ),
             vol.Optional(
                 CONF_FAN_SPEED_HIGH_TEMP,
                 default=self._get_current(CONF_FAN_SPEED_HIGH_TEMP, DEFAULT_FAN_SPEED_HIGH),
+                description=_adv(CONF_FAN_SPEED_HIGH_TEMP, _merged, DEFAULT_FAN_SPEED_HIGH),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
             ),
@@ -12209,6 +12547,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_HUMIDITY_FAN_MAX_RUNTIME,
                 default=self._get_current(CONF_HUMIDITY_FAN_MAX_RUNTIME, DEFAULT_HUMIDITY_FAN_MAX_RUNTIME),
+                description=_adv(CONF_HUMIDITY_FAN_MAX_RUNTIME, _merged, DEFAULT_HUMIDITY_FAN_MAX_RUNTIME),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=600, max=14400, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
             ),
@@ -12333,11 +12672,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
         })
 
+        # D8.1: route through add_suggested_values_to_schema so HA drops the
+        # Advanced-marked fields outside Advanced mode. Empty suggested
+        # values: defaults already carry stored values, and the HVAC hold
+        # fields keep their own description suggested_value untouched.
         return self.async_show_form(
             step_id="climate",
-            data_schema=data_schema,
+            data_schema=self._filter_advanced(data_schema),
             errors=errors,
-            description_placeholders={"name": "Reconfigure climate & fans"},
+            description_placeholders={
+                "name": "Reconfigure climate & fans",
+                "advanced_hint": advanced_hint_for(
+                    data_schema, self._show_adv(),
+                ),
+            },
         )
 
     async def async_step_sleep_protection(self, user_input=None):

@@ -581,14 +581,23 @@ meta:
       plus a count shown at session start so regrowth is visible instead of being noticed by accident
       nine days later.'
 cards:
+- id: HVAC-GARAGE-GUARD-STAGED-SUNSET-1
+  title: One staged evening to prove room covers leave an open garage door alone at sunset
+  thread: hvac
+  status: waiting_operator
+  created: '2026-10-02 22:00'
+  updated: '2026-10-02 22:00'
+  next: 'DO: leave a garage door open across sunset (~7:05 pm) with someone home -> I query ura_activity_log for the cover skip and confirm the door did not move, then close this card.'
+  why: 'v5.103.28 cover_ownership guard is proven in-suite with drills, but the 09-30 live check was inconclusive (both doors already closed). A garage door closing on its own is the one safety-relevant failure in the W4 set, so one staged proof is worth it.'
 - id: EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1
   title: The garage A charger is being switched off and on every 5-10 minutes overnight, in step with the Envoy battery reading dropping in and out
   thread: energy
-  status: waiting_operator
+  status: planned
+  operator_instruction_2026_10_02: 'APPROVED (Tier 3) by operator 2026-10-02 ~21:20 CDT. Do NOT disturb the current blitz run; queue for the next overnight/other run. Remeasured 10-02: flap was a one-night burst (10-01 06-08Z, ~46 toggles); 10-02 normal 2-4/h. Root trigger = Envoy SOC dropouts; URA defect = arbitrage pause releases on missing SOC.'
   created: '2026-10-01 05:00'
   updated: '2026-10-01 05:00'
   refinement_status: initial
-  approval: blocked
+  approval: approved
   live_broken: true
   tags: [tier-3, found-during-probe, no-fabrication-verify, mutation-drill]
   problem_solution:
@@ -1933,9 +1942,10 @@ cards:
   plans_2026_09_26: 'Plans landed: fast path PLANNING_hvac_w2_occupancy_fast_path.md (D0 rate probe gate); night-sleeper +
     placeholder readers PLANNING_hvac_w2_night_sleeper_and_placeholder_readers.md (D-A0 probe running). Seams in
     PLANNING_hvac_arc_w1_w2_integration.md. Plan reviews running (x1 each).'
+  operator_ruling_2026_10_02: 'Operator YES 2026-10-02: Kitchen hold ruled A (leave) on 09-29; Kitchen night 90 s override LEFT (energy-first). W2 closed. v5.103.20 L4/L8-L12 one-shot check stays as a W4-style dispose-by-query when an occupied week has passed.'
   title: 'W2 — HVAC knows who is really in each zone, fast enough and at night'
   thread: hvac
-  status: planned
+  status: done
   groom_2026_09_29_dupkeys: 'HYGIENE: this card carried the key "disposition_2026_09_26_groom" more than once. YAML keeps only the LAST copy, so the earlier text was invisible to the renderer and to every status read. Earlier copies renamed to <key>_prevN (text preserved verbatim). The effective value is unchanged, verified by a before/after parse of status/next/updated for every card.'
   created: '2026-09-26 02:40'
   updated: '2026-09-26 07:30'
@@ -1972,9 +1982,10 @@ cards:
   children: [HVAC-PRECOOL-WINDOW-TOU-DERIVED-1, HVAC-D5-REGROUND-ON-ODU-VAR-1, HVAC-EQUIPMENT-HEALTH-OBSERVABILITY-1]
   next: 'CLOSED: W3 measured out. Nothing passed its build gate; all children adjudicated with revival triggers. The only live follow-up is the Gate-8 overshoot-stamp investigation (HVAC-GATE8-OVERSHOOT-STAMP-NOT-CLEARED-1).'
 - id: HVAC-W4-ARC-CLOSURE
+  operator_ruling_2026_10_02: 'Operator YES 2026-10-02: close on in-suite proof. Borrow-restore (v5.103.24 item 3) disposes by query when a soft_nudge_restore_* climate_write appears. Garage guard proof moved to HVAC-GARAGE-GUARD-STAGED-SUNSET-1.'
   title: 'W4 — Close the HVAC arc: dispose shipped work, clear residuals, keep the record true'
   thread: hvac
-  status: planned
+  status: done
   created: '2026-09-26 02:40'
   updated: '2026-09-26 02:40'
   refinement_status: initial
@@ -30360,7 +30371,8 @@ cards:
   groom_2026_09_29_arc: 'Partial re-measure after Batch B (since 2026-09-29 03:02): 16 borrow writes (S5 nudge start 5, S7 restore 10, S3 compromise 1), 0 without an excursion id (nudge starts were 5/35 null before). The S12 pre-cool and auto_return paths have not fired since, so their gaps are not yet re-measured.'
   title: Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered
   thread: hvac
-  status: 'review'
+  status: shipped_organic
+  shipped_version: v5.103.34
   created: '2026-09-29 01:05'
   updated: "2026-10-02 02:55"
   refinement_status: refined

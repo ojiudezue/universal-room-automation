@@ -1871,9 +1871,57 @@ class BatteryStrategy:
             return "moderate"
         return "poor"
 
+    # EC-SOC-LADDER-FULL-WIRING-1 (#1): the ordered classes the cross-field
+    # validator monotonises (`validate_threshold_ladder` invariant #1).
+    # `unknown` is a sentinel the validator does NOT order — floored only.
+    _DRAIN_LADDER_ORDER: tuple[str, ...] = (
+        "excellent", "good", "moderate", "poor", "very_poor",
+    )
+
+    def _effective_drain_targets(self) -> dict[str, int]:
+        """Return the EFFECTIVE drain targets the strategy acts on.
+
+        EC-SOC-LADDER-FULL-WIRING-1 (#1, detect-AND-clamp):
+        - ordered classes: cumulative max anchored at reserve_soc
+          (`eff[c] = max(reserve, raw[c], eff[prev])`) — raises only;
+        - `unknown` / any stray key: `max(reserve, raw)` — floored, NOT
+          monotonised, NOT dropped;
+        - capped at 100.
+        `self._drain_targets` stays RAW (operator values; the validator and
+        the `threshold_ladder_violation` anomaly read it — writing effective
+        values back would swallow detection). Identity on a valid ladder.
+        """
+        reserve = int(self.reserve_soc)
+        raw = self._drain_targets
+        eff: dict[str, int] = {}
+        prev = reserve
+        for cls in self._DRAIN_LADDER_ORDER:
+            # A class absent from the dict (ctor always seeds all five;
+            # only hand-built dicts are sparse) neither joins the chain
+            # nor raises it — mirrors the validator's `.get(c, 0)` and
+            # keeps the lookup fallback (`unknown` default) unchanged.
+            if cls not in raw:
+                continue
+            prev = min(100, max(reserve, int(raw[cls]), prev))
+            eff[cls] = prev
+        for cls, val in raw.items():
+            if cls not in eff:
+                eff[cls] = min(100, max(reserve, int(val)))
+        if "unknown" not in eff:
+            eff["unknown"] = min(100, max(reserve, DEFAULT_OFFPEAK_DRAIN_UNKNOWN))
+        return eff
+
     def _get_offpeak_drain_target(self, tomorrow_class: str) -> int:
-        """Get the SOC drain target for off-peak based on tomorrow's solar class."""
-        return self._drain_targets.get(tomorrow_class, DEFAULT_OFFPEAK_DRAIN_UNKNOWN)
+        """Get the EFFECTIVE SOC drain target for `tomorrow_class`.
+
+        Single decision seam for invariant #1 — every drain consumer
+        (`_drain_target_for` → emitter / DP stamp / release floor / pool)
+        routes here. Never below reserve_soc, monotone across classes.
+        """
+        eff = self._effective_drain_targets()
+        if tomorrow_class in eff:
+            return eff[tomorrow_class]
+        return min(100, max(int(self.reserve_soc), DEFAULT_OFFPEAK_DRAIN_UNKNOWN))
 
     def _drain_target_for(self, now: datetime) -> int:
         """Single source of truth for the peak-anchored drain target INCLUDING
@@ -6426,6 +6474,9 @@ class BatteryStrategy:
                 "horizon_enabled": self._multi_day_horizon_enabled,
             },
             "drain_targets": dict(self._drain_targets),
+            # EC-SOC-LADDER-FULL-WIRING-1: what the strategy actually acts
+            # on (== drain_targets on a valid ladder).
+            "drain_targets_effective": self._effective_drain_targets(),
             # EV charge-start dead-band fix D5: expose tonight's applicable
             # drain target and the effective release floor threaded into
             # both EV and plug drain-release gates. `drain_targets` above
