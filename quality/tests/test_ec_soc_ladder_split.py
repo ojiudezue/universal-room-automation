@@ -184,6 +184,20 @@ def test_multi_day_max_uses_effective_targets():
     assert strat._drain_target_for(_SEASON_NOW["summer"]) == 60
 
 
+def test_multi_day_d2_lookup_uses_effective_via_determine_mode():
+    """Discriminates energy_battery D2 lookup: D1=excellent (10), D2=very_poor
+    raw 30 but poor=50 above it → effective very_poor 50. Raw D2 would give
+    max(10, 30) = 30."""
+    strat = _make(10, _drains(10, 10, 10, 50, 30, 40), cls="excellent")
+    strat._multi_day_horizon_enabled = True
+    strat._resolve_target_day = lambda now: ("excellent", 1)
+    strat.classify_solar_day_n = lambda n: "very_poor"
+    r = _drive(strat, "summer")
+    assert "Off-peak drain" in r["reason"], r["reason"]
+    assert _emitted_reserve(r) == 50
+    assert strat._offpeak_drain_branch_target == 50
+
+
 def test_unknown_floored_not_monotonised():
     s1 = _make(10, _drains(10, 15, 20, 30, 30, 5))
     assert s1._get_offpeak_drain_target("unknown") == 10
