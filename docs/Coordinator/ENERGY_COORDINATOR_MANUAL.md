@@ -178,9 +178,14 @@ day (the observed Garage B incident).
   is what lets framing-disjoint reviews catch distinct leaks;
   v5.5.3 D-HIGH-1 precedent).
 - Known accepted follow-ups: force-charge does not release a live
-  `transitioned` carrier (MED); no runtime clamp yet between
-  `fill_priority_soc` / `excess_solar_soc` / drain targets
-  (ladder-validator extension queued); must-start-by does not defer
+  `transitioned` carrier (MED); SOC-ladder runtime enforcement:
+  #1 drain targets clamped (>= reserve, monotone) at
+  `_get_offpeak_drain_target` (status attr `drain_targets_effective`
+  beside raw `drain_targets`), #4/#5 via `safely_ordered_ladder`,
+  #6 inclement floor via `_partial_floor_value` (emission + recoverability);
+  #2 peak-buffer > top-drain stays DETECT-ONLY (parked design,
+  PLANNING_ec_soc_ladder_full_wiring.md §D2; revival trigger = a #2
+  `threshold_ladder_violation`); anomaly reads raw values; must-start-by does not defer
   on `_paused_by_battery_drain` (corner); excess-solar lacks a
   release-only path when its toggle is off (backlog).
 
@@ -334,6 +339,7 @@ driving decisions. Attributes to watch:
 |---|---|
 | `arbitrage_phase` | `inactive` / `charging` / `attain` / `solar_attain` — which arbitrage state machine leg is running. `attain` = peak-buffer top-off; `solar_attain` = riding solar toward the target. |
 | `peak_buffer_target` | The SOC target the arbitrage chunk is charging toward. |
+| `drain_targets` / `drain_targets_effective` | Operator drain values (raw) vs what the strategy acts on (floored at reserve, monotone across classes). Equal on a valid ladder; a difference means an inverted ladder (the `threshold_ladder_violation` anomaly also fires). |
 | `target_day_class` | Today's solar classification (excellent / good / moderate / poor / very_poor). |
 | `arbitrage_chunk_completed` | `True` once the completed-chunk HOLD (v5.17.1) has locked reserve until the TOU boundary. |
 | `arbitrage_charge_lead_time_min` | Currently effective lead-time knob value. |

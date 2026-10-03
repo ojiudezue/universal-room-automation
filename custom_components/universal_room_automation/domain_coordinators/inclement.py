@@ -663,7 +663,11 @@ class InclementFusion:
                 now,
                 current_soc,
                 classification.expires_at,
-                partial_hold_reserve_floor=self._partial_floor,
+                # EC-SOC-LADDER #6: recoverability uses the SAME clamped
+                # floor the emission uses (max(reserve, floor)) so an
+                # inverted floor < reserve cannot overstate permitted
+                # discharge. Validator/anomaly still read the RAW option.
+                partial_hold_reserve_floor=self._partial_floor_value(current_soc),
                 surplus_margin_pct=self._surplus_margin_pct,
             )
             if horizon.recoverable:
