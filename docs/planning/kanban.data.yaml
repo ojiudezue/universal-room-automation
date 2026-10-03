@@ -435,6 +435,14 @@ meta:
     headline: "The outdoor camera box (Frigate2, 192.168.13.18) has been OFF THE NETWORK since about 7:18pm last night, during the network restart. HA and the Mac both fail to ping it and its network address does not resolve, so it is the machine or its cable/port, not software. Every Frigate person and motion detector reads unavailable, and outdoor person detection from Frigate has been blind for about 7 hours. UniFi Protect is still working. Good news on the older fault: the detectors that froze on 09-21 had started moving again before the box dropped. DO: check the box's power and network port and power-cycle it. I paged you with a Home Assistant notification (not a phone push) and changed nothing."
     acknowledged: false
 cards:
+- id: EC-CONSUMPTION-SOURCE-EXCLUDES-BATTERY-LOAD-1
+  title: Envoy "consumption" sensor leaves out load the battery serves (09-01 17-21 read 10 kWh vs ~39 kWh real) — check what EC's consumption forecast reads
+  thread: energy
+  status: inbox
+  created: '2026-10-03 17:30'
+  updated: '2026-10-03 17:30'
+  next: 'INVESTIGATE (me): grep EC consumption producers (energy_forecast daily kWh, consumption regression, history rows) for their source entity; if Envoy consumption, measure bias vs SPAN pair minus EV (validated 1.6% vs energy balance over 2,996 h) and plan a source swap (config-first: knob/config entity?).'
+  why: 'D0 probe for window-sized attain (2026-10-03, PLANNING_ec_window_sized_attain_target.md §D0) found the Envoy consumption sensor under-reads on battery evenings; the real house load = SPAN panel pair minus EV draw. Any EC forecast built on the Envoy sensor under-predicts exactly when the battery is working.'
 - id: EC-EV-TOGGLE-TRIPWIRE-1
   title: Alert when a strategy flip-flop switches an EV charger more than twice an hour
   thread: energy
