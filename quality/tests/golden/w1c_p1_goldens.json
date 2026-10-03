@@ -118,12 +118,7 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [
-   {
-    "severity": 1,
-    "title": "Stuck signal recovered: borrow_restore_failed"
-   }
-  ],
+  "nm": [],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": null,
@@ -384,12 +379,7 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [
-   {
-    "severity": 1,
-    "title": "Stuck signal recovered: borrow_restore_failed"
-   }
-  ],
+  "nm": [],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": null,
@@ -1124,12 +1114,7 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [
-   {
-    "severity": 1,
-    "title": "Stuck signal recovered: borrow_restore_failed"
-   }
-  ],
+  "nm": [],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": {},
@@ -1256,7 +1241,12 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [],
+  "nm": [
+   {
+    "severity": 2,
+    "title": "Governed borrow restore failed: zone_1 (banking)"
+   }
+  ],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": {},
@@ -1902,12 +1892,7 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [
-   {
-    "severity": 1,
-    "title": "Stuck signal recovered: borrow_restore_failed"
-   }
-  ],
+  "nm": [],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": {},
@@ -2063,7 +2048,12 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [],
+  "nm": [
+   {
+    "severity": 2,
+    "title": "Governed borrow restore failed: zone_1 (banking)"
+   }
+  ],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": {},
@@ -2787,7 +2777,12 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [],
+  "nm": [
+   {
+    "severity": 2,
+    "title": "Governed borrow restore failed: zone_1 (banking)"
+   }
+  ],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": null,
@@ -4770,7 +4765,12 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [],
+  "nm": [
+   {
+    "severity": 2,
+    "title": "Governed borrow restore failed: zone_1 (preheat)"
+   }
+  ],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": null,
@@ -4990,7 +4990,12 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [],
+  "nm": [
+   {
+    "severity": 2,
+    "title": "Governed borrow restore failed: zone_1 (preheat)"
+   }
+  ],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": null,
@@ -5608,7 +5613,12 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [],
+  "nm": [
+   {
+    "severity": 2,
+    "title": "Governed borrow restore failed: zone_1 (egress_pause)"
+   }
+  ],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": null,
@@ -5985,10 +5995,6 @@
    {
     "severity": 1,
     "title": "Zone 1 HVAC resumed"
-   },
-   {
-    "severity": 1,
-    "title": "Stuck signal recovered: borrow_restore_failed"
    }
   ],
   "state": {
@@ -6322,10 +6328,6 @@
    {
     "severity": 1,
     "title": "Zone 1 HVAC resumed"
-   },
-   {
-    "severity": 1,
-    "title": "Stuck signal recovered: borrow_restore_failed"
    }
   ],
   "state": {
@@ -9012,7 +9014,12 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [],
+  "nm": [
+   {
+    "severity": 2,
+    "title": "Governed borrow restore failed: zone_1 (compromise)"
+   }
+  ],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": null,
@@ -9953,12 +9960,7 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [
-   {
-    "severity": 1,
-    "title": "Stuck signal recovered: borrow_restore_failed"
-   }
-  ],
+  "nm": [],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": {},
@@ -10168,12 +10170,7 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [
-   {
-    "severity": 1,
-    "title": "Stuck signal recovered: borrow_restore_failed"
-   }
-  ],
+  "nm": [],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": {},
@@ -13261,7 +13258,12 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [],
+  "nm": [
+   {
+    "severity": 2,
+    "title": "Governed borrow restore failed: zone_1 (nudge)"
+   }
+  ],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": null,
@@ -19991,12 +19993,7 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [
-   {
-    "severity": 1,
-    "title": "Stuck signal recovered: borrow_restore_failed"
-   }
-  ],
+  "nm": [],
   "state": {
    "banking_tokens": [
     "zone_1"
@@ -20969,12 +20966,7 @@
   ],
   "db_rows_other": [],
   "exc": null,
-  "nm": [
-   {
-    "severity": 1,
-    "title": "Stuck signal recovered: borrow_restore_failed"
-   }
-  ],
+  "nm": [],
   "state": {
    "banking_tokens": [],
    "carrier_last_sent": null,

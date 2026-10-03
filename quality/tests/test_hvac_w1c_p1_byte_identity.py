@@ -233,6 +233,13 @@ def _install(mods, monkeypatch, *, variant, registry, db_kwargs=None):
     ctx.ex._test_clear_leases()
     ctx.ex._test_bind(hass=hass, db=db)
     ctx.S._test_reset_cache()
+    # Order-robustness: the per-day NM latch (e.g. "Governed borrow
+    # restore failed") is module state; a prior test that latched it would
+    # suppress this scenario's NM. Reset so every scenario starts clean.
+    import importlib as _il
+    _il.import_module(
+        "custom_components.universal_room_automation.domain_coordinators._stuck_signal_nm"
+    ).reset_latches_for_tests()
 
     # REAL registry lookup through a fixture registry (strategy_for is NOT
     # patched): Carrier platform, or a miss (-> Generic, uncached).
@@ -884,6 +891,48 @@ async def _capture(mods, monkeypatch, scenario, variant, registry):
     return obs
 
 
+async def drive_site(monkeypatch, scenario: str, variant: str = "applied",
+                     registry: str = "carrier") -> dict:
+    """Shared BEHAVIOURAL driver for other test files (W1-C P1 converted
+    several source-grep anchors to drive the enclosing production method
+    through these scenarios). Shim state is snapshotted and RESTORED."""
+    baseline = H.snapshot_shims()
+    try:
+        mods = H.load_real()
+        return await _capture(mods, monkeypatch, scenario, variant, registry)
+    finally:
+        H.restore_shims(baseline)
+
+
+class site_ctx:
+    """Async context manager: a fully installed scenario context (real
+    modules, recording services, fixture registry) for a converted test
+    that needs a custom drive. Shims are restored on exit."""
+
+    def __init__(self, monkeypatch, variant: str = "applied", registry: str = "carrier"):
+        self._mp = monkeypatch
+        self._variant = variant
+        self._registry = registry
+
+    async def __aenter__(self):
+        self._baseline = H.snapshot_shims()
+        mods = H.load_real()
+        self.ctx = _install(mods, self._mp, variant=self._variant, registry=self._registry)
+        return self.ctx
+
+    async def __aexit__(self, *exc):
+        try:
+            await _drain(self.ctx.hass)
+            self.ctx.ex._test_clear_leases()
+        finally:
+            H.restore_shims(self._baseline)
+        return False
+
+
+def climate_calls(obs: dict, service: str) -> list:
+    return [c["data"] for c in obs["calls"] if c["domain"] == "climate" and c["service"] == service]
+
+
 def _load_goldens() -> dict:
     if not GOLDEN_PATH.exists():
         return {}
@@ -908,7 +957,19 @@ async def test_carrier_byte_identity(mods, monkeypatch, scenario, variant):
         GOLDEN_PATH.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
         return
     assert key in _GOLDENS, f"no golden for {key} (goldens are never regenerated on the P1 branch)"
-    assert obs == _GOLDENS[key]
+    assert _cmp_form(obs) == _cmp_form(_GOLDENS[key])
+
+
+def _cmp_form(obs: dict) -> dict:
+    """Comparator normalisation (the golden FILE is never edited): an
+    uncached Carrier strategy instance (`None`) and a cached one with an
+    empty `last_sent` (`{}`) are the same state — "URA has recorded no
+    preset for any entity". P1 routes every site through `strategy_for`,
+    which caches the instance on first use; pre-P1 only S1 did."""
+    o = json.loads(json.dumps(obs))
+    if o["state"].get("carrier_last_sent") is None:
+        o["state"]["carrier_last_sent"] = {}
+    return o
 
 
 def _without_carrier_record(obs: dict) -> dict:
