@@ -293,4 +293,16 @@ change.
 Serial full-suite name-diff vs `pre-batch-1002`: 151 failed / 3 errors identical name sets on both sides, +110 passing — CLEAN.
 
 ## Live validation
-_Pending — results table written back after the restart._
+### Validated 2026-10-03 (restart 00:37 CDT onto v5.103.36; checked ~01:15)
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| Attribute churn: <119 rows/5 min while Living Room occupied | pending organic | Room off since restart. Dispose: count `binary_sensor.living_room_occupied` rows over a 5-min occupied window; PASS if <119. |
+| `safety_active_cooldowns` not ticking | PASS (partial) | 1 row since restart. |
+| Junk humidity floor | pending organic | No sub-5% reading yet. Dispose: no `low_humidity` row in `ura_activity_log` after the next blip. |
+| Anomaly baselines saved hourly/on stop | pending (uptime <1h at check) | coordinator_manager fresh; others pre-fix ages. Dispose: re-check after 1h uptime — all 5 refresh. |
+| Music following works again | PASS (mechanism) | 01:14 evaluation for "Oji Udezue" Master Bathroom→AV Closet = `sleep_suppressed` (name match now works); 23 low_confidence / 14 ping_pong in 37 min. Completed transfer pending (waking hours). |
+| Auto-return writes carry excursion_id | pending organic | No auto_return since restart. Ledger is `ura_activity_log` (action='climate_write'), not a `climate_write` table. |
+| Solar override | pending operator/daylight | Override not set; Envoy production path itself faulty (production.json hangs). |
+
+No new URA errors since restart; boot-only noise: fan-oracle fallback burst (fixed on develop), Envoy setup hang (Envoy firmware fault), Leviton 12 s stall.
