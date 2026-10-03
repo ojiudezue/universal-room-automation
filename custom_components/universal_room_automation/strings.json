@@ -640,7 +640,7 @@
       },
       "zone_hvac": {
         "title": "🌡️ Thermostat",
-        "description": "Pick the thermostat for this zone. If none is set, the first room's thermostat is used. Zones sharing this thermostat get the same settings.",
+        "description": "Pick the thermostat for this zone. If none is set, the first room's thermostat is used. Zones sharing this thermostat get the same settings. {advanced_hint}",
         "data": {
           "zone_thermostat": "Thermostat",
           "hvac_ac_load_sensor": "AC power sensor",
@@ -654,7 +654,7 @@
       },
       "zone_energy": {
         "title": "⚡ Zone Energy Sensors",
-        "description": "Configure power and energy sensors for zone-level loads (HVAC circuits, subpanel meters). These track energy not attributable to individual rooms.",
+        "description": "Configure power and energy sensors for zone-level loads (HVAC circuits, subpanel meters). These track energy not attributable to individual rooms. {advanced_hint}",
         "data": {
           "zone_power_sensors": "Power sensors",
           "zone_energy_sensors": "Energy sensors"
@@ -686,7 +686,7 @@
       },
       "zone_dynamic_preset": {
         "title": "🌤️ Weather comfort",
-        "description": "Let weather adjust the thermostat ranges for zone '{zone_name}'. Add a small offset if this zone runs warm or cool.",
+        "description": "Let weather adjust the thermostat ranges for zone '{zone_name}'. Add a small offset if this zone runs warm or cool. {advanced_hint}",
         "data": {
           "zone_dynamic_preset_enabled": "Weather comfort",
           "zone_dynamic_preset_offset": "Offset (°F)",
@@ -702,7 +702,7 @@
       },
       "global_sensors": {
         "title": "Global Sensors",
-        "description": "Sensors shared by all rooms. Saving briefly restarts URA.",
+        "description": "Sensors shared by all rooms. Saving briefly restarts URA. {advanced_hint}",
         "data": {
           "outside_temp_sensor": "Outdoor temperature",
           "outside_humidity_sensor": "Outdoor humidity",
@@ -724,7 +724,7 @@
       },
       "energy_sensors": {
         "title": "Energy Sensors",
-        "description": "Energy sensors for whole-house tracking and forecasts. Saving briefly restarts URA.",
+        "description": "Energy sensors for whole-house tracking and forecasts. Saving briefly restarts URA. {advanced_hint}",
         "data": {
           "whole_house_power_sensors": "Whole-house power",
           "whole_house_energy_sensors": "Whole-house energy",
@@ -754,7 +754,7 @@
       },
       "person_tracking": {
         "title": "👥 Person Tracking",
-        "description": "Pick which people to follow from room to room. Saving briefly restarts URA.",
+        "description": "Pick which people to follow from room to room. Saving briefly restarts URA. {advanced_hint}",
         "data": {
           "tracked_persons": "People",
           "person_data_retention_days": "Keep history (days)",
@@ -768,7 +768,7 @@
       },
       "camera_census": {
         "title": "📷 Camera Census",
-        "description": "Pick cameras for counting people. Person sensors are found automatically. Works with UniFi Protect, Frigate, Reolink and Dahua. Some changes here briefly restart URA.",
+        "description": "Pick cameras for counting people. Person sensors are found automatically. Works with UniFi Protect, Frigate, Reolink and Dahua. Some changes here briefly restart URA. {advanced_hint}",
         "data": {
           "census_cross_validation": "Cross-check camera systems",
           "census_divergence_downgrade": "Trust the lower count",
@@ -806,7 +806,7 @@
       },
       "perimeter_alerting": {
         "title": "🚨 Perimeter Alerting",
-        "description": "Get alerts about vehicles on your outdoor cameras during these hours. Optional AI descriptions add detail.",
+        "description": "Get alerts about vehicles on your outdoor cameras during these hours. Optional AI descriptions add detail. {advanced_hint}",
         "data": {
           "perimeter_vehicle_hours_start": "Start hour (0-23)",
           "perimeter_vehicle_hours_end": "End hour (0-23)",
@@ -1634,7 +1634,7 @@
       },
       "zone_rooms": {
         "title": "Name and rooms",
-        "description": "Set the zone name and which rooms belong to it.",
+        "description": "Set the zone name and which rooms belong to it. {advanced_hint}",
         "data": {
           "zone_name": "Zone name",
           "zone_description": "Description",
@@ -1650,7 +1650,7 @@
       },
       "zone_media": {
         "title": "🎵 Zone Media",
-        "description": "Configure how music follows people within this zone.",
+        "description": "Configure how music follows people within this zone. {advanced_hint}",
         "data": {
           "zone_player_entity": "Zone speaker",
           "zone_player_mode": "If speaker is off"

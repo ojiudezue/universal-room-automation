@@ -75,6 +75,10 @@ def _schema_has_advanced(schema) -> bool:
         return False
     for marker, val in items.items():
         inner = getattr(val, "schema", None)
+        # vol.All / vol.Any keep a back-reference to the PARENT schema in
+        # ``.schema``; that is a leaf validator, not a section.
+        if inner is not None and getattr(inner, "schema", None) is items:
+            inner = None
         if isinstance(inner, vol.Schema) or isinstance(val, vol.Schema):
             if _schema_has_advanced(inner if inner is not None else val):
                 return True
@@ -3304,6 +3308,10 @@ def _collect_schema_defaults(schema) -> dict:
         return out
     for marker, val in items.items():
         inner = getattr(val, "schema", None)
+        # vol.All / vol.Any keep a back-reference to the PARENT schema in
+        # ``.schema``; that is a leaf validator, not a section.
+        if inner is not None and getattr(inner, "schema", None) is items:
+            inner = None
         if isinstance(inner, vol.Schema) or isinstance(val, vol.Schema):
             out.update(_collect_schema_defaults(inner if inner is not None else val))
             continue
@@ -3906,6 +3914,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 data={**self._config_entry.options, **user_input}
             )
 
+        # HOUSE-DIALOGS-CLEANUP-1 D4: tuning numbers are Advanced-only
+        # (shown anyway when they hold a non-default value, invariant I2).
+        _merged = self._merged_entry_config()
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_OUTSIDE_TEMP_SENSOR,
@@ -3948,6 +3959,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(
                     CONF_OUTDOOR_DARK_LUX, DEFAULT_OUTDOOR_DARK_LUX,
                 ),
+                description=_adv(
+                    CONF_OUTDOOR_DARK_LUX, _merged, DEFAULT_OUTDOOR_DARK_LUX,
+                ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=1, max=2000, step=10, unit_of_measurement="lx",
@@ -3962,7 +3976,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Required(
                 CONF_ELECTRICITY_RATE,
-                default=self._get_current(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE)
+                default=self._get_current(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE),
+                description=_adv(
+                    CONF_ELECTRICITY_RATE, _merged, DEFAULT_ELECTRICITY_RATE,
+                ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0.01, max=1.00, step=0.01,
@@ -3974,7 +3991,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="global_sensors",
-            data_schema=data_schema,
+            data_schema=self._filter_advanced(data_schema),
+            description_placeholders={
+                "advanced_hint": advanced_hint_for(
+                    data_schema, self._show_adv(),
+                ),
+            },
         )
 
     async def async_step_energy_sensors(self, user_input=None):
@@ -3994,6 +4016,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 _LOGGER.exception("energy_sensors save FAILED")
                 raise
 
+        # HOUSE-DIALOGS-CLEANUP-1 D4 (O1): device power sensors have no
+        # runtime reader; shown only in Advanced mode or when already set.
+        _merged = self._merged_entry_config()
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_WHOLE_HOUSE_POWER_SENSORS,
@@ -4011,7 +4036,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(
                 CONF_HOUSE_DEVICE_POWER_SENSORS,
-                default=self._get_current(CONF_HOUSE_DEVICE_POWER_SENSORS, []) or vol.UNDEFINED
+                default=self._get_current(CONF_HOUSE_DEVICE_POWER_SENSORS, []) or vol.UNDEFINED,
+                description=_adv(CONF_HOUSE_DEVICE_POWER_SENSORS, _merged, []),
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
             ),
@@ -4025,7 +4051,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="energy_sensors",
-            data_schema=data_schema,
+            data_schema=self._filter_advanced(data_schema),
+            description_placeholders={
+                "advanced_hint": advanced_hint_for(
+                    data_schema, self._show_adv(),
+                ),
+            },
         )
     
     def _get_mobile_app_targets(self) -> list[dict]:
@@ -4077,6 +4108,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 data={**self._config_entry.options, **user_input}
             )
 
+        # HOUSE-DIALOGS-CLEANUP-1 D4 (O1): retention + transition window
+        # have no runtime reader; Advanced-only unless already non-default.
+        _merged = self._merged_entry_config()
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_TRACKED_PERSONS,
@@ -4089,7 +4123,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(
                 CONF_PERSON_DATA_RETENTION,
-                default=self._get_current(CONF_PERSON_DATA_RETENTION, DEFAULT_PERSON_DATA_RETENTION)
+                default=self._get_current(CONF_PERSON_DATA_RETENTION, DEFAULT_PERSON_DATA_RETENTION),
+                description=_adv(
+                    CONF_PERSON_DATA_RETENTION, _merged,
+                    DEFAULT_PERSON_DATA_RETENTION,
+                ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0,
@@ -4101,7 +4139,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(
                 CONF_TRANSITION_DETECTION_WINDOW,
-                default=self._get_current(CONF_TRANSITION_DETECTION_WINDOW, DEFAULT_TRANSITION_WINDOW)
+                default=self._get_current(CONF_TRANSITION_DETECTION_WINDOW, DEFAULT_TRANSITION_WINDOW),
+                description=_adv(
+                    CONF_TRANSITION_DETECTION_WINDOW, _merged,
+                    DEFAULT_TRANSITION_WINDOW,
+                ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=30,
@@ -4115,7 +4157,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="person_tracking",
-            data_schema=data_schema,
+            data_schema=self._filter_advanced(data_schema),
+            description_placeholders={
+                "advanced_hint": advanced_hint_for(
+                    data_schema, self._show_adv(),
+                ),
+            },
         )
 
     async def async_step_camera_census(self, user_input=None):
@@ -4151,12 +4198,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         interior_default.append(cam)
                         existing_ids.add(cam)
 
+        # HOUSE-DIALOGS-CLEANUP-1 D4: order = camera pickers, face/identity
+        # switches, guest list + SSID, then Advanced-only tuning. Keys are
+        # unchanged. Advanced fields still render in Simple mode when they
+        # hold a non-default value (invariant I2); a Simple-mode save keeps
+        # hidden values because the save merges into the stored options.
+        _merged = self._merged_entry_config()
         data_schema = vol.Schema({
-            # Cross-validation toggle
-            vol.Optional(
-                CONF_CENSUS_CROSS_VALIDATION,
-                default=self._get_current(CONF_CENSUS_CROSS_VALIDATION, True)
-            ): selector.BooleanSelector(),
             # Indoor cameras: inside the house (mapped to rooms via area_id)
             vol.Optional(
                 CONF_CAMERA_PERSON_ENTITIES,
@@ -4187,15 +4235,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     multiple=True,
                 )
             ),
-            # v3.5.2: Face recognition toggle (default False)
+            # v3.5.2: Face recognition toggle
             vol.Optional(
                 CONF_FACE_RECOGNITION_ENABLED,
                 default=self._get_current(CONF_FACE_RECOGNITION_ENABLED, DEFAULT_FACE_RECOGNITION_ENABLED),
-            ): selector.BooleanSelector(),
-            # v3.10.1: Enhanced census v2
-            vol.Optional(
-                CONF_ENHANCED_CENSUS,
-                default=self._get_current(CONF_ENHANCED_CENSUS, True),
             ): selector.BooleanSelector(),
             # CENSUS-TOGGLES-TO-DEVICE-SWITCHES-1 (2026-08-18): kill switch
             # for the egress-face identity fuse. Default ON — the feature
@@ -4233,6 +4276,39 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.LIST,
                 )
             ),
+            vol.Optional(
+                CONF_GUEST_VLAN_SSID,
+                default=self._get_current(CONF_GUEST_VLAN_SSID, DEFAULT_GUEST_VLAN_SSID),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+            ),
+            # --- Advanced-only tuning (D4) ---
+            # Cross-validation toggle
+            vol.Optional(
+                CONF_CENSUS_CROSS_VALIDATION,
+                default=self._get_current(CONF_CENSUS_CROSS_VALIDATION, True),
+                description=_adv(CONF_CENSUS_CROSS_VALIDATION, _merged, True),
+            ): selector.BooleanSelector(),
+            # 2026-08-01 census fusion policy: divergence-aware downgrade.
+            # Default True (min-wins on uncorroborated divergence → DISAGREE).
+            # False = fire-axe restore to pre-cycle max-wins CLOSE behavior.
+            vol.Optional(
+                CONF_CENSUS_DIVERGENCE_DOWNGRADE,
+                default=self._get_current(
+                    CONF_CENSUS_DIVERGENCE_DOWNGRADE,
+                    DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
+                ),
+                description=_adv(
+                    CONF_CENSUS_DIVERGENCE_DOWNGRADE, _merged,
+                    DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
+                ),
+            ): selector.BooleanSelector(),
+            # v3.10.1: Enhanced census v2
+            vol.Optional(
+                CONF_ENHANCED_CENSUS,
+                default=self._get_current(CONF_ENHANCED_CENSUS, True),
+                description=_adv(CONF_ENHANCED_CENSUS, _merged, True),
+            ): selector.BooleanSelector(),
             # Review OF-1 (2026-09-04): D4 fail-safe STRICT kill-switch.
             # Default True — every face-emission site is gated by
             # `_is_face_producer_live()`. Operators who want to disable
@@ -4245,24 +4321,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
                     DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT,
                 ),
-            ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_GUEST_VLAN_SSID,
-                default=self._get_current(CONF_GUEST_VLAN_SSID, DEFAULT_GUEST_VLAN_SSID),
-            ): selector.TextSelector(
-                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
-            ),
-            vol.Optional(
-                CONF_CENSUS_HOLD_INTERIOR,
-                default=self._get_current(
-                    CONF_CENSUS_HOLD_INTERIOR, DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES
+                description=_adv(
+                    CONF_EGRESS_IDENTITY_FAILSAFE_STRICT, _merged,
+                    DEFAULT_EGRESS_IDENTITY_FAILSAFE_STRICT,
                 ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=60, step=1, unit_of_measurement="min",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
+            ): selector.BooleanSelector(),
             # H3 (2026-07-13): BLE-cancel kill switch. Default True
             # preserves current behavior; when False the per-area BLE
             # subtraction (Step 3 in _get_unrecognized_camera_count) is
@@ -4273,15 +4336,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_CENSUS_BLE_CANCEL_ENABLED,
                     DEFAULT_CENSUS_BLE_CANCEL_ENABLED,
                 ),
-            ): selector.BooleanSelector(),
-            # 2026-08-01 census fusion policy: divergence-aware downgrade.
-            # Default True (min-wins on uncorroborated divergence → DISAGREE).
-            # False = fire-axe restore to pre-cycle max-wins CLOSE behavior.
-            vol.Optional(
-                CONF_CENSUS_DIVERGENCE_DOWNGRADE,
-                default=self._get_current(
-                    CONF_CENSUS_DIVERGENCE_DOWNGRADE,
-                    DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
+                description=_adv(
+                    CONF_CENSUS_BLE_CANCEL_ENABLED, _merged,
+                    DEFAULT_CENSUS_BLE_CANCEL_ENABLED,
                 ),
             ): selector.BooleanSelector(),
             # A-M6/E-LOW-1: expose D4 auto-enable knob for the person-detect
@@ -4292,11 +4349,34 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_AUTO_ENABLE_PERSON_DETECTION,
                     DEFAULT_AUTO_ENABLE_PERSON_DETECTION,
                 ),
+                description=_adv(
+                    CONF_AUTO_ENABLE_PERSON_DETECTION, _merged,
+                    DEFAULT_AUTO_ENABLE_PERSON_DETECTION,
+                ),
             ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_CENSUS_HOLD_INTERIOR,
+                default=self._get_current(
+                    CONF_CENSUS_HOLD_INTERIOR, DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES
+                ),
+                description=_adv(
+                    CONF_CENSUS_HOLD_INTERIOR, _merged,
+                    DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=60, step=1, unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
             vol.Optional(
                 CONF_CENSUS_HOLD_EXTERIOR,
                 default=self._get_current(
                     CONF_CENSUS_HOLD_EXTERIOR, DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES
+                ),
+                description=_adv(
+                    CONF_CENSUS_HOLD_EXTERIOR, _merged,
+                    DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES,
                 ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
@@ -4308,7 +4388,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="camera_census",
-            data_schema=data_schema,
+            data_schema=self._filter_advanced(data_schema),
+            description_placeholders={
+                "advanced_hint": advanced_hint_for(
+                    data_schema, self._show_adv(),
+                ),
+            },
         )
 
     async def async_step_perimeter_alerting(self, user_input=None):
@@ -4334,6 +4419,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 new_options.pop(_k, None)
             return self.async_create_entry(title="", data=new_options)
 
+        # HOUSE-DIALOGS-CLEANUP-1 D4: AI-description tuning and the snapshot
+        # delay are Advanced-only (shown anyway when non-default, I2).
+        _merged = self._merged_entry_config()
         data_schema = vol.Schema({
             # VEHICLE alert start hour (0–23) — renamed from alert_hours.
             vol.Optional(
@@ -4381,6 +4469,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_PERIMETER_ENRICHMENT_PROVIDER,
                     DEFAULT_PERIMETER_ENRICHMENT_PROVIDER,
                 ),
+                description=_adv(
+                    CONF_PERIMETER_ENRICHMENT_PROVIDER, _merged,
+                    DEFAULT_PERIMETER_ENRICHMENT_PROVIDER,
+                ),
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
             ),
@@ -4388,6 +4480,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS,
                 default=self._get_current(
                     CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS,
+                    DEFAULT_PERIMETER_ENRICHMENT_PERSON_SENSORS,
+                ),
+                description=_adv(
+                    CONF_PERIMETER_ENRICHMENT_PERSON_SENSORS, _merged,
                     DEFAULT_PERIMETER_ENRICHMENT_PERSON_SENSORS,
                 ),
             ): selector.EntitySelector(
@@ -4401,6 +4497,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_PERIMETER_ENRICHMENT_MODEL,
                     DEFAULT_PERIMETER_ENRICHMENT_MODEL,
                 ),
+                description=_adv(
+                    CONF_PERIMETER_ENRICHMENT_MODEL, _merged,
+                    DEFAULT_PERIMETER_ENRICHMENT_MODEL,
+                ),
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
             ),
@@ -4408,6 +4508,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
                 default=self._get_current(
                     CONF_PERIMETER_ENRICHMENT_MAX_TOKENS,
+                    DEFAULT_PERIMETER_ENRICHMENT_MAX_TOKENS,
+                ),
+                description=_adv(
+                    CONF_PERIMETER_ENRICHMENT_MAX_TOKENS, _merged,
                     DEFAULT_PERIMETER_ENRICHMENT_MAX_TOKENS,
                 ),
             ): selector.NumberSelector(
@@ -4420,6 +4524,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_PERIMETER_ENRICHMENT_PROVIDER_ID,
                 default=self._get_current(
                     CONF_PERIMETER_ENRICHMENT_PROVIDER_ID, "",
+                ),
+                description=_adv(
+                    CONF_PERIMETER_ENRICHMENT_PROVIDER_ID, _merged, "",
                 ),
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
@@ -4434,6 +4541,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_EXTERIOR_SNAPSHOT_OFFSET_S,
                     DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S,
                 ),
+                description=_adv(
+                    CONF_EXTERIOR_SNAPSHOT_OFFSET_S, _merged,
+                    DEFAULT_EXTERIOR_SNAPSHOT_OFFSET_S,
+                ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=MIN_EXTERIOR_SNAPSHOT_OFFSET_S,
@@ -4446,7 +4557,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="perimeter_alerting",
-            data_schema=data_schema,
+            data_schema=self._filter_advanced(data_schema),
+            description_placeholders={
+                "advanced_hint": advanced_hint_for(
+                    data_schema, self._show_adv(),
+                ),
+            },
         )
 
     async def async_step_domain_coordinators(self, user_input=None):
@@ -9558,6 +9674,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         ),
                     }),
                     errors={"base": "zone_name_contains_plus"},
+                    description_placeholders={"advanced_hint": ""},
                 )
 
             # Update each selected room's zone assignment.
@@ -9620,8 +9737,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 # the centralized save path keeps the "one save = one
                 # update_entry" invariant intact.
                 rooms_payload = {
+                    # ZONE-DIALOGS-CLEANUP-1 D2 (I3): the description field
+                    # is hidden in Simple mode, so fall back to the stored
+                    # value instead of clearing it.
                     CONF_ZONE_DESCRIPTION: user_input.get(
-                        CONF_ZONE_DESCRIPTION, ""
+                        CONF_ZONE_DESCRIPTION, current_zone_desc
                     ),
                     CONF_ZONE_ROOMS: selected_rooms,
                     # v5.7.0 WS-A4: persist outdoor flag in ZM zones dict.
@@ -9647,7 +9767,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 new_zone_options = {
                     **zone_entry.options,
                     CONF_ZONE_NAME: zone_name,
-                    CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
+                    CONF_ZONE_DESCRIPTION: user_input.get(
+                        CONF_ZONE_DESCRIPTION, current_zone_desc
+                    ),
                     CONF_ZONE_ROOMS: selected_rooms,
                     # v5.7.0 WS-A4: persist outdoor flag on legacy zone entries.
                     CONF_ZONE_IS_OUTDOOR: bool(user_input.get(
@@ -9695,7 +9817,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 new_zone_options = {
                     **zone_entry.options,
                     CONF_ZONE_NAME: zone_name,
-                    CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
+                    CONF_ZONE_DESCRIPTION: user_input.get(
+                        CONF_ZONE_DESCRIPTION, current_zone_desc
+                    ),
                     CONF_ZONE_ROOMS: selected_rooms,
                     CONF_ZONE_IS_OUTDOOR: bool(user_input.get(
                         CONF_ZONE_IS_OUTDOOR, current_zone_is_outdoor
@@ -9729,6 +9853,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         ]
         
         # Build schema
+        # ZONE-DIALOGS-CLEANUP-1 D2 (O1): the description has no runtime
+        # reader, so it shows only in Advanced mode or when already set.
+        _zmerged = (
+            zone_data if zm_result
+            else {**zone_entry.data, **zone_entry.options}
+        )
         schema_fields = {
             vol.Required(
                 CONF_ZONE_NAME,
@@ -9738,7 +9868,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(
                 CONF_ZONE_DESCRIPTION,
-                default=current_zone_desc
+                default=current_zone_desc,
+                description=_adv(CONF_ZONE_DESCRIPTION, _zmerged, ""),
             ): selector.TextSelector(
                 selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
             ),
@@ -9765,7 +9896,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="zone_rooms",
-            data_schema=data_schema,
+            data_schema=self._filter_advanced(data_schema),
+            description_placeholders={
+                "advanced_hint": advanced_hint_for(
+                    data_schema, self._show_adv(),
+                ),
+            },
         )
 
     async def async_step_zone_media(self, user_input=None):
@@ -9822,6 +9958,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             {"label": "Aggregate (All room players)", "value": ZONE_PLAYER_MODE_AGGREGATE},
         ]
 
+        # ZONE-DIALOGS-CLEANUP-1 D2: the fallback mode is Advanced-only
+        # (shown anyway when it differs from the default, I2).
+        _zmerged = (
+            zone_data if zm_result
+            else {**zone_entry.data, **zone_entry.options}
+        )
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_ZONE_PLAYER_ENTITY,
@@ -9831,7 +9973,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(
                 CONF_ZONE_PLAYER_MODE,
-                default=current_mode
+                default=current_mode,
+                description=_adv(
+                    CONF_ZONE_PLAYER_MODE, _zmerged, ZONE_PLAYER_MODE_FALLBACK,
+                ),
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=zone_player_modes,
@@ -9842,7 +9987,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="zone_media",
-            data_schema=data_schema,
+            data_schema=self._filter_advanced(data_schema),
+            description_placeholders={
+                "advanced_hint": advanced_hint_for(
+                    data_schema, self._show_adv(),
+                ),
+            },
         )
 
     async def async_step_zone_hvac(self, user_input=None):
@@ -9918,6 +10068,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         # ac_load_sensor accepts kW OR kWh sensors (we filter by device_class
         # at runtime — power preferred, but energy works if user only has
         # kWh totalizers).
+        # ZONE-DIALOGS-CLEANUP-1 D2: the AC overrun fields are Advanced-only
+        # (shown anyway when set / non-default, I2). A Simple-mode save
+        # omits them, and the mirror payload only carries submitted keys,
+        # so stored values on this zone and its siblings are kept (I3).
+        _zmerged = (
+            zone_data if zm_result
+            else {**zone_entry.data, **zone_entry.options}
+        )
         schema_fields: dict = {
             vol.Optional(
                 CONF_ZONE_THERMOSTAT,
@@ -9928,6 +10086,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_HVAC_AC_LOAD_SENSOR,
                 default=current_ac_load_sensor or vol.UNDEFINED,
+                description=_adv(CONF_HVAC_AC_LOAD_SENSOR, _zmerged, ""),
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(
                     domain="sensor",
@@ -9937,12 +10096,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_HVAC_AC_RAMP_ZONE_ENABLED,
                 default=bool(current_ac_ramp_enabled),
+                description=_adv(
+                    CONF_HVAC_AC_RAMP_ZONE_ENABLED, _zmerged,
+                    DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
+                ),
             ): selector.BooleanSelector(),
         }
 
+        data_schema = vol.Schema(schema_fields)
         return self.async_show_form(
             step_id="zone_hvac",
-            data_schema=vol.Schema(schema_fields),
+            data_schema=self._filter_advanced(data_schema),
+            description_placeholders={
+                "advanced_hint": advanced_hint_for(
+                    data_schema, self._show_adv(),
+                ),
+            },
         )
 
     async def async_step_zone_energy(self, user_input=None):
@@ -10002,10 +10171,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     data={**zone_entry.options, **user_input},
                 )
 
+        # ZONE-DIALOGS-CLEANUP-1 D2 (O1): zone power sensors have no runtime
+        # reader, so they show only in Advanced mode or when already set.
+        _zmerged = (
+            zone_data if zm_result
+            else {**zone_entry.data, **zone_entry.options}
+        )
         data_schema = vol.Schema({
             vol.Optional(
                 CONF_ZONE_POWER_SENSORS,
                 default=current_power or vol.UNDEFINED,
+                description=_adv(CONF_ZONE_POWER_SENSORS, _zmerged, []),
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
             ),
@@ -10019,7 +10195,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="zone_energy",
-            data_schema=data_schema,
+            data_schema=self._filter_advanced(data_schema),
+            description_placeholders={
+                "advanced_hint": advanced_hint_for(
+                    data_schema, self._show_adv(),
+                ),
+            },
         )
 
     async def async_step_zone_persons(self, user_input=None):
@@ -10227,17 +10408,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         # Initial render: use zone_data as defaults
         # v5.11.x cleanup: render call reduced to the 4 active conf_keys.
+        data_schema = self._build_dynamic_preset_schema(
+            zone_data, zone_data,
+            MIN_TEMP, MAX_TEMP,
+            conf_enabled=CONF_ZONE_DYNAMIC_PRESET_ENABLED,
+            conf_offset=CONF_ZONE_DYNAMIC_PRESET_OFFSET,
+            conf_reset_guest=CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST,
+            conf_sleep_enabled=CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
+        )
         return self.async_show_form(
             step_id="zone_dynamic_preset",
-            data_schema=self._build_dynamic_preset_schema(
-                zone_data, zone_data,
-                MIN_TEMP, MAX_TEMP,
-                conf_enabled=CONF_ZONE_DYNAMIC_PRESET_ENABLED,
-                conf_offset=CONF_ZONE_DYNAMIC_PRESET_OFFSET,
-                conf_reset_guest=CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST,
-                conf_sleep_enabled=CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
-            ),
-            description_placeholders={"zone_name": zone_name},
+            data_schema=self._filter_advanced(data_schema),
+            description_placeholders={
+                "zone_name": zone_name,
+                "advanced_hint": advanced_hint_for(
+                    data_schema, self._show_adv(),
+                ),
+            },
         )
 
     # =========================================================================
@@ -10862,10 +11049,18 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(CONF_OFFSET, default=_f(CONF_OFFSET, 0.0)): vol.All(
                 vol.Coerce(float), vol.Range(min=0.0, max=3.0)
             ),
-            vol.Optional(CONF_RESET_GUEST, default=_b(CONF_RESET_GUEST, True)): bool,
+            # ZONE-DIALOGS-CLEANUP-1 D2: guest reset + sleep ranges are
+            # Advanced-only (shown anyway when non-default, I2). Factory
+            # defaults mirror dynamic_preset.py (reset True, sleep False).
+            vol.Optional(
+                CONF_RESET_GUEST,
+                default=_b(CONF_RESET_GUEST, True),
+                description=_adv(CONF_RESET_GUEST, source_data, True),
+            ): bool,
             vol.Optional(
                 CONF_SLEEP_ENABLED,
                 default=_b(CONF_SLEEP_ENABLED, False),
+                description=_adv(CONF_SLEEP_ENABLED, source_data, False),
             ): bool,
         })
 
