@@ -3204,7 +3204,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if merged_config.get(CONF_DOMAIN_COORDINATORS_ENABLED, False):
             try:
                 from .domain_coordinators.manager import CoordinatorManager
-                from .coordinator_gate import coordinator_should_run
+                from .coordinator_gate import coordinators_to_register
+                _to_register = coordinators_to_register(cm_config, hass)
                 from .const import (
                     CONF_SLEEP_START_HOUR,
                     CONF_SLEEP_END_HOUR,
@@ -3329,7 +3330,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
 
                 # v3.6.0-c1: Register Presence Coordinator
-                if coordinator_should_run(cm_config, "presence", hass):
+                if "presence" in _to_register:
                     from .domain_coordinators.presence import PresenceCoordinator
                     presence = PresenceCoordinator(
                         hass,
@@ -3360,7 +3361,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.info("Presence Coordinator disabled via config")
 
                 # v3.6.0-c2: Register Safety Coordinator
-                if coordinator_should_run(cm_config, "safety", hass):
+                if "safety" in _to_register:
                     from .domain_coordinators.safety import SafetyCoordinator
                     safety = SafetyCoordinator(
                         hass,
@@ -3374,7 +3375,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.info("Safety Coordinator disabled via config")
 
                 # v3.6.0-c3: Register Security Coordinator
-                if coordinator_should_run(cm_config, "security", hass):
+                if "security" in _to_register:
                     from .domain_coordinators.security import SecurityCoordinator
                     from .const import (
                         CONF_SECURITY_LOCK_ENTITIES,
@@ -3418,7 +3419,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.info("Security Coordinator disabled via config")
 
                 # v3.6.24: Register Music Following Coordinator
-                if coordinator_should_run(cm_config, "music_following", hass):
+                if "music_following" in _to_register:
                     from .domain_coordinators.music_following import (
                         MusicFollowingCoordinator,
                     )
@@ -3520,7 +3521,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # been registered (A2 fix), so a transient false-positive
                 # raised at startup cannot strand the operator without a
                 # recovery affordance.
-                _energy_enabled = coordinator_should_run(cm_config, "energy", hass)
+                _energy_enabled = "energy" in _to_register
                 _envoy_hard_fail = False
                 _validation = None
 
@@ -3815,7 +3816,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # (source #2 of the census) resolves against a constructed
                 # monitor (plan §Scaffolding site B4 / fragile-pattern #7:
                 # do NOT gate on Energy health — read lazily on tick instead).
-                if coordinator_should_run(cm_config, "appliance", hass):
+                if "appliance" in _to_register:
                     from .domain_coordinators.appliance import (
                         ApplianceCoordinator,
                     )
@@ -3825,7 +3826,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.info("Appliance Coordinator disabled via config")
 
                 # v3.8.0-H1: Register HVAC Coordinator
-                if coordinator_should_run(cm_config, "hvac", hass):
+                if "hvac" in _to_register:
                     # EC Envoy boot-decoupling: pass net_power_entity when
                     # the envoy is registry-known (validation didn't hard-fail).
                     # Boot-race degraded path still passes the entity ID —
@@ -4154,7 +4155,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.info("HVAC Coordinator disabled via config")
 
                 # v3.6.29: Register Notification Manager
-                if coordinator_should_run(cm_config, "notification_manager", hass):
+                if "notification_manager" in _to_register:
                     from .domain_coordinators.notification_manager import (
                         NotificationManager,
                     )

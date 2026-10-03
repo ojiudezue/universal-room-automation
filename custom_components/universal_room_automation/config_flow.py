@@ -991,17 +991,7 @@ _APPLIANCE_ADD_KEY = "apick_new"
 # dispatch pattern as the zone / appliance pickers).
 _COORD_ADD_PREFIX = "addc_"
 _COORD_REMOVE_PREFIX = "remc_"
-# Short plain labels (label style guide).
-_COORDINATOR_LABELS = {
-    "presence": "Presence",
-    "safety": "Safety",
-    "security": "Security",
-    "energy": "Energy",
-    "hvac": "Climate (HVAC)",
-    "music_following": "Music following",
-    "appliance": "Appliances",
-    "notification_manager": "Notifications",
-}
+from .const import COORDINATOR_LABELS as _COORDINATOR_LABELS  # noqa: E402
 # Settings step each coordinator is added through. None = one-screen
 # confirm (no required settings).
 _COORDINATOR_ADD_STEP = {
@@ -9653,43 +9643,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             step_id="coordinator_notifications_routing",
             data_schema=data_schema,
             errors=errors or None,
-        )
-
-    async def async_step_coordinator_toggles(self, user_input=None):
-        """Enable/disable individual coordinators.
-
-        v3.6.0-c2.1: Per-coordinator on/off toggles stored in CM entry options.
-        """
-        from .const import (
-            CONF_PRESENCE_ENABLED,
-            CONF_SAFETY_ENABLED,
-            CONF_SECURITY_ENABLED,
-        )
-
-        if user_input is not None:
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input},
-            )
-
-        data_schema = vol.Schema({
-            vol.Optional(
-                CONF_PRESENCE_ENABLED,
-                default=self._get_current(CONF_PRESENCE_ENABLED, True),
-            ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_SAFETY_ENABLED,
-                default=self._get_current(CONF_SAFETY_ENABLED, True),
-            ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_SECURITY_ENABLED,
-                default=self._get_current(CONF_SECURITY_ENABLED, True),
-            ): selector.BooleanSelector(),
-        })
-
-        return self.async_show_form(
-            step_id="coordinator_toggles",
-            data_schema=data_schema,
         )
 
     # =========================================================================

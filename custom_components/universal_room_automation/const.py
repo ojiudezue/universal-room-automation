@@ -2966,6 +2966,19 @@ COORDINATOR_ENABLED_DEFAULTS: Final = {
     "notification_manager": False,
 }
 
+# Short plain coordinator labels (label style guide). Shared by the CM
+# options flow pickers and the entitlement repair issue text.
+COORDINATOR_LABELS: Final = {
+    "presence": "Presence",
+    "safety": "Safety",
+    "security": "Security",
+    "energy": "Energy",
+    "hvac": "Climate (HVAC)",
+    "music_following": "Music following",
+    "appliance": "Appliances",
+    "notification_manager": "Notifications",
+}
+
 # Coordinators that can be added/removed from the CM menu, in menu order.
 ADDABLE_COORDINATORS: Final = (
     "presence",

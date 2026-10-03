@@ -20,6 +20,7 @@ from .const import (
     CONF_ENTRY_TYPE,
     COORDINATOR_ENABLED_DEFAULTS,
     COORDINATOR_ENABLED_KEYS,
+    COORDINATOR_LABELS,
     COORDINATORS_ADDED_MIGRATION_DONE,
     DOMAIN,
     ENTRY_TYPE_COORDINATOR_MANAGER,
@@ -59,6 +60,15 @@ def coordinator_should_run(
         )
         allowed, reason = False, "entitlement check failed"
     if allowed:
+        if hass is not None:
+            try:
+                from homeassistant.helpers import issue_registry as ir
+
+                ir.async_delete_issue(
+                    hass, DOMAIN, f"coordinator_not_entitled_{coordinator_id}",
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("Could not clear entitlement repair issue", exc_info=True)
         return True
     if coordinator_id not in _DENIED_LOGGED:
         _DENIED_LOGGED.add(coordinator_id)
@@ -78,13 +88,26 @@ def coordinator_should_run(
                 severity=ir.IssueSeverity.WARNING,
                 translation_key="coordinator_not_entitled",
                 translation_placeholders={
-                    "coordinator": coordinator_id,
+                    "coordinator": COORDINATOR_LABELS.get(coordinator_id, coordinator_id),
                     "reason": reason or "not allowed",
                 },
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Could not raise entitlement repair issue", exc_info=True)
     return False
+
+
+def coordinators_to_register(
+    cm_config: Mapping[str, Any] | None, hass: Any = None,
+) -> set[str]:
+    """Return the coordinator ids the CM setup registers (pure gate).
+
+    Used by every registration site in ``__init__.py`` (membership test).
+    """
+    return {
+        cid for cid in COORDINATOR_ENABLED_DEFAULTS
+        if coordinator_should_run(cm_config, cid, hass)
+    }
 
 
 def coordinators_added(cm_config: Mapping[str, Any] | None) -> list[str] | None:
@@ -148,6 +171,11 @@ async def async_migrate_coordinators_added(hass: Any) -> bool:
         if ce.options.get(COORDINATORS_ADDED_MIGRATION_DONE):
             return False
         new = migrated_cm_options(ce.options, ce.data)
+        # Seed the CM listener snapshot first so the update listener sees
+        # no change and does not reload the CM on the upgrade boot.
+        hass.data.setdefault(DOMAIN, {}).setdefault(
+            "cm_last_applied_options", {},
+        )[ce.entry_id] = dict(new)
         hass.config_entries.async_update_entry(ce, options=new)
         _LOGGER.info(
             "Coordinator add-list migration: marked added %s (run state unchanged)",

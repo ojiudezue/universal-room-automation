@@ -178,17 +178,93 @@ def _gate_calls(path: pathlib.Path) -> list[str]:
 
 
 def test_every_registration_gate_uses_the_one_helper():
-    """All eight registration sites in __init__.py route through the helper,
-    once each, and no gate reads its *_enabled key with an inline default."""
-    src_path = _COMPONENT / "__init__.py"
-    assert sorted(_gate_calls(src_path)) == sorted(ADDABLE_COORDINATORS)
-    src = src_path.read_text()
+    """Source check only: all eight registration sites in __init__.py test
+    membership in coordinators_to_register(...); no inline *_enabled reads.
+    Behaviour is pinned by the coordinators_to_register tests below."""
+    src = (_COMPONENT / "__init__.py").read_text()
+    assert src.count("coordinators_to_register(cm_config, hass)") == 1
+    for cid in ADDABLE_COORDINATORS:
+        gate_src = (
+            '_energy_enabled = "energy" in _to_register' if cid == "energy"
+            else f'if "{cid}" in _to_register:'
+        )
+        assert src.count(gate_src) == 1, cid
     for key_const in (
         "CONF_PRESENCE_ENABLED", "CONF_SAFETY_ENABLED", "CONF_SECURITY_ENABLED",
         "CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED", "CONF_ENERGY_ENABLED",
         "CONF_APPLIANCE_COORDINATOR_ENABLED", "CONF_HVAC_ENABLED", "CONF_NM_ENABLED",
     ):
         assert f"cm_config.get({key_const}" not in src, key_const
+
+
+def test_coordinators_to_register_defaults():
+    """Key-absent install: exactly the table defaults register."""
+    assert gate.coordinators_to_register({}) == {
+        c for c, on in COORDINATOR_ENABLED_DEFAULTS.items() if on
+    }
+    assert gate.coordinators_to_register(None) == gate.coordinators_to_register({})
+
+
+def test_coordinators_to_register_entitlement_deny(monkeypatch):
+    """Every *_enabled stored True + entitlement deny for one coordinator:
+    that coordinator is not registered, all others are."""
+    for denied in ADDABLE_COORDINATORS:
+        monkeypatch.setattr(
+            entitlements, "can_use_coordinator",
+            lambda cid, d=denied: (False, "no") if cid == d else (True, None),
+        )
+        monkeypatch.setattr(gate, "_DENIED_LOGGED", set())
+        all_on = {COORDINATOR_ENABLED_KEYS[c]: True for c in ADDABLE_COORDINATORS}
+        assert gate.coordinators_to_register(all_on) == (
+            set(ADDABLE_COORDINATORS) - {denied}
+        ), denied
+
+
+def test_nm_enabled_property_respects_entitlement(monkeypatch):
+    from custom_components.universal_room_automation.domain_coordinators.notification_manager import (
+        NotificationManager,
+    )
+    nm = NotificationManager.__new__(NotificationManager)
+    nm._config = {"notification_manager_enabled": True}
+    monkeypatch.setattr(gate, "_DENIED_LOGGED", set())
+    assert nm.enabled is True
+    monkeypatch.setattr(
+        entitlements, "can_use_coordinator", lambda cid: (False, "no"),
+    )
+    assert nm.enabled is False
+
+
+def test_music_following_kill_switch_respects_entitlement(monkeypatch):
+    from custom_components.universal_room_automation import music_following as mf
+    hass, _parent, _cm = _house({"music_following_coordinator_enabled": True})
+    obj = mf.MusicFollowing.__new__(mf.MusicFollowing)
+    obj.hass = hass
+    meth = "_coordinator_enabled"
+    monkeypatch.setattr(gate, "_DENIED_LOGGED", set())
+    assert getattr(obj, meth)() is True
+    monkeypatch.setattr(
+        entitlements, "can_use_coordinator", lambda cid: (False, "no"),
+    )
+    assert getattr(obj, meth)() is False
+
+
+def test_migration_seeds_listener_snapshot_no_reload():
+    """The migration seeds cm_last_applied_options before writing, so the
+    CM update listener diff sees no change (no reload on upgrade boot)."""
+    hass, _parent, cm = _house({"hvac_coordinator_enabled": True})
+    seen = []
+    orig = hass.config_entries.async_update_entry
+
+    def _spy(entry, *, options=None, data=None):
+        # Listener view at write time: snapshot vs new options.
+        snap = hass.data[DOMAIN]["cm_last_applied_options"].get(entry.entry_id)
+        seen.append(snap == dict(options))
+        return orig(entry, options=options, data=data)
+
+    hass.config_entries.async_update_entry = _spy
+    assert _run(gate.async_migrate_coordinators_added(hass)) is True
+    assert seen == [True]
+    assert hass.data[DOMAIN]["cm_last_applied_options"]["cm"] == cm.options
 
 
 def test_other_readers_use_the_helper():
@@ -482,7 +558,9 @@ def test_entitlement_deny_path(monkeypatch):
     # issue is raised.
     created = []
     from homeassistant.helpers import issue_registry as ir
+    deleted = []
     monkeypatch.setattr(ir, "async_create_issue", lambda *a, **kw: created.append((a, kw)))
+    monkeypatch.setattr(ir, "async_delete_issue", lambda *a, **kw: deleted.append(a[2]))
     opts = gate.migrated_cm_options({"hvac_coordinator_enabled": True})
     fake_hass = SimpleNamespace()
     assert gate.coordinator_should_run(opts, "hvac", fake_hass) is False
@@ -490,6 +568,9 @@ def test_entitlement_deny_path(monkeypatch):
     assert len(created) == 1
     assert created[0][0][2] == "coordinator_not_entitled_hvac"
     assert created[0][1]["translation_key"] == "coordinator_not_entitled"
+    assert created[0][1]["translation_placeholders"]["coordinator"] == "Climate (HVAC)"
+    # Allowed branch clears any stale repair issue.
+    assert deleted == ["coordinator_not_entitled_presence"]
     # The switch tells the truth too.
     hass, _parent, cm = _house(opts)
     assert _switch(hass, cm, "hvac").is_on is False
