@@ -427,12 +427,41 @@ def test_house_i3_simple_save_keeps_hidden_values(step):
 
 # --- D4 House: reload safety ------------------------------------------------
 
+_PKG = "custom_components.universal_room_automation"
+
+
+def _real_ura():
+    """Return the REAL integration package.
+
+    Other test files replace ``sys.modules[_PKG]`` with a bare stub module;
+    in a combined run that stub lacks ``_async_update_listener`` /
+    ``INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS``. When the cached entry is a
+    stub, import the real package against a clean module cache and then put
+    the other files' entries back so their stubs are left undisturbed."""
+    import importlib
+    import sys
+
+    cached = sys.modules.get(_PKG)
+    if cached is not None and hasattr(cached, "_async_update_listener"):
+        return cached
+    saved = {k: v for k, v in sys.modules.items()
+             if k == _PKG or k.startswith(_PKG + ".")}
+    for k in saved:
+        del sys.modules[k]
+    try:
+        real = importlib.import_module(_PKG)
+    finally:
+        for k in [k for k in sys.modules if k == _PKG or k.startswith(_PKG + ".")]:
+            del sys.modules[k]
+        sys.modules.update(saved)
+    return real
+
 def _listener_reloads(pre: dict, post: dict) -> bool:
     """Drive the real integration branch of ``_async_update_listener``.
 
     Returns True when it schedules a reload. The per-key dispatch is stubbed
     to succeed (fresh-read keys are vacuous there anyway)."""
-    import custom_components.universal_room_automation as ura
+    ura = _real_ura()
 
     hass = MagicMock()
     hass.data = {ura.DOMAIN: {"integration_last_applied_options": {"house1": dict(pre)}}}
@@ -458,7 +487,7 @@ def _listener_reloads(pre: dict, post: dict) -> bool:
     ("perimeter_alerting", CONF_PERIMETER_ENRICHMENT_ENABLED, True),
 ])
 def test_house_simple_save_one_allowlisted_key_does_not_reload(step, key, val):
-    import custom_components.universal_room_automation as ura
+    ura = _real_ura()
 
     assert key in ura.INTEGRATION_OPTIONS_RELOAD_SUPPRESS_KEYS
     flow, _ = _house_flow(HOUSE_DEFAULTS, adv=False)
@@ -508,3 +537,19 @@ def test_schema_walkers_treat_vol_all_as_leaf():
     })
     assert cf._schema_has_advanced(schema) is True
     assert cf._collect_schema_defaults(schema) == {"offset": 1.0, "flag": True}
+
+
+# --- LOW-1 (Bug Class #63): cleared text field vs non-empty default ---------
+
+@pytest.mark.parametrize("value,default,expected", [
+    ("", "llmvision", True),
+    ("", "gpt-4o-mini", True),
+    ("", "", False),
+    ("", None, False),
+    ("", vol.UNDEFINED, False),
+    (None, "llmvision", False),
+    ("llmvision", "llmvision", False),
+    ("openai", "llmvision", True),
+])
+def test_value_is_non_default_empty_string(value, default, expected):
+    assert cf._value_is_non_default(value, default) is expected

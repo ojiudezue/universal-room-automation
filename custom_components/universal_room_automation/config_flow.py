@@ -131,10 +131,15 @@ def _value_is_non_default(value, factory_default) -> bool:
 
     ROOM-TYPE-TRIMMED-MENU-1 D3: lists/dicts are "in use" iff non-empty;
     a factory default that is absent (UNDEFINED/None) means any non-empty
-    stored value is in use; otherwise plain inequality.
+    stored value is in use; a stored "" is in use only when the factory
+    default is a non-empty string; otherwise plain inequality.
     """
     if isinstance(value, (list, tuple, set, dict)):
         return bool(value)
+    if value == "" and isinstance(factory_default, str) and factory_default:
+        # Bug Class #63: a cleared text field whose factory default is a
+        # non-empty string changes runtime behaviour, so it is "in use".
+        return True
     if value is None or value == "" or value is vol.UNDEFINED:
         return False
     if factory_default is vol.UNDEFINED or factory_default is None:
