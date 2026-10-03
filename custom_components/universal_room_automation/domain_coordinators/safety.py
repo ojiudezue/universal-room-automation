@@ -3077,7 +3077,12 @@ class SafetyCoordinator(BaseCoordinator):
 
         try:
             async with aiosqlite.connect(database.db_file) as db:
-                for entity_id, baseline in baselines.items():
+                # ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1 (B-MEDIUM): snapshot
+                # items() — the loop awaits per row and a concurrent key creation
+                # in _rate_baselines during the await would otherwise raise
+                # "dictionary changed size during iteration" (parallel to the
+                # M3 fix inside AnomalyDetector.save_baselines).
+                for entity_id, baseline in list(baselines.items()):
                     await db.execute("""
                         INSERT OR REPLACE INTO metric_baselines
                         (coordinator_id, metric_name, scope,
