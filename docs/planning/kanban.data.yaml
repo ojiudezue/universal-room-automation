@@ -9,6 +9,51 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1@2026-10-03T02:10:10"
+    at: "2026-10-03T02:10:10"
+    outcome: "measured"
+    headline: "Reconciled 3 cards the board still showed as 'review': music following, attribute churn and the humidity junk floor all shipped in v5.103.34. They are now 'shipped, checking' with a dispose-by date of 10-10. Each still needs one waking-hours observation (a completed music transfer, an occupied Living Room window, a humidity blip)."
+    acknowledged: false
+  - fid: "FAN-ORACLE-BOOT-FALLBACK-NOISE-1@2026-10-03T02:09:45"
+    at: "2026-10-03T02:09:45"
+    outcome: "built-to-review"
+    headline: "The boot fan-warning noise fix is already on develop (a841fbc8c). The board had it in inbox, so I moved it to review. It ships with your next deploy."
+    acknowledged: false
+  - fid: "PROPERTY-GETTER-SIDE-EFFECT-TASKS-1@2026-10-03T02:09:43"
+    at: "2026-10-03T02:09:43"
+    outcome: "done"
+    headline: "Closed: the board still said in progress, but it shipped in v5.103.35 and its live check passed."
+    acknowledged: false
+  - fid: "ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1@2026-10-03T02:09:42"
+    at: "2026-10-03T02:09:42"
+    outcome: "done"
+    headline: "Closed after your ack. It shipped in v5.103.34, and the hourly save fired at 06:37Z, exactly 1 h after boot. The README check was wrong as written: the saved timestamp is the last-sample time, not the save time."
+    acknowledged: false
+  - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-10-03T02:09:41"
+    at: "2026-10-03T02:09:41"
+    outcome: "measured"
+    headline: "The Sonoff garage-porch log flood is still running (~96 errors/hour since the restart). It now comes from the _l2 channel too, so set delayed_power_on_time on BOTH channels in Zigbee2MQTT."
+    acknowledged: false
+  - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-10-03T02:09:40"
+    at: "2026-10-03T02:09:40"
+    outcome: "measured"
+    headline: "Frigate2 person detection has been dark for ~34 hours (nothing since 10-01 16:00). Its motion detection and UniFi Protect person detection are still working, so the house is not fully blind. Restarting Frigate2/Coral is still needed (your action)."
+    acknowledged: false
+  - fid: "EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1@2026-10-03T02:09:38"
+    at: "2026-10-03T02:09:38"
+    outcome: "done"
+    headline: "Closed as disproven: the charger flapping was not caused by the battery reading dropping out (13 of 14 turn-ons happened while the Envoy was reporting). The real cause has a new card."
+    acknowledged: false
+  - fid: "EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1@2026-10-03T02:09:37"
+    at: "2026-10-03T02:09:37"
+    outcome: "escalated"
+    headline: "New card: the 10-01 EV charger flapping (31 switch events) was a feedback loop in the battery strategy, not the Envoy dropping out. Pausing the car flipped the decision back. It fired on 1 night in 10. Tier 3, so it waits for your APPROVE to plan. Also checked: no breaker risk that night (grid charging was not actually on)."
+    acknowledged: false
+  - fid: "EC-DEGRADED-DATA-POLICY-1@2026-10-03T02:09:36"
+    at: "2026-10-03T02:09:36"
+    outcome: "escalated"
+    headline: "Energy dropout policy: the investigation is finished (the attended session ran the one-week measurement tonight). Most proposed fixes failed the evidence test, mainly because the cloud battery reading can freeze while looking fresh. Your call on 3 short questions in the design doc; the likely answer is that no build is needed now."
+    acknowledged: false
   - fid: "MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1@2026-10-02T02:55:00"
     at: "2026-10-02T02:55:00"
     outcome: "built-to-review"
@@ -341,12 +386,13 @@ meta:
     acknowledged: false
 cards:
 - id: EC-DEGRADED-DATA-POLICY-1
+  investigation_2026_10_03_overnight: "Investigation COMPLETE. Design review REV 2 + D0 measurement/replay is in docs/planning/DESIGN_ec_degraded_data_policy.md (NOTE: written by the attended session tonight, still UNTRACKED in git - commit it). D0 verdicts (section 9.3): P1-1 cloud freshness by last_reported NO-GO (cloud re-reports a frozen value: 10.0 % while true SOC rose to 29 %); P1-2/3 HOLD - and its must-answer is now RESOLVED by the overnight pass (no breaker gap; see EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1); P1-4 NO-GO as a fix; P1-5 attain-on-cloud NO-GO (no trustworthy non-Envoy SOC witness; MQTT stream down since 09-30). The 10-01 incident re-pointed to the rung-1/WAIT loop (new card); the dropout child EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1 closed as refuted."
   title: Energy coordinator has no single rule for what to do when the Envoy reading drops out (some sites hold, some release, some read zero)
   thread: energy
-  status: investigating
+  status: "waiting_operator"
   created: '2026-10-03 01:20'
-  updated: '2026-10-03 01:20'
-  next: 'ME: planner enumerates every Envoy-availability decision site + current dropout behaviour + policy options -> design-review write-up to operator. PICK (operator): approach / phasing. NO BUILD until operator decides (operator 2026-10-03: "we need to pause and reconsider how to approach it").'
+  updated: "2026-10-03 02:09"
+  next: "PICK on the doc's open questions (section 7): Q-C do NOT add DEFAULT_ATTAIN_BLIND_CHARGE_MAX_MIN now (doc recommends; P1-5 is no-go) - agree? Q-E cloud re-anchoring - doc says not approvable on this data - agree? Q-D order vs EC-SOC-LADDER-FULL-WIRING-1. Likely outcome: no Phase-1 build; the remaining real lever is restoring a fresh SOC witness (Envoy MQTT stream, ENVOY-FLAKINESS-181243-1). -> On your answers I close or re-scope EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1 and this parent."
   why: 'SOC resolver already falls back envoy -> lkg -> cloud, but the battery strategy holds with no commands, the arbitrage EV pause releases on missing SOC, and solar reads the dead derived sensor. The Envoy /production.json fault (since 2026-10-01) turned rare outages into frequent ones. Children: EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1, EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1 (both approved, both ON HOLD pending this decision).'
 - id: EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1
   parked_2026_10_03: 'ON HOLD under EC-DEGRADED-DATA-POLICY-1 — operator wants the approach reconsidered before building one-off fixes.'
@@ -384,13 +430,15 @@ cards:
   next: 'DO: leave a garage door open across sunset (~7:05 pm) with someone home -> I query ura_activity_log for the cover skip and confirm the door did not move, then close this card.'
   why: 'v5.103.28 cover_ownership guard is proven in-suite with drills, but the 09-30 live check was inconclusive (both doors already closed). A garage door closing on its own is the one safety-relevant failure in the W4 set, so one staged proof is worth it.'
 - id: EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1
+  superseded_by: "EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1"
+  disposition_2026_10_03: "REFUTED-but-fertile (retire-and-relink). The D0 replay (DESIGN_ec_degraded_data_policy.md 9.1) shows the 10-01 charger flapping was NOT caused by the battery reading dropping out: 13 of 14 garage_a turn-ons were on Envoy-sighted ticks, and the strategy alternated rung_1 <-> WAIT driven by the EV's own load. Independently re-checked tonight on the recorder (06:40-07:15Z transitions on soc_source=envoy). Real problem re-carded as EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1. The breaker question this card raised is answered there (no gap: guard reads the cloud CFG switch, which was off; local enpower 'on' is a standing flag)."
   parked_2026_10_03: 'ON HOLD under EC-DEGRADED-DATA-POLICY-1 — operator wants the approach reconsidered before building one-off fixes.'
   title: The garage A charger is being switched off and on every 5-10 minutes overnight, in step with the Envoy battery reading dropping in and out
   thread: energy
-  status: parked
+  status: "done"
   operator_instruction_2026_10_02: 'APPROVED (Tier 3) by operator 2026-10-02 ~21:20 CDT. Do NOT disturb the current blitz run; queue for the next overnight/other run. Remeasured 10-02: flap was a one-night burst (10-01 06-08Z, ~46 toggles); 10-02 normal 2-4/h. Root trigger = Envoy SOC dropouts; URA defect = arbitrage pause releases on missing SOC.'
   created: '2026-10-01 05:00'
-  updated: '2026-10-01 05:00'
+  updated: "2026-10-03 02:09"
   refinement_status: initial
   approval: approved
   live_broken: true
@@ -30406,6 +30454,34 @@ cards:
   next: 'PICK (operator): Guest lighting per room = today''s behaviour (recommended default) / off / night lights only -> I add it as a per-room Lighting option (Advanced unless you want it simple).'
   links: {related: [ROOM-LIGHTING-SETUP-REDESIGN-1]}
   rank: {value: 2, time_criticality: 1, effort: 1}
+- id: EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1
+  title: The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop)
+  thread: energy
+  status: waiting_operator
+  created: '2026-10-03 02:40'
+  updated: '2026-10-03 02:40'
+  refinement_status: initial
+  approval: blocked
+  tags: [tier-3, measure-before-build, no-fabrication-verify]
+  problem_solution:
+  - "Problem: on 10-01 between about 01:00 and 06:00 CDT the battery strategy switched back and forth every tick between two answers. When the garage car charger was drawing ~11.7 kW, it chose 'pause the EVs to save solar for the battery' (rung 1); with the EVs paused, the next tick chose 'wait, charge window not open', which released the pause, so the car came back on, and round again - the charger was switched 31 times that night. It happened while the Envoy was reporting fine, so it is NOT the Envoy-dropout problem it was first filed as. Solution: make the rung-1 decision ignore (or hold through) the EV load it itself controls - e.g. judge the projection without the paused EV, or hold the pause for a minimum time - so pausing the car cannot by itself flip the answer back. Needs a plan; it touches the arbitrage state machine (cost and breaker relevant)."
+  origin: {date: '2026-10-03', gist: 'D0 replay in DESIGN_ec_degraded_data_policy.md section 9.1 found the 10-01 flap is an Envoy-independent rung_1 <-> WAIT load-feedback loop; doc 9.3 says card needed (Tier 2+); carded by the overnight pass.'}
+  why: "Measured, not assumed. Strategy sensor recorder (sensor.ura_energy_coordinator_battery_strategy) 10-01 06:30-07:20Z: 06:40:05 rung_1 redirect (soc_source=envoy, EVs paused) -> 06:44:45 WAIT (envoy) -> EVs released 06:45:02 -> 06:49:50 rung_1 -> 06:55:01 WAIT -> 07:00:13 rung_1 ... period ~10 min, on Envoy-sighted ticks. Doc 9.1: rung_1 entered with EV >= 11.6 kW 13/13, WAIT entered with EV off 34/34. rung_1 appears ONLY on 10-01 in the 10-day recorder (137 rows, 0 on any other day) - triggered by SOC 8% <= poor-day target 30%. Rare-fire but real; relay wear + charger toggling + cost."
+  constraints:
+  - Tier 3 (arbitrage state machine; cost + breaker relevant) - plan needs two framing-disjoint plan reviews before build.
+  - Must not weaken the breaker pause (grid-charge intent always pauses EVs).
+  parked_alts: []
+  refinement: []
+  knobs: []
+  parsimony: {problem: 'With an EV drawing >= 11.6 kW and SOC below the poor-day target, the arbitrage pause toggles every tick (31 EV switch events on 10-01).', verdict: PENDING-PLAN}
+  adjacency_2026_10_03: "NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the premise of EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1 (refuted: Envoy dropout co-incident, not causal)."
+  breaker_must_answer_resolved_2026_10_03: "The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='write'); ENERGY_CLOUD_FIRST_WRITES=True (energy_const.py:479) routes it to the CLOUD switch switch.iq_battery_hacs_charge_battery_from_grid (energy_const.py:306), which read 'off' all window. The LOCAL enpower switch has read 'on' in 100% of its available rows for 7 days (183 on / 0 off / 200 unavailable) - it is a standing permission flag, not active grid charging. Physical cross-check: Envoy SOC fell 9 -> 8 -> 7 % 05:48-09:51Z (no grid charge), grid import peaked 17.7 kW with the EV on vs ~5-6 kW off."
+  next: "APPROVE: write a Tier-3 plan for the rung-1 / WAIT feedback loop (options: compute the rung-1 projection excluding EV load the pause controls, or a minimum pause hold with an explicit discharge). -> On APPROVE I dispatch ura-planner + two plan reviews; no build without your checkpoint. Low urgency: it fired on one night in 10 (SOC 8% vs 30% poor-day target)."
+  links:
+    related: [EC-DEGRADED-DATA-POLICY-1, EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1]
+    context: 'EC-DEGRADED-DATA-POLICY-1 is the design doc whose D0 replay found this mechanism; it supersedes EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1 whose dropout premise was refuted.'
+  rank: {value: 4, time_criticality: 2, effort: 13}
+  refs: [docs/planning/DESIGN_ec_degraded_data_policy.md section 9.1 / 9.3]
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
