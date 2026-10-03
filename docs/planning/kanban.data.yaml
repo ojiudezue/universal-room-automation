@@ -9,6 +9,21 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "BOOT-EVENT-LOOP-FREEZE-1@2026-10-03T02:14:25"
+    at: "2026-10-03T02:14:25"
+    outcome: "done"
+    headline: "Closed (soak exit): the long URA boot freeze is gone. Tonight's restart had one 12-second stall, and the watchdog traced it to the Leviton integration building QR-code images, not URA. A small leftover was carded: the watchdog logs an ERROR at shutdown."
+    acknowledged: false
+  - fid: "HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1@2026-10-03T02:13:01"
+    at: "2026-10-03T02:13:01"
+    outcome: "done"
+    headline: "Closed (soak exit): all 3 pre-arrival pre-cools since the fix ended when the person arrived (after 5-29 minutes, never the 2-hour cap), each with a single thermostat write."
+    acknowledged: false
+  - fid: "HOUSE-STATE-SLEEP-LOST-ON-RESTART-1@2026-10-03T02:13:00"
+    at: "2026-10-03T02:13:00"
+    outcome: "done"
+    headline: "Closed (soak exit): tonight's 00:37 restart was a natural test. The house stayed in Sleep through the restart: no Away flash, and the HVAC kept the sleep settings."
+    acknowledged: false
   - fid: "ONBOARDING-SIMPLIFY-1@2026-10-03T02:11:42"
     at: "2026-10-03T02:11:42"
     outcome: "measured"
@@ -29893,14 +29908,15 @@ cards:
   fixup2_2026_09_29_overnight: 'Both reviews returned FIX-REQUIRED on fix-up 1 (converged HIGH): timeout_at and last_occupied_at were built from stamps the coordinator re-stamps on every refresh (coordinator.py:3604, 3638-3640), so the churn moved instead of stopping in occupied rooms, and the clock-only tests were hollow. Fix-up 2 (bef9d9aef): timeout_at is published only in the countdown phase, and last_occupied_at only while vacant; both are None otherwise, so the dict changes only on real phase changes. last_evidence_at is dropped. The cooldowns sub-dict is now {last_alert, window_until} (renamed: 3600 s upper bound, real windows are shorter by severity). Comments corrected: _unrecorded_attributes only strips the stored blob and does NOT stop state_changed rows. 5 behavioural tests advance the INTERNAL stamps (not just the clock). 4 mutation drills, each red on the right test. Targeted: 103 passed, 1 pre-existing failure (test_low_cleanup::test_hvac_observation_switch_has_deferred_restore, also fails on develop). Full-suite name-diff pending.'
   validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1
+  organic_evidence_2026_10_03: "DISPOSED (soak exit): MET. hvac_excursion_events since v5.103.23: 3 S12_pre_arrival excursions (09-30 00:39Z, 09-30 23:40Z, 10-02 00:57Z), all ended trigger=pre_arrival_arrived after 1713 s / 367 s / 271 s (never lease_expiry), restore_ok=1. Each carries exactly ONE set_temperature borrow write (e.g. banking:zone_2:1790902666100: one S12 set_temperature, then the two S11 release preset writes) - the old 78->76->74 walk is gone. DONE."
   groom_2026_09_29_arc: 'Shipped v5.103.23 (Batch B Part B).'
   title: A pre-arrival pre-cool keeps the zone on URA's temporary setpoints for up to 2 hours and lowers them another 2 degrees on every decision pass
   thread: hvac
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.23
   groom_2026_09_29: 'MOVED planned -> in_progress. Batch B Part B is being built on feature/hvac-w1-w2-finish (commit df6ee96bc "Parts A+B - a person ends a borrow; pre-arrival borrow lifetime"; plan PLANNING_hvac_w1_w2_finish.md REV 2 D3/D5).'
   created: '2026-09-28 22:30'
-  updated: '2026-09-29 01:05'
+  updated: "2026-10-03 02:12"
   approval: implied
   tags: [hvac, borrow, pre-arrival, tier-2-db]
   origin:
@@ -29911,7 +29927,7 @@ cards:
   - 'End the pre-arrival borrow (return to the zone''s preset, then S1 decides) when the person arrives (zone occupied), when the pre-arrival window times out, or when a human interrupts (ARRESTER-BOOT-BLIND-1 ruling A).'
   - 'Apply the -2 F offset ONCE, from the baseline (_resolve_baseline_range), never compounding per cycle.'
   - 'Numbers get knobs: the pre-arrival window (today PRE_ARRIVAL_TIMEOUT_MINUTES = 30, const) -> a named Number if the operator wants it tunable. EXCURSION_LEASE_MAX_S stays a module constant (safety cap, rung 1).'
-  next: 'VALIDATE (me, one-shot, after the next pre-arrival): hvac_excursion_events for S12_pre_arrival shows exactly one write and a trigger in {pre_arrival_arrived, pre_arrival_timeout, pre_arrival_max_age, human_interrupt, pre_arrival_inactive}, never lease_expiry. Dispose by 2026-10-06.'
+  next: "None - closed."
   links:
     related: [ARRESTER-BOOT-BLIND-1, BORROW-BANKING-LEASE-NOT-RELEASED-1, HVAC-PRECOOL-WINDOW-TOU-DERIVED-1]
   rank:
@@ -30049,19 +30065,20 @@ cards:
   next: 'PARKED. Revival trigger: an observed lost immune hold, TAO or interrupt latch after a restart. Fix shape: unsubscribe the arrester listener (or set a teardown flag) BEFORE the snapshot save, and drop saves scheduled after teardown begins.'
   rank: {value: 2, time_criticality: 1, effort: 1}
 - id: HOUSE-STATE-SLEEP-LOST-ON-RESTART-1
+  organic_evidence_2026_10_03: "DISPOSED (soak exit): MET. HA restarted 00:37 CDT 10-03 with the house asleep; sensor.ura_coordinator_manager_house_state read 'sleep' on every recorder row 05:30-07:10Z including the first post-boot row (05:37:35Z) - no away/arriving placeholder, no house_state_log transition after boot; HVAC re-asserted sleep presets (not home). Written back into README_v5.103.27.md row 1. DONE."
   title: An HA restart at night loses the house Sleep state (it comes back Away, then Home Night), so HVAC switches bedrooms' zones from Sleep to Home
   thread: presence
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.27
   created: '2026-09-29 03:20'
-  updated: '2026-09-29 03:20'
+  updated: "2026-10-03 02:12"
   tags: [presence, house-state, restart, hvac-impact, live-incident]
   origin:
     date: '2026-09-29'
     gist: 'observed after the 03:01 v5.103.23 deploy restart (orchestrator restarted during sleep, against the hostile-timing rule; memory feedback_no_restart_during_sleep)'
   why: 'Recorder: sensor.ura_coordinator_manager_house_state went sleep (since 00:09:28) -> away at 03:03:40 (boot) -> arriving 03:07:08 -> home_night 03:08:08, and stayed home_night. HVAC then wrote zone_1 and zone_2 sleep -> home at 03:07:41 (S1 house_state_transition), giving Home 70-76 at 3 AM. So house state is not restored across a restart; it re-infers from scratch, starts at away, and the inference cannot reach sleep again mid-night. Sibling: HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1 (manual override does not reach HVAC). Whether earlier night restarts (restart storm ~8/night, reload-storm memo) did the same: UNVERIFIED.'
   evidence_2026_09_29_1917: 'Second data point, awake house: restart at ~19:17 (v5.103.25) with house state home_evening; after boot the house read away, then returned to home_evening at 19:21:56 (about 4 min). So the boot transient is not sleep-specific: any restart passes through away. MEASURED (ura_activity_log 00:16:30-00:26 UTC): 19:17:09 away is the pre-inference placeholder (no attributes); inferred away 19:19:57; away->arriving 19:20:28 and arriving->home_evening 19:21:30, both trigger=deferred_retry. NO actions fired on the away or arriving states: first HVAC event 19:20:08 (tao_restore no_persisted_state); no security/light/NM actions. The only HVAC write was zone_3 home->away 19:21:30 (vacant_past_grace) and back 19:24:27 - the same Back Hallway flap seen at 18:33 and 19:34 in steady state, not boot-caused. Verdict: awake restarts are harmless TODAY only because coordinators are still starting while the house reads away; the 03:01 case shows the same away->arriving walk does harm when it lands on sleep (arrival target = home_night, zones Sleep->Home). The fix remains: restore last house state across restart instead of re-deriving through away/arriving.'
-  next: 'MEASURE (me): count past restarts during sleep and what house state came back after each (recorder). Then plan the fix: restore the last house state across restart when it is recent (e.g. < 30 min old), at least for sleep, instead of starting at away. Tier 2-DB (house-state machine = shared primitive).'
+  next: "None - closed."
   links:
     related: [HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1]
   rank: {value: 7, time_criticality: 6, effort: 3}
@@ -30326,15 +30343,17 @@ cards:
   rank: {value: 4, time_criticality: 4, effort: 2}
   verify_2026_10_02_overnight: "STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_sensor.exercise_room_occupied = off. Nothing new to measure until you answer; next unchanged."
 - id: BOOT-EVENT-LOOP-FREEZE-1
+  updated: "2026-10-03 02:14"
+  organic_evidence_2026_10_03: "DISPOSED (soak exit): MET with a residual. README_v5.103.28 already PASS (no URA boot freeze; boot ~2.3 min vs 5-9). Tonight's 00:37 restart (full core log via /api/hassio/core/logs): the watchdog fired once, 'Event loop stalled >= 10.0s phase=boot', total_stall=12.2s, and the main-thread stack names leviton_decora_smart_wifi/image.py:54 -> api/device.py:893 matter_qr_code -> pyqrcode (a third-party integration building QR images), NOT URA. So the 133-156 s URA freeze is gone and the watchdog correctly names the remaining 12 s culprit. Residual carded: LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1 (the watchdog's own shutdown ERROR). NOTE for future log checks: this stall line was NOT in HA's system_log list (50-entry dedup cap had evicted it); only the full core log had it."
   title: Every HA restart freezes the whole event loop for about 2.5 minutes, so the house is dead and every integration times out
   thread: platform
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.28
   tier: 2
   created: '2026-09-29 20:05'
   origin: 'Operator 2026-09-29 on the post-restart DB warnings: "The db slowness warnings are a flag... Not urgent but super important. Check on the logging as well." Audit docs/planning/AUDIT_db_write_worker_slow_2026_09_29.md.'
   why: 'All 12 restarts since 09-25 show exactly one loop freeze of 133-156 s, 55-260 s after shutdown (recorder state-change gaps; nothing over 7 s otherwise). On 09-29 19:17 the log went silent from EVERY logger for 148.6 s (19:17:26.8-19:19:55.5); afterwards Meross reported being 154 s behind, ElkM1/MQTT/Protect timed out. The URA DB wait warnings (elapsed 150-158 s against a 35 s timer) are a symptom, not the cause. Cause NOT established: URA has no sync SQLite in the boot path; the last URA lines before and after are Living Room fan-oracle reads (automation.py:337) - a lead only. Also explains the boot-time house-state away placeholder window (house state inferred 19:19:57, 2 s after the loop resumed) and likely the boot stage 2 timeouts.'
-  next: 'BUILD (Tier 2, ~70 LoC): a daemon-thread loop-stall watchdog that, when the loop stops responding for >10 s, dumps the main thread stack once per freeze (faulthandler/sys._current_frames) at WARNING, and in steady state (not boot) raises an NM alert. Then one restart names the culprit: outside URA -> URA cleared and we chase that integration; inside -> fix that site. Acceptance: next restart log carries one stall line with a main-thread stack pointing at a named file:line.'
+  next: "None - closed. (Leviton 12 s boot stall is third-party; not a URA card.)"
   links: {related: [DB-WAIT-WARNING-REWORK-1, HOUSE-STATE-SLEEP-LOST-ON-RESTART-1, ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1, RELOAD-WATCHDOG-HAZARD], context: 'Adjacency swept 2026-09-29: RELOAD-WATCHDOG-HAZARD (done) and ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 are reload-triggered stalls, not boot; no existing card covers the per-boot freeze. NEW.'}
   rank: {value: 4, time_criticality: 2, effort: 2}
 - id: DB-WAIT-WARNING-REWORK-1
@@ -30496,6 +30515,30 @@ cards:
     context: 'EC-DEGRADED-DATA-POLICY-1 is the design doc whose D0 replay found this mechanism; it supersedes EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1 whose dropout premise was refuted.'
   rank: {value: 4, time_criticality: 2, effort: 13}
   refs: [docs/planning/DESIGN_ec_degraded_data_policy.md section 9.1 / 9.3]
+- id: LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1
+  title: The loop-stall watchdog logs an ERROR at every HA shutdown because it unsubscribes its stop listener after that listener already fired
+  thread: hygiene
+  status: planned
+  created: '2026-10-03 02:55'
+  updated: '2026-10-03 02:55'
+  refinement_status: initial
+  approval: implied
+  tags: [tier-1, no-fabrication-verify, found-during-probe]
+  problem_solution:
+  - "Problem: when Home Assistant shuts down, URA's freeze watchdog runs its stop handler, which tries to cancel the very one-time listener that is calling it. Home Assistant has already removed that listener, so it logs an ERROR 'Unable to remove unknown job listener' on every restart, from a worker thread. Harmless but it is a real ERROR line on every restart, and it calls a loop-only API from a worker thread. Solution: in the stop handler, forget the stored unsubscribe before tearing down, because the listener is already used up; keep the unsubscribe only for the early-teardown path (all URA entries unloaded before HA stops)."
+  origin: {date: '2026-10-03', gist: 'Overnight pass, reading the full core log (hassio proxy) to dispose BOOT-EVENT-LOOP-FREEZE-1: line 2026-10-03 00:33:14.402 ERROR (SyncWorker_55) homeassistant.core Unable to remove unknown job listener ... _loop_stall_watchdog install.<locals>._on_stop.'}
+  why: "_loop_stall_watchdog.py:261-267 registers _on_stop via hass.bus.async_listen_once; _on_stop -> uninstall() -> calls wd._ha_stop_unsub (:282-288). HA's one-time listener removes itself before running the job, and a plain function job runs in the executor, so the unsub runs on SyncWorker against an already-removed listener -> HA logs the ERROR (the try/except at :284-287 cannot catch it: HA logs instead of raising). Seen once per shutdown (1 hit in the 40k-line log window = the one restart)."
+  constraints:
+  - Keep the early-teardown path (async_unload_entry of the last entry, __init__.py:5695-5712) detaching the listener - that path is correct.
+  parsimony: {problem: 'Every HA shutdown logs a URA-caused ERROR from the watchdog stop handler.', verdict: BUILD}
+  gate_2026_10_03: "1 validity: STILL-REAL (log line tonight, code unchanged at :261-288). 1b config-first: no setting affects it. 2 prior-art: REUSE - same file, no new mechanism; HA once-listener semantics. 3 parsimony BUILD (~3 LoC + a test). 4 cost/benefit: trivial risk, removes a recurring ERROR. Tier 1 -> build to review, no deploy."
+  knobs: []
+  next: "BUILD (me, Tier 1): in _on_stop set wd._ha_stop_unsub = None before uninstall(hass); test that firing EVENT_HOMEASSISTANT_STOP stops the watchdog without calling the consumed unsub, and that unload-before-stop still detaches. Then review -> review lane (no deploy)."
+  links:
+    parent: BOOT-EVENT-LOOP-FREEZE-1
+    context: 'BOOT-EVENT-LOOP-FREEZE-1 shipped the watchdog (v5.103.26/.28); this is a teardown defect in it, found while disposing that card.'
+  rank: {value: 3, time_criticality: 2, effort: 2}
+  refs: [custom_components/universal_room_automation/domain_coordinators/_loop_stall_watchdog.py:249-292]
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
