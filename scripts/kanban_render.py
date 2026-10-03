@@ -1295,9 +1295,10 @@ def _render_card_html(c: dict, pending: dict[str, list[dict]] | None = None) -> 
     # WAITING-OP-INSTRUCTIONS-1: free-form instruction channel on the operator
     # decision queue — the operator types HOW to resolve; the agent applies it
     # (action=instruct, with text) at session start.
-    if str(c.get("status", "")) == "waiting_operator":
+    # Operator 2026-10-02: every card, not only waiting_operator.
+    if str(c.get("status", "")) != "done":
         out.append('<div class="instruct">'
-                   '<input type="text" placeholder="instruction for the agent…" '
+                   '<input type="text" placeholder="comment / instruction for the agent…" '
                    'aria-label="operator instruction">'
                    '<button type="button" data-action="instruct">send</button>'
                    '</div>')
