@@ -179,6 +179,37 @@ def test_uninstall_detaches_ha_stop_listener():
     assert hass.bus.unsub_calls == 1, "uninstall must call the HA-stop unsub"
 
 
+def test_ha_stop_fire_does_not_call_consumed_unsub():
+    """LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1: when EVENT_HOMEASSISTANT_STOP
+    fires, HA has already consumed the one-time listener; calling its
+    unsub logs "Unable to remove unknown job listener". Firing the stop
+    callback must tear the watchdog down WITHOUT calling the unsub.
+    """
+    class _UnsubTrackingBus:
+        def __init__(self):
+            self.listeners = []
+            self.unsub_calls = 0
+
+        def async_listen_once(self, event, cb):
+            self.listeners.append((event, cb))
+
+            def _unsub():
+                self.unsub_calls += 1
+            return _unsub
+
+    hass = _FakeHass()
+    hass.bus = _UnsubTrackingBus()
+    w = wd_mod.install(hass)
+    assert len(hass.bus.listeners) == 1
+    _event, on_stop = hass.bus.listeners[0]
+    on_stop(None)  # HA fires the (already self-removed) one-time listener
+    assert hass.bus.unsub_calls == 0, (
+        "HA-stop handler must not call the consumed one-time unsub"
+    )
+    assert wd_mod._DATA_KEY not in hass.data.get(DOMAIN, {})
+    assert w._thread is None or not w._thread.is_alive()
+
+
 def test_uninstall_stops_thread():
     """The daemon thread must exit on uninstall (no lingering threads)."""
     hass = _FakeHass()
