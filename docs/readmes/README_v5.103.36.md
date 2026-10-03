@@ -218,4 +218,10 @@ census_hold_interior forced-render site (1 fail), back-reference guard removed (
 - [ ] Weather comfort form opens without error (exercises the vol.All fix).
 
 ## Live validation
-_Pending — results table written back after the restart._
+### Validated 2026-10-03
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| W1-C P1: no Carrier regression | PASS (no counter-evidence) | 0 hvac_strategy / URA errors since restart; primary proof is the 168 in-suite goldens. |
+| Rooms from areas / Simple House form | pending operator (second home) | Code live, untried. |
+| Zone/House Simple/Advanced | pending operator UI | Code live, no exceptions. |

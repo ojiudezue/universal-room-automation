@@ -176,7 +176,7 @@ Interpreter: `.venv-ha/bin/python`; `PYTHONDONTWRITEBYTECODE=1`; no
 
 | # | Criterion | PASS/FAIL | Evidence |
 |---|---|---|---|
-| 1 | Restored SLEEP survives restart | TBD | TBD |
+| 1 | Restored SLEEP survives restart | PASS (validated 2026-10-03) | Natural experiment: HA restarted 00:37 CDT 10-03 (onto v5.103.36) while the house was in sleep (house_state_log: sleep since 03:00Z). Recorder `sensor.ura_coordinator_manager_house_state` reads `sleep` on every row 05:30-07:10Z, first post-boot row 05:37:35Z = `sleep`; no `away`/`arriving` placeholder and no house_state_log transition after the boot. HVAC kept zones on sleep (05:38-05:49Z `preset ... -> sleep (house=sleep)`). |
 | 2 | Zero boot-window `house_state_change` under confirmed | TBD | TBD |
 | 3 | Override set dispatches within 1 s | TBD | TBD |
 | 4 | Override clear dispatches within 1 s | TBD | TBD |

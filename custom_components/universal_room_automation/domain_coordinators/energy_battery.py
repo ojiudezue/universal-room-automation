@@ -2978,22 +2978,33 @@ class BatteryStrategy:
         entry_band = target + ARB_LADDER_ENTRY_HYSTERESIS_PCT
         exit_band = target - ARB_LADDER_EXIT_HYSTERESIS_PCT
 
-        # v5.17.4 — Bound the rate-extrapolation horizon to SOLAR-CAPABLE
-        # time remaining. The observed K-tick net-charge `rate` (which
-        # already includes daytime solar contribution) linearly extrapolated
-        # across the FULL 17h overnight boundary produced live artifacts
-        # like arb_projection_rung0 = 836.3% and risked spurious rung-0/1
-        # gate-closures near window-open on marginal days. Rung 0/1 are
-        # SOLAR-attain predicates by construction — grid charging is a
-        # separate windowed action gated inside the arbitrage path — so
-        # bound to remaining solar hours (today's sunset). `solar_surplus`
-        # is already solar-window-aware via `_expected_solar_surplus_pct`
-        # slicing, so it uses the unbounded `hours` term below.
+        # Rate-extrapolation horizon = DAYLIGHT-GATED (EC-RUNG1-WAIT-EV-
+        # PINGPONG-1, PLANNING_ec_daylight_horizon_and_poor_night_floor.md
+        # D1). Rung 0/1 are SOLAR-attain predicates by construction — grid
+        # charging is a separate windowed action gated inside the arbitrage
+        # path. The observed K-tick net-charge `rate` (EV load added back
+        # for the rung-1 entry) is extrapolated ONLY while `now` is in
+        # daylight (`sunrise <= now < sunset`, the `energy.py` is_daylight
+        # predicate shape, bounds from `_daylight_bounds`): a rate observed
+        # at night holds no solar information. Before sunrise and after
+        # sunset the rate term is 0, so the only solar evidence is the
+        # forecast `solar_surplus` term, which `_expected_solar_surplus_pct`
+        # already slices to the daylight overlap. v5.17.4 bounded only the
+        # END (`sunset - now`) and discarded sunrise, so after midnight the
+        # horizon covered the whole night (10-01 rung_1 EV ping-pong).
+        # `sunrise_today is None` with a non-None sunset keeps the legacy
+        # sunset-only bound (matches the projector's `sunrise_dt=None`
+        # default); the except path sets both to None → 0 (unchanged).
         try:
-            _sr_today, sunset_today = self._daylight_bounds(now)
+            sunrise_today, sunset_today = self._daylight_bounds(now)
         except Exception:  # noqa: BLE001
-            sunset_today = None
-        if sunset_today is not None and sunset_today > now:
+            sunrise_today, sunset_today = (None, None)
+        in_daylight = (
+            sunset_today is not None
+            and sunset_today > now
+            and (sunrise_today is None or now >= sunrise_today)
+        )
+        if in_daylight:
             solar_mins_remaining = max(
                 0.0, (sunset_today - now).total_seconds() / 60.0,
             )
@@ -3016,6 +3027,7 @@ class BatteryStrategy:
                 source="rung0",
                 bound_to_solar_horizon=True,
                 now=now,
+                sunrise_dt=sunrise_today,
                 sunset_dt=sunset_today,
                 extra_rate_pct_per_h=0.0,
             )
@@ -3035,6 +3047,23 @@ class BatteryStrategy:
             # Display clamp: SOC physically cannot exceed 100%.
             projected_rung0 = max(0.0, min(100.0, raw_projected_rung0))
         self._arb_last_projection_rung0 = round(projected_rung0, 1)
+
+        # Night release (EC-RUNG1-WAIT-EV-PINGPONG-1 fix-up, B/D-HIGH-1).
+        # Rungs 0/1 are solar-attain predicates; outside daylight (same
+        # `in_daylight` predicate as the D1 horizon above) a rung latch taken
+        # in daylight must NOT survive — a carried rung_1 latch would keep the
+        # EVs paused for "redirect" all night with no solar to redirect.
+        # Release ONLY the rung_1 latch (and its remembered EV load); the
+        # rung_0 latch and its exit hysteresis (exit below target - exit
+        # band) are KEPT at night (operator ruling) so a p0 in
+        # [exit, entry) does not flip rung_0 -> rung_2 (grid-charge plan).
+        # Rung-1 ENTRY cannot fire at night because with rate_hours == 0
+        # (D1) its projection equals projected_rung0.
+        if not in_daylight:
+            if self._arb_rung1_latch:
+                # C-MED-2 hygiene: stale assumed EV-load cleared on release.
+                self._arb_last_ev_load_pct_per_h = 0.0
+            self._arb_rung1_latch = False
 
         # CRITICAL ordering: when rung-1 is latched, the COUNTERFACTUAL
         # rung-1 exit logic is the AUTHORITATIVE next-state decision —
@@ -3069,6 +3098,7 @@ class BatteryStrategy:
                     source="rung1_counterfactual",
                     bound_to_solar_horizon=True,
                     now=now,
+                    sunrise_dt=sunrise_today,
                     sunset_dt=sunset_today,
                     extra_rate_pct_per_h=-assumed_ev_pct,
                 )
@@ -3165,6 +3195,7 @@ class BatteryStrategy:
                 source="rung1_entry",
                 bound_to_solar_horizon=True,
                 now=now,
+                sunrise_dt=sunrise_today,
                 sunset_dt=sunset_today,
                 extra_rate_pct_per_h=ev_load_pct_per_h,
             )
@@ -3431,6 +3462,26 @@ class BatteryStrategy:
             return max(existing, effective_reserve)
         return existing
 
+    def _arbitrage_wait_floor(self, soc: float | None, now: datetime) -> int:
+        """Pre-inclement reserve the arbitrage WAIT phase parks at.
+
+        EC daylight-horizon / poor-night plan D2 (operator ruling (a),
+        2026-10-03). Shared by the WAIT emitter (`_get_arbitrage_decision`)
+        and the `_next_action_estimate` display so the two cannot drift.
+
+        - SOC above the drain floor (or SOC unknown) → the drain floor
+          `_drain_target_for(now)` (effective ladder clamp + multi-day max;
+          always >= reserve_soc).
+        - SOC at/below the floor → park where it is, never below
+          reserve_soc: ``max(reserve_soc, int(soc))`` (INV-W0 raise-only vs
+          the legacy WAIT ``reserve_soc``).
+        No try/except: decision paths observe the raise.
+        """
+        drain_floor = self._drain_target_for(now)
+        if soc is None or soc > drain_floor:
+            return int(drain_floor)
+        return max(int(self.reserve_soc), int(soc))
+
     def _get_arbitrage_decision(
         self,
         soc: float | None,
@@ -3445,7 +3496,9 @@ class BatteryStrategy:
         """Wrap phase resolution + side-effects into the standard decision dict.
 
         Phase-to-action mapping (per plan's D1):
-            WAIT:   reserve = reserve_soc;        no grid charge
+            WAIT:   reserve = drain floor (`_drain_target_for`) while SOC is
+                    above it, else max(reserve_soc, int(soc)); NEVER grid
+                    charge (park-only, operator ruling 2026-10-03)
             CHARGE: reserve = peak_buffer_target; grid charge ON
             HOLD:   reserve = peak_buffer_target; no grid charge
 
@@ -3507,20 +3560,36 @@ class BatteryStrategy:
                 target_day_class=target_day_class,
             )
 
-        # WAIT — battery serves loads naturally; reserve = safety floor only.
-        # Per plan Mistake #7: no artificial drain target. Overnight loads
-        # come from battery + solar; CHARGE will refill before the high-rate
-        # window regardless of how low SOC drifted during WAIT.
+        # WAIT — hold the forecast drain floor (operator ruling 2026-10-03,
+        # PLANNING_ec_daylight_horizon_and_poor_night_floor.md D2). This
+        # DELIBERATELY REVERSES v4.5.0 "Mistake #7" (no artificial drain
+        # target in WAIT — PLANNING_v4.5.0_TRANSITION_NOTES.md:105-111,
+        # PLANNING_v4.5.0_battery_strategy_redesign.md:90,:135): on poor /
+        # very_poor target days the battery parks at the poor drain floor
+        # overnight so solar fills faster, or attain catches up faster.
+        # PARK-ONLY: WAIT sets reserve_soc and never commands grid charge
+        # (charge_from_grid stays False below); any grid refill toward the
+        # floor belongs to the attain path (operator ruling 2026-10-03).
+        # Value = the SAME `_drain_target_for(now)` the fallback emitter and
+        # the status accessors read (effective ladder clamp + multi-day
+        # max) — no second lookup (Bug Class #53). No try/except: decisions
+        # observe the raise (`_resolve_target_day(now)` already ran
+        # unguarded upstream via `_classify_target_day`).
+        # Raise-only vs the legacy WAIT (INV-W0): at/below the floor the
+        # battery parks at max(reserve_soc, int(soc)) — never below
+        # reserve_soc, so drain sliders == reserve_soc restore legacy WAIT
+        # exactly (the kill switch). SOC unknown → the protective floor.
         self._arbitrage_active = False
+        wait_base = self._arbitrage_wait_floor(soc, now)
         floored = self._floor_reserve(
-            self.reserve_soc, effective_reserve, hold_depth,
+            wait_base, effective_reserve, hold_depth,
         )
         suffix = (
-            " (partial_hold floor)" if floored != self.reserve_soc else ""
+            " (partial_hold floor)" if floored != wait_base else ""
         )
         return self._result(
             BATTERY_MODE_SELF_CONSUMPTION,
-            f"Arbitrage WAIT — charge window not yet open "
+            f"Arbitrage WAIT — holding drain floor {wait_base}% "
             f"(target_day={target_day_class}, "
             f"lead_time={self._arbitrage_charge_lead_time_min}m){suffix}",
             current_mode,
@@ -5009,6 +5078,10 @@ class BatteryStrategy:
         # in its body, so this reset is synchronous-airtight across all
         # early-return paths — closes the D2-HIGH-1 inter-tick refill.
         self._offpeak_drain_branch_target = None
+        # D-MED-1 ENTRY-RESET: the rung intent is per-tick. Early-return
+        # paths (full_hold / peak / storm ...) never reach _gate_is_open, so
+        # without this a prior tick's "redirect" would keep the EVs paused.
+        self._arbitrage_intent = None
         from homeassistant.util import dt as dt_util
         if now is None:
             now = dt_util.now()
@@ -6148,10 +6221,33 @@ class BatteryStrategy:
                 f"holding buffer at {self._peak_buffer_target}% until next high-rate window"
             )
         if phase == ARBITRAGE_PHASE_WAIT:
+            # EC poor-night plan D2 / review #2 F9: both WAIT strings name
+            # the floor WAIT actually parks at (same helper as the emitter).
+            # A-LOW-1: show the value the WAIT emitter actually writes — the
+            # wait floor composed with the cached per-tick inclement
+            # partial_hold floor via the same `_floor_reserve` the emitter
+            # uses (effective_reserve = max(reserve_soc, reserve_floor), as
+            # in determine_mode). No try/except, matching the fallback
+            # branch's unguarded `_drain_target_for` (B-LOW: decided no).
+            _wait_base = self._arbitrage_wait_floor(soc, now)
+            _dec = self._last_inclement_decision
+            if _dec is not None:
+                _wait_floor = self._floor_reserve(
+                    _wait_base,
+                    max(self.reserve_soc, _dec.reserve_floor),
+                    _dec.hold_depth,
+                )
+            else:
+                _wait_floor = _wait_base
+            _sfx = " (partial_hold floor)" if _wait_floor != _wait_base else ""
             if self._arbitrage_chunk_completed:
-                return "arbitrage chunk completed — battery serves loads naturally"
+                return (
+                    f"arbitrage chunk completed — holding {_wait_floor}% "
+                    f"floor{_sfx}"
+                )
             return (
-                f"waiting for charge window (lead_time={self._arbitrage_charge_lead_time_min}m)"
+                f"waiting for charge window, holding {_wait_floor}% floor"
+                f"{_sfx} (lead_time={self._arbitrage_charge_lead_time_min}m)"
             )
         if phase == ARBITRAGE_PHASE_DISCHARGE:
             return "discharging during high-rate window"

@@ -327,6 +327,23 @@ class RoomAutomation:
             key = self._fan_ledger_key()
         except Exception:  # noqa: BLE001
             key = "?"
+        # FAN-ORACLE-BOOT-FALLBACK-NOISE-1: before the CoordinatorManager has
+        # EVER attached the oracle (boot order: rooms set up first), fallback
+        # is expected — the local value is hydrated into the oracle on the
+        # first post-attach read. Log DEBUG then; keep the WARN for genuine
+        # post-attach fallback (lifecycle regression).
+        try:
+            attached_once = bool(
+                self.hass.data.get(DOMAIN, {}).get("fan_oracle_attached_once")
+            )
+        except Exception:  # noqa: BLE001
+            attached_once = False
+        if not attached_once:
+            _LOGGER.debug(
+                "FanPolicyOracle fallback (pre-attach, expected at boot): "
+                "%s stored locally for room=%s", side, key,
+            )
+            return
         _LOGGER.warning(
             "FanPolicyOracle fallback: %s served from RoomAutomation "
             "__dict__ (oracle unavailable) for room=%s — check CoordinatorManager lifecycle",

@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "181",
+  "author": "ojiudezue",
+  "session_id": "claude_20261003_202036_ship_v5_103_37",
+  "timestamp": "2026-10-03T20:20:36Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.37 shipped: No night EV ping-pong, poor nights hold forecast floor, coordinators added one by one",
+  "summary": "No night EV ping-pong, poor nights hold forecast floor, coordinators added one by one",
+  "why": "On 10-01 an EV charger was switched on and off ~12 times overnight: attain's rung_1 solar projection used sunset-today minus now with no sunrise bound, so after midnight it counted the whole night as solar; it bypassed the existing day/night machinery. Separately poor-forecast nights drained to 10 because arbitrage WAIT ignored the forecast drain floor, contradicting the manual; operator ruled the floor must hold so solar/attain can catch up. Coordinators were all shown enabled on fresh installs; operator wants them added one by one (also a per-feature gate).",
+  "implications": "Shipped FAN-ORACLE-BOOT-FALLBACK-NOISE-1 at v5.103.37; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.37.md (Live criteria).",
+  "revisit_trigger": "If an EV charger toggles >2/h in daylight (post-sunrise residual), build EC-EV-TOGGLE-TRIPWIRE-1 and revisit a rung_1 re-entry cooldown; if a fresh install still shows coordinators running unconfigured, revisit the migration.",
+  "refs": {
+    "cards": [
+      "FAN-ORACLE-BOOT-FALLBACK-NOISE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.37.md"
+    ],
+    "release_notes": "Attain's redirect-solar can no longer pause EVs at night; poor nights hold the forecast drain floor (park at SOC below it, never grid-charge); coordinators are added from the Coordinator Manager menu; boot log noise removed. See README_v5.103.37."
+  }
+}

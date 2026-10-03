@@ -677,7 +677,8 @@ def test_add_coordinator_abort_reason(install):
     assert result["type"] == "abort" and result["reason"] == "coordinator_use_options"
     for path in (_COMPONENT / "strings.json", _COMPONENT / "translations" / "en.json"):
         text = json.loads(path.read_text())["config"]["abort"]["coordinator_use_options"]
-        assert "Domain Coordinators switch" in text
+        # CM-COORDINATORS-ADD-ONE-BY-ONE-1 Phase B rewrote the S4 text.
+        assert "Add a coordinator" in text
 
 
 def test_no_route_to_deleted_steps():

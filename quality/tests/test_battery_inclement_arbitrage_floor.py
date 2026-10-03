@@ -248,7 +248,11 @@ def test_wait_phase_floors_at_effective_reserve_under_partial_hold():
 
 
 def test_wait_phase_byte_identical_under_allow_discharge():
-    # No alert → allow_discharge → WAIT emits the bare reserve_soc (10).
+    # No alert → allow_discharge → no partial_hold clamp on WAIT.
+    # EC poor-night WAIT floor (operator ruling 2026-10-03): WAIT now holds
+    # the drain floor. Target class very_poor (tomorrow "20" < poor
+    # threshold 30) → default very_poor drain 30; SOC 40 > 30 → reserve 30
+    # (was 10).
     strat, hass = _make_battery(soc=40)
     strat._inclement_config_override = {}  # no NWS entity
     strat._arbitrage_chunk_completed = True
@@ -256,7 +260,7 @@ def test_wait_phase_byte_identical_under_allow_discharge():
     r = strat.determine_mode("off_peak", "summer", now=now)
     assert strat._inclement_attrs()["inclement_hold_depth"] == "allow_discharge"
     assert r["arbitrage_phase"] == "wait"
-    assert _reserve_value(r) == strat.reserve_soc  # == 10, unchanged
+    assert _reserve_value(r) == 30
     assert "partial_hold floor" not in r["reason"]
 
 
@@ -674,7 +678,9 @@ def _floor_passthrough(existing, effective_reserve, hold_depth):
 
 @pytest.mark.parametrize("site_setup,expected_floored,expected_bare", [
     # (setup_fn, floored_value, bare_value_after_mutation)
-    ("wait", _FLOOR, DEFAULT_RESERVE_SOC),     # site 3
+    # site 3 — EC poor-night WAIT floor (2026-10-03): the bare WAIT value is
+    # now the very_poor drain floor 30 (SOC 40 > 30), below the 50 floor.
+    ("wait", _FLOOR, 30),
     ("hold", _FLOOR, 40),                       # site 1 (target lowered to 40)
     ("charge", _FLOOR, 40),                     # site 2 (target lowered to 40)
 ])

@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.36
+# Universal Room Automation vv5.103.37
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -693,12 +693,38 @@ class CoordinatorEnabledSwitch(SwitchEntity):
 
     @property
     def is_on(self) -> bool:
-        """Return True if this coordinator is enabled."""
+        """Return True if this coordinator is enabled.
+
+        CM-COORDINATORS-ADD-ONE-BY-ONE-1: same gate (and same default) as
+        the registration site in __init__.py, so the switch cannot read ON
+        for a coordinator that is not running.
+        """
+        from .coordinator_gate import coordinator_should_run
         merged = {**self._entry.data, **self._entry.options}
-        return merged.get(self._conf_key, True)
+        return coordinator_should_run(merged, self._coordinator_id)
+
+    def _is_added(self) -> bool:
+        from .coordinator_gate import is_coordinator_added
+        merged = {**self._entry.data, **self._entry.options}
+        return is_coordinator_added(merged, self._coordinator_id)
+
+    @property
+    def available(self) -> bool:
+        """Unavailable until the coordinator is added from the CM menu."""
+        return self._is_added()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {"added": self._is_added()}
 
     async def async_turn_on(self, **kwargs) -> None:
         """Enable this coordinator."""
+        if not self._is_added():
+            _LOGGER.info(
+                "%s is not added; add it from the Coordinator Manager menu",
+                self._coordinator_id,
+            )
+            return
         self.hass.config_entries.async_update_entry(
             self._entry,
             options={**self._entry.options, self._conf_key: True},

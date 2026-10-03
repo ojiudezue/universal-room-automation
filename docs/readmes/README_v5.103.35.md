@@ -243,4 +243,12 @@ Branch: `feature/zone-house-wording`. Version: set at deploy (PATCH).
 - CM > Configure: rows "Alert noise" and "Who gets which alerts".
 
 ## Live validation
-_Pending — results table written back after the restart._
+### Validated 2026-10-03
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| `drain_targets_effective` == raw on healthy ladder | PASS | Live `{10,15,20,30,30,unknown 40}` identical. |
+| No `threshold_ladder_violation` after restart | PASS | 0 rows. |
+| Inclement hold_depth on clear night | PASS | `allow_discharge`, tier none. |
+| Pure sensor getters | PASS | `sensor.ura_safety_coordinator_safety_events_summary` clean; no off-loop task log lines; 0 URA ERRORs. |
+| Room menu trim / Zone-House wording | pending operator UI | Code live, no config-flow exceptions. |

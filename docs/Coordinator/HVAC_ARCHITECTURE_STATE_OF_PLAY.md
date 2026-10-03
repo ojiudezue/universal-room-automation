@@ -146,6 +146,8 @@ Consequences:
 | D8 night tail-hold | **LIVE** — house `sleep` / `waking` only (v5.103.19) | `const.py:1230`; selector `hvac_zones.py` `_effective_hvac_hold_seconds` |
 | D9 compose-away (Custom Preset Ranges setpoint layer), F2 throttle bypass, F4 | **DORMANT** — `switch.ura_hvac_coordinator_guest_mode_actuation` = off (13/13 recorded states 09-18→25); gate `hvac.py:2867` | blocked on `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1` + `HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1` |
 
+> **LIVE-STATE NOTE 2026-10-03 (overnight pass, recorder-verified):** `switch.ura_hvac_coordinator_guest_mode_actuation` is **ON** since 2026-10-02 21:28:45Z (no user context; changed in the same second as three other URA switches, i.e. an entity re-create, not a restart) and still on after the 10-03 restart; 31 `S10_dpm_apply` writes followed (2-9/h). So D9 is NOT dormant live right now. Operator VERIFY pending on `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1`; code default is unchanged. Rows above/below that say 'dormant' describe the intended (switch-off) state.
+
 ---
 
 ## 4. Thermostat I/O — writes, funnels, logging, reads
