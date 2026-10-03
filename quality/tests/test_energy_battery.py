@@ -1267,10 +1267,17 @@ class TestArbitragePhaseRouting:
             "off_peak", "summer", now=datetime(2026, 7, 15, 6, 0),
         )
         assert result["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT
-        # Reserve = reserve_soc (no artificial drain floor during WAIT)
+        # EC poor-night WAIT floor (operator ruling 2026-10-03; reverses
+        # v4.5.0 Mistake #7): WAIT holds the drain floor. Target class
+        # very_poor (solcast "20" < poor threshold 30) → default very_poor
+        # drain 30; SOC 15
+        # is at/below it → park at max(reserve 10, int(15)) = 15. Harness
+        # starts the reserve entity at 50, so the action always emits.
         reserve_actions = _get_reserve_actions(result)
-        if reserve_actions:
-            assert reserve_actions[0]["data"]["value"] == DEFAULT_RESERVE_SOC
+        assert reserve_actions, result
+        assert reserve_actions[0]["data"]["value"] == 15
+        # Park-only: WAIT never commands grid charge.
+        assert h.strategy._last_charge_from_grid_desired is False
 
     def test_phase_charge_when_window_opens_and_forecast_confirms(self):
         """Off_peak + gate open + 5h before transition → CHARGE."""
