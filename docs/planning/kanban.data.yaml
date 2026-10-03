@@ -9,6 +9,16 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1@2026-10-03T02:17:10"
+    at: "2026-10-03T02:17:10"
+    outcome: "parked"
+    headline: "Parked on measurement. The battery-planning edge case (solar forecast for today missing at midnight) happened once in 11 days, on a single boot tick that issued no commands. Not worth a Tier 2-DB change unless it starts happening on real decision ticks."
+    acknowledged: false
+  - fid: "DB-WAIT-WARNING-REWORK-1@2026-10-03T02:16:06"
+    at: "2026-10-03T02:16:06"
+    outcome: "done"
+    headline: "Closed (soak exit): the reworked database-wait warning appeared once overnight, during the shutdown before the restart, in the new one-line-per-episode format. None at boot."
+    acknowledged: false
   - fid: "HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1@2026-10-03T02:15:32"
     at: "2026-10-03T02:15:32"
     outcome: "done"
@@ -24931,14 +24941,17 @@ cards:
   - docs/planning/PLANNING_dp_drain_target_mis_sourcing.md
   - docs/readmes/README_v5.91.1.md
 - id: ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1
+  revisit_if: "target_day_source == tomorrow_solcast_fallback on a strategy tick whose state is not 'unknown' (i.e. a tick that issues commands), or > 3 fallback ticks in a week. Check at grooming with the 11-day recorder count."
+  parsimony: {"problem": "At today-Solcast-unknown, the target-day broadening leg pairs tomorrow with tomorrow.", "verdict": "PARK", "note": "measured 1 tick / 11 days, only at boot, no commands issued; a Tier 2-DB change across gate+drain is not paid for"}
+  measured_2026_10_03_overnight: "MEASURED (recorder, 11 days, ~22k strategy-sensor rows): target_day_source counts = solcast_today 13549, solcast_tomorrow 8466, None 16, tomorrow_solcast_fallback 1. The single fallback tick (the only state in which this degenerate pairing can occur) was 2026-10-02 08:07:10Z, a boot tick with strategy state 'unknown' and reason 'Envoy unavailable - holding (no commands issued)'; the next tick 18 s later was back on solcast_today. The Solcast today/tomorrow/day_3 entities had 0 unavailable/unknown rows in 11 days. So the defect is real in code but has fired on 1 tick in 11 days, on a tick that issued no commands -> zero observed impact."
   title: When today's Solcast is transiently unknown at offset 0, the target-day resolver returns tomorrow's
     class so the multi-day broadening leg pairs tomorrow with tomorrow (n=1) — a silent duplicate that
     contributes nothing; affects BOTH the arbitrage gate AND the shipped drain path identically
   thread: energy
-  status: pre_planning
+  status: "parked"
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 8 - energy decision path, rare (~00:05 Solcast unknown); Tier 2-DB.'
   rank: {value: 5, time_criticality: 3, effort: 8}
-  updated: '2026-09-29 01:05'
+  updated: "2026-10-03 02:17"
   disposition_2026_09_12_sweep4: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: energy_battery.py:2695-2703 offset<=0 + today-unknown + no cache returns (classify_tomorrow_solar(),0); callers do classify_solar_day_n(0+1)=tomorrow again -> self-pairs tomorrow with tomorrow (n=1 dup) at gate :2761/:3187 + drain :5633. Tier-2-DB fix: broaden vs day_3 or record explicit-degenerate, BOTH gate+drain paths. Refs :2536 stale.'
   created: 2026-08-26 03:10
   refinement_status: refined
@@ -24956,10 +24969,7 @@ cards:
   why: Found by arbitrage review B (B6). Shared with the DRAIN path (energy_battery.py:1765/:5463) which
     has the IDENTICAL degeneracy — fixing the gate alone would reintroduce drain/gate divergence, so fix
     BOTH together or neither.
-  next: 'Tier 2-DB (shared _resolve_target_day + gate:2761/:3187 + drain:5633). At ~00:05 today-unknown,
-    _resolve_target_day returns (tmr_cls, offset 0) (energy_battery.py:2678-2701 — card ref :2536 STALE)
-    -> classify_solar_day_n(1)=tomorrow again -> self-pair. DISCRIMINATOR: today=unknown + day_3!=tomorrow
-    -> composed drain/gate must reflect day_3 or record explicit-degenerate.'
+  next: "Nothing now (parked on measured rarity). Revive on the trigger above."
   refs:
   - energy_battery.py:2536-2538 (_resolve_target_day today-unknown fallback)
   - energy_battery.py:1765 (drain), :3017 (gate)
@@ -30365,15 +30375,17 @@ cards:
   links: {related: [DB-WAIT-WARNING-REWORK-1, HOUSE-STATE-SLEEP-LOST-ON-RESTART-1, ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1, RELOAD-WATCHDOG-HAZARD], context: 'Adjacency swept 2026-09-29: RELOAD-WATCHDOG-HAZARD (done) and ROOM-CONFIG-SAVE-FULL-RELOAD-STALL-1 are reload-triggered stalls, not boot; no existing card covers the per-boot freeze. NEW.'}
   rank: {value: 4, time_criticality: 2, effort: 2}
 - id: DB-WAIT-WARNING-REWORK-1
+  updated: "2026-10-03 02:16"
+  organic_evidence_2026_10_03: "DISPOSED (soak exit): MET. Full core log 10-02 21:01 -> 10-03 02:13 (hassio proxy, 28k lines): exactly ONE 'DB write not yet served after 35.0s (classification=worker backlog, queue_depth=3, phase=steady)' line, at 00:33:56, during the HA shutdown that preceded the 00:37 restart (so no 'cleared' summary followed - expected, the process stopped). Zero wait lines at boot despite the 12.2 s Leviton loop stall. Format matches the rework spec (one line per episode, labelled). Minor note, not carded (marginal): a wait during shutdown is labelled phase=steady. DONE."
   title: The DB "write worker slow, no connection" warning is wrong and noisy - one line per waiting write, misnamed, no recovery line
   thread: platform
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.26
   tier: 1
   created: '2026-09-29 20:05'
   origin: 'Same audit (AUDIT_db_write_worker_slow_2026_09_29.md), operator asked to check the logging.'
   why: 'database.py:435 logs one WARNING per waiting write (23 lines in 2 ms), says "no connection" when the connection is fine and the write is only queued, never distinguishes a loop stall (elapsed >> timer) from a real worker backlog, and logs nothing when the episode clears. Worker-start and DB-stats lines are INFO and never kept (no logger: block). README_v5.103.24.md:309 wrongly calls it "boot-time DB pool warm-up" (there is no pool). Past DB invariants (single writer/queue/connection, no dropped rows, 300 s hard cap) all held on 09-29.'
-  next: 'BUILD (Tier 1, ~40 LoC, logging only): one WARNING per episode labelled loop-stall vs worker-backlog, "not yet served" wording, one summary line on clear (max wait, peak depth, callers, dropped); INFO during boot, WARNING in steady state. Fix README_v5.103.24.md:309. Operator (config-first, optional): add logger: custom_components.universal_room_automation.database: info.'
+  next: "None - closed."
   links: {related: [BOOT-EVENT-LOOP-FREEZE-1]}
   rank: {value: 2, time_criticality: 1, effort: 1}
 - id: DB-SIZE-GROWTH-1
@@ -30472,6 +30484,7 @@ cards:
   links: {related: [ROOM-LIGHTING-SETUP-REDESIGN-1, ROOM-DIALOGS-USABILITY-SWEEP-1, ZONE-DIALOGS-CLEANUP-1]}
   rank: {value: 4, time_criticality: 1, effort: 2}
 - id: ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1
+  verify_2026_10_03_overnight: "CARD-WAS-WRONG on 'next' (said BUILD): shipped in v5.103.28 (README_v5.103.28.md, per-site drills on _get_available_covers + _send_covers_with_verify). Live proof is the staged test on HVAC-GARAGE-GUARD-STAGED-SUNSET-1 (operator DO); 10-02 had no garage door open at sunset, and 0 garage cover-skip rows since 09-30."
   title: Room cover automation (open at sunrise, timed close, close on exit) has no garage-door exclusion
   thread: ux
   status: shipped_organic
@@ -30479,10 +30492,10 @@ cards:
   reconcile_2026_09_30_overnight: 'LANE FIX planned -> review. Ground truth: branch fix/room-covers-garage-guard already carries the build, 2 commits ahead of develop - a22e0bb5a (23:21 09-29, room automation refuses garage/gate covers) and 614c9f391 (23:23, blocks AI-rule cover actions on garage doors/gates, review LOW + tests). The card was never moved. NOT deployed (deploy held, per the card). I did not re-run its suite or reviews overnight; the validator name-diff is still owed before merge.'
   measured_2026_09_29: 'Operator thought garage doors live only in Security. MEASURED: they are ALSO in room covers - Garage A covers = cover.konnected_f0f5bd523b00_garage_door, Garage B covers = cover.ratgdov25i_dbfe2a_door (both device_class garage, stored cover_type shade). Both have entry/exit cover action none and open mode none, but timed_close_enabled = True (sunset). ura_activity_log has no cover actions for either room (not proof the timed close never ran). Operator: "the protection is a good idea".'
   created: '2026-09-29 23:20'
-  updated: '2026-09-30 03:15'
+  updated: "2026-10-03 02:16"
   origin: 'Found by the plan review of ROOM-TYPE-TRIMMED-MENU-1 (docs/reviews/code-review/plan_review_room_type_trimmed_menu.md): only hvac_covers.py:795 excludes garage doors; the room-tier cover behaviour does not.'
   why: 'A garage door added to a room''s covers could be opened at sunrise or on entry by URA. Safety/security-relevant. Pre-existing, not caused by the menu work.'
-  next: 'BUILD (Tier 1, deploy held): room cover automation skips device_class garage/gate covers in every room-tier path (entry, exit, timed open, timed close, sleep block), with a one-time INFO naming the skipped cover; Security keeps sole control. Grep every room cover writer first. Tests + per-site drill.'
+  next: "Waits on HVAC-GARAGE-GUARD-STAGED-SUNSET-1 (operator DO: leave a garage door open across sunset) -> I query the skip row and close both cards."
   links: {related: [ROOM-TYPE-TRIMMED-MENU-1]}
   rank: {value: 4, time_criticality: 3, effort: 1}
 - id: LIGHTS-GUEST-MODE-BEHAVIOUR-1
