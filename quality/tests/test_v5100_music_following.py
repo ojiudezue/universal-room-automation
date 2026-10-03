@@ -232,9 +232,29 @@ class FakeServices:
         self.calls.append((domain, service, dict(data)))
 
 
+class _FakeCMEntry:
+    """Synthetic Coordinator-Manager entry for FakeConfigEntries."""
+
+    def __init__(self, mf_coord_enabled: bool = True):
+        # Match what production reads: CONF_ENTRY_TYPE == ENTRY_TYPE_COORDINATOR_MANAGER
+        # and CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED merged from data+options.
+        self.data = {
+            "entry_type": "coordinator_manager",
+            "music_following_coordinator_enabled": mf_coord_enabled,
+        }
+        self.options: dict = {}
+
+
 class FakeConfigEntries:
+    def __init__(self, mf_coord_enabled: bool = True):
+        self._entries = [_FakeCMEntry(mf_coord_enabled=mf_coord_enabled)]
+
     def async_entries(self, domain):
-        return []
+        return list(self._entries)
+
+    def set_mf_coordinator_enabled(self, enabled: bool) -> None:
+        for e in self._entries:
+            e.data["music_following_coordinator_enabled"] = enabled
 
 
 class FakeHass:
@@ -1189,3 +1209,154 @@ class TestSleepInvariantAdversarial:
                 f"SLEEP invariant violated for target_state={target_state}: "
                 f"{hass.services.calls}"
             )
+
+
+# ===========================================================================
+# MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1 — enabled-set name/entity_id match
+# ===========================================================================
+# Root cause: _enabled_persons holds entity IDs ("person.oji_udezue") synced
+# from CONF_TRACKED_PERSONS while the transition event carries a display
+# name ("Oji Udezue") from person_coordinator. Fix: normalize both sides at
+# the enabled check in _on_person_transition via the module helper
+# _person_key. See music_following.py.
+
+
+class TestEnabledPersonNameVsEntityIdMatch:
+    @pytest.mark.asyncio
+    async def test_display_name_transition_matches_entity_id_enabled(self):
+        """Enabled by entity_id, transition arrives with display name."""
+        mf, _ = _make_mf()
+        mf.enable_for_person("person.oji_udezue")
+        spy = AsyncMock()
+        mf._execute_transfer = spy
+        await mf._on_person_transition(
+            _transition(person="Oji Udezue",
+                        from_room="kitchen", to_room="bedroom",
+                        confidence=0.75)
+        )
+        assert spy.await_count == 1, (
+            "Enabled check must accept the display-name form when the "
+            "enabled set holds the entity_id form"
+        )
+        # Positional: (person_id, from_room, to_room, ...)
+        args, _kw = spy.await_args
+        assert args[0] == "Oji Udezue"
+        assert args[1] == "kitchen"
+        assert args[2] == "bedroom"
+
+    @pytest.mark.asyncio
+    async def test_not_enabled_person_still_blocked(self):
+        """Different person not in enabled set is still dropped."""
+        mf, _ = _make_mf()
+        mf.enable_for_person("person.oji_udezue")
+        spy = AsyncMock()
+        mf._execute_transfer = spy
+        await mf._on_person_transition(
+            _transition(person="Ziri Udezue",
+                        from_room="kitchen", to_room="bedroom",
+                        confidence=0.75)
+        )
+        assert spy.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_exact_form_match_still_works(self):
+        """Existing behavior preserved: identical form matches."""
+        mf, _ = _make_mf()
+        mf.enable_for_person("Oji")
+        spy = AsyncMock()
+        mf._execute_transfer = spy
+        await mf._on_person_transition(
+            _transition(person="Oji", confidence=0.75)
+        )
+        assert spy.await_count == 1
+
+    def test_person_key_canonicalizes_both_forms(self):
+        _person_key = _mf_mod._person_key
+        assert _person_key("person.oji_udezue") == _person_key("Oji Udezue")
+        assert _person_key("Ziri Udezue") != _person_key("person.oji_udezue")
+        assert _person_key("") == ""
+
+
+# ===========================================================================
+# MUSIC-FOLLOWING-NO-TRANSFERS: kill-switch + DND storage-normalization
+# ===========================================================================
+
+
+class TestCoordinatorEnabledKillSwitch:
+    @pytest.mark.asyncio
+    async def test_switch_off_blocks_enabled_person_transition(self):
+        mf, hass = _make_mf()
+        mf.enable_for_person("person.oji_udezue")
+        hass.config_entries.set_mf_coordinator_enabled(False)
+        spy = AsyncMock()
+        mf._execute_transfer = spy
+        await mf._on_person_transition(
+            _transition(person="Oji Udezue", confidence=0.9)
+        )
+        assert spy.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_switch_on_allows_enabled_person_transition(self):
+        mf, hass = _make_mf()
+        mf.enable_for_person("person.oji_udezue")
+        spy = AsyncMock()
+        mf._execute_transfer = spy
+        await mf._on_person_transition(
+            _transition(person="Oji Udezue", confidence=0.9)
+        )
+        assert spy.await_count == 1
+
+    def test_fail_safe_when_config_entries_unreadable(self):
+        mf, hass = _make_mf()
+        def _raise(_domain):
+            raise RuntimeError("unreadable")
+        hass.config_entries.async_entries = _raise
+        assert mf._coordinator_enabled() is False
+
+    def test_fail_safe_when_no_cm_entry(self):
+        mf, hass = _make_mf()
+        hass.config_entries._entries = []
+        assert mf._coordinator_enabled() is False
+
+
+class TestEnabledSetDNDNormalization:
+    @pytest.mark.asyncio
+    async def test_disable_by_entity_id_after_enable_by_entity_id(self):
+        mf, _ = _make_mf()
+        mf.enable_for_person("person.oji_udezue")
+        mf.disable_for_person("person.oji_udezue")
+        spy = AsyncMock()
+        mf._execute_transfer = spy
+        await mf._on_person_transition(
+            _transition(person="Oji Udezue", confidence=0.9)
+        )
+        assert spy.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_disable_deduplicates_mixed_form_set(self):
+        mf, _ = _make_mf()
+        mf._enabled_persons = {"Oji Udezue", "person.oji_udezue"}
+        mf.disable_for_person("person.oji_udezue")
+        assert mf._enabled_persons == set()
+        spy = AsyncMock()
+        mf._execute_transfer = spy
+        await mf._on_person_transition(
+            _transition(person="Oji Udezue", confidence=0.9)
+        )
+        assert spy.await_count == 0
+
+    def test_enable_for_person_deduplicates_across_forms(self):
+        mf, _ = _make_mf()
+        mf.enable_for_person("person.oji_udezue")
+        mf.enable_for_person("Oji Udezue")
+        keys = {_mf_mod._person_key(p) for p in mf._enabled_persons}
+        assert keys == {"oji udezue"}
+        assert len(mf._enabled_persons) == 1
+
+    def test_sync_respects_off_pref_by_canonical_key(self):
+        mf, _ = _make_mf()
+        mf._person_follow_prefs["person.oji_udezue"] = False
+        mf.sync_enabled_persons(["Oji Udezue", "Ezinne"])
+        keys = {_mf_mod._person_key(p) for p in mf._enabled_persons}
+        assert "oji udezue" not in keys
+        assert "ezinne" in keys

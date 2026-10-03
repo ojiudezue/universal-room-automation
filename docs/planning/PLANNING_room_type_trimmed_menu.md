@@ -1,395 +1,443 @@
-> **REV 3.1 (operator 2026-09-30): clear user text about Advanced mode is a REQUIRED deliverable, not polish.** Every trimmed menu and every dialog that has hidden Advanced fields must tell the user, in plain words: (a) that some settings are hidden; (b) exactly how to show them — "Turn on Advanced mode in your HA profile (click your name at the bottom left → Advanced mode)" (verify the current HA profile path in the installed frontend/docs before writing the string); (c) that hidden settings keep working. Placement: the options-menu description for a trimmed room (one line naming the room type, e.g. "Showing the settings closets usually need."), and each step's description when it has advanced fields. When Advanced mode is ON, the text says so briefly instead ("Advanced settings shown"). Short, style-guide compliant, in strings.json + translations/en.json, covered by the dialog meta-test (a trimmed menu or a step with advanced fields must carry the hint key). Acceptance: menu snapshot per type includes the hint; a step with advanced fields shows the hint in simple mode and the 'shown' variant in advanced mode.
-
-> **REV 3 scope addition (operator 2026-09-30):** fold in a SIMPLE / ADVANCED model for EVERY URA config + options flow (room, zone, house, coordinators). Use HA's built-in per-user profile **Advanced mode** (`show_advanced_options`, verified homeassistant/data_entry_flow.py:645-667; fields marked `description={"advanced": True}` are dropped when off) instead of a custom toggle. Tiers: Simple (default) = the fields most people set; collapsed sections = visible-but-folded; Advanced mode = tuning values + trimmed steps revealed (subsumes most of "More settings…"). Deliverable: classify every field of every flow (table), apply markers, tests per flow for both modes, and a check that no stored value becomes unreachable (Advanced mode reveals all). First instance already built on the lighting branch: the two manual-hold windows are advanced fields. Needs a plan re-review after this rewrite.
-
-# PLANNING — ROOM-TYPE-TRIMMED-MENU-1
+# PLANNING — ROOM-TYPE-TRIMMED-MENU-1 (REV 4)
 
 **Card:** `ROOM-TYPE-TRIMMED-MENU-1` (kanban.data.yaml:30597)
-**Tier:** 2 (options-flow menu construction; user-visible surface across all
-room entries; no behavioural change).
-**Author:** ura-planner, 2026-09-29
+**Tier:** **2** (see "Tier & review plan" — room options flow only; UI-only,
+no runtime behaviour change; the load-bearing risk is a stored value becoming
+unreachable or being dropped on save, which is guarded by tests).
+**Author:** ura-planner, 2026-09-29; REV 4 2026-10-02
 **Deploy:** HELD for operator.
 
 ## Revision history
 - **REV 1** (2026-09-29) — initial plan.
-- **REV 2** (2026-09-29, this file) — applies
-  `docs/reviews/code-review/plan_review_room_type_trimmed_menu.md`. Changes:
-  (1) in-use predicate reads **merged `data` + `options`** (mirrors
-  `_get_current`, `config_flow.py:3167-3171`) — Finding 1;
-  (2) NO new defaults table — each step's defaults are derived by **building
-  the step's real schema** (per room type / zone / HVAC membership) and
-  comparing — Finding 2 & 5;
-  (3) **D4 DROPPED** (add-room wizard no longer walks options steps;
-  `config_flow.py:1526-1533`) plus its tests — Finding 4;
-  (4) step→keys table built by **calling each step handler** (incl. collapsed
-  section schemas), not by grepping source — Finding 5;
-  (5) cross-step keys (`CONF_ZONE`, `CONF_ROOM_TYPE`, `CONF_COVER_TYPE`,
-  `CONF_COVERS`) excluded from steps that don't OWN them — Finding 6;
-  (6) invariant restated in testable "Equivalently…" form — Finding 8;
-  (7) show-once flag dropped — Finding 10;
-  (8) D5 kept as a test only — Finding 9;
-  (9) two operator decisions APPLIED with the recommended defaults, flagged:
-  **Fan Mode does NOT count as in-use** (`CONF_ROOM_FAN_MODE`, written by
-  migration + Select entity — Finding 3); **Covers hidden for garage too**
-  (no garage-door guard in room cover automation — Finding 7);
-  (10) new acceptance tests: legacy `data`-only room, Fan-Mode-only room;
-  (11) sequenced AFTER `feature/room-lighting-roles` slices B'/C/D land, so
-  the schema-derived key table picks up the new Lighting shape.
+- **REV 2** (2026-09-29) — applied `docs/reviews/code-review/plan_review_room_type_trimmed_menu.md`
+  (merged data+options read; schema-derived defaults; D4 dropped; owner table
+  built by calling handlers; cross-step key ownership; Fan Mode not in-use;
+  Covers hidden on garage).
+- **REV 3 / 3.1** (operator 2026-09-30) — banners adding Simple/Advanced for
+  every flow + required plain-words Advanced-mode hint.
+- **REV 4** (2026-10-02, this file) — applies "Plan review REV 3.1 findings"
+  (bottom). Decisions: Simple/Advanced is specified **for the ROOM options flow
+  only** (D7-D9); zone/house/coordinator classification PARKED (see "Parked
+  follow-on"). Fixes: Lighting step key is `options_lighting_behaviour`
+  (F1); Advanced mode ⇒ full menu, no "More settings…" (F3); markers must go
+  through `add_suggested_values_to_schema` (F4); extraction runs with Advanced
+  ON (F5); hint REUSES `lighting_advanced_hint` generalised (F6); simple-mode
+  save guard per marked step (F7); cites refreshed + sequencing satisfied
+  (F8); Live rows updated (F9).
 
 ---
 
 ## Institutional context verified
 
-### Greps run
+### Greps run (against develop, 2026-10-02)
 - **Room type constants** — `const.py:437-450` — REUSED: 10 types.
-- **Current room options menu** — `config_flow.py:3526-3544` — REUSED: the 12
-  steps (`basic_setup, sensors, devices, options_lighting, options_covers,
+- **Live room options menu** — `config_flow.py:3587-3605` — 12 entries:
+  `basic_setup, sensors, devices, options_lighting_behaviour, options_covers,
   automation_chaining, ai_rules, climate, sleep_protection, music_following,
-  energy, notifications`).
-- **Merged data+options read pattern** — `_get_current` at
-  `config_flow.py:3167-3171` — REUSED: `{**entry.data, **entry.options}[k]`.
-  This is what D3 must mirror.
-- **Add-room wizard shape (current)** — `config_flow.py:1526-1533` — the
-  create-path is `room_setup → room_class → sensors_confirm →
-  devices_confirm → room_summary`. The old mid-flow options steps are
-  **unreached on create**. D4 is therefore not needed.
-- **Existing per-type defaults (scattered, NOT one table)** —
-  `ROOM_TYPE_TIMEOUTS` (`config_flow.py:1466`),
-  `ROOM_TYPE_FEATURE_DEFAULTS` (bathroom-only, 3 keys, `const.py:1546-1556`),
-  `wet_default = room_type == BATHROOM` (`:2672`),
-  `ROOM_TYPE_BLE_HOLD_CAP_DEFAULT` (`:2678`),
-  fan-mode default depends on HVAC-zone membership (`:11705`,
-  `__init__.py:1786`). **No single defaults table exists — do NOT invent
-  one.** The in-use check derives defaults by building the step's real schema.
-- **Room fan mode writers** — `_migrate_room_fan_mode`
-  (`__init__.py:1765-1790`) writes `CONF_ROOM_FAN_MODE` into every room's
-  options; the Select entity writes it too (`select.py:207-209`). Recorded
-  because it forces the operator ruling in D3.
-- **Options save shape** — `merged = {**options, **user_input}` (e.g.
-  `config_flow.py:11946`) — every save persists the full form, so
-  default-valued keys end up in `options`. Motivates the collections-non-empty
-  rule and Fan-Mode exclusion.
-- **Nested `section()` schemas** — climate flattens `humidity_fan_advanced` +
-  `climate_backstop` (`:11593-11598`); lighting flattens `reconcile_advanced`
-  (`:11359-11363`). The key extraction MUST descend into sections.
-- **Sub-steps** — chain_* (`:12213-12231`) and ai_rule_* (`:12310-12476`) sit
-  under parents and store `CONF_AUTOMATION_CHAINS` / `CONF_AI_RULES` — their
-  keys belong to the parent step in the table.
-- **Cross-step keys** — `CONF_ZONE` + `CONF_ROOM_TYPE` in both basic_setup and
-  climate; `CONF_WET_ROOM` in climate; `CONF_COVER_TYPE` in devices AND
-  options_covers; `CONF_COVERS` (entity list) in **devices**, NOT
-  options_covers. The table must OWN each key in exactly one step (the one
-  whose visibility should be gated by it).
-- **Garage-door guard** — none in room cover automation; `hvac_covers.py:795-800`
-  excludes `device_class == garage` but that is HVAC, not room. Justifies
-  hiding Covers on garage.
+  energy, notifications`. `async_step_options_lighting` still exists as a
+  handler but is NOT a menu entry — it is NOT in this plan's step list.
+- **Merged read** — `_get_current` `config_flow.py:3228` — REUSED pattern.
+- **Add-room wizard** — `devices_confirm` `:1778`, `room_summary` `:1840`;
+  creates walk no options steps → D4 stays dropped.
+- **Room options step handlers** — `basic_setup :10571`, `sensors :10793`,
+  `devices :11277`, `options_lighting_behaviour :11554` (schema = its own
+  fields + `_lighting_basics_fields()` `:11438`, which contains section
+  `reconcile_advanced :11500`; plus section `auto_manual_devices :11820`;
+  advanced-marked fields `:11666-11815`; schema routed via
+  `add_suggested_values_to_schema :11846`; save flattens both sections
+  `:11601-11606`), `options_covers :11865`, `climate :11992` (sections
+  `humidity_fan_advanced :12215`, `climate_backstop :12254`),
+  `sleep_protection :12343`, `music_following :12403`, `energy :12450`,
+  `notifications :12493`, `automation_chaining :12602`, `ai_rules :12701`.
+- **Advanced-mode hint (shipped, Slice E v5.103.29)** —
+  `LIGHTING_ADVANCED_HINT_HIDDEN/_SHOWN` + `lighting_advanced_hint()`
+  `config_flow.py:42-64`, consumed at `:11853` as `{advanced_hint}`
+  placeholder (`strings.json:2112`). Profile path ("click your name at the
+  bottom left -> Advanced mode") already verified against the installed
+  frontend in that comment. REUSED + generalised (D8).
+- **Simple-mode save guard (shipped)** — Lighting `clearable` list only
+  extends to advanced keys when `self.show_advanced_options` (`:11611-11624`).
+  REUSED pattern (D8).
+- **HA semantics** — `homeassistant/data_entry_flow.py:645-667`:
+  `show_advanced_options` comes from flow context; the advanced-key filter is
+  applied inside `add_suggested_values_to_schema`, NOT by `async_show_form`.
+- **Per-type defaults (scattered)** — `ROOM_TYPE_TIMEOUTS`,
+  `ROOM_TYPE_FEATURE_DEFAULTS` (`const.py:1546-1556`), `wet_default`,
+  `ROOM_TYPE_BLE_HOLD_CAP_DEFAULT`, HVAC-zone fan default. No new defaults
+  table (Bug Class #63) — defaults come from the rendered schema.
+- **Fan mode writers** — `_migrate_room_fan_mode` (`__init__.py:1765-1790`),
+  Select (`select.py:207-209`).
+- **Garage guard** — none in room covers; `hvac_covers.py:795-800` is HVAC only.
 
 ### Prior planning / analysis
-- `docs/reviews/code-review/plan_review_room_type_trimmed_menu.md` — the REV 1
-  plan review; drove REV 2.
+- `docs/reviews/code-review/plan_review_room_type_trimmed_menu.md` (REV 1 review).
 - `docs/planning/PLANNING_room_dialog_cleanup_and_lighting_roles.md` — parent
-  arc (ROOM-DIALOGS-USABILITY-SWEEP-1 wording + ROOM-LIGHTING-SETUP-REDESIGN-1
-  structure).
+  arc; Slices B'/C/D/E landed (v5.103.28-.29) → **sequencing precondition MET**.
 
 ### Memory bodies pulled
-- `feedback_hollow_test_anchors` — extraction MUST call the step handler, not
-  grep source (drives Finding 5's fix).
-- `feedback_coincidental_equality_masks_concept_split` (Bug Class #63) — do not
-  invent a parallel defaults table.
-- `feedback_extend_existing_never_rebuild`, `feedback_config_first_before_code`,
-  `feedback_label_style_guide` (for "More settings…").
+- `feedback_hollow_test_anchors`, `feedback_coincidental_equality_masks_concept_split`,
+  `feedback_extend_existing_never_rebuild`, `feedback_config_first_before_code`,
+  `feedback_label_style_guide`, `feedback_configurability_clarity`.
 
-### Design docs read
-- Room dialogs are UX; no coordinator design doc applies.
+### Config-first
+No setting produces a trimmed menu; HA Advanced mode exists but URA's room
+steps (except Lighting) mark nothing advanced. Code is required.
 
-### Files surveyed
-- `config_flow.py:3453-3545` (init menus), `:1439-1836` (wizard path),
-  `:3167-3171` (`_get_current`), `:11946` (options save shape), `:11593-11598`
-  and `:11359-11363` (section schemas), `:11705` (fan default),
-  `:12213-12476` (sub-steps).
-- `const.py:437-450` (types), `:1546-1556` (bathroom feature defaults).
-- `__init__.py:1765-1790` (fan-mode migration).
-
-### REUSE / BUILD verdict per proposed piece
+### REUSE / BUILD verdict
 | Piece | Verdict | Cite |
 |---|---|---|
 | Room type enum | REUSE | `const.py:437-450` |
-| Options menu construction | REUSE (pass filtered list) | `config_flow.py:3528` |
-| `CONF_ROOM_TYPE` read | REUSE | `config_flow.py:1465` |
-| Merged data+options read | REUSE `_get_current` pattern | `config_flow.py:3167` |
-| Per-step defaults | REUSE — build the step's real schema | each `async_step_<step>` |
-| Type → visible-steps map | **NEW** — rung-1 constant `ROOM_MENU_STEPS_BY_TYPE` in `const.py`. |
-| Step-owner key table | **NEW** — `_STEP_OWNED_KEYS`, built by calling each step handler (with section descent). |
-| "In-use" predicate | **NEW** — `_step_has_non_default_values(step, entry, hass)`. |
-| "More settings…" menu row | **NEW** — one extra menu key (`show_all_settings`); one-visit reveal via a stateless handler. |
+| Menu construction | REUSE (filtered list) | `config_flow.py:3589` |
+| Merged read | REUSE `_get_current` pattern | `config_flow.py:3228` |
+| Per-step defaults | REUSE — render the step's real schema | each handler |
+| Advanced filter | REUSE HA `add_suggested_values_to_schema` | `:11846`, HA `data_entry_flow.py:650-667` |
+| Hint text | REUSE + generalise `lighting_advanced_hint` | `config_flow.py:42-64` |
+| Simple-mode save guard | REUSE Lighting `clearable` pattern | `:11611-11624` |
+| Type→steps map | NEW `ROOM_MENU_STEPS_BY_TYPE` (rung 1, const.py) | — |
+| Owner key table | NEW `_STEP_OWNED_KEYS`, built by calling handlers | — |
+| In-use predicate | NEW `_step_has_non_default_values` | — |
+| "More settings…" row | NEW `show_all_settings` | — |
 
 ---
 
-## Falsifiable invariant (testable form)
+## Falsifiable invariants
 
-> **For every room entry, every step S in `ROOM_MENU_STEPS_ALL` that has at
-> least one owned key whose merged (`{**data, **options}`) value differs from
-> the value the step's own schema would render for that entry, appears in the
-> `init` menu without the user selecting "More settings…".**
+**I1 (no hidden step holds a value — Simple mode).** For every room entry
+and every step S in `ROOM_MENU_STEPS_ALL`: if any key owned by S has a merged
+(`{**data, **options}`) value that differs from the default S's schema renders
+for that entry (schema built with Advanced ON), then S appears in the `init`
+menu in Simple mode without selecting "More settings…".
 
-D's job: find a `(room_type, step, entry_state)` triple that stores an
-owned-key value diverging from the schema default AND is not shown in the
-default menu.
+**I2 (no stored value is unreachable).** For every room entry, every key with
+a non-default stored value is rendered by some step that is in the Simple-mode
+default menu (directly or via I1) — **and** if that key is an advanced-marked
+field, it is rendered on that step **even in Simple mode** (the marker is
+dropped for that render). In Advanced mode every step and every field is
+rendered.
+
+D's job: find a `(room_type, step, key, value, advanced_on)` tuple where a
+non-default stored value is not on any form the user can reach.
+
+**I3 (no silent drop on save).** A Simple-mode save of any step leaves every
+stored value of a field not rendered on that form unchanged.
 
 ---
 
 ## Deliverables
 
-### D1 — Type → steps map (rung-1 module constant)
-
-Add to `const.py` (adjacent to `ROOM_TYPE_*`):
+### D1 — Type → steps map (rung-1 constant, `const.py`)
 
 ```python
 ROOM_MENU_STEPS_ALL: Final = (
     "basic_setup", "sensors", "devices",
-    "options_lighting", "options_covers",
+    "options_lighting_behaviour", "options_covers",
     "automation_chaining", "ai_rules",
     "climate", "sleep_protection", "music_following",
     "energy", "notifications",
 )
-
-# Per-type visible subset. Lighting shown for EVERY type (operator ruling).
-# Covers hidden for garage + utility + infrastructure (no garage-door guard
-# in room cover automation; utility/infra don't have covers). "More
-# settings…" always reveals the full menu.
+_CORE = ("basic_setup", "sensors", "devices", "options_lighting_behaviour")
 ROOM_MENU_STEPS_BY_TYPE: Final = {
     ROOM_TYPE_COMMON_AREA:    ROOM_MENU_STEPS_ALL,
     ROOM_TYPE_BEDROOM:        ROOM_MENU_STEPS_ALL,
     ROOM_TYPE_MEDIA_ROOM:     ROOM_MENU_STEPS_ALL,
     ROOM_TYPE_GENERIC:        ROOM_MENU_STEPS_ALL,
-    ROOM_TYPE_BATHROOM:       ("basic_setup", "sensors", "devices",
-                               "options_lighting", "options_covers",
-                               "climate", "notifications"),
-    ROOM_TYPE_GARAGE:         ("basic_setup", "sensors", "devices",
-                               "options_lighting",
-                               "energy", "notifications"),
-    ROOM_TYPE_INFRASTRUCTURE: ("basic_setup", "sensors", "devices",
-                               "options_lighting", "climate",
-                               "energy", "notifications"),
-    ROOM_TYPE_CLOSET:         ("basic_setup", "sensors", "devices",
-                               "options_lighting", "options_covers"),
-    ROOM_TYPE_HALLWAY:        ("basic_setup", "sensors", "devices",
-                               "options_lighting", "options_covers"),
-    ROOM_TYPE_UTILITY:        ("basic_setup", "sensors", "devices",
-                               "options_lighting"),
+    ROOM_TYPE_BATHROOM:       _CORE + ("options_covers", "climate", "notifications"),
+    ROOM_TYPE_GARAGE:         _CORE + ("energy", "notifications"),
+    ROOM_TYPE_INFRASTRUCTURE: _CORE + ("climate", "energy", "notifications"),
+    ROOM_TYPE_CLOSET:         _CORE + ("options_covers",),
+    ROOM_TYPE_HALLWAY:        _CORE + ("options_covers",),
+    ROOM_TYPE_UTILITY:        _CORE,
 }
 ```
+Lighting shown for every type. Covers hidden for garage/utility/infrastructure
+(no garage-door guard in room covers). Rendered menu order always follows
+`ROOM_MENU_STEPS_ALL`.
 
-**Covers rationale (REV 2, operator ruling applied):** hidden for garage,
-utility, infrastructure. Room cover automation has no `device_class == garage`
-exclusion (unlike HVAC covers, `hvac_covers.py:795-800`), so exposing Covers
-on garage would invite the operator to attach sunrise-open / timed-close /
-exit-cover behaviour to a garage door. Hazard beats convenience; "More
-settings…" is still one click away. Card the garage-door guard separately.
-
-### D2 — Filtered menu + in-use reveal + More settings
-
-In `config_flow.py::async_step_init` (else branch, ~line 3528):
+### D2 — Menu construction (`async_step_init`, room branch `:3587`)
 
 ```python
-room_type = self._config_entry.data.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)
-visible = list(ROOM_MENU_STEPS_BY_TYPE.get(room_type, ROOM_MENU_STEPS_ALL))
-for step in ROOM_MENU_STEPS_ALL:
-    if step not in visible and await _step_has_non_default_values(
-        self.hass, self._config_entry, step
-    ):
-        visible.append(step)
-visible = [s for s in ROOM_MENU_STEPS_ALL if s in visible]
-menu = list(visible)
-if visible != list(ROOM_MENU_STEPS_ALL):
-    menu.append("show_all_settings")
-return self.async_show_menu(step_id="init", menu_options=menu)
+if self.show_advanced_options:
+    menu = list(ROOM_MENU_STEPS_ALL)            # Advanced mode = full menu
+else:
+    room_type = merged.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)   # merged read
+    visible = set(ROOM_MENU_STEPS_BY_TYPE.get(room_type, ROOM_MENU_STEPS_ALL))
+    for step in ROOM_MENU_STEPS_ALL:
+        if step not in visible and await self._step_has_non_default_values(step):
+            visible.add(step)
+    menu = [s for s in ROOM_MENU_STEPS_ALL if s in visible]
+    if len(menu) != len(ROOM_MENU_STEPS_ALL):
+        menu.append("show_all_settings")
+return self.async_show_menu(step_id="init", menu_options=menu,
+    description_placeholders={"menu_hint": room_menu_hint(...)})
 
 async def async_step_show_all_settings(self, user_input=None):
-    # One-visit reveal; no persistent flag needed (each open is a fresh
-    # OptionsFlow, HA menus have no back-nav).
-    return self.async_show_menu(
-        step_id="init", menu_options=list(ROOM_MENU_STEPS_ALL)
-    )
+    return self.async_show_menu(step_id="init",
+        menu_options=list(ROOM_MENU_STEPS_ALL),
+        description_placeholders={"menu_hint": advanced_hint(self.show_advanced_options)})
 ```
+**Advanced mode vs "More settings…" (F3):** Advanced mode ON ⇒ full menu,
+`show_all_settings` omitted. "More settings…" is kept for Simple-mode users
+as a one-visit reveal of hidden *steps*; it does NOT reveal advanced *fields*
+(only Advanced mode, or I2's forced render, does). Rationale: many users never
+enable Advanced mode; one click to reach a hidden step is cheaper than a
+profile trip. Room type read uses merged data+options.
 
-### D3 — `_step_has_non_default_values` (schema-derived, no parallel table)
+### D3 — `_step_has_non_default_values(step)` (schema-derived)
 
-**Rules (REV 2):**
+1. Read `merged = {**entry.data, **entry.options}`.
+2. Owned keys only: `_STEP_OWNED_KEYS[step]`.
+3. Per key: absent → not in use; list/dict → in use iff non-empty; scalar →
+   in use iff `!=` the **factory default** for this entry (see Extraction —
+   NOT the live schema's `default`, which every room handler sets to the
+   stored value via `self._get_current(KEY, FALLBACK)`, e.g. covers
+   `:11920-11982`; comparing against it would make every key "default").
+4. Exclusions (operator rulings, unchanged): `CONF_ROOM_FAN_MODE` owned by no
+   step; `CONF_ROOM_TYPE`, `CONF_ZONE` owned by `basic_setup`; `CONF_COVERS`
+   owned by `devices`; `CONF_COVER_TYPE` owned by `options_covers`;
+   `CONF_WET_ROOM` owned by `climate`.
 
-1. **Merged read.** Evaluate against `merged = {**entry.data, **entry.options}`
-   — mirrors `_get_current` (`config_flow.py:3167-3171`). This catches
-   legacy rooms whose values live in `entry.data`.
-2. **Owned keys only.** For each step S, consult `_STEP_OWNED_KEYS[S]` — the
-   set of CONF keys whose visibility should gate S. Cross-step keys
-   (`CONF_ROOM_TYPE`, `CONF_ZONE`, `CONF_COVER_TYPE`, `CONF_COVERS`,
-   `CONF_ROOM_FAN_MODE`) are OWNED by exactly ONE step (or NONE — see #4).
-3. **Per-key comparison.** For each owned key `k`:
-   - If `k` is absent from `merged` → not in use.
-   - If value is a list/dict → in use iff non-empty.
-   - Otherwise → in use iff value differs from the value the step's own
-     schema would render as `default=` for this entry (see Extraction below).
-4. **Explicit exclusions (operator rulings, REV 2):**
-   - `CONF_ROOM_FAN_MODE` — NOT owned by any step. The Select entity
-     (`select.py:207-209`) and `_migrate_room_fan_mode`
-     (`__init__.py:1765-1790`) write it into options on every room; treating
-     it as in-use would un-hide Climate on every closet/utility/infra room
-     and defeat the trim. It is dashboard-owned; NM sees it via the Select.
-   - `CONF_ROOM_TYPE`, `CONF_ZONE` — always set on every room; not owned by
-     climate (which also renders them). Owned by `basic_setup` (which is
-     always visible anyway) — effectively excluded from the reveal set.
-   - `CONF_COVERS` — owned by `devices` (always visible), NOT
-     `options_covers`. `CONF_COVER_TYPE` — owned by `options_covers`.
+**Extraction (F5, REV 4 re-check R1):** helper `_render_step_schema(step)`
+calls the step handler with `user_input=None` on a **separate shim flow
+instance** (never the live flow — do not toggle the live flow's context)
+whose context has `show_advanced_options=True` and whose `_config_entry`
+is a stub with `data={CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM, CONF_ROOM_TYPE:
+<merged room type>}`, `options={}`, `entry_id` = the real entry's id. Every
+`_get_current(KEY, FALLBACK)` / `_cur(...)` then returns FALLBACK, so the
+rendered `default`s are the **factory defaults** for that room type
+(type-aware fallbacks like `wet_default` `:12088` key off room type and are
+absorbed). The same factory-default map feeds `_adv` (D8.2). It takes the returned `data_schema`, and walks it
+recursively, descending into `section()` sub-schemas (`reconcile_advanced`,
+`auto_manual_devices`, `humidity_fan_advanced`, `climate_backstop`),
+collecting `(key, default)`. Owned keys of `options_lighting_behaviour`
+include `_lighting_basics_fields()` (`:11438`, incl. `reconcile_advanced`) and
+`auto_manual_devices`. Type-aware defaults are absorbed automatically.
+Extraction runs at menu-open only for steps NOT already visible (≤ 8 renders;
+no import-time build — handlers need `hass` + entry). Handlers must be
+side-effect free on `user_input=None` — covered by the purity test.
 
-**Schema-based default extraction (Finding 2 & 5 fix):**
+### D4 — DROPPED (REV 2; wizard walks no options steps).
 
-Build `_STEP_OWNED_KEYS` at import time by iterating
-`ROOM_MENU_STEPS_ALL`, calling each `async_step_<step>` handler in
-inspect-mode against a synthetic empty entry AND against the real entry, and
-diffing the resulting `voluptuous.Schema` `defaults`. Concretely:
-
-- Instantiate the OptionsFlow with the real entry.
-- For each step, call the handler with `user_input=None`; capture the
-  `data_schema` from the returned `FlowResult`.
-- Recursively walk `Schema.schema` (dict), descending into any `section()`
-  sub-schemas (climate: `humidity_fan_advanced`, `climate_backstop`;
-  lighting: `reconcile_advanced`) — collect all `vol.Marker` keys and their
-  `default`.
-- Compare `merged[k]` against that `default` for each key in
-  `_STEP_OWNED_KEYS[step]`.
-
-This automatically absorbs type-aware defaults (`wet_default`,
-`ROOM_TYPE_BLE_HOLD_CAP_DEFAULT`, `ROOM_TYPE_TIMEOUTS`, HVAC-zone-derived
-fan default) because the step's schema is what gets rendered.
-
-**Owner map construction:** `_STEP_OWNED_KEYS` is the intersection of "keys
-this step's schema exposes" and the ownership rules above. The step whose
-schema surfaces a key AND for which the trim should reveal it is the owner;
-apply the explicit exclusions in #4. The map is asserted at test time
-against live step handlers — no source grep.
-
-### D4 — DROPPED (REV 2)
-
-The add-room wizard already runs `room_setup → room_class →
-sensors_confirm → devices_confirm → room_summary` (`config_flow.py:1526-1533`).
-It walks NONE of the 12 options steps on create, so there is nothing to
-filter. Hiding CONF_COVERS **inside** `devices_confirm` for utility /
-infrastructure / garage is a **field-level** change and is explicitly out of
-scope (non-goal: no hiding fields inside a step). Card separately if wanted.
-
-### D5 — Type change redraws (test only, no code work)
-
-Saving `CONF_ROOM_TYPE` in `basic_setup` (or climate) ends the flow via
-`async_create_entry`; the next `init` open re-renders. No deliverable code,
-but the acceptance test below MUST cover it.
+### D5 — Type change redraws (test only).
 
 ### D6 — Translations
+`options.step.init.menu_options.show_all_settings = "More settings…"`;
+`options.step.init.description` gains `{menu_hint}`; covers + climate step
+descriptions gain `{advanced_hint}`. `strings.json` + `translations/en.json`.
 
-Add `component.universal_room_automation.options.step.init.menu_options.show_all_settings = "More settings…"` in `translations/en.json` + `strings.json`. No other translation changes.
+### D7 — Room-flow field classification (Simple / Folded / Advanced)
+
+Classes: **Simple** = shown always. **Folded** = existing collapsed
+`section()` (visible, one click) — unchanged. **Advanced** = marked
+`description={"advanced": True}`, shown only in Advanced mode (or forced by I2).
+
+Rule: entity pickers, on/off feature switches, and anything most rooms of
+that type need → Simple. Pure tuning numbers/offsets whose default is right
+for most rooms → Advanced. Nothing inside an existing section moves.
+
+| Step | Simple | Folded (existing, unchanged) | Advanced |
+|---|---|---|---|
+| basic_setup | all | — | none |
+| sensors | all | — | none |
+| devices | all | — | none |
+| options_lighting_behaviour | basics + role pickers | `reconcile_advanced`, `auto_manual_devices` | already marked `:11666-11815` (manual-hold windows, evening brightness/colour, scenes) — unchanged except routed via `_adv` |
+| options_covers | `CONF_COVER_TYPE`, `CONF_COVER_OPEN_MODE`, `CONF_COVER_OPEN_TIME_SOURCE`, `CONF_COVER_OPEN_HOUR`, `CONF_EXIT_COVER_ACTION`, `CONF_TIMED_CLOSE_ENABLED`, `CONF_COVER_CLOSE_TIME_SOURCE`, `CONF_COVER_CLOSE_HOUR`, `CONF_COVER_HVAC_MANAGED` | — | NEW: `CONF_SUNRISE_OFFSET`, `CONF_SUNSET_OFFSET` |
+| climate | entity/feature fields, `CONF_WET_ROOM`, `CONF_FAN_TEMP_THRESHOLD`, `CONF_HUMIDITY_FAN_THRESHOLD`, `CONF_HUMIDITY_FAN_TIMEOUT` | `humidity_fan_advanced`, `climate_backstop` | NEW: `CONF_FAN_SPEED_LOW_TEMP`, `CONF_FAN_SPEED_MED_TEMP`, `CONF_FAN_SPEED_HIGH_TEMP`, `CONF_HUMIDITY_FAN_MAX_RUNTIME` |
+| sleep_protection | all | — | none |
+| music_following | all | — | none |
+| energy | all | — | none |
+| notifications | all | — | none |
+| automation_chaining / ai_rules | all (list editors) | — | none |
+
+Builder obligation: the classification test renders each step with Advanced
+ON and asserts every NEW Advanced key is present at top level of that step's
+schema (not inside a section). A key not found is a plan defect → stop and
+report; do not substitute. Hour fields stay Simple — they are only used with
+a fixed-time source the user just chose.
+
+### D8 — Markers, hint, save guard
+
+For `options_covers` and `climate` (gaining markers) and
+`options_lighting_behaviour` (existing markers):
+1. **Route through `add_suggested_values_to_schema` (F4)** with the merged
+   current values, as Lighting does (`:11846`). Covers + climate gain this.
+2. **I2 forced render:** shared helper `_adv(key, merged, default)` returns
+   `{"advanced": True}` only if the merged value is absent or equals the
+   factory default (the D3 shim render / the handler's `_get_current`
+   FALLBACK constant — never the live schema default, which is the stored
+   value); a non-default stored value renders unmarked. Used for every
+   Advanced key in all three steps (Lighting's literal markers converted).
+3. **Hint (F6):** rename `lighting_advanced_hint` → `advanced_hint(show)` and
+   `LIGHTING_ADVANCED_HINT_*` → `ADVANCED_HINT_*`, updating existing Lighting
+   test imports in the same commit (no aliases). Text unchanged and already
+   verified: Simple → "Some rarely-used settings are hidden. To show them,
+   turn on Advanced mode in your HA profile (click your name at the bottom
+   left -> Advanced mode). Hidden settings keep working."; Advanced →
+   "Advanced settings shown." New `room_menu_hint(room_type_label, trimmed,
+   show_advanced)`: trimmed + Simple → "Showing the settings {type} rooms
+   usually need. Pick More settings for the rest. " + Simple hint; untrimmed
+   + Simple → Simple hint; Advanced ON → "Advanced settings shown."
+   **Non-translatable by choice** (Python constants via placeholders, matching
+   the shipped Lighting pattern); no translation follow-on carded.
+4. **Save guard (F7):** in covers + climate save paths, any clear-on-omit
+   logic touching Advanced keys runs only when `self.show_advanced_options`
+   (Lighting pattern `:11612`). Where no clear-on-omit exists, the
+   `{**options, **user_input}` merge already preserves omitted keys; the I3
+   test still covers it.
+
+### D9 — Tests
+`quality/tests/test_room_menu_trim.py` (D1-D3, D5, D6) and
+`quality/tests/test_room_advanced_fields.py` (D7-D8). Cases in
+Acceptance criteria.
 
 ---
 
 ## Non-goals
-
-- No hiding fields inside a step (including CONF_COVERS in `devices_confirm`).
-- No behaviour change by type.
-- No new entry type.
-- No changes to `ROOM_TYPE_FEATURE_DEFAULTS` / `ROOM_TYPE_TIMEOUTS` semantics.
-- No migration.
-- No zone/house menu changes (separate cards).
-- No garage-door guard in room cover automation (card separately).
+- No zone / house / coordinator-manager / integration flow changes (PARKED below).
+- No hiding of fields inside a step other than D7's Advanced column.
+- No change to existing `section()` groupings.
+- No runtime behaviour change; no migration; no garage-door guard (card separately).
+- No hiding `CONF_COVERS` in `devices_confirm`.
 
 ---
 
 ## Acceptance criteria
 
-- **Test — menu snapshot per type:** parametrised over all 10 room types.
-  Freshly-created room entry with only defaults: `init` menu equals
-  `ROOM_MENU_STEPS_BY_TYPE[type]` + `show_all_settings` (or exactly
-  `ROOM_MENU_STEPS_ALL` for the "everything" types, no `show_all_settings`).
-- **Test — in-use reveal per step:** for each (type, hidden_step) pair, seed
-  one non-default owned-key value; assert the step now appears.
-- **Test — legacy `data`-only room (Finding 1):** construct an entry where
-  `CONF_POWER_SENSORS` lives in `entry.data` only (not `options`); assert
-  Energy reveals on a closet room.
-- **Test — Fan-Mode-only room (Finding 3, operator ruling):** entry with
-  `CONF_ROOM_FAN_MODE` set in options (any non-default value) and NO other
-  Climate keys in use; assert Climate remains HIDDEN on a closet room.
-- **Test — More settings reveals all:** selecting `show_all_settings`
-  returns a menu with `menu_options == list(ROOM_MENU_STEPS_ALL)`. Next
-  `init` open is back to trimmed.
-- **Test — hidden step round-trips:** hide a step by type; assert its
-  merged values are unchanged after opening + closing the options flow.
-- **Test — type change redraws (D5):** change `CONF_ROOM_TYPE`
-  bedroom→closet; next `init` menu is the closet trim; a step whose stored
-  value differs from the closet schema default reveals via the in-use rule.
-- **Test — schema/owner consistency (Finding 5 & 6):** for each step,
-  build the schema by calling the step handler (descend into `section()`
-  sub-schemas); assert every key in `_STEP_OWNED_KEYS[step]` appears in
-  that schema; assert cross-step keys (`CONF_ROOM_TYPE`, `CONF_ZONE`,
-  `CONF_COVER_TYPE`, `CONF_COVERS`, `CONF_ROOM_FAN_MODE`) are owned by
-  their designated single owner (or by NONE for `CONF_ROOM_FAN_MODE`).
-- **Test — invariant guard (falsifiable form):** for every
-  (type, step in `ROOM_MENU_STEPS_ALL`) where step is not in the type's
-  trim, seed a divergent owned-key value and assert step is visible in the
-  default menu.
-- **Live — closet room:** open a closet room's options; 5 items + "More
-  settings…"; select it; all 12 appear; re-enter; back to 5.
-- **Live — garage room:** open a garage room's options; Covers is NOT
-  in the default menu; "More settings…" reveals it. No coordinator warns
-  about missing config.
-- **Live — legacy room:** pick a bathroom or garage room whose energy /
-  notifications values live in `entry.data`; confirm those steps are
-  revealed (or gated correctly) without the operator selecting More.
+- **Test — menu snapshot per type (Simple):** 10 types, default-only entry →
+  `ROOM_MENU_STEPS_BY_TYPE[type]` (+ `show_all_settings` iff trimmed);
+  `menu_hint` contains "Advanced mode" for every type.
+- **Test — Advanced mode full menu:** same 10 entries with
+  `show_advanced_options=True` → exactly `ROOM_MENU_STEPS_ALL`, no
+  `show_all_settings`, `menu_hint == "Advanced settings shown."`.
+- **Test — in-use reveal (I1):** every (type, hidden step) pair, seed one
+  divergent owned key → step visible in Simple menu.
+- **Test — legacy data-only room:** `CONF_POWER_SENSORS` in `data` only on a
+  closet → Energy revealed; `CONF_ROOM_TYPE` in `data` only → correct trim.
+- **Test — Fan-Mode-only room:** closet with only `CONF_ROOM_FAN_MODE` →
+  Climate hidden.
+- **Test — More settings:** returns full menu; next `init` is trimmed again.
+- **Test — owner/schema consistency:** each step rendered with Advanced ON
+  (section descent) contains every `_STEP_OWNED_KEYS[step]` key; cross-step
+  owners as D3; Lighting owner set includes `_lighting_basics_fields()` keys
+  and both sections' keys; `"options_lighting"` appears in no table.
+- **Test — handler purity:** rendering every step with `user_input=None`
+  leaves `entry.data` / `entry.options` identical.
+- **Test — classification (F4):** every D7 Advanced key appears in its
+  step's Advanced-ON schema and is ABSENT from the Simple-mode rendered
+  schema when its stored value is default.
+- **Test — I2 forced render:** for each D7 Advanced key, store a non-default
+  value → Simple-mode render of its step contains the key.
+- **Test — I2 global:** per room type, seed every owned key of every step
+  with a non-default value; union of keys rendered across Simple-mode menu
+  steps ⊇ all seeded keys.
+- **Test — I3 save guard:** for covers / climate / lighting, store an Advanced
+  key explicitly at its default value (so it is hidden in Simple mode), submit
+  the step in Simple mode without it → stored value still present and
+  unchanged. Mutation drill: remove the `show_advanced_options` gate on the
+  clearable list → this test fails.
+- **Test — hint per step:** covers / climate / lighting
+  `description_placeholders["advanced_hint"]` is the hidden variant in Simple
+  and "Advanced settings shown." in Advanced. Meta-test: every room step whose
+  Advanced-ON schema has a key absent from its Simple schema passes
+  `advanced_hint`, and its description string contains `{advanced_hint}`.
+- **Test — type change redraws (D5):** bedroom→closet → closet trim; a
+  divergent value reveals its step.
+- **Live — closet (Simple):** 5 items (Basic, Sensors, Devices, Lighting,
+  Covers) + "More settings…"; hint line names the room type and explains
+  Profile → Advanced mode; More → 12; re-open → 5.
+- **Live — Advanced mode ON (Profile → Advanced mode):** same closet → 12
+  items, "Advanced settings shown."; Climate shows fan-speed temps; Covers
+  shows sunrise/sunset offsets.
+- **Live — garage:** Covers not in Simple menu; More reveals it.
+- **Live — legacy room:** a room with energy/notification values only in
+  `entry.data` shows those steps without More.
 
 ---
 
 ## Files touched
-
-- `custom_components/universal_room_automation/const.py` — add
-  `ROOM_MENU_STEPS_ALL`, `ROOM_MENU_STEPS_BY_TYPE`.
-- `custom_components/universal_room_automation/config_flow.py` — modify
-  `async_step_init` (else branch); add `_step_has_non_default_values`,
-  `_STEP_OWNED_KEYS` build helper, `async_step_show_all_settings`.
-- `custom_components/universal_room_automation/translations/en.json` +
-  `strings.json` — add `show_all_settings` label.
-- `quality/tests/config_flow/test_room_menu_trim.py` — new test file.
+- `custom_components/universal_room_automation/const.py` — `ROOM_MENU_STEPS_ALL`, `ROOM_MENU_STEPS_BY_TYPE`.
+- `custom_components/universal_room_automation/config_flow.py` — room branch
+  of `async_step_init` (`:3587`); `async_step_show_all_settings`;
+  `_step_has_non_default_values`, `_render_step_schema`, `_STEP_OWNED_KEYS`
+  rules; `advanced_hint` (rename of `:58`) + `room_menu_hint`; `_adv`;
+  `async_step_options_covers` (`:11865`) and `async_step_climate` (`:11992`):
+  markers + `add_suggested_values_to_schema` + save guard + hint;
+  `async_step_options_lighting_behaviour` (`:11554`): markers via `_adv`.
+- `strings.json` + `translations/en.json` — D6 keys.
+- `quality/tests/test_room_menu_trim.py`,
+  `quality/tests/test_room_advanced_fields.py` — new.
+- Existing Lighting hint tests — import rename.
 
 ---
 
 ## Tier & review plan
+- **Tier 2.** Room options flow only, UI surface, no runtime behaviour. The
+  REV 3 all-flows scope (which would have pushed this to 2-DB) is parked.
+- **Plan review:** REV 4 needs ONE re-check against the findings table below.
+- **Build reviews (two, disjoint):** A = correctness + edge cases (merged
+  read, section descent, I1/I2 per type, scalar/list/dict branches,
+  exclusions, `_adv` forced render); B = UX + lifecycle + save paths (I3
+  guard, menu re-entry, Advanced-mode toggled between opens, hint text,
+  translations, handler purity).
+- **Deploy HELD** for operator.
 
-- **Tier 2** (menu construction across every room entry; correctness of the
-  in-use predicate is load-bearing).
-- **Plan review:** DONE (REV 1 review applied here as REV 2).
-- **Build reviews (two, framing-disjoint):**
-  A = correctness + edge cases (merged-read semantics, section descent,
-  list/dict/bool/scalar branches, owned-key exclusions, garage/utility trim);
-  B = UX + lifecycle (menu re-entry, type-change redraw, translation
-  completeness, ordering, coexistence with the ROOM-LIGHTING-SETUP-REDESIGN-1
-  Lighting step landing first).
-- **Deploy HELD** for operator sign-off (Covers-hide-on-garage +
-  Fan-Mode-not-in-use rulings baked into REV 2).
+## Sequencing
+Precondition (lighting slices B'/C/D/E on develop, v5.103.28-.29) — **MET**.
+
+## Operator decisions applied — flagged for confirmation
+1. `CONF_ROOM_FAN_MODE` not in-use.
+2. Covers hidden on garage (+ utility, infrastructure).
+3. (REV 4) Advanced mode ON ⇒ full menu; "More settings…" kept for Simple.
+4. (REV 4) A non-default advanced field renders in Simple mode (I2) instead
+   of relying on the hint alone — chosen over the reviewer's "hint covers it"
+   because the operator required "no stored value unreachable".
+5. (REV 4) D7 adds only 6 new Advanced keys; widen later by observation.
 
 ---
 
-## Sequencing
+## Parked follow-on — Simple/Advanced for zone, house, coordinator flows
 
-**After** `feature/room-lighting-roles` slices B'/C/D land on develop. The
-schema-derived key table (D3) picks up the reshaped Lighting step
-automatically; sequencing before the reshape would force a rebuild of the
-consistency test.
+**Parked from REV 3.** Classify + mark fields in the zone, house/integration
+and coordinator-manager options flows (~600 `vol.Optional/Required` in
+`config_flow.py`; many already folded in sections, e.g. `presence_timing
+:6616`, `advanced :6962`, `optimizer_guards :8913`, `optimizer_llm :8916`,
+`fan_recheck_advanced :4391`). Reuses D8's `_adv`, `advanced_hint`,
+`add_suggested_values_to_schema` routing, save guard and I2/I3 test pattern.
+**Revisit trigger:** this card ships AND an operator zone/house dialog
+cleanup card enters planning — fold that flow's classification into its plan
+rather than one sweep. Likely Tier 2-DB per coordinator flow (cost/safety
+knobs). Record as an adjacency note on those cards, not a new card, unless no
+such card exists at revisit time.
 
-## Operator decisions applied (default) — flagged for confirmation
+---
 
-1. **`CONF_ROOM_FAN_MODE` does NOT count as in-use.** Written by
-   `_migrate_room_fan_mode` (`__init__.py:1765-1790`) and the Select entity
-   (`select.py:207-209`) on every room; treating it as in-use would un-hide
-   Climate everywhere. Excluded from `_STEP_OWNED_KEYS`.
-2. **Covers hidden for garage** as well as utility + infrastructure. Room
-   cover automation lacks a `device_class == garage` guard (unlike
-   `hvac_covers.py:795-800`). Card a garage-door guard separately.
+## Plan review REV 3.1 findings (ura-reviewer, 2026-10-02, against develop e9cd1bc03) — **REV 4 — re-checked (see below)**
 
-If either decision reverses, the change is one-line each
-(add `CONF_ROOM_FAN_MODE` to `_STEP_OWNED_KEYS["climate"]`; add
-`"options_covers"` back into the garage tuple).
+| # | Sev | Finding | REV 4 resolution |
+|---|---|---|---|
+| 1 | HIGH | Stale step key `options_lighting`. | All tables/tests/Live use `options_lighting_behaviour`; owner set includes `_lighting_basics_fields()` (incl. `reconcile_advanced`) + `auto_manual_devices`; test asserts `options_lighting` absent. |
+| 2 | HIGH | REV 3/3.1 only banners. | Room flow fully specified (I2/I3, D7 table, D8, D9, files, Tier 2); zone/house/CM parked with trigger. |
+| 3 | HIGH | Advanced vs More settings undefined; advanced fields outside invariant. | D2: Advanced ON ⇒ full menu, More omitted; I2 forced render covers fields; tests added. |
+| 4 | MED | Markers need `add_suggested_values_to_schema`. | D8.1 + classification test asserts absence in Simple render. |
+| 5 | MED | Extraction in simple mode misses keys. | D3 `_render_step_schema` uses `show_advanced_options=True`. |
+| 6 | MED | Hint duplicative. | REUSE + rename `lighting_advanced_hint` → `advanced_hint`; placeholders; non-translatable noted; meta-test. |
+| 7 | MED | Simple-mode save clearing. | D8.4 + I3 test with mutation drill. |
+| 8 | LOW | Stale cites; sequencing met. | Refreshed; sequencing MET. |
+| 9 | LOW | Live rows. | Closet / Advanced-ON / garage / legacy rows updated. |
+
+---
+
+## Plan review REV 4 (ura-reviewer, 2026-10-02, against develop bbe9cfff0)
+
+**Prior findings 1-9: all resolved, checked with greps.** Step key `options_lighting_behaviour` is at `config_flow.py:3595`, and `options_lighting` is only a handler (`:11516`), not a menu entry (F1). Zone/house/CM work is parked with a trigger (F2). D2 sets Advanced ⇒ full menu (F3). HA's `add_suggested_values_to_schema` drops advanced keys with no conditions (`data_entry_flow.py:661-665`), so routing through it plus the `_adv` forced render is correct (F4). Extraction runs with Advanced ON (F5). The hint helper and constants are at `:50-63`, and the tests that use them are in `quality/tests/test_lighting_slice_e_slots_scenes.py:306-327`, so the rename list is complete (F6). The save guard pattern is at `:11612` (F7). Cites are refreshed (F8) and the Live rows are present (F9).
+
+**D7 field table:** every field it names is real and in the stated step. All 9 Simple and both NEW Advanced covers keys are top-level in `async_step_options_covers` (`:11920-11982`). Climate's `CONF_FAN_SPEED_{LOW,MED,HIGH}_TEMP` and `CONF_HUMIDITY_FAN_MAX_RUNTIME` are top-level, before the `humidity_fan_advanced` section (`~:12180-12214`). Both sections exist at the stated lines.
+
+| # | Sev | Finding | Fix |
+|---|---|---|---|
+| R1 | CRITICAL | D3 compared the stored value with "the schema's `default`". Every room handler builds `default=self._get_current(KEY, FALLBACK)`, so that default IS the stored value (covers `:11920-11982`, climate `:12175-12214`, Lighting `_cur` `:11572-11575`). Every key would read "default", no hidden step would ever be revealed, I1 would fail for any seeded value, and `_adv` would mark every non-default field hidden, which breaks I2. | **Fixed in plan.** D3 now uses a factory-default render on a separate shim flow whose stub `_config_entry` carries only entry type + room type. Every `_get_current` returns FALLBACK. `_adv` (D8.2) uses the same factory-default source, and the live flow's context is never toggled. The existing "in-use reveal (I1)" and "I2 forced render" tests discriminate: under the R1 bug they fail. |
+| R2 | LOW | Test path `quality/tests/config_flow/` does not exist. Tests are flat under `quality/tests/`. | **Fixed:** paths changed to `quality/tests/test_room_menu_trim.py` and `quality/tests/test_room_advanced_fields.py`. |
+| R3 | LOW | The hint consumer is at `:11854`, not `:11853`. | Cosmetic, left as is. |
+
+**Invariants:** I1-I3 can be tested and falsified. The I1/I2/I3 acceptance tests can tell a correct build from the R1 failure and from a dropped save guard (the mutation drill is named).
+
+**Verdict: BUILD-READY** (R1 and R2 fixed in plan). Builder note: the shim render must not cause side effects (the purity test covers `entry.data`/`options`). The climate handler reads `room_in_hvac_zone(self.hass, entry_id)`, so the shim must carry the real `hass` and `entry_id`.

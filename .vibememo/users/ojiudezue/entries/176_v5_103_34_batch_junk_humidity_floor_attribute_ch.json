@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "176",
+  "author": "ojiudezue",
+  "session_id": "claude_20261003_022322_ship_v5_103_34",
+  "timestamp": "2026-10-03T02:23:22Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.34 shipped: Batch: junk humidity floor, attribute churn, anomaly baselines, music following, borrow ids, solar override",
+  "summary": "Batch: junk humidity floor, attribute churn, anomaly baselines, music following, borrow ids, solar override",
+  "why": "Batched ship of five independently reviewed fixes that had been waiting since the overnight run, plus the Envoy solar override: the Envoy's own production total reset on 2026-10-01 23:05 and reads 0 W, so the energy coordinator's derived solar input is blind; the production CT is healthy, and an optional override lets the operator point EC at it without code for each future sensor fault.",
+  "implications": "Shipped HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1 at v5.103.34; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.34.md (Live criteria).",
+  "revisit_trigger": "If the Envoy production aggregate recovers after an Enphase ticket, clear the override; if a second derived Envoy sensor breaks, revisit generalising the override to all derived entities.",
+  "refs": {
+    "cards": [
+      "HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.34.md"
+    ],
+    "release_notes": "Five reviewed fixes plus an optional solar power sensor override for the energy coordinator. Music following works again. See README_v5.103.34."
+  }
+}

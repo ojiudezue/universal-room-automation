@@ -178,24 +178,18 @@ class TestCooldownSensorRename:
             return "none"
         return f"{active_count} recent"
 
-    def _compute_attributes(self, last_alerts, now):
-        """Replicate SafetyActiveCooldownsSensor.extra_state_attributes logic."""
-        if not last_alerts:
-            return {"cooldowns": {}}
-
-        cooldowns = {}
-        for key, last_time in last_alerts.items():
-            if not isinstance(last_time, datetime):
-                continue
-            age = (now - last_time).total_seconds()
-            if age < 3600:
-                remaining = max(0, 3600 - age)
-                cooldowns[key] = {
-                    "last_alert": last_time.isoformat(),
-                    "age_seconds": round(age, 1),
-                    "max_remaining_seconds": round(remaining, 1),
-                }
-        return {"cooldowns": cooldowns}
+    # URA-ATTRIBUTE-CHURN-1 fix-up 2 (2026-09-29): inline
+    # `_compute_attributes` helper deleted — it modelled the OLD
+    # arithmetic (`age_seconds` / `max_remaining_seconds`), which
+    # has been removed from production per Review MEDIUM-3 (hollow
+    # anchor: an inline copy of the pre-fix logic could not detect
+    # a regression on the production path). The current production
+    # subdict shape is anchored by:
+    #   - AST test test_attribute_churn_ura1.py::
+    #     test_safety_active_cooldowns_extra_attrs_omit_age_and_remaining
+    #   - AST test ...::test_safety_active_cooldowns_subdict_has_no_churn_symbols
+    #   - Behavioural test test_attribute_churn_ura1_fixup2.py::
+    #     test_safety_active_cooldowns_attrs_stable_across_clock_advance
 
     def test_state_says_recent_not_active(self):
         """State value uses 'recent' not 'active'."""
@@ -223,31 +217,31 @@ class TestCooldownSensorRename:
         value = self._compute_native_value(alerts, now)
         assert value == "none"
 
-    def test_attribute_key_is_max_remaining(self):
-        """Attribute uses max_remaining_seconds not remaining_seconds."""
-        now = datetime(2026, 3, 31, 12, 0, 0, tzinfo=timezone.utc)
-        alerts = {"smoke:kitchen": now - timedelta(minutes=10)}
-        attrs = self._compute_attributes(alerts, now)
-        cooldown_entry = attrs["cooldowns"]["smoke:kitchen"]
-        assert "max_remaining_seconds" in cooldown_entry
-        assert "remaining_seconds" not in cooldown_entry
-
-    def test_max_remaining_seconds_value(self):
-        """max_remaining_seconds is correct (3600 - age)."""
-        now = datetime(2026, 3, 31, 12, 0, 0, tzinfo=timezone.utc)
-        alerts = {"smoke:kitchen": now - timedelta(seconds=600)}
-        attrs = self._compute_attributes(alerts, now)
-        remaining = attrs["cooldowns"]["smoke:kitchen"]["max_remaining_seconds"]
-        assert remaining == 3000.0  # 3600 - 600
-
     def test_source_uses_correct_keys(self):
-        """Verify source code uses 'recent' in the state value template."""
+        """State template survives + fix-up 2 substitute present.
+
+        The inline `_compute_native_value` / `_compute_attributes`
+        helpers above are the OLD arithmetic (retained only so the
+        `recent` state + membership-filter tests still pin the
+        state-string invariant). They are NOT called by production
+        code and are NOT the anchors for the URA-ATTRIBUTE-CHURN-1
+        fixes — those live in test_attribute_churn_ura1.py and
+        test_attribute_churn_ura1_fixup1.py (AST-anchored primary
+        invariants) and test_attribute_churn_ura1_fixup2.py
+        (behavioural clock-advance drills). Review LOW-3 renamed
+        `cooldown_until` -> `window_until` in fix-up 2 to make the
+        UPPER-BOUND semantics explicit (per-severity windows are
+        shorter — safety.py:864-869 — but the dedup cache keys omit
+        severity, so 3600 s is the legitimate upper bound for the
+        "will this still suppress?" test)."""
         src_path = "custom_components/universal_room_automation/sensor.py"
         with open(src_path) as f:
             source = f.read()
-        # The native_value property should produce "N recent"
-        assert '"max_remaining_seconds"' in source
         assert 'recent"' in source
+        assert '"window_until"' in source, (
+            "URA-ATTRIBUTE-CHURN-1 fix-up 2 substitute 'window_until' "
+            "missing from sensor.py (was 'cooldown_until' pre-fix-up-2)"
+        )
 
 
 # =============================================================================

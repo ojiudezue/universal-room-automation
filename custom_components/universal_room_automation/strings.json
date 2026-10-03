@@ -940,6 +940,7 @@
         "description": "Configure the Energy Coordinator. Manages battery strategy, pool/EV optimization, TOU-aware cost tracking, and daily forecasting via Enphase Envoy and Solcast.",
         "data": {
           "energy_envoy_entity": "Envoy Sensor (pick any — serial auto-derives all energy entities)",
+          "energy_solar_entity": "Solar power sensor (override)",
           "energy_reserve_soc": "Battery Reserve SOC (%)",
           "energy_bill_cycle_day": "Billing Cycle Start Day",
           "energy_decision_interval": "Decision Interval (minutes)",
@@ -1007,6 +1008,7 @@
           "energy_grid_export_entity": "Grid Export Sensor (Direct)"
         },
         "data_description": {
+          "energy_solar_entity": "Leave blank to use the Envoy's solar reading. Pick a sensor here only if that reading is wrong.",
           "energy_reserve_soc": "Minimum battery reserve percentage. Battery won't discharge below this level during normal operation. Default: 20%.",
           "energy_bill_cycle_day": "Day of the month your PEC billing cycle starts. Used for cost tracking and bill prediction. Default: 23.",
           "energy_decision_interval": "Minutes between energy decision cycles. Controls how often battery strategy, pool speed, and EV charging are evaluated. Default: 5.",

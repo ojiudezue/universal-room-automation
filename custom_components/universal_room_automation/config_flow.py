@@ -4615,6 +4615,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """
         from .domain_coordinators.energy_const import (
             CONF_ENERGY_ENVOY_ENTITY,
+            CONF_ENERGY_SOLAR_ENTITY,
             CONF_ENERGY_RESERVE_SOC,
             CONF_ENERGY_BILL_CYCLE_DAY,
             CONF_ENERGY_DECISION_INTERVAL,
@@ -4993,11 +4994,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     exc_info=True,
                 )
 
+            # EC-SOLAR-ENTITY-OVERRIDE-1: the solar override is clearable.
+            # A cleared selector is omitted (or ""), and the
+            # {**options, **user_input} merge would resurrect the stored
+            # value. Drop the key so blank = derived Envoy solar entity.
+            # Never persist "": runtime setdefault would keep it and solar
+            # would silently resolve to nothing.
+            saved_options = {**self._config_entry.options, **user_input}
+            if not user_input.get(CONF_ENERGY_SOLAR_ENTITY):
+                saved_options.pop(CONF_ENERGY_SOLAR_ENTITY, None)
+
             submitted_envoy = user_input.get(CONF_ENERGY_ENVOY_ENTITY) or ""
             if submitted_envoy:
                 # Build the same energy_entity_config the runtime sees:
                 # current options + this submission, narrowed to energy_* keys.
-                merged = {**self._config_entry.options, **user_input}
+                merged = saved_options
                 energy_entity_config = {
                     k: v for k, v in merged.items() if k.startswith("energy_")
                 }
@@ -5022,7 +5033,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             if not errors:
                 return self.async_create_entry(
                     title="",
-                    data={**self._config_entry.options, **user_input},
+                    data=saved_options,
                 )
 
         # Weather entity default: inherit from house/integration entry if set
@@ -5065,6 +5076,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_ENERGY_ENVOY_ENTITY,
                 description={"suggested_value": self._get_current(CONF_ENERGY_ENVOY_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            # EC-SOLAR-ENTITY-OVERRIDE-1: optional solar power sensor. Blank =
+            # derived Envoy solar entity (explicit key wins via setdefault at
+            # setup). suggested_value so the field is clearable.
+            vol.Optional(
+                CONF_ENERGY_SOLAR_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_SOLAR_ENTITY)},
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
