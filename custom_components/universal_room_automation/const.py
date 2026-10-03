@@ -64,7 +64,7 @@ CONF_OVERRIDE_NOTIFICATIONS: Final = "override_notifications"
 CONF_ZONE: Final = "zone"
 CONF_ZONE_NAME: Final = "zone_name"
 CONF_ZONE_ROOMS: Final = "zone_rooms"
-CONF_ZONE_DESCRIPTION: Final = "zone_description"
+CONF_ZONE_DESCRIPTION: Final = "zone_description"  # No runtime reader; kept for stored data. Options form shows it only in Advanced mode or when set.
 # v5.7.0 WS-A4: per-zone outdoor flag. An outdoor zone (e.g. "Outside",
 # "Front Porch") still tracks raw occupancy but is EXCLUDED from the
 # indoor-occupancy aggregation that gates the v5.7.0 AWAY path β. An
@@ -156,8 +156,8 @@ AGGREGATION_ENERGY_COVERAGE_DELTA: Final = "energy_coverage_delta"
 
 # Person tracking configuration
 CONF_TRACKED_PERSONS: Final = "tracked_persons"
-CONF_PERSON_DATA_RETENTION: Final = "person_data_retention_days"
-CONF_TRANSITION_DETECTION_WINDOW: Final = "transition_detection_window"
+CONF_PERSON_DATA_RETENTION: Final = "person_data_retention_days"  # No runtime reader; kept for stored data. Options form shows it only in Advanced mode or when set.
+CONF_TRANSITION_DETECTION_WINDOW: Final = "transition_detection_window"  # No runtime reader; kept for stored data. Options form shows it only in Advanced mode or when set.
 
 # v3.2.8: Presence decay configuration
 CONF_PERSON_DECAY_TIMEOUT: Final = "person_decay_timeout"
@@ -311,9 +311,9 @@ CONF_WHOLE_HOUSE_POWER_SENSORS: Final = "whole_house_power_sensors"  # v4.1.0: p
 CONF_WHOLE_HOUSE_ENERGY_SENSORS: Final = "whole_house_energy_sensors"  # v4.1.0: plural
 
 # v4.1.0: Zone-level and house-level energy attribution
-CONF_ZONE_POWER_SENSORS: Final = "zone_power_sensors"
+CONF_ZONE_POWER_SENSORS: Final = "zone_power_sensors"  # No runtime reader; kept for stored data. Options form shows it only in Advanced mode or when set.
 CONF_ZONE_ENERGY_SENSORS: Final = "zone_energy_sensors"
-CONF_HOUSE_DEVICE_POWER_SENSORS: Final = "house_device_power_sensors"
+CONF_HOUSE_DEVICE_POWER_SENSORS: Final = "house_device_power_sensors"  # No runtime reader; kept for stored data. Options form shows it only in Advanced mode or when set.
 CONF_HOUSE_DEVICE_ENERGY_SENSORS: Final = "house_device_energy_sensors"
 
 # Energy rate fields
