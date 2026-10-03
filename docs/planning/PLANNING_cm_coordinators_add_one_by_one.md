@@ -161,7 +161,11 @@ is a **pre-build step** for the orchestrator (GET-only):
 - `CoordinatorEnabledSwitch.is_on` reads `merged.get(key, COORDINATOR_ENABLED_DEFAULTS[id])`.
 - Every registration gate in `__init__.py` reads the same dict (replace inline literals at
   `:3322, :3353, :3367, :3411, :3514, :3810, :3821, :4151`).
-- Also fix `music_following.py:468` which reads the key with its own default.
+- Also fix `music_following.py:468` which reads the key with its own default, and
+  `domain_coordinators/notification_manager.py:676` (`self._config.get(CONF_NM_ENABLED, False)`).
+- Preferred shape (plan review): one helper `coordinator_should_run(cm_config, coordinator_id)` in
+  `const.py`-adjacent code that every gate calls. D4's entitlement check lives inside it, so there
+  is ONE site to mutate, not eight.
 
 Acceptance criteria
 - **Test:** `test_enabled_switch_default_matches_registration_default` — parametrized over all
@@ -173,15 +177,20 @@ Acceptance criteria
 
 ### D2 — New installs: big modules start not-added (Phase A)
 
-- On CM entry creation (`config_flow.py:3690` migration step), seed CM options with
+- On CM entry creation (`_ensure_coordinator_manager_entry`, `__init__.py:1073-1121`, which drives
+  `config_flow.py:3690`), seed CM options with
   `coordinators_added = ["presence"]` (presence is a dependency of most room behavior and has no
   required config) and explicit `*_enabled` keys: presence True, all others False.
 - Safety/Security/Music/Appliance therefore no longer auto-run on a **new** install; they need to be
   added (D3). Security with empty lists does nothing useful today, so nothing is lost.
 - **Existing installs (migration):** one-shot, sentinel `coordinators_added_migration_done` on the
-  CM entry, run before `cm_config` is built (same slot as `__init__.py:3227-3300` migrations).
-  For every coordinator, mark it added if its key is explicitly True, OR the key is absent and the
-  current default (D1 dict) is True, OR any of its settings keys are present. Write explicit
+  CM entry. **Placement (plan review, HIGH):** NOT inside the `__init__.py:3227-3300` slot — that
+  slot is inside the master-switch gate (`__init__.py:3195`), so on an install with the master OFF
+  (the second home today) the migration would never run and the D3 menu would show nothing added.
+  Run it unconditionally in integration setup next to `_ensure_coordinator_manager_entry`
+  (`__init__.py:2009-2018`), before the master gate. For every coordinator, mark it added iff its
+  effective run state is True (key explicitly True, OR key absent and the D1 default is True).
+  Explicit False = not added (settings kept; re-add restores). No settings-key inventory needed. Write explicit
   `*_enabled` values equal to today's effective run state. Result: **nothing that runs today stops
   running, and nothing new starts.**
 
@@ -210,8 +219,9 @@ Acceptance criteria
   `*_enabled` False. **Settings are kept** (re-adding restores them). Entities stay in Phase A/B
   (become unavailable); Phase C removes them.
 - The integration-level `entry_type_select` `add_coordinator` (`config_flow.py:1116`): change the
-  abort to plain text pointing at "Coordinator Manager > Configure > Add a coordinator". This replaces
-  onboarding phase-2 S4.
+  abort to plain text pointing at "Coordinator Manager > Configure > Add a coordinator". S4 already
+  shipped (5.103.36): today's `coordinator_use_options` text in `strings.json:562` +
+  `translations/en.json:562` points at the master switch; Phase B rewrites both.
 - Master `DomainCoordinatorsSwitch`: adding the first coordinator from the CM menu sets
   `domain_coordinators_enabled` True on the integration entry (else "add" does nothing visible).
   Keep the switch as the global kill switch.
@@ -235,8 +245,8 @@ Acceptance criteria
 - New module `entitlements.py` with one function
   `async def async_can_add(hass, coordinator_id) -> tuple[bool, str | None]` that returns
   `(True, None)` for every id today. Called from exactly two places: `add_coordinator` (before
-  routing to the settings step; False → abort with the returned reason text) and the CM setup
-  registration loop (False → do not register, log once, raise a repair issue). The second call makes
+  routing to the settings step; False → abort with the returned reason text) and
+  `coordinator_should_run` (D1 helper; there is no registration loop — eight separate gates) (False → do not register, log once, raise a repair issue). The second call makes
   the gate hold if someone hand-edits options.
 - Tiers to price later: Free = Presence, Safety, Music, Appliance; per-module = HVAC, Energy,
   Security (operator's "big modules"); NM likely free (it is plumbing other modules use).
@@ -298,3 +308,29 @@ Acceptance criteria (when built)
 - Second-home live read was not performed by the planner (no tool). Orchestrator does it pre-build.
 - Audit doc `AUDIT_onboarding_first_run_path.md` step 8 and Stage D row "HVAC already off by default"
   need correcting in the same commit as Phase A.
+
+## Plan review (2026-10-03, one adversarial pass, Phase A+B)
+
+Re-grepped, not trusted. Gates confirmed at `__init__.py:3322/3353/3367/3411/3514/3810/3821/4151`
+with defaults T/T/T/T/F/T/F/F. `CoordinatorEnabledSwitch.is_on` default True at `switch.py:698`
+confirmed; live second-home observation (all ON until manually turned off) matches.
+
+Findings (fixed in plan above unless noted):
+1. **HIGH — migration placement.** Proposed slot is inside the master gate (`__init__.py:3195`);
+   never runs while master is OFF. Moved to unconditional integration setup.
+2. **MEDIUM — missed readers.** `notification_manager.py:676` (default False, agrees) not listed;
+   also unreachable `config_flow.py:9462-9470` defaults (leave; onboarding phase 2 triages).
+3. **MEDIUM — "settings keys present" rule undefined** (no per-coordinator key inventory exists).
+   Replaced by effective-run-state only; preserves exactly what runs today.
+4. **MEDIUM — entitlement "registration loop" does not exist.** Folded into one
+   `coordinator_should_run` helper used by all eight gates (also makes D1 one mutation site plus a
+   per-gate call-neuter drill).
+5. **LOW — S4 already shipped** the master-switch text; Phase B rewrites `strings.json` +
+   `translations/en.json` line 562.
+6. **Reload/restart: holds.** `CoordinatorEnabledSwitch` is not a RestoreEntity; state comes from
+   CM options, so a reload cannot reset it once the key is explicit. The only "code default" exposure
+   is key-absent, which the migration closes by writing explicit keys. Not the CPR failure shape.
+7. **Note for build:** D3 "first add turns on master" writes the integration entry AND the CM entry;
+   write both, then reload the parent once (no double reload).
+
+Verdict: **BUILD-READY** (after the edits above).
