@@ -339,7 +339,7 @@ def test_cm_entry_creation_seeds_options():
 ])
 def test_existing_install_migration_keeps_identical_run_set(cm_options):
     before = _running(cm_options)
-    hass, parent, cm = _house(cm_options, master=False)
+    hass, parent, cm = _house(cm_options, master=True)
     assert _run(gate.async_migrate_coordinators_added(hass)) is True
     after_opts = cm.options
     assert _running(after_opts) == before
@@ -353,12 +353,47 @@ def test_existing_install_migration_keeps_identical_run_set(cm_options):
         if k not in COORDINATOR_ENABLED_KEYS.values():
             assert after_opts[k] == v
     # Master switch untouched (runs regardless of it) and nothing reloaded.
-    assert parent.options[CONF_DOMAIN_COORDINATORS_ENABLED] is False
+    assert parent.options[CONF_DOMAIN_COORDINATORS_ENABLED] is True
     assert hass.config_entries.reloads == []
     # Second run is a no-op.
     n = len(hass.config_entries.updates)
     assert _run(gate.async_migrate_coordinators_added(hass)) is False
     assert len(hass.config_entries.updates) == n
+
+
+@pytest.mark.parametrize("cm_options", [
+    {},
+    {"presence_coordinator_enabled": True, "hvac_coordinator_enabled": True,
+     "some_setting": 7},
+])
+def test_master_off_migration_marks_nothing_added(cm_options):
+    """Operator ruling (a): master OFF => added == [] and every run key is
+    written False, so nothing changes now and nothing starts later unasked."""
+    hass, parent, cm = _house(cm_options, master=False)
+    assert _run(gate.async_migrate_coordinators_added(hass)) is True
+    opts = cm.options
+    assert opts[CONF_COORDINATORS_ADDED] == []
+    for cid in ADDABLE_COORDINATORS:
+        assert opts[COORDINATOR_ENABLED_KEYS[cid]] is False
+    assert _running(opts) == set()
+    if "some_setting" in cm_options:
+        assert opts["some_setting"] == 7
+    assert parent.options[CONF_DOMAIN_COORDINATORS_ENABLED] is False
+    assert hass.config_entries.reloads == []
+
+
+def test_master_off_migration_then_add_energy_starts_only_energy():
+    hass, parent, cm = _house({}, master=False)
+    _run(gate.async_migrate_coordinators_added(hass))
+    flow = _options_flow(hass, cm)
+    shown = _run(flow.async_step_addc_energy())
+    if shown.get("step_id") == "add_coordinator_confirm":
+        _run(flow.async_step_add_coordinator_confirm({}))
+    else:
+        flow.async_create_entry(title="", data=dict(cm.options))
+    assert cm.options[CONF_COORDINATORS_ADDED] == ["energy"]
+    assert parent.options[CONF_DOMAIN_COORDINATORS_ENABLED] is True
+    assert _running(cm.options) == {"energy"}
 
 
 def test_presence_absent_migration_unset_keys_keep_big_modules_off():

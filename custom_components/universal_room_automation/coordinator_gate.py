@@ -17,6 +17,7 @@ from . import entitlements
 from .const import (
     ADDABLE_COORDINATORS,
     CONF_COORDINATORS_ADDED,
+    CONF_DOMAIN_COORDINATORS_ENABLED,
     CONF_ENTRY_TYPE,
     COORDINATOR_ENABLED_DEFAULTS,
     COORDINATOR_ENABLED_KEYS,
@@ -24,6 +25,7 @@ from .const import (
     COORDINATORS_ADDED_MIGRATION_DONE,
     DOMAIN,
     ENTRY_TYPE_COORDINATOR_MANAGER,
+    ENTRY_TYPE_INTEGRATION,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -138,19 +140,29 @@ def new_install_cm_options() -> dict[str, Any]:
 
 
 def migrated_cm_options(
-    cm_options: Mapping[str, Any], cm_data: Mapping[str, Any] | None = None,
+    cm_options: Mapping[str, Any],
+    cm_data: Mapping[str, Any] | None = None,
+    *,
+    master_on: bool = True,
 ) -> dict[str, Any]:
     """Existing-install migration: freeze today's effective run state.
 
-    Each coordinator's *_enabled is written explicitly with the value it
-    effectively has today (explicit key, else the table default), and the
-    ones that run are marked added. Nothing starts, nothing stops.
+    Master ON: each coordinator's *_enabled is written explicitly with the
+    value it effectively has today (explicit key, else the table default),
+    and the ones that run are marked added. Nothing starts, nothing stops.
+
+    Master OFF (operator ruling (a)): nothing runs today, so nothing is
+    marked added and every *_enabled key is written False. The run gate
+    (``coordinator_should_run``) reads only the *_enabled key, so leaving
+    the five default-on keys unset (or True) would start them all on the
+    first add, when the add turns the master on. Writing False keeps the
+    run set equal to the added set: the first add starts only what it adds.
     """
     merged = {**(cm_data or {}), **cm_options}
     new = dict(cm_options)
     added: list[str] = []
     for cid in ADDABLE_COORDINATORS:
-        run = coordinator_enabled_setting(merged, cid)
+        run = master_on and coordinator_enabled_setting(merged, cid)
         new[COORDINATOR_ENABLED_KEYS[cid]] = run
         if run:
             added.append(cid)
@@ -165,12 +177,19 @@ async def async_migrate_coordinators_added(hass: Any) -> bool:
     Runs at integration setup regardless of the master switch, so an
     install with the master OFF still gets an accurate added list.
     """
+    master_on = False
+    for pe in hass.config_entries.async_entries(DOMAIN):
+        if pe.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+            master_on = bool(
+                {**pe.data, **pe.options}.get(CONF_DOMAIN_COORDINATORS_ENABLED, False)
+            )
+            break
     for ce in hass.config_entries.async_entries(DOMAIN):
         if ce.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_COORDINATOR_MANAGER:
             continue
         if ce.options.get(COORDINATORS_ADDED_MIGRATION_DONE):
             return False
-        new = migrated_cm_options(ce.options, ce.data)
+        new = migrated_cm_options(ce.options, ce.data, master_on=master_on)
         # Seed the CM listener snapshot first so the update listener sees
         # no change and does not reload the CM on the upgrade boot.
         hass.data.setdefault(DOMAIN, {}).setdefault(
@@ -178,8 +197,9 @@ async def async_migrate_coordinators_added(hass: Any) -> bool:
         )[ce.entry_id] = dict(new)
         hass.config_entries.async_update_entry(ce, options=new)
         _LOGGER.info(
-            "Coordinator add-list migration: marked added %s (run state unchanged)",
-            new[CONF_COORDINATORS_ADDED],
+            "Coordinator add-list migration (master %s): marked added %s "
+            "(run state unchanged)",
+            "on" if master_on else "off", new[CONF_COORDINATORS_ADDED],
         )
         return True
     return False

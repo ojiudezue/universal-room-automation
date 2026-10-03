@@ -16,6 +16,12 @@ of coordinators that are not added) is NOT in this build.
   even with the Domain Coordinators switch off) writes each coordinator's current run state
   explicitly and marks the running ones as added. Sentinel: `coordinators_added_migration_done`
   on the CM entry.
+- **Existing installs with the Domain Coordinators switch OFF:** nothing is marked added and every
+  coordinator's run key is written off (nothing was running, so nothing changes). The operator then
+  adds coordinators one by one; the first add turns the master switch on and starts only that
+  coordinator (plus Presence for Climate/Security). Writing the keys off, not leaving them unset,
+  is what stops the five default-on coordinators from all starting on that first add — the run
+  gate (`coordinator_should_run`) reads only the run key.
 - **Coordinator Manager > Configure** now shows:
   - **Add a coordinator** — lists coordinators not yet added. Picking one opens its settings
     (Safety, Security, Energy, Climate (HVAC) tuning, Notifications) or a one-screen confirm
