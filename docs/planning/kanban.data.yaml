@@ -584,11 +584,12 @@ cards:
 - id: EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1
   title: The garage A charger is being switched off and on every 5-10 minutes overnight, in step with the Envoy battery reading dropping in and out
   thread: energy
-  status: waiting_operator
+  status: planned
+  operator_instruction_2026_10_02: 'APPROVED (Tier 3) by operator 2026-10-02 ~21:20 CDT. Do NOT disturb the current blitz run; queue for the next overnight/other run. Remeasured 10-02: flap was a one-night burst (10-01 06-08Z, ~46 toggles); 10-02 normal 2-4/h. Root trigger = Envoy SOC dropouts; URA defect = arbitrage pause releases on missing SOC.'
   created: '2026-10-01 05:00'
   updated: '2026-10-01 05:00'
   refinement_status: initial
-  approval: blocked
+  approval: approved
   live_broken: true
   tags: [tier-3, found-during-probe, no-fabrication-verify, mutation-drill]
   problem_solution:
