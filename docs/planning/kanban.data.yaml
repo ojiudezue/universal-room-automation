@@ -30371,7 +30371,8 @@ cards:
   groom_2026_09_29_arc: 'Partial re-measure after Batch B (since 2026-09-29 03:02): 16 borrow writes (S5 nudge start 5, S7 restore 10, S3 compromise 1), 0 without an excursion id (nudge starts were 5/35 null before). The S12 pre-cool and auto_return paths have not fired since, so their gaps are not yet re-measured.'
   title: Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered
   thread: hvac
-  status: 'review'
+  status: shipped_organic
+  shipped_version: v5.103.34
   created: '2026-09-29 01:05'
   updated: "2026-10-02 02:55"
   refinement_status: refined
