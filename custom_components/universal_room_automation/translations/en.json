@@ -581,8 +581,8 @@
           "coordinator_notifications_persons": "👤 Notification Persons",
           "coordinator_notifications_quiet": "🌙 Quiet Hours",
           "coordinator_notifications_cooldowns": "⏱️ Cooldowns",
-          "coordinator_notifications_volume": "🔕 Notification Volume & Noise Reduction",
-          "coordinator_notifications_routing": "📮 Per-Person Routing & Hazard Overrides",
+          "coordinator_notifications_volume": "🔕 Alert noise",
+          "coordinator_notifications_routing": "📮 Who gets which alerts",
           "coordinator_toggles": "⚙️ Enable/Disable Coordinators",
           "coordinator_optimization": "🤖 Optimizer",
           "signal_responses": "📶 Signal Responses",
@@ -612,25 +612,19 @@
       },
       "manage_zones": {
         "title": "🗂️ Manage Zones",
-        "description": "Tap a zone to configure it — the next step opens the standard categorized submenu (rooms, media, HVAC, energy, primary persons, cameras, dynamic preset, remove). Zones sharing a thermostat are marked '(shared thermostat)'; HVAC changes mirror to the sibling(s). The picker shows RAW house zones, not the merged HVAC label.",
-        "data": {
-          "zone_name": "Zone"
-        },
-        "data_description": {
-          "zone_name": "Zones sharing a thermostat are marked '(shared thermostat)'. HVAC changes to any such zone automatically mirror to the sibling(s) — the picker shows RAW house zones, not the merged HVAC label."
-        }
+        "description": "Tap a zone to set it up. Zones that share a thermostat are marked '(shared thermostat)', and thermostat changes copy to the other zone."
       },
       "zone_config_menu": {
         "title": "Zone Configuration",
         "description": "What would you like to configure for this zone?{banner}",
         "menu_options": {
-          "zone_rooms": "🏠 Zone Rooms",
+          "zone_rooms": "🏠 Name and rooms",
           "zone_media": "🎵 Zone Media",
-          "zone_hvac": "🌡️ Zone HVAC",
+          "zone_hvac": "🌡️ Thermostat",
           "zone_energy": "⚡ Zone Energy",
           "zone_persons": "👤 Primary Persons",
-          "zone_cameras": "📷 Zone Cameras",
-          "zone_dynamic_preset": "🌤️ Dynamic Preset (Weather-Driven)",
+          "zone_cameras": "📷 Person sensors",
+          "zone_dynamic_preset": "🌤️ Weather comfort",
           "zone_delete_confirm": "🗑️ Remove this zone"
         }
       },
@@ -645,76 +639,76 @@
         }
       },
       "zone_hvac": {
-        "title": "🌡️ Zone HVAC",
-        "description": "Select the thermostat that controls this zone. If not set, falls back to the first room's thermostat. The AC Load Sensor below is used by the AC Ramp-Down feature (v4.5.11) to detect when this zone keeps burning energy past setpoint.",
+        "title": "🌡️ Thermostat",
+        "description": "Pick the thermostat for this zone. If none is set, the first room's thermostat is used. Zones sharing this thermostat get the same settings.",
         "data": {
-          "zone_thermostat": "Zone Thermostat",
-          "hvac_ac_load_sensor": "AC Load Sensor (kW or kWh)",
-          "hvac_ac_ramp_zone_enabled": "AC Ramp-Down enabled for this zone"
+          "zone_thermostat": "Thermostat",
+          "hvac_ac_load_sensor": "AC power sensor",
+          "hvac_ac_ramp_zone_enabled": "AC overrun fix"
         },
         "data_description": {
-          "zone_thermostat": "Climate entity to control for this zone",
-          "hvac_ac_load_sensor": "Sensor that measures this AC unit's draw (Span panel circuit, Emporia Vue, etc.). Power (kW) is preferred. Leave empty to disable the ramp-down feature for this zone.",
-          "hvac_ac_ramp_zone_enabled": "When OFF, this zone is skipped by the AC ramp-down feature even when the master switch is ON. Useful for AC units on circuits shared with other large loads (dryer, oven) that would cause false positives."
+          "zone_thermostat": "Thermostat that controls this zone.",
+          "hvac_ac_load_sensor": "Sensor that measures this AC unit's power, such as a panel circuit. Leave empty to turn off the AC overrun fix for this zone.",
+          "hvac_ac_ramp_zone_enabled": "Briefly eases or restarts the AC when it keeps running after reaching the set temperature. Needs the AC load sensor."
         }
       },
       "zone_energy": {
         "title": "⚡ Zone Energy Sensors",
         "description": "Configure power and energy sensors for zone-level loads (HVAC circuits, subpanel meters). These track energy not attributable to individual rooms.",
         "data": {
-          "zone_power_sensors": "Zone Power Sensors",
-          "zone_energy_sensors": "Zone Energy Sensors"
+          "zone_power_sensors": "Power sensors",
+          "zone_energy_sensors": "Energy sensors"
         },
         "data_description": {
-          "zone_power_sensors": "Power sensors for zone-level loads like HVAC circuits (watts)",
-          "zone_energy_sensors": "Energy sensors for zone-level loads (kWh)"
+          "zone_power_sensors": "Power sensors for zone loads. Not used yet; the energy sensors are what count.",
+          "zone_energy_sensors": "Energy (kWh) sensors for zone loads, such as AC circuits or a subpanel."
         }
       },
       "zone_persons": {
         "title": "Primary Persons",
         "description": "Select people who primarily live in zone '{zone_name}'. When they arrive home, HVAC will pre-condition this zone before they reach it.",
         "data": {
-          "zone_persons": "People in this Zone"
+          "zone_persons": "People"
         },
         "data_description": {
-          "zone_persons": "Select one or more person entities. Their zone will start pre-cooling or pre-heating when their phone crosses the geofence on arrival."
+          "zone_persons": "People who mainly live here. Their zone starts cooling or heating when their phone shows they are heading home."
         }
       },
       "zone_cameras": {
-        "title": "Zone Cameras",
-        "description": "Select person detection cameras in zone '{zone_name}'. Face recognition from these cameras enables instant pre-arrival conditioning — no 15-minute BLE wait required.",
+        "title": "Person sensors",
+        "description": "Pick person sensors near zone '{zone_name}'. A recognized face here starts conditioning the zone right away. Room cameras are also found automatically.",
         "data": {
-          "zone_cameras": "Person Detection Cameras"
+          "zone_cameras": "Person sensors near this zone"
         },
         "data_description": {
-          "zone_cameras": "Camera person-detection sensors (Frigate person_occupancy, UniFi person_detected). Cameras are also auto-discovered from room area assignments."
+          "zone_cameras": "Person or motion sensors from your cameras that cover this zone."
         }
       },
       "zone_dynamic_preset": {
-        "title": "🌡️ Zone Dynamic Preset",
-        "description": "Enable dynamic preset for zone '{zone_name}', set a small offset if this zone runs warm or cool, and (optionally) keep a distinct sleep-window offset.",
+        "title": "🌤️ Weather comfort",
+        "description": "Let weather adjust the thermostat ranges for zone '{zone_name}'. Add a small offset if this zone runs warm or cool.",
         "data": {
-          "zone_dynamic_preset_enabled": "Enable Dynamic Preset for this Zone",
+          "zone_dynamic_preset_enabled": "Weather comfort",
           "zone_dynamic_preset_offset": "Offset (°F)",
-          "zone_dynamic_preset_reset_offset_guest": "Reset offset during Guest Mode",
-          "zone_dynamic_preset_sleep_enabled": "Enable sleep preset ranges"
+          "zone_dynamic_preset_reset_offset_guest": "No offset with guests",
+          "zone_dynamic_preset_sleep_enabled": "Separate sleep ranges"
         },
         "data_description": {
-          "zone_dynamic_preset_enabled": "When enabled, DPM adjusts this zone's thermostat setpoints based on outdoor conditions.",
-          "zone_dynamic_preset_offset": "Additional °F offset applied on top of bucket adjustments (0-3°F, step 0.5). Useful for zones that consistently run warm/cool.",
-          "zone_dynamic_preset_reset_offset_guest": "When Guest Mode is active, reset this zone's offset to 0 to maintain comfortable temperatures for guests.",
-          "zone_dynamic_preset_sleep_enabled": "Enable separate temperature ranges for sleep preset. When off, sleep uses the same ranges as home preset."
+          "zone_dynamic_preset_enabled": "When on, this zone's thermostat ranges shift with outdoor conditions.",
+          "zone_dynamic_preset_offset": "Extra °F added on top of the weather shift (0 to 3). Use it for zones that run warm or cool.",
+          "zone_dynamic_preset_reset_offset_guest": "When Guest mode is on, set this zone's offset to 0 so guests get the normal range.",
+          "zone_dynamic_preset_sleep_enabled": "When off, sleep uses the same ranges as Home."
         }
       },
       "global_sensors": {
         "title": "Global Sensors",
-        "description": "Update sensors shared across all rooms.",
+        "description": "Sensors shared by all rooms. Saving briefly restarts URA.",
         "data": {
-          "outside_temp_sensor": "Outside Temperature Sensor",
-          "outside_humidity_sensor": "Outside Humidity Sensor",
-          "weather_entity": "Weather Forecast Entity",
-          "solar_production_sensor": "Solar Production Sensor",
-          "electricity_rate": "Default Fallback Electricity Rate ($/kWh)",
+          "outside_temp_sensor": "Outdoor temperature",
+          "outside_humidity_sensor": "Outdoor humidity",
+          "weather_entity": "Weather forecast",
+          "solar_production_sensor": "Solar production",
+          "electricity_rate": "Backup power price ($/kWh)",
           "outdoor_light_sensor": "Outdoor light sensor",
           "outdoor_dark_lux": "Dark outside below"
         },
@@ -722,43 +716,31 @@
           "outside_temp_sensor": "Sensor for outdoor temperature",
           "outside_humidity_sensor": "Sensor for outdoor humidity",
           "weather_entity": "Weather entity for forecasts",
-          "solar_production_sensor": "Current solar production",
-          "electricity_rate": "Used only when the Energy Coordinator is not configured. The Energy Coordinator's TOU-aware rate is preferred.",
+          "solar_production_sensor": "Current solar production. Used for room energy estimates.",
+          "electricity_rate": "Used only when the Energy coordinator has no price. The Energy coordinator's time-of-use price wins.",
           "outdoor_light_sensor": "Used to decide if it's dark when a room has no working light sensor. Any outdoor lux sensor works, incl. the weather-adjusted Illuminance integration.",
           "outdoor_dark_lux": "Outdoor light level, in lux, below which rooms without a sensor count as dark."
         }
       },
       "energy_sensors": {
         "title": "Energy Sensors",
-        "description": "Configure energy sensors for whole-house tracking and predictions.",
+        "description": "Energy sensors for whole-house tracking and forecasts. Saving briefly restarts URA.",
         "data": {
-          "solar_export_sensor": "Solar Export Sensor",
-          "grid_import_sensor": "Grid Import Sensor (Primary)",
-          "grid_import_sensor_2": "Grid Import Sensor (Secondary)",
-          "battery_level_sensor": "Battery Level Sensor",
-          "whole_house_power_sensors": "Whole House Power Sensors",
-          "whole_house_energy_sensors": "Whole House Energy Sensors",
-          "house_device_power_sensors": "House Device Power Sensors",
-          "house_device_energy_sensors": "House Device Energy Sensors",
-          "delivery_rate": "Delivery Rate ($/kWh)",
-          "export_reimbursement_rate": "Export Reimbursement Rate ($/kWh)"
+          "whole_house_power_sensors": "Whole-house power",
+          "whole_house_energy_sensors": "Whole-house energy",
+          "house_device_power_sensors": "Device power sensors",
+          "house_device_energy_sensors": "Device energy sensors"
         },
         "data_description": {
-          "solar_export_sensor": "Energy sensor tracking kWh exported to grid",
-          "grid_import_sensor": "Primary grid import energy sensor",
-          "grid_import_sensor_2": "Secondary grid import sensor (optional)",
-          "battery_level_sensor": "Battery state of charge percentage",
-          "whole_house_power_sensors": "Real-time whole house power sensors. Select multiple for separate CTs.",
-          "whole_house_energy_sensors": "Cumulative whole house energy sensors. Select multiple for separate meters.",
-          "house_device_power_sensors": "Power sensors for house-level devices (EV chargers, pool pumps, water heaters)",
-          "house_device_energy_sensors": "Energy sensors for house-level devices",
-          "delivery_rate": "Fixed transmission/delivery cost per kWh",
-          "export_reimbursement_rate": "Credit received per kWh exported"
+          "whole_house_power_sensors": "Live whole-house power sensors. Pick several if you have separate meters.",
+          "whole_house_energy_sensors": "Total whole-house energy sensors. Pick several if you have separate meters.",
+          "house_device_power_sensors": "Power sensors for house-wide devices. Not used yet; the energy sensors are what count.",
+          "house_device_energy_sensors": "Energy sensors for house-wide devices such as EV chargers, pool pumps and water heaters."
         }
       },
       "default_notifications": {
         "title": "Default Notifications",
-        "description": "Update default notification settings. Rooms can override these.",
+        "description": "Default alert settings for rooms. Rooms can override these. Saving briefly restarts URA.",
         "data": {
           "notification_service": "Default Notification Service",
           "notification_target": "Default Notification Target",
@@ -772,64 +754,80 @@
       },
       "person_tracking": {
         "title": "👥 Person Tracking",
-        "description": "Configure which people to track and how transitions are detected.",
+        "description": "Pick which people to follow from room to room. Saving briefly restarts URA.",
         "data": {
-          "tracked_persons": "Tracked People",
-          "person_data_retention": "Data Retention (Days)",
-          "transition_detection_window": "Transition Detection Window"
+          "tracked_persons": "People",
+          "person_data_retention_days": "Keep history (days)",
+          "transition_detection_window": "Room change wait (s)"
         },
         "data_description": {
-          "tracked_persons": "Select person entities to track room-to-room movement",
-          "person_data_retention": "How long to keep transition history (0 = forever)",
-          "transition_detection_window": "Seconds to wait before confirming a room transition"
+          "tracked_persons": "People whose room-to-room movement URA follows.",
+          "person_data_retention_days": "Not used yet. History is kept by the database settings.",
+          "transition_detection_window": "Not used yet. Room changes are confirmed automatically."
         }
       },
       "camera_census": {
         "title": "📷 Camera Census",
-        "description": "Set up cameras for person counting. Pick any camera entity — person detection sensors are found automatically. Works with UniFi Protect, Frigate, Reolink, and Dahua.",
+        "description": "Pick cameras for counting people. Person sensors are found automatically. Works with UniFi Protect, Frigate, Reolink and Dahua. Some changes here briefly restart URA.",
         "data": {
-          "census_cross_validation": "Cross-Check Between Camera Platforms",
-          "census_divergence_downgrade": "Downgrade Uncorroborated Camera Divergence",
+          "census_cross_validation": "Cross-check camera systems",
+          "census_divergence_downgrade": "Trust the lower count",
           "camera_person_entities": "Indoor Cameras",
           "egress_cameras": "Door Cameras",
           "perimeter_cameras": "Outdoor Cameras",
-          "face_recognition_enabled": "Enable Face Recognition",
-          "enhanced_census": "Enhanced Census (v2)",
-          "guest_vlan_ssid": "Guest WiFi SSID",
-          "census_hold_interior": "Interior Hold (minutes)",
-          "census_hold_exterior": "Exterior Hold (minutes)",
-          "census_ble_cancel_enabled": "Phone presence can excuse unrecognized camera detections",
-          "egress_identity_enabled": "Name People at Doors (identify who enters and leaves)"
+          "face_recognition_enabled": "Face recognition",
+          "enhanced_census": "Smarter counting",
+          "guest_vlan_ssid": "Guest Wi-Fi name",
+          "census_hold_interior": "Indoor hold (min)",
+          "census_hold_exterior": "Outdoor hold (min)",
+          "census_ble_cancel_enabled": "Phones excuse unknown people",
+          "egress_identity_enabled": "Name people at doors",
+          "known_face_guests": "Known guests",
+          "egress_identity_failsafe_strict": "Only trust live faces",
+          "auto_enable_person_detection": "Turn on person detection"
         },
         "data_description": {
-          "census_cross_validation": "When you run multiple camera platforms (e.g., Frigate and UniFi Protect), person counts are compared between them for higher accuracy. Turn this off if you only use one camera platform or prefer simpler, single-source counting.",
-          "census_divergence_downgrade": "When two camera platforms cover the same interior zone and disagree (one sees someone, the other sees nobody), and there is no other supporting evidence (no recognized face, no phone/BLE person, no other room reporting occupied), trust the zero and mark confidence as low. Prevents lone false detections from flipping the house into Guest mode. Turn OFF to restore the older 'max wins' behavior.",
+          "census_cross_validation": "If you run more than one camera system (such as Frigate and UniFi Protect), compare their counts. Turn off if you use only one.",
+          "census_divergence_downgrade": "When two camera systems disagree about a room and nothing else backs up the higher count, trust the lower one. Stops one false sighting from turning on Guest mode.",
           "camera_person_entities": "Select cameras inside your home. Each camera is automatically mapped to a room using its area assignment in Home Assistant. Works with UniFi Protect, Frigate, Reolink, and Dahua.",
           "egress_cameras": "Cameras at your exterior doors (front door, back door, garage). Used to track who enters and leaves — not used for room occupancy. Deliveries and visitors at the door won't trigger room automation.",
           "perimeter_cameras": "Cameras covering your yard, driveway, or fence line. Used to count people on your property who are outside the house.",
-          "face_recognition_enabled": "On by default. URA uses face matches from your cameras to confirm who a person is during room presence and transitions. Turn off to fall back to path validation without faces. Requires a camera integration that provides face recognition. The device switch `switch.ura_presence_face_matching` is the live kill-switch — toggling it takes effect within seconds without an integration reload.",
-          "enhanced_census": "Enable event-driven sensor fusion with hold/decay, WiFi guest VLAN detection, and Frigate face recognition differentiation. Separates 'people seen' from 'people recognized' for better guest detection.",
+          "face_recognition_enabled": "Use face matches from your cameras to confirm who someone is. Needs a camera system with face recognition. You can also turn this off from its switch on the House device.",
+          "enhanced_census": "Hold counts for a while, spot guest phones on guest Wi-Fi, and tell people seen apart from people recognized.",
           "guest_vlan_ssid": "SSID of your guest WiFi network (e.g., 'Revel'). Phones connected to this SSID are counted as guests. Leave blank to disable WiFi guest detection.",
-          "census_hold_interior": "How long (in minutes) to hold the peak person count for indoor cameras before starting decay. Prevents count drops when people move between rooms or sit in camera blind spots. Default: 15 minutes.",
-          "census_hold_exterior": "How long (in minutes) to hold the peak person count for outdoor/perimeter cameras before dropping. Shorter than interior because outdoor detections are more transient. Default: 5 minutes.",
+          "census_hold_interior": "Minutes to keep the highest indoor count before it starts to drop. Covers people moving between rooms or out of view. Default 15.",
+          "census_hold_exterior": "Minutes to keep the highest outdoor count before it drops. Shorter than indoor because outdoor sightings pass quickly. Default 5.",
           "census_ble_cancel_enabled": "When someone's phone places them in the same area as a camera that sees an unrecognized person, don't count that person toward guest detection. Turn off if guest detection seems to miss real guests.",
-          "egress_identity_enabled": "On by default. People entering or leaving through your door cameras are labeled with their name from face recognition (instead of 'unidentified'), and that identity helps the house count know who's home. Requires Face Recognition (above) to be working. Turn off to count entries and exits without naming them. The device switch `switch.ura_name_people_at_doors` is the live kill-switch — takes effect on the next crossing without an integration reload."
+          "egress_identity_enabled": "Name people who walk through door cameras, using face recognition, so the house count knows who is home. You can also turn this off from its switch on the House device.",
+          "known_face_guests": "Names from your face library that belong to regular guests, not residents. Leave empty if none.",
+          "egress_identity_failsafe_strict": "Only name people at doors when face recognition is working right now. Leave on.",
+          "auto_enable_person_detection": "Turn on person detection on room cameras that have it off. For now URA only lists them in the log."
         }
       },
       "perimeter_alerting": {
         "title": "🚨 Perimeter Alerting",
-        "description": "Send notifications when a person is detected on your perimeter cameras during quiet hours. Requires at least one perimeter camera to be configured in Camera Census.",
+        "description": "Get alerts about vehicles on your outdoor cameras during these hours. Optional AI descriptions add detail.",
         "data": {
-          "perimeter_alert_hours_start": "Alert Start Hour (0–23)",
-          "perimeter_alert_hours_end": "Alert End Hour (0–23)",
-          "perimeter_alert_notify_service": "Notification Service",
-          "perimeter_alert_notify_target": "Notification Target (optional)"
+          "perimeter_vehicle_hours_start": "Start hour (0-23)",
+          "perimeter_vehicle_hours_end": "End hour (0-23)",
+          "perimeter_enrichment_enabled": "AI descriptions",
+          "perimeter_enrichment_provider": "AI service",
+          "perimeter_enrichment_person_sensors": "Cameras to describe",
+          "perimeter_enrichment_model": "AI model",
+          "perimeter_enrichment_max_tokens": "Max reply length",
+          "perimeter_enrichment_provider_id": "AI provider ID",
+          "exterior_snapshot_offset_s": "Snapshot delay (s)"
         },
         "data_description": {
-          "perimeter_alert_hours_start": "Alert monitoring starts at this hour (0–23). Default: 11 PM (23). Overnight ranges are supported — e.g. start 23, end 5 alerts from 11 PM to 5 AM.",
-          "perimeter_alert_hours_end": "Alert monitoring ends at this hour (0–23). Wraps overnight when end is before start. Default: 5 AM.",
-          "perimeter_alert_notify_service": "Notification service to call when a person is detected on your perimeter (e.g., notify.mobile_app_john). Leave blank to disable notifications.",
-          "perimeter_alert_notify_target": "Notification target (optional — leave blank to use the service default)."
+          "perimeter_vehicle_hours_start": "Vehicle alerts start at this hour. Ranges can cross midnight, for example 23 to 5.",
+          "perimeter_vehicle_hours_end": "Vehicle alerts stop at this hour. If it is before the start hour, the range runs overnight.",
+          "perimeter_enrichment_enabled": "Add a short AI description of the snapshot to each alert. Off by default.",
+          "perimeter_enrichment_provider": "Integration that writes the description. Only llmvision works today.",
+          "perimeter_enrichment_person_sensors": "Only alerts from these camera sensors get a description. Leave empty for none.",
+          "perimeter_enrichment_model": "AI model name the service should use.",
+          "perimeter_enrichment_max_tokens": "Longest description the AI may write. Some models reply with nothing if this is too low.",
+          "perimeter_enrichment_provider_id": "Optional. Which llmvision provider to use. Leave empty for its default.",
+          "exterior_snapshot_offset_s": "Wait this many seconds before sending, so the snapshot is closer to the moment. 0 means no wait."
         }
       },
       "domain_coordinators": {
@@ -1238,7 +1236,7 @@
       },
       "hvac_dynamic_preset": {
         "title": "🌡️ Dynamic Preset Auto-Adjust",
-        "description": "When outside feels cooler than the last two weeks, DPM relaxes the upper end of Home and Sleep cool ranges (e.g. 70-75 → 70-76). When outside feels hotter, DPM tightens (70-74). Two knobs control how much. DPM is off in winter and stays off until 7 days of forecast data have been collected.",
+        "description": "When outside feels cooler than the last two weeks, Weather comfort relaxes the upper end of Home and Sleep cool ranges (e.g. 70-75 → 70-76). When outside feels hotter, Weather comfort tightens (70-74). Two knobs control how much. Weather comfort is off in winter and stays off until 7 days of forecast data have been collected.",
         "data": {
           "dynamic_preset_enabled": "Enable Dynamic Preset Auto-Adjust",
           "dpm_cool_day_relax_f": "Relax cool ceiling on cool-feeling days (°F)",
@@ -1558,7 +1556,7 @@
       },
       "coordinator_notifications_volume": {
         "title": "🔕 Notification Volume & Noise Reduction",
-        "description": "Rung-2 controls (NM Cycle A-2) that reduce alert noise without changing severity semantics: tripped-breaker windowing, lock unavailability dedup, humidity ladder thresholds, CO2/TVOC ceilings, safety-discovery blocklist, and the optimizer HIGH-severity allowlist. Fields left at defaults do not persist — future retunes reach this deployment.",
+        "description": "Cut alert noise without changing how serious alerts are: breaker trip timing, repeat lock alerts, humidity levels, CO2 and TVOC limits, the safety skip list and which optimizer alerts may be urgent.",
         "data": {
           "nm_a1_tripped_breaker_zero_window_s": "Tripped-Breaker Zero-Window (seconds)",
           "nm_a1_tripped_breaker_route_nm": "Route Tripped-Breaker Alerts to NM",
@@ -1635,29 +1633,31 @@
         }
       },
       "zone_rooms": {
-        "title": "Zone Configuration",
-        "description": "Update zone name and which rooms belong to this zone.",
+        "title": "Name and rooms",
+        "description": "Set the zone name and which rooms belong to it.",
         "data": {
-          "zone_name": "Zone Name",
-          "zone_description": "Zone Description",
-          "zone_rooms": "Rooms in this Zone"
+          "zone_name": "Zone name",
+          "zone_description": "Description",
+          "zone_is_outdoor": "Outdoor zone",
+          "zone_rooms": "Rooms"
         },
         "data_description": {
-          "zone_name": "Name of this zone",
-          "zone_description": "Optional description",
-          "zone_rooms": "Rooms included in this zone"
+          "zone_name": "Name shown for this zone.",
+          "zone_description": "Optional note. Not used by any automation.",
+          "zone_is_outdoor": "Turn on for patios, yards and pool areas. Safety uses outdoor limits and the house count ignores people here.",
+          "zone_rooms": "Rooms that belong to this zone."
         }
       },
       "zone_media": {
         "title": "🎵 Zone Media",
         "description": "Configure how music follows people within this zone.",
         "data": {
-          "zone_player_entity": "Zone Media Player",
-          "zone_player_mode": "Zone Player Mode"
+          "zone_player_entity": "Zone speaker",
+          "zone_player_mode": "If speaker is off"
         },
         "data_description": {
-          "zone_player_entity": "Primary media player for this zone (e.g., Sonos group)",
-          "zone_player_mode": "How to handle music when zone player unavailable"
+          "zone_player_entity": "Main speaker or speaker group for this zone.",
+          "zone_player_mode": "What music following does when the zone speaker is unavailable."
         }
       },
       "basic_setup": {
