@@ -354,59 +354,84 @@ class TestD42PerZoneBreakdown:
 # ---------------------------------------------------------------------------
 
 class TestD43IdleDuration:
-    """D4.3: OccupiedBinarySensor.extra_state_attributes has idle_duration."""
+    """D4.3 SUPERSEDED by URA-ATTRIBUTE-CHURN-1 fix-up 2 (2026-09-29).
+
+    The v4.6.11 D4.3 `idle_duration` attribute has been REMOVED from
+    OccupiedBinarySensor.extra_state_attributes because it was a
+    per-refresh `now - _last_occupied_time` int that generated
+    12,828 steady-state state_changed rows / 26 h on
+    binary_sensor.living_room_occupied. Its static replacement is
+    `last_occupied_at` (ISO of the coordinator's `_last_occupied_time`
+    published ONLY while vacant — see fix-up 2 gate rationale in
+    binary_sensor.py). The new invariant is anchored by:
+      - test_attribute_churn_ura1_fixup1.py::
+        test_occupied_extra_attrs_identical_across_clock_advance_when_vacant
+      - test_attribute_churn_ura1_fixup1.py::
+        test_occupied_source_omits_idle_duration_and_timeout_keys
+      - test_attribute_churn_ura1_fixup2.py::
+        test_occupied_last_occupied_at_frozen_across_countdown_stamp_advance
+
+    The pre-fix-up tests below were retargeted to the new semantics
+    (LOW-1: prior source-grep `"idle_duration" in src` passed via the
+    rationale comment — vacuous). This class now proves the OLD keys
+    are ABSENT + the NEW `last_occupied_at` key is present in source.
+    """
 
     BS_FILE = ROOT / "custom_components" / "universal_room_automation" / "binary_sensor.py"
 
-    def test_source_idle_duration_key_present(self):
-        """D4.3 AC: binary_sensor.py contains idle_duration key."""
+    def test_idle_duration_key_removed_from_source(self):
+        """URA-ATTRIBUTE-CHURN-1 fix-up 2: `idle_duration` must NOT
+        appear as an attrs dict key on the touched producer. AST-
+        anchored in test_attribute_churn_ura1_fixup1.py; this is the
+        historical-cycle-name pointer."""
+        import ast as _ast
+        tree = _ast.parse(self.BS_FILE.read_text())
+        for node in _ast.walk(tree):
+            if (
+                isinstance(node, _ast.ClassDef)
+                and node.name == "OccupiedBinarySensor"
+            ):
+                for stmt in _ast.walk(node):
+                    if (
+                        isinstance(stmt, _ast.Assign)
+                        and len(stmt.targets) == 1
+                        and isinstance(stmt.targets[0], _ast.Subscript)
+                        and isinstance(stmt.targets[0].slice, _ast.Constant)
+                    ):
+                        assert stmt.targets[0].slice.value != "idle_duration", (
+                            "OccupiedBinarySensor re-added the "
+                            "removed 'idle_duration' attribute — "
+                            "URA-ATTRIBUTE-CHURN-1 regression"
+                        )
+
+    def test_last_occupied_at_key_present_in_source(self):
+        """URA-ATTRIBUTE-CHURN-1 fix-up 2 substitute."""
         src = self.BS_FILE.read_text()
-        assert "idle_duration" in src, \
-            "OccupiedBinarySensor must include idle_duration in extra_state_attributes"
+        assert '"last_occupied_at"' in src, (
+            "OccupiedBinarySensor missing 'last_occupied_at' — the "
+            "static substitute for the removed 'idle_duration'"
+        )
 
-    def test_idle_duration_zero_when_occupied(self):
-        """D4.3 AC: idle_duration=0 when is_on=True."""
-        # Inline the idle_duration logic
-        def _compute_idle(is_on, coord_data, STATE_TIME_SINCE_OCCUPIED):
-            try:
-                if is_on:
-                    return 0
-                else:
-                    return coord_data.get(STATE_TIME_SINCE_OCCUPIED) if coord_data else None
-            except Exception:
-                return None
-
-        assert _compute_idle(True, {"time_since_last_occupied": 300}, "time_since_last_occupied") == 0
-
-    def test_idle_duration_returns_time_when_vacant(self):
-        """D4.3 AC: idle_duration returns STATE_TIME_SINCE_OCCUPIED value when vacant."""
-        def _compute_idle(is_on, coord_data, key):
-            try:
-                if is_on:
-                    return 0
-                return coord_data.get(key) if coord_data else None
-            except Exception:
-                return None
-
-        assert _compute_idle(False, {"time_since_last_occupied": 450}, "time_since_last_occupied") == 450
-
-    def test_idle_duration_none_when_no_data(self):
-        """D4.3 AC: idle_duration=None when coordinator.data is None."""
-        def _compute_idle(is_on, coord_data, key):
-            try:
-                if is_on:
-                    return 0
-                return coord_data.get(key) if coord_data else None
-            except Exception:
-                return None
-
-        assert _compute_idle(False, None, "time_since_last_occupied") is None
-
-    def test_source_state_time_since_occupied_imported(self):
-        """D4.3 AC: STATE_TIME_SINCE_OCCUPIED imported at module top."""
-        src = self.BS_FILE.read_text()
-        assert "STATE_TIME_SINCE_OCCUPIED" in src, \
-            "STATE_TIME_SINCE_OCCUPIED must be imported in binary_sensor.py"
+    def test_state_time_since_occupied_import_removed(self):
+        """URA-ATTRIBUTE-CHURN-1 fix-up 2 dropped the import (unused
+        after removing the vacant-branch STATE_TIME_SINCE_OCCUPIED
+        read). AST-anchored so a rationale comment mentioning the
+        old constant does not vacuously satisfy a source-grep."""
+        import ast as _ast
+        tree = _ast.parse(self.BS_FILE.read_text())
+        imported: set[str] = set()
+        for node in _ast.walk(tree):
+            if isinstance(node, _ast.ImportFrom):
+                for alias in node.names:
+                    imported.add(alias.name)
+            elif isinstance(node, _ast.Import):
+                for alias in node.names:
+                    imported.add(alias.name)
+        assert "STATE_TIME_SINCE_OCCUPIED" not in imported, (
+            "binary_sensor.py re-imported STATE_TIME_SINCE_OCCUPIED "
+            "— check the vacant-branch attr was not reverted to the "
+            "live now-since-last-occupied int"
+        )
 
 
 # ---------------------------------------------------------------------------
