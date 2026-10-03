@@ -2,8 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-02T02:06:21-05:00_ - _Data commit: `70b88b199620`_ - _last_reconciled: 2026-10-02_
+_Generated: 2026-10-02T21:13:40-05:00_ - _Data commit: `a0eeab99e712`_ - _last_reconciled: 2026-10-02_
 
+
+> ## ⚠️ STALE - board has not been reconciled against newer work
+>
+> - newest README README_v5.103.34.md (2026-10-03) is newer than last_reconciled (2026-10-02)
+>
+> Reconcile the board (update `meta.last_reconciled` + move shipped cards) before using it to pick next work.
 
 ## Columns
 
@@ -12,10 +18,10 @@ _Generated: 2026-10-02T02:06:21-05:00_ - _Data commit: `70b88b199620`_ - _last_r
 | 📥 Inbox | 2 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 11 |
-| 📝 Planned | 17 |
+| 📝 Planned | 18 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 6 |
-| ⏸️ Waiting on operator | 28 |
+| ⏸️ Waiting on operator | 27 |
 | ⏳ Waiting on me (Claude) | 0 |
 | 🚀 Shipped (organic open) | 12 |
 | 🅿️ Parked | 72 |
@@ -225,7 +231,7 @@ _updated 2026-09-29 01:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (17)
+## 📝 Planned (18)
 _has plan / acceptance_
 
 ### `DASHBOARD-V8-FIX-BATCH-1` - URA v8 dashboard fix batch: wrong Home/Now energy numbers, dead security ids, duplicate cards, a phone-first layout, and new Climate/Energy/People cards — _#1 · WSJF 4.0 · v6 tc4 u2 /e3_
@@ -483,7 +489,22 @@ _created 2026-08-19 07:45 · updated 2026-09-29 01:05 · refined_
   - `BLOCKED_LINK_2026_09_16`: Recorded the dependency as a real blocked_by link instead of leaving it as prose in measured_2026_09_15. This parent asks for a re-arch scoped to ~87 order-dependent RUNTIME failures, and those failures are currently unmeasurable because...
   - `UNBLOCKED_2026_09_21`: UNBLOCKED, and the number this card is built around finally has a fresh measurement. The blocker (TEST-HARNESS-REAL-HA-DEFAULT-1) rested on the claim that the harness errored out of 10,560 of 10,588 tests, which made the ~87 order-depend...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#17 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1` - The garage A charger is being switched off and on every 5-10 minutes overnight, in step with the Envoy battery reading dropping in and out — _#17 · WSJF 1.4 · v8 tc8 u2 /e13_
+thread: **energy** - status: **planned** - approval: **approved**
+_created 2026-10-01 05:00 · initial_
+- **Problem / Solution:**
+  - Problem: since 01:09 CDT tonight URA has turned the garage A charger (drawing about 11.7 kW) off and back on 9 times, roughly every 5-10 minutes, and garage B with it. Each switch-off happens seconds after the Envoy battery reading comes...
+- **Origin:** 2026-10-01 - overnight soak-exit agent (adjacent finding while disposing EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1); orchestrator re-verified from ura_activity_log + recorder
+- **Why:** The breaker-safety invariant (no EV ON while the battery grid-charges) is cost-and-safety critical, and the failure only appears when the Envoy drops out, which now happens every night.
+- **Next:** APPROVE: a Tier-3 fix so the arbitrage EV pause holds (does not release) while the battery reading is unavailable, plus the 4-review protocol and a pre-deploy checkpoint with you. Optional now, no code: if the flapping bothers you tonigh...
+- **Tags:** tier-3, found-during-probe, no-fabrication-verify, mutation-drill
+- **Parsimony:** [BUILD (Tier 3 - breaker-safety invariant on a shared energy state machine; needs your approval)] The arbitrage EV pause releases when the battery reading is missing and re-arms when it returns, cycling the chargers every 5-10 min.
+- **Forensic keys (3):**
+  - `operator_instruction_2026_10_02`: APPROVED (Tier 3) by operator 2026-10-02 ~21:20 CDT. Do NOT disturb the current blitz run; queue for the next overnight/other run. Remeasured 10-02: flap was a one-night burst (10-01 06-08Z, ~46 toggles); 10-02 normal 2-4/h. Root trigger...
+  - `measured_2026_10_01_overnight`: URA DB ura_activity_log (energy_pool charger_on/off, switch.garage_a): ON 06:09:44Z (pause_owners=none), OFF 06:15:13 (11,682 W, pause_owners=arbitrage), ON 06:20:09, OFF 06:25:14, ON 06:30:12, OFF 06:39:54, ON 06:45:02, OFF 06:49:55, ON...
+  - `adjacency_2026_10_01`: NEW. Swept: board (EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 = release vs fill-priority, daytime, different gate; ENVOY-DRAIN-ARM-STALE-CT-1 parked = drain-pause not ARMING under a stale CT, mirror-image failure on a different pause o...
+
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#18 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -627,7 +648,7 @@ _created 2026-09-26 02:14 · updated 2026-10-01 03:15 · initial_
   - `observed_2026_09_26`: LIVE INSTANCE, not theoretical. At about 02:04 CDT, during the overnight full-suite run in the shared main checkout, `git status` showed custom_components/universal_room_automation/domain_coordinators/energy.py modified with `return 0.0 ...
   - `scope_measured_2026_09_26`: grep for write_text plus custom_components across quality/tests: 14 files. Counting those with zero or one tmp-path reference as in-place writers gives about 9-10: test_ble_extend_not_create, test_dp_yields_to_excess_solar, test_energy_w...
 
-## ⏸️ Waiting on operator (28)
+## ⏸️ Waiting on operator (27)
 _needs a human call — groomed first_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
@@ -1030,21 +1051,7 @@ _updated 2026-09-29 01:05_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1` - The garage A charger is being switched off and on every 5-10 minutes overnight, in step with the Envoy battery reading dropping in and out — _#25 · WSJF 1.4 · v8 tc8 u2 /e13_
-thread: **energy** - status: **waiting_operator** - approval: **blocked**
-_created 2026-10-01 05:00 · initial_
-- **Problem / Solution:**
-  - Problem: since 01:09 CDT tonight URA has turned the garage A charger (drawing about 11.7 kW) off and back on 9 times, roughly every 5-10 minutes, and garage B with it. Each switch-off happens seconds after the Envoy battery reading comes...
-- **Origin:** 2026-10-01 - overnight soak-exit agent (adjacent finding while disposing EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1); orchestrator re-verified from ura_activity_log + recorder
-- **Why:** The breaker-safety invariant (no EV ON while the battery grid-charges) is cost-and-safety critical, and the failure only appears when the Envoy drops out, which now happens every night.
-- **Next:** APPROVE: a Tier-3 fix so the arbitrage EV pause holds (does not release) while the battery reading is unavailable, plus the 4-review protocol and a pre-deploy checkpoint with you. Optional now, no code: if the flapping bothers you tonigh...
-- **Tags:** tier-3, found-during-probe, no-fabrication-verify, mutation-drill
-- **Parsimony:** [BUILD (Tier 3 - breaker-safety invariant on a shared energy state machine; needs your approval)] The arbitrage EV pause releases when the battery reading is missing and re-arms when it returns, cycling the chargers every 5-10 min.
-- **Forensic keys (2):**
-  - `measured_2026_10_01_overnight`: URA DB ura_activity_log (energy_pool charger_on/off, switch.garage_a): ON 06:09:44Z (pause_owners=none), OFF 06:15:13 (11,682 W, pause_owners=arbitrage), ON 06:20:09, OFF 06:25:14, ON 06:30:12, OFF 06:39:54, ON 06:45:02, OFF 06:49:55, ON...
-  - `adjacency_2026_10_01`: NEW. Swept: board (EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 = release vs fill-priority, daytime, different gate; ENVOY-DRAIN-ARM-STALE-CT-1 parked = drain-pause not ARMING under a stale CT, mirror-image failure on a different pause o...
-
-### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#26 · WSJF 1.2 · v3 tc1 u2 /e5_
+### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#25 · WSJF 1.2 · v3 tc1 u2 /e5_
 thread: **platform** - status: **waiting_operator** - approval: **blocked**
 _created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
 - **Problem / Solution:**
@@ -1054,7 +1061,7 @@ _created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
   - `MEASURED_2026_09_30_overnight`: Read-only dbstat on the live DB (page_size 4096, 329,298 pages, freelist 48 -> the vacuum works; growth is live rows). Top: environmental_data 201 MB + idx_env_room_time 148 MB; energy_snapshots 162 MB + idx_energy_room_time 149 MB; occu...
   - `gate_2026_09_30`: Not built overnight: a new DELETE on tables with 10 months of history is irreversible and a change to the DB write path (Tier 2-DB). The retention window is a data-policy decision (these rows may be wanted for offline learning / the fore...
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#27 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#26 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -1069,7 +1076,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#28 · WSJF 1.0 · v7 tc4 u2 /e13_
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#27 · WSJF 1.0 · v7 tc4 u2 /e13_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-08-17 23:58 · updated 2026-09-29 02:55 · refined_
 - **Problem / Solution:**

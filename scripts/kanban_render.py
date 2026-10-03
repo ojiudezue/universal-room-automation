@@ -1098,11 +1098,14 @@ def render_html(data: dict, meta_extras: dict) -> str:
             # waiting_operator feed entries get an inline DECISION box too, so the
             # operator can decide straight from the progress digest (not just on
             # the card in its lane). Posts action=instruct against the CARD id.
-            if oc == "waiting_operator":
+            # Every feed entry gets the box (operator 2026-10-02: "I can only
+            # ack"): waiting_operator = decision, anything else = comment.
+            if card_id:
+                _kind = "decision" if oc == "waiting_operator" else "comment"
                 parts.append(f'<li class="decision-row" data-card="{_h(card_id)}">'
                              '<span class="oc"></span>'
                              '<div class="instruct feed-instruct">'
-                             f'<input type="text" placeholder="decision for {_h(card_id)}…" '
+                             f'<input type="text" placeholder="{_kind} for {_h(card_id)}…" '
                              'aria-label="operator decision">'
                              '<button type="button" data-action="instruct">send</button>'
                              '</div></li>')
