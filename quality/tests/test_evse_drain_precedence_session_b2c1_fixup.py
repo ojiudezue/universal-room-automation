@@ -791,11 +791,20 @@ def _mutate_and_expect_red(
     # SIGKILL-safe: mutate a COPY under tmp; real _ENERGY_SRC is never
     # opened for write. See _mutation_sandbox.py for the invariant.
     from _mutation_sandbox import apply_mutation_in_sandbox
+    # Borrowers (test_baec_shadow_eval.py, b2c3_fixup) pass
+    # "<their_file>.py::<test>"; route the anchor to THAT file. Pre-sandbox
+    # the prefix was glued onto this file's path, pytest exited rc=4 (not
+    # found) and the drill passed vacuously.
+    anchor_file = Path(os.path.abspath(__file__))
+    head, sep, rest = test_name.partition("::")
+    if sep and head.endswith(".py"):
+        anchor_file = Path(_HERE) / head
+        test_name = rest
     apply_mutation_in_sandbox(
         prod_path=_ENERGY_SRC,
         swap_from=swap_from,
         swap_to=swap_to,
-        anchor_test_file=Path(os.path.abspath(__file__)),
+        anchor_test_file=anchor_file,
         anchor_test_name=test_name,
         expect="KILLED",
     )
