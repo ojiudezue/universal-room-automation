@@ -435,6 +435,14 @@ meta:
     headline: "The outdoor camera box (Frigate2, 192.168.13.18) has been OFF THE NETWORK since about 7:18pm last night, during the network restart. HA and the Mac both fail to ping it and its network address does not resolve, so it is the machine or its cable/port, not software. Every Frigate person and motion detector reads unavailable, and outdoor person detection from Frigate has been blind for about 7 hours. UniFi Protect is still working. Good news on the older fault: the detectors that froze on 09-21 had started moving again before the box dropped. DO: check the box's power and network port and power-cycle it. I paged you with a Home Assistant notification (not a phone push) and changed nothing."
     acknowledged: false
 cards:
+- id: EC-RUNG1-WAIT-EV-PINGPONG-1
+  title: Battery strategy flips between "redirect solar" (pauses EVs) and "Arbitrage WAIT" (releases them) every tick, cycling an 11.6 kW charger on/off for hours
+  thread: energy
+  status: inbox
+  created: '2026-10-03 02:30'
+  updated: '2026-10-03 02:30'
+  next: 'PLAN (Tier 2+): find why rung_1 solar_attain/redirect wins on ticks where the EV is drawing (and at night with no sun), then WAIT/breaker-with-no-grid-charge releases; add hysteresis/ownership so a pause owner cannot release what it re-asserts next tick. Replay 10-01 06-08:20Z as the acceptance fixture.'
+  why: 'D0 replay + breaker investigation 2026-10-03: on 10-01 06:09-08:20Z ~12 full on/off cycles of garage A (11.6 kW); 13/14 turn-ons on ticks with valid SOC, so NOT the Envoy dropout. Pause reason "EV pause redirects solar" at 06:40Z with no sun. Also 09-28. Breaker-safety alarm cleared: guard reads the cloud CFG switch (off); local Enpower switch is a standing "on"; battery drew ~0 kW, peak import ~90 A. Latent gap noted: guard trusts cloud CFG only (no local corroboration). Supersedes the original framing of EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1.'
 - id: EC-DEGRADED-DATA-POLICY-1
   investigation_2026_10_03_overnight: "Investigation COMPLETE. Design review REV 2 + D0 measurement/replay is in docs/planning/DESIGN_ec_degraded_data_policy.md (NOTE: written by the attended session tonight, still UNTRACKED in git - commit it). D0 verdicts (section 9.3): P1-1 cloud freshness by last_reported NO-GO (cloud re-reports a frozen value: 10.0 % while true SOC rose to 29 %); P1-2/3 HOLD - and its must-answer is now RESOLVED by the overnight pass (no breaker gap; see EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1); P1-4 NO-GO as a fix; P1-5 attain-on-cloud NO-GO (no trustworthy non-Envoy SOC witness; MQTT stream down since 09-30). The 10-01 incident re-pointed to the rung-1/WAIT loop (new card); the dropout child EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1 closed as refuted."
   title: Energy coordinator has no single rule for what to do when the Envoy reading drops out (some sites hold, some release, some read zero)
