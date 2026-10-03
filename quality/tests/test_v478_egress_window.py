@@ -160,6 +160,17 @@ def _load_egress_module():
     base.Severity = _Sev
     sys.modules["ura_egress_pkg.domain_coordinators.base"] = base
 
+    # W1-C P1: every HVAC write / "manual" read resolves the zone's
+    # thermostat profile from the REAL hvac_strategy (stdlib-only module).
+    _strat_src = ROOT_DIR / ROOT_REL / "domain_coordinators" / "hvac_strategy.py"
+    _strat_spec = importlib.util.spec_from_file_location(
+        "ura_egress_pkg.domain_coordinators.hvac_strategy", str(_strat_src),
+    )
+    _strat_mod = importlib.util.module_from_spec(_strat_spec)
+    _strat_mod.__package__ = "ura_egress_pkg.domain_coordinators"
+    sys.modules["ura_egress_pkg.domain_coordinators.hvac_strategy"] = _strat_mod
+    _strat_spec.loader.exec_module(_strat_mod)
+
     # Load hvac_egress.
     egress_src_path = ROOT_DIR / ROOT_REL / "domain_coordinators" / "hvac_egress.py"
     spec = importlib.util.spec_from_file_location(
@@ -806,35 +817,46 @@ def test_v478_paused_zone_skipped_in_predictor_apply(predict_src):
     assert predict_src.count("self._egress_manager.is_paused(zone.zone_id)") >= 2
 
 
-def test_v478_paused_zone_skipped_in_dpm_apply(hvac_src):
-    """v4.7.8 fix-up C-H1 (plan §D8 spec gap).
+async def _w1c_drive_dpm_apply(monkeypatch, paused: set) -> list:
+    """W1-C P1: BEHAVIOURAL replacement for the C-H1 source-order greps —
+    drive the real `_async_apply_preset_overrides` (golden scenario A13_S10
+    setup) with the egress manager reporting `paused` zones; return the
+    entities that received a `set_temperature` wire call."""
+    import types as _types
+    from test_hvac_w1c_p1_byte_identity import site_ctx
+    async with site_ctx(monkeypatch) as ctx:
+        c = ctx.coord
+        c._guest_mode_actuation_enabled = True
+        c._house_state = "home_day"
+        DOMAIN = ctx.mods["const"].DOMAIN
+        ctx.hass.data[DOMAIN]["coordinator_manager"] = _types.SimpleNamespace(
+            coordinators={"energy": _types.SimpleNamespace(_dynamic_preset_overrides={})},
+        )
+        for zid in ("zone_2", "zone_3"):
+            c._last_emitted_range[zid] = (0.0, 0.0)
+        ctx.set_entity(preset_mode="home", hold_activity="home")
+        monkeypatch.setattr(ctx.egress, "is_paused", lambda zone_id: zone_id in paused)
+        await c._async_apply_preset_overrides()
+        return [
+            x["data"]["entity_id"] for x in ctx.calls
+            if x["domain"] == "climate" and x["service"] == "set_temperature"
+        ]
 
-    `_async_apply_preset_overrides` in hvac.py iterates zones at the
-    OverrideEngine apply site and dispatches `climate.set_temperature`.
-    Without an `is_paused` guard, Ecobee thermostats re-engage mode on
-    `set_temperature` after an explicit `off`, silently defeating the
-    egress pause. Verify the guard is inside the per-zone loop and BEFORE
-    the actual service-call dispatch (not the docstring mention).
+
+@pytest.mark.asyncio
+async def test_v478_paused_zone_skipped_in_dpm_apply(monkeypatch):
+    """v4.7.8 fix-up C-H1 (plan §D8 spec gap): DPM apply skips egress-paused zones.
+
+    W1-C P1: converted from a source-order grep to a BEHAVIOURAL test —
+    `_async_apply_preset_overrides` must issue NO set_temperature to an
+    egress-paused zone (Ecobee re-engages mode on set_temperature after
+    `off`) while still writing the unpaused zones (non-vacuity control).
     """
-    apply_start = hvac_src.find("async def _async_apply_preset_overrides")
-    assert apply_start >= 0
-    # Find the next top-level `async def` to bound the body.
-    apply_end = hvac_src.find("\n    async def ", apply_start + 1)
-    apply_body = hvac_src[apply_start:apply_end if apply_end > 0 else len(hvac_src)]
-    # Guard is present.
-    assert "is_paused(zone_id)" in apply_body, \
-        "DPM apply must skip egress-paused zones (Ecobee re-engages on " \
-        "set_temperature)"
-    # Guard appears BEFORE the setpoint dispatch. feature/freeze-floor routed
-    # the apply path through the chokepoint `emit_set_temperature(...)`, so the
-    # dispatch anchor is the chokepoint call (the literal "set_temperature"
-    # string now lives in hvac_setpoint.py, not this method body).
-    guard_idx = apply_body.find("is_paused(zone_id)")
-    dispatch_idx = apply_body.find("emit_set_temperature(")
-    assert dispatch_idx >= 0, \
-        "DPM apply must dispatch via the setpoint chokepoint"
-    assert guard_idx < dispatch_idx, \
-        "is_paused guard must precede the setpoint dispatch in DPM apply"
+    unpaused = await _w1c_drive_dpm_apply(monkeypatch, set())
+    assert "climate.test_zone_1" in unpaused  # control: the site does write
+    paused = await _w1c_drive_dpm_apply(monkeypatch, {"zone_1"})
+    assert "climate.test_zone_1" not in paused
+    assert {"climate.test_zone_2", "climate.test_zone_3"} <= set(paused)
 
 
 def test_v478_force_charge_button_unaffected_by_egress_pause():
@@ -1160,26 +1182,20 @@ def test_v478_fixup_B_H3_master_switch_clears_gate_on_no_saved_state(switch_src)
         "fresh-install branch must discard `enabled` bit so gate releases"
 
 
-def test_v478_fixup_C_H1_DPM_apply_guards_egress_paused_zones(hvac_src):
-    """C-H1 (plan §D8 spec gap): _async_apply_preset_overrides must skip
-    egress-paused zones BEFORE the set_temperature dispatch. Ecobee
-    re-engages mode on set_temperature after off, defeating the pause.
+@pytest.mark.asyncio
+async def test_v478_fixup_C_H1_DPM_apply_guards_egress_paused_zones(monkeypatch):
+    """C-H1 (plan §D8 spec gap): DPM apply guards egress-paused zones.
 
-    This test is the dedicated regression for the DPM apply path
-    (separate from test_v478_paused_zone_skipped_in_predictor_apply
-    which validates HVACPredictor pre-cool / pre-heat).
+    W1-C P1: converted from a source-order grep to a BEHAVIOURAL test —
+    `_async_apply_preset_overrides` must issue NO set_temperature to an
+    egress-paused zone (Ecobee re-engages mode on set_temperature after
+    `off`) while still writing the unpaused zones (non-vacuity control).
     """
-    apply_start = hvac_src.find("async def _async_apply_preset_overrides")
-    assert apply_start >= 0
-    apply_end = hvac_src.find("\n    async def ", apply_start + 1)
-    body = hvac_src[apply_start:apply_end if apply_end > 0 else len(hvac_src)]
-    # Guard appears before the setpoint dispatch. feature/freeze-floor routed
-    # the apply path through the chokepoint `emit_set_temperature(...)`; the
-    # raw "set_temperature" service literal now lives in hvac_setpoint.py.
-    g = body.find("is_paused(zone_id)")
-    d = body.find("emit_set_temperature(")
-    assert g >= 0 and d >= 0 and g < d, \
-        "DPM apply guard must precede the setpoint dispatch (C-H1)"
+    unpaused = await _w1c_drive_dpm_apply(monkeypatch, set())
+    assert "climate.test_zone_1" in unpaused  # control: the site does write
+    paused = await _w1c_drive_dpm_apply(monkeypatch, {"zone_1"})
+    assert "climate.test_zone_1" not in paused
+    assert {"climate.test_zone_2", "climate.test_zone_3"} <= set(paused)
 
 
 def test_v478_fixup_C_H3_strings_json_has_egress_translations():

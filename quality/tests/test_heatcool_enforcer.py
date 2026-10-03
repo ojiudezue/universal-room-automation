@@ -200,6 +200,17 @@ def _load_hvac_module():
     sys.modules["ura_hvac_pkg.domain_coordinators.signals"] = signals
 
     # --- Load the REAL hvac module ---
+    # W1-C P1: every HVAC write / "manual" read resolves the zone's
+    # thermostat profile from the REAL hvac_strategy (stdlib-only module).
+    _strat_src = ROOT_DIR / ROOT_REL / "domain_coordinators" / "hvac_strategy.py"
+    _strat_spec = importlib.util.spec_from_file_location(
+        "ura_hvac_pkg.domain_coordinators.hvac_strategy", str(_strat_src),
+    )
+    _strat_mod = importlib.util.module_from_spec(_strat_spec)
+    _strat_mod.__package__ = "ura_hvac_pkg.domain_coordinators"
+    sys.modules["ura_hvac_pkg.domain_coordinators.hvac_strategy"] = _strat_mod
+    _strat_spec.loader.exec_module(_strat_mod)
+
     hvac_src = ROOT_DIR / ROOT_REL / "domain_coordinators" / "hvac.py"
     spec = importlib.util.spec_from_file_location(
         "ura_hvac_pkg.domain_coordinators.hvac", str(hvac_src)

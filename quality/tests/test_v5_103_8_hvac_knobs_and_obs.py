@@ -540,7 +540,9 @@ def _collect_emit_reason_literals_ast(paths):
                 fname = func.id
             elif isinstance(func, ast.Attribute):
                 fname = func.attr
-            if fname != "emit_set_preset_mode":
+            # W1-C P1: preset writes reach the funnel through the zone's
+            # thermostat profile (`strategy.pin_preset` / `hold_preset`).
+            if fname not in ("emit_set_preset_mode", "pin_preset", "hold_preset"):
                 continue
             for kw in node.keywords:
                 if kw.arg != "reason":

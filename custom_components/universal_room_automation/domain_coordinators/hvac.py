@@ -111,6 +111,26 @@ from .signals import (
 _LOGGER = logging.getLogger(__name__)
 
 
+# HVAC W1-C P1 — every thermostat write / "manual" read goes through the
+# zone's thermostat profile (`hvac_strategy`). Lazy imports: the module set
+# is reloaded by the test harnesses, so binding at import time could pin a
+# stale strategy cache.
+def _w1c_strategy(hass, entity_id):
+    from .hvac_strategy import strategy_for  # noqa: PLC0415
+    return strategy_for(hass, entity_id)
+
+
+def _w1c_applied(result) -> bool:
+    """Old funnel bool: True = issued (APPLIED), False = gate-deferred."""
+    from .hvac_strategy import WriteStatus  # noqa: PLC0415
+    return result.status == WriteStatus.APPLIED
+
+
+def _w1c_is_manual(hass, entity_id, preset) -> bool:
+    from .hvac_strategy import is_manual_hold_for  # noqa: PLC0415
+    return is_manual_hold_for(hass, entity_id, preset)
+
+
 # ---------------------------------------------------------------------------
 # Zone-prune hotfix D1 — module-level helpers (extracted for real test
 # authority per fix-up "Fix 2"). Lifting these out of the handler makes
@@ -2588,7 +2608,7 @@ class HVACCoordinator(BaseCoordinator):
                 self._override_arrester.suppress(zone.climate_entity)
                 try:
                     # HVAC-W1-A B1: heat_cool enforcer drift revert.
-                    await emit_set_hvac_mode(
+                    await _w1c_strategy(self.hass, zone.climate_entity).set_hvac_mode(
                         self.hass,
                         zone.climate_entity,
                         "heat_cool",
@@ -2596,6 +2616,7 @@ class HVACCoordinator(BaseCoordinator):
                         zone_id=zone_id,
                         reason="heat_cool_enforcer_drift_revert",
                         blocking=True,
+                        emit=emit_set_hvac_mode,
                     )
                     _LOGGER.info(
                         "HVAC: Enforced heat_cool on %s (was %s)",
@@ -3374,7 +3395,7 @@ class HVACCoordinator(BaseCoordinator):
             # Lockout episode discharges as soon as the zone is out of manual
             # (suppression-needs-a-discharge: an episode that never ends would
             # under-count every later lockout).
-            if zone.preset_mode != "manual":
+            if not _w1c_is_manual(self.hass, zone.climate_entity, zone.preset_mode):
                 self._preset_lockout_since.pop(zone_id, None)
             # HVAC W1-B §5.P1 — the S1 manual rule (Alt A, four gates).
             # `should_change_preset` now reads the gates for a `manual`
@@ -3395,7 +3416,7 @@ class HVACCoordinator(BaseCoordinator):
                 # (e). Gates (c) and (d) do NOT block the bypass (an empty
                 # zone going away is not fighting a grace, and a passive
                 # arrester does not own an empty zone).
-                if zone.preset_mode == "manual":
+                if _w1c_is_manual(self.hass, zone.climate_entity, zone.preset_mode):
                     _vb = self._preset_manager.manual_guard_verdict(zone_id)
                     _vs = _vb.get("gate_snapshot", {})
                     if _vs.get("a_b"):
@@ -3405,8 +3426,9 @@ class HVACCoordinator(BaseCoordinator):
                     _deferred_snapshot = _vs
             elif not self._preset_manager.should_change_preset(
                 zone.preset_mode, effective_preset, zone_id=zone_id,
+                climate_entity=zone.climate_entity,
             ):
-                if zone.preset_mode == "manual":
+                if _w1c_is_manual(self.hass, zone.climate_entity, zone.preset_mode):
                     _v = self._preset_manager.last_manual_verdict(zone_id) or {}
                     _deferred_reason = _v.get("reason") or "unknown"
                     _deferred_snapshot = _v.get("gate_snapshot", {}) or {}
@@ -3571,7 +3593,7 @@ class HVACCoordinator(BaseCoordinator):
             # URA-caused strand class). Reason ladder untouched; no NM.
             _manual_class = "not_manual"
             _last_det: dict | None = None
-            if zone.preset_mode == "manual":
+            if _w1c_is_manual(self.hass, zone.climate_entity, zone.preset_mode):
                 try:
                     if self._override_arrester is not None:
                         _last_det = self._override_arrester.last_detection_for(
@@ -3697,7 +3719,7 @@ class HVACCoordinator(BaseCoordinator):
                     self._note_fast_write(zone_id, _s1_ts, edge_ts)
                 # HVAC W1-B §5.P5: reclaim-rate trip-wire on manual
                 # write-throughs only.
-                if zone.preset_mode == "manual":
+                if _w1c_is_manual(self.hass, zone.climate_entity, zone.preset_mode):
                     self._note_s1_reclaim(zone_id, zone.zone_name, preset_change_reason)
                 _LOGGER.info(
                     "HVAC: Set %s preset %s -> %s (house_state=%s%s)",
@@ -3790,7 +3812,7 @@ class HVACCoordinator(BaseCoordinator):
                                 "gate_snapshot": (
                                     (self._preset_manager.last_manual_verdict(zone_id) or {})
                                     .get("gate_snapshot", {})
-                                    if zone.preset_mode == "manual" else {}
+                                    if _w1c_is_manual(self.hass, zone.climate_entity, zone.preset_mode) else {}
                                 ),
                                 "last_detection": _last_det,
                             },
@@ -4128,7 +4150,7 @@ class HVACCoordinator(BaseCoordinator):
                             )
                         except Exception:  # noqa: BLE001
                             return False
-                    _s10_written = await emit_set_temperature(
+                    _s10_written = _w1c_applied(await _w1c_strategy(self.hass, zone.climate_entity).set_setpoints(
                         self.hass,
                         zone.climate_entity,
                         target_temp_low=resolved.cool_low,
@@ -4139,7 +4161,8 @@ class HVACCoordinator(BaseCoordinator):
                         site="S10_dpm_apply",
                         zone_id=zone_id,
                         reason="dpm_preset_apply",
-                    )
+                        emit=emit_set_temperature,
+                    ))
                     if not _s10_written:
                         # Deferred by comfort-grace — do NOT record the
                         # resolved pair in the throttle map (next tick

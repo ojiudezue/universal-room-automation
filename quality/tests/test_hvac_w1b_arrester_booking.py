@@ -355,6 +355,18 @@ async def test_last_detection_cleared_when_entity_leaves_manual(mods):
 
 
 @pytest.mark.asyncio
+async def test_last_detection_kept_while_entity_stays_manual(mods):
+    """W1-C P1 anchor for the episode boundary's `new is not manual`
+    conjunct: a manual -> manual event (no setpoint change) keeps the
+    episode's last detection."""
+    coord, hass, arr = _arr(mods)
+    await _fire(hass, arr, _severe())
+    assert arr.last_detection_for(ENT) is not None
+    await _fire(hass, arr, H.make_event(ENT, old_preset="manual", new_preset="manual"))
+    assert arr.last_detection_for(ENT) is not None
+
+
+@pytest.mark.asyncio
 async def test_last_detection_returns_copy(mods):
     coord, hass, arr = _arr(mods)
     await _fire(hass, arr, _severe())

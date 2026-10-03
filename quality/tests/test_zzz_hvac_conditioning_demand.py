@@ -388,8 +388,11 @@ def test_d9_compose_away_when_established_empty_zone_source_shape():
     assert "zone_target_preset" in hvac_src
     # Establishment check delegated.
     assert "_is_zone_hvac_established" in hvac_src
-    # Wire chokepoint untouched.
-    assert "await emit_set_temperature(" in hvac_src
+    # (W1-C P1: the "wire chokepoint untouched" source grep was removed —
+    # S10 now reaches `emit_set_temperature` through
+    # `strategy.set_setpoints(..., emit=emit_set_temperature)`; the wire is
+    # proven behaviourally by test_d9_compose_away_behavioral and the W1-C
+    # golden scenario A13_S10.)
 
 
 def test_d9_compose_away_behavioral():
