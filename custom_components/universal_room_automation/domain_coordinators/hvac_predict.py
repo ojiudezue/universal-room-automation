@@ -60,7 +60,7 @@ def _w1c_strategy(hass, entity_id):
 def _w1c_applied(result) -> bool:
     """Old funnel bool: True = issued (APPLIED), False = gate-deferred."""
     from .hvac_strategy import WriteStatus  # noqa: PLC0415
-    return result.status is WriteStatus.APPLIED
+    return result.status == WriteStatus.APPLIED
 
 # Pre-conditioning thresholds
 PRECOOL_FORECAST_HIGH: float = 90.0  # F — trigger pre-cool above this

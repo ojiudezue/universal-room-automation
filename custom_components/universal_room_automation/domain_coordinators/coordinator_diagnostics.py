@@ -591,8 +591,15 @@ class ComplianceTracker:
         """Attempt to detect what caused the override."""
         if device_type == "climate":
             state = self.hass.states.get(device_id)
-            if state and state.attributes.get("preset_mode") == "manual":
-                return "thermostat_manual"
+            if state:
+                # W1-C P1: the zone's thermostat profile decides what the
+                # anonymous manual hold is (Carrier: preset == "manual").
+                from .hvac_strategy import is_manual_hold_for  # noqa: PLC0415
+
+                if is_manual_hold_for(
+                    self.hass, device_id, state.attributes.get("preset_mode"),
+                ):
+                    return "thermostat_manual"
         return "unknown"
 
     async def _store_compliance(self, record: ComplianceRecord) -> None:

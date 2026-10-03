@@ -81,7 +81,7 @@ def _w1c_strategy(hass, entity_id):
 def _w1c_applied(result) -> bool:
     """Old funnel bool: True = issued (APPLIED), False = gate-deferred."""
     from .hvac_strategy import WriteStatus  # noqa: PLC0415
-    return result.status is WriteStatus.APPLIED
+    return result.status == WriteStatus.APPLIED
 
 
 def _w1c_is_manual(hass, entity_id, preset) -> bool:

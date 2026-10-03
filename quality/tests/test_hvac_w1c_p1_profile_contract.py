@@ -91,6 +91,20 @@ def test_no_raw_manual_literal_outside_strategy():
     assert not bad, "\n".join(bad)
 
 
+def test_manual_allowlist_occurrence_counts_exact():
+    """LOW-1: the allowlist is keyed on (file, stripped line); a DUPLICATE of
+    an allowlisted line elsewhere must not ride the same entry. Each
+    allowlisted line occurs exactly once."""
+    from collections import Counter
+
+    counts = Counter((f, txt) for f, txt, _ in _manual_literals())
+    expected = Counter({k: 1 for k in MANUAL_LITERAL_ALLOWLIST})
+    assert counts == expected, (
+        f"manual-literal occurrences differ from allowlist: "
+        f"extra={dict(counts - expected)} missing={dict(expected - counts)}"
+    )
+
+
 def test_manual_allowlist_has_no_stale_entries():
     seen = {(f, txt) for f, txt, _ in _manual_literals()}
     stale = [k for k in MANUAL_LITERAL_ALLOWLIST if k not in seen]
@@ -290,8 +304,13 @@ def test_pin_preset_never_noops_on_matching_last_sent():
 
 
 def test_release_hold_records_nothing(monkeypatch):
-    from custom_components.universal_room_automation.domain_coordinators import (
-        hvac_setpoint,
+    # Patch the module release_hold's lazy ``from .hvac_setpoint import``
+    # resolves NOW (sys.modules), not a possibly-stale package attribute —
+    # byte_identity reloads modules (MEDIUM-1, order-dependence).
+    import importlib
+
+    hvac_setpoint = importlib.import_module(
+        S.__name__.rsplit(".", 1)[0] + ".hvac_setpoint"
     )
     spy = _Spy()
     monkeypatch.setattr(hvac_setpoint, "emit_set_preset_mode", spy)
