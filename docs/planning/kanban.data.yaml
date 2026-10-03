@@ -581,10 +581,19 @@ meta:
       plus a count shown at session start so regrowth is visible instead of being noticed by accident
       nine days later.'
 cards:
+- id: EC-DEGRADED-DATA-POLICY-1
+  title: Energy coordinator has no single rule for what to do when the Envoy reading drops out (some sites hold, some release, some read zero)
+  thread: energy
+  status: investigating
+  created: '2026-10-03 01:20'
+  updated: '2026-10-03 01:20'
+  next: 'ME: planner enumerates every Envoy-availability decision site + current dropout behaviour + policy options -> design-review write-up to operator. PICK (operator): approach / phasing. NO BUILD until operator decides (operator 2026-10-03: "we need to pause and reconsider how to approach it").'
+  why: 'SOC resolver already falls back envoy -> lkg -> cloud, but the battery strategy holds with no commands, the arbitrage EV pause releases on missing SOC, and solar reads the dead derived sensor. The Envoy /production.json fault (since 2026-10-01) turned rare outages into frequent ones. Children: EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1, EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1 (both approved, both ON HOLD pending this decision).'
 - id: EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1
+  parked_2026_10_03: 'ON HOLD under EC-DEGRADED-DATA-POLICY-1 — operator wants the approach reconsidered before building one-off fixes.'
   title: Attain charges nothing when the local Envoy is unavailable, even though the cloud battery reading is fresh
   thread: energy
-  status: inbox
+  status: parked
   created: '2026-10-03 01:00'
   updated: '2026-10-03 01:00'
   next: 'PLAN (Tier 3, battery strategy): let the charge window act on a fresh cloud SOC (soc_source=cloud_fallback) instead of holding with no commands; define freshness bound + which commands are safe on cloud SOC.'
@@ -614,9 +623,10 @@ cards:
   next: 'DO: leave a garage door open across sunset (~7:05 pm) with someone home -> I query ura_activity_log for the cover skip and confirm the door did not move, then close this card.'
   why: 'v5.103.28 cover_ownership guard is proven in-suite with drills, but the 09-30 live check was inconclusive (both doors already closed). A garage door closing on its own is the one safety-relevant failure in the W4 set, so one staged proof is worth it.'
 - id: EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1
+  parked_2026_10_03: 'ON HOLD under EC-DEGRADED-DATA-POLICY-1 — operator wants the approach reconsidered before building one-off fixes.'
   title: The garage A charger is being switched off and on every 5-10 minutes overnight, in step with the Envoy battery reading dropping in and out
   thread: energy
-  status: planned
+  status: parked
   operator_instruction_2026_10_02: 'APPROVED (Tier 3) by operator 2026-10-02 ~21:20 CDT. Do NOT disturb the current blitz run; queue for the next overnight/other run. Remeasured 10-02: flap was a one-night burst (10-01 06-08Z, ~46 toggles); 10-02 normal 2-4/h. Root trigger = Envoy SOC dropouts; URA defect = arbitrage pause releases on missing SOC.'
   created: '2026-10-01 05:00'
   updated: '2026-10-01 05:00'
