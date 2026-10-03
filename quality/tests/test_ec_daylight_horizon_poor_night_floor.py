@@ -441,14 +441,39 @@ def test_night_carried_rung1_latch_full_determine_mode(now, bnd):
 
 
 @pytest.mark.parametrize("now,bnd", _NIGHT_CASES, ids=["0200", "2105"])
-def test_night_carried_rung0_latch_released_entry_band_decides(now, bnd):
-    """rung_0 latch carried at night with p0 80 (between exit 77 and entry
-    83): pre-fix hysteresis held rung_0; now p0 decides → rung_2."""
+def test_night_carried_rung0_latch_kept_in_hysteresis_band(now, bnd):
+    """Operator ruling: rung_0 latch/hysteresis KEPT at night. p0 = 55 + 25
+    = 80, in [exit 77, entry 83) → carried rung_0 latch HOLDS rung_0 (no
+    flip to the rung_2 grid-charge plan)."""
     strat, _ = _make(soc=55, boundary=bnd, tomorrow_kwh="24")
     strat._arb_rung0_latch = True
     rung, p0, _p1 = _classify(strat, now, 55.0, 0.0, 2.0)
-    assert (rung, p0) == ("rung_2", 80.0)
+    assert (rung, p0) == ("rung_0", 80.0)
+    assert strat._arb_rung0_latch is True
+
+
+@pytest.mark.parametrize("now,bnd", _NIGHT_CASES, ids=["0200", "2105"])
+def test_night_carried_rung0_latch_exits_below_exit_band(now, bnd):
+    """p0 = 50 + 25 = 75 < exit 77 → carried rung_0 latch exits → rung_2."""
+    strat, _ = _make(soc=50, boundary=bnd, tomorrow_kwh="24")
+    strat._arb_rung0_latch = True
+    rung, p0, _p1 = _classify(strat, now, 50.0, 0.0, 2.0)
+    assert (rung, p0) == ("rung_2", 75.0)
     assert strat._arb_rung0_latch is False
+
+
+@pytest.mark.parametrize("now,bnd", _NIGHT_CASES, ids=["0200", "2105"])
+def test_night_both_latches_rung1_released_rung0_kept(now, bnd):
+    """Both latched at night, p0 80: rung_1 + EV load cleared, rung_0 held."""
+    strat, _ = _make(soc=55, boundary=bnd, tomorrow_kwh="24")
+    strat._arb_rung0_latch = True
+    strat._arb_rung1_latch = True
+    strat._arb_last_ev_load_pct_per_h = 5.0
+    rung, p0, _p1 = _classify(strat, now, 55.0, 0.0, 2.0)
+    assert (rung, p0) == ("rung_0", 80.0)
+    assert strat._arb_rung1_latch is False
+    assert strat._arb_rung0_latch is True
+    assert strat._arb_last_ev_load_pct_per_h == 0.0
 
 
 def test_night_p0_above_entry_gives_rung0_unlatched():

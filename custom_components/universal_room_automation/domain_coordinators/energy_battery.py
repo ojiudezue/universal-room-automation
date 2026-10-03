@@ -3053,16 +3053,17 @@ class BatteryStrategy:
         # `in_daylight` predicate as the D1 horizon above) a rung latch taken
         # in daylight must NOT survive — a carried rung_1 latch would keep the
         # EVs paused for "redirect" all night with no solar to redirect.
-        # Release BOTH latches and fall through to the unlatched evaluation,
-        # so the plain rung-0 projection decides rung_0 vs rung_2: rung-1
-        # ENTRY cannot fire at night because with rate_hours == 0 (D1) its
-        # projection equals projected_rung0, which already failed entry.
+        # Release ONLY the rung_1 latch (and its remembered EV load); the
+        # rung_0 latch and its exit hysteresis (exit below target - exit
+        # band) are KEPT at night (operator ruling) so a p0 in
+        # [exit, entry) does not flip rung_0 -> rung_2 (grid-charge plan).
+        # Rung-1 ENTRY cannot fire at night because with rate_hours == 0
+        # (D1) its projection equals projected_rung0.
         if not in_daylight:
             if self._arb_rung1_latch:
                 # C-MED-2 hygiene: stale assumed EV-load cleared on release.
                 self._arb_last_ev_load_pct_per_h = 0.0
             self._arb_rung1_latch = False
-            self._arb_rung0_latch = False
 
         # CRITICAL ordering: when rung-1 is latched, the COUNTERFACTUAL
         # rung-1 exit logic is the AUTHORITATIVE next-state decision —
