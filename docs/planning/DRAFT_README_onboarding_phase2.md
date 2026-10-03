@@ -63,6 +63,17 @@ folded in). **Tier:** S2 = Tier 2-DB (3 framing-disjoint reviews), S1/S3 = Tier 
 - Deleted dead `post_integration_setup`, `setup_zone`, `finish` steps + their strings and the old
   test. `skip_to_room` kept (finding 5).
 
+## Known behaviours (by design)
+
+- First run (Simple House form): the People field is pre-filled with
+  every `person.*` in HA. Untick anyone who should not be tracked.
+- Rooms from areas: the "already set up" check is by room name only
+  (case-insensitive). An existing room with a different name for the same
+  area is not detected, so the area would get a second room.
+- The room type for each area is a keyword guess from the area name
+  (e.g. "Bath" -> bathroom). The guess is shown on the review screen;
+  change it later in the room's options if wrong.
+
 ## Acceptance (in-suite)
 
 | Criterion | Test |

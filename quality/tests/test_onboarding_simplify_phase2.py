@@ -382,6 +382,53 @@ def test_bulk_rooms_creates_one_entry_per_ticked_area(install):
     for room in hass.rooms():
         assert room.data[C.CONF_INTEGRATION_ENTRY_ID] == "house_1"
     assert done["description_placeholders"]["created"] == "2"
+    # Occupancy / motion prefill lands in the stored entry (review C #1).
+    office = next(e for e in hass.rooms() if e.title == "Office")
+    assert office.data[C.CONF_OCCUPANCY_SENSORS] == ["binary_sensor.office_occ"]
+    assert office.data[C.CONF_MOTION_SENSORS] == []
+    bath = next(e for e in hass.rooms() if e.title == "Guest Bath")
+    assert bath.data[C.CONF_MOTION_SENSORS] == ["binary_sensor.bath_motion"]
+
+
+def test_bulk_rooms_office_entry_hand_written_expected(install):
+    """Bulk parity against a HAND-WRITTEN expected entry (not built by the
+    shared default builders), so a regression in those builders cannot
+    also move the oracle."""
+    install(_area_entities(), _AREAS)
+    hass = _Hass()
+    _bulk(_house_flow(hass), ["a2"])
+    assert hass.rooms()[0].data == {
+        "entry_type": "room",
+        "integration_entry_id": "house_1",
+        "room_name": "Office",
+        "room_type": "generic",
+        "area_id": "a2",
+        "occupancy_timeout": 300,
+        "wet_room": False,
+        "room_is_guest_room": False,
+        "motion_sensors": [],
+        "presence_sensors": [],
+        "occupancy_sensors": ["binary_sensor.office_occ"],
+        "lights": ["light.office_lamp"],
+        "auto_switches": [],
+        "fans": [],
+        "humidity_fans": [],
+        "covers": [],
+        "light_capabilities": "basic",
+    }
+
+
+def test_room_bulk_create_aborts_on_existing_name(install):
+    install([])
+    hass = _Hass()
+    hass._entries.append(SimpleNamespace(
+        entry_id="old", options={}, title="Office",
+        data={C.CONF_ENTRY_TYPE: C.ENTRY_TYPE_ROOM, C.CONF_ROOM_NAME: "Office"},
+    ))
+    result = _run(_flow(hass).async_step_room_bulk_create(user_input={
+        C.CONF_ENTRY_TYPE: C.ENTRY_TYPE_ROOM, C.CONF_ROOM_NAME: " office ",
+    }))
+    assert result["type"] == "abort" and result["reason"] == "room_name_exists"
 
 
 def test_bulk_rooms_skips_area_without_occupancy(install):
@@ -443,7 +490,10 @@ def test_bulk_rooms_entry_equals_single_flow_entry(install, advanced):
     step = _run(flow.async_step_room_setup(user_input={
         C.CONF_AREA_ID: "a1", C.CONF_ROOM_TYPE: C.ROOM_TYPE_BATHROOM,
     }))
-    while step["type"] == "form":
+    for _ in range(10):
+        if step["type"] != "form":
+            break
+        assert not step.get("errors"), (step["step_id"], step.get("errors"))
         handler = getattr(flow, f"async_step_{step['step_id']}")
         step = _run(handler(user_input=_untouched(step)))
     assert step["type"] == "create_entry"
@@ -537,7 +587,10 @@ def test_room_simple_four_screens(install):
     step = _run(flow.async_step_room_setup(user_input={
         C.CONF_AREA_ID: "a1", C.CONF_ROOM_TYPE: C.ROOM_TYPE_BATHROOM,
     }))
-    while step["type"] == "form":
+    for _ in range(10):
+        if step["type"] != "form":
+            break
+        assert not step.get("errors"), (step["step_id"], step.get("errors"))
         seen.append(step["step_id"])
         step = _run(getattr(flow, f"async_step_{step['step_id']}")(
             user_input=_untouched(step)))
