@@ -435,6 +435,14 @@ meta:
     headline: "The outdoor camera box (Frigate2, 192.168.13.18) has been OFF THE NETWORK since about 7:18pm last night, during the network restart. HA and the Mac both fail to ping it and its network address does not resolve, so it is the machine or its cable/port, not software. Every Frigate person and motion detector reads unavailable, and outdoor person detection from Frigate has been blind for about 7 hours. UniFi Protect is still working. Good news on the older fault: the detectors that froze on 09-21 had started moving again before the box dropped. DO: check the box's power and network port and power-cycle it. I paged you with a Home Assistant notification (not a phone push) and changed nothing."
     acknowledged: false
 cards:
+- id: ENVOY-STREAM-AB-48H-1
+  title: Envoy MQTT stream re-enabled for a 48 h A/B (does it load the Envoy, and does it give a trustworthy local SOC during dropouts?)
+  thread: energy
+  status: investigating
+  created: '2026-10-03 13:05'
+  updated: '2026-10-03 13:05'
+  next: 'ME at 2026-10-05 13:05: one-shot query vs baseline (stream OFF 2026-10-03 00:58-13:03: 0 Envoy SOC/net dropouts). Measure (1) envoy integration unavailable transitions, (2) peak battery cutouts, (3) sensor.envoy_stream_battery_soc freshness during any Envoy dropout. Dispose: dropouts/cutouts rise -> stop add-on; else keep + feed EC-DEGRADED-DATA-POLICY-1 as the trusted local SOC tier.'
+  why: 'Operator 2026-10-03 "yes do it". Started add-on 13e68335_envoy_to_mqtt_json 13:03 CDT. Baseline week (stream off since 09-30): 165 SOC dropouts/22.7 per day; today since 00:58 reload: 0. Prior evidence (09-29, entry 167): stream on correlated with 37-94 peak cutouts/day vs 9 off. Cloud SOC proven untrustworthy (frozen 10.0%, up to 75 pp divergence), so a working local stream is the best fallback candidate.'
 - id: EC-RUNG1-WAIT-EV-PINGPONG-1
   title: Battery strategy flips between "redirect solar" (pauses EVs) and "Arbitrage WAIT" (releases them) every tick, cycling an 11.6 kW charger on/off for hours
   thread: energy
