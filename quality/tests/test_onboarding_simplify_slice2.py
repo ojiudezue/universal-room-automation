@@ -120,12 +120,17 @@ def _run(coro):
 def test_essentials_chain_reaches_create_entry_in_4_steps():
     """5 form-submits: room_setup -> room_class -> sensors_confirm ->
     devices_confirm -> room_summary -> create_entry. (4 confirmed data
-    steps + a final read-only recap.)"""
+    steps + a final read-only recap.)
+
+    Phase 2 S3: room_class is shown only in Advanced mode, so this
+    Advanced-mode chain keeps it; the Simple chain is covered in
+    test_onboarding_simplify_phase2.py::test_room_simple_four_screens."""
     _install_registries([
         _reg_entry("binary_sensor.motion_x", "binary_sensor", area_id="a1",
                    original_device_class="motion"),
     ])
     flow = _make_config_flow()
+    flow.show_advanced_options = True
 
     r1 = _run(flow.async_step_room_setup(user_input={
         CONF_ROOM_NAME: "Test", CONF_ROOM_TYPE: ROOM_TYPE_BEDROOM,
@@ -333,24 +338,15 @@ def test_first_run_house_to_room_ribbon():
     assert result["data"][CONF_INTEGRATION_ENTRY_ID] is not None
 
 
-def test_post_integration_setup_no_longer_creates_house_entry():
-    """D4: `async_step_post_integration_setup` must not carry a House
-    `async_create_entry` — the House-mint moved to room_summary."""
-    src = inspect.getsource(
-        _cf.UniversalRoomAutomationConfigFlow.async_step_post_integration_setup
-    )
-    # Strip docstring (which references the removed pattern in prose)
-    import ast
-    tree = ast.parse(src.lstrip())
-    func = tree.body[0]
-    if isinstance(func.body[0], ast.Expr) and isinstance(func.body[0].value, ast.Constant):
-        body_nodes = func.body[1:]
-    else:
-        body_nodes = func.body
-    body_src = "\n".join(ast.unparse(n) for n in body_nodes)
-    assert "async_create_entry" not in body_src, (
-        "D4 requires post_integration_setup to NOT create the House entry."
-    )
+def test_post_integration_setup_steps_deleted():
+    """Phase 2 S4: the dead post_integration_setup menu and the steps only
+    it reached (setup_zone, finish) are gone; skip_to_room stays live
+    (add_first_room routes to it)."""
+    cls = _cf.UniversalRoomAutomationConfigFlow
+    for dead in ("async_step_post_integration_setup",
+                 "async_step_setup_zone", "async_step_finish"):
+        assert not hasattr(cls, dead), f"{dead} should be deleted"
+    assert hasattr(cls, "async_step_skip_to_room")
 
 
 def test_first_run_skip_rooms_still_creates_house():
