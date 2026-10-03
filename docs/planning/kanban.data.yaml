@@ -581,6 +581,22 @@ meta:
       plus a count shown at session start so regrowth is visible instead of being noticed by accident
       nine days later.'
 cards:
+- id: EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1
+  title: Attain charges nothing when the local Envoy is unavailable, even though the cloud battery reading is fresh
+  thread: energy
+  status: inbox
+  created: '2026-10-03 01:00'
+  updated: '2026-10-03 01:00'
+  next: 'PLAN (Tier 3, battery strategy): let the charge window act on a fresh cloud SOC (soc_source=cloud_fallback) instead of holding with no commands; define freshness bound + which commands are safe on cloud SOC.'
+  why: '2026-10-02 14:00-15:48 the Envoy integration was stuck after a power-cycle; strategy reason "Envoy unavailable - holding (no commands issued)" while cloud SOC was ~10% and fresh, so the operator had to grid-charge manually before the 17:00 mid-peak. Root of the Envoy outages: /production.json hangs >60s since 2026-10-01 23:05 (meters + inverters endpoints fine), so every Envoy reload/restart stalls setup.'
+- id: FAN-ORACLE-BOOT-FALLBACK-NOISE-1
+  title: 86 "FanPolicyOracle fallback" warnings at every boot (rooms set up before the Coordinator Manager attaches the fan oracle)
+  thread: hygiene
+  status: inbox
+  created: '2026-10-03 01:00'
+  updated: '2026-10-03 01:00'
+  next: 'Fix (Tier 1): suppress the fallback WARN during boot (before CM attach) or defer room fan-state init until the oracle is attached; keep the WARN for genuine post-boot fallback.'
+  why: 'Observed after the 2026-10-03 00:37 restart: 43 rooms x write_on/write_off, all in the boot second. Harmless but buries real warnings during post-deploy log review.'
 - id: CM-COORDINATORS-ADD-ONE-BY-ONE-1
   title: Coordinators should be added one by one from the Coordinator Manager menu (or at least start disabled until configured), not all created on install
   thread: onboarding
