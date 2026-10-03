@@ -159,3 +159,7 @@ everywhere). I cannot prove that no summer poor night with an overnight EV sessi
 - Separate operator ruling: should arbitrage WAIT floor at `max(reserve_soc, drain_target(poor))` (manual §2.2), or
   should the manual and status attributes be changed to say WAIT drains to `reserve_soc`? If the latter, the status
   attributes should stop showing 30 as the park floor on WAIT ticks.
+
+**Closure pointer (2026-10-03):** both implications are built on branch `feature/ec-daylight-poor-night` per
+`PLANNING_ec_daylight_horizon_and_poor_night_floor.md` (D1 daylight-gated rung rate horizon; D2 WAIT holds the
+forecast drain floor, park only). Replay over this audit's nights: `quality/tests/test_ec_daylight_horizon_poor_night_floor.py`.

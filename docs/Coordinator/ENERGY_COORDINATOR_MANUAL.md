@@ -67,6 +67,15 @@ drives:
 - The **arbitrage gate** (grid-charge to peak buffer only makes sense
   on `poor / very_poor` days when solar won't refill on its own).
 
+On poor/very_poor target days with arbitrage on, the battery holds the
+poor drain floor overnight while waiting for the charge window. This lets
+solar fill faster, or attain catch up faster (operator ruling 2026-10-03;
+before this, arbitrage WAIT let the battery fall to `reserve_soc`, so the
+poor/very_poor drain sliders had no effect while the gate was open).
+If SOC is already below the floor, the battery parks where it is (never
+below `reserve_soc`). WAIT only parks: it never grid-charges toward the
+floor; any refill decision belongs to attain.
+
 You see today's class in `sensor.ura_energy_coordinator_battery_strategy`
 as the `target_day_class` attribute.
 
@@ -79,6 +88,11 @@ battery still charges toward 100% from solar.
 
 On days where forecast says peak-hour need > solar refill, the EC will:
 
+0. **Wait (WAIT phase)** until the charge window opens, holding the
+   drain floor for the target day's class (`current_offpeak_drain_target`,
+   e.g. poor = 30%) while SOC is above it, and parking at
+   `max(reserve_soc, SOC)` once SOC is at or below it. No grid charge in
+   WAIT. The reason reads "Arbitrage WAIT — holding drain floor N%".
 1. **Grid-charge** the battery in an off-peak/mid-peak window sized by
    `arbitrage_charge_lead_time_min` (see §3), aiming at the
    `peak_buffer_target`.
@@ -353,7 +367,8 @@ driving decisions. Attributes to watch:
 | `evse_paused_by_arbitrage` | Which EVSE switches are currently paused by EC. |
 | `evse_force_charge_until_iso` | If you invoked a force-charge override, when it expires. |
 | `control_grid_enabled` / `control_reserve` / `control_mode` | v5.17.0 — the current *commanded* value the EC last wrote (write-verify comparison target). Diverges from the sensor's actual reading = write drift. |
-| **Rung / gate attrs (v5.17.2)** | `rung`, `rung_reason`, `attain_projected_soc`, `attain_solar_term_pct` — visibility into the arbitrage_solar_attainability_ladder (rung 0 = short-circuit closed, rung 1 = solar-refill projection, rung 2 = full charge). Projections are now clamped to `[0, 100]` for display (v5.17.4 fix for the 836% artifact). |
+| **Rung / gate attrs (v5.17.2)** | `rung`, `rung_reason`, `attain_projected_soc`, `attain_solar_term_pct` — visibility into the arbitrage_solar_attainability_ladder (rung 0 = short-circuit closed, rung 1 = solar-refill projection, rung 2 = full charge). Projections are now clamped to `[0, 100]` for display (v5.17.4 fix for the 836% artifact). **Solar horizon:** rung projections extrapolate the observed charge rate only while it is daylight (sunrise to sunset from `sun.sun`, fallback 07:00-19:00). Before sunrise and after sunset only the forecast solar term counts, so `arb_projection_rung1` equals `arb_projection_rung0` and the EV-pause rung (rung 1) cannot start at night. |
+| `current_park_floor` / `park_floor_source` / `effective_release_floor` | The floor the battery is parking at and the EV drain-release floor built from it. On arbitrage WAIT ticks these now match what is commanded (the drain floor), so the EV drain rule releases at that floor (about 30% on a poor night) instead of `reserve_soc`. |
 
 Other sensors:
 
@@ -477,6 +492,10 @@ Tuning one does not move the other.
 - **D2 divergence detection:** set "Battery level disagreement alert"
   to 0 in the cloud-verification section (detection off, attr cleared);
   "Cloud update delay alert" 0 = alert off, delay still displayed.
+- **Poor-night WAIT floor:** set the poor and very_poor drain sliders
+  (`number.ura_energy_coordinator_off_peak_drain_poor` / `_very_poor`) equal
+  to `reserve_soc`. Arbitrage WAIT then parks exactly as before the
+  2026-10-03 change (at `reserve_soc`, never below it).
 - Disable the at-boundary tick: set `TOU_BOUNDARY_TICK_DELAY_S < 0`
   in `energy_const.py`.
 - Disable the unified projector: set `R7_USE_UNIFIED_PROJECTOR = False`
@@ -504,6 +523,7 @@ Tuning one does not move the other.
 | v5.20.0 | Cloud-reliance D2 (soc_resolution tiers, divergence + cloud-lag detection) + Battery-Aware EV Charging shipped dormant (Tier-3: 2 CRIT + 7 HIGH found/fixed pre-deploy). Dead-accumulator recorder exclusion. |
 | v5.21.0 | BAEC control surface: options-flow section (live-apply both directions), cognitive-simplicity renames, device slim-down, shadow eval, D2 detection knobs promoted to options. **BAEC ACTIVATED by operator 2026-07-17 ~20:47.** |
 | v5.18.0 | R1 consumption estimator v1 in SHADOW (regression + EV term; 14-day observation; `predicted_consumption_source` marker). R7 projection unification (single `EnergyProjector`; kill switch; no behavior change). |
+| (unreleased — EC daylight horizon + poor-night floor) | Rung projections extrapolate the observed rate only in daylight (no night rung-1 EV pause/resume loop, 10-01 incident). Arbitrage WAIT holds the poor/very_poor drain floor (park only, no grid charge); drain sliders = `reserve_soc` restore the old WAIT. Plan: `PLANNING_ec_daylight_horizon_and_poor_night_floor.md`. |
 
 ## Charge-onset & the turn-on surface (v3 funnel — SHIP DORMANT)
 

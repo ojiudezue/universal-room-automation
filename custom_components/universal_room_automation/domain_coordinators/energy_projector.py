@@ -115,14 +115,18 @@ class EnergyProjector:
         now: datetime | None = None,
         sunset_dt: datetime | None = None,
         extra_rate_pct_per_h: float = 0.0,
+        sunrise_dt: datetime | None = None,
     ) -> ProjectionResult:
         """Project SOC at boundary T using the additive-surplus shape.
 
-        Expression (byte-identical to v5.17.4 inline sites):
+        Expression (v5.17.4 inline sites + daylight start gate):
 
             effective_rate = rate + extra_rate_pct_per_h
             if bound_to_solar_horizon:
-                solar_mins = max(0, (sunset_dt - now).total_seconds() / 60)
+                if sunrise_dt is not None and now < sunrise_dt:
+                    solar_mins = 0          # pre-sunrise: no daylight rate
+                else:
+                    solar_mins = max(0, (sunset_dt - now).total_seconds() / 60)
                 rate_mins = min(mins, solar_mins)
             else:
                 rate_mins = mins
@@ -152,7 +156,14 @@ class EnergyProjector:
                 False for attain sites (extrapolate full boundary horizon).
             now / sunset_dt: Required iff bound_to_solar_horizon is True.
                 If either is None the bound collapses to 0 (matches the
-                rung site's `except Exception: sunset_today = None` path).
+                rung site's `except Exception` path).
+            sunrise_dt: Optional daylight START gate (EC daylight-horizon
+                plan D1). When given and ``now < sunrise_dt`` the rate
+                horizon is 0 — a night-observed rate is never extrapolated
+                into daylight. ``None`` (default) keeps the legacy
+                sunset-only bound, so every caller that does not pass it
+                (attain sites, ``bound_to_solar_horizon=False``) is
+                byte-identical.
             extra_rate_pct_per_h: Additive adjustment to the rate term.
                 Used by rung-1 counterfactual (`-assumed_ev_pct`) and
                 rung-1 entry (`+ev_load_pct_per_h`). Zero elsewhere.
@@ -183,7 +194,11 @@ class EnergyProjector:
         effective_rate = float(rate_pct_per_h) + float(extra_rate_pct_per_h)
 
         if bound_to_solar_horizon:
-            if sunset_dt is not None and now is not None and sunset_dt > now:
+            if sunrise_dt is not None and now is not None and now < sunrise_dt:
+                # Pre-sunrise: the daylight window has not started, so the
+                # observed rate contributes nothing (INV-H1).
+                solar_mins_remaining = 0.0
+            elif sunset_dt is not None and now is not None and sunset_dt > now:
                 solar_mins_remaining = max(
                     0.0, (sunset_dt - now).total_seconds() / 60.0,
                 )
