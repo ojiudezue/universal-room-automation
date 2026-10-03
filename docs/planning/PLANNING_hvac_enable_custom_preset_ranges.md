@@ -1,6 +1,6 @@
 # PLANNING — Enable Custom Preset Ranges (D9 / `guest_mode_actuation`, HVAC arc step 5)
 
-**Status:** PLAN **REV 3.2** (2026-09-29). Not built. Batch C parent card `HVAC-CUSTOM-PRESET-RANGES-1` (children `HVAC-S10-DPM-VS-S1-1`, `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1`, `HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1`). Build zone_3 first. **Do NOT deploy after building until the operator says so** (operator 2026-09-27 Q5). REV 3.1 addressed plan-review findings F1-F8; REV 3.2 addresses re-check R1-R5 (`docs/reviews/code-review/plan_review_hvac_cpr_rev3.md` §"REV 3.1 re-check"). No further plan review needed.
+**Status:** PLAN **REV 3.3** (2026-10-03 — post W1-C P1 re-check; see "REV 3.3 ERRATA" below, authoritative over everything after it, and "Plan re-check (post W1-C P1)" at the end). Previously REV 3.2 (2026-09-29). Not built. Batch C parent card `HVAC-CUSTOM-PRESET-RANGES-1` (children `HVAC-S10-DPM-VS-S1-1`, `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1`, `HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1`). Build zone_3 first. **Do NOT deploy after building until the operator says so** (operator 2026-09-27 Q5). REV 3.1 addressed plan-review findings F1-F8; REV 3.2 addresses re-check R1-R5 (`docs/reviews/code-review/plan_review_hvac_cpr_rev3.md` §"REV 3.1 re-check"). No further plan review needed.
 
 **Operator ruling (2026-09-27):** "yes", the operator wants the feature. URA wins over app edits. Carrier originals are restored when the feature is turned off. The heat-bug fallback is handled separately (shipped v5.103.22).
 
@@ -9,6 +9,204 @@
 **Cards resolved on ship:** `HVAC-S10-DPM-VS-S1-1`, `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1` (both folded into D3 by construction, not by a separate deliverable). Disposition of `HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1` in §9; rebased in REV 3.1 F5 on the by-construction proof (only reader `hvac.py:4108` + only writer `:4153`, both deleted by D3), plus REV 3.2 R1 (D3c also retires the S11 producer + throttle flag).
 
 **Version:** next free `5.103.x` PATCH after Batch B/D land on `develop`.
+
+---
+
+## REV 3.3 ERRATA (2026-10-03, post W1-C P1 v5.103.36) — authoritative over REV 3.2 / 3.1 / 3 wherever they disagree
+
+Re-check against `develop` @`8a4619b32`. W1-C P1 shipped in v5.103.36 (`df03c904f`): every thermostat write goes through `hvac_strategy.py`, and the byte-identity goldens (`quality/tests/golden/w1c_p1_goldens.json`, 168 records) pin S10 and `_last_emitted_range`. The compose-away blocker plan (`PLANNING_hvac_compose_away_throttle.md` REV 1) is folded here. Behaviour of the plan is unchanged except U5 (rollout scope). Every anchor below was re-grepped on this commit.
+
+### U1 (HIGH) — S10 writes go through the strategy layer, P1 conventions
+
+**Supersedes:** §3.2 step 11, §3.3 "Generic" paragraph, D1 lint text, D2.
+
+- **Call shape.** S10 calls `_w1c_strategy(self.hass, zone.climate_entity).set_preset_range(self.hass, zone.climate_entity, P, target_temp_low=lo, target_temp_high=hi, freeze_active=self._freeze_active, gate=_s10_gate, site=..., zone_id=zone_id, reason=..., emit=emit_set_activity_setpoint)`. `_w1c_strategy` is `hvac.py:117-119`. Pass the funnel as `emit=`, the P1 convention (`hvac_strategy.py:48-51`): `hvac.py` resolves the module-level funnel name at call time, so test seams that patch it keep intercepting.
+- **Result handling.** `set_preset_range` returns a `WriteResult`. S10 branches on `result.status == WriteStatus.<X>`; truthiness raises (`hvac_strategy.py:228-232`). Do **NOT** use `_w1c_applied` (`hvac.py:123-126`). It folds SKIPPED_ALREADY_CORRECT and FAILED into False, and §6.2 treats those two very differently from DEFERRED.
+- **Where the method lives.** The base method goes on `GenericStrategy`: `if not self.feature_available("cpr"): return WriteResult(WriteStatus.FAILED, self.feature_unavailable_reason("cpr"))`. That makes zero calls, and the reason is `profile_has_no_activity_setpoint` (REUSE: `hvac_strategy.py:340-352`, `supports_activity_setpoint` on `CARRIER_CAPABILITIES` :165 / `GENERIC_CAPABILITIES` :196). This replaces REV 3's new `"preset_range_unsupported"` string. `CarrierStrategy` overrides it with P1–P6.
+- **Not a pure delegate.** The method observes and decides. It writes **nothing** to `last_sent`, so it never calls `_record_sent` / `_clear_sent`. Reason: `_record_sent` wipes every verb's record (:304-307), which would change S1's D2.5 `hold_preset` no-op.
+- **Wire exception.** Carrier catches it and returns `FAILED("emit_raised", <exc type>)`, the same shape as `hold_preset` (:484-486). The funnel still writes its one `climate_write` row on the raise path (D1).
+- **Service literal: REUSE.** Use `CARRIER_PLATFORM` (`hvac_strategy.py:71`). `"set_activity_setpoint"` is the only new literal, and it lives in `hvac_strategy.py`. Leave `hvac_const.py:1473` `CARRIER_INTEGRATION_DOMAIN` alone. F3's lint forbids the literal only inside `hvac_setpoint.py` and inside `async_call("ha_carrier", …)` outside `hvac_strategy.py`; both rules are compatible with :1473.
+- **A profile without the feature skips quietly (W1-C §3c, `PLANNING_hvac_w1c_thermostat_profiles.md:213`).** S10 checks `strategy.feature_available("cpr")` as a new skip **step 0.3**, before snapshot, record and rate.
+  - When it is false, S10 writes no record, counts no failure, sets no latch and sends no NM. It logs once per entity.
+  - Why this matters: a TRANSIENT registry miss on a real Carrier entity resolves Generic and must not count toward the §6.2 `call_failed` latch.
+  - §6.2 "FAILED → failures += 1" now applies only to `FAILED` with reason `emit_raised`.
+- **Contract tests (extend `test_hvac_w1c_p1_profile_contract.py`):**
+  - `test_generic_set_preset_range_zero_calls_feature_unavailable`
+  - `test_carrier_set_preset_range_records_nothing_in_last_sent`
+  - `test_set_preset_range_wire_raise_maps_failed_emit_raised`
+- **Kwargs completeness.** Add `emit_set_activity_setpoint` to the funnel set in `test_hvac_climate_write_funnel_completeness.py` `test_every_production_funnel_call_supplies_required_kwargs` (~:324).
+  - **Pre-existing blind spot since P1:** a funnel passed as `emit=` and called inside the strategy is not a direct Call of the funnel name, so this AST check does not see it.
+  - CPR therefore adds the behavioural `test_s10_strategy_call_supplies_site_zone_reason`. It drives the real S10 and asserts the funnel received `site` / `zone_id` / `reason`. Required kw-only arguments make an omission a TypeError.
+
+### U2 (HIGH) — The W1-C P1 goldens change by intent; exact procedure
+
+**Supersedes:** compose-away plan §7 D1 "W1-C P1 interaction" bullet (made concrete here).
+
+- **Blast radius is all 168 cases, not just S10.** `_observe` reads `ctx.coord._last_emitted_range` for every case (`test_hvac_w1c_p1_byte_identity.py:361-364`). Once D3c deletes the attribute, every case raises AttributeError. Scenario seeds write the map at :467 (`sc_S10`), :740 (`_bank`), :765 (`sc_S12`) and :795 (`_preheat_tok`).
+- **Commit G1 (test-only, on the CPR branch, BEFORE any production edit):**
+  - Drop the `last_emitted_range` key from `_observe`.
+  - Remove the key from all 168 JSON records with a scripted key-drop. This is NOT a re-record.
+  - The seeds stay in G1, because the attribute still exists.
+  - All 168 Carrier cases and the registry-miss cases must stay green on pre-CPR production source. That proves the key drop alone changed nothing.
+- **Production CPR commit(s):** remove the four seeds.
+- **Commit G2 (re-record):** run `URA_W1C_RECORD_GOLDENS=1` for ONLY the keys whose observation changed: the 6 `A13_S10|*` keys, plus any `A11_S11_*` / `A11_S12|*` / `A11_S13_*` key whose calls or rows moved.
+  - The builder lists the exact key set in the build notes.
+  - Reviewer C checks that G2's JSON diff touches only that set (key-set diff script) and that each changed record matches the intended behaviour.
+  - P1's rule that "regeneration is review-blocking" (:7-12) is satisfied by this named, scoped exception.
+- **`failed_raise` gap.** The harness raises only for domain `climate` (:263). Extend it to the CPR service domain, otherwise `A13_S10|failed_raise` silently stops exercising the raise path.
+- **Registry-miss suite (:986).** `A13_S10` is now an INTENDED Generic divergence: Generic makes zero calls, Carrier makes an activity-setpoint call. Skip `A13_S10` there with a reason that names CPR + U1. Add `test_s10_registry_miss_generic_skips_quietly`: zero calls, no record, no snapshot, no failure count.
+- **Coincidental-equality warning (#63).** The harness fallback baseline may equal the seeded 68/76, so `A11_S11_manual` may NOT change in G2. The authority for the S11 change is R3's discriminating `test_s11_write_reflects_baseline_not_map_pair`, not the golden.
+- **Converted tests that drive `A13_S10` via `drive_site` / `site_ctx` must be rewritten:**
+  - `test_zzz_hvac_conditioning_demand.py` ~:395
+  - `test_v478_egress_window.py` ~:822
+- **Test-file counts on develop (re-greped):**
+  - `_last_emitted_range` appears in **13** files: the 11 in R1, plus `test_hvac_w1c_p1_byte_identity.py` and `test_v478_egress_window.py`.
+  - `_async_apply_preset_overrides` is called from **9** files (not 7): adds `test_hvac_fast_occupancy_response.py` and `test_hvac_w1c_p1_byte_identity.py`.
+
+### U3 (MED) — `_resolve_baseline_range` has FIVE consumers; R1's safety note was S11-only
+
+**Supersedes:** R1 "S11 behaviour change" note (extends it).
+
+After D3c, every caller reads the preset-resolved fallback (`hvac_predict.py:964-985`): the house-state target preset's CONFIGURED (heat, cool). The callers are:
+
+| Caller | Site | Effect after retirement |
+|---|---|---|
+| First-eval orphan detect | `hvac_predict.py:565` | compares live high to the configured target cool |
+| Banking-set discharge | `:674` | same |
+| S11 release (HUMAN_MANUAL raw branch) | `:1048` | R1 note (unchanged) |
+| **Pre-arrival `from_baseline` pre-cool** | `:1336` | banked_high = configured cool + offset |
+| **S12 token snapshot override** | `:1358` | `pre_target_low/high` = configured pair; feeds later S11/S13 HUMAN_MANUAL raw restores |
+
+- **Live relevance.** Switch 01 has been ON since 2026-10-02 21:28Z (state-of-play §3.3 LIVE-STATE NOTE). Since then the map has held S10/D9 `cool − 7` pairs, so today the pre-arrival and S12 paths can read a cool−7 low. Retirement removes that. The change is strictly more correct.
+- **New tests:**
+  - `test_pre_arrival_precool_from_baseline_uses_preset_fallback`
+  - `test_s12_token_snapshot_uses_preset_fallback_not_map`
+- **LOW, pre-existing, not in scope:** the fallback keys on the HOUSE target preset, not the zone's current preset.
+
+### U4 (HIGH, deploy-time) — Switch 01 is live ON. Turn it OFF before the CPR restart
+
+- **Today's state.** Code default is True: `hvac.py:684`, the `is_on` fallback at `switch.py:2044-2045`, and the "No prior state — default ON is truth" branch at `switch.py:2085-2087`. The 10-02 entity re-create landed ON. CPR's RestoreEntity would restore `on`, so the first full tick after the deploy restart would run the APPLY pass on every zone, before any operator go and before zone-3-first.
+- **Mandatory pre-deploy step (§7.2 step 0, new):**
+  - The operator turns `switch.ura_hvac_coordinator_guest_mode_actuation` OFF on the OLD code. The old turn-off only clears the map, which is harmless.
+  - Verify `off` in the recorder.
+  - Then deploy and restart, and enable per §7.2 only on the operator's go.
+  - The deploy checklist and README carry this step.
+- **Why the window matters.** Until D8 ships, any entity re-create can flip the switch back ON, so this step is not optional.
+
+### U5 (MED) — Zone-3-first needs a mechanism. There was none
+
+- **The gap.** Switch 01 is house-wide. The per-zone DPM opt-in gates only OVERRIDES, not the static baseline half that S10 now always applies. Config-first: no per-zone knob exists.
+- **Add a rung-1 constant** `S10_ROLLOUT_ZONE_IDS: frozenset[str] | None = frozenset({"zone_3"})` in `hvac_const.py`. `None` = all zones.
+  - Rung 1 because it is a temporary staged-rollout safety bound, and widening it should be a reviewed one-line patch.
+- **Apply pass:** new skip **step 0.2** — a zone not in the set is skipped before snapshot / record / rate.
+- **The RESTORE pass is NOT gated**, so INV-RESTORE holds for any zone that has a snapshot.
+- **Widening patch** (after L1–L3 + L8 PASS on zone_3) sets it to `None`.
+- **Test:** `test_s10_rollout_scope_apply_zone_3_only_restore_all`.
+- **Operator to confirm** this mechanism at the build-dispatch go.
+
+### U6 (MED) — Fold of `PLANNING_hvac_compose_away_throttle.md` (card HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1)
+
+Add to §7.1 and D3 verbatim:
+
+- **INV-NO-STORM.** With switch 01 resolved ON and DPM overrides active, in ANY reachable state, an established fused-empty zone on the same named preset gets **zero** S10 wire calls on the second and later ticks once its range matches.
+  - Over any 60 min, calls per (zone, preset) are ≤ ⌈3600 / `S10_PRESET_RANGE_MIN_SPACING_S`⌉ + 1 = **7**. That is the fencepost-consistent form of INV-RATE.
+  - The bound holds regardless of DPM flapping, S1 reclaims, borrow returns or restarts.
+  - **Falsified by** any reachable config that gives one empty zone ≥ 2 S10 calls per 10 min, or S10 and S1 alternating on consecutive ticks.
+- **Test (new, discriminating):** `test_s10_no_s1_alternation_on_empty_zone`. Drive `_apply_house_state_presets` 6 ticks on an empty zone with a real `PresetManager` + S1. Assert there is no (S10 call → S1 `preset_change`, same zone) tick pair.
+  - It must FAIL on pre-CPR code.
+  - A compare-only fix would also fail it; that is the discriminator against the card's original fix.
+- **Reviewer D must also try:**
+  - zone_1 status/hold split (state-of-play §9.7 second entry)
+  - a presets-only borrow return landing on `away`
+  - a HUMAN_MANUAL S8 raw restore on an empty zone
+  - DPM `cool_high` flapping every tick
+  - 8 restarts within an hour
+- **Reviewer C mutations:**
+  - Re-insert an unconditional emit (the old `and not _compose_away` shape) → `test_s10_empty_zone_no_storm_12_ticks` + the alternation test fail.
+  - Delete the spacing check → `test_s10_dwell_zero_flap_bounded_by_spacing` fails.
+- **Build-time lint (wire into the pre-deploy zero-bugs gate):**
+  - `grep -rn '_last_emitted_range' custom_components/universal_room_automation/` → empty.
+  - `grep -n '_compose_away\|_dpm_composed_away_zones' custom_components/universal_room_automation/domain_coordinators/hvac.py` → empty.
+- **Live card discriminator (after enable, zone 3 first):** `climate_write` rows `site LIKE 'S10%'` per empty zone per hour ≤ 1 in steady state. The old D9 behaviour gave ~12–48.
+- **Card disposition (§9):** unchanged — done on ship by D3/D3c deletion.
+
+### U7 (LOW) — Zone-delete prune anchor was wrong
+
+- §3.4 and §6.3 cite `hvac.py:4044` / `:4044-4081`. Those lines are inside S10 and always were.
+- The real site is `_handle_zm_zones_updated` `hvac.py:5328`, which persists via `_rewrite_zone_state_store` :5489-5526.
+- CPR must prune BOTH:
+  - the persisted `__s10_preset_ranges` sub-dicts;
+  - the IN-MEMORY S10 state.
+- If only the persisted copy is pruned, the next `_build_zone_state_snapshot` save resurrects it.
+- **Test:** `test_s10_zone_delete_prunes_memory_and_store`.
+
+### U8 (LOW) — Side-keys: there are five, not three
+
+- `_build_zone_state_snapshot` (`hvac.py:2349-2373`) already carries `__person_zone_map`, `__short_cycles_today`, `__immune_holds`, `__tao_state` and `__interrupt_latch`.
+- The D3b non-collision test covers all five plus `__s10_preset_ranges`.
+- Update that method's docstring, which lists only four.
+
+### U9 (LOW) — Small confirmations
+
+- **S10 runs only on full ticks.** The call site is gated `not self._observation_mode and zone_filter is None` (`hvac.py:3870-3871`, v5.103.20 INV-4); fast runs skip DPM. Keep it.
+- **Unchanged facts:**
+  - The F1 race still holds: initial cycle `hvac.py:1572` runs before `SIGNAL_HVAC_COORDINATOR_READY` at :1580-1581; `not_cold_boot` is at :1190.
+  - The F2 premise still holds: `latch_level_check` :2246 runs before `_apply_house_state_presets` :2278.
+- **NM strings** must be profile-templated (W1-C ruling 4). The D5 strings are already brand-free. "Bryant app" appears only in operator live-check wording (L3/L9).
+- **D0 items 1–3 are still unrun.** `scripts/probes/hvac_preset_profile_probe.py` does not exist (verified). This is still a gate before builder dispatch. Item 1 must also exclude samples within 125 min of any `S10_dpm_apply` `climate_write` row, because switch 01 has been live ON since 10-02.
+
+### Anchor table (develop @`8a4619b32`; old REV 3.x cite → current)
+
+| Symbol | Old | Current |
+|---|---|---|
+| `_guest_mode_actuation_enabled` init (still `bool = True`) | `hvac.py:664` | `hvac.py:684` |
+| `_last_emitted_range` init | `:667` | `:687` |
+| S10 call site | `:3849` | `:3870-3871` |
+| `_async_apply_preset_overrides` | `:3906-4171` | `:3928-4194` |
+| switch gate `if not …` | `:3923` | `:3945` |
+| `master_enabled = …` | `:3940` | `:3962` |
+| `get_preset_for_house_state` | `:3949-3951` | `:3971-3973` |
+| D9 block (incl. transient hold `:4053-4072`, `_compose_away` `:4073`) | `:3985-4067` | `:4007-4083` |
+| `_dpm_composed_away_zones` | `:4055-4056` | `:4077-4078` |
+| cool − 7 | `:4074` | `:4096` |
+| F2 bypass | `:4096-4111` | `:4118-4133` (test `:4132`) |
+| `suppress(kind="temp")` | `:4114-4115` | `:4135-4137` |
+| S10 wire call (now `_w1c_strategy(...).set_setpoints(..., emit=emit_set_temperature)`) | `:4131-4142` | `:4153-4165` |
+| deferred `unsuppress` | `:4150-4151` | `:4173-4174` |
+| map write | `:4153` | `:4176` |
+| exception `unsuppress` | `:4168` | `:4190-4191` |
+| stale map comments | — | `hvac.py:453`, `:505`, `:4021`, `:4122` |
+| `_climate_unreadable` | `:2382-2411` | `:2402` |
+| `latch_level_check()` call | `:2226` | `:2246` |
+| `_apply_house_state_presets` call | `:2258` | `:2278` |
+| `_zones_written_this_cycle` | `:505 / :2096 / :3672` | `:525 / :2116 / :3694` |
+| `_build_zone_state_snapshot` | `:2329` | `:2349` |
+| `_rehydrate_arrester_state` | `:1981` | `:2001` |
+| `_note_s1_reclaim` | `:1854` | `:1874` |
+| zone-delete rewrite | `:4044` (wrong) | `:5328` / `:5489-5526` |
+| `update_throttle` caller | `hvac_predict.py:482` | `:497` |
+| map preference read (in `_resolve_baseline_range` `:916`) | `:932-948` | `:947-962` |
+| preset fallback | `:951-968` | `:964-985` |
+| `update_throttle` kwarg | `:974` | `:989` |
+| map read in `_release_banked_zones` | `:1003` | `:1018` |
+| S11 map write | `:1153-1154` | `:1170-1171` |
+| `update_throttle` caller | `:1260` | `:1277` |
+| S13 map write | `:1900-1903` | `:1921-1924` |
+| `_interrupt_latched` reader | `:1281-1291` | `:1298-1306` |
+| stale map comments/docstrings | `:933-941, :995-1000` | `:182`, `:196`, `:919-962`, `:996-1012`, `:1245`, `:1876` |
+| switch `is_on` (`return True` default + getattr True) | `switch.py:~2021` | `:2044-2045` |
+| switch-OFF map clear | `:2046-2047` | `:2061-2062` |
+| no-last-state "default ON" | — | `:2085-2087` |
+| restore fast path / deferred landing | — | `:2092` / `:2120` |
+| sensor master_enabled readers | `sensor.py:10199`, `:10231` | `:10217`, `:10249` |
+| `_corrective_writes_suppressed` | `hvac_override.py:806` | `:830` |
+| `interrupt_latched` / `_latch_state_discharges` / `latch_level_check` def | `:1308-1318` | `:1304` / `:1331` / `:1367` |
+| `has_active_ac_reset` | `:2484` | `:2509` |
+| `comfort_delay_active` | — | `:2813` |
+| arrester "preset range adjustment. Ignore." | `:3619-3622` | `:3652-3654` |
+| `manual_guard_verdict` / caller | `hvac_preset.py:234` / `:365` | `:234` / `:369` |
+| S1 manual check (now `is_manual_hold_for`) | `:357-358` | `:362-363` |
+| funnels | — | `hvac_setpoint.py` `recent_ura_setpoints:94`, `apply_setpoint_guards:146`, `emit_set_temperature:429`, `emit_set_preset_mode:542`, `emit_set_hvac_mode:813` |
 
 ---
 
@@ -30,7 +228,7 @@ REV 3.1 F5's D3c said "S13 is the map's only producer after D3." False. S11 writ
 5. `hvac_predict.py:974` — **`update_throttle` kwarg definition [R1 addition].**
 6. `hvac_predict.py:482, :1260` — **both callers passing `update_throttle=...` [R1 addition].**
 7. `hvac_predict.py:1900-1903` — S13 write.
-8. `switch.py:2046-2047` — switch-OFF clear.
+8. `switch.py:2061-2062` — switch-OFF clear.
 9. Stale comments at `hvac_predict.py:933-941, :995-1000`.
 
 **S11 behaviour change (R1 safety note, state explicitly in D3c):**
@@ -355,7 +553,7 @@ Notes: real entity id has no `_enabled` suffix. Switch 01 is the only actuation 
 | Trip-wire NM | **REUSE pattern** `_note_s1_reclaim` (`hvac.py:1854`) |
 | AST lint | **EXTEND** `test_hvac_climate_write_funnel_completeness.py` | REV 3.1 F3: forbid `hass.services.async_call("ha_carrier", ...)` outside `hvac_strategy.py`; forbid `"ha_carrier"` literal in `hvac_setpoint.py`. **REV 3.2 clarification: variable-domain `async_call(service_domain, ...)` is ALLOWED.** |
 | D9 compose-away, F2, transient hold, `_dpm_composed_away_zones`, cool-7 | **DELETE** (§8) |
-| `_last_emitted_range` map | **[REV 3.1 F5 + REV 3.2 R1: DELETE]** — D3c retires init at `hvac.py:667`; readers `hvac_predict.py:932-948, :1003`; writers `hvac_predict.py:1153-1154` (S11), `:1900-1903` (S13); kwarg `update_throttle` `:974` + callers `:482, :1260`; switch clear `switch.py:2046-2047`. Stale comments `:933-941, :995-1000`. |
+| `_last_emitted_range` map | **[REV 3.1 F5 + REV 3.2 R1: DELETE]** — D3c retires init at `hvac.py:667`; readers `hvac_predict.py:932-948, :1003`; writers `hvac_predict.py:1153-1154` (S11), `:1900-1903` (S13); kwarg `update_throttle` `:974` + callers `:482, :1260`; switch clear `switch.py:2061-2062`. Stale comments `:933-941, :995-1000`. |
 
 **Surfaces grepped:** const files; config/flow; switch/sensor; `hvac*.py`; energy.py, dynamic_preset.py, preset_overrides.py; ha_carrier {climate,const,data_update_coordinator}.py; quality/tests (7 files call `_async_apply_preset_overrides`, 11 reference `_last_emitted_range` per R1). Batch B/D adds re-greped: `HVAC_CLIMATE_UNREADABLE_STATES`, `_climate_unreadable`, `_interrupt_latch`, `_latch_state_discharges`, `pre_arrival_reference_preset`, `emit_set_hvac_mode`.
 
@@ -615,7 +813,7 @@ Implements §3.4 and §3.5 (with REV 3.2 R2 backstop + R4 reader audit).
 5. `hvac_predict.py:974` — **`update_throttle` kwarg definition (R1)**.
 6. `hvac_predict.py:482, :1260` — **both call-site arguments passing `update_throttle=...` (R1)**.
 7. `hvac_predict.py:1900-1903` — S13 write.
-8. `switch.py:2046-2047` — switch-OFF clear.
+8. `switch.py:2061-2062` — switch-OFF clear.
 9. Stale comments at `hvac_predict.py:933-941, :995-1000`.
 
 **S11 behaviour change (R1 safety note):** S11's map value matters only on the HUMAN_MANUAL branch (raw `emit_set_temperature(base_low, base_high)`). Before: that branch could write the map's pair (S13's pre-heat pre-borrow snapshot or an older pair, possibly days old). After: writes `_resolve_baseline_range`'s fallback (`hvac_predict.py:951-968`) — the configured `(heat, cool)` of the house-state target preset. Well-defined, never stale, low side fixed since v5.103.22. The specific pre-heat-sourced-values case: S11 used to accidentally write the person's pre-heat token's values; it now writes URA's baseline (arguably more correct — those values belonged to the pre-heat token, not the banking one). **Safe.**
@@ -831,7 +1029,7 @@ Proven only in-suite: latch/NM, restart-storm bound, winter low side, restore la
 | `_dpm_composed_away_zones` | `hvac.py:4055-4056` | DELETE | — |
 | `cool − 7` at S10 | `hvac.py:4074` | DELETE | configured heat |
 | suppress/unsuppress at S10 (three sites) | `hvac.py:4114-4115`, `:4150-4151`, **`:4168`** | DELETE | arrester named-preset ignore (M4) |
-| **`_last_emitted_range` map (init + ALL producers/consumers) [F5 + R1]** | `hvac.py:667`; `hvac_predict.py:482, :932-948, :974, :1003, :1153-1154, :1260, :1900-1903`; `switch.py:2046-2047` | **DELETE** | D3c (private channel holds stale values) |
+| **`_last_emitted_range` map (init + ALL producers/consumers) [F5 + R1]** | `hvac.py:667`; `hvac_predict.py:482, :932-948, :974, :1003, :1153-1154, :1260, :1900-1903`; `switch.py:2061-2062` | **DELETE** | D3c (private channel holds stale values) |
 | `hvac_predict` cool-7 fallback | `hvac_predict.py:~929` | **DONE** — shipped v5.103.22 | — |
 | OverrideEngine `cool_low` | `preset_overrides.py:60` | KEEP + DOCUMENT | — |
 | `hvac_excursion.py` `_auto_return` manual-skip | (unchanged) | **KEEP** (§10 C26) | — |
@@ -970,3 +1168,49 @@ Feeds `HVAC-W1C-GENERIC-THERMOSTAT-1`. CPR is a **Carrier-profile capability**, 
 5. `emit_set_activity_setpoint` service parameters come from strategy (F3).
 
 No CPR piece hard-codes Carrier assumptions above the strategy line.
+
+---
+
+## Plan re-check (post W1-C P1) — 2026-10-03
+
+**Reviewer:** ura-reviewer, one adversarial pass (Tier 2-DB plan). **Base:** `develop` @`8a4619b32`, which includes W1-C P1 / v5.103.36 `df03c904f`.
+
+**Read first:**
+- `docs/Coordinator/HVAC_ARCHITECTURE_STATE_OF_PLAY.md`, completely (592 lines). §10 C1–C29 are not re-asserted.
+- `PLANNING_hvac_compose_away_throttle.md` REV 1.
+
+**Method:** every anchor and site re-greped and read in source:
+- `hvac.py` S10 method, end to end
+- `hvac_strategy.py`, all of it
+- `hvac_predict.py`: the `_resolve_baseline_range` callers
+- `switch.py:2040-2125`, `sensor.py`
+- the P1 golden harness and the contract / funnel lints
+
+**Verdict: BUILD-READY (REV 3.3)** — the plan text is fixed in place by the REV 3.3 ERRATA at the top. Dispatch preconditions (operator/probe gates, not plan defects):
+1. D0 items 1–3 run (probe not yet written; U9).
+2. Operator confirms the U5 rollout constant (`S10_ROLLOUT_ZONE_IDS = {zone_3}`).
+3. At deploy: U4 switch-OFF pre-step, then operator go; deploy remains HELD until the operator says so.
+
+| # | Sev | Finding | Fixed in |
+|---|---|---|---|
+| U1 | HIGH | Plan wired S10 → `set_preset_range` with pre-P1 shapes. It lacked the `emit=` convention and quad-state `.status` branching (not `_w1c_applied`). Generic FAILED was conflated with the §6.2 wire-failure latch: a transient registry miss on a Carrier entity would latch + NM `call_failed`. The plan also ignored the existing `feature_available("cpr")` surface. Kwargs-completeness lint is blind to `emit=` delegation (pre-existing since P1) | U1 |
+| U2 | HIGH | D3c deletion breaks ALL 168 P1 goldens (`_observe` reads the map, `test_hvac_w1c_p1_byte_identity.py:361-364`), not just S10. Four scenario seeds write the map. The `failed_raise` variant would not cover the new domain. The registry-miss suite must exclude A13_S10 by intent. Two converted tests drive A13_S10 | U2 (G1 key-drop / G2 scoped re-record procedure) |
+| U3 | MED | `_resolve_baseline_range` has 5 consumers (orphan detect, banking discharge, S11, pre-arrival from_baseline, S12 token snapshot). R1 covered S11 only. With switch 01 live ON, the map currently feeds cool−7 lows to pre-arrival/S12 | U3 + 2 tests |
+| U4 | HIGH (deploy) | Switch 01 is live ON (code default True; 10-02 re-create). CPR's RestoreEntity would run the apply pass on all zones at the first post-restart tick, before the operator's go | U4 mandatory pre-deploy OFF |
+| U5 | MED | "Zone 3 first" had no mechanism; switch 01 is house-wide and the DPM opt-in does not gate the static half | U5 rung-1 rollout constant (restore ungated) |
+| U6 | MED | Compose-away blocker additions not yet in this plan | U6 (INV-NO-STORM, alternation test, D-repros, C mutations, lint greps, live discriminator) |
+| U7 | LOW | Zone-delete prune anchor `hvac.py:4044` was wrong (inside S10); in-memory prune unstated | U7 |
+| U8 | LOW | Five side-keys exist, not three | U8 |
+| U9 | LOW | Fast runs skip S10 (keep). F1 and F2 premises re-confirmed. NM templating ok. D0 1–3 unrun | U9 |
+| — | LOW | Every REV 3.x line anchor drifted by +20 to +25 lines (hvac.py) / +15 to +21 lines (hvac_predict.py). `switch.py:2046-2047` was updated to `:2061-2062` in the REV 3.2 body (compose-away plan D2 ask) | anchor table |
+
+**Cleared (holds because):**
+- **D0-5 PASS still valid:** no ha_carrier change affects it.
+- **F1 tri-state race is real:** the initial cycle at `hvac.py:1572` runs before READY at :1580.
+- **F2 latch unreachability holds:** :2246 runs before :2278.
+- **Strategy is still the sole `"ha_carrier"` naming site besides `hvac_const.py:1473`.** That constant is compatible with the F3 lint as scoped.
+- **Arrester ignore branch still present:** `hvac_override.py:3652-3654`.
+- **No §10 claim is re-asserted:** C25 (no reliance on the v3.8.0 guard), C26 (`_auto_return` skip kept), C20/C22/C23 (no `hold_activity` oracle), C15/C16/C21.
+
+## Operator ruling 2026-10-03 — thin adapter (supersedes REV 3.3 U1's `feature_available("cpr")` skip)
+The thermostat brand layer is a thin command adapter; HVAC features are never gated by brand (memory: thermostat-brand-layer-is-thin-command-adapter). Do NOT branch S10 on `feature_available("cpr")`. Instead S10 calls an adapter verb (e.g. `set_preset_range`) and the adapter decides how to carry it out per brand; a brand with no device presets returns SKIPPED (`no_device_presets`) and URA keeps the range itself. W1-C P2 REV 2 removes `feature_available`/`feature_unavailable_reason` from `hvac_strategy.py`; sequence CPR after P2 or implement the verb shape directly.
