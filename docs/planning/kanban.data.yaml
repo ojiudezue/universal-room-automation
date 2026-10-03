@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1@2026-10-03T02:15:32"
+    at: "2026-10-03T02:15:32"
+    outcome: "done"
+    headline: "Closed 2 HVAC fixes (soak exit). (1) When the thermostats went offline on 10-02, URA held its writes once per zone per outage, with zero writes to a dead thermostat. (2) HVAC never touched Guest Bedroom 2's fan while its Fan Mode is Off, but still runs the other rooms' fans."
+    acknowledged: false
   - fid: "BOOT-EVENT-LOOP-FREEZE-1@2026-10-03T02:14:25"
     at: "2026-10-03T02:14:25"
     outcome: "done"
@@ -30032,19 +30037,20 @@ cards:
   rank: {value: 4, time_criticality: 2, effort: 2}
   verdict_2026_09_29: 'REFUTED, working as intended; no code change. Overnight read-only probe (scripts/probes/hvac_gate8_stamp_outcomes.py, report docs/planning/AUDIT_hvac_gate8_stamp_outcomes_2026_09_29.md). The code claim holds: hvac_override.py:4136 (Gate 4 fail) and :4192 (Gate 6 fail) clear last_overshoot_started, Gate 7 fail (:4219-4225) only resets the sample counter, and a nudge dispatch clears it (:4952). CORRECTION: the 13 in the why was WRONG. The M0 P4 replay never cleared the stamp on dispatch, which the real code does. Corrected, only 4 dispatches would be removed (3 zone_1, 1 zone_3), and both of those that match a real detection_fired row were effective. The 2 early zone_1 nudges need the ODU Gate-4 wiring, which M0 already parked, so they cannot happen today. Outcomes over 108 real dispatches (09-21 to 09-29): carried 6, 5/6 effective (83%), 1 hard reset, median 0.89 kWh avoided, 3 min above target+1F. Fresh 102, 97/102 effective (95%), 5 hard resets, median 1.16 kWh, 101 min above target. Fisher p=0.30, not distinguishable. The kWh gap tracks lower pre-nudge draw; per kW the saving is the same (0.48 vs 0.44). Gate 7 must still pass two consecutive samples before any dispatch, so a carried stamp only shortens the 7-min wait.'
 - id: HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1
+  verify_2026_10_03_overnight: "CARD-WAS-WRONG on 'next': the fix SHIPPED in v5.103.25 (3e53b30ac + fix-up 5ee400249, git tag --contains). The stale next ('rebase fix/arrester-episode-keeps-ac-reset-restore 0297b1afc...') refers to the rebased duplicate branch whose only extra commit is 0297b1afc 'test docstring: correct startup-audit method name (A-L2)' - a cosmetic leftover."
   title: A new arrester episode cancels a pending AC hard-reset restore, so a zone can stay off for about 2-20 minutes after a reset
   thread: hvac
   status: shipped_organic
   shipped_version: v5.103.25
   created: '2026-09-29 04:10'
-  updated: '2026-09-29 05:15'
+  updated: "2026-10-03 02:15"
   approval: implied
   tags: [hvac, arrester, ac-reset, pre-existing, found-in-review]
   origin:
     date: '2026-09-29'
     gist: Batch B review B-L3 (docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md); flagged by the builder; exists on develop
   why: 'A governed override dispatch (hvac_override.py ~4055/4123) calls _cancel_zone_timers (~7624-7633), which also cancels a pending AC-reset RESTORE timer. If a manual change is booked inside the Carrier lag window after the reset''s `off` write (up to ~79 s), the zone stays off until the arrester''s own revert re-asserts heat_cool (B4): ~2 min on the severe path, up to ~20 min on grace + compromise. If the revert stands down, the zone stays off. Present on develop through the transition path; Batch B only slightly widens reachability.'
-  next: 'SHIP (at the next attended release, after Batch B lands): rebase fix/arrester-episode-keeps-ac-reset-restore (0297b1afc) onto develop post-Batch-B (mechanical conflicts at the 3 call sites + test :204), re-run the targeted arrester files, apply the merge-step doc checklist in docs/reviews/code-review/arrester_episode_keeps_ac_reset_restore.md, and ship with deploy.sh --cards. Not deployed overnight (hostile timing).'
+  next: "VALIDATE (me, one-shot): next arrester episode that overlaps a pending AC-reset restore -> the restore still runs (ura_activity_log). Dispose by 2026-10-10; if no overlap occurs, close as in-suite-proven. Separately: the leftover A-L2 docstring commit 0297b1afc can be cherry-picked any time or dropped with the branch."
   rank: {value: 4, time_criticality: 3, effort: 1}
   build_2026_09_29_overnight: 'BUILT (ura-builder, worktree, branch fix/arrester-episode-keeps-ac-reset-restore @4e5d7d900, base = develop d8397a070). The helper was renamed _cancel_zone_timers -> _cancel_arrester_timers, and its scope was cut to grace + compromise, dropping _reset_timers (hvac_override.py:7066). All 3 callers (startup audit :2315, severe :3601, normal :3659) are arrester-episode arm sites, and all want the narrower scope. The legitimate reset-timer cancels are untouched: teardown :2360, ac_reset_enabled setter :3038, and the fire-time pop :4411. 5 tests in quality/tests/test_arrester_episode_preserves_ac_reset_restore.py: 3 positive (wire-in through _handle_severe/_handle_normal + the helper contract) and 2 negative (teardown and disable still cancel). Mutation drill (re-add _reset_timers): exactly the 3 positive tests failed, the 2 negative passed. Targeted run: 89 passed. Orchestrator check: Batch B has the same 3 callers and no new ones, so a rebase is textual only.'
   subfinding_2026_09_29_restore_clobbers_human_mode: 'ADJACENT sub-finding, parked here with no new card. _restore_after_reset (~4391) writes heat_cool without checking the zone''s current mode. If a human changes hvac_mode ITSELF inside the ~79 s lag window after the reset''s off write, the restore overwrites them. A setpoint-only change (preset=manual, mode stays heat_cool) is fine. Parsimony: PARK. The window is short and a human mode change is rare, and a naive ''still off?'' gate would suppress real restores while Carrier has not yet echoed the off (state-of-play §5, 42-79 s lag), which is exactly the harm this card fixes. Revival trigger: an observed case in the climate-write ledger of a restore overwriting a non-off human mode.'
@@ -30083,19 +30089,20 @@ cards:
     related: [HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1]
   rank: {value: 7, time_criticality: 6, effort: 3}
 - id: HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1
+  organic_evidence_2026_10_03: "DISPOSED (soak exit): MET and now POSITIVELY exercised (README_v5.103.24 L6 was only 'not falsified'). Thermostat outages happened on 10-02 (18:27Z, 20:08Z): 9 held_unreadable rows, e.g. 20:08:20Z zones 1/2/3 'thermostat is unavailable; URA holds its heat_cool and preset writes', one per zone per outage episode (not per tick). climate_write rows carrying hvac_mode 'unavailable' since 09-29 = 0. DONE."
   title: While the Carrier thermostats are unavailable, URA keeps writing to them (the heat_cool enforcer treats 'unavailable' as drift, and S1 re-sends Away every tick)
   thread: hvac
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.25
   created: '2026-09-29 11:40'
-  updated: '2026-09-29 11:40'
+  updated: "2026-10-03 02:15"
   approval: implied
   tags: [hvac, tier-1, found-in-validation, bug-class-7]
   origin:
     date: '2026-09-29'
     gist: v5.103.20 timed validation (09-28 write spike); orchestrator traced it via the climate_write ledger
   why: 'All three climate entities were unavailable 09-28 14:24-17:21 CDT (177 min, a ha_carrier outage). During it, zone_1 alone got 37 B1_heat_cool_enforcer set_hvac_mode writes (reason heat_cool_enforcer_drift_revert; values_before.hvac_mode = unavailable) and repeated S1 vacant_past_grace away writes (values_before all null, hvac_mode unavailable). Other zones are likely the same (unmeasured). Pointless cloud calls into a dead integration, which also muddies the write ledger (the validator first read it as the zone_1 oscillation defect). Bug Class #7: an unavailable reading treated as a real value. Precedent: a 09-26 note recorded all 3 thermostats unavailable 20:24-21:15 with ha_carrier loaded but dead.'
-  next: 'BUILD (Tier 1): the enforcer and S1 (and any emit_* funnel caller) skip a zone whose climate entity is unavailable/unknown, with one INFO/ledger row per outage episode rather than per tick. Test with an unavailable entity: no write. Measure zones 2/3 counts in the same window first (one query).'
+  next: "None - closed."
   rank: {value: 4, time_criticality: 3, effort: 1}
 - id: HVAC-CUSTOM-PRESET-RANGES-1
   title: 'Batch C: turn on Custom Preset Ranges (URA writes its own range into each preset instead of Carrier''s defaults), plus its three blockers'
@@ -30114,19 +30121,20 @@ cards:
     children: [HVAC-S10-DPM-VS-S1-1, HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1, HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1]
   rank: {value: 6, time_criticality: 3, effort: 4}
 - id: HVAC-FANS-IGNORE-ROOM-COMFORT-FAN-SWITCH-1
+  organic_evidence_2026_10_03: "DISPOSED (soak exit): MET, both halves of README_v5.103.24 L1. ura_activity_log since the 09-30 00:17Z deploy: Guest Bedroom 2 hvac fan_on/fan_off = 0 while select.guest_bedroom_2_guest_bedroom_2_fan_mode = off (live REST 10-03). Positive half (HVAC still drives fans where allowed): Study A 27, Living Room 16, Game Room 5, Kitchen 5, Master Bedroom 1 hvac fan_off rows. DONE."
   title: The HVAC fan controller keeps turning a room's fan on and off even after the room's Comfort Fan Control switch is turned off (a guest was woken by it)
   thread: hvac
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.25
   created: '2026-09-29 14:10'
-  updated: '2026-09-29 14:10'
+  updated: "2026-10-03 02:15"
   approval: implied
   tags: [hvac, fans, guest, live-incident, batch-d]
   origin:
     date: '2026-09-29'
     gist: 'operator: "I have a guest in Guest room 2 and they are complaining of fan starting and stopping even after I turned off room comfort fan and HVAC controlled fans (last night)... I don''t like URA failing guests."'
   why: 'Guest Bedroom 2 (fan.fan_switch_4, Tuya): the operator turned off switch.guest_bedroom_2_guest_bedroom_2_comfort_fan_control at 09-28 17:31, and the room config already had fan_control_enabled False / hvac_coordination_enabled False. The HVAC-tier fan controller (ura_activity_log coordinator=hvac) still acted: fan_off 20:25 and 21:15 (temp_hvac); sleep-onset fan ON at 23:43 (66%) and 03:09 (33%, right after the orchestrator''s 03:01 restart); fan_off 06:01. Other on/off edges (22:11, 22:32, 23:36, 23:39, 23:46, 07:09, 13:12, 13:18) have no URA log entry and no user context, so they are most likely the guest pressing the switch. The old blueprint automation "Upstairs Guest Room Automation" is OFF. Root cause: hvac_fans.discover_fans registers every zone room that has fans and never reads CONF_FAN_CONTROL_ENABLED, so the room''s Comfort Fan Control switch does not stop the HVAC tier. switch.ura_hvac_coordinator_fan_control (house-wide) stayed on.'
-  next: 'BUILD in Batch D (feature/hvac-batch-d, Tier 2): gate every hvac-tier fan actuation on the room''s LIVE CONF_FAN_CONTROL_ENABLED (and decide on the room climate-automation switch); a switch-off leaves the device as the person left it. Ship today while the house is awake; live check = 0 hvac fan actions for Guest Bedroom 2 while its switch is off.'
+  next: "None - closed."
   links:
     related: [GUEST-ROOM-FAN-HOLD-1, HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1]
   rank: {value: 9, time_criticality: 9, effort: 2}
