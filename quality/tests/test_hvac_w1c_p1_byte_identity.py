@@ -163,6 +163,9 @@ _ISO_RE = re.compile(
     r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[+-]\d{2}:\d{2}|Z)?"
 )
 _EPOCH_MS_RE = re.compile(r":\d{12,14}\b")
+# S9 notes carry wall-clock elapsed seconds since the fixture's fixed
+# 2000-01-01 start — masked (non-deterministic across runs).
+_ELAPSED_RE = re.compile(r"elapsed_s=\d+")
 
 
 def _norm(obj):
@@ -170,6 +173,7 @@ def _norm(obj):
     s = json.dumps(obj, default=str, sort_keys=True)
     s = _ISO_RE.sub("<ts>", s)
     s = _EPOCH_MS_RE.sub(":<ms>", s)
+    s = _ELAPSED_RE.sub("elapsed_s=<s>", s)
     return json.loads(s)
 
 
@@ -761,8 +765,10 @@ async def sc_S13_start(ctx):
     """A11 — S13 pre-heat start `_execute_pre_heat`."""
     for zid in ("zone_2", "zone_3"):
         zz = ctx.coord.zone_manager.zones[zid]
-        zz.any_room_hvac_occupied = False
-    ctx.zone.any_room_hvac_occupied = True
+        zz.room_conditions = []
+    ctx.zone.room_conditions = [
+        types.SimpleNamespace(occupied=True, hvac_occupied=True, room_name="Living Room"),
+    ]
     ctx.set_entity(preset_mode="home", hold_activity="home")
     ctx.seed_last_sent("home")
     ctx.defer_gate()
