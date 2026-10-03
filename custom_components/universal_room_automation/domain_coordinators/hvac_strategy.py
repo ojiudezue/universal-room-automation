@@ -32,6 +32,30 @@ the funnel, so the Carrier quirk keeps working for Carrier entities and the
 funnel's capability check keeps it away from thermostats that do not
 advertise ``resume``. ``_snapshot_climate_state`` (W1-A) is exempt from
 strategy dispatch by design — it reads raw attributes behind the funnel.
+
+HVAC W1-C P1 (``docs/planning/PLANNING_hvac_w1c_thermostat_profiles.md``
+REV 3 + 3.1 errata) adds the frozen PROFILE CONTRACT on top:
+
+* ``ProfileCapabilities`` + ``PersonChangeVerdict`` (public types, §3a).
+* Every thermostat write site (A1–A14) calls a strategy method:
+  ``hold_preset`` (S1 only — D2.5 no-op + ``last_sent``), ``pin_preset``
+  (every other preset write), ``set_setpoints``, ``set_hvac_mode``. The
+  last three are PURE funnel delegates in P1: they call the governed funnel
+  with exactly the caller's kwargs, map the funnel's ``True`` / ``False`` to
+  ``APPLIED`` / ``DEFERRED`` and let a wire exception PROPAGATE unchanged,
+  so each site's existing exception branch runs byte-identically. They
+  record nothing in ``last_sent`` (R2-3: no new verb is recorded in P1).
+  The funnel is passed in by the caller (``emit=``) so the site keeps
+  resolving its module-level funnel name at call time — the existing
+  test seams that patch ``hvac_override.emit_set_temperature`` etc. keep
+  intercepting, and the call graph is unchanged.
+* ``release_hold`` exists with NO caller and records nothing in P1 (N3).
+* ``is_manual_hold`` — the ONE ``"manual"`` predicate the §B readers call
+  (Carrier and, in P1, Generic: identical ``preset == "manual"``).
+* ``classify_person_change`` — Carrier: verbatim delegate to
+  ``hvac_override.classify_manual_setpoint_change``; every other profile:
+  a stub returning ``INCONCLUSIVE``, never raising (N2). No P1 caller.
+* Suppression stays with the ~22 callers (N1); nothing here registers it.
 """
 
 from __future__ import annotations
@@ -51,6 +75,139 @@ GENERIC_PLATFORM = "generic"
 # (module constant): the device displays whole degrees; half a unit is the
 # smallest difference that is a real difference.
 LAST_SENT_TOLERANCE_F: float = 0.5
+
+# The anonymous-hold marker Carrier/Bryant reports in `preset_mode` /
+# `hold_activity` after any raw setpoint write (definition doc §6). The ONE
+# home of the literal for the shared HVAC modules (W1-C P1 deliverable 4:
+# AST lint forbids a raw "manual" literal in hvac*.py outside this module
+# and a reasoned allowlist).
+MANUAL_HOLD_PRESET: str = "manual"
+
+
+class PersonChangeVerdict(str, Enum):
+    """W1-C §3a / §3d — verdict of a person-change classification.
+
+    HUMAN            revert / interrupt latch eligible
+    DEVICE_SCHEDULE  thermostat-side schedule — never revert / never latch
+    URA_ECHO         our own recent write matched
+    INCONCLUSIVE     cannot tell (e.g. a non-Carrier profile in P1) — never
+                     revert / never end a borrow / never latch
+    """
+
+    HUMAN = "human"
+    DEVICE_SCHEDULE = "device_schedule"
+    URA_ECHO = "ura_echo"
+    INCONCLUSIVE = "inconclusive"
+
+
+@dataclass(frozen=True)
+class PersonChange:
+    """Result of ``classify_person_change``.
+
+    ``verdict is None`` = not a person-change candidate at all (the Carrier
+    classifier's ``none``: not both-heat_cool / not both-manual / a leg not
+    numeric / no leg changed). ``delta_f`` is None in P1 (the Carrier
+    delegate computes no delta; the arrester measures it against a
+    reference preset elsewhere).
+    """
+
+    verdict: Optional[PersonChangeVerdict]
+    changed_legs: tuple[str, ...] = ()
+    delta_f: Optional[float] = None
+
+
+@dataclass(frozen=True)
+class ProfileCapabilities:
+    """W1-C §3a — what a thermostat profile can do. RUNG 1 (module constant
+    on each concrete strategy): physics / protocol facts change only by
+    reviewed code. NO P1 CONSUMER reads these fields — P2 pipes
+    ``feature_available`` to the degraded-feature surface and resolves echo
+    TTLs from here at suppress time (F7). ``echo_ttl_s is None`` = timings
+    TBD → the profile is UNDISPATCHABLE (F4)."""
+
+    platform: str
+    manufacturer: Optional[str]
+    has_named_presets: bool
+    named_preset_vocabulary: frozenset
+    has_heat_cool_mode: bool
+    setpoint_shape: str  # "dual_leg" | "single_setpoint"
+    supports_resume: bool
+    supports_activity_setpoint: bool
+    has_next_activity_time: bool
+    has_write_confirmation_feed: bool
+    has_mode_select: bool
+    mode_select_options: frozenset
+    hold_via: str  # "preset" | "mode_select" | "setpoint_only" | "unsupported"
+    hold_release_mechanism: str
+    equipment_telemetry: frozenset
+    echo_ttl_s: Optional[int]
+    preset_echo_ttl_s: Optional[int]
+    write_rate_min_interval_s: int
+    retry_interval_s: int
+    person_change_match_window_s: Optional[int]
+    person_change_shape: str  # "heat_cool_both_legs" | "single_setpoint" | "select_or_setpoint"
+
+
+# Carrier timings MIRROR the live module constants they will replace in P2
+# (unread in P1; pinned equal by test_w1c_p1_carrier_capabilities_mirror_constants):
+#   echo_ttl_s 15        = hvac_override.SUPPRESS_TTL_SECONDS
+#   preset_echo_ttl_s 120 = hvac_override.SUPPRESS_TTL_SECONDS_PRESET
+#   write_rate 60         = hvac_const.HVAC_FAST_PATH_MIN_INTERVAL_S
+#   retry_interval 0      = hvac_setpoint resume-then-pin retries at once
+CARRIER_CAPABILITIES = ProfileCapabilities(
+    platform=CARRIER_PLATFORM,
+    manufacturer="Carrier",
+    has_named_presets=True,
+    named_preset_vocabulary=frozenset({"home", "away", "sleep", "wake", "vacation"}),
+    has_heat_cool_mode=True,
+    setpoint_shape="dual_leg",
+    supports_resume=True,
+    supports_activity_setpoint=True,
+    has_next_activity_time=True,
+    # HVAC-WRITE-CONFIRMATION-ORACLE-1 (parked): neither feed confirms a
+    # write reliably (state-of-play §10 C22/C23).
+    has_write_confirmation_feed=False,
+    has_mode_select=False,
+    mode_select_options=frozenset(),
+    hold_via="preset",
+    hold_release_mechanism="resume_service",
+    # P4 owns the equipment-telemetry inventory (§E); empty until then.
+    equipment_telemetry=frozenset(),
+    echo_ttl_s=15,
+    preset_echo_ttl_s=120,
+    write_rate_min_interval_s=60,
+    retry_interval_s=0,
+    person_change_match_window_s=None,
+    person_change_shape="heat_cool_both_legs",
+)
+
+# Generic (§3d, this cycle): holds UNSUPPORTED — no invented setpoints, no
+# borrows, no nudges. In P1 these declarations have NO consumer: a Generic
+# zone still routes every write through the same funnels as Carrier (N2);
+# the degraded surface bites from P2.
+GENERIC_CAPABILITIES = ProfileCapabilities(
+    platform=GENERIC_PLATFORM,
+    manufacturer=None,
+    has_named_presets=False,
+    named_preset_vocabulary=frozenset(),
+    has_heat_cool_mode=False,
+    setpoint_shape="dual_leg",
+    supports_resume=False,
+    supports_activity_setpoint=False,
+    has_next_activity_time=False,
+    has_write_confirmation_feed=False,
+    has_mode_select=False,
+    mode_select_options=frozenset(),
+    hold_via="unsupported",
+    hold_release_mechanism="unsupported",
+    equipment_telemetry=frozenset(),
+    echo_ttl_s=15,
+    preset_echo_ttl_s=120,
+    write_rate_min_interval_s=60,
+    retry_interval_s=0,
+    person_change_match_window_s=600,
+    person_change_shape="single_setpoint",
+)
 
 
 class WriteStatus(str, Enum):
@@ -110,6 +267,7 @@ class GenericStrategy:
     """
 
     platform: str = GENERIC_PLATFORM
+    capabilities: ProfileCapabilities = GENERIC_CAPABILITIES
 
     def __init__(self) -> None:
         # entity_id -> {verb: (values_tuple, ts)}
@@ -161,11 +319,126 @@ class GenericStrategy:
         # "named" profile — that would drop the setpoint restore and
         # strand the zone at the borrowed value. The generic default adds
         # "entity advertises no presets at all".
-        if pre_preset in (None, "", "manual"):
+        if pre_preset in (None, "", MANUAL_HOLD_PRESET):
             return True
         if preset_modes is not None and len(preset_modes) == 0:
             return True
         return False
+
+    # ---- W1-C P1: the "manual" predicate (§B readers) ----------------
+    def is_manual_hold(self, obs_or_preset: Any) -> bool:
+        """True when the observation (or a bare ``preset_mode`` value) is
+        the anonymous manual hold. P1: Carrier AND Generic are the identical
+        ``preset == "manual"`` (byte-identity, N2); P2 may specialise."""
+        if isinstance(obs_or_preset, HoldObservation):
+            pm = obs_or_preset.preset_mode
+        else:
+            pm = obs_or_preset
+        return pm == MANUAL_HOLD_PRESET
+
+    # ---- W1-C P1: degraded-feature surface (no P1 consumer) ----------
+    def feature_available(self, feature: str) -> bool:
+        return self.feature_unavailable_reason(feature) is None
+
+    def feature_unavailable_reason(self, feature: str) -> Optional[str]:
+        caps = self.capabilities
+        if feature == "hold":
+            return None if caps.hold_via != "unsupported" else "profile_has_no_hold"
+        if feature == "cpr":
+            return None if caps.supports_activity_setpoint else "profile_has_no_activity_setpoint"
+        if feature == "nudge" or feature.startswith("borrow."):
+            # Borrows and nudges return through a NAMED preset pin.
+            return None if caps.hold_via == "preset" else "profile_has_no_named_presets"
+        return "unknown_feature"
+
+    # ---- W1-C P1: pure funnel delegates (A2–A14) ---------------------
+    @staticmethod
+    def _map_funnel_result(wrote: Any) -> WriteResult:
+        # The funnels return True (issued) / False (comfort-delay gate
+        # deferred) and RAISE on a wire failure — the exception is NOT
+        # caught here (each site keeps its own exception branch).
+        if wrote:
+            return WriteResult(WriteStatus.APPLIED, "emitted")
+        return WriteResult(WriteStatus.DEFERRED, "gate_deferred")
+
+    async def pin_preset(
+        self,
+        hass: Any,
+        entity_id: str,
+        preset: str,
+        *,
+        emit: Callable[..., Any] | None = None,
+        **kwargs: Any,
+    ) -> WriteResult:
+        """Every preset write that is NOT the S1 hold (returns, reverts,
+        restores, egress resume, boot audit). Pure delegate: NO D2.5 no-op,
+        NO ``last_sent`` record — the call is exactly
+        ``emit(hass, entity_id, preset, **kwargs)``."""
+        if emit is None:
+            from .hvac_setpoint import emit_set_preset_mode as _funnel  # noqa: PLC0415
+            emit = _funnel
+        return self._map_funnel_result(await emit(hass, entity_id, preset, **kwargs))
+
+    async def set_setpoints(
+        self,
+        hass: Any,
+        entity_id: str,
+        *,
+        emit: Callable[..., Any] | None = None,
+        **kwargs: Any,
+    ) -> WriteResult:
+        """Dual-leg setpoint write. Pure delegate:
+        ``emit(hass, entity_id, **kwargs)`` (``target_temp_low`` /
+        ``target_temp_high`` / ``freeze_active`` / ``gate`` / ``blocking`` /
+        ``site`` / ``zone_id`` / ``reason`` / ``excursion_id``)."""
+        if emit is None:
+            from .hvac_setpoint import emit_set_temperature as _funnel  # noqa: PLC0415
+            emit = _funnel
+        return self._map_funnel_result(await emit(hass, entity_id, **kwargs))
+
+    async def set_hvac_mode(
+        self,
+        hass: Any,
+        entity_id: str,
+        mode: str,
+        *,
+        emit: Callable[..., Any] | None = None,
+        **kwargs: Any,
+    ) -> WriteResult:
+        """HVAC-mode write. Pure delegate:
+        ``emit(hass, entity_id, mode, **kwargs)``."""
+        if emit is None:
+            from .hvac_setpoint import emit_set_hvac_mode as _funnel  # noqa: PLC0415
+            emit = _funnel
+        return self._map_funnel_result(await emit(hass, entity_id, mode, **kwargs))
+
+    async def release_hold(
+        self,
+        hass: Any,
+        entity_id: str,
+        *,
+        site: str,
+        zone_id: str,
+        reason: str,
+    ) -> WriteResult:
+        """Release URA's hold. P1: NO caller and records nothing (N3) —
+        Carrier ``resume`` still lives inside ``emit_set_preset_mode``.
+        From P2 it records under its own ``release_hold`` verb key."""
+        from .hvac_setpoint import (  # noqa: PLC0415
+            PRESET_RESUME,
+            emit_set_preset_mode,
+        )
+        return self._map_funnel_result(await emit_set_preset_mode(
+            hass, entity_id, PRESET_RESUME,
+            blocking=True, site=site, zone_id=zone_id, reason=reason,
+        ))
+
+    # ---- W1-C P1: person-change classifier (no P1 caller) ------------
+    def classify_person_change(
+        self, old_state: Any, new_state: Any, *, recent: Any = (), tol: float = LAST_SENT_TOLERANCE_F,
+    ) -> PersonChange:
+        """Non-Carrier stub (N2): INCONCLUSIVE, never raises."""
+        return PersonChange(PersonChangeVerdict.INCONCLUSIVE)
 
     # ---- preset hold (S1) ---------------------------------------------
     async def hold_preset(
@@ -227,12 +500,36 @@ class CarrierStrategy(GenericStrategy):
     """
 
     platform: str = CARRIER_PLATFORM
+    capabilities: ProfileCapabilities = CARRIER_CAPABILITIES
+
+    def classify_person_change(
+        self, old_state: Any, new_state: Any, *, recent: Any = (), tol: float = LAST_SENT_TOLERANCE_F,
+    ) -> PersonChange:
+        """Verbatim delegate to ``hvac_override.classify_manual_setpoint_change``
+        (the within-manual heat_cool four-leg classifier). Never raises."""
+        try:
+            from .hvac_override import (  # noqa: PLC0415
+                MANUAL_CHANGE_HUMAN,
+                MANUAL_CHANGE_URA_ECHO,
+                classify_manual_setpoint_change,
+                manual_changed_legs,
+            )
+            cls = classify_manual_setpoint_change(old_state, new_state, recent, tol)
+            if cls == MANUAL_CHANGE_HUMAN:
+                verdict: Optional[PersonChangeVerdict] = PersonChangeVerdict.HUMAN
+            elif cls == MANUAL_CHANGE_URA_ECHO:
+                verdict = PersonChangeVerdict.URA_ECHO
+            else:
+                return PersonChange(None)
+            return PersonChange(verdict, tuple(manual_changed_legs(old_state, new_state)))
+        except Exception:  # noqa: BLE001
+            return PersonChange(None)
 
     def is_human_manual_snapshot(
         self, pre_preset: Optional[str], *, preset_modes: tuple[str, ...] | None = None,
     ) -> bool:
         # Carrier always advertises presets; only the snapshot value decides.
-        return pre_preset in (None, "", "manual")
+        return pre_preset in (None, "", MANUAL_HOLD_PRESET)
 
 
 _STRATEGY_BY_PLATFORM: dict[str, GenericStrategy] = {}
@@ -279,6 +576,14 @@ def strategy_for_platform(platform: Optional[str]) -> GenericStrategy:
     inst.platform = platform
     _STRATEGY_BY_PLATFORM[platform] = inst
     return inst
+
+
+def is_manual_hold_for(hass: Any, entity_id: Optional[str], preset: Any) -> bool:
+    """§B reader entry point: the zone's profile decides whether ``preset``
+    is the anonymous manual hold. Never raises (``strategy_for`` never
+    raises; a missing entity id resolves the generic default)."""
+    strat = strategy_for(hass, entity_id) if entity_id else GenericStrategy()
+    return strat.is_manual_hold(preset)
 
 
 def _test_reset_cache() -> None:

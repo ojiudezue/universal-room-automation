@@ -7,11 +7,14 @@
         "data": {
           "outside_temp_sensor": "Outside Temperature Sensor",
           "outside_humidity_sensor": "Outside Humidity Sensor",
-          "weather_entity": "Weather Forecast Entity",
+          "weather_entity": "Weather",
+          "tracked_persons": "People",
+          "person_data_retention_days": "Keep person history",
+          "transition_detection_window": "Room change window",
           "solar_production_sensor": "Solar Production Sensor",
           "electricity_rate": "Fallback Electricity Rate ($/kWh)",
           "notification_service": "Default Notification Service",
-          "notification_target": "Default Notification Target",
+          "notification_target": "Phone for alerts",
           "notification_level": "Default Notification Level"
         },
         "data_description": {
@@ -21,7 +24,10 @@
           "solar_production_sensor": "Current solar production for energy calculations",
           "electricity_rate": "Used only when the Energy Coordinator is not configured. With the Energy Coordinator active, cost calculations use the TOU-aware rate automatically.",
           "notification_service": "Service to send alerts (e.g., notify.mobile_app_phone)",
-          "notification_target": "Device or group to receive notifications",
+          "tracked_persons": "People URA tracks. Untick anyone to leave out.",
+          "person_data_retention_days": "Days of person history to keep.",
+          "transition_detection_window": "How long a move between rooms counts as one trip.",
+          "notification_target": "Used for alerts. You can change this later.",
           "notification_level": "Which alerts to send: Off, Errors, Important, or All"
         }
       },
@@ -41,20 +47,12 @@
           "house_device_energy_sensors": "Energy sensors (kWh) for standalone devices — EV chargers, pool pumps, water heaters. Used in energy attribution."
         }
       },
-      "post_integration_setup": {
-        "title": "✅ Home Setup Complete",
-        "description": "Your home defaults are configured. Would you like to set up zones to group rooms, or skip and add rooms directly?",
-        "menu_options": {
-          "setup_zone": "🗂️ Set Up a Zone First",
-          "skip_to_room": "🚪 Skip to Add a Room",
-          "finish": "✅ Finish Setup"
-        }
-      },
       "entry_type_select": {
         "title": "Add New Entry",
         "description": "What would you like to add to your home automation?",
         "menu_options": {
           "add_room": "🚪 Add a Room",
+          "rooms_from_areas": "Add rooms from areas",
           "add_zone": "🗂️ Add a Zone",
           "add_coordinator": "⚙️ Add a Coordinator (Coming Soon)"
         }
@@ -79,7 +77,7 @@
         "data": {
           "room_name": "Room Name",
           "room_type": "Room Type",
-          "area_id": "Home Assistant Area",
+          "area_id": "Area",
           "zone": "Zone",
           "shared_space": "Shared Space",
           "shared_space_auto_off_hour": "Auto-Off Hour",
@@ -88,7 +86,7 @@
           "occupancy_debounce": "Motion Detection Delay"
         },
         "data_description": {
-          "room_name": "A friendly name for this room (e.g., 'Master Bedroom')",
+          "room_name": "Leave blank to use the area name.",
           "room_type": "Type affects default timeout (bedrooms: 15 min, closets: 2 min)",
           "area_id": "Link to a Home Assistant area for device discovery",
           "zone": "Assign to a zone for grouped automation. Select existing or type new.",
@@ -523,11 +521,26 @@
         "title": "Skipped",
         "description": "Home installed. Add rooms any time via Settings > Devices & Services > Universal Room Automation > Configure."
       },
+      "rooms_from_areas": {
+        "title": "Set up rooms",
+        "description": "{name}",
+        "data": {
+          "areas": "Areas"
+        },
+        "data_description": {
+          "areas": "Each picked area becomes a room. You check the list next."
+        }
+      },
+      "rooms_review": {
+        "title": "Check your rooms",
+        "description": "These rooms will be created with these sensors and devices. Submit to create them.\n\n{name}"
+      },
       "add_first_room": {
         "title": "Add your first room",
-        "description": "Add a room now, or skip and add rooms later.",
+        "description": "Set up rooms from your HA areas, add one room, or skip for now.",
         "menu_options": {
-          "skip_to_room": "Add first room",
+          "rooms_from_areas": "Set up rooms from areas",
+          "skip_to_room": "Add one room",
           "skip_rooms_later": "Skip — add rooms later"
         }
       }
@@ -546,7 +559,8 @@
       "room_name_exists": "A room with this name already exists",
       "reconfigure_use_options": "Use 'Configure' from the three-dot menu to modify settings.",
       "coordinator_not_ready": "Coordinator setup is coming in a future update.",
-      "coordinator_use_options": "Domain coordinators are configured via the Coordinator Manager device. Click Configure on the Coordinator Manager entry.",
+      "coordinator_use_options": "Turn on smart features with the Domain Coordinators switch on the Universal Room Automation device.",
+      "rooms_created": "Rooms created: {created}. Skipped: {skipped}. Failed: {failed}. To retry, use Add rooms from areas again; rooms already set up are skipped.",
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
       "zone_not_found": "The selected zone could not be found. It may have been deleted.",
       "zone_added": "Zone added successfully. The Zone Manager will reload to apply changes.",
@@ -640,7 +654,7 @@
       },
       "zone_hvac": {
         "title": "🌡️ Thermostat",
-        "description": "Pick the thermostat for this zone. If none is set, the first room's thermostat is used. Zones sharing this thermostat get the same settings.",
+        "description": "Pick the thermostat for this zone. If none is set, the first room's thermostat is used. Zones sharing this thermostat get the same settings. {advanced_hint}",
         "data": {
           "zone_thermostat": "Thermostat",
           "hvac_ac_load_sensor": "AC power sensor",
@@ -654,7 +668,7 @@
       },
       "zone_energy": {
         "title": "⚡ Zone Energy Sensors",
-        "description": "Configure power and energy sensors for zone-level loads (HVAC circuits, subpanel meters). These track energy not attributable to individual rooms.",
+        "description": "Configure power and energy sensors for zone-level loads (HVAC circuits, subpanel meters). These track energy not attributable to individual rooms. {advanced_hint}",
         "data": {
           "zone_power_sensors": "Power sensors",
           "zone_energy_sensors": "Energy sensors"
@@ -686,7 +700,7 @@
       },
       "zone_dynamic_preset": {
         "title": "🌤️ Weather comfort",
-        "description": "Let weather adjust the thermostat ranges for zone '{zone_name}'. Add a small offset if this zone runs warm or cool.",
+        "description": "Let weather adjust the thermostat ranges for zone '{zone_name}'. Add a small offset if this zone runs warm or cool. {advanced_hint}",
         "data": {
           "zone_dynamic_preset_enabled": "Weather comfort",
           "zone_dynamic_preset_offset": "Offset (°F)",
@@ -702,7 +716,7 @@
       },
       "global_sensors": {
         "title": "Global Sensors",
-        "description": "Sensors shared by all rooms. Saving briefly restarts URA.",
+        "description": "Sensors shared by all rooms. Saving briefly restarts URA. {advanced_hint}",
         "data": {
           "outside_temp_sensor": "Outdoor temperature",
           "outside_humidity_sensor": "Outdoor humidity",
@@ -724,7 +738,7 @@
       },
       "energy_sensors": {
         "title": "Energy Sensors",
-        "description": "Energy sensors for whole-house tracking and forecasts. Saving briefly restarts URA.",
+        "description": "Energy sensors for whole-house tracking and forecasts. Saving briefly restarts URA. {advanced_hint}",
         "data": {
           "whole_house_power_sensors": "Whole-house power",
           "whole_house_energy_sensors": "Whole-house energy",
@@ -754,7 +768,7 @@
       },
       "person_tracking": {
         "title": "👥 Person Tracking",
-        "description": "Pick which people to follow from room to room. Saving briefly restarts URA.",
+        "description": "Pick which people to follow from room to room. Saving briefly restarts URA. {advanced_hint}",
         "data": {
           "tracked_persons": "People",
           "person_data_retention_days": "Keep history (days)",
@@ -768,7 +782,7 @@
       },
       "camera_census": {
         "title": "📷 Camera Census",
-        "description": "Pick cameras for counting people. Person sensors are found automatically. Works with UniFi Protect, Frigate, Reolink and Dahua. Some changes here briefly restart URA.",
+        "description": "Pick cameras for counting people. Person sensors are found automatically. Works with UniFi Protect, Frigate, Reolink and Dahua. Some changes here briefly restart URA. {advanced_hint}",
         "data": {
           "census_cross_validation": "Cross-check camera systems",
           "census_divergence_downgrade": "Trust the lower count",
@@ -806,7 +820,7 @@
       },
       "perimeter_alerting": {
         "title": "🚨 Perimeter Alerting",
-        "description": "Get alerts about vehicles on your outdoor cameras during these hours. Optional AI descriptions add detail.",
+        "description": "Get alerts about vehicles on your outdoor cameras during these hours. Optional AI descriptions add detail. {advanced_hint}",
         "data": {
           "perimeter_vehicle_hours_start": "Start hour (0-23)",
           "perimeter_vehicle_hours_end": "End hour (0-23)",
@@ -1634,7 +1648,7 @@
       },
       "zone_rooms": {
         "title": "Name and rooms",
-        "description": "Set the zone name and which rooms belong to it.",
+        "description": "Set the zone name and which rooms belong to it. {advanced_hint}",
         "data": {
           "zone_name": "Zone name",
           "zone_description": "Description",
@@ -1650,7 +1664,7 @@
       },
       "zone_media": {
         "title": "🎵 Zone Media",
-        "description": "Configure how music follows people within this zone.",
+        "description": "Configure how music follows people within this zone. {advanced_hint}",
         "data": {
           "zone_player_entity": "Zone speaker",
           "zone_player_mode": "If speaker is off"

@@ -47,6 +47,21 @@ from .signals import EnergyConstraint
 
 _LOGGER = logging.getLogger(__name__)
 
+
+# HVAC W1-C P1 — every thermostat write / "manual" read goes through the
+# zone's thermostat profile (`hvac_strategy`). Lazy imports: the module set
+# is reloaded by the test harnesses, so binding at import time could pin a
+# stale strategy cache.
+def _w1c_strategy(hass, entity_id):
+    from .hvac_strategy import strategy_for  # noqa: PLC0415
+    return strategy_for(hass, entity_id)
+
+
+def _w1c_applied(result) -> bool:
+    """Old funnel bool: True = issued (APPLIED), False = gate-deferred."""
+    from .hvac_strategy import WriteStatus  # noqa: PLC0415
+    return result.status == WriteStatus.APPLIED
+
 # Pre-conditioning thresholds
 PRECOOL_FORECAST_HIGH: float = 90.0  # F — trigger pre-cool above this
 PREHEAT_FORECAST_LOW: float = 35.0  # F — trigger pre-heat below this
@@ -1103,7 +1118,7 @@ class HVACPredictor:
                 elif _s11_human_manual:
                     if self._override_arrester:
                         self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
-                    _s11_written = await emit_set_temperature(
+                    _s11_written = _w1c_applied(await _w1c_strategy(self.hass, zone.climate_entity).set_setpoints(
                         self.hass,
                         zone.climate_entity,
                         target_temp_low=base_low,
@@ -1115,7 +1130,8 @@ class HVACPredictor:
                         zone_id=zone_id,
                         reason="human_manual_banking_release",
                         excursion_id=_s11_eid,
-                    )
+                        emit=emit_set_temperature,
+                    ))
                     _release_ok = bool(_s11_written)
                     _release_detail = (
                         None if _release_ok
@@ -1128,7 +1144,7 @@ class HVACPredictor:
                         self._override_arrester.suppress(
                             zone.climate_entity, kind="preset",
                         )
-                    _s11_preset_written = await emit_set_preset_mode(
+                    _s11_preset_written = _w1c_applied(await _w1c_strategy(self.hass, zone.climate_entity).pin_preset(
                         self.hass,
                         zone.climate_entity,
                         _s11_pre_preset,
@@ -1138,7 +1154,8 @@ class HVACPredictor:
                         zone_id=zone_id,
                         reason="banking_release",
                         excursion_id=_s11_eid,
-                    )
+                        emit=emit_set_preset_mode,
+                    ))
                     _release_ok = bool(_s11_preset_written)
                     _release_detail = (
                         None if _release_ok
@@ -1437,7 +1454,7 @@ class HVACPredictor:
                         return bool(self._override_arrester.comfort_delay_active(z))
                     except Exception:  # noqa: BLE001
                         return False
-                _s12_written = await emit_set_temperature(
+                _s12_written = _w1c_applied(await _w1c_strategy(self.hass, zone.climate_entity).set_setpoints(
                     self.hass,
                     zone.climate_entity,
                     target_temp_low=zone.target_temp_low,
@@ -1449,7 +1466,8 @@ class HVACPredictor:
                     zone_id=zone.zone_id,
                     reason=reason,
                     excursion_id=(_bt.excursion_id if _bt else None),
-                )
+                    emit=emit_set_temperature,
+                ))
                 if not _s12_written:
                     if self._override_arrester:
                         self._override_arrester.unsuppress(zone.climate_entity)
@@ -1781,7 +1799,7 @@ class HVACPredictor:
                             return bool(self._override_arrester.comfort_delay_active(z))
                         except Exception:
                             return False
-                    _s13_written = await emit_set_temperature(
+                    _s13_written = _w1c_applied(await _w1c_strategy(self.hass, zone.climate_entity).set_setpoints(
                         self.hass,
                         zone.climate_entity,
                         target_temp_low=pre_heat_temp,
@@ -1793,7 +1811,8 @@ class HVACPredictor:
                         zone_id=zone.zone_id,
                         reason="pre_heat",
                         excursion_id=(_pt.excursion_id if _pt else None),
-                    )
+                        emit=emit_set_temperature,
+                    ))
                     if not _s13_written:
                         if self._override_arrester:
                             self._override_arrester.unsuppress(zone.climate_entity)
@@ -1867,7 +1886,7 @@ class HVACPredictor:
                     if tok.pre_target_low is not None and tok.pre_target_high is not None:
                         if self._override_arrester:
                             self._override_arrester.suppress(zone.climate_entity, kind="temp")
-                        _s13_landed = bool(await emit_set_temperature(
+                        _s13_landed = _w1c_applied(await _w1c_strategy(self.hass, zone.climate_entity).set_setpoints(
                             self.hass,
                             zone.climate_entity,
                             target_temp_low=tok.pre_target_low,
@@ -1878,13 +1897,14 @@ class HVACPredictor:
                             zone_id=zone_id,
                             reason="human_manual_preheat_boundary",
                             excursion_id=(tok.excursion_id if tok else None),
+                            emit=emit_set_temperature,
                         ))
                 else:
                     if self._override_arrester:
                         self._override_arrester.suppress(
                             zone.climate_entity, kind="preset",
                         )
-                    _s13_landed = bool(await emit_set_preset_mode(
+                    _s13_landed = _w1c_applied(await _w1c_strategy(self.hass, zone.climate_entity).pin_preset(
                         self.hass,
                         zone.climate_entity,
                         tok.pre_preset,
@@ -1893,6 +1913,7 @@ class HVACPredictor:
                         zone_id=zone_id,
                         reason="preheat_boundary",
                         excursion_id=(tok.excursion_id if tok else None),
+                        emit=emit_set_preset_mode,
                     ))
                 if _s13_landed and tok.pre_target_low is not None \
                         and tok.pre_target_high is not None:

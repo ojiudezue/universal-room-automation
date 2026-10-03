@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.35
+# Universal Room Automation vv5.103.36
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.35"
+VERSION: Final = "v5.103.36"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -64,7 +64,7 @@ CONF_OVERRIDE_NOTIFICATIONS: Final = "override_notifications"
 CONF_ZONE: Final = "zone"
 CONF_ZONE_NAME: Final = "zone_name"
 CONF_ZONE_ROOMS: Final = "zone_rooms"
-CONF_ZONE_DESCRIPTION: Final = "zone_description"
+CONF_ZONE_DESCRIPTION: Final = "zone_description"  # No runtime reader; kept for stored data. Options form shows it only in Advanced mode or when set.
 # v5.7.0 WS-A4: per-zone outdoor flag. An outdoor zone (e.g. "Outside",
 # "Front Porch") still tracks raw occupancy but is EXCLUDED from the
 # indoor-occupancy aggregation that gates the v5.7.0 AWAY path β. An
@@ -156,8 +156,8 @@ AGGREGATION_ENERGY_COVERAGE_DELTA: Final = "energy_coverage_delta"
 
 # Person tracking configuration
 CONF_TRACKED_PERSONS: Final = "tracked_persons"
-CONF_PERSON_DATA_RETENTION: Final = "person_data_retention_days"
-CONF_TRANSITION_DETECTION_WINDOW: Final = "transition_detection_window"
+CONF_PERSON_DATA_RETENTION: Final = "person_data_retention_days"  # No runtime reader; kept for stored data. Options form shows it only in Advanced mode or when set.
+CONF_TRANSITION_DETECTION_WINDOW: Final = "transition_detection_window"  # No runtime reader; kept for stored data. Options form shows it only in Advanced mode or when set.
 
 # v3.2.8: Presence decay configuration
 CONF_PERSON_DECAY_TIMEOUT: Final = "person_decay_timeout"
@@ -311,9 +311,9 @@ CONF_WHOLE_HOUSE_POWER_SENSORS: Final = "whole_house_power_sensors"  # v4.1.0: p
 CONF_WHOLE_HOUSE_ENERGY_SENSORS: Final = "whole_house_energy_sensors"  # v4.1.0: plural
 
 # v4.1.0: Zone-level and house-level energy attribution
-CONF_ZONE_POWER_SENSORS: Final = "zone_power_sensors"
+CONF_ZONE_POWER_SENSORS: Final = "zone_power_sensors"  # No runtime reader; kept for stored data. Options form shows it only in Advanced mode or when set.
 CONF_ZONE_ENERGY_SENSORS: Final = "zone_energy_sensors"
-CONF_HOUSE_DEVICE_POWER_SENSORS: Final = "house_device_power_sensors"
+CONF_HOUSE_DEVICE_POWER_SENSORS: Final = "house_device_power_sensors"  # No runtime reader; kept for stored data. Options form shows it only in Advanced mode or when set.
 CONF_HOUSE_DEVICE_ENERGY_SENSORS: Final = "house_device_energy_sensors"
 
 # Energy rate fields
@@ -1687,6 +1687,38 @@ ROOM_TYPE_FEATURE_DEFAULTS: Final = {
         CONF_HUMIDITY_FAN_PRESENCE_RUNTIME_ENABLED: True,
     },
 }
+
+# ============================================================================
+# ONBOARDING-SIMPLIFY-1 phase 2 (S2) — area name -> room type guess.
+# Ordered (keyword, room_type) pairs; first lowercase-substring match wins,
+# no match -> ROOM_TYPE_GENERIC. Order matters: "closet" and "bath" sit
+# before "bed" so "Bedroom Closet" -> closet and "Guest Bath" -> bathroom.
+# Rung 1 module constant: a heuristic table whose change should be
+# reviewed, not tuned live. The guess is shown on the review screen.
+# ============================================================================
+ROOM_TYPE_AREA_KEYWORDS: Final = (
+    ("closet", ROOM_TYPE_CLOSET),
+    ("pantry", ROOM_TYPE_CLOSET),
+    ("bath", ROOM_TYPE_BATHROOM),
+    ("powder", ROOM_TYPE_BATHROOM),
+    ("toilet", ROOM_TYPE_BATHROOM),
+    ("shower", ROOM_TYPE_BATHROOM),
+    ("bed", ROOM_TYPE_BEDROOM),
+    ("nursery", ROOM_TYPE_BEDROOM),
+    ("garage", ROOM_TYPE_GARAGE),
+    ("workshop", ROOM_TYPE_GARAGE),
+    ("laundry", ROOM_TYPE_UTILITY),
+    ("utility", ROOM_TYPE_UTILITY),
+    ("mudroom", ROOM_TYPE_UTILITY),
+    ("hall", ROOM_TYPE_HALLWAY),
+    ("theater", ROOM_TYPE_MEDIA_ROOM),
+    ("theatre", ROOM_TYPE_MEDIA_ROOM),
+    ("media", ROOM_TYPE_MEDIA_ROOM),
+    ("living", ROOM_TYPE_COMMON_AREA),
+    ("family", ROOM_TYPE_COMMON_AREA),
+    ("dining", ROOM_TYPE_COMMON_AREA),
+    ("kitchen", ROOM_TYPE_COMMON_AREA),
+)
 
 # ============================================================================
 # ONBOARDING-SIMPLIFY-1 — D1 (Slice 1)

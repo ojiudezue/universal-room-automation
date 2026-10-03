@@ -823,3 +823,71 @@ class TestComplianceState:
         assert ComplianceState.FULL.value == "full"
         assert ComplianceState.PARTIAL.value == "partial"
         assert ComplianceState.OVERRIDDEN.value == "overridden"
+
+
+# ============================================================================
+# W1-C P1 Review-D LOW: override-source detection routes through the profile
+# ============================================================================
+
+class TestDetectOverrideSourceProfile:
+    """`ComplianceTracker._detect_override_source` asks the thermostat profile
+    (`hvac_strategy.is_manual_hold_for`) whether the preset is the anonymous
+    manual hold. Carrier and registry-miss Generic output is unchanged."""
+
+    ENT = "climate.thermostat_bryant_wifi_studyb_zone_1"
+
+    def _hs(self):
+        return importlib.import_module(
+            "custom_components.universal_room_automation.domain_coordinators.hvac_strategy"
+        )
+
+    def _run(self, preset, platform, monkeypatch):
+        import asyncio as _a
+        hs = self._hs()
+        monkeypatch.setattr(hs, "_entity_platform", lambda _h, _e: platform)
+        hs._test_reset_cache()
+        hass = make_hass()
+        hass.states.get = MagicMock(
+            return_value=types.SimpleNamespace(state="heat_cool", attributes={"preset_mode": preset})
+        )
+        tracker = ComplianceTracker(hass)
+        try:
+            return _a.run(tracker._detect_override_source(self.ENT, "climate"))
+        finally:
+            hs._test_reset_cache()
+
+    @pytest.mark.parametrize("platform", ["ha_carrier", None])
+    @pytest.mark.parametrize(
+        "preset,expected",
+        [("manual", "thermostat_manual"), ("home", "unknown"), (None, "unknown"), ("", "unknown")],
+    )
+    def test_carrier_and_generic_output_unchanged(self, preset, expected, platform, monkeypatch):
+        assert self._run(preset, platform, monkeypatch) == expected
+
+    def test_missing_state_is_unknown(self):
+        import asyncio as _a
+        hass = make_hass()
+        hass.states.get = MagicMock(return_value=None)
+        tracker = ComplianceTracker(hass)
+        assert _a.run(tracker._detect_override_source(self.ENT, "climate")) == "unknown"
+
+    def test_non_climate_is_unknown(self):
+        import asyncio as _a
+        tracker = ComplianceTracker(make_hass())
+        assert _a.run(tracker._detect_override_source("light.x", "light")) == "unknown"
+
+    def test_routes_through_profile_predicate(self, monkeypatch):
+        """Discriminator: a profile that calls "hold" its manual hold makes the
+        detector say thermostat_manual for "hold" and NOT for "manual" — proves
+        the decision is the profile's, not a literal."""
+        hs = self._hs()
+        seen = []
+
+        def _fake(hass, entity_id, preset):
+            seen.append((entity_id, preset))
+            return preset == "hold"
+
+        monkeypatch.setattr(hs, "is_manual_hold_for", _fake)
+        assert self._run("hold", None, monkeypatch) == "thermostat_manual"
+        assert self._run("manual", None, monkeypatch) == "unknown"
+        assert seen == [(self.ENT, "hold"), (self.ENT, "manual")]

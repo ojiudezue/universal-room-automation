@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: 2026-10-02
+  last_reconciled: 2026-10-03
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -30563,7 +30563,7 @@ cards:
   title: House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs)
   thread: ux
   status: shipped_organic
-  shipped_version: v5.103.35
+  shipped_version: v5.103.36
   created: '2026-09-29 22:30'
   origin: 'Operator 2026-09-29: priority order is Room dialog, then House and Zone, then coordinators; "power user mess".'
   why: 'Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.'

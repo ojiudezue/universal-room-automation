@@ -665,77 +665,63 @@ class TestSoftNudge:
     def test_perform_soft_nudge_method_exists(self, hvac_override_src):
         assert "async def _perform_soft_nudge(" in hvac_override_src
 
-    def test_db_write_BEFORE_setpoint_change(self, hvac_override_src):
+    @staticmethod
+    async def _w1c_nudge_event_order(monkeypatch, variant="applied"):
+        """W1-C P1 BEHAVIOURAL driver: run the real `_perform_soft_nudge`
+        and return the interleaved order of DB in-flight write, the
+        set_temperature wire call and the arrester suppress()."""
+        from test_hvac_w1c_p1_byte_identity import site_ctx
+        async with site_ctx(monkeypatch, variant=variant) as ctx:
+            events = []
+            ctx.set_entity(preset_mode="sleep", hold_activity="sleep")
+            ctx.defer_gate()
+            db_write = ctx.db.set_ac_in_flight_nudge
+
+            async def _db(**kw):
+                events.append("db_in_flight")
+                return await db_write(**kw)
+            ctx.db.set_ac_in_flight_nudge = _db
+            rec = ctx.hass.services.async_call
+
+            async def _svc(domain, service, service_data=None, blocking=False, **kw):
+                if domain == "climate":
+                    events.append(service)
+                return await rec(domain, service, service_data, blocking=blocking, **kw)
+            ctx.hass.services.async_call = _svc
+            real_suppress = ctx.arr.suppress
+
+            def _sup(entity_id, *a, **kw):
+                events.append("suppress")
+                return real_suppress(entity_id, *a, **kw)
+            ctx.arr.suppress = _sup
+            await ctx.arr._perform_soft_nudge(ctx.zone, 2.5)
+            return events
+
+    @pytest.mark.asyncio
+    async def test_db_write_BEFORE_setpoint_change(self, monkeypatch):
         """Risk R1 — if HA crashes between DB write and service call, we
         have a DB record claiming nudge in-flight but no actual drift.
         Next startup audit restores the original target (no-op since it
-        equals current). Safe failure.
+        equals current). Safe failure. R1 mitigation requires DB-first
+        ordering.
 
-        If we did setpoint FIRST then DB, a crash leaves Bryant at +1.5°F
-        forever with no record. R1 mitigation requires DB-first ordering.
-        """
-        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
-        # find the method, then find the START OF THE NEXT method at class-body
-        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
-        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
-        # has no cheaper behavioural anchor without a real coordinator fixture.
-        idx = hvac_override_src.find("async def _perform_soft_nudge(")
-        assert idx != -1, "could not locate async def _perform_soft_nudge( in hvac_override_src"
-        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
-        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
-        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
-        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
-        body = hvac_override_src[idx:_end]
-        db_write_pos = body.find("set_ac_in_flight_nudge")
-        # feature/freeze-floor: setpoint dispatch routed through the chokepoint
-        # `emit_set_temperature(...)`; the raw services.async_call now lives in
-        # hvac_setpoint.py. Ordering invariant is unchanged.
-        service_pos = body.find("emit_set_temperature(")
-        assert db_write_pos > 0 and service_pos > 0
-        assert db_write_pos < service_pos, (
-            "R1 mitigation: DB write MUST precede setpoint change. "
-            "If a crash happens between them, a no-op restore (target "
-            "unchanged) is much safer than +1.5°F orphaned drift."
-        )
+        W1-C P1: converted from a source-order grep to a BEHAVIOURAL test
+        driving the real `_perform_soft_nudge`."""
+        events = await self._w1c_nudge_event_order(monkeypatch)
+        assert "db_in_flight" in events and "set_temperature" in events
+        assert events.index("db_in_flight") < events.index("set_temperature")
 
-    def test_perform_soft_nudge_suppresses_override(self, hvac_override_src):
-        """Risk R11 — URA's own setpoint change must be suppressed so
-        the OverrideArrester doesn't misclassify it as a user override.
+    @pytest.mark.asyncio
+    async def test_perform_soft_nudge_suppresses_override(self, monkeypatch):
+        """R11 / A-MED-2: the arrester suppress() lands AFTER the
+        set_temperature emit and ONLY when the emit actually fires.
 
-        ARREST-COMFORT-1 A-MED-2 fix-up (2026-08-10): suppression now
-        runs AFTER the emit and ONLY when the emit actually fires (so
-        deferred no-op writes under a comfort-delay grace don't leave a
-        stale SUPPRESS_TTL window that would swallow a real manual for
-        ~5s). This test now guards the inverted ordering + the
-        conditional stamp.
-        """
-        # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
-        # find the method, then find the START OF THE NEXT method at class-body
-        # indent. Slice tracks the method's real extent — no future 12000 -> 20000
-        # bumps needed. Bug Class #62 acknowledged; the invariant this test guards
-        # has no cheaper behavioural anchor without a real coordinator fixture.
-        idx = hvac_override_src.find("async def _perform_soft_nudge(")
-        assert idx != -1, "could not locate async def _perform_soft_nudge( in hvac_override_src"
-        _nxt_async = hvac_override_src.find("\n    async def ", idx + 1)
-        _nxt_sync = hvac_override_src.find("\n    def ", idx + 1)
-        _end_candidates = [n for n in (_nxt_async, _nxt_sync) if n != -1]
-        _end = min(_end_candidates) if _end_candidates else len(hvac_override_src)
-        body = hvac_override_src[idx:_end]
-        suppress_pos = body.find("self.suppress(zone.climate_entity")
-        service_pos = body.find("emit_set_temperature(")
-        assert suppress_pos > 0, "R11 suppress call missing"
-        assert service_pos > 0, "emit_set_temperature call missing"
-        # New contract (A-MED-2): suppress AFTER emit.
-        assert suppress_pos > service_pos, (
-            "A-MED-2 regression: suppress must land AFTER emit_set_temperature "
-            "(and only when it fires) — pre-fix ordering leaves TTL window "
-            "open on deferred no-op writes."
-        )
-        # And it must be guarded by the emit's return value.
-        assert "_s5_written" in body or "if written" in body or "if _s" in body, (
-            "A-MED-2 regression: suppress must be guarded by the emit's "
-            "return value (True == emitted)."
-        )
+        W1-C P1: converted from a source-order grep to a BEHAVIOURAL test."""
+        events = await self._w1c_nudge_event_order(monkeypatch)
+        assert events.count("suppress") == 1
+        assert events.index("set_temperature") < events.index("suppress")
+        deferred = await self._w1c_nudge_event_order(monkeypatch, variant="deferred")
+        assert "set_temperature" not in deferred and "suppress" not in deferred
 
     def test_perform_soft_nudge_schedules_restore(self, hvac_override_src):
         # BOUNDED BY STRUCTURE, NOT BY A MAGIC NUMBER (HVAC-GOVERNED-EXCURSION-1 fix-up r4, 2026-08-21):
@@ -995,30 +981,20 @@ class TestAcResetPresetRestore:
             in hvac_override_src
         )
 
-    def test_restore_after_reset_success_branch_emits_preset(
-        self, hvac_override_src,
-    ):
-        body = _method_slice(
-            hvac_override_src, "async def _restore_after_reset(",
-        )
-        # Preset emit must land in _verify_restore (inner) and use the
-        # snapshot + blocking path, mirroring the cancel_nudge restore.
-        assert "if original_preset:" in body, (
-            "SUCCESS branch must gate on the snapshot being present"
-        )
-        assert "emit_set_preset_mode(" in body, (
-            "SUCCESS branch must call emit_set_preset_mode to restore preset"
-        )
-        assert 'site="ac_reset_verify_preset_restore"' in body, (
-            "preset emit must be tagged with the ac_reset site"
-        )
-        assert "blocking=True" in body, (
-            "preset restore emit must be blocking, matching cancel_nudge"
-        )
-        assert 'self.suppress(climate_entity, kind="preset")' in body, (
-            "settle event from set_preset_mode must be suppressed as kind='preset'"
-        )
+    @pytest.mark.asyncio
+    async def test_restore_after_reset_success_branch_emits_preset(self, monkeypatch):
+        """The SUCCESS branch of `_restore_after_reset`'s verify loop
+        restores the original preset, tagged `ac_reset_verify_preset_restore`.
 
+        W1-C P1: converted from a source grep to a BEHAVIOURAL test (golden
+        scenario A5_B6_B7_preset: the device applies the mode write)."""
+        from test_hvac_w1c_p1_byte_identity import drive_site
+        obs = await drive_site(monkeypatch, "A5_B6_B7_preset")
+        pins = [
+            r["values_after"]["preset_mode"] for r in obs["climate_write"]
+            if r["site"].startswith("ac_reset_verify_preset_restore")
+        ]
+        assert pins and pins[-1] == "home"
 
 # ===========================================================================
 # D6 — Lockout + notification

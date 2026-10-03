@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "180",
+  "author": "ojiudezue",
+  "session_id": "claude_20261003_050256_ship_v5_103_36",
+  "timestamp": "2026-10-03T05:02:56Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.36 shipped: Thermostat profiles, zone/house Simple/Advanced, rooms from areas",
+  "summary": "Thermostat profiles, zone/house Simple/Advanced, rooms from areas",
+  "why": "URA goes live in a second home this weekend with an ecobee over HomeKit: thermostat writes needed a per-brand layer without risking Carrier (Tier 3, 168 goldens prove byte-identity), and setup friction is now repetition (6 screens per room), so rooms are created in bulk from HA areas; zone/house dialogs get the same Simple/Advanced treatment rooms got in 5.103.35.",
+  "implications": "Shipped HOUSE-DIALOGS-CLEANUP-1 at v5.103.36; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.36.md (Live criteria).",
+  "revisit_trigger": "Bulk create wall-clock approaching request timeouts for N>=10 -> move to a background job; W1-C P2 lands the ecobee profile and native 'temp' hold recognition.",
+  "refs": {
+    "cards": [
+      "HOUSE-DIALOGS-CLEANUP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.36.md"
+    ],
+    "release_notes": "Thermostat writes route through per-brand profiles (Carrier unchanged); zone and house settings get Simple/Advanced; add many rooms at once from HA areas. See README_v5.103.36."
+  }
+}
