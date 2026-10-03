@@ -319,6 +319,7 @@ def _outdoor_light_suggestion(hass):
 
 from .const import (
     DOMAIN,
+    CONF_DOMAIN_COORDINATORS_ENABLED,
     # v3.0.0 Entry types
     ENTRY_TYPE_INTEGRATION,
     ENTRY_TYPE_ROOM,
@@ -984,6 +985,54 @@ _APPLIANCE_PICK_PREFIX = "apick_"
 # Sentinel index in the menu for "add a new record" — routes to the
 # add branch of `async_step_appliance_form`.
 _APPLIANCE_ADD_KEY = "apick_new"
+
+# CM-COORDINATORS-ADD-ONE-BY-ONE-1: dynamic menu keys for the CM
+# "Add a coordinator" / "Remove a coordinator" pickers (same __getattr__
+# dispatch pattern as the zone / appliance pickers).
+_COORD_ADD_PREFIX = "addc_"
+_COORD_REMOVE_PREFIX = "remc_"
+# Short plain labels (label style guide).
+_COORDINATOR_LABELS = {
+    "presence": "Presence",
+    "safety": "Safety",
+    "security": "Security",
+    "energy": "Energy",
+    "hvac": "Climate (HVAC)",
+    "music_following": "Music following",
+    "appliance": "Appliances",
+    "notification_manager": "Notifications",
+}
+# Settings step each coordinator is added through. None = one-screen
+# confirm (no required settings).
+_COORDINATOR_ADD_STEP = {
+    "presence": None,
+    "safety": "coordinator_safety",
+    "security": "coordinator_security",
+    "energy": "coordinator_energy",
+    "hvac": "coordinator_hvac_settings",
+    "music_following": None,
+    "appliance": None,
+    "notification_manager": "coordinator_notifications",
+}
+# Settings menu entries shown for an added coordinator.
+_COORDINATOR_MENU_STEPS = {
+    "presence": ["coordinator_presence"],
+    "safety": ["coordinator_safety"],
+    "security": ["coordinator_security"],
+    "energy": ["coordinator_energy"],
+    "hvac": ["coordinator_hvac"],
+    "music_following": ["coordinator_music_following"],
+    "appliance": ["coordinator_appliance"],
+    "notification_manager": [
+        "coordinator_notifications",
+        # NM Cycle A-2 — rung-2 knobs for Cycle-A noise reduction.
+        "coordinator_notifications_volume",
+        # NM Cycle C-2 — per-person routing matrix etc.
+        "coordinator_notifications_routing",
+    ],
+}
+# Coordinators that read Presence; adding one also adds Presence.
+_COORDINATOR_NEEDS_PRESENCE = ("hvac", "security")
 
 
 # =============================================================================
@@ -3690,9 +3739,13 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
     async def async_step_coordinator_manager_migration(self, user_input=None):
         """Handle Coordinator Manager entry creation during migration (v3.6.0)."""
         if user_input is not None:
+            # CM-COORDINATORS-ADD-ONE-BY-ONE-1 D2: a new CM entry starts with
+            # only Presence added; the rest are added from the CM menu.
+            from .coordinator_gate import new_install_cm_options
             return self.async_create_entry(
                 title="URA: Coordinator Manager",
                 data=user_input,
+                options=new_install_cm_options(),
             )
         return self.async_abort(reason="migration_failed")
 
@@ -3830,6 +3883,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 return await self.async_step_appliance_form()
 
             return _appliance_pick_handler
+        # CM-COORDINATORS-ADD-ONE-BY-ONE-1 — add / remove coordinator pickers.
+        if name.startswith("async_step_" + _COORD_ADD_PREFIX):
+            cid = name[len("async_step_" + _COORD_ADD_PREFIX):]
+
+            async def _coord_add_handler(user_input=None, _cid=cid):
+                return await self._async_start_add_coordinator(_cid)
+
+            return _coord_add_handler
+        if name.startswith("async_step_" + _COORD_REMOVE_PREFIX):
+            cid = name[len("async_step_" + _COORD_REMOVE_PREFIX):]
+
+            async def _coord_remove_handler(user_input=None, _cid=cid):
+                self._pending_remove_coordinator = _cid
+                return await self.async_step_remove_coordinator_confirm()
+
+            return _coord_remove_handler
         raise AttributeError(name)
         self._selected_zone_entry_id = None  # v3.3.3: Track zone selected from integration menu
         self._pending_delete_rule_id = None  # v3.12.0 M3: AI rule deletion tracking
@@ -4152,38 +4221,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             return await self.async_step_manage_zones()
         elif entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
             # v3.6.0-c2.1: Coordinator Manager options menu
-            # v3.6.0-c2.4: coordinator_toggles moved to switch entities
-            # v3.22.0: signal_responses added for cross-coordinator signal config
+            # CM-COORDINATORS-ADD-ONE-BY-ONE-1 D3: dynamic — Add a
+            # coordinator, settings for ADDED coordinators only, Remove a
+            # coordinator, then shared steps. (BAEC lives inside
+            # coordinator_energy since v5.21.0.)
             return self.async_show_menu(
                 step_id="init",
-                menu_options=[
-                    "coordinator_presence",
-                    "coordinator_safety",
-                    "coordinator_security",
-                    "coordinator_energy",
-                    "coordinator_hvac",
-                    "coordinator_music_following",
-                    # APPLIANCE-MGMT-REFINE-1 v1b — first-class appliance
-                    # coordinator surface (add/edit/remove records, sets
-                    # each record's functional_domain).
-                    "coordinator_appliance",
-                    "coordinator_notifications",
-                    # NM Cycle A-2 — rung-2 knobs for Cycle-A noise reduction.
-                    "coordinator_notifications_volume",
-                    # NM Cycle C-2 (2026-07-22) — per-person routing matrix,
-                    # hazard overrides, DND-bypass, mute-default duration,
-                    # and additive-only life-safety hazard extras.
-                    "coordinator_notifications_routing",
-                    "signal_responses",
-                    # v4.7.34 Phase 1 D7: Optimization Coordinator options section
-                    "coordinator_optimization",
-                    # v5.21.0 fix-up (operator scope change 2026-07-17):
-                    # BAEC folded INTO `coordinator_energy` as sibling sections
-                    # of INCLEMENT_ADVANCED / cloud_verification (see the
-                    # `baec` + `baec_advanced` sections in
-                    # async_step_coordinator_energy). Standalone menu entry
-                    # + async_step_coordinator_baec retired.
-                ],
+                menu_options=self._cm_menu_options(),
                 description_placeholders={"menu_hint": ""},
             )
         elif entry_type == ENTRY_TYPE_ZONE:
@@ -4237,6 +4281,178 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     ),
                 },
             )
+
+    # ------------------------------------------------------------------
+    # CM-COORDINATORS-ADD-ONE-BY-ONE-1 D3 — add / remove coordinators
+    # ------------------------------------------------------------------
+
+    def _cm_merged(self) -> dict:
+        return {**self._config_entry.data, **self._config_entry.options}
+
+    def _cm_added(self) -> list[str]:
+        from .const import ADDABLE_COORDINATORS
+        from .coordinator_gate import is_coordinator_added
+        merged = self._cm_merged()
+        return [c for c in ADDABLE_COORDINATORS if is_coordinator_added(merged, c)]
+
+    def _cm_menu_options(self) -> list[str]:
+        from .const import ADDABLE_COORDINATORS
+        added = self._cm_added()
+        menu: list[str] = []
+        if len(added) < len(ADDABLE_COORDINATORS):
+            menu.append("add_coordinator")
+        for cid in added:
+            menu.extend(_COORDINATOR_MENU_STEPS[cid])
+        if added:
+            menu.append("remove_coordinator")
+        menu.extend(["signal_responses", "coordinator_optimization"])
+        return menu
+
+    async def async_step_add_coordinator(self, user_input=None):
+        """Menu of coordinators not yet added."""
+        from .const import ADDABLE_COORDINATORS
+        added = set(self._cm_added())
+        options = {
+            f"{_COORD_ADD_PREFIX}{cid}": _COORDINATOR_LABELS[cid]
+            for cid in ADDABLE_COORDINATORS if cid not in added
+        }
+        if not options:
+            return self.async_abort(reason="nothing_to_add")
+        return self.async_show_menu(step_id="add_coordinator", menu_options=options)
+
+    async def _async_start_add_coordinator(self, cid: str):
+        """Entitlement check, then route into the coordinator's settings."""
+        from .const import ADDABLE_COORDINATORS
+        from . import entitlements
+        if cid not in ADDABLE_COORDINATORS or cid in self._cm_added():
+            return await self.async_step_add_coordinator()
+        allowed, reason = entitlements.can_use_coordinator(cid)
+        if not allowed:
+            _LOGGER.info("Add %s refused by entitlement: %s", cid, reason)
+            return self.async_abort(
+                reason="coordinator_not_allowed",
+                description_placeholders={"reason": reason or "Not available."},
+            )
+        # Written only when the settings step is saved (see
+        # async_create_entry); closing the dialog writes nothing.
+        self._pending_add_coordinator = cid
+        step = _COORDINATOR_ADD_STEP[cid]
+        if step is None:
+            return await self.async_step_add_coordinator_confirm()
+        return await getattr(self, f"async_step_{step}")()
+
+    async def async_step_add_coordinator_confirm(self, user_input=None):
+        """One-screen confirm for coordinators with no required settings."""
+        cid = getattr(self, "_pending_add_coordinator", None)
+        if cid is None:
+            return await self.async_step_add_coordinator()
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self._config_entry.options),
+            )
+        return self.async_show_form(
+            step_id="add_coordinator_confirm",
+            data_schema=vol.Schema({}),
+            description_placeholders={"name": _COORDINATOR_LABELS[cid]},
+        )
+
+    async def async_step_remove_coordinator(self, user_input=None):
+        """Menu of added coordinators."""
+        options = {
+            f"{_COORD_REMOVE_PREFIX}{cid}": _COORDINATOR_LABELS[cid]
+            for cid in self._cm_added()
+        }
+        if not options:
+            return self.async_abort(reason="nothing_to_remove")
+        return self.async_show_menu(step_id="remove_coordinator", menu_options=options)
+
+    async def async_step_remove_coordinator_confirm(self, user_input=None):
+        """Confirm removal. Settings are kept so re-adding restores them."""
+        from .const import CONF_COORDINATORS_ADDED, COORDINATOR_ENABLED_KEYS
+        cid = getattr(self, "_pending_remove_coordinator", None)
+        if cid is None or cid not in self._cm_added():
+            return await self.async_step_remove_coordinator()
+        if user_input is not None:
+            self._pending_remove_coordinator = None
+            new = dict(self._config_entry.options)
+            new[CONF_COORDINATORS_ADDED] = [c for c in self._cm_added() if c != cid]
+            new[COORDINATOR_ENABLED_KEYS[cid]] = False
+            _LOGGER.info("Coordinator Manager: removing %s (settings kept)", cid)
+            return self._cm_save_and_reload(new, turn_master_on=False)
+        return self.async_show_form(
+            step_id="remove_coordinator_confirm",
+            data_schema=vol.Schema({}),
+            description_placeholders={"name": _COORDINATOR_LABELS[cid]},
+        )
+
+    def async_create_entry(self, *, title=None, data, **kwargs):
+        """Mark a pending coordinator as added when its settings are saved.
+
+        Every settings step ends here, so this is the one place an add
+        completes (CM-COORDINATORS-ADD-ONE-BY-ONE-1 D3).
+        """
+        cid = getattr(self, "_pending_add_coordinator", None)
+        if cid is not None and (
+            self._config_entry.data.get(CONF_ENTRY_TYPE)
+            == ENTRY_TYPE_COORDINATOR_MANAGER
+        ):
+            from .const import CONF_COORDINATORS_ADDED, COORDINATOR_ENABLED_KEYS
+            self._pending_add_coordinator = None
+            new = dict(data)
+            current = self._cm_added()
+            to_add = [cid]
+            if cid in _COORDINATOR_NEEDS_PRESENCE and "presence" not in current:
+                to_add.append("presence")
+            for c in to_add:
+                if c not in current:
+                    current.append(c)
+                new[COORDINATOR_ENABLED_KEYS[c]] = True
+            new[CONF_COORDINATORS_ADDED] = current
+            _LOGGER.info("Coordinator Manager: added %s", to_add)
+            return self._cm_save_and_reload(new, turn_master_on=True, title=title)
+        return super().async_create_entry(title=title, data=data, **kwargs)
+
+    def _cm_save_and_reload(self, new_options: dict, *, turn_master_on: bool, title=None):
+        """Write the CM options, then reload the parent entry ONCE.
+
+        Run keys are read at parent (integration) setup, so a change needs a
+        parent reload, exactly like the Enabled switch. If the master switch
+        is off and this is an add, turning it on is the reload (its own
+        update listener reloads the parent); otherwise one reload is
+        scheduled here (none when the master is off and this is a remove).
+        The options are written before the reload so the reload reads them;
+        the flow result carries the same options, which HA then treats as a
+        no-op write.
+        """
+        hass = self.hass
+        hass.config_entries.async_update_entry(self._config_entry, options=new_options)
+        parent = None
+        for ce in hass.config_entries.async_entries(DOMAIN):
+            if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                parent = ce
+                break
+        if parent is not None:
+            master_on = bool(
+                {**parent.data, **parent.options}.get(
+                    CONF_DOMAIN_COORDINATORS_ENABLED, False
+                )
+            )
+            if not master_on and turn_master_on:
+                _LOGGER.info(
+                    "Coordinator Manager: first coordinator added, "
+                    "turning on domain coordinators"
+                )
+                hass.config_entries.async_update_entry(
+                    parent,
+                    options={**parent.options, CONF_DOMAIN_COORDINATORS_ENABLED: True},
+                )
+            elif master_on:
+                hass.async_create_task(  # noqa: untracked-ok — parent reload must outlive this flow; same as the Enabled switch
+                    hass.config_entries.async_reload(parent.entry_id),
+                )
+        return super().async_create_entry(
+            title="" if title is None else title, data=new_options,
+        )
 
     async def async_step_show_all_settings(self, user_input=None):
         """"More settings" — one-visit full room menu (ROOM-TYPE-TRIMMED-MENU-1).

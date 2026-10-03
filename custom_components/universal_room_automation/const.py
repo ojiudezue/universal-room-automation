@@ -2949,6 +2949,41 @@ COORDINATOR_ENABLED_KEYS: Final = {
     "notification_manager": "notification_manager_enabled",
 }
 
+# CM-COORDINATORS-ADD-ONE-BY-ONE-1: the ONE run default per coordinator,
+# used when its *_enabled key is absent from the CM options. Read by every
+# registration gate AND the Enabled switch through
+# coordinator_gate.coordinator_should_run (never inline literals). Module
+# constant on purpose: changing a default must go through review.
+# Comfort is not listed: it has no registration site (out of scope).
+COORDINATOR_ENABLED_DEFAULTS: Final = {
+    "presence": True,
+    "safety": True,
+    "security": True,
+    "music_following": True,
+    "energy": False,
+    "appliance": True,
+    "hvac": False,
+    "notification_manager": False,
+}
+
+# Coordinators that can be added/removed from the CM menu, in menu order.
+ADDABLE_COORDINATORS: Final = (
+    "presence",
+    "safety",
+    "security",
+    "energy",
+    "hvac",
+    "music_following",
+    "appliance",
+    "notification_manager",
+)
+
+# List of coordinator ids the operator has added (CM entry options).
+# "Added" = set up from the CM menu; *_enabled stays the run/pause key.
+CONF_COORDINATORS_ADDED: Final = "coordinators_added"
+# One-shot sentinel for the existing-install migration (CM entry options).
+COORDINATORS_ADDED_MIGRATION_DONE: Final = "coordinators_added_migration_done"
+
 # v3.6.0-c0.4: Diagnostics constants
 DIAGNOSTICS_SCOPE_HOUSE: Final = "house"
 

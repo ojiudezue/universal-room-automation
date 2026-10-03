@@ -673,7 +673,8 @@ class NotificationManager:
     @property
     def enabled(self) -> bool:
         """Return whether NM is enabled."""
-        return self._config.get(CONF_NM_ENABLED, False)
+        from ..coordinator_gate import coordinator_should_run
+        return coordinator_should_run(self._config, "notification_manager")
 
     @property
     def messaging_suppressed(self) -> bool:

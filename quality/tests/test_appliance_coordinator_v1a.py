@@ -976,10 +976,15 @@ class TestRegistrationAnchor:
 
     def test_enable_default_is_true(self):
         # Ensure the enable-gate default hasn't silently flipped OFF.
-        # __init__.py reads `cm_config.get(CONF_APPLIANCE_COORDINATOR_ENABLED, True)`.
+        # CM-COORDINATORS-ADD-ONE-BY-ONE-1: the gate now routes through
+        # coordinator_should_run, whose key-absent default is the one table
+        # COORDINATOR_ENABLED_DEFAULTS.
         init_path = os.path.join(_ura_path, "__init__.py")
         with open(init_path, encoding="utf-8") as f:
             src = f.read()
-        assert (
-            "cm_config.get(CONF_APPLIANCE_COORDINATOR_ENABLED, True)" in src
-        )
+        assert 'coordinator_should_run(cm_config, "appliance", hass)' in src
+        with open(os.path.join(_ura_path, "const.py"), encoding="utf-8") as f:
+            const_src = f.read()
+        assert '    "appliance": True,\n' in const_src.split(
+            "COORDINATOR_ENABLED_DEFAULTS", 1
+        )[1].split("}", 1)[0]
