@@ -195,7 +195,13 @@ class CoordinatorManager:
             )
             if hass is not None:
                 try:
-                    hass.data.setdefault(DOMAIN, {})["fan_oracle"] = self._fan_oracle
+                    _dd = hass.data.setdefault(DOMAIN, {})
+                    _dd["fan_oracle"] = self._fan_oracle
+                    # FAN-ORACLE-BOOT-FALLBACK-NOISE-1: sticky marker so
+                    # RoomAutomation only WARNs on fallback AFTER the oracle
+                    # has been attached at least once (boot-order writes
+                    # before attach are expected and logged at DEBUG).
+                    _dd["fan_oracle_attached_once"] = True
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug(
                         "FanPolicyOracle: hass.data stash failed (non-fatal)",
