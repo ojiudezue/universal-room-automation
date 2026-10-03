@@ -2999,11 +2999,12 @@ class BatteryStrategy:
             sunrise_today, sunset_today = self._daylight_bounds(now)
         except Exception:  # noqa: BLE001
             sunrise_today, sunset_today = (None, None)
-        if (
+        in_daylight = (
             sunset_today is not None
             and sunset_today > now
             and (sunrise_today is None or now >= sunrise_today)
-        ):
+        )
+        if in_daylight:
             solar_mins_remaining = max(
                 0.0, (sunset_today - now).total_seconds() / 60.0,
             )
@@ -3046,6 +3047,22 @@ class BatteryStrategy:
             # Display clamp: SOC physically cannot exceed 100%.
             projected_rung0 = max(0.0, min(100.0, raw_projected_rung0))
         self._arb_last_projection_rung0 = round(projected_rung0, 1)
+
+        # Night release (EC-RUNG1-WAIT-EV-PINGPONG-1 fix-up, B/D-HIGH-1).
+        # Rungs 0/1 are solar-attain predicates; outside daylight (same
+        # `in_daylight` predicate as the D1 horizon above) a rung latch taken
+        # in daylight must NOT survive — a carried rung_1 latch would keep the
+        # EVs paused for "redirect" all night with no solar to redirect.
+        # Release BOTH latches and fall through to the unlatched evaluation,
+        # so the plain rung-0 projection decides rung_0 vs rung_2: rung-1
+        # ENTRY cannot fire at night because with rate_hours == 0 (D1) its
+        # projection equals projected_rung0, which already failed entry.
+        if not in_daylight:
+            if self._arb_rung1_latch:
+                # C-MED-2 hygiene: stale assumed EV-load cleared on release.
+                self._arb_last_ev_load_pct_per_h = 0.0
+            self._arb_rung1_latch = False
+            self._arb_rung0_latch = False
 
         # CRITICAL ordering: when rung-1 is latched, the COUNTERFACTUAL
         # rung-1 exit logic is the AUTHORITATIVE next-state decision —
@@ -5060,6 +5077,10 @@ class BatteryStrategy:
         # in its body, so this reset is synchronous-airtight across all
         # early-return paths — closes the D2-HIGH-1 inter-tick refill.
         self._offpeak_drain_branch_target = None
+        # D-MED-1 ENTRY-RESET: the rung intent is per-tick. Early-return
+        # paths (full_hold / peak / storm ...) never reach _gate_is_open, so
+        # without this a prior tick's "redirect" would keep the EVs paused.
+        self._arbitrage_intent = None
         from homeassistant.util import dt as dt_util
         if now is None:
             now = dt_util.now()
@@ -6201,14 +6222,31 @@ class BatteryStrategy:
         if phase == ARBITRAGE_PHASE_WAIT:
             # EC poor-night plan D2 / review #2 F9: both WAIT strings name
             # the floor WAIT actually parks at (same helper as the emitter).
-            _wait_floor = self._arbitrage_wait_floor(soc, now)
+            # A-LOW-1: show the value the WAIT emitter actually writes — the
+            # wait floor composed with the cached per-tick inclement
+            # partial_hold floor via the same `_floor_reserve` the emitter
+            # uses (effective_reserve = max(reserve_soc, reserve_floor), as
+            # in determine_mode). No try/except, matching the fallback
+            # branch's unguarded `_drain_target_for` (B-LOW: decided no).
+            _wait_base = self._arbitrage_wait_floor(soc, now)
+            _dec = self._last_inclement_decision
+            if _dec is not None:
+                _wait_floor = self._floor_reserve(
+                    _wait_base,
+                    max(self.reserve_soc, _dec.reserve_floor),
+                    _dec.hold_depth,
+                )
+            else:
+                _wait_floor = _wait_base
+            _sfx = " (partial_hold floor)" if _wait_floor != _wait_base else ""
             if self._arbitrage_chunk_completed:
                 return (
-                    f"arbitrage chunk completed — holding {_wait_floor}% floor"
+                    f"arbitrage chunk completed — holding {_wait_floor}% "
+                    f"floor{_sfx}"
                 )
             return (
-                f"waiting for charge window, holding {_wait_floor}% floor "
-                f"(lead_time={self._arbitrage_charge_lead_time_min}m)"
+                f"waiting for charge window, holding {_wait_floor}% floor"
+                f"{_sfx} (lead_time={self._arbitrage_charge_lead_time_min}m)"
             )
         if phase == ARBITRAGE_PHASE_DISCHARGE:
             return "discharging during high-rate window"

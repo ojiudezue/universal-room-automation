@@ -377,18 +377,120 @@ def test_local_predicate_anchor_with_r7_projector_off(monkeypatch):
 
 
 def test_rung1_counterfactual_site_daylight_gated():
-    """Counterfactual (latched) site: pre-sunrise the assumed-EV term is 0.
+    """Latched pre-sunrise: the night release (fix-up B/D-HIGH-1) clears the
+    latch before the counterfactual site, so p1 is None (not computed).
 
-    Latched at 06:30 with assumed EV 5 %/h; rate 2, soc 30, surplus 25
-    (shoulder, today [07:00,17:00]). cf = 30 + 0 + 25 = 55.0 → p1 = 55.0
-    (pre-change: 30 + (2-5)*10.5 + 25 = 23.5). p0 = 55.0 < exit 77 → rung_2.
+    06:30, rate 2, soc 30, surplus 25 (shoulder, today [07:00,17:00]).
+    p0 = 30 + 0 + 25 = 55.0 < entry 83 → rung_2; both latches cleared.
     """
     strat, _ = _make(soc=30, boundary=_SHOULDER_BND)
     strat._arb_rung1_latch = True
     strat._arb_last_ev_load_pct_per_h = 5.0
     rung, p0, p1 = _classify(strat, datetime(2026, 10, 1, 6, 30), 30.0, 2.0, 0.0)
-    assert (p0, p1) == (55.0, 55.0)
+    assert (p0, p1) == (55.0, None)  # ev_kw 0 → entry site not reached
     assert rung == "rung_2"
+    assert strat._arb_rung1_latch is False
+    assert strat._arb_last_ev_load_pct_per_h == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Fix-up B/D-HIGH-1: a rung latch taken in daylight must not survive night.
+# Repro (reviews): shoulder, poor, target 80, rung_1 latch carried, EV 2 kW
+# (= 5 %/h on 40 kWh), SOC 55, surplus 25 → p0 = 55 + 0 + 25 = 80 < entry 83.
+# Pre-fix: cf = 80 < 83 and p0 80 >= exit 77 → rung_1 HELD all night.
+# ---------------------------------------------------------------------------
+
+_NIGHT_CASES = [
+    # 02:00 → today's boundary 17:00; surplus today [07,17] 10/12*24*.5/40=25
+    (datetime(2026, 10, 1, 2, 0), _SHOULDER_BND),
+    # 21:05 → next-day 17:00; surplus tomorrow (24 kWh) same slice = 25
+    (datetime(2026, 10, 1, 21, 5), _SHOULDER_BND + timedelta(days=1)),
+]
+
+
+@pytest.mark.parametrize("now,bnd", _NIGHT_CASES, ids=["0200", "2105"])
+def test_night_releases_carried_rung1_latch(now, bnd):
+    strat, _ = _make(soc=55, boundary=bnd, tomorrow_kwh="24")
+    strat._arb_rung1_latch = True
+    strat._arb_last_ev_load_pct_per_h = 5.0
+    rung, p0, p1 = _classify(strat, now, 55.0, 0.0, 2.0)
+    assert p0 == 80.0
+    assert rung == "rung_2"
+    assert p1 == 80.0  # rung-1 ENTRY (not counterfactual): EV term 0 at night
+    assert strat._arb_rung1_latch is False
+    assert strat._arb_rung0_latch is False
+    assert strat._arb_last_ev_load_pct_per_h == 0.0
+
+
+@pytest.mark.parametrize("now,bnd", _NIGHT_CASES, ids=["0200", "2105"])
+def test_night_carried_rung1_latch_full_determine_mode(now, bnd):
+    """Full determine_mode: gate not closed_rung_1, intent never "redirect",
+    no grid charge requested → EnergyCoordinator pause_reason (energy.py
+    `arb_intent == "redirect"` branch) cannot be "redirect"."""
+    strat, _ = _make(soc=55, boundary=bnd, tomorrow_kwh="24")
+    strat._arb_rung1_latch = True
+    strat._arb_last_ev_load_pct_per_h = 5.0
+    _seed_rate(strat, now, 55.0, 0.0)
+    r = strat.determine_mode("off_peak", "shoulder", now=now, ev_load_w=2000.0)
+    assert strat._arb_last_gate_outcome != "closed_rung_1"
+    assert strat._arbitrage_intent != "redirect"
+    assert strat._arb_last_rung == "rung_2"
+    assert strat._arb_rung1_latch is False
+    assert r["arbitrage_phase"] == "wait"
+    assert _cfg_on_actions(r) == []
+
+
+@pytest.mark.parametrize("now,bnd", _NIGHT_CASES, ids=["0200", "2105"])
+def test_night_carried_rung0_latch_released_entry_band_decides(now, bnd):
+    """rung_0 latch carried at night with p0 80 (between exit 77 and entry
+    83): pre-fix hysteresis held rung_0; now p0 decides → rung_2."""
+    strat, _ = _make(soc=55, boundary=bnd, tomorrow_kwh="24")
+    strat._arb_rung0_latch = True
+    rung, p0, _p1 = _classify(strat, now, 55.0, 0.0, 2.0)
+    assert (rung, p0) == ("rung_2", 80.0)
+    assert strat._arb_rung0_latch is False
+
+
+def test_night_p0_above_entry_gives_rung0_unlatched():
+    """02:00 SOC 60: p0 = 60 + 25 = 85 >= 83 → rung_0 via unlatched entry
+    (the carried rung_1 latch is released first)."""
+    strat, _ = _make(soc=60, boundary=_SHOULDER_BND)
+    strat._arb_rung1_latch = True
+    strat._arb_last_ev_load_pct_per_h = 5.0
+    rung, p0, _p1 = _classify(strat, datetime(2026, 10, 1, 2, 0), 60.0, 0.0, 2.0)
+    assert (rung, p0) == ("rung_0", 85.0)
+    assert strat._arb_rung1_latch is False
+
+
+def test_daylight_carried_rung1_latch_still_held():
+    """Discriminator: same latch in daylight is NOT released.
+
+    09:00 shoulder 17:00: 8 h, surplus 24.0 (see daylight_value test).
+    soc 55 rate 2: p0 = 55 + 16 + 24 = 95; cf = 55 + (2-5)*8 + 24 = 55 < 83;
+    p0 95 >= exit 77 → rung_1 held."""
+    strat, _ = _make(soc=55, boundary=_SHOULDER_BND)
+    strat._arb_rung1_latch = True
+    strat._arb_last_ev_load_pct_per_h = 5.0
+    rung, p0, p1 = _classify(strat, datetime(2026, 10, 1, 9, 0), 55.0, 2.0, 0.0)
+    assert (rung, p0, p1) == ("rung_1", 95.0, 55.0)
+    assert strat._arb_rung1_latch is True
+
+
+def test_intent_reset_on_early_return_tick():
+    """D-MED-1: a daylight rung_1 tick sets intent "redirect"; the next tick
+    takes a peak early return (never reaches _gate_is_open) → intent None.
+
+    10:00 shoulder 17:00: 7 h; surplus [10,17] 7/9 * 24 * .5 / 40 = 23.33.
+    p0 = 55 + 0 + 23.3 = 78.3 < 83; entry = 55 + 5*7 + 23.3 → 100 >= 83."""
+    strat, _ = _make(soc=55, boundary=_SHOULDER_BND)
+    now = datetime(2026, 10, 1, 10, 0)
+    _seed_rate(strat, now, 55.0, 0.0)
+    strat.determine_mode("off_peak", "shoulder", now=now, ev_load_w=2000.0)
+    assert strat._arbitrage_intent == "redirect"
+    r = strat.determine_mode("peak", "shoulder", now=now + timedelta(minutes=5),
+                             ev_load_w=2000.0)
+    assert strat._arbitrage_intent is None
+    assert _cfg_on_actions(r) == []
 
 
 def test_rung1_counterfactual_site_daylight_value():
@@ -692,6 +794,23 @@ def test_next_action_estimate_names_wait_floor():
     strat._arbitrage_chunk_completed = True
     assert strat._next_action_estimate(22.7, _W_NOW) == (
         "arbitrage chunk completed — holding 22% floor"
+    )
+
+
+def test_next_action_estimate_wait_shows_partial_hold_floor():
+    """A-LOW-1: display = emitted value. partial_hold 50 > floor 30 → 50."""
+    strat, _ = _make(soc=45, boundary=_W_BND)
+    strat._inclement_decision = lambda tp, now: _partial(50)
+    _wait(strat)
+    strat._last_inclement_decision = _partial(50)
+    assert strat._last_reserve_level_desired == 50
+    assert strat._next_action_estimate(45.0, _W_NOW) == (
+        "waiting for charge window, holding 50% floor (partial_hold floor) "
+        "(lead_time=180m)"
+    )
+    strat._last_inclement_decision = _partial(25)
+    assert strat._next_action_estimate(45.0, _W_NOW) == (
+        "waiting for charge window, holding 30% floor (lead_time=180m)"
     )
 
 
