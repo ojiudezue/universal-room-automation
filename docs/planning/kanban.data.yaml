@@ -435,6 +435,14 @@ meta:
     headline: "The outdoor camera box (Frigate2, 192.168.13.18) has been OFF THE NETWORK since about 7:18pm last night, during the network restart. HA and the Mac both fail to ping it and its network address does not resolve, so it is the machine or its cable/port, not software. Every Frigate person and motion detector reads unavailable, and outdoor person detection from Frigate has been blind for about 7 hours. UniFi Protect is still working. Good news on the older fault: the detectors that froze on 09-21 had started moving again before the box dropped. DO: check the box's power and network port and power-cycle it. I paged you with a Home Assistant notification (not a phone push) and changed nothing."
     acknowledged: false
 cards:
+- id: EC-EV-TOGGLE-TRIPWIRE-1
+  title: Alert when a strategy flip-flop switches an EV charger more than twice an hour
+  thread: energy
+  status: inbox
+  created: '2026-10-03 16:00'
+  updated: '2026-10-03 16:00'
+  next: 'PLAN (Tier 1-2): count strategy-caused charger_on/off per EVSE per rolling hour at _log_charger_actuation (energy.py); >2 -> one NM via _send_nm_alert + anomaly row; exclude operator/force-charge toggles.'
+  why: 'SPEC INV-1 / plan review #2 F6: the daylight-horizon fix removes the night ping-pong but a post-sunrise residual remains possible (EV still charging after sunrise, rate from night readings). A code trip-wire, not soak-watching, is the safety net. Operator approved Q8 (alarm) 2026-10-03.'
 - id: ENVOY-STREAM-AB-48H-1
   title: Envoy MQTT stream re-enabled for a 48 h A/B (does it load the Envoy, and does it give a trustworthy local SOC during dropouts?)
   thread: energy
