@@ -1318,6 +1318,13 @@ def validate_threshold_ladder(
 #   4. fill_priority_soc <= excess_solar_soc
 #   5. ev_battery_drain_soc >= reserve_soc
 #   6. inclement_partial_hold_reserve_floor >= reserve_soc
+# Enforcement (EC-SOC-LADDER-FULL-WIRING-1): #1 clamped at the seam
+#   BatteryStrategy._get_offpeak_drain_target (raw dict stays raw);
+#   #2 detect-only (design parked in PLANNING_ec_soc_ladder_full_wiring.md
+#   §D2; revival trigger: any threshold_ladder_violation with the #2 code);
+#   #3 detect-only (no consumer); #4/#5 EnergyCoordinator.safely_ordered_ladder;
+#   #6 InclementFusion._partial_floor_value (emission + recoverability).
+#   Validator + anomaly always read RAW operator values.
 CANONICAL_SOC_LADDER_DOC: Final = (
     "reserve_soc <= drain_excellent <= drain_good <= drain_moderate "
     "<= drain_poor <= drain_very_poor < peak_buffer_target; "
