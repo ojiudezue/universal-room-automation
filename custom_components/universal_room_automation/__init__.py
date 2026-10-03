@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.37
+# Universal Room Automation vv5.103.38
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -3205,7 +3205,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             try:
                 from .domain_coordinators.manager import CoordinatorManager
                 from .coordinator_gate import coordinators_to_register
-                _to_register = coordinators_to_register(cm_config, hass)
                 from .const import (
                     CONF_SLEEP_START_HOUR,
                     CONF_SLEEP_END_HOUR,
@@ -3311,6 +3310,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                 if cm_entry is not None:
                     cm_config = {**cm_entry.data, **cm_entry.options}
+
+                # v5.103.38 hotfix: compute the registration set only AFTER
+                # cm_config is built (v5.103.37 read it before assignment ->
+                # UnboundLocalError -> Coordinator Manager failed to start).
+                _to_register = coordinators_to_register(cm_config, hass)
 
                 coordinator_manager = CoordinatorManager(hass)
 
