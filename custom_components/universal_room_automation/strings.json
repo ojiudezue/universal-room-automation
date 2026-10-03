@@ -559,7 +559,7 @@
       "room_name_exists": "A room with this name already exists",
       "reconfigure_use_options": "Use 'Configure' from the three-dot menu to modify settings.",
       "coordinator_not_ready": "Coordinator setup is coming in a future update.",
-      "coordinator_use_options": "Turn on smart features with the Domain Coordinators switch on the Universal Room Automation device.",
+      "coordinator_use_options": "Add coordinators from Coordinator Manager > Configure > Add a coordinator.",
       "rooms_created": "Rooms created: {created}. Skipped: {skipped}. Failed: {failed}. To retry, use Add rooms from areas again; rooms already set up are skipped.",
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
       "zone_not_found": "The selected zone could not be found. It may have been deleted.",
@@ -621,7 +621,9 @@
           "zone_rooms": "🏠 Zone Rooms",
           "zone_media": "🎵 Zone Media",
           "options_lighting_behaviour": "💡 Lighting",
-          "show_all_settings": "More settings…"
+          "show_all_settings": "More settings…",
+          "add_coordinator": "➕ Add a coordinator",
+          "remove_coordinator": "➖ Remove a coordinator"
         }
       },
       "manage_zones": {
@@ -2199,6 +2201,22 @@
             }
           }
         }
+      },
+      "add_coordinator": {
+        "title": "Add a coordinator",
+        "description": "Pick one to set up. It starts after you save its settings."
+      },
+      "remove_coordinator": {
+        "title": "Remove a coordinator",
+        "description": "Pick one to stop. Its settings are kept."
+      },
+      "add_coordinator_confirm": {
+        "title": "Add {name}",
+        "description": "Add {name}? You can change its settings later."
+      },
+      "remove_coordinator_confirm": {
+        "title": "Remove {name}",
+        "description": "Stop {name}? Its settings are kept, so adding it again restores them."
       }
     },
     "error": {
@@ -2229,7 +2247,10 @@
       "zone_not_found": "The selected zone could not be found. It may have been deleted.",
       "zone_removed": "Zone removed. The Zone Manager will reload to apply the change.",
       "zone_delete_legacy_use_native": "This zone is stored as a legacy config entry. Delete it from the Home Assistant integrations page instead (three-dot menu on the zone entry).",
-      "zone_delete_hvac_not_ready": "This zone has a thermostat but the HVAC coordinator is not ready yet. Please wait for Home Assistant to finish starting up and try again."
+      "zone_delete_hvac_not_ready": "This zone has a thermostat but the HVAC coordinator is not ready yet. Please wait for Home Assistant to finish starting up and try again.",
+      "nothing_to_add": "All coordinators are already added.",
+      "nothing_to_remove": "No coordinators are added yet.",
+      "coordinator_not_allowed": "This coordinator can't be added: {reason}"
     }
   },
   "issues": {
@@ -2251,6 +2272,10 @@
           "envoy_validation_still_failing": "Validation still failing. Errors: {errors}. Check the config again."
         }
       }
+    },
+    "coordinator_not_entitled": {
+      "title": "Coordinator not available: {coordinator}",
+      "description": "{coordinator} is turned on but not available on this install ({reason}), so it is not running."
     }
   },
   "entity": {

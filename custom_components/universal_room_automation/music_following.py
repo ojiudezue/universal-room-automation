@@ -458,15 +458,13 @@ class MusicFollowing:
         try:
             from .const import (  # noqa: PLC0415
                 CONF_ENTRY_TYPE,
-                CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED,
                 ENTRY_TYPE_COORDINATOR_MANAGER,
             )
             for ce in self.hass.config_entries.async_entries(DOMAIN):
                 if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    from .coordinator_gate import coordinator_should_run  # noqa: PLC0415
                     merged = {**ce.data, **ce.options}
-                    return bool(
-                        merged.get(CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED, True)
-                    )
+                    return coordinator_should_run(merged, "music_following")
         except Exception:  # noqa: BLE001
             return False
         # No CM entry found → fail-safe DISABLED.

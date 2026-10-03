@@ -225,8 +225,26 @@ def test_zone_menu_options_labelled():
                 assert tok not in labels[opt], f"{name}: {opt} label has {tok!r}"
 
 
+def _cm_menu_all_options() -> list[str]:
+    """Every option the dynamic CM menu can show (all coordinators added
+    plus add/remove and the shared steps), read from config_flow's tables
+    (CM-COORDINATORS-ADD-ONE-BY-ONE-1 made the menu dynamic)."""
+    src = _CONFIG_FLOW.read_text()
+    tree = ast.parse(src)
+    steps: list[str] = []
+    for node in tree.body:
+        if (isinstance(node, ast.Assign)
+                and getattr(node.targets[0], "id", "") == "_COORDINATOR_MENU_STEPS"):
+            for v in node.value.values:
+                steps.extend(e.value for e in v.elts)
+    assert steps, "_COORDINATOR_MENU_STEPS not found"
+    start = src.index("def _cm_menu_options(")
+    body = src[start:src.index("async def async_step_add_coordinator(", start)]
+    return re.findall(r'"([a-z_]+)"', body) + steps
+
+
 def test_cm_menu_options_labelled():
-    opts = _menu_options("init", "elif entry_type == ENTRY_TYPE_COORDINATOR_MANAGER")
+    opts = _cm_menu_all_options()
     assert "coordinator_notifications_volume" in opts
     for name, blob in (("strings.json", _load(_STRINGS)), ("en.json", _load(_EN))):
         labels = blob["options"]["step"]["init"]["menu_options"]
