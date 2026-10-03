@@ -435,10 +435,19 @@ meta:
     headline: "The outdoor camera box (Frigate2, 192.168.13.18) has been OFF THE NETWORK since about 7:18pm last night, during the network restart. HA and the Mac both fail to ping it and its network address does not resolve, so it is the machine or its cable/port, not software. Every Frigate person and motion detector reads unavailable, and outdoor person detection from Frigate has been blind for about 7 hours. UniFi Protect is still working. Good news on the older fault: the detectors that froze on 09-21 had started moving again before the box dropped. DO: check the box's power and network port and power-cycle it. I paged you with a Home Assistant notification (not a phone push) and changed nothing."
     acknowledged: false
 cards:
-- id: EC-CONSUMPTION-SOURCE-EXCLUDES-BATTERY-LOAD-1
-  title: Envoy total-consumption counter appears to under-read while the battery serves the house — verify vs Emporia mains and SPAN pair; check what EC's consumption forecast reads
+- id: EC-CONSUMPTION-DROPOUT-DAYS-1
+  title: Envoy energy counters lose consumption on dropout days — check what EC's consumption forecast/history reads and whether dropout days poison it
   thread: energy
   status: inbox
+  created: '2026-10-03 18:30'
+  updated: '2026-10-03 18:30'
+  next: 'INVESTIGATE (me, next EC item): which entity EC''s daily consumption forecast/history/R1 estimator reads; whether dropout days (Envoy daily << SPAN pair) enter as low-usage days; propose SPAN-pair (whole house incl EV) as primary/gap-fill witness; also identify the correct Emporia whole-house total entity.'
+  why: '28-day witness comparison 2026-10-03: Envoy ≈ SPAN pair on normal days; Envoy under-reads by up to ~150 kWh on days with Envoy outages. Operator observed Envoy reading lower than the other witnesses.'
+- id: EC-CONSUMPTION-SOURCE-EXCLUDES-BATTERY-LOAD-1
+  refuted_2026_10_03: 'REFUTED by 28-day daily witness comparison: Envoy lifetime_energy_consumption vs SPAN pair median -1.2 kWh/day (agree within 1-3 kWh on normal ~200 kWh days). Envoy is low only on dropout days (09-15 57 vs 208; 09-26 46 vs 156; also 09-14/25/29) — counter loses energy while unavailable. Emporia total_usage_energy_today read ~88 kWh/day below both (likely wrong entity/scope; equal on 10-01). Follow-up: EC-CONSUMPTION-DROPOUT-DAYS-1.'
+  title: Envoy total-consumption counter appears to under-read while the battery serves the house — verify vs Emporia mains and SPAN pair; check what EC's consumption forecast reads
+  thread: energy
+  status: done
   created: '2026-10-03 17:30'
   updated: '2026-10-03 17:30'
   next: 'INVESTIGATE (me): grep EC consumption producers (energy_forecast daily kWh, consumption regression, history rows) for their source entity; if Envoy consumption, measure bias vs SPAN pair minus EV (validated 1.6% vs energy balance over 2,996 h) and plan a source swap (config-first: knob/config entity?).'
