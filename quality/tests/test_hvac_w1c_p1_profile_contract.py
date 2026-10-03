@@ -56,6 +56,11 @@ MANUAL_LITERAL_ALLOWLIST = {
         "nudge trigger provenance (force-nudge button), not a thermostat hold",
     ("hvac_override.py", 'zone, 0.0, triggered_by="manual",'):
         "nudge trigger provenance (force-nudge path), not a thermostat hold",
+    ("hvac_override.py", '_tok_named = bool(_tok_pre) and _tok_pre != "manual"'):
+        "D2d fail-safe fallback, reached only if the strategy lookup raised — "
+        "must not depend on hvac_strategy (strategy_for has no raising path)",
+    ("hvac_override.py", '_orig_named = bool(original_preset) and original_preset != "manual"'):
+        "D2d fail-safe fallback (same reason as the line above)",
     ("hvac_setpoint.py", 'ANONYMOUS_HOLD: Final = "manual"'):
         "B11 resume-then-pin lives INSIDE the funnel (Carrier quirk, capability-"
         "gated); the W1-B operator constraint forbids routing new logic into "

@@ -513,6 +513,24 @@ class TestTTLSuppression:
     # Non-manual events stay suppressed (regression guard for the
     # original A-F5 fix).
     # -----------------------------------------------------------------
+    def test_manual_to_manual_mid_window_is_not_a_passthrough(self, fake_clock):
+        """W1-C P1 anchor for `_is_genuine_manual`'s SECOND conjunct: only a
+        FRESH transition INTO manual passes the in-window guard. A
+        manual -> manual event inside a preset-kind window stays suppressed
+        (the suppression entry is kept)."""
+        arrester = _make_arrester()
+        arrester.suppress(CLIMATE_ENTITY, kind="preset")
+        fake_clock.advance(1.0)
+        evt = _make_event(
+            CLIMATE_ENTITY,
+            old_preset="manual", new_preset="manual",
+            old_high=76.0, new_high=68.0,
+            old_low=70.0, new_low=68.0,
+        )
+        arrester._handle_climate_change(evt)
+        assert arrester._find_zone_calls == []
+        assert CLIMATE_ENTITY in arrester._suppressed_until
+
     def test_user_override_passthrough_mid_window(self, fake_clock):
         """A genuine non-manual->manual user override inside the
         TTL window must reach override detection, dropping the

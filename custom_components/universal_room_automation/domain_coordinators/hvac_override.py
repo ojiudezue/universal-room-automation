@@ -4779,12 +4779,10 @@ class OverrideArrester:
                 _tok_named = bool(_tok_pre) and not _strat_obj.is_human_manual_snapshot(_tok_pre)
                 _orig_named = bool(original_preset) and not _strat_obj.is_human_manual_snapshot(original_preset)
             except Exception:  # noqa: BLE001
-                _tok_named = bool(_tok_pre) and not _w1c_is_manual(
-                    self.hass, zone.climate_entity, _tok_pre,
-                )
-                _orig_named = bool(original_preset) and not _w1c_is_manual(
-                    self.hass, zone.climate_entity, original_preset,
-                )
+                # Fallback for a strategy lookup that raised: must NOT depend
+                # on the strategy layer (pre-P1 literal kept, allowlisted).
+                _tok_named = bool(_tok_pre) and _tok_pre != "manual"
+                _orig_named = bool(original_preset) and original_preset != "manual"
             if _tok_named:
                 _revert_preset = _tok_pre
             elif _orig_named:
