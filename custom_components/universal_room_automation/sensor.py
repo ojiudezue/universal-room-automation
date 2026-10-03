@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.34
+# Universal Room Automation vv5.103.35
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -1766,7 +1766,25 @@ class UnavailableEntitiesSensor(UniversalRoomEntity, SensorEntity):
 
     @property
     def native_value(self) -> int:
-        """Return count of unavailable configured entities (inputs + actuators)."""
+        """Return count of unavailable configured entities (pure read)."""
+        return len(self._get_unavailable_entities())
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Run the dropout-episode check on the loop, then write state.
+
+        PROPERTY-GETTER-SIDE-EFFECT-TASKS-1: the episode log used to be
+        spawned from ``native_value`` (any reader thread, once per read).
+        The coordinator refresh is now the discharge.
+        """
+        try:
+            self._check_dropout_episode()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("dropout episode check failed", exc_info=True)
+        super()._handle_coordinator_update()
+
+    def _check_dropout_episode(self) -> int:
+        """Log a sensor_dropout episode on an empty→non-empty transition."""
         eids = self._get_unavailable_entities()
         # NEW (item 15): sensor_dropout episode on empty→non-empty
         # transition. No new detection machinery — hooks the EXISTING
@@ -16418,16 +16436,21 @@ class SafetyEventsSummarySensor(AggregationEntity, SensorEntity):
         age = (dt_util.utcnow() - self._cache_time).total_seconds()
         return age >= self._CACHE_TTL_S
 
-    @property
-    def native_value(self) -> int:
-        """Return count of safety events in last 24h."""
+    async def async_update(self) -> None:
+        """Refresh the 24h cache from the poll path (on the event loop).
+
+        PROPERTY-GETTER-SIDE-EFFECT-TASKS-1: the refresh used to be spawned
+        from ``native_value``; the poll is now the discharge. Review C C2
+        re-entry guard + Bug Class #19 cancel-on-remove preserved.
+        """
         if self._cache_stale() and (
             self._refresh_task is None or self._refresh_task.done()
         ):
-            # Review C C2: track + guard against re-entry so we don't pile up
-            # overlapping queries when the property is hot. The task is
-            # cancelled in async_will_remove_from_hass (Bug Class #19).
             self._refresh_task = self.hass.async_create_task(self._refresh_cache())
+
+    @property
+    def native_value(self) -> int:
+        """Return count of safety events in last 24h (pure read)."""
         return self._cached_count
 
     @property

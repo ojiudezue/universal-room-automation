@@ -1,0 +1,27 @@
+{
+  "format_version": "2.1",
+  "entry_id": "177",
+  "author": "ojiudezue",
+  "timestamp": "2026-10-03T05:00:00Z",
+  "type": "decision",
+  "weight": "significant",
+  "title": "Blitz 10-02: SOC ladder split, compose-away folded into CPR, W2/W4 closed, W1-C P1 Tier-3 go",
+  "summary": "SOC-ladder wiring shipped as a split: drain-target floor (single seam _get_offpeak_drain_target) + inclement recoverability floor; peak-buffer #2 parked detect-only. Compose-away throttle blocker folded into Batch C (CPR) instead of a standalone fix. W2/W4 closed on in-suite proof with a staged garage-sunset card. W1-C P1 (thermostat strategy layer, 28 sites) passed 4 Tier-3 reviews; operator go.",
+  "why": "Ladder: excellent drain slider can go to 5 below reserve 10 \u2014 a real legal-config leak at one seam; #2 is cost-only, never observed live (D0 probe: zero threshold_ladder_violation rows), and the prior attempt failed 3 reviews, so wiring it would be Tier 3 for no live benefit. Compose-away: a setpoint compare can't stop the storm because the real cause is S1 reclaiming S10's manual hold and Carrier setpoints are stale up to 5 min \u2014 the CPR plan deletes the code path outright. W4: garage guard is the one safety-relevant item, so one staged evening beats waiting for organic sunset. W1-C P1 needed for the second home (ecobee/HomeKit) without risking Carrier: 168 pre-change goldens prove byte-identity.",
+  "implications": "HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 closes when CPR ships (after W1-C P1 merges; CPR must regenerate S10 goldens as an intended change). Second home must keep HVAC coordinator off until W1-C P3; native-ecobee 'temp' hold is not recognised as manual until P2. drain_targets_effective attr is new on battery strategy.",
+  "revisit_trigger": "Any threshold_ladder_violation for the peak-buffer invariant in anomaly_log -> build D2 at Tier 3. If CPR is dropped -> revive the parked S10_COMPOSE_AWAY_MIN_SPACING_S fallback.",
+  "refs": {
+    "docs": [
+      "docs/planning/PLANNING_ec_soc_ladder_full_wiring.md",
+      "docs/planning/PLANNING_hvac_compose_away_throttle.md",
+      "docs/planning/PLANNING_hvac_w1c_thermostat_profiles.md"
+    ],
+    "cards": [
+      "EC-SOC-LADDER-FULL-WIRING-1",
+      "HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1",
+      "HVAC-W2-OCCUPANCY-TRUTH",
+      "HVAC-W4-ARC-CLOSURE",
+      "HVAC-GARAGE-GUARD-STAGED-SUNSET-1"
+    ]
+  }
+}

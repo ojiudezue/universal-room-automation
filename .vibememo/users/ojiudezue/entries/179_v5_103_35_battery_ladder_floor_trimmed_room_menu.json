@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "179",
+  "author": "ojiudezue",
+  "session_id": "claude_20261003_044226_ship_v5_103_35",
+  "timestamp": "2026-10-03T04:42:26Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.35 shipped: Battery ladder floor, trimmed room menu, pure sensor getters, zone/house wording",
+  "summary": "Battery ladder floor, trimmed room menu, pure sensor getters, zone/house wording",
+  "why": "Blitz batch of four independently reviewed changes: the battery drain-target ladder had a legal slider combination that could command a reserve below the floor (fixed at its single seam, peak-buffer kept detect-only); the room dialog is the core of URA and was a power-user mess, so menus are trimmed by room type with HA Advanced mode for tuning; three sensor getters spawned work on every read; zone/house dialogs showed raw key names.",
+  "implications": "Shipped HOUSE-DIALOGS-CLEANUP-1 at v5.103.35; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.35.md (Live criteria).",
+  "revisit_trigger": "A threshold_ladder_violation for the peak-buffer invariant -> build the parked D2; operator feedback that a trimmed room hides something needed -> revisit the room-type step map.",
+  "refs": {
+    "cards": [
+      "HOUSE-DIALOGS-CLEANUP-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.35.md"
+    ],
+    "release_notes": "Drain targets never command a reserve below the floor; room settings trimmed by room type with Simple/Advanced; three sensors stop starting work on every read; zone and house dialogs get plain labels. See README_v5.103.35."
+  }
+}

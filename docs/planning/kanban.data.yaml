@@ -581,6 +581,14 @@ meta:
       plus a count shown at session start so regrowth is visible instead of being noticed by accident
       nine days later.'
 cards:
+- id: CM-COORDINATORS-ADD-ONE-BY-ONE-1
+  title: Coordinators should be added one by one from the Coordinator Manager menu (or at least start disabled until configured), not all created on install
+  thread: onboarding
+  status: inbox
+  created: '2026-10-02 23:30'
+  updated: '2026-10-02 23:30'
+  next: 'Investigate (me): verify what install actually creates/enables per coordinator (audit says Domain Coordinators switch default off, HVAC/Energy default off — operator observes all created+enabled; reconcile against a fresh install / second home). Then plan: CM menu "Add coordinator" step per module, created disabled until its config step completes.'
+  why: 'Operator 2026-10-02: "Coordinators are all created and enabled when you install URA. They should be added from the CM menu one by one. At minimum they should be added disabled until configured. Needing to be added 1 by 1 is also a natural gate to monetize each feature 1 by 1. HVAC, Energy and Security are pretty big modules." Adjacent: ONBOARDING-SIMPLIFY phase 2 S4 (Add Coordinator dead end points to the switch).'
 - id: HVAC-GARAGE-GUARD-STAGED-SUNSET-1
   title: One staged evening to prove room covers leave an open garage door alone at sunset
   thread: hvac
@@ -30554,7 +30562,8 @@ cards:
 - id: HOUSE-DIALOGS-CLEANUP-1
   title: House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs)
   thread: ux
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.103.35
   created: '2026-09-29 22:30'
   origin: 'Operator 2026-09-29: priority order is Room dialog, then House and Zone, then coordinators; "power user mess".'
   why: 'Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.'

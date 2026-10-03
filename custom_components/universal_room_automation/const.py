@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.34
+# Universal Room Automation vv5.103.35
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.34"
+VERSION: Final = "v5.103.35"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -448,6 +448,32 @@ ROOM_TYPE_INFRASTRUCTURE: Final = "infrastructure"  # v4.2.0: Always-on equipmen
 # transit occupancy that MUST NOT arm zone conditioning. All non-HVAC surfaces
 # treat this exactly like any other room type (lighting, fans, covers unchanged).
 ROOM_TYPE_HALLWAY: Final = "hallway"
+
+# ROOM-TYPE-TRIMMED-MENU-1 (rung 1): room options menu steps, in render
+# order, and the steps each room type shows by default in Simple mode.
+# A hidden step still appears when it holds a non-default value, and
+# "More settings" / HA Advanced mode always shows every step
+# (config_flow.py async_step_init room branch).
+ROOM_MENU_STEPS_ALL: Final = (
+    "basic_setup", "sensors", "devices",
+    "options_lighting_behaviour", "options_covers",
+    "automation_chaining", "ai_rules",
+    "climate", "sleep_protection", "music_following",
+    "energy", "notifications",
+)
+_ROOM_MENU_CORE = ("basic_setup", "sensors", "devices", "options_lighting_behaviour")
+ROOM_MENU_STEPS_BY_TYPE: Final = {
+    ROOM_TYPE_COMMON_AREA: ROOM_MENU_STEPS_ALL,
+    ROOM_TYPE_BEDROOM: ROOM_MENU_STEPS_ALL,
+    ROOM_TYPE_MEDIA_ROOM: ROOM_MENU_STEPS_ALL,
+    ROOM_TYPE_GENERIC: ROOM_MENU_STEPS_ALL,
+    ROOM_TYPE_BATHROOM: _ROOM_MENU_CORE + ("options_covers", "climate", "notifications"),
+    ROOM_TYPE_GARAGE: _ROOM_MENU_CORE + ("energy", "notifications"),
+    ROOM_TYPE_INFRASTRUCTURE: _ROOM_MENU_CORE + ("climate", "energy", "notifications"),
+    ROOM_TYPE_CLOSET: _ROOM_MENU_CORE + ("options_covers",),
+    ROOM_TYPE_HALLWAY: _ROOM_MENU_CORE + ("options_covers",),
+    ROOM_TYPE_UTILITY: _ROOM_MENU_CORE,
+}
 
 # --- Step 2: Sensors ---
 CONF_MOTION_SENSORS: Final = "motion_sensors"
