@@ -436,12 +436,13 @@ meta:
     acknowledged: false
 cards:
 - id: EC-CONSUMPTION-SOURCE-EXCLUDES-BATTERY-LOAD-1
-  title: Envoy "consumption" sensor leaves out load the battery serves (09-01 17-21 read 10 kWh vs ~39 kWh real) — check what EC's consumption forecast reads
+  title: Envoy total-consumption counter appears to under-read while the battery serves the house — verify vs Emporia mains and SPAN pair; check what EC's consumption forecast reads
   thread: energy
   status: inbox
   created: '2026-10-03 17:30'
   updated: '2026-10-03 17:30'
   next: 'INVESTIGATE (me): grep EC consumption producers (energy_forecast daily kWh, consumption regression, history rows) for their source entity; if Envoy consumption, measure bias vs SPAN pair minus EV (validated 1.6% vs energy balance over 2,996 h) and plan a source swap (config-first: knob/config entity?).'
+  correction_2026_10_03: 'Operator: Envoy, Emporia mains and SPAN+SPAN all see the whole house INCLUDING EVs. SPAN-minus-EV was a probe modelling choice (battery-served load in high-rate windows where EVs are TOU-paused), NOT true house load. Whole-house consumption includes EV; EC R1 estimator models EV as its own term. Mechanism (net-consumption CT + storage CT => Envoy total = net + production, excluding battery discharge) is a HYPOTHESIS: verify first vs Emporia mains (sensor.mains_vue_3*) and SPAN pair, and read EC manual + consumption producers.'
   why: 'D0 probe for window-sized attain (2026-10-03, PLANNING_ec_window_sized_attain_target.md §D0) found the Envoy consumption sensor under-reads on battery evenings; the real house load = SPAN panel pair minus EV draw. Any EC forecast built on the Envoy sensor under-predicts exactly when the battery is working.'
 - id: EC-EV-TOGGLE-TRIPWIRE-1
   title: Alert when a strategy flip-flop switches an EV charger more than twice an hour
