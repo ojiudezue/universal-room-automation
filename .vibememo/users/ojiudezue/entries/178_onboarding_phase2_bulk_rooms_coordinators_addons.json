@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "178",
+  "author": "ojiudezue",
+  "timestamp": "2026-10-03T05:05:00Z",
+  "type": "pivot",
+  "weight": "critical",
+  "title": "Onboarding: phase 1 already shipped (board was wrong); phase 2 bulk rooms-from-areas ships before second-home go-live; coordinators to be added one-by-one",
+  "summary": "Audit found ONBOARDING-SIMPLIFY-1 phase 1 (5-screen room chain) shipped in v5.101.0 despite a groom note saying never built. Remaining friction is repetition (6 screens/room, ~67 screens for a 10-room house). Phase 2 = Simple House form (3 fields), bulk 'rooms from areas' (one submit creates all rooms), shorter single-room path, dead-step removal. Operator chose to ship it before the Oct 3-4 second-home setup. Operator also wants coordinators added one-by-one from the CM menu (created disabled until configured) as a per-feature monetization gate.",
+  "why": "URA is going multi-house; onboarding is the gate to reuse and the first real user of it is the operator this weekend. Bulk creation cuts ~63 screens to ~3 by reusing existing area ranking + room-type defaults through one shared builder. Shipping before go-live trades live-untested risk for an hour of setup saved; the single-room path remains as fallback and re-runs are idempotent (name-checked). Coordinators-as-add-ons: HVAC/Energy/Security are large modules; explicit add gives a natural monetization and complexity gate.",
+  "implications": "Bulk create runs N room setups inside one HTTP submit; closing the tab mid-run can leave one room half-set up until restart (re-run safe). Duplicate check is by name only. New 'Add rooms from areas' menu entry is visible on existing installs. CM-COORDINATORS-ADD-ONE-BY-ONE-1 supersedes phase 2's S4 dead-end fix once built.",
+  "revisit_trigger": "Live bulk-create wall-clock for N>=10 approaching HA request timeouts -> move creation to a background job with progress. A second paying house -> prioritise coordinator add-on gating.",
+  "refs": {
+    "docs": [
+      "docs/planning/AUDIT_onboarding_first_run_path.md",
+      "docs/planning/PLANNING_onboarding_simplify_phase2.md"
+    ],
+    "cards": [
+      "ONBOARDING-SIMPLIFY-1",
+      "CM-COORDINATORS-ADD-ONE-BY-ONE-1"
+    ]
+  }
+}
