@@ -344,6 +344,7 @@ class PresetManager:
         target_preset: str,
         *,
         zone_id: str | None = None,
+        climate_entity: str | None = None,
     ) -> bool:
         """Determine if preset should be changed (S1 decision site).
 
@@ -356,7 +357,10 @@ class PresetManager:
         """
         if current_preset == target_preset:
             return False
-        if current_preset == "manual":
+        # W1-C P1: the zone's thermostat profile names the manual hold
+        # (`climate_entity` None -> generic default; identical predicate).
+        from .hvac_strategy import is_manual_hold_for  # noqa: PLC0415
+        if is_manual_hold_for(self.hass, climate_entity, current_preset):
             if zone_id is None:
                 self._last_manual_verdict["__no_zone__"] = {
                     "refused": True, "reason": "no_zone_id", "gate_snapshot": {},

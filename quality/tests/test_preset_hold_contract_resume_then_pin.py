@@ -210,8 +210,12 @@ def _fns_with_setpoint_writes():
     return out
 
 
-@pytest.mark.parametrize("fn", ["_return_preheat", "_release_banked_zones"])
-def test_excursion_return_paths_restore_a_preset(fn):
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fn,scenario", [
+    ("_return_preheat", "A11_S13_return_named"),
+    ("_release_banked_zones", "A11_S11_named"),
+])
+async def test_excursion_return_paths_restore_a_preset(fn, scenario, monkeypatch):
     """THE D2b ANCHOR.
 
     hvac_predict.py owns solar banking, pre-cool and pre-heat and contained
@@ -219,12 +223,16 @@ def test_excursion_return_paths_restore_a_preset(fn):
     while leaving the zone in an anonymous hold, which `should_change_preset`
     then refuses to act on. Measured consequence: zone_1 at 69.6% manual over
     7 days with a 17.9-hour tail.
+
+    W1-C P1: converted from a source count to a BEHAVIOURAL test — the
+    golden scenario drives `{fn}` on a borrowed zone (snapshot `home`, live
+    `manual`) and the return must PIN the snapshot preset.
     """
-    fns = _fns_with_setpoint_writes()
-    assert fn in fns, f"{fn} no longer writes setpoints — re-scope this test"
-    _temp, preset = fns[fn]
-    assert preset >= 1, (
-        f"{fn} restores setpoints but NOT a preset — the zone comes back with "
+    from test_hvac_w1c_p1_byte_identity import climate_calls, drive_site
+    obs = await drive_site(monkeypatch, scenario)
+    pins = [d["preset_mode"] for d in climate_calls(obs, "set_preset_mode")]
+    assert pins and pins[-1] == "home", (
+        f"{fn} must restore a PRESET — the zone otherwise comes back with "
         "correct numbers in an anonymous hold"
     )
 
@@ -370,16 +378,22 @@ def _startup_audit_src():
     raise AssertionError("async_startup_ramp_audit not found")
 
 
-def test_boot_restore_puts_the_preset_back():
+@pytest.mark.asyncio
+async def test_boot_restore_puts_the_preset_back(monkeypatch):
     """OBSERVED LIVE 2026-09-16: zone_3 went away|away -> manual|manual at
     01:17:04, seconds after a restart, on the healthiest zone in the house.
-    The boot path restored the numbers and left an anonymous hold."""
-    src = _startup_audit_src()
-    assert "emit_set_preset_mode(" in src, (
+    The boot path restored the numbers and left an anonymous hold.
+
+    W1-C P1: converted from a source grep to a BEHAVIOURAL test — the
+    startup ramp audit (golden scenario A9_S9_named) must pin the persisted
+    snapshot preset."""
+    from test_hvac_w1c_p1_byte_identity import climate_calls, drive_site
+    obs = await drive_site(monkeypatch, "A9_S9_named")
+    pins = [d["preset_mode"] for d in climate_calls(obs, "set_preset_mode")]
+    assert pins and pins[-1] == "sleep", (
         "the startup ramp audit restores setpoints but not the preset — every "
         "restart then strands the zone in an anonymous hold"
     )
-
 
 def test_boot_restore_reads_the_PERSISTED_snapshot_not_the_ram_map():
     """THE REASON THIS BUG EXISTED.

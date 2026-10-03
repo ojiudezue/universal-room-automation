@@ -798,51 +798,48 @@ def _positional_literal(call: _ast.Call, idx: int):
     return None
 
 
-def test_B1_heat_cool_enforcer_call_node_anchor():
-    """B1 lives inside HVACCoordinator._async_apply_preset_overrides."""
-    call = _find_call(
-        _URA / "domain_coordinators" / "hvac.py",
-        "HVACCoordinator._apply_house_state_presets",
-        "emit_set_hvac_mode", "B1_heat_cool_enforcer",
-    )
-    assert call is not None, "B1 emit_set_hvac_mode call not found"
-    # Positional arg 2 (after hass, entity_id) is the hvac_mode literal.
-    assert _positional_literal(call, 2) == "heat_cool"
-    assert _kwarg_literal(call, "reason") == "heat_cool_enforcer_drift_revert"
-    assert _kwarg_literal(call, "blocking") is True
+@pytest.mark.asyncio
+async def test_B1_heat_cool_enforcer_call_node_anchor(monkeypatch):
+    """B1 lives inside HVACCoordinator._apply_house_state_presets.
+
+    W1-C P1: converted from an AST call-node grep to a BEHAVIOURAL anchor —
+    drive the enclosing method (golden scenario A2_B1) and assert the wire
+    call + its `climate_write` row (site / reason / blocking)."""
+    from test_hvac_w1c_p1_byte_identity import climate_calls, drive_site
+    obs = await drive_site(monkeypatch, "A2_B1")
+    assert climate_calls(obs, "set_hvac_mode") == [
+        {"entity_id": "climate.test_zone_1", "hvac_mode": "heat_cool"},
+    ]
+    rows = [(r["site"], r["reason"], r["blocking"]) for r in obs["climate_write"]]
+    assert rows == [("B1_heat_cool_enforcer", "heat_cool_enforcer_drift_revert", True)]
 
 
-def test_B4_override_revert_call_node_anchor():
-    """B4 lives inside OverrideArrester._revert_override (verified 2026-09-26)."""
-    call = _find_call(
-        _URA / "domain_coordinators" / "hvac_override.py",
-        "OverrideArrester._revert_override",
-        "emit_set_hvac_mode", "B4_override_revert_heat_cool",
+@pytest.mark.asyncio
+async def test_B4_override_revert_call_node_anchor(monkeypatch):
+    """B4 lives inside OverrideArrester._revert_override (W1-C P1:
+    behavioural — golden scenario A4_B4_S4 drives the real method)."""
+    from test_hvac_w1c_p1_byte_identity import climate_calls, drive_site
+    obs = await drive_site(monkeypatch, "A4_B4_S4")
+    assert climate_calls(obs, "set_hvac_mode") == [
+        {"entity_id": "climate.test_zone_1", "hvac_mode": "heat_cool"},
+    ]
+    row = obs["climate_write"][0]
+    assert (row["site"], row["reason"], row["blocking"]) == (
+        "B4_override_revert_heat_cool", "override_revert_heat_cool", False,
     )
-    assert call is not None, (
-        "B4 emit_set_hvac_mode call not found in "
-        "OverrideArrester._revert_override — no whole-file fallback: "
-        "silently accepting a call in an unrelated function would hide "
-        "an accidental move of the site to a non-revert path."
-    )
-    assert _positional_literal(call, 2) == "heat_cool"
-    assert _kwarg_literal(call, "reason") == "override_revert_heat_cool"
-    assert _kwarg_literal(call, "blocking") is False
 
 
-def test_B5_ac_reset_off_call_node_anchor():
-    """B5 lives inside OverrideArrester._perform_ac_reset (verified 2026-09-26)."""
-    call = _find_call(
-        _URA / "domain_coordinators" / "hvac_override.py",
-        "OverrideArrester._perform_ac_reset",
-        "emit_set_hvac_mode", "B5_ac_reset_off",
-    )
-    assert call is not None, (
-        "B5 emit_set_hvac_mode call not found in "
-        "OverrideArrester._perform_ac_reset — no whole-file fallback."
-    )
-    assert _positional_literal(call, 2) == "off"
-    assert _kwarg_literal(call, "blocking") is True
+@pytest.mark.asyncio
+async def test_B5_ac_reset_off_call_node_anchor(monkeypatch):
+    """B5 lives inside OverrideArrester._perform_ac_reset (W1-C P1:
+    behavioural — golden scenario A5_B5 drives the real method)."""
+    from test_hvac_w1c_p1_byte_identity import climate_calls, drive_site
+    obs = await drive_site(monkeypatch, "A5_B5")
+    assert climate_calls(obs, "set_hvac_mode") == [
+        {"entity_id": "climate.test_zone_1", "hvac_mode": "off"},
+    ]
+    rows = [(r["site"], r["reason"], r["blocking"]) for r in obs["climate_write"]]
+    assert rows == [("B5_ac_reset_off", "ac_reset_off", True)]
 
 
 def test_B7_ac_reset_restore_retry_call_node_anchor():
@@ -1234,33 +1231,19 @@ async def test_ai_rule_refusal_blocks_climate_no_service_call():
     )
 
 
-def test_SA_startup_audit_call_node_anchor():
-    tree = _ast.parse(
-        (_URA / "domain_coordinators" / "hvac_excursion.py").read_text()
-    )
-    call = None
-    for n in _ast.walk(tree):
-        if isinstance(n, _ast.Call):
-            for kw in n.keywords:
-                if (
-                    kw.arg == "site"
-                    and isinstance(kw.value, _ast.Constant)
-                    and kw.value.value == "startup_audit_nudge_preset_restore"
-                ):
-                    # Confirm it is emit_set_preset_mode.
-                    func = n.func
-                    fname = (
-                        func.id if isinstance(func, _ast.Name)
-                        else getattr(func, "attr", "")
-                    )
-                    if fname == "emit_set_preset_mode":
-                        call = n
-                        break
-            if call is not None:
-                break
-    assert call is not None, (
-        "SA startup-audit emit_set_preset_mode call not found"
-    )
-    assert _kwarg_literal(call, "zone_id") is None or True  # zone_id is a var
-    assert _kwarg_literal(call, "reason") == "startup_audit_nudge_preset_restore"
-    assert _kwarg_literal(call, "blocking") is True
+@pytest.mark.asyncio
+async def test_SA_startup_audit_call_node_anchor(monkeypatch):
+    """SA: the boot excursion audit restores a NUDGE row's named snapshot
+    through the preset funnel (W1-C P1: behavioural — golden scenario
+    RESTART_a_A14_boot_audit drives `async_startup_excursion_audit`)."""
+    from test_hvac_w1c_p1_byte_identity import drive_site
+    obs = await drive_site(monkeypatch, "RESTART_a_A14_boot_audit")
+    sa = [
+        (r["site"], r["values_after"]["preset_mode"], r["blocking"])
+        for r in obs["climate_write"]
+        if r["reason"] == "startup_audit_nudge_preset_restore"
+    ]
+    assert sa == [
+        ("startup_audit_nudge_preset_restore+resume", "resume", True),
+        ("startup_audit_nudge_preset_restore+pin", "sleep", True),
+    ]

@@ -126,6 +126,26 @@ from .hvac_zones import ZoneManager, ZoneState
 _LOGGER = logging.getLogger(__name__)
 
 
+# HVAC W1-C P1 — every thermostat write / "manual" read goes through the
+# zone's thermostat profile (`hvac_strategy`). Lazy imports: the module set
+# is reloaded by the test harnesses, so binding at import time could pin a
+# stale strategy cache.
+def _w1c_strategy(hass, entity_id):
+    from .hvac_strategy import strategy_for  # noqa: PLC0415
+    return strategy_for(hass, entity_id)
+
+
+def _w1c_applied(result) -> bool:
+    """Old funnel bool: True = issued (APPLIED), False = gate-deferred."""
+    from .hvac_strategy import WriteStatus  # noqa: PLC0415
+    return result.status is WriteStatus.APPLIED
+
+
+def _w1c_is_manual(hass, entity_id, preset) -> bool:
+    from .hvac_strategy import is_manual_hold_for  # noqa: PLC0415
+    return is_manual_hold_for(hass, entity_id, preset)
+
+
 # ==========================================================================
 # HVAC W1/W2 finish D1 — within-manual human change classifier.
 #
@@ -185,7 +205,11 @@ def classify_manual_setpoint_change(
             return MANUAL_CHANGE_NONE
         oa = getattr(old_state, "attributes", None) or {}
         na = getattr(new_state, "attributes", None) or {}
-        if oa.get("preset_mode") != "manual" or na.get("preset_mode") != "manual":
+        # W1-C P1: this IS the Carrier person-change classifier
+        # (`CarrierStrategy.classify_person_change` delegates here); the
+        # marker comes from the strategy module, its one home.
+        from .hvac_strategy import MANUAL_HOLD_PRESET as _manual  # noqa: PLC0415
+        if oa.get("preset_mode") != _manual or na.get("preset_mode") != _manual:
             return MANUAL_CHANGE_NONE
         legs = {
             "old_low": _leg_float(oa.get("target_temp_low")),
@@ -1304,8 +1328,7 @@ class OverrideArrester:
         """Serialise the latch for `__interrupt_latch` (sorted entity ids)."""
         return sorted(self._interrupt_latch)
 
-    @staticmethod
-    def _latch_state_discharges(st: Any) -> bool:
+    def _latch_state_discharges(self, st: Any) -> bool:
         """THE latch discharge predicate (fix-up 2, N1 — LEVEL-triggered):
         the thermostat is readable (not unavailable / unknown) AND shows a
         non-empty named preset other than `manual`. A missing state, an
@@ -1315,7 +1338,9 @@ class OverrideArrester:
         if getattr(st, "state", None) in ("unavailable", "unknown", None):
             return False
         pm = (getattr(st, "attributes", None) or {}).get("preset_mode")
-        return bool(pm) and pm != "manual"
+        return bool(pm) and not _w1c_is_manual(
+            self.hass, getattr(st, "entity_id", None), pm,
+        )
 
     def _zone_entities(self) -> set[str]:
         try:
@@ -2568,7 +2593,7 @@ class OverrideArrester:
                 continue
 
             preset = state.attributes.get("preset_mode", "")
-            if preset != "manual":
+            if not _w1c_is_manual(self.hass, zone.climate_entity, preset):
                 continue
 
             # Zone is in manual — likely a stale override from before restart
@@ -2988,7 +3013,10 @@ class OverrideArrester:
         # genuine mid-window candidate (URA never writes manual).
         new_preset_mid = new_state.attributes.get("preset_mode", "") if hasattr(new_state, "attributes") else ""
         old_preset_mid = old_state.attributes.get("preset_mode", "") if hasattr(old_state, "attributes") else ""
-        if not (new_preset_mid == "manual" and old_preset_mid != "manual"):
+        if not (
+            _w1c_is_manual(self.hass, entity_id, new_preset_mid)
+            and not _w1c_is_manual(self.hass, entity_id, old_preset_mid)
+        ):
             return False
         # FIX B1 preserved: "temp" suppression classifies the induced
         # manual as a side effect of a URA temp write — NOT genuine.
@@ -3469,7 +3497,9 @@ class OverrideArrester:
         try:
             _ep_new = (getattr(new_state, "attributes", None) or {}).get("preset_mode", "")
             _ep_old = (getattr(old_state, "attributes", None) or {}).get("preset_mode", "")
-            if _ep_old == "manual" and _ep_new != "manual":
+            if _w1c_is_manual(self.hass, entity_id, _ep_old) and not _w1c_is_manual(
+                self.hass, entity_id, _ep_new,
+            ):
                 self._last_detection.pop(entity_id, None)
                 # (The interrupt latch is discharged level-triggered at the
                 # top of this handler — fix-up 2, N1.)
@@ -3591,14 +3621,16 @@ class OverrideArrester:
             _recent_fn = None
             _tol = None
             _recent_vals = ()
-        if new_preset == "manual" and old_preset != "manual":
+        _new_is_manual = _w1c_is_manual(self.hass, entity_id, new_preset)
+        _old_is_manual = _w1c_is_manual(self.hass, entity_id, old_preset)
+        if _new_is_manual and not _old_is_manual:
             is_override = True
             changed_legs = manual_changed_legs(old_state, new_state)
             if _recent_fn is not None:
                 interrupt_eligible = self._transition_is_human(
                     old_state, new_state, changed_legs, _recent_vals, _tol,
                 )
-        elif new_preset == "manual" and old_preset == "manual":
+        elif _new_is_manual and _old_is_manual:
             if _recent_fn is None:
                 return
             _cls = classify_manual_setpoint_change(
@@ -3616,7 +3648,7 @@ class OverrideArrester:
                 within_manual = True
                 interrupt_eligible = True
                 changed_legs = manual_changed_legs(old_state, new_state)
-        elif new_preset != "manual" and (new_high != old_high or new_low != old_low):
+        elif not _new_is_manual and (new_high != old_high or new_low != old_low):
             # Temperature changed but preset didn't go to manual — this is
             # our own preset change or a preset range adjustment. Ignore.
             pass
@@ -4512,7 +4544,7 @@ class OverrideArrester:
             _cmp_token, trigger="s3_compromise_wire_failed",
         ) as _s3_guard:
             try:
-                _s3_written = await emit_set_temperature(
+                _s3_written = _w1c_applied(await _w1c_strategy(self.hass, zone.climate_entity).set_setpoints(
                     self.hass,
                     zone.climate_entity,
                     target_temp_low=compromise_heat,
@@ -4526,7 +4558,8 @@ class OverrideArrester:
                     excursion_id=(
                         _cmp_token.excursion_id if _cmp_token else None
                     ),
-                )
+                    emit=emit_set_temperature,
+                ))
                 # Fix-up 1 (A-L1 = B-M1): a person superseded the episode
                 # while the S3 write awaited. Close the row as their
                 # interrupt, store no token and arm NO revert timer (a dead
@@ -4709,7 +4742,7 @@ class OverrideArrester:
                 zone.climate_entity
             ):
                 # HVAC-W1-A B4: override revert heat_cool.
-                await emit_set_hvac_mode(
+                await _w1c_strategy(self.hass, zone.climate_entity).set_hvac_mode(
                     self.hass,
                     zone.climate_entity,
                     "heat_cool",
@@ -4720,6 +4753,7 @@ class OverrideArrester:
                     excursion_id=(
                         _cmp_token.excursion_id if _cmp_token else None
                     ),
+                    emit=emit_set_hvac_mode,
                 )
                 _mode_wrote = True
                 _LOGGER.info(
@@ -4745,8 +4779,12 @@ class OverrideArrester:
                 _tok_named = bool(_tok_pre) and not _strat_obj.is_human_manual_snapshot(_tok_pre)
                 _orig_named = bool(original_preset) and not _strat_obj.is_human_manual_snapshot(original_preset)
             except Exception:  # noqa: BLE001
-                _tok_named = bool(_tok_pre) and _tok_pre != "manual"
-                _orig_named = bool(original_preset) and original_preset != "manual"
+                _tok_named = bool(_tok_pre) and not _w1c_is_manual(
+                    self.hass, zone.climate_entity, _tok_pre,
+                )
+                _orig_named = bool(original_preset) and not _w1c_is_manual(
+                    self.hass, zone.climate_entity, original_preset,
+                )
             if _tok_named:
                 _revert_preset = _tok_pre
             elif _orig_named:
@@ -4780,7 +4818,7 @@ class OverrideArrester:
                 return
 
             # ARREST-COMFORT-1 §3.7 S4: DEFER while comfort_delay_active.
-            _s4_written = await emit_set_preset_mode(
+            _s4_written = _w1c_applied(await _w1c_strategy(self.hass, zone.climate_entity).pin_preset(
                 self.hass,
                 zone.climate_entity,
                 _revert_preset,
@@ -4792,7 +4830,8 @@ class OverrideArrester:
                 excursion_id=(
                     _cmp_token.excursion_id if _cmp_token else None
                 ),
-            )
+                emit=emit_set_preset_mode,
+            ))
             if _s4_written or _mode_wrote:
                 self.suppress(zone.climate_entity, kind="preset")
         except Exception as e:
@@ -5125,7 +5164,7 @@ class OverrideArrester:
         # Turn off
         try:
             # HVAC-W1-A B5: AC reset OFF.
-            await emit_set_hvac_mode(
+            await _w1c_strategy(self.hass, zone.climate_entity).set_hvac_mode(
                 self.hass,
                 zone.climate_entity,
                 "off",
@@ -5133,6 +5172,7 @@ class OverrideArrester:
                 zone_id=zone_id,
                 reason="ac_reset_off",
                 blocking=True,
+                emit=emit_set_hvac_mode,
             )
         except Exception as e:
             _LOGGER.error("AC Reset: failed to turn off %s: %s",
@@ -5247,7 +5287,7 @@ class OverrideArrester:
 
         try:
             # HVAC-W1-A B6: AC reset restore.
-            await emit_set_hvac_mode(
+            await _w1c_strategy(self.hass, climate_entity).set_hvac_mode(
                 self.hass,
                 climate_entity,
                 target_mode,
@@ -5255,6 +5295,7 @@ class OverrideArrester:
                 zone_id=zone_id,
                 reason="ac_reset_restore",
                 blocking=True,
+                emit=emit_set_hvac_mode,
             )
         except Exception as e:
             _LOGGER.error(
@@ -5286,7 +5327,7 @@ class OverrideArrester:
                 )
                 try:
                     # HVAC-W1-A B7: AC reset restore retry.
-                    await emit_set_hvac_mode(
+                    await _w1c_strategy(self.hass, climate_entity).set_hvac_mode(
                         self.hass,
                         climate_entity,
                         target_mode,
@@ -5294,6 +5335,7 @@ class OverrideArrester:
                         zone_id=zone_id,
                         reason="ac_reset_restore_retry",
                         blocking=True,
+                        emit=emit_set_hvac_mode,
                     )
                 except Exception as exc:
                     _LOGGER.error(
@@ -5400,7 +5442,7 @@ class OverrideArrester:
                 elif original_preset:
                     self.suppress(climate_entity, kind="preset")
                     try:
-                        await emit_set_preset_mode(
+                        await _w1c_strategy(self.hass, climate_entity).pin_preset(
                             self.hass,
                             climate_entity,
                             original_preset,
@@ -5409,6 +5451,7 @@ class OverrideArrester:
                             site="ac_reset_verify_preset_restore",
                             zone_id=zone_id,
                             reason="ac_reset_preset_restore",
+                            emit=emit_set_preset_mode,
                         )
                         _LOGGER.info(
                             "HVAC AC Reset: Zone %s preset restored -> %s",
@@ -5732,7 +5775,7 @@ class OverrideArrester:
             _ex_token, trigger="s5_nudge_wire_failed",
         ) as _s5_guard:
             try:
-                _s5_written = await emit_set_temperature(
+                _s5_written = _w1c_applied(await _w1c_strategy(self.hass, zone.climate_entity).set_setpoints(
                     self.hass,
                     zone.climate_entity,
                     target_temp_low=zone.target_temp_low,
@@ -5746,7 +5789,8 @@ class OverrideArrester:
                     excursion_id=(
                         _ex_token.excursion_id if _ex_token else None
                     ),
-                )
+                    emit=emit_set_temperature,
+                ))
                 if _s5_written:
                     self.suppress(zone.climate_entity, kind="temp")
                     # Commit the excursion — CM will be a no-op; the
@@ -6014,7 +6058,7 @@ class OverrideArrester:
             try:
                 # HUMAN_MANUAL raw restore (W1-B rule: raw setpoints only for
                 # a person's own hold; reason prefix `human_manual_`).
-                await emit_set_temperature(
+                await _w1c_strategy(self.hass, zone.climate_entity).set_setpoints(
                     self.hass,
                     zone.climate_entity,
                     target_temp_low=_p_low,
@@ -6025,6 +6069,7 @@ class OverrideArrester:
                     zone_id=zone_id,
                     reason="human_manual_soft_nudge_person_restore",
                     excursion_id=_nudge_eid,
+                    emit=emit_set_temperature,
                 )
             except Exception as e:  # noqa: BLE001
                 _LOGGER.error(
@@ -6037,7 +6082,7 @@ class OverrideArrester:
             try:
                 # ARREST-COMFORT-1 §3.7 S6: ALLOW (restoration path).
                 # HVAC-W1-A F3: required site/zone_id/reason kwargs added.
-                await emit_set_temperature(
+                await _w1c_strategy(self.hass, zone.climate_entity).set_setpoints(
                     self.hass,
                     zone.climate_entity,
                     target_temp_low=zone.target_temp_low,
@@ -6048,6 +6093,7 @@ class OverrideArrester:
                     zone_id=zone_id,
                     reason="human_manual_soft_nudge_setpoint_restore",
                     excursion_id=_nudge_eid,
+                    emit=emit_set_temperature,
                 )
             except Exception as e:
                 _LOGGER.error(
@@ -6084,7 +6130,7 @@ class OverrideArrester:
                 # empty zone_id and the sensor keeps the stale prior
                 # reason.
                 # HVAC-W1-A F3: add required site kwarg.
-                await emit_set_preset_mode(
+                await _w1c_strategy(self.hass, zone.climate_entity).pin_preset(
                     self.hass,
                     zone.climate_entity,
                     pre_preset,
@@ -6093,6 +6139,7 @@ class OverrideArrester:
                     zone_id=zone_id,
                     reason=_s7_reason,
                     excursion_id=_nudge_eid,
+                    emit=emit_set_preset_mode,
                 )
                 _LOGGER.info(
                     "Soft nudge restore on %s: preset -> %s "
@@ -7264,7 +7311,7 @@ class OverrideArrester:
                     # cancel_nudge RESTORATION path — structurally identical
                     # to S6 (nudge restore). Restoration moves BACK toward the
                     # operator's original target; classified ALLOW.
-                    await emit_set_temperature(
+                    await _w1c_strategy(self.hass, zone.climate_entity).set_setpoints(
                         self.hass,
                         zone.climate_entity,
                         target_temp_low=zone.target_temp_low,
@@ -7277,6 +7324,7 @@ class OverrideArrester:
                         excursion_id=(
                             _cancel_token.excursion_id if _cancel_token else None
                         ),
+                        emit=emit_set_temperature,
                     )
                 except Exception as e:
                     _LOGGER.error(
@@ -7293,7 +7341,7 @@ class OverrideArrester:
             if _cancel_snapshot_preset:
                 self.suppress(zone.climate_entity, kind="preset")
                 try:
-                    await emit_set_preset_mode(
+                    await _w1c_strategy(self.hass, zone.climate_entity).pin_preset(
                         self.hass,
                         zone.climate_entity,
                         _cancel_snapshot_preset,
@@ -7305,6 +7353,7 @@ class OverrideArrester:
                         excursion_id=(
                             _cancel_token.excursion_id if _cancel_token else None
                         ),
+                        emit=emit_set_preset_mode,
                     )
                     _LOGGER.info(
                         "cancel_nudge preset restore on %s -> %s "
@@ -7736,7 +7785,7 @@ class OverrideArrester:
                         # ARREST-COMFORT-1 §3.7 S9 (startup_ramp_audit restore):
                         # boot-time RESTORATION path that puts the operator's
                         # pre-outage target back on the wire. Classified ALLOW.
-                        await emit_set_temperature(
+                        await _w1c_strategy(self.hass, zone.climate_entity).set_setpoints(
                             self.hass,
                             zone.climate_entity,
                             target_temp_low=zone.target_temp_low,
@@ -7746,6 +7795,7 @@ class OverrideArrester:
                             site="S9_startup_ramp_audit_restore",
                             zone_id=zone_id,
                             reason="human_manual_startup_ramp_audit_restore",
+                            emit=emit_set_temperature,
                         )
                     except Exception as e:
                         _LOGGER.error(
@@ -7759,7 +7809,7 @@ class OverrideArrester:
                 if _pp:
                     try:
                         self.suppress(zone.climate_entity, kind="preset")
-                        await emit_set_preset_mode(
+                        await _w1c_strategy(self.hass, zone.climate_entity).pin_preset(
                             self.hass,
                             zone.climate_entity,
                             _pp,
@@ -7767,6 +7817,7 @@ class OverrideArrester:
                             site="S9_startup_ramp_audit_restore_preset",
                             zone_id=zone_id,
                             reason="startup_ramp_audit_restore",
+                            emit=emit_set_preset_mode,
                         )
                     except Exception as _pe:  # noqa: BLE001
                         _LOGGER.warning(

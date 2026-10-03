@@ -808,99 +808,56 @@ class TestPresetPreservingRestore:
         arrester._nudge_pre_preset.pop("zone_a", None)
         assert "zone_a" not in arrester._nudge_pre_preset
 
-    def test_perform_soft_nudge_captures_non_manual_preset(self):
-        """Source-shape guard: _perform_soft_nudge must read preset_mode
-        from the climate entity BEFORE the first emit_set_temperature so
-        we snapshot pre-nudge state."""
-        src_path = os.path.join(
-            _URA_PATH, "domain_coordinators", "hvac_override.py",
-        )
-        with open(src_path, "r", encoding="utf-8") as f:
-            src = f.read()
-        idx = src.find("async def _perform_soft_nudge(")
-        assert idx > 0
-        end_markers = ["\n    async def ", "\n    def "]
-        end = len(src)
-        for m in end_markers:
-            pos = src.find(m, idx + len("async def _perform_soft_nudge("))
-            if pos != -1 and pos < end:
-                end = pos
-        body = src[idx:end]
-        # The snapshot MUST come before emit_set_temperature, else we'd
-        # read the post-write preset (already flipped to manual).
-        snap_pos = body.find('_nudge_pre_preset[zone_id] = _pre_preset')
-        # Fallback: look for the dict write pattern
-        if snap_pos < 0:
-            snap_pos = body.find('_nudge_pre_preset[zone_id]')
-        emit_pos = body.find("emit_set_temperature(")
-        assert snap_pos > 0, (
-            "_perform_soft_nudge must snapshot pre-nudge preset "
-            "(self._nudge_pre_preset[zone_id] = ...)"
-        )
-        assert emit_pos > 0
-        assert snap_pos < emit_pos, (
-            "Preset snapshot must precede the set_temperature write, "
-            "otherwise we'd capture the post-write (manual) preset."
-        )
-        # HVAC-GOVERNED-EXCURSION-1 D3 (§13.5 CLOSED): the pre-existing
-        # `_pre_preset != "manual"` filter is deliberately DELETED —
-        # the excursion snapshots UNFILTERED (raw observed preset,
-        # including "manual" and empty). Restore is unconditional; if
-        # the snapshot was "manual", restore writes "manual" (equality
-        # no-op). Fighting an operator-set manual is the arrester's
-        # job, not the excursion's.
-        # Look for the CODE PATTERN (with `and`), not the bare string —
-        # the deletion documentation comment references the old pattern.
-        assert '_pre_preset and _pre_preset != "manual"' not in body, (
-            "Snapshot-restore semantics: the pre_preset filter must be "
-            "absent — the excursion is unopinionated about intent."
-        )
+    @pytest.mark.asyncio
+    async def test_perform_soft_nudge_captures_non_manual_preset(self, monkeypatch):
+        """_perform_soft_nudge must snapshot the pre-nudge preset BEFORE its
+        setpoint write (the write flips the zone to `manual`).
 
-    def test_restore_after_nudge_writes_preset_when_flipped(self):
-        """Source-shape guard: _restore_after_nudge must call
-        set_preset_mode with the snapshotted preset when the current
-        preset is 'manual'."""
-        src_path = os.path.join(
-            _URA_PATH, "domain_coordinators", "hvac_override.py",
-        )
-        with open(src_path, "r", encoding="utf-8") as f:
-            src = f.read()
-        idx = src.find("async def _restore_after_nudge(")
-        assert idx > 0
-        end_markers = ["\n    async def ", "\n    def "]
-        end = len(src)
-        for m in end_markers:
-            pos = src.find(m, idx + len("async def _restore_after_nudge("))
-            if pos != -1 and pos < end:
-                end = pos
-        body = src[idx:end]
-        assert '_nudge_pre_preset.pop(zone_id' in body, (
-            "restore must consume the snapshot"
-        )
-        # ARREST-COMFORT-1 Cycle A: preset write migrated from inline
-        # hass.services.async_call to the emit_set_preset_mode chokepoint.
-        # Accept either form.
-        assert (
-            '"set_preset_mode"' in body
-            or 'emit_set_preset_mode(' in body
-        ), "restore must emit set_preset_mode to reverse the induced flip"
-        # HVAC-GOVERNED-EXCURSION-1 D3 (§13.5 CLOSED): the pre-existing
-        # `if _cur_preset == "manual"` gate is deliberately DELETED —
-        # restore now writes the snapshotted preset UNCONDITIONALLY.
-        # The manual-based gate WAS the self-disarm latch (defect #2 in
-        # §1.1): a mid-nudge tick could flip the thermostat back to a
-        # non-manual state, then the restore would skip its preset
-        # write and the pre-nudge preset would never be restored.
-        # Look for the CODE PATTERN (with colon), not the bare string —
-        # the deletion documentation comment references the old pattern.
-        assert 'if _cur_preset == "manual":' not in body, (
-            "Snapshot-restore semantics: the `if _cur_preset == 'manual':` "
-            "gate must be absent — restore writes the snapshot back "
-            "unconditionally (equality no-op when snapshot matches)."
-        )
-        # FIX B1 alignment: preset write must be under kind='preset'.
-        assert 'kind="preset"' in body
+        W1-C P1: converted from a source-order grep to a BEHAVIOURAL test —
+        the recording service flips the live entity to `manual` on the
+        set_temperature wire call; the snapshot must still read `sleep`."""
+        from test_hvac_w1c_p1_byte_identity import ENT, ZONE, H, site_ctx
+        async with site_ctx(monkeypatch) as ctx:
+            ctx.set_entity(preset_mode="sleep", hold_activity="sleep")
+            rec = ctx.hass.services.async_call
 
+            async def _flip(domain, service, service_data=None, blocking=False, **kw):
+                await rec(domain, service, service_data, blocking=blocking, **kw)
+                if domain == "climate" and service == "set_temperature":
+                    H.set_climate(ctx.hass, ENT, preset_mode="manual", hold_activity="manual")
+
+            ctx.hass.services.async_call = _flip
+            await ctx.arr._perform_soft_nudge(ctx.zone, 2.5)
+            assert [c["service"] for c in ctx.calls] == ["set_temperature"]
+            assert ctx.arr._nudge_pre_preset[ZONE] == "sleep"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("live_preset", ["manual", "home"])
+    async def test_restore_after_nudge_writes_preset_when_flipped(self, monkeypatch, live_preset):
+        """_restore_after_nudge consumes the snapshot and writes it back
+        UNCONDITIONALLY (no `if current == manual` gate), under
+        kind="preset" suppression.
+
+        W1-C P1: converted from a source grep to a BEHAVIOURAL test driving
+        the real method (named snapshot `sleep`)."""
+        from test_hvac_w1c_p1_byte_identity import ENT, ZONE, site_ctx
+        async with site_ctx(monkeypatch) as ctx:
+            arr = ctx.arr
+            ctx.set_entity(preset_mode="sleep", hold_activity="sleep")
+            tok = await ctx.ex.begin_excursion(
+                ctx.hass, zone_id=ZONE, entity_id=ENT, kind=ctx.ex.EXCURSION_KIND.NUDGE,
+                excursion_low=68.0, excursion_high=77.5, duration_s=120,
+                site="S5_nudge_start",
+            )
+            arr._nudge_excursion_tokens[ZONE] = tok
+            arr._nudge_pre_preset[ZONE] = "sleep"
+            ctx.set_entity(preset_mode=live_preset, hold_activity=live_preset, high=77.5)
+            await arr._restore_after_nudge(ctx.zone, 76.0)
+            pins = [c["data"]["preset_mode"] for c in ctx.calls
+                    if c["service"] == "set_preset_mode"]
+            assert pins[-1] == "sleep"
+            assert ZONE not in arr._nudge_pre_preset
+            assert arr._suppress_kind.get(ENT) == "preset"
 
 # ---------------------------------------------------------------------------
 # HIGH-C2 behavioral: drive REAL _restore_after_nudge preset restore.

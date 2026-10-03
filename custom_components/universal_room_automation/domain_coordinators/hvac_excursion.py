@@ -69,6 +69,26 @@ from typing import Any, Callable, Optional
 _LOGGER = logging.getLogger(__name__)
 
 
+# HVAC W1-C P1 — every thermostat write / "manual" read goes through the
+# zone's thermostat profile (`hvac_strategy`). Lazy imports: the module set
+# is reloaded by the test harnesses, so binding at import time could pin a
+# stale strategy cache.
+def _w1c_strategy(hass, entity_id):
+    from .hvac_strategy import strategy_for  # noqa: PLC0415
+    return strategy_for(hass, entity_id)
+
+
+def _w1c_applied(result) -> bool:
+    """Old funnel bool: True = issued (APPLIED), False = gate-deferred."""
+    from .hvac_strategy import WriteStatus  # noqa: PLC0415
+    return result.status is WriteStatus.APPLIED
+
+
+def _w1c_is_manual(hass, entity_id, preset) -> bool:
+    from .hvac_strategy import is_manual_hold_for  # noqa: PLC0415
+    return is_manual_hold_for(hass, entity_id, preset)
+
+
 # --- Knob ladder (§6) --------------------------------------------------------
 
 EXCURSION_LEASE_SLACK_S: int = 30
@@ -647,6 +667,17 @@ def _reap_stale(zone_id: str, tok: ExcursionToken) -> None:
 _sweep_running: bool = False
 
 
+def _zone_climate_entity(coord: Any, zone_id: str) -> Optional[str]:
+    """Read-only: the zone's climate entity from the coordinator's zone
+    manager; None on any miss. Never raises."""
+    try:
+        zm = getattr(coord, "_zone_manager", None) if coord is not None else None
+        zone_obj = getattr(zm, "zones", {}).get(zone_id) if zm is not None else None
+        return getattr(zone_obj, "climate_entity", None) if zone_obj is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 async def _auto_return(
     token: "ExcursionToken",
     *,
@@ -683,7 +714,12 @@ async def _auto_return(
     restore_ok: Optional[bool] = None
     detail = trigger
 
-    if pre_preset in (None, "", "manual"):
+    # W1-C P1: the zone's thermostat profile classifies the snapshot
+    # (Carrier: {None, "", "manual"} — the C26 HIGH-1 skip, unchanged).
+    if _w1c_strategy(
+        hass if hass is not None else _hass_ref,
+        _zone_climate_entity(coord, token.zone_id),
+    ).is_human_manual_snapshot(pre_preset):
         _LOGGER.info(
             "excursion.auto_return: zone=%s kind=%s trigger=%s — "
             "SKIP preset restore (pre_preset=%r); zone remains as-is "
@@ -705,7 +741,7 @@ async def _auto_return(
         if entity_id and _hass is not None:
             try:
                 from .hvac_setpoint import emit_set_preset_mode  # noqa: PLC0415
-                wrote = await emit_set_preset_mode(
+                wrote = _w1c_applied(await _w1c_strategy(_hass, entity_id).pin_preset(
                     _hass,
                     entity_id,
                     pre_preset,
@@ -715,7 +751,8 @@ async def _auto_return(
                     zone_id=token.zone_id,
                     reason=trigger,
                     excursion_id=token.excursion_id,
-                )
+                    emit=emit_set_preset_mode,
+                ))
                 preset_after = pre_preset if wrote else None
                 restore_ok = True if wrote else False
                 if not wrote:
@@ -1166,7 +1203,7 @@ async def async_startup_excursion_audit(hass, coord) -> None:
             # the lockout — same rule as the HIGH-1 skip in `_auto_return`.
             # The S9 ramp audit restores the setpoints and S1's §9e reclaim
             # returns the zone to its target on the next tick.
-            if pre_preset == "manual":
+            if _w1c_is_manual(hass, entity_id, pre_preset):
                 _LOGGER.info(
                     "excursion.startup_audit: "
                     "startup_audit_nudge_preset_restore_skipped_manual "
@@ -1175,7 +1212,7 @@ async def async_startup_excursion_audit(hass, coord) -> None:
             elif pre_preset and entity_id and hass is not None:
                 try:
                     from .hvac_setpoint import emit_set_preset_mode  # noqa: PLC0415
-                    await emit_set_preset_mode(
+                    await _w1c_strategy(hass, entity_id).pin_preset(
                         hass,
                         entity_id,
                         pre_preset,
@@ -1185,6 +1222,7 @@ async def async_startup_excursion_audit(hass, coord) -> None:
                         zone_id=zone_id,
                         reason="startup_audit_nudge_preset_restore",
                         excursion_id=row.get("excursion_id"),
+                        emit=emit_set_preset_mode,
                     )
                     nudge_preset_restored += 1
                     _LOGGER.info(

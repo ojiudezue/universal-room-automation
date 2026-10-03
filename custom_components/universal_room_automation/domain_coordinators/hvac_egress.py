@@ -133,6 +133,15 @@ from .hvac_const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+# HVAC W1-C P1 — every thermostat write / "manual" read goes through the
+# zone's thermostat profile (`hvac_strategy`). Lazy imports: the module set
+# is reloaded by the test harnesses, so binding at import time could pin a
+# stale strategy cache.
+def _w1c_strategy(hass, entity_id):
+    from .hvac_strategy import strategy_for  # noqa: PLC0415
+    return strategy_for(hass, entity_id)
+
+
 class EgressManager:
     """Egress-window HVAC pause manager.
 
@@ -718,7 +727,7 @@ class EgressManager:
                 # pause is deliberately UNGATED by comfort-delay grace
                 # (safety > comfort during an open egress window).
                 # HVAC-W1-A B2: egress pause "off".
-                await emit_set_hvac_mode(
+                await _w1c_strategy(self._hass, thermostat).set_hvac_mode(
                     self._hass,
                     thermostat,
                     "off",
@@ -727,6 +736,7 @@ class EgressManager:
                     reason="egress_pause",
                     blocking=True,
                     excursion_id=(_et.excursion_id if _et else None),
+                    emit=emit_set_hvac_mode,
                 )
                 if _s15_guard is not None and hasattr(_s15_guard, "mark_committed"):
                     _s15_guard.mark_committed()
@@ -824,7 +834,7 @@ class EgressManager:
         _resume_eid = _resume_et.excursion_id if _resume_et else None
         try:
             # HVAC-W1-A B3: egress resume saved mode.
-            await emit_set_hvac_mode(
+            await _w1c_strategy(self._hass, thermostat).set_hvac_mode(
                 self._hass,
                 thermostat,
                 saved_mode,
@@ -833,6 +843,7 @@ class EgressManager:
                 reason="egress_resume",
                 blocking=True,
                 excursion_id=_resume_eid,
+                emit=emit_set_hvac_mode,
             )
             _mode_ok = True
         except Exception:
@@ -845,7 +856,7 @@ class EgressManager:
         _preset_ok: bool | None = None
         if saved_preset:
             try:
-                await emit_set_preset_mode(
+                await _w1c_strategy(self._hass, thermostat).pin_preset(
                     self._hass,
                     thermostat,
                     saved_preset,
@@ -855,6 +866,7 @@ class EgressManager:
                     zone_id=zone_id,
                     reason="egress_resume",
                     excursion_id=_resume_eid,
+                    emit=emit_set_preset_mode,
                 )
                 _preset_ok = True
             except Exception:
