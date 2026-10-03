@@ -306,8 +306,8 @@ async def test_maybe_activate_slot_scene_dispatches_scene_turn_on(ra_module):
 def test_lighting_advanced_hint_variants_exist():
     from custom_components.universal_room_automation import config_flow as cf
 
-    hidden = cf.LIGHTING_ADVANCED_HINT_HIDDEN
-    shown = cf.LIGHTING_ADVANCED_HINT_SHOWN
+    hidden = cf.ADVANCED_HINT_HIDDEN
+    shown = cf.ADVANCED_HINT_SHOWN
     assert "Advanced mode" in hidden
     assert "bottom left" in hidden.lower()
     assert "profile" in hidden.lower()
@@ -318,13 +318,13 @@ def test_lighting_advanced_hint_variants_exist():
 
 def test_lighting_advanced_hint_helper_picks_variant():
     from custom_components.universal_room_automation.config_flow import (
-        LIGHTING_ADVANCED_HINT_HIDDEN,
-        LIGHTING_ADVANCED_HINT_SHOWN,
-        lighting_advanced_hint,
+        ADVANCED_HINT_HIDDEN,
+        ADVANCED_HINT_SHOWN,
+        advanced_hint,
     )
 
-    assert lighting_advanced_hint(False) == LIGHTING_ADVANCED_HINT_HIDDEN
-    assert lighting_advanced_hint(True) == LIGHTING_ADVANCED_HINT_SHOWN
+    assert advanced_hint(False) == ADVANCED_HINT_HIDDEN
+    assert advanced_hint(True) == ADVANCED_HINT_SHOWN
 
 
 def test_lighting_behaviour_description_carries_advanced_hint_placeholder():

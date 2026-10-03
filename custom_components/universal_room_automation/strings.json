@@ -557,7 +557,7 @@
     "step": {
       "init": {
         "title": "Configure Settings",
-        "description": "Select a category to modify.",
+        "description": "Select a category to modify. {menu_hint}",
         "menu_options": {
           "global_sensors": "🌡️ Global Sensors",
           "energy_sensors": "⚡ Energy Sensors",
@@ -606,7 +606,8 @@
           "notifications": "🔔 Notifications",
           "zone_rooms": "🏠 Zone Rooms",
           "zone_media": "🎵 Zone Media",
-          "options_lighting_behaviour": "💡 Lighting"
+          "options_lighting_behaviour": "💡 Lighting",
+          "show_all_settings": "More settings…"
         }
       },
       "manage_zones": {
@@ -1810,7 +1811,7 @@
       },
       "options_covers": {
         "title": "Cover Automation",
-        "description": "Configure how motorized blinds and shades respond to events.",
+        "description": "Configure how motorized blinds and shades respond to events. {advanced_hint}",
         "data": {
           "cover_type": "Cover Type",
           "cover_open_mode": "Open Mode",
@@ -1956,7 +1957,7 @@
       },
       "climate": {
         "title": "Climate & Fans",
-        "description": "Configure fans first (fan mode, humidity/exhaust), then the climate backstop at the bottom. The fan start and speed temperatures are used only when Fan mode is Room temperature.",
+        "description": "Configure fans first (fan mode, humidity/exhaust), then the climate backstop at the bottom. The fan start and speed temperatures are used only when Fan mode is Room temperature. {advanced_hint}",
         "data": {
           "room_fan_mode": "Fan mode",
           "humidity_fan_control_enabled": "Enable Humidity/Exhaust Fan Control",
