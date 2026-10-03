@@ -375,7 +375,8 @@ class GenericStrategy:
         NO ``last_sent`` record — the call is exactly
         ``emit(hass, entity_id, preset, **kwargs)``."""
         if emit is None:
-            from .hvac_setpoint import emit_set_preset_mode as emit  # noqa: PLC0415
+            from .hvac_setpoint import emit_set_preset_mode as _funnel  # noqa: PLC0415
+            emit = _funnel
         return self._map_funnel_result(await emit(hass, entity_id, preset, **kwargs))
 
     async def set_setpoints(
@@ -391,7 +392,8 @@ class GenericStrategy:
         ``target_temp_high`` / ``freeze_active`` / ``gate`` / ``blocking`` /
         ``site`` / ``zone_id`` / ``reason`` / ``excursion_id``)."""
         if emit is None:
-            from .hvac_setpoint import emit_set_temperature as emit  # noqa: PLC0415
+            from .hvac_setpoint import emit_set_temperature as _funnel  # noqa: PLC0415
+            emit = _funnel
         return self._map_funnel_result(await emit(hass, entity_id, **kwargs))
 
     async def set_hvac_mode(
@@ -406,7 +408,8 @@ class GenericStrategy:
         """HVAC-mode write. Pure delegate:
         ``emit(hass, entity_id, mode, **kwargs)``."""
         if emit is None:
-            from .hvac_setpoint import emit_set_hvac_mode as emit  # noqa: PLC0415
+            from .hvac_setpoint import emit_set_hvac_mode as _funnel  # noqa: PLC0415
+            emit = _funnel
         return self._map_funnel_result(await emit(hass, entity_id, mode, **kwargs))
 
     async def release_hold(
