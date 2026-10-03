@@ -489,7 +489,28 @@ _ALLOWED_REMOVED_KEYS = frozenset(
     "config.step.climate.data_description.fan_control_enabled",
     "options.step.climate.data.hvac_coordination_enabled",
     "options.step.climate.data.fan_control_enabled",
-})
+}) | frozenset(
+    # ZONE/HOUSE-DIALOGS-CLEANUP-1 slice A: dead strings for retired keys
+    # (energy_sensors fields removed in v4.2.0, manage_zones form fields
+    # gone since it became a menu, the 4 stripped perimeter_alert_* keys)
+    # and the person_data_retention string key renamed to match the real
+    # schema key person_data_retention_days.
+    f"options.step.{step}.{sub}.{field}"
+    for step, fields in {
+        "energy_sensors": (
+            "solar_export_sensor", "grid_import_sensor", "grid_import_sensor_2",
+            "battery_level_sensor", "delivery_rate", "export_reimbursement_rate",
+        ),
+        "manage_zones": ("zone_name",),
+        "perimeter_alerting": (
+            "perimeter_alert_hours_start", "perimeter_alert_hours_end",
+            "perimeter_alert_notify_service", "perimeter_alert_notify_target",
+        ),
+        "person_tracking": ("person_data_retention",),
+    }.items()
+    for sub in ("data", "data_description")
+    for field in fields
+)
 
 
 class TestNoKeyRenameGuard:

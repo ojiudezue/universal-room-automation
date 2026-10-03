@@ -3827,10 +3827,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="person_tracking",
             data_schema=data_schema,
-            description_placeholders={
-                "retention_info": "Set to 0 for infinite retention. Recommended: 90 days.",
-                "window_info": "Time window to detect room transitions (default: 120 seconds)."
-            }
         )
 
     async def async_step_camera_census(self, user_input=None):
