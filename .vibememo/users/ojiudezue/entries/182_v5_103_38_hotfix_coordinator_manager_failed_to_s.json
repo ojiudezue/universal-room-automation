@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "182",
+  "author": "ojiudezue",
+  "session_id": "claude_20261003_215426_ship_v5_103_38",
+  "timestamp": "2026-10-03T21:54:26Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.38 shipped: HOTFIX: Coordinator Manager failed to start in 5.103.37",
+  "summary": "HOTFIX: Coordinator Manager failed to start in 5.103.37",
+  "why": "v5.103.37 moved coordinator registration onto a shared helper but evaluated it before cm_config was assigned in async_setup_entry; the 15:55 restart raised UnboundLocalError and every domain coordinator (energy, HVAC, presence, safety, security) stayed down. Two-line ordering fix plus an AST regression test that fails on the broken code.",
+  "implications": "Shipped CM-COORDINATORS-ADD-ONE-BY-ONE-1 at v5.103.38; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.38.md (Live criteria).",
+  "revisit_trigger": "If any coordinator fails to register after this restart, add an async_setup_entry harness test with the master switch on (the gap that let this through).",
+  "refs": {
+    "cards": [
+      "CM-COORDINATORS-ADD-ONE-BY-ONE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.38.md"
+    ],
+    "release_notes": "Compute the coordinator registration set after cm_config is built; v5.103.37 raised UnboundLocalError at startup so no domain coordinator ran."
+  }
+}

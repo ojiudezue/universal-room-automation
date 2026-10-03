@@ -508,7 +508,8 @@ cards:
 - id: CM-COORDINATORS-ADD-ONE-BY-ONE-1
   title: Coordinators should be added one by one from the Coordinator Manager menu (or at least start disabled until configured), not all created on install
   thread: onboarding
-  status: inbox
+  status: shipped_organic
+  shipped_version: v5.103.38
   created: '2026-10-02 23:30'
   updated: '2026-10-02 23:30'
   next: 'Investigate (me): verify what install actually creates/enables per coordinator (audit says Domain Coordinators switch default off, HVAC/Energy default off — operator observes all created+enabled; reconcile against a fresh install / second home). Then plan: CM menu "Add coordinator" step per module, created disabled until its config step completes.'
