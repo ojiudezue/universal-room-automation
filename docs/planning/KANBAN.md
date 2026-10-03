@@ -2,26 +2,26 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-02T23:42:26-05:00_ - _Data commit: `d7e80a6629fe`_ - _last_reconciled: 2026-10-02_
+_Generated: 2026-10-03T01:10:25-05:00_ - _Data commit: `4b3928835ecf`_ - _last_reconciled: 2026-10-03_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 2 |
-| 🔬 Investigating | 0 |
+| 📥 Inbox | 3 |
+| 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 11 |
-| 📝 Planned | 16 |
-| 🔨 In progress | 1 |
-| 🔍 Review | 5 |
+| 📝 Planned | 15 |
+| 🔨 In progress | 0 |
+| 🔍 Review | 1 |
 | ⏸️ Waiting on operator | 28 |
 | ⏳ Waiting on me (Claude) | 0 |
-| 🚀 Shipped (organic open) | 14 |
-| 🅿️ Parked | 72 |
-| ✅ Done | 260 |
+| 🚀 Shipped (organic open) | 17 |
+| 🅿️ Parked | 74 |
+| ✅ Done | 262 |
 
-## 📥 Inbox (2)
+## 📥 Inbox (3)
 _raw capture_
 
 ### `ZONE-DIALOGS-CLEANUP-1` - Zone settings dialogs are a power-user mess - apply the room cleanup rules (plain labels, short helpers, enumeration vs automation, roles in behaviour steps) — _#1 · WSJF 2.0 · v3 tc1 u2 /e3_
@@ -36,10 +36,20 @@ _created 2026-10-02 23:30_
 - **Why:** Operator 2026-10-02: "Coordinators are all created and enabled when you install URA. They should be added from the CM menu one by one. At minimum they should be added disabled until configured. Needing to be added 1 by 1 is also a natura...
 - **Next:** Investigate (me): verify what install actually creates/enables per coordinator (audit says Domain Coordinators switch default off, HVAC/Energy default off — operator observes all created+enabled; reconcile against a fresh install / secon...
 
-## 🔬 Investigating (0)
+### `FAN-ORACLE-BOOT-FALLBACK-NOISE-1` - 86 "FanPolicyOracle fallback" warnings at every boot (rooms set up before the Coordinator Manager attaches the fan oracle) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hygiene** - status: **inbox**
+_created 2026-10-03 01:00_
+- **Why:** Observed after the 2026-10-03 00:37 restart: 43 rooms x write_on/write_off, all in the boot second. Harmless but buries real warnings during post-deploy log review.
+- **Next:** Fix (Tier 1): suppress the fallback WARN during boot (before CM attach) or defer room fan-state init until the oracle is attached; keep the WARN for genuine post-boot fallback.
+
+## 🔬 Investigating (1)
 _measuring; truth not yet known_
 
-_(none)_
+### `EC-DEGRADED-DATA-POLICY-1` - Energy coordinator has no single rule for what to do when the Envoy reading drops out (some sites hold, some release, some read zero) — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **investigating**
+_created 2026-10-03 01:20_
+- **Why:** SOC resolver already falls back envoy -> lkg -> cloud, but the battery strategy holds with no commands, the arbitrage EV pause releases on missing SOC, and solar reads the dead derived sensor. The Envoy /production.json fault (since 2026...
+- **Next:** ME: planner enumerates every Envoy-availability decision site + current dropout behaviour + policy options -> design-review write-up to operator. PICK (operator): approach / phasing. NO BUILD until operator decides (operator 2026-10-03: ...
 
 ## 🧭 Pre-planning (11)
 _idea being decomposed_
@@ -225,7 +235,7 @@ _updated 2026-09-29 01:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (16)
+## 📝 Planned (15)
 _has plan / acceptance_
 
 ### `DASHBOARD-V8-FIX-BATCH-1` - URA v8 dashboard fix batch: wrong Home/Now energy numbers, dead security ids, duplicate cards, a phone-first layout, and new Climate/Energy/People cards — _#1 · WSJF 4.0 · v6 tc4 u2 /e3_
@@ -450,22 +460,7 @@ _created 2026-08-19 07:45 · updated 2026-09-29 01:05 · refined_
   - `BLOCKED_LINK_2026_09_16`: Recorded the dependency as a real blocked_by link instead of leaving it as prose in measured_2026_09_15. This parent asks for a re-arch scoped to ~87 order-dependent RUNTIME failures, and those failures are currently unmeasurable because...
   - `UNBLOCKED_2026_09_21`: UNBLOCKED, and the number this card is built around finally has a fresh measurement. The blocker (TEST-HARNESS-REAL-HA-DEFAULT-1) rested on the claim that the harness errored out of 10,560 of 10,588 tests, which made the ~87 order-depend...
 
-### `EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1` - The garage A charger is being switched off and on every 5-10 minutes overnight, in step with the Envoy battery reading dropping in and out — _#15 · WSJF 1.4 · v8 tc8 u2 /e13_
-thread: **energy** - status: **planned** - approval: **approved**
-_created 2026-10-01 05:00 · initial_
-- **Problem / Solution:**
-  - Problem: since 01:09 CDT tonight URA has turned the garage A charger (drawing about 11.7 kW) off and back on 9 times, roughly every 5-10 minutes, and garage B with it. Each switch-off happens seconds after the Envoy battery reading comes...
-- **Origin:** 2026-10-01 - overnight soak-exit agent (adjacent finding while disposing EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1); orchestrator re-verified from ura_activity_log + recorder
-- **Why:** The breaker-safety invariant (no EV ON while the battery grid-charges) is cost-and-safety critical, and the failure only appears when the Envoy drops out, which now happens every night.
-- **Next:** APPROVE: a Tier-3 fix so the arbitrage EV pause holds (does not release) while the battery reading is unavailable, plus the 4-review protocol and a pre-deploy checkpoint with you. Optional now, no code: if the flapping bothers you tonigh...
-- **Tags:** tier-3, found-during-probe, no-fabrication-verify, mutation-drill
-- **Parsimony:** [BUILD (Tier 3 - breaker-safety invariant on a shared energy state machine; needs your approval)] The arbitrage EV pause releases when the battery reading is missing and re-arms when it returns, cycling the chargers every 5-10 min.
-- **Forensic keys (3):**
-  - `operator_instruction_2026_10_02`: APPROVED (Tier 3) by operator 2026-10-02 ~21:20 CDT. Do NOT disturb the current blitz run; queue for the next overnight/other run. Remeasured 10-02: flap was a one-night burst (10-01 06-08Z, ~46 toggles); 10-02 normal 2-4/h. Root trigger...
-  - `measured_2026_10_01_overnight`: URA DB ura_activity_log (energy_pool charger_on/off, switch.garage_a): ON 06:09:44Z (pause_owners=none), OFF 06:15:13 (11,682 W, pause_owners=arbitrage), ON 06:20:09, OFF 06:25:14, ON 06:30:12, OFF 06:39:54, ON 06:45:02, OFF 06:49:55, ON...
-  - `adjacency_2026_10_01`: NEW. Swept: board (EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 = release vs fill-priority, daytime, different gate; ENVOY-DRAIN-ARM-STALE-CT-1 parked = drain-pause not ARMING under a stale CT, mirror-image failure on a different pause o...
-
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#16 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#15 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -480,95 +475,15 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `PROPERTY-GETTER-SIDE-EFFECT-TASKS-1` - Three entity property getters start background work every time something reads them — including one that fires safety-alert actions — _#1 · WSJF 2.6 · v7 tc4 u2 /e5_
-thread: **platform** - status: **in_progress** - approval: **implied**
-_created 2026-09-20 03:30 · updated 2026-10-02 02:20 · initial_
-- **Problem / Solution:**
-  - Problem: in Home Assistant, a "property getter" is the little function that answers the question "what is this sensor showing right now?" It is supposed to just report a value. Three of ours do not — they also kick off background work as...
-- **Origin:** 2026-09-20 - Fell out of settling AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1 — that card's named method was innocent, but an AST sweep of the file it blamed found the real off-loop shape.
-- **Why:** Two independent harms from one shape. Thread-safety is the one HA will escalate to an error, but the read-amplified actuation is live today and is the kind of defect that hides as "it fired a few extra times". This is also the missing ha...
-- **Next:** IN PROGRESS (me, overnight 10-02): ura-builder in worktree overnight-1002-getters on fix/property-getter-pure; then 2 framing-disjoint reviews + name-diff -> review lane (no deploy).
-- **Tags:** tier-2, thread-safety, no-fabrication-verify, ha-2026-escalation
-- **Parsimony:** [BUILD] Three property getters start background work per read; one of them actuates safety alerts, so the action fires once per observer rather than once per event.
-- **Refs:** custom_components/universal_room_automation/aggregation.py:1280-1287 (SafetyAlertBinarySensor.is_on); custom_components/universal_room_automation/sensor.py:1817; custom_components/universal_room_automation/sensor.py:16393
-- **Forensic keys (6):**
-  - `disposition_2026_09_26_groom`: CALL MADE: option (B) KEEP THE FALLBACK, MOVE THE TRIGGER — safety path, so no capability is removed: drive the legacy alert-flash path from the Safety Coordinator tick instead of a property read; also fix the two observational sites (se...
-  - `measured_2026_09_23`: OVERNIGHT PASS — TRACED SITE (1) AS THE CARD ASKED, and the trace MATERIALLY RE-FRAMES THIS CARD. VERDICT: STILL-REAL + CARD-WAS-WRONG about severity. Site (1) is real and live, but it is NOT an actuating call in this deployment, and the...
-  - `adjacent_finding_2026_09_23`: NOTED, NOT CARDED (adjacency sweep says fold in, not split). The same legacy helper _get_alerts (aggregation.py:1340-1360+) carries hardcoded literals for its alert bands — temp > 85 too_hot, temp < 55 too_cold, humidity > 70 — which is ...
-  - `escalation_2026_09_23`: NOT BUILT UNATTENDED — this is the SAFETY alert path, and CLAUDE.md puts safety-impacting logic in the always-explicit set regardless of tier. The trace makes the fix look easy, and that is precisely the trap: the cheap version is to del...
-  - `measured_2026_09_20`: AST sweep of custom_components/universal_room_automation/ for async_create_task / async_create_background_task called from a SYNC (non-async) function: 137 sites. 134 are @callback handlers or timer fires, which HA invokes on the event l...
-  - `gate_2026_10_02_overnight`: FOUR-STEP GATE PASSED. (1) VALIDITY: STILL-REAL - AST scan of develop @a2377c672 finds exactly the 3 property getters that spawn tasks: aggregation.py SafetyAlertBinarySensor.is_on (def :1322, async_create_task :1327), sensor.py native_v...
+_(none)_
 
-## 🔍 Review (5)
+## 🔍 Review (1)
 _under review_
 
-### `MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1` - Music following has recorded no transfers since 2026-05-12 - idle, broken, or unused? — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
-thread: **music** - status: **review** - approval: **implied**
-_created 2026-09-29 15:00 · updated 2026-10-02 02:55 · refined_
-- **Problem / Solution:**
-  - Problem: music following is switched on for all four people, but it has not moved music once since at least July. When someone walks out of a room, the move event names the person as "Oji Udezue", while the list of people music should fo...
-- **Origin:** 2026-09-29 - anomaly D0 probe + plan review
-- **Why:** metric_baselines for music_following (transfer_success_rate, cooldown_frequency) hold 1572 samples, mean 0 / std 0, last updated 2026-05-12, identical live and in the DB. Either the feature has not fired a transfer in 4.5 months (disable...
-- **Next:** SHIP (on your next deploy): merge fix/mf-enabled-person-name-match (5e3c13024). Heads-up: music following will start transferring again for everyone enabled.
-- **Tags:** music-following, found-in-review, tier-1, no-fabrication-verify
-- **Forensic keys (6):**
-  - `fixup_reviewed_2026_10_01_overnight`: FIX-UP REVIEWED + REBASED (overnight 10-01). Rebased onto develop -> 5e3c13024 (0 behind). All three review findings ADDRESSED at file:line: HIGH kill-switch (_coordinator_enabled music_following.py:449-472, gate :487-491), MED-1 DND-off...
-  - `operator_2026_09_29`: Operator: "Rarely use it. But will test today."
-  - `MEASURED_2026_09_30_overnight`: ROOT CAUSE FOUND (read-only; HA REST states + history, URA DB room_transitions; the home-assistant MCP was DOWN this run, so NO HA LOG was read and this finding does NOT rest on logs). (1) Live sensor.universal_room_automation_music_foll...
-  - `gate_2026_09_30`: VALIDITY: STILL-REAL (above). CONFIG-FIRST: no setting fixes it (options hold entity ids by design; the event producer uses names). PRIOR-ART: REUSE the entity-id -> name rule at __init__.py:2744; no new mechanism. PARSIMONY: BUILD, a on...
-  - `build_2026_09_30_overnight`: BUILT on fix/mf-enabled-person-name-match (652ba9863): _person_key helper + normalized enabled check at music_following.py:437-451; 4 tests incl. a wire-in through _on_person_transition; drill RED then restored; music tests 163 pass. REV...
-  - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
-
-### `ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1` - Presence, security, safety and music-following anomaly baselines are only saved when the integration unloads, which never happens on an HA restart, so their learning is thrown away every restart — _#2 · WSJF 5.5 · v5 tc4 u2 /e2_
-thread: **platform** - status: **review** - approval: **implied**
-_created 2026-09-29 15:00 · updated 2026-10-02 02:55_
-- **Origin:** 2026-09-29 - anomaly-blind plan review M1 (docs/reviews/code-review/plan_review_anomaly_detector_blind_metrics.md)
-- **Why:** HA does not unload config entries on stop (config_entries.py:931-933, :2176-2180 in the venv HA 2026.2.3; live 2026.9.x source not yet checked), and URA has no stop listener, so teardown-only baseline saves never run on a restart. Live D...
-- **Next:** SHIP (on your next deploy): merge fix/anomaly-baselines-periodic-save (93cf9eabf). Live check after deploy + one restart: metric_baselines.last_updated for presence/security/safety/music_following moves to the restart time.
-- **Tags:** anomaly, persistence, restart, found-in-review
-- **Forensic keys (4):**
-  - `build_2026_10_01_overnight`: BUILT on fix/anomaly-baselines-periodic-save (worktree overnight-1001-baselines), HEAD 93cf9eabf, NOT merged or deployed. Producer map: healthy cadences were hvac.py:6785 (daily rollover) and safety.py:1214 (30-min rate save); presence/s...
-  - `gate_2026_10_01_overnight`: FOUR-STEP GATE re-run 10-01. (1) VALIDITY: STILL-REAL - live metric_baselines (ssh sqlite3 -readonly, 10-01 02:40 CDT): presence 2026-09-14, security 09-04, safety 09-04, safety_rate 09-11, music_following 05-12, while energy/hvac/memory...
-  - `gate_2026_09_30_overnight`: VALIDITY: STILL-REAL (live metric_baselines last_updated: presence 2026-09-14, security 2026-09-04, safety 2026-09-04, safety_rate 2026-09-11, music_following 2026-05-12; energy/hvac/memory/CM current). PRIOR-ART: a STOP hook pattern alr...
-  - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
-
-### `SAFETY-HUMIDITY-JUNK-READING-1` - A single junk "0% humidity" reading from a reconnecting sensor raises a safety alert; ignore physically impossible humidity values — _#3 · WSJF 4.5 · v4 tc3 u2 /e2_
-thread: **safety** - status: **review** - approval: **implied**
-_created 2026-09-27 02:40 · updated 2026-10-02 02:55 · initial_
-- **Problem / Solution:**
-  - Problem: some humidity sensors send a bogus reading of 0% (or 3%) for about a second while they reconnect. The safety system treats any reading at or below 25% as low humidity and raises an alert IMMEDIATELY, with no check that the value...
-- **Origin:** 2026-09-27 - Found by the empty-house natural-experiment interim probe (overnight 2026-09-27): a MEDIUM safety alert "Low humidity: 0.0% in Study A" at 23:35 CDT with nobody home.
-- **Why:** An alert that fires on an impossible value trains people to ignore safety alerts. The configured Study A sensor (sensor.invisoutlet_b7d0_humidity) wrote 0 for 1 s at 23:35:24 and then unknown at 23:35:25, a reconnect artifact. The record...
-- **Next:** SHIP (on your next deploy): merge feature/safety-humidity-junk-floor (b33174d65) with its README section (79a10d403). Merges cleanly onto develop; batch name-diff clean 10-02.
-- **Tags:** tier-1, mutation-drill, no-fabrication-verify, numbers-get-knobs
-- **Parsimony:** [SIMPLIFY (plausibility floor only)] Humidity readings below 5% (physically impossible indoors) raise low-humidity safety alerts and chip trips.
-- **Forensic keys (7):**
-  - `groom_2026_09_29`: MOVED in_progress -> review. Built and reviewed: reviews_2026_09_27 A SHIP + B SHIP. Fix-up dc513cac4 (house safety-alert floor, boundary tests), review record c8776ff26. The branch feature/safety-humidity-junk-floor is 4 ahead / 55 behi...
-  - `live_2026_09_27_0230`: LIVE at ~02:30 CDT, and this is the discriminating observation: binary_sensor.ura_safety_coordinator_safety_alert = ON and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24. The only active hazard is low_humidity Study...
-  - `reviews_2026_09_27`: Review A (local correctness/edges/consumers): SHIP. M1 MEDIUM, a missed site: the whole-house SafetyAlertBinarySensor in aggregation.py:1359-1365 has its own humidity < 25 check; orchestrator-verified. Plus L1 (chip blips off for 1 s on ...
-  - `evidence_2026_09_27`: notification_log, all "Low humidity" safety alerts since 09-12: 09-12 Dining Room 3.0% (MEDIUM), 09-16 Study A 0.0% (MEDIUM), 09-26 Garage A 30.0% (LOW, plausible), 09-27 Study A 0.0% (MEDIUM). All four went out with bucket_outcome no_ch...
-  - `gate_2026_09_27`: (1) VALIDITY: still real, 3 junk alerts in 16 days, code path confirmed. (1b) CONFIG-FIRST: no knob covers it. LOW_HUMIDITY_THRESHOLDS are rung-1 constants, and swapping each room to a different humidity sensor is whack-a-mole because an...
-  - `open_question_garage`: NOT BUILT, and flagged for the operator: the zone chip treats garages as humidity-EXEMPT ("garage RH tracks weather"), but the safety coordinator still fires low-humidity for garages (09-26 "30.0% in Garage A", LOW). The coordinator and ...
-  - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
-
-### `URA-ATTRIBUTE-CHURN-1` - Two URA entities re-publish every couple of seconds only because a timestamp or countdown attribute ticked, adding HA CPU load and a history row each time — _#4 · WSJF 4.5 · v4 tc3 u2 /e2_
-thread: **platform** - status: **review** - approval: **implied**
-_created 2026-09-28 19:10 · updated 2026-10-02 02:55_
-- **Origin:** 2026-09-28 - operator HA CPU review ("HA CPU is double what it was 4 months ago"); recorder top-writers sweep over 5 min
-- **Why:** Measured 2026-09-28 19:07 over 5 min: binary_sensor.living_room_occupied and living_room_hvac_occupied each wrote 119 rows (~24/min) with state steady "on"; the ONLY changed attribute was last_motion. sensor.ura_safety_coordinator_safety...
-- **Next:** SHIP (on your next deploy): merge feature/ura-attribute-churn (651216a8e) with its README section; write back README_v5.103.20 / PLANNING_hvac_fast_occupancy_response.md at ship. Also DO (any time): discard the stray uncommitted const.py...
-- **Tags:** tier-1, ha-cpu, recorder
-- **Forensic keys (5):**
-  - `reviewed_2026_10_01_overnight`: FIX-UP 2 RE-REVIEWED + REBASED (overnight 10-01). Rebased onto develop with no conflicts -> 651216a8e (0 behind). 4 mutation drills re-run, each RED on the expected test, restored. Two framing-disjoint reviews, both SHIP: A (correctness ...
-  - `adjacency_2026_09_28`: ADJACENT to RECORDER-BLOAT-LOGFLOOD-1 (same class: last_check dropped from Safety Status, sensor.py:6521-6529/6576-6583). That fix established the pattern: DROP the churning key (an unrecorded attribute still fires state_changed on the l...
-  - `verify_2026_09_29_overnight`: CARD-WAS-WRONG on scope. It said last_motion was the ONLY changing attribute. Recorder, last 26h: binary_sensor.living_room_occupied had 22,722 rows, 22,653 of them rewrites with the same state, driven by idle_duration 12,828, last_motio...
-  - `fixup2_2026_09_29_overnight`: Both reviews returned FIX-REQUIRED on fix-up 1 (converged HIGH): timeout_at and last_occupied_at were built from stamps the coordinator re-stamps on every refresh (coordinator.py:3604, 3638-3640), so the churn moved instead of stopping i...
-  - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
-
-### `TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1` - About ten test files still edit real production code in place while the suite runs, so a killed run or a concurrent git operation can leave the repo silently broken — _#5 · WSJF 3.7 · v5 tc4 u2 /e3_
+### `TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1` - About ten test files still edit real production code in place while the suite runs, so a killed run or a concurrent git operation can leave the repo silently broken — _#1 · WSJF 3.7 · v5 tc4 u2 /e3_
 thread: **platform** - status: **review** - approval: **implied**
 _created 2026-09-26 02:14 · updated 2026-10-01 03:15 · initial_
 - **Problem / Solution:**
@@ -1061,7 +976,7 @@ _I owe something_
 
 _(none)_
 
-## 🚀 Shipped (organic open) (14)
+## 🚀 Shipped (organic open) (17)
 _live, awaiting proof_
 
 ### `HVAC-FANS-IGNORE-ROOM-COMFORT-FAN-SWITCH-1` - The HVAC fan controller keeps turning a room's fan on and off even after the room's Comfort Fan Control switch is turned off (a guest was woken by it) — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
@@ -1124,7 +1039,25 @@ _created 2026-09-29 01:05 · updated 2026-10-02 02:55 · refined_
   - `build_2026_09_30_overnight`: BUILT on fix/hvac-auto-return-excursion-id (f93880230, from develop 5800d41ae): +2 kwargs in hvac_excursion.py - _auto_return forwards token.excursion_id (:714) and the startup-audit NUDGE preset restore forwards row.get("excursion_id") ...
   - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
 
-### `DB-WAIT-WARNING-REWORK-1` - The DB "write worker slow, no connection" warning is wrong and noisy - one line per waiting write, misnamed, no recovery line — _#6 · WSJF 5.0 · v2 tc1 u2 /e1_
+### `MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1` - Music following has recorded no transfers since 2026-05-12 - idle, broken, or unused? — _#6 · WSJF 7.0 · v3 tc2 u2 /e1_
+thread: **music** - status: **shipped_organic** - approval: **implied**
+_created 2026-09-29 15:00 · updated 2026-10-03 02:02 · refined_
+- **Problem / Solution:**
+  - Problem: music following is switched on for all four people, but it has not moved music once since at least July. When someone walks out of a room, the move event names the person as "Oji Udezue", while the list of people music should fo...
+- **Origin:** 2026-09-29 - anomaly D0 probe + plan review
+- **Why:** metric_baselines for music_following (transfer_success_rate, cooldown_frequency) hold 1572 samples, mean 0 / std 0, last updated 2026-05-12, identical live and in the DB. Either the feature has not fired a transfer in 4.5 months (disable...
+- **Next:** SHIP (on your next deploy): merge fix/mf-enabled-person-name-match (5e3c13024). Heads-up: music following will start transferring again for everyone enabled.
+- **Tags:** music-following, found-in-review, tier-1, no-fabrication-verify
+- **Forensic keys (7):**
+  - `disposition_2026_10_03`: RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Operator acked. Mechanism PASS (README table: ...
+  - `fixup_reviewed_2026_10_01_overnight`: FIX-UP REVIEWED + REBASED (overnight 10-01). Rebased onto develop -> 5e3c13024 (0 behind). All three review findings ADDRESSED at file:line: HIGH kill-switch (_coordinator_enabled music_following.py:449-472, gate :487-491), MED-1 DND-off...
+  - `operator_2026_09_29`: Operator: "Rarely use it. But will test today."
+  - `MEASURED_2026_09_30_overnight`: ROOT CAUSE FOUND (read-only; HA REST states + history, URA DB room_transitions; the home-assistant MCP was DOWN this run, so NO HA LOG was read and this finding does NOT rest on logs). (1) Live sensor.universal_room_automation_music_foll...
+  - `gate_2026_09_30`: VALIDITY: STILL-REAL (above). CONFIG-FIRST: no setting fixes it (options hold entity ids by design; the event producer uses names). PRIOR-ART: REUSE the entity-id -> name rule at __init__.py:2744; no new mechanism. PARSIMONY: BUILD, a on...
+  - `build_2026_09_30_overnight`: BUILT on fix/mf-enabled-person-name-match (652ba9863): _person_key helper + normalized enabled check at music_following.py:437-451; 4 tests incl. a wire-in through _on_person_transition; drill RED then restored; music tests 163 pass. REV...
+  - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
+
+### `DB-WAIT-WARNING-REWORK-1` - The DB "write worker slow, no connection" warning is wrong and noisy - one line per waiting write, misnamed, no recovery line — _#7 · WSJF 5.0 · v2 tc1 u2 /e1_
 thread: **platform** - status: **shipped_organic**
 _created 2026-09-29 20:05_
 - **Why:** database.py:435 logs one WARNING per waiting write (23 lines in 2 ms), says "no connection" when the connection is fine and the write is only queued, never distinguishes a loop stall (elapsed >> timer) from a real worker backlog, and log...
@@ -1132,7 +1065,7 @@ _created 2026-09-29 20:05_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1` - Solar-following car charging steers off a grid reading that lags by a minute — point it at the new fast (~5-6s) local reading instead — _#7 · WSJF 5.0 · v5 tc3 u2 /e2_
+### `SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1` - Solar-following car charging steers off a grid reading that lags by a minute — point it at the new fast (~5-6s) local reading instead — _#8 · WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **energy** - status: **shipped_organic** - approval: **explicit**
 _created 2026-09-25 18:00 · updated 2026-09-29 01:05 · refined_
 - **Problem / Solution:**
@@ -1151,7 +1084,7 @@ _created 2026-09-25 18:00 · updated 2026-09-29 01:05 · refined_
   - `operator_decision_2026_09_25`: B2 (promote the stream to PRIMARY) and B3 (retighten SOLAR_FOLLOW_GRID_FRESH_S) are DROPPED, not deferred. Operator: "No need to revisit. I trust emporia more period. backup is fine." Emporia sensor.mains_vue_3_power_minute_average is th...
   - `b1_applied_2026_09_25`: Operator set it via UI (picker needed a search-select, paste did not bind). Verified in live .storage/core.config_entries: CM entry 01KJEC3FYPYAGBQKZWC94CR8GR options energy_solar_follow_grid_fallback_entity = sensor.envoy_stream_grid_po...
 
-### `HOUSE-STATE-SLEEP-LOST-ON-RESTART-1` - An HA restart at night loses the house Sleep state (it comes back Away, then Home Night), so HVAC switches bedrooms' zones from Sleep to Home — _#8 · WSJF 5.0 · v7 tc6 u2 /e3_
+### `HOUSE-STATE-SLEEP-LOST-ON-RESTART-1` - An HA restart at night loses the house Sleep state (it comes back Away, then Home Night), so HVAC switches bedrooms' zones from Sleep to Home — _#9 · WSJF 5.0 · v7 tc6 u2 /e3_
 thread: **presence** - status: **shipped_organic**
 _created 2026-09-29 03:20_
 - **Origin:** 2026-09-29 - observed after the 03:01 v5.103.23 deploy restart (orchestrator restarted during sleep, against the hostile-timing rule; memory feedback_no_restart_during_sleep)
@@ -1161,7 +1094,42 @@ _created 2026-09-29 03:20_
 - **Forensic keys (1):**
   - `evidence_2026_09_29_1917`: Second data point, awake house: restart at ~19:17 (v5.103.25) with house state home_evening; after boot the house read away, then returned to home_evening at 19:21:56 (about 4 min). So the boot transient is not sleep-specific: any restar...
 
-### `HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1` - A pre-arrival pre-cool keeps the zone on URA's temporary setpoints for up to 2 hours and lowers them another 2 degrees on every decision pass — _#9 · WSJF 4.3 · v6 tc5 u2 /e3_
+### `SAFETY-HUMIDITY-JUNK-READING-1` - A single junk "0% humidity" reading from a reconnecting sensor raises a safety alert; ignore physically impossible humidity values — _#10 · WSJF 4.5 · v4 tc3 u2 /e2_
+thread: **safety** - status: **shipped_organic** - approval: **implied**
+_created 2026-09-27 02:40 · updated 2026-10-03 02:02 · initial_
+- **Problem / Solution:**
+  - Problem: some humidity sensors send a bogus reading of 0% (or 3%) for about a second while they reconnect. The safety system treats any reading at or below 25% as low humidity and raises an alert IMMEDIATELY, with no check that the value...
+- **Origin:** 2026-09-27 - Found by the empty-house natural-experiment interim probe (overnight 2026-09-27): a MEDIUM safety alert "Low humidity: 0.0% in Study A" at 23:35 CDT with nobody home.
+- **Why:** An alert that fires on an impossible value trains people to ignore safety alerts. The configured Study A sensor (sensor.invisoutlet_b7d0_humidity) wrote 0 for 1 s at 23:35:24 and then unknown at 23:35:25, a reconnect artifact. The record...
+- **Next:** SHIP (on your next deploy): merge feature/safety-humidity-junk-floor (b33174d65) with its README section (79a10d403). Merges cleanly onto develop; batch name-diff clean 10-02.
+- **Tags:** tier-1, mutation-drill, no-fabrication-verify, numbers-get-knobs
+- **Parsimony:** [SIMPLIFY (plausibility floor only)] Humidity readings below 5% (physically impossible indoors) raise low-humidity safety alerts and chip trips.
+- **Forensic keys (8):**
+  - `disposition_2026_10_03`: RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Open: no sub-5% humidity blip since restart (0...
+  - `groom_2026_09_29`: MOVED in_progress -> review. Built and reviewed: reviews_2026_09_27 A SHIP + B SHIP. Fix-up dc513cac4 (house safety-alert floor, boundary tests), review record c8776ff26. The branch feature/safety-humidity-junk-floor is 4 ahead / 55 behi...
+  - `live_2026_09_27_0230`: LIVE at ~02:30 CDT, and this is the discriminating observation: binary_sensor.ura_safety_coordinator_safety_alert = ON and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24. The only active hazard is low_humidity Study...
+  - `reviews_2026_09_27`: Review A (local correctness/edges/consumers): SHIP. M1 MEDIUM, a missed site: the whole-house SafetyAlertBinarySensor in aggregation.py:1359-1365 has its own humidity < 25 check; orchestrator-verified. Plus L1 (chip blips off for 1 s on ...
+  - `evidence_2026_09_27`: notification_log, all "Low humidity" safety alerts since 09-12: 09-12 Dining Room 3.0% (MEDIUM), 09-16 Study A 0.0% (MEDIUM), 09-26 Garage A 30.0% (LOW, plausible), 09-27 Study A 0.0% (MEDIUM). All four went out with bucket_outcome no_ch...
+  - `gate_2026_09_27`: (1) VALIDITY: still real, 3 junk alerts in 16 days, code path confirmed. (1b) CONFIG-FIRST: no knob covers it. LOW_HUMIDITY_THRESHOLDS are rung-1 constants, and swapping each room to a different humidity sensor is whack-a-mole because an...
+  - `open_question_garage`: NOT BUILT, and flagged for the operator: the zone chip treats garages as humidity-EXEMPT ("garage RH tracks weather"), but the safety coordinator still fires low-humidity for garages (09-26 "30.0% in Garage A", LOW). The coordinator and ...
+  - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
+
+### `URA-ATTRIBUTE-CHURN-1` - Two URA entities re-publish every couple of seconds only because a timestamp or countdown attribute ticked, adding HA CPU load and a history row each time — _#11 · WSJF 4.5 · v4 tc3 u2 /e2_
+thread: **platform** - status: **shipped_organic** - approval: **implied**
+_created 2026-09-28 19:10 · updated 2026-10-03 02:02_
+- **Origin:** 2026-09-28 - operator HA CPU review ("HA CPU is double what it was 4 months ago"); recorder top-writers sweep over 5 min
+- **Why:** Measured 2026-09-28 19:07 over 5 min: binary_sensor.living_room_occupied and living_room_hvac_occupied each wrote 119 rows (~24/min) with state steady "on"; the ONLY changed attribute was last_motion. sensor.ura_safety_coordinator_safety...
+- **Next:** SHIP (on your next deploy): merge feature/ura-attribute-churn (651216a8e) with its README section; write back README_v5.103.20 / PLANNING_hvac_fast_occupancy_response.md at ship. Also DO (any time): discard the stray uncommitted const.py...
+- **Tags:** tier-1, ha-cpu, recorder
+- **Forensic keys (6):**
+  - `disposition_2026_10_03`: RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Operator acked. safety_active_cooldowns PASS. ...
+  - `reviewed_2026_10_01_overnight`: FIX-UP 2 RE-REVIEWED + REBASED (overnight 10-01). Rebased onto develop with no conflicts -> 651216a8e (0 behind). 4 mutation drills re-run, each RED on the expected test, restored. Two framing-disjoint reviews, both SHIP: A (correctness ...
+  - `adjacency_2026_09_28`: ADJACENT to RECORDER-BLOAT-LOGFLOOD-1 (same class: last_check dropped from Safety Status, sensor.py:6521-6529/6576-6583). That fix established the pattern: DROP the churning key (an unrecorded attribute still fires state_changed on the l...
+  - `verify_2026_09_29_overnight`: CARD-WAS-WRONG on scope. It said last_motion was the ONLY changing attribute. Recorder, last 26h: binary_sensor.living_room_occupied had 22,722 rows, 22,653 of them rewrites with the same state, driven by idle_duration 12,828, last_motio...
+  - `fixup2_2026_09_29_overnight`: Both reviews returned FIX-REQUIRED on fix-up 1 (converged HIGH): timeout_at and last_occupied_at were built from stamps the coordinator re-stamps on every refresh (coordinator.py:3604, 3638-3640), so the churn moved instead of stopping i...
+  - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
+
+### `HVAC-PRE-ARRIVAL-BORROW-LIFETIME-1` - A pre-arrival pre-cool keeps the zone on URA's temporary setpoints for up to 2 hours and lowers them another 2 degrees on every decision pass — _#12 · WSJF 4.3 · v6 tc5 u2 /e3_
 thread: **hvac** - status: **shipped_organic** - approval: **implied**
 _created 2026-09-28 22:30 · updated 2026-09-29 01:05_
 - **Origin:** 2026-09-28 - operator: "pre cool is 2 hours? Is this a knob? Seems rather long." (after zone 2 sat in a pre-arrival pre-cool manual hold)
@@ -1172,7 +1140,7 @@ _created 2026-09-28 22:30 · updated 2026-09-29 01:05_
   - `groom_2026_09_29_arc`: Shipped v5.103.23 (Batch B Part B).
   - `groom_2026_09_29`: MOVED planned -> in_progress. Batch B Part B is being built on feature/hvac-w1-w2-finish (commit df6ee96bc "Parts A+B - a person ends a borrow; pre-arrival borrow lifetime"; plan PLANNING_hvac_w1_w2_finish.md REV 2 D3/D5).
 
-### `BOOT-EVENT-LOOP-FREEZE-1` - Every HA restart freezes the whole event loop for about 2.5 minutes, so the house is dead and every integration times out — _#10 · WSJF 4.0 · v4 tc2 u2 /e2_
+### `BOOT-EVENT-LOOP-FREEZE-1` - Every HA restart freezes the whole event loop for about 2.5 minutes, so the house is dead and every integration times out — _#13 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **platform** - status: **shipped_organic**
 _created 2026-09-29 20:05_
 - **Why:** All 12 restarts since 09-25 show exactly one loop freeze of 133-156 s, 55-260 s after shutdown (recorder state-change gaps; nothing over 7 s otherwise). On 09-29 19:17 the log went silent from EVERY logger for 148.6 s (19:17:26.8-19:19:5...
@@ -1180,7 +1148,7 @@ _created 2026-09-29 20:05_
 - **Forensic keys (1):**
   - `tier`: 2
 
-### `ROOM-DIALOGS-USABILITY-SWEEP-1` - Room settings dialogs look unfinished - raw underscore labels, fields with no helper text, and helper texts that are far too long — _#11 · WSJF 3.5 · v3 tc2 u2 /e2_
+### `ROOM-DIALOGS-USABILITY-SWEEP-1` - Room settings dialogs look unfinished - raw underscore labels, fields with no helper text, and helper texts that are far too long — _#14 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 20:15_
 - **Why:** Climate & Fans showed comfort_fan_away_veto_enabled and ble_hold_cap_enabled as raw keys (fixed on develop 2026-09-29), many toggles with no helper text, and multi-sentence helper texts (Empty-room hold day/night run 6-8 lines). Same ris...
@@ -1188,7 +1156,7 @@ _created 2026-09-29 20:15_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `ROOM-LIGHTING-SETUP-REDESIGN-1` - Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time — _#12 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `ROOM-LIGHTING-SETUP-REDESIGN-1` - Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time — _#15 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 22:10_
 - **Why:** Today lights are split across Devices (Lights, Light Features auto-detected, Night Lights subset - config only, not in options) and Automation Behavior / Lighting (Lights on Entry, Lights on Exit, Dark Threshold, Brightness, Fade in/out)...
@@ -1198,13 +1166,13 @@ _created 2026-09-29 22:10_
   - `scope_2026_09_29`: Operator: "We separated enumeration from automation - sensors and devices are enumeration. Are you suggesting we break that pattern? That should mean other reorg, not just lights." Ruling to propose: KEEP the pattern - Devices/Sensors on...
   - `ranking_2026_09_29`: Operator liked all missed items; ranked by livability vs effort/risk: 1 core role pickers (+ move roles out of Devices, migration; alert lights ride along); 2 respect manual light changes (reuse fan manual-hold oracle design, automation....
 
-### `HOUSE-DIALOGS-CLEANUP-1` - House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs) — _#13 · WSJF 2.0 · v3 tc1 u2 /e3_
+### `HOUSE-DIALOGS-CLEANUP-1` - House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs) — _#16 · WSJF 2.0 · v3 tc1 u2 /e3_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 22:30_
 - **Why:** Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.
 - **Next:** Me: after the room and zone passes, plan house then coordinators with the same rules and meta-test.
 
-### `ARRESTER-BOOT-BLIND-1` - Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable — _#14 · WSJF 1.9 · v7 tc6 u2 /e8_
+### `ARRESTER-BOOT-BLIND-1` - Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable — _#17 · WSJF 1.9 · v7 tc6 u2 /e8_
 thread: **hvac** - status: **shipped_organic** - approval: **unreviewed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-11 - operator: "The battery is not 97%. The arrester should be seeing this as a bad action" — up-hallway manual 75->71 cool during a 26->11 SOC collapse, arrester idle w/ overrides_today=0.
@@ -1219,7 +1187,7 @@ _updated 2026-09-29 01:05_
   - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
   - `operator_ruling_2026_09_28`: OPERATOR (verbatim): "The person interrupts. We end and revert. Closest to my intent." i.e. option A: a human change during a URA non-nudge borrow ENDS the borrow, and the arrester then treats it as an ordinary human override (grace, com...
 
-## 🅿️ Parked (72)
+## 🅿️ Parked (74)
 _revisit-trigger set_
 
 ### `HUMIDITY-LOW-RUNG-PAGING-KNOB-1` - Make the LOW-severity humidity-band NM page null/configurable (un-knobbed rung) — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
@@ -2019,7 +1987,15 @@ _created 2026-09-19 · updated 2026-09-29 04:30_
   - `followups`: FAN-RECHECK-GATE-HARDENING: recheck gate keys only on room CONF_FAN_CONTROL_ENABLED, ignoring _is_hvac_managing_fans() — a room with hvac_coordination_enabled=True + fan_control_enabled=False would be wrongly vetoed fan_control_off. Swee...
   - `INSTANCE_2026_09_29_night_face`: Same radar, reverse face, measured 2026-09-29 (state-of-play C27). With Jaya asleep and the fan ON, binary_sensor.jaya_3_presence still tracks the fan (on-edges 15-20 s after the fan's), so the fan-phantom is indistinguishable from her. ...
 
-### `HVAC-OPTIMIZER-CLIMATE-FUNNEL-ROUTING-1` - The optimizer can dispatch climate.* actions around the W1-A funnels — route them through the funnels before any L2+ promotion — _#62 · WSJF 1.8 · v5 tc2 u2 /e5_
+### `EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1` - Attain charges nothing when the local Envoy is unavailable, even though the cloud battery reading is fresh — _#62 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **parked**
+_created 2026-10-03 01:00_
+- **Why:** 2026-10-02 14:00-15:48 the Envoy integration was stuck after a power-cycle; strategy reason "Envoy unavailable - holding (no commands issued)" while cloud SOC was ~10% and fresh, so the operator had to grid-charge manually before the 17:...
+- **Next:** PLAN (Tier 3, battery strategy): let the charge window act on a fresh cloud SOC (soc_source=cloud_fallback) instead of holding with no commands; define freshness bound + which commands are safe on cloud SOC.
+- **Forensic keys (1):**
+  - `parked_2026_10_03`: ON HOLD under EC-DEGRADED-DATA-POLICY-1 — operator wants the approach reconsidered before building one-off fixes.
+
+### `HVAC-OPTIMIZER-CLIMATE-FUNNEL-ROUTING-1` - The optimizer can dispatch climate.* actions around the W1-A funnels — route them through the funnels before any L2+ promotion — _#63 · WSJF 1.8 · v5 tc2 u2 /e5_
 thread: **hvac** - status: **parked**
 _created 2026-09-26 · updated 2026-09-29 01:05_
 - **Why:** optimization.py:3546 / :3688 dispatch generic service actions and explicitly support climate.* targets (broker suppress_climate, A-CRIT-2 egress guard :3436). They bypass emit_set_* and write no climate_write row. Today the optimizer run...
@@ -2029,7 +2005,7 @@ _created 2026-09-26 · updated 2026-09-29 01:05_
   - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 5, time_criticality 2, effort 5 - only bites before an optimizer L2+ promotion.
   - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
 
-### `HVAC-ROLLOVER-DURABLE-DATE-ORDERING-1` - The daily short-cycle sample is now saved durably but its date stamp is not — an unclean restart in the same tick can still double-count one day — _#63 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `HVAC-ROLLOVER-DURABLE-DATE-ORDERING-1` - The daily short-cycle sample is now saved durably but its date stamp is not — an unclean restart in the same tick can still double-count one day — _#64 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **hvac** - status: **parked** - approval: **unreviewed**
 _created 2026-09-16 04:00 · updated 2026-09-26 02:40 · initial_
 - **Problem / Solution:**
@@ -2044,7 +2020,23 @@ _created 2026-09-16 04:00 · updated 2026-09-26 02:40 · initial_
   - `workstream`: HVAC-W4-ARC-CLOSURE
   - `DEDUPE_2026_09_16`: NEW. Swept the board for zone_state_store / get_state_snapshot / snapshot-helper cards (one unrelated hit at RESTART-SAFETY-DOCTRINE-1 F15 about override-penalty fields not being in the snapshot), plus docs/BACKLOG.md. No card owns the r...
 
-### `GAP-A-CENSUS-HOLE-1` - Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only evidence (face_recognized_count) — _#64 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1` - The garage A charger is being switched off and on every 5-10 minutes overnight, in step with the Envoy battery reading dropping in and out — _#65 · WSJF 1.4 · v8 tc8 u2 /e13_
+thread: **energy** - status: **parked** - approval: **approved**
+_created 2026-10-01 05:00 · initial_
+- **Problem / Solution:**
+  - Problem: since 01:09 CDT tonight URA has turned the garage A charger (drawing about 11.7 kW) off and back on 9 times, roughly every 5-10 minutes, and garage B with it. Each switch-off happens seconds after the Envoy battery reading comes...
+- **Origin:** 2026-10-01 - overnight soak-exit agent (adjacent finding while disposing EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1); orchestrator re-verified from ura_activity_log + recorder
+- **Why:** The breaker-safety invariant (no EV ON while the battery grid-charges) is cost-and-safety critical, and the failure only appears when the Envoy drops out, which now happens every night.
+- **Next:** APPROVE: a Tier-3 fix so the arbitrage EV pause holds (does not release) while the battery reading is unavailable, plus the 4-review protocol and a pre-deploy checkpoint with you. Optional now, no code: if the flapping bothers you tonigh...
+- **Tags:** tier-3, found-during-probe, no-fabrication-verify, mutation-drill
+- **Parsimony:** [BUILD (Tier 3 - breaker-safety invariant on a shared energy state machine; needs your approval)] The arbitrage EV pause releases when the battery reading is missing and re-arms when it returns, cycling the chargers every 5-10 min.
+- **Forensic keys (4):**
+  - `parked_2026_10_03`: ON HOLD under EC-DEGRADED-DATA-POLICY-1 — operator wants the approach reconsidered before building one-off fixes.
+  - `operator_instruction_2026_10_02`: APPROVED (Tier 3) by operator 2026-10-02 ~21:20 CDT. Do NOT disturb the current blitz run; queue for the next overnight/other run. Remeasured 10-02: flap was a one-night burst (10-01 06-08Z, ~46 toggles); 10-02 normal 2-4/h. Root trigger...
+  - `measured_2026_10_01_overnight`: URA DB ura_activity_log (energy_pool charger_on/off, switch.garage_a): ON 06:09:44Z (pause_owners=none), OFF 06:15:13 (11,682 W, pause_owners=arbitrage), ON 06:20:09, OFF 06:25:14, ON 06:30:12, OFF 06:39:54, ON 06:45:02, OFF 06:49:55, ON...
+  - `adjacency_2026_10_01`: NEW. Swept: board (EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1 = release vs fill-priority, daytime, different gate; ENVOY-DRAIN-ARM-STALE-CT-1 parked = drain-pause not ARMING under a stale CT, mirror-image failure on a different pause o...
+
+### `GAP-A-CENSUS-HOLE-1` - Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only evidence (face_recognized_count) — _#66 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **presence** - status: **parked** - approval: **implied**
 - **Origin:** 2026-08-16 - AUDIT_away_transition_2026_08_13.md flagged the H1 census clause as latent; operator asked for the specific fix and required it ship in the same deploy as PATH-ALPHA.
 - **Why:** presence.py:1047-1057 gates path alpha on census_count == 0, whose intent-of-record (comment :1039-1042) is "Frigate face-IDs a resident -> phone trustworthiness irrelevant". But census_count = |ble_home union face_recognized| + held_uni...
@@ -2057,7 +2049,7 @@ thread: **presence** - status: **parked** - approval: **implied**
   - `plan_review_2026_08_16`: SHIP (efec78928) — trace + consumer enumeration independently confirmed; circularity CLEAN (URA writes no person.* entity, so the matrix cannot feed back into the face cross-check — FENCE: re-audit if that ever changes); 3 text-only edit...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier — _#65 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier — _#67 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **presence** - status: **parked** - approval: **explicit**
 _updated 2026-08-18 16:10_
 - **Origin:** 2026-08-09 - operator diagnosed a stuck Zigbee mmWave holding master occupancy; asked why I did not see it
@@ -2092,7 +2084,7 @@ _updated 2026-08-18 16:10_
   - `program_unification_2026_08_18`: PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude from occupancy fusion" primitive with multiple DETE...
   - `program`: sensor-trust-exclusion
 
-### `XCORR-1` - Burst-demotion for isolated single-camera night alerts (was: cross-engine corroboration gate) — _#66 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `XCORR-1` - Burst-demotion for isolated single-camera night alerts (was: cross-engine corroboration gate) — _#68 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **perimeter** - status: **parked** - approval: **explicit**
 _updated 2026-08-23 14:30_
 - **Origin:** 2026-08-08 - operator got 12 notifications 01:01-01:25 CDT from hot_tub; "this is what x-correlation looks like if we have multiple engines"
@@ -2108,7 +2100,7 @@ _updated 2026-08-23 14:30_
   - `design`: REVISED: first alert ALWAYS fires at full severity (preserves intrusion guarantee).
   - `probe_result`: PROBE RUN 2026-08-08 (8d, 30s window) -> AUDIT_xcorr_engine_corroboration_probe.md. The naive corroboration gate is REJECTED: solo firing is the NORM on the exterior cameras that drive alerts (front_side_ptz 92% solo, back_yard 91%, pool...
 
-### `ARREST-SUNSET-1` - Temp Arrester Override does not sunset on away/vacation (only sleep) — _#67 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `ARREST-SUNSET-1` - Temp Arrester Override does not sunset on away/vacation (only sleep) — _#69 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **parked** - approval: **implied**
 _updated 2026-08-23 14:30 · refined ×8_
 - **Origin:** 2026-08-07 - operator turned Temp Arrester Override ON (master cold at home) 15:04 CDT; asked to watch the next boundary -> found the gap while verifying
@@ -2128,7 +2120,7 @@ _updated 2026-08-23 14:30 · refined ×8_
   - `known_limitations`: restart mid-grace may lose the in-memory pending-sunset obligation unless persisted - builder instructed to persist or explicitly document + report
   - `organic_open`: engage the override, then confirm it releases on the next real context change (or 6h decay) and the switch flips OFF to match
 
-### `HVAC-BASELINE-MAXSAMPLES-1` - HVAC anomaly baselines never forget — an accumulator matured on August cooling will misjudge October; scope a bounded/windowed sample count into the shared detector — _#68 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-BASELINE-MAXSAMPLES-1` - HVAC anomaly baselines never forget — an accumulator matured on August cooling will misjudge October; scope a bounded/windowed sample count into the shared detector — _#70 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **parked** - approval: **explicit**
 _created 2026-08-24 16:45 · updated 2026-09-26 02:40 · initial_
 - **Problem / Solution:**
@@ -2145,7 +2137,7 @@ _created 2026-08-24 16:45 · updated 2026-09-26 02:40 · initial_
   - `gate_2026_09_12`: PARKED at the pre-build gate (validity->prior-art->parsimony->cost/benefit). VALIDITY: still-needed=yes / not-shipped=yes (HVAC metrics do not set max_samples; two creation sites _get_baseline + load_baselines both build MetricBaseline w...
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE — card premise partly WRONG: MetricStats ALREADY has max_samples recency cap (coordinator_diagnostics.py:148/169, v3.13.3, commit 283d9c171) wired for energy (e...
 
-### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest — _#69 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest — _#71 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **presence** - status: **parked** - approval: **explicit**
 _updated 2026-08-18 01:45 · refined_
 - **Problem / Solution:**
@@ -2166,7 +2158,7 @@ _updated 2026-08-18 01:45 · refined_
   - `cycle3_scope_final_2026_08_18`: CYCLE 3 SCOPE (operator): BUILD the face-INDEPENDENT arm NOW (approach-track->egress corroboration, 94% GO from PROBE_exterior_guest_egress.md) as a census_confidence contribution to the unidentified gate (INV-4 path b, never a third arm...
   - `direction_2026_08_18`: OPERATOR CHOSE IDENTITY PATH FIRST (over the planner's BUILD-the-nudge). The face-independent Tier-3 approach->census_confidence nudge (PLANNING_exterior_guest_egress.md rev-2, orchestrator dissented on marginal-benefit) is DEFERRED — re...
 
-### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end — _#70 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end — _#72 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **energy** - status: **parked** - approval: **implied**
 _created 2026-08-24 22:30 · updated 2026-08-26 02:15 · refined ×1_
 - **Problem / Solution:**
@@ -2182,7 +2174,7 @@ _created 2026-08-24 22:30 · updated 2026-08-26 02:15 · refined ×1_
   - `MARGINAL_BENEFIT_2026_08_26`: Operator asked to run the marginal-benefit test + isolate IF/WHY we need it, context-wide on solar-follow goals. RESULT: the value is REAL but NARROW, and the PLAN SCOPE is disproportionate. Grounding: solar-follow is REACTIVE (energy_po...
   - `PLAN_REVIEWED_2026_08_26`: The Tier-3 plan was ALREADY written (prior session, 665 lines, PLANNING_evse_solar_stop_conditions.md). Ran the 2 framing-disjoint plan reviews (completeness + build-prediction). BOTH = FIX-PLAN-FIRST. Record: PLAN_REVIEW_evse_solar_stop...
 
-### `BREAKER-GRIDCAP-STALE-TELEMETRY-1` - Breaker-guard + grid-cap behavior under STALE (not unavailable) Envoy telemetry — needs a proper design, split out of the Envoy shared-staleness cycle after it over-corrected — _#71 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `BREAKER-GRIDCAP-STALE-TELEMETRY-1` - Breaker-guard + grid-cap behavior under STALE (not unavailable) Envoy telemetry — needs a proper design, split out of the Envoy shared-staleness cycle after it over-corrected — _#73 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **energy** - status: **parked** - approval: **unreviewed**
 _created 2026-09-01 20:30 · initial_
 - **Problem / Solution:**
@@ -2193,7 +2185,7 @@ _created 2026-09-01 20:30 · initial_
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
 
-### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing) — _#72 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing) — _#74 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **identity** - status: **parked** - approval: **explicit**
 _created 2026-09-05 17:35 · initial_
 - **Problem / Solution:**
@@ -2209,8 +2201,42 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (260)
+## ✅ Done (262)
 _closed, evidence in refs_
+
+### `PROPERTY-GETTER-SIDE-EFFECT-TASKS-1` - Three entity property getters start background work every time something reads them — including one that fires safety-alert actions — _WSJF 2.6 · v7 tc4 u2 /e5_
+thread: **platform** - status: **done** - approval: **implied**
+_created 2026-09-20 03:30 · updated 2026-10-03 02:02 · initial_
+- **Problem / Solution:**
+  - Problem: in Home Assistant, a "property getter" is the little function that answers the question "what is this sensor showing right now?" It is supposed to just report a value. Three of ours do not — they also kick off background work as...
+- **Origin:** 2026-09-20 - Fell out of settling AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1 — that card's named method was innocent, but an AST sweep of the file it blamed found the real off-loop shape.
+- **Why:** Two independent harms from one shape. Thread-safety is the one HA will escalate to an error, but the read-amplified actuation is live today and is the kind of defect that hides as "it fired a few extra times". This is also the missing ha...
+- **Next:** IN PROGRESS (me, overnight 10-02): ura-builder in worktree overnight-1002-getters on fix/property-getter-pure; then 2 framing-disjoint reviews + name-diff -> review lane (no deploy).
+- **Tags:** tier-2, thread-safety, no-fabrication-verify, ha-2026-escalation
+- **Parsimony:** [BUILD] Three property getters start background work per read; one of them actuates safety alerts, so the action fires once per observer rather than once per event.
+- **Refs:** custom_components/universal_room_automation/aggregation.py:1280-1287 (SafetyAlertBinarySensor.is_on); custom_components/universal_room_automation/sensor.py:1817; custom_components/universal_room_automation/sensor.py:16393
+- **Forensic keys (7):**
+  - `disposition_2026_10_03`: RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said in_progress; fix/property-getter-pure is merged and shipped in v5.103.35. README_v5.103.35.md Validated 2026-10-03: 'Pure sensor getters PASS - safety_events_summary clean; no o...
+  - `disposition_2026_09_26_groom`: CALL MADE: option (B) KEEP THE FALLBACK, MOVE THE TRIGGER — safety path, so no capability is removed: drive the legacy alert-flash path from the Safety Coordinator tick instead of a property read; also fix the two observational sites (se...
+  - `measured_2026_09_23`: OVERNIGHT PASS — TRACED SITE (1) AS THE CARD ASKED, and the trace MATERIALLY RE-FRAMES THIS CARD. VERDICT: STILL-REAL + CARD-WAS-WRONG about severity. Site (1) is real and live, but it is NOT an actuating call in this deployment, and the...
+  - `adjacent_finding_2026_09_23`: NOTED, NOT CARDED (adjacency sweep says fold in, not split). The same legacy helper _get_alerts (aggregation.py:1340-1360+) carries hardcoded literals for its alert bands — temp > 85 too_hot, temp < 55 too_cold, humidity > 70 — which is ...
+  - `escalation_2026_09_23`: NOT BUILT UNATTENDED — this is the SAFETY alert path, and CLAUDE.md puts safety-impacting logic in the always-explicit set regardless of tier. The trace makes the fix look easy, and that is precisely the trap: the cheap version is to del...
+  - `measured_2026_09_20`: AST sweep of custom_components/universal_room_automation/ for async_create_task / async_create_background_task called from a SYNC (non-async) function: 137 sites. 134 are @callback handlers or timer fires, which HA invokes on the event l...
+  - `gate_2026_10_02_overnight`: FOUR-STEP GATE PASSED. (1) VALIDITY: STILL-REAL - AST scan of develop @a2377c672 finds exactly the 3 property getters that spawn tasks: aggregation.py SafetyAlertBinarySensor.is_on (def :1322, async_create_task :1327), sensor.py native_v...
+
+### `ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1` - Presence, security, safety and music-following anomaly baselines are only saved when the integration unloads, which never happens on an HA restart, so their learning is thrown away every restart — _WSJF 5.5 · v5 tc4 u2 /e2_
+thread: **platform** - status: **done** - approval: **implied**
+_created 2026-09-29 15:00 · updated 2026-10-03 02:02_
+- **Origin:** 2026-09-29 - anomaly-blind plan review M1 (docs/reviews/code-review/plan_review_anomaly_detector_blind_metrics.md)
+- **Why:** HA does not unload config entries on stop (config_entries.py:931-933, :2176-2180 in the venv HA 2026.2.3; live 2026.9.x source not yet checked), and URA has no stop listener, so teardown-only baseline saves never run on a restart. Live D...
+- **Next:** SHIP (on your next deploy): merge fix/anomaly-baselines-periodic-save (93cf9eabf). Live check after deploy + one restart: metric_baselines.last_updated for presence/security/safety/music_following moves to the restart time.
+- **Tags:** anomaly, persistence, restart, found-in-review
+- **Forensic keys (5):**
+  - `disposition_2026_10_03`: RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Operator acked. Live (ssh ha sqlite3, 07:00 UT...
+  - `build_2026_10_01_overnight`: BUILT on fix/anomaly-baselines-periodic-save (worktree overnight-1001-baselines), HEAD 93cf9eabf, NOT merged or deployed. Producer map: healthy cadences were hvac.py:6785 (daily rollover) and safety.py:1214 (30-min rate save); presence/s...
+  - `gate_2026_10_01_overnight`: FOUR-STEP GATE re-run 10-01. (1) VALIDITY: STILL-REAL - live metric_baselines (ssh sqlite3 -readonly, 10-01 02:40 CDT): presence 2026-09-14, security 09-04, safety 09-04, safety_rate 09-11, music_following 05-12, while energy/hvac/memory...
+  - `gate_2026_09_30_overnight`: VALIDITY: STILL-REAL (live metric_baselines last_updated: presence 2026-09-14, security 2026-09-04, safety 2026-09-04, safety_rate 2026-09-11, music_following 2026-05-12; energy/hvac/memory/CM current). PRIOR-ART: a STOP hook pattern alr...
+  - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
 
 ### `HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1` - A manual house-state override (e.g. forcing Sleep) never reaches HVAC or other signal consumers — only inferred transitions are dispatched — _WSJF 2.0 · v5 tc3 u2 /e5_
 thread: **presence** - status: **done**

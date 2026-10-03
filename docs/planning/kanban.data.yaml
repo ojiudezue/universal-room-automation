@@ -11,575 +11,334 @@ meta:
   autonomy_feed:
   - fid: "MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1@2026-10-02T02:55:00"
     at: "2026-10-02T02:55:00"
-    outcome: built-to-review
+    outcome: "built-to-review"
     headline: "Music following has not moved music since May because of a person-name mismatch; the fix is reviewed and the full suite is clean vs develop. Ready for your ship call. Once shipped, music will start following people again."
-    acknowledged: false
+    acknowledged: true
   - fid: "ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1@2026-10-02T02:55:00"
     at: "2026-10-02T02:55:00"
-    outcome: built-to-review
+    outcome: "built-to-review"
     headline: "Anomaly baselines were never saved across restarts for 4 coordinators; the fix adds a periodic save. Full suite vs develop: no new failures. Ready for your ship call (in review)."
-    acknowledged: false
+    acknowledged: true
   - fid: "URA-ATTRIBUTE-CHURN-1@2026-10-02T02:55:00"
     at: "2026-10-02T02:55:00"
-    outcome: built-to-review
+    outcome: "built-to-review"
     headline: "Sensor attribute churn fix (stops sensors rewriting history rows every few seconds): the full test suite against current develop shows no new failures. Ready for your ship call (in review, not deployed)."
-    acknowledged: false
+    acknowledged: true
   - fid: "FRONT-SIDE-PTZ-CHATTER-1@2026-10-02T02:10:00"
     at: "2026-10-02T02:10:00"
-    outcome: measured
+    outcome: "measured"
     headline: "Correction: the front-side camera is not fully blind. It detected a person 4 times on 10-01 while Frigate2 was working, and the earlier zero was partly the fleet-wide outage. That is still far below its old ~200 a day, so your answer about a zone crop still matters."
-    acknowledged: false
+    acknowledged: true
   - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-10-02T02:10:00"
     at: "2026-10-02T02:10:00"
-    outcome: measured
+    outcome: "measured"
     headline: "Log check done (the HA MCP was down, so I read HA's own error list another way). The garage-porch Sonoff setting is still flooding the log at about 99 errors an hour. The pantry automation error is gone. The only thing left is your Sonoff range fix."
-    acknowledged: false
+    acknowledged: true
   - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-10-02T02:10:00"
     at: "2026-10-02T02:10:00"
-    outcome: escalated
+    outcome: "escalated"
     headline: "Outdoor person detection is dark AGAIN. Frigate2 came back on 10-01 around 11:26 (detections resumed), but its detector hung again around 16:22, about 5 hours later. It shows the same signs as 09-29: the detection rate is frozen and the Coral reading is unavailable. Since then there have been 19 detections on one sensor, compared with 492 across 24 sensors in the 5 hours before. Needs another Frigate restart, plus a decision on the Coral because it keeps hanging. Paged via an HA notification."
+    acknowledged: true
+  - fid: "EV-SENSOR-CLEANUP-1@2026-10-01T04:45:00"
+    at: "2026-10-01T04:45:00"
+    outcome: "escalated"
+    headline: "EV plug watts: the code to use a real power sensor per smart plug already exists, but nothing can configure it, so it never runs. Approve adding a power-sensor picker per plug, or decline and I close the card."
+    acknowledged: false
+  - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-10-01T04:00:00"
+    at: "2026-10-01T04:00:00"
+    outcome: "escalated"
+    headline: "Outside person detection has been dark for about 39 hours. Frigate2 is running and its cameras are streaming, but its object detector froze at 11:28 CDT on 09-29. Since then 33 of its 34 person and motion sensors have reported nothing (1,288 detections on 09-29, 21 on 09-30). It needs a Frigate restart on the homelab box. I sent an HA notification and did not touch it."
+    acknowledged: false
+  - fid: "ENERGY-CONSUMPTION-FORECAST-POISONED-1@2026-10-01T02:40:00"
+    at: "2026-10-01T02:40:00"
+    outcome: "measured"
+    headline: "The daily energy table is blank (no consumption, no solar) on 14 of the last 17 days. The Envoy now goes offline at about 23:05 every night for roughly 1 h 45 m, which covers midnight, so URA's daily rollover reads nothing. The forecast has had almost nothing to learn from since mid-September. This changes my recommendation: fold the last-known-good seeding into whichever fix you pick."
+    acknowledged: false
+  - fid: "ENVOY-FLAKINESS-181243-1@2026-10-01T02:40:00"
+    at: "2026-10-01T02:40:00"
+    outcome: "measured"
+    headline: "The Envoy now drops at the same minute every night (~23:05 CDT) for ~1 h 45 m: seen 09-27 through 10-01. A fixed time points at something scheduled. Is anything set for 23:05?"
+    acknowledged: false
+  - fid: "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1@2026-10-01T02:30:00"
+    at: "2026-10-01T02:30:00"
+    outcome: "escalated"
+    headline: "Exercise Room check after the override came off: no phantom occupancy and no stuck sensor in 36 h, but nobody used the room, so detection is unproven. Separately, the room's automation switch has been off since at least 09-25. Is that on purpose?"
+    acknowledged: false
+  - fid: "HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1@2026-10-01T04:10:00"
+    at: "2026-10-01T04:10:00"
+    outcome: "built"
+    headline: "Ready to ship, not deployed: automatic preset hand-backs now record which borrow they belong to in the climate-write log. Rebased, drill red, two SHIP reviews, full suite identical to develop. README draft is written."
+    acknowledged: false
+  - fid: "TEST-BILLING-RESTORE-WALLCLOCK-FLAKE-1@2026-10-01T03:15:00"
+    at: "2026-10-01T03:15:00"
+    outcome: "done"
+    headline: "Merged a test-only fix to develop. The billing-restore test no longer fails when the local date and the UTC date differ. It passes in three time zones."
+    acknowledged: false
+  - fid: "ANOMALY-SAVE-BASELINES-DICT-MUTATION-1@2026-10-01T04:25:00"
+    at: "2026-10-01T04:25:00"
+    outcome: "done"
+    headline: "Closed by soak exit. The baseline-save crash fix is live in v5.103.25, and the logs show zero save errors."
+    acknowledged: false
+  - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-10-01T03:05:00"
+    at: "2026-10-01T03:05:00"
+    outcome: "measured"
+    headline: "Log check: the Sonoff garage-porch number still floods the log (about 80 lines an hour). The pantry adaptive-lighting error seems to have stopped. What's left for you is the Sonoff range fix."
+    acknowledged: false
+  - fid: "OVERNIGHT-PASS-NO-LOG-REACH-1@2026-10-01T03:05:00"
+    at: "2026-10-01T03:05:00"
+    outcome: "measured"
+    headline: "Found why the HA MCP keeps failing overnight. The overnight script's Python 3.9 PYTHONPATH breaks it, and macOS Local Network privacy blocks its Python. I fixed the first locally (.mcp.json) and put uvx on the script's PATH. HA logs were read tonight via the hassio proxy, as before."
+    acknowledged: false
+  - fid: "FRONT-SIDE-PTZ-CHATTER-1@2026-10-01T03:25:00"
+    at: "2026-10-01T03:25:00"
+    outcome: "measured"
+    headline: "Front-side camera re-measured: motion fired about 150 times a day but person detection only once in 3 days. It looks masked or tuned, not dead. Your answer about a 09-14/15 zone change still decides it."
+    acknowledged: false
+  - fid: "DB-SIZE-GROWTH-1@2026-09-30T02:30:00"
+    at: "2026-09-30T02:30:00"
+    outcome: "escalated"
+    headline: "The URA database is 1.35 GB because three room-history tables (temperature/humidity, energy, occupancy) have never been trimmed since November. With their indexes they are 72% of the file, growing ~3 MB a day. The code only ever looks back 30 days. Deleting history is irreversible, so it's your pick: keep 90 days (my recommendation), 365, or everything."
+    acknowledged: false
+  - fid: "ENPHASE-BATTERY-CUTOUTS-1@2026-09-30T02:40:00"
+    at: "2026-09-30T02:40:00"
+    outcome: "done"
+    headline: "Closed the peak battery cut-out card: with the Envoy stream add-on off, the 09-29 peak had 9 cut-outs against 37-94 when it was on. It's still off. The stream-as-battery-source idea is parked for the same reason."
+    acknowledged: false
+  - fid: "PERSON-STATIONARY-TRACKER-BLIP-1@2026-09-30T03:00:00"
+    at: "2026-09-30T03:00:00"
+    outcome: "escalated"
+    headline: "Your phantom 'home' blip is still happening after the tracker trim: on 09-28 at 07:51, while you were away, your phone tracker dropped and you read 'home' for 0.1 s, which fired a zone 1 pre-arrival. A Mac mini tracker (m4promacmini_2) is attached to your person again. Remove it in Settings > People and I'll re-check."
+    acknowledged: false
+  - fid: "ENVOY-FLAKINESS-181243-1@2026-09-30T03:00:00"
+    at: "2026-09-30T03:00:00"
+    outcome: "escalated"
+    headline: "Envoy after the 2026.9.4 update: drops are down to 10 and 19 a day (from 110-160), but that's not fixed. A 3.9 h hang still happened on 09-28, and stopping the stream add-on muddies the comparison. Pick: I draft an upstream bug report for you to post, or we accept this rate and close."
+    acknowledged: false
+  - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-09-30T02:45:00"
+    at: "2026-09-30T02:45:00"
+    outcome: "measured"
+    headline: "Recorder log-flood check: the pantry adaptive-lighting automation is still on and still running, so it wasn't disabled. I couldn't read HA logs tonight (the HA MCP was down), so this is NOT an all-clear on either error flood."
+    acknowledged: false
+  - fid: "ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1@2026-09-30T03:15:00"
+    at: "2026-09-30T03:15:00"
+    outcome: "measured"
+    headline: "The garage-door guard for room covers was already built and reviewed on its branch last night; I moved the card to review. Still owed before merging: a full-suite comparison. Not deployed."
+    acknowledged: false
+  - fid: "ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1@2026-09-30T03:15:00"
+    at: "2026-09-30T03:15:00"
+    outcome: "parked"
+    headline: "Confirmed that presence, security and safety anomaly learning is thrown away at every restart (last saved 09-04 to 09-14). Not built tonight because the anomaly cycle already in progress edits the same save code. It goes right after that merges."
+    acknowledged: false
+  - fid: "HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1@2026-09-29T05:15:00"
+    at: "2026-09-29T05:15:00"
+    outcome: "built"
+    headline: "Fixed: when a person changed the thermostat just after an AC hard reset, the reset's 'turn back on' step got cancelled and the zone could sit off for up to ~5 minutes. The reset now always finishes and leaves the temperature to the override handling. Two reviews, a mutation check and a full-suite comparison all pass. It's in review, ready to ship after Batch B; not deployed overnight."
+    acknowledged: false
+  - fid: "ENERGY-CONSUMPTION-FORECAST-POISONED-1@2026-09-29T04:50:00"
+    at: "2026-09-29T04:50:00"
+    outcome: "escalated"
+    headline: "The energy forecast is poisoned by an Envoy counter that sometimes reads 45 kWh instead of its ~18,000 kWh lifetime total. Four stored days read 6,800 to 15,900 kWh, and tonight's will too. No EV or battery decision has changed yet. Plan written and reviewed. Your calls: flip the house-load source to live SPAN now; pick the full or simple fix; approve a supervised cleanup of the bad rows."
+    acknowledged: false
+  - fid: "HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1@2026-09-29T04:27:00"
+    at: "2026-09-29T04:27:00"
+    outcome: "measured"
+    headline: "Jaya's bedroom radar was sensing the fan, not Jaya: it switches on with the fan every time. The 4-hour stuck-sensor rule then dropped it, the room went 'empty' and URA turned the fan off. The night hold covers it, but the real fix is the sensor. Corrected in the HVAC state-of-play doc (C27)."
+    acknowledged: false
+  - fid: "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1@2026-09-29T04:26:00"
+    at: "2026-09-29T04:26:00"
+    outcome: "escalated"
+    headline: "The Exercise Room 'Override Vacant' switch has been on since 09-21, so URA treats the room as empty. The Kitchen one was on for 6 days and caused 14 wrong HVAC retreats. DO: turn it off if not deliberate. Then PICK: close, or approve a small reminder for long-running overrides."
+    acknowledged: false
+  - fid: "HVAC-HOLD-SIZING-ALL-ROOMS-1@2026-09-29T04:25:00"
+    at: "2026-09-29T04:25:00"
+    outcome: "measured"
+    headline: "Re-measured HVAC hold lengths from raw room sensors: no broad problem. Only 3 of 113 away episodes in the week before the fast-path ship were a hold that was too short. Most bad retreats came from a forgotten override and a radar that sees Jaya's fan. I re-run on 10-01 once 3 post-ship days exist."
+    acknowledged: false
+  - fid: "WAITING-OP-LANE-SWEEP@overnight@2026-09-29T02:59:00"
+    at: "2026-09-29T02:59:00"
+    outcome: "measured"
+    headline: "Checked all 24 cards waiting on you against live data. 2 were stale and are closed (above). 22 still need you. Fresh numbers are on HA CPU (the Frigate bridge is 7 rows/min, not 115; recheck before picking b), alert volume (130/day, about 0 acked) and battery cutouts (tonight's 16-21h window not yet read). HA logs were unreadable (MCP down), so no log-based check is reported as clear."
+    acknowledged: false
+  - fid: "PERIMETER-PHANTOM-XCORR-1@2026-09-29T02:58:00"
+    at: "2026-09-29T02:58:00"
+    outcome: "measured"
+    headline: "Phantom back-yard detections fell from 88 to 7 a day on 09-28. Did you clear the cloth pile? If yes I will confirm over 3 days and close; if no, the original ask stands."
+    acknowledged: false
+  - fid: "FRONT-SIDE-PTZ-CHATTER-1@2026-09-29T02:57:00"
+    at: "2026-09-29T02:57:00"
+    outcome: "measured"
+    headline: "front_side_ptz has seen zero people in 5 days while its neighbour cameras are detecting. It went from chattering to blind. Your answer on whether a detection-zone crop or mask was applied is now more urgent."
+    acknowledged: false
+  - fid: "ROOM-NAME-DESYNC-1@2026-09-29T02:56:00"
+    at: "2026-09-29T02:56:00"
+    outcome: "done"
+    headline: "Room renames are in sync: all 43 rooms have the same name in data and options (checked live). The fix shipped in v5.75.0, so your now-or-later pick is moot. Closed."
+    acknowledged: false
+  - fid: "CHATTER-OBSERVE-CONTROL-D7-1@2026-09-29T02:55:00"
+    at: "2026-09-29T02:55:00"
+    outcome: "done"
+    headline: "The chatter detector card asked you to approve building it, but it shipped in v5.85.0 and is live in act mode. Closed. The open question (whether to build a rate-based detector for this house's steady chatter) stays on CHATTER-RATE-VS-BURST-GAP-1."
+    acknowledged: false
+  - fid: "HVAC-GATE8-OVERSHOOT-STAMP-NOT-CLEARED-1@2026-09-29T02:40:00"
+    at: "2026-09-29T02:40:00"
+    outcome: "done"
+    headline: "The nudge overshoot timer surviving a Gate-7 fail is harmless. Only 6 of 108 real nudges carried an old timer; 5 of those 6 worked (vs 95% for the rest, not a real difference), and comfort was no worse. The earlier count of 13 came from a replay bug. Closed with no code change."
+    acknowledged: false
+  - fid: "ARRIVAL-DEPARTURE-NOTIFY-1@2026-09-29T01:10:00"
+    at: "2026-09-29T01:10:00"
+    outcome: "done"
+    headline: "Arrival/departure notifications were already live: shipped in v5.98.0 on 09-06 and sending 2-15 a day (\"Someone arrived\", named when a face is recognised). That is the shape you approved on 09-12. The card wrongly said the branch was unmerged. Closed."
+    acknowledged: false
+  - fid: "HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1@2026-09-29T01:11:00"
+    at: "2026-09-29T01:11:00"
+    outcome: "done"
+    headline: "Night HVAC holds now start at house Sleep, not 21:00. Checked last night: from 21:00 to 22:00 every room used its short day hold (60 s), and the long night holds started at 22:00. Closed."
+    acknowledged: false
+  - fid: "HVAC-DEGRADED-ROOM-TRIPWIRE-1@2026-09-29T01:12:00"
+    at: "2026-09-29T01:12:00"
+    outcome: "done"
+    headline: "Only live rooms count toward HVAC zone readiness: still correct live (no rooms excluded, no restart retreats). Preset changes rose on 09-26..09-28, but that traces to other changes; the numbers went to tonight's HVAC readout. Closed."
+    acknowledged: false
+  - fid: "HVAC-SETHVACMODE-CHOKEPOINT-1@2026-09-29T01:13:00"
+    at: "2026-09-29T01:13:00"
+    outcome: "done"
+    headline: "The thermostat-write ledger works: 613 logged writes, all confirmed. One gap: some borrow writes are missing their borrow id (every automatic borrow return, half the pre-cools). Carded as HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1. Closed."
+    acknowledged: false
+  - fid: "DASHBOARD-V8-FIX-BATCH-1@2026-09-29T01:14:00"
+    at: "2026-09-29T01:14:00"
+    outcome: "moved"
+    headline: "The v8 dashboard fixes were applied last night (checked against the backup). What is left is the Climate countdown cards, which I owe now that the timer attributes are live."
+    acknowledged: false
+  - fid: "CONFIG-FLOW-SLOW-ONBOARDING-1@2026-09-29T01:15:00"
+    at: "2026-09-29T01:15:00"
+    outcome: "parked"
+    headline: "Slow room setup: the timing instrumentation is already live, and the 25-min setup was a device outage. Parked until the next slow setup, when I read the timings."
+    acknowledged: false
+  - fid: "PERIMETER-PHANTOM-XCORR-1@2026-09-28T03:25:02"
+    at: "2026-09-28T03:25:02"
+    outcome: "escalated"
+    headline: "The outdoor person alerts overnight (36) were phantoms: all 7 snapshots I looked at were empty. Most came from two cameras: back_yard (88 false detections in 10 h) and pool_equipment (3 night-time CRITICAL pages). The pool cameras likely trigger is a cloth pile against the enclosure wall. The \"late snapshot\" theory is ruled out. DO: move the cloth or mask it in Frigate, and tune back_yard; I will re-measure the next night."
+    acknowledged: false
+  - fid: "ROOM-NAME-UNIQUE-1@2026-09-28T03:25:01"
+    at: "2026-09-28T03:25:01"
+    outcome: "done"
+    headline: "Duplicate room-name guard (v5.103.17) loaded cleanly live and is proven in tests. Nothing left to check without an actual rename. Closed."
+    acknowledged: false
+  - fid: "HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1@2026-09-28T03:25:00"
+    at: "2026-09-28T03:25:00"
+    outcome: "done"
+    headline: "Thermostat echo fix (v5.103.17) checked against a day of data: across 24 nudges, zero of URAs own thermostat echoes were mistaken for a person (previously about half of all \"overrides\"). One lockout remains, but it comes from a different, already-known issue, now noted on the zone 1 card. Closed."
+    acknowledged: false
+  - fid: "COVERAGE-EVENING-ATTRIBUTION-DRIFT-1@2026-09-28T02:55:00"
+    at: "2026-09-28T02:55:00"
+    outcome: "escalated"
+    headline: "Evening energy-coverage drift: before building the planned new \"total consumption\" setting, I found the Energy coordinator already has one, and it already points at the right Envoy total sensor. PICK: (A) add the new field as planned, or (B) reuse the existing one (my recommendation: one source of truth, no new knob). Cost stays on net either way."
+    acknowledged: false
+  - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-09-28T02:20:01"
+    at: "2026-09-28T02:20:01"
+    outcome: "done"
+    headline: "Frigate2 is back online (running since 16:12 CDT yesterday) and outdoor person detection is working again: 877 detections across the cameras since then. Closed. The remaining issue, that nothing alerted during the outage, stays on the silent-camera tripwire card, which still needs your approval of the redesign."
+    acknowledged: false
+  - fid: "DINING-ROOM-RADAR-SILENT-1@2026-09-28T02:20:00"
+    at: "2026-09-28T02:20:00"
+    outcome: "done"
+    headline: "The Dining Room radar is NOT dead. It detected people on 09-21, 09-23 and 09-25 (13 times that day), its battery is 100%, and it is still reporting temperature. It only fires on days the room is used, so a quiet day or two is normal. Closed."
+    acknowledged: false
+  - fid: "SAFETY-RATE-DETECTOR-DEAD-WINDOW-1@2026-09-27T02:39:42"
+    at: "2026-09-27T02:39:42"
+    outcome: "escalated"
+    headline: "The safety \"rapid change\" detector (humidity jump = leak, temperature runaway = HVAC failure) has silently never worked because of a timing bug. I replayed a week of data: fixing it naively would produce ~12 false-ish \"water leak / HVAC failure\" alerts a day once it finishes learning. PICK: retire it on purpose and document it (my recommendation), or redesign it with corroboration before reviving."
+    acknowledged: false
+  - fid: "SAFETY-RECONNECT-ZERO-SIBLINGS-1@2026-09-27T02:38:41"
+    at: "2026-09-27T02:38:41"
+    outcome: "parked"
+    headline: "Checked whether the same junk \"0\" reading could fake a freeze alarm or trick a bathroom fan on: it could in theory, but it has never happened. There have been no freeze alerts ever, and the 5 fan-controlled bathrooms humidity sensors never sent a sub-5% reading. Parked with a trigger to revisit if one ever does."
+    acknowledged: false
+  - fid: "SAFETY-HAZARD-NEVER-CLEARS-1@2026-09-27T02:37:41"
+    at: "2026-09-27T02:37:41"
+    outcome: "measured"
+    headline: "Your house safety alert is ON right now for \"0% humidity in Study A\". Thats a 1-second junk reading at 23:35; the room has read 46–49% since. Two problems: the junk reading shouldnt count (fixed tonight on a branch, below), and safety hazards never clear themselves when the reading recovers, only on an HA restart. The second one is now its own card, to be planned."
+    acknowledged: false
+  - fid: "COVERAGE-RATING-FALSE-ANOMALOUS-1@2026-09-27T02:37:40"
+    at: "2026-09-27T02:37:40"
+    outcome: "done"
+    headline: "Closed the energy \"coverage\" self-check fix after its midnight test: it no longer claims a false unit mismatch, and the new midnight allowance switched on 00:00–02:00 as designed. Whats left, the check still reading \"Anomalous\" because the house total it uses is net of solar/battery, is already its own planned card. (Couldnt read HA logs this run, so the log-line half is checked from the sensor, not the log.)"
+    acknowledged: false
+  - fid: "HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1@2026-09-27T02:22:59"
+    at: "2026-09-27T02:22:59"
+    outcome: "escalated"
+    headline: "v5.103.17 is ready to ship (the thermostat nudge-echo fix + the duplicate-room-name guard). Both are merged, reviewed and have the README written. Only the deploy is left, and I dont restart HA overnight. APPROVE a time and Ill deploy + live-validate."
+    acknowledged: false
+  - fid: "NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26@2026-09-27T02:22:58"
+    at: "2026-09-27T02:22:58"
+    outcome: "measured"
+    headline: "Empty-house experiment, interim (11.7 h, nobody home): the census stayed at 0 people all night and no fake override appeared (clean). Phantoms found: Kitchen Hallway Garage motion (12 fake room entries, already flagged by the stuck-sensor detector), Master Bathroom mmWave (16 min \"occupied\"), a pre-arrival triggered by a 0.2-second \"Oji is home\" glitch, and a false \"0% humidity\" safety alert. Zone 1s thermostat got 70 \"away\" writes (6/h) with nobody home; zones 2 and 3 got none. The final read runs when someone returns; the probe is ready."
+    acknowledged: false
+  - fid: "WIFI-ACTUATOR-FLEET-FLAP-1@2026-09-27T02:15:28"
+    at: "2026-09-27T02:15:28"
+    outcome: "escalated"
+    headline: "Wi-Fi device dropouts, measured: mostly NOT the devices leaving Wi-Fi. HA briefly loses them (Shelly median 9 s, Tuya 38 s) while they stay connected. About 0.6-2% of the time down, so low harm. Clue: Shellys that act as Bluetooth proxies drop out ~20x more often than ones that dont (not proven). PICK: accept (my recommendation), a 1-week test turning Bluetooth scanning off on 2 Shellys, and/or fix Garage Bs weak signal (3 devices at -78 to -82 dBm)."
+    acknowledged: false
+  - fid: "WIFI-ACTUATOR-FLEET-FLAP-1@2026-09-27T02:10:48"
+    at: "2026-09-27T02:10:48"
+    outcome: "measured"
+    headline: "New finding: about 100 Wi-Fi lights, switches and plugs (Shelly, Tuya, Sonoff, LIFX…) drop offline roughly 30 times a day each, even on days with no HA restart. A light command sent during a dropout does nothing. Carded; Im now checking (read-only) whether they cluster on one access point, which would make it a network fix, not code."
+    acknowledged: false
+  - fid: "RECEIVING-ROOM-MOTION-DEAD-1@2026-09-27T02:10:47"
+    at: "2026-09-27T02:10:47"
+    outcome: "done"
+    headline: "Receiving Room motion sensor is NOT dead. Its online (its light readings update all day), and it did fire the one time this week someone clearly used the room (Thursday 11:25, alongside a 1.5 kW load on that rooms outlets). The room is just rarely used; its lights were never switched on all week. Closed."
+    acknowledged: false
+  - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-09-27T02:05:03"
+    at: "2026-09-27T02:05:03"
+    outcome: "escalated"
+    headline: "Frigate2 camera server is STILL off the network (~31 h, no ping, no ports), so the Frigate half of outdoor person detection is blind; UniFi Protect still works. Correction: I had said the sprinkler controller dropped off too, pointing at the network; wrong — it has been flickering on weak Wi-Fi all along. So the fault is most likely the Frigate2 box or its own port. DO: check its power/link/PoE."
+    acknowledged: false
+  - fid: "ENVOY-FLAKINESS-181243-1@2026-09-27T02:05:02"
+    at: "2026-09-27T02:05:02"
+    outcome: "measured"
+    headline: "The built-in solar gateway connection has mostly stopped dropping out: from 110-160 drops a day last week to 15 on Saturday, right after your Friday-evening gateway reboot + network restart + HA update (cant tell which one fixed it). I now suggest PICK (D): accept it and keep measuring instead of patching HA core."
+    acknowledged: false
+  - fid: "ENVOY-STREAM-SOC-TIER-1@2026-09-27T02:05:01"
+    at: "2026-09-27T02:05:01"
+    outcome: "escalated"
+    headline: "The \"use the local feed as a battery-level source\" build is now unblocked by the measurement, but it feeds battery-reserve decisions (money + safety), so it waits for you: APPROVE the review tier (I recommend the strictest, Tier 3) and whether the reserve-witness piece ships with it. The ignore-readings-after-reboot rule is written onto the card as a must."
+    acknowledged: false
+  - fid: "ENVOY-STREAM-TRUST-MEASURE-1@2026-09-27T02:05:00"
+    at: "2026-09-27T02:05:00"
+    outcome: "measured"
+    headline: "Finished checking whether the new fast local battery/solar feed can be trusted (28.7 clean hours). It matches the built-in reading to within 1 point, kept working through 99% of the built-in feeds outages (the one gap was the gateway rebooting itself), and it sees battery-reserve changes before the cloud does. One real catch: right after a gateway reboot it briefly reports the battery as EMPTY (0%) for ~36 s, so anything that uses it must ignore the first readings after a reconnect. Card closed. Also fixed a bug in my own measuring script that had made the reserve look broken."
+    acknowledged: false
+  - fid: "SOAK-EXIT-SWEEP-2026-09-26@2026-09-26T02:19:51"
+    at: "2026-09-26T02:19:51"
+    outcome: "done"
+    headline: "Cleared the three oldest \"shipped, waiting to be proven\" cards by checking each one directly. (1) The unexpected-person sensor now uses the de-duplicated count. The house history shows it staying quiet where the old rule would have falsely fired, and nothing sends alerts from it today. (2) The stale-import safety checker still finds zero problems. (3) The old off-phase thermostat hold is really gone from the code. All three closed. Two small leftovers are noted on the cards for later: whether the daytime unexpected-person hits were real visitors, and an unused HVAC setting name."
+    acknowledged: false
+  - fid: "HA-CORE-RESTART-STORM-1@2026-09-26T02:18:23"
+    at: "2026-09-26T02:18:23"
+    outcome: "done"
+    headline: "Closed the restart-storm investigation. In the last 6 days Home Assistant restarted only three times, and each has an owner: one release, one Envoy-recovery restart, and your core update last evening. None is unexplained. The mystery restarts from 09-13 to 09-20 can no longer be traced because their logs are gone, and that is recorded as a known gap. The card reopens if an unexplained restart ever appears again."
+    acknowledged: false
+  - fid: "SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1@2026-09-26T02:18:22"
+    at: "2026-09-26T02:18:22"
+    outcome: "done"
+    headline: "The every-10-seconds noise flooding the system log has STOPPED on its own. There were none in the last 45 minutes, against 77 of the last 100 log lines two nights ago. It was not the toggle I asked you for: protection mode is still on. I proved the log still records the message by triggering one myself, and it showed up. So whatever was polling went away, most likely during last evening's restarts (not proven). Card closed and your toggle is no longer needed for it. It will reopen automatically if the flood comes back."
+    acknowledged: false
+  - fid: "TEST-STRATEGY-REARCH-1@2026-09-26T02:11:36"
+    at: "2026-09-26T02:11:36"
+    outcome: "escalated"
+    headline: "Re-ran the whole test suite tonight rather than trusting the old number: 194 failures and 3 errors, exactly the same as three days ago, and in the same few files. Two files hold over a third of all failures. There is nothing left to measure, so the card moves to your queue with a choice: (A) fix the handful of files that actually fail first and then size the big re-architecture (my recommendation), (B) plan the re-architecture now, or (C) freeze the 194 as a named baseline. While the suite ran I caught a test editing real production code in place. That became a new card (TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1), the unfinished second half of a fix we closed on 09-11."
+    acknowledged: false
+  - fid: "HVAC-ZONE1-MANUAL-OSCILLATION-1@2026-09-26T02:07:39"
+    at: "2026-09-26T02:07:39"
+    outcome: "measured"
+    headline: "Corrected a stale card rather than measuring. The zone-1 \"stuck in manual\" investigation still named the Bryant schedule as the cause in its title, and its next step still pointed at a check that the HVAC state-of-play doc has since withdrawn (C2, C20). The title and next now match what we know: a real manual hold forms right after URA's own borrow return. The remaining question (exactly why) is answered by the W1-B plan's first probe, which needs a day of W1-A write logs first. The card is now linked as blocked by W1-A. Nothing could be measured tonight, and I ran no HVAC probe."
+    acknowledged: false
+  - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-09-26T02:05:32"
+    at: "2026-09-26T02:05:32"
+    outcome: "escalated"
+    headline: "The outdoor camera box (Frigate2, 192.168.13.18) has been OFF THE NETWORK since about 7:18pm last night, during the network restart. HA and the Mac both fail to ping it and its network address does not resolve, so it is the machine or its cable/port, not software. Every Frigate person and motion detector reads unavailable, and outdoor person detection from Frigate has been blind for about 7 hours. UniFi Protect is still working. Good news on the older fault: the detectors that froze on 09-21 had started moving again before the box dropped. DO: check the box's power and network port and power-cycle it. I paged you with a Home Assistant notification (not a phone push) and changed nothing."
     acknowledged: false
-  - fid: 'SAFETY-HAZARD-NEVER-CLEARS-1@2026-10-01T06:30:00'
-    at: '2026-10-01T06:30:00'
-    outcome: escalated
-    headline: 'Safety hazards that never clear: the plan is written and at rev 3 after two tough plan reviews, which found real traps (two sensors in one room causing re-alert loops, rate alerts sticking forever). It grew to also stop the live CO2 alert flapping (about 20 alerts in 7 minutes on 09-29). Approve the wider scope, or choose humidity/temperature only.'
-    acknowledged: false
-  - fid: 'EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1@2026-10-01T05:00:00'
-    at: '2026-10-01T05:00:00'
-    outcome: escalated
-    headline: 'New problem, live tonight: URA has switched the garage A charger (about 11.7 kW) off and on 9 times since 01:09, every 5 to 10 minutes. Each switch-off follows the Envoy battery reading coming back and each switch-on follows it dropping out, so the arbitrage car pause seems to let go whenever the reading goes missing. This is a Tier 3 fix and needs your approval. I sent an HA notification.'
-    acknowledged: false
-  - fid: 'HOUSE-STATE-OVERRIDE-NOT-DISPATCHED-1@2026-10-01T05:15:00'
-    at: '2026-10-01T05:15:00'
-    outcome: done
-    headline: 'Closed (soak exit): last night''s manual Sleep override reached HVAC within 20 ms. Both zones switched to sleep. Still unproven: the override clearing at the next wake, and the override surviving a restart (that one is already on a card).'
-    acknowledged: false
-  - fid: 'EV-ARBITRAGE-RELEASE-IGNORES-FILL-PRIORITY-1@2026-10-01T05:15:00'
-    at: '2026-10-01T05:15:00'
-    outcome: done
-    headline: 'Closed (soak exit): on 09-30 the arbitrage pause released at 58% battery and no car turned on. The cars waited for 80% and started at 18:37Z, as designed.'
-    acknowledged: false
-  - fid: 'HVAC-ANOMALY-BLIND-1@2026-10-01T05:15:00'
-    at: '2026-10-01T05:15:00'
-    outcome: done
-    headline: 'Closed (soak exit): the HVAC anomaly sensor correctly reads partial (3 of 5 metrics fed). Residual: the dashboard patch that hides ''partial'' was never applied, so HVAC and Security show as false alarms on the anomalies list. I folded that into the v8 dashboard fix batch.'
-    acknowledged: false
-  - fid: 'EV-SENSOR-CLEANUP-1@2026-10-01T04:45:00'
-    at: '2026-10-01T04:45:00'
-    outcome: escalated
-    headline: 'EV plug watts: the code to use a real power sensor per smart plug already exists, but nothing can configure it, so it never runs. Approve adding a power-sensor picker per plug, or decline and I close the card.'
-    acknowledged: false
-  - fid: 'ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1@2026-10-01T05:20:00'
-    at: '2026-10-01T05:20:00'
-    outcome: measured
-    headline: 'Built on a branch, not deployed: anomaly baselines for presence, security, safety and music following are now saved hourly and at HA stop, so restarts stop wiping their learning. Two reviews and a full-suite run are in progress.'
-    acknowledged: false
-  - fid: 'PERIMETER-DETECTION-WENT-DARK-1@2026-10-01T04:00:00'
-    at: '2026-10-01T04:00:00'
-    outcome: escalated
-    headline: 'Outside person detection has been dark for about 39 hours. Frigate2 is running and its cameras are streaming, but its object detector froze at 11:28 CDT on 09-29. Since then 33 of its 34 person and motion sensors have reported nothing (1,288 detections on 09-29, 21 on 09-30). It needs a Frigate restart on the homelab box. I sent an HA notification and did not touch it.'
-    acknowledged: false
-  - fid: 'ENERGY-CONSUMPTION-FORECAST-POISONED-1@2026-10-01T02:40:00'
-    at: '2026-10-01T02:40:00'
-    outcome: measured
-    headline: 'The daily energy table is blank (no consumption, no solar) on 14 of the last 17 days. The Envoy now goes offline at about 23:05 every night for roughly 1 h 45 m, which covers midnight, so URA''s daily rollover reads nothing. The forecast has had almost nothing to learn from since mid-September. This changes my recommendation: fold the last-known-good seeding into whichever fix you pick.'
-    acknowledged: false
-  - fid: 'ENVOY-FLAKINESS-181243-1@2026-10-01T02:40:00'
-    at: '2026-10-01T02:40:00'
-    outcome: measured
-    headline: 'The Envoy now drops at the same minute every night (~23:05 CDT) for ~1 h 45 m: seen 09-27 through 10-01. A fixed time points at something scheduled. Is anything set for 23:05?'
-    acknowledged: false
-  - fid: 'ROOM-OVERRIDE-SWITCH-FORGOTTEN-1@2026-10-01T02:30:00'
-    at: '2026-10-01T02:30:00'
-    outcome: escalated
-    headline: 'Exercise Room check after the override came off: no phantom occupancy and no stuck sensor in 36 h, but nobody used the room, so detection is unproven. Separately, the room''s automation switch has been off since at least 09-25. Is that on purpose?'
-    acknowledged: false
-  - fid: 'HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1@2026-10-01T04:10:00'
-    at: '2026-10-01T04:10:00'
-    outcome: built
-    headline: 'Ready to ship, not deployed: automatic preset hand-backs now record which borrow they belong to in the climate-write log. Rebased, drill red, two SHIP reviews, full suite identical to develop. README draft is written.'
-    acknowledged: false
-  - fid: 'TEST-BILLING-RESTORE-WALLCLOCK-FLAKE-1@2026-10-01T03:15:00'
-    at: '2026-10-01T03:15:00'
-    outcome: done
-    headline: 'Merged a test-only fix to develop. The billing-restore test no longer fails when the local date and the UTC date differ. It passes in three time zones.'
-    acknowledged: false
-  - fid: 'ANOMALY-SAVE-BASELINES-DICT-MUTATION-1@2026-10-01T04:25:00'
-    at: '2026-10-01T04:25:00'
-    outcome: done
-    headline: 'Closed by soak exit. The baseline-save crash fix is live in v5.103.25, and the logs show zero save errors.'
-    acknowledged: false
-  - fid: 'RECORDER-BLOAT-LOGFLOOD-1@2026-10-01T03:05:00'
-    at: '2026-10-01T03:05:00'
-    outcome: measured
-    headline: 'Log check: the Sonoff garage-porch number still floods the log (about 80 lines an hour). The pantry adaptive-lighting error seems to have stopped. What''s left for you is the Sonoff range fix.'
-    acknowledged: false
-  - fid: 'OVERNIGHT-PASS-NO-LOG-REACH-1@2026-10-01T03:05:00'
-    at: '2026-10-01T03:05:00'
-    outcome: measured
-    headline: 'Found why the HA MCP keeps failing overnight. The overnight script''s Python 3.9 PYTHONPATH breaks it, and macOS Local Network privacy blocks its Python. I fixed the first locally (.mcp.json) and put uvx on the script''s PATH. HA logs were read tonight via the hassio proxy, as before.'
-    acknowledged: false
-  - fid: 'FRONT-SIDE-PTZ-CHATTER-1@2026-10-01T03:25:00'
-    at: '2026-10-01T03:25:00'
-    outcome: measured
-    headline: 'Front-side camera re-measured: motion fired about 150 times a day but person detection only once in 3 days. It looks masked or tuned, not dead. Your answer about a 09-14/15 zone change still decides it.'
-    acknowledged: false
-  - fid: 'DB-SIZE-GROWTH-1@2026-09-30T02:30:00'
-    at: '2026-09-30T02:30:00'
-    outcome: escalated
-    headline: 'The URA database is 1.35 GB because three room-history tables (temperature/humidity, energy, occupancy) have never been trimmed since November. With their indexes they are 72% of the file, growing ~3 MB a day. The code only ever looks back 30 days. Deleting history is irreversible, so it''s your pick: keep 90 days (my recommendation), 365, or everything.'
-    acknowledged: false
-  - fid: 'ENPHASE-BATTERY-CUTOUTS-1@2026-09-30T02:40:00'
-    at: '2026-09-30T02:40:00'
-    outcome: done
-    headline: 'Closed the peak battery cut-out card: with the Envoy stream add-on off, the 09-29 peak had 9 cut-outs against 37-94 when it was on. It''s still off. The stream-as-battery-source idea is parked for the same reason.'
-    acknowledged: false
-  - fid: 'PERSON-STATIONARY-TRACKER-BLIP-1@2026-09-30T03:00:00'
-    at: '2026-09-30T03:00:00'
-    outcome: escalated
-    headline: 'Your phantom ''home'' blip is still happening after the tracker trim: on 09-28 at 07:51, while you were away, your phone tracker dropped and you read ''home'' for 0.1 s, which fired a zone 1 pre-arrival. A Mac mini tracker (m4promacmini_2) is attached to your person again. Remove it in Settings > People and I''ll re-check.'
-    acknowledged: false
-  - fid: 'ENVOY-FLAKINESS-181243-1@2026-09-30T03:00:00'
-    at: '2026-09-30T03:00:00'
-    outcome: escalated
-    headline: 'Envoy after the 2026.9.4 update: drops are down to 10 and 19 a day (from 110-160), but that''s not fixed. A 3.9 h hang still happened on 09-28, and stopping the stream add-on muddies the comparison. Pick: I draft an upstream bug report for you to post, or we accept this rate and close.'
-    acknowledged: false
-  - fid: 'RECORDER-BLOAT-LOGFLOOD-1@2026-09-30T02:45:00'
-    at: '2026-09-30T02:45:00'
-    outcome: measured
-    headline: 'Recorder log-flood check: the pantry adaptive-lighting automation is still on and still running, so it wasn''t disabled. I couldn''t read HA logs tonight (the HA MCP was down), so this is NOT an all-clear on either error flood.'
-    acknowledged: false
-  - fid: 'ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1@2026-09-30T03:15:00'
-    at: '2026-09-30T03:15:00'
-    outcome: measured
-    headline: 'The garage-door guard for room covers was already built and reviewed on its branch last night; I moved the card to review. Still owed before merging: a full-suite comparison. Not deployed.'
-    acknowledged: false
-  - fid: 'ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1@2026-09-30T03:15:00'
-    at: '2026-09-30T03:15:00'
-    outcome: parked
-    headline: 'Confirmed that presence, security and safety anomaly learning is thrown away at every restart (last saved 09-04 to 09-14). Not built tonight because the anomaly cycle already in progress edits the same save code. It goes right after that merges.'
-    acknowledged: false
-  - fid: 'HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1@2026-09-29T05:15:00'
-    at: '2026-09-29T05:15:00'
-    outcome: built
-    headline: 'Fixed: when a person changed the thermostat just after an AC hard reset, the reset''s ''turn back on'' step got cancelled and the zone could sit off for up to ~5 minutes. The reset now always finishes and leaves the temperature to the override handling. Two reviews, a mutation check and a full-suite comparison all pass. It''s in review, ready to ship after Batch B; not deployed overnight.'
-    acknowledged: false
-  - fid: 'ENERGY-CONSUMPTION-FORECAST-POISONED-1@2026-09-29T04:50:00'
-    at: '2026-09-29T04:50:00'
-    outcome: escalated
-    headline: 'The energy forecast is poisoned by an Envoy counter that sometimes reads 45 kWh instead of its ~18,000 kWh lifetime total. Four stored days read 6,800 to 15,900 kWh, and tonight''s will too. No EV or battery decision has changed yet. Plan written and reviewed. Your calls: flip the house-load source to live SPAN now; pick the full or simple fix; approve a supervised cleanup of the bad rows.'
-    acknowledged: false
-  - fid: 'HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1@2026-09-29T04:27:00'
-    at: '2026-09-29T04:27:00'
-    outcome: measured
-    headline: 'Jaya''s bedroom radar was sensing the fan, not Jaya: it switches on with the fan every time. The 4-hour stuck-sensor rule then dropped it, the room went ''empty'' and URA turned the fan off. The night hold covers it, but the real fix is the sensor. Corrected in the HVAC state-of-play doc (C27).'
-    acknowledged: false
-  - fid: 'ROOM-OVERRIDE-SWITCH-FORGOTTEN-1@2026-09-29T04:26:00'
-    at: '2026-09-29T04:26:00'
-    outcome: escalated
-    headline: 'The Exercise Room ''Override Vacant'' switch has been on since 09-21, so URA treats the room as empty. The Kitchen one was on for 6 days and caused 14 wrong HVAC retreats. DO: turn it off if not deliberate. Then PICK: close, or approve a small reminder for long-running overrides.'
-    acknowledged: false
-  - fid: 'HVAC-HOLD-SIZING-ALL-ROOMS-1@2026-09-29T04:25:00'
-    at: '2026-09-29T04:25:00'
-    outcome: measured
-    headline: 'Re-measured HVAC hold lengths from raw room sensors: no broad problem. Only 3 of 113 away episodes in the week before the fast-path ship were a hold that was too short. Most bad retreats came from a forgotten override and a radar that sees Jaya''s fan. I re-run on 10-01 once 3 post-ship days exist.'
-    acknowledged: false
-  - fid: 'WAITING-OP-LANE-SWEEP@overnight@2026-09-29T02:59:00'
-    at: '2026-09-29T02:59:00'
-    outcome: measured
-    headline: 'Checked all 24 cards waiting on you against live data. 2 were stale and are closed (above). 22 still need you. Fresh numbers are on HA CPU (the Frigate bridge is 7 rows/min, not 115; recheck before picking b), alert volume (130/day, about 0 acked) and battery cutouts (tonight''s 16-21h window not yet read). HA logs were unreadable (MCP down), so no log-based check is reported as clear.'
-    acknowledged: false
-  - fid: 'PERIMETER-PHANTOM-XCORR-1@2026-09-29T02:58:00'
-    at: '2026-09-29T02:58:00'
-    outcome: measured
-    headline: 'Phantom back-yard detections fell from 88 to 7 a day on 09-28. Did you clear the cloth pile? If yes I will confirm over 3 days and close; if no, the original ask stands.'
-    acknowledged: false
-  - fid: 'FRONT-SIDE-PTZ-CHATTER-1@2026-09-29T02:57:00'
-    at: '2026-09-29T02:57:00'
-    outcome: measured
-    headline: 'front_side_ptz has seen zero people in 5 days while its neighbour cameras are detecting. It went from chattering to blind. Your answer on whether a detection-zone crop or mask was applied is now more urgent.'
-    acknowledged: false
-  - fid: 'ROOM-NAME-DESYNC-1@2026-09-29T02:56:00'
-    at: '2026-09-29T02:56:00'
-    outcome: done
-    headline: 'Room renames are in sync: all 43 rooms have the same name in data and options (checked live). The fix shipped in v5.75.0, so your now-or-later pick is moot. Closed.'
-    acknowledged: false
-  - fid: 'CHATTER-OBSERVE-CONTROL-D7-1@2026-09-29T02:55:00'
-    at: '2026-09-29T02:55:00'
-    outcome: done
-    headline: 'The chatter detector card asked you to approve building it, but it shipped in v5.85.0 and is live in act mode. Closed. The open question (whether to build a rate-based detector for this house''s steady chatter) stays on CHATTER-RATE-VS-BURST-GAP-1.'
-    acknowledged: false
-  - fid: 'HVAC-GATE8-OVERSHOOT-STAMP-NOT-CLEARED-1@2026-09-29T02:40:00'
-    at: '2026-09-29T02:40:00'
-    outcome: done
-    headline: 'The nudge overshoot timer surviving a Gate-7 fail is harmless. Only 6 of 108 real nudges carried an old timer; 5 of those 6 worked (vs 95% for the rest, not a real difference), and comfort was no worse. The earlier count of 13 came from a replay bug. Closed with no code change.'
-    acknowledged: false
-  - fid: 'ARRIVAL-DEPARTURE-NOTIFY-1@2026-09-29T01:10:00'
-    at: '2026-09-29T01:10:00'
-    outcome: done
-    headline: 'Arrival/departure notifications were already live: shipped in v5.98.0 on 09-06 and sending 2-15 a day ("Someone arrived", named when a face is recognised). That is the shape you approved on 09-12. The card wrongly said the branch was unmerged. Closed.'
-    acknowledged: false
-  - fid: 'HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1@2026-09-29T01:11:00'
-    at: '2026-09-29T01:11:00'
-    outcome: done
-    headline: 'Night HVAC holds now start at house Sleep, not 21:00. Checked last night: from 21:00 to 22:00 every room used its short day hold (60 s), and the long night holds started at 22:00. Closed.'
-    acknowledged: false
-  - fid: 'HVAC-DEGRADED-ROOM-TRIPWIRE-1@2026-09-29T01:12:00'
-    at: '2026-09-29T01:12:00'
-    outcome: done
-    headline: 'Only live rooms count toward HVAC zone readiness: still correct live (no rooms excluded, no restart retreats). Preset changes rose on 09-26..09-28, but that traces to other changes; the numbers went to tonight''s HVAC readout. Closed.'
-    acknowledged: false
-  - fid: 'HVAC-SETHVACMODE-CHOKEPOINT-1@2026-09-29T01:13:00'
-    at: '2026-09-29T01:13:00'
-    outcome: done
-    headline: 'The thermostat-write ledger works: 613 logged writes, all confirmed. One gap: some borrow writes are missing their borrow id (every automatic borrow return, half the pre-cools). Carded as HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1. Closed.'
-    acknowledged: false
-  - fid: 'DASHBOARD-V8-FIX-BATCH-1@2026-09-29T01:14:00'
-    at: '2026-09-29T01:14:00'
-    outcome: moved
-    headline: 'The v8 dashboard fixes were applied last night (checked against the backup). What is left is the Climate countdown cards, which I owe now that the timer attributes are live.'
-    acknowledged: false
-  - fid: 'CONFIG-FLOW-SLOW-ONBOARDING-1@2026-09-29T01:15:00'
-    at: '2026-09-29T01:15:00'
-    outcome: parked
-    headline: 'Slow room setup: the timing instrumentation is already live, and the 25-min setup was a device outage. Parked until the next slow setup, when I read the timings.'
-    acknowledged: false
-  - fid: 'PERIMETER-PHANTOM-XCORR-1@2026-09-28T03:25:02'
-    at: '2026-09-28T03:25:02'
-    outcome: escalated
-    headline: 'The outdoor person alerts overnight (36) were phantoms: all 7 snapshots I looked at were empty. Most came from two cameras: back_yard (88 false detections in 10 h) and pool_equipment (3 night-time CRITICAL pages). The pool cameras likely trigger is a cloth pile against the enclosure wall. The "late snapshot" theory is ruled out. DO: move the cloth or mask it in Frigate, and tune back_yard; I will re-measure the next night.'
-    acknowledged: false
-  - fid: 'ROOM-NAME-UNIQUE-1@2026-09-28T03:25:01'
-    at: '2026-09-28T03:25:01'
-    outcome: done
-    headline: 'Duplicate room-name guard (v5.103.17) loaded cleanly live and is proven in tests. Nothing left to check without an actual rename. Closed.'
-    acknowledged: false
-  - fid: 'HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1@2026-09-28T03:25:00'
-    at: '2026-09-28T03:25:00'
-    outcome: done
-    headline: 'Thermostat echo fix (v5.103.17) checked against a day of data: across 24 nudges, zero of URAs own thermostat echoes were mistaken for a person (previously about half of all "overrides"). One lockout remains, but it comes from a different, already-known issue, now noted on the zone 1 card. Closed.'
-    acknowledged: false
-  - fid: 'COVERAGE-EVENING-ATTRIBUTION-DRIFT-1@2026-09-28T02:55:00'
-    at: '2026-09-28T02:55:00'
-    outcome: escalated
-    headline: 'Evening energy-coverage drift: before building the planned new "total consumption" setting, I found the Energy coordinator already has one, and it already points at the right Envoy total sensor. PICK: (A) add the new field as planned, or (B) reuse the existing one (my recommendation: one source of truth, no new knob). Cost stays on net either way.'
-    acknowledged: false
-  - fid: 'PERIMETER-DETECTION-WENT-DARK-1@2026-09-28T02:20:01'
-    at: '2026-09-28T02:20:01'
-    outcome: done
-    headline: 'Frigate2 is back online (running since 16:12 CDT yesterday) and outdoor person detection is working again: 877 detections across the cameras since then. Closed. The remaining issue, that nothing alerted during the outage, stays on the silent-camera tripwire card, which still needs your approval of the redesign.'
-    acknowledged: false
-  - fid: 'DINING-ROOM-RADAR-SILENT-1@2026-09-28T02:20:00'
-    at: '2026-09-28T02:20:00'
-    outcome: done
-    headline: 'The Dining Room radar is NOT dead. It detected people on 09-21, 09-23 and 09-25 (13 times that day), its battery is 100%, and it is still reporting temperature. It only fires on days the room is used, so a quiet day or two is normal. Closed.'
-    acknowledged: false
-  - fid: 'SAFETY-RATE-DETECTOR-DEAD-WINDOW-1@2026-09-27T02:39:42'
-    at: '2026-09-27T02:39:42'
-    outcome: escalated
-    headline: 'The safety "rapid change" detector (humidity jump = leak, temperature runaway = HVAC failure) has silently never worked because of a timing bug. I replayed a week of data: fixing it naively would produce ~12 false-ish "water leak / HVAC failure" alerts a day once it finishes learning. PICK: retire it on purpose and document it (my recommendation), or redesign it with corroboration before reviving.'
-    acknowledged: false
-  - fid: 'SAFETY-RECONNECT-ZERO-SIBLINGS-1@2026-09-27T02:38:41'
-    at: '2026-09-27T02:38:41'
-    outcome: parked
-    headline: 'Checked whether the same junk "0" reading could fake a freeze alarm or trick a bathroom fan on: it could in theory, but it has never happened. There have been no freeze alerts ever, and the 5 fan-controlled bathrooms humidity sensors never sent a sub-5% reading. Parked with a trigger to revisit if one ever does.'
-    acknowledged: false
-  - fid: 'SAFETY-HAZARD-NEVER-CLEARS-1@2026-09-27T02:37:41'
-    at: '2026-09-27T02:37:41'
-    outcome: measured
-    headline: 'Your house safety alert is ON right now for "0% humidity in Study A". Thats a 1-second junk reading at 23:35; the room has read 46–49% since. Two problems: the junk reading shouldnt count (fixed tonight on a branch, below), and safety hazards never clear themselves when the reading recovers, only on an HA restart. The second one is now its own card, to be planned.'
-    acknowledged: false
-  - fid: 'COVERAGE-RATING-FALSE-ANOMALOUS-1@2026-09-27T02:37:40'
-    at: '2026-09-27T02:37:40'
-    outcome: done
-    headline: 'Closed the energy "coverage" self-check fix after its midnight test: it no longer claims a false unit mismatch, and the new midnight allowance switched on 00:00–02:00 as designed. Whats left, the check still reading "Anomalous" because the house total it uses is net of solar/battery, is already its own planned card. (Couldnt read HA logs this run, so the log-line half is checked from the sensor, not the log.)'
-    acknowledged: false
-  - fid: 'HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1@2026-09-27T02:22:59'
-    at: '2026-09-27T02:22:59'
-    outcome: escalated
-    headline: 'v5.103.17 is ready to ship (the thermostat nudge-echo fix + the duplicate-room-name guard). Both are merged, reviewed and have the README written. Only the deploy is left, and I dont restart HA overnight. APPROVE a time and Ill deploy + live-validate.'
-    acknowledged: false
-  - fid: 'NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26@2026-09-27T02:22:58'
-    at: '2026-09-27T02:22:58'
-    outcome: measured
-    headline: 'Empty-house experiment, interim (11.7 h, nobody home): the census stayed at 0 people all night and no fake override appeared (clean). Phantoms found: Kitchen Hallway Garage motion (12 fake room entries, already flagged by the stuck-sensor detector), Master Bathroom mmWave (16 min "occupied"), a pre-arrival triggered by a 0.2-second "Oji is home" glitch, and a false "0% humidity" safety alert. Zone 1s thermostat got 70 "away" writes (6/h) with nobody home; zones 2 and 3 got none. The final read runs when someone returns; the probe is ready.'
-    acknowledged: false
-  - fid: 'WIFI-ACTUATOR-FLEET-FLAP-1@2026-09-27T02:15:28'
-    at: '2026-09-27T02:15:28'
-    outcome: escalated
-    headline: 'Wi-Fi device dropouts, measured: mostly NOT the devices leaving Wi-Fi. HA briefly loses them (Shelly median 9 s, Tuya 38 s) while they stay connected. About 0.6-2% of the time down, so low harm. Clue: Shellys that act as Bluetooth proxies drop out ~20x more often than ones that dont (not proven). PICK: accept (my recommendation), a 1-week test turning Bluetooth scanning off on 2 Shellys, and/or fix Garage Bs weak signal (3 devices at -78 to -82 dBm).'
-    acknowledged: false
-  - fid: 'WIFI-ACTUATOR-FLEET-FLAP-1@2026-09-27T02:10:48'
-    at: '2026-09-27T02:10:48'
-    outcome: measured
-    headline: 'New finding: about 100 Wi-Fi lights, switches and plugs (Shelly, Tuya, Sonoff, LIFX…) drop offline roughly 30 times a day each, even on days with no HA restart. A light command sent during a dropout does nothing. Carded; Im now checking (read-only) whether they cluster on one access point, which would make it a network fix, not code.'
-    acknowledged: false
-  - fid: 'RECEIVING-ROOM-MOTION-DEAD-1@2026-09-27T02:10:47'
-    at: '2026-09-27T02:10:47'
-    outcome: done
-    headline: 'Receiving Room motion sensor is NOT dead. Its online (its light readings update all day), and it did fire the one time this week someone clearly used the room (Thursday 11:25, alongside a 1.5 kW load on that rooms outlets). The room is just rarely used; its lights were never switched on all week. Closed.'
-    acknowledged: false
-  - fid: 'PERIMETER-DETECTION-WENT-DARK-1@2026-09-27T02:05:03'
-    at: '2026-09-27T02:05:03'
-    outcome: escalated
-    headline: 'Frigate2 camera server is STILL off the network (~31 h, no ping, no ports), so the Frigate half of outdoor person detection is blind; UniFi Protect still works. Correction: I had said the sprinkler controller dropped off too, pointing at the network; wrong — it has been flickering on weak Wi-Fi all along. So the fault is most likely the Frigate2 box or its own port. DO: check its power/link/PoE.'
-    acknowledged: false
-  - fid: 'ENVOY-FLAKINESS-181243-1@2026-09-27T02:05:02'
-    at: '2026-09-27T02:05:02'
-    outcome: measured
-    headline: 'The built-in solar gateway connection has mostly stopped dropping out: from 110-160 drops a day last week to 15 on Saturday, right after your Friday-evening gateway reboot + network restart + HA update (cant tell which one fixed it). I now suggest PICK (D): accept it and keep measuring instead of patching HA core.'
-    acknowledged: false
-  - fid: 'ENVOY-STREAM-SOC-TIER-1@2026-09-27T02:05:01'
-    at: '2026-09-27T02:05:01'
-    outcome: escalated
-    headline: 'The "use the local feed as a battery-level source" build is now unblocked by the measurement, but it feeds battery-reserve decisions (money + safety), so it waits for you: APPROVE the review tier (I recommend the strictest, Tier 3) and whether the reserve-witness piece ships with it. The ignore-readings-after-reboot rule is written onto the card as a must.'
-    acknowledged: false
-  - fid: 'ENVOY-STREAM-TRUST-MEASURE-1@2026-09-27T02:05:00'
-    at: '2026-09-27T02:05:00'
-    outcome: measured
-    headline: 'Finished checking whether the new fast local battery/solar feed can be trusted (28.7 clean hours). It matches the built-in reading to within 1 point, kept working through 99% of the built-in feeds outages (the one gap was the gateway rebooting itself), and it sees battery-reserve changes before the cloud does. One real catch: right after a gateway reboot it briefly reports the battery as EMPTY (0%) for ~36 s, so anything that uses it must ignore the first readings after a reconnect. Card closed. Also fixed a bug in my own measuring script that had made the reserve look broken.'
-    acknowledged: false
-  - fid: 'SOAK-EXIT-SWEEP-2026-09-26@2026-09-26T02:19:51'
-    at: '2026-09-26T02:19:51'
-    outcome: done
-    headline: 'Cleared the three oldest "shipped, waiting to be proven" cards by checking each one directly.
-      (1) The unexpected-person sensor now uses the de-duplicated count. The house history shows it
-      staying quiet where the old rule would have falsely fired, and nothing sends alerts from it
-      today. (2) The stale-import safety checker still finds zero problems. (3) The old off-phase
-      thermostat hold is really gone from the code. All three closed. Two small leftovers are noted on
-      the cards for later: whether the daytime unexpected-person hits were real visitors, and an
-      unused HVAC setting name.'
-    acknowledged: false
-  - fid: 'HA-CORE-RESTART-STORM-1@2026-09-26T02:18:23'
-    at: '2026-09-26T02:18:23'
-    outcome: done
-    headline: 'Closed the restart-storm investigation. In the last 6 days Home Assistant restarted only three
-      times, and each has an owner: one release, one Envoy-recovery restart, and your core update last
-      evening. None is unexplained. The mystery restarts from 09-13 to 09-20 can no longer be traced
-      because their logs are gone, and that is recorded as a known gap. The card reopens if an
-      unexplained restart ever appears again.'
-    acknowledged: false
-  - fid: 'SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1@2026-09-26T02:18:22'
-    at: '2026-09-26T02:18:22'
-    outcome: done
-    headline: 'The every-10-seconds noise flooding the system log has STOPPED on its own. There were none in
-      the last 45 minutes, against 77 of the last 100 log lines two nights ago. It was not the toggle
-      I asked you for: protection mode is still on. I proved the log still records the message by
-      triggering one myself, and it showed up. So whatever was polling went away, most likely during
-      last evening''s restarts (not proven). Card closed and your toggle is no longer needed for it.
-      It will reopen automatically if the flood comes back.'
-    acknowledged: false
-  - fid: 'TEST-STRATEGY-REARCH-1@2026-09-26T02:11:36'
-    at: '2026-09-26T02:11:36'
-    outcome: escalated
-    headline: 'Re-ran the whole test suite tonight rather than trusting the old number: 194 failures and 3
-      errors, exactly the same as three days ago, and in the same few files. Two files hold over a
-      third of all failures. There is nothing left to measure, so the card moves to your queue with a
-      choice: (A) fix the handful of files that actually fail first and then size the big
-      re-architecture (my recommendation), (B) plan the re-architecture now, or (C) freeze the 194 as
-      a named baseline. While the suite ran I caught a test editing real production code in place.
-      That became a new card (TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1), the unfinished second half of
-      a fix we closed on 09-11.'
-    acknowledged: false
-  - fid: 'HVAC-ZONE1-MANUAL-OSCILLATION-1@2026-09-26T02:07:39'
-    at: '2026-09-26T02:07:39'
-    outcome: measured
-    headline: 'Corrected a stale card rather than measuring. The zone-1 "stuck in manual" investigation still
-      named the Bryant schedule as the cause in its title, and its next step still pointed at a check
-      that the HVAC state-of-play doc has since withdrawn (C2, C20). The title and next now match what
-      we know: a real manual hold forms right after URA''s own borrow return. The remaining question
-      (exactly why) is answered by the W1-B plan''s first probe, which needs a day of W1-A write logs
-      first. The card is now linked as blocked by W1-A. Nothing could be measured tonight, and I ran
-      no HVAC probe.'
-    acknowledged: false
-  - fid: 'PERIMETER-DETECTION-WENT-DARK-1@2026-09-26T02:05:32'
-    at: '2026-09-26T02:05:32'
-    outcome: escalated
-    headline: 'The outdoor camera box (Frigate2, 192.168.13.18) has been OFF THE NETWORK since about 7:18pm
-      last night, during the network restart. HA and the Mac both fail to ping it and its network
-      address does not resolve, so it is the machine or its cable/port, not software. Every Frigate
-      person and motion detector reads unavailable, and outdoor person detection from Frigate has been
-      blind for about 7 hours. UniFi Protect is still working. Good news on the older fault: the
-      detectors that froze on 09-21 had started moving again before the box dropped. DO: check the
-      box''s power and network port and power-cycle it. I paged you with a Home Assistant notification
-      (not a phone push) and changed nothing.'
-    acknowledged: false
-  - fid: HA-CORE-RESTART-STORM-1@2026-09-25T02:20:00
-    at: '2026-09-25T02:20:00'
-    outcome: parked
-    acknowledged: false
-    headline: 'THE MIDNIGHT RESTARTS HAVE STOPPED, AND I AM PARKING THE HUNT RATHER THAN PRETENDING
-      IT IS SOLVED. Your house rebooted itself eight times in twenty hours last week, three of those
-      in the small hours, each one leaving you with no automation for about six minutes. Tonight I
-      re-read the system''s own restart ledger and found only two reboots in the last six days — and
-      one of those is the Envoy recovery you personally authorised on Sunday night. That is roughly
-      86 hours with no reboot at all, and five days since the last one nobody can explain. So the
-      symptom is genuinely gone. WHAT I AM NOT CLAIMING: we still do not know who asked for the ten
-      older restarts that did not line up with one of my own deploys. That question is preserved, not
-      closed. THE REASON I STOPPED RATHER THAN PUSHED ON is simple and worth you knowing, because it
-      is the honest limit of what I can do unattended: the plan on this card was "wait for the next
-      unexplained reboot, then read the log that names the culprit". There is no next unexplained
-      reboot to read. The evidence supply has dried up, so more digging tonight would have been motion
-      without information. I have written an exact revival trigger onto the card instead — the moment
-      a reboot appears that does not follow one of my releases, the card wakes itself up and I go
-      straight to the log. NOTHING WAS BUILT OR CHANGED. One more thing you should know: the log I
-      would need has got dramatically worse this week, which is the other half of why this is parked —
-      see the supervisor-flood item below.'
-  - fid: SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1@2026-09-25T02:20:00
-    at: '2026-09-25T02:20:00'
-    outcome: measured
-    acknowledged: false
-    headline: 'THE LOG THAT WOULD EXPLAIN A CRASH NOW REMEMBERS ONLY THIRTEEN MINUTES, DOWN FROM
-      ABOUT SIX HOURS — this got significantly worse and it is still waiting on a one-click action
-      from you. Something on your system asks Home Assistant''s supervisor for its status every ten
-      seconds without a password, and the supervisor writes a complaint line every single time it
-      refuses. Tonight those complaints were 77 of the last 100 lines — the same proportion as last
-      night, so the noise itself is steady. The damage is what that noise crowds out. Last Monday the
-      log still reached back about five and a half hours; on Tuesday about five and three quarters.
-      Tonight the entire log covers 01:48 to 02:01 — twelve minutes and fifty seconds. That is a
-      collapse of more than tenfold in forensic memory. WHY IT MATTERS TO YOU CONCRETELY: this is the
-      only log that survives a reboot, so it is the only place that can ever name what rebooted your
-      house. At thirteen minutes of reach, it can no longer even hold a reboot that happened half an
-      hour ago. It is the direct reason I parked the restart investigation tonight instead of
-      advancing it. I DID NOT ACT, deliberately: the fix is to turn Protection mode off on the
-      Advanced SSH add-on, which is a change to your live system that only you should make, so this
-      stays on your queue rather than mine. It is one toggle in Settings, and it buys back the ability
-      to diagnose the next outage.'
-  - fid: PERIMETER-DETECTION-WENT-DARK-1@2026-09-25T02:35:00
-    at: '2026-09-25T02:35:00'
-    outcome: measured
-    acknowledged: false
-    headline: 'YOUR OUTSIDE CAMERAS HAVE NOT SEEN A SINGLE PERSON IN THREE DAYS, AND THIS IS THE
-      LONGEST BLACKOUT YET — it needs about two minutes of your attention when you wake up. I measured
-      it from the recorder rather than inferring it: of your 24 exterior person detectors, sixteen have
-      not changed state in 74.7 hours, and all sixteen report that duration identical to two decimal
-      places, which means they all froze at one single instant on Monday around 1:30am rather than
-      failing one by one. Eight more froze between 43 and 50 hours ago. Twenty-two of the twenty-four
-      are stuck reading "nobody there". The camera MOTION sensors tell the same story from the other
-      direction — fifteen of seventeen have been jammed ON for 43 hours. THE ONE HEALTHY CAMERA IS THE
-      PROOF: Garage A is toggling normally, and it runs on a different platform from the rest. So this
-      is not a recorder glitch or a bad query on my side; the detection feeds themselves are frozen.
-      WHAT IT MEANS PRACTICALLY: your perimeter has effectively been unwatched since Monday. Anything
-      that depends on "is someone outside" has been reading a three-day-old answer. WHY I DID NOT FIX
-      IT: the fix is to reload the Frigate and UniFi Protect connections, or restart those machines —
-      changes to your live system in an occupied, sleeping house, which is exactly the situation where
-      I am supposed to wake you rather than act. THE PREVIOUS CAUSE STORY IS STILL WRONG and I have
-      left it marked wrong: this cannot be only the Frigate machine, because Protect is separate
-      hardware and it froze in the same second. Something upstream of both is the real suspect.'
-  - fid: CAMERA-STUCK-SENSOR-TRIPWIRE-1@2026-09-25T02:35:00
-    at: '2026-09-25T02:35:00'
-    outcome: done
-    acknowledged: false
-    headline: 'THE STUCK-CAMERA ALARM WE SHIPPED IS WORKING CORRECTLY — the reason it looked broken is
-      that it is pointed at the wrong kind of failure, and I can now prove which. Closing this card.
-      Last night I flagged that the alarm fired only twice in three days while seventeen camera sensors
-      sat jammed, and said the cause was one of three things. Tonight I checked and it is the second
-      one, and it is by design rather than a mistake: the alarm reads two specific families of camera
-      sensor, and the seventeen jammed ones belong to a third family it was never wired to look at.
-      No threshold tweak could ever have caught them. WORTH NOTING AS A PATTERN, because it is the
-      same mistake one level down: this card exists because the older health checker only ever looked
-      at ROOMS and so could not see a camera. We then built a camera checker that only looks at one
-      kind of camera sensor. THE BIGGER POINT, and it is the useful one: tonight your detector fleet is
-      not jammed ON, it is frozen OFF — twenty-two of twenty-four detectors stuck reading "nobody
-      there" for up to 74 hours. An alarm that watches for a sensor stuck ON literally cannot see a
-      feed that has gone silent. So "only two alerts" is the right answer from a correct alarm asked
-      the wrong question. THE THING THAT WOULD HAVE CAUGHT IT is the silence-detector I already built
-      and the reviews sent back for redesign — it is waiting on your go, and tonight is a 74-hour
-      argument for it. I did NOT quietly widen this card to cover that; the work lives on its own card
-      so nothing gets buried. One loose end kept on the record rather than dropped: the automatic
-      quarantine arm is still in shadow mode, so even when the alarm fires nothing is actually
-      quarantined.'
-  - fid: CAMERA-SILENT-PRODUCER-TRIPWIRE-1@2026-09-25T02:35:00
-    at: '2026-09-25T02:35:00'
-    outcome: escalated
-    acknowledged: false
-    headline: 'THE SILENCE ALARM YOU HAVE NOT APPROVED YET WOULD HAVE CAUGHT A 74-HOUR BLACKOUT — and
-      I now have a much stronger case than when I last asked. This is the fifth undetected camera
-      blackout in under three weeks: 26 hours, 30 hours, 60 hours, and now 74.7 hours with your entire
-      exterior person-detection fleet frozen. Nothing raised a hand any of those times. THE NEW
-      ARGUMENT is not just another tally mark. I verified tonight that the stuck-camera alarm we DID
-      ship cannot cover this and never could: it watches for a sensor jammed ON, while these feeds are
-      frozen OFF. The two mechanisms do not overlap at all, so this card is not a nice-to-have beside a
-      working detector — it is the only proposed thing that covers the failure mode that actually keeps
-      happening. ONE OF THE REVIEWERS OBJECTIONS HAS ALSO WEAKENED, and I want to be precise rather
-      than opportunistic about it. The reviews killed the build partly because it counted silence in
-      memory and the system was rebooting every couple of hours, wiping the count. I measured tonight
-      that the reboots have stopped — zero in the last 86 hours. I am NOT asking you to ship the
-      rejected build on that basis; the redesign the reviewers demanded is genuinely better and also
-      fixes a sizing error that was mine. What changed is that the downside risk is smaller than we
-      thought while the cost of having no detector is now measurably three days of blind perimeter.
-      I DID NOT BUILD IT TONIGHT, deliberately: two independent reviews returned do-not-ship, which is
-      a mandatory stop, and an unattended overnight pass does not get to overrule a gate you are
-      holding. Say go and I build the redesign and put it back through both reviews.'
-  - fid: COVERAGE-RATING-FALSE-ANOMALOUS-1@2026-09-25T03:40:00
-    at: '2026-09-25T03:40:00'
-    outcome: built-to-review
-    acknowledged: false
-    headline: 'A SELF-CHECK THAT WAS CRYING WOLF EVERY MIDNIGHT IS FIXED, REVIEWED TWICE AND READY FOR
-      YOU TO DEPLOY — nothing was deployed, because deploying restarts the house and you are asleep.
-      THE PROBLEM, in plain terms: URA cross-checks its own energy maths by comparing what it charged to
-      individual rooms against what it measured for the whole house. Just after local midnight those two
-      sides briefly disagree wildly, because the running totals roll over to the new day while the saved
-      room totals still hold yesterday''s full day. The code already forgave that after a restart, but
-      not after midnight, so every night it announced a specific and probably wrong diagnosis — "your
-      measurement units are mismatched" — about a discrepancy that clears itself within an hour or so.
-      WHAT SHIPPED TO REVIEW: the forgiveness now covers the midnight window too, sized at 120 minutes
-      from ten days of your own history (the artifact always cleared by 01:20, and the real evening
-      drift never started before 14:00, so the number sits in a wide gap rather than being picked), and
-      the alarm no longer asserts a cause it has not established — it states what it observed. BOTH
-      REVIEWS SAID SHIP. One hunted correctness and edge cases, including what happens on the two
-      clock-change nights; the other proved the tests are real by deliberately breaking the code in five
-      different places and checking the right tests went red. That second reviewer found the build had
-      UNDERSTATED its own test coverage, which is a pleasant direction to be wrong in. I THEN FIXED
-      THREE SMALL THINGS the reviews raised rather than shipping with them open, and verified the fix
-      myself instead of trusting the builder: I re-read the diff, re-ran the tests (163 pass, up from
-      160, nothing lost), and re-broke the code myself to confirm the new test actually catches the
-      problem it claims to. Worth knowing about one of the three: a shared throttle meant the harmless
-      midnight message could silently suppress a GENUINE alarm arriving 45 minutes later — the diagnosis
-      was still right, but the log line you would go looking for was being eaten. TWO MINOR ITEMS WERE
-      DELIBERATELY LEFT ALONE and are recorded as decisions, not oversights: once a year the autumn
-      clock change stretches the window to three hours (harmless, and the alternative is worse), and one
-      unreachable arithmetic edge case.'
-  - fid: TEST-SILENT-WHOLE-FILE-SKIPS-1@2026-09-25T03:45:00
-    at: '2026-09-25T03:45:00'
-    outcome: measured
-    acknowledged: false
-    headline: 'TEN TESTS THAT LOOK LIKE THEY PROTECT US HAVE NEVER ACTUALLY RUN — found by accident and
-      now carded. When a test cannot load the code it is meant to check, it does not fail. It politely
-      skips, the run still reports green, and it gets counted as safety we do not have. While reviewing
-      tonight''s energy fix I had the reviewer sweep for other places with the same defect it had just
-      repaired, and it found three more files where ten individual tests have, as far as I can tell,
-      never executed once on this machine. I RE-RAN IT MYSELF rather than believing the report, and all
-      ten skips are real, down to the file and line. WHY THIS IS WORSE THAN A PLAIN COVERAGE GAP: a
-      missing test is visible, but these READ as coverage. Someone about to change that code greps,
-      finds a test covering it, and reasonably trusts it. The biggest instance is eight tests guarding
-      an air-conditioning savings calculation. ONE PIECE OF GOOD NEWS: one of the three fails for
-      exactly the reason we just fixed in the energy file, so that cure transfers directly. And a
-      reassuring bound — the mechanism that hides an ENTIRE file this way now exists in only one place
-      repo-wide, the one already fixed, so this is not open-ended. I DELIBERATELY WROTE THE GOAL AS
-      "the skips are gone", NOT "the tests pass": if one of these starts running and immediately fails,
-      that is a success, because it has surfaced a real defect that was hidden — and it gets its own
-      card rather than being quietly patched to force green.'
-  - fid: WORKTREE-BACKLOG-PRUNE-1@2026-09-25T03:45:00
-    at: '2026-09-25T03:45:00'
-    outcome: escalated
-    acknowledged: false
-    headline: 'THE SCRATCH-COPY CLUTTER IS BACK, AND THE REAL LESSON IS THAT LAST TIME WE CLEANED IT
-      RATHER THAN FIXED IT. Every time I hand work to a sub-agent it gets its own private copy of the
-      repo so nothing collides. Those copies are supposed to be disposable. Nine days ago we pruned them
-      from 94 down; tonight, removing my own, I counted 52 again taking up 3.3 GB. So I am reopening
-      that card with a corrected problem statement: the issue is not that there are too many, it is that
-      nothing stops them piling up. TWO REASONS THIS IS MORE THAN WASTED DISK. First, the oldest copies
-      are now over 3,500 commits behind the current code — an agent that picks one up would build and
-      test against a version of URA that no longer exists, and get a GREEN result, which is worse than a
-      red one because it reads as proof. Second, and the reason I did not just delete them: 25 of the 52
-      contain unsaved work. Removing one of those destroys it with no way back, so this is explicitly
-      not a job to do blind. WHAT I WANT TO DO, and it needs your nod because it touches real work:
-      triage those 25 one at a time — save to a branch or deliberately discard — and only then sweep the
-      clean ones. The durable fix is small: have the hand-off clean up after itself when work merges
-      (I did that by hand tonight, which is precisely the step that should not depend on my remembering),
-      plus a count shown at session start so regrowth is visible instead of being noticed by accident
-      nine days later.'
 cards:
 - id: EC-DEGRADED-DATA-POLICY-1
   title: Energy coordinator has no single rule for what to do when the Envoy reading drops out (some sites hold, some release, some read zero)
@@ -741,12 +500,14 @@ cards:
     related: [SAFETY-HUMIDITY-JUNK-READING-1, ENVOY-STREAM-SOC-TIER-1]
     context: 'Siblings of the same reconnect-zero defect; the humidity safety site is fixed on the parent card.'
 - id: SAFETY-HUMIDITY-JUNK-READING-1
+  disposition_2026_10_03: "RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Open: no sub-5% humidity blip since restart (0 safety humidity rows in ura_activity_log since 05:37Z). Dispose by 2026-10-10: no low_humidity alert after the next blip -> done."
+  shipped_version: "5.103.34"
   title: A single junk "0% humidity" reading from a reconnecting sensor raises a safety alert; ignore physically impossible humidity values
   thread: safety
-  status: review
+  status: "shipped_organic"
   groom_2026_09_29: 'MOVED in_progress -> review. Built and reviewed: reviews_2026_09_27 A SHIP + B SHIP. Fix-up dc513cac4 (house safety-alert floor, boundary tests), review record c8776ff26. The branch feature/safety-humidity-junk-floor is 4 ahead / 55 behind develop and NOT merged, so it needs a rebase + re-run before it rides the next release. No build work remains.'
   created: '2026-09-27 02:40'
-  updated: "2026-10-02 02:55"
+  updated: "2026-10-03 02:02"
   live_2026_09_27_0230: 'LIVE at ~02:30 CDT, and this is the discriminating observation: binary_sensor.ura_safety_coordinator_safety_alert = ON and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24. The only active hazard is low_humidity Study A value 0.0 from the junk reading, while the sensor has read 46-49% since. The house is showing a safety warning right now purely because of this defect. It will clear at the next restart (the deploy), and the reason it never self-clears is carded separately as SAFETY-HAZARD-NEVER-CLEARS-1.'
   reviews_2026_09_27: 'Review A (local correctness/edges/consumers): SHIP. M1 MEDIUM, a missed site: the whole-house SafetyAlertBinarySensor in aggregation.py:1359-1365 has its own humidity < 25 check; orchestrator-verified. Plus L1 (chip blips off for 1 s on a real trip; acceptable, snapshot semantics) and L2 (no 5.0 boundary tests at the chip / process_sensor sites). Review B (state/lifecycle/ripple): SHIP. The rate-skip is strictly better, there are no stuck or wrongly cleared hazards, and no actuation ripple (ConstraintActions are never executed). Four out-of-scope findings were carded: SAFETY-HAZARD-NEVER-CLEARS-1, SAFETY-RATE-DETECTOR-DEAD-WINDOW-1 (orchestrator-verified in the live DB: 27 rate samples ever), SAFETY-RECONNECT-ZERO-SIBLINGS-1 (freeze: 0 occurrences ever; fan: to measure), and the observability LOW, folded into the fix-up. Fix-up dispatched for M1 + L2 + the debug log.'
   refinement_status: initial
@@ -26916,6 +26677,8 @@ cards:
      (then optionally launchctl start com.phalanxmadrone.ura-overnight-pass to test-fire). -> I verify via launchctl list + the log.'
   refs: [homelab-automation/scripts/overnight/ura_overnight_pass.sh, homelab-automation/launchd/com.phalanxmadrone.ura-overnight-pass.plist]
 - id: PROPERTY-GETTER-SIDE-EFFECT-TASKS-1
+  disposition_2026_10_03: "RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said in_progress; fix/property-getter-pure is merged and shipped in v5.103.35. README_v5.103.35.md Validated 2026-10-03: 'Pure sensor getters PASS - safety_events_summary clean; no off-loop task log lines; 0 URA ERRORs'. DONE."
+  shipped_version: "5.103.35"
   disposition_2026_09_26_groom: 'CALL MADE: option (B) KEEP THE FALLBACK, MOVE THE TRIGGER — safety path, so no capability is removed: drive the legacy alert-flash path from the Safety Coordinator tick instead of a property read; also fix the two observational sites (sensor.py:1817, :16393). Tier 2 (safety path).'
   measured_2026_09_23: 'OVERNIGHT PASS — TRACED SITE (1) AS THE CARD ASKED, and the trace
     MATERIALLY RE-FRAMES THIS CARD. VERDICT: STILL-REAL + CARD-WAS-WRONG about severity. Site (1) is
@@ -26960,9 +26723,9 @@ cards:
     one that fires safety-alert actions
   thread: platform
   rank: {value: 7, time_criticality: 4, effort: 5}
-  status: "in_progress"
+  status: "done"
   created: '2026-09-20 03:30'
-  updated: "2026-10-02 02:20"
+  updated: "2026-10-03 02:02"
   refinement_status: initial
   approval: implied
   tags: [tier-2, thread-safety, no-fabrication-verify, ha-2026-escalation]
@@ -30038,12 +29801,14 @@ cards:
   - quality/tests/test_owner_registry_mutation_matrix.py
   - feedback_unrestored_mutation_drill_poisons_evidence
 - id: URA-ATTRIBUTE-CHURN-1
+  disposition_2026_10_03: "RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Operator acked. safety_active_cooldowns PASS. Open: <119 recorder rows / 5 min for binary_sensor.living_room_occupied during an occupied window (room unoccupied since restart). Dispose by 2026-10-10 via one recorder query. Also still owed: discard stray const.py edit in worktree agent-a340d6e8716b76184."
+  shipped_version: "5.103.34"
   reviewed_2026_10_01_overnight: 'FIX-UP 2 RE-REVIEWED + REBASED (overnight 10-01). Rebased onto develop with no conflicts -> 651216a8e (0 behind). 4 mutation drills re-run, each RED on the expected test, restored. Two framing-disjoint reviews, both SHIP: A (correctness + consumers) - attributes stable in every phase (sensor-active / countdown / held / vacant; producer coordinator.py ~3697-3757), HVAC release_at stable, cooldowns fixed per alert; no reader of the dropped/renamed keys in custom_components, the PWA repo (Safety.tsx reads the cooldowns state only), docs, live automations or lovelace. B (lifecycle/recorder) - restore path never read the dropped keys; no internal logic reads them from hass.states; HA core suppresses identical writes (core.py:2313-2314, :2333-2350 fire only state_reported), so stable dicts really stop state_changed rows. LOWs (not fixed): test helper sets the phase by hand, so a future countdown re-stamp would not be caught; no release_at test; doc mentions of last_evidence_at in README_v5.103.20 / PLANNING_hvac_fast_occupancy_response.md need a write-back at ship. Worktree hygiene: the branch worktree carries a stray uncommitted const.py edit (DEFAULT_CHATTER_BURST_K 10->20, an unrestored drill from an earlier run, NOT in any commit); my restore was permission-denied, so validation uses a fresh detached worktree at 651216a8e. Pending: serial full-suite name-diff (queued).'
   title: Two URA entities re-publish every couple of seconds only because a timestamp or countdown attribute ticked, adding HA CPU load and a history row each time
   thread: platform
-  status: "review"
+  status: "shipped_organic"
   created: '2026-09-28 19:10'
-  updated: "2026-10-02 02:55"
+  updated: "2026-10-03 02:02"
   approval: implied
   tags: [tier-1, ha-cpu, recorder]
   origin:
@@ -30287,13 +30052,15 @@ cards:
     related: [GUEST-ROOM-FAN-HOLD-1, HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1]
   rank: {value: 9, time_criticality: 9, effort: 2}
 - id: ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1
+  disposition_2026_10_03: "RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Operator acked. Live (ssh ha sqlite3, 07:00 UTC, uptime 1.4h): presence zone rows written at 06:37:30Z = exactly one ANOMALY_BASELINE_SAVE_INTERVAL_S after the 05:37 boot -> periodic save fires. README criterion WRONG as written: metric_baselines.last_updated is the time of the LAST SAMPLE (coordinator_diagnostics.py:220 + save writes baseline.last_updated at :1786), not the save time, so detectors with no new samples (safety since 09-04, music_following since May, security) legitimately do not move. Not a defect. DONE."
+  shipped_version: "5.103.34"
   build_2026_10_01_overnight: 'BUILT on fix/anomaly-baselines-periodic-save (worktree overnight-1001-baselines), HEAD 93cf9eabf, NOT merged or deployed. Producer map: healthy cadences were hvac.py:6785 (daily rollover) and safety.py:1214 (30-min rate save); presence/security/safety/music_following/hvac detectors otherwise saved only at teardown (presence.py:7551, security.py:853, safety.py:3103, music_following.py:698, hvac.py:7246). Fix in domain_coordinators/manager.py: _wire_anomaly_baseline_persistence (called at the end of async_start) registers an hourly save (ANOMALY_BASELINE_SAVE_INTERVAL_S=3600, rung 1) + an EVENT_HOMEASSISTANT_STOP once-listener (reusing the house-state stop-hook pattern), both calling _persist_coordinator_baselines (per-detector try/except; safety rate baselines only on the stop path; no-op when not running; stop save bounded by ANOMALY_BASELINE_STOP_SAVE_TIMEOUT_S=30). Load guard: AnomalyDetector._baselines_loaded stops a save from overwriting mature stored rows after a failed load; discharge = WARNING once + retry load on the next save. Write volume ~1 small transaction per detector per hour (energy/memory maps not touched). REVIEWS: A FIX-REQUIRED (MEDIUM: async_start wiring untested) -> fixed with a test that drives real async_start; B SHIP (MEDIUM: safety _save_rate_baselines iterated a live dict and wrote outside the queue -> list() snapshot + stop-path only; LOWs fixed). ORCHESTRATOR VERIFY: real source mutation of manager.py:597 (await detector.save_baselines() -> pass) turned 6 tests RED, restored, 65 pass, tree clean. Builder drills: async_start wiring call -> RED; retry-load call -> RED. Targeted: 116 pass + 1 pre-existing failure (test_coordinator_enabled_keys_mapping len 8 vs 9, fails on develop). README draft: docs/readmes/drafts/ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1.md on the branch. Pending: serial full-suite name-diff.'
   gate_2026_10_01_overnight: 'FOUR-STEP GATE re-run 10-01. (1) VALIDITY: STILL-REAL - live metric_baselines (ssh sqlite3 -readonly, 10-01 02:40 CDT): presence 2026-09-14, security 09-04, safety 09-04, safety_rate 09-11, music_following 05-12, while energy/hvac/memory were saved within the last 3 h. BLOCKER CLEARED: the anomaly-blind-metrics cycle merged in v5.103.25 (7b42d34a2), so the collision noted on 09-30 is gone. (1b) CONFIG-FIRST: no setting saves baselines. (2) PRIOR ART: REUSE the cadence the healthy coordinators already use + the manager.py:617-633 stop-listener pattern; save_baselines exists (coordinator_diagnostics.py:1699). (3) PARSIMONY: BUILD the smallest version - same cadence as the healthy ones + stop save, bounded to one save per detector per period. (4) COST/BENEFIT: additive, low write volume (a write-volume test is required given the 06-09 write-flood incident); value is real because the restart storm resets these detectors to 2-8-week-old snapshots. Tier 2: build + 2 framing-disjoint reviews to review lane, NO deploy (overnight).'
   title: Presence, security, safety and music-following anomaly baselines are only saved when the integration unloads, which never happens on an HA restart, so their learning is thrown away every restart
   thread: platform
-  status: "review"
+  status: "done"
   created: '2026-09-29 15:00'
-  updated: "2026-10-02 02:55"
+  updated: "2026-10-03 02:02"
   approval: implied
   tags: [anomaly, persistence, restart, found-in-review]
   origin:
@@ -30307,13 +30074,15 @@ cards:
   rank: {value: 5, time_criticality: 4, effort: 2}
   validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1
+  disposition_2026_10_03: "RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Operator acked. Mechanism PASS (README table: 01:14 name match now works, sleep_suppressed). Organic discriminator still open: one COMPLETED transfer in waking hours. Dispose by 2026-10-10: query music_following outcomes / metric_baselines transfer_success_rate sample_count > 1572 -> done; still 1572 with the house awake and music playing -> reopen."
+  shipped_version: "5.103.34"
   fixup_reviewed_2026_10_01_overnight: 'FIX-UP REVIEWED + REBASED (overnight 10-01). Rebased onto develop -> 5e3c13024 (0 behind). All three review findings ADDRESSED at file:line: HIGH kill-switch (_coordinator_enabled music_following.py:449-472, gate :487-491), MED-1 DND-off negative tests (TestCoordinatorEnabledKillSwitch), MED-2 canonical-key dedupe (:218-286, __init__.py:3036-3049). -k music: 171 passed. Drills RED then restored on both sites. Fix-up review (framing A): SHIP - the gate reads the same key and the same True default as the operator switch (switch.py:258-266, :695-697), so no silent disable; missing CM entry only possible before first-install creation, re-read every transition; no other enabled-set reader broken. LOWs noted, not fixed: INFO log on every transition while the switch is off (DEBUG would be quieter); dead fallback lambda at __init__.py:3040. README draft: docs/planning/DRAFT_README_music_following_name_match.md (flags that music will START following people again on deploy). Pending: serial full-suite name-diff (queued).'
   operator_2026_09_29: 'Operator: "Rarely use it. But will test today."'
   title: Music following has recorded no transfers since 2026-05-12 - idle, broken, or unused?
   thread: music
-  status: "review"
+  status: "shipped_organic"
   created: '2026-09-29 15:00'
-  updated: "2026-10-02 02:55"
+  updated: "2026-10-03 02:02"
   refinement_status: refined
   approval: implied
   tags: [music-following, found-in-review, tier-1, no-fabrication-verify]
