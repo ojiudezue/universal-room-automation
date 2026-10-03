@@ -9,6 +9,16 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1@2026-10-03T02:20:47"
+    at: "2026-10-03T02:20:47"
+    outcome: "escalated"
+    headline: "VERIFY needed: the HVAC 'guest mode actuation' switch (Custom Preset Ranges) turned ON at 16:28 yesterday without a user action and is still on. It has written thermostat presets 2-9 times an hour since. The board says this needs your explicit go first. I did not change it. Was it you?"
+    acknowledged: false
+  - fid: "HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1@2026-10-03T02:20:46"
+    at: "2026-10-03T02:20:46"
+    outcome: "parked"
+    headline: "Parked on measurement. HVAC restore writes never left an empty zone on comfort settings at night in 6.4 days (0 of 140), because later fixes made them preset-only and the normal check corrects them the next tick. It only matters again if the compose-away throttle is changed."
+    acknowledged: false
   - fid: "ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1@2026-10-03T02:17:10"
     at: "2026-10-03T02:17:10"
     outcome: "parked"
@@ -1999,14 +2009,15 @@ cards:
   parsimony: {problem: 'paths that bypass the shared retreat check act on a reloading room''s placeholder empty', verdict: BUILD}
 
 - id: HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1
+  instance_2026_10_03_overnight: "INSTANCE_2026_10_03_overnight (found by the overnight HVAC probe, re-verified by orchestrator on the recorder): switch.ura_hvac_coordinator_guest_mode_actuation (DPM / Custom Preset Ranges actuation, the thing this blocker gates) is ON in the live house since 2026-10-02 21:28:45Z (16:28 CDT) with NO user context, still on after the 10-03 restart (05:37:19Z). History: 10-01 16:21Z on / 17:02Z off BY A USER; 10-02 13:06Z off; 21:28:45Z on (no user) in the same second as zone_sweep, face_matching and name_people_at_doors switch rows (i.e. an entity re-create/reload, not a restart - restarts were 10-02 13:05Z and 10-03 05:33Z). No develop commit explains it. Live effect: 31 S10_dpm_apply climate writes since (per hour UTC: 22h 2, 23h 9, 02h 4, 03h 2, 05h 6, 06h 8) - the compose-away throttle bypass this card exists to fix is now running live without the operator go the board requires. NOT changed by the overnight pass (live HVAC change in a sleeping house; may be intentional)."
   groom_2026_09_29_arc: 'Part of BATCH C (HVAC-CUSTOM-PRESET-RANGES-1): build together with Custom Preset Ranges; deploy only on the operators word, zone 3 first.'
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
-  status: planned
+  status: "waiting_operator"
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 6, time_criticality 4, effort 5 - Batch C blocker (12 cloud writes/hr/zone if enabled); Tier 2.'
   rank: {value: 6, time_criticality: 4, effort: 5}
   thread: hvac
   created: '2026-09-17'
-  updated: '2026-09-29 01:05'
+  updated: "2026-10-03 02:20"
   tags: [hvac, blocker, carrier-write-sensitivity, do-before-enable]
   title: BLOCKER on enabling guest_mode_actuation — F2 compose-away throttle bypass is unconditional
     (12 set_temperature/hr/zone to Carrier cloud)
@@ -2019,23 +2030,23 @@ cards:
     setpoints and emit only on real diff.'
   why: 'D9 is inert live (guest_mode_actuation OFF), so not a pre-ship fix — but it is a hard BLOCKER
     that must land BEFORE that switch is ever turned on, or it storms the thermostat cloud.'
-  next: 'Before enabling Custom Preset Ranges: replace the unconditional compose-away bypass with a
-    ground-truth setpoint compare (house rule) or S8/S9 cache invalidation. Then the compose-away
-    acceptance criteria become live-verifiable.'
+  next: "VERIFY: did you turn on 'guest mode actuation' (Custom Preset Ranges / DPM) on 10-02 ~16:28 CDT on purpose? NO -> turn switch.ura_hvac_coordinator_guest_mode_actuation off (a setting) and I find what flipped it (it changed with 3 other URA switches in one second, no user). YES -> this blocker is now live-relevant: APPROVE building the throttle fix next; measured live rate so far 2-9 S10 writes/hour."
   parsimony: {problem: 'unconditional throttle bypass = steady write-storm once the feature is on', verdict: BUILD, note: 'gate on enabling the switch'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], sibling_of: [HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1], context: 'F2 residual; blocker on guest_mode_actuation'}
 - id: HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1
+  revisit_if: "a restore write lands on an empty night zone with a non-away preset still uncorrected after 10 min, OR the compose-away throttle bypass is removed (then clear _last_emitted_range[zone] at the restore sites as a co-requisite)."
+  measured_2026_10_03_overnight: "REFUTED AS A LIVE DEFECT (read-only probe, develop @325eaab10, 1,246 climate_write rows 09-26 20:23 -> 10-03 06:52Z). The four restore sites moved (hvac_override.py:7319/7348 S8, :7793/7815 S9; hvac_predict.py:1129/1153 S11, :1896/1912 S13) and since W1-B (v5.103.18) all restore a NAMED PRESET only; raw setpoints only for a person's manual hold. They still don't update _last_emitted_range (S13 hold branch does, hvac_predict.py:1921), but the only reader is the S10 compose-away throttle (hvac.py:4130-4133), which bypasses it anyway. S1 compares live preset vs target every tick (hvac.py:3409-3433, hvac_preset.py:358), so a home/sleep pin on an empty zone goes to away next pass. Measured: 140 restore writes; S8 0, S9 0, S13 0, S11 3; 54 at night, 53 on OCCUPIED zones; exactly 1 on an empty night zone (zone_3 10-03 05:44Z S4 revert, pinned away) - zero stranding in 6.4 days. Also CARD-WAS-WRONG: 'D9 dormant' is false right now - see INSTANCE on HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1."
   groom_2026_09_29_arc: 'Part of BATCH C (HVAC-CUSTOM-PRESET-RANGES-1): build together with Custom Preset Ranges; deploy only on the operators word, zone 3 first.'
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
   FOLD_2026_09_17: 'From HVAC-EC-OFFSET-SELF-LOCKOUT-1 (refuted): verify the EC coast/shed OFFSET apply
     path carries a FIX-B2-style pre-write preset snapshot + set_preset_mode restore (like the nudge path),
     so a coast setpoint write cannot leave a zone in manual after the constraint clears. Same strand class.'
-  status: planned
+  status: "parked"
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Batch C sibling; measure-first, likely small.'
   rank: {value: 5, time_criticality: 3, effort: 5}
   thread: hvac
   created: '2026-09-17'
-  updated: '2026-09-29 01:05'
+  updated: "2026-10-03 02:20"
   tags: [hvac, pre-existing, setpoint-vs-mode]
   title: S8/S9/S11/S13-return writers emit comfort setpoints to an empty night zone without updating
     _last_emitted_range — uncorrected live because D9 (intended corrector) is dormant
@@ -2048,9 +2059,8 @@ cards:
     zone-correct baseline) so whatever corrector runs re-emits.'
   why: 'Pre-existing (predates step-4-B); surfaced by the round-4 adversarial enumeration. Currently a
     live ≤overnight stranding surface on any zone that gets a nudge/ramp/banked restore while empty.'
-  next: 'Measure how often a restore fires on an empty zone (recorder) before scoping; likely small.
-    Fix = the restore sites update _last_emitted_range. Coordinate with the compose-away blocker.'
-  parsimony: {problem: 'restore writers strand empty zones; the intended corrector is dormant', verdict: BUILD, note: 'measure-first; pre-existing'}
+  next: "Nothing standalone. Fold into HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 as a co-requisite when that is built."
+  parsimony: {"problem": "restore writers strand empty night zones at comfort setpoints", "verdict": "PARK", "note": "refuted live (0 strands / 6.4 days); latent co-requisite of the compose-away throttle fix"}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1], context: 'round-4 adversarial 4th-writer enumeration'}
 - id: HVAC-SETHVACMODE-CHOKEPOINT-1
   disposition_2026_09_26_groom: 'This IS W1-A deliverable D1/D3 (emit_set_hvac_mode funnel + migrate the 7 raw set_hvac_mode sites). Builder dispatched 2026-09-26 on feature/hvac-w1a-write-governance (PLANNING_hvac_w1a_thermostat_write_governance.md rev 2). The old ''gated on zone_1 oscillation producer'' condition is retired — W1-A is behaviour-neutral and is the instrument that identifies it.'
@@ -30115,11 +30125,12 @@ cards:
   next: "None - closed."
   rank: {value: 4, time_criticality: 3, effort: 1}
 - id: HVAC-CUSTOM-PRESET-RANGES-1
+  live_state_2026_10_03_overnight: "WARNING: the actuation switch for this feature (switch.ura_hvac_coordinator_guest_mode_actuation) is ON live since 10-02 21:28:45Z with no user context; see INSTANCE on HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1. The board's 'DEPLOY GATE: operator explicit go' is being bypassed at the switch level."
   title: 'Batch C: turn on Custom Preset Ranges (URA writes its own range into each preset instead of Carrier''s defaults), plus its three blockers'
   thread: hvac
   status: planned
   created: '2026-09-29 13:10'
-  updated: '2026-09-29 13:10'
+  updated: "2026-10-03 02:20"
   approval: explicit
   tags: [hvac, batch-c, w1-tail]
   origin:
@@ -30537,11 +30548,12 @@ cards:
   rank: {value: 4, time_criticality: 2, effort: 13}
   refs: [docs/planning/DESIGN_ec_degraded_data_policy.md section 9.1 / 9.3]
 - id: LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1
+  build_2026_10_03_overnight: "Built on fix/loop-stall-watchdog-stop-unsub (bbeed5805) in .claude/worktrees/overnight-1003-wdunsub: _on_stop clears wd._ha_stop_unsub before uninstall; new test test_ha_stop_fire_does_not_call_consumed_unsub. Tests pending (serialised behind the running full-suite name-diff)."
   title: The loop-stall watchdog logs an ERROR at every HA shutdown because it unsubscribes its stop listener after that listener already fired
   thread: hygiene
-  status: planned
+  status: "in_progress"
   created: '2026-10-03 02:55'
-  updated: '2026-10-03 02:55'
+  updated: "2026-10-03 02:18"
   refinement_status: initial
   approval: implied
   tags: [tier-1, no-fabrication-verify, found-during-probe]
