@@ -241,3 +241,84 @@ Per `CLAUDE.md` Plan Review (Tier 2+ gets ONE adversarial plan review before bui
 ## Changelog
 - 2026-10-04: initial draft.
 - 2026-10-04 (same day, mid-plan): operator truth correction integrated — NO drop-off visitor on 10-03; midday is pure resident activity (porch cleaning + car departure); guest band 12:00–13:30 = 0; INV-INPUTS clause (d) added; D1 acceptance for midday ledger rewritten; D2 split into Branches A–D with the hard "at-home operator wandering" Path-β class made explicit.
+- 2026-10-04: Probe results (P-D1/P-D2/P-D3) appended below.
+
+---
+
+## Probe results (2026-10-04, read-only, 10-03 CDT)
+
+Scripts + raw output: `scripts/probes/census_inputs/` (`p_d1_door_forensics.py`, `p_d2_attribution.py`, `p_d3_interior_overcount.py`, `out_p_d*_2026_10_03.txt`). Each ran in <1 s against `?mode=ro` recorder + URA DB.
+
+### Plan-premise corrections the probes surfaced (read these first)
+1. **`CONF_DOOR_GROUPS` does not exist.** `grep -rn DOOR_GROUPS custom_components/` → 0 hits; not in the live config entry. Same for `EGRESS_CROSSING_ADMISSIBLE_TRACKERS` and `RESIDENT_CROSSING_MATCH_S` (0 hits). §1.1 "already exists and is populated" is wrong. D1 must add the door-group map (NEW), D2 Branches B/C name symbols that don't exist. The shipped BLE exit-backfill uses `BLE_EGRESS_EXIT_BACKFILL_WINDOW_S` + live `source_type == bluetooth_le` filter (`camera_census.py:3967-4070`, `4360-4470`).
+2. **Truth timeline vs trackers disagree on the car departure.** Trackers (all three BLE legs agree): **Ezinne** out 12:18–12:19 → back 12:57; **operator + Jaya** out together 14:01:45 (Bermuda) / 14:03:44 (private_ble), back 15:42 (operator) / 23:28 (Jaya). The ledger agrees with the trackers: `garage_a`/`doorbell_lite` exits pid=`ezinne` 12:13–12:14, and exits pid=`oji_udezue`+`jaya` at **13:55:29**. So the "~12:00 operator+Jaya leave by car" is most likely **~13:55**, and the ~12:13 `garage_a` departure is **Ezinne** (operator trusts her phone). **Operator to confirm** before D2/G2–G3 scoring uses it. (Jaya had an all-day `person.jaya=home` until 14:03 — she could not have left at 12:00 per any of her three trackers.)
+3. **G5 "M_cam 4–5" is a replay artefact, not a camera defect.** The live `sensor.universal_room_automation_persons_in_house` read **3** at 262/263 state rows 10:00–11:15. The replay's `M_cam` is a sum across components held at a 1200 s windowed max (`census_estimator_replay.py:151-162`); instantaneous camera-sum >3 occurs only **22/300 grid points (7.3%)**. The 20-min max-hold promotes brief cross-camera double counts (people moving family_room → stairs/halls) into a sustained 4–5.
+
+### P-D1 — Door-event forensics
+**10-03 ledger:** 165 rows; 35 with `person_id` (jaya 15, oji 12, ezinne 7, ojini 1). Raw egress on-edges (all sensor families): 451.
+
+**Why the 14:22 8-person front arrival became 4 entry / 2 exit rows — it is all three, in this order:**
+| Stage | Evidence | Effect |
+|---|---|---|
+| **Producer (dominant, unrecoverable in URA)** | Each egress sensor triggers only on a **0→N** edge (`transit_validator.py:1100-1110`) — one trigger per sensor per occupancy episode regardless of count. Peak `person_count`: `front_door_aerial` **4**, `madrone_g6_entry` **2**, `doorbell_lite` none. Each camera had exactly **one** on-episode 14:24:12–14:25:31. | The signal never carries more than 4 bodies; the ledger never carries count at all. Distinct-peak test: **1 episode, ≤4 peak → < 6 ⇒ a 120 s distinct-person group window CANNOT recover the group.** Only count-aware ledger rows (peak count per episode) or D7 vision can. |
+| **Stem dedup (makes it worse, not better — it fails open)** | The 6 rows are 6 *sensor entities* of 2 cameras, one row each: `aerial_person_detected`, `g6_person_detected`, `g6_person_count`, `g6_person_occupancy_2`, `aerial_person_count`, `aerial_person_occupancy_2`. `_extract_camera_stem` (`camera_census.py:873`) strips `_person_occupancy` but **not `_person_occupancy_2`** → returns `None` → **dedup skipped** for every Frigate-2 occupancy leg (Bug: `_2`-suffix, memo `reference_frigate1_retired_2suffix_permanent`). Count legs that *do* stem-match are 12–24 s after the binary leg, outside the 5 s window. | Duplicate pairs are near-universal across the day (see midday/late tables). |
+| **Direction resolution** | The 2 "exit" rows are the aerial count/occ_2 legs (trigger 14:24:36, resolved +45 s). `_get_interior_cameras_near` returns ALL interior cams (`transit_validator.py:1955-1963`); family_room alone had **811** on-edges on 10-03. The resolve loop iterates interior times oldest-first, so any fire in the prior 30 s (exit window) wins over a later one (entry window). | Direction ≈ "was any interior cam busy in the 30 s before"; with family_room near-continuous it is effectively random. |
+
+**Dedup simulation on raw legs (survivors by door):**
+| W | stem: front / garage_a / garage_b | door_group: front / garage_a / garage_b |
+|---|---|---|
+| 5 s | 44 / 119 / 9 | 32 / 106 / 9 |
+| 15 s | 41 / 99 / 6 | 25 / 78 / 6 |
+| 30 s | 35 / 80 / 5 | 21 / 61 / 5 |
+| 60 s | 29 / 61 / 4 | 16 / 43 / 4 |
+Door-group dedup at 30 s cuts `garage_a` 119→61 (−49%) vs today's 5 s stem — clears D1's "≥30% reduction" bar, *provided the `_2` stem bug is fixed* (otherwise occupancy_2 legs bypass dedup entirely).
+
+**Midday 11:30–13:45 bucket table** (ledger rows; tracker edges include all 3 residents' BLE+GPS legs):
+- 12:03–12:14 (`garage_a`/`doorbell_lite`, 13 rows + front 12:06–12:10, 13 rows): 9 carry `person_id` (oji ×4, jaya ×3, ezinne ×3) — **bucket (a)** for the rest: Ezinne's 12:18–12:19 departure edge is within ±300–900 s. Consistent with **Ezinne leaving by car ~12:13** (truth correction #2).
+- 12:38–12:42 `garage_a`/`doorbell_lite` 6 entry rows: **bucket (b) — no resident tracker edge at any window** (Ezinne out, operator+Jaya home and stationary). Path-β class at `garage_a`, not `front`.
+- 12:44–13:09 `garage_a` + front 13:02–13:03 (16 rows): **bucket (a)** at ±300/900 s via Ezinne's 12:57 arrival edge; 3 rows pid=ezinne.
+- **Bucket (c) (pid on row but pipeline counted unattributed): not observable from the ledger; it is a replay/estimator-side question** — every attributed crossing also has an unattributed duplicate twin from the `_2`/5 s dedup failure, so any pipeline that counts rows rather than deduped crossings will see "unattributed" even when the crossing is attributed. Treat as D1 (dedup) not D2.
+- Front-door porch burst (12:05–12:10, 13:01–13:03): no front-door-specific tracker edge (operator never left); operator Bermuda `sensor.iphone_oji_area` = `Receiving Room`/`Breakfast` at those rows.
+
+**`doorbell_lite` 23:25 / 23:30:** co-fires with `garage_a` within 1–60 s on every occasion (23:24:18 / 23:25:05 / 23:25:25; 23:30:09 both); no front-camera fire 23:02→23:55. **Confirms `doorbell_lite` ∈ `garage_a` (Q-1 closed).** Also 13:54–13:57 and 15:43–15:44 co-fire with `garage_a`.
+
+### P-D2 — Resident attribution
+| Crossing | Truth (per trackers) | Edges | Ledger `person_id` |
+|---|---|---|---|
+| 12:13–12:14 `garage_a` exit | Ezinne out (car) | Ezinne BLE dep 12:18:24/12:19:04 (+4–5 min lag) | ezinne ×2, jaya ×1 (12:14:16 jaya mis-attach — Jaya was home per all 3 trackers) |
+| 13:55 `garage_a` exit | operator + Jaya out (car) | **both** BLE dep 14:01:45 (Bermuda) / 14:03:44 (private_ble) — **+6–8 min lag** | oji ×1, jaya ×1 at 13:55:29 ✔ |
+| 15:44 `garage_a` entry | operator in | BLE arr 15:42:29 (−2 min lead) | oji ×2 ✔ |
+| 23:25–23:31 `garage_a` entry | operator + Jaya in | BLE arr 23:28:39/23:28:48 | **0 of 12 rows attributed** ✖ (edges within ±120–300 s) |
+| front porch bursts | operator at home | none (never left) | oji ×1 (12:06:17), jaya ×2 (face) |
+
+- **Per-hour attach:** 35/165 rows (21%); live `egress_identity_attach_rate_24h = 0.0625`. Attach is non-zero → **no producer regression** on the shipped BLE path; it is face (conf 0.9, 7 rows) + BLE/other (0.8, 28 rows).
+- **GPS legs are useless here:** `phalanxiphone15promax` 1 state all day; `jjs_iphone` unavailable all day; `phalanxiphone15promaxcflare` flaps unavailable/not_home; `okosisipadmini6_2` (current `person.oji_udezue` source!) reads `not_home` while operator is home. BLE (`*_bermuda_tracker`, `private_ble_*`, `ezinne_iphone`) carries all real departures/arrivals.
+- **Departure lag is the structural issue:** BLE `home→not_home` lands **+4 to +8 min after** the physical garage crossing (car drive-off → Bermuda timeout). ±300 s misses the 13:55 crossing for the private_ble legs; ±900 s catches all. Arrivals lead/lag ≤ 3 min.
+- **Path α:** a per-room Bermuda signal exists (`sensor.iphone_oji_area`, 265 changes 11:30–13:45; also `sensor.iphone_jaya_area`, `sensor.ezinne_iphone_area`) but there is no front-door/porch area; at porch-burst rows it reads Receiving Room/Breakfast, and Jaya's area hops ≥6 rooms per minute. **Not a usable crossing corroborator** → Path β.
+
+**D2 branch:** **A + D** (with a narrow B note).
+- **A (replay-side):** replay must consume ledger `person_id` after crossing-level dedup and use a **departure window asymmetric to BLE lag** (e.g. edge ∈ [−180 s, +600 s] after the crossing for exits; ±180 s for arrivals). No producer regression found.
+- **D (Path-β, documented gap):** budget for 10-03 = front porch bursts (2 episodes) + 12:38–12:42 `garage_a` (1–2 episodes) ⇒ **≈3–4 unattributable at-home episodes/day** after dedup. Card follow-up; no new producer this cycle.
+- **B-note (producer):** the 23:25–23:31 return with operator+Jaya edges inside ±120–300 s got **0** backfilled rows — the shipped backfill is *exit*-only (`find_unnamed_exit_crossings`), and these rows are entries. Entry-side BLE attach is a separate, small gap (card it; not a regression).
+- C is moot: the named allowlist symbol does not exist.
+
+### P-D3 — Interior over-count 10:00–11:15
+| Camera | >0 | >1 | max |
+|---|---|---|---|
+| family_room | 99.7% | 43.7% | 4 |
+| upstairs_hall | 25.7% | 4.0% | 2 |
+| playroom | 14.0% | 1.7% | 2 |
+| stairs_top | 7.3% | 0.3% | 2 |
+| staircase | 6.3% | 0.3% | 2 |
+| master_hallway | 5.3% | 0.3% | 2 |
+| foyer_fisheye | 0.3% | 0.0% | 1 |
+- Pairwise Jaccard (co-on/either): highest family_room↔upstairs_hall 0.26, ↔playroom 0.14; **foyer_fisheye↔family_room J=0.00 — the expected overlap pair is NOT confirmed** (foyer_fisheye barely fired). These co-occurrences are different people in different rooms (3 residents), not one person seen twice.
+- When sum>3 (22 points), family_room averages 2.36 and some other cam has a mover. `family_room > 1` 44% of the time with 3 residents home is plausible footage-wise but is the one camera to spot-check for steady multi-count.
+- **Live URA census = 3 throughout.** The over-count is the replay's sum-with-1200 s-max-hold, not production.
+
+### GO / NO-GO
+| Deliverable | Verdict | Why |
+|---|---|---|
+| **D1** | **GO — re-scoped.** | (1) Fix `_extract_camera_stem` to strip `_person_occupancy_2` (and `_active_count_2`) — the actual dedup leak; (2) door-group dedup at 30 s (−49% `garage_a`); (3) neighbours map + oldest-first exit bias in `_resolve_direction`. `CONF_DOOR_GROUPS` is NEW, not reuse. **Drop INV-INPUTS (c) "≥2 surviving entries recovers the group" as a D1 success criterion for multiplicity** — the producer peaked at 4/8 in one episode; record `peak person_count` per episode on the ledger row instead (small, additive) if multiplicity matters before D7. |
+| **D2** | **GO — Branch A + D (Tier 1, replay-side + card).** | No producer regression; BLE lag is +4–8 min on departures → asymmetric window. Path-β budget ≈3–4 episodes/day. Card the entry-side BLE attach gap (23:25 return, 0/12). **Blocked on operator confirming truth correction #2 (car departure at ~13:55 by operator+Jaya; ~12:13 = Ezinne).** |
+| **D3** | **NO-GO (code and config).** | Overlap pair unconfirmed (J=0.00); foyer_fisheye/upstairs_hall removal unsupported (foyer is silent, not noisy); live census correct at 3. Fix belongs in the replay/estimator `M_cam` definition (per-area max at an instant, short hold), i.e. the estimator plan, not an input fix. Optional: footage spot-check of family_room steady count=2–4. |

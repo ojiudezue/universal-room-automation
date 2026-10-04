@@ -1,0 +1,649 @@
+1. ledger rows per CDT hour: total / resident person_id / by source confidence
+  08h {'n': 2, 'pid': 2, 'c0.8': 2}
+  09h {'n': 24, 'pid': 6, 'c0.8': 6}
+  10h {'n': 6, 'pid': 2, 'c0.8': 2}
+  12h {'n': 36, 'pid': 10, 'c0.8': 9, 'c0.9': 1}
+  13h {'n': 26, 'pid': 7, 'c0.9': 3, 'c0.8': 4}
+  14h {'n': 18, 'pid': 1, 'c0.9': 1}
+  15h {'n': 13, 'pid': 2, 'c0.8': 1, 'c0.9': 1}
+  16h {'n': 8, 'pid': 2, 'c0.8': 2}
+  18h {'n': 6}
+  19h {'n': 2}
+  21h {'n': 5, 'pid': 1, 'c0.8': 1}
+  23h {'n': 19, 'pid': 2, 'c0.8': 1, 'c0.9': 1}
+  confidence of attributed rows overall: Counter({0.8: 28, 0.9: 7})
+
+2. resident tracker state sequences 10-03 (CDT; only state changes)
+  person.oji_udezue [src=None] n=11: ['00:00:37=home', '08:17:54=not_home', '09:20:37=home', '14:03:44=not_home', '15:42:29=home', '21:39:24=not_home', '21:59:32=home', '22:10:09=not_home', '23:28:39=home', '23:29:42=not_home', '23:29:43=home']
+  device_tracker.phalanxiphone15promax [src=gps] n=1: ['00:37:16=home']
+  device_tracker.phalanxiphone15promaxcflare [src=gps] n=38: ['00:15:56=home', '00:15:56=unavailable', '00:15:56=home', '00:21:45=not_home', '00:21:45=unavailable', '00:21:45=not_home', '01:02:32=unavailable', '01:02:32=not_home', '01:27:51=unavailable', '01:27:51=not_home', '01:48:57=unavailable', '01:48:57=not_home', '05:48:59=unavailable', '05:48:59=not_home'] ...
+  device_tracker.iphone_oji_bermuda_tracker [src=bluetooth_le] n=19: ['00:00:06=home', '08:16:37=not_home', '09:20:37=home', '14:01:45=not_home', '15:42:31=home', '18:10:24=unavailable', '18:10:25=home', '18:42:50=unavailable', '18:42:51=home', '19:26:29=unavailable', '19:26:30=home', '20:02:25=unavailable', '20:02:26=home', '21:38:26=not_home'] ...
+  device_tracker.unifi_default_12_83_ec_78_6d_6c [src=router] n=32: ['00:37:34=not_home', '13:03:58=unavailable', '13:03:59=not_home', '14:27:00=unavailable', '14:27:16=not_home', '14:27:16=unavailable', '14:27:33=not_home', '14:27:33=unavailable', '14:27:48=not_home', '14:27:48=unavailable', '14:28:03=not_home', '14:28:03=unavailable', '14:28:20=not_home', '14:28:20=unavailable'] ...
+  device_tracker.private_ble_device_8ce182 [src=bluetooth_le] n=9: ['00:00:37=home', '08:17:54=not_home', '09:20:37=home', '14:03:44=not_home', '15:42:29=home', '21:39:24=not_home', '21:59:32=home', '22:09:35=not_home', '23:32:17=home']
+  device_tracker.m4promacmini_2 [src=gps] n=1: ['00:37:16=unknown']
+  device_tracker.okosisipadmini6_2 [src=gps] n=5: ['00:37:16=not_home', '12:30:38=unavailable', '12:30:38=not_home', '12:48:07=unavailable', '12:48:07=not_home']
+  person.ezinne [src=None] n=5: ['00:04:47=home', '08:17:54=not_home', '09:20:40=home', '12:19:04=not_home', '12:57:57=home']
+  device_tracker.ezinne_iphone [src=bluetooth_le] n=7: ['00:04:47=home', '08:17:54=not_home', '09:20:40=home', '12:18:24=not_home', '12:57:57=home', '14:58:52=not_home', '15:00:33=home']
+  device_tracker.ezinne_iphone_bermuda_tracker [src=bluetooth_le] n=15: ['00:00:09=home', '08:16:49=not_home', '09:20:40=home', '12:19:04=not_home', '12:57:59=home', '18:10:24=unavailable', '18:10:25=home', '18:42:50=unavailable', '18:42:51=home', '19:26:29=unavailable', '19:26:30=home', '20:02:25=unavailable', '20:02:26=home', '23:29:42=unavailable'] ...
+  person.jaya [src=None] n=3: ['00:03:54=home', '14:03:44=not_home', '23:28:48=home']
+  device_tracker.jjs_iphone [src=None] n=1: ['00:42:10=unavailable']
+  device_tracker.private_ble_device_249050 [src=bluetooth_le] n=3: ['00:03:46=home', '14:03:44=not_home', '23:28:48=home']
+  device_tracker.iphone_jaya_bermuda_tracker [src=bluetooth_le] n=13: ['00:03:54=home', '14:01:45=not_home', '18:10:24=unavailable', '18:10:25=not_home', '18:42:50=unavailable', '18:42:51=not_home', '19:26:29=unavailable', '19:26:30=not_home', '20:02:25=unavailable', '20:02:26=not_home', '23:28:49=home', '23:29:42=unavailable', '23:29:43=home']
+
+3. census producer counters (attr snapshot)
+  sensor.universal_room_automation_persons_in_house @ 23:59:59: {'face_producer_health': 'live', 'ble_cancelled_count': 0, 'ble_by_area': {'av_closet': 1, 'master_bedroom': 1, 'jaya_bedroom': 1}, 'ble_cancel_enabled': True, 'egress_identity_attach_rate_24h': 0.0625, 'egress_identity_last_attach': {'person': 'jaya', 'camera': 'binary_sensor.front_door_aerial_person_detected', 'identity_confidence': 0.6, 'signed_lag_delta_seconds': 37.67133, 'direction': 'entry', 'agreement_class': 'single_source', 'contributor_engines': ['frigate2']}, 'ble_edge_dropped_invalid_count': 19, 'ble_departing_edge_seen_count': 4, 'ble_legs_produced_count': 17, 'ble_legs_attached_count': 0, 'ble_legs_abstained_count': 2, 'ble_exit_backfilled_count': 1, 'ble_exit_edge_no_match_count': 1, 'ble_exit_ambiguity_abstain_count': 0, 'ble_exit_flap_aborted_count': 0, 'ble_exit_backfill_noop_count': 0, 'ble_exit_per_slug_cooldown_skipped_count': 2, 'ble_exit_row_contention_retry_count': 0, 'ble_exit_row_lost_count': 0, 'ble_crossing_trackers_derived': ['device_tracker.ezinne_iphone', 'device_tracker.ezinne_iphone_bermuda_tracker', 'device_tracker.iphone_jaya_bermuda_tracker', 'device_tracker.iphone_oji_bermuda_tracker', 'device_tracker.private_ble_device_249050', 'device_tracker.private_ble_device_8ce182', 'device_tracker.ziri_iphone']}
+  sensor.universal_room_automation_identified_persons_in_house @ 23:59:59: {'ble_confirmed': ['Ezinne', 'Oji Udezue', 'Jaya']}
+
+4. Path-alpha candidates (operator area/room signals with changes 11:30-13:45)
+  sensor.private_ble_device_8ce182_estimated_distance: n=79 {'0.0340650083448701': 9, '0.0298390650187969': 6, '0.0441691054613809': 5, '0.0112011265503162': 5, '0.0388221719282377': 4, '0.0728301326049085': 4}
+     11:30:54 0.0441691054613809
+     11:34:18 0.0388221719282377
+     11:35:03 0.0340650083448701
+     11:35:08 0.0728301326049085
+     11:35:11 0.0822154618137315
+     11:35:30 0.0172486878987619
+     11:35:57 0.0149676278680116
+     11:35:57 0.0112011265503162
+     11:36:00 0.00831020873094294
+     11:36:02 0.00610903082768264
+     11:38:48 0.206341460444114
+     11:38:49 0.0298390650187969
+     11:38:55 0.0112011265503162
+     11:42:02 0.0728301326049085
+     11:42:26 0.0822154618137315
+     11:47:51 0.0198379842519685
+     11:56:41 0.0129617453289936
+     11:56:48 0.00831020873094294
+     11:56:55 0.0129617453289936
+     11:57:41 0.0340650083448701
+     11:57:52 0.0298390650187969
+     11:59:57 0.0260909428894017
+     12:01:52 0.0227720001531735
+     12:06:29 0.0298390650187969
+     12:06:56 0.0388221719282377
+  sensor.iphone_oji_area: n=265 {'Receiving Room': 60, 'Breakfast': 53, 'Patio': 39, 'Kitchen': 33, 'Study A Closet': 28, 'Study B': 22}
+     11:30:54 Receiving Room
+     11:32:11 Dining Room
+     11:32:22 Receiving Room
+     11:32:24 Breakfast
+     11:32:45 Guest Toilet
+     11:33:33 Receiving Room
+     11:33:56 Guest Toilet
+     11:34:08 Receiving Room
+     11:35:05 Dining Room
+     11:35:13 Receiving Room
+     11:35:39 Breakfast
+     11:35:50 Receiving Room
+     11:36:57 Patio
+     11:37:02 Receiving Room
+     11:37:07 Breakfast
+     11:37:15 Dining Room
+     11:37:23 Patio
+     11:37:33 Kitchen
+     11:37:35 Patio
+     11:37:40 Breakfast
+     11:37:45 Patio
+     11:38:03 Breakfast
+     11:38:17 Receiving Room
+     11:38:31 Patio
+     11:38:34 Dining Room
+  sensor.iphone_oji_distance: n=1054 {'9.51443569553806': 109, '10.498687664042': 99, '11.1548556430446': 77, '8.85826771653544': 74, '12.1391076115486': 54, '7.54593175853018': 53}
+     11:30:10 8.20209973753281
+     11:30:16 8.53018372703412
+     11:30:25 9.84251968503937
+     11:30:25 8.85826771653544
+     11:30:32 8.20209973753281
+     11:30:37 10.498687664042
+     11:30:50 10.8267716535433
+     11:30:54 10.8267716535433
+     11:30:55 11.1548556430446
+     11:31:02 8.20209973753281
+     11:31:09 8.53018372703412
+     11:31:14 9.18635170603675
+     11:31:21 9.51443569553806
+     11:31:31 9.84251968503937
+     11:31:40 10.498687664042
+     11:31:40 9.51443569553806
+     11:31:52 10.1706036745407
+     11:31:53 7.54593175853018
+     11:32:05 8.53018372703412
+     11:32:10 11.1548556430446
+     11:32:11 9.51443569553806
+     11:32:22 13.1233595800525
+     11:32:24 10.498687664042
+     11:32:42 11.1548556430446
+     11:32:45 10.1706036745407
+  sensor.iphone_oji_nearest_rssi: n=933 {'-70': 131, '-69': 116, '-71': 98, '-72': 81, '-73': 71, '-68': 69}
+     11:30:10 -67
+     11:30:16 -70
+     11:30:25 -68
+     11:30:32 -67
+     11:30:37 -74
+     11:30:44 -70
+     11:30:50 -71
+     11:30:54 -71
+     11:31:02 -67
+     11:31:09 -69
+     11:31:31 -70
+     11:31:40 -69
+     11:31:52 -76
+     11:31:53 -66
+     11:32:05 -68
+     11:32:10 -75
+     11:32:11 -69
+     11:32:22 -76
+     11:32:24 -70
+     11:32:42 -72
+     11:32:45 -70
+     11:33:24 -71
+     11:33:36 -75
+     11:33:39 -72
+     11:33:40 -68
+  sensor.iphone_oji_area_last_seen: n=265 {'Receiving Room': 60, 'Breakfast': 53, 'Patio': 39, 'Kitchen': 33, 'Study A Closet': 28, 'Study B': 22}
+     11:30:54 Receiving Room
+     11:32:11 Dining Room
+     11:32:22 Receiving Room
+     11:32:24 Breakfast
+     11:32:45 Guest Toilet
+     11:33:33 Receiving Room
+     11:33:56 Guest Toilet
+     11:34:08 Receiving Room
+     11:35:05 Dining Room
+     11:35:13 Receiving Room
+     11:35:39 Breakfast
+     11:35:50 Receiving Room
+     11:36:57 Patio
+     11:37:02 Receiving Room
+     11:37:07 Breakfast
+     11:37:15 Dining Room
+     11:37:23 Patio
+     11:37:33 Kitchen
+     11:37:35 Patio
+     11:37:40 Breakfast
+     11:37:45 Patio
+     11:38:03 Breakfast
+     11:38:17 Receiving Room
+     11:38:31 Patio
+     11:38:34 Dining Room
+  sensor.iphone_oji_nearest_scanner: n=423 {'Switch_Shelly1PMGen4_Wifi_ReceivingRoom': 79, 'Dimmer_ShellyPlus_Wifi_Receiving1': 65, 'Switch_Shelly2PMGen3_Wifi_Breakfast': 53, 'Dimmer_ShellyPlus_Wifi_Receiving2': 48, 'Switch_Shelly2PMGen3_Wifi_PatioFans': 39, 'Mmwave_Lux_Wifi_EspHome_Kitchen': 28}
+     11:30:44 Dimmer_ShellyPlus_Wifi_Receiving2
+     11:30:50 Switch_Shelly1PMGen4_Wifi_ReceivingRoom
+     11:30:54 Switch_Shelly1PMGen4_Wifi_ReceivingRoom
+     11:31:02 Dimmer_ShellyPlus_Wifi_Receiving1
+     11:31:40 Switch_Shelly1PMGen4_Wifi_ReceivingRoom
+     11:31:53 Dimmer_ShellyPlus_Wifi_Receiving1
+     11:32:11 Switch_Shelly2PMGen4_Wifi_Dining1
+     11:32:22 Switch_Shelly1PMGen4_Wifi_ReceivingRoom
+     11:32:24 Switch_Shelly2PMGen3_Wifi_Breakfast
+     11:32:45 Switch_Shelly2PMGen3_Wifi_GuestToilet1
+     11:33:33 Dimmer_ShellyPlus_Wifi_Receiving2
+     11:33:39 Switch_Shelly1PMGen4_Wifi_ReceivingRoom
+     11:33:40 Dimmer_ShellyPlus_Wifi_Receiving1
+     11:33:56 Switch_Shelly2PMGen3_Wifi_GuestToilet1
+     11:34:08 Dimmer_ShellyPlus_Wifi_Receiving1
+     11:34:37 Switch_Shelly1PMGen4_Wifi_ReceivingRoom
+     11:34:44 Dimmer_ShellyPlus_Wifi_Receiving1
+     11:34:51 Switch_Shelly1PMGen4_Wifi_ReceivingRoom
+     11:34:52 Dimmer_ShellyPlus_Wifi_Receiving1
+     11:35:03 Switch_Shelly1PMGen4_Wifi_ReceivingRoom
+     11:35:05 Switch_Shelly2PMGen4_Wifi_Dining1
+     11:35:13 Switch_Shelly1PMGen4_Wifi_ReceivingRoom
+     11:35:27 Dimmer_ShellyPlus_Wifi_Receiving2
+     11:35:39 Switch_Shelly2PMGen3_Wifi_Breakfast
+     11:35:50 Dimmer_ShellyPlus_Wifi_Receiving2
+  sensor.iphone_oji_distance_to_bed_presence_2bd7b4: n=99 {'unknown': 20, '70.6824146981627': 11, '65.4625984251969': 9, '60.6233595800525': 7, '56.1450131233596': 5, '88.986220472441': 3}
+     11:36:05 60.6233595800525
+     11:36:16 61.8339895013124
+     11:36:21 64.009186351706
+     11:36:27 65.4625984251969
+     11:36:46 unknown
+     12:40:44 65.4625984251969
+     12:41:14 unknown
+     13:10:47 56.1450131233596
+     13:11:17 unknown
+     13:11:39 60.6233595800525
+     13:11:43 56.1450131233596
+     13:12:08 57.5984251968504
+     13:12:13 64.8687664041995
+     13:12:18 69.2290026246719
+     13:12:27 70.6824146981627
+     13:12:38 unknown
+     13:13:16 70.6824146981627
+     13:13:46 unknown
+     13:16:49 51.998031496063
+     13:17:14 56.8635170603675
+     13:17:20 63.2086614173228
+     13:17:30 70.6824146981627
+     13:17:42 56.1450131233596
+     13:18:12 unknown
+     13:18:20 60.6233595800525
+  sensor.universal_room_automation_oji_udezue_location: n=263 {'Receiving Room': 109, 'Breakfast Nook': 47, 'Study A Closet': 42, 'Patio': 17, 'Kitchen': 15, 'Study B': 15}
+     11:30:28 Receiving Room
+     11:31:02 Receiving Room
+     11:31:31 Receiving Room
+     11:32:01 Receiving Room
+     11:32:36 Breakfast Nook
+     11:33:06 Kitchen Hallway Garage
+     11:33:36 Receiving Room
+     11:34:08 Receiving Room
+     11:34:37 Receiving Room
+     11:35:08 Dining Room
+     11:35:38 Receiving Room
+     11:36:08 Receiving Room
+     11:36:38 Receiving Room
+     11:37:13 Breakfast Nook
+     11:37:42 Breakfast Nook
+     11:38:12 Breakfast Nook
+     11:38:42 Dining Room
+     11:39:13 Breakfast Nook
+     11:39:43 Receiving Room
+     11:40:13 Receiving Room
+     11:40:43 Receiving Room
+     11:41:17 Breakfast Nook
+     11:41:46 Receiving Room
+     11:42:16 Receiving Room
+     11:42:51 Patio
+  sensor.universal_room_automation_oji_udezue_previous_location: n=117 {'Receiving Room': 27, 'Breakfast Nook': 26, 'Patio': 16, 'Study A Closet': 14, 'Kitchen': 11, 'Study B': 10}
+     11:33:06 Breakfast Nook
+     11:33:36 Kitchen Hallway Garage
+     11:34:08 Receiving Room
+     11:35:38 Dining Room
+     11:36:08 Receiving Room
+     11:37:42 Breakfast Nook
+     11:39:13 Dining Room
+     11:39:43 Breakfast Nook
+     11:40:13 Receiving Room
+     11:41:46 Breakfast Nook
+     11:42:16 Receiving Room
+     11:43:20 Patio
+     11:43:50 Receiving Room
+     11:47:28 Patio
+     11:48:01 Receiving Room
+     11:50:32 Patio
+     11:51:06 Receiving Room
+     12:02:59 Patio
+     12:03:29 Breakfast Nook
+     12:03:59 Patio
+     12:04:29 Receiving Room
+     12:05:01 Breakfast Nook
+     12:07:01 Receiving Room
+     12:07:31 Breakfast Nook
+     12:09:33 Receiving Room
+  sensor.universal_room_automation_oji_udezue_previous_seen: n=117 {'2026-10-03T16:32:36+00:00': 1, '2026-10-03T16:33:06+00:00': 1, '2026-10-03T16:33:36+00:00': 1, '2026-10-03T16:35:08+00:00': 1, '2026-10-03T16:35:38+00:00': 1, '2026-10-03T16:37:13+00:00': 1}
+     11:32:36 2026-10-03T16:32:36+00:00
+     11:33:06 2026-10-03T16:33:06+00:00
+     11:33:36 2026-10-03T16:33:36+00:00
+     11:35:08 2026-10-03T16:35:08+00:00
+     11:35:38 2026-10-03T16:35:38+00:00
+     11:37:13 2026-10-03T16:37:13+00:00
+     11:38:42 2026-10-03T16:38:42+00:00
+     11:39:13 2026-10-03T16:39:13+00:00
+     11:39:43 2026-10-03T16:39:43+00:00
+     11:41:17 2026-10-03T16:41:17+00:00
+     11:41:46 2026-10-03T16:41:46+00:00
+     11:42:51 2026-10-03T16:42:51+00:00
+     11:43:20 2026-10-03T16:43:20+00:00
+     11:46:58 2026-10-03T16:46:58+00:00
+     11:47:28 2026-10-03T16:47:28+00:00
+     11:50:03 2026-10-03T16:50:03+00:00
+     11:50:32 2026-10-03T16:50:32+00:00
+     12:02:25 2026-10-03T17:02:25+00:00
+     12:02:59 2026-10-03T17:02:59+00:00
+     12:03:29 2026-10-03T17:03:29+00:00
+     12:03:59 2026-10-03T17:03:59+00:00
+     12:04:29 2026-10-03T17:04:29+00:00
+     12:06:31 2026-10-03T17:06:31+00:00
+     12:07:01 2026-10-03T17:07:01+00:00
+     12:09:03 2026-10-03T17:09:03+00:00
+  sensor.iphone_oji_distance_to_switch_shelly1pmgen3_wifi_ezinnemakeup: n=293 {'unknown': 34, '56.1450131233596': 20, '65.4625984251969': 19, '51.998031496063': 17, '70.6824146981627': 15, '76.3221784776903': 15}
+     11:35:30 65.4625984251969
+     11:36:00 unknown
+     11:36:17 60.6233595800525
+     11:36:46 unknown
+     11:36:58 65.4625984251969
+     11:37:13 60.6233595800525
+     11:37:20 63.0446194225722
+     11:37:25 65.4625984251969
+     11:37:45 unknown
+     11:38:29 51.998031496063
+     11:38:59 unknown
+     11:42:07 70.6824146981627
+     11:42:25 72.3753280839895
+     11:42:33 74.0682414698163
+     11:42:34 65.4625984251969
+     11:43:04 unknown
+     11:43:33 70.6824146981627
+     11:43:53 76.5485564304462
+     11:43:59 82.4114173228347
+     11:44:15 76.3221784776903
+     11:44:36 70.6824146981627
+     11:45:08 unknown
+     11:46:29 60.6233595800525
+     11:46:41 65.3346456692913
+     11:46:47 70.0426509186352
+  sensor.iphone_oji_distance_to_switch_shelly1pmgen3_wifi_ezinnevanity: n=95 {'unknown': 13, '76.3221784776903': 6, '88.986220472441': 5, '70.6824146981627': 5, '65.4625984251969': 4, '30.3838582677165': 4}
+     11:35:40 88.986220472441
+     11:36:10 unknown
+     13:10:47 56.1450131233596
+     13:11:08 58.3858267716535
+     13:11:14 62.1128608923885
+     13:11:19 64.494750656168
+     13:11:25 65.4625984251969
+     13:11:39 56.1450131233596
+     13:11:58 61.735564304462
+     13:12:03 68.0708661417323
+     13:12:09 60.6233595800525
+     13:12:13 56.1450131233596
+     13:12:27 60.990813648294
+     13:12:35 67.7755905511811
+     13:12:42 70.6824146981627
+     13:12:49 65.4625984251969
+     13:13:16 unknown
+     13:13:17 65.4625984251969
+     13:13:28 67.2014435695538
+     13:13:35 70.1607611548557
+     13:13:40 70.6824146981627
+     13:14:13 75.3740157480315
+     13:14:14 73.503937007874
+     13:14:20 76.3221784776903
+     13:14:25 65.4625984251969
+  sensor.iphone_ezinne_distance_to_switch_shelly1pmgen3_wifi_ojivanity: n=439 {'32.8083989501312': 39, '35.4265091863517': 38, '44.5997375328084': 16, '26.0597112860892': 15, '41.3024934383202': 15, '38.251312335958': 13}
+     12:05:54 26.0597112860892
+     12:06:00 27.0997375328084
+     12:06:09 32.7788713910761
+     12:06:14 42.2145669291339
+     12:06:20 47.1653543307087
+     12:06:22 32.8083989501312
+     12:06:31 20.7020997375328
+     12:06:37 21.7716535433071
+     12:06:42 24.990157480315
+     12:06:48 26.0597112860892
+     12:06:49 24.1338582677165
+     12:06:56 19.1699475065617
+     12:07:11 22.6148293963255
+     12:07:17 25.3707349081365
+     12:07:25 26.0597112860892
+     12:07:34 14.1043307086614
+     12:07:38 10.3740157480315
+     12:07:49 11.4370078740157
+     12:07:54 9.60958005249344
+     12:08:03 10.7316272965879
+     12:08:08 10.7250656167979
+     12:08:15 11.2040682414698
+     12:08:15 10.3740157480315
+     12:08:22 18.7007874015748
+     12:08:24 11.4501312335958
+  sensor.iphone_jaya_distance_to_switch_shelly1pmgen3_wifi_ojivanity: n=59 {'unknown': 12, '51.998031496063': 9, '56.1450131233596': 5, '60.6233595800525': 4, '70.6824146981627': 2, '25.5413385826772': 2}
+     12:22:01 51.998031496063
+     12:22:31 unknown
+     12:23:59 56.1450131233596
+     12:24:31 unknown
+     13:01:23 65.4625984251969
+     13:01:42 60.6233595800525
+     13:02:09 64.6489501312336
+     13:02:14 69.6784776902887
+     13:02:20 70.6824146981627
+     13:02:32 unknown
+     13:02:48 70.6824146981627
+     13:03:20 unknown
+     13:10:52 56.1450131233596
+     13:10:52 51.998031496063
+     13:11:25 unknown
+     13:34:32 48.1561679790026
+     13:34:39 20.7020997375328
+     13:34:53 25.5413385826772
+     13:35:00 28.4481627296588
+     13:35:01 11.2040682414698
+     13:35:07 13.2972440944882
+     13:35:11 5.2001312335958
+     13:35:19 13.2316272965879
+     13:35:20 8.72703412073491
+     13:35:29 17.3195538057743
+  sensor.universal_room_automation_oji_udezue_likely_next_room: n=36 {'Receiving Room': 29, 'Master Bedroom': 7}
+     11:33:06 Master Bedroom
+     11:34:08 Master Bedroom
+     11:35:38 Master Bedroom
+     11:38:48 Master Bedroom
+     11:39:48 Master Bedroom
+     11:42:55 Master Bedroom
+     11:47:05 Master Bedroom
+     12:00:05 Receiving Room
+     12:02:40 Receiving Room
+     12:04:10 Receiving Room
+     12:06:42 Receiving Room
+     12:09:15 Receiving Room
+     12:10:49 Receiving Room
+     12:12:52 Receiving Room
+     12:23:09 Receiving Room
+     12:25:17 Receiving Room
+     12:33:54 Receiving Room
+     12:37:02 Receiving Room
+     12:42:40 Receiving Room
+     12:48:50 Receiving Room
+     12:54:31 Receiving Room
+     12:56:03 Receiving Room
+     12:58:39 Receiving Room
+     13:00:11 Receiving Room
+     13:04:20 Receiving Room
+  sensor.universal_room_automation_oji_udezue_current_path: n=116 {'Receiving Room → Breakfast Nook → Receiving Room → Receiving Room': 5, 'Patio → Receiving Room → Patio → Receiving Room': 4, 'Receiving Room → Patio → Receiving Room → Breakfast Nook': 4, 'Study A Closet → Study B → Study A Closet → Study A Closet': 4, 'Patio → Breakfast Nook → Patio → Breakfast Nook': 2, 'Breakfast Nook → Kitchen → Breakfast Nook → Kitchen Hallway Garage': 2}
+     11:32:36 Receiving Room → Breakfast Nook → Receiving Room → Breakfast Nook
+     11:33:36 Breakfast Nook → Receiving Room → Breakfast Nook → Kitchen Hallway Garage
+     11:34:08 Receiving Room → Breakfast Nook → Receiving Room → Receiving Room
+     11:35:08 Breakfast Nook → Receiving Room → Breakfast Nook → Dining Room
+     11:35:38 Receiving Room → Breakfast Nook → Receiving Room → Receiving Room
+     11:37:13 Dining Room → Receiving Room → Breakfast Nook → Breakfast Nook
+     11:38:48 Receiving Room → Dining Room → Receiving Room → Dining Room
+     11:39:18 Breakfast Nook → Receiving Room → Dining Room → Breakfast Nook
+     11:39:48 Kitchen Hallway Garage → Breakfast Nook → Receiving Room → Receiving Room
+     11:41:20 Receiving Room → Kitchen Hallway Garage → Breakfast Nook → Breakfast Nook
+     11:41:55 Dining Room → Receiving Room → Kitchen Hallway Garage → Receiving Room
+     11:42:55 Receiving Room → Dining Room → Receiving Room → Patio
+     11:43:29 Breakfast Nook → Receiving Room → Dining Room → Receiving Room
+     11:47:05 Dining Room → Breakfast Nook → Receiving Room → Patio
+     11:47:35 Breakfast Nook → Dining Room → Breakfast Nook → Receiving Room
+     11:50:15 Receiving Room → Breakfast Nook → Dining Room → Patio
+     11:50:47 Breakfast Nook → Receiving Room → Breakfast Nook → Receiving Room
+     12:02:40 Receiving Room → Breakfast Nook → Receiving Room → Patio
+     12:03:10 Patio → Receiving Room → Breakfast Nook → Breakfast Nook
+     12:03:40 Receiving Room → Patio → Receiving Room → Patio
+     12:04:10 Patio → Receiving Room → Patio → Receiving Room
+     12:04:40 Receiving Room → Patio → Receiving Room → Breakfast Nook
+     12:06:42 Patio → Receiving Room → Patio → Receiving Room
+     12:07:12 Receiving Room → Patio → Receiving Room → Breakfast Nook
+     12:09:15 Patio → Receiving Room → Patio → Receiving Room
+  sensor.phalanxiphone15promax_distance_2: n=21 {'unavailable': 6, None: 6, '1009': 5, '1020': 3, '1003': 1}
+     11:38:40 1003
+     11:53:43 1009
+     11:53:44 unavailable
+     11:53:44 None
+     11:53:45 1009
+     12:23:58 unavailable
+     12:23:59 None
+     12:23:59 1009
+     12:43:21 unavailable
+     12:43:22 None
+     12:43:22 1009
+     12:58:38 unavailable
+     12:58:38 None
+     12:58:40 1009
+     13:15:44 1020
+     13:15:45 unavailable
+     13:15:45 None
+     13:15:45 1020
+     13:31:13 unavailable
+     13:31:13 None
+     13:31:24 1020
+  sensor.phalanxiphone15promax_location_permission_2: n=18 {'unavailable': 6, None: 6, 'Authorized when in use': 6}
+     11:53:44 unavailable
+     11:53:44 None
+     11:53:45 Authorized when in use
+     12:23:58 unavailable
+     12:23:59 None
+     12:23:59 Authorized when in use
+     12:43:21 unavailable
+     12:43:22 None
+     12:43:22 Authorized when in use
+     12:58:38 unavailable
+     12:58:38 None
+     12:58:40 Authorized when in use
+     13:15:45 unavailable
+     13:15:45 None
+     13:15:45 Authorized when in use
+     13:31:13 unavailable
+     13:31:13 None
+     13:31:24 Authorized when in use
+  sensor.iphone_oji_distance_to_jaya_3: n=282 {'56.1450131233596': 35, 'unknown': 31, '60.6233595800525': 20, '51.998031496063': 20, '70.6824146981627': 19, '65.4625984251969': 10}
+     11:30:06 76.3221784776903
+     11:31:14 unknown
+     11:32:00 88.986220472441
+     11:32:05 65.4625984251969
+     11:32:36 unknown
+     11:32:47 70.6824146981627
+     11:33:17 unknown
+     11:34:36 76.3221784776903
+     11:35:07 unknown
+     11:35:22 76.3221784776903
+     11:35:38 60.6233595800525
+     11:36:02 63.4612860892389
+     11:36:08 77.6410761154856
+     11:36:16 88.986220472441
+     11:36:35 unknown
+     11:37:32 65.4625984251969
+     11:38:02 unknown
+     11:39:43 65.4625984251969
+     11:39:54 66.7683727034121
+     11:39:59 69.1174540682415
+     11:40:04 70.6824146981627
+     11:40:23 unknown
+     11:40:41 51.998031496063
+     11:40:47 52.6902887139108
+     11:40:52 54.488188976378
+  sensor.iphone_oji_distance_to_ziri_3: n=1073 {'35.4265091863517': 47, '24.1338582677165': 45, '30.3838582677165': 43, '32.8083989501312': 36, '38.251312335958': 32, '17.755905511811': 29}
+     11:30:06 21.1975065616798
+     11:30:06 19.1699475065617
+     11:30:13 20.3740157480315
+     11:30:17 20.242782152231
+     11:30:25 23.6450131233596
+     11:30:25 22.9330708661417
+     11:30:29 20.7020997375328
+     11:30:35 22.3097112860892
+     11:30:38 20.7020997375328
+     11:30:44 26.1909448818898
+     11:30:50 39.9179790026247
+     11:30:52 27.3950131233596
+     11:30:54 19.1699475065617
+     11:31:07 21.8438320209974
+     11:31:09 19.1699475065617
+     11:31:21 19.488188976378
+     11:31:26 20.0885826771654
+     11:31:31 20.7020997375328
+     11:31:40 23.0511811023622
+     11:31:43 22.0209973753281
+     11:31:49 26.2303149606299
+     11:31:50 22.3523622047244
+     11:31:59 24.8917322834646
+     11:32:00 19.1699475065617
+     11:32:06 24.6817585301837
+  sensor.iphone_oji_distance_to_switch_shelly2pmg3_wifi_ziribath: n=990 {'44.5997375328084': 59, '48.1561679790026': 40, '26.0597112860892': 39, '24.1338582677165': 35, '41.3024934383202': 35, '51.998031496063': 34}
+     11:30:06 27.3064304461942
+     11:30:06 24.1338582677165
+     11:30:13 24.5341207349081
+     11:30:18 25.2919947506562
+     11:30:25 25.8694225721785
+     11:30:25 24.1338582677165
+     11:30:37 24.9048556430446
+     11:30:44 25.4822834645669
+     11:30:50 28.2217847769029
+     11:30:54 24.1338582677165
+     11:31:07 26.5387139107612
+     11:31:13 28.1397637795276
+     11:31:31 24.1338582677165
+     11:31:40 25.0984251968504
+     11:31:45 26.0597112860892
+     11:32:05 27.3589238845144
+     11:32:10 30.5282152230971
+     11:32:17 32.4015748031496
+     11:32:20 26.0597112860892
+     11:32:26 26.2696850393701
+     11:32:30 26.0597112860892
+     11:32:42 27.0997375328084
+     11:32:47 28.1397637795276
+     11:32:54 24.1338582677165
+     11:33:01 25.0984251968504
+  sensor.iphone_oji_distance_to_switch_shelly2pmg3_wifi_jayabath: n=181 {'unknown': 34, '76.3221784776903': 22, '70.6824146981627': 18, '88.986220472441': 17, '82.4114173228347': 11, '96.0826771653544': 7}
+     11:30:46 88.986220472441
+     11:30:54 76.3221784776903
+     11:31:40 unknown
+     11:31:59 103.75
+     11:32:29 unknown
+     11:33:13 76.3221784776903
+     11:33:43 unknown
+     11:35:19 76.3221784776903
+     11:35:26 65.4625984251969
+     11:35:31 67.5492125984252
+     11:35:32 48.1561679790026
+     11:35:43 65.2821522309711
+     11:35:49 76.3221784776903
+     11:36:02 65.4625984251969
+     11:36:35 unknown
+     11:38:49 70.6824146981627
+     11:38:56 65.4625984251969
+     11:39:11 68.5958005249344
+     11:39:14 65.4625984251969
+     11:39:19 68.7204724409449
+     11:39:25 70.8923884514436
+     11:39:25 65.4625984251969
+     11:39:35 75.6299212598425
+     11:39:40 82.4114173228347
+     11:39:43 76.3221784776903
+  sensor.ura_coordinator_manager_oji_udezue_next_room_accuracy: n=123 {'26.9': 65, '26.8': 43, '27.0': 15}
+     11:32:37 27.0
+     11:33:06 27.0
+     11:33:36 27.0
+     11:35:09 27.0
+     11:35:39 27.0
+     11:36:08 27.0
+     11:37:14 27.0
+     11:38:13 26.9
+     11:38:49 26.9
+     11:39:18 26.9
+     11:39:48 26.9
+     11:41:20 26.9
+     11:41:56 26.9
+     11:42:55 26.9
+     11:43:30 26.9
+     11:47:07 26.9
+     11:47:35 26.9
+     11:50:15 26.9
+     11:50:48 26.9
+     12:02:42 26.9
+     12:03:12 26.9
+     12:03:41 26.9
+     12:04:14 26.9
+     12:04:44 26.9
+     12:06:50 26.9
+
+5. Bermuda area at midday front-door ledger rows (±60 s window, CDT)
+  alt area entities for ezinne ['sensor.ezinne_iphone_area']
+  12:06:00 exit  pid=-          oji:('Breakfast', ['Receiving Room']) | jaya:('Breakfast', ['Breakfast', 'Dining Room', 'Guest Bedroom 1', 'Guest Toilet', 'Kitchen', 'Laundry', 'Patio']) | ezinne:(None, [])
+  12:06:17 exit  pid=oji_udezue oji:('Receiving Room', ['Breakfast', 'Receiving Room']) | jaya:('Kitchen', ['Breakfast', 'Dining Room', 'Guest Bedroom 1', 'Guest Toilet', 'Kitchen', 'Laundry', 'Patio', 'Receiving Room']) | ezinne:(None, [])
+  12:06:17 exit  pid=-          oji:('Receiving Room', ['Breakfast', 'Receiving Room']) | jaya:('Kitchen', ['Breakfast', 'Dining Room', 'Guest Bedroom 1', 'Guest Toilet', 'Kitchen', 'Laundry', 'Patio', 'Receiving Room']) | ezinne:(None, [])
+  12:06:17 exit  pid=-          oji:('Receiving Room', ['Breakfast', 'Receiving Room']) | jaya:('Kitchen', ['Breakfast', 'Dining Room', 'Guest Bedroom 1', 'Guest Toilet', 'Kitchen', 'Laundry', 'Patio', 'Receiving Room']) | ezinne:(None, [])
+  12:06:17 exit  pid=-          oji:('Receiving Room', ['Breakfast', 'Receiving Room']) | jaya:('Kitchen', ['Breakfast', 'Dining Room', 'Guest Bedroom 1', 'Guest Toilet', 'Kitchen', 'Laundry', 'Patio', 'Receiving Room']) | ezinne:(None, [])
+  12:07:07 entry pid=jaya       oji:('Breakfast', ['Breakfast', 'Receiving Room']) | jaya:('Kitchen', ['Breakfast', 'Guest Bedroom 1', 'Guest Toilet', 'Kitchen', 'Laundry', 'Receiving Room']) | ezinne:(None, [])
+  12:08:15 exit  pid=-          oji:('Breakfast', ['Breakfast', 'Receiving Room']) | jaya:('Kitchen', ['Breakfast', 'Kitchen', 'Patio']) | ezinne:(None, [])
+  12:08:15 exit  pid=-          oji:('Breakfast', ['Breakfast', 'Receiving Room']) | jaya:('Kitchen', ['Breakfast', 'Kitchen', 'Patio']) | ezinne:(None, [])
+  12:08:34 exit  pid=-          oji:('Breakfast', ['Breakfast', 'Receiving Room']) | jaya:('Breakfast', ['Breakfast', 'Patio']) | ezinne:(None, [])
+  12:08:39 exit  pid=-          oji:('Receiving Room', ['Breakfast', 'Receiving Room']) | jaya:('Breakfast', ['Breakfast', 'Patio']) | ezinne:(None, [])
+  12:08:39 exit  pid=-          oji:('Receiving Room', ['Breakfast', 'Receiving Room']) | jaya:('Breakfast', ['Breakfast', 'Patio']) | ezinne:(None, [])
+  12:09:42 entry pid=-          oji:('Receiving Room', ['Breakfast', 'Kitchen', 'Patio', 'Receiving Room']) | jaya:('Patio', ['Breakfast', 'Kitchen', 'Patio']) | ezinne:(None, [])
+  12:10:21 entry pid=jaya       oji:('Patio', ['Breakfast', 'Kitchen', 'Patio']) | jaya:('Patio', ['Breakfast', 'Kitchen', 'Patio']) | ezinne:(None, [])
+  13:02:18 entry pid=-          oji:('Breakfast', ['Breakfast', 'Kitchen', 'Patio']) | jaya:('Breakfast', []) | ezinne:(None, [])
+  13:02:28 entry pid=-          oji:('Breakfast', ['Breakfast', 'Kitchen', 'Patio']) | jaya:('Breakfast', []) | ezinne:(None, [])
+  13:02:29 exit  pid=-          oji:('Breakfast', ['Breakfast', 'Kitchen', 'Patio']) | jaya:('Breakfast', []) | ezinne:(None, [])
+  13:02:29 exit  pid=-          oji:('Breakfast', ['Breakfast', 'Kitchen', 'Patio']) | jaya:('Breakfast', []) | ezinne:(None, [])
+  13:02:29 exit  pid=-          oji:('Breakfast', ['Breakfast', 'Kitchen', 'Patio']) | jaya:('Breakfast', []) | ezinne:(None, [])
+  13:03:39 exit  pid=ezinne     oji:('Kitchen', ['Breakfast', 'Kitchen', 'Patio']) | jaya:('Breakfast', ['Breakfast', 'Kitchen', 'Patio']) | ezinne:(None, [])
+  13:03:39 exit  pid=-          oji:('Kitchen', ['Breakfast', 'Kitchen', 'Patio']) | jaya:('Breakfast', ['Breakfast', 'Kitchen', 'Patio']) | ezinne:(None, [])
+  13:03:41 exit  pid=-          oji:('Kitchen', ['Breakfast', 'Kitchen', 'Patio']) | jaya:('Breakfast', ['Breakfast', 'Kitchen', 'Patio']) | ezinne:(None, [])
+  13:03:41 exit  pid=-          oji:('Kitchen', ['Breakfast', 'Kitchen', 'Patio']) | jaya:('Breakfast', ['Breakfast', 'Kitchen', 'Patio']) | ezinne:(None, [])

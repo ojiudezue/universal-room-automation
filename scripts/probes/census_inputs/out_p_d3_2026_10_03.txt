@@ -1,0 +1,42 @@
+configured interior camera stems: ['family_room', 'foyer_fisheye', 'master_hallway', 'playroom', 'staircase', 'stairs_top', 'stairs_top_2', 'upstairs_hall']
+
+count source per stem: ['sensor.family_room_person_count', 'sensor.foyer_fisheye_person_count', 'sensor.master_hallway_person_count', 'sensor.playroom_person_count', 'sensor.staircase_person_count', 'sensor.stairs_top_person_count', 'sensor.upstairs_hall_person_count']
+
+per-camera over 10:00-11:15 (15 s grid): %>0, %>1, max, mean when >0
+  sensor.family_room_person_count               >0= 99.7% >1= 43.7% max=4 mean>0=1.50
+  sensor.foyer_fisheye_person_count             >0=  0.3% >1=  0.0% max=1 mean>0=1.00
+  sensor.master_hallway_person_count            >0=  5.3% >1=  0.3% max=2 mean>0=1.06
+  sensor.playroom_person_count                  >0= 14.0% >1=  1.7% max=2 mean>0=1.12
+  sensor.staircase_person_count                 >0=  6.3% >1=  0.3% max=2 mean>0=1.05
+  sensor.stairs_top_person_count                >0=  7.3% >1=  0.3% max=2 mean>0=1.05
+  sensor.upstairs_hall_person_count             >0= 25.7% >1=  4.0% max=2 mean>0=1.16
+
+sum-across-cams distribution (truth=3 home; guest OUT): [(1, 68), (2, 146), (3, 64), (4, 16), (5, 6)]
+per-minute max of sum: [('10:04', 4), ('10:10', 5), ('10:16', 4), ('10:17', 4), ('10:19', 4), ('10:21', 4), ('10:23', 4), ('10:48', 5), ('10:49', 5), ('10:50', 4), ('11:08', 5), ('11:09', 4), ('11:10', 4)]
+
+pairwise co-occurrence (both >0) as % of grid points; J = both / either
+  family_room_person_cou & foyer_fisheye_person_c both=  0.3% J=0.00
+  family_room_person_cou & master_hallway_person_ both=  5.3% J=0.05
+  family_room_person_cou & playroom_person_count  both= 14.0% J=0.14
+  family_room_person_cou & staircase_person_count both=  6.0% J=0.06
+  family_room_person_cou & stairs_top_person_coun both=  7.3% J=0.07
+  family_room_person_cou & upstairs_hall_person_c both= 25.7% J=0.26
+  foyer_fisheye_person_c & master_hallway_person_ both=  0.3% J=0.06
+  master_hallway_person_ & stairs_top_person_coun both=  0.7% J=0.06
+  playroom_person_count  & staircase_person_count both=  0.3% J=0.02
+  playroom_person_count  & stairs_top_person_coun both=  2.3% J=0.12
+  playroom_person_count  & upstairs_hall_person_c both=  2.7% J=0.07
+  staircase_person_count & stairs_top_person_coun both=  1.0% J=0.08
+  stairs_top_person_coun & upstairs_hall_person_c both=  0.7% J=0.02
+
+when sum>3: share of grid points each cam is >0:
+  sensor.family_room_person_count               100.0%  mean=2.36
+  sensor.foyer_fisheye_person_count               4.5%  mean=0.05
+  sensor.master_hallway_person_count             31.8%  mean=0.36
+  sensor.playroom_person_count                   45.5%  mean=0.50
+  sensor.staircase_person_count                   9.1%  mean=0.14
+  sensor.stairs_top_person_count                 40.9%  mean=0.45
+  sensor.upstairs_hall_person_count              27.3%  mean=0.41
+  (n grid points with sum>3: 22 of 300)
+
+ sensor.universal_room_automation_persons_in_house [('3', 262), ('4', 1)]
