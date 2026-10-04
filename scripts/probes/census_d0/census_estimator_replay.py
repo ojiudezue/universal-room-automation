@@ -301,16 +301,21 @@ def hybrid_main(K=None, doors=None, start_ts=None):
 
 
 def h_truth(t):
-    """(lo, hi) reconciled truth band §8.1, 10-03 CDT."""
+    """(lo, hi) truth band, 10-03 CDT. Operator truth rev 2026-10-04: residents = tracker R (operator home 15:42,
+    Jaya out 14:03-23:24); 12:00-13:30 front burst = resident porch cleaning + one transient drop-off visitor (net 0);
+    long-stay guest out AM, back evening. truth = R_tracker(mean over the 15-min bin) + guest band."""
     h = (t - D3a) / 3600
-    if h < 8: return (4, 4)
-    if h < 13.5: return (3, 3)
-    if h < 14 + 20 / 60: return (1, 2)
-    if h < 15: return (10, 11)
-    if h < 23: return (10, 12)
-    if h < 23 + 24 / 60: return (10, 10)
-    if h < 23 + 55 / 60: return (12, 12)
-    return (11, 11)
+    t0 = int(t - 450)
+    R = st.mean(sum(pers[k].at(x, 0) or 0 for k in pers) for x in range(t0, t0 + 900, 60))
+    if h < 8: g = (1, 1)
+    elif h < 12: g = (0, 0)
+    elif h < 13.5: g = (0, 1)
+    elif h < 14 + 20 / 60: g = (0, 0)
+    elif h < 17: g = (8, 9)
+    elif h < 23: g = (8, 10)
+    elif h < 23 + 55 / 60: g = (8, 9)
+    else: g = (7, 8)
+    return (R + g[0], R + g[1])
 
 
 def gates_only(rows):
