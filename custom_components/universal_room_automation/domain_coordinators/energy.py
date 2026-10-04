@@ -5616,9 +5616,13 @@ class EnergyCoordinator(BaseCoordinator):
         # per fire (one CFG read, same D2b rule as the breaker chokepoint).
         # Review D D-HIGH-1: one shared EV-start gate (CFG switch/ledger
         # and, when the refusal scope is "all", an untrusted SOC tier).
-        _start_hold = self._ev_start_hold_label(
-            soc_untrusted=self._soc_untrusted_from_battery(),
-        )
+        # Operator ruling 2026-10-04 (option 1): should-start-by is EXEMPT
+        # from the untrusted-SOC refusal — the grid/CFG leg stays here; the
+        # SOC leg routes through `_soc_untrusted_start_refused` (path
+        # "should_start_by", in EV_UNTRUSTED_SOC_EXEMPT_PATHS).
+        _start_hold = self._ev_start_hold_label()
+        _soc_u = self._soc_untrusted_from_battery()
+        from .energy_pool import _soc_untrusted_start_refused
         _held: list[tuple[str, str]] = []
         for evse_id in list(self._ev._paused_by_dp):  # noqa: SLF001
             # H-2 STICKY parity: safety/cost peer defer keeps the DP
@@ -5643,6 +5647,11 @@ class EnergyCoordinator(BaseCoordinator):
                 )
             elif _start_hold is not None:
                 _hold = _start_hold
+            elif _soc_untrusted_start_refused(
+                self._ev, evse_id, "ev", "should_start_by",
+                soc_untrusted=_soc_u,
+            ):
+                _hold = "soc_untrusted"
             # D2c — every other protective hold the clean reversion
             # already defers to (energy-savings / TOU / drain holds).
             elif evse_id in self._ev._paused_by_battery_drain:  # noqa: SLF001

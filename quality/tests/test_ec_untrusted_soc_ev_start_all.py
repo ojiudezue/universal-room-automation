@@ -82,8 +82,10 @@ def test_shipped_scope_is_all():
 
 
 class TestL2Paths:
-    @pytest.mark.parametrize("untrusted,n", [(False, 1), (True, 0)])
+    @pytest.mark.parametrize("untrusted,n", [(False, 1), (True, 1)])
     def test_ensure_on_offpeak(self, untrusted, n):
+        """EXEMPT (ruling 2026-10-04 opt 1): off-peak ensure-on starts
+        under an untrusted SOC."""
         ev = _ev(untrusted=untrusted)
         ev._paused_by_us.add("garage_a")  # TOU-pause end → off-peak ensure-on
         acts = ev.determine_actions("off_peak")
@@ -163,8 +165,9 @@ class TestL2Paths:
 
 
 class TestL1PlugPaths:
-    @pytest.mark.parametrize("untrusted,n", [(False, 1), (True, 0)])
+    @pytest.mark.parametrize("untrusted,n", [(False, 1), (True, 1)])
     def test_plug_ensure_on_offpeak(self, untrusted, n):
+        """EXEMPT (ruling 2026-10-04 opt 1)."""
         p = _plug(untrusted=untrusted)
         p._paused_by_us.add(_PLUG)
         acts = p.determine_actions("off_peak")
@@ -347,3 +350,178 @@ async def test_decision_cycle_stamps_captured_verdict(clock, mono, untrusted):
     on = [d for d in c.dispatched if d.get("service") == "switch.turn_on"
           and d.get("target") == _PLUG]
     assert len(on) == (0 if untrusted else 1)
+
+
+# --- Operator ruling 2026-10-04 option 1: exempt paths ----------------------
+#
+# Off-peak ensure-on (L2 + L1) and should-start-by deadline starts proceed
+# under an untrusted SOC; every other gate on them still holds; every
+# non-exempt path still refuses (TestL2Paths / TestL1PlugPaths / load-shed).
+
+from datetime import datetime, timezone  # noqa: E402
+
+from test_ec_degraded_data_p1 import _MSBShell, _forced_on  # noqa: E402
+
+# 03:30 with onset 04:00 → inside the hold window (onset refuses);
+# must-start-by 03:00 → deadline reached. Literals, not imported consts.
+_NOW_0330 = datetime(2026, 10, 4, 3, 30, tzinfo=timezone.utc)
+_MSB_0300 = 180
+
+
+def test_exempt_path_set_pinned():
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy_const,
+    )
+    assert energy_const.EV_UNTRUSTED_SOC_EXEMPT_PATHS == frozenset(
+        {"offpeak_ensure_on", "should_start_by"}
+    )
+
+
+def _onset(ctl):
+    ctl._ev_charge_onset_enabled = True
+    ctl._ev_charge_onset_time = "04:00"
+
+
+def _drain_kw(**extra):
+    # SOC 11 at reserve 10 → battery_out_of_capacity; threshold 20 → no
+    # daytime soc_recovered (needs >= 25).
+    kw = dict(battery_power_w=0.0, battery_soc=11, soc_threshold=20,
+              reserve_soc=10, is_offpeak=True)
+    kw.update(extra)
+    return kw
+
+
+class TestExemptOffpeakEnsureOn:
+    def test_ev_ensure_on_held_by_cfg_under_untrusted(self):
+        ev = _ev(untrusted=True)
+        ev._paused_by_us.add("garage_a")
+        acts = ev.determine_actions("off_peak", grid_charge_on=True)
+        assert _ons(acts, _SW) == []
+        assert ev._arbitrage_pause_reason.get("garage_a") == "breaker"
+
+    def test_plug_ensure_on_held_by_cfg_under_untrusted(self):
+        p = _plug(untrusted=True)
+        p._paused_by_us.add(_PLUG)
+        acts = p.determine_actions("off_peak", grid_charge_on=True)
+        assert _ons(acts, _PLUG) == []
+
+    def test_exempt_allow_logged_once_per_episode(self, monkeypatch):
+        rows: list = []
+        monkeypatch.setitem(
+            EVChargerController.determine_actions.__globals__,
+            "_pool_activity_log",
+            lambda hass, action, desc, eid: rows.append((action, desc, eid))
+            if action.startswith("ev_start_") else None,
+        )
+        ev = _ev(untrusted=True)
+        for _ in range(3):
+            ev.hass.set_state(_SW, "off")
+            ev.determine_actions("off_peak")
+        assert rows == [("ev_start_allowed_soc_untrusted_exempt",
+                         "kind=ev path=offpeak_ensure_on", "garage_a")]
+        ev._ev_start_soc_untrusted = False
+        ev.determine_actions("off_peak")  # trusted → episode closes
+        ev._ev_start_soc_untrusted = True
+        ev.determine_actions("off_peak")
+        assert len(rows) == 2
+
+
+class TestExemptShouldStartBy:
+    @pytest.mark.parametrize("untrusted", [False, True])
+    def test_ev_drain_must_start_by_reached_starts(self, untrusted):
+        ev = _ev(untrusted=untrusted)
+        _onset(ev)
+        ev._paused_by_battery_drain.add("garage_a")
+        acts = ev.determine_battery_drain_actions(**_drain_kw(
+            now_local=_NOW_0330, must_start_by_min=_MSB_0300,
+        ))
+        assert len(_ons(acts, _SW)) == 1
+
+    def test_ev_drain_dp_forcing_starts_untrusted(self):
+        ev = _ev(untrusted=True)
+        ev._paused_by_battery_drain.add("garage_a")
+        acts = ev.determine_battery_drain_actions(**_drain_kw(dp_forcing=True))
+        assert len(_ons(acts, _SW)) == 1
+
+    @pytest.mark.parametrize("untrusted,n", [(False, 1), (True, 0)])
+    def test_ev_drain_onset_permits_overnight_still_refused(self, untrusted, n):
+        """Overnight release NOT driven by the deadline (onset off → permits)
+        is a plain drain release → still refused under untrusted SOC."""
+        ev = _ev(untrusted=untrusted)
+        ev._paused_by_battery_drain.add("garage_a")
+        acts = ev.determine_battery_drain_actions(**_drain_kw())
+        assert len(_ons(acts, _SW)) == n
+        assert ("garage_a" in ev._paused_by_battery_drain) is untrusted
+
+    @pytest.mark.parametrize("untrusted,n", [(False, 1), (True, 0)])
+    def test_ev_drain_daytime_with_dp_forcing_still_refused(self, untrusted, n):
+        """Daytime (soc_recovered) release is not a deadline start even with
+        DP forcing set (overnight leg not firing) → still refused."""
+        ev = _ev(untrusted=untrusted)
+        ev._paused_by_battery_drain.add("garage_a")
+        acts = ev.determine_battery_drain_actions(**_drain_kw(
+            battery_soc=90, dp_forcing=True, is_offpeak=False,
+            solar_replenishing=True,
+        ))
+        assert len(_ons(acts, _SW)) == n
+
+    @pytest.mark.parametrize("untrusted,n", [(False, 1), (True, 0)])
+    def test_plug_drain_daytime_with_dp_forcing_still_refused(self, untrusted, n):
+        p = _plug(untrusted=untrusted)
+        p._paused_by_battery_drain.add(_PLUG)
+        acts = p.determine_battery_drain_actions(**_drain_kw(
+            battery_soc=90, dp_forcing=True, is_offpeak=False,
+            solar_replenishing=True,
+        ))
+        assert len(_ons(acts, _PLUG)) == n
+
+    @pytest.mark.parametrize("untrusted", [False, True])
+    def test_plug_drain_must_start_by_reached_starts(self, untrusted):
+        p = _plug(untrusted=untrusted)
+        _onset(p)
+        p._paused_by_battery_drain.add(_PLUG)
+        acts = p.determine_battery_drain_actions(**_drain_kw(
+            now_local=_NOW_0330, must_start_by_min=_MSB_0300,
+        ))
+        assert len(_ons(acts, _PLUG)) == 1
+
+    def test_plug_drain_must_start_by_held_by_cfg_under_untrusted(self):
+        p = _plug(untrusted=True)
+        _onset(p)
+        p._paused_by_battery_drain.add(_PLUG)
+        acts = p.determine_battery_drain_actions(**_drain_kw(
+            now_local=_NOW_0330, must_start_by_min=_MSB_0300,
+            grid_charge_on=True,
+        ))
+        assert _ons(acts, _PLUG) == []
+        assert _PLUG in p._paused_by_battery_drain
+
+    @pytest.mark.parametrize("untrusted,n", [(False, 1), (True, 0)])
+    def test_plug_drain_onset_permits_overnight_still_refused(self, untrusted, n):
+        p = _plug(untrusted=untrusted)
+        p._paused_by_battery_drain.add(_PLUG)
+        acts = p.determine_battery_drain_actions(**_drain_kw())
+        assert len(_ons(acts, _PLUG)) == n
+
+    def test_must_start_release_starts_untrusted(self, clock):
+        sh = _MSBShell(clock)
+        sh.s._tick_soc_source = "cloud_fallback"
+        assert sh._soc_untrusted_from_battery() is True
+        sh._apply_dp_must_start_release(tou_period="off_peak")
+        assert _forced_on(sh)
+
+    def test_must_start_release_held_by_cfg_under_untrusted(self, clock):
+        sh = _MSBShell(clock, cfg_w="on")
+        sh.s._tick_soc_source = "cloud_fallback"
+        sh._apply_dp_must_start_release(tou_period="off_peak")
+        assert not _forced_on(sh)
+        assert "garage_a" in sh._ev._paused_by_dp
+
+    def test_dp_reversion_still_refused_untrusted(self, clock):
+        """Non-exempt sibling: DP reversion under the tick's untrusted label."""
+        sh = _MSBShell(clock)
+        sh.s._tick_soc_source = "cloud_fallback"
+        hold = sh._ev_start_hold_label(soc_untrusted=sh._soc_untrusted_from_battery())
+        assert hold == "soc_untrusted"
+        sh._apply_dp_reversion(tou_period="off_peak", ev_start_hold=hold)
+        assert not _forced_on(sh)

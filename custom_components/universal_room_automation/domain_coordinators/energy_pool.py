@@ -254,6 +254,7 @@ def _maybe_log_onset_edge(
 
 def _soc_untrusted_start_refused(
     controller, entity_id: str, kind: str, path: str,
+    soc_untrusted: bool | None = None,
 ) -> bool:
     """EC degraded-data p1 (operator ruling 2026-10-04): True when an EV /
     L1-plug turn-on must be REFUSED because THIS tick's SOC verdict is
@@ -265,20 +266,45 @@ def _soc_untrusted_start_refused(
     absent stamp reads as trusted (legacy stubs keep today's behaviour).
     Callers keep their pause membership on refusal (sticky) so the start
     re-fires once trust returns. Edge-logged: one activity row per
-    (entity, path) hold episode."""
+    (entity, path) hold episode.
+
+    Paths in ``EV_UNTRUSTED_SOC_EXEMPT_PATHS`` (off-peak ensure-on,
+    should-start-by) are never refused; logged once per episode as
+    ``ev_start_allowed_soc_untrusted_exempt``. ``soc_untrusted`` overrides
+    the controller stamp (the must-start-by timer fires off-tick)."""
     refused = False
-    if getattr(controller, "_ev_start_soc_untrusted", False) is True:
+    exempt = False
+    if soc_untrusted is None:
+        untrusted = getattr(controller, "_ev_start_soc_untrusted", False) is True
+    else:
+        untrusted = soc_untrusted is True
+    if untrusted:
         from . import energy_const as _ec
-        refused = getattr(
+        if getattr(
             _ec, "EV_UNTRUSTED_SOC_START_REFUSAL_SCOPE", "arbitrage_release",
-        ) == "all"
+        ) == "all":
+            # Operator ruling 2026-10-04 (option 1): exempt paths proceed.
+            if path in getattr(_ec, "EV_UNTRUSTED_SOC_EXEMPT_PATHS", ()):
+                exempt = True
+            else:
+                refused = True
     try:
         cache = getattr(controller, "_soc_refusal_log_state", None)
         if cache is None:
             cache = {}
             controller._soc_refusal_log_state = cache
         key = (entity_id, path)
-        if refused and not cache.get(key):
+        if exempt and not cache.get(key):
+            cache[key] = True
+            _LOGGER.info(
+                "EV start allowed under untrusted battery SOC (exempt "
+                "path): %s %s path=%s", kind, entity_id, path,
+            )
+            _pool_activity_log(
+                controller.hass, "ev_start_allowed_soc_untrusted_exempt",
+                f"kind={kind} path={path}", entity_id,
+            )
+        elif refused and not cache.get(key):
             cache[key] = True
             _LOGGER.info(
                 "EV start refused (battery SOC untrusted): %s %s path=%s",
@@ -288,7 +314,7 @@ def _soc_untrusted_start_refused(
                 controller.hass, "ev_start_refused_soc_untrusted",
                 f"kind={kind} path={path}", entity_id,
             )
-        elif not refused and cache.get(key):
+        elif not (refused or exempt) and cache.get(key):
             cache.pop(key, None)
     except Exception:  # noqa: BLE001 — telemetry must never break control
         _LOGGER.debug("soc-untrusted refusal log failed", exc_info=True)
@@ -1697,7 +1723,7 @@ class EVChargerController:
                     if _od is not None:
                         _od.discard(evse_id)
                 elif _soc_untrusted_start_refused(
-                    self, evse_id, "ev", "ensure_on",
+                    self, evse_id, "ev", "offpeak_ensure_on",
                 ):
                     # Untrusted SOC: no ensure-on this tick (re-issued
                     # idempotently every off-peak tick once trusted).
@@ -2593,8 +2619,17 @@ class EVChargerController:
                                 evse_id,
                             )
                             continue
+                        # Should-start-by deadline start (overnight leg
+                        # forced by must-start-by / DP forcing) is EXEMPT
+                        # from the untrusted-SOC refusal (ruling 10-04).
+                        _sr_path = (
+                            "should_start_by"
+                            if (overnight_release
+                                and (must_start_by_reached or dp_forcing))
+                            else "drain_release"
+                        )
                         if _soc_untrusted_start_refused(
-                            self, evse_id, "ev", "drain_release",
+                            self, evse_id, "ev", _sr_path,
                         ):
                             continue  # untrusted SOC: keep drain claim
                         # v3 (funnel P0-#4) — route through the funnel
@@ -3900,7 +3935,7 @@ class SmartPlugController:
                     if _od is not None:
                         _od.discard(entity_id)
                 elif _soc_untrusted_start_refused(
-                    self, entity_id, "plug", "ensure_on",
+                    self, entity_id, "plug", "offpeak_ensure_on",
                 ):
                     pass  # untrusted SOC: re-issued next off-peak tick
                 else:
@@ -4316,8 +4351,15 @@ class SmartPlugController:
                             "(grid charge on)", entity_id,
                         )
                         continue
+                    # Should-start-by deadline start: EXEMPT (ruling 10-04).
+                    _sr_path = (
+                        "should_start_by"
+                        if (overnight_release
+                            and (must_start_by_reached or dp_forcing))
+                        else "drain_release"
+                    )
                     if not is_on and _soc_untrusted_start_refused(
-                        self, entity_id, "plug", "drain_release",
+                        self, entity_id, "plug", _sr_path,
                     ):
                         continue  # untrusted SOC: keep drain claim
                     if not is_on:

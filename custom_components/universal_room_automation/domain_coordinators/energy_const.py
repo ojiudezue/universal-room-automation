@@ -576,6 +576,17 @@ CFG_LEDGER_RESTORE_MAX_AGE_H: Final = 12
 # set back to "arbitrage_release". Rung 1 (trust decision on a safety input).
 EV_UNTRUSTED_SOC_START_REFUSAL_SCOPE: Final = "all"
 
+# Operator ruling 2026-10-04 (option 1): turn-on paths EXEMPT from the
+# untrusted-SOC refusal above — the off-peak ensure-on (L2 + L1; TOU-pause
+# end / overnight start) and should-start-by (must-start-by) deadline starts
+# proceed under an untrusted SOC (car-charge liveness outranks the SOC
+# doubt). Every OTHER gate on them (CFG breaker / grid_charge_on /
+# `_ev_start_hold_label` grid leg / arbitrage / blind-window / drain holds)
+# still applies. Empty set = refuse on every path. Rung 1 (trust decision).
+EV_UNTRUSTED_SOC_EXEMPT_PATHS: Final = frozenset(
+    {"offpeak_ensure_on", "should_start_by"}
+)
+
 # ============================================================================
 # Inclement-weather detection + TOU/solar-horizon-aware battery hold
 # (Robust Inclement-Weather Reserve cycle — supersedes has_storm_forecast()).

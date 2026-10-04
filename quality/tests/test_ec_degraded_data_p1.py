@@ -2370,7 +2370,8 @@ class TestDHigh1EvStartGate:
         assert sh._ev_start_hold_label(soc_untrusted=True) == expect
 
     @pytest.mark.parametrize("scope,expect_on", [
-        ("arbitrage_release", True), ("all", False),
+        # "all": should-start-by is EXEMPT (operator ruling 2026-10-04 opt 1).
+        ("arbitrage_release", True), ("all", True),
     ])
     def test_must_start_by_untrusted_scope(self, clock, monkeypatch, scope, expect_on):
         _setc(monkeypatch, "EV_UNTRUSTED_SOC_START_REFUSAL_SCOPE", scope)
