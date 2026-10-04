@@ -283,8 +283,9 @@ def uninstall(hass: HomeAssistant) -> None:
     if wd is None:
         return
     # Detach the HA-stop listener FIRST so it can't fire against a
-    # torn-down watchdog handle. Idempotent — HA's async_listen_once
-    # unsub is safe to call twice.
+    # torn-down watchdog handle. HA's async_listen_once unsub is NOT safe
+    # to call twice (or after the listener fired) — it logs "Unable to
+    # remove unknown job listener" — so it is cleared after one use.
     unsub = getattr(wd, "_ha_stop_unsub", None)
     if unsub is not None:
         try:
