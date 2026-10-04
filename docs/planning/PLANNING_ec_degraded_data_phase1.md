@@ -112,7 +112,7 @@ heavier demotion than D3: HVAC, BAEC and the sensors would lose it as well. It i
 | Value | Producer | Health today |
 |---|---|---|
 | Native Envoy SOC | `sensor.envoy_482543015950_battery`, fresh by `last_reported` ≤ 300 s (:890-894) | Flaky: 22.7 dropouts/day in the D0 week; restart-triggered outages today |
-| Stream SOC | `sensor.envoy_stream_battery_soc` = `meters.enc_agg_soc` from `/ivp/livedata/status` at ~1 Hz via add-on `13e68335_envoy_to_mqtt_json`; HA MQTT `expire_after: 60` → `unavailable` after 60 s of silence | Live since 2026-10-03 13:03; survived both of today's outages. **Unknown: whether HA refreshes `last_reported` on identical MQTT payloads (D0-S1).** |
+| Stream SOC | `sensor.envoy_stream_battery_soc` = `meters.enc_agg_soc` from `/ivp/livedata/status` (observed ~5-6 s cadence + ~20 s clock skew, memory 2026-09-25; not 1 Hz) via add-on `13e68335_envoy_to_mqtt_json`; HA MQTT `expire_after: 60` → `unavailable` after 60 s of silence | Live since 2026-10-03 13:03; survived both of today's outages. **Unknown: whether HA refreshes `last_reported` on identical MQTT payloads (D0-S1).** |
 | Cloud SOC | `sensor.iq_battery_hacs_battery_overall_charge`, fresh by `last_updated` ≤ 600 s (:957-972) | Untrustworthy: frozen, re-reported values; p95 \|Δ\| 11.5 pp, max 74.9 pp (D0 Q3); over-read 96.2 vs 90 today |
 | LKG | stamped only on native reads (:896-897) → after D1, also on trusted stream reads | — |
 
@@ -227,7 +227,8 @@ pattern :1322):
 - Within threshold for 2 consecutive compared ticks → `trusted`.
 - **Persistence:** `{state, since_iso}` saves and restores on the existing EC energy-state path next to
   `battery_soc_lkg` (`energy.py:1636-1644`, `:2050-2053`), as a new key `battery_soc_stream_trust`. Default when
-  absent = `trusted`. Rationale: outages start at restart, so requiring a post-restart agreement would disable the
+  absent = `trusted`. **Save immediately on every trust transition** (event save, as above) — the 15-min cadence
+  would let a quarantine set <15 min before a restart silently revert to `trusted` (fail-open). Rationale: outages start at restart, so requiring a post-restart agreement would disable the
   tier exactly when it is needed. A persisted `quarantined` survives restart.
 
 **Downstream semantics, kept deliberately narrow:**
@@ -274,10 +275,15 @@ drops out."
 **D2a — arbitrage release refusal.** At `energy_pool.py:2940`, inside the release loop and **before**
 `self._arbitrage_pause_reason.pop` / `discard` (:2955-2956), add a second refusal next to the existing
 `grid_charge_on` refusal (:2947-2954):
-- `untrusted = coord.soc_untrusted_this_tick()` (new coordinator method). It is True when the battery's
-  `_tick_soc_source` is not in `{"envoy","lkg","stream"}`. Coordinator reference via `attach_coord`
-  (`energy.py:6853`). If there is no coord (legacy test stubs), use `untrusted = False`, preserving today's
-  behaviour.
+- **(Plan-review #2 rewrite)** Thread the verdict as an explicit kwarg, exactly like `grid_charge_on`:
+  `determine_arbitrage_actions(..., soc_untrusted: bool = False)`. The caller captures
+  `soc_untrusted = battery._tick_soc_source not in {"envoy","lkg","stream"}` **immediately after
+  `determine_mode` returns (`energy.py:5898`), before the first `await`**, and threads the local through
+  `_execute_breaker_safe_dispatch` → `_dispatch_post_decision_tou_and_arbitrage` (`:6884`). Do NOT read it via a
+  coordinator method at release time: (i) `attach_coord` is only called when `_ev_tou_enabled` (`energy.py:6853`),
+  so with EV TOU off the "no coord → False" fallback silently disables D2a; (ii) `_evaluate_battery`
+  (`energy.py:6620`) re-runs `determine_mode` and can overwrite `_tick_soc_source` across the awaits between
+  5898 and 6084. Default `False` keeps legacy stubs on today's behaviour.
 - If `untrusted`, keep membership and the label, log once per epoch, and `continue`. **No debounce**: refusing to
   loosen must take effect on the first untrusted tick (DESIGN §3).
 - **Discharge (the suppression needs one):** stamp `_arb_release_refused_since[evse_id]` (monotonic) on the first
@@ -295,10 +301,36 @@ drops out."
 `_execute_breaker_safe_dispatch`, at the `else` (unknown/unavailable) branch `energy.py:6747-6759` and the
 `st is None` branch :6736-6740 and the except branch :6760-6763: set `live_grid_charge_on = True` when
 `_last_known_grid_charge_on` **or** `self._battery._last_charge_from_grid_command is True`. An explicit `off`
-read (:6744-6746) is still believed. That avoids the stale-ledger trap: an operator turning CFG off by hand
-leaves the ledger True, but the switch reads `off`.
+read (:6744-6746) is still believed. That avoids the stale-ledger trap on the *same* tick: an operator turning
+CFG off by hand leaves the ledger True, but the switch reads `off`.
+*(Plan review #1 — stale ledger across ticks.)* The ledger is only advanced by URA's own dispatch tap
+(`energy.py:8209-8211`), and `_result` never emits `turn_off` when the switch already reads off (:6031). So after a
+manual stop the ledger stays True indefinitely, and every later `unavailable` blip would re-pause EVs as
+`breaker`. Rule: stamp `self._last_cfg_off_read_at` (RAM, monotonic-free UTC) on every explicit `off` read in the
+chokepoint, and count the ledger only when `_last_charge_from_grid_command is True` **and**
+(`_last_cfg_off_read_at is None` **or** `_last_charge_from_grid_command_at > _last_cfg_off_read_at`). Test:
+`test_breaker_intent_stale_ledger_after_manual_off` (ledger True at T0, `off` read at T1, `unavailable` at T2 →
+intent False).
 The fully-blind return dict keeps `"charge_from_grid": False` (:5287), because the chokepoint now carries the
 truth. Only one site changes.
+
+**D2c — must-start-by must not override a breaker pause (plan review #1, pre-existing leak; operator Q7).**
+`_apply_dp_must_start_release` (`energy.py:5378-5470`, fired by the point-in-time callback `_on_dp_must_start_by`
+`:5656-5673`) defers only to grid-cap / load-shed / fill-priority (`:5398-5402`). It does **not** defer to
+`_paused_by_arbitrage`, and it does not read CFG. It calls `switch.turn_on` directly (`:5460-5466`). The
+arbitrage pause loop then skips the EVSE as "already paused" (`energy_pool.py:2911-2912`) and never re-issues
+`turn_off`. Legal repro: shoulder/summer off-peak; EVSE in `_paused_by_dp` (sticky drain claim) and in
+`_paused_by_arbitrage` with label `breaker` (rung-2 CHARGE, CFG on, 03:00-05:00 under lead 180); must-start-by
+(default 03:00-04:00, `PLANNING_evse_drain_precedence.md:217`) fires → EV on + ~20 kW grid charge = the 134 A
+compound load the chokepoint exists to prevent. Same path on an untrusted tick defeats D2a's intent.
+Fix (one predicate): before the turn_on, keep the DP claim sticky when
+`self._ev._arbitrage_pause_reason.get(evse_id) == "breaker"` **or** the write-leg CFG reads `on`
+**or** (`unknown/unavailable` and the D2b ledger rule says on). Liveness is preserved: the next decision tick
+after grid charge ends retries via the existing sticky DP retry driver. `redirect` label does not block
+(cost, not safety). Tests: `test_must_start_by_defers_to_breaker_pause`,
+`test_must_start_by_defers_when_cfg_live_on`, `test_must_start_by_releases_on_redirect_label`; wire-in anchor via
+`_on_dp_must_start_by`. If the operator rejects D2c (INV-DP2 liveness priority), card it as
+`EC-MUST-START-BY-BREAKER-BYPASS-1` — it must not be dropped silently.
 
 **Not changed:** the guard's sighted-tick drain (`energy_pool.py:1520-1522`). A trusted tick is real data
 returning, so draining there is correct.
@@ -371,19 +403,24 @@ stays in `battery_soc` for all other consumers.
 runs once per tick.
 
 - Untrusted = `_tick_soc_source ∉ {envoy, lkg, stream}`. Dwell starts at the first untrusted tick and resets on
-  any trusted tick.
-- Boundary from `self._tou.get_next_high_rate_transition(now)` (`energy_tou.py:645`). Skip if None or if already
-  in a high-rate period.
+  any trusted tick. **Dwell is wall-clock** (`now - _untrusted_since`), never a tick count: `determine_mode` has
+  two callers (`energy.py:5898` timer, `:6620` `_evaluate_battery`), so "once per tick" is not guaranteed.
+- Boundary from `self._attain_target_boundary(now, tou_period)` (`energy_battery.py:4029`, REUSE) — off_peak →
+  next mid_peak/peak; **mid_peak → next peak**. (Plan-review #2 fix: `get_next_high_rate_transition` only finds
+  off_peak→high and would skip the 10-02 mid_peak window that §7 row 3 asserts.) Skip if None or if in `peak`.
 - Fire when dwell ≥ `DEFAULT_SOC_UNTRUSTED_PAGE_DWELL_MIN` **and** minutes to boundary ≤
   `DEFAULT_SOC_UNTRUSTED_PAGE_LEAD_MIN`. This is a notification, so the dwell is a debounce on *alerting*, not on
   a loosening. It filters the 66 % of outages under 2 min.
-- Latch per boundary: `_untrusted_page_boundary_iso`. Persist it with the D1 stream-trust blob so a restart inside
-  the window does not re-page.
+- Latch per boundary: `_untrusted_page_boundary_iso`. Persist under its **own** KV key `ec_untrusted_page_latch`
+  (not inside the D1 blob — D1 ships kill-switched and D4 must persist regardless). Save **immediately on latch**
+  (`hass.async_create_task(self._save_evse_state())`-style event save), not only on the 15-min cadence
+  (`_periodic_db_writes` `energy.py:8515`); otherwise a restart within 15 min of the page re-pages.
 - Message (plain): "Battery level is unknown (Envoy offline{, cloud reading only}) {N} min before the {HH:MM}
   higher-rate period. Last trusted reading {LKG}% at {time}. URA is holding and will not grid-charge. Charge by
   hand if needed." Severity `high`, hazard_type `battery_soc_unknown_before_boundary`.
-- Send via the coordinator `_send_nm_alert` through the `_fire_d2_nm` shape (:1247-1267). It reuses the
-  latch-before-dispatch rule, so a failed send cannot become a per-tick storm.
+- Send via the coordinator `_send_nm_alert`, copying the `_fire_d2_nm` shape (:1222-1267) — latch-before-dispatch so a
+  failed send cannot storm. **Do NOT call `_fire_d2_nm` itself:** it latches per *calendar day* and hardcodes
+  `severity="warning"`. Either add `latch_value`/`severity` params to it (default-preserving) or write a sibling.
 
 ### Acceptance Criteria
 - **Test:** `test_page_fires_once_per_boundary` — untrusted for 15 min at T-60 → exactly 1 send; more ticks → 0;
@@ -486,3 +523,89 @@ different failure.
 4. Q4 — Page lead time (90 min): code constant or dashboard Number?
 5. Q5 — Later card: use stream grid power as the import witness so attain can grid-charge on a stream tick (closes 10-02 automatically)?
 6. Q6 — A/B confound: count restart-caused outages separately (today's 16:00 outage had the stream on)?
+7. Q7 — Must-start-by (03:00-04:00 liveness) currently overrides a `breaker` arbitrage pause (D2c). Keep the breaker pause (recommended) or let liveness win and card it?
+
+---
+
+## Plan review #2 (build-prediction) — 2026-10-03, ura-reviewer
+
+Framing: what will the builder get wrong. Every item verified against develop at the cited line. Items marked
+**[fixed in plan]** were edited above; the rest are directives the builder must follow (treat as part of the spec).
+
+| # | Sev | Item | Disposition |
+|---|---|---|---|
+| R2-1 | HIGH | D2a read the trust verdict via `coord.soc_untrusted_this_tick()` + `attach_coord`. `attach_coord` runs only under `_ev_tou_enabled` (`energy.py:6847-6856`) → with EV TOU off, D2a is silently off (#53). Also a torn read across awaits: `_evaluate_battery` (`energy.py:6620`) re-runs `determine_mode`. | **[fixed in plan]** capture-before-first-await local, threaded as kwarg like `grid_charge_on`. Wire-in anchor test must run with `_ev_tou_enabled=False` too. |
+| R2-2 | HIGH | D4 boundary via `get_next_high_rate_transition` returns only the off_peak→high edge (`energy_tou.py:645-660`); "skip if in high-rate" kills the mid_peak→peak case that §7 row 3 (10-02 ~15:30 page) asserts. | **[fixed in plan]** REUSE `_attain_target_boundary` (`energy_battery.py:4029`); skip only in `peak`. |
+| R2-3 | HIGH | D1 quarantine persists on the 15-min `_save_evse_state` cadence (`energy.py:8515`) with default-absent=`trusted` → quarantine set <15 min before a restart reverts to trusted (fail-open, exactly at the restart-triggered outage). Same for the D4 latch (re-page). | **[fixed in plan]** event-save on transition/latch; D4 latch gets its own key so it persists with D1 kill-switched. |
+| R2-4 | MED | `_fire_d2_nm` (`energy_battery.py:1222-1267`) latches per calendar day and hardcodes `severity="warning"`; D4 needs per-boundary latch + `high`. A builder "reusing" it ships a per-day page at the wrong severity. | **[fixed in plan]** |
+| R2-5 | MED | Dwell/quarantine counted in "ticks": `determine_mode` has two callers (5898, 6620), so two calls seconds apart can satisfy "2 ticks". | **[fixed in plan]** for D4 (wall-clock). **Builder directive** for D1: a compared sample counts only if ≥ 60 s after the previous compared sample (or count distinct native `last_reported` stamps). Test: two back-to-back calls in the same second → still `trusted`. |
+| R2-6 | MED | D3 no-flap. A single `cloud_fallback` tick inside a latched charge emits `switch.turn_off` (`_result` else-branch :6023-6066); the next native tick re-emits `turn_on` (no degraded flag → ON-heal not suppressed). Alternating tiers → CFG off/on per tick on the cloud write leg. Not stranding (latch stays in RAM, native tick resumes; an `lkg` tick cannot follow a cloud tick without a native read in between, since LKG is stamped only on native/stream reads :896), but it is actuation churn and a write-verifier interaction. | **Builder directive:** accept the toggle (correct direction: withhold is the safe side) but add test `test_cloud_withhold_alternation_bounded` — envoy/cloud ×10 alternation → turn_off only on cloud ticks, turn_on only on native ticks, never on an `lkg` tick, attain/arbitrage phase not reset to inactive by the withhold. Do NOT add a "N trusted ticks to resume" hysteresis — that strands the charge. |
+| R2-7 | MED | D3 attr `_grid_charge_withheld_untrusted` is set only inside `_result`; the blind branch (:5159-5288) returns without `_result` → a True from the previous tick sticks. | **Builder directive:** entry-reset it (and the D2a/D5 per-tick values) at the top of `determine_mode`, next to the `_tick_soc_source` capture at :5108. D5 `soc_tier_trusted` derives from `_tick_soc_source`, NOT `_soc_source_last` (:6631), which HVAC/DP reads of `battery_soc` mutate between ticks. |
+| R2-8 | MED | D2b suppression discharge missing. Ledger True + write-leg CFG `unavailable` for hours: `_result` emits `turn_off` only when `current_cfg is True` (:6030), so the ledger never flips False → `grid_charge_intent` stays True → EVs breaker-paused until the cloud switch returns. Pre-existing for the LKG latch; D2b widens it to "LKG False, ledger True". | **Builder directive:** no time-bound loosening (breaker safety outranks car charge); the discharge is (a) explicit `off` read, (b) the D4-style page — extend D4's trigger to also fire when `grid_charge_intent` was forced True by the unknown-leg path for ≥ dwell during off_peak with an EVSE held. Test both. |
+| R2-9 | MED | D2a "provably off" must read the **write** leg (`role="write"`, cloud-first) — never `role="read"` (local Enpower, the standing-on flag, §1.4). The cloud leg can itself be frozen; that is accepted because the ledger-not-True conjunct also must hold. | **Builder directive**; test with local leg `on`, cloud `off`, ledger False → released at 61 min (proves local leg is not consulted). |
+| R2-10 | LOW | D3 storm exemption (Q2) has no specified mechanism. | **Builder directive:** a keyword `cloud_withhold_exempt: bool = False` on `_result`, passed True only at :5418/:5429, and only if the operator answers Q2 "keep". Default build = exemption ON (recommended) behind that kwarg; Reviewer C neuters it. |
+| R2-11 | LOW | D3 must change the **returned** `charge_from_grid` key (:6159), not only skip the action — the chokepoint reads the dict (`energy.py:6720`). | Builder directive; covered by `test_cloud_withhold_keeps_ev_paused`. |
+| R2-12 | LOW | I-7 "byte-identical blind branch" vs D4 call on that path: decision dict must stay identical; the page is a side effect only. | Clarification. |
+| R2-13 | LOW | Replay tests (§7) are hollow if they set `_tick_soc_source` / `_soc_source_last` directly. | **Builder directive:** drive `hass.states` with recorder-derived values AND `last_reported`/`last_updated` stamps; let the real resolver pick the tier. Reviewer C neuters the D1 insert and the D2a refusal and confirms the replay rows go RED. |
+| R2-14 | LOW | Plan said stream ~1 Hz; memory measured ~5-6 s + ~20 s skew. Co-witness 120 s / max-age 90 s still hold. | **[fixed in plan]** |
+
+**Cleared (holds because):**
+- `_tick_soc_source` lifetime inside `determine_mode`: no `return` precedes :5108 in `determine_mode` (:5041-5108), so
+  set-at-entry is total for that call. `_result` re-reads `battery_soc` at :6136 for the `soc` display key only — fine as
+  long as D3/D5 read `_tick_soc_source`.
+- D3 cannot strand a latched attain via the ON-heal suppression: suppression (:5960-5984) only applies on degraded ticks;
+  a cloud tick can only be followed by a native tick (re-emits on) or another untrusted tick (correctly withheld).
+- v5.103.37 WAIT floor / EV drain-precedence: D3 leaves `reserve_level` untouched (WAIT floor reserve writes unaffected);
+  D2a gates only `_paused_by_arbitrage` membership — drain-pause/fill/grid-cap owners are separate sets and keep their
+  own release paths.
+
+**Verdict: BUILD-READY** with the in-plan fixes above and R2-5..R2-13 as binding builder directives (copy this table
+into the build brief). No item requires re-planning.
+
+
+---
+
+## Plan review #1 (completeness) — 2026-10-03, ura-reviewer
+
+Framing: independent re-enumeration on develop (v5.103.38) of every surface the plan claims. Disjoint from #2
+(build-prediction); overlaps with #2 are noted, not re-litigated.
+
+**Re-enumeration results**
+
+| Surface | Enumerated (grep, develop) | Plan coverage |
+|---|---|---|
+| `charge_from_grid=True` emitters | `energy_battery.py:3554` (arb CHARGE), `:4317` (attain builder), `:5418`, `:5429` (storm). All go through `_result`; `_result` has 19 call sites, all inside the `determine_mode` call tree (`determine_mode` ×13, `_get_arbitrage_decision` ×3, attain ×2, `_maybe_run_reboot_recovery` ×1 — reached from :4659 inside the tick). No CFG `turn_on` outside `_result` (:5952-6023): `force_redispatch` (:6261) is reserve-only; WriteVerifier re-dispatch routes via `force_redispatch`. | COMPLETE. The `_result` chokepoint covers all four. |
+| EV turn-on paths vs `_paused_by_arbitrage` | arb release loop `energy_pool.py:2940-3027` (sole `discard`, :2956); ensure-on :1599 + peer :2163/:2514/:2775; `release_all_tou`/`_fill_priority`/`_grid_cap` :3303/:3345/:3386 all defer to arbitrage membership; DP reversion `energy.py:5284` defers; force-charge drains only the blind-window set (`energy_pool.py:1561-1567`). **DP must-start-by `energy.py:5398-5402` does NOT defer to arbitrage** and turns on directly (:5460). | GAP → **D2c added** (C1-1). |
+| Breaker chokepoint consumers of `grid_charge_intent` | `_execute_breaker_safe_dispatch` :6764 → returned to `_dispatch_post_decision_tou_and_arbitrage` → `determine_actions(grid_charge_on=)` :6856 and `determine_arbitrage_actions(grid_charge_on=)` :6885. Excess-solar (`energy.py:6113`) takes no `grid_charge_on`, but is covered by membership because the breaker path claims every EVSE into `_paused_by_arbitrage` earlier in the same tick (`energy_pool.py:2902-2932`). Must-start-by is a timer callback outside the tick and reads neither. | Covered except must-start-by (D2c). |
+| Tier-tag-sensitive branches | `energy.py:2484` envoy cache gate (`!= "envoy"` → stream correctly excluded); `energy_battery.py:1393` divergence `tier_ok` (stream excluded, correct); `:2474` LKG snapshot `source`; `:1288-1297` tier map; `sensor.py:14316-14317` `fallback_active = src not in (None,"envoy")` — **not in plan §2.2** (display; stream → `fallback_active=True`, which is accurate). `blind_hold_active` `energy.py:3766-3806` keys on `soc is None`, not the tag. | Add `sensor.py:14316` to §2.2 display list (C1-5). |
+| Restart persistence | LKG `battery_soc_lkg` saved in `_save_evse_state` (`energy.py:2047-2053`), restored in `_restore_evse_state` (:1636) with `STALE_MAX_AGE_HOURS = 10.0` (:1511). Saves are event-driven (11 sites) + `_periodic_db_writes` :8515 + teardown :9129. CFG ledger persisted/restored (:1868-1871, :2129). `_last_known_grid_charge_on` is RAM-only (`energy.py:441`) — so after a restart D2b's ledger leg is the ONLY fail-closed memory. `_tick_soc_source` RAM, None until first `determine_mode`. | #2 R2-3 fixed event-save. Add: a quarantine older than 10 h restores as absent → `trusted` (document as intended) (C1-6). |
+| Config field / second home | Cloud SOC field pattern `config_flow.py:6910-6920` (`suggested_value`), map key `battery_soc_cloud` `energy.py:1020`. | OK. Unset stream → tier off. See C1-4 for a second-home liveness corner. |
+| TOU boundary (D4) | PEC built-ins `energy_const.py` `PEC_TOU_RATES`: **October = shoulder, off_peak 0-17, mid_peak 17-21** (no peak). So 10-02 14:00-15:48 CDT was **off_peak**; the 17:00 boundary is off_peak→mid_peak and the original helper would have found it. #2's R2-2 rationale ("10-02 mid_peak window") is factually wrong for October, but its fix (`_attain_target_boundary`, mid_peak→peak) is still correct and needed for **summer** (mid 14-16 → peak 16-20). | Replay rows: verified (see below). |
+
+**Replay acceptance check (§7)** — timezones and boundaries re-derived from the rate table:
+- 10-03 16:00-17:28 CDT: off_peak until 17:00 → lead window 15:30-17:00 → page at ~16:10 (dwell 10) under kill-switch-off. Row holds.
+- 10-03 00:37-00:58 CDT: next boundary 17:00, outside 90-min lead → no page. Row holds.
+- 10-02 19:00-20:48Z = 14:00-15:48 CDT, off_peak, boundary 17:00 → first tick ≥ 15:30 with dwell ≥ 10 → ~15:30. Row holds.
+- 10-01 05:50-07:30Z = 00:50-02:30 CDT → D2a refuses the 1 blind-tick + 3 cloud-tick turn-ons. Holds **provided** D2a is the kwarg form (#2 R2-1); the coord form would fail open with EV TOU off.
+
+**Findings**
+
+| # | Sev | Finding | Disposition |
+|---|---|---|---|
+| C1-1 | **HIGH** (pre-existing) | Must-start-by bypasses a `breaker` arbitrage pause. `_apply_dp_must_start_release` `energy.py:5398-5402` defers only to grid-cap/load-shed/fill-priority, then `switch.turn_on` at :5460-5466; the arbitrage pause loop then treats the EVSE as already paused (`energy_pool.py:2911-2912`) and never re-turns it off. Legal repro: off-peak, rung-2 CHARGE (CFG on, lead 180 → ~03:00-06:00), EVSE in `_paused_by_dp` + `_paused_by_arbitrage["breaker"]`, must-start-by at 03:00-04:00 (`PLANNING_evse_drain_precedence.md:217`) → EV on during a ~20 kW grid charge. Plan §1.2 cited `:5378` as "peer deferral" — that is the normal DP release (:5284), not must-start-by. | **[fixed in plan]** new **D2c** (one predicate; `redirect` does not block). Operator **Q7**: accept D2c over INV-DP2 liveness, or card `EC-MUST-START-BY-BREAKER-BYPASS-1`. Reviewer D must include it in the I-1/breaker surface. |
+| C1-2 | MED | D2b stale ledger after a manual stop (distinct from #2 R2-8). The ledger advances only on URA's dispatch tap (`energy.py:8209-8211`); `_result` emits `turn_off` only when the switch reads on (:6031). After an operator stops a charge by hand, the ledger stays True forever, so every later `unavailable` blip re-pauses EVs as `breaker`. | **[fixed in plan]** D2b: ledger counts only if its `_at` stamp is newer than the last explicit `off` read; new test. |
+| C1-3 | MED | D2a reuses `CONF_BLIND_WINDOW_MAX_DEFER_MIN` (`energy_const.py:1702`) — also the blind-window guard's kill switch (`energy_pool.py:980`, :1444). Setting it to 0 to back out D2a also disables the guard defer, and vice versa (concept coupling, Bug Class #63). | **Builder directive:** new rung-1 `DEFAULT_ARB_RELEASE_UNTRUSTED_MAX_DEFER_MIN = 60` (its own kill switch, `<= 0` = no refusal). Update §5 and §6 rows. |
+| C1-4 | LOW | D2a "provably off" requires the write-leg CFG to read exactly `off`. A home with no CFG entity configured (eid None) can never be provably off → an arbitrage-held EV stays held for the whole untrusted window. | **Builder directive:** CFG write-leg entity unresolvable (no capability) ⇒ treat as provably off. Test it. |
+| C1-5 | LOW | §2.2 consumer list misses `sensor.py:14316-14317` (`fallback_active`). Display only; stream → True is correct. | Add to §2.2; no code change. |
+| C1-6 | LOW | Stream-trust restore uses the 10 h `STALE_MAX_AGE_HOURS` bound (`energy.py:1511`); a quarantine older than 10 h restores as `trusted`. | Document as intended (a native comparison re-quarantines within 2 compared samples). Test the boundary. |
+| C1-7 | LOW | D4 in observation mode: `determine_mode` still runs, dispatch is skipped. Plan is silent on whether the page fires. | **Builder directive:** page fires in observation mode (it is advice to a human, not actuation); state it in the README. |
+
+**Cleared (holds because):**
+- I-3 completeness: all four grid-charge emitters reach the decision dict only through `_result`; no CFG `turn_on` exists outside it (grep above).
+- I-1 membership: `_paused_by_arbitrage.discard` exists only at `energy_pool.py:2956`; every other release/ensure-on/toggle path defers to membership. So a refusal placed before :2955 holds the EV on every tick-driven path. The one timer path that ignores membership is C1-1.
+- `_tick_soc_source` for the 10-01 blind tick: :5108 precedes the fully-blind branch (:5159), so `none` is captured before the early return.
+- D1 tag effects: `energy.py:2484` (envoy cache) and `energy_battery.py:1393` (divergence) both exclude `stream` — correct, no change needed.
+
+**Verdict: BUILD-READY for D2-D5 now (with D2c pending operator Q7 — if Q7 is "no", ship D2a/D2b/D3/D4/D5 and card
+D2c; do not drop it silently). D1 stays gated on D0.** No re-plan needed; C1-3, C1-4 and C1-7 join #2's binding
+builder directives.
