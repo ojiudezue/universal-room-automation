@@ -31,6 +31,47 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# ENERGY-HISTORY-KW-SUMMED-AS-KWH-1: energy_history power columns
+# (grid_import, solar_export, solar_production, ...) hold INSTANTANEOUS kW
+# snapshots written every ~15 min (energy.py _log_energy_history_snapshot).
+# Aggregations must integrate kW x interval_h, never SUM raw kW. Module
+# constants (reviewed-code rung): the nominal write interval is fixed by the
+# EC cycle cadence; a gap to the next row longer than the max (HA restart /
+# outage) is NOT trusted -- the sample is credited only its nominal slot, so a
+# single reading is never smeared over hours.
+ENERGY_HISTORY_NOMINAL_INTERVAL_H = 0.25
+ENERGY_HISTORY_MAX_INTERVAL_H = 0.5
+
+# Shared CTE: every energy_history row plus dt_h = hours until the next row
+# (gap > ENERGY_HISTORY_MAX_INTERVAL_H, or newest row -> nominal interval).
+# Computed over the whole table BEFORE any WHERE filter so the interval
+# reflects the real next sample. Params: _energy_history_kwh_params().
+_ENERGY_HISTORY_KWH_CTE = """
+    WITH eh_raw AS (
+        SELECT
+            timestamp, grid_import, solar_export, solar_production,
+            outside_temp, rooms_occupied, day_of_week,
+            (julianday(LEAD(timestamp) OVER (ORDER BY timestamp))
+             - julianday(timestamp)) * 24.0 AS gap_h
+        FROM energy_history
+    ),
+    eh AS (
+        SELECT
+            timestamp, grid_import, solar_export, solar_production,
+            outside_temp, rooms_occupied, day_of_week,
+            CASE
+                WHEN gap_h IS NULL OR gap_h > ? THEN ?
+                ELSE gap_h
+            END AS dt_h
+        FROM eh_raw
+    )
+"""
+
+
+def _energy_history_kwh_params() -> tuple[float, float]:
+    """Bind params for _ENERGY_HISTORY_KWH_CTE: (max_h, nominal_h)."""
+    return (ENERGY_HISTORY_MAX_INTERVAL_H, ENERGY_HISTORY_NOMINAL_INTERVAL_H)
+
 
 # ---------------------------------------------------------------------------
 # DB write worker "ready" wait tuning (rung 1 — module constants).
@@ -2855,20 +2896,22 @@ class UniversalRoomDatabase:
         """Get energy data for similar days (same weekday, similar temperature)."""
         try:
             async with self._db_read() as db:
-                cursor = await db.execute("""
+                # kWh = SUM(kW x dt_h) via the shared interval CTE.
+                cursor = await db.execute(_ENERGY_HISTORY_KWH_CTE + """
                     SELECT
                         DATE(timestamp) as date,
-                        SUM(CASE WHEN grid_import IS NOT NULL THEN grid_import ELSE 0 END) as total_grid_import,
-                        SUM(CASE WHEN solar_export IS NOT NULL THEN solar_export ELSE 0 END) as total_solar_export,
+                        SUM(COALESCE(grid_import, 0) * dt_h) as total_grid_import,
+                        SUM(COALESCE(solar_export, 0) * dt_h) as total_solar_export,
                         AVG(outside_temp) as avg_temp,
                         AVG(rooms_occupied) as avg_occupancy
-                    FROM energy_history
+                    FROM eh
                     WHERE day_of_week = ?
                     AND outside_temp BETWEEN ? AND ?
                     GROUP BY DATE(timestamp)
                     ORDER BY timestamp DESC
                     LIMIT ?
-                """, (day_of_week, temp_low, temp_high, limit))
+                """, (*_energy_history_kwh_params(),
+                      day_of_week, temp_low, temp_high, limit))
                 
                 rows = await cursor.fetchall()
                 return [
@@ -2894,17 +2937,19 @@ class UniversalRoomDatabase:
         """Get total energy values for a date range."""
         try:
             async with self._db_read() as db:
-                cursor = await db.execute("""
+                # kWh = SUM(kW x dt_h) via the shared interval CTE.
+                cursor = await db.execute(_ENERGY_HISTORY_KWH_CTE + """
                     SELECT
-                        SUM(CASE WHEN grid_import IS NOT NULL THEN grid_import ELSE 0 END) as total_grid_import,
-                        SUM(CASE WHEN solar_export IS NOT NULL THEN solar_export ELSE 0 END) as total_solar_export,
-                        SUM(CASE WHEN solar_production IS NOT NULL THEN solar_production ELSE 0 END) as total_solar_production,
+                        SUM(COALESCE(grid_import, 0) * dt_h) as total_grid_import,
+                        SUM(COALESCE(solar_export, 0) * dt_h) as total_solar_export,
+                        SUM(COALESCE(solar_production, 0) * dt_h) as total_solar_production,
                         AVG(outside_temp) as avg_temp,
                         AVG(rooms_occupied) as avg_occupancy,
                         COUNT(*) as record_count
-                    FROM energy_history
+                    FROM eh
                     WHERE timestamp BETWEEN ? AND ?
-                """, (start_date.isoformat(), end_date.isoformat()))
+                """, (*_energy_history_kwh_params(),
+                      start_date.isoformat(), end_date.isoformat()))
                 
                 row = await cursor.fetchone()
                 if row:

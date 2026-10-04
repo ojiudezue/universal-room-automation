@@ -435,6 +435,40 @@ meta:
     headline: "The outdoor camera box (Frigate2, 192.168.13.18) has been OFF THE NETWORK since about 7:18pm last night, during the network restart. HA and the Mac both fail to ping it and its network address does not resolve, so it is the machine or its cable/port, not software. Every Frigate person and motion detector reads unavailable, and outdoor person detection from Frigate has been blind for about 7 hours. UniFi Protect is still working. Good news on the older fault: the detectors that froze on 09-21 had started moving again before the box dropped. DO: check the box's power and network port and power-cycle it. I paged you with a Home Assistant notification (not a phone push) and changed nothing."
     acknowledged: false
 cards:
+- id: EC-LKG-NEVER-PERSISTED-1
+  title: Battery and solar last-known-good are never saved — _save_evse_state uses an unbound _json, error swallowed at DEBUG
+  thread: energy
+  status: inbox
+  created: '2026-10-04 02:00'
+  updated: '2026-10-04 02:00'
+  next: 'FIX inside the EC resilience re-plan (EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 / phase 1 adjust): import json correctly in EnergyCoordinator._save_evse_state LKG blocks; test that LKG survives restart (real save/restore); raise the swallow to WARNING once.'
+  why: 'Found by the EC degraded-data phase 1 builder 2026-10-04. Restart outages today (00:37, 15:55, 17:05) started with an empty LKG, contradicting the plan''s LKG-persistence reuse assumption.'
+- id: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1
+  operator_guidance_2026_10_04: 'Respect prior art that makes sense — we invested heavily in commanding (cloud write route, write-verify vs cloud oracle, pending-write-stuck retry + NM, hardware-noncompliance detector, 3-tier SOC resolver, LKG/envelope, failover-map design). Mandatory prior-art scan with file:line; every phase-2 piece EXTENDS it. The stream must make commanding STRONGER (independent outcome witness: battery power/SOC confirms reserve/CFG landed), never weaker. Evaluate CONSOLIDATION vs today''s 3 integrations (core enphase_envoy + MQTT stream add-on + barneyonline enphase_ev): score on REDUNDANCY (independent read/command paths, shared failure modes) and ACCURACY (vs SPAN pair + battery physics), plus supply-chain risk (# third-party deps, maintenance, Envoy connections). Candidate: ha-enphase-realtime for local reads+stream and as an independent locally-verified second command path; decide on a measured trial, not its README.'
+  title: Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits)
+  thread: energy
+  status: inbox
+  created: '2026-10-04 01:00'
+  updated: '2026-10-04 01:00'
+  next: 'PLAN (phase 2 of EC-DEGRADED-DATA-POLICY-1, after phase 1 ships + stream A/B 2026-10-05): (1) retire/rework dormant local write-failover (PLANNING_envoy_write_verification_and_redundancy D3) — local battery writes gone since fw 8.2.4225; verify nothing assumes it; (2) cloud write-path health: detect failed/rate-limited (retry-after) commands, NM alert; (3) production.json-independent reads (stream / /ivp/meters / failover map TelemetryPair; ha-enphase-realtime trial option); (4) token expiry/auth-failure alert.'
+  why: 'Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8.2.4225; production.json not recommended; local API unsupported; yearly token; cloud retry-after).'
+- id: ENERGY-HISTORY-KW-SUMMED-AS-KWH-1
+  title: Predicted Energy/Cost Tomorrow ~4x too high — energy_history stores 15-min kW snapshots and predictions sum them as kWh
+  thread: energy
+  status: inbox
+  created: '2026-10-04 00:10'
+  updated: '2026-10-04 00:10'
+  next: 'PLAN (Tier 1-2, display-only): in database.py get_energy_for_similar_days / range / weeks / months convert kW snapshots to kWh (x interval_h) or source daily energy from statistics (SPAN pair / mains); stop grid_import_2 double-count (same entity as grid_import); solar from production CT not the stuck Envoy production sensor; audit other energy_history consumers for the same unit error.'
+  why: 'Operator saw dashboard "Tomorrow ~230 kWh from grid · $31.23" (sensor.universal_room_automation_predicted_energy_tomorrow 229.7). energy_history rows every ~15 min hold grid_import as kW; 10-03 sum = 403.5 "kWh" vs ~101 kWh real. Display-only (no decision consumer per database.py:3004 comment).'
+- id: ENPHASE-REALTIME-TRIAL-1
+  review_2026_10_04: 'Code/security review: TRIAL WITH CONDITIONS, NO FORK. Clean (no deps, Enphase-only endpoints, TLS off only to self-signed Envoy, MIT, CI+tests). Risks: 9 days old, single-site/1-battery tested; heavy default Envoy load (1 s livedata, 5 s battery, 2nd /stream/meter); designed to take over core entity IDs; its CFG/reserve/storage writes overlap enphase_ev; battery-maintenance can grid-charge autonomously. Conditions: keep core (its entities get _2, URA ignores); relay/dry-contacts unticked, maintenance off, no writes; livedata 5-10 s, battery >=10 s, its stream off; uninstall on any regression vs baseline; measure livedata vs MQTT stream first.'
+  title: Trial ha-enphase-realtime (reads /stream/meter + /ivp/*, never blocks on production.json; cloud writes verified locally) alongside current stack
+  thread: energy
+  status: parked
+  created: '2026-10-04 00:10'
+  updated: '2026-10-04 00:10'
+  next: 'After ENVOY-STREAM-AB-48H-1 readout (2026-10-05 13:05): decide trial. Keep barneyonline enphase_ev for writes. One extra Envoy client at a time.'
+  why: 'Research 2026-10-03: production.json hangs are known 8.x behaviour (12-55 s measured elsewhere); core enphase_envoy blocks setup on it; local battery writes gone since 8.2.4225; ha-enphase-realtime v1.0.1 (2026-10-02) is new, single-site tested.'
 - id: EC-CONSUMPTION-DROPOUT-DAYS-1
   title: Envoy energy counters lose consumption on dropout days — check what EC's consumption forecast/history reads and whether dropout days poison it
   thread: energy
