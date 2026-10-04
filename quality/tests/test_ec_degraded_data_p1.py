@@ -745,7 +745,7 @@ class _DispatchShell:
     async def _execute_service_action(self, spec):
         self.dispatched.append(dict(spec))
 
-    async def _tap_write_verifier(self, spec, decision):
+    async def _tap_write_verifier(self, spec, decision, **_k):
         return None
 
 
@@ -753,7 +753,7 @@ for _n in (
     "_dispatch_post_decision_tou_and_arbitrage", "_execute_breaker_safe_dispatch",
     "_soc_untrusted_from_battery", "_cfg_ledger_says_on",
     "_cfg_write_leg_provably_off", "_cfg_breaker_blocks_ev_start",
-    "_note_cfg_unknown_forced",
+    "_note_cfg_unknown_forced", "_cfg_off_read_fresh",
 ):
     setattr(_DispatchShell, _n, getattr(EnergyCoordinator, _n))
 
@@ -833,7 +833,7 @@ def _cycle_shell(clock, s, hass, ev):
         c.dispatched.append(dict(spec))
     c._execute_service_action = _exec
 
-    async def _tap(spec, decision):
+    async def _tap(spec, decision, **_k):
         return None
     c._tap_write_verifier = _tap
     return c
@@ -912,7 +912,7 @@ async def test_decision_cycle_captures_tier_before_first_await(clock, mono):
         c.dispatched.append(dict(spec))
     c._execute_service_action = _exec
 
-    async def _tap(spec, decision):
+    async def _tap(spec, decision, **_k):
         return None
     c._tap_write_verifier = _tap
     await c._decision_cycle_body()
@@ -1110,6 +1110,7 @@ for _n in (
     "_apply_dp_must_start_release", "_cancel_dp_must_start_by_timer",
     "_cfg_breaker_blocks_ev_start", "_cfg_ledger_says_on",
     "_report_must_start_by_held", "_on_dp_must_start_by",
+    "_cfg_off_read_fresh",
 ):
     setattr(_MSBShell, _n, getattr(EnergyCoordinator, _n))
 
@@ -1832,3 +1833,442 @@ class TestReplay:
         assert len(_pages(coord)) == 1
         assert sent == [datetime(2026, 10, 2, 20, 30, tzinfo=_UTC)]
         assert "90 min before the 17:00" in _pages(coord)[0]["message"]
+
+
+# ===========================================================================
+# Resilience bundle (PLANNING_ec_enphase_resilience_and_p1_adjust.md §5)
+#   B1 LKG persistence, B2 write-outcome capture + churn, B3 must-start-by
+#   behind the blind-window guard, B4 Envoy-offline text, B5 fresh CFG off.
+# ===========================================================================
+
+
+# --- B1 -------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_lkg_soc_survives_restart_real_writer(clock):
+    """I-R2: production `_save_evse_state` → `_restore_evse_state` round
+    trip of the LKG SOC (was never written: unbound `_json`)."""
+    s, hass, _ = _strategy(clock)
+    kv = _KV()
+    hass.data["universal_room_automation"] = {"database": kv}
+    stamp = clock.t - timedelta(seconds=40)
+    s._soc_lkg, s._soc_lkg_at = 61.5, stamp
+    await _persist_shell(hass, s)._save_evse_state()
+    assert json.loads(kv.rows["battery_soc_lkg"])["value"] == 61.5
+    s2, hass2, _ = _strategy(clock)
+    hass2.data["universal_room_automation"] = {"database": kv}
+    assert s2.get_lkg_snapshot() is None
+    await _persist_shell(hass2, s2)._restore_evse_state()
+    assert s2._soc_lkg == 61.5
+    assert s2._soc_lkg_at == stamp
+
+
+@pytest.mark.asyncio
+async def test_solar_lkg_survives_restart_real_writer(clock):
+    s, hass, _ = _strategy(clock)
+    kv = _KV()
+    hass.data["universal_room_automation"] = {"database": kv}
+    stamp = clock.t - timedelta(seconds=90)
+    s._solar_prod_lkg_w, s._solar_prod_lkg_at = 4321.0, stamp
+    await _persist_shell(hass, s)._save_evse_state()
+    assert "solar_production_w_lkg" in kv.rows
+    s2, hass2, _ = _strategy(clock)
+    hass2.data["universal_room_automation"] = {"database": kv}
+    await _persist_shell(hass2, s2)._restore_evse_state()
+    assert s2._solar_prod_lkg_w == 4321.0
+    assert s2._solar_prod_lkg_at == stamp
+
+
+@pytest.mark.asyncio
+async def test_lkg_save_failure_logs_warning_once(clock, caplog):
+    import logging as _lg
+    s, hass, _ = _strategy(clock)
+    hass.data["universal_room_automation"] = {"database": _KV()}
+
+    def _boom():
+        raise RuntimeError("boom")
+    s.get_lkg_snapshot = _boom
+    shell = _persist_shell(hass, s)
+    shell._warn_lkg_save_failed_once = (
+        EnergyCoordinator._warn_lkg_save_failed_once.__get__(shell, type(shell))
+    )
+    with caplog.at_level(_lg.DEBUG):
+        await shell._save_evse_state()
+        await shell._save_evse_state()
+    warns = [r for r in caplog.records
+             if r.levelno == _lg.WARNING and "LKG SOC save failed" in r.getMessage()]
+    assert len(warns) == 1
+
+
+# --- B2 -------------------------------------------------------------------
+
+
+class _AnomDB:
+    def __init__(self) -> None:
+        self.rows: list = []
+
+    async def save_anomaly_event(self, evt):
+        self.rows.append(evt)
+
+
+class _WriteShell(EnergyCoordinator):
+    """Real `_execute_breaker_safe_dispatch` / `_execute_service_action` /
+    `_tap_write_verifier` + a REAL WriteVerifier. Only the HA service bus
+    and NM are faked."""
+
+    def __init__(self):  # noqa: D401 - bypass heavy init
+        pass
+
+
+def _write_shell(clock, *, cfg_state="on", raise_on=None, exc=None):
+    from custom_components.universal_room_automation.domain_coordinators.energy_write_verify import (
+        WriteVerifier,
+    )
+    s, hass, _ = _strategy(clock, stream=False)
+    _st(hass, _CFG_W, cfg_state, lu=clock.t)
+    c = _WriteShell()
+    c.hass = hass
+    c._battery = s
+    c._ev = _evpool()
+    c._ev.hass = hass
+    c._last_known_grid_charge_on = False
+    c._last_cfg_off_read_at = None
+    c._cfg_unknown_forced_since = None
+    c.calls: list = []
+    c.nm: list = []
+    db = _AnomDB()
+    c.db = db
+    hass.data["universal_room_automation"] = {"database": db}
+
+    async def _svc(domain, svc, data, blocking=False, **kw):
+        c.calls.append((domain, svc, data.get("entity_id")))
+        if raise_on is not None and (domain, svc) == raise_on:
+            raise exc
+    hass.services = SimpleNamespace(async_call=_svc)
+
+    async def _nm(**kw):
+        c.nm.append(kw)
+    c._send_nm_alert = _nm
+    c._write_verifier = WriteVerifier(hass, c)
+    s._write_verifier = c._write_verifier
+    return c, s
+
+
+def _sve(key):
+    from homeassistant.exceptions import ServiceValidationError
+    return ServiceValidationError(translation_domain="enphase_ev", translation_key=key)
+
+
+def _anoms(c, typ):
+    return [e for e in c.db.rows if e.type == typ]
+
+
+def _dispatch_nms(c):
+    return [n for n in c.nm if n["title"].startswith("Battery command failed")]
+
+
+_CFG_OFF_DECISION = {
+    "actions": [{"service": "switch.turn_off", "target": _CFG_W, "data": {}}],
+    "arbitrage_phase": "n/a", "charge_from_grid": False,
+}
+
+
+class TestB2WriteOutcome:
+    @pytest.mark.asyncio
+    async def test_cfg_turn_off_failure_records_dispatch_failed(self, clock):
+        """I-R1: a raised CFG write → `dispatch_failed`, 1 anomaly, 1 NM;
+        a second failure the same day → anomaly only."""
+        c, s = _write_shell(
+            clock, raise_on=("switch", "turn_off"),
+            exc=_sve("charge_from_grid_toggle_not_applied"),
+        )
+        await c._execute_breaker_safe_dispatch(dict(_CFG_OFF_DECISION), "peak")
+        rec = c._write_verifier._records["charge_from_grid"]
+        assert rec.status == "dispatch_failed"
+        assert rec.commanded is False
+        a = _anoms(c, "battery_write_failed")
+        assert len(a) == 1
+        assert a[0].payload["extra"]["translation_key"] == (
+            "charge_from_grid_toggle_not_applied")
+        assert a[0].payload["extra"]["exception"] == "ServiceValidationError"
+        assert a[0].payload["extra"]["surface"] == "charge_from_grid"
+        assert len(_dispatch_nms(c)) == 1
+        assert _dispatch_nms(c)[0]["severity"] == "high"
+        clock.adv(minutes=5)
+        await c._execute_breaker_safe_dispatch(dict(_CFG_OFF_DECISION), "peak")
+        assert len(_anoms(c, "battery_write_failed")) == 2
+        assert len(_dispatch_nms(c)) == 1
+
+    @pytest.mark.asyncio
+    async def test_successful_write_records_nothing(self, clock):
+        c, s = _write_shell(clock)
+        await c._execute_breaker_safe_dispatch(dict(_CFG_OFF_DECISION), "peak")
+        assert c._write_verifier._records["charge_from_grid"].status != "dispatch_failed"
+        assert _anoms(c, "battery_write_failed") == [] and _dispatch_nms(c) == []
+
+    @pytest.mark.asyncio
+    async def test_reserve_and_storage_failures_recorded(self, clock):
+        from homeassistant.exceptions import HomeAssistantError
+        c, s = _write_shell(clock, raise_on=("number", "set_value"),
+                            exc=HomeAssistantError("cloud down"))
+        reserve_eid = s._get_entity("reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY,
+                                    role="write")
+        d = {"actions": [{"service": "number.set_value", "target": reserve_eid,
+                          "data": {"value": 40}}],
+             "arbitrage_phase": "n/a", "charge_from_grid": False}
+        await c._execute_breaker_safe_dispatch(d, "peak")
+        assert c._write_verifier._records["reserve_soc"].status == "dispatch_failed"
+        assert s._last_reserve_level == 40  # intent ledger unchanged
+        assert len(_anoms(c, "battery_write_failed")) == 1
+
+    @pytest.mark.asyncio
+    async def test_failed_turn_on_keeps_ledger_fail_closed(self, clock):
+        """Ledger stays an INTENT ledger: a failed turn_on still stamps it,
+        so with the cloud leg unavailable the breaker intent is True."""
+        c, s = _write_shell(clock, cfg_state="unavailable", raise_on=("switch", "turn_on"),
+                            exc=_sve("battery_settings_update_debounced"))
+        d = {"actions": [{"service": "switch.turn_on", "target": _CFG_W, "data": {}}],
+             "arbitrage_phase": "n/a", "charge_from_grid": False}
+        await c._execute_breaker_safe_dispatch(d, "off_peak")
+        assert s._last_charge_from_grid_command is True
+        assert c._write_verifier._records["charge_from_grid"].status == "dispatch_failed"
+        clock.adv(minutes=5)
+        _, _, intent = await c._execute_breaker_safe_dispatch(dict(_NEUTRAL), "off_peak")
+        assert intent is True
+        assert c._last_known_grid_charge_on is False  # ledger alone holds
+
+    @pytest.mark.asyncio
+    async def test_d3_withhold_dispatch_failed_attr(self, clock):
+        """D3 cloud-only withhold emits CFG turn_off; it raises → D5 attr
+        True. Next determine_mode entry-resets it."""
+        c, s = _write_shell(clock, cfg_state="on", raise_on=("switch", "turn_off"),
+                            exc=_sve("charge_from_grid_toggle_not_applied"))
+        _native_stale(c.hass, clock)
+        s._soc_lkg = s._soc_lkg_at = None
+        _cloud(c.hass, clock, "40")
+        s.determine_mode("off_peak", "shoulder", now=clock.t.astimezone(_CDT))
+        r = s._result("self_consumption", "Arbitrage CHARGE", "self_consumption",
+                      charge_from_grid=True, reserve_level=80,
+                      arbitrage_phase=ARBITRAGE_PHASE_CHARGE)
+        assert s._grid_charge_withheld_untrusted is True
+        assert s.get_status()["grid_charge_withhold_dispatch_failed"] is False
+        await c._execute_breaker_safe_dispatch(r, "off_peak")
+        assert s.get_status()["grid_charge_withhold_dispatch_failed"] is True
+        s.determine_mode("off_peak", "shoulder", now=clock.t.astimezone(_CDT))
+        assert s.get_status()["grid_charge_withhold_dispatch_failed"] is False
+
+    @pytest.mark.asyncio
+    async def test_storage_mode_failure_recorded(self, clock):
+        from homeassistant.exceptions import HomeAssistantError
+        c, s = _write_shell(clock, raise_on=("select", "select_option"),
+                            exc=HomeAssistantError("cloud down"))
+        sm = s._get_entity("storage_mode", DEFAULT_STORAGE_MODE_ENTITY, role="write")
+        d = {"actions": [{"service": "select.select_option", "target": sm,
+                          "data": {"option": "backup"}}],
+             "arbitrage_phase": "n/a", "charge_from_grid": False}
+        await c._execute_breaker_safe_dispatch(d, "peak")
+        assert c._write_verifier._records["storage_mode"].status == "dispatch_failed"
+        assert len(_anoms(c, "battery_write_failed")) == 1
+
+    @pytest.mark.asyncio
+    async def test_withhold_successful_turn_off_no_attr(self, clock):
+        c, s = _write_shell(clock)
+        s._grid_charge_withheld_untrusted = True
+        await c._execute_breaker_safe_dispatch(dict(_CFG_OFF_DECISION), "peak")
+        assert s.get_status()["grid_charge_withhold_dispatch_failed"] is False
+
+    @pytest.mark.asyncio
+    async def test_withhold_failed_turn_on_no_attr(self, clock):
+        """Only the withhold's own turn_OFF sets the attr."""
+        c, s = _write_shell(clock, cfg_state="off", raise_on=("switch", "turn_on"),
+                            exc=_sve("battery_settings_update_debounced"))
+        s._grid_charge_withheld_untrusted = True
+        d = {"actions": [{"service": "switch.turn_on", "target": _CFG_W, "data": {}}],
+             "arbitrage_phase": "n/a", "charge_from_grid": False}
+        await c._execute_breaker_safe_dispatch(d, "off_peak")
+        assert s.get_status()["grid_charge_withhold_dispatch_failed"] is False
+
+    @pytest.mark.asyncio
+    async def test_failed_turn_off_without_withhold_no_attr(self, clock):
+        c, s = _write_shell(clock, raise_on=("switch", "turn_off"),
+                            exc=_sve("charge_from_grid_toggle_not_applied"))
+        s._grid_charge_withheld_untrusted = False
+        await c._execute_breaker_safe_dispatch(dict(_CFG_OFF_DECISION), "peak")
+        assert s.get_status()["grid_charge_withhold_dispatch_failed"] is False
+
+    @pytest.mark.asyncio
+    async def test_execute_service_action_callers_unchanged(self, clock):
+        """Non-battery callers: no raise, same service call, result is
+        returned (ok / failed) and ignored safely."""
+        c, s = _write_shell(clock, raise_on=("switch", "turn_on"),
+                            exc=RuntimeError("x"))
+        c._log_charger_actuation = lambda *a, **k: None
+        ok = await c._execute_service_action(
+            {"service": "switch.turn_off", "target": "switch.garage_a"})
+        bad = await c._execute_service_action(
+            {"service": "switch.turn_on", "target": "switch.garage_a"})
+        none = await c._execute_service_action({"service": ""})
+        assert (ok.ok, ok.exc_type, ok.translation_key) == (True, None, None)
+        assert (bad.ok, bad.exc_type, bad.translation_key) == (False, "RuntimeError", None)
+        assert none is None
+        assert c.calls == [("switch", "turn_off", "switch.garage_a"),
+                           ("switch", "turn_on", "switch.garage_a")]
+        malformed = await c._execute_service_action({"service": "noservice"})
+        assert (malformed.ok, malformed.exc_type) == (False, "malformed_service")
+        # A failed NON-battery call never reaches the battery verifier.
+        assert _anoms(c, "battery_write_failed") == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("n,expect_nm", [(12, 0), (13, 1), (30, 1)])
+    async def test_battery_write_churn_nm(self, clock, n, expect_nm):
+        """I-R4: >12 CFG writes in a rolling hour → exactly 1 NM + 1 anomaly
+        per surface per day; 12 → none."""
+        c, s = _write_shell(clock)
+        for i in range(n):
+            await c._execute_breaker_safe_dispatch(dict(_CFG_OFF_DECISION), "peak")
+            clock.adv(seconds=150)  # 30 writes span 75 min; first 13 < 60 min
+        churn = [x for x in c.nm if x["title"].startswith("Battery command churn")]
+        assert len(churn) == expect_nm
+        assert len(_anoms(c, "battery_write_churn")) == expect_nm
+
+    @pytest.mark.asyncio
+    async def test_churn_window_rolls(self, clock):
+        """13 writes spread over > 60 min never exceed 12 in the window."""
+        c, s = _write_shell(clock)
+        for _ in range(13):
+            await c._execute_breaker_safe_dispatch(dict(_CFG_OFF_DECISION), "peak")
+            clock.adv(seconds=301)
+        assert [x for x in c.nm if x["title"].startswith("Battery command churn")] == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cap", [0, -1])
+    async def test_churn_kill_switch(self, clock, monkeypatch, cap):
+        _setc(monkeypatch, "DEFAULT_BATTERY_WRITE_CHURN_MAX_PER_H", cap)
+        c, s = _write_shell(clock)
+        for _ in range(20):
+            await c._execute_breaker_safe_dispatch(dict(_CFG_OFF_DECISION), "peak")
+        assert _anoms(c, "battery_write_churn") == []
+
+
+# --- B3 -------------------------------------------------------------------
+
+
+class TestB3MustStartByBlindWindow:
+    def test_must_start_by_holds_behind_blind_window(self, clock):
+        """I-R3 repro: EVSE in `_paused_by_blind_window` + `_paused_by_dp`
+        at must-start-by → no turn_on, DP claim kept, blind-window claim
+        kept, 1 NM + 1 anomaly naming `blind_window`."""
+        sh = _MSBShell(clock)
+        sh._ev._paused_by_blind_window.add("garage_a")
+        sh._apply_dp_must_start_release(tou_period="off_peak")
+        assert not _forced_on(sh)
+        assert "garage_a" in sh._ev._paused_by_dp
+        assert "garage_a" in sh._ev._paused_by_blind_window
+        assert len(sh.nm) == 1 and "blind_window" in sh.nm[0]["message"]
+        assert len(sh.anoms) == 1
+        assert sh.anoms[0].type == "ev_must_start_by_held"
+        assert sh.anoms[0].payload["extra"]["held"] == [["garage_a", "blind_window"]]
+
+    def test_must_start_by_releases_when_blind_window_drained(self, clock):
+        """Sighted-tick drain (membership gone) → the next fire releases."""
+        sh = _MSBShell(clock)
+        sh._ev._paused_by_blind_window.add("garage_a")
+        sh._apply_dp_must_start_release(tou_period="off_peak")
+        sh._ev._paused_by_blind_window.discard("garage_a")
+        sh.nm.clear()
+        sh.anoms.clear()
+        sh._apply_dp_must_start_release(tou_period="off_peak")
+        assert _forced_on(sh)
+        assert sh.nm == [] and sh.anoms == []
+
+
+# --- B4 -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("tier,expect", [
+    ("stream", "Battery strategy is using the local stream battery reading."),
+    ("lkg", "Battery strategy is using the last good battery reading."),
+    ("cloud_fallback", "Battery strategy is using the cloud battery reading only; "
+                       "grid charging is withheld."),
+    ("none", "Battery strategy is holding: no battery reading."),
+    ("envoy", "Battery strategy is holding: no battery reading."),
+])
+def test_envoy_offline_nm_text_per_tier(clock, tier, expect):
+    sent: list = []
+    shell = SimpleNamespace(
+        _battery=SimpleNamespace(_tick_soc_source=tier),
+        _envoy_unavailable_count=2, _decision_interval=5,
+        _envoy_degraded=True, _envoy_degraded_since="x",
+        hass=SimpleNamespace(async_create_task=lambda c: None),
+        _send_nm_alert=lambda **kw: sent.append(kw),
+    )
+    shell._envoy_offline_tier_text = (
+        EnergyCoordinator._envoy_offline_tier_text.__get__(shell)
+    )
+    EnergyCoordinator._track_envoy_availability(shell, {"envoy_available": False})
+    assert len(sent) == 1
+    assert sent[0]["message"] == f"Envoy has been unavailable for 15 minutes. {expect}"
+
+
+# --- B5 -------------------------------------------------------------------
+
+
+class TestB5FreshCfgOff:
+    def _shell(self, clock, age, *, ledger=None, lkg=False):
+        s, hass, _ = _strategy(clock, stream=False)
+        _st(hass, _CFG_W, "off", lu=clock.t - timedelta(seconds=age or 0))
+        if age is None:
+            s._read_cloud_settings_max_age_s = lambda *a, **k: None
+        s._last_charge_from_grid_command = ledger
+        s._last_charge_from_grid_command_at = clock.t
+        sh = _DispatchShell(s, hass, _evpool())
+        sh._last_known_grid_charge_on = lkg
+        return sh
+
+    @pytest.mark.parametrize("age,expect", [(0, True), (300, True), (301, False),
+                                            (None, False)])
+    def test_provably_off_needs_fresh_read(self, clock, age, expect):
+        assert self._shell(clock, age)._cfg_write_leg_provably_off() is expect
+
+    @pytest.mark.parametrize("age,lkg,expect_block", [
+        (0, True, False), (300, True, False), (301, True, True), (None, True, True),
+        (301, False, False), (None, False, False),
+    ])
+    def test_start_block_stale_off_is_unknown(self, clock, age, lkg, expect_block):
+        """Stale `off` → D2b unknown rule (LKG latch / ledger decides)."""
+        assert self._shell(clock, age, lkg=lkg)._cfg_breaker_blocks_ev_start() is expect_block
+
+    def test_stale_off_ledger_on_blocks(self, clock):
+        sh = self._shell(clock, 301, ledger=True)
+        assert sh._cfg_breaker_blocks_ev_start() is True
+
+    @pytest.mark.parametrize("cap", [0, -5])
+    def test_kill_switch_believes_any_off(self, clock, monkeypatch, cap):
+        _setc(monkeypatch, "DEFAULT_CFG_OFF_READ_MAX_AGE_S", cap)
+        sh = self._shell(clock, 10_000, lkg=True)
+        assert sh._cfg_write_leg_provably_off() is True
+        assert sh._cfg_breaker_blocks_ev_start() is False
+
+    def test_local_leg_not_gated(self, clock):
+        """No cloud oracle configured → write leg is local → no gate."""
+        s, hass, _ = _strategy(clock, stream=False,
+                               extra={"cloud_charge_from_grid_oracle": ""})
+        eid = s._get_entity("charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                            role="write")
+        assert eid == _CFG_L
+        _st(hass, _CFG_L, "off", lu=clock.t - timedelta(hours=5))
+        s._read_cloud_settings_max_age_s = lambda *a, **k: None
+        sh = _DispatchShell(s, hass, _evpool())
+        assert sh._cfg_write_leg_provably_off() is True
+
+    @pytest.mark.asyncio
+    async def test_stale_off_holds_must_start_by(self, clock):
+        """Wire-in via the REAL must-start-by release: stale cloud `off`
+        + LKG latch on → held (`grid_charge_on`)."""
+        sh = _MSBShell(clock, cfg_w="off")
+        _st(sh.hass, _CFG_W, "off", lu=clock.t - timedelta(seconds=301))
+        sh._last_known_grid_charge_on = True
+        sh._apply_dp_must_start_release(tou_period="off_peak")
+        assert not _forced_on(sh)
+        assert sh.anoms[0].payload["extra"]["held"] == [["garage_a", "grid_charge_on"]]

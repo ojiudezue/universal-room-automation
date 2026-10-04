@@ -217,6 +217,7 @@ _extracted = _extract_named(
         # EC-DEGRADED-DATA-POLICY-1 D2c helpers called by the release.
         "_cfg_breaker_blocks_ev_start",
         "_cfg_ledger_says_on",
+        "_cfg_off_read_fresh",
         "_report_must_start_by_held",
         "_is_any_evse_charging",
         "_dp_house_load_kw",
@@ -332,6 +333,7 @@ for _name in (
     "_arm_dp_must_start_by_timer",
     "_cfg_breaker_blocks_ev_start",
     "_cfg_ledger_says_on",
+    "_cfg_off_read_fresh",
     "_report_must_start_by_held",
     "_is_any_evse_charging",
     "_dp_house_load_kw",

@@ -846,6 +846,14 @@ class _VerifierStub:
     async def schedule(self, surface, value, now):
         self.scheduled.append((surface, value))
 
+    # Resilience B2: the real tap also counts dispatches (churn trip-wire)
+    # and records raised writes. No-ops here (this file tests the ledger).
+    async def note_dispatch(self, surface, now=None):
+        return None
+
+    async def record_dispatch_failed(self, *a, **k):
+        return None
+
 
 def _fake_ec(strat):
     from custom_components.universal_room_automation.domain_coordinators.energy import (

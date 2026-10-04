@@ -481,6 +481,9 @@ class BatteryStrategy:
         self._tick_soc_source: str | None = None
         # D3 — per-tick flag; entry-reset at the top of determine_mode.
         self._grid_charge_withheld_untrusted: bool = False
+        # B2 (resilience A2): the D3 withhold's CFG turn_off RAISED this
+        # tick (set by the coordinator's write tap; entry-reset per tick).
+        self._grid_charge_withhold_dispatch_failed: bool = False
         # D1 — stream tier trust state machine (persisted, event-saved).
         self._soc_stream_trust: str = "trusted"
         self._soc_stream_trust_since: Any = None
@@ -5490,6 +5493,7 @@ class BatteryStrategy:
         # is per-tick. The fully-blind branch returns without `_result`, so
         # without this a prior tick's True would stick on the sensor.
         self._grid_charge_withheld_untrusted = False
+        self._grid_charge_withhold_dispatch_failed = False
         from homeassistant.util import dt as dt_util
         if now is None:
             now = dt_util.now()
@@ -7082,6 +7086,9 @@ class BatteryStrategy:
             "stream_trust": self.stream_trust_state(),
             "grid_charge_withheld_untrusted": bool(
                 self._grid_charge_withheld_untrusted
+            ),
+            "grid_charge_withhold_dispatch_failed": bool(
+                getattr(self, "_grid_charge_withhold_dispatch_failed", False)
             ),
             "arb_release_refused": self._arb_release_refused_ids(),
             # v5.20.0 D2 — SOC read-side observability. Distinct

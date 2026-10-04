@@ -523,6 +523,27 @@ CONF_PENDING_WATCHDOG_ENABLED: Final = True
 # in config flow — operator directive: "rip off the band aid".
 ENERGY_CLOUD_FIRST_WRITES: Final = True
 
+# EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 B2 (A4) — battery write-churn
+# trip-wire. More than this many dispatched writes to ONE battery surface
+# (reserve / charge_from_grid / storage_mode) inside a rolling window →
+# one anomaly + one NM per surface per day. Alert only; no behaviour
+# change. Rung 1 (an alert threshold against an external API's rate
+# limits — review-gated). 12/h set from probe P3 (2026-10-04): measured
+# peak CFG 5/h, reserve 9/h. Alarm fires at the 13th write in the window.
+# `<= 0` = trip-wire off.
+DEFAULT_BATTERY_WRITE_CHURN_MAX_PER_H: Final = 12
+# Rolling window for the churn count (s). Rung 1 (protocol window).
+BATTERY_WRITE_CHURN_WINDOW_S: Final = 3600
+
+# B5 (resilience A3, probe P3 GO 2026-10-04) — a cloud charge-from-grid
+# `off` read counts as OFF for the phase-1 predicates (D2a provably-off,
+# D2c start block) only when the cloud settings readback
+# (`_read_cloud_settings_max_age_s`) is at most this old. Older (or no
+# readable cloud setting) → the `off` is treated as UNKNOWN (D2b rule).
+# Rung 1 (trust bound on a safety input). `<= 0` = gate off (today's
+# behaviour: any `off` is believed).
+DEFAULT_CFG_OFF_READ_MAX_AGE_S: Final = 300
+
 # ============================================================================
 # Inclement-weather detection + TOU/solar-horizon-aware battery hold
 # (Robust Inclement-Weather Reserve cycle — supersedes has_storm_forecast()).
