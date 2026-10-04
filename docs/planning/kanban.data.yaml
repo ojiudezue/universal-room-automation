@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "RESTORE-UNAVAILABLE-OFF-SWEEP-1@2026-10-04T04:15:00"
+    at: "2026-10-04T04:15:00"
+    outcome: "built-to-review"
+    headline: "Ready to ship with the next daytime deploy. URA switches that are on by default (Vacancy Auto-Off, every room's automation and cover automation, AI automation, security light delegation) no longer turn themselves off after a restart that follows a URA outage. Two reviews said SHIP, and the new tests fail if the fix is removed. Not deployed."
+    acknowledged: false
   - fid: "EC-CONSUMPTION-DROPOUT-DAYS-1@2026-10-04T03:05:00"
     at: "2026-10-04T03:05:00"
     outcome: "done"
@@ -434,12 +439,13 @@ cards:
   next: 'PLAN (phase 2 of EC-DEGRADED-DATA-POLICY-1, after phase 1 ships + stream A/B 2026-10-05): (1) retire/rework dormant local write-failover (PLANNING_envoy_write_verification_and_redundancy D3) — local battery writes gone since fw 8.2.4225; verify nothing assumes it; (2) cloud write-path health: detect failed/rate-limited (retry-after) commands, NM alert; (3) production.json-independent reads (stream / /ivp/meters / failover map TelemetryPair; ha-enphase-realtime trial option); (4) token expiry/auth-failure alert.'
   why: 'Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8.2.4225; production.json not recommended; local API unsupported; yearly token; cloud retry-after).'
 - id: ENERGY-HISTORY-KW-SUMMED-AS-KWH-1
+  verified_2026_10_04_overnight: "VERIFY-BEFORE-WORK = ALREADY-BUILT (card lagged). develop 9038a76da (10-04 00:01, attended session) integrates the kW samples to kWh in get_energy_for_similar_days / get_energy_for_date_range via a shared LEAD() interval CTE, plus quality/tests/test_energy_history_kwh_integration.py. The card's residuals were adjudicated in the draft README: grid_import_2 is not added in predictions (no double count); solar_production is not used by predict_energy. Not released yet (newest tag v5.103.38 predates it). No review record existed, so one Tier-1 review was dispatched overnight."
   title: Predicted Energy/Cost Tomorrow ~4x too high — energy_history stores 15-min kW snapshots and predictions sum them as kWh
   thread: energy
-  status: inbox
+  status: "review"
   created: '2026-10-04 00:10'
-  updated: '2026-10-04 00:10'
-  next: 'PLAN (Tier 1-2, display-only): in database.py get_energy_for_similar_days / range / weeks / months convert kW snapshots to kWh (x interval_h) or source daily energy from statistics (SPAN pair / mains); stop grid_import_2 double-count (same entity as grid_import); solar from production CT not the stuck Envoy production sensor; audit other energy_history consumers for the same unit error.'
+  updated: "2026-10-04 04:15"
+  next: "SHIP with the next release (operator-timed): the fix is already on develop (9038a76da) with a draft README at docs/planning/DRAFT_README_energy_history_units.md; the overnight pass added the missing review (result recorded on this card)."
   why: 'Operator saw dashboard "Tomorrow ~230 kWh from grid · $31.23" (sensor.universal_room_automation_predicted_energy_tomorrow 229.7). energy_history rows every ~15 min hold grid_import as kW; 10-03 sum = 403.5 "kWh" vs ~101 kWh real. Display-only (no decision consumer per database.py:3004 comment).'
 - id: ENPHASE-REALTIME-TRIAL-1
   review_2026_10_04: 'Code/security review: TRIAL WITH CONDITIONS, NO FORK. Clean (no deps, Enphase-only endpoints, TLS off only to self-signed Envoy, MIT, CI+tests). Risks: 9 days old, single-site/1-battery tested; heavy default Envoy load (1 s livedata, 5 s battery, 2nd /stream/meter); designed to take over core entity IDs; its CFG/reserve/storage writes overlap enphase_ev; battery-maintenance can grid-charge autonomously. Conditions: keep core (its entities get _2, URA ignores); relay/dry-contacts unticked, maintenance off, no writes; livedata 5-10 s, battery >=10 s, its stream off; uninstall on any regression vs baseline; measure livedata vs MQTT stream first.'
@@ -30619,11 +30625,12 @@ cards:
   rank: {value: 4, time_criticality: 2, effort: 13}
   refs: [docs/planning/DESIGN_ec_degraded_data_policy.md section 9.1 / 9.3]
 - id: RESTORE-UNAVAILABLE-OFF-SWEEP-1
+  built_2026_10_04_overnight: "BUILT (ura-builder, worktree overnight-1004-restore52): #52 guard on 9 restores in switch.py - behavioural: HVACZoneSweepSwitch, SecurityDelegateLightsSwitch, AutomationSwitch (per-room automation - also unguarded, found by the builder), CoverAutomationSwitch (also found by the builder), AiAutomationSwitch, InfrastructureRoomSwitch; behaviour-neutral (default OFF): OverrideOccupied, OverrideVacant, ManualMode. Coordinator syncs untouched (still unconditional after the guard). quality/tests/test_restore_guard_52_sweep.py 18 pass; builder drilled each of the 6 behavioural sites red; ORCHESTRATOR re-drilled HVACZoneSweep -> its behavioural test red, restored clean. Review A (completeness, all 51 async_get_last_state sites enumerated independently): SHIP, invariant holds everywhere. Review B (lifecycle + test authority; HA restore_state.py:166-182 confirms 'unavailable' is persisted): SHIP. LOWs deferred (no skip log line; source-grep test is a tripwire not coverage; get_event_loop in harness). Record: docs/reviews/code-review/overnight_2026-10-04_watchdog_unsub_and_restore52.md. Not deployed (overnight contract)."
   title: "After a restart that follows a URA outage, some on-by-default URA switches come back OFF (Vacancy Auto-Off is off right now) - finish the Bug Class #52 restore guard"
   thread: platform
-  status: in_progress
+  status: "review"
   created: '2026-10-04 02:40'
-  updated: '2026-10-04 02:40'
+  updated: "2026-10-04 04:15"
   refinement_status: initial
   approval: implied
   tags: [tier-1, measure-before-build, institutional-context, mutation-drill, found-during-probe]
@@ -30651,19 +30658,20 @@ cards:
     value: 6
     time_criticality: 6
     effort: 2
-  next: "BUILD (me, Tier 1, in flight on fix/restore-guard-52-sweep): guard the unguarded restores + per-site tests + mutation drills; 2 reviews -> review lane (no deploy). OPERATOR (separate, a setting): DO turn switch.ura_hvac_coordinator_zone_sweep (HVAC '46 \u00b7 Vacancy Auto-Off') back ON if you did not turn it off - it flipped off by itself at the 10-03 16:59 CDT restart."
+  next: "MERGE+SHIP (operator-timed): fix/restore-guard-52-sweep (63523e0ed, pushed) is reviewed SHIP x2 + orchestrator-verified; serial full-suite name-diff queued behind the running one. Ship with the next daytime deploy. Live acceptance: none needed beyond no regression (the fix only acts at a restart after a URA outage). OPERATOR (separate, a setting): DO turn switch.ura_hvac_coordinator_zone_sweep (HVAC '46 \u00b7 Vacancy Auto-Off') back ON if you did not turn it off."
   refs:
   - custom_components/universal_room_automation/switch.py:3982
   - docs/QUALITY_CONTEXT.md:2101
   - docs/BACKLOG.md:1596
 - id: LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1
+  review_record: "docs/reviews/code-review/overnight_2026-10-04_watchdog_unsub_and_restore52.md"
   verified_2026_10_04_overnight: "BUILT-TO-REVIEW (overnight 10-04). Rebased onto develop (0 behind). Targeted file 9/9 pass. ORCHESTRATOR single-site mutation: neutering the new `wd._ha_stop_unsub = None` in _on_stop (line 267 only) -> test_ha_stop_fire_does_not_call_consumed_unsub FAILS (1 failed / 8 passed); restored, tree clean. Review A (local correctness, read HA core.py 1393-1401/1642-1705 in .venv-ha): SHIP - once-listener removes itself before the job runs, a second unsub hits ValueError -> _LOGGER.exception; early-teardown path __init__.py:5708-5719 still detaches. One LOW fixed in-cycle (59caf1743): the old comment claimed the unsub is 'safe to call twice' - false. Review B (lifecycle/race/test authority): SHIP - install() idempotent, closure captures its own wd, unload-vs-stop race pre-existing+harmless (LOW, no fix); test uses a fake bus (_UnsubTrackingBus) so it guards this regression but cannot prove HA's real log line -> the live shutdown-log check is the acceptance. Note: both reviewers ran this file concurrently and one saw a drill mutation in place mid-run - test_loop_stall_watchdog.py has in-place source-mutation drills (another instance of TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1). Not deployed (overnight contract)."
   build_2026_10_03_overnight: "Built on fix/loop-stall-watchdog-stop-unsub (bbeed5805) in .claude/worktrees/overnight-1003-wdunsub: _on_stop clears wd._ha_stop_unsub before uninstall; new test test_ha_stop_fire_does_not_call_consumed_unsub. Tests pending (serialised behind the running full-suite name-diff)."
   title: The loop-stall watchdog logs an ERROR at every HA shutdown because it unsubscribes its stop listener after that listener already fired
   thread: hygiene
   status: "review"
   created: '2026-10-03 02:55'
-  updated: "2026-10-04 02:40"
+  updated: "2026-10-04 04:15"
   refinement_status: initial
   approval: implied
   tags: [tier-1, no-fabrication-verify, found-during-probe]
