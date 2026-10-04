@@ -89,7 +89,8 @@ for t in fam:
     for row in h[-50:]:
         m = json.loads(row[3] or '{}').get('mac')
         if m: fam_mac.add(m.lower())
-rev_eids = [e for (e,) in r.execute("""select distinct m.entity_id from states s join states_meta m on s.metadata_id=m.metadata_id
+SKIP_REVEL = True  # hybrid replay excludes Revel (operator ruling 5)
+rev_eids = [] if SKIP_REVEL else [e for (e,) in r.execute("""select distinct m.entity_id from states s join states_meta m on s.metadata_id=m.metadata_id
    join state_attributes a on s.attributes_id=a.attributes_id where a.shared_attrs like '%"essid":"Revel"%'""")]
 revel = {}
 for e in rev_eids:
@@ -136,6 +137,288 @@ def collapse(evs, w, key):
             last[k]['legs'].append(e); merged.append((last[k], e)); continue
         c = dict(e); c['t0'] = e['t']; c['legs'] = [e]; kept.append(c); last[k] = c
     return kept, merged
+
+# ===================== HYBRID FLOOR REPLAY (PLANNING §0/§4.3/§7/§8.2) =====================
+# FLOOR = R + max(0, max(M_cam - R, 0), U_gr, T)   ;   ESTIMATE = FLOOR + B
+# Per-event door pipeline: leg-collapse(30 s, stem) -> same-person(10 s, door_group)
+#   -> round-trip(180 s, unattributed, same door_group) -> resident attribution
+#   (pid | tracker edge +-120 s, one edge per crossing | main-entry prior garage_a 300 s,
+#   provisional, reversed into T on expiry) -> T accounting (unattributed only).
+# Revel EXCLUDED. Overlap groups = {family_room, master_hallway}. Empty anchor = R=0 & M_cam=0 & U_gr=0 held 900 s.
+HYBRID_ONLY = True
+VARIANTS_ONLY = False  # set True (or env VARIANTS_ONLY=1) for the sensitivity table only
+RES = {'ezinne': 'ezinne', 'oji udezue': 'oji', 'oji': 'oji', 'ojini': 'oji', 'jaya': 'jaya', 'ziri': 'ziri'}
+KN = dict(FLOOR_WINDOW_S=1200, FLOOR_SHRINK_HOLD_S=600, SHRINK_WINDOW_S=180, DOOR_ROUNDTRIP_S=180,
+          DOOR_SAMEPERSON_S=10, STEM_DEDUP_S=30, DOOR_TALLY_STALE_S=3600, AMBIGUOUS_DECAY_S=1800,
+          RESIDENT_CROSSING_MATCH_S=120, MAIN_ENTRY_PRIOR_S=300, EMPTY_ANCHOR_SETTLE_S=900,
+          BOOT_SETTLE_S=600, DOOR_TALLY_MAX=30, ESTIMATE_DECAY_S=1800, MAIN_ENTRY_DOOR='garage_a',
+          TICK_S=60, S_SAMPLE_S=15)
+H_DOORS = {'front': ['madrone_g6_entry', 'front_door_aerial', 'doorbell_lite'], 'garage_a': ['garage_a'], 'garage_b': ['garage_b']}
+OVERLAP = [['family_room', 'master_hallway']]
+COMPONENTS = OVERLAP + [[c] for c in INTERIOR if not any(c in g for g in OVERLAP)]
+
+
+def floor_formula(R, M_cam, U_gr, T, cam_present=True):
+    return R + max(0, max(M_cam - R, 0) if cam_present else 0, U_gr, T)
+
+
+def door_pipeline(evs, doors, K, edges):
+    s2d = {s: d for d, l in doors.items() for s in l}
+    evs = [dict(e, door=s2d.get(e['stem'], e['stem'])) for e in sorted(evs, key=lambda x: x['t'])]
+    # 1 leg-collapse by stem (one physical camera via resolver), 30 s from cluster start
+    L1, _ = collapse(evs, K['STEM_DEDUP_S'], 'stem')
+    # 2 same-person within door_group, same direction, 10 s (chain on cluster start)
+    L2 = []; last = {}
+    for e in sorted(L1, key=lambda x: x['t0']):
+        k = (e['door'], e['d'])
+        if k in last and e['t0'] - last[k]['t_last'] <= K['DOOR_SAMEPERSON_S']:
+            last[k]['legs'] += e['legs']; last[k]['t_last'] = e['t0']; continue
+        c = dict(e); c['legs'] = list(e['legs']); c['t_last'] = e['t0']; L2.append(c); last[k] = c
+    for c in L2:
+        c['pids'] = {RES.get((l['pid'] or '').lower()) for l in c['legs']} - {None}
+    # 3 round-trip pairing: opposite direction, same door_group, <=180 s, neither carrying a resident pid
+    for i, a in enumerate(L2):
+        if a.get('rt') or a['pids']: continue
+        for b in L2[i + 1:]:
+            if b['t0'] - a['t0'] > K['DOOR_ROUNDTRIP_S']: break
+            if b.get('rt') or b['pids'] or b['door'] != a['door'] or b['d'] == a['d']: continue
+            a['rt'] = b['t0']; b['rt'] = a['t0']; break
+    # 4 resident attribution (two-sided, each tracker edge consumed once)
+    used = set()
+    for c in L2:
+        c['attr'] = None; c['t_resolve'] = c['t0']
+        if c.get('rt'): c['attr'] = 'roundtrip'; continue
+        if c['pids']: c['attr'] = 'pid'; continue
+        best = None
+        for j, (te, k, d) in enumerate(edges):
+            if j in used or d != c['d']: continue
+            if abs(te - c['t0']) <= K['RESIDENT_CROSSING_MATCH_S'] and (best is None or abs(te - c['t0']) < abs(edges[best][0] - c['t0'])): best = j
+        if best is not None:
+            used.add(best); c['attr'] = 'edge'; c['edge'] = edges[best]
+            c['t_resolve'] = max(c['t0'], edges[best][0]); continue  # provisional T until edge arrives
+        if K['MAIN_ENTRY_DOOR'] and c['door'] == K['MAIN_ENTRY_DOOR']:
+            best = None
+            for j, (te, k, d) in enumerate(edges):
+                if j in used or d != c['d']: continue
+                if abs(te - c['t0']) <= K['MAIN_ENTRY_PRIOR_S'] and (best is None or abs(te - c['t0']) < abs(edges[best][0] - c['t0'])): best = j
+            if best is not None:
+                used.add(best); c['attr'] = 'prior_final'; c['edge'] = edges[best]
+                c['t_resolve'] = max(c['t0'], edges[best][0])
+            elif not K.get('PRIOR_REVERSAL', True):
+                c['attr'] = 'prior_final'
+            else:
+                c['attr'] = 'prior_reversed'; c['t_resolve'] = c['t0'] + K['MAIN_ENTRY_PRIOR_S']
+            continue
+    return L1, L2
+
+
+def hybrid_main(K=None, doors=None, start_ts=None):
+    K = K or KN; doors = doors or H_DOORS
+    # tracker edges (resident)
+    edges_h = []
+    for k, s in pers.items():
+        for i in range(1, len(s.t)):
+            if s.v[i] != s.v[i - 1]: edges_h.append((s.t[i], k, 'entry' if s.v[i] == 1 else 'exit'))
+    edges_h.sort()
+    L1, L2 = door_pipeline(ev, doors, K, edges_h)
+    # T delta schedule: (time, dT, dB, crossing)
+    sched = []
+    for c in L2:
+        sg = 1 if c['d'] == 'entry' else -1
+        a = c['attr']
+        if a in ('roundtrip', 'pid'): continue
+        if a in ('edge',):  # provisional-apply then retro-reconcile at edge time
+            if c['t_resolve'] > c['t0']: sched.append((c['t0'], sg, 0, c)); sched.append((c['t_resolve'], -sg, 0, c))
+            continue
+        if a == 'prior_final':  # provisional resident (B in-flight), finalised at edge
+            sched.append((c['t0'], 0, 1, c)); sched.append((c['t_resolve'], 0, -1, c)); continue
+        if a == 'prior_reversed':
+            sched.append((c['t0'], 0, 1, c)); sched.append((c['t_resolve'], sg, -1, c)); continue
+        sched.append((c['t0'], sg, 0, c))  # unattributed guest crossing
+    sched.sort(key=lambda x: x[0])
+    # downtime
+    evs_ = [(t, ts) for t, ts in r.execute("""select et.event_type,e.time_fired_ts from events e join event_types et on e.event_type_id=et.event_type_id
+       where et.event_type in ('homeassistant_stop','homeassistant_start') order by 2""")]
+    down = []; ls = None
+    for t, ts in evs_:
+        if t == 'homeassistant_stop': ls = ts
+        elif ls: down.append((ls, ts)); ls = None
+    isdown = lambda t: any(a <= t < b for a, b in down)
+
+    def S_at(t):
+        return sum(max(cnt[c].at(t, 0) or 0 for c in comp) for comp in COMPONENTS)
+
+    def ugr_at(t):
+        u_ = 0
+        for room, ss in gr.items():
+            if any(s.at(t, 0) for s in ss) and not any(pers[k].at(t, 0) and area[k].at(t) == room for k in area): u_ += 1
+        return u_
+
+    start = int((start_ts or T0) // 60 + 1) * 60
+    Ssamp = []  # (t, S)
+    T = 0; B = 0.0; si = 0; anchors = []; empty_since = None; boot_until = 0; prev_down = False
+    shrink_until = 0; last_body = start; stale_step = None; stale_next = None
+    out_rows = []; log = []
+    t = start
+    while t < T1:
+        if isdown(t):
+            prev_down = True; out_rows.append(dict(t=t, down=True)); t += K['TICK_S']; continue
+        if prev_down: prev_down = False; boot_until = t + K['BOOT_SETTLE_S']
+        # ingest S samples within the tick
+        for ts in range(t - K['TICK_S'] + K['S_SAMPLE_S'], t + 1, K['S_SAMPLE_S']): Ssamp.append((ts, S_at(ts)))
+        S_now = Ssamp[-1][1]
+        if S_now > 0: last_body = t; stale_step = None
+        # reconcile: apply door schedule
+        while si < len(sched) and sched[si][0] <= t:
+            ts_, dT, dB, c = sched[si]; si += 1
+            if dT < 0 and c['d'] == 'exit' and T == 0 and S_now == 0 and c['attr'] not in ('edge',):
+                shrink_until = ts_ + K['FLOOR_SHRINK_HOLD_S']
+            T = min(max(T + dT, 0), K['DOOR_TALLY_MAX']); B = max(B + dB, 0)
+            if dT and c['attr'] not in ('edge',): log.append((ts_, c['door'], c['d'], c['attr'], T))
+        # B decay (in-flight provisionals only here -> settle on schedule; keep linear decay cap)
+        # tally stale age-out
+        if T > 0 and t - last_body >= K['DOOR_TALLY_STALE_S']:
+            if stale_step is None: stale_step = K['DOOR_TALLY_STALE_S'] / T; stale_next = t + stale_step
+            if t >= stale_next: T -= 1; stale_next = t + stale_step
+        FW = K['SHRINK_WINDOW_S'] if t < shrink_until else K['FLOOR_WINDOW_S']
+        Ssamp = [x for x in Ssamp if x[0] > t - K['FLOOR_WINDOW_S']]
+        M = max((s for ts, s in Ssamp if ts > t - FW), default=0)
+        R = sum(pers[k].at(t, 0) or 0 for k in pers)
+        U = ugr_at(t)
+        # anchor
+        if R == 0 and M == 0 and U == 0 and t >= boot_until:
+            empty_since = empty_since or t
+            if t - empty_since >= K['EMPTY_ANCHOR_SETTLE_S']:
+                if T or B: anchors.append((t, T, B))
+                elif not anchors or anchors[-1][0] < empty_since: anchors.append((t, 0, 0))
+                T = 0; B = 0; Ssamp = []
+                empty_since = t  # re-arm
+        else: empty_since = None
+        F = floor_formula(R, M, U, T)
+        out_rows.append(dict(t=t, R=R, M=M, U=U, T=T, B=B, F=F, E=F + B, S=S_now, down=False))
+        t += K['TICK_S']
+    return L1, L2, out_rows, anchors, log
+
+
+def h_truth(t):
+    """(lo, hi) reconciled truth band §8.1, 10-03 CDT."""
+    h = (t - D3a) / 3600
+    if h < 8: return (4, 4)
+    if h < 13.5: return (3, 3)
+    if h < 14 + 20 / 60: return (1, 2)
+    if h < 15: return (10, 11)
+    if h < 23: return (10, 12)
+    if h < 23 + 24 / 60: return (10, 10)
+    if h < 23 + 55 / 60: return (12, 12)
+    return (11, 11)
+
+
+def gates_only(rows):
+    up = [x for x in rows if not x['down']]
+    tab = []
+    for t0 in range(int(D3a), int(D3b), 900):
+        br = [x for x in up if t0 <= x['t'] < t0 + 900]
+        if br: tab.append((t0, st.mean(x['F'] for x in br), st.mean(x['E'] for x in br)))
+    dist = lambda v, lo, hi: 0 if lo <= v <= hi else (lo - v if v < lo else v - hi)
+    cut = D3a + (14 + 20 / 60) * 3600
+    pre = [x for x in tab if x[0] + 450 < cut]; post = [x for x in tab if x[0] + 450 >= cut]
+    mor = [x for x in up if D3a + 8 * 3600 <= x['t'] < D3a + 13.5 * 3600 and x['R'] == 3]
+    return dict(G1=sum(f <= e + 1e-9 for _, f, e in tab) / len(tab), G2=sum(f <= h_truth(t + 450)[1] + 1e-9 for t, f, _ in tab) / len(tab),
+                G3=sum(dist(f, *h_truth(t + 450)) <= 1 for t, f, _ in pre) / len(pre),
+                G4a=sum(dist(f, *h_truth(t + 450)) <= 2 for t, f, _ in post) / len(post), G4b=sum(f >= 4 for _, f, _ in post) / len(post),
+                G5=sum(x['F'] == x['R'] for x in mor) / max(len(mor), 1),
+                G3_pre12=sum(dist(f, *h_truth(t + 450)) <= 1 for t, f, _ in pre if t < D3a + 12 * 3600) / max(1, sum(1 for t, *_ in pre if t < D3a + 12 * 3600)))
+
+
+def hybrid_variants():
+    V = [('baseline (plan)', {}, None), ('doorbell_lite->garage_a', {}, {'front': ['madrone_g6_entry', 'front_door_aerial'], 'garage_a': ['garage_a', 'doorbell_lite'], 'garage_b': ['garage_b']}),
+         ('prior permanent (no reversal)', {'PRIOR_REVERSAL': False}, None), ('FLOOR_WINDOW_S=600', {'FLOOR_WINDOW_S': 600}, None),
+         ('no main-entry prior', {'MAIN_ENTRY_DOOR': None}, None),
+         ('doorbell->garage_a + prior permanent', {'PRIOR_REVERSAL': False}, {'front': ['madrone_g6_entry', 'front_door_aerial'], 'garage_a': ['garage_a', 'doorbell_lite'], 'garage_b': ['garage_b']})]
+    print('### Sensitivity variants (start 10-01 00:00 CDT warm-up)')
+    print('| variant | G1 | G2 | G3 | G3 00-12 only | G4 within2 | G4 F>=4 | G5 | FLOOR 13:00 | FLOOR 23:45 |')
+    print('|---|---|---|---|---|---|---|---|---|---|')
+    for name, ov, doors in V:
+        K = dict(KN); K.update(ov)
+        _, _, rows, _, _ = hybrid_main(K, doors, D3a - 2 * 86400)
+        g = gates_only(rows); idx = {x['t']: x for x in rows if not x['down']}
+        f = lambda hh: idx.get(int(D3a + hh * 3600), {}).get('F')
+        print(f"| {name} | {g['G1']:.0%} | {g['G2']:.0%} | {g['G3']:.0%} | {g['G3_pre12']:.0%} | {g['G4a']:.0%} | {g['G4b']:.0%} | {g['G5']:.0%} | {f(13)} | {f(23.75)} |")
+
+
+def hybrid_report():
+    L1, L2, rows, anchors, log = hybrid_main()
+    P = print
+    P('## HYBRID replay (knobs: ' + json.dumps(KN) + ')')
+    P(f'Overlap components: {COMPONENTS}; door groups: {H_DOORS}; Revel EXCLUDED; ledger directions: entry/exit only (no AMBIGUOUS rows -> P-AMB/T_amb inert)')
+    d3 = [c for c in L2 if D3a <= c['t0'] < D3b]
+    P(f"10-03 crossings: raw ledger rows={sum(1 for e in ev if D3a<=e['t']<D3b)}, after leg-collapse={sum(1 for c in L1 if D3a<=c['t0']<D3b)}, after same-person={len(d3)}")
+    P('Attribution (10-03): ' + json.dumps(Counter(f"{c['d']}:{c['attr']}" for c in d3)))
+    # 14:20 front burst
+    a, b = D3a + 14 * 3600 + 10 * 60, D3a + 14 * 3600 + 40 * 60
+    raw = [e for e in ev if a <= e['t'] < b and e['stem'] in H_DOORS['front']]
+    l1 = [c for c in L1 if a <= c['t0'] < b and c['stem'] in H_DOORS['front']]
+    l2 = [c for c in L2 if a <= c['t0'] < b and c['door'] == 'front']
+    P(f"### d0_front_14_20 (front, 14:10-14:40): raw rows entry/exit={sum(e['d']=='entry' for e in raw)}/{sum(e['d']=='exit' for e in raw)}; "
+      f"leg-collapsed entries={sum(c['d']=='entry' for c in l1)}; same-person entries={sum(c['d']=='entry' for c in l2)}; "
+      f"surviving round-trip+attribution (count into T) = {sum(1 for c in l2 if c['d']=='entry' and c['attr'] is None)}")
+    for c in l2: P(f"- {loc(c['t0'])[6:]}:{int((c['t0']+CDT)%60):02d} {c['d']} legs={len(c['legs'])} attr={c['attr']}")
+    P('### 23:24 garage_a window (23:15-23:40)')
+    for c in L2:
+        if D3a + 23.25 * 3600 <= c['t0'] < D3a + 23 * 3600 + 40 * 60:
+            P(f"- {loc(c['t0'])[6:]}:{int((c['t0']+CDT)%60):02d} {c['door']} {c['d']} legs={len(c['legs'])} attr={c['attr']} edge={c.get('edge')} resolve={loc(c['t_resolve'])[6:]}")
+    # bins
+    up = [x for x in rows if not x['down']]
+    def binrows(t0, step=900): return [x for x in up if t0 <= x['t'] < t0 + step]
+    tab = []
+    for t0 in range(int(D3a), int(D3b), 900):
+        br = binrows(t0)
+        if not br: tab.append((t0, None)); continue
+        m = lambda k: st.mean(x[k] for x in br)
+        tab.append((t0, dict(F=m('F'), E=m('E'), R=m('R'), M=m('M'), U=m('U'), T=m('T'), B=m('B'), Fmax=max(x['F'] for x in br))))
+    P('### 15-min bins (means)')
+    P('| CDT | R | M_cam | U_gr | T | B | FLOOR | ESTIMATE | truth | legacy |')
+    P('|---|---|---|---|---|---|---|---|---|---|')
+    for t0, b_ in tab:
+        lo, hi = h_truth(t0 + 450); lg = st.mean(legacy.at(t, 0) or 0 for t in range(t0, t0 + 900, 60))
+        if not b_: P(f'| {loc(t0)[6:]} | DOWN |||||| | {lo}-{hi} | {lg:.1f} |'); continue
+        P(f"| {loc(t0)[6:]} | {b_['R']:.1f} | {b_['M']:.1f} | {b_['U']:.1f} | {b_['T']:.1f} | {b_['B']:.1f} | {b_['F']:.1f} | {b_['E']:.1f} | {lo}-{hi} | {lg:.1f} |")
+    good = [(t0, b_) for t0, b_ in tab if b_]
+    dist = lambda v, lo, hi: 0 if lo <= v <= hi else (lo - v if v < lo else v - hi)
+    g = {}
+    g[1] = sum(b_['F'] <= b_['E'] + 1e-9 for _, b_ in good) / len(good)
+    g[2] = sum(b_['F'] <= h_truth(t0 + 450)[1] + 1e-9 for t0, b_ in good) / len(good)
+    pre = [(t0, b_) for t0, b_ in good if t0 + 450 < D3a + (14 + 20 / 60) * 3600]
+    g[3] = sum(dist(b_['F'], *h_truth(t0 + 450)) <= 1 for t0, b_ in pre) / len(pre)
+    post = [(t0, b_) for t0, b_ in good if t0 + 450 >= D3a + (14 + 20 / 60) * 3600]
+    g['4a'] = sum(dist(b_['F'], *h_truth(t0 + 450)) <= 2 for t0, b_ in post) / len(post)
+    g['4b'] = sum(b_['F'] >= 4 for t0, b_ in post) / len(post)
+    mor = [x for x in up if D3a + 8 * 3600 <= x['t'] < D3a + 13.5 * 3600 and x['R'] == 3]
+    g[5] = sum(x['F'] - x['R'] == 0 for x in mor) / max(len(mor), 1)
+    P(f"### Gates\nG1 {g[1]:.0%} | G2 {g[2]:.0%} | G3 {g[3]:.0%} (n={len(pre)}) | G4 |F-truth|<=2 {g['4a']:.0%}, F>=4 {g['4b']:.0%} (n={len(post)}) | G5 {g[5]:.0%} (n={len(mor)} min)")
+    P('G5 guest_estimate>0 minutes (morning R=3): ' + ', '.join(sorted({loc(x['t'])[6:] for x in mor if x['F'] > x['R']}))[:600])
+    # G6 anchors
+    P(f'G6 anchors over retention: {len(anchors)}')
+    idx = {x['t']: x for x in up}
+    for t_, T_, B_ in anchors:
+        x = idx.get(t_); P(f"- {loc(t_)} T_pre={T_} B_pre={B_} FLOOR_after={x and x['F']} T_after={x and x['T']}")
+    # G7 F5
+    P('G7 F5: ' + '; '.join(f"{hh}: " + (lambda x: f"R={x['R']} M={x['M']} U={x['U']} T={x['T']} F={x['F']} hs={hs.at(x['t'])}" if x else 'DOWN')(idx.get(int(D3a + int(hh[:2]) * 3600 + int(hh[3:]) * 60))) for hh in ('15:53', '15:57', '16:01', '17:02')))
+    P(f"G9 synthetic floor_formula(R=2,M=3,U=1,T=0) = {floor_formula(2,3,1,0)}; (R=2,M=3,U=0,T=0) = {floor_formula(2,3,0,0)}")
+    P('### T change log 10-03 (non-edge)')
+    for ts_, d, dd, at, T_ in log:
+        if D3a <= ts_ < D3b: P(f'- {loc(ts_)[6:]} {d} {dd} {at} -> T={T_}')
+    # CSV fixture comparison (30-min slots)
+    P('### CSV fixture (30-min slot start value) vs FLOOR mean over slot')
+    return tab, g
+
+
+if HYBRID_ONLY:
+    import sys
+    import os
+    if os.environ.get('VARIANTS_ONLY') or VARIANTS_ONLY: hybrid_variants()
+    else: hybrid_report()
+    sys.exit(0)
 
 # P1
 ev3 = [e for e in ev if D3a <= e['t'] < D3b]
