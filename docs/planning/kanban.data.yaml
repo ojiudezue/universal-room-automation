@@ -435,6 +435,14 @@ meta:
     headline: "The outdoor camera box (Frigate2, 192.168.13.18) has been OFF THE NETWORK since about 7:18pm last night, during the network restart. HA and the Mac both fail to ping it and its network address does not resolve, so it is the machine or its cable/port, not software. Every Frigate person and motion detector reads unavailable, and outdoor person detection from Frigate has been blind for about 7 hours. UniFi Protect is still working. Good news on the older fault: the detectors that froze on 09-21 had started moving again before the box dropped. DO: check the box's power and network port and power-cycle it. I paged you with a Home Assistant notification (not a phone push) and changed nothing."
     acknowledged: false
 cards:
+- id: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1
+  title: Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits)
+  thread: energy
+  status: inbox
+  created: '2026-10-04 01:00'
+  updated: '2026-10-04 01:00'
+  next: 'PLAN (phase 2 of EC-DEGRADED-DATA-POLICY-1, after phase 1 ships + stream A/B 2026-10-05): (1) retire/rework dormant local write-failover (PLANNING_envoy_write_verification_and_redundancy D3) — local battery writes gone since fw 8.2.4225; verify nothing assumes it; (2) cloud write-path health: detect failed/rate-limited (retry-after) commands, NM alert; (3) production.json-independent reads (stream / /ivp/meters / failover map TelemetryPair; ha-enphase-realtime trial option); (4) token expiry/auth-failure alert.'
+  why: 'Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8.2.4225; production.json not recommended; local API unsupported; yearly token; cloud retry-after).'
 - id: ENERGY-HISTORY-KW-SUMMED-AS-KWH-1
   title: Predicted Energy/Cost Tomorrow ~4x too high — energy_history stores 15-min kW snapshots and predictions sum them as kWh
   thread: energy
