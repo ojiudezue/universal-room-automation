@@ -436,6 +436,7 @@ meta:
     acknowledged: false
 cards:
 - id: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1
+  operator_guidance_2026_10_04: 'Respect prior art that makes sense — we invested heavily in commanding (cloud write route, write-verify vs cloud oracle, pending-write-stuck retry + NM, hardware-noncompliance detector, 3-tier SOC resolver, LKG/envelope, failover-map design). Mandatory prior-art scan with file:line; every phase-2 piece EXTENDS it. The stream must make commanding STRONGER (independent outcome witness: battery power/SOC confirms reserve/CFG landed), never weaker. Evaluate CONSOLIDATION vs today''s 3 integrations (core enphase_envoy + MQTT stream add-on + barneyonline enphase_ev): score on REDUNDANCY (independent read/command paths, shared failure modes) and ACCURACY (vs SPAN pair + battery physics), plus supply-chain risk (# third-party deps, maintenance, Envoy connections). Candidate: ha-enphase-realtime for local reads+stream and as an independent locally-verified second command path; decide on a measured trial, not its README.'
   title: Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits)
   thread: energy
   status: inbox
