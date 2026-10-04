@@ -9,6 +9,21 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1@2026-10-04T02:40:01"
+    at: "2026-10-04T02:40:01"
+    outcome: "built-to-review"
+    headline: "Ready to ship with the next daytime deploy: the fix that stops URA logging an ERROR every time HA shuts down. Two reviews said SHIP, and I confirmed the new test catches the bug if the fix is removed. Not deployed."
+    acknowledged: false
+  - fid: "HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1@2026-10-04T02:40:02"
+    at: "2026-10-04T02:40:02"
+    outcome: "measured"
+    headline: "Answered from the history, so no reply needed: you turned Custom Preset Ranges off yesterday at 1:13 pm. The 4:59 pm restart turned it back on, and you turned it off again at 5:05 pm. It is off now. The throttle fix now waits inside Batch C."
+    acknowledged: false
+  - fid: "RESTORE-UNAVAILABLE-OFF-SWEEP-1@2026-10-04T02:40:03"
+    at: "2026-10-04T02:40:03"
+    outcome: "escalated"
+    headline: "HVAC 'Vacancy Auto-Off' has been OFF since yesterday's 4:59 pm restart, with no one touching it (it had been on for 10 days). Cause: URA was down when HA saved its settings, and this switch reads 'unavailable' as off. Please turn it back on if you want it. A code fix for this and 3 similar switches is being built (to review only)."
+    acknowledged: false
   - fid: "HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1@2026-10-03T02:20:47"
     at: "2026-10-03T02:20:47"
     outcome: "escalated"
@@ -104,36 +119,6 @@ meta:
     outcome: "escalated"
     headline: "Energy dropout policy: the investigation is finished (the attended session ran the one-week measurement tonight). Most proposed fixes failed the evidence test, mainly because the cloud battery reading can freeze while looking fresh. Your call on 3 short questions in the design doc; the likely answer is that no build is needed now."
     acknowledged: false
-  - fid: "MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1@2026-10-02T02:55:00"
-    at: "2026-10-02T02:55:00"
-    outcome: "built-to-review"
-    headline: "Music following has not moved music since May because of a person-name mismatch; the fix is reviewed and the full suite is clean vs develop. Ready for your ship call. Once shipped, music will start following people again."
-    acknowledged: true
-  - fid: "ANOMALY-BASELINES-NEVER-SAVED-ON-RESTART-1@2026-10-02T02:55:00"
-    at: "2026-10-02T02:55:00"
-    outcome: "built-to-review"
-    headline: "Anomaly baselines were never saved across restarts for 4 coordinators; the fix adds a periodic save. Full suite vs develop: no new failures. Ready for your ship call (in review)."
-    acknowledged: true
-  - fid: "URA-ATTRIBUTE-CHURN-1@2026-10-02T02:55:00"
-    at: "2026-10-02T02:55:00"
-    outcome: "built-to-review"
-    headline: "Sensor attribute churn fix (stops sensors rewriting history rows every few seconds): the full test suite against current develop shows no new failures. Ready for your ship call (in review, not deployed)."
-    acknowledged: true
-  - fid: "FRONT-SIDE-PTZ-CHATTER-1@2026-10-02T02:10:00"
-    at: "2026-10-02T02:10:00"
-    outcome: "measured"
-    headline: "Correction: the front-side camera is not fully blind. It detected a person 4 times on 10-01 while Frigate2 was working, and the earlier zero was partly the fleet-wide outage. That is still far below its old ~200 a day, so your answer about a zone crop still matters."
-    acknowledged: true
-  - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-10-02T02:10:00"
-    at: "2026-10-02T02:10:00"
-    outcome: "measured"
-    headline: "Log check done (the HA MCP was down, so I read HA's own error list another way). The garage-porch Sonoff setting is still flooding the log at about 99 errors an hour. The pantry automation error is gone. The only thing left is your Sonoff range fix."
-    acknowledged: true
-  - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-10-02T02:10:00"
-    at: "2026-10-02T02:10:00"
-    outcome: "escalated"
-    headline: "Outdoor person detection is dark AGAIN. Frigate2 came back on 10-01 around 11:26 (detections resumed), but its detector hung again around 16:22, about 5 hours later. It shows the same signs as 09-29: the detection rate is frozen and the Coral reading is unavailable. Since then there have been 19 detections on one sensor, compared with 492 across 24 sensors in the 5 hours before. Needs another Frigate restart, plus a decision on the Coral because it keeps hanging. Paged via an HA notification."
-    acknowledged: true
   - fid: "EV-SENSOR-CLEANUP-1@2026-10-01T04:45:00"
     at: "2026-10-01T04:45:00"
     outcome: "escalated"
@@ -403,36 +388,6 @@ meta:
     at: "2026-09-27T02:05:00"
     outcome: "measured"
     headline: "Finished checking whether the new fast local battery/solar feed can be trusted (28.7 clean hours). It matches the built-in reading to within 1 point, kept working through 99% of the built-in feeds outages (the one gap was the gateway rebooting itself), and it sees battery-reserve changes before the cloud does. One real catch: right after a gateway reboot it briefly reports the battery as EMPTY (0%) for ~36 s, so anything that uses it must ignore the first readings after a reconnect. Card closed. Also fixed a bug in my own measuring script that had made the reserve look broken."
-    acknowledged: false
-  - fid: "SOAK-EXIT-SWEEP-2026-09-26@2026-09-26T02:19:51"
-    at: "2026-09-26T02:19:51"
-    outcome: "done"
-    headline: "Cleared the three oldest \"shipped, waiting to be proven\" cards by checking each one directly. (1) The unexpected-person sensor now uses the de-duplicated count. The house history shows it staying quiet where the old rule would have falsely fired, and nothing sends alerts from it today. (2) The stale-import safety checker still finds zero problems. (3) The old off-phase thermostat hold is really gone from the code. All three closed. Two small leftovers are noted on the cards for later: whether the daytime unexpected-person hits were real visitors, and an unused HVAC setting name."
-    acknowledged: false
-  - fid: "HA-CORE-RESTART-STORM-1@2026-09-26T02:18:23"
-    at: "2026-09-26T02:18:23"
-    outcome: "done"
-    headline: "Closed the restart-storm investigation. In the last 6 days Home Assistant restarted only three times, and each has an owner: one release, one Envoy-recovery restart, and your core update last evening. None is unexplained. The mystery restarts from 09-13 to 09-20 can no longer be traced because their logs are gone, and that is recorded as a known gap. The card reopens if an unexplained restart ever appears again."
-    acknowledged: false
-  - fid: "SUPERVISOR-LOG-TOKENLESS-POLL-FLOOD-1@2026-09-26T02:18:22"
-    at: "2026-09-26T02:18:22"
-    outcome: "done"
-    headline: "The every-10-seconds noise flooding the system log has STOPPED on its own. There were none in the last 45 minutes, against 77 of the last 100 log lines two nights ago. It was not the toggle I asked you for: protection mode is still on. I proved the log still records the message by triggering one myself, and it showed up. So whatever was polling went away, most likely during last evening's restarts (not proven). Card closed and your toggle is no longer needed for it. It will reopen automatically if the flood comes back."
-    acknowledged: false
-  - fid: "TEST-STRATEGY-REARCH-1@2026-09-26T02:11:36"
-    at: "2026-09-26T02:11:36"
-    outcome: "escalated"
-    headline: "Re-ran the whole test suite tonight rather than trusting the old number: 194 failures and 3 errors, exactly the same as three days ago, and in the same few files. Two files hold over a third of all failures. There is nothing left to measure, so the card moves to your queue with a choice: (A) fix the handful of files that actually fail first and then size the big re-architecture (my recommendation), (B) plan the re-architecture now, or (C) freeze the 194 as a named baseline. While the suite ran I caught a test editing real production code in place. That became a new card (TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1), the unfinished second half of a fix we closed on 09-11."
-    acknowledged: false
-  - fid: "HVAC-ZONE1-MANUAL-OSCILLATION-1@2026-09-26T02:07:39"
-    at: "2026-09-26T02:07:39"
-    outcome: "measured"
-    headline: "Corrected a stale card rather than measuring. The zone-1 \"stuck in manual\" investigation still named the Bryant schedule as the cause in its title, and its next step still pointed at a check that the HVAC state-of-play doc has since withdrawn (C2, C20). The title and next now match what we know: a real manual hold forms right after URA's own borrow return. The remaining question (exactly why) is answered by the W1-B plan's first probe, which needs a day of W1-A write logs first. The card is now linked as blocked by W1-A. Nothing could be measured tonight, and I ran no HVAC probe."
-    acknowledged: false
-  - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-09-26T02:05:32"
-    at: "2026-09-26T02:05:32"
-    outcome: "escalated"
-    headline: "The outdoor camera box (Frigate2, 192.168.13.18) has been OFF THE NETWORK since about 7:18pm last night, during the network restart. HA and the Mac both fail to ping it and its network address does not resolve, so it is the machine or its cable/port, not software. Every Frigate person and motion detector reads unavailable, and outdoor person detection from Frigate has been blind for about 7 hours. UniFi Protect is still working. Good news on the older fault: the detectors that froze on 09-21 had started moving again before the box dropped. DO: check the box's power and network port and power-cycle it. I paged you with a Home Assistant notification (not a phone push) and changed nothing."
     acknowledged: false
 cards:
 - id: EC-LKG-NEVER-PERSISTED-1
@@ -2087,15 +2042,16 @@ cards:
   parsimony: {problem: 'paths that bypass the shared retreat check act on a reloading room''s placeholder empty', verdict: BUILD}
 
 - id: HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1
+  groom_2026_10_04_overnight: "VERIFY ANSWERED by the recorder (operator did not have to reply): the CPR switch (switch.ura_hvac_coordinator_guest_mode_actuation) was turned OFF BY A USER (context user 66bda3b7...) via switch.turn_off at 2026-10-03 18:13:16Z, came back ON with no user at the 21:59:30Z restart (it had been 'unavailable' for the 61-min v5.103.37 CM outage, so its saved state was 'unavailable' and the guarded restore fell back to code default ON), and was turned OFF by the same user again at 22:05:40Z; OFF now. README_v5.103.38 records this ('reload/restart re-enables it (code default ON) - fix tracked in Batch C'). The 10-02 21:28:45Z ON was a coordinator re-create (zone_sweep / face_matching / name_people_at_doors rows in the same second, no unavailable run) - the coordinator default True showing through the live entity. Both mechanisms are closed for CPR by Batch C's default-OFF; the general #52 restore defect found alongside is carded as RESTORE-UNAVAILABLE-OFF-SWEEP-1. Lane: waiting_operator -> planned (blocker of Batch C)."
   instance_2026_10_03_overnight: "INSTANCE_2026_10_03_overnight (found by the overnight HVAC probe, re-verified by orchestrator on the recorder): switch.ura_hvac_coordinator_guest_mode_actuation (DPM / Custom Preset Ranges actuation, the thing this blocker gates) is ON in the live house since 2026-10-02 21:28:45Z (16:28 CDT) with NO user context, still on after the 10-03 restart (05:37:19Z). History: 10-01 16:21Z on / 17:02Z off BY A USER; 10-02 13:06Z off; 21:28:45Z on (no user) in the same second as zone_sweep, face_matching and name_people_at_doors switch rows (i.e. an entity re-create/reload, not a restart - restarts were 10-02 13:05Z and 10-03 05:33Z). No develop commit explains it. Live effect: 31 S10_dpm_apply climate writes since (per hour UTC: 22h 2, 23h 9, 02h 4, 03h 2, 05h 6, 06h 8) - the compose-away throttle bypass this card exists to fix is now running live without the operator go the board requires. NOT changed by the overnight pass (live HVAC change in a sleeping house; may be intentional)."
   groom_2026_09_29_arc: 'Part of BATCH C (HVAC-CUSTOM-PRESET-RANGES-1): build together with Custom Preset Ranges; deploy only on the operators word, zone 3 first.'
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
-  status: "waiting_operator"
+  status: "planned"
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 6, time_criticality 4, effort 5 - Batch C blocker (12 cloud writes/hr/zone if enabled); Tier 2.'
   rank: {value: 6, time_criticality: 4, effort: 5}
   thread: hvac
   created: '2026-09-17'
-  updated: "2026-10-03 02:20"
+  updated: "2026-10-04 02:40"
   tags: [hvac, blocker, carrier-write-sensitivity, do-before-enable]
   title: BLOCKER on enabling guest_mode_actuation — F2 compose-away throttle bypass is unconditional
     (12 set_temperature/hr/zone to Carrier cloud)
@@ -2108,7 +2064,7 @@ cards:
     setpoints and emit only on real diff.'
   why: 'D9 is inert live (guest_mode_actuation OFF), so not a pre-ship fix — but it is a hard BLOCKER
     that must land BEFORE that switch is ever turned on, or it storms the thermostat cloud.'
-  next: "VERIFY: did you turn on 'guest mode actuation' (Custom Preset Ranges / DPM) on 10-02 ~16:28 CDT on purpose? NO -> turn switch.ura_hvac_coordinator_guest_mode_actuation off (a setting) and I find what flipped it (it changed with 3 other URA switches in one second, no user). YES -> this blocker is now live-relevant: APPROVE building the throttle fix next; measured live rate so far 2-9 S10 writes/hour."
+  next: "BUILD inside Batch C (HVAC-CUSTOM-PRESET-RANGES-1): this throttle fix is one of CPR's 3 blockers; no separate operator ask remains. Deploy gate stays the operator's explicit go on Batch C."
   parsimony: {problem: 'unconditional throttle bypass = steady write-storm once the feature is on', verdict: BUILD, note: 'gate on enabling the switch'}
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1], sibling_of: [HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1], context: 'F2 residual; blocker on guest_mode_actuation'}
 - id: HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1
@@ -2426,6 +2382,7 @@ cards:
     context: 'Found by the v5.103.4 interim lockout read. Explains why manual% did not move on zone_1
       (67.5% vs 69.6%). Distinct from escape (URA refuses to write) — here something WRITES manual. 2026-09-26: blocked_by W1-A because W1-B''s D0 probe (the instrument for the remaining strand-cause question) needs one clean day of W1-A climate_write rows; HVAC-W1-THERMOSTAT-DEFINITION is where the fix lands.'
 - id: PERSON-STATIONARY-TRACKER-BLIP-1
+  verified_2026_10_04_overnight: "STILL-REAL, ask unchanged: person.oji_udezue still lists device_tracker.m4promacmini_2 (and okosisipadmini6_2) in device_trackers (REST /api/states 02:05 CDT)."
   reverified_2026_10_03_overnight: "STILL WAITING: live person.oji_udezue device_trackers still includes device_tracker.m4promacmini_2 (REST /api/states, 02:08). Operator DO not yet done."
   verify_2026_10_01_overnight: 'RE-VERIFIED (HA REST 10-01 ~02:00 CDT): person.oji_udezue still lists device_tracker.m4promacmini_2 among its 7 trackers, so the operator step has not happened yet; card stays waiting_operator. No re-count of blips (nothing changed to test).'
   interim_2026_09_28: 'INTERIM (overnight 2026-09-28 02:30 CDT; not yet discriminating). (a) Blip count: HA history for all 4 person entities from 22:26 UTC 09-27 (17:26 CDT, the tracker trim) to 07:30 UTC 09-28: each had 4 transitions, all around the HA restart, and 0 home states shorter than 60 s. (b) Other persons checked live: ezinne = ezinne_iphone + ezinne_iphone_bermuda_tracker; jaya = jjs_iphone + private_ble_device_249050 + iphone_jaya_bermuda_tracker; ziri = ziri_iphone. All are phone-carried, with no home-stationary trackers (no mac mini, tablet or entry pad), so the second half of next is DONE and nobody else needs the trim. CAVEAT: the household was home all night, so the phone tracker never dropped while away. Zero blips tonight therefore cannot discriminate the fix, because the old failure needs Oji away AND the cflare tracker dropping. The real test is a day with an away period. Stays waiting_me; re-check on 09-30 over 09-28/29 away windows.'
@@ -2436,7 +2393,7 @@ cards:
   rank: {value: 4, time_criticality: 5, effort: 2}
   thread: presence
   created: '2026-09-27'
-  updated: "2026-10-03 02:05"
+  updated: "2026-10-04 02:40"
   origin: 'Empty-house natural experiment item 8 (not pre-registered), 2026-09-27.'
   why: '4 zero-second home blips on 09-26 each within 0.4-1.2 s of device_tracker.phalanxiphone15promaxcflare going unavailable; person.oji_udezue has 19 trackers incl. home-stationary ones (mac minis, tablets, entrypad). One blip fired a phantom pre-arrival (zone_1 pre-cool). Hypothesis (HA person fallback to a stationary tracker) NOT verified in HA core source.'
   sweep_2026_09_27: 'Board + BACKLOG grepped for blip/flicker/cflare/geofence pre-arrival: only this experiment card carries it. NEW.'
@@ -30419,6 +30376,7 @@ cards:
   refs: [docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md, docs/planning/PLANNING_hvac_w1_w2_finish.md, docs/readmes/README_v5.103.16.md]
   validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: ROOM-OVERRIDE-SWITCH-FORGOTTEN-1
+  verified_2026_10_04_overnight: "STILL-REAL, ask unchanged: switch.exercise_room_automation is off (recorder shows off continuously 10-02..10-04, rows only at restarts; no user change)."
   reverified_2026_10_03_overnight: "STILL WAITING: switch.exercise_room_automation = off (REST /api/states 02:08; last_changed = the 00:37 restart, i.e. restored off). Operator ANSWER still outstanding."
   checked_2026_10_01_overnight: 'ONE-SHOT CHECK DONE (HA REST history 2026-09-29 19:00Z -> 2026-10-01 07:10Z, ~36 h since the override went off). CLEAN but NOT DISCRIMINATING: binary_sensor.exercise_room_occupied never turned on; the motion sensor (rgbw_motion_lux_3rd_zigbee_exercise_occupancy) and the working radar (hobeian_exercise_presence_2) also never turned on, apart from restart unavailable/unknown blips. So: no phantom occupancy and no stuck-on sensor, but also nobody used the room, so this cannot show whether real use is detected. Over the 10 days before, the motion sensor fired 4 times and the radar 17 times (last 09-28 17:10Z), so both are alive. The original radar (hobeian_exercise_presence, no _2) has been unavailable the whole window - one of the 3 sensors is effectively already gone. NEW FINDING, same forgotten-switch class: switch.exercise_room_automation is OFF and has been off at least since 09-25 23:09Z (the oldest recorder row), so even with correct occupancy URA will not drive the Exercise Room lights. Not touched: whether it is deliberate is your call.'
   operator_2026_09_29: 'Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let''s see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant turned OFF by the orchestrator 2026-09-29 (verified off). No soak: a one-shot check is scheduled instead.'
@@ -30426,7 +30384,7 @@ cards:
   thread: presence
   status: 'waiting_operator'
   created: '2026-09-29 04:20'
-  updated: "2026-10-03 02:05"
+  updated: "2026-10-04 02:40"
   refinement_status: initial
   approval: unreviewed
   tags: [tier-1, found-during-probe, config-first]
@@ -30625,13 +30583,52 @@ cards:
     context: 'EC-DEGRADED-DATA-POLICY-1 is the design doc whose D0 replay found this mechanism; it supersedes EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1 whose dropout premise was refuted.'
   rank: {value: 4, time_criticality: 2, effort: 13}
   refs: [docs/planning/DESIGN_ec_degraded_data_policy.md section 9.1 / 9.3]
+- id: RESTORE-UNAVAILABLE-OFF-SWEEP-1
+  title: "After a restart that follows a URA outage, some on-by-default URA switches come back OFF (Vacancy Auto-Off is off right now) - finish the Bug Class #52 restore guard"
+  thread: platform
+  status: in_progress
+  created: '2026-10-04 02:40'
+  updated: '2026-10-04 02:40'
+  refinement_status: initial
+  approval: implied
+  tags: [tier-1, measure-before-build, institutional-context, mutation-drill, found-during-probe]
+  problem_solution:
+  - "Problem: when URA is down at the moment Home Assistant saves entity states (as during the 61-minute v5.103.37 crash on 10-03), a handful of URA switches save 'unavailable'. On the next start they read 'unavailable' as OFF, so a feature that is on by default and was on quietly turns itself off with no message. Measured tonight: HVAC 'Vacancy Auto-Off' (switch.ura_hvac_coordinator_zone_sweep) had been on for 10 days, turned OFF at the 10-03 16:59 CDT restart with no user action, and is still off. Solution: give the remaining switches the same 'ignore unavailable/unknown, keep the default' check the other ~25 URA switches already have (Bug Class #52), with a test per switch; the operator separately turns Vacancy Auto-Off back on."
+  origin:
+    date: '2026-10-04'
+    gist: "Overnight pass, verifying HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 on the recorder: a restart-flip measurement over all 59 URA switches found zone_sweep on->off at the 10-03 21:59Z restart."
+  why: "MEASURED (HA recorder, 10 days, 59 switch.ura_* / universal_room_automation* entities, ~22 restarts each): exactly 2 switches changed value across a restart, both at 10-03 21:59Z, the restart after the 61-min CM outage: guest_mode_actuation off->on (guarded restore skips 'unavailable' -> code default ON; owned by Batch C default-OFF) and zone_sweep on->off (UNGUARDED: switch.py HVACZoneSweepSwitch ~3982 'if last_state is not None: self._is_on = last_state.state == \"on\"'). Static sweep of all 45 async_get_last_state sites in switch.py: still-unguarded default-ON/variable sites = HVACZoneSweepSwitch, SecurityDelegateLightsSwitch (~5017), AiAutomationSwitch (~5433, per room), InfrastructureRoomSwitch (~5476, default from room type); OverrideOccupied/OverrideVacant (default OFF) are behaviour-neutral."
+  constraints:
+  - Do not change any default; only stop 'unavailable'/'unknown' from overriding it.
+  - The CPR switch's restore-to-default-ON is owned by Batch C (default OFF) - not this card.
+  parked_alts:
+  - "URARestoreMixin extraction (BACKLOG Group D #52 guard sweep, docs/BACKLOG.md:1596) - parked: the guard alone captures the benefit; revisit if a NEW unguarded restore lands after this ship."
+  - "Restoring the last CONCRETE value (not the default) when the saved state is 'unavailable' - would also have saved the operator's CPR=OFF; needs extra stored data per entity. Park; revisit if a guarded switch with an operator-changed value flips again."
+  parsimony:
+    problem: "After a URA-down shutdown, unguarded default-ON switches restore OFF silently (zone_sweep, measured live)."
+    verdict: BUILD
+  gate_2026_10_04: "1 validity STILL-REAL (live: zone_sweep off since 21:59:30Z, code unguarded at switch.py:3982-3983). 1b config-first: the LIVE symptom is a setting (turn the switch back on - operator, see next); the recurrence is code. 2 prior-art: REUSE the existing #52 guard pattern (QUALITY_CONTEXT.md:2101; switch.py HVACZoneIntelligenceSwitch / AutoRecoverySwitch); BACKLOG Group D is this exact item, its trigger has now fired live. 3 parsimony BUILD (guard only, mixin parked). 4 cost/benefit: ~6 one-line guards + tests, no new ingredient; prevents silent feature loss after any URA outage. Tier 1 -> build to review, no deploy."
+  knobs: []
+  links:
+    related: [HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1, HVAC-CUSTOM-PRESET-RANGES-1, RESTART-SAFETY-DOCTRINE-1]
+    context: "Found while answering the CPR blocker's VERIFY; CPR's own default-ON restore is fixed by Batch C (HVAC-CUSTOM-PRESET-RANGES-1); RESTART-SAFETY-DOCTRINE-1 is the broader restart-safety standard this is one concrete instance of."
+  rank:
+    value: 6
+    time_criticality: 6
+    effort: 2
+  next: "BUILD (me, Tier 1, in flight on fix/restore-guard-52-sweep): guard the unguarded restores + per-site tests + mutation drills; 2 reviews -> review lane (no deploy). OPERATOR (separate, a setting): DO turn switch.ura_hvac_coordinator_zone_sweep (HVAC '46 \u00b7 Vacancy Auto-Off') back ON if you did not turn it off - it flipped off by itself at the 10-03 16:59 CDT restart."
+  refs:
+  - custom_components/universal_room_automation/switch.py:3982
+  - docs/QUALITY_CONTEXT.md:2101
+  - docs/BACKLOG.md:1596
 - id: LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1
+  verified_2026_10_04_overnight: "BUILT-TO-REVIEW (overnight 10-04). Rebased onto develop (0 behind). Targeted file 9/9 pass. ORCHESTRATOR single-site mutation: neutering the new `wd._ha_stop_unsub = None` in _on_stop (line 267 only) -> test_ha_stop_fire_does_not_call_consumed_unsub FAILS (1 failed / 8 passed); restored, tree clean. Review A (local correctness, read HA core.py 1393-1401/1642-1705 in .venv-ha): SHIP - once-listener removes itself before the job runs, a second unsub hits ValueError -> _LOGGER.exception; early-teardown path __init__.py:5708-5719 still detaches. One LOW fixed in-cycle (59caf1743): the old comment claimed the unsub is 'safe to call twice' - false. Review B (lifecycle/race/test authority): SHIP - install() idempotent, closure captures its own wd, unload-vs-stop race pre-existing+harmless (LOW, no fix); test uses a fake bus (_UnsubTrackingBus) so it guards this regression but cannot prove HA's real log line -> the live shutdown-log check is the acceptance. Note: both reviewers ran this file concurrently and one saw a drill mutation in place mid-run - test_loop_stall_watchdog.py has in-place source-mutation drills (another instance of TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1). Not deployed (overnight contract)."
   build_2026_10_03_overnight: "Built on fix/loop-stall-watchdog-stop-unsub (bbeed5805) in .claude/worktrees/overnight-1003-wdunsub: _on_stop clears wd._ha_stop_unsub before uninstall; new test test_ha_stop_fire_does_not_call_consumed_unsub. Tests pending (serialised behind the running full-suite name-diff)."
   title: The loop-stall watchdog logs an ERROR at every HA shutdown because it unsubscribes its stop listener after that listener already fired
   thread: hygiene
-  status: "in_progress"
+  status: "review"
   created: '2026-10-03 02:55'
-  updated: "2026-10-03 02:18"
+  updated: "2026-10-04 02:40"
   refinement_status: initial
   approval: implied
   tags: [tier-1, no-fabrication-verify, found-during-probe]
@@ -30644,7 +30641,7 @@ cards:
   parsimony: {problem: 'Every HA shutdown logs a URA-caused ERROR from the watchdog stop handler.', verdict: BUILD}
   gate_2026_10_03: "1 validity: STILL-REAL (log line tonight, code unchanged at :261-288). 1b config-first: no setting affects it. 2 prior-art: REUSE - same file, no new mechanism; HA once-listener semantics. 3 parsimony BUILD (~3 LoC + a test). 4 cost/benefit: trivial risk, removes a recurring ERROR. Tier 1 -> build to review, no deploy."
   knobs: []
-  next: "BUILD (me, Tier 1): in _on_stop set wd._ha_stop_unsub = None before uninstall(hass); test that firing EVENT_HOMEASSISTANT_STOP stops the watchdog without calling the consumed unsub, and that unload-before-stop still detaches. Then review -> review lane (no deploy)."
+  next: "MERGE+SHIP (operator-timed): branch fix/loop-stall-watchdog-stop-unsub (117016e1d + 59caf1743, rebased on develop 9584b184d, pushed) is reviewed SHIP x2 and verified; ride the next daytime deploy (Tier 1, no house risk). Live acceptance after that restart: 0 'Unable to remove unknown job listener ... _loop_stall_watchdog' lines in the core log at the next shutdown."
   links:
     parent: BOOT-EVENT-LOOP-FREEZE-1
     context: 'BOOT-EVENT-LOOP-FREEZE-1 shipped the watchdog (v5.103.26/.28); this is a teardown defect in it, found while disposing that card.'
