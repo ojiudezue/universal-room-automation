@@ -333,20 +333,39 @@ def test_d2_resolver_skips_unavailable_state() -> None:
 # ============================================================================
 
 
-def _make_registry_entry(entity_id: str, unique_id: str) -> SimpleNamespace:
-    return SimpleNamespace(entity_id=entity_id, unique_id=unique_id)
+def _make_registry_entry(
+    entity_id: str, unique_id: str, platform: str = "frigate"
+) -> SimpleNamespace:
+    # Match the shape of HA's RegistryEntry closely enough for the
+    # production enumeration path: entity_id, unique_id, platform.
+    return SimpleNamespace(
+        entity_id=entity_id, unique_id=unique_id, platform=platform
+    )
 
 
 def _install_registry(census: PersonCensus, entries: list[SimpleNamespace]) -> None:
-    """Install a stub entity_registry into the census's hass. Uses the
-    real production import path `homeassistant.helpers.entity_registry`
-    which the harness stubs — we override its two functions.
+    """Install a stub entity_registry into the census's hass that matches
+    the SHAPE the production code actually calls — i.e. a registry
+    exposing `.entities.values()` (the real HA EntityRegistry API). The
+    previous shim relied on an invented `async_entries_for_platform`
+    helper that does NOT exist in HA, so the real code path was never
+    exercised by tests. Driving `.entities.values()` here is the correct
+    oracle (verified against homeassistant/helpers/entity_registry.py).
     """
     import homeassistant.helpers.entity_registry as er_mod
-    er_mod.async_get = lambda hass: SimpleNamespace(_entries=entries)
-    er_mod.async_entries_for_platform = lambda registry, platform: (
-        registry._entries if platform == "frigate" else []
-    )
+
+    class _Entities:
+        def __init__(self, items):
+            self._items = list(items)
+
+        def values(self):
+            return list(self._items)
+
+    class _Reg:
+        def __init__(self, items):
+            self.entities = _Entities(items)
+
+    er_mod.async_get = lambda hass: _Reg(entries)
 
 
 def test_d2_last_camera_map_from_registry() -> None:
@@ -549,3 +568,109 @@ def test_d2_ignores_registry_entries_with_unexpected_unique_id() -> None:
     _install_registry(census, entries)
     result = census._build_frigate_person_last_camera_map()
     assert result == {"oji": "sensor.frigate_oji_last_camera_2"}
+
+
+# ============================================================================
+# Revel guest-WiFi floor must NOT feed the house census total/unidentified.
+# ----------------------------------------------------------------------------
+# The Revel guest VLAN reads 4-5 non-guest IoT devices daily (persistent
+# devices that pass the hostname filter but aren't actual guests). The
+# WiFi guest count is retained as a DIAGNOSTIC attribute only; it must
+# never enter `total_persons` or `unidentified_count`.
+# Mutation anchor: changing `_apply_enhanced_house_census` to
+#   `unidentified_raw = camera_unrecognized + wifi_guests`
+# (or any variant that adds `wifi_guests` into the formula) MUST fail
+# `test_wifi_guest_count_does_not_affect_house_total`.
+# ============================================================================
+
+
+def _stub_enhanced_house_inputs(
+    census: PersonCensus, *, camera_unrecognized: int, wifi_guests: int
+) -> None:
+    """Pin all enhanced-house-census input getters on the instance so
+    `_apply_enhanced_house_census` drives the real formula with controlled
+    inputs. Only `_get_wifi_guest_count` is varied across the two calls in
+    the test below.
+    """
+    census._get_unrecognized_camera_count = lambda: camera_unrecognized  # type: ignore[method-assign]
+    census._get_wifi_guest_count = lambda now=None: wifi_guests  # type: ignore[method-assign]
+    census._get_face_recognized_person_names = lambda now: []  # type: ignore[method-assign]
+    census._face_suppressed_now = lambda: False  # type: ignore[method-assign]
+    census._is_egress_identity_enabled = lambda: False  # type: ignore[method-assign]
+    census._get_egress_guest_ids_fresh = lambda now: set()  # type: ignore[method-assign]
+    # The clamp reads `_last_camera_total_pre_cancel` written by
+    # `_get_unrecognized_camera_count`; set it directly to match the
+    # stub's return value (pre-cancel == post-cancel in this scenario).
+    # Pre-cancel ceiling intentionally very high so the attribution clamp
+    # CANNOT silently defang a regression that leaks wifi_guests into the
+    # formula. Otherwise `min(additive, ceiling)` would mask the leak.
+    census._last_camera_total_pre_cancel = 1000
+
+
+def _bare_house_raw_result(now: datetime) -> "CensusZoneResult":
+    from custom_components.universal_room_automation.camera_census import (
+        CensusZoneResult,
+    )
+    return CensusZoneResult(
+        zone="house",
+        identified_count=0,
+        identified_persons=[],
+        unidentified_count=0,
+        total_persons=0,
+        confidence="high",
+        source_agreement="both_agree",
+        frigate_count=0,
+        unifi_count=0,
+        timestamp=now,
+    )
+
+
+def test_wifi_guest_count_does_not_affect_house_total() -> None:
+    """Vary the WiFi-guest count from 0 to 50 with ALL other inputs held
+    fixed; `total_persons` and `unidentified_count` must be identical.
+    Discriminates against a plausible other failure (wifi_guests being
+    silently added into the floor): with wifi_guests=50 the regressed
+    code would show total/unidentified >= 50.
+    """
+    now = datetime(2026, 10, 4, 12, 0, 0)
+
+    census_zero = _make_census()
+    _stub_enhanced_house_inputs(
+        census_zero, camera_unrecognized=2, wifi_guests=0
+    )
+    result_zero = census_zero._apply_enhanced_house_census(
+        _bare_house_raw_result(now), ble_persons=[], now=now,
+    )
+
+    census_many = _make_census()
+    _stub_enhanced_house_inputs(
+        census_many, camera_unrecognized=2, wifi_guests=50
+    )
+    result_many = census_many._apply_enhanced_house_census(
+        _bare_house_raw_result(now), ble_persons=[], now=now,
+    )
+
+    # Formula invariant: wifi_guests is diagnostic only.
+    assert result_zero.total_persons == result_many.total_persons
+    assert result_zero.unidentified_count == result_many.unidentified_count
+    # Diagnostic attribute still exposed under both configurations.
+    assert result_zero.wifi_guest_floor == 0
+    assert result_many.wifi_guest_floor == 50
+
+
+def test_wifi_guest_floor_exposed_as_diagnostic_attribute() -> None:
+    """The attribute remains available on the result object (so the
+    sensor can continue to surface it), even though it is excluded from
+    the formula."""
+    now = datetime(2026, 10, 4, 12, 0, 0)
+    census = _make_census()
+    _stub_enhanced_house_inputs(
+        census, camera_unrecognized=0, wifi_guests=7
+    )
+    result = census._apply_enhanced_house_census(
+        _bare_house_raw_result(now), ble_persons=[], now=now,
+    )
+    assert result.wifi_guest_floor == 7
+    # And it did NOT bleed into total/unidentified.
+    assert result.total_persons == 0
+    assert result.unidentified_count == 0
