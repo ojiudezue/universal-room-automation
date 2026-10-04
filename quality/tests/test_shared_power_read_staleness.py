@@ -506,6 +506,8 @@ class TestD4DCallSiteWireInBehavioral:
             # can resolve the name — the value itself is not under test
             # here (this test checks battery_power_unknown wiring).
             ev_battery_drain_soc_tick=20,
+            # Review-D M1: plug drain call site threads grid_charge_intent.
+            grid_charge_intent=False,
         )
         exec(compile(block, "<call-site>", "exec"), local_ns)
         return captured

@@ -2571,3 +2571,175 @@ async def test_latch_legacy_payload_without_period_keeps_old_rule(clock):
     hass.data["universal_room_automation"] = {"database": kv}
     await _persist_shell(hass, s)._restore_evse_state()
     assert s._arbitrage_chunk_completed is True
+
+
+# ===========================================================================
+# Review-D M1 — L1 smart-plug tier cedes on the L2 grid-charge signal
+# ===========================================================================
+
+
+def _plug_ctrl(on=False):
+    from custom_components.universal_room_automation.domain_coordinators.energy_pool import (
+        SmartPlugController,
+    )
+    hass = MockHass()
+    hass.set_state("switch.socket_1", "on" if on else "off")
+    return SmartPlugController(hass=hass, plug_entities=["switch.socket_1"])
+
+
+def _plug_turn_ons(actions):
+    return [a for a in actions if a.get("service") == "switch.turn_on"
+            and a.get("target") == "switch.socket_1"]
+
+
+class TestM1PlugCedesOnGridCharge:
+    @pytest.mark.parametrize("gc,expect_on", [(False, 1), (True, 0)])
+    def test_plug_release_all_tou_defers_on_grid_charge(self, gc, expect_on):
+        p = _plug_ctrl()
+        p._paused_by_us.add("switch.socket_1")
+        acts = p.release_all_tou(grid_charge_on=gc)
+        assert len(_plug_turn_ons(acts)) == expect_on
+        assert ("switch.socket_1" in p._paused_by_us) is gc
+
+    @pytest.mark.parametrize("gc,expect_on", [(False, 1), (True, 0)])
+    def test_plug_release_all_fill_priority_defers_on_grid_charge(self, gc, expect_on):
+        p = _plug_ctrl()
+        p._paused_by_fill_priority.add("switch.socket_1")
+        acts = p.release_all_fill_priority(grid_charge_on=gc)
+        assert len(_plug_turn_ons(acts)) == expect_on
+        assert ("switch.socket_1" in p._paused_by_fill_priority) is gc
+
+    @pytest.mark.parametrize("gc,expect_on", [(False, 1), (True, 0)])
+    def test_plug_drain_resume_held_on_grid_charge(self, gc, expect_on):
+        p = _plug_ctrl()
+        p._paused_by_battery_drain.add("switch.socket_1")
+        acts = p.determine_battery_drain_actions(
+            battery_power_w=0.0, battery_soc=90, soc_threshold=20,
+            reserve_soc=10, solar_replenishing=True, is_offpeak=False,
+            grid_charge_on=gc,
+        )
+        assert len(_plug_turn_ons(acts)) == expect_on
+        assert ("switch.socket_1" in p._paused_by_battery_drain) is gc
+
+    @pytest.mark.parametrize("gc,expect_on", [(False, 1), (True, 0)])
+    def test_plug_fill_priority_resume_held_on_grid_charge(self, gc, expect_on):
+        p = _plug_ctrl()
+        p._paused_by_fill_priority.add("switch.socket_1")
+        acts = p.determine_fill_priority_actions(
+            soc=90, remaining_forecast_kwh=50.0, tou_period="mid_peak",
+            soc_threshold=50, excess_solar_kwh_threshold=10.0,
+            peak_ahead=True, is_daylight=True, grid_charge_on=gc,
+        )
+        assert len(_plug_turn_ons(acts)) == expect_on
+        assert ("switch.socket_1" in p._paused_by_fill_priority) is gc
+
+
+class _PlugSpy:
+    """Records the grid_charge_on kwarg each plug entry point receives."""
+
+    def __init__(self) -> None:
+        self.seen: dict[str, object] = {}
+
+    def _rec(self, name, kw):
+        self.seen[name] = kw.get("grid_charge_on", "MISSING")
+        return []
+
+    def determine_actions(self, *a, **kw):
+        return self._rec("determine_actions", kw)
+
+    def release_all_tou(self, *a, **kw):
+        return self._rec("release_all_tou", kw)
+
+    def determine_battery_drain_actions(self, *a, **kw):
+        return self._rec("drain", kw)
+
+    def determine_fill_priority_actions(self, *a, **kw):
+        return self._rec("fill_priority", kw)
+
+    def release_all_fill_priority(self, *a, **kw):
+        return self._rec("release_all_fill_priority", kw)
+
+    def __getattr__(self, name):
+        return lambda *a, **k: []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cfg_on", [True, False])
+@pytest.mark.parametrize("toggles", [False, True])
+async def test_decision_cycle_threads_grid_charge_into_plug_paths(
+    clock, mono, cfg_on, toggles,
+):
+    """Wire-in anchor (enclosing method `_decision_cycle_body`): every plug
+    turn-on path receives grid_charge_on == the tick's grid_charge_intent.
+    toggles=False drives the two release_all_* paths; True the drain +
+    fill-priority + TOU paths."""
+    s, hass, _ = _strategy(clock, stream=False)
+    _st(hass, _CFG_W, "on" if cfg_on else "off", lu=clock.t)
+    ev = _evpool()
+    ev.hass = hass
+    c = _cycle_shell(clock, s, hass, ev)
+    spy = _PlugSpy()
+    c._smart_plugs = spy
+    c._ev_tou_enabled = toggles
+    c._excess_solar_enabled = toggles
+    c._excess_solar_kwh = 10.0
+    c._grid_import_cap_enabled = False
+    c._grid_import_cap_kw = 12.0
+    c._dp_carrier = None
+    c._dp_must_start_by_min = None
+    c._last_soc_recovered = False
+
+    async def _anoop(*a, **k):
+        return None
+    c._check_fill_priority_nm_trip = _anoop
+    c._post_excess_solar_bookkeeping = lambda *a, **k: None
+    c._send_nm_alert = _anoop
+    await c._decision_cycle_body()
+    if toggles:
+        names = ("determine_actions", "drain", "fill_priority")
+    else:
+        names = ("release_all_tou", "drain", "release_all_fill_priority")
+    for n in names:
+        assert spy.seen.get(n) is cfg_on, (n, spy.seen)
+
+
+# ===========================================================================
+# Review-D L2 — CFG ledger restore age-gates on the newer dispatch stamp
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_cfg_ledger_on_13h_with_recent_redispatch_restored(clock):
+    """CFG continuously ON 13h (ledger `_at` 13h old) but re-dispatched 60s
+    ago: persisted through the REAL save → restore, the ledger survives."""
+    s, hass, _ = _strategy(clock)
+    kv = _KV()
+    hass.data["universal_room_automation"] = {"database": kv}
+    s._last_charge_from_grid_command = True
+    s._last_charge_from_grid_command_at = clock.t - timedelta(hours=13)
+    sh = _persist_shell(hass, s)
+    sh._last_cfg_on_dispatch_at = clock.t - timedelta(seconds=60)
+    await sh._save_evse_state()
+    s2, hass2, _ = _strategy(clock)
+    hass2.data["universal_room_automation"] = {"database": kv}
+    sh2 = _persist_shell(hass2, s2)
+    sh2._last_cfg_on_dispatch_at = None
+    await sh2._restore_evse_state()
+    assert s2._last_charge_from_grid_command is True
+    assert sh2._last_cfg_on_dispatch_at == clock.t - timedelta(seconds=60)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("disp_age_h,expect", [(None, None), (13, None), (1, True)])
+async def test_cfg_ledger_restore_uses_newer_stamp(clock, disp_age_h, expect):
+    s, hass, _ = _strategy(clock)
+    kv = _KV()
+    row = {"commanded": True,
+           "commanded_at": (clock.t - timedelta(hours=13)).isoformat()}
+    if disp_age_h is not None:
+        row["last_on_dispatch_at"] = (
+            clock.t - timedelta(hours=disp_age_h)).isoformat()
+    kv.rows["wv_commanded_ledger"] = json.dumps({"charge_from_grid": row})
+    sh = _persist_shell(hass, s)
+    await sh._restore_wv_state(kv, s, None, 10.0)
+    assert s._last_charge_from_grid_command is expect

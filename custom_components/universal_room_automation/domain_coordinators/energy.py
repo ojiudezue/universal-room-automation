@@ -1947,11 +1947,23 @@ class EnergyCoordinator(BaseCoordinator):
                 # `False` holds nothing and is restored as before.
                 from .energy_const import CFG_LEDGER_RESTORE_MAX_AGE_H as _cfg_max_h
                 _c_at = _parse(c.get("commanded_at"))
+                # Review-D L2: `commanded_at` only moves on a value change;
+                # a CFG held ON for >12h with fresh re-dispatches is still
+                # live. Age-gate on the NEWER of the ledger stamp and the
+                # persisted per-dispatch stamp.
+                _c_disp_at = _parse(c.get("last_on_dispatch_at"))
+                _c_age_at = _c_at
+                if _c_disp_at is not None:
+                    try:
+                        if _c_age_at is None or _c_disp_at > _c_age_at:
+                            _c_age_at = _c_disp_at
+                    except TypeError:
+                        pass
                 _c_fresh = True
                 if _cfg_max_h > 0 and c.get("commanded") is True:
                     try:
-                        _c_fresh = _c_at is not None and (
-                            (dt_util.utcnow() - _c_at).total_seconds()
+                        _c_fresh = _c_age_at is not None and (
+                            (dt_util.utcnow() - _c_age_at).total_seconds()
                             <= _cfg_max_h * 3600
                         )
                     except TypeError:
@@ -1963,6 +1975,12 @@ class EnergyCoordinator(BaseCoordinator):
                 ):
                     battery._last_charge_from_grid_command = c.get("commanded")  # noqa: SLF001
                     battery._last_charge_from_grid_command_at = _c_at  # noqa: SLF001
+                    if (
+                        c.get("commanded") is True
+                        and _c_disp_at is not None
+                        and getattr(self, "_last_cfg_on_dispatch_at", None) is None
+                    ):
+                        self._last_cfg_on_dispatch_at = _c_disp_at
                 s = payload.get("storage_mode") or {}
                 if battery._last_storage_mode_command is None and s.get("commanded") is not None:  # noqa: SLF001
                     battery._last_storage_mode_command = s.get("commanded")  # noqa: SLF001
@@ -2278,6 +2296,11 @@ class EnergyCoordinator(BaseCoordinator):
                         "commanded": battery._last_charge_from_grid_command,  # noqa: SLF001
                         "commanded_at": _iso(
                             battery._last_charge_from_grid_command_at,  # noqa: SLF001
+                        ),
+                        # Review-D L2: per-dispatch stamp for the restore
+                        # age gate (newer of the two).
+                        "last_on_dispatch_at": _iso(
+                            getattr(self, "_last_cfg_on_dispatch_at", None),
                         ),
                     }
                     ledger_payload["storage_mode"] = {
@@ -6672,7 +6695,9 @@ class EnergyCoordinator(BaseCoordinator):
                     # the plug TOU owner set. Runs unconditionally when
                     # the EV TOU toggle is OFF so a plug paused before
                     # the flip drains membership within one cycle.
-                    for action_spec in self._smart_plugs.release_all_tou():
+                    for action_spec in self._smart_plugs.release_all_tou(
+                        grid_charge_on=bool(grid_charge_intent),
+                    ):
                         await self._execute_service_action(action_spec)
 
                 # v4.2.21: Smart plug battery drain protection
@@ -6719,6 +6744,8 @@ class EnergyCoordinator(BaseCoordinator):
                     # (plug-tier `socket_1`/`_2` on the Moes multi-plug).
                     must_start_by_min=self._dp_must_start_by_min,
                     battery_power_unknown=(_bp_plug is None),
+                    # Review-D M1: L1 cedes on the exact L2 signal.
+                    grid_charge_on=bool(grid_charge_intent),
                 )
                 for action_spec in plug_drain_actions:
                     await self._execute_service_action(action_spec)
@@ -6741,6 +6768,8 @@ class EnergyCoordinator(BaseCoordinator):
                         # v3 fix-up D-HIGH-2 — plug FP has no coord ref;
                         # thread must_start_by_min for the onset funnel.
                         must_start_by_min=self._dp_must_start_by_min,
+                        # Review-D M1: L1 cedes on the exact L2 signal.
+                        grid_charge_on=bool(grid_charge_intent),
                     )
                     for action_spec in plug_fp_actions:
                         await self._execute_service_action(action_spec)
@@ -6748,7 +6777,9 @@ class EnergyCoordinator(BaseCoordinator):
                     # D1 mirror (INV-D1-RELEASE): release-only path for
                     # the plug fill-priority owner set. Runs
                     # unconditionally when excess-solar toggle is OFF.
-                    for action_spec in self._smart_plugs.release_all_fill_priority():
+                    for action_spec in self._smart_plugs.release_all_fill_priority(
+                        grid_charge_on=bool(grid_charge_intent),
+                    ):
                         await self._execute_service_action(action_spec)
 
             # E3: Circuit anomaly checks

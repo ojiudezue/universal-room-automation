@@ -3845,13 +3845,25 @@ class SmartPlugController:
     # D1 mirror — release-only paths for the smart-plug tier.
     # ------------------------------------------------------------------
 
-    def release_all_tou(self) -> list[dict[str, Any]]:
+    def release_all_tou(
+        self, grid_charge_on: bool = False,
+    ) -> list[dict[str, Any]]:
         """Drain `_paused_by_us` when the EV TOU toggle is OFF (plug tier).
 
         Mirrors `EVPool.release_all_tou`. Cross-owner deferral matches
         the plug off_peak branch above.
+
+        Review-D M1 (EC degraded-data p1): ``grid_charge_on`` is the same
+        tick signal L2 cedes on (`grid_charge_intent`). While it is True
+        the release is DEFERRED — membership kept, no turn_on — so a plug
+        never resumes in a tick where charge-from-grid is on / dispatched.
         """
         actions: list[dict[str, Any]] = []
+        if grid_charge_on:
+            _LOGGER.debug(
+                "Plug release_all_tou: deferred (breaker-safety: grid charge on)",
+            )
+            return actions
         for entity_id in list(self._paused_by_us):
             self._paused_by_us.discard(entity_id)
             self._proactive_offpeak_holds.discard(entity_id)
@@ -3883,9 +3895,21 @@ class SmartPlugController:
         self._proactive_offpeak_holds.clear()
         return actions
 
-    def release_all_fill_priority(self) -> list[dict[str, Any]]:
-        """Drain `_paused_by_fill_priority` when excess-solar toggle is OFF."""
+    def release_all_fill_priority(
+        self, grid_charge_on: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Drain `_paused_by_fill_priority` when excess-solar toggle is OFF.
+
+        Review-D M1: deferred (membership kept, no turn_on) while
+        ``grid_charge_on`` — L1 cedes on the same signal as L2.
+        """
         actions: list[dict[str, Any]] = []
+        if grid_charge_on:
+            _LOGGER.debug(
+                "Plug release_all_fill_priority: deferred (breaker-safety: "
+                "grid charge on)",
+            )
+            return actions
         for entity_id in list(self._paused_by_fill_priority):
             self._paused_by_fill_priority.discard(entity_id)
             if (
@@ -3962,8 +3986,12 @@ class SmartPlugController:
         now_local: "datetime | None" = None,
         must_start_by_min: int | None = None,
         battery_power_unknown: bool = False,
+        grid_charge_on: bool = False,
     ) -> list[dict[str, Any]]:
         """Pause smart plugs draining the home battery. Resume on recovery.
+
+        Review-D M1: while ``grid_charge_on`` (the L2 `grid_charge_intent`
+        signal) a due resume is HELD — membership kept, no turn_on.
 
         ENVOY-PRODUCTION-STALE-1 D4-D mirror (clean-core fix-up 3): see
         EVSE variant. Load-bearing gate on `battery_ok` HOLDS the pause
@@ -4183,6 +4211,13 @@ class SmartPlugController:
                             entity_id,
                         )
                         continue
+                    if grid_charge_on and not is_on:
+                        # Review-D M1 — breaker-safety: hold the pause.
+                        _LOGGER.info(
+                            "Smart plug battery drain: resume of %s held "
+                            "(grid charge on)", entity_id,
+                        )
+                        continue
                     if not is_on:
                         # v3 (funnel P0-#5) — route via funnel (inline
                         # gate already ran; bypass_onset=True).
@@ -4221,8 +4256,12 @@ class SmartPlugController:
         peak_ahead: bool | None = None,
         is_daylight: bool | None = None,
         must_start_by_min: int | None = None,
+        grid_charge_on: bool = False,
     ) -> list[dict[str, Any]]:
         """Mirror of EVPool.determine_fill_priority_actions for L1 plugs (D2).
+
+        Review-D M1: while ``grid_charge_on`` a due resume is HELD
+        (membership kept, no turn_on) — L1 cedes on the L2 signal.
 
         v4.7.6 fix-up A-H1: when `force_charge_active` is True, fill-priority
         is bypassed for all plugs and any current membership is released.
@@ -4348,6 +4387,13 @@ class SmartPlugController:
                         # v4.7.6 fix-up A-H3 mirror: release FP claim only.
                         self._release_pause_dispatch_owner(
                             entity_id, "fill_priority",
+                        )
+                        continue
+                    if grid_charge_on and not is_on:
+                        # Review-D M1 — breaker-safety: hold the pause.
+                        _LOGGER.info(
+                            "Smart plug fill-priority: resume of %s held "
+                            "(grid charge on)", entity_id,
                         )
                         continue
                     if not is_on:
