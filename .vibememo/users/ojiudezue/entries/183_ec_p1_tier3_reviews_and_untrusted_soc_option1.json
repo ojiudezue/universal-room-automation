@@ -1,0 +1,20 @@
+{
+  "title": "EC degraded-data phase 1: Tier-3 fix-ups; untrusted-SOC refusal = all paths except off-peak ensure-on + should-start-by",
+  "type": "decision",
+  "weight": "critical",
+  "summary": "Four Tier-3 reviews (A/B/C/D) drove fix-ups on feature/ec-degraded-data-p1 (HEAD 645af019c): arbitrage-chunk latch restore now keyed on TOU period (restart across off-peak start no longer skips the night's charge); no EV/plug turn-on in a tick where charge_from_grid is on or being dispatched (_ev_start_hold_label captured pre-await, threaded to all DP reversion sites + must-start-by + L1 plug paths); CFG ledger stamped every ON, cleared only by FRESH off reads, 12h restore age gate on newer of commanded/dispatch stamps; cloud freshness from sensor.enphase_cloud_last_successful_update; force_redispatch failures recorded. Untrusted-SOC refusal scope set to 'all' with exemption set {offpeak_ensure_on, should_start_by}. Full suite: 158 failures = base, zero new. Ships Monday 2026-10-05 after 13:05 stream A/B readout, with merged energy-history kWh fix + census face-lookup fix.",
+  "why": "Review D proved the drain-precedence release could turn an EVSE on in the same tick as a 20 kW grid charge (pre-existing); review B reproduced the latch HIGH with the real PEC engine. The SOC-scope decision went (b)->(a)->option 1 because measurement showed SOC untrusted ~21% of 14 days, mostly overnight: refusing everything would starve overnight charging (EVs already missed 2 of 4 days), while the only harm of a cloud-SOC start is a few minutes of battery draw until the next trusted tick. The solar-surplus exception was dropped on data: the named mains meter isn't configured, the Emporia Vue would have fired 0 times in 14 days (battery soaks surplus) and goes stale more during Envoy outages.",
+  "alternatives_considered": [
+    "(b) arbitrage-release-only refusal",
+    "(a) refuse every start",
+    "solar-surplus exception on Vue export (dropped: 0 fires/14d, correlated staleness)"
+  ],
+  "implications": "Remaining known gap carded: manager-path TOU transition dispatches CFG ON before breaker EV pause (one tick). Live validation must check exempt-start log lines and that no EV starts coincide with CFG ON.",
+  "revisit_trigger": "If logs show cloud-SOC-driven starts causing real battery drain, shrink the exemption set; if overnight holds still starve EVs, revisit should-start-by deadlines.",
+  "confidence": "high",
+  "format_version": "2.1",
+  "entry_id": "183",
+  "author": "ojiudezue",
+  "session_id": "claude_20261004_ec_census",
+  "timestamp": "2026-10-04T23:09:01Z"
+}
