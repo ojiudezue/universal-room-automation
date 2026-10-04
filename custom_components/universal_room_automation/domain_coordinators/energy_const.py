@@ -544,6 +544,35 @@ BATTERY_WRITE_CHURN_WINDOW_S: Final = 3600
 # behaviour: any `off` is believed).
 DEFAULT_CFG_OFF_READ_MAX_AGE_S: Final = 300
 
+# Review A M3 — the enphase_ev integration's own "last successful cloud
+# update" timestamp sensor. enphase_ev only advances it on a NON-stale
+# refresh (`coordinator.py` `_record_status_refresh_success`: guarded by
+# `not context.status_used_stale`), whereas the settings entities'
+# `last_reported` also advances when the integration re-serves cached /
+# fallback data (`return fallback_data` on scheduler-unavailable). B5 reads
+# this first; when the entity does not exist on this install it falls back
+# to the settings-entity age (multi-home). House-specific default, same
+# posture as the DEFAULT_CLOUD_* oracles. Probe P3 confirmed the id live.
+DEFAULT_CLOUD_LAST_SUCCESS_ENTITY: Final = (
+    "sensor.enphase_cloud_last_successful_update"
+)
+
+# Review B MED / D-MED-4 — a persisted charge-from-grid command-ledger
+# entry (`wv_commanded_ledger`) whose `commanded_at` is older than this is
+# NOT restored at boot. The KV row is re-saved every 15 min, so the row age
+# gate alone never expires a days-old `True`; a stale `True` would then
+# hold EVs breaker-paused (D2b) after every restart. Rung 1 (restart-safety
+# bound; review-gated). `<= 0` = always restore (pre-fix behaviour).
+CFG_LEDGER_RESTORE_MAX_AGE_H: Final = 12
+
+# Review D D-HIGH-1 — scope of the untrusted-SOC EV turn-on refusal.
+# "arbitrage_release" = today: only the D2a arbitrage release refuses on an
+# untrusted SOC tier. "all" = the drain-precedence release and the
+# must-start-by release refuse too (`_ev_start_hold_label`). OPEN OPERATOR
+# RULING 2026-10-04 — flip this ONE line when ruled. Rung 1 (trust decision
+# on a safety input).
+EV_UNTRUSTED_SOC_START_REFUSAL_SCOPE: Final = "arbitrage_release"
+
 # ============================================================================
 # Inclement-weather detection + TOU/solar-horizon-aware battery hold
 # (Robust Inclement-Weather Reserve cycle — supersedes has_storm_forecast()).

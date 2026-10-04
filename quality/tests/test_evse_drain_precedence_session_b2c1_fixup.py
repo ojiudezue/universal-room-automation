@@ -218,6 +218,10 @@ _extracted = _extract_named(
         "_cfg_breaker_blocks_ev_start",
         "_cfg_ledger_says_on",
         "_cfg_off_read_fresh",
+        # Review D D-HIGH-1 / A M3 helpers called by the releases.
+        "_cloud_last_success_age_s",
+        "_ev_start_hold_label",
+        "_soc_untrusted_from_battery",
         "_report_must_start_by_held",
         "_is_any_evse_charging",
         "_dp_house_load_kw",
@@ -334,6 +338,9 @@ for _name in (
     "_cfg_breaker_blocks_ev_start",
     "_cfg_ledger_says_on",
     "_cfg_off_read_fresh",
+    "_cloud_last_success_age_s",
+    "_ev_start_hold_label",
+    "_soc_untrusted_from_battery",
     "_report_must_start_by_held",
     "_is_any_evse_charging",
     "_dp_house_load_kw",
@@ -861,8 +868,8 @@ def test_MUTATION_item4_rescan_removed_makes_car_b_test_red():
 
 def test_MUTATION_item5_kill_switch_hoist_removed_makes_flip_test_red():
     _mutate_and_expect_red(
-        swap_from="if _has_dp_state:\n                self._apply_dp_reversion(tou_period=period)",
-        swap_to="if False and _has_dp_state:\n                self._apply_dp_reversion(tou_period=period)",
+        swap_from="if _has_dp_state:\n                self._apply_dp_reversion(",
+        swap_to="if False and _has_dp_state:\n                self._apply_dp_reversion(",
         test_name="test_kill_switch_hoist_releases_pause_mid_window",
     )
 
@@ -873,3 +880,94 @@ def test_MUTATION_item6_night_gate_removed_makes_daytime_test_red():
         swap_to='if not _dp_on or False:\n            raise _DPSkip()',
         test_name="test_night_window_gate_skips_tick_outside_off_peak",
     )
+
+
+# ==========================================================================
+# Review D D-HIGH-1 (EC degraded-data p1 fix-up) — every DP reversion site
+# in `_dp_decision_tick` honours the tick's EV-start gate. Each scenario
+# reaches ONE reversion call site; `hold=None` is the liveness control.
+# Oracle: the DP claim stays (sticky) under a hold, drains without one.
+# ==========================================================================
+
+
+import pytest  # noqa: E402
+
+
+def _dhigh1_tick(coord, soc, period, drain):
+    try:
+        coord._dp_decision_tick(
+            {"soc": soc}, period, ev_load_w=0.0, drain_target_soc=drain,
+            ev_start_hold=coord._t_hold,
+        )
+    except _DPSkip:
+        pass
+
+
+def _dhigh1_coord(hold, *, dp_enabled=True):
+    coord, ev, _, _ = _make_coord(dp_enabled=dp_enabled, period="off_peak")
+    coord._t_hold = hold
+    ev._paused_by_dp.add("garage_a")
+    ev._claim_pause_dispatch_owner("garage_a", "dp")
+    coord._dp_decision_soc = 30
+    return coord, ev
+
+
+@pytest.mark.parametrize("hold,expect_kept", [("grid_charge_on", True), (None, False)])
+def test_dhigh1_kill_switch_hoist_site(hold, expect_kept):
+    coord, ev = _dhigh1_coord(hold, dp_enabled=False)
+    coord._dp_carrier.state = DPState.TRANSITIONED
+    _dhigh1_tick(coord, 60, "off_peak", 30)
+    assert ("garage_a" in ev._paused_by_dp) is expect_kept
+
+
+@pytest.mark.parametrize("hold,expect_kept", [("grid_charge_on", True), (None, False)])
+def test_dhigh1_sticky_retry_site(hold, expect_kept):
+    coord, ev = _dhigh1_coord(hold)
+    coord._dp_carrier.state = DPState.HOLD_ONLY
+    _dhigh1_tick(coord, 60, "off_peak", 30)
+    assert ("garage_a" in ev._paused_by_dp) is expect_kept
+
+
+@pytest.mark.parametrize("hold,expect_kept", [("grid_charge_on", True), (None, False)])
+def test_dhigh1_none_streak_site(hold, expect_kept):
+    coord, ev = _dhigh1_coord(hold)
+    coord._dp_carrier.state = DPState.TRANSITIONED
+    _dhigh1_tick(coord, 60, "off_peak", None)
+    _dhigh1_tick(coord, 60, "off_peak", None)
+    assert coord._dp_carrier.state == DPState.HOLD_ONLY
+    assert ("garage_a" in ev._paused_by_dp) is expect_kept
+
+
+@pytest.mark.parametrize("hold,expect_kept", [("grid_charge_on", True), (None, False)])
+def test_dhigh1_soc_at_floor_exit_site(hold, expect_kept):
+    coord, ev = _dhigh1_coord(hold)
+    coord._dp_carrier.state = DPState.TRANSITIONED
+    coord.hass.set_state(
+        "sensor.garage_a_power", "0", attributes={"unit_of_measurement": "W"},
+    )
+    _dhigh1_tick(coord, 30, "off_peak", 30)
+    assert coord._dp_carrier.state == DPState.HOLD_ONLY
+    assert ("garage_a" in ev._paused_by_dp) is expect_kept
+
+
+@pytest.mark.parametrize("hold,expect_kept", [("grid_charge_on", True), (None, False)])
+def test_dhigh1_state_machine_revert_edge_site(monkeypatch, hold, expect_kept):
+    """The 'future-proof' revert edge (state machine itself drives
+    TRANSITIONED → HOLD_ONLY). Unreachable with today's `_dp_maybe_tick`
+    (it never leaves TRANSITIONED), so the state machine is stubbed to
+    take that edge; the site's gate threading is what is under test."""
+    import sys as _sys
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy_drain_precedence as _edp,
+    )
+
+    def _fake_tick(carrier, inputs, now_provider=None, persister=None):
+        _edp.try_transition(carrier, DPState.HOLD_ONLY, now_provider=now_provider)
+
+    for m in {_edp, _sys.modules.get(_edp.__name__)} - {None}:
+        monkeypatch.setattr(m, "_dp_maybe_tick", _fake_tick)
+    coord, ev = _dhigh1_coord(hold)
+    coord._dp_carrier.state = DPState.TRANSITIONED
+    _dhigh1_tick(coord, 60, "off_peak", 30)
+    assert coord._dp_carrier.state == DPState.HOLD_ONLY
+    assert ("garage_a" in ev._paused_by_dp) is expect_kept

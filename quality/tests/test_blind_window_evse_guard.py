@@ -1500,6 +1500,9 @@ def test_D_HIGH_2_dp_must_start_by_site_routes_through_helper():
         blind_window_liveness_release=_liveness,
         _cancel_dp_must_start_by_timer=lambda: None,
         _cfg_breaker_blocks_ev_start=lambda: False,
+        # Review D D-HIGH-1: the release's shared EV-start gate.
+        _ev_start_hold_label=lambda **kw: None,
+        _soc_untrusted_from_battery=lambda: False,
         _report_must_start_by_held=lambda held: order.append(("held", held)),
     )
     EnergyCoordinator._apply_dp_must_start_release(fake, tou_period="off_peak")

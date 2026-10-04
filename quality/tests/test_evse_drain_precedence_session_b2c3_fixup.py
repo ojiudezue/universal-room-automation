@@ -79,7 +79,7 @@ def test_MUTATION_h2_retry_driver_removed_makes_orphan_test_red():
             "            and self._dp_carrier.state == _DPState.HOLD_ONLY\n"
             "            and self._ev._paused_by_dp  # noqa: SLF001\n"
             "        ):\n"
-            "            self._apply_dp_reversion(tou_period=period)"
+            "            self._apply_dp_reversion("
         ),
         swap_to=(
             "if False and (\n"
@@ -87,7 +87,7 @@ def test_MUTATION_h2_retry_driver_removed_makes_orphan_test_red():
             "            and self._dp_carrier.state == _DPState.HOLD_ONLY\n"
             "            and self._ev._paused_by_dp  # noqa: SLF001\n"
             "        ):\n"
-            "            self._apply_dp_reversion(tou_period=period)"
+            "            self._apply_dp_reversion("
         ),
         test_name=(
             "test_evse_drain_precedence_session_b2c1_fixup.py::"

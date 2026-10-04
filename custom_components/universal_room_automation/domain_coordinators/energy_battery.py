@@ -5839,6 +5839,8 @@ class BatteryStrategy:
                             season=season,
                             # D3 / Q2 (operator 2026-10-04: keep): storm
                             # precharge is exempt from the cloud withhold.
+                            # Belt-and-braces: unreachable on the cloud tier
+                            # (Review C L1).
                             cloud_withhold_exempt=True,
                         )
                     finally:
@@ -6815,11 +6817,24 @@ class BatteryStrategy:
                 "force_redispatch(%s): re-dispatched value=%d to %s",
                 surface, live_desire, target,
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             _LOGGER.warning(
                 "force_redispatch(%s): service call failed", surface,
                 exc_info=True,
             )
+            # D-MED-3: a raised re-dispatch is recorded like any other
+            # battery write failure (`dispatch_failed` + anomaly + NM).
+            if wv is not None:
+                try:
+                    await wv.record_dispatch_failed(
+                        surface, live_desire, "number.set_value",
+                        type(exc).__name__,
+                        getattr(exc, "translation_key", None),
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "force_redispatch: failure record raised", exc_info=True,
+                    )
             return
         # (5) stamp commanded ledger with the re-dispatched value so the
         # sweep sees a fresh commanded_at anchor. Mirrors the stamping

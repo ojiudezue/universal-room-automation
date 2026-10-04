@@ -754,6 +754,7 @@ for _n in (
     "_soc_untrusted_from_battery", "_cfg_ledger_says_on",
     "_cfg_write_leg_provably_off", "_cfg_breaker_blocks_ev_start",
     "_note_cfg_unknown_forced", "_cfg_off_read_fresh",
+    "_cloud_last_success_age_s",
 ):
     setattr(_DispatchShell, _n, getattr(EnergyCoordinator, _n))
 
@@ -1110,7 +1111,9 @@ for _n in (
     "_apply_dp_must_start_release", "_cancel_dp_must_start_by_timer",
     "_cfg_breaker_blocks_ev_start", "_cfg_ledger_says_on",
     "_report_must_start_by_held", "_on_dp_must_start_by",
-    "_cfg_off_read_fresh",
+    "_cfg_off_read_fresh", "_cloud_last_success_age_s",
+    "_ev_start_hold_label", "_soc_untrusted_from_battery",
+    "_apply_dp_reversion",
 ):
     setattr(_MSBShell, _n, getattr(EnergyCoordinator, _n))
 
@@ -2272,3 +2275,299 @@ class TestB5FreshCfgOff:
         sh._apply_dp_must_start_release(tou_period="off_peak")
         assert not _forced_on(sh)
         assert sh.anoms[0].payload["extra"]["held"] == [["garage_a", "grid_charge_on"]]
+
+
+# ===========================================================================
+# Fix-up round (reviews A/B/C/D): Review B HIGH latch identity, D-HIGH-1
+# EV-start gate, A M1/M2/M3, D-MED-1/3/4, Review C L1 (comment only).
+# Oracles are hand-derived literals (TOU table: Oct 20:xx CDT = mid_peak,
+# 21:xx-23:xx CDT = off_peak).
+# ===========================================================================
+
+
+# --- Review B HIGH — arbitrage latch TOU-period identity ---------------------
+
+
+async def _latch_round_trip(clock, save_at, boot_at):
+    s, hass, _ = _strategy(clock)
+    kv = _KV()
+    hass.data["universal_room_automation"] = {"database": kv}
+    clock.set(save_at)
+    s._arbitrage_chunk_completed = True
+    await _persist_shell(hass, s)._save_evse_state()
+    payload = json.loads(kv.rows["arbitrage_chunk_latch"])
+    clock.set(boot_at)
+    s2, hass2, _ = _strategy(clock)
+    hass2.data["universal_room_automation"] = {"database": kv}
+    await _persist_shell(hass2, s2)._restore_evse_state()
+    return payload, s2
+
+
+class TestReviewBLatchIdentity:
+    @pytest.mark.asyncio
+    async def test_latch_saved_mid_peak_dropped_on_off_peak_boot(self, clock):
+        """Repro: chunk A completed, saved 20:50 CDT (mid_peak), restart
+        lands 21:04 CDT (new off_peak chunk B) → latch NOT restored."""
+        payload, s2 = await _latch_round_trip(
+            clock,
+            datetime(2026, 10, 4, 1, 50, tzinfo=_UTC),
+            datetime(2026, 10, 4, 2, 4, tzinfo=_UTC),
+        )
+        assert payload["period"] == "mid_peak"
+        assert s2._arbitrage_chunk_completed is False
+
+    @pytest.mark.asyncio
+    async def test_latch_saved_in_same_off_peak_restored(self, clock):
+        """Saved 22:00 CDT (off_peak), boot 22:30 CDT same chunk → kept."""
+        payload, s2 = await _latch_round_trip(
+            clock,
+            datetime(2026, 10, 4, 3, 0, tzinfo=_UTC),
+            datetime(2026, 10, 4, 3, 30, tzinfo=_UTC),
+        )
+        assert payload["period"] == "off_peak"
+        assert s2._arbitrage_chunk_completed is True
+
+    @pytest.mark.asyncio
+    async def test_latch_saved_mid_peak_boot_mid_peak_restored(self, clock):
+        """Restart inside the same mid_peak (no off_peak entry) → kept."""
+        _, s2 = await _latch_round_trip(
+            clock,
+            datetime(2026, 10, 4, 1, 10, tzinfo=_UTC),
+            datetime(2026, 10, 4, 1, 50, tzinfo=_UTC),
+        )
+        assert s2._arbitrage_chunk_completed is True
+
+
+# --- Review D D-HIGH-1 — one EV-start gate for DP + must-start-by ----------
+
+
+class TestDHigh1EvStartGate:
+    @pytest.mark.parametrize("hold,expect_on", [("grid_charge_on", False), (None, True)])
+    def test_dp_reversion_honours_start_hold(self, clock, hold, expect_on):
+        """`_apply_dp_reversion` under a hold: no turn_on, DP claim sticky."""
+        sh = _MSBShell(clock)
+        sh._apply_dp_reversion(tou_period="off_peak", ev_start_hold=hold)
+        assert _forced_on(sh) is expect_on
+        assert ("garage_a" in sh._ev._paused_by_dp) is (not expect_on)
+
+    @pytest.mark.parametrize("dgc,cfg_w,ledger,expect", [
+        (True, "off", None, "grid_charge_on"),   # same-tick decision CFG ON
+        (False, "on", None, "grid_charge_on"),   # switch ON
+        (False, "unavailable", True, "grid_charge_on"),  # D2b ledger
+        (False, "off", None, None),
+    ])
+    def test_start_hold_label_matrix(self, clock, dgc, cfg_w, ledger, expect):
+        sh = _MSBShell(clock, cfg_w=cfg_w, ledger=ledger)
+        assert sh._ev_start_hold_label(decision_grid_charge=dgc) == expect
+
+    @pytest.mark.parametrize("scope,expect", [
+        ("arbitrage_release", None), ("all", "soc_untrusted"),
+    ])
+    def test_untrusted_scope_switch(self, clock, monkeypatch, scope, expect):
+        """The open-ruling one-line switch: default scope = today."""
+        _setc(monkeypatch, "EV_UNTRUSTED_SOC_START_REFUSAL_SCOPE", scope)
+        sh = _MSBShell(clock)
+        assert sh._ev_start_hold_label(soc_untrusted=True) == expect
+
+    @pytest.mark.parametrize("scope,expect_on", [
+        ("arbitrage_release", True), ("all", False),
+    ])
+    def test_must_start_by_untrusted_scope(self, clock, monkeypatch, scope, expect_on):
+        _setc(monkeypatch, "EV_UNTRUSTED_SOC_START_REFUSAL_SCOPE", scope)
+        sh = _MSBShell(clock)
+        sh.s._tick_soc_source = "cloud_fallback"
+        sh._apply_dp_must_start_release(tou_period="off_peak")
+        assert _forced_on(sh) is expect_on
+        if not expect_on:
+            assert sh.anoms[0].payload["extra"]["held"] == [["garage_a", "soc_untrusted"]]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("dgc,expect", [(True, "grid_charge_on"), (False, None)])
+    async def test_decision_cycle_threads_start_hold_into_dp_tick(
+        self, clock, mono, dgc, expect,
+    ):
+        """Enclosing-method anchor: the REAL `_decision_cycle_body` passes
+        THIS tick's decision grid-charge intent to the DP tick (which runs
+        before the breaker chokepoint dispatches the CFG turn_on)."""
+        s, hass, _ = _strategy(clock, stream=False)
+        _st(hass, _CFG_W, "off", lu=clock.t)
+        ev = _evpool()
+        ev.hass = hass
+        c = _cycle_shell(clock, s, hass, ev)
+        seen: list = []
+        c._dp_decision_tick = lambda *a, **k: seen.append(k.get("ev_start_hold", "MISSING"))
+        _real = s.determine_mode
+
+        def _dm(*a, **k):
+            d = _real(*a, **k)
+            d["charge_from_grid"] = dgc
+            return d
+        s.determine_mode = _dm
+        await c._decision_cycle_body()
+        assert seen == [expect]
+
+
+# --- Review A M1 — CFG ledger stamped on EVERY turn_on dispatch path --------
+
+
+_CFG_ON_DECISION = {
+    "actions": [{"service": "switch.turn_on", "target": _CFG_W, "data": {}}],
+    "arbitrage_phase": "n/a", "charge_from_grid": True,
+}
+
+
+class TestM1LedgerEveryTurnOn:
+    @pytest.mark.asyncio
+    async def test_resent_turn_on_after_fresh_off_read_rearms_ledger(self, clock):
+        """Ledger True since T0; cloud reads a fresh `off` at T1; URA re-sends
+        turn_on at T1 (ledger value unchanged → `_at` unchanged) → the
+        D2b ledger must read ON."""
+        c, s = _write_shell(clock, cfg_state="off")
+        s._last_charge_from_grid_command = True
+        s._last_charge_from_grid_command_at = clock.t
+        c._last_cfg_on_dispatch_at = None
+        clock.adv(minutes=5)
+        _st(c.hass, _CFG_W, "off", lu=clock.t)
+        await c._execute_breaker_safe_dispatch(dict(_CFG_ON_DECISION), "off_peak")
+        assert c._last_cfg_off_read_at == clock.t
+        assert c._cfg_ledger_says_on() is True
+
+    @pytest.mark.asyncio
+    async def test_manager_evaluate_path_stamps_ledger(self, clock):
+        """`_evaluate_battery` (CoordinatorManager path) stamps the ledger."""
+        c, s = _write_shell(clock, cfg_state="off")
+        c._last_cfg_on_dispatch_at = None
+        c._tou = SimpleNamespace(get_current_period=lambda *a: "off_peak",
+                                 get_season=lambda *a: "shoulder")
+        c._is_any_evse_charging = lambda: False
+        c._evse_battery_hold_active = False
+        c._evse_hold_soc = None
+        s.determine_mode = lambda *a, **k: {
+            "actions": [{"service": "switch.turn_on", "target": _CFG_W, "data": {}}],
+            "reason": "x", "charge_from_grid": True,
+        }
+        acts = await c._evaluate_battery()
+        assert len(acts) == 1
+        assert s._last_charge_from_grid_command is True
+        assert s._last_charge_from_grid_command_at == clock.t
+        assert c._last_cfg_on_dispatch_at == clock.t
+
+
+# --- Review A M2 / D-MED-1 — off-read stamp only when fresh -----------------
+
+
+class TestM2OffStampFresh:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("age,expect_stamped,expect_block", [
+        (300, True, False), (301, False, True),
+    ])
+    async def test_stale_off_does_not_clear_ledger(
+        self, clock, age, expect_stamped, expect_block,
+    ):
+        c, s = _write_shell(clock, cfg_state="off")
+        s._last_charge_from_grid_command = True
+        s._last_charge_from_grid_command_at = clock.t - timedelta(hours=1)
+        c._last_cfg_on_dispatch_at = None
+        _st(c.hass, _CFG_W, "off", lu=clock.t - timedelta(seconds=age))
+        await c._execute_breaker_safe_dispatch(dict(_NEUTRAL), "off_peak")
+        assert (c._last_cfg_off_read_at is not None) is expect_stamped
+        assert c._cfg_breaker_blocks_ev_start() is expect_block
+
+
+# --- Review A M3 — cloud freshness from enphase_ev last-success stamp --------
+
+
+_LS = "sensor.enphase_cloud_last_successful_update"
+
+
+class TestM3LastSuccess:
+    @pytest.mark.parametrize("ls_age,settings_age,expect", [
+        (10, 1000, True),     # integration fresh; settings old → fresh
+        (299, 0, True),
+        (300, 0, True),
+        (301, 0, False),      # integration stale; settings fresh → stale
+        ("unavailable", 0, False),
+    ])
+    def test_last_success_drives_freshness(self, clock, ls_age, settings_age, expect):
+        s, hass, _ = _strategy(clock, stream=False)
+        _st(hass, _CFG_W, "off", lu=clock.t - timedelta(seconds=settings_age))
+        if ls_age == "unavailable":
+            _st(hass, _LS, "unavailable")
+        else:
+            _st(hass, _LS, (clock.t - timedelta(seconds=ls_age)).isoformat())
+        sh = _DispatchShell(s, hass, _evpool())
+        assert sh._cfg_write_leg_provably_off() is expect
+
+    def test_absent_entity_falls_back_to_settings_age(self, clock):
+        s, hass, _ = _strategy(clock, stream=False)
+        _st(hass, _CFG_W, "off", lu=clock.t - timedelta(seconds=301))
+        assert _LS not in hass._states
+        sh = _DispatchShell(s, hass, _evpool())
+        assert sh._cfg_write_leg_provably_off() is False
+
+
+# --- D-MED-4 — fresh off clears a stuck ledger; stale ledger not restored ----
+
+
+class TestDMed4:
+    @pytest.mark.asyncio
+    async def test_fresh_off_read_clears_stuck_true_ledger(self, clock):
+        """Ledger True (T0); a fresh `off` read at T1 in the chokepoint →
+        provably off (was: any True ledger → never)."""
+        c, s = _write_shell(clock, cfg_state="off")
+        s._last_charge_from_grid_command = True
+        s._last_charge_from_grid_command_at = clock.t
+        c._last_cfg_on_dispatch_at = None
+        assert c._cfg_write_leg_provably_off() is False
+        clock.adv(minutes=5)
+        _st(c.hass, _CFG_W, "off", lu=clock.t)
+        await c._execute_breaker_safe_dispatch(dict(_NEUTRAL), "off_peak")
+        assert c._cfg_write_leg_provably_off() is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cmd,age_s,expect", [
+        (True, 43199, True), (True, 43200, True), (True, 43201, None),
+        (False, 50000, False),
+    ])
+    async def test_cfg_ledger_restore_age_gate(self, clock, cmd, age_s, expect):
+        s, hass, _ = _strategy(clock)
+        kv = _KV()
+        kv.rows["wv_commanded_ledger"] = json.dumps({"charge_from_grid": {
+            "commanded": cmd,
+            "commanded_at": (clock.t - timedelta(seconds=age_s)).isoformat(),
+        }})
+        sh = _persist_shell(hass, s)
+        await sh._restore_wv_state(kv, s, None, 10.0)
+        assert s._last_charge_from_grid_command is expect
+
+
+# --- D-MED-3 — force_redispatch failure recorded ----------------------------
+
+
+@pytest.mark.asyncio
+async def test_force_redispatch_failure_records_dispatch_failed(clock):
+    from homeassistant.exceptions import HomeAssistantError
+    c, s = _write_shell(clock, raise_on=("number", "set_value"),
+                        exc=HomeAssistantError("cloud down"))
+    s._desired_stamped_at = clock.t
+    s._last_reserve_level_desired = 40
+    s._write_verifier._effective_reserve_desired = lambda b: 40
+    await s.force_redispatch("reserve_soc")
+    assert c._write_verifier._records["reserve_soc"].status == "dispatch_failed"
+    a = _anoms(c, "battery_write_failed")
+    assert len(a) == 1 and a[0].payload["extra"]["exception"] == "HomeAssistantError"
+
+
+@pytest.mark.asyncio
+async def test_latch_legacy_payload_without_period_keeps_old_rule(clock):
+    """Legacy row (no `period`) → today's boundary-identity rule only:
+    a valid boundary at an off_peak boot is still restored."""
+    clock.set(datetime(2026, 10, 4, 2, 4, tzinfo=_UTC))
+    s, hass, _ = _strategy(clock)
+    bnd, _, _ = s._attain_target_boundary(clock.t.astimezone(_CDT), "off_peak")
+    kv = _KV()
+    kv.rows["arbitrage_chunk_latch"] = json.dumps(
+        {"completed": True, "boundary_iso": bnd.isoformat()})
+    hass.data["universal_room_automation"] = {"database": kv}
+    await _persist_shell(hass, s)._restore_evse_state()
+    assert s._arbitrage_chunk_completed is True

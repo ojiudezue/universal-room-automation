@@ -234,6 +234,10 @@ _extracted = _extract_named(
         "_cfg_breaker_blocks_ev_start",
         "_cfg_ledger_says_on",
         "_cfg_off_read_fresh",
+        # Review D D-HIGH-1 / A M3 helpers called by the releases.
+        "_cloud_last_success_age_s",
+        "_ev_start_hold_label",
+        "_soc_untrusted_from_battery",
         "_report_must_start_by_held",
     },
 )
@@ -312,6 +316,9 @@ for _name in (
     "_cfg_breaker_blocks_ev_start",
     "_cfg_ledger_says_on",
     "_cfg_off_read_fresh",
+    "_cloud_last_success_age_s",
+    "_ev_start_hold_label",
+    "_soc_untrusted_from_battery",
     "_report_must_start_by_held",
 ):
     setattr(_FakeCoord, _name, _extracted_ns[_name])

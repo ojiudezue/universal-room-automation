@@ -138,6 +138,19 @@ class ServiceDispatchResult(NamedTuple):
     translation_key: str | None
 
 
+def _latch_tou_period(battery: Any, now: Any) -> str | None:
+    """Review B HIGH: TOU period for the arbitrage-latch identity, read from
+    the battery's own TOU engine. None when unavailable (never raises)."""
+    tou = getattr(battery, "_tou", None)
+    if tou is None:
+        return None
+    try:
+        p = tou.get_current_period(now)
+    except Exception:  # noqa: BLE001
+        return None
+    return p if isinstance(p, str) else None
+
+
 def _dt_util_utcnow():
     """UTC now via HA's dt_util (EC-DEGRADED-DATA-POLICY-1 D2b stamp)."""
     from homeassistant.util import dt as dt_util
@@ -462,6 +475,12 @@ class EnergyCoordinator(BaseCoordinator):
         # ledger). RAM-only: after a restart the persisted ledger is the
         # sole fail-closed memory (more holding, fail-safe).
         self._last_cfg_off_read_at = None
+        # Review A M1 — UTC stamp of the latest CFG `turn_on` DISPATCH on
+        # any path (decision tick, manager evaluate path), refreshed on
+        # EVERY turn_on even when the ledger value did not change. The
+        # ledger's own `_at` only moves on a value change, so a re-sent
+        # turn_on after an `off` read would otherwise read as "off".
+        self._last_cfg_on_dispatch_at = None
         # R2-8 — first tick on which the unknown-leg path forced breaker
         # intent; None when not forced.
         self._cfg_unknown_forced_since = None
@@ -1922,9 +1941,28 @@ class EnergyCoordinator(BaseCoordinator):
                     battery._last_reserve_level = r.get("commanded")  # noqa: SLF001
                     battery._last_reserve_level_at = _parse(r.get("commanded_at"))  # noqa: SLF001
                 c = payload.get("charge_from_grid") or {}
-                if battery._last_charge_from_grid_command is None and c.get("commanded") is not None:  # noqa: SLF001
+                # D-MED-4: a CFG ledger `True` older than
+                # CFG_LEDGER_RESTORE_MAX_AGE_H (or with no parseable stamp)
+                # is not restored — a stale True would hold EVs (D2b). A
+                # `False` holds nothing and is restored as before.
+                from .energy_const import CFG_LEDGER_RESTORE_MAX_AGE_H as _cfg_max_h
+                _c_at = _parse(c.get("commanded_at"))
+                _c_fresh = True
+                if _cfg_max_h > 0 and c.get("commanded") is True:
+                    try:
+                        _c_fresh = _c_at is not None and (
+                            (dt_util.utcnow() - _c_at).total_seconds()
+                            <= _cfg_max_h * 3600
+                        )
+                    except TypeError:
+                        _c_fresh = False
+                if (
+                    battery._last_charge_from_grid_command is None  # noqa: SLF001
+                    and c.get("commanded") is not None
+                    and _c_fresh
+                ):
                     battery._last_charge_from_grid_command = c.get("commanded")  # noqa: SLF001
-                    battery._last_charge_from_grid_command_at = _parse(c.get("commanded_at"))  # noqa: SLF001
+                    battery._last_charge_from_grid_command_at = _c_at  # noqa: SLF001
                 s = payload.get("storage_mode") or {}
                 if battery._last_storage_mode_command is None and s.get("commanded") is not None:  # noqa: SLF001
                     battery._last_storage_mode_command = s.get("commanded")  # noqa: SLF001
@@ -2010,6 +2048,25 @@ class EnergyCoordinator(BaseCoordinator):
                                     )
                                     if delta > 3600:
                                         stale = True
+                    # Review B HIGH — TOU-period identity. The boundary
+                    # above is recomputed from `now` at SAVE time, so a latch
+                    # saved in mid_peak/peak (completed chunk A) carries the
+                    # NEXT chunk's boundary; and at boot the TOU engine's
+                    # `_last_period` is None, so no off_peak-entry reset
+                    # fires. A restart spanning off_peak entry would restore
+                    # chunk A's latch onto chunk B → the night's arbitrage
+                    # sits in WAIT. Drop it when the boot period is off_peak
+                    # and the save was not. Legacy payload (no `period`) →
+                    # today's behaviour.
+                    if not stale:
+                        _saved_period = latch_payload.get("period")
+                        _boot_period = _latch_tou_period(battery, dt_util.now())
+                        if (
+                            _boot_period == "off_peak"
+                            and _saved_period is not None
+                            and _saved_period != "off_peak"
+                        ):
+                            stale = True
                     if stale:
                         _LOGGER.info(
                             "Rider: arbitrage chunk latch NOT restored "
@@ -2276,6 +2333,9 @@ class EnergyCoordinator(BaseCoordinator):
                             getattr(battery, "_arbitrage_chunk_completed", False)
                         ),
                         "boundary_iso": boundary_iso,
+                        # Review B HIGH: the TOU period at save time, so
+                        # restore can tell a pre-off_peak-entry latch.
+                        "period": _latch_tou_period(battery, dt_util.now()),
                     }
                     await db.save_energy_state(
                         "arbitrage_chunk_latch",
@@ -4659,8 +4719,15 @@ class EnergyCoordinator(BaseCoordinator):
     def _dp_decision_tick(
         self, decision: dict[str, Any], period: str, ev_load_w: float | None,
         *, drain_target_soc: int | None,
+        ev_start_hold: str | None = None,
     ) -> None:
         """Drain-precedence per-cycle tick body (B2c-1 fix-up extraction).
+
+        Review D D-HIGH-1: ``ev_start_hold`` is the tick-start EV-start
+        gate (`_ev_start_hold_label`, captured in the decision cycle);
+        threaded verbatim into EVERY `_apply_dp_reversion` call below so no
+        DP release turns an EVSE on in a tick whose decision (or switch /
+        ledger) has grid charging on.
 
         Moved out of `_decision_cycle_impl` so tests can drive the exact
         block bytes end-to-end. Callers wrap this in `try/except _DPSkip`
@@ -4698,7 +4765,9 @@ class EnergyCoordinator(BaseCoordinator):
                 or self._dp_carrier.state != _DPState.HOLD_ONLY
             )
             if _has_dp_state:
-                self._apply_dp_reversion(tou_period=period)
+                self._apply_dp_reversion(
+                    tou_period=period, ev_start_hold=ev_start_hold,
+                )
                 _unsub = getattr(self, "_dp_must_start_unsub", None)
                 if _unsub is not None:
                     try:
@@ -4727,7 +4796,9 @@ class EnergyCoordinator(BaseCoordinator):
             and self._dp_carrier.state == _DPState.HOLD_ONLY
             and self._ev._paused_by_dp  # noqa: SLF001
         ):
-            self._apply_dp_reversion(tou_period=period)
+            self._apply_dp_reversion(
+                tou_period=period, ev_start_hold=ev_start_hold,
+            )
 
         # v5.21.0 D4 — SHADOW-EVAL side-effect-free eval on the OFF-side of
         # the night-window gate. INV-BAEC-SHADOW: publish observability
@@ -4779,7 +4850,9 @@ class EnergyCoordinator(BaseCoordinator):
                         self._dp_carrier, _DPState.HOLD_ONLY,
                         now_provider=dt_util.now,
                     )
-                    self._apply_dp_reversion(tou_period=period)
+                    self._apply_dp_reversion(
+                        tou_period=period, ev_start_hold=ev_start_hold,
+                    )
                     self.hass.async_create_task(self._save_evse_state())
                     self._dp_none_streak = 0
                 else:
@@ -4932,7 +5005,9 @@ class EnergyCoordinator(BaseCoordinator):
             _prev_dp_state == _DPState.TRANSITIONED
             and self._dp_carrier.state == _DPState.HOLD_ONLY
         ):
-            self._apply_dp_reversion(tou_period=period)
+            self._apply_dp_reversion(
+                tou_period=period, ev_start_hold=ev_start_hold,
+            )
 
         # ---- item 1: paused-aware exit predicate ----
         _revert = False
@@ -4964,7 +5039,9 @@ class EnergyCoordinator(BaseCoordinator):
                 self._dp_carrier, _DPState.HOLD_ONLY,
                 now_provider=dt_util.now,
             )
-            self._apply_dp_reversion(tou_period=period)
+            self._apply_dp_reversion(
+                tou_period=period, ev_start_hold=ev_start_hold,
+            )
             self.hass.async_create_task(self._save_evse_state())
 
     def _apply_evse_battery_hold(self, decision: dict[str, Any]) -> dict[str, Any]:
@@ -5351,7 +5428,9 @@ class EnergyCoordinator(BaseCoordinator):
     # Session B2b-ii — reversion + must-start-by fire
     # ------------------------------------------------------------------
 
-    def _apply_dp_reversion(self, tou_period: str | None = None) -> None:
+    def _apply_dp_reversion(
+        self, tou_period: str | None = None, ev_start_hold: str | None = None,
+    ) -> None:
         """Clean reversion of the DP TRANSITIONED window.
 
         Called by the decision-cycle wiring when `_dp_maybe_tick` drives
@@ -5412,6 +5491,17 @@ class EnergyCoordinator(BaseCoordinator):
                     "drain-precedence release: %s — TOU=%s, keeping DP claim "
                     "(sticky)",
                     evse_id, tou_period,
+                )
+                continue
+            # Review D D-HIGH-1: the tick's EV-start gate (decision grid
+            # charge / CFG switch-or-ledger ON / untrusted SOC when the
+            # refusal scope is "all"). Sticky like a peer owner: keep the DP
+            # claim so the retry driver re-fires once grid charging ends.
+            if ev_start_hold is not None:
+                _LOGGER.info(
+                    "drain-precedence release: %s — EV start held (%s), "
+                    "keeping DP claim (sticky)",
+                    evse_id, ev_start_hold,
                 )
                 continue
             switch_entity = (
@@ -5501,7 +5591,11 @@ class EnergyCoordinator(BaseCoordinator):
         # must-start-by is "SHOULD start by" — demand side; it never
         # overrides breaker safety or an energy-savings hold. Computed ONCE
         # per fire (one CFG read, same D2b rule as the breaker chokepoint).
-        _cfg_blocks = self._cfg_breaker_blocks_ev_start()
+        # Review D D-HIGH-1: one shared EV-start gate (CFG switch/ledger
+        # and, when the refusal scope is "all", an untrusted SOC tier).
+        _start_hold = self._ev_start_hold_label(
+            soc_untrusted=self._soc_untrusted_from_battery(),
+        )
         _held: list[tuple[str, str]] = []
         for evse_id in list(self._ev._paused_by_dp):  # noqa: SLF001
             # H-2 STICKY parity: safety/cost peer defer keeps the DP
@@ -5524,8 +5618,8 @@ class EnergyCoordinator(BaseCoordinator):
                 _hold = "arbitrage_" + str(
                     self._ev._arbitrage_pause_reason.get(evse_id, "breaker")  # noqa: SLF001
                 )
-            elif _cfg_blocks:
-                _hold = "grid_charge_on"
+            elif _start_hold is not None:
+                _hold = _start_hold
             # D2c — every other protective hold the clean reversion
             # already defers to (energy-savings / TOU / drain holds).
             elif evse_id in self._ev._paused_by_battery_drain:  # noqa: SLF001
@@ -6101,6 +6195,16 @@ class EnergyCoordinator(BaseCoordinator):
             # awaits). Threaded verbatim as a kwarg into both arbitrage
             # dispatch calls — never re-read at release time.
             _soc_untrusted = self._soc_untrusted_from_battery()
+            # Review D D-HIGH-1 — EV-start gate for THIS tick, captured
+            # before the first await. The drain-precedence tick below runs
+            # BEFORE the breaker chokepoint dispatches this decision's CFG
+            # turn_on, so it must see the decision's grid-charge intent
+            # (not only the switch/ledger, which still read the pre-tick
+            # state). Threaded verbatim into `_dp_decision_tick`.
+            _ev_start_hold = self._ev_start_hold_label(
+                decision_grid_charge=bool(decision.get("charge_from_grid", False)),
+                soc_untrusted=_soc_untrusted,
+            )
             # dp-drain-target-value-stamp — CAPTURE the value THIS tick's
             # determine_mode stamped (None outside off_peak drain-branch).
             # Grab it BEFORE the first await below so a concurrent tick
@@ -6163,6 +6267,7 @@ class EnergyCoordinator(BaseCoordinator):
                 self._dp_decision_tick(
                     decision, period, ev_load_w,
                     drain_target_soc=_drain_target,
+                    ev_start_hold=_ev_start_hold,
                 )
             except _DPSkip:
                 pass
@@ -6849,10 +6954,27 @@ class EnergyCoordinator(BaseCoordinator):
         self._last_battery_decision = decision
 
         actions: list[CoordinatorAction] = []
+        # Review A M1: this manager path dispatches CFG writes outside the
+        # tick tap — stamp the intent ledger here too (fail-closed D2b).
+        from .energy_const import DEFAULT_CHARGE_FROM_GRID_ENTITY as _cfg_def
+        try:
+            _cfg_eid = self._battery._get_entity(  # noqa: SLF001
+                "charge_from_grid", _cfg_def, role="write",
+            )
+        except Exception:  # noqa: BLE001
+            _cfg_eid = None
         for action_spec in decision.get("actions", []):
             target = action_spec.get("target", "")
             service = action_spec.get("service", "")
             data = action_spec.get("data", {})
+            if (
+                _cfg_eid
+                and target == _cfg_eid
+                and service in ("switch.turn_on", "switch.turn_off")
+            ):
+                self._stamp_cfg_ledger(
+                    service == "switch.turn_on", dt_util.utcnow(),
+                )
 
             if "entity_id" not in data and target:
                 data = {**data, "entity_id": target}
@@ -6957,7 +7079,10 @@ class EnergyCoordinator(BaseCoordinator):
                     # D2b (plan review #1 C1-2): an explicit `off` read is
                     # believed AND discounts any older ON ledger entry
                     # (manual stop leaves the ledger True forever).
-                    self._last_cfg_off_read_at = _dt_util_utcnow()
+                    # Review A M2 / D-MED-1: only a FRESH read discounts the
+                    # ledger; a stale cached `off` must not clear it.
+                    if self._cfg_off_read_fresh(eid):
+                        self._last_cfg_off_read_at = _dt_util_utcnow()
                 else:
                     # `unavailable`/`unknown`/anything else: FAIL CLOSED
                     # if last-known-good was ON, OR (D2b) the command
@@ -7147,6 +7272,28 @@ class EnergyCoordinator(BaseCoordinator):
             return False
         return not soc_tier_trusted(tier)
 
+    def _ev_start_hold_label(
+        self, *, decision_grid_charge: bool = False, soc_untrusted: bool = False,
+    ) -> str | None:
+        """Review D D-HIGH-1 — the single EV-start gate for the drain-
+        precedence release and the must-start-by release. Returns the hold
+        label, or None when an EV may start.
+
+        ``grid_charge_on`` when THIS tick's decision dispatches grid charging
+        or `_cfg_breaker_blocks_ev_start()` (switch ON / stale-or-unknown
+        with LKG or ledger ON). ``soc_untrusted`` only when
+        ``EV_UNTRUSTED_SOC_START_REFUSAL_SCOPE == "all"`` (open operator
+        ruling; default "arbitrage_release" keeps today's scope)."""
+        if decision_grid_charge or self._cfg_breaker_blocks_ev_start():
+            return "grid_charge_on"
+        if soc_untrusted:
+            from . import energy_const as _ec
+            if getattr(
+                _ec, "EV_UNTRUSTED_SOC_START_REFUSAL_SCOPE", "arbitrage_release",
+            ) == "all":
+                return "soc_untrusted"
+        return None
+
     def _cfg_ledger_says_on(self) -> bool:
         """D2b ledger rule (C1-2): URA's last CFG command was ON and it is
         newer than the last explicit `off` read of the write leg."""
@@ -7157,10 +7304,21 @@ class EnergyCoordinator(BaseCoordinator):
         if off_at is None:
             return True
         cmd_at = getattr(b, "_last_charge_from_grid_command_at", None)
+        # Review A M1: a turn_on re-sent with the ledger already True does
+        # not move `_at`; the per-dispatch stamp does. Use the newer.
+        disp_at = getattr(self, "_last_cfg_on_dispatch_at", None)
+        if disp_at is not None:
+            try:
+                if cmd_at is None or disp_at > cmd_at:
+                    cmd_at = disp_at
+            except TypeError:
+                return True  # incomparable stamps -> fail closed
         if cmd_at is None:
             return False
         try:
-            return cmd_at > off_at
+            # `>=`: within one tick the chokepoint's off READ precedes the
+            # dispatch, so an equal stamp means the command came after.
+            return cmd_at >= off_at
         except TypeError:
             return True  # incomparable stamps -> fail closed
 
@@ -7177,7 +7335,11 @@ class EnergyCoordinator(BaseCoordinator):
         b = getattr(self, "_battery", None)
         if b is None:
             return False
-        if getattr(b, "_last_charge_from_grid_command", None) is True:
+        # D-MED-4 / Review B MED: same ledger rule as the breaker chokepoint
+        # (`_cfg_ledger_says_on`): a FRESH `off` read newer than the last ON
+        # command clears a stuck True ledger (a manual stop never advances
+        # the ledger). Was: any ledger True → never provably off.
+        if self._cfg_ledger_says_on():
             return False
         try:
             eid = b._get_entity(  # noqa: SLF001
@@ -7219,11 +7381,51 @@ class EnergyCoordinator(BaseCoordinator):
             cloud_eid = None
         if not eid or eid != cloud_eid:
             return True
-        try:
-            age = b._read_cloud_settings_max_age_s()  # noqa: SLF001
-        except Exception:  # noqa: BLE001
-            age = None
+        # Review A M3: prefer the integration's own last-NON-stale-success
+        # stamp (`DEFAULT_CLOUD_LAST_SUCCESS_ENTITY`); the settings
+        # entities' `last_reported` also advances when enphase_ev re-serves
+        # cached / fallback data. Entity absent on this install → fall back
+        # to the settings age (multi-home). Present but unreadable → stale.
+        age = self._cloud_last_success_age_s()
+        if age == "absent":
+            try:
+                age = b._read_cloud_settings_max_age_s()  # noqa: SLF001
+            except Exception:  # noqa: BLE001
+                age = None
         return age is not None and age <= max_age
+
+    def _cloud_last_success_age_s(self) -> float | str | None:
+        """Review A M3: age (s) of the enphase_ev last-successful-update
+        timestamp sensor. ``"absent"`` when the entity has no state object
+        (not installed here); None when it exists but is unavailable /
+        unparseable. Never raises."""
+        from homeassistant.util import dt as dt_util
+        from .energy_const import DEFAULT_CLOUD_LAST_SUCCESS_ENTITY
+        b = getattr(self, "_battery", None)
+        try:
+            eid = (
+                b._get_entity(  # noqa: SLF001
+                    "cloud_last_success", DEFAULT_CLOUD_LAST_SUCCESS_ENTITY,
+                )
+                if b is not None else DEFAULT_CLOUD_LAST_SUCCESS_ENTITY
+            )
+            st = self.hass.states.get(eid) if eid else None
+        except Exception:  # noqa: BLE001
+            return None
+        if st is None:
+            return "absent"
+        try:
+            ts = dt_util.parse_datetime(str(st.state))
+        except Exception:  # noqa: BLE001
+            ts = None
+        if ts is None:
+            return None
+        try:
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=dt_util.UTC)
+            return max(0.0, (dt_util.utcnow() - ts).total_seconds())
+        except Exception:  # noqa: BLE001
+            return None
 
     def _cfg_breaker_blocks_ev_start(self) -> bool:
         """D2c: the write-leg CFG reads ON, or reads unknown/unavailable/
@@ -8624,10 +8826,7 @@ class EnergyCoordinator(BaseCoordinator):
             if target and cfg_eid and target != cfg_eid:
                 return
             cmd_bool = (svc == "switch.turn_on")
-            if battery is not None:
-                if battery._last_charge_from_grid_command != cmd_bool:  # noqa: SLF001
-                    battery._last_charge_from_grid_command_at = _now  # noqa: SLF001
-                battery._last_charge_from_grid_command = cmd_bool  # noqa: SLF001
+            self._stamp_cfg_ledger(cmd_bool, _now)
             # Ledger semantics UNCHANGED (B2): it is an INTENT ledger and
             # stays stamped on a failed write, so D2b keeps EVs breaker-held
             # after a failed `turn_on` (fail-closed).
@@ -8672,6 +8871,20 @@ class EnergyCoordinator(BaseCoordinator):
                 dispatch_result, _now,
             )
             await verifier.schedule("storage_mode", normalized_option, _now)
+
+    def _stamp_cfg_ledger(self, cmd_bool: bool, now: Any) -> None:
+        """Review A M1 — the ONE CFG command-ledger stamp, used by every
+        CFG dispatch path (decision-tick tap + manager evaluate path).
+        Ledger `_at` moves only on a value change (write-verify
+        supersession contract, unchanged); every turn_on ALSO refreshes
+        `_last_cfg_on_dispatch_at`, which `_cfg_ledger_says_on` reads."""
+        battery = getattr(self, "_battery", None)
+        if battery is not None:
+            if battery._last_charge_from_grid_command != cmd_bool:  # noqa: SLF001
+                battery._last_charge_from_grid_command_at = now  # noqa: SLF001
+            battery._last_charge_from_grid_command = cmd_bool  # noqa: SLF001
+        if cmd_bool:
+            self._last_cfg_on_dispatch_at = now
 
     async def _note_battery_dispatch_outcome(
         self,
