@@ -3212,16 +3212,24 @@ class PersonCensus:
             )
             return result
 
+        # HA's entity_registry has no `async_entries_for_platform` helper
+        # (verified against homeassistant/helpers/entity_registry.py in the
+        # installed HA; only `async_entries_for_{device,area,label,category,
+        # config_entry}` exist). Iterate `registry.entities.values()` and
+        # filter on `entry.platform == "frigate"` — that is the attribute
+        # the (domain, platform, unique_id) index is keyed on.
         try:
-            entries = er.async_entries_for_platform(registry, "frigate")
+            all_entries = list(registry.entities.values())
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
-                "D2: async_entries_for_platform(frigate) failed; map empty",
+                "D2: registry.entities.values() failed; map empty",
                 exc_info=True,
             )
             return result
 
-        for entry in entries:
+        for entry in all_entries:
+            if getattr(entry, "platform", None) != "frigate":
+                continue
             eid = getattr(entry, "entity_id", "") or ""
             if not eid.startswith("sensor.frigate_"):
                 continue
