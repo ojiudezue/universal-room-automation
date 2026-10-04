@@ -609,3 +609,7 @@ Framing: independent re-enumeration on develop (v5.103.38) of every surface the 
 **Verdict: BUILD-READY for D2-D5 now (with D2c pending operator Q7 — if Q7 is "no", ship D2a/D2b/D3/D4/D5 and card
 D2c; do not drop it silently). D1 stays gated on D0.** No re-plan needed; C1-3, C1-4 and C1-7 join #2's binding
 builder directives.
+
+## 12. Operator rulings 2026-10-04
+- Q1-Q6: agree with recommendations (D1 ships dormant if A/B NO-GO; keep storm-precharge exemption; cloud-only charger guard → Phase 2; 90-min page lead = code constant; card stream-grid-power import witness; count restart outages separately).
+- Q7 = (a), reframed: **must-start-by is "should start by"** — demand side, never overrides breaker safety or energy-savings holds. D2c: the timer waits behind the arbitrage `breaker` pause (and every other protective hold). When a start is held past its deadline: log, NM notify the operator, and emit an anomaly row (existing anomaly subsystem) so the operator can tune or intervene. Correction: window-sized attain targets are PARKED (D0 NO-GO); not a mitigation here.
