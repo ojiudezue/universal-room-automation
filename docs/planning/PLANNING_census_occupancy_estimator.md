@@ -858,3 +858,5 @@ Configurations: the reference is plan §5.2, FW 1200 s, W in floor. The best con
 - **G6:** follows from the G2 fixes (W removal). Re-measure after them.
 - **Q1 operator confirmations still needed:** the 8-guest arrival time, the transient's departure time, and the long-stay guest's hours on 10-03. These widen or narrow the truth band. Gates 2 and 4b fail even against the generous band.
 - **Simplest-version note (marginal benefit):** the best configuration (house-max interior, no W, residents from trackers) already reaches 93% on 4a. The flow ceiling added inflation, not accuracy, on this data. Re-scope D3 to "floor + guest-room term + tracker residents", and park the flow integrator until P2/P3 are fixed.
+- **10-03 truth (operator):** 8 guests arrived 14:20 CDT; the 9th visitor left 23:00; another guest left 23:55. Re-score D0 against this band.
+- **Operator idea 2026-10-04:** count people from UniFi Protect / Frigate footage + stills (visual analysis) instead of, or alongside, the camera person-count sensors. See ruling in chat; candidate = offline ground-truth labelling first, runtime vision later only if coverage allows.
