@@ -566,12 +566,15 @@ DEFAULT_CLOUD_LAST_SUCCESS_ENTITY: Final = (
 CFG_LEDGER_RESTORE_MAX_AGE_H: Final = 12
 
 # Review D D-HIGH-1 — scope of the untrusted-SOC EV turn-on refusal.
-# "arbitrage_release" = today: only the D2a arbitrage release refuses on an
-# untrusted SOC tier. "all" = the drain-precedence release and the
-# must-start-by release refuse too (`_ev_start_hold_label`). OPEN OPERATOR
-# RULING 2026-10-04 — flip this ONE line when ruled. Rung 1 (trust decision
-# on a safety input).
-EV_UNTRUSTED_SOC_START_REFUSAL_SCOPE: Final = "arbitrage_release"
+# "arbitrage_release" = only the D2a arbitrage release refuses on an
+# untrusted SOC tier. "all" (OPERATOR RULING 2026-10-04) = EVERY L2 EVSE and
+# L1 plug turn-on refuses while the tick's SOC verdict is untrusted: DP
+# reversion + must-start-by (`_ev_start_hold_label`), and in energy_pool via
+# `_soc_untrusted_start_refused`: off-peak ensure-on (TOU-pause end),
+# excess-solar, drain release, fill-priority release, grid-cap release,
+# release_all_{tou,fill_priority,grid_cap}, load-shed restore. Kill switch:
+# set back to "arbitrage_release". Rung 1 (trust decision on a safety input).
+EV_UNTRUSTED_SOC_START_REFUSAL_SCOPE: Final = "all"
 
 # ============================================================================
 # Inclement-weather detection + TOU/solar-horizon-aware battery hold

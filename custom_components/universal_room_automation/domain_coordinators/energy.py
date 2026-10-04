@@ -6218,6 +6218,12 @@ class EnergyCoordinator(BaseCoordinator):
             # awaits). Threaded verbatim as a kwarg into both arbitrage
             # dispatch calls — never re-read at release time.
             _soc_untrusted = self._soc_untrusted_from_battery()
+            # Operator ruling 2026-10-04 (scope "all"): stamp THIS tick's
+            # verdict on both charger tiers, synchronously, before the
+            # first await — every EV/plug turn-on site consults the stamp
+            # (`energy_pool._soc_untrusted_start_refused`), never the live
+            # battery tier.
+            self._stamp_ev_start_soc_verdict(_soc_untrusted)
             # Review D D-HIGH-1 — EV-start gate for THIS tick, captured
             # before the first await. The drain-precedence tick below runs
             # BEFORE the breaker chokepoint dispatches this decision's CFG
@@ -7302,6 +7308,18 @@ class EnergyCoordinator(BaseCoordinator):
         if not isinstance(tier, str):
             return False
         return not soc_tier_trusted(tier)
+
+    def _stamp_ev_start_soc_verdict(self, soc_untrusted: bool) -> None:
+        """Stamp the tick's SOC-trust verdict on the L2 + L1 controllers
+        (consumed verbatim by `_soc_untrusted_start_refused`). Entry-reset:
+        written every tick, True or False."""
+        v = bool(soc_untrusted)
+        for ctl in (getattr(self, "_ev", None), getattr(self, "_smart_plugs", None)):
+            if ctl is not None:
+                try:
+                    ctl._ev_start_soc_untrusted = v  # noqa: SLF001
+                except Exception:  # noqa: BLE001
+                    pass
 
     def _ev_start_hold_label(
         self, *, decision_grid_charge: bool = False, soc_untrusted: bool = False,
@@ -8597,6 +8615,16 @@ class EnergyCoordinator(BaseCoordinator):
                         if state["is_on"]:
                             release_reason = release_reason or "auto"
                             continue
+                        # Untrusted SOC (scope "all"): no restore. The shed
+                        # claim is already dropped, so this is NOT sticky —
+                        # the car stays off until an ensure-on/release path
+                        # starts it under trusted SOC.
+                        from .energy_pool import _soc_untrusted_start_refused
+                        if _soc_untrusted_start_refused(
+                            self._ev, evse_id, "ev", "load_shed_release",
+                        ):
+                            release_reason = release_reason or "soc_untrusted"
+                            continue
                         actions.append({
                             "service": "switch.turn_on",
                             "target": switch_entity,
@@ -8689,6 +8717,14 @@ class EnergyCoordinator(BaseCoordinator):
                             release_reason = release_reason or "respect_manual_off"
                             continue
                         is_on_now = state.state == "on"
+                        from .energy_pool import _soc_untrusted_start_refused
+                        if not is_on_now and _soc_untrusted_start_refused(
+                            self._smart_plugs, entity_id, "plug",
+                            "load_shed_release",
+                        ):
+                            # Untrusted SOC: no restore (not sticky; see EV).
+                            release_reason = release_reason or "soc_untrusted"
+                            continue
                         if not is_on_now:
                             # We shed it ON→OFF and live state is still off
                             # → restore.

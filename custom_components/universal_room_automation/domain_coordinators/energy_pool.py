@@ -252,6 +252,49 @@ def _maybe_log_onset_edge(
         _LOGGER.debug("onset edge log failed", exc_info=True)
 
 
+def _soc_untrusted_start_refused(
+    controller, entity_id: str, kind: str, path: str,
+) -> bool:
+    """EC degraded-data p1 (operator ruling 2026-10-04): True when an EV /
+    L1-plug turn-on must be REFUSED because THIS tick's SOC verdict is
+    untrusted and ``EV_UNTRUSTED_SOC_START_REFUSAL_SCOPE == "all"``.
+
+    Reads ONLY the verdict the coordinator stamped on the controller
+    (``_ev_start_soc_untrusted``) right after determine_mode, before the
+    tick's first await — never re-reads the battery tier. A non-bool /
+    absent stamp reads as trusted (legacy stubs keep today's behaviour).
+    Callers keep their pause membership on refusal (sticky) so the start
+    re-fires once trust returns. Edge-logged: one activity row per
+    (entity, path) hold episode."""
+    refused = False
+    if getattr(controller, "_ev_start_soc_untrusted", False) is True:
+        from . import energy_const as _ec
+        refused = getattr(
+            _ec, "EV_UNTRUSTED_SOC_START_REFUSAL_SCOPE", "arbitrage_release",
+        ) == "all"
+    try:
+        cache = getattr(controller, "_soc_refusal_log_state", None)
+        if cache is None:
+            cache = {}
+            controller._soc_refusal_log_state = cache
+        key = (entity_id, path)
+        if refused and not cache.get(key):
+            cache[key] = True
+            _LOGGER.info(
+                "EV start refused (battery SOC untrusted): %s %s path=%s",
+                kind, entity_id, path,
+            )
+            _pool_activity_log(
+                controller.hass, "ev_start_refused_soc_untrusted",
+                f"kind={kind} path={path}", entity_id,
+            )
+        elif not refused and cache.get(key):
+            cache.pop(key, None)
+    except Exception:  # noqa: BLE001 — telemetry must never break control
+        _LOGGER.debug("soc-untrusted refusal log failed", exc_info=True)
+    return refused
+
+
 # Pool speed settings (GPM)
 POOL_NORMAL_SPEED = 75
 POOL_REDUCED_SPEED = 30
@@ -1653,6 +1696,12 @@ class EVChargerController:
                     _od = getattr(self, "_onset_deferred", None)
                     if _od is not None:
                         _od.discard(evse_id)
+                elif _soc_untrusted_start_refused(
+                    self, evse_id, "ev", "ensure_on",
+                ):
+                    # Untrusted SOC: no ensure-on this tick (re-issued
+                    # idempotently every off-peak tick once trusted).
+                    pass
                 else:
                     coord = getattr(self, "_energy_coord", None)
                     ms_min = getattr(coord, "_dp_must_start_by_min", None)
@@ -2053,6 +2102,12 @@ class EVChargerController:
                         evse_id, dp_carrier_state,
                     )
                     continue
+                # Untrusted SOC: no excess-solar claim/start (no membership
+                # mutated; re-evaluated next tick).
+                if _soc_untrusted_start_refused(
+                    self, evse_id, "ev", "excess_solar",
+                ):
+                    continue
                 # Claim EVSE from TOU pause if needed
                 was_tou_paused = evse_id in self._paused_by_us
                 if was_tou_paused:
@@ -2183,6 +2238,10 @@ class EVChargerController:
                             evse_id,
                         )
                         continue
+                    if not state["is_on"] and _soc_untrusted_start_refused(
+                        self, evse_id, "ev", "grid_cap_release",
+                    ):
+                        continue  # untrusted SOC: keep grid-cap claim
                     if not state["is_on"]:
                         actions.append({
                             "service": "switch.turn_on",
@@ -2534,6 +2593,10 @@ class EVChargerController:
                                 evse_id,
                             )
                             continue
+                        if _soc_untrusted_start_refused(
+                            self, evse_id, "ev", "drain_release",
+                        ):
+                            continue  # untrusted SOC: keep drain claim
                         # v3 (funnel P0-#4) — route through the funnel
                         # for one gate path. The onset check already ran
                         # inline above (drives `daytime_release` /
@@ -2795,6 +2858,10 @@ class EVChargerController:
                             evse_id,
                         )
                         continue
+                    if not state["is_on"] and _soc_untrusted_start_refused(
+                        self, evse_id, "ev", "fill_priority_release",
+                    ):
+                        continue  # untrusted SOC: keep FP claim
                     if not state["is_on"]:
                         # v3 fix-up D-HIGH-2 — route the FP resume turn-on
                         # (incl. the forecast_decayed dusk-grid leg) through
@@ -3372,6 +3439,11 @@ class EVChargerController:
             if not switch_entity:
                 continue
             state = self._get_evse_state(evse_id)
+            if not state["is_on"] and _soc_untrusted_start_refused(
+                self, evse_id, "ev", "release_all_tou",
+            ):
+                self._paused_by_us.add(evse_id)  # untrusted SOC: keep claim
+                continue
             if not state["is_on"]:
                 actions.append({
                     "service": "switch.turn_on",
@@ -3418,6 +3490,12 @@ class EVChargerController:
             if not switch_entity:
                 continue
             state = self._get_evse_state(evse_id)
+            if not state["is_on"] and _soc_untrusted_start_refused(
+                self, evse_id, "ev", "release_all_fill_priority",
+            ):
+                # untrusted SOC: keep claim
+                self._paused_by_fill_priority.add(evse_id)
+                continue
             if not state["is_on"]:
                 actions.append({
                     "service": "switch.turn_on",
@@ -3457,6 +3535,11 @@ class EVChargerController:
             if not switch_entity:
                 continue
             state = self._get_evse_state(evse_id)
+            if not state["is_on"] and _soc_untrusted_start_refused(
+                self, evse_id, "ev", "release_all_grid_cap",
+            ):
+                self._paused_by_grid_cap.add(evse_id)  # untrusted SOC: keep claim
+                continue
             if not state["is_on"]:
                 actions.append({
                     "service": "switch.turn_on",
@@ -3816,6 +3899,10 @@ class SmartPlugController:
                     _od = getattr(self, "_onset_deferred", None)
                     if _od is not None:
                         _od.discard(entity_id)
+                elif _soc_untrusted_start_refused(
+                    self, entity_id, "plug", "ensure_on",
+                ):
+                    pass  # untrusted SOC: re-issued next off-peak tick
                 else:
                     _now_local = _dt_util_now_or_none()
                     actions.extend(self._charge_on_or_defer(
@@ -3881,6 +3968,11 @@ class SmartPlugController:
             state = self.hass.states.get(entity_id)
             if state is None:
                 continue
+            if state.state != "on" and _soc_untrusted_start_refused(
+                self, entity_id, "plug", "release_all_tou",
+            ):
+                self._paused_by_us.add(entity_id)  # untrusted SOC: keep claim
+                continue
             if state.state != "on":
                 actions.append({
                     "service": "switch.turn_on",
@@ -3926,6 +4018,12 @@ class SmartPlugController:
                 continue
             state = self.hass.states.get(entity_id)
             if state is None:
+                continue
+            if state.state != "on" and _soc_untrusted_start_refused(
+                self, entity_id, "plug", "release_all_fill_priority",
+            ):
+                # untrusted SOC: keep claim
+                self._paused_by_fill_priority.add(entity_id)
                 continue
             if state.state != "on":
                 actions.append({
@@ -4218,6 +4316,10 @@ class SmartPlugController:
                             "(grid charge on)", entity_id,
                         )
                         continue
+                    if not is_on and _soc_untrusted_start_refused(
+                        self, entity_id, "plug", "drain_release",
+                    ):
+                        continue  # untrusted SOC: keep drain claim
                     if not is_on:
                         # v3 (funnel P0-#5) — route via funnel (inline
                         # gate already ran; bypass_onset=True).
@@ -4396,6 +4498,10 @@ class SmartPlugController:
                             "(grid charge on)", entity_id,
                         )
                         continue
+                    if not is_on and _soc_untrusted_start_refused(
+                        self, entity_id, "plug", "fill_priority_release",
+                    ):
+                        continue  # untrusted SOC: keep FP claim
                     if not is_on:
                         # v3 fix-up D-HIGH-2 (plug tier) — route through funnel.
                         _now_local = _dt_util_now_or_none()
