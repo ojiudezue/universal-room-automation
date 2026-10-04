@@ -326,6 +326,51 @@ DEFAULT_SOC_LKG_MAX_AGE_S: Final = 300
 DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S: Final = 600
 DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT: Final = 3
 
+# ---------------------------------------------------------------------------
+# EC-DEGRADED-DATA-POLICY-1 Phase 1 (PLANNING_ec_degraded_data_phase1.md).
+# ---------------------------------------------------------------------------
+# D1 — local MQTT stream SOC tier (between native Envoy and LKG).
+# Rung-1 kill switch: a trust decision on a breaker-safety input; flipping it
+# must be reviewed. False = today's resolver (envoy → LKG → cloud), byte-
+# identical. Ships DORMANT (operator Q1); flipped only on the D0 A/B GO.
+SOC_STREAM_TIER_ENABLED: Final = False
+# Rung-2 (config flow, per-deployment wiring). Unset = tier off. No house-
+# specific default: a second install without a stream degrades to today.
+CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY: Final = "energy_stream_battery_soc_entity"
+# Rung-2. A fast-changing sibling stream entity (e.g. stream grid power)
+# proving the producer is alive. MANDATORY when DEFAULT_SOC_STREAM_MAX_AGE_S
+# is 0 (freshness mode "b"); optional otherwise.
+CONF_ENERGY_STREAM_COWITNESS_ENTITY: Final = "energy_stream_cowitness_entity"
+# Rung-1 protocol window. > 0 = freshness mode "a" (stream `last_reported`
+# age must be <= this); 0 = mode "b" (rely on the MQTT `expire_after`
+# contract + a mandatory co-witness). Pending the D0-S1 measurement; ships
+# at 0 (the fail-closed mode — the tier refuses without a co-witness).
+DEFAULT_SOC_STREAM_MAX_AGE_S: Final = 0
+# Rung-1 protocol window: the co-witness must have CHANGED (last_updated)
+# within this many seconds (~2x the producer's expire_after of 60 s).
+DEFAULT_SOC_STREAM_COWITNESS_MAX_AGE_S: Final = 120
+# Rung-1 anti-flap count: consecutive compared samples beyond the divergence
+# threshold (REUSED DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT) that quarantine the
+# stream, and consecutive agreeing samples that restore trust.
+DEFAULT_SOC_STREAM_QUARANTINE_TICKS: Final = 2
+# Rung-1 (plan review #2 R2-5): a compared sample counts only if it is at
+# least this many seconds after the previous compared sample, so two
+# back-to-back `get_status` renders cannot satisfy "2 samples".
+DEFAULT_SOC_STREAM_COMPARE_MIN_SPACING_S: Final = 60
+# D2a — rung-1 (plan review #1 C1-3: its OWN kill switch, decoupled from the
+# blind-window guard's CONF_BLIND_WINDOW_MAX_DEFER_MIN). How long an
+# arbitrage-held EVSE stays held on untrusted-SOC ticks before release is
+# allowed — and then ONLY when charge-from-grid is provably off.
+# Kill switch: <= 0 disables the untrusted-tier release refusal entirely.
+DEFAULT_ARB_RELEASE_UNTRUSTED_MAX_DEFER_MIN: Final = 60
+# D4 — rung-1 (operator Q4: code constant). Page the operator when the SOC
+# tier has been untrusted this close to a higher-rate boundary.
+# Kill switch: <= 0 never pages.
+DEFAULT_SOC_UNTRUSTED_PAGE_LEAD_MIN: Final = 90
+# D4 — rung-1 alert debounce (wall clock, not ticks). Filters the 66% of
+# Envoy outages shorter than 2 min. 0 = page on the first untrusted tick.
+DEFAULT_SOC_UNTRUSTED_PAGE_DWELL_MIN: Final = 10
+
 # ENVOY-PRODUCTION-STALE-1 (Rev 5, clean-core fix-up 3) — shared power-read
 # staleness thresholds consumed by BatteryStrategy._read_fresh_* wrappers
 # (D2-A battery_soc, D3 solar, D4-D battery_power) AND by

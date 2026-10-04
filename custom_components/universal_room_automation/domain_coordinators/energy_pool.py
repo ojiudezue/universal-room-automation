@@ -14,6 +14,10 @@ from homeassistant.core import HomeAssistant
 
 import time as _time
 
+# EC-DEGRADED-DATA-POLICY-1 D2a — the refusal clock (module seam so tests
+# can drive elapsed time without patching the global `time` module).
+_arb_release_clock = _time.monotonic
+
 from .energy_const import (
     EVSE_CHARGING_POWER_THRESHOLD,
     EVSE_ESTIMATED_POWER_W,
@@ -469,6 +473,11 @@ class EVChargerController:
         # "breaker" = rung-2 (grid charge commanded, mandatory pause for
         # compound-load protection, sticky until phase exits CHARGE).
         self._arbitrage_pause_reason: dict[str, str] = {}
+        # EC-DEGRADED-DATA-POLICY-1 D2a — per-EVSE monotonic stamp of the
+        # FIRST arbitrage-release refusal on an untrusted SOC tier. Cleared
+        # on any trusted call and on release. RAM-only: after a restart the
+        # clock restarts (= more holding, fail-safe).
+        self._arb_release_refused_since: dict[str, float] = {}
         self._battery_drain_cooldown: dict[str, float] = {}  # evse_id → monotonic expiry
         # v4.2.19: Track power sensor unavailability for alerting
         self._power_sensor_unavail_count: dict[str, int] = {}  # evse_id → consecutive misses
@@ -2850,8 +2859,21 @@ class EVChargerController:
         tou_period: str,
         pause_reason: str | None = None,
         grid_charge_on: bool = False,
+        soc_untrusted: bool = False,
+        cfg_provably_off: bool = False,
     ) -> list[dict[str, Any]]:
         """v4.5.0 D4: pause/resume EVSEs based on arbitrage CHARGE phase.
+
+        EC-DEGRADED-DATA-POLICY-1 D2a — ``soc_untrusted`` (captured by the
+        coordinator right after ``determine_mode``, before the first await,
+        and threaded here like ``grid_charge_on``): on an untrusted SOC
+        tier the release loop KEEPS every arbitrage claim (I-1: no release
+        on missing data). Discharge: after
+        ``DEFAULT_ARB_RELEASE_UNTRUSTED_MAX_DEFER_MIN`` of continuous
+        refusal, release is allowed ONLY when ``cfg_provably_off`` (write-
+        leg CFG reads exactly ``off`` and the command ledger is not True —
+        computed by the coordinator) AND ``grid_charge_on`` is False.
+        Defaults keep legacy callers on today's behaviour.
 
         When arbitrage is grid-charging the battery (20 kW), running an
         EVSE concurrently can take a normal residential panel to ~134A
@@ -2875,6 +2897,11 @@ class EVChargerController:
         Mirrors the pattern that v4.7.x B5 will copy onto appliance controllers.
         """
         actions: list[dict[str, Any]] = []
+
+        # D2a — the refusal clock measures CONTINUOUS untrusted refusal:
+        # any call on a trusted tier resets it.
+        if not soc_untrusted:
+            self._arb_release_refused_since.clear()
 
         if arbitrage_charging:
             # arbitrage_solar_attainability_ladder D2 breaker-safety invariant:
@@ -2952,6 +2979,35 @@ class EVChargerController:
                     evse_id,
                 )
                 continue
+            # EC-DEGRADED-DATA-POLICY-1 D2a — never release a protective
+            # pause on missing data. Keep membership AND label; no debounce
+            # (refusing to loosen takes effect on the first untrusted tick).
+            if soc_untrusted:
+                from .energy_const import (
+                    DEFAULT_ARB_RELEASE_UNTRUSTED_MAX_DEFER_MIN,
+                )
+                _cap_min = int(DEFAULT_ARB_RELEASE_UNTRUSTED_MAX_DEFER_MIN)
+                if _cap_min > 0:
+                    _now_m = _arb_release_clock()
+                    _since = self._arb_release_refused_since.get(evse_id)
+                    if _since is None:
+                        _since = _now_m
+                        self._arb_release_refused_since[evse_id] = _now_m
+                        _LOGGER.warning(
+                            "EV %s arbitrage release REFUSED: battery level "
+                            "untrusted (label=%s) — holding",
+                            evse_id,
+                            self._arbitrage_pause_reason.get(evse_id),
+                        )
+                    _elapsed_min = (_now_m - _since) / 60.0
+                    if not (_elapsed_min >= _cap_min and cfg_provably_off):
+                        continue
+                    _LOGGER.warning(
+                        "EV %s arbitrage release after %.0f min untrusted: "
+                        "grid charge provably off — releasing",
+                        evse_id, _elapsed_min,
+                    )
+            self._arb_release_refused_since.pop(evse_id, None)
             prior_label = self._arbitrage_pause_reason.pop(evse_id, None)
             self._paused_by_arbitrage.discard(evse_id)
             config = self._evse.get(evse_id, {})

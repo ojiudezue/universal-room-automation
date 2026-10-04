@@ -1113,6 +1113,8 @@
               "energy_cloud_charge_from_grid_oracle_entity": "Charge From Grid — Cloud Verification Entity",
               "energy_cloud_storage_mode_oracle_entity": "Battery Mode — Cloud Verification Entity",
               "energy_cloud_battery_soc_fallback_entity": "Battery Charge % — Cloud Fallback Sensor",
+              "energy_stream_battery_soc_entity": "Local battery stream",
+              "energy_stream_cowitness_entity": "Stream heartbeat sensor",
               "energy_soc_divergence_threshold_pp": "Battery level disagreement alert (pp)",
               "energy_soc_divergence_dwell_min": "Disagreement confirmation time (min)",
               "energy_cloud_lag_alert_s": "Cloud update delay alert (s)"
@@ -1122,6 +1124,8 @@
               "energy_cloud_charge_from_grid_oracle_entity": "Cloud switch entity used to verify that URA's charge-from-grid commands actually propagated. If URA commanded OFF and this reports ON with no intervening command, an anomaly is raised.",
               "energy_cloud_storage_mode_oracle_entity": "Cloud select entity that reports the battery's active mode (Self-Consumption, Backup, Savings, Full Backup). Used to verify storage-mode writes. Unmapped values are treated as inconclusive — never as a mismatch.",
               "energy_cloud_battery_soc_fallback_entity": "Cloud SOC sensor used ONLY when the local Envoy SOC sensor is unavailable and the 5-minute last-known-good cache is stale. Also cross-checked against the primary at every read for divergence.",
+              "energy_stream_battery_soc_entity": "Optional. A fast local battery-level sensor used when the Envoy integration drops out.",
+              "energy_stream_cowitness_entity": "Optional. A fast-changing sensor from the same local stream (for example its grid power). Shows the stream is still live.",
               "energy_soc_divergence_threshold_pp": "Warn when local and cloud battery readings disagree by more than this many percentage points. Set to 0 to turn detection off.",
               "energy_soc_divergence_dwell_min": "How long the disagreement must persist before alerting — filters one-off blips.",
               "energy_cloud_lag_alert_s": "Warn when Enphase cloud settings lag this far behind what we wrote. Set to 0 to disable the alert (delay still shown on the sensor)."

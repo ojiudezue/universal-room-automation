@@ -52,6 +52,8 @@ from .energy_const import (
     CONF_ENERGY_BATTERY_SOC_ENTITY,
     CONF_ENERGY_CHARGE_FROM_GRID_ENTITY,
     CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+    CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
+    CONF_ENERGY_STREAM_COWITNESS_ENTITY,
     CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
     CONF_ENERGY_CLOUD_RESERVE_ORACLE_ENTITY,
     CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
@@ -126,6 +128,12 @@ from .signals import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _dt_util_utcnow():
+    """UTC now via HA's dt_util (EC-DEGRADED-DATA-POLICY-1 D2b stamp)."""
+    from homeassistant.util import dt as dt_util
+    return dt_util.utcnow()
 
 
 class _DPSkip(Exception):
@@ -439,6 +447,16 @@ class EnergyCoordinator(BaseCoordinator):
         # default False is correct (no prior grid charge); subsequent
         # ticks update it from clean on/off reads.
         self._last_known_grid_charge_on: bool = False
+        # EC-DEGRADED-DATA-POLICY-1 D2b (plan review #1 C1-2): UTC stamp of
+        # the last explicit `off` read of the write-leg CFG switch in the
+        # breaker chokepoint. The command ledger counts as "ON" only when
+        # its stamp is NEWER than this (a manual stop never advances the
+        # ledger). RAM-only: after a restart the persisted ledger is the
+        # sole fail-closed memory (more holding, fail-safe).
+        self._last_cfg_off_read_at = None
+        # R2-8 — first tick on which the unknown-leg path forced breaker
+        # intent; None when not forced.
+        self._cfg_unknown_forced_since = None
 
         # v4.2.17: EV battery drain protection
         from .energy_const import (
@@ -1018,6 +1036,9 @@ class EnergyCoordinator(BaseCoordinator):
                 "cloud_storage_mode_oracle"
             ),
             CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY: "battery_soc_cloud",
+            # EC-DEGRADED-DATA-POLICY-1 D1 — optional stream tier wiring.
+            CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY: "battery_soc_stream",
+            CONF_ENERGY_STREAM_COWITNESS_ENTITY: "stream_cowitness",
             CONF_ENERGY_SOLCAST_TODAY_ENTITY: "solcast_today",
             CONF_ENERGY_SOLCAST_REMAINING_ENTITY: "solcast_remaining",
             CONF_ENERGY_SOLCAST_TOMORROW_ENTITY: "solcast_tomorrow",
@@ -1644,6 +1665,33 @@ class EnergyCoordinator(BaseCoordinator):
                         battery.restore_lkg_snapshot(snap)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("LKG restore failed (swallowed)", exc_info=True)
+            # EC-DEGRADED-DATA-POLICY-1 D1 — stream-tier trust state. A
+            # persisted `quarantined` survives restart; an absent key (or a
+            # row older than STALE_MAX_AGE_HOURS, plan review #1 C1-6)
+            # restores as the default `trusted` — a native comparison
+            # re-quarantines within 2 compared samples.
+            # D4 / R2-8 — page latches (own key: persists with D1 dormant).
+            for _key, _fn in (
+                ("battery_soc_stream_trust", "restore_stream_trust_snapshot"),
+                ("ec_untrusted_page_latch", "restore_page_latch_snapshot"),
+            ):
+                try:
+                    import json as _json
+                    _raw = await db.restore_energy_state_with_age(
+                        _key, max_age_hours=STALE_MAX_AGE_HOURS,
+                    )
+                    _restore = getattr(battery, _fn, None) if battery else None
+                    if _raw and _restore is not None:
+                        try:
+                            _snap = _json.loads(_raw)
+                        except (ValueError, TypeError):
+                            _snap = None
+                        if _snap:
+                            _restore(_snap)
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "%s restore failed (swallowed)", _key, exc_info=True,
+                    )
             # LKG wave 1 D2 — restore solar production LKG (mirror of the
             # SOC path). Bounded by DEFAULT_SOLAR_LKG_ENVELOPE_MAX_AGE_S
             # inside the envelope math — a stale-restored snapshot
@@ -2055,6 +2103,29 @@ class EnergyCoordinator(BaseCoordinator):
                         )
                 except Exception:  # noqa: BLE001
                     _LOGGER.debug("LKG save failed (swallowed)", exc_info=True)
+                # EC-DEGRADED-DATA-POLICY-1 D1 stream trust + D4/R2-8 page
+                # latches. Event-saved by BatteryStrategy on every trust
+                # transition / latch (R2-3), and on this cadence.
+                # Own json import: this function has no `_json` binding
+                # (the LKG/solar blocks above reference an unbound `_json`
+                # and are silently swallowed — pre-existing, reported, NOT
+                # changed by this cycle).
+                import json as _ecdd_json
+                for _key, _fn in (
+                    ("battery_soc_stream_trust", "get_stream_trust_snapshot"),
+                    ("ec_untrusted_page_latch", "get_page_latch_snapshot"),
+                ):
+                    try:
+                        _get = getattr(battery, _fn, None)
+                        _snap = _get() if _get is not None else None
+                        if isinstance(_snap, dict):
+                            await db.save_energy_state(
+                                _key, _ecdd_json.dumps(_snap),
+                            )
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "%s save failed (swallowed)", _key, exc_info=True,
+                        )
                 # LKG wave 1 D2 — piggyback solar LKG persist on the SOC
                 # persist cadence (same EC persist call; no new writer).
                 try:
@@ -5390,21 +5461,48 @@ class EnergyCoordinator(BaseCoordinator):
         start by the deadline regardless of TOU.
         """
         self._cancel_dp_must_start_by_timer()
+        # EC-DEGRADED-DATA-POLICY-1 D2c (operator ruling 2026-10-04, Q7):
+        # must-start-by is "SHOULD start by" — demand side; it never
+        # overrides breaker safety or an energy-savings hold. Computed ONCE
+        # per fire (one CFG read, same D2b rule as the breaker chokepoint).
+        _cfg_blocks = self._cfg_breaker_blocks_ev_start()
+        _held: list[tuple[str, str]] = []
         for evse_id in list(self._ev._paused_by_dp):  # noqa: SLF001
             # H-2 STICKY parity: safety/cost peer defer keeps the DP
             # claim so a later tick can retry the forced ON once the
-            # peer clears. INV-DP2 liveness still trumps TOU here — we
-            # do NOT gate on TOU period.
-            if (
-                evse_id in self._ev._paused_by_grid_cap  # noqa: SLF001
-                or evse_id in self._ev._paused_by_load_shed  # noqa: SLF001
-                or evse_id in self._ev._paused_by_fill_priority  # noqa: SLF001
-            ):
-                _LOGGER.info(
-                    "drain-precedence must-start-by fire: %s — safety/cost "
-                    "owner holds, keeping DP claim (sticky)",
-                    evse_id,
+            # peer clears (the sticky retry driver in `_dp_decision_tick`
+            # re-runs `_apply_dp_reversion`, which defers to the same
+            # owners). INV-DP2 liveness still does not gate on TOU period.
+            _hold = None
+            if evse_id in self._ev._paused_by_grid_cap:  # noqa: SLF001
+                _hold = "grid_cap"
+            elif evse_id in self._ev._paused_by_load_shed:  # noqa: SLF001
+                _hold = "load_shed"
+            elif evse_id in self._ev._paused_by_fill_priority:  # noqa: SLF001
+                _hold = "fill_priority"
+            # D2c — breaker safety: an arbitrage claim (either label: the
+            # `breaker` pause is breaker safety, `redirect` is an energy-
+            # savings hold — operator ruling) or the grid-charge switch
+            # reading ON / unknown-with-ledger-ON.
+            elif evse_id in self._ev._paused_by_arbitrage:  # noqa: SLF001
+                _hold = "arbitrage_" + str(
+                    self._ev._arbitrage_pause_reason.get(evse_id, "breaker")  # noqa: SLF001
                 )
+            elif _cfg_blocks:
+                _hold = "grid_charge_on"
+            # D2c — every other protective hold the clean reversion
+            # already defers to (energy-savings / TOU / drain holds).
+            elif evse_id in self._ev._paused_by_battery_drain:  # noqa: SLF001
+                _hold = "battery_drain"
+            elif evse_id in self._ev._paused_by_us:  # noqa: SLF001
+                _hold = "tou"
+            if _hold is not None:
+                _LOGGER.warning(
+                    "drain-precedence must-start-by fire: %s — held by %s, "
+                    "keeping DP claim (sticky; start deferred past deadline)",
+                    evse_id, _hold,
+                )
+                _held.append((evse_id, _hold))
                 continue
             switch_entity = (
                 self._ev._evse.get(evse_id, {}).get("switch", "")  # noqa: SLF001
@@ -5471,6 +5569,56 @@ class EnergyCoordinator(BaseCoordinator):
         # Sticky-safe floor collapse (INV-DP3 parity with reversion).
         if not self._ev._paused_by_dp:  # noqa: SLF001
             self._dp_decision_soc = None
+        # D2c — a start held past its deadline: log (above), NM notify the
+        # operator, and emit an anomaly row so the operator can tune or
+        # intervene. One fire per armed deadline (the timer is one-shot).
+        if _held:
+            self._report_must_start_by_held(_held)
+
+    def _report_must_start_by_held(self, held: list[tuple[str, str]]) -> None:
+        """D2c held-past-deadline report: NM page + anomaly row. Never raises."""
+        desc = ", ".join(f"{e} ({h})" for e, h in held)
+        try:
+            self.hass.async_create_task(
+                self._send_nm_alert(
+                    title="Car charging start held",
+                    message=(
+                        "A car was due to start charging but URA held it "
+                        f"for safety or savings: {desc}. It will start once "
+                        "the hold clears. Start it by hand if you need it now."
+                    ),
+                    severity="medium",
+                    hazard_type="ev_must_start_by_held",
+                    location="garage",
+                )
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("must-start-by held NM failed (swallowed)", exc_info=True)
+        try:
+            from ..const import DOMAIN
+            from .anomaly_event import (
+                AnomalyEvent, AnomalySeverity, AnomalyType, build_context_json,
+            )
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is None:
+                return
+            from homeassistant.util import dt as dt_util
+            evt = AnomalyEvent(
+                coordinator="energy",
+                type="ev_must_start_by_held",
+                severity=AnomalySeverity.WARNING,
+                anomaly_type=AnomalyType.POINT_IN_TIME,
+                detected_at=dt_util.utcnow().isoformat(),
+                payload=build_context_json(
+                    source_signal="dp_must_start_by",
+                    extra={"held": [[e, h] for e, h in held]},
+                ),
+            )
+            self.hass.async_create_task(db.save_anomaly_event(evt))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "must-start-by held anomaly failed (swallowed)", exc_info=True,
+            )
 
     def _post_excess_solar_bookkeeping(self, pre_dp_set: set) -> None:
         """Post-yield bookkeeping — persist + A-HIGH-1 orphan-floor collapse.
@@ -5901,6 +6049,13 @@ class EnergyCoordinator(BaseCoordinator):
                 tou_transition_into=new_period,
                 ev_load_w=ev_load_w,
             )
+            # EC-DEGRADED-DATA-POLICY-1 D2a — CAPTURE the SOC-trust verdict
+            # THIS tick's determine_mode produced, BEFORE the first await
+            # below (plan review #2 R2-1: `_evaluate_battery` re-runs
+            # determine_mode and can overwrite `_tick_soc_source` across the
+            # awaits). Threaded verbatim as a kwarg into both arbitrage
+            # dispatch calls — never re-read at release time.
+            _soc_untrusted = self._soc_untrusted_from_battery()
             # dp-drain-target-value-stamp — CAPTURE the value THIS tick's
             # determine_mode stamped (None outside off_peak drain-branch).
             # Grab it BEFORE the first await below so a concurrent tick
@@ -6072,7 +6227,9 @@ class EnergyCoordinator(BaseCoordinator):
                     pause_reason,
                     pause_requested,
                     grid_charge_intent,
-                ) = await self._execute_breaker_safe_dispatch(decision, period)
+                ) = await self._execute_breaker_safe_dispatch(
+                    decision, period, soc_untrusted=_soc_untrusted,
+                )
 
                 # Pass-2 fix-up — RESTORE pool TOU + EV TOU calls
                 # collateral-deleted by the chokepoint refactor.
@@ -6086,6 +6243,7 @@ class EnergyCoordinator(BaseCoordinator):
                     pause_reason=pause_reason,
                     pause_requested=pause_requested,
                     grid_charge_intent=grid_charge_intent,
+                    soc_untrusted=_soc_untrusted,
                 )
 
                 # C2: Excess solar EVSE charging
@@ -6672,6 +6830,7 @@ class EnergyCoordinator(BaseCoordinator):
         self,
         decision: dict[str, Any],
         period: str,
+        soc_untrusted: bool = False,
     ) -> tuple[str | None, bool, bool]:
         """Dispatch battery decision actions under the breaker-safety invariant.
 
@@ -6723,6 +6882,7 @@ class EnergyCoordinator(BaseCoordinator):
         # LKG cache the prior fix-up added). On a clean read, update
         # the LKG.
         live_grid_charge_on = False
+        _unknown_forced = False
         try:
             # H1 (2026-07-13): LKG blip-latch is a COMMAND-state read
             # (does URA think the switch is ON right now?) — resolve to
@@ -6735,33 +6895,60 @@ class EnergyCoordinator(BaseCoordinator):
                 st = self.hass.states.get(eid)
                 if st is None:
                     # No state object — treat as blip; fail closed if
-                    # we ever saw it ON before.
-                    if getattr(self, "_last_known_grid_charge_on", False):
+                    # we ever saw it ON before, OR (D2b) URA's own last
+                    # command turned it ON (unknown != off).
+                    if (
+                        getattr(self, "_last_known_grid_charge_on", False)
+                        or self._cfg_ledger_says_on()
+                    ):
                         live_grid_charge_on = True
+                        _unknown_forced = True
                 elif st.state == "on":
                     live_grid_charge_on = True
                     self._last_known_grid_charge_on = True
                 elif st.state == "off":
                     live_grid_charge_on = False
                     self._last_known_grid_charge_on = False
+                    # D2b (plan review #1 C1-2): an explicit `off` read is
+                    # believed AND discounts any older ON ledger entry
+                    # (manual stop leaves the ledger True forever).
+                    self._last_cfg_off_read_at = _dt_util_utcnow()
                 else:
                     # `unavailable`/`unknown`/anything else: FAIL CLOSED
-                    # if last-known-good was ON. A transient blip during
-                    # an actual grid charge must NOT release the resume
-                    # guards.
-                    if getattr(self, "_last_known_grid_charge_on", False):
+                    # if last-known-good was ON, OR (D2b) the command
+                    # ledger says ON. A transient blip during an actual
+                    # grid charge must NOT release the resume guards.
+                    if (
+                        getattr(self, "_last_known_grid_charge_on", False)
+                        or self._cfg_ledger_says_on()
+                    ):
                         live_grid_charge_on = True
+                        _unknown_forced = True
                         _LOGGER.info(
                             "Energy: charge_from_grid read '%s' (blip) — "
-                            "treating as ON (last-known-good latch) for "
-                            "breaker-safety",
+                            "treating as ON (last-known-good latch / "
+                            "command ledger) for breaker-safety",
                             st.state,
                         )
         except Exception:  # noqa: BLE001 — defensive: registry blip
-            # Registry blip == blip; fail closed on LKG.
-            if getattr(self, "_last_known_grid_charge_on", False):
+            # Registry blip == blip; fail closed on LKG or (D2b) ledger.
+            try:
+                _ledger_on = self._cfg_ledger_says_on()
+            except Exception:  # noqa: BLE001
+                _ledger_on = False
+            if getattr(self, "_last_known_grid_charge_on", False) or _ledger_on:
                 live_grid_charge_on = True
+                _unknown_forced = True
         grid_charge_intent = decision_grid_charge or live_grid_charge_on
+        # R2-8 — discharge for the D2b suppression: page the operator when
+        # the unknown-leg path has forced breaker intent for >= the D4
+        # dwell during off_peak with an EVSE held. No time-bound loosening.
+        try:
+            self._note_cfg_unknown_forced(
+                _unknown_forced and not decision_grid_charge, period,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("R2-8 page tracking failed (swallowed)", exc_info=True)
 
         arb_intent = getattr(self._battery, "_arbitrage_intent", None)
         arbitrage_charging_phase = (
@@ -6792,6 +6979,7 @@ class EnergyCoordinator(BaseCoordinator):
                 arbitrage_charging=True,
                 tou_period=period,
                 pause_reason="breaker",
+                soc_untrusted=soc_untrusted,
             )
             for action_spec in breaker_actions:
                 await self._execute_service_action(action_spec)
@@ -6815,8 +7003,13 @@ class EnergyCoordinator(BaseCoordinator):
         pause_reason: str | None,
         pause_requested: bool,
         grid_charge_intent: bool,
+        soc_untrusted: bool = False,
     ) -> None:
         """Post-decision TOU + arbitrage release dispatch.
+
+        EC-DEGRADED-DATA-POLICY-1 D2a: ``soc_untrusted`` is the tick-start
+        capture from the decision cycle (never re-derived here); it gates
+        the arbitrage release independently of ``_ev_tou_enabled``.
 
         Pass-2 fix-up — restores the pool TOU + EV TOU dispatch calls
         that the prior chokepoint refactor collateral-deleted, and
@@ -6883,9 +7076,127 @@ class EnergyCoordinator(BaseCoordinator):
             tou_period=period,
             pause_reason=pause_reason,
             grid_charge_on=grid_charge_intent,
+            soc_untrusted=soc_untrusted,
+            cfg_provably_off=(
+                self._cfg_write_leg_provably_off() if soc_untrusted else False
+            ),
         )
         for action_spec in arb_actions:
             await self._execute_service_action(action_spec)
+
+    # ------------------------------------------------------------------
+    # EC-DEGRADED-DATA-POLICY-1 Phase 1 — coordinator-side helpers.
+    # ------------------------------------------------------------------
+    def _soc_untrusted_from_battery(self) -> bool:
+        """D2a verdict from THIS tick's captured tier. A real strategy
+        always carries a str tag; a non-str (legacy stub) reads as trusted
+        so stubs keep today's behaviour."""
+        from .energy_battery import soc_tier_trusted
+        tier = getattr(self._battery, "_tick_soc_source", None)
+        if not isinstance(tier, str):
+            return False
+        return not soc_tier_trusted(tier)
+
+    def _cfg_ledger_says_on(self) -> bool:
+        """D2b ledger rule (C1-2): URA's last CFG command was ON and it is
+        newer than the last explicit `off` read of the write leg."""
+        b = getattr(self, "_battery", None)
+        if b is None or getattr(b, "_last_charge_from_grid_command", None) is not True:
+            return False
+        off_at = getattr(self, "_last_cfg_off_read_at", None)
+        if off_at is None:
+            return True
+        cmd_at = getattr(b, "_last_charge_from_grid_command_at", None)
+        if cmd_at is None:
+            return False
+        try:
+            return cmd_at > off_at
+        except TypeError:
+            return True  # incomparable stamps -> fail closed
+
+    def _cfg_write_leg_provably_off(self) -> bool:
+        """D2a discharge predicate: CFG is PROVABLY off.
+
+        Reads the WRITE leg only (R2-9: never the local Enpower read leg,
+        a standing-on flag). True when the leg reads exactly ``off`` AND
+        the command ledger is not True; also True when no write-leg entity
+        resolves at all (C1-4: no CFG capability). A missing state object,
+        ``unavailable``/``unknown`` or ``on`` -> False (keep holding).
+        """
+        from .energy_const import DEFAULT_CHARGE_FROM_GRID_ENTITY
+        b = getattr(self, "_battery", None)
+        if b is None:
+            return False
+        if getattr(b, "_last_charge_from_grid_command", None) is True:
+            return False
+        try:
+            eid = b._get_entity(  # noqa: SLF001
+                "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                role="write",
+            )
+        except Exception:  # noqa: BLE001
+            return False
+        if not eid:
+            return True
+        try:
+            st = self.hass.states.get(eid)
+        except Exception:  # noqa: BLE001
+            return False
+        return st is not None and st.state == "off"
+
+    def _cfg_breaker_blocks_ev_start(self) -> bool:
+        """D2c: the write-leg CFG reads ON, or reads unknown/unavailable/
+        missing and the D2b rule (LKG latch or ledger) says ON — the same
+        rule the breaker chokepoint applies."""
+        from .energy_const import DEFAULT_CHARGE_FROM_GRID_ENTITY
+        b = getattr(self, "_battery", None)
+        if b is None:
+            return False
+        try:
+            eid = b._get_entity(  # noqa: SLF001
+                "charge_from_grid", DEFAULT_CHARGE_FROM_GRID_ENTITY,
+                role="write",
+            )
+            st = self.hass.states.get(eid) if eid else None
+        except Exception:  # noqa: BLE001
+            return bool(
+                getattr(self, "_last_known_grid_charge_on", False)
+                or self._cfg_ledger_says_on()
+            )
+        if not eid:
+            return False
+        if st is not None and st.state == "on":
+            return True
+        if st is not None and st.state == "off":
+            return False
+        return bool(
+            getattr(self, "_last_known_grid_charge_on", False)
+            or self._cfg_ledger_says_on()
+        )
+
+    def _note_cfg_unknown_forced(self, forced: bool, period: str | None) -> None:
+        """R2-8 — track how long the unknown-leg path has forced breaker
+        intent; page once (per boundary) after the D4 dwell when off_peak
+        with an EVSE held by arbitrage."""
+        from .energy_const import DEFAULT_SOC_UNTRUSTED_PAGE_DWELL_MIN
+        if not forced:
+            self._cfg_unknown_forced_since = None
+            return
+        from homeassistant.util import dt as dt_util
+        now = dt_util.now()
+        if self._cfg_unknown_forced_since is None:
+            self._cfg_unknown_forced_since = now
+        if period != "off_peak":
+            return
+        held = sorted(getattr(self._ev, "_paused_by_arbitrage", set()) or [])
+        if not held:
+            return
+        dwell_s = (now - self._cfg_unknown_forced_since).total_seconds()
+        if dwell_s < int(DEFAULT_SOC_UNTRUSTED_PAGE_DWELL_MIN) * 60:
+            return
+        page = getattr(self._battery, "page_cfg_unknown_forced", None)
+        if page is not None:
+            page(now, period, held)
 
     async def _execute_service_action(self, action_spec: dict[str, Any]) -> None:
         """Execute a single battery service call."""
