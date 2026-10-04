@@ -9,6 +9,16 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1@2026-10-04T04:50:00"
+    at: "2026-10-04T04:50:00"
+    outcome: "done"
+    headline: "Closed: music following is moving music again. Transfers have completed during the day since 10-02. One leftover is logged on the anomaly-baseline card: the detector learned from 5 broken months, so it now logs every successful transfer as an anomaly. Log only, no alerts."
+    acknowledged: false
+  - fid: "HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1@2026-10-04T04:50:01"
+    at: "2026-10-04T04:50:01"
+    outcome: "measured"
+    headline: "The excursion-ID fix is live (since v5.103.36), but no HVAC auto-return has happened since the deploy, so it can't be confirmed yet. New deadline 10-11."
+    acknowledged: false
   - fid: "ENERGY-HISTORY-KW-SUMMED-AS-KWH-1@2026-10-04T04:30:00"
     at: "2026-10-04T04:30:00"
     outcome: "measured"
@@ -526,6 +536,7 @@ cards:
   next: 'PLAN (Tier 3, battery strategy): let the charge window act on a fresh cloud SOC (soc_source=cloud_fallback) instead of holding with no commands; define freshness bound + which commands are safe on cloud SOC.'
   why: '2026-10-02 14:00-15:48 the Envoy integration was stuck after a power-cycle; strategy reason "Envoy unavailable - holding (no commands issued)" while cloud SOC was ~10% and fresh, so the operator had to grid-charge manually before the 17:00 mid-peak. Root of the Envoy outages: /production.json hangs >60s since 2026-10-01 23:05 (meters + inverters endpoints fine), so every Envoy reload/restart stalls setup.'
 - id: FAN-ORACLE-BOOT-FALLBACK-NOISE-1
+  soak_check_2026_10_04_overnight: "NOT EVALUATED - LOG-READ GAP, not an all-clear. The fix (a841fbc8c) is live since v5.103.37/38 (restarts 10-03 15:55 and 16:58 CDT). The core log reachable tonight (hassio proxy) starts at 22:52 CDT, after both boots, and the HA system_log websocket could not be opened from this run (no websocket client on the HA host; local Python blocked from the LAN). Next run: read system_log/list for a WARN fan-oracle fallback entry with first_occurred at the next boot."
   next: "SHIP (on your next deploy): already on develop (a841fbc8c). Live check after restart: no WARN-level fan-oracle fallback burst at boot in system_log."
   reverified_2026_10_03_overnight: "CARD-WAS-WRONG on lane: the fix is already BUILT and merged on develop (a841fbc8c, 'DEBUG (not WARN) for pre-attach fan oracle fallback', automation.py + manager.py + test_fan_oracle_boot_fallback_noise.py; merged 9844afa0c). Not in any release tag yet (git tag --contains = none). Moved inbox -> review. Ships with the next deploy; needs a README section at that point."
   title: 86 "FanPolicyOracle fallback" warnings at every boot (rooms set up before the Coordinator Manager attaches the fan oracle)
@@ -533,7 +544,7 @@ cards:
   status: shipped_organic
   shipped_version: v5.103.37
   created: '2026-10-03 01:00'
-  updated: "2026-10-03 02:05"
+  updated: "2026-10-04 04:50"
   why: 'Observed after the 2026-10-03 00:37 restart: 43 rooms x write_on/write_off, all in the boot second. Harmless but buries real warnings during post-deploy log review.'
 - id: CM-COORDINATORS-ADD-ONE-BY-ONE-1
   title: Coordinators should be added one by one from the Coordinator Manager menu (or at least start disabled until configured), not all created on install
@@ -24755,13 +24766,14 @@ cards:
   - docs/planning/AUDIT_excess_solar_and_evse_prior_art.md:822
   - energy_const.py:980
 - id: HVAC-BASELINE-MAXSAMPLES-1
+  INSTANCE_2026_10_04_music_following: "Same defect, different coordinator, measured live: music_following transfer_success_rate baseline (sample_count 1604, mean 0.02) was learned while transfers were broken (May -> 10-02, MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1). Now that transfers work, every success logs an anomaly at z~9.9 (40 ura_activity_log rows 10-02..10-03). Log-only today (no NM), but it is concrete evidence that the shared detector needs a bounded/windowed sample count or a reset-on-fix path. Candidate revival trigger (c), proposed by the overnight pass - operator/attended session to rule; status left parked."
   groom_2026_09_29_arc: 'Given a real revival trigger (it had none).'
   workstream: HVAC-W4-ARC-CLOSURE
   title: HVAC anomaly baselines never forget — an accumulator matured on August cooling will misjudge
     October; scope a bounded/windowed sample count into the shared detector
   thread: hvac
   status: parked
-  updated: '2026-09-26 02:40'
+  updated: "2026-10-04 04:50"
   gate_2026_09_12: 'PARKED at the pre-build gate (validity->prior-art->parsimony->cost/benefit).
     VALIDITY: still-needed=yes / not-shipped=yes (HVAC metrics do not set max_samples; two creation
     sites _get_baseline + load_baselines both build MetricBaseline without a cap). PRIOR-ART/REUSE:
@@ -30264,15 +30276,16 @@ cards:
   rank: {value: 5, time_criticality: 4, effort: 2}
   validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1
+  disposed_2026_10_04_overnight: "SOAK EXIT -> DONE (met, with a residual). Shipped in v5.103.36 (5e3c13024 is in tag pre-5103-36 and on develop). Discriminator 'one COMPLETED transfer in waking hours; transfer_success_rate sample_count > 1572': URA DB metric_baselines music_following/transfer_success_rate sample_count = 1604 (was 1572), and ura_activity_log carries 40 MusicFollowing 'transfer_success_rate anomaly: observed=1.000' rows from 10-02 to 10-03 15:49 CDT (latest 20:49Z) - i.e. transfers are completing again, in waking hours. RESIDUAL: the baseline learned ~5 months of broken transfers (mean 0.02), so every successful transfer is now logged as an anomaly (z~9.9). No NM notifications from music following in notification_log (log rows only). Carried as an instance on HVAC-BASELINE-MAXSAMPLES-1 (the shared-detector 'baselines never forget' card) rather than a new card."
   disposition_2026_10_03: "RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Operator acked. Mechanism PASS (README table: 01:14 name match now works, sleep_suppressed). Organic discriminator still open: one COMPLETED transfer in waking hours. Dispose by 2026-10-10: query music_following outcomes / metric_baselines transfer_success_rate sample_count > 1572 -> done; still 1572 with the house awake and music playing -> reopen."
   shipped_version: "5.103.34"
   fixup_reviewed_2026_10_01_overnight: 'FIX-UP REVIEWED + REBASED (overnight 10-01). Rebased onto develop -> 5e3c13024 (0 behind). All three review findings ADDRESSED at file:line: HIGH kill-switch (_coordinator_enabled music_following.py:449-472, gate :487-491), MED-1 DND-off negative tests (TestCoordinatorEnabledKillSwitch), MED-2 canonical-key dedupe (:218-286, __init__.py:3036-3049). -k music: 171 passed. Drills RED then restored on both sites. Fix-up review (framing A): SHIP - the gate reads the same key and the same True default as the operator switch (switch.py:258-266, :695-697), so no silent disable; missing CM entry only possible before first-install creation, re-read every transition; no other enabled-set reader broken. LOWs noted, not fixed: INFO log on every transition while the switch is off (DEBUG would be quieter); dead fallback lambda at __init__.py:3040. README draft: docs/planning/DRAFT_README_music_following_name_match.md (flags that music will START following people again on deploy). Pending: serial full-suite name-diff (queued).'
   operator_2026_09_29: 'Operator: "Rarely use it. But will test today."'
   title: Music following has recorded no transfers since 2026-05-12 - idle, broken, or unused?
   thread: music
-  status: "shipped_organic"
+  status: "done"
   created: '2026-09-29 15:00'
-  updated: "2026-10-03 02:02"
+  updated: "2026-10-04 04:50"
   refinement_status: refined
   approval: implied
   tags: [music-following, found-in-review, tier-1, no-fabrication-verify]
@@ -30313,7 +30326,7 @@ cards:
     gist: anomaly D0 probe + plan review
   why: 'metric_baselines for music_following (transfer_success_rate, cooldown_frequency) hold 1572 samples, mean 0 / std 0, last updated 2026-05-12, identical live and in the DB. Either the feature has not fired a transfer in 4.5 months (disabled / broken / unused), or its metrics stopped recording. Its anomaly sensor reads "nominal", which means nothing.'
   build_2026_09_30_overnight: 'BUILT on fix/mf-enabled-person-name-match (652ba9863): _person_key helper + normalized enabled check at music_following.py:437-451; 4 tests incl. a wire-in through _on_person_transition; drill RED then restored; music tests 163 pass. REVIEWS: A (correctness) SHIP + 2 MEDIUM (no DND-off negative test; normalize at storage + the __init__.py:3036 boot prefs lookup keyed by name while prefs are keyed by entity id). B (newly-live path) SHIP + HIGH pre-existing-now-exposed: the Music Following coordinator enable switch does not stop transfers (the singleton is created unconditionally at __init__.py:3021; the switch only gates the wrapper, and without the wrapper no house state is fed so the sleep gate allows) -> fix-up round dispatched for the HIGH + both MEDIUMs. Residuals NOT in this cycle (pre-existing, recorded for a follow-up): (r1) MEDIUM BLE bleed - a single person at conf 0.65-0.75 can pull/stop music in a room they did not leave (source guard ignores motion/mmWave by design, music_following.py:540-548); (r2) MEDIUM anomaly baseline distortion - _on_transfer_outcome re-records the cumulative daily rates on every skip; (r3) LOW CONF_MF_COOLDOWN_SECONDS / VERIFY_DELAY / UNJOIN_DELAY are read but unused (hard-coded const.py:2894/2900/2903).'
-  next: "SHIP (on your next deploy): merge fix/mf-enabled-person-name-match (5e3c13024). Heads-up: music following will start transferring again for everyone enabled."
+  next: "NONE - disposed done (soak exit 10-04). Residual (stale baseline flags successes as anomalies) recorded on HVAC-BASELINE-MAXSAMPLES-1."
   rank: {value: 3, time_criticality: 2, effort: 1}
   validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
 - id: ENPHASE-BATTERY-CUTOUTS-1
@@ -30360,6 +30373,7 @@ cards:
     effort: 2
   verify_2026_09_29_overnight: 'STILL-NEEDS-OPERATOR. Recorder over the last 1h: 69.2 total rows/s, down from 83.9 after the 23:37 restart applied the recorder exclusions. SPAN 1,747 rows/min, unchanged, so (a) is not done. binary_sensor low_flow_leak 41,413 rows/24h (~29/min), still flapping, so (c) is not done. CORRECTION to option (b): the Frigate bridge automation writes ~7 state rows/min (9,864/24h), not the ~115/min the card cites. The 115 is probably runs or events, not state rows. Re-measure trigger count (automation_triggered events) before you pick (b).'
 - id: HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1
+  soak_check_2026_10_04_overnight: "STILL PENDING, card's 'SHIP on your next deploy' was stale: the fix (e2dc7c2d2) shipped in v5.103.36 (tag pre-5103-36), live since the 10-03 05:33Z restart. ura_activity_log since 10-02: 5 auto_return climate_write rows (egress_pause x3, nudge+resume, nudge+pin), ALL excursion_id null - but ALL five are BEFORE the 05:33Z restart (latest 03:42:51Z), so they do not test the fix. Zero auto_return rows since the deploy."
   validated_2026_10_01_overnight: 'READY TO SHIP (overnight 10-01, NOT deployed). Rebased onto develop with no conflicts -> e2dc7c2d2 (0 behind). Targeted -k excursion: 97 pass / 6 fail, the same 6 (test_hvac_excursion_d1_observability.py, AttributeError UniversalRoomDatabase.init_db - test infra drift) fail identically on plain develop. Call-neuter drill at hvac_excursion.py:717 RED then restored. Serial full-suite name-diff vs develop 2b6f94bdc: identical failing-name sets (152 failed + 3 errors, all pre-existing), +1 passing - CLEAN. README draft: docs/planning/DRAFT_README_hvac_auto_return_excursion_id.md. Residual (schema needed): boot ramp-audit nudge restore at hvac_override.py ~7739/7762 still writes NULL.'
   groom_2026_09_29_arc: 'Partial re-measure after Batch B (since 2026-09-29 03:02): 16 borrow writes (S5 nudge start 5, S7 restore 10, S3 compromise 1), 0 without an excursion id (nudge starts were 5/35 null before). The S12 pre-cool and auto_return paths have not fired since, so their gaps are not yet re-measured.'
   title: Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered
@@ -30367,7 +30381,7 @@ cards:
   status: shipped_organic
   shipped_version: v5.103.34
   created: '2026-09-29 01:05'
-  updated: "2026-10-02 02:55"
+  updated: "2026-10-04 04:50"
   refinement_status: refined
   approval: implied
   rank: {value: 4, time_criticality: 2, effort: 1}
@@ -30418,7 +30432,7 @@ cards:
     PLANNING_hvac_w1_w2_finish.md P2 (S12 NULL ids, ADJACENT); HVAC state of play section 125 (funnel forwards
     optional excursion_id). Verdict: NEW, linked; the S12 slice is ADJACENT to Batch B.'
   build_2026_09_30_overnight: 'BUILT on fix/hvac-auto-return-excursion-id (f93880230, from develop 5800d41ae): +2 kwargs in hvac_excursion.py - _auto_return forwards token.excursion_id (:714) and the startup-audit NUDGE preset restore forwards row.get("excursion_id") (:1184); wire-in tests through _auto_release_sweep->_auto_return and async_startup_excursion_audit; call-neuter drill RED then restored. REVIEWS: A (local correctness) SHIP, 0 findings above LOW - ExcursionToken.excursion_id is a required str (hvac_excursion.py:115), DB column NOT NULL (database.py:1636), rows are plain dicts. B (consumers/completeness) SHIP - no production reader of climate_write excursion_id; probes/tests unaffected; AST enumeration of every borrow-owned emit site: all forward the id EXCEPT S9 boot ramp-audit nudge restore (hvac_override.py:7739, :7762) - LOW, ledger-only, pre-existing: the excursion audit (hvac.py:1483) clears the NUDGE registry row before S9 runs (hvac.py:2205) and ac_in_flight_nudge has no id column, so fixing it needs a schema addition -> carried here as the residual, not fixed. Builder also saw 6 failures in test_hvac_excursion_d1_observability.py that reproduce on the pre-change base - pending validator confirmation on develop.'
-  next: 'SHIP (on your next deploy): merge fix/hvac-auto-return-excursion-id (e2dc7c2d2) with the README draft. After deploy, one-shot check that new auto_return rows carry an excursion_id, then close.'
+  next: "VALIDATE (me, one-shot): first auto_return climate_write row AFTER the 10-03 05:33Z restart must carry a non-null excursion_id. Dispose by 2026-10-11; if no auto_return occurs by then, close as in-suite-proven."
   parsimony: {problem: 'borrow writes are logged without the borrow id on 4 site families, breaking write-to-episode attribution', verdict: BUILD}
   refs: [docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md, docs/planning/PLANNING_hvac_w1_w2_finish.md, docs/readmes/README_v5.103.16.md]
   validated_2026_10_02_overnight: "BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_namediff.py: develop 151F+3E (154 names) vs batch 150F+3E (153 names). NEW = 1, attributed to feature/test-mutation-sandbox-0928 only (test_baec_shadow_eval MUTATION drill; see that card), GONE = 2 (two chatter D7 telemetry tests now pass). So this branch adds no failing test name against current develop. It is 22-27 commits behind develop (lighting cycles v5.103.28-33) but merges cleanly; no rebase was needed for the check."
