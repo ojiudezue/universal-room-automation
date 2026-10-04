@@ -7,6 +7,7 @@
 - The **12:00–13:30 front-door burst = operator porch-cleaning ONLY** (resident, net 0, no visitor leg).
 - The **~12:00 `garage_a` departure = operator + Jaya leaving by car** to drop Jaya off (two residents, both out). The audit's open item about 12:08–12:49 `garage_a`/`garage_b` crossings during Ezinne's 12:19–12:57 tracker gap is reframed: those crossings belong to the operator (and in one case operator+Jaya), not a visitor.
 - **Guest band for 12:00–13:30 is 0, not 0–1.** Any `T > 0` in that window is a pure attribution failure.
+- **NOTE (Rev 2):** probe-measured trackers disagree with this timeline — likely ~12:13 = Ezinne (not operator+Jaya); operator+Jaya likely ~13:55. See R2.6/OP-1 — PENDING OPERATOR CONFIRMATION.
 **Supersedes:** nothing. **Depends on:** none in-flight. **Unblocks:** D3 shadow in `PLANNING_census_occupancy_estimator.md`.
 **Canonical reference (mandatory read):** `docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md` (platform roles, `_2`-suffix rules, egress-identity JOIN, 6.0.0 identity-driven autonomy gate).
 **Also read:** `PLANNING_census_occupancy_estimator.md` (esp. §4.3, §12 last-operator blocks), `AUDIT_census_estimator_replay_2026_10_03_hybrid.md`, `AUDIT_census_subsystem_2026_10_04.md`, `AUDIT_census_footage_ground_truth_2026_10_03.md`.
@@ -17,13 +18,15 @@
 
 D0-REPLAY failed because:
 - **G2/G3 (floor soundness, household-norm):** the door tally (`T`) over-counted guests at midday on **pure resident activity** (operator porch-cleaning at `front`; operator+Jaya leaving by car at `garage_a`). None of {resident `person_id`, resident tracker edge within ±300 s, main-entry prior} caught them, so 11 `garage_a` crossings reversed into T and the front-door burst produced several unattributed entries. **The midday guest-band truth is 0** — every T>0 minute between 12:00 and 13:30 is a false positive sourced by missing resident attribution, not by a real visitor.
-- **G5 (resident-only morning):** `M_cam` read 4–5 bodies 10:00–11:15 with only 3 residents home and the long-stay guest OUT — an interior-camera over-count defect, not an estimator defect.
+- **G5 (resident-only morning):** `M_cam` read 4–5 bodies 10:00–11:15 with only 3 residents home and the long-stay guest OUT — an interior-camera over-count defect, not an estimator defect. **(Rev 2: probe refuted this — live census read 3; the "4–5" was a 1200 s-max-hold replay artefact. See R2.4 — D3 DROPPED.)**
 - **8-person 14:22 arrival collapsed to 1 ledger entry:** two cameras per door merged correctly, but same-door-group same-direction legs within the 180 s round-trip window + 30 s stem dedup collapsed 8 real bodies into 1 logical crossing. `front_door_aerial` only peaked at 6 of 8 concurrent faces — full multiplicity recovery is unrecoverable without a distinct-person group window and (eventually) D7 vision counting.
 
-**The INPUTS, not the formula, are the scope.** This plan fixes door-event quality (D1), BLE departure provenance / resident attribution (D2), and interior camera over-count (D3). Only then (D4) does D0-REPLAY re-run as the exit gate.
+**The INPUTS, not the formula, are the scope.** This plan fixes door-event quality (D1), BLE departure provenance / resident attribution (D2), and interior camera over-count (D3). Only then (D4) does D0-REPLAY re-run as the exit gate. **(Rev 2: D3 dropped; see R2.4.)**
 
 **Falsifiable program invariant for this plan:**
 > **INV-INPUTS:** on a replay of 2026-10-03 with D1+D2+D3 landed, (a) G5 ≥ 90% (resident-only morning false-positive ≤ 10%), (b) G2 ≥ 95% and G3 ≥ 90% (truth-bounded in household-norm windows), (c) the 14:22 front-door arrival produces ≥ 2 surviving logical entries post-pipeline (full 6-of-8 recovery parked to D7), AND (d) `T` is 0 for the entire 12:00–13:30 window (zero false-positive guests on pure-resident activity, per the corrected truth).
+
+**(Rev 2 note on INV-INPUTS (c): DROPPED — multiplicity-via-row-count is unrecoverable; replaced by `peak_person_count` column, see R2.2 item 8.)**
 
 Discrimination: a passing run under the OLD inputs is impossible; a failing run under the NEW inputs tells us which of D1/D2/D3 missed. (d) specifically discriminates attribution failure (D2) from pipeline failure (D1): if `T` is still > 0 at 12:00–13:30 but every midday crossing now carries a resident `person_id` or edge, D1 is wrong (pipeline not counting attributed-residents as attributed); if crossings still have no `person_id`/edge match, D2 is wrong.
 
@@ -33,18 +36,20 @@ Discrimination: a passing run under the OLD inputs is impossible; a failing run 
 
 ### 1.1 Prior-art scan — REUSE / FIX / NEW (file:line)
 
+**(Rev 2: multiple REUSE verdicts below were WRONG — see R2.1 for corrections. The table is kept for history.)**
+
 | Piece | Verdict | Evidence |
 |---|---|---|
 | `TransitValidator._resolve_direction` | **FIX** | `transit_validator.py:1724-1758`. Direction depends on `_get_interior_cameras_near`. |
 | `_get_interior_cameras_near` returning ALL interior cams | **FIX** | `transit_validator.py:1955-1963`. Degenerate: any interior fire anywhere → direction=entry. |
 | Stem dedup inline literal `5.0` | **FIX** (knob + widen) | `transit_validator.py:1736`. Replace with `DOOR_STEM_DEDUP_S` (default 30 s per `AUDIT_census_subsystem_2026_10_04.md` §1.3: 58/143 dupes <5 s but a 5–30 s band exists). |
-| Per-door camera grouping | **FIX** (consume per-install config) | `CONF_DOOR_GROUPS` already exists per `PLANNING_census_occupancy_estimator.md` §4.3; `_resolve_direction` does not yet key off it. |
-| `CONF_MAIN_ENTRY_DOOR` (per-install) | **REUSE from estimator plan §4.6** | Options derived from `CONF_DOOR_GROUPS`; oracle household = `garage_a`. |
+| Per-door camera grouping | **FIX** (consume per-install config) | `CONF_DOOR_GROUPS` already exists per `PLANNING_census_occupancy_estimator.md` §4.3; `_resolve_direction` does not yet key off it. **(Rev 2: WRONG — CONF_DOOR_GROUPS does NOT exist. NEW. See R2.1.)** |
+| `CONF_MAIN_ENTRY_DOOR` (per-install) | **REUSE from estimator plan §4.6** | Options derived from `CONF_DOOR_GROUPS`; oracle household = `garage_a`. **(Rev 2: NEW — derived from a NEW field.)** |
 | `CONF_DOOR_INTERIOR_NEIGHBOURS` | **NEW** (per-install, options-flow rung-2) | Per-door nearby-interior-cam map; grep repo-wide — no existing symbol. |
 | BLE/GPS departure provenance | **ALREADY SHIPPED** (verify-only here) | Card `EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1` status=done, shipped v5.96.0. Live counter `ble_exit_backfilled_count=4` on 2026-09-11. **D2 CONFIRMS it is attaching resident legs on the 10-03 replay.** If the midday operator-cleaning + operator+Jaya `garage_a` crossings have NO phone edges within any window on 10-03, the producer did not fire — regression on a shipped feature. |
 | `camera_census.py:_calculate_house_census` per-area max | **REUSE** | `camera_census.py:1690`. The interior over-count fix (D3) extends `CONF_INTERIOR_CAMERA_OVERLAP_GROUPS` (per-install) rather than touching this. |
-| `CONF_INTERIOR_CAMERA_OVERLAP_GROUPS` | **REUSE from estimator plan §5.2** | Oracle household measured pair: `{family_room, master_hallway}` J=0.56. The footage audit's dedup rule (`foyer_fisheye` sees family_room floor-edge) suggests a second pair P-D3 should confirm. |
-| Interior camera entity list | **FIX (config)** | `CONF_CAMERA_PERSON_ENTITIES` `const.py:1973`. Candidate removals: `foyer_fisheye`, `upstairs_hall` (D0 §P4: 27 / 39 min-with-count>0 across 8 days — effectively noise, likely a source of G5 over-count). Config only — no code. |
+| `CONF_INTERIOR_CAMERA_OVERLAP_GROUPS` | **REUSE from estimator plan §5.2** | Oracle household measured pair: `{family_room, master_hallway}` J=0.56. The footage audit's dedup rule (`foyer_fisheye` sees family_room floor-edge) suggests a second pair P-D3 should confirm. **(Rev 2: WRONG — does NOT exist. NEW. Moot — D3 dropped.)** |
+| Interior camera entity list | **FIX (config)** | `CONF_CAMERA_PERSON_ENTITIES` `const.py:1973`. Candidate removals: `foyer_fisheye`, `upstairs_hall` (D0 §P4: 27 / 39 min-with-count>0 across 8 days — effectively noise, likely a source of G5 over-count). Config only — no code. **(Rev 2: refuted — foyer_fisheye is SILENT not noisy; removal unsupported.)** |
 | Hold / decay | **UNCHANGED** | `_apply_hold_decay` `camera_census.py:5026`. |
 
 ### 1.2 Prior planning / audit docs consulted
@@ -57,10 +62,10 @@ Discrimination: a passing run under the OLD inputs is impossible; a failing run 
 `custom_components/universal_room_automation/transit_validator.py` 795-834, 1167, 1700-1980; `camera_census.py` 1521-1700, 1690, 1955, 3192-3263, 3676-3740, 4531, 5026, 5198-5381; `const.py` 1973, 2307, 2373, 3528, 3544, 3638; `database.py` 793-808. Kanban: `EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1` (done v5.96.0 — but see D2 verify-first), `CENSUS-ACCURACY-1`, `CENSUS-FACE-RESOLVER-MIGRATE-1`, `CENSUS-GHOST-DEDUP-1` (done), `TRANSIT-1` (checkpoints shipped v5.60.0 — not in scope).
 
 ### 1.5 Config-first check (ura-kanban gate step 1b)
-- `CONF_CAMERA_PERSON_ENTITIES` is already a live config — D3's `foyer_fisheye` / `upstairs_hall` removal may be a pure config action. **Test as a config-only variant before writing D3 code.**
-- `CONF_INTERIOR_CAMERA_OVERLAP_GROUPS` (per-install options-flow field per estimator §5.2) does not yet exist as an options-flow field. For this cycle: set per-install in a const / YAML; defer UX to the estimator cycle.
-- `CONF_DOOR_GROUPS` already exists and is populated. `CONF_DOOR_INTERIOR_NEIGHBOURS` is NEW and REQUIRED by D1.
-- No knob fixes the dead-attribution problem (D2 is code or data-side).
+- `CONF_CAMERA_PERSON_ENTITIES` is already a live config — D3's `foyer_fisheye` / `upstairs_hall` removal may be a pure config action. **Test as a config-only variant before writing D3 code.** **(Rev 2: refuted; D3 dropped.)**
+- `CONF_INTERIOR_CAMERA_OVERLAP_GROUPS` (per-install options-flow field per estimator §5.2) does not yet exist as an options-flow field. For this cycle: set per-install in a const / YAML; defer UX to the estimator cycle. **(Rev 2: moot — D3 dropped.)**
+- `CONF_DOOR_GROUPS` already exists and is populated. `CONF_DOOR_INTERIOR_NEIGHBOURS` is NEW and REQUIRED by D1. **(Rev 2: WRONG — CONF_DOOR_GROUPS is NEW, not populated. R2.1.)**
+- No knob fixes the dead-attribution problem (D2 is code or data-side). **(Rev 2: refined — one operator-side config action IS available: re-point `person.oji_udezue` away from `okosisipadmini6_2` stationary iPad; see R2.3.)**
 
 ---
 
@@ -103,6 +108,8 @@ Re-run `scripts/probes/census_d0/census_estimator_replay.py`. Compare G1–G9 to
 ---
 
 ## 3. Deliverables (ordered)
+
+**(Rev 2: §3.D1 items 1–6 REPLACED by R2.2; §3.D2 Branches A–D REPLACED by R2.3; §3.D3 DROPPED per R2.4. Original text kept below for history.)**
 
 ### D1 — Door-event quality (per-door camera grouping + per-door interior-neighbours + knob'd dedup)
 
@@ -217,14 +224,16 @@ Re-run `scripts/probes/census_d0/census_estimator_replay.py`. Compare G1–G9 to
 | D3 (overlap-pair plumbing) | 1 | 1 pass | additive. |
 | D4 | — | read-only probe | exit gate. |
 
+**(Rev 2: D3 rows DELETE per R2.4.)**
+
 ---
 
 ## 6. Open operator questions
 
-- **Q-1:** `doorbell_lite` → `garage_a` on this install per operator ruling 2026-10-04. Confirm via P-D1 output (expect `doorbell_lite` 23:25/23:30 fires co-occurring with `garage_a`, not `front_door_aerial` / `madrone_g6_entry`).
-- **Q-2:** Remove `foyer_fisheye` and `upstairs_hall` from `CONF_CAMERA_PERSON_ENTITIES` on this install (effectively noise per AUDIT §1.3)? Config-only.
+- **Q-1:** `doorbell_lite` → `garage_a` on this install per operator ruling 2026-10-04. Confirm via P-D1 output (expect `doorbell_lite` 23:25/23:30 fires co-occurring with `garage_a`, not `front_door_aerial` / `madrone_g6_entry`). **(Rev 2: CLOSED by probe.)**
+- **Q-2:** Remove `foyer_fisheye` and `upstairs_hall` from `CONF_CAMERA_PERSON_ENTITIES` on this install (effectively noise per AUDIT §1.3)? Config-only. **(Rev 2: DROPPED — probe refuted.)**
 - **Q-3:** Default for `DOOR_STEM_DEDUP_S` — 30 s per audit §1.3. Confirm.
-- **Q-4:** Path-β acceptance budget — how many at-home-operator-wandering unattributed crossings per day is acceptable before we build a new resident-presence producer (follow-up card)? Needs P-D2 numbers to answer.
+- **Q-4:** Path-β acceptance budget — how many at-home-operator-wandering unattributed crossings per day is acceptable before we build a new resident-presence producer (follow-up card)? Needs P-D2 numbers to answer. **(Rev 2: probe measured ≈3–4/day.)**
 
 ---
 
@@ -242,6 +251,7 @@ Per `CLAUDE.md` Plan Review (Tier 2+ gets ONE adversarial plan review before bui
 - 2026-10-04: initial draft.
 - 2026-10-04 (same day, mid-plan): operator truth correction integrated — NO drop-off visitor on 10-03; midday is pure resident activity (porch cleaning + car departure); guest band 12:00–13:30 = 0; INV-INPUTS clause (d) added; D1 acceptance for midday ledger rewritten; D2 split into Branches A–D with the hard "at-home operator wandering" Path-β class made explicit.
 - 2026-10-04: Probe results (P-D1/P-D2/P-D3) appended below.
+- 2026-10-04 (Rev 2): post-probe + post-plan-review revision appended. See "Revision 2" section below (supersedes conflicting §1.1/§3/§5/§6 claims).
 
 ---
 
@@ -322,3 +332,145 @@ Door-group dedup at 30 s cuts `garage_a` 119→61 (−49%) vs today's 5 s stem �
 | **D1** | **GO — re-scoped.** | (1) Fix `_extract_camera_stem` to strip `_person_occupancy_2` (and `_active_count_2`) — the actual dedup leak; (2) door-group dedup at 30 s (−49% `garage_a`); (3) neighbours map + oldest-first exit bias in `_resolve_direction`. `CONF_DOOR_GROUPS` is NEW, not reuse. **Drop INV-INPUTS (c) "≥2 surviving entries recovers the group" as a D1 success criterion for multiplicity** — the producer peaked at 4/8 in one episode; record `peak person_count` per episode on the ledger row instead (small, additive) if multiplicity matters before D7. |
 | **D2** | **GO — Branch A + D (Tier 1, replay-side + card).** | No producer regression; BLE lag is +4–8 min on departures → asymmetric window. Path-β budget ≈3–4 episodes/day. Card the entry-side BLE attach gap (23:25 return, 0/12). **Blocked on operator confirming truth correction #2 (car departure at ~13:55 by operator+Jaya; ~12:13 = Ezinne).** |
 | **D3** | **NO-GO (code and config).** | Overlap pair unconfirmed (J=0.00); foyer_fisheye/upstairs_hall removal unsupported (foyer is silent, not noisy); live census correct at 3. Fix belongs in the replay/estimator `M_cam` definition (per-area max at an instant, short hold), i.e. the estimator plan, not an input fix. Optional: footage spot-check of family_room steady count=2–4. |
+
+---
+
+## Revision 2 (post-probe + post-plan-review, 2026-10-04) — SUPERSEDES §1.1, §2, §3, §5, §6 where in conflict
+
+The probe results (previous section) and the plan review together invalidate several §1.1 claims and the D2/D3 scoping. This revision replaces them. Earlier text is kept above for history; where it conflicts with Revision 2, Revision 2 wins.
+
+### R2.1 Prior-art corrections (REUSE → NEW)
+
+The following were asserted REUSE in §1.1; greps now show they do not exist. All are **NEW**.
+
+| Symbol | §1.1 claim | Truth (grep) | Verdict |
+|---|---|---|---|
+| `CONF_DOOR_GROUPS` | "already exists and is populated" | 0 hits in `custom_components/`; not in live config entry | **NEW** — add options-flow field (per-install) in D1 |
+| `CONF_INTERIOR_CAMERA_OVERLAP_GROUPS` | "REUSE from estimator plan §5.2" | 0 hits in code; only referenced in planning docs | **NEW** (but D3 dropped — see R2.4) |
+| `EGRESS_CROSSING_ADMISSIBLE_TRACKERS` | implied by D2 Branch C | 0 hits | **NEW** — no symbol to amend; Branch C moot |
+| `RESIDENT_CROSSING_MATCH_S` | D2 Branch B knob name | 0 hits | **NEW** — if ever introduced, name it against the real producer's window |
+
+**Real shipped BLE exit-backfill surface (verified in code):**
+- Producer registration: `camera_census.py:4562` `_register_ble_transition_listeners`.
+- Exit-backfill claim loop: `camera_census.py:~4395-4430`; writes `_ble_exit_backfilled_count` at `:4424`; DAO = `database.backfill_entry_exit_person_id`.
+- Entry admission (BLE-near-door entry attach): `camera_census.py:~4498-4555`.
+- Real knobs (all `const.py`): `BLE_EGRESS_EXIT_BACKFILL_WINDOW_S = 600` (`:2805`), `BLE_EXIT_DEPARTURE_SETTLE_S = 300` (`:2821`), `BLE_EXIT_CLAIM_MAX_ATTEMPTS` (`:2832`), `BLE_EXIT_PER_SLUG_COOLDOWN_S` (`:2839`).
+
+### R2.2 D1 — Door-event quality (re-scoped per probe + review HIGH-1/HIGH-3/direction/group-size)
+
+**Tier:** 2-DB (ledger-shape change: new NOT NULL-able column `peak_person_count` on `person_entry_exit_events` → three framing-disjoint reviews + migration).
+
+**Prereq:** P-D1 report in-plan (done); operator confirmation of truth-correction #2 (R2.6) before writing acceptance scoring.
+
+**Changes (replaces §3.D1 items 1–6):**
+
+1. **Fix `_extract_camera_stem` (`camera_census.py:873`)** to strip `_person_occupancy_2` and `_active_count_2` suffixes. This is the actual dedup leak: Frigate-2 occupancy sensors bypass stem-dedup today because `_extract_camera_stem` returns `None`, so dedup is skipped. This single fix moves the needle more than any knob change. Memo cross-ref: `reference_frigate1_retired_2suffix_permanent`.
+2. **`transit_validator.py:1736`** — replace inline `5.0` with `DOOR_STEM_DEDUP_S` (module constant, `const.py`, default 30 s). Module rung per `Numbers-Get-Knobs`.
+3. **`transit_validator.py:1955-1963`** `_get_interior_cameras_near` — replace "return ALL interior cams" with lookup against `CONF_DOOR_INTERIOR_NEIGHBOURS[door_group]`. Unmapped → `[]` → direction = AMBIGUOUS (do NOT silently return all). **HIGH-2 note:** this helper has a **second caller** at `transit_validator.py:1253` (`_resolve_egress_face_identity`); the same contract change applies there — enumerate expected behaviour change in the test matrix (face resolution over the narrowed neighbour set).
+4. **`transit_validator.py:1724-1758`** `_resolve_direction` — (a) resolve `egress_camera_id → door_group` via NEW `CONF_DOOR_GROUPS`; (b) stem-dedup across **all cameras in the door_group** (door-group scope, not per-stem; per-stem scope collapses the duplicate siblings but misses cross-camera physical duplicates — door-group default is the probe-supported choice: `garage_a` 119→61 at 30 s); (c) consult `CONF_DOOR_INTERIOR_NEIGHBOURS[door_group]`; (d) **correct ordering for exit bias:** current loop iterates interior fires oldest-first so any neighbour fire in the prior 30 s wins (family_room fired 811×/day → direction effectively random). Replace with newest-first within the per-door neighbour window, and tie `_last_resolved` 60 s prune (`transit_validator.py:2001-2008`) to `DOOR_STEM_DEDUP_S` (keep ≥ dedup window).
+5. **NEW `CONF_DOOR_GROUPS`** — options-flow field (per-install). Maps `egress_camera_id → door_group` string. Default empty; unset → each camera is its own group (today's behaviour).
+6. **NEW `CONF_DOOR_INTERIOR_NEIGHBOURS`** — options-flow field (per-install). Maps `door_group → list[interior_camera_id]`. Unset → AMBIGUOUS.
+7. **NEW `CONF_MAIN_ENTRY_DOOR`** — options-flow Select, options derived from `CONF_DOOR_GROUPS` keys. Oracle household = `garage_a` (per operator ruling + probe-confirmed `doorbell_lite` co-fires).
+8. **Group-size (replaces INV-INPUTS (c) / "≥ 2 surviving entries" test):** door handler currently fires on 0→N edge and discards headcount. Add DB column `peak_person_count INTEGER` (default 1) on `person_entry_exit_events`; populate from the max `sensor.<cam>_person_count` observed on the camera during the occupancy episode (bounded sample at episode start → stem-dedup window close). This is the honest group-size input and is the only non-D7 path to multiplicity. **Drop** the plan's earlier "≥ 2 surviving entries post-pipeline" acceptance — producer peaked at 4/8 bodies in one episode; multiplicity-via-row-count is unrecoverable.
+9. **`doorbell_lite` disposition:** operator ruling + probe-confirmed → `garage_a` on this install, consumed via `CONF_DOOR_GROUPS` (no household string in code).
+
+**HIGH-1 — ambiguous rows and backfill eligibility:** `database.backfill_entry_exit_person_id` today claims only `direction='exit'` rows (`database.py:~4120`). The new AMBIGUOUS direction MUST be defined as backfill-eligible for both directions, or we silently create rows the BLE producer cannot ever attach to. Decision for this cycle: **AMBIGUOUS rows ARE backfill-eligible on either direction when a resident edge lands within the asymmetric window.** P-D1 must publish the direction distribution under the new neighbours map before build dispatch (how many rows go AMBIGUOUS vs entry/exit) so reviewers can judge blast radius on readers.
+
+**Knobs (ladder):**
+- `DOOR_STEM_DEDUP_S` — module constant (ledger-shape consequence; review-gated).
+- `CONF_DOOR_GROUPS`, `CONF_DOOR_INTERIOR_NEIGHBOURS`, `CONF_MAIN_ENTRY_DOOR` — options-flow (per-install, rung-2).
+
+**Consumer table (HIGH-2 — enumerate every reader of `person_entry_exit_events` / `_get_interior_cameras_near` / the egress event; verdict on behaviour-change):**
+
+| Consumer | File:line | Reads | Change under D1 |
+|---|---|---|---|
+| `PersonsEnteredTodaySensor` | `sensor.py:4518`, `:4559`, `:4580` | ledger rows, direction=entry | Fewer dupes; AMBIGUOUS rows ignored today — define policy (count-as-entry? ignore? separate attribute?) |
+| `PersonsExitedTodaySensor` | `sensor.py:4661`, `:4693`, `:4765` | ledger rows, direction=exit | Same AMBIGUOUS question |
+| `LastPersonEntrySensor` | `sensor.py:4803` | last direction=entry | AMBIGUOUS skipped; verify |
+| `LastPersonExitSensor` | `sensor.py:4851` | last direction=exit | AMBIGUOUS skipped; verify |
+| `_arrival_departure_notify` | `transit_validator.py:~1810` | event stream; already skips ambiguous | Behaviour preserved (notify quieter when neighbours unmapped) |
+| census register/evict | `camera_census.py:~1830+` | event stream | AMBIGUOUS → no register/evict today (safe-by-default); verify |
+| `log_entry_exit_event` | `transit_validator.py:1879` | writes ledger | Add `peak_person_count` write |
+| BLE exit backfill | `camera_census.py:~4395-4430` | ledger direction=exit | HIGH-1 — extend to AMBIGUOUS? decision above |
+| BLE entry admission | `camera_census.py:4521` | ledger direction=entry | HIGH-1 — same |
+| `_resolve_egress_face_identity` | `transit_validator.py:1253` | `_get_interior_cameras_near` | Narrower neighbour set; test resolver still finds the face |
+| Event `ura_person_egress_event` | fired `transit_validator.py:1786` | downstream listeners | Carries direction; AMBIGUOUS downstream behaviour must be documented |
+
+**Acceptance (replaces §3.D1):**
+- **Verify:** `_extract_camera_stem('<cam>_person_occupancy_2')` returns the camera stem (not `None`); unit test anchored to the probe-named sensors.
+- **Verify:** `_get_interior_cameras_near` no longer returns `self._interior_entities` wholesale at either caller.
+- **Verify (data):** on 10-03 replay with new stem + door-group dedup at 30 s, `garage_a` surviving rows drop ≥ 40% (probe measured −49%).
+- **Verify (data, truth-pending):** every midday 12:00–13:30 surviving crossing either carries `person_id` or has a resident tracker edge within the configured asymmetric window; residuals bounded by the P-D2 Path-β budget (R2.3).
+- **Verify (data):** `peak_person_count` on the 14:24 front-door episode is ≥ 4 (producer peaked at 4 bodies on `front_door_aerial` — multiplicity signal survives even when row-count doesn't).
+- **Verify (consumers):** `PersonsEnteredTodaySensor` / `PersonsExitedTodaySensor` daily totals change in the expected direction per the migration note; before/after captured in README.
+- **Tests (MED-1 behavioural dedup, all behavioural not source-grep — see "hollow anchors"):**
+  - `test_door_group_stem_dedup_collapses_delta_10s_cross_camera_legs` (two cams, same door_group, 10 s apart → 1 row).
+  - `test_door_group_stem_dedup_preserves_delta_40s_legs` (same pair at 40 s apart → 2 rows).
+  - `test_single_physical_entry_produces_one_row_with_direction_entry`.
+  - `test_extract_camera_stem_strips_person_occupancy_2_suffix`.
+  - `test_resolve_direction_uses_configured_neighbours_not_all_interior` (both callers).
+  - `test_resolve_direction_ambiguous_when_neighbours_unmapped`.
+  - `test_main_entry_door_select_derived_from_door_groups_keys`.
+  - `test_doorbell_lite_maps_to_garage_a_per_conf_door_groups`.
+  - `test_peak_person_count_populated_from_episode_max`.
+- **MED-2:** `test_unset_door_groups_falls_back_to_todays_per_camera_behaviour` (unset map → zero behaviour change on existing installs).
+- **MED-3:** test fixtures use generic names (`cam_door_a`, `cam_door_b`, `interior_cam_1`); no household-specific entity IDs.
+- **Live (post-deploy):** at the next real resident entry at `garage_a`, ledger has one entry row (not duplicate `_2` sibling), direction=entry, `peak_person_count` ≥ 1.
+- **Discriminator:** if a single physical entry collapses to 0 rows → dedup over-reach (hard fail).
+
+### R2.3 D2 — Resident attribution (replaces §3.D2; Branch A + D only; Tier 1)
+
+**Tier:** 1 (replay-side + card). No producer regression found; no production code change this cycle.
+
+**Changes:**
+1. **Replay (`scripts/probes/census_d0/census_estimator_replay.py`):** consume `person_entry_exit_events.person_id` (after crossing-level dedup) AND an **asymmetric** tracker-edge window: `[-180 s, +600 s]` relative to the crossing for exits (BLE departure lag measured +4–8 min), `±180 s` for arrivals. No production code change.
+2. **MED-4 — P-D2 control:** cite live `sensor.universal_room_automation_ble_exit_backfilled_count` (`sensor.py:3861`) as the authoritative counter when scoring D2. Replay never asserts the shipped producer is broken unless this counter is 0 over a 24 h window.
+3. **Entry-side BLE attach gap (new card, not this cycle):** the 23:25–23:31 return produced 0/12 attributed rows despite operator+Jaya BLE arrival edges inside ±120–300 s. The shipped backfill (`find_unnamed_exit_crossings`) is exit-only. Card: `EGRESS-BLE-ENTRY-ATTACH-1` (producer-side, estimated Tier 2).
+4. **Path-β (at-home operator wandering) known-gap:** budget ≈ 3–4 unattributable episodes/day on this install (front porch bursts + the 12:38–12:42 `garage_a` cluster). Card follow-up (`CENSUS-ATHOME-RESIDENT-CORROBORATOR-1`). No new producer this cycle.
+
+**Config-first finding (operator action, not code):** `person.oji_udezue` currently resolves via `okosisipadmini6_2`, a stationary iPad reading `not_home` while operator is home — making GPS legs structurally useless for operator attribution. **Operator to re-point `person.oji_udezue` to a reliable tracker** (BLE Bermuda / private_ble). Recorded here as a Config-First disposition; no URA code change.
+
+**Knobs:** none shipped this cycle. If the asymmetric window moves into production later, name it `BLE_EXIT_ATTACH_WINDOW_LOOKBACK_S` / `_LOOKAHEAD_S` against the real shipped surface at `camera_census.py:~4395-4430`.
+
+**Acceptance:**
+- **Verify (data):** on 10-03 replay, the 13:55 `garage_a` departure attributes to operator AND Jaya (`person_id` or edge within the asymmetric window); R2.6 operator confirmation outstanding.
+- **Verify:** `T` at 13:00 reduces to Path-β budget (≤ 4).
+- **Verify (live):** `ble_exit_backfilled_count` > 0 over the trailing 24 h (producer not regressed).
+- **Tests:** `test_asymmetric_window_catches_8min_departure_lag`; `test_stationary_tablet_tracker_does_not_attribute_crossing`; `test_two_residents_leaving_by_car_both_attribute_to_single_crossing`.
+- **Discriminator:** if T falls but resident-attributed row count also falls → over-attribution (allowlist leak); stationary-tablet test must stay green.
+
+### R2.4 D3 — DROPPED from this cycle
+
+Per the probe GO/NO-GO: overlap pair `foyer_fisheye`↔`family_room` unconfirmed (J = 0.00); live `sensor.universal_room_automation_persons_in_house` read 3 throughout 10:00–11:15 (not 4–5); the "4–5" was a replay-side artefact of the 1200 s windowed-max in `census_estimator_replay.py:151-162`.
+
+**Action:** the interior-count fix moves to `PLANNING_census_occupancy_estimator.md` (`M_cam` definition — per-area max at an instant + short hold, not 20 min). No URA production code change in THIS cycle for D3.
+
+Optional operator-side spot-check: review Frigate zones/masks for `family_room` steady 2–4 count (not shipped as a URA deliverable).
+
+### R2.5 D4 — Re-run gate (unchanged, but inputs change)
+
+Re-run with: new ledger (R2.2), replay with person_id + asymmetric window (R2.3), estimator-side `M_cam` fix (deferred to estimator plan — if not landed, score G5 with the known replay artefact caveat).
+
+### R2.6 Operator confirmations required BEFORE build dispatch
+
+- **OP-1 (truth timeline):** probe trackers say **Ezinne** departed by car ~12:13 (BLE 12:18–12:19), returned 12:57; **operator + Jaya** departed together ~13:55 (BLE 14:01–14:03). The plan's original "12:00 operator+Jaya leave" is likely wrong (Jaya tracker read `home` all morning until 14:03 across all three legs). **Marked PENDING OPERATOR CONFIRMATION.** D2 acceptance scoring blocks on this.
+- **OP-2 (`doorbell_lite` → `garage_a`):** probe-confirmed via co-fires. Closed.
+- **OP-3 (`DOOR_STEM_DEDUP_S = 30 s` default):** probe-supported (−49% garage_a). Confirm.
+- **OP-4 (Path-β budget):** accept ≈3–4 unattributable at-home episodes/day on this install as the known gap for this cycle?
+- **OP-5 (operator-side):** re-point `person.oji_udezue` away from `okosisipadmini6_2`.
+
+### R2.7 Supersession of §1.1 / §3 items
+
+| Original | Status |
+|---|---|
+| §1.1 "CONF_DOOR_GROUPS already exists" | **WRONG** — NEW (R2.1) |
+| §1.1 "REUSE CONF_INTERIOR_CAMERA_OVERLAP_GROUPS" | **WRONG** — NEW; moot (D3 dropped) |
+| §3.D1 items 1–6 | **REPLACED by R2.2 items 1–9** |
+| §3.D1 INV-INPUTS (c) ≥ 2 surviving entries | **DROPPED** — replaced by `peak_person_count` column (R2.2 item 8) |
+| §3.D2 Branches A–D | **REPLACED by R2.3** (Branch A + D only; B/C name non-existent symbols) |
+| §3.D3 | **DROPPED (R2.4)**; moves to estimator plan |
+| §5 tier table D3 rows | **DELETE** |
+| §6 Q-2 (foyer/upstairs removal) | **DROPPED** — probe refuted |
+
+### R2.8 Changelog addendum
+- 2026-10-04 (Rev 2): integrated probe results + plan-review FIX-PLAN. §1.1 REUSE claims for `CONF_DOOR_GROUPS` / `CONF_INTERIOR_CAMERA_OVERLAP_GROUPS` / `EGRESS_CROSSING_ADMISSIBLE_TRACKERS` / `RESIDENT_CROSSING_MATCH_S` corrected to NEW. D1 re-scoped around the real root cause (`_extract_camera_stem` miss on `_2` suffix) + per-door neighbours with newest-first ordering + `peak_person_count` DB column (Tier 2-DB). Full consumer table added (HIGH-2). AMBIGUOUS backfill-eligibility decision (HIGH-1). D2 narrowed to Branch A + D (Tier 1); real producer surface + knobs cited; entry-side BLE attach carded. D3 DROPPED (probe refuted; moves to estimator plan). Operator truth timeline marked PENDING confirmation (OP-1). Config-first operator action recorded (person.oji_udezue tracker).
