@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "ENERGY-HISTORY-KW-SUMMED-AS-KWH-1@2026-10-04T04:30:00"
+    at: "2026-10-04T04:30:00"
+    outcome: "measured"
+    headline: "The 'tomorrow ~230 kWh' over-prediction is already fixed on develop (not yet released). I added the missing review, which said SHIP. One choice before deploy: the fix assumes this house's 15-minute history rhythm. A second home with a slower energy setting would under-report, so I recommend a small follow-up."
+    acknowledged: false
   - fid: "RESTORE-UNAVAILABLE-OFF-SWEEP-1@2026-10-04T04:15:00"
     at: "2026-10-04T04:15:00"
     outcome: "built-to-review"
@@ -439,13 +444,14 @@ cards:
   next: 'PLAN (phase 2 of EC-DEGRADED-DATA-POLICY-1, after phase 1 ships + stream A/B 2026-10-05): (1) retire/rework dormant local write-failover (PLANNING_envoy_write_verification_and_redundancy D3) — local battery writes gone since fw 8.2.4225; verify nothing assumes it; (2) cloud write-path health: detect failed/rate-limited (retry-after) commands, NM alert; (3) production.json-independent reads (stream / /ivp/meters / failover map TelemetryPair; ha-enphase-realtime trial option); (4) token expiry/auth-failure alert.'
   why: 'Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8.2.4225; production.json not recommended; local API unsupported; yearly token; cloud retry-after).'
 - id: ENERGY-HISTORY-KW-SUMMED-AS-KWH-1
+  review_2026_10_04_overnight: "REVIEW A (Tier 1, read-only on develop): SHIP. SQL holds: LEAD over the whole table before filtering, correct midnight attribution, outages credited only 0.25 h, NULL-safe; consumers = predicted energy/cost sensors only (aggregation.py:2286-2806), display-only, no thresholds; grid_import_2 not in the query; test drives real initialize() schema + real methods (5 pass). MEDIUM (Bug Class #63, coincidental equality): nominal 0.25 h / 0.5 h cap assumes a 15-min write cadence, but history is written every 3rd EC tick (energy.py:6581) and CONF_ENERGY_DECISION_INTERVAL allows 1-30 min (config_flow.py:6165); at >10 min every gap exceeds the cap and totals under-report (~6x at 30 min). Live value here: energy_decision_interval 5.0 (CM entry) -> 15-min cadence -> correct for this house. Relevant to the second-home rollout. Pre-existing: days grouped by UTC date."
   verified_2026_10_04_overnight: "VERIFY-BEFORE-WORK = ALREADY-BUILT (card lagged). develop 9038a76da (10-04 00:01, attended session) integrates the kW samples to kWh in get_energy_for_similar_days / get_energy_for_date_range via a shared LEAD() interval CTE, plus quality/tests/test_energy_history_kwh_integration.py. The card's residuals were adjudicated in the draft README: grid_import_2 is not added in predictions (no double count); solar_production is not used by predict_energy. Not released yet (newest tag v5.103.38 predates it). No review record existed, so one Tier-1 review was dispatched overnight."
   title: Predicted Energy/Cost Tomorrow ~4x too high — energy_history stores 15-min kW snapshots and predictions sum them as kWh
   thread: energy
   status: "review"
   created: '2026-10-04 00:10'
-  updated: "2026-10-04 04:15"
-  next: "SHIP with the next release (operator-timed): the fix is already on develop (9038a76da) with a draft README at docs/planning/DRAFT_README_energy_history_units.md; the overnight pass added the missing review (result recorded on this card)."
+  updated: "2026-10-04 04:30"
+  next: "SHIP with the next release (operator-timed). Before or alongside: decide the review's MEDIUM. My recommendation is a small follow-up in the same release: derive the nominal/max sample gap from the EC decision interval (3 x interval) instead of a fixed 15 min. This house runs 5 min = 15 min, so it is correct here, but a second home with a different interval would under-report up to ~6x. I did not build it overnight because the commit is shared with the attended feature/ec-degraded-data-p1 branch."
   why: 'Operator saw dashboard "Tomorrow ~230 kWh from grid · $31.23" (sensor.universal_room_automation_predicted_energy_tomorrow 229.7). energy_history rows every ~15 min hold grid_import as kW; 10-03 sum = 403.5 "kWh" vs ~101 kWh real. Display-only (no decision consumer per database.py:3004 comment).'
 - id: ENPHASE-REALTIME-TRIAL-1
   review_2026_10_04: 'Code/security review: TRIAL WITH CONDITIONS, NO FORK. Clean (no deps, Enphase-only endpoints, TLS off only to self-signed Envoy, MIT, CI+tests). Risks: 9 days old, single-site/1-battery tested; heavy default Envoy load (1 s livedata, 5 s battery, 2nd /stream/meter); designed to take over core entity IDs; its CFG/reserve/storage writes overlap enphase_ev; battery-maintenance can grid-charge autonomously. Conditions: keep core (its entities get _2, URA ignores); relay/dry-contacts unticked, maintenance off, no writes; livedata 5-10 s, battery >=10 s, its stream off; uninstall on any regression vs baseline; measure livedata vs MQTT stream first.'

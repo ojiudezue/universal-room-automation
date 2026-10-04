@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-04T02:14:36-05:00_ - _Data commit: `a74c17d00c7d`_ - _last_reconciled: 2026-10-03_
+_Generated: 2026-10-04T02:16:02-05:00_ - _Data commit: `cf98e2a03540`_ - _last_reconciled: 2026-10-03_
 
 
 ## Columns
@@ -472,10 +472,11 @@ _created 2026-10-03 02:55 · updated 2026-10-04 04:15 · initial_
 
 ### `ENERGY-HISTORY-KW-SUMMED-AS-KWH-1` - Predicted Energy/Cost Tomorrow ~4x too high — energy_history stores 15-min kW snapshots and predictions sum them as kWh — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **review**
-_created 2026-10-04 00:10 · updated 2026-10-04 04:15_
+_created 2026-10-04 00:10 · updated 2026-10-04 04:30_
 - **Why:** Operator saw dashboard "Tomorrow ~230 kWh from grid · $31.23" (sensor.universal_room_automation_predicted_energy_tomorrow 229.7). energy_history rows every ~15 min hold grid_import as kW; 10-03 sum = 403.5 "kWh" vs ~101 kWh real. Display...
-- **Next:** SHIP with the next release (operator-timed): the fix is already on develop (9038a76da) with a draft README at docs/planning/DRAFT_README_energy_history_units.md; the overnight pass added the missing review (result recorded on this card).
-- **Forensic keys (1):**
+- **Next:** SHIP with the next release (operator-timed). Before or alongside: decide the review's MEDIUM. My recommendation is a small follow-up in the same release: derive the nominal/max sample gap from the EC decision interval (3 x interval) inst...
+- **Forensic keys (2):**
+  - `review_2026_10_04_overnight`: REVIEW A (Tier 1, read-only on develop): SHIP. SQL holds: LEAD over the whole table before filtering, correct midnight attribution, outages credited only 0.25 h, NULL-safe; consumers = predicted energy/cost sensors only (aggregation.py:2...
   - `verified_2026_10_04_overnight`: VERIFY-BEFORE-WORK = ALREADY-BUILT (card lagged). develop 9038a76da (10-04 00:01, attended session) integrates the kW samples to kWh in get_energy_for_similar_days / get_energy_for_date_range via a shared LEAD() interval CTE, plus qualit...
 
 ## ⏸️ Waiting on operator (30)
