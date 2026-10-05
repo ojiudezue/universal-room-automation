@@ -753,7 +753,8 @@ DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED: Final = True
 CONF_HVAC_THERMOSTAT_MIN_DELTA_F: Final = "hvac_thermostat_min_delta_f"
 DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F: Final = 5.0
 
-# HVAC W1-C P2 §4.11 — S1 ticks an ecobee may sit in cool/heat after the
+# HVAC W1-C P2 §4.11 — FULL S1 decision ticks (zone-scoped fast runs do not
+# count — fix A-L1) an ecobee may sit in cool/heat after the
 # heat_cool enforcer (B1) tried, before S1 escalates the deferral to
 # FAILED("heat_cool_not_reached") + a Repair. RUNG 1 (protocol window:
 # 3 × the 5-min tick gives B1 two chances). 0 is NOT a kill switch (the

@@ -2615,9 +2615,19 @@ class OverrideArrester:
             current_high = state.attributes.get("target_temp_high")
             current_low = state.attributes.get("target_temp_low")
 
+            # W1-C P2 fix (D MED-1): the range URA holds on THIS thermostat
+            # for the target preset (adapter verb; Carrier / Generic return
+            # the Seasonal Baseline unchanged — byte-identical).
+            _ref_cool, _ref_heat = _w1c_strategy(
+                self.hass, zone.climate_entity,
+            ).reference_setpoints(
+                self.hass, zone.climate_entity, target_preset,
+                (expected_cool, expected_heat),
+            )
+
             delta = self._compute_override_delta(
                 current_high, current_low,
-                expected_cool, expected_heat,
+                _ref_cool, _ref_heat,
             )
             if delta is None:
                 continue
@@ -2657,8 +2667,8 @@ class OverrideArrester:
             _sa_gen = self._bump_arrest_gen(zone.zone_id)
             self._arrest_episode[zone.zone_id] = {
                 "original_preset": target_preset,
-                "expected_cool": expected_cool,
-                "expected_heat": expected_heat,
+                "expected_cool": _ref_cool,
+                "expected_heat": _ref_heat,
                 "gen": _sa_gen,
             }
             # Defense-in-depth (fix-up 2, C-6): the timer's own handle, so the
@@ -8092,6 +8102,39 @@ class OverrideArrester:
             return dt_util.as_local(end).isoformat()
         except Exception:  # noqa: BLE001
             return None
+
+    def discharge_zone_for_profile_switch(self, zone_id: str) -> None:
+        """W1-C P2 fix B-L1: the zone's thermostat changed brand. Every timer
+        the arrester armed for it (nudge restore + eval, grace, compromise)
+        was armed against the OLD profile; stand them down with NO write.
+        The HC drain closes the zone's borrow row (``profile_switched``), so
+        gate (c)/(e) drop and S1 reclaims the zone with a preset on its next
+        tick through the NEW adapter (W1-B presets-only return). The AC
+        hard-reset restore timer (`_reset_timers`) is kept: its mode restore
+        is brand-neutral and it is a different owner (B-L3, Batch D).
+        Never raises."""
+        try:
+            for td in (
+                self._nudge_restore_timers, self._nudge_eval_timers,
+                self._grace_timers, self._compromise_timers,
+            ):
+                cancel = td.pop(zone_id, None)
+                if cancel:
+                    cancel()
+            self._nudge_post_restore_ts.pop(zone_id, None)
+            self._nudge_in_flight.discard(zone_id)
+            self._nudge_excursion_tokens.pop(zone_id, None)
+            self._nudge_pre_preset.pop(zone_id, None)
+            self._compromise_excursion_tokens.pop(zone_id, None)
+            self._override_active[zone_id] = False
+            self._compromise_active[zone_id] = False
+            self._arrest_episode.pop(zone_id, None)
+            self._bump_arrest_gen(zone_id)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "profile-switch arrester discharge failed for %s", zone_id,
+                exc_info=True,
+            )
 
     def _cancel_arrester_timers(self, zone_id: str) -> None:
         """Cancel ONLY the arrester's own grace / compromise timers for a

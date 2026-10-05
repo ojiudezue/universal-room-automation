@@ -396,6 +396,16 @@ class HVACCoordinator(BaseCoordinator):
             sp = pm.get_seasonal_setpoints(target, season)
             if sp is None:
                 return None
+            # W1-C P2 fix (D MED-1): measure against the range URA actually
+            # holds on this zone's thermostat (adapter verb; Carrier /
+            # Generic return the baseline unchanged).
+            _ent = getattr(
+                self._zone_manager.zones.get(zone_id), "climate_entity", None,
+            )
+            if _ent:
+                sp = _w1c_strategy(self.hass, _ent).reference_setpoints(
+                    self.hass, _ent, target, sp,
+                )
             cool, heat = sp
             return (target, cool, heat)
         self._override_arrester.set_baseline_resolver(_arrester_reference)
@@ -3823,6 +3833,7 @@ class HVACCoordinator(BaseCoordinator):
                     site="S1_reason_ladder",
                     zone_id=zone_id,
                     reason=preset_change_reason,
+                    full_tick=zone_filter is None,
                 )
                 if _s1_result.status is WriteStatus.SKIPPED_ALREADY_CORRECT:
                     _LOGGER.debug(
@@ -4486,7 +4497,9 @@ class HVACCoordinator(BaseCoordinator):
         # D-HIGH-1: never the unrounded desired range; never overwritten).
         if mode == "apply" and preset not in (self._s10_snapshots.get(zone_id) or {}):
             original = strategy.preset_range_original(self.hass, zone.climate_entity, preset)
-            if self._s10_original_differs(strategy, original, value):
+            if self._s10_original_differs(
+                strategy, original, value, zone.climate_entity,
+            ):
                 self._s10_snapshots.setdefault(zone_id, {})[preset] = {
                     "low": float(original[0]), "high": float(original[1]),
                     "captured_iso": now.isoformat(),
@@ -4584,7 +4597,9 @@ class HVACCoordinator(BaseCoordinator):
         # next tick captures it first.
         if mode == "apply" and preset not in (self._s10_snapshots.get(zone_id) or {}):
             _orig2 = strategy.preset_range_original(self.hass, zone.climate_entity, preset)
-            if self._s10_original_differs(strategy, _orig2, value):
+            if self._s10_original_differs(
+                strategy, _orig2, value, zone.climate_entity,
+            ):
                 self._s10_set_record(zone_id, preset, mode, prev)
                 return
         # Fix-up pre-call re-checks (same no-await window as above): the
@@ -4684,17 +4699,23 @@ class HVACCoordinator(BaseCoordinator):
     @staticmethod
     def _s10_original_differs(
         strategy: Any, original: Any, value: list[float],
+        entity_id: str | None = None,
     ) -> bool:
         """Fix-up D-HIGH-1: True when the device original exists and is not
         exactly what the adapter would put on the wire for ``value`` (Carrier
         rounds half up, so 76 vs a desired 76.5 DIFFERS: the wire gets 77).
         An adapter with no would-write (Generic) falls back to the requested
-        value. Any doubt -> True (capture the original: fail-safe)."""
+        value. Any doubt -> True (capture the original: fail-safe).
+        W1-C P2 fix A-M1: ``entity_id`` reaches the adapter so a range-holding
+        thermostat compares with ITS configured min gap (the same gap
+        ``set_preset_range`` and ``preset_range_original`` use)."""
         if original is None:
             return False
         try:
             _ww = getattr(strategy, "preset_range_would_write", None)
-            target = _ww(value[0], value[1]) if callable(_ww) else None
+            target = (
+                _ww(value[0], value[1], entity_id=entity_id) if callable(_ww) else None
+            )
             if target is None:
                 target = (value[0], value[1])
             return (
@@ -6929,6 +6950,13 @@ class HVACCoordinator(BaseCoordinator):
             try:
                 if self._override_arrester is not None:
                     self._override_arrester.unsuppress(entity_id)
+                    # B-L1: the zone's nudge-restore / compromise / grace
+                    # timers were armed against the OLD profile — stand them
+                    # down (the borrow rows close below with no write); S1
+                    # reclaims the zone on its next tick.
+                    for zid, z in list(self._zone_manager.zones.items()):
+                        if getattr(z, "climate_entity", None) == entity_id:
+                            self._override_arrester.discharge_zone_for_profile_switch(zid)
             except Exception:  # noqa: BLE001
                 _LOGGER.debug("profile-switch unsuppress failed", exc_info=True)
             try:

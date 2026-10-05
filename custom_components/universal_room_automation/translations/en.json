@@ -667,7 +667,7 @@
           "zone_thermostat": "Thermostat that controls this zone.",
           "hvac_ac_load_sensor": "Sensor that measures this AC unit's power, such as a panel circuit. Leave empty to turn off the AC overrun fix for this zone.",
           "hvac_ac_ramp_zone_enabled": "Briefly eases or restarts the AC when it keeps running after reaching the set temperature. Needs the AC load sensor.",
-          "hvac_thermostat_min_delta_f": "The smallest gap this thermostat allows between its heat and cool settings (ecobee: Heat/Cool Min Delta). URA widens a narrower range before sending it."
+          "hvac_thermostat_min_delta_f": "Must be at least the thermostat's own Heat/Cool Min Delta setting (ecobee: Installation Settings → Thresholds)."
         }
       },
       "zone_energy": {

@@ -388,6 +388,16 @@ class GenericStrategy:
         IS the range — never (byte-identical: S1 skips as before)."""
         return False
 
+    def reference_setpoints(
+        self, hass: Any, entity_id: Optional[str], preset: str, baseline: Any,
+    ) -> Any:
+        """W1-C P2 fix (D MED-1): the ``(cool, heat)`` pair URA actually
+        holds for ``preset`` on this thermostat — what the arrester and the
+        startup audit measure a person's change against. Carrier / Generic:
+        ``baseline`` returned unchanged (the device preset IS the range;
+        byte-identical)."""
+        return baseline
+
     # ---- W1-C P2: adapter state persistence (§4.2a) --------------------
     def export_state(self) -> dict[str, Any]:
         """Per-entity adapter state for the ``__w1c_adapter`` side-key.
@@ -559,7 +569,7 @@ class GenericStrategy:
         return None
 
     def preset_range_would_write(
-        self, low: float, high: float,
+        self, low: float, high: float, entity_id: Optional[str] = None,
     ) -> Optional[tuple[int, int]]:
         """CPR fix-up (D-HIGH-1): the exact ``(low, high)`` this adapter's
         ``set_preset_range`` would put on the wire for the requested range,
@@ -581,7 +591,11 @@ class GenericStrategy:
         reason: str,
         site: str,
         excursion_id: str | None = None,
+        full_tick: bool = True,
     ) -> WriteResult:
+        # ``full_tick`` (W1-C P2 fix A-L1): False on a zone-scoped fast run.
+        # Only a range-holding adapter reads it (its heat_cool stuck count
+        # advances on full ticks only); Carrier / Generic ignore it.
         obs = self.observe(hass, entity_id)
         if obs is not None and not obs.preset_modes:
             return WriteResult(WriteStatus.FAILED, "no_presets_supported")
@@ -662,7 +676,7 @@ class CarrierStrategy(GenericStrategy):
             return None
 
     def preset_range_would_write(
-        self, low: float, high: float,
+        self, low: float, high: float, entity_id: Optional[str] = None,
     ) -> Optional[tuple[int, int]]:
         """Carrier P3: whole °F, round half up — the same rounding
         ``set_preset_range`` applies before its P4 compare and the wire."""
@@ -987,7 +1001,7 @@ class EcobeeHomeKitStrategy(GenericStrategy):
         self._ranges: dict[tuple[str, str, str], tuple[float, float]] = {}
         # entity -> consecutive S1 ticks deferred in cool/heat (§4.11)
         self._mode_stuck: dict[str, int] = {}
-        self._repairs: set[str] = set()
+        self._repairs: set[tuple[str, str]] = set()  # (entity, Repair key)
         self._season_seen: Optional[str] = None
 
     # ---- range arithmetic ---------------------------------------------
@@ -1181,42 +1195,67 @@ class EcobeeHomeKitStrategy(GenericStrategy):
             eff = self.effective_range(entity_id, preset)
             if eff is None:
                 return False
-            return not self._legs_match(st, eff)
+            if self._legs_match(st, eff):
+                # B-L2: S1 skips here (mode reached, legs match) — that
+                # ends any heat_cool stuck episode and its Repair, exactly
+                # like the no-op clause in `hold_preset`.
+                self._mode_stuck.pop(entity_id, None)
+                self._clear_repair(hass, entity_id)
+                return False
+            return True
         except Exception:  # noqa: BLE001
             return False
 
+    def reference_setpoints(
+        self, hass: Any, entity_id: Optional[str], preset: str, baseline: Any,
+    ) -> Any:
+        """D MED-1: the range URA holds for ``preset`` is the EFFECTIVE
+        range (stored S10 range, else the baseline, after the guards,
+        rounding and min gap) — returned as ``(cool, heat)``. Falls back to
+        ``baseline`` when there is none. Never raises."""
+        try:
+            eff = self.effective_range(entity_id, preset) if entity_id else None
+        except Exception:  # noqa: BLE001
+            eff = None
+        if eff is None:
+            return baseline
+        return (float(eff[1]), float(eff[0]))
+
     # ---- preconditions (§4.2, §4.11) ------------------------------------
     @staticmethod
-    def _issue_id(entity_id: str) -> str:
-        return f"thermostat_heat_cool_{entity_id}"
+    def _issue_id(entity_id: str, key: str) -> str:
+        # B-L3: one issue per (Repair key, thermostat) — the two Repairs
+        # never overwrite each other's translation.
+        return f"{key}_{entity_id}"
 
     def _raise_repair(self, hass: Any, entity_id: str, key: str) -> None:
-        if entity_id in self._repairs:
+        if (entity_id, key) in self._repairs:
             return
         try:
             from homeassistant.helpers import issue_registry as ir  # noqa: PLC0415
             from ..const import DOMAIN  # noqa: PLC0415
             ir.async_create_issue(
-                hass, DOMAIN, self._issue_id(entity_id),
+                hass, DOMAIN, self._issue_id(entity_id, key),
                 is_fixable=False,
                 severity=ir.IssueSeverity.WARNING,
                 translation_key=key,
                 translation_placeholders={"thermostat": entity_id},
             )
-            self._repairs.add(entity_id)
+            self._repairs.add((entity_id, key))
         except Exception:  # noqa: BLE001
             _LOGGER.debug("heat_cool repair create failed", exc_info=True)
 
-    def _clear_repair(self, hass: Any, entity_id: str) -> None:
-        if entity_id not in self._repairs:
-            return
-        try:
-            from homeassistant.helpers import issue_registry as ir  # noqa: PLC0415
-            from ..const import DOMAIN  # noqa: PLC0415
-            ir.async_delete_issue(hass, DOMAIN, self._issue_id(entity_id))
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("heat_cool repair delete failed", exc_info=True)
-        self._repairs.discard(entity_id)
+    def _clear_repair(self, hass: Any, entity_id: str, key: Optional[str] = None) -> None:
+        """Delete the entity's Repair ``key`` (None = every key raised)."""
+        keys = [k for (e, k) in self._repairs if e == entity_id and (key is None or k == key)]
+        for k in keys:
+            try:
+                from homeassistant.helpers import issue_registry as ir  # noqa: PLC0415
+                from ..const import DOMAIN  # noqa: PLC0415
+                ir.async_delete_issue(hass, DOMAIN, self._issue_id(entity_id, k))
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("heat_cool repair delete failed", exc_info=True)
+            self._repairs.discard((entity_id, k))
 
     def _range_precondition(
         self, hass: Any, entity_id: str, st: Any, *, s1_tick: bool = False,
@@ -1236,6 +1275,8 @@ class EcobeeHomeKitStrategy(GenericStrategy):
             # Auto heat/cool disabled on the thermostat (§4.11).
             self._raise_repair(hass, entity_id, "thermostat_no_heat_cool")
             return WriteResult(WriteStatus.FAILED, "no_heat_cool_mode")
+        # B-L3: heat_cool is offered again — that Repair alone is resolved.
+        self._clear_repair(hass, entity_id, "thermostat_no_heat_cool")
         mode = getattr(st, "state", None)
         if mode == "heat_cool":
             if s1_tick:
@@ -1284,16 +1325,23 @@ class EcobeeHomeKitStrategy(GenericStrategy):
                 excursion_id=excursion_id,
             )
         except BaseException:
-            self._restore_held(entity_id, prev)
+            self._restore_held(entity_id, prev, new)
             raise
         if not wrote:
-            self._restore_held(entity_id, prev)
+            self._restore_held(entity_id, prev, new)
             return False
         if prev != new:
             _ctx_changed("w1c_adapter_held")
         return True
 
-    def _restore_held(self, entity_id: str, prev: Optional[tuple[str, float, float]]) -> None:
+    def _restore_held(
+        self, entity_id: str, prev: Optional[tuple[str, float, float]],
+        stamp: tuple[str, float, float],
+    ) -> None:
+        # B-L4: undo only OUR stamp. Another write that stamped `held`
+        # during this call's await owns it now — leave it.
+        if self._held.get(entity_id) is not stamp:
+            return
         if prev is None:
             self._held.pop(entity_id, None)
         else:
@@ -1311,6 +1359,7 @@ class EcobeeHomeKitStrategy(GenericStrategy):
         reason: str,
         site: str,
         excursion_id: str | None = None,
+        full_tick: bool = True,
     ) -> WriteResult:
         st = _state_of(hass, entity_id)
         rng = self.effective_range(entity_id, preset)
@@ -1328,7 +1377,9 @@ class EcobeeHomeKitStrategy(GenericStrategy):
             self._mode_stuck.pop(entity_id, None)
             self._clear_repair(hass, entity_id)
             return WriteResult(WriteStatus.SKIPPED_ALREADY_CORRECT, "no_op_last_sent_matches")
-        blocked = self._range_precondition(hass, entity_id, st, s1_tick=True)
+        # A-L1: the stuck count advances on FULL S1 ticks only (a zone-scoped
+        # fast run is not a tick and must not shorten the escalation).
+        blocked = self._range_precondition(hass, entity_id, st, s1_tick=full_tick)
         if blocked is not None:
             return blocked
         try:
@@ -1513,7 +1564,13 @@ class EcobeeHomeKitStrategy(GenericStrategy):
                     self._held[str(ent)] = (str(h[0]), float(h[1]), float(h[2]))
             except (TypeError, ValueError):
                 _LOGGER.warning("W1-C adapter: malformed held for %s dropped", ent)
-            for r in sl.get("ranges") or ():
+            # A-M2: a corrupt "ranges" (not a list) is dropped with one
+            # warning — never a TypeError on every later `strategy_for`.
+            ranges = sl.get("ranges") or ()
+            if not isinstance(ranges, (list, tuple)):
+                _LOGGER.warning("W1-C adapter: malformed ranges for %s dropped", ent)
+                ranges = ()
+            for r in ranges:
                 try:
                     p, s, lo, hi = r
                     if season is not None and s != season:
@@ -1580,7 +1637,15 @@ def _device_manufacturer(hass: Any, entity_id: str) -> Optional[str]:
 
 def _profile_key(hass: Any, entity_id: str, plat: str) -> str:
     if plat == HOMEKIT_PLATFORM:
-        manu = (_device_manufacturer(hass, entity_id) or "").lower()
+        raw = _device_manufacturer(hass, entity_id)
+        if raw is None and isinstance(
+            _RESOLVED_BY_ENTITY.get(entity_id), EcobeeHomeKitStrategy,
+        ):
+            # D LOW-1: an unreadable manufacturer (device registry miss /
+            # not loaded yet) never downgrades an entity already resolved to
+            # ecobee — only a real, different manufacturer does.
+            return ECOBEE_PROFILE
+        manu = (raw or "").lower()
         if ECOBEE_MANUFACTURER_MATCH in manu:
             return ECOBEE_PROFILE
         return f"{HOMEKIT_PLATFORM}:other"
@@ -1607,7 +1672,17 @@ def _note_resolution(entity_id: str, inst: GenericStrategy, *, miss: bool) -> No
     if not miss:
         _MISS_ENTITIES.discard(entity_id)
     if entity_id in _PENDING_ADAPTER_STATE:
-        if inst.rehydrate_state({entity_id: _PENDING_ADAPTER_STATE[entity_id]}):
+        try:
+            accepted = inst.rehydrate_state({entity_id: _PENDING_ADAPTER_STATE[entity_id]})
+        except Exception:  # noqa: BLE001
+            # A-M2: a slice the profile cannot read is dropped, not retried
+            # on every resolution.
+            _LOGGER.warning(
+                "W1-C adapter: persisted state for %s unreadable; dropped",
+                entity_id, exc_info=True,
+            )
+            accepted = True
+        if accepted:
             _PENDING_ADAPTER_STATE.pop(entity_id, None)
 
 

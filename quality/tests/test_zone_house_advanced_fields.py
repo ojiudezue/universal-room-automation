@@ -95,7 +95,7 @@ ZONE_ADVANCED = [
     ("zone_media", CONF_ZONE_PLAYER_MODE, ZONE_PLAYER_MODE_INDEPENDENT),
     ("zone_hvac", CONF_HVAC_AC_LOAD_SENSOR, "sensor.ac_power"),
     ("zone_hvac", CONF_HVAC_AC_RAMP_ZONE_ENABLED, not DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED),
-    ("zone_hvac", "hvac_thermostat_min_delta_f", 3.0),   # W1-C P2
+    ("zone_hvac", "hvac_thermostat_min_delta_f", 7.0),   # W1-C P2 (field range 5-10)
     ("zone_energy", CONF_ZONE_POWER_SENSORS, ["sensor.zone_power"]),
     ("zone_dynamic_preset", CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST, False),
     ("zone_dynamic_preset", CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED, True),
@@ -269,6 +269,21 @@ def test_zone_hvac_simple_shows_hint_and_thermostat_only():
     assert len(schema_keys(res)) == 4
     assert "hvac_thermostat_min_delta_f" in schema_keys(res)
     assert res["description_placeholders"]["advanced_hint"] == cf.ADVANCED_HINT_SHOWN
+
+
+def test_zone_hvac_min_delta_field_range_is_5_to_10_default_5():
+    """W1-C P2 fix (D MED-2): the min heat/cool gap field never accepts a
+    value below the ecobee's own Heat/Cool Min Delta floor (5 °F)."""
+    flow, _ = _zm_flow({ZONE: {CONF_ZONE_THERMOSTAT: THERMO}}, adv=True)
+    res = render(flow, "zone_hvac")
+    for marker, sel in res["data_schema"].schema.items():
+        if str(marker) == "hvac_thermostat_min_delta_f":
+            cfg = sel.config
+            assert (cfg["min"], cfg["max"], cfg["step"]) == (5, 10, 1)
+            assert marker.default() == 5.0
+            break
+    else:
+        raise AssertionError("min delta field not rendered")
 
 
 def test_zone_legacy_entry_i2_and_hidden():

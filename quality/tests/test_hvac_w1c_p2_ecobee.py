@@ -1447,3 +1447,330 @@ async def test_mixed_install_only_the_carrier_zone_qualifies(mods, monkeypatch):
     assert "freshness" not in coord._carrier_freshness_snapshot["zone_2"]
     assert coord._carrier_freshness_snapshot[ZONE]["freshness"] == "not_applicable"
     assert all("ambiguous" not in json.dumps(n).lower() for n in notes)
+
+
+# ==========================================================================
+# Review fix pass (A-M1 / A-M2 / A-L1 / B-L1..L4 / D MED-1, LOW-1 / C MED)
+# ==========================================================================
+
+
+def _rollout(coord, hass):
+    cm = next(e for e in hass.config_entries.async_entries() if "zones" not in (e.options or {}))
+    cm.options = {**(cm.options or {}), "hvac_s10_rollout_zone_ids": [ZONE]}
+
+
+@pytest.mark.asyncio
+async def test_fix_a_m1_s10_original_is_compared_with_the_thermostats_own_gap(mods, monkeypatch):
+    """A-M1: a 2 °F thermostat, summer Home baseline 72/77. S10 asks for
+    72/74: the adapter writes 72/74 (its own gap), so the 72/77 original MUST
+    be saved before the write — the default 5 °F gap would have widened the
+    request to 72/77 (== the original) and skipped the save. Switch OFF then
+    puts 72/77 back."""
+    coord, hass = _rig(mods, monkeypatch, low=68.0, high=72.0)
+    S = _S(mods)
+    coord.zone_manager.zones[ZONE].thermostat_min_delta_f = 2.0
+    real = S._CTX.baseline
+    monkeypatch.setattr(
+        S._CTX, "baseline",
+        lambda p, season=None: (77.0, 72.0) if p == "home" else real(p, season),
+    )
+    coord._zone_state_store = H.FakeStore()
+    _rollout(coord, hass)
+    await _tick(coord, hass)
+    assert _temp(hass)[-1] == {"entity_id": ENT, "target_temp_low": 72.0, "target_temp_high": 77.0}
+    _set_eco(hass, low=72.0, high=77.0)
+    coord.zone_manager.update_zone_climate_state(ZONE)
+    eco = _eco(mods, hass)
+    coord._zones_written_this_cycle.clear()
+    coord.set_custom_ranges_enabled(True, source="user")
+    monkeypatch.setattr(coord, "_s10_desired",
+                        lambda z, p, e, o: ((72.0, 74.0), "preset_range_dpm"))
+    await coord._async_apply_preset_overrides()
+    await H.drain(hass)
+    assert _temp(hass)[-1] == {"entity_id": ENT, "target_temp_low": 72.0, "target_temp_high": 74.0}
+    snap = coord._s10_snapshots[ZONE]["home"]
+    assert (snap["low"], snap["high"]) == (72.0, 77.0)
+    _set_eco(hass, low=72.0, high=74.0)
+    coord.set_custom_ranges_enabled(False, source="user")
+    await coord._async_apply_preset_overrides()
+    await H.drain(hass)
+    assert eco._ranges == {}
+    assert _temp(hass)[-1] == {"entity_id": ENT, "target_temp_low": 72.0, "target_temp_high": 77.0}
+    _assert_inv_e2(hass)
+
+
+def test_fix_a_m2_corrupt_ranges_are_dropped_and_the_slice_is_consumed(mods, monkeypatch):
+    """A-M2: {"held": [...], "ranges": 5} — the held range lands, the
+    corrupt ranges are dropped, the pending slice is consumed, and later
+    resolutions never raise."""
+    _install_registry(monkeypatch, mods)
+    S = _S(mods)
+    S.rehydrate_adapter_state(None, {ENT: {"held": ["home", 70.0, 77.0], "ranges": 5}})
+    eco = S.strategy_for(None, ENT)
+    assert eco._held[ENT] == ("home", 70.0, 77.0)
+    assert eco._ranges == {}
+    assert ENT not in S._PENDING_ADAPTER_STATE
+    assert S.strategy_for(None, ENT) is eco
+    # The adapter itself accepts the corrupt slice without raising.
+    assert eco.rehydrate_state({"climate.other": {"held": None, "ranges": 5}}) is True
+
+
+def test_fix_a_m2_a_raising_rehydrate_drops_the_pending_slice(mods, monkeypatch):
+    """A-M2 (`_note_resolution`): a slice the profile raises on is dropped
+    once — never retried (and re-raised) on every `strategy_for`."""
+    _install_registry(monkeypatch, mods)
+    S = _S(mods)
+
+    def _boom(self, blob):
+        raise RuntimeError("corrupt")
+    monkeypatch.setattr(S.EcobeeHomeKitStrategy, "rehydrate_state", _boom)
+    S._PENDING_ADAPTER_STATE[ENT] = {"held": "junk"}
+    eco = S.strategy_for(None, ENT)
+    assert ENT not in S._PENDING_ADAPTER_STATE
+    assert S.strategy_for(None, ENT) is eco
+
+
+@pytest.mark.asyncio
+async def test_fix_a_l1_fast_runs_do_not_advance_the_heat_cool_stuck_count(mods, monkeypatch):
+    """A-L1: zone-scoped fast runs never count toward the 3-tick escalation;
+    full ticks do."""
+    coord, hass = _rig(mods, monkeypatch, mode="cool", low=None, high=None)
+    from homeassistant.helpers import issue_registry as ir
+    created = []
+    monkeypatch.setattr(ir, "async_create_issue", lambda *a, **k: created.append(k))
+    monkeypatch.setattr(ir, "async_delete_issue", lambda *a, **k: None)
+    eco = _eco(mods, hass)
+    for _ in range(4):
+        coord.zone_manager.update_zone_climate_state(ZONE)
+        await coord._apply_house_state_presets(zone_filter={ZONE}, trigger="fast_entry")
+        await H.drain(hass)
+    assert eco._mode_stuck.get(ENT, 0) == 0
+    assert created == []
+    for _ in range(3):
+        await _tick(coord, hass)
+    assert eco._mode_stuck[ENT] == 3
+    assert [k["translation_key"] for k in created] == ["thermostat_heat_cool_not_reached"]
+
+
+@pytest.mark.asyncio
+async def test_fix_b_l2_s1_skip_in_heat_cool_ends_the_stuck_episode_and_repair(mods, monkeypatch):
+    """B-L2: the zone holds home, drifts to cool for three full ticks (Repair
+    raised), then reads heat_cool with URA's range again: S1 SKIPS (no
+    write) — that skip resets the stuck count and deletes the Repair."""
+    coord, hass = _rig(mods, monkeypatch, low=68.0, high=72.0)
+    from homeassistant.helpers import issue_registry as ir
+    created, deleted = [], []
+    monkeypatch.setattr(ir, "async_create_issue", lambda *a, **k: created.append(a[2]))
+    monkeypatch.setattr(ir, "async_delete_issue", lambda *a, **k: deleted.append(a[2]))
+    await _tick(coord, hass)                                   # holds home 70/77
+    eco = _eco(mods, hass)
+    _set_eco(hass, mode="cool", temperature=77.0)
+    for _ in range(3):
+        await _tick(coord, hass)
+    assert created == [f"thermostat_heat_cool_not_reached_{ENT}"]
+    n_writes = len(_temp(hass))
+    _set_eco(hass, low=70.0, high=77.0)
+    await _tick(coord, hass)
+    assert len(_temp(hass)) == n_writes                       # the skip path
+    assert ENT not in eco._mode_stuck
+    assert deleted == [f"thermostat_heat_cool_not_reached_{ENT}"]
+
+
+@pytest.mark.asyncio
+async def test_fix_b_l3_each_repair_key_has_its_own_issue(mods, monkeypatch):
+    """B-L3: "no heat_cool" and "heat_cool not reached" are two issues; the
+    first is deleted as soon as heat_cool is offered again, while the second
+    can still be raised."""
+    coord, hass = _rig(mods, monkeypatch, low=68.0, high=72.0)
+    from homeassistant.helpers import issue_registry as ir
+    created, deleted = [], []
+    monkeypatch.setattr(ir, "async_create_issue",
+                        lambda *a, **k: created.append((a[2], k["translation_key"])))
+    monkeypatch.setattr(ir, "async_delete_issue", lambda *a, **k: deleted.append(a[2]))
+    _set_eco(hass, mode="cool", temperature=74.0, modes=("off", "heat", "cool"))
+    await _tick(coord, hass)
+    _set_eco(hass, mode="cool", temperature=74.0)              # heat_cool offered, not reached
+    for _ in range(3):
+        await _tick(coord, hass)
+    assert created == [
+        (f"thermostat_no_heat_cool_{ENT}", "thermostat_no_heat_cool"),
+        (f"thermostat_heat_cool_not_reached_{ENT}", "thermostat_heat_cool_not_reached"),
+    ]
+    assert deleted == [f"thermostat_no_heat_cool_{ENT}"]
+    # Auto heat/cool disabled again while "not reached" is still raised: the
+    # "no heat_cool" issue is raised alongside it (never deduped away).
+    _set_eco(hass, mode="cool", temperature=74.0, modes=("off", "heat", "cool"))
+    await _tick(coord, hass)
+    assert created[-1] == (f"thermostat_no_heat_cool_{ENT}", "thermostat_no_heat_cool")
+    assert len(created) == 3
+
+
+@pytest.mark.parametrize("outcome", ["raise", "defer"])
+@pytest.mark.asyncio
+async def test_fix_b_l4_failed_write_never_undoes_a_newer_stamp(mods, monkeypatch, outcome):
+    """B-L4: another write stamped `held` while this one was on the wire —
+    the failed / deferred write must not roll that newer stamp back."""
+    coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
+    eco = _eco(mods, hass)
+    eco._held[ENT] = ("sleep", 70.0, 76.0)
+    newer = ("away", 60.0, 82.0)
+
+    async def _emit(*a, **k):
+        eco._held[ENT] = newer
+        if outcome == "raise":
+            raise RuntimeError("wire")
+        return False
+    monkeypatch.setattr(mods["hvac_setpoint"], "emit_set_temperature", _emit)
+    if outcome == "raise":
+        with pytest.raises(RuntimeError):
+            await eco.pin_preset(hass, ENT, "home", site="S7", zone_id=ZONE, reason="r")
+    else:
+        await eco.pin_preset(hass, ENT, "home", site="S7", zone_id=ZONE, reason="r")
+    assert eco._held[ENT] is newer
+
+
+@pytest.mark.asyncio
+async def test_fix_b_l1_profile_switch_stands_down_the_zones_arrester_timers(mods, monkeypatch):
+    """B-L1: the drain cancels the switched zone's nudge-restore / eval /
+    grace / compromise timers and ends the arrester episode; the AC-reset
+    restore timer (another owner) survives."""
+    coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
+    S = _S(mods)
+    arr = coord._override_arrester
+    cancelled = []
+    for name in ("_nudge_restore_timers", "_nudge_eval_timers", "_grace_timers",
+                 "_compromise_timers", "_reset_timers"):
+        getattr(arr, name)[ZONE] = (lambda n=name: cancelled.append(n))
+    arr._nudge_in_flight.add(ZONE)
+    arr._override_active[ZONE] = True
+    arr._compromise_active[ZONE] = True
+    arr._arrest_episode[ZONE] = {"original_preset": "home"}
+    S._PROFILE_SWITCHES.append((ENT, "homekit_controller", "ha_carrier"))
+    calls_before = len(hass.services.calls)
+    await coord._w1c_drain_profile_switches()
+    await H.drain(hass)
+    assert sorted(cancelled) == sorted(["_nudge_restore_timers", "_nudge_eval_timers",
+                                        "_grace_timers", "_compromise_timers"])
+    assert ZONE in arr._reset_timers
+    assert ZONE not in arr._nudge_in_flight
+    assert not arr._override_active[ZONE] and not arr._compromise_active[ZONE]
+    assert ZONE not in arr._arrest_episode
+    assert not arr._borrow_gate_armed(ZONE)
+    assert len(hass.services.calls) == calls_before
+
+
+def test_fix_d_med1_arrester_reference_is_the_held_effective_range(mods, monkeypatch):
+    """D MED-1 (`_arrester_reference`): the ecobee zone is measured against
+    the range URA holds (shoulder Home 74/70 widened to the 5 °F gap ->
+    70/75; a stored S10 range wins); the Carrier zone keeps the Seasonal
+    Baseline exactly."""
+    coord, hass = _rig(mods, monkeypatch, season="shoulder")
+    res = coord._override_arrester._baseline_resolver
+    assert res(ZONE, "home") == ("home", 75.0, 70.0)
+    assert res(CAR_ZONE, "home") == ("home", 74.0, 70.0)
+    _eco(mods, hass)._ranges[(ENT, "home", "shoulder")] = (68.0, 76.0)
+    assert res(ZONE, "home") == ("home", 76.0, 68.0)
+    assert res(CAR_ZONE, "home") == ("home", 74.0, 70.0)
+
+
+@pytest.mark.asyncio
+async def test_fix_d_med1_startup_audit_measures_against_the_held_range(mods, monkeypatch):
+    """D MED-1 (startup audit): URA holds a stored 66/80 for home; the device
+    shows 70/77 (= the baseline). That is a 3-4 °F departure from URA's
+    range -> revert scheduled (the baseline would have read delta 0)."""
+    coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
+    arr = coord._override_arrester
+    eco = _eco(mods, hass)
+    eco._ranges[(ENT, "home", "summer")] = (66.0, 80.0)
+    eco._held[ENT] = ("home", 66.0, 80.0)
+    await arr.async_startup_audit(coord._preset_manager, "home_day")
+    await H.drain(hass)
+    assert arr._override_active.get(ZONE) is True
+    assert ZONE in arr._grace_timers
+    assert (arr._arrest_episode[ZONE]["expected_cool"],
+            arr._arrest_episode[ZONE]["expected_heat"]) == (80.0, 66.0)
+
+
+def test_fix_d_low1_unreadable_manufacturer_keeps_a_resolved_ecobee(mods, monkeypatch):
+    """D LOW-1: a None manufacturer (device registry miss) never downgrades
+    an entity already resolved to ecobee; a real different maker does."""
+    _reg, dreg = _install_registry(monkeypatch, mods)
+    S = _S(mods)
+    eco = S.strategy_for(None, ENT)
+    eco._held[ENT] = ("home", 70.0, 77.0)
+    dreg.devices.pop(DEV)
+    assert S.strategy_for(None, ENT) is eco
+    assert eco._held[ENT] == ("home", 70.0, 77.0)
+    assert S.drain_profile_switches() == []
+    dreg.devices[DEV] = types.SimpleNamespace(manufacturer="Honeywell")
+    assert type(S.strategy_for(None, ENT)) is S.GenericStrategy
+    assert S.drain_profile_switches() == [(ENT, "homekit_controller", "homekit_controller")]
+
+
+@pytest.mark.asyncio
+async def test_fix_c_stale_ecobee_after_settle_never_trips_the_reload_wire(mods, monkeypatch):
+    """C MED: a stale ecobee with a Carrier reload older than the settle
+    window — no trip-wire, the post-reload stale counter clears, and the
+    ecobee zone is never a qualifying zone."""
+    from datetime import timedelta
+    coord, hass, reloads, notes = _freshness_rig(mods, monkeypatch)
+    trips = []
+
+    async def _trip(**kw):
+        trips.append(kw)
+    monkeypatch.setattr(coord, "_trip_wire_carrier_reload_ineffective", _trip)
+    real_get = hass.states.get
+    monkeypatch.setattr(hass.states, "get",
+                        lambda e: _stale_state(e) if e == ENT else real_get(e))
+    settle = float(mods["hvac_const"].DEFAULT_HVAC_CARRIER_POST_RELOAD_SETTLE_S)
+    coord._last_carrier_reload_at = mods["hvac"].dt_util.utcnow() - timedelta(seconds=settle + 30)
+    coord._carrier_reload_suppressed_today = False
+    coord._carrier_stale_ticks_since_reload = 3
+    await coord._check_carrier_freshness()
+    assert trips == []
+    assert coord._carrier_stale_ticks_since_reload == 0
+    assert reloads == []
+    # Mixed: a stale Carrier zone qualifies ALONE (the trip-wire names it only).
+    coord.zone_manager.zones["zone_2"].climate_entity = CAR
+    monkeypatch.setattr(hass.states, "get",
+                        lambda e: _stale_state(e) if e in (ENT, CAR) else real_get(e))
+    await coord._check_carrier_freshness()
+    assert len(trips) == 1 and "qualifying_zones=['zone_2']" in trips[0]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_fix_a_m1_post_await_recheck_uses_the_thermostats_own_gap(mods, monkeypatch):
+    """A-M1, the post-await re-check site: at step 9 the 72/77 original
+    equals the would-write (5 °F gap) so nothing is captured; during the
+    write-ahead save the thermostat's gap becomes 2 °F, so the adapter would
+    now write 72/74 with no original saved — S10 must stand down (no
+    write, no record)."""
+    coord, hass = _rig(mods, monkeypatch, low=68.0, high=72.0)
+    S = _S(mods)
+    real = S._CTX.baseline
+    monkeypatch.setattr(
+        S._CTX, "baseline",
+        lambda p, season=None: (77.0, 72.0) if p == "home" else real(p, season),
+    )
+    coord._zone_state_store = H.FakeStore()
+    _rollout(coord, hass)
+    await _tick(coord, hass)
+    _set_eco(hass, low=72.0, high=77.0)
+    coord.zone_manager.update_zone_climate_state(ZONE)
+    coord._zones_written_this_cycle.clear()
+    coord.set_custom_ranges_enabled(True, source="user")
+    monkeypatch.setattr(coord, "_s10_desired",
+                        lambda z, p, e, o: ((72.0, 74.0), "preset_range_dpm"))
+    real_save = coord._s10_save_strict
+
+    async def _save_then_narrow():
+        coord.zone_manager.zones[ZONE].thermostat_min_delta_f = 2.0
+        await real_save()
+    monkeypatch.setattr(coord, "_s10_save_strict", _save_then_narrow)
+    n = len(_temp(hass))
+    await coord._async_apply_preset_overrides()
+    await H.drain(hass)
+    assert len(_temp(hass)) == n
+    assert ZONE not in coord._s10_snapshots
+    assert coord._s10_record(ZONE, "home", "apply") is None
+    assert _eco(mods, hass)._ranges == {}

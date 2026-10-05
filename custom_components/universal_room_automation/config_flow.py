@@ -10893,7 +10893,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # HVAC W1-C P2 (operator on-site check 2026-10-05): the
             # thermostat's own "Heat/Cool Min Delta" installer setting. A
             # range URA would send narrower than this is widened first
-            # (heat kept, cool raised). Advanced; default 5 °F.
+            # (heat kept, cool raised). Advanced; default 5 °F; 5–10 (fix
+            # D MED-2: below the device's own gap the unit would rewrite
+            # URA's range and every hold would read `manual`).
             vol.Optional(
                 CONF_HVAC_THERMOSTAT_MIN_DELTA_F,
                 default=float(_zmerged.get(
@@ -10906,7 +10908,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=2, max=10, step=1,
+                    min=5, max=10, step=1,
                     unit_of_measurement="°F",
                     mode=selector.NumberSelectorMode.BOX,
                 )
