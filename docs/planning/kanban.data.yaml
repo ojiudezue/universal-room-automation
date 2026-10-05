@@ -30720,6 +30720,7 @@ cards:
   tags: [tier-1, multi-home]
   why: 'A Wigton-side session reported URA deprecation warnings in the Wigton HA log that become hard failures in HA 2027.8-2027.9; it deliberately left URA untouched. Main-house system_log (2026-10-05) shows no deprecation entries, but boot-time warnings fall outside the 2000-line error_log window, so absence is not proven. Dev blog removals already announced for 2027.10: DeviceEntry.config_entries (enforced 2026-09-15), configurator, modbus get_hub.'
   next: 'ANSWER: paste the Wigton warning lines (or re-share the Wigton token) -> I map each to file:line, check the main house at next restart (capture boot log), and fix as one Tier-1 cycle well before 2027.8.'
+  found_2026_10_05: 'MAIN HOUSE log (docker logs since last restart) has ONE URA deprecation: "The deprecated function show_advanced_options was called from universal_room_automation. It will be removed in HA Core 2027.6." -> earlier than the 2027.8-9 window. Call sites: config_flow.py:1138, :4465, :4500 (shim context), :12974-12978 (getattr(self, "show_advanced_options")). Fix = stop reading the flag; show advanced fields via sections (HA guidance). Wigton warnings (2027.8-9) still unread: no access path (token gone).'
   sweep_2026_10_05: 'ADJACENT to AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1 (done; frame-walker artifact) and the via_device 2026.9 card (done). NEW: no open deprecation card.'
 - id: HA-TRUSTED-PROXIES-UI-MIGRATION-1
   title: "Verify HA's claimed YAML trusted_proxies -> UI settings migration before upgrading past 2026.9"

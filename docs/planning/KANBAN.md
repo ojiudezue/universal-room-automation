@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-05T00:20:09-05:00_ - _Data commit: `df88c55d8bfd`_ - _last_reconciled: 2026-10-03_
+_Generated: 2026-10-05T00:57:27-05:00_ - _Data commit: `dc52e3d5c53a`_ - _last_reconciled: 2026-10-03_
 
 
 ## Columns
@@ -69,7 +69,8 @@ _created 2026-10-05_
 - **Why:** A Wigton-side session reported URA deprecation warnings in the Wigton HA log that become hard failures in HA 2027.8-2027.9; it deliberately left URA untouched. Main-house system_log (2026-10-05) shows no deprecation entries, but boot-tim...
 - **Next:** ANSWER: paste the Wigton warning lines (or re-share the Wigton token) -> I map each to file:line, check the main house at next restart (capture boot log), and fix as one Tier-1 cycle well before 2027.8.
 - **Tags:** tier-1, multi-home
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `found_2026_10_05`: MAIN HOUSE log (docker logs since last restart) has ONE URA deprecation: "The deprecated function show_advanced_options was called from universal_room_automation. It will be removed in HA Core 2027.6." -> earlier than the 2027.8-9 window...
   - `sweep_2026_10_05`: ADJACENT to AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1 (done; frame-walker artifact) and the via_device 2026.9 card (done). NEW: no open deprecation card.
 
 ### `ENVOY-STREAM-AB-48H-1` - Envoy MQTT stream re-enabled for a 48 h A/B (does it load the Envoy, and does it give a trustworthy local SOC during dropouts?) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
