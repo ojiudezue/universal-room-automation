@@ -1239,3 +1239,8 @@ suite's hard NO-GO (single-leg intermediate) needs either an accepted per-unit m
 writes to each unit's measured minimum before sending) or a re-run proving the intermediate was a one-off. All four
 require either an operator physically at a Wigton thermostat/app, or a design change that avoids needing G5/G6
 read from a human. Build of P2 (D1-D6) stays blocked per the runbook until this resolves.
+
+## Operator on-site check 2026-10-05 16:07 (Wigton, photos)
+- **Heat/Cool Min Delta = 5°F on Upstairs AND Master suite** (Installation Settings → Thresholds). **Auto Heat/Cool = Enabled** on both. Downstairs not checked; assume the same (ecobee default). Operator's skepticism confirmed: the gap is a per-unit installer setting at the same value, not a per-unit hardware difference. The supervised probe's "upstairs/downstairs accept 2°F" reading is therefore suspect (device likely widened silently or the write landed outside auto) — do NOT design per-unit learning. **Ruling:** adapter enforces a configured min delta, default 5°F, operator-overridable per thermostat; any range write narrower than that is widened by the adapter before sending (never sent as-is).
+- Hold UX: a URA/HA write shows **"70 - 77 | Holding ⊗"** (auto mode, both setpoints). Cancelling the hold (⊗) returns to the schedule: Cool, single setpoint **75** (Current Mode then reads the schedule's comfort setting, consistent with the Clear-Hold probe result).
+- Wall setpoint change: scroll wheel on the unit creates a hold the same way (operator photo).
