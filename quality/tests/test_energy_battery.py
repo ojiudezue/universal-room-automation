@@ -2791,21 +2791,44 @@ class TestV5175DegradedEntryGuard:
 
     def test_continuing_charge_allowed_on_degraded_telemetry(self):
         """Anchor: an ALREADY-latched (CFG already ON) off_peak charge
-        may continue on degraded telemetry — releasing mid-charge is
-        symmetric harm. Emits no new turn_on (idempotent) but does NOT
-        emit turn_off either.
+        may continue on degraded telemetry when the SOC tier is TRUSTED
+        (LKG) — releasing mid-charge is symmetric harm. Emits no new
+        turn_on (idempotent) and no turn_off.
+
+        EC-DEGRADED-DATA-POLICY-1 D3 (PLANNING_ec_degraded_data_phase1.md)
+        deliberately SUPERSEDES the v5.17.5 behaviour on the
+        `cloud_fallback` tier: cloud SOC is never the sole basis for a
+        grid charge, so the same latched charge on a cloud-only tick IS
+        stood down (turn_off + `charge_from_grid=False`).
         """
+        from homeassistant.util import dt as dt_util
+        # Trusted degraded tier: LKG (fresh) with the Envoy blind.
         h = self._make_blind_fallback()
+        h.strategy._soc_lkg = 15.0
+        h.strategy._soc_lkg_at = dt_util.utcnow()
         h.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
         r = h.strategy.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
         )
+        assert h.strategy._tick_soc_source == "lkg"
         turn_offs = [
             a for a in r["actions"]
             if a.get("service") == "switch.turn_off"
         ]
         assert turn_offs == [], (
-            "continuing charge must not be released on degraded telemetry"
+            "continuing charge must not be released on a trusted degraded tier"
+        )
+        # Cloud-only tier: the D3 chokepoint stands the charge down.
+        h2 = self._make_blind_fallback()
+        h2.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        r2 = h2.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert h2.strategy._tick_soc_source == "cloud_fallback"
+        assert r2["charge_from_grid"] is False
+        assert "grid charge withheld: cloud-only battery reading" in r2["reason"]
+        assert any(
+            a.get("service") == "switch.turn_off" for a in r2["actions"]
         )
 
 

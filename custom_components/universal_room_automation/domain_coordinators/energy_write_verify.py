@@ -63,6 +63,12 @@ STATUS_UNIT_MISMATCH = "unit_mismatch"
 # A fresh schedule() on the same surface replaces the record wholesale
 # and revives it normally.
 STATUS_STALE = "stale"
+# EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 B2 (A2) — the service call itself
+# RAISED (e.g. enphase_ev `ServiceValidationError`
+# `charge_from_grid_toggle_not_applied` / `battery_settings_update_debounced`,
+# Retry-After backoff, auth). Not STATUS_OK, so `is_reserve_verifiable`
+# reads False with no code change there.
+STATUS_DISPATCH_FAILED = "dispatch_failed"
 
 
 def _normalize_percent(
@@ -178,6 +184,10 @@ class WriteVerifier:
         # anomaly + fire NM, and only retry at a 6-cycle backoff.
         self._unavailable_consecutive: dict[str, int] = {}
         self._unavailable_backoff_ticks: dict[str, int] = {}
+        # B2 (A4) — rolling per-surface dispatch stamps for the churn
+        # trip-wire + per-surface ISO-date latch (one alarm per day).
+        self._dispatch_stamps: dict[str, list[datetime]] = {}
+        self._churn_alarm_date: dict[str, str] = {}
 
         # ─── v5.19.0 behavioral write-verify state ────────────────────
         # D1 CONDUCT — reserve-surface only. Consecutive-tick counter,
@@ -1187,6 +1197,105 @@ class WriteVerifier:
                 await database.save_anomaly_event(event)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("_emit_anomaly failed (swallowed)", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # B2 — dispatch outcome + write churn (called from the energy.py tap)
+    # ------------------------------------------------------------------
+    async def record_dispatch_failed(
+        self,
+        surface: str,
+        commanded_value: Any,
+        service: str,
+        exc_type: Optional[str],
+        translation_key: Optional[str],
+    ) -> None:
+        """I-R1: a battery-surface service call RAISED. Record status
+        ``dispatch_failed``, emit one ``battery_write_failed`` anomaly per
+        failure, and page once per surface per day (severity high).
+        Never raises; never actuates (W-6)."""
+        try:
+            rec = self._records.get(surface)
+            if rec is None:
+                rec = _VerifyRecord()
+                self._records[surface] = rec
+            rec.commanded = commanded_value
+            rec.oracle_seen = None
+            rec.verified_at = dt_util.utcnow().isoformat()
+            rec.status = STATUS_DISPATCH_FAILED
+            rec.restored = False
+            await self._emit_anomaly(
+                surface,
+                "battery_write_failed",
+                {
+                    "commanded": commanded_value,
+                    "service": service,
+                    "exception": exc_type,
+                    "translation_key": translation_key,
+                    "severity_class": "ALERT",
+                },
+            )
+            detail = translation_key or exc_type or "error"
+            await self._maybe_fire_nm(
+                surface,
+                title=f"Battery command failed: {surface}",
+                message=(
+                    f"URA sent {surface}={commanded_value!r} but the "
+                    f"Enphase service call failed ({detail}). The battery "
+                    "may not have changed. URA keeps treating the command "
+                    "as intended, so EV charging stays paused where needed."
+                ),
+                alert_type="dispatch_failed",
+                severity="high",
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("record_dispatch_failed raised (swallowed)", exc_info=True)
+
+    async def note_dispatch(
+        self, surface: str, now: Optional[datetime] = None,
+    ) -> None:
+        """I-R4: count one dispatched write on ``surface``. Above
+        ``DEFAULT_BATTERY_WRITE_CHURN_MAX_PER_H`` in the rolling window →
+        one anomaly + one NM per surface per day. Alert only."""
+        try:
+            from . import energy_const as _ec  # noqa: PLC0415
+            max_n = int(getattr(_ec, "DEFAULT_BATTERY_WRITE_CHURN_MAX_PER_H", 0))
+            if max_n <= 0:
+                return
+            window_s = int(getattr(_ec, "BATTERY_WRITE_CHURN_WINDOW_S", 3600))
+            now = now or dt_util.utcnow()
+            arr = self._dispatch_stamps.setdefault(surface, [])
+            arr.append(now)
+            cutoff = now - timedelta(seconds=window_s)
+            arr[:] = [t for t in arr if t > cutoff]
+            if len(arr) <= max_n:
+                return
+            today = now.date().isoformat()
+            if self._churn_alarm_date.get(surface) == today:
+                return
+            self._churn_alarm_date[surface] = today
+            await self._emit_anomaly(
+                surface,
+                "battery_write_churn",
+                {
+                    "writes_in_window": len(arr),
+                    "window_s": window_s,
+                    "max_per_window": max_n,
+                    "severity_class": "ALERT",
+                },
+            )
+            await self._maybe_fire_nm(
+                surface,
+                title=f"Battery command churn: {surface}",
+                message=(
+                    f"URA sent {len(arr)} {surface} commands in the last "
+                    f"{window_s // 60} min (limit {max_n}). Enphase may "
+                    "start rejecting battery commands."
+                ),
+                alert_type="write_churn",
+                severity="high",
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("note_dispatch raised (swallowed)", exc_info=True)
 
     async def _maybe_fire_nm(
         self, surface: str, title: str, message: str,

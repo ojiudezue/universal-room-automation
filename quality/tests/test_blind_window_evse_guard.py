@@ -1467,31 +1467,50 @@ def test_D_HIGH_2_liveness_helper_semantics_pressure_overrides_envelope():
 
 
 def test_D_HIGH_2_dp_must_start_by_site_routes_through_helper():
-    """Source-anchored proof that `_apply_dp_must_start_release` now
-    routes through the liveness helper BEFORE the turn_on can fire.
+    """Behavioural proof that `_apply_dp_must_start_release` routes
+    through the liveness helper BEFORE the turn_on can fire.
     Batch 2 marked this the sole exempt site; Batch 4 closes the
     exemption by routing it through the helper.
+
+    EC-DEGRADED-DATA-POLICY-1: converted from a source-text window grep
+    (Bug Class #62 — the D2c predicate grew the method past the window)
+    to driving the REAL method and recording the call order.
     """
-    src_path = _os.path.join(
-        _os.path.dirname(__file__), "..", "..", "custom_components",
-        "universal_room_automation", "domain_coordinators", "energy.py",
+    from custom_components.universal_room_automation.domain_coordinators.energy import (
+        EnergyCoordinator,
     )
-    with open(src_path) as f:
-        src = f.read()
-    idx = src.find("def _apply_dp_must_start_release(")
-    assert idx != -1, "must-start-by helper missing"
-    body = src[idx: idx + 6000]
-    # Helper call precedes the turn_on dispatch.
-    call_idx = body.find("blind_window_liveness_release(")
-    turn_on_idx = body.find('"switch", "turn_on"')
-    assert call_idx != -1, "must-start-by site does NOT call liveness helper"
-    assert turn_on_idx != -1, "must-start-by turn_on dispatch missing"
-    assert call_idx < turn_on_idx, (
-        "liveness helper must be called BEFORE the turn_on dispatch — "
-        "regression opens the silent ensure-on bug"
+    order: list = []
+    ev = _make_ev(evse_on=False)
+    ev._paused_by_dp.add("garage_a")
+    hass = ev.hass
+
+    def _async_call(domain, service, data, blocking=False):
+        order.append(("svc", domain, service, data.get("entity_id")))
+        return None
+
+    hass.services = SimpleNamespace(async_call=_async_call)
+    hass.async_create_task = lambda c: None
+
+    def _liveness(evse_id, reason, has_pressure=False):
+        order.append(("helper", evse_id, reason, has_pressure))
+        return True
+
+    fake = SimpleNamespace(
+        hass=hass, _ev=ev, _dp_decision_soc=None,
+        blind_window_liveness_release=_liveness,
+        _cancel_dp_must_start_by_timer=lambda: None,
+        _cfg_breaker_blocks_ev_start=lambda: False,
+        # Review D D-HIGH-1: the release's shared EV-start gate.
+        _ev_start_hold_label=lambda **kw: None,
+        _soc_untrusted_from_battery=lambda: False,
+        _report_must_start_by_held=lambda held: order.append(("held", held)),
     )
-    assert 'reason="dp_must_start_by"' in body
-    assert "has_pressure=True" in body
+    EnergyCoordinator._apply_dp_must_start_release(fake, tou_period="off_peak")
+    assert ("helper", "garage_a", "dp_must_start_by", True) in order, order
+    assert ("svc", "switch", "turn_on", "switch.garage_a") in order, order
+    assert order.index(("helper", "garage_a", "dp_must_start_by", True)) < (
+        order.index(("svc", "switch", "turn_on", "switch.garage_a"))
+    ), "liveness helper must be called BEFORE the turn_on dispatch"
 
 
 # ---------------------------------------------------------------------------

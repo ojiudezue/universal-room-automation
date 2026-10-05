@@ -326,6 +326,51 @@ DEFAULT_SOC_LKG_MAX_AGE_S: Final = 300
 DEFAULT_SOC_CLOUD_FALLBACK_MAX_AGE_S: Final = 600
 DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT: Final = 3
 
+# ---------------------------------------------------------------------------
+# EC-DEGRADED-DATA-POLICY-1 Phase 1 (PLANNING_ec_degraded_data_phase1.md).
+# ---------------------------------------------------------------------------
+# D1 — local MQTT stream SOC tier (between native Envoy and LKG).
+# Rung-1 kill switch: a trust decision on a breaker-safety input; flipping it
+# must be reviewed. False = today's resolver (envoy → LKG → cloud), byte-
+# identical. Ships DORMANT (operator Q1); flipped only on the D0 A/B GO.
+SOC_STREAM_TIER_ENABLED: Final = False
+# Rung-2 (config flow, per-deployment wiring). Unset = tier off. No house-
+# specific default: a second install without a stream degrades to today.
+CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY: Final = "energy_stream_battery_soc_entity"
+# Rung-2. A fast-changing sibling stream entity (e.g. stream grid power)
+# proving the producer is alive. MANDATORY when DEFAULT_SOC_STREAM_MAX_AGE_S
+# is 0 (freshness mode "b"); optional otherwise.
+CONF_ENERGY_STREAM_COWITNESS_ENTITY: Final = "energy_stream_cowitness_entity"
+# Rung-1 protocol window. > 0 = freshness mode "a" (stream `last_reported`
+# age must be <= this); 0 = mode "b" (rely on the MQTT `expire_after`
+# contract + a mandatory co-witness). Pending the D0-S1 measurement; ships
+# at 0 (the fail-closed mode — the tier refuses without a co-witness).
+DEFAULT_SOC_STREAM_MAX_AGE_S: Final = 0
+# Rung-1 protocol window: the co-witness must have CHANGED (last_updated)
+# within this many seconds (~2x the producer's expire_after of 60 s).
+DEFAULT_SOC_STREAM_COWITNESS_MAX_AGE_S: Final = 120
+# Rung-1 anti-flap count: consecutive compared samples beyond the divergence
+# threshold (REUSED DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT) that quarantine the
+# stream, and consecutive agreeing samples that restore trust.
+DEFAULT_SOC_STREAM_QUARANTINE_TICKS: Final = 2
+# Rung-1 (plan review #2 R2-5): a compared sample counts only if it is at
+# least this many seconds after the previous compared sample, so two
+# back-to-back `get_status` renders cannot satisfy "2 samples".
+DEFAULT_SOC_STREAM_COMPARE_MIN_SPACING_S: Final = 60
+# D2a — rung-1 (plan review #1 C1-3: its OWN kill switch, decoupled from the
+# blind-window guard's CONF_BLIND_WINDOW_MAX_DEFER_MIN). How long an
+# arbitrage-held EVSE stays held on untrusted-SOC ticks before release is
+# allowed — and then ONLY when charge-from-grid is provably off.
+# Kill switch: <= 0 disables the untrusted-tier release refusal entirely.
+DEFAULT_ARB_RELEASE_UNTRUSTED_MAX_DEFER_MIN: Final = 60
+# D4 — rung-1 (operator Q4: code constant). Page the operator when the SOC
+# tier has been untrusted this close to a higher-rate boundary.
+# Kill switch: <= 0 never pages.
+DEFAULT_SOC_UNTRUSTED_PAGE_LEAD_MIN: Final = 90
+# D4 — rung-1 alert debounce (wall clock, not ticks). Filters the 66% of
+# Envoy outages shorter than 2 min. 0 = page on the first untrusted tick.
+DEFAULT_SOC_UNTRUSTED_PAGE_DWELL_MIN: Final = 10
+
 # ENVOY-PRODUCTION-STALE-1 (Rev 5, clean-core fix-up 3) — shared power-read
 # staleness thresholds consumed by BatteryStrategy._read_fresh_* wrappers
 # (D2-A battery_soc, D3 solar, D4-D battery_power) AND by
@@ -477,6 +522,70 @@ CONF_PENDING_WATCHDOG_ENABLED: Final = True
 # reversion sweep (see energy_write_verify.py:_sweep_surface). Not exposed
 # in config flow — operator directive: "rip off the band aid".
 ENERGY_CLOUD_FIRST_WRITES: Final = True
+
+# EC-ENPHASE-CONNECTIVITY-RESILIENCE-1 B2 (A4) — battery write-churn
+# trip-wire. More than this many dispatched writes to ONE battery surface
+# (reserve / charge_from_grid / storage_mode) inside a rolling window →
+# one anomaly + one NM per surface per day. Alert only; no behaviour
+# change. Rung 1 (an alert threshold against an external API's rate
+# limits — review-gated). 12/h set from probe P3 (2026-10-04): measured
+# peak CFG 5/h, reserve 9/h. Alarm fires at the 13th write in the window.
+# `<= 0` = trip-wire off.
+DEFAULT_BATTERY_WRITE_CHURN_MAX_PER_H: Final = 12
+# Rolling window for the churn count (s). Rung 1 (protocol window).
+BATTERY_WRITE_CHURN_WINDOW_S: Final = 3600
+
+# B5 (resilience A3, probe P3 GO 2026-10-04) — a cloud charge-from-grid
+# `off` read counts as OFF for the phase-1 predicates (D2a provably-off,
+# D2c start block) only when the cloud settings readback
+# (`_read_cloud_settings_max_age_s`) is at most this old. Older (or no
+# readable cloud setting) → the `off` is treated as UNKNOWN (D2b rule).
+# Rung 1 (trust bound on a safety input). `<= 0` = gate off (today's
+# behaviour: any `off` is believed).
+DEFAULT_CFG_OFF_READ_MAX_AGE_S: Final = 300
+
+# Review A M3 — the enphase_ev integration's own "last successful cloud
+# update" timestamp sensor. enphase_ev only advances it on a NON-stale
+# refresh (`coordinator.py` `_record_status_refresh_success`: guarded by
+# `not context.status_used_stale`), whereas the settings entities'
+# `last_reported` also advances when the integration re-serves cached /
+# fallback data (`return fallback_data` on scheduler-unavailable). B5 reads
+# this first; when the entity does not exist on this install it falls back
+# to the settings-entity age (multi-home). House-specific default, same
+# posture as the DEFAULT_CLOUD_* oracles. Probe P3 confirmed the id live.
+DEFAULT_CLOUD_LAST_SUCCESS_ENTITY: Final = (
+    "sensor.enphase_cloud_last_successful_update"
+)
+
+# Review B MED / D-MED-4 — a persisted charge-from-grid command-ledger
+# entry (`wv_commanded_ledger`) whose `commanded_at` is older than this is
+# NOT restored at boot. The KV row is re-saved every 15 min, so the row age
+# gate alone never expires a days-old `True`; a stale `True` would then
+# hold EVs breaker-paused (D2b) after every restart. Rung 1 (restart-safety
+# bound; review-gated). `<= 0` = always restore (pre-fix behaviour).
+CFG_LEDGER_RESTORE_MAX_AGE_H: Final = 12
+
+# Review D D-HIGH-1 — scope of the untrusted-SOC EV turn-on refusal.
+# "arbitrage_release" = only the D2a arbitrage release refuses on an
+# untrusted SOC tier. "all" (OPERATOR RULING 2026-10-04) = EVERY L2 EVSE and
+# L1 plug turn-on refuses while the tick's SOC verdict is untrusted: DP
+# reversion + must-start-by (`_ev_start_hold_label`), and in energy_pool via
+# `_soc_untrusted_start_refused`: off-peak ensure-on (TOU-pause end),
+# excess-solar, drain release, fill-priority release, grid-cap release,
+# release_all_{tou,fill_priority,grid_cap}, load-shed restore. Kill switch:
+# set back to "arbitrage_release". Rung 1 (trust decision on a safety input).
+EV_UNTRUSTED_SOC_START_REFUSAL_SCOPE: Final = "all"
+
+# Operator ruling 2026-10-04 (option 1): turn-on paths EXEMPT from the
+# untrusted-SOC refusal above — the off-peak ensure-on (L2 + L1; TOU-pause
+# end / overnight start) and should-start-by (must-start-by) deadline starts
+# proceed under an untrusted SOC (car-charge liveness outranks the SOC
+# doubt). Every OTHER gate on them (CFG breaker / grid_charge_on /
+# `_ev_start_hold_label` grid leg / arbitrage / blind-window / drain holds)
+# still applies. Empty set = refuse on every path. Rung 1 (trust decision).
+EV_UNTRUSTED_SOC_EXEMPT_PATHS: Final = frozenset(
+    {"offpeak_ensure_on", "should_start_by"}
+)
 
 # ============================================================================
 # Inclement-weather detection + TOU/solar-horizon-aware battery hold

@@ -5892,6 +5892,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
             CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
             CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            # EC-DEGRADED-DATA-POLICY-1 D1 — optional stream tier wiring.
+            CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
+            CONF_ENERGY_STREAM_COWITNESS_ENTITY,
             DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
             DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
             DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
@@ -5975,6 +5978,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
                     CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
                     CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                    # EC-DEGRADED-DATA-POLICY-1 D1 stream tier fields.
+                    CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
+                    CONF_ENERGY_STREAM_COWITNESS_ENTITY,
                     # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) —
                     # D2 detection knobs live in the same section.
                     CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP,
@@ -7013,6 +7019,29 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         "suggested_value": self._get_current(
                             CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
                             DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                        ),
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                # EC-DEGRADED-DATA-POLICY-1 D1 — optional, NO default (a
+                # second install without a stream degrades to today's
+                # resolver). Tier is also gated by SOC_STREAM_TIER_ENABLED.
+                vol.Optional(
+                    CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY, None,
+                        ),
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(
+                    CONF_ENERGY_STREAM_COWITNESS_ENTITY,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_STREAM_COWITNESS_ENTITY, None,
                         ),
                     },
                 ): selector.EntitySelector(
