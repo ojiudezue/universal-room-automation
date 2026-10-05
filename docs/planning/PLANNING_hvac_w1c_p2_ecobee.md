@@ -1244,3 +1244,55 @@ read from a human. Build of P2 (D1-D6) stays blocked per the runbook until this 
 - **Heat/Cool Min Delta = 5°F on Upstairs AND Master suite** (Installation Settings → Thresholds). **Auto Heat/Cool = Enabled** on both. Downstairs not checked; assume the same (ecobee default). Operator's skepticism confirmed: the gap is a per-unit installer setting at the same value, not a per-unit hardware difference. The supervised probe's "upstairs/downstairs accept 2°F" reading is therefore suspect (device likely widened silently or the write landed outside auto) — do NOT design per-unit learning. **Ruling:** adapter enforces a configured min delta, default 5°F, operator-overridable per thermostat; any range write narrower than that is widened by the adapter before sending (never sent as-is).
 - Hold UX: a URA/HA write shows **"70 - 77 | Holding ⊗"** (auto mode, both setpoints). Cancelling the hold (⊗) returns to the schedule: Cool, single setpoint **75** (Current Mode then reads the schedule's comfort setting, consistent with the Clear-Hold probe result).
 - Wall setpoint change: scroll wheel on the unit creates a hold the same way (operator photo).
+
+## Builder notes (2026-10-05, branch `feature/hvac-w1c-p2-ecobee`) — where the build decided what the plan left open
+
+Read-first attestation: `HVAC_ARCHITECTURE_STATE_OF_PLAY.md` read completely; nothing in its §10 is re-asserted.
+Base: develop `19fc48b8a` (Batch C already merged, so P2 adds the ecobee half of `set_preset_range` per §4.9).
+
+- **B1 — Current Mode select is READ-only, and only off heat_cool.** The D0b discovery note ("adapter verb =
+  `select_option`; `preset_of()` must read the select") conflicts with REV 3 (hold = URA's effective RANGE, INV-E2: no
+  non-`climate` service; native comfort holds PARKED §3) and with the parent plan REV 3.2 ruling ("ecobee holds use
+  SETPOINTS, not the Current Mode select … unreliable, stuck reporting home", HA core #84399 / #85715). HA source
+  (`homekit_controller/select.py` `EcobeeModeSelect.async_select_option`) confirms a select writes
+  `VENDOR_ECOBEE_SET_HOLD_SCHEDULE` = a hold to the DEVICE's comfort setpoints, which would discard URA's ranges and CPR.
+  Built: never `select_option`; the select (translation_key `ecobee_mode`) is consulted only when the unit is off
+  heat_cool AND URA holds nothing for it; `unknown` / `unavailable` = unreadable, never Away. In heat_cool an
+  unexplained range reads `manual` whatever the select says (a stale select must not hide a person's range).
+  **Operator question:** confirm select_option stays out (recommended).
+- **B2 — Clear Hold is never pressed.** `release_hold` keeps REV 3's `FAILED("no_device_hold_release")` (no caller).
+  D0b quirk 12: a bare Clear Hold hands the unit to its own schedule at once.
+- **B3 — Humidity cap 50 %: nothing to absorb.** URA sends no humidity command to any thermostat (non-goal §9); no
+  knob added for a value nothing consumes.
+- **B4 — Min delta (operator on-site ruling).** Zone → Thermostat Advanced field `hvac_thermostat_min_delta_f`
+  (rung 2, NumberSelector 2–10 °F, default 5), in `MIRROR_KEYS_ZONE_HVAC` (a property of the thermostat); two house
+  zones on one thermostat take the wider value. The adapter rounds whole degrees half up, then raises cool to
+  `heat + gap` (heat kept). No learning. `preset_range_would_write(low, high)` (S10 calls it positionally) uses the
+  default gap when no entity is passed — a differing original is then captured (fail-safe direction).
+- **B5 — Mechanism (i) chosen** (§4.2, PR2-5): any range verb DEFERs (zero calls) unless the LIVE mode is heat_cool;
+  no funnel change. An S4 revert whose non-blocking B4 mode write has not landed defers its pin; the next S1 tick
+  re-holds (test `test_s4_pin_deferred_in_cool_is_repaired_by_the_next_s1_tick`).
+- **B6 — INV-R needed one S1 hook the plan did not list (C35).** S1 never calls `hold_preset` for a zone that already
+  reads its target (`should_change_preset` returns False on equality; the vacancy path `continue`s on `Already away`),
+  so the planned no-op third clause alone could never rewrite a stale range. Built: `strategy.hold_needs_reassert`
+  consulted at exactly those two skips (`_w1c_needs_reassert`, `hvac.py`); Carrier/Generic return False (byte-
+  identical); ecobee returns True when the live mode is not heat_cool or the legs differ from `effective_range`.
+- **B7 — F4 + §4.11 share one episode map** (`_s1_strategy_episode`): capability FAILEDs and non-gate DEFERREDs give
+  one INFO per (zone, reason) per boot and one `preset_change_deferred` row per episode (a different reason opens a
+  new episode); APPLIED / SKIPPED close it. The only Carrier-golden delta is `A1_S1|failed_no_presets` (row + the
+  rolled-back suppress stamp), applied by a named transform in `test_hvac_w1c_p1_byte_identity.py`; the golden file is
+  not regenerated. Confirmed: every Carrier DEFERRED is `gate_deferred` (no second exception).
+- **B8 — `set_preset_range` wire exception → `FAILED("emit_raised")`** (not propagated): S10 counts failures/latch on
+  that reason (Batch C REV 5 F1), as Carrier does.
+- **B9 — pending persisted slices live in `hvac_strategy`** (`_PENDING_ADAPTER_STATE`), not HC: the hand-over happens
+  at resolution inside `strategy_for`. Behaviour as RR3-2 specifies (kept verbatim, re-exported, never erased).
+- **B10 — `strategy_for_platform` kept, refuses `homekit_controller`** (zero production callers; a P1 test uses it).
+- **B11 — R8–R13:** R8 (AC-reset restore target) and R10 (nudge snapshot) have behavioural anchors; R9 / R11 / R12 /
+  R13 are telemetry-only and are pinned by the raw-read AST lint (reverting any one turns
+  `test_no_raw_thermostat_preset_read_outside_strategy` RED).
+- **B12 — R15 touches `begin_excursion`** (one read, listed in §5); nothing else in borrow code or the funnels changed
+  (`hvac_setpoint.py` untouched).
+- **Not built (reported, not dropped):** `zone_thermostat_profile` override field (Q2 unanswered; §4.1 "if kept");
+  the "undispatchable while D0b constants are None → Generic + Repair" path (constants are measured, so it is
+  unreachable); README `README_v5.103.x.md` (version not assigned; deploy is the orchestrator's); full INV-P harness
+  (paired Carrier/ecobee scenarios built for the wall change and echo cases, not a field-by-field trace engine).

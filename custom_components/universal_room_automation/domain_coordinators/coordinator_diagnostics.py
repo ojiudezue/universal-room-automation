@@ -35,6 +35,13 @@ from ..const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 
+def _w1c_preset_of(hass: Any, state: Any, default: Any, entity_id: Any = None) -> Any:
+    """W1-C P2 R16: the thermostat profile's projection of ``preset_mode``
+    (Carrier / Generic: the raw attribute verbatim)."""
+    from .hvac_strategy import preset_of_for  # noqa: PLC0415
+    return preset_of_for(hass, entity_id or getattr(state, "entity_id", None), state, default)
+
+
 # ============================================================================
 # Enums
 # ============================================================================
@@ -572,7 +579,8 @@ class ComplianceTracker:
         if device_type == "climate":
             return {
                 "hvac_mode": state.state,
-                "preset_mode": state.attributes.get("preset_mode"),
+                # W1-C P2 R16: the thermostat profile's projection.
+                "preset_mode": _w1c_preset_of(self.hass, state, None),
                 "target_temp_high": state.attributes.get("target_temp_high"),
                 "target_temp_low": state.attributes.get("target_temp_low"),
             }
@@ -597,7 +605,7 @@ class ComplianceTracker:
                 from .hvac_strategy import is_manual_hold_for  # noqa: PLC0415
 
                 if is_manual_hold_for(
-                    self.hass, device_id, state.attributes.get("preset_mode"),
+                    self.hass, device_id, _w1c_preset_of(self.hass, state, None, device_id),
                 ):
                     return "thermostat_manual"
         return "unknown"
