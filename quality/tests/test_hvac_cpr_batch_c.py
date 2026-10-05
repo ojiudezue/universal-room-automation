@@ -596,6 +596,20 @@ async def test_s10_skip_matrix(mods, monkeypatch, case):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("preset", ["wake", "manual"])
+async def test_s10_never_edits_wake_or_manual_even_with_a_baseline(mods, monkeypatch, preset):
+    """Step 6 (§12 "no wake preset"): only home/sleep/away/vacation are
+    edited, even if a baseline table ever names another preset."""
+    r = _rig(mods, monkeypatch)
+    monkeypatch.setattr(r.coord._preset_manager, "get_seasonal_setpoints",
+                        lambda p, season=None: (74.0, 70.0))
+    r.coord.zone_manager.zones[Z1].preset_mode = preset
+    r.view(preset=preset)
+    await r.tick()
+    assert r.pr_calls() == []
+
+
+@pytest.mark.asyncio
 async def test_s10_defers_when_climate_unreadable(mods, monkeypatch):
     """Step 0.5: zero calls, zero snapshot, and S10 opens NO second outage
     episode (the Batch D helper's one row only)."""
@@ -690,6 +704,42 @@ async def test_s10_comfort_gate_defers_then_fires(mods, monkeypatch):
     r.clock.advance(600)
     await r.tick()
     assert len(r.pr_calls()) == 1
+
+
+@pytest.mark.asyncio
+async def test_s10_deferred_consumes_rate_clock(mods, monkeypatch):
+    """REV 5 F1: DEFERRED consumes the rate clock (the attempt stamp is
+    kept): once the deferral clears, a retry inside the 600 s spacing makes
+    no call (599 s literal) and the next one at 600 s does."""
+    r = _rig(mods, monkeypatch)
+    monkeypatch.setattr(r.arr, "comfort_delay_active", lambda zid: zid == Z1)
+    await r.tick()
+    monkeypatch.setattr(r.arr, "comfort_delay_active", lambda zid: False)
+    r.clock.advance(599)
+    await r.tick()
+    assert r.pr_calls() == []
+    assert r.coord._s10_records[Z1]["home|apply"]["failures"] == 0
+    r.clock.advance(1)
+    await r.tick()
+    assert len(r.pr_calls()) == 1
+
+
+@pytest.mark.asyncio
+async def test_s10_possible_wrong_profile_logs_row(mods, monkeypatch):
+    """P6 at S10: the status activity moves under the wire call -> APPLIED
+    flagged, one `s10_possible_wrong_profile` row, the write still counts."""
+    r = _rig(mods, monkeypatch)
+    orig = r.hass.services.async_call
+
+    async def _svc(domain, service, data=None, blocking=False, **kw):
+        out = await orig(domain, service, data, blocking=blocking, **kw)
+        if domain == "ha_carrier":
+            r.view(preset="sleep")
+        return out
+    r.hass.services.async_call = _svc
+    await r.tick()
+    assert len(r.ledger("s10_possible_wrong_profile")) == 1
+    assert r.coord._s10_records[Z1]["home|apply"]["writes"] == 1
 
 
 @pytest.mark.asyncio
@@ -878,6 +928,51 @@ async def test_s10_extreme_dpm_high_below_heat_deadband_clamped(mods, monkeypatc
     assert r.coord._s10_records[Z1]["home|apply"]["value"] == [70.0, 72.0]
 
 
+@pytest.mark.asyncio
+async def test_s10_extreme_freeze_floor_and_dpm_high_below_floor(mods, monkeypatch):
+    """Config extreme (two guards at once): winter Home heat 45 with freeze
+    active AND a DPM cool_high 49 -> low raised to the 50 F floor, high
+    raised to 52 (floor + 2 F MIN_DEADBAND); the record holds what is
+    written."""
+    r = _rig(mods, monkeypatch, season="winter")
+    r.cm.options = {**r.cm.options, "hvac_baseline_winter_home_cool": 72,
+                    "hvac_baseline_winter_home_heat": 45}
+    r.overrides[Z1] = [_dpm(Z1, "home", 49.0)]
+    r.coord._freeze_active = True
+    await r.tick()
+    assert r.pr_calls() == [{"entity_id": E1, "target_temp_low": 50.0, "target_temp_high": 52.0}]
+    assert r.coord._s10_records[Z1]["home|apply"]["value"] == [50.0, 52.0]
+
+
+@pytest.mark.asyncio
+async def test_s10_value_change_discharges_latch(mods, monkeypatch):
+    """A latched (zone, preset) re-opens on a value change (subject to the
+    600 s spacing) — the documented discharge besides a user toggle."""
+    r = _rig(mods, monkeypatch)
+    for _ in range(4):
+        await r.tick()
+        r.clock.advance(7800)
+    assert r.coord._s10_records[Z1]["home|apply"]["latched"] is True
+    n = len(r.pr_calls())
+    r.overrides[Z1] = [_dpm(Z1, "home", 75.0)]
+    await r.tick()
+    assert len(r.pr_calls()) == n + 1
+    assert r.coord._s10_records[Z1]["home|apply"]["latched"] is False
+
+
+@pytest.mark.asyncio
+async def test_s10_zero_calls_once_view_matches_steady_state(mods, monkeypatch):
+    """INV-CPR-REV5 clause 2: after the device holds the range, 12 more
+    ticks (incl. past the 130-min retry) make ZERO wire calls."""
+    r = _rig(mods, monkeypatch)
+    await r.tick()
+    r.view(low=70.0, high=74.0)
+    for _ in range(12):
+        r.clock.advance(1800)
+        await r.tick()
+    assert len(r.pr_calls()) == 1
+
+
 # ==========================================================================
 # D3b — originals: capture, restore, persistence
 # ==========================================================================
@@ -925,6 +1020,10 @@ async def test_s10_snapshot_save_failure_blocks_write(mods, monkeypatch):
     await r.tick()
     assert r.pr_calls() == []
     assert r.coord._s10_snapshots == {}
+    # The zone's pass STOPS at the failed save: no write-ahead attempt
+    # (no further save, no record) this tick.
+    assert not any(e[0] == "save" for e in r.events)
+    assert r.coord._s10_records == {}
 
 
 @pytest.mark.asyncio
@@ -1784,3 +1883,58 @@ async def test_row1_and_d7_route_through_retreat_helper(mods, monkeypatch, retre
     await H.drain(r.hass)
     assert calls.count(Z1) == (2 if retreat_ok[0] else 1)
     assert bool(H.preset_writes(r.hass, E1, "away")) is expect_away
+
+
+# ==========================================================================
+# REV 5 F6 — the rung-2 rollout field in the REAL options flow
+# ==========================================================================
+
+
+def _cm_options_flow(options, zones):
+    from custom_components.universal_room_automation import config_flow as _cf
+    from custom_components.universal_room_automation.const import DOMAIN
+
+    class _Entry:
+        entry_id = "cm"
+        data = {"entry_type": "coordinator_manager"}
+
+        def __init__(self, opts):
+            self.options = dict(opts)
+
+    flow = _cf.UniversalRoomAutomationOptionsFlow(_Entry(options))
+    hvac = types.SimpleNamespace(zone_manager=types.SimpleNamespace(zones={
+        zid: types.SimpleNamespace(zone_name=name) for zid, name in zones.items()
+    }))
+    hass = types.SimpleNamespace(data={DOMAIN: {"coordinator_manager": types.SimpleNamespace(
+        coordinators={"hvac": hvac})}})
+    flow.hass = hass
+    return flow
+
+
+def _rollout_field(result):
+    for marker, value in result["data_schema"].schema.items():
+        if getattr(marker, "schema", None) == ROLLOUT_KEY:
+            default = marker.default() if callable(marker.default) else marker.default
+            return default, [o["value"] for o in value.config["options"]], value.config
+    raise AssertionError("rollout field not on the Baseline Presets form")
+
+
+def test_rollout_field_renders_discovered_zones_and_default_empty():
+    flow = _cm_options_flow({}, {Z1: "Entertainment", Z3: "Back Hallway"})
+    default, opts, cfg = _rollout_field(asyncio.run(flow.async_step_hvac_baseline_presets(None)))
+    assert default == [] and opts == [Z1, Z3]
+    assert cfg["multiple"] is True and cfg["custom_value"] is True
+
+
+def test_rollout_field_keeps_a_stored_undiscovered_zone_and_saves_sorted():
+    flow = _cm_options_flow({ROLLOUT_KEY: ["zone_9"]}, {Z1: "Entertainment"})
+    default, opts, _ = _rollout_field(asyncio.run(flow.async_step_hvac_baseline_presets(None)))
+    assert default == ["zone_9"] and "zone_9" in opts
+    saved = {}
+
+    def _create(*, title, data):
+        saved.update(data)
+        return {"type": "create_entry", "data": data}
+    flow.async_create_entry = _create
+    asyncio.run(flow.async_step_hvac_baseline_presets({ROLLOUT_KEY: [" zone_3 ", Z1, "zone_3", ""]}))
+    assert saved[ROLLOUT_KEY] == [Z1, Z3]

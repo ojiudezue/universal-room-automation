@@ -4475,14 +4475,14 @@ class HVACCoordinator(BaseCoordinator):
     ) -> None:
         """SKIPPED_ALREADY_CORRECT (any reason) or a matching view at the
         limit. Apply: success, counters NOT reset. Restore: confirms the
-        restore once a full read interval has passed since the last restore
-        write (or none was written) — snapshot deleted, one ledger row."""
+        restore — snapshot deleted, one ledger row. A full read interval
+        since the last restore WRITE is guaranteed by the rate gate in
+        `_s10_write_one` (after any wire attempt the adapter is not invoked
+        again for S10_PRESET_RANGE_MIN_INTERVAL_S), so a confirming view is
+        never the guard-masked optimistic copy of our own write."""
         self._s10_set_record(zone_id, preset, mode, rec)
         self._s10_note_outcome(zone_id, preset, status="skipped_already_correct", mode=mode)
         if mode != "restore":
-            return
-        since_write = self._s10_age_s(rec.get("last_write_iso"), now)
-        if since_write is not None and since_write < S10_PRESET_RANGE_MIN_INTERVAL_S:
             return
         snap = (self._s10_snapshots.get(zone_id) or {}).pop(preset, None)
         if not self._s10_snapshots.get(zone_id):
