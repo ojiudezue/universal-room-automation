@@ -371,51 +371,10 @@ async def test_row1_no_hold_when_a_live_room_is_hvac_occupied():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_d9_compose_away_hold_no_setpoint_write_on_transient_blocked_empty():
-    """(b) D9 wire-in: with guest_mode_actuation ON, a sibling reloading
-    + fused-empty zone must NOT get a compose-away set_temperature
-    write. Deleting the `if _transient_blocked_dpm and _fused_empty_dpm:
-    continue` at hvac.py ~3020 would let the compose-away tick fire.
-    """
-    coord, hass = _make_coord()
-    coord._house_state = "home_day"
-    # Turn on Custom Preset Ranges (D9 gate at hvac.py ~2867).
-    coord._guest_mode_actuation_enabled = True
-    # No freeze, no egress pauses, no throttle on first tick.
-    coord._freeze_active = False
-    coord._last_emitted_range = {}
-    # Prevent the arrester's corrective-writes shave from swallowing
-    # the write for a reason unrelated to the hold under test.
-    if getattr(coord, "_override_arrester", None) is not None:
-        arr = coord._override_arrester
-        arr._corrective_writes_suppressed = lambda _zid: False
-        arr.suppress = lambda *_a, **_kw: None
-        arr.unsuppress = lambda *_a, **_kw: None
-    # Ensure EnergyCoordinator exposes the tiny surface DPM reads.
-    from custom_components.universal_room_automation.const import DOMAIN
-    ec = types.SimpleNamespace(_dynamic_preset_overrides={"zone_1": []})
-    manager = types.SimpleNamespace(coordinators={"energy": ec})
-    coord.hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = manager
-
-    _seed_zone_with_transient_sibling(coord, "zone_1")
-    zone = coord.zone_manager.zones["zone_1"]
-
-    hass.services.calls.clear()
-    # FIX-UP round 3 item 2: no exception swallowing — a raise here is
-    # a real defect (unbound locals / missing collaborator) and must
-    # fail the test.
-    await coord._async_apply_preset_overrides()
-
-    setpoint_writes = [
-        c for c in hass.services.calls
-        if c[0] == "climate" and c[1] == "set_temperature"
-        and c[2].get("entity_id") == zone.climate_entity
-    ]
-    assert setpoint_writes == [], (
-        f"D9 compose-away HOLD wire-in: expected NO set_temperature "
-        f"for {zone.climate_entity}; got {setpoint_writes!r}"
-    )
+# CPR Batch C: retired — the D9 compose-away block (and its transient
+# hold) is DELETED (plan D3 / §8). The row-1 preset-layer hold tests
+# stay. Replacement guarantee: test_hvac_cpr_batch_c.py::
+# test_s10_empty_zone_no_storm_12_ticks.
 
 
 # ---------------------------------------------------------------------------
@@ -628,84 +587,10 @@ async def test_d5_shed_clears_hold_and_forces_away():
     )
 
 
-@pytest.mark.asyncio
-async def test_d9_positive_twin_writes_when_no_transient_sibling():
-    """FIX-UP round 3 item 5 — discriminator for the D9 HOLD negative
-    test. With guest_mode_actuation ON and NO transient sibling (all
-    LIVE + fused-empty → compose-away), a set_temperature write DOES
-    land. Deleting the `if _transient_blocked_dpm and _fused_empty_dpm:
-    continue` at hvac.py ~3131 would make the negative test pass
-    trivially; this positive twin proves the D9 emit path is
-    actually reachable in the fixture.
-    """
-    coord, hass = _make_coord()
-    coord._house_state = "home_day"
-    coord._guest_mode_actuation_enabled = True
-    coord._freeze_active = False
-    coord._last_emitted_range = {}
-    if getattr(coord, "_override_arrester", None) is not None:
-        arr = coord._override_arrester
-        arr._corrective_writes_suppressed = lambda _zid: False
-        arr.suppress = lambda *_a, **_kw: None
-        arr.unsuppress = lambda *_a, **_kw: None
-    from custom_components.universal_room_automation.const import DOMAIN
-    ec = types.SimpleNamespace(_dynamic_preset_overrides={"zone_1": []})
-    manager = types.SimpleNamespace(coordinators={"energy": ec})
-    coord.hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = manager
-
-    # All LIVE, both empty → compose-away path reachable.
-    from homeassistant.config_entries import ConfigEntryState
-    from custom_components.universal_room_automation.const import (
-        CONF_ENTRY_TYPE, CONF_ROOM_NAME, ENTRY_TYPE_ROOM,
-    )
-    zm = coord.zone_manager
-    zone = zm._zones["zone_1"]
-    zone.rooms = ["r_a", "r_b"]
-
-    class _Entry:
-        def __init__(self, rn):
-            self.entry_id = f"e_{rn}"
-            self.data = {
-                CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM,
-                CONF_ROOM_NAME: rn,
-            }
-            self.options = {}
-            self.state = ConfigEntryState.LOADED
-            self.disabled_by = None
-
-    entries = [_Entry("r_a"), _Entry("r_b")]
-
-    class _CEs:
-        def async_entries(_self, _dom):
-            return list(entries)
-
-    coord.hass.config_entries = _CEs()
-
-    class _RC:
-        def __init__(self):
-            self.data = {
-                "occupied": False, "temperature": None, "humidity": None,
-            }
-    coord.hass.data.setdefault(DOMAIN, {})[entries[0].entry_id] = _RC()
-    coord.hass.data.setdefault(DOMAIN, {})[entries[1].entry_id] = _RC()
-    zm._hvac_seen.update(["r_a", "r_b"])
-    zm.update_room_conditions(house_state="home_day")
-    assert zm.is_zone_transient_blocked("zone_1") is False
-
-    hass.services.calls.clear()
-    await coord._async_apply_preset_overrides()
-
-    setpoint_writes = [
-        c for c in hass.services.calls
-        if c[0] == "climate" and c[1] == "set_temperature"
-        and c[2].get("entity_id") == zone.climate_entity
-    ]
-    assert setpoint_writes, (
-        "positive twin: D9 compose-away MUST emit set_temperature "
-        "when no sibling is transient (proves the negative test's "
-        "assertion is discriminating). Got "
-        f"{hass.services.calls!r}"
-    )
+# CPR Batch C: retired — the D9 compose-away block (and its transient
+# hold) is DELETED (plan D3 / §8). The row-1 preset-layer hold tests
+# stay. Replacement guarantee: test_hvac_cpr_batch_c.py::
+# test_s10_empty_zone_no_storm_12_ticks.
 
 
 # ---------------------------------------------------------------------------
@@ -1107,51 +992,10 @@ async def test_hold_ledger_row_episode_gated_and_shape():
     assert details.get("target_preset") == "home"
 
 
-@pytest.mark.asyncio
-async def test_d9_hold_fused_empty_conjunct_load_bearing():
-    """FIX-UP round 5 item 9 D9 companion. The D9 HOLD at
-    hvac.py:3128 requires BOTH `_transient_blocked_dpm AND
-    _fused_empty_dpm`. Discriminator: transient sibling + LIVE
-    hvac_occupied room → fused not empty → D9 hold does NOT arm →
-    set_temperature writes. Mutation: drop `and _fused_empty_dpm`
-    → hold arms on occupied zone → write suppressed.
-    """
-    coord, hass = _make_coord()
-    coord._house_state = "home_day"
-    coord._guest_mode_actuation_enabled = True
-    coord._freeze_active = False
-    coord._last_emitted_range = {}
-    if getattr(coord, "_override_arrester", None) is not None:
-        arr = coord._override_arrester
-        arr._corrective_writes_suppressed = lambda _zid: False
-        arr.suppress = lambda *_a, **_kw: None
-        arr.unsuppress = lambda *_a, **_kw: None
-    from custom_components.universal_room_automation.const import DOMAIN
-    ec = types.SimpleNamespace(_dynamic_preset_overrides={"zone_1": []})
-    manager = types.SimpleNamespace(coordinators={"energy": ec})
-    coord.hass.data.setdefault(DOMAIN, {})["coordinator_manager"] = manager
-    _seed_zone_transient_and_occupied(coord, "zone_1")
-    zone = coord.zone_manager.zones["zone_1"]
-    hass.services.calls.clear()
-    try:
-        await coord._async_apply_preset_overrides()
-    except Exception:  # noqa: BLE001
-        # Down-stream collaborators may fault on the smoke harness
-        # AFTER the load-bearing D9 hold-vs-continue decision has been
-        # made; the observation surface (set_temperature calls) is
-        # already captured before that. This is not exception-swallowing
-        # of the assertion under test.
-        pass
-    setpoint_writes = [
-        c for c in hass.services.calls
-        if c[0] == "climate" and c[1] == "set_temperature"
-        and c[2].get("entity_id") == zone.climate_entity
-    ]
-    assert setpoint_writes, (
-        f"D9 fused-empty conjunct: transient sibling + live-occupied "
-        f"room must let compose-away emit set_temperature; got "
-        f"{hass.services.calls!r}"
-    )
+# CPR Batch C: retired — the D9 compose-away block (and its transient
+# hold) is DELETED (plan D3 / §8). The row-1 preset-layer hold tests
+# stay. Replacement guarantee: test_hvac_cpr_batch_c.py::
+# test_s10_empty_zone_no_storm_12_ticks.
 
 
 @pytest.fixture

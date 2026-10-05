@@ -71,7 +71,6 @@ def _make_predictor():
 
     p = HVACPredictor.__new__(HVACPredictor)
     p._hvac_coord = MagicMock()
-    p._hvac_coord._last_emitted_range = {}
     p._solar_bank_floor = 68.0
     p._egress_manager = None
     p._override_arrester = MagicMock()

@@ -10149,9 +10149,16 @@ class HVACActivePresetOverridesSensor(AggregationEntity, SensorEntity):
     Attributes:
       - by_zone: {zone_id: [{preset, source, cool_low, cool_high, ...}]}
       - house_state: current house_state string
-      - master_enabled: bool (HVAC guest_mode_actuation_enabled)
+      - master_enabled: bool, or "unknown" while switch 01 "Custom Preset
+        Ranges" is unresolved (HVAC Batch C R4 — never True while unknown)
       - resolved_ranges: {zone_id: {"cool_low":float, "cool_high":float,
-                                    "sources": {field: source_name}}}
+                                    "sources": {field: source_name}}} — the
+        override engine's opinion only; the low side Custom Preset Ranges
+        WRITES is always the preset's configured heat (CPR §3.3)
+      - preset_range_by_zone: {zone_id: {preset: {desired_low, desired_high,
+        status, reason, writes, failures, latched, last_write_iso}}} (CPR D6)
+      - originals_pending_restore: {zone_id: {preset: {low, high,
+        captured_iso}}} — the thermostat's own ranges URA will put back (D6)
 
     Entity: sensor.ura_hvac_coordinator_active_preset_overrides
     Device: URA: HVAC Coordinator
@@ -10214,8 +10221,9 @@ class HVACActivePresetOverridesSensor(AggregationEntity, SensorEntity):
             hvac = self._get_hvac()
             if hvac is None:
                 return 0
-            master_enabled = getattr(hvac, "_guest_mode_actuation_enabled", True)
-            if not master_enabled:
+            master_enabled = getattr(hvac, "_guest_mode_actuation_enabled", None)
+            if master_enabled is not True:
+                # HVAC Batch C R4: unresolved (None) or OFF -> nothing active.
                 return 0
 
             from .domain_coordinators.preset_overrides import OverrideEngine
@@ -10240,13 +10248,31 @@ class HVACActivePresetOverridesSensor(AggregationEntity, SensorEntity):
         try:
             ec = self._get_ec()
             hvac = self._get_hvac()
-            if ec is None or hvac is None:
+            if hvac is None:
                 return {}
+            # HVAC Batch C D6: S10's own record + pending originals (shown
+            # even without the energy coordinator).
+            s10_attrs: dict = {}
+            _diag = getattr(hvac, "get_s10_diagnostics", None)
+            if callable(_diag):
+                try:
+                    s10_attrs = _diag() or {}
+                except Exception:  # noqa: BLE001
+                    s10_attrs = {}
+            _flag = getattr(hvac, "_guest_mode_actuation_enabled", None)
+            # R4: render unresolved as "unknown", never True.
+            try:
+                from homeassistant.const import STATE_UNKNOWN as _UNKNOWN  # noqa: PLC0415
+            except Exception:  # noqa: BLE001
+                _UNKNOWN = "unknown"
+            master_attr = _flag if _flag is not None else _UNKNOWN
+            if ec is None:
+                return {"master_enabled": master_attr, **s10_attrs}
 
             from .domain_coordinators.preset_overrides import OverrideEngine
             engine = OverrideEngine()
             house_state = getattr(hvac, "_house_state", "")
-            master_enabled = getattr(hvac, "_guest_mode_actuation_enabled", True)
+            master_enabled = _flag is True
             target_preset = hvac.preset_manager.get_preset_for_house_state(house_state) or "home"
             all_overrides = getattr(ec, "_dynamic_preset_overrides", {})
 
@@ -10287,8 +10313,9 @@ class HVACActivePresetOverridesSensor(AggregationEntity, SensorEntity):
             return {
                 "by_zone": by_zone,
                 "house_state": house_state,
-                "master_enabled": master_enabled,
+                "master_enabled": master_attr,
                 "resolved_ranges": resolved_ranges,
+                **s10_attrs,
             }
         except Exception:
             return {}

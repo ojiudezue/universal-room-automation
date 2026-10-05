@@ -369,30 +369,9 @@ def test_d7_fused_not_lighting_shape():
     assert z.any_room_hvac_occupied is False
 
 
-def test_d9_compose_away_when_established_empty_zone_source_shape():
-    """D9 COMPOSE-AWAY: an established fused-empty zone must have its
-    setpoint composed as `away` (not `home`).
-
-    Fix-up round 2 (2026-09-17) D9 semantics changed from SKIP to
-    COMPOSE-AWAY. Source-shape assertion — a real end-to-end behavioral
-    test lives in test_d9_compose_away_behavioral below. This guard
-    just anchors the shape: the code MUST reference "compose-away" +
-    `zone_target_preset`, MUST call `_is_zone_hvac_established`, and
-    MUST NOT `continue` out of the empty-zone branch (skipping).
-    """
-    with open(os.path.join(_dc_path, "hvac.py"), "r") as fh:
-        hvac_src = fh.read()
-    # Compose-away identifier is present.
-    assert "COMPOSE-AWAY" in hvac_src or "compose-away" in hvac_src
-    # Zone-scoped preset variable and the away branch.
-    assert "zone_target_preset" in hvac_src
-    # Establishment check delegated.
-    assert "_is_zone_hvac_established" in hvac_src
-    # (W1-C P1: the "wire chokepoint untouched" source grep was removed —
-    # S10 now reaches `emit_set_temperature` through
-    # `strategy.set_setpoints(..., emit=emit_set_temperature)`; the wire is
-    # proven behaviourally by test_d9_compose_away_behavioral and the W1-C
-    # golden scenario A13_S10.)
+# CPR Batch C: `test_d9_compose_away_when_established_empty_zone_source_shape`
+# retired — the D9 compose-away block is DELETED (plan D3 / §8). Replacement:
+# test_hvac_cpr_batch_c.py::test_s10_empty_zone_no_storm_12_ticks.
 
 
 def test_d9_compose_away_behavioral():
@@ -735,19 +714,10 @@ def test_d5_migration_rewrites_legacy_default_only():
     assert updates == []
 
 
-def test_row1_and_d7_helpers_present_on_coordinator():
-    """Fix-up round 4: HVACCoordinator exposes the F3 shared helper
-    `_zone_conditioning_retreat_ok` (in addition to the underlying
-    `_is_zone_hvac_established` delegate). Row-1, D7, D9 must all
-    route through the shared helper — a code path bypassing it would
-    reintroduce the per-site drift the operator called out.
-    """
-    with open(os.path.join(_dc_path, "hvac.py"), "r") as fh:
-        src = fh.read()
-    assert "def _is_zone_hvac_established" in src
-    assert "def _zone_conditioning_retreat_ok" in src
-    # Callers use the shared helper.
-    assert src.count("self._zone_conditioning_retreat_ok(") >= 3
+# CPR Batch C (DoD 7): `test_row1_and_d7_helpers_present_on_coordinator`
+# counted >= 3 source callers of `_zone_conditioning_retreat_ok` (row-1, D7,
+# D9); D9 is deleted. Converted to a BEHAVIOURAL test:
+# test_hvac_cpr_batch_c.py::test_row1_and_d7_route_through_retreat_helper.
 
 
 def test_swap_row1_preset_flip_uses_shared_helper():
@@ -1064,23 +1034,10 @@ def test_d9_compose_away_gated_by_shared_helper():
     assert zm.conditioning_retreat_ok(z2) is False
 
 
-def test_f2_throttle_bypass_on_compose_away_source_shape():
-    """F2 fix-up round 4 (2026-09-17): the DPM throttle guard must
-    NOT skip on the compose-away branch. Third-writer restores (S8
-    cancel-nudge, S9 startup ramp-audit in hvac_override.py) write
-    setpoints without updating `_last_emitted_range`; the DPM must
-    overwrite them on the next tick to prevent a zone stranding at
-    comfort setpoints for the night.
-
-    Source-shape guard: the throttle predicate MUST reference
-    `_compose_away` in its skip guard.
-    """
-    with open(os.path.join(_dc_path, "hvac.py"), "r") as fh:
-        src = fh.read()
-    assert "if last == resolved_pair and not _compose_away:" in src, (
-        "F2 throttle bypass on compose-away missing — DPM would strand "
-        "empty zones at comfort setpoints after a third-writer restore"
-    )
+# CPR Batch C: `test_f2_throttle_bypass_on_compose_away_source_shape` retired —
+# the F2 throttle bypass is DELETED with the throttle map (plan D3/D3c). The
+# storm it guarded is now impossible by construction:
+# test_hvac_cpr_batch_c.py::test_s10_no_s1_alternation_on_empty_zone.
 
 
 def test_f4_row10_comfort_delay_uses_shared_helper_source_shape():

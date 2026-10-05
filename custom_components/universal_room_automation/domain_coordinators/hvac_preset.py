@@ -231,6 +231,31 @@ class PresetManager:
         except TypeError:
             return False
 
+    def _borrow_live_source(self, zone_id: str, arr: Any) -> str | None:
+        """Gate (e) read: the source naming a live borrow on ``zone_id``, or
+        None. Pure read; never raises (an accessor error names itself)."""
+        e_source = None
+        try:
+            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
+            if _ex_mod.is_borrow_active(zone_id):
+                e_source = "row"
+        except Exception:  # noqa: BLE001
+            e_source = "row_accessor_error"
+        if e_source is None:
+            if self._has(getattr(arr, "_nudge_restore_timers", None), zone_id):
+                e_source = "nudge_restore_timer"
+            elif self._has(getattr(arr, "_nudge_in_flight", None), zone_id):
+                e_source = "nudge_in_flight"
+            elif self._has(getattr(arr, "_compromise_timers", None), zone_id):
+                e_source = "compromise_timer"
+        return e_source
+
+    def borrow_live(self, zone_id: str) -> str | None:
+        """HVAC Batch C (CPR §3.2 step 4): gate (e) as a pure predicate —
+        the live-borrow source for ``zone_id`` (None = no live borrow).
+        Same read as `manual_guard_verdict`'s gate (e)."""
+        return self._borrow_live_source(zone_id, self._arrester)
+
     def manual_guard_verdict(self, zone_id: str) -> dict[str, Any]:
         """Evaluate the four Alt-A gates for ``zone_id`` (pure read).
 
@@ -299,20 +324,9 @@ class PresetManager:
         # `_last_precool_zones` with Zone Intelligence OFF); S1 already
         # skips egress-paused zones. D51 retired the excursion kill switch,
         # so every borrow records a row — no no-row kind remains.
-        e_source = None
-        try:
-            from . import hvac_excursion as _ex_mod  # noqa: PLC0415
-            if _ex_mod.is_borrow_active(zone_id):
-                e_source = "row"
-        except Exception:  # noqa: BLE001
-            e_source = "row_accessor_error"
-        if e_source is None:
-            if self._has(getattr(arr, "_nudge_restore_timers", None), zone_id):
-                e_source = "nudge_restore_timer"
-            elif self._has(getattr(arr, "_nudge_in_flight", None), zone_id):
-                e_source = "nudge_in_flight"
-            elif self._has(getattr(arr, "_compromise_timers", None), zone_id):
-                e_source = "compromise_timer"
+        # HVAC Batch C (CPR): the read now lives in `borrow_live` so S10 can
+        # share it; the verdict is byte-identical.
+        e_source = self._borrow_live_source(zone_id, arr)
         snap["e"] = e_source is not None
         snap["e_source"] = e_source
 

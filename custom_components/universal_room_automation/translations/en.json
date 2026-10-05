@@ -1262,7 +1262,7 @@
           "dynamic_preset_hysteresis_f": "Weather adjust margin (°F)"
         },
         "data_description": {
-          "dynamic_preset_enabled": "Master toggle for the Dynamic Preset feature. When off, all zones fall back to the seasonal baseline setpoints.",
+          "dynamic_preset_enabled": "Adjusts the Home and Sleep cooling limit with the weather. Only reaches the thermostats when Custom Preset Ranges is on. Off in winter.",
           "dpm_cool_day_relax_f": "How many °F to raise the Home/Sleep cool ceiling on days the forecast feels cooler than the last 2 weeks. 0 = off. Default 1°F (e.g., 70-75 becomes 70-76).",
           "dpm_hot_day_tighten_f": "How many °F to lower the Home/Sleep cool ceiling on days the forecast feels hotter than the last 2 weeks. 0 = off. Default 1°F (e.g., 70-75 becomes 70-74).",
           "dpm_relax_ceiling_mode": "When the forecast is above this temperature, the system won't widen cool ranges even if today is cooler than recent days. Auto picks a sensible value for your climate.",
@@ -1275,7 +1275,7 @@
       },
       "hvac_baseline_presets": {
         "title": "📅 Baseline Presets (Seasonal)",
-        "description": "Edit the house-wide preset temperature ranges per season. These are the baseline setpoints that every zone uses unless Dynamic Preset is configured per-zone. Cooling setpoint must be at least 3°F above heating setpoint. To restore factory defaults, check 'Reset all to defaults' and save.",
+        "description": "Temperature ranges for each preset, by season. When Custom Preset Ranges is on, URA writes these into each thermostat's Home, Sleep, Away and Vacation presets. When you turn it off, each thermostat gets its original ranges back. Cooling must be at least 3°F above heating. To restore factory defaults, check 'Reset all to defaults' and save.",
         "data": {
           "hvac_baseline_summer_home_cool": "Summer · Home — Cool High (°F)",
           "hvac_baseline_summer_home_heat": "Summer · Home — Heat Low (°F)",
@@ -1301,6 +1301,7 @@
           "hvac_baseline_winter_away_heat": "Winter · Away — Heat Low (°F)",
           "hvac_baseline_winter_vacation_cool": "Winter · Vacation — Cool High (°F)",
           "hvac_baseline_winter_vacation_heat": "Winter · Vacation — Heat Low (°F)",
+          "hvac_s10_rollout_zone_ids": "Zones that use custom ranges",
           "_reset_all": "Reset all to defaults"
         },
         "data_description": {
@@ -1328,6 +1329,7 @@
           "hvac_baseline_winter_away_heat": "Winter Away preset heating floor. Default: 60°F.",
           "hvac_baseline_winter_vacation_cool": "Winter Vacation preset cooling target. Default: 80°F.",
           "hvac_baseline_winter_vacation_heat": "Winter Vacation preset heating floor. Default: 58°F.",
+          "hvac_s10_rollout_zone_ids": "When Custom Preset Ranges is on, only these zones get the ranges written into their thermostat presets. Empty means none.",
           "_reset_all": "Check and save to restore all 24 baseline setpoints to factory defaults. This action requires confirmation on the next screen."
         },
         "sections": {

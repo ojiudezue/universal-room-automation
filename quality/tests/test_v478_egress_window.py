@@ -821,7 +821,7 @@ async def _w1c_drive_dpm_apply(monkeypatch, paused: set) -> list:
     """W1-C P1: BEHAVIOURAL replacement for the C-H1 source-order greps —
     drive the real `_async_apply_preset_overrides` (golden scenario A13_S10
     setup) with the egress manager reporting `paused` zones; return the
-    entities that received a `set_temperature` wire call."""
+    entities that received a preset-range wire call (CPR Batch C)."""
     import types as _types
     from test_hvac_w1c_p1_byte_identity import site_ctx
     async with site_ctx(monkeypatch) as ctx:
@@ -832,15 +832,29 @@ async def _w1c_drive_dpm_apply(monkeypatch, paused: set) -> list:
         ctx.hass.data[DOMAIN]["coordinator_manager"] = _types.SimpleNamespace(
             coordinators={"energy": _types.SimpleNamespace(_dynamic_preset_overrides={})},
         )
-        for zid in ("zone_2", "zone_3"):
-            c._last_emitted_range[zid] = (0.0, 0.0)
+        # CPR Batch C: S10 edits the zone's NAMED preset profile through
+        # `ha_carrier.set_activity_setpoint`; every zone is opted in via the
+        # rung-2 rollout field and sits on `home` (both feeds), heat_cool,
+        # 68/76 vs the configured shoulder Home 70/74 (differs -> a write).
+        for _ce in ctx.hass.config_entries.async_entries():
+            if "zones" not in (_ce.options or {}):
+                _ce.options = {**(_ce.options or {}),
+                               "hvac_s10_rollout_zone_ids": ["zone_1", "zone_2", "zone_3"]}
+        c._preset_manager._current_season = "shoulder"
+        for _zid in ("zone_1", "zone_2", "zone_3"):
+            c.zone_manager.zones[_zid].preset_mode = "home"
+        c._zone_state_store = _types.SimpleNamespace(async_save=_noop_async_save)
         ctx.set_entity(preset_mode="home", hold_activity="home")
         monkeypatch.setattr(ctx.egress, "is_paused", lambda zone_id: zone_id in paused)
         await c._async_apply_preset_overrides()
         return [
             x["data"]["entity_id"] for x in ctx.calls
-            if x["domain"] == "climate" and x["service"] == "set_temperature"
+            if x["domain"] == "ha_carrier" and x["service"] == "set_activity_setpoint"
         ]
+
+
+async def _noop_async_save(_data):
+    return None
 
 
 @pytest.mark.asyncio

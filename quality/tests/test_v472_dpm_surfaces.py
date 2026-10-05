@@ -287,14 +287,10 @@ class TestD3GuestModeActuationRename:
             "D3: _attr_name must no longer be 'Guest Mode Actuation'"
         )
 
-    def test_unique_id_unchanged(self, switch_src):
-        idx = switch_src.find("class HVACGuestModeActuationSwitch(")
-        body = switch_src[idx:idx + 1500]
-        # unique_id uses f-string: f"{DOMAIN}_hvac_coordinator_guest_mode_actuation_enabled"
-        assert "hvac_coordinator_guest_mode_actuation_enabled" in body, (
-            "unique_id must be preserved so existing entity_registry entry survives; "
-            "expected '_hvac_coordinator_guest_mode_actuation_enabled' in unique_id"
-        )
+    # CPR Batch C (DoD 7): `test_unique_id_unchanged` was a 1500-char
+    # source-window grep that the longer CPR docstring pushed out of range.
+    # Converted to a BEHAVIOURAL test on the real switch class:
+    # test_hvac_cpr_batch_c.py::test_switch_unique_id_and_name_unchanged.
 
     def test_numeric_prefix_01(self, switch_src):
         assert "01 · Custom Preset Ranges" in switch_src, (

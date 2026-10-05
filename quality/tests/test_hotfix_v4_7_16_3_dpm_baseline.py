@@ -132,20 +132,13 @@ class TestTupleShapeAgreement:
         ) as f:
             return f.read()
 
-    def test_canonical_hvac_consumer_destructures_cool_first(self, hvac_src):
-        """`hvac.py:1190-1200` destructures
-        `baseline_cool, _baseline_heat = baseline` — cool is index 0."""
-        assert "baseline_cool, _baseline_heat = baseline" in hvac_src
-
-    def test_canonical_hvac_consumer_documents_cool_is_high(self, hvac_src):
-        """The canonical site has an explicit comment so future readers
-        don't make the same `pair[1]` mistake the v4.7.16.3 builder did."""
-        assert (
-            "(cool_setpoint, heat_setpoint) — cool is the high" in hvac_src
-        ), (
-            "hvac.py canonical comment must remain to prevent recurrence of "
-            "v4.7.16.3 Bug Class #49 (tuple shape assumption drift)"
-        )
+    # CPR Batch C (DoD 7): the two source greps on the retired S10 block
+    # (`test_canonical_hvac_consumer_destructures_cool_first`,
+    # `test_canonical_hvac_consumer_documents_cool_is_high`) are converted
+    # to a BEHAVIOURAL tuple-order test on the real S10:
+    # test_hvac_cpr_batch_c.py::test_s10_low_side_uses_configured_heat_winter_away
+    # (configured cool 80 at [0], heat 65 at [1] -> writes low 65 / high 80;
+    # a swapped destructure writes a different pair).
 
     def test_seasonal_defaults_documents_tuple_shape(self):
         """`hvac_const.py:283` comment is the source of truth for the

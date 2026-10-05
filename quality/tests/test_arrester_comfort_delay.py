@@ -1057,6 +1057,18 @@ def _make_predictor(*, comfort_active: bool):
     return pred, calls
 
 
+def _seed_release_baseline(pred):
+    """CPR D3c: `_resolve_baseline_range` reads the HC house state + the
+    preset manager's configured (cool, heat) for the target preset."""
+    pred._hvac_coord = types.SimpleNamespace(
+        freeze_active=False, _house_state="home_day",
+    )
+    pred._preset_manager = types.SimpleNamespace(
+        get_preset_for_house_state=lambda _s: "home",
+        get_seasonal_setpoints=lambda _p: (78.0, 68.0),
+    )
+
+
 @pytest.mark.asyncio
 class TestFixupWriteSiteCallerDrills:
     """Caller-site anchors: driving the REAL production method must defer
@@ -1066,23 +1078,19 @@ class TestFixupWriteSiteCallerDrills:
 
     async def test_S11_release_banked_defers_under_grace(self):
         pred, calls = _make_predictor(comfort_active=True)
-        # Seed a `_last_emitted_range` baseline so _resolve_baseline_range
-        # returns a value (the release path needs it).
-        pred._hvac_coord = types.SimpleNamespace(
-            freeze_active=False,
-            _last_emitted_range={ZONE_ID: (68.0, 78.0)},
-        )
+        # CPR D3c: the release baseline is the house-state preset's
+        # configured range (the retired emitted-range map is gone).
+        _seed_release_baseline(pred)
         await pred._release_banked_zones({ZONE_ID})
+        # Non-vacuous: the release reached the write (baseline resolved).
+        assert pred._resolve_baseline_range(ZONE_ID) == (68.0, 78.0)
         assert not any(
             c["args"][:2] == ("climate", "set_temperature") for c in calls
         ), "S11: release-banked emit MUST be deferred under active grace"
 
     async def test_S11_release_banked_fires_without_grace(self):
         pred, calls = _make_predictor(comfort_active=False)
-        pred._hvac_coord = types.SimpleNamespace(
-            freeze_active=False,
-            _last_emitted_range={ZONE_ID: (68.0, 78.0)},
-        )
+        _seed_release_baseline(pred)
         await pred._release_banked_zones({ZONE_ID})
         assert any(
             c["args"][:2] == ("climate", "set_temperature") for c in calls
@@ -1228,96 +1236,13 @@ def _ensure_hvac_module_loaded():
     return mod
 
 
-@pytest.mark.asyncio
-class TestFixupS10DPMApplyCallerDrill:
-    """S10_dpm_apply caller-site drill. Drive the REAL
-    `HVACCoordinator._async_apply_preset_overrides` with an active
-    comfort grace and assert NO climate.set_temperature service call
-    lands. Then re-run with grace inactive and assert the call DOES land.
-    Mutation `gate=None` at the S10 call site in hvac.py leaves the emit
-    unconditional → the grace test reds (unexpected service call)."""
-
-    def _build_hc(self, *, comfort_active: bool):
-        hvac_mod = _ensure_hvac_module_loaded()
-        HC = hvac_mod.HVACCoordinator
-        hc = HC.__new__(HC)
-        hass = MagicMock()
-        hass.services = MagicMock()
-        calls: list = []
-        async def _capture(*args, **kwargs):
-            calls.append({"args": args, "kwargs": kwargs})
-        hass.services.async_call = _capture
-        # DOMAIN key path required by _async_apply_preset_overrides.
-        from custom_components.universal_room_automation.const import DOMAIN
-        # Fake EC exposes _dynamic_preset_overrides.
-        ec = types.SimpleNamespace(_dynamic_preset_overrides={ZONE_ID: []})
-        manager = types.SimpleNamespace(coordinators={"energy": ec})
-        hass.data = {DOMAIN: {"coordinator_manager": manager}}
-        hc.hass = hass
-        # Minimal fields the method reads.
-        hc._guest_mode_actuation_enabled = True
-        hc._house_state = "home_day"
-        hc._freeze_active = False
-        hc._last_emitted_range = {}
-        # Zone.
-        zone = ZoneState(
-            zone_id=ZONE_ID, zone_name="Zone A", climate_entity=CLIMATE,
-        )
-        hc._zone_manager = types.SimpleNamespace(
-            zones={ZONE_ID: zone},
-        )
-        # Preset manager returns a baseline that will differ from
-        # _last_emitted_range (so the throttle guard doesn't skip).
-        pm = types.SimpleNamespace(
-            get_preset_for_house_state=lambda _s: "home",
-            get_seasonal_setpoints=lambda _p: (78.0, 68.0),
-        )
-        hc._preset_manager = pm
-        # No egress pause.
-        hc._egress_manager = None
-        # Arrester with controlled comfort_delay_active + no shave.
-        arrester = MagicMock()
-        arrester.comfort_delay_active = MagicMock(return_value=bool(comfort_active))
-        arrester._corrective_writes_suppressed = MagicMock(return_value=False)
-        arrester.suppress = MagicMock()
-        arrester.unsuppress = MagicMock()
-        hc._override_arrester = arrester
-        return hc, calls
-
-    async def test_S10_dpm_apply_defers_under_grace(self):
-        hc, calls = self._build_hc(comfort_active=True)
-        await hc._async_apply_preset_overrides()
-        assert not any(
-            c["args"][:2] == ("climate", "set_temperature") for c in calls
-        ), (
-            "S10: DPM apply emit MUST be deferred under active grace "
-            "(mutation `gate=None` at hvac.py DPM apply site would leave "
-            "the emit unconditional and this assert would red)"
-        )
-
-    async def test_S10_dpm_apply_fires_without_grace(self):
-        hc, calls = self._build_hc(comfort_active=False)
-        await hc._async_apply_preset_overrides()
-        assert any(
-            c["args"][:2] == ("climate", "set_temperature") for c in calls
-        ), "S10: DPM apply emit MUST fire when grace is inactive"
-
-    async def test_S10_defer_rolls_back_suppress(self):
-        """Fix #9 companion: on defer at S10, the pre-emit suppress()
-        stamp MUST be rolled back via unsuppress() so a real manual
-        within SUPPRESS_TTL_SECONDS is not swallowed. Mutation removing
-        the `unsuppress` on the defer branch would leave suppress stamped
-        without a corresponding rollback and this assert reds."""
-        hc, calls = self._build_hc(comfort_active=True)
-        arrester = hc._override_arrester
-        await hc._async_apply_preset_overrides()
-        # suppress MUST have been called once by the DPM apply loop.
-        assert arrester.suppress.called, "DPM apply should call suppress() pre-emit"
-        # Then unsuppress MUST have been called to roll it back.
-        assert arrester.unsuppress.called, (
-            "S10 defer branch MUST call unsuppress() to roll back the "
-            "pre-emit suppress stamp (fix #9 companion)"
-        )
+# CPR Batch C: the S10 DPM-apply caller drills that lived here
+# (`TestFixupS10DPMApplyCallerDrill`: defers/fires under the comfort gate,
+# and "defer rolls back suppress") are REPLACED by behavioural tests on the
+# REAL coordinator in `test_hvac_cpr_batch_c.py`
+# (`test_s10_comfort_gate_defers_then_fires`, `test_s10_edit_books_no_override_detected`).
+# S10 no longer stamps suppress() at all (plan M4 / T6), so the rollback
+# assertion has no subject.
 
 
 class TestCH5D3CoastGuard:

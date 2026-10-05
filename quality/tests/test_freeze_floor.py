@@ -321,7 +321,6 @@ def _make_coord(*, cool_setpoint, outdoor_temp, freeze_active_seed=False, egress
     coord._override_arrester = _FakeOverrideArrester()
     coord._preset_manager = _FakePresetManager(cool_setpoint)
     coord._predictor = _FakePredictor(outdoor_temp)
-    coord._last_emitted_range = {}
     coord._freeze_active = freeze_active_seed
     return coord
 
@@ -335,48 +334,13 @@ def _set_temp_calls(coord):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_clamp_fires_writes_floor_low():
-    """MUTATION GATE: outdoor ≤35 and a resolved heat_low (<50) → set_temperature
-    writes target_temp_low=50. Deleting the clamp in `apply_setpoint_guards`
-    (or its call site) makes this assertion FAIL (low would be 48, not 50)."""
-    # cool_setpoint 55 → baseline_low = 48 (< FREEZE_FLOOR 50)
-    coord = _make_coord(cool_setpoint=55, outdoor_temp=33)
-    # D-HIGH-1: the decision cycle refreshes freeze state UNCONDITIONALLY
-    # before the apply path; mirror that call order here.
-    coord._update_freeze_active()
-    await coord._async_apply_preset_overrides()
-    calls = _set_temp_calls(coord)
-    assert len(calls) == 1
-    assert calls[0]["target_temp_low"] == 50
-    # cool_high untouched (baseline_high == cool_setpoint == 55)
-    assert calls[0]["target_temp_high"] == 55
-
-
-@pytest.mark.asyncio
-async def test_no_op_when_already_warm():
-    """Freeze active but resolved heat_low ≥ 50 → no clamp; the preset low is
-    written byte-identical (cool_setpoint 60 → baseline_low = 53)."""
-    coord = _make_coord(cool_setpoint=60, outdoor_temp=33)
-    coord._update_freeze_active()
-    await coord._async_apply_preset_overrides()
-    calls = _set_temp_calls(coord)
-    assert len(calls) == 1
-    assert calls[0]["target_temp_low"] == 53
-    assert calls[0]["target_temp_high"] == 60
-
-
-@pytest.mark.asyncio
-async def test_no_clamp_above_trigger():
-    """Outdoor > 38 (warm) → freeze never arms; the dangerously-low preset is
-    emitted UNCHANGED (low = 48, no floor applied)."""
-    coord = _make_coord(cool_setpoint=55, outdoor_temp=70)
-    coord._update_freeze_active()
-    await coord._async_apply_preset_overrides()
-    calls = _set_temp_calls(coord)
-    assert len(calls) == 1
-    assert calls[0]["target_temp_low"] == 48
-    assert calls[0]["target_temp_high"] == 55
+# CPR Batch C: the S10 (DPM apply) freeze-floor emissions this file used to
+# drive (`test_clamp_fires_writes_floor_low`, `test_no_op_when_already_warm`,
+# `test_no_clamp_above_trigger`, `test_fail_open_missing_outdoor_temp`) are
+# replaced by behavioural tests on the REAL coordinator + Carrier adapter in
+# `test_hvac_cpr_batch_c.py` (`test_s10_freeze_floor_*`). S10 now writes the
+# preset's CONFIGURED heat low (not `cool - 7`) through
+# `set_activity_setpoint`, so the old fixture arithmetic no longer applies.
 
 
 @pytest.mark.asyncio
@@ -403,19 +367,6 @@ async def test_hysteresis_does_not_arm_in_band_without_trigger():
     NOT arm freeze — arming requires crossing ≤35."""
     coord = _make_coord(cool_setpoint=55, outdoor_temp=37)
     assert coord._update_freeze_active() is False
-
-
-@pytest.mark.asyncio
-async def test_fail_open_missing_outdoor_temp():
-    """No outdoor temp available → freeze NOT active, no clamp, no crash. The
-    dangerously-low preset is emitted unchanged (fail-open to normal preset)."""
-    coord = _make_coord(cool_setpoint=55, outdoor_temp=None)
-    coord._update_freeze_active()
-    await coord._async_apply_preset_overrides()
-    calls = _set_temp_calls(coord)
-    assert len(calls) == 1
-    assert calls[0]["target_temp_low"] == 48
-    assert coord._freeze_active is False
 
 
 @pytest.mark.asyncio
@@ -858,16 +809,14 @@ async def test_override_compromise_floored_via_chokepoint():
 
 @pytest.mark.asyncio
 async def test_full_cycle_preset_then_preheat_final_low_floored():
-    """D-HIGH: custom low 47/48 path emits via preset-apply, then pre-heat runs
-    after (low+2) — BOTH route through the chokepoint, so the final low ≥ 50."""
-    # 1. preset-apply: cool_setpoint 55 → baseline_low 48, freeze armed.
+    """D-HIGH: pre-heat runs after (low+2) through the chokepoint, so the
+    final low ≥ 50. (CPR Batch C: the preset-apply half of this cycle moved
+    to `test_hvac_cpr_batch_c.py::test_s10_freeze_floor_raises_configured_low`.)"""
     coord = _make_coord(cool_setpoint=55, outdoor_temp=30)
     coord._update_freeze_active()  # cycle refreshes before apply (D-HIGH-1)
-    await coord._async_apply_preset_overrides()
-    apply_calls = _set_temp_calls(coord)
-    assert apply_calls[-1]["target_temp_low"] == 50  # floored at apply
+    assert coord._freeze_active is True
 
-    # 2. pre-heat runs AFTER: low+2 from a custom 47 base = 49 (< 50).
+    # pre-heat runs AFTER: low+2 from a custom 47 base = 49 (< 50).
     mod = _load_predict_module()
     pred = mod.HVACPredictor.__new__(mod.HVACPredictor)
     _fill_init_defaults(pred, "hvac_predict", "HVACPredictor")
@@ -994,7 +943,6 @@ def _make_cycle_coord(*, outdoor_temp, guest_mode, observation):
     coord._override_arrester = _CycleNoopArrester()
     coord._preset_manager = _FakePresetManager(55)
     coord._predictor = _LazyFreezePredictor(coord, outdoor_temp)
-    coord._last_emitted_range = {}
     coord._freeze_active = False  # default — pre-fix this stays False
     coord._startup_audit_done = True
     coord._zone_intelligence_enabled = False
