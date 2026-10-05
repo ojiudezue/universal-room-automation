@@ -396,3 +396,7 @@ before onboarding phase-2 builds against the dying mechanism. A one-shot HA-sour
 docker-log + grep procedure (D5) replaces the rejected programmatic trip-wire. Tier
 recommendation: **Tier 2-DB on D1/D2** (shared device-tree primitive, same-identifier
 hazard, cross-coordinator ripple), **Tier 1 on D3/A·C**, **Tier 2 on D3/B**, Tier 1 on D4/D5.
+
+## Operator ruling 2026-10-05
+- **D3 = option A** (collapsible sections, HA-recommended). Tier 1 (one adversarial review) + an options-flow round-trip test per affected step; escalate to Tier 2 if the build touches more than the 4 `show_advanced_options` reads + 2 helpers. Must land before PLANNING_onboarding_simplify_phase2 builds.
+- No programmatic deprecation trip-wire; quarterly sweep (D5).

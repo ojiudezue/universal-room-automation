@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-05T02:32:41-05:00_ - _Data commit: `46bbda0d775d`_ - _last_reconciled: 2026-10-03_
+_Generated: 2026-10-05T02:35:12-05:00_ - _Data commit: `e805d44e036b`_ - _last_reconciled: 2026-10-03_
 
 
 ## Columns
@@ -1077,15 +1077,16 @@ _created 2026-10-05 · updated 2026-10-05 02:22_
 
 ### `CENSUS-INPUTS-FIRST-1` - Fix the census inputs (door events, resident attribution) before building the hybrid occupancy estimator, then re-run the 10-03 replay — _#2 · WSJF 2.1 · v7 tc4 u6 /e8_
 thread: **census** - status: **waiting_me** - approval: **explicit**
-_created 2026-10-05 02:22 · updated 2026-10-05 02:34 · refined_
+_created 2026-10-05 02:22 · updated 2026-10-05 02:36 · refined_
 - **Problem / Solution:**
   - Problem: the house head-count estimator we designed failed its replay test on 10-03, not because its formula is wrong but because the data fed into it is wrong - residents walking in and out (porch cleaning, two people leaving in one car...
 - **Origin:** 2026-10-03 - Operator ruling on the D0-REPLAY NO-GO; plan rev 2 written 2026-10-04 (resume memo project_session_pickup_2026_10_04)
 - **Why:** CAPTURE MISS fixed by the 10-05 overnight pass: the whole inputs-first arc lived only in the 10-04 resume memo and two planning docs; no board card existed (grep of kanban.data.yaml for inputs_first / census_occupancy_estimator / ESTIMAT...
-- **Next:** Me: focused re-verify of plan Rev 3 (running) -> if PLAN-READY, Tier 2-DB build of D1 (door-ledger fixes) to review; OP-1 still gates only D2/D4 scoring.
+- **Next:** Me: ura-planner is writing Rev 4 (re-verify HIGH-A/B/C + MED-D/E/F). Then ONE final short re-verify; build only on PLAN-READY. Stop rule: if the final re-verify still returns a HIGH, take it to the operator rather than looping a 4th plan...
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Refs:** docs/planning/PLANNING_census_inputs_first.md; docs/planning/PLANNING_census_occupancy_estimator.md; docs/planning/AUDIT_census_estimator_replay_2026_10_03_hybrid.md; docs/planning/AUDIT_census_subsystem_2026_10_04.md; docs/planning/AUDIT_census_footage_ground_truth_2026_10_03.md; memory project_session_pickup_2026_10_04
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `plan_reverify_2026_10_05_overnight`: Rev 3 focused re-verify (ura-reviewer) -> PLAN-FIX-REQUIRED: HIGH-A stem composition from camera_resolver._PERSON_SUFFIXES (:214-219) lacks _person_count (orchestrator CONFIRMED in source) -> would regress count-sensor legs; HIGH-B legac...
   - `plan_rev3_2026_10_05_overnight`: Plan Rev 3 committed 71ebf52e5 (ura-planner applied every review finding: R3.1 unset-neighbour fallback byte-identical for both callers transit_validator.py:1253/:1745; R3.3 REUSE camera_resolver _strip_disambiguation_suffix :291 / _stri...
   - `plan_review_2026_10_05_overnight`: PLAN REVIEW (Tier 2-DB, one adversarial pass, ura-reviewer, read-only on develop) -> PLAN-FIX-REQUIRED: CRITICAL-1 an unset/unmapped CONF_DOOR_INTERIOR_NEIGHBOURS makes every crossing AMBIGUOUS, and AMBIGUOUS crossings skip the ledger wr...
   - `sweep_2026_10_05`: Board + BACKLOG + planning/AUDIT surfaces swept for census estimator / inputs-first: no card; CENSUS-ACCURACY-1 (pre_planning) is ADJACENT (interior decay/hysteresis), not a duplicate. NEW.
