@@ -114,61 +114,6 @@ class _MockHVAC:
 
 
 # ---------------------------------------------------------------------------
-# Mirror of HVACGuestModeActuationSwitch restore logic
-# ---------------------------------------------------------------------------
-
-class _GuestModeActuationMirror:
-    """Mirror of HVACGuestModeActuationSwitch restore lifecycle.
-
-    Reflects the v4.7.3.1 fast-path + deferred-path pattern for
-    hvac._guest_mode_actuation_enabled.
-    """
-
-    def __init__(self, get_hvac):
-        self._get_hvac = get_hvac
-        self._deferred_value = None
-        self._signal_callbacks = []  # subscriptions registered on add
-
-    def _async_on_remove_connect(self, callback_fn):
-        self._signal_callbacks.append(callback_fn)
-
-    def async_added_to_hass(self, last_state):
-        # Subscribe to SIGNAL_HVAC_COORDINATOR_READY (tracked via async_on_remove).
-        self._async_on_remove_connect(self._handle_hvac_ready)
-
-        if last_state is None or last_state.state not in ("on", "off"):
-            return
-        target = last_state.state == "on"
-        hvac = self._get_hvac()
-        if hvac is not None:
-            hvac._guest_mode_actuation_enabled = target
-            self._deferred_value = None
-            return
-        self._deferred_value = target
-
-    def _handle_hvac_ready(self):
-        if self._deferred_value is None:
-            return
-        hvac = self._get_hvac()
-        if hvac is None:
-            return
-        hvac._guest_mode_actuation_enabled = self._deferred_value
-        self._deferred_value = None
-
-    def async_turn_on(self):
-        hvac = self._get_hvac()
-        if hvac is not None:
-            hvac._guest_mode_actuation_enabled = True
-            self._deferred_value = None
-
-    def async_turn_off(self):
-        hvac = self._get_hvac()
-        if hvac is not None:
-            hvac._guest_mode_actuation_enabled = False
-            self._deferred_value = None
-
-
-# ---------------------------------------------------------------------------
 # Mirror of HVACOverrideArresterSwitch restore logic
 # ---------------------------------------------------------------------------
 
@@ -318,94 +263,13 @@ class TestSignalInfrastructure:
 
 
 # ---------------------------------------------------------------------------
-# Tests: HVACGuestModeActuationSwitch
+# CPR Batch C (DoD 9): the HVACGuestModeActuationSwitch MIRROR (a hand copy of
+# the switch's restore logic, Bug Class #60) and its 7 tests are retired —
+# the switch now resolves a TRI-STATE coordinator flag through
+# `set_custom_ranges_enabled`, and "no prior state" resolves OFF (D8 / REV 5
+# F3), which the mirror asserted the opposite of. Behavioural replacements on
+# the REAL switch class: test_hvac_cpr_batch_c.py::test_switch_* .
 # ---------------------------------------------------------------------------
-
-class TestHVACGuestModeActuationSwitchRestore:
-    """Deferred-restore tests for HVACGuestModeActuationSwitch."""
-
-    def test_v4731_guest_mode_fast_path_restore_when_coord_present(self):
-        """HVAC coord registered before async_added_to_hass → restore lands immediately."""
-        hvac = _MockHVAC()
-        hvac._guest_mode_actuation_enabled = True  # running state
-        switch = _GuestModeActuationMirror(lambda: hvac)
-
-        switch.async_added_to_hass(_make_last_state("off"))
-
-        assert hvac._guest_mode_actuation_enabled is False, (
-            "fast path must apply restored value immediately"
-        )
-        assert switch._deferred_value is None, "no deferred value after fast path"
-
-    def test_v4731_guest_mode_deferred_restore_via_signal(self):
-        """HVAC coord NOT registered at async_added_to_hass → restore via signal."""
-        hvac_ref = [None]
-        switch = _GuestModeActuationMirror(lambda: hvac_ref[0])
-
-        switch.async_added_to_hass(_make_last_state("off"))
-
-        # Coord not ready yet — should be deferred.
-        assert switch._deferred_value is False
-        # Coord arrives.
-        hvac_ref[0] = _MockHVAC()
-        hvac_ref[0]._guest_mode_actuation_enabled = True
-        # Signal fires.
-        switch._handle_hvac_ready()
-
-        assert hvac_ref[0]._guest_mode_actuation_enabled is False, (
-            "deferred restore must apply value when signal fires"
-        )
-        assert switch._deferred_value is None, "deferred value cleared after restore"
-
-    def test_v4731_guest_mode_off_state_also_survives_restart(self):
-        """last_state OFF (symmetric case) — both ON and OFF must survive."""
-        hvac = _MockHVAC()
-        hvac._guest_mode_actuation_enabled = True
-        switch = _GuestModeActuationMirror(lambda: hvac)
-
-        switch.async_added_to_hass(_make_last_state("off"))
-        assert hvac._guest_mode_actuation_enabled is False
-
-    def test_v4731_guest_mode_on_state_survives_restart(self):
-        """last_state ON — value restored to True."""
-        hvac = _MockHVAC()
-        hvac._guest_mode_actuation_enabled = False
-        switch = _GuestModeActuationMirror(lambda: hvac)
-
-        switch.async_added_to_hass(_make_last_state("on"))
-        assert hvac._guest_mode_actuation_enabled is True
-
-    def test_v4731_guest_mode_no_prior_state_is_noop(self):
-        """last_state None → no restore; running state untouched."""
-        hvac = _MockHVAC()
-        hvac._guest_mode_actuation_enabled = True
-        switch = _GuestModeActuationMirror(lambda: hvac)
-
-        switch.async_added_to_hass(None)
-
-        assert hvac._guest_mode_actuation_enabled is True
-        assert switch._deferred_value is None
-
-    def test_v4731_guest_mode_signal_registered_unconditionally(self):
-        """Signal subscription must be registered even when coord is available."""
-        hvac = _MockHVAC()
-        switch = _GuestModeActuationMirror(lambda: hvac)
-
-        switch.async_added_to_hass(_make_last_state("on"))
-
-        # Subscription must have been registered (async_on_remove pair).
-        assert len(switch._signal_callbacks) == 1
-
-    def test_v4731_guest_mode_deferred_value_none_when_signal_is_noop(self):
-        """If no deferred value, _handle_hvac_ready is a safe no-op."""
-        hvac = _MockHVAC()
-        switch = _GuestModeActuationMirror(lambda: hvac)
-        switch._deferred_value = None  # already None (fast path or no state)
-
-        # Should not raise; coord attr untouched.
-        original = hvac._guest_mode_actuation_enabled
-        switch._handle_hvac_ready()
-        assert hvac._guest_mode_actuation_enabled == original
 
 
 # ---------------------------------------------------------------------------

@@ -736,27 +736,17 @@ def _run_test_in_subprocess(test_name: str) -> subprocess.CompletedProcess:
 
 
 def _mutate_and_expect_red(swap_from: str, swap_to: str, test_name: str):
-    original = _COORD_SRC.read_text(encoding="utf-8")
-    assert swap_from in original, (
-        f"anchor missing in coordinator.py: {swap_from!r}"
+    # SIGKILL-safe: mutate a COPY under tmp; real _COORD_SRC never
+    # opened for write. See _mutation_sandbox.py.
+    from _mutation_sandbox import apply_mutation_in_sandbox
+    apply_mutation_in_sandbox(
+        prod_path=_COORD_SRC,
+        swap_from=swap_from,
+        swap_to=swap_to,
+        anchor_test_file=Path(os.path.abspath(__file__)),
+        anchor_test_name=test_name,
+        expect="KILLED",
     )
-    mutated = original.replace(swap_from, swap_to, 1)
-    assert mutated != original, "mutation was a no-op"
-    _COORD_SRC.write_text(mutated, encoding="utf-8")
-    md5_after = _md5(_COORD_SRC)
-    try:
-        _clear_pycache()
-        result = _run_test_in_subprocess(test_name)
-        assert result.returncode != 0, (
-            f"expected {test_name} to FAIL under mutation; got returncode="
-            f"{result.returncode}\nSTDOUT:\n{result.stdout}\n"
-            f"STDERR:\n{result.stderr}"
-        )
-    finally:
-        _COORD_SRC.write_text(original, encoding="utf-8")
-        _clear_pycache()
-        assert _md5(_COORD_SRC) != md5_after
-        assert _COORD_SRC.read_text(encoding="utf-8") == original
 
 
 def test_MUTATION_m1_direct_ble_bypass_restored_makes_masterbath_fixture_red():

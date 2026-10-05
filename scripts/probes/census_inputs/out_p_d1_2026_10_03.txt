@@ -1,0 +1,411 @@
+LEDGER 10-03 rows=165 by cam/dir: Counter({('garage_a', 'entry'): 42, ('garage_a', 'exit'): 37, ('doorbell_lite', 'entry'): 22, ('front_door_aerial', 'exit'): 15, ('madrone_g6_entry', 'exit'): 14, ('front_door_aerial', 'entry'): 14, ('madrone_g6_entry', 'entry'): 12, ('doorbell_lite', 'exit'): 7, ('garage_b', 'entry'): 1, ('garage_b', 'exit'): 1})
+  person_id non-null: Counter({'jaya': 15, 'oji_udezue': 12, 'ezinne': 7, 'ojini': 1})
+
+RAW egress on-edges 10-03: 451 by cam: Counter({'garage_a': 227, 'doorbell_lite': 108, 'front_door_aerial': 52, 'madrone_g6_entry': 46, 'garage_b': 18})
+  dedup stem       W= 5s survivors by door: {'front': 44, 'garage_a': 119, 'garage_b': 9}
+  dedup door_group W= 5s survivors by door: {'front': 32, 'garage_a': 106, 'garage_b': 9}
+  dedup stem       W=15s survivors by door: {'front': 41, 'garage_a': 99, 'garage_b': 6}
+  dedup door_group W=15s survivors by door: {'front': 25, 'garage_a': 78, 'garage_b': 6}
+  dedup stem       W=30s survivors by door: {'front': 35, 'garage_a': 80, 'garage_b': 5}
+  dedup door_group W=30s survivors by door: {'front': 21, 'garage_a': 61, 'garage_b': 5}
+  dedup stem       W=60s survivors by door: {'front': 29, 'garage_a': 61, 'garage_b': 4}
+  dedup door_group W=60s survivors by door: {'front': 16, 'garage_a': 43, 'garage_b': 4}
+
+Interior on-edges 10-03: Counter({'family_room': 811, 'master_hallway': 665, 'staircase': 398, 'playroom': 261, 'stairs_top': 249, 'foyer_fisheye': 234, 'garagehallway_protect': 203, 'upstairs_hall': 161})
+
+TRACKER edges 10-03 (CDT):
+  08:16:37 oji    dep iphone_oji_bermuda_tracker
+  08:16:49 ezinne dep ezinne_iphone_bermuda_tracke
+  08:17:54 ezinne dep ezinne_iphone
+  08:17:54 ezinne dep ezinne
+  08:17:54 oji    dep private_ble_device_8ce182
+  08:17:54 oji    dep oji_udezue
+  09:20:37 oji    arr private_ble_device_8ce182
+  09:20:37 oji    arr oji_udezue
+  09:20:37 oji    arr iphone_oji_bermuda_tracker
+  09:20:40 ezinne arr ezinne_iphone
+  09:20:40 ezinne arr ezinne
+  09:20:40 ezinne arr ezinne_iphone_bermuda_tracke
+  12:18:24 ezinne dep ezinne_iphone
+  12:19:04 ezinne dep ezinne_iphone_bermuda_tracke
+  12:19:04 ezinne dep ezinne
+  12:57:57 ezinne arr ezinne_iphone
+  12:57:57 ezinne arr ezinne
+  12:57:59 ezinne arr ezinne_iphone_bermuda_tracke
+  14:01:45 oji    dep iphone_oji_bermuda_tracker
+  14:01:45 jaya   dep iphone_jaya_bermuda_tracker
+  14:03:44 jaya   dep private_ble_device_249050
+  14:03:44 jaya   dep jaya
+  14:03:44 oji    dep private_ble_device_8ce182
+  14:03:44 oji    dep oji_udezue
+  14:58:52 ezinne dep ezinne_iphone
+  15:00:33 ezinne arr ezinne_iphone
+  15:42:29 oji    arr private_ble_device_8ce182
+  15:42:29 oji    arr oji_udezue
+  15:42:31 oji    arr iphone_oji_bermuda_tracker
+  21:38:26 oji    dep iphone_oji_bermuda_tracker
+  21:39:24 oji    dep private_ble_device_8ce182
+  21:39:24 oji    dep oji_udezue
+  21:59:32 oji    arr private_ble_device_8ce182
+  21:59:32 oji    arr oji_udezue
+  21:59:32 oji    arr iphone_oji_bermuda_tracker
+  22:09:35 oji    dep private_ble_device_8ce182
+  22:10:09 oji    dep iphone_oji_bermuda_tracker
+  22:10:09 oji    dep oji_udezue
+  23:28:39 oji    arr iphone_oji_bermuda_tracker
+  23:28:39 oji    arr oji_udezue
+  23:28:48 jaya   arr private_ble_device_249050
+  23:28:48 jaya   arr jaya
+  23:28:49 jaya   arr iphone_jaya_bermuda_tracker
+  23:29:42 oji    dep oji_udezue
+  23:29:43 oji    arr oji_udezue
+  23:32:17 oji    arr private_ble_device_8ce182
+
+=== MIDDAY (truth: operator porch + operator+Jaya car out garage_a) 11:30-13:45 ===
+ RAW legs:
+   12:03:08 garage_a binary_sensor.garage_a_person_detected
+   12:03:08 garage_a binary_sensor.garage_a_person_occupancy_2
+   12:03:08 garage_a sensor.garage_a_person_count
+   12:03:08 garage_a sensor.garage_a_person_active_count_2
+   12:05:15 front    binary_sensor.madrone_g6_entry_person_detected
+   12:05:31 front    sensor.madrone_g6_entry_person_count
+   12:05:31 front    binary_sensor.madrone_g6_entry_person_occupancy_2
+   12:05:31 front    sensor.madrone_g6_entry_person_active_count_2
+   12:05:32 front    sensor.front_door_aerial_person_count
+   12:05:32 front    binary_sensor.front_door_aerial_person_occupancy_2
+   12:05:32 front    sensor.front_door_aerial_person_active_count_2
+   12:06:17 front    binary_sensor.madrone_g6_entry_person_detected
+   12:06:17 front    sensor.front_door_aerial_person_active_count_2
+   12:07:25 front    binary_sensor.front_door_aerial_person_detected
+   12:07:27 front    binary_sensor.madrone_g6_entry_person_detected
+   12:07:44 front    binary_sensor.madrone_g6_entry_person_detected
+   12:07:54 front    sensor.front_door_aerial_person_count
+   12:07:54 front    binary_sensor.front_door_aerial_person_occupancy_2
+   12:07:54 front    sensor.front_door_aerial_person_active_count_2
+   12:08:17 front    binary_sensor.front_door_aerial_person_detected
+   12:08:42 front    sensor.front_door_aerial_person_count
+   12:08:42 front    binary_sensor.front_door_aerial_person_occupancy_2
+   12:08:42 front    sensor.front_door_aerial_person_active_count_2
+   12:08:53 front    binary_sensor.front_door_aerial_person_detected
+   12:09:31 front    binary_sensor.front_door_aerial_person_detected
+   12:09:32 front    sensor.madrone_g6_entry_person_active_count_2
+   12:10:38 garage_a binary_sensor.garage_a_person_detected
+   12:10:40 garage_a binary_sensor.garage_a_person_occupancy_2
+   12:10:40 garage_a sensor.garage_a_person_count
+   12:10:40 garage_a sensor.garage_a_person_active_count_2
+   12:11:39 garage_a binary_sensor.garage_a_person_detected
+   12:11:40 garage_a binary_sensor.garage_a_person_occupancy_2
+   12:11:40 garage_a sensor.garage_a_person_count
+   12:11:40 garage_a sensor.garage_a_person_active_count_2
+   12:12:05 garage_a binary_sensor.garage_a_person_detected
+   12:12:11 garage_a sensor.doorbell_lite_person_count
+   12:12:11 garage_a binary_sensor.doorbell_lite_person_occupancy_2
+   12:12:11 garage_a sensor.doorbell_lite_person_active_count_2
+   12:12:15 garage_b binary_sensor.garage_b_person_detected
+   12:12:23 garage_b sensor.garage_b_person_count
+   12:12:23 garage_b binary_sensor.garage_b_person_occupancy
+   12:12:23 garage_b sensor.garage_b_person_active_count_2
+   12:12:30 garage_a sensor.doorbell_lite_person_count
+   12:12:30 garage_a binary_sensor.doorbell_lite_person_occupancy_2
+   12:12:30 garage_a sensor.doorbell_lite_person_active_count_2
+   12:12:33 garage_a binary_sensor.doorbell_lite_person_detected
+   12:12:34 garage_a binary_sensor.garage_a_person_detected
+   12:12:42 garage_a binary_sensor.garage_a_person_occupancy_2
+   12:12:42 garage_a sensor.garage_a_person_count
+   12:12:42 garage_a sensor.garage_a_person_active_count_2
+   12:13:28 garage_a binary_sensor.garage_a_person_detected
+   12:13:28 garage_a binary_sensor.garage_a_person_occupancy_2
+   12:13:28 garage_a sensor.garage_a_person_count
+   12:13:28 garage_a sensor.garage_a_person_active_count_2
+   12:13:45 garage_a binary_sensor.garage_a_person_detected
+   12:35:27 garage_a binary_sensor.garage_a_person_occupancy_2
+   12:35:27 garage_a sensor.garage_a_person_count
+   12:35:27 garage_a sensor.garage_a_person_active_count_2
+   12:35:28 garage_a binary_sensor.garage_a_person_detected
+   12:35:53 garage_a binary_sensor.doorbell_lite_person_detected
+   12:35:54 garage_a sensor.doorbell_lite_person_count
+   12:35:54 garage_a binary_sensor.doorbell_lite_person_occupancy_2
+   12:35:54 garage_a sensor.doorbell_lite_person_active_count_2
+   12:36:05 garage_b binary_sensor.garage_b_person_detected
+   12:36:06 garage_b sensor.garage_b_person_count
+   12:36:06 garage_b binary_sensor.garage_b_person_occupancy
+   12:36:06 garage_b sensor.garage_b_person_active_count_2
+   12:36:06 garage_a sensor.doorbell_lite_person_count
+   12:36:06 garage_a binary_sensor.doorbell_lite_person_occupancy_2
+   12:36:06 garage_a sensor.doorbell_lite_person_active_count_2
+   12:37:26 garage_a binary_sensor.doorbell_lite_person_detected
+   12:37:28 garage_a binary_sensor.garage_a_person_detected
+   12:37:41 garage_a binary_sensor.garage_a_person_occupancy_2
+   12:37:41 garage_a sensor.garage_a_person_count
+   12:37:41 garage_a sensor.garage_a_person_active_count_2
+   12:38:58 garage_a binary_sensor.garage_a_person_detected
+   12:38:59 garage_a binary_sensor.garage_a_person_occupancy_2
+   12:38:59 garage_a sensor.garage_a_person_count
+   12:38:59 garage_a sensor.garage_a_person_active_count_2
+   12:39:17 garage_a sensor.doorbell_lite_person_count
+   12:39:17 garage_a binary_sensor.doorbell_lite_person_occupancy_2
+   12:39:17 garage_a sensor.doorbell_lite_person_active_count_2
+   12:39:28 garage_b binary_sensor.garage_b_person_detected
+   12:39:34 garage_b sensor.garage_b_person_count
+   12:39:34 garage_b binary_sensor.garage_b_person_occupancy
+   12:39:34 garage_b sensor.garage_b_person_active_count_2
+   12:39:46 garage_a sensor.doorbell_lite_person_count
+   12:39:46 garage_a binary_sensor.doorbell_lite_person_occupancy_2
+   12:39:46 garage_a sensor.doorbell_lite_person_active_count_2
+   12:39:57 garage_a binary_sensor.garage_a_person_occupancy_2
+   12:39:57 garage_a sensor.garage_a_person_count
+   12:39:57 garage_a sensor.garage_a_person_active_count_2
+   12:40:01 garage_b binary_sensor.garage_b_person_detected
+   12:41:29 garage_a binary_sensor.garage_a_person_detected
+   12:41:51 garage_a sensor.garage_a_person_active_count_2
+   12:41:51 garage_a binary_sensor.garage_a_person_detected
+   12:41:52 garage_a binary_sensor.doorbell_lite_person_detected
+   12:41:57 garage_a sensor.doorbell_lite_person_count
+   12:41:57 garage_a binary_sensor.doorbell_lite_person_occupancy_2
+   12:41:58 garage_a sensor.doorbell_lite_person_active_count_2
+   12:42:18 garage_a sensor.garage_a_person_active_count_2
+   12:43:10 garage_a binary_sensor.garage_a_person_detected
+   12:43:11 garage_a binary_sensor.garage_a_person_occupancy_2
+   12:43:11 garage_a sensor.garage_a_person_count
+   12:43:11 garage_a sensor.garage_a_person_active_count_2
+   12:43:50 garage_a binary_sensor.garage_a_person_detected
+   12:44:08 garage_a binary_sensor.garage_a_person_detected
+   12:44:09 garage_a binary_sensor.garage_a_person_occupancy_2
+   12:44:09 garage_a sensor.garage_a_person_count
+   12:44:09 garage_a sensor.garage_a_person_active_count_2
+   12:59:05 garage_a binary_sensor.garage_a_person_detected
+   12:59:12 garage_a binary_sensor.garage_a_person_occupancy_2
+   12:59:12 garage_a sensor.garage_a_person_count
+   12:59:12 garage_a sensor.garage_a_person_active_count_2
+   12:59:20 garage_a binary_sensor.garage_a_person_occupancy_2
+   12:59:20 garage_a sensor.garage_a_person_count
+   12:59:20 garage_a sensor.garage_a_person_active_count_2
+   12:59:58 garage_a binary_sensor.garage_a_person_detected
+   13:00:00 garage_a binary_sensor.doorbell_lite_person_detected
+   13:00:01 garage_a sensor.doorbell_lite_person_count
+   13:00:01 garage_a binary_sensor.doorbell_lite_person_occupancy_2
+   13:00:01 garage_a sensor.doorbell_lite_person_active_count_2
+   13:01:31 front    binary_sensor.front_door_aerial_person_detected
+   13:01:41 front    binary_sensor.madrone_g6_entry_person_detected
+   13:01:43 front    sensor.front_door_aerial_person_count
+   13:01:43 front    binary_sensor.front_door_aerial_person_occupancy_2
+   13:01:43 front    sensor.front_door_aerial_person_active_count_2
+   13:01:43 front    sensor.madrone_g6_entry_person_count
+   13:01:43 front    binary_sensor.madrone_g6_entry_person_occupancy_2
+   13:01:43 front    sensor.madrone_g6_entry_person_active_count_2
+   13:01:53 garage_a binary_sensor.garage_a_person_detected
+   13:02:01 garage_a binary_sensor.garage_a_person_occupancy_2
+   13:02:01 garage_a sensor.garage_a_person_count
+   13:02:01 garage_a sensor.garage_a_person_active_count_2
+   13:02:54 front    binary_sensor.madrone_g6_entry_person_detected
+   13:02:54 front    binary_sensor.front_door_aerial_person_detected
+   13:02:56 front    sensor.madrone_g6_entry_person_count
+   13:02:56 front    binary_sensor.madrone_g6_entry_person_occupancy_2
+   13:02:56 front    sensor.madrone_g6_entry_person_active_count_2
+   13:02:56 front    sensor.front_door_aerial_person_count
+   13:02:56 front    binary_sensor.front_door_aerial_person_occupancy_2
+   13:02:56 front    sensor.front_door_aerial_person_active_count_2
+   13:08:25 garage_a binary_sensor.garage_a_person_detected
+   13:08:26 garage_a binary_sensor.garage_a_person_occupancy_2
+   13:08:26 garage_a sensor.garage_a_person_count
+   13:08:26 garage_a sensor.garage_a_person_active_count_2
+   13:08:45 garage_a binary_sensor.garage_a_person_occupancy_2
+   13:08:45 garage_a sensor.garage_a_person_count
+   13:08:45 garage_a sensor.garage_a_person_active_count_2
+ LEDGER rows (dir, pid, interior ±20/±60, tracker edges ±120/300/900):
+   12:03:55 garage_a garage_a           entry     pid=-       int20=['staircase'] int60n=3 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:03:55 garage_a garage_a           entry     pid=oji_udezue int20=['staircase'] int60n=3 trk900=[('ezinne', 'dep')] -> attributed(pid)
+   12:06:00 front    madrone_g6_entry   exit      pid=-       int20=['family_room'] int60n=5 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:06:17 front    madrone_g6_entry   exit      pid=oji_udezue int20=['family_room', 'garagehallway_protect', 'staircase'] int60n=3 trk900=[('ezinne', 'dep')] -> attributed(pid)
+   12:06:17 front    madrone_g6_entry   exit      pid=-       int20=['family_room', 'garagehallway_protect', 'staircase'] int60n=3 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:06:17 front    front_door_aerial  exit      pid=-       int20=['family_room', 'garagehallway_protect', 'staircase'] int60n=3 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:06:17 front    front_door_aerial  exit      pid=-       int20=['family_room', 'garagehallway_protect', 'staircase'] int60n=3 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:07:07 front    madrone_g6_entry   entry     pid=jaya    int20=['family_room'] int60n=3 trk900=[('ezinne', 'dep')] -> attributed(pid)
+   12:08:15 front    front_door_aerial  exit      pid=-       int20=[] int60n=1 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:08:15 front    madrone_g6_entry   exit      pid=-       int20=[] int60n=1 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:08:34 front    madrone_g6_entry   exit      pid=-       int20=[] int60n=0 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:08:39 front    front_door_aerial  exit      pid=-       int20=[] int60n=1 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:08:39 front    front_door_aerial  exit      pid=-       int20=[] int60n=1 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:09:42 front    front_door_aerial  entry     pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=5 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:10:21 front    front_door_aerial  entry     pid=jaya    int20=['family_room', 'garagehallway_protect', 'staircase'] int60n=5 trk900=[('ezinne', 'dep')] -> attributed(pid)
+   12:11:25 garage_a garage_a           exit      pid=-       int20=['family_room'] int60n=1 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:11:25 garage_a garage_a           exit      pid=oji_udezue int20=['family_room'] int60n=1 trk900=[('ezinne', 'dep')] -> attributed(pid)
+   12:12:25 garage_a garage_a           entry     pid=-       int20=[] int60n=3 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:12:25 garage_a garage_a           entry     pid=-       int20=[] int60n=3 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:13:00 garage_a doorbell_lite      exit      pid=ezinne  int20=['garagehallway_protect', 'staircase'] int60n=2 trk900=[('ezinne', 'dep')] -> attributed(pid)
+   12:13:00 garage_a doorbell_lite      exit      pid=-       int20=['garagehallway_protect', 'staircase'] int60n=2 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:13:08 garage_b garage_b           entry     pid=-       int20=['garagehallway_protect', 'staircase'] int60n=2 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:13:19 garage_a doorbell_lite      entry     pid=ezinne  int20=['staircase'] int60n=2 trk900=[('ezinne', 'dep')] -> attributed(pid)
+   12:13:19 garage_a doorbell_lite      entry     pid=-       int20=['staircase'] int60n=2 trk900=[('ezinne', 'dep')] -> a:edge@900
+   12:13:27 garage_a garage_a           entry     pid=-       int20=[] int60n=2 trk900=[('ezinne', 'dep')] -> a:edge@300
+   12:13:27 garage_a garage_a           entry     pid=oji_udezue int20=[] int60n=2 trk900=[('ezinne', 'dep')] -> attributed(pid)
+   12:14:15 garage_a garage_a           exit      pid=ezinne  int20=[] int60n=0 trk900=[('ezinne', 'dep')] -> attributed(pid)
+   12:14:16 garage_a garage_a           exit      pid=jaya    int20=[] int60n=0 trk900=[('ezinne', 'dep')] -> attributed(pid)
+   12:38:11 garage_a doorbell_lite      entry     pid=-       int20=['staircase'] int60n=2 trk900=[] -> b:no-edge
+   12:38:30 garage_a garage_a           entry     pid=-       int20=[] int60n=2 trk900=[] -> b:no-edge
+   12:38:30 garage_a garage_a           entry     pid=-       int20=[] int60n=2 trk900=[] -> b:no-edge
+   12:42:37 garage_a doorbell_lite      entry     pid=-       int20=['garagehallway_protect', 'staircase'] int60n=2 trk900=[] -> b:no-edge
+   12:42:44 garage_a doorbell_lite      entry     pid=-       int20=[] int60n=2 trk900=[] -> b:no-edge
+   12:42:44 garage_a doorbell_lite      entry     pid=-       int20=[] int60n=2 trk900=[] -> b:no-edge
+   12:44:54 garage_a garage_a           entry     pid=-       int20=['master_hallway'] int60n=3 trk900=[('ezinne', 'arr')] -> a:edge@900
+   12:44:54 garage_a garage_a           entry     pid=-       int20=['master_hallway'] int60n=3 trk900=[('ezinne', 'arr')] -> a:edge@900
+   13:00:46 garage_a doorbell_lite      entry     pid=ezinne  int20=['foyer_fisheye', 'master_hallway'] int60n=5 trk900=[('ezinne', 'arr')] -> attributed(pid)
+   13:00:46 garage_a doorbell_lite      entry     pid=-       int20=['foyer_fisheye', 'master_hallway'] int60n=5 trk900=[('ezinne', 'arr')] -> a:edge@300
+   13:02:18 front    front_door_aerial  entry     pid=-       int20=['family_room'] int60n=5 trk900=[('ezinne', 'arr')] -> a:edge@300
+   13:02:28 front    madrone_g6_entry   entry     pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=5 trk900=[('ezinne', 'arr')] -> a:edge@300
+   13:02:29 front    front_door_aerial  exit      pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=5 trk900=[('ezinne', 'arr')] -> a:edge@300
+   13:02:29 front    front_door_aerial  exit      pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=5 trk900=[('ezinne', 'arr')] -> a:edge@300
+   13:02:29 front    madrone_g6_entry   exit      pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=5 trk900=[('ezinne', 'arr')] -> a:edge@300
+   13:02:48 garage_a garage_a           exit      pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=4 trk900=[('ezinne', 'arr')] -> a:edge@300
+   13:02:48 garage_a garage_a           exit      pid=ezinne  int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=4 trk900=[('ezinne', 'arr')] -> attributed(pid)
+   13:03:39 front    madrone_g6_entry   exit      pid=ezinne  int20=['foyer_fisheye', 'master_hallway', 'staircase'] int60n=4 trk900=[('ezinne', 'arr')] -> attributed(pid)
+   13:03:39 front    front_door_aerial  exit      pid=-       int20=['foyer_fisheye', 'master_hallway', 'staircase'] int60n=4 trk900=[('ezinne', 'arr')] -> a:edge@900
+   13:03:41 front    madrone_g6_entry   exit      pid=-       int20=['foyer_fisheye', 'master_hallway', 'staircase'] int60n=4 trk900=[('ezinne', 'arr')] -> a:edge@900
+   13:03:41 front    front_door_aerial  exit      pid=-       int20=['foyer_fisheye', 'master_hallway', 'staircase'] int60n=4 trk900=[('ezinne', 'arr')] -> a:edge@900
+   13:09:12 garage_a garage_a           entry     pid=-       int20=['family_room', 'master_hallway', 'staircase'] int60n=4 trk900=[('ezinne', 'arr')] -> a:edge@900
+   13:09:12 garage_a garage_a           entry     pid=-       int20=['family_room', 'master_hallway', 'staircase'] int60n=4 trk900=[('ezinne', 'arr')] -> a:edge@900
+   13:09:31 garage_a garage_a           exit      pid=-       int20=['family_room', 'master_hallway', 'staircase'] int60n=4 trk900=[('ezinne', 'arr')] -> a:edge@900
+   13:09:31 garage_a garage_a           exit      pid=-       int20=['family_room', 'master_hallway', 'staircase'] int60n=4 trk900=[('ezinne', 'arr')] -> a:edge@900
+
+=== ACTUAL op+Jaya BLE departure 14:01-14:03 13:45-14:12 ===
+ RAW legs:
+   13:54:21 garage_a binary_sensor.garage_a_person_detected
+   13:54:23 garage_a binary_sensor.garage_a_person_occupancy_2
+   13:54:23 garage_a sensor.garage_a_person_count
+   13:54:23 garage_a sensor.garage_a_person_active_count_2
+   13:54:31 garage_a binary_sensor.doorbell_lite_person_detected
+   13:54:44 garage_a sensor.doorbell_lite_person_count
+   13:54:44 garage_a binary_sensor.doorbell_lite_person_occupancy_2
+   13:54:44 garage_a sensor.doorbell_lite_person_active_count_2
+   13:56:09 garage_a binary_sensor.garage_a_person_occupancy_2
+   13:56:09 garage_a sensor.garage_a_person_count
+   13:56:09 garage_a sensor.garage_a_person_active_count_2
+   13:56:10 garage_a binary_sensor.garage_a_person_detected
+   13:56:13 garage_a binary_sensor.doorbell_lite_person_detected
+   13:56:15 garage_a sensor.doorbell_lite_person_count
+   13:56:15 garage_a binary_sensor.doorbell_lite_person_occupancy_2
+   13:56:15 garage_a sensor.doorbell_lite_person_active_count_2
+ LEDGER rows (dir, pid, interior ±20/±60, tracker edges ±120/300/900):
+   13:55:09 garage_a garage_a           entry     pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=5 trk900=[('jaya', 'dep'), ('oji', 'dep')] -> a:edge@900
+   13:55:09 garage_a garage_a           entry     pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=5 trk900=[('jaya', 'dep'), ('oji', 'dep')] -> a:edge@900
+   13:55:17 garage_a doorbell_lite      entry     pid=-       int20=['foyer_fisheye', 'master_hallway'] int60n=5 trk900=[('jaya', 'dep'), ('oji', 'dep')] -> a:edge@900
+   13:55:29 garage_a doorbell_lite      exit      pid=oji_udezue int20=['foyer_fisheye', 'garagehallway_protect', 'master_hallway', 'staircase'] int60n=5 trk900=[('jaya', 'dep'), ('oji', 'dep')] -> attributed(pid)
+   13:55:29 garage_a doorbell_lite      exit      pid=jaya    int20=['foyer_fisheye', 'garagehallway_protect', 'master_hallway', 'staircase'] int60n=5 trk900=[('jaya', 'dep'), ('oji', 'dep')] -> attributed(pid)
+   13:56:56 garage_a garage_a           entry     pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=3 trk900=[('jaya', 'dep'), ('oji', 'dep')] -> a:edge@300
+   13:56:56 garage_a garage_a           entry     pid=jaya    int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=3 trk900=[('jaya', 'dep'), ('oji', 'dep')] -> attributed(pid)
+   13:56:58 garage_a doorbell_lite      entry     pid=jaya    int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=3 trk900=[('jaya', 'dep'), ('oji', 'dep')] -> attributed(pid)
+   13:57:00 garage_a doorbell_lite      entry     pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=3 trk900=[('jaya', 'dep'), ('oji', 'dep')] -> a:edge@300
+
+=== 14:22 8-GUEST FRONT ARRIVAL 14:10-14:40 ===
+ RAW legs:
+   14:24:12 front    binary_sensor.front_door_aerial_person_detected
+   14:24:15 front    binary_sensor.madrone_g6_entry_person_detected
+   14:24:24 front    sensor.madrone_g6_entry_person_count
+   14:24:24 front    binary_sensor.madrone_g6_entry_person_occupancy_2
+   14:24:24 front    sensor.madrone_g6_entry_person_active_count_2
+   14:24:36 front    sensor.front_door_aerial_person_count
+   14:24:36 front    binary_sensor.front_door_aerial_person_occupancy_2
+   14:24:36 front    sensor.front_door_aerial_person_active_count_2
+ LEDGER rows (dir, pid, interior ±20/±60, tracker edges ±120/300/900):
+   14:25:01 front    front_door_aerial  entry     pid=-       int20=['family_room', 'master_hallway'] int60n=3 trk900=[] -> b:no-edge
+   14:25:01 front    madrone_g6_entry   entry     pid=-       int20=['family_room', 'master_hallway'] int60n=3 trk900=[] -> b:no-edge
+   14:25:12 front    madrone_g6_entry   entry     pid=-       int20=['family_room', 'master_hallway'] int60n=3 trk900=[] -> b:no-edge
+   14:25:12 front    madrone_g6_entry   entry     pid=-       int20=['family_room', 'master_hallway'] int60n=3 trk900=[] -> b:no-edge
+   14:25:21 front    front_door_aerial  exit      pid=-       int20=['family_room', 'master_hallway'] int60n=5 trk900=[] -> b:no-edge
+   14:25:21 front    front_door_aerial  exit      pid=-       int20=['family_room', 'master_hallway'] int60n=5 trk900=[] -> b:no-edge
+
+=== operator return ~15:42 15:30-15:50 ===
+ RAW legs:
+   15:43:19 garage_a binary_sensor.garage_a_person_detected
+   15:43:19 garage_a binary_sensor.garage_a_person_occupancy_2
+   15:43:19 garage_a sensor.garage_a_person_count
+   15:43:20 garage_a sensor.garage_a_person_active_count_2
+   15:43:20 garage_a binary_sensor.doorbell_lite_person_detected
+   15:43:21 garage_a sensor.doorbell_lite_person_count
+   15:43:21 garage_a binary_sensor.doorbell_lite_person_occupancy_2
+   15:43:21 garage_a sensor.doorbell_lite_person_active_count_2
+   15:44:00 garage_a binary_sensor.garage_a_person_detected
+   15:44:04 garage_a binary_sensor.doorbell_lite_person_detected
+   15:44:10 garage_a sensor.doorbell_lite_person_count
+   15:44:10 garage_a binary_sensor.doorbell_lite_person_occupancy_2
+   15:44:10 garage_a sensor.doorbell_lite_person_active_count_2
+   15:44:42 garage_a binary_sensor.garage_a_person_occupancy_2
+   15:44:42 garage_a sensor.garage_a_person_count
+   15:44:42 garage_a sensor.garage_a_person_active_count_2
+   15:44:45 garage_a binary_sensor.garage_a_person_detected
+ LEDGER rows (dir, pid, interior ±20/±60, tracker edges ±120/300/900):
+   15:44:04 garage_a garage_a           entry     pid=-       int20=['garagehallway_protect', 'staircase'] int60n=3 trk900=[('oji', 'arr')] -> a:edge@120
+   15:44:04 garage_a garage_a           entry     pid=oji_udezue int20=['garagehallway_protect', 'staircase'] int60n=3 trk900=[('oji', 'arr')] -> attributed(pid)
+   15:44:10 garage_a doorbell_lite      entry     pid=oji_udezue int20=['garagehallway_protect', 'staircase'] int60n=3 trk900=[('oji', 'arr')] -> attributed(pid)
+   15:44:11 garage_a doorbell_lite      entry     pid=-       int20=['garagehallway_protect', 'staircase'] int60n=3 trk900=[('oji', 'arr')] -> a:edge@120
+   15:44:49 garage_a doorbell_lite      exit      pid=-       int20=['garagehallway_protect', 'staircase'] int60n=2 trk900=[('oji', 'arr')] -> a:edge@300
+   15:44:58 garage_a doorbell_lite      exit      pid=-       int20=['garagehallway_protect', 'staircase'] int60n=2 trk900=[('oji', 'arr')] -> a:edge@300
+   15:44:58 garage_a doorbell_lite      exit      pid=-       int20=['garagehallway_protect', 'staircase'] int60n=2 trk900=[('oji', 'arr')] -> a:edge@300
+   15:45:29 garage_a garage_a           exit      pid=-       int20=[] int60n=2 trk900=[('oji', 'arr')] -> a:edge@300
+   15:45:29 garage_a garage_a           exit      pid=-       int20=[] int60n=2 trk900=[('oji', 'arr')] -> a:edge@300
+
+=== LATE (visitor out 23:00 front; op+Jaya back ~23:24 garage_a; guest out 23:55 front) 22:55-23:59 ===
+ RAW legs:
+   23:01:18 front    binary_sensor.madrone_g6_entry_person_detected
+   23:01:24 front    binary_sensor.front_door_aerial_person_detected
+   23:01:40 front    sensor.madrone_g6_entry_person_count
+   23:01:40 front    binary_sensor.madrone_g6_entry_person_occupancy_2
+   23:01:40 front    sensor.madrone_g6_entry_person_active_count_2
+   23:23:24 garage_a binary_sensor.garage_a_person_detected
+   23:24:12 garage_a binary_sensor.garage_a_person_detected
+   23:24:18 garage_a binary_sensor.garage_a_person_occupancy_2
+   23:24:18 garage_a sensor.garage_a_person_count
+   23:24:18 garage_a sensor.garage_a_person_active_count_2
+   23:25:05 garage_a binary_sensor.doorbell_lite_person_detected
+   23:25:05 garage_a binary_sensor.doorbell_lite_person_occupancy_2
+   23:25:05 garage_a sensor.doorbell_lite_person_count
+   23:25:05 garage_a sensor.doorbell_lite_person_active_count_2
+   23:25:25 garage_a binary_sensor.garage_a_person_detected
+   23:25:25 garage_a binary_sensor.garage_a_person_occupancy_2
+   23:25:25 garage_a sensor.garage_a_person_count
+   23:25:25 garage_a sensor.garage_a_person_active_count_2
+   23:29:29 garage_a binary_sensor.garage_a_person_detected
+   23:29:56 garage_a binary_sensor.garage_a_person_occupancy_2
+   23:29:56 garage_a sensor.garage_a_person_count
+   23:29:56 garage_a sensor.garage_a_person_active_count_2
+   23:30:09 garage_a binary_sensor.garage_a_person_detected
+   23:30:09 garage_a binary_sensor.doorbell_lite_person_detected
+   23:30:09 garage_a binary_sensor.garage_a_person_occupancy_2
+   23:30:09 garage_a sensor.garage_a_person_count
+   23:30:09 garage_a sensor.garage_a_person_active_count_2
+   23:30:10 garage_a binary_sensor.doorbell_lite_person_occupancy_2
+   23:30:10 garage_a sensor.doorbell_lite_person_count
+   23:30:10 garage_a sensor.doorbell_lite_person_active_count_2
+   23:55:45 front    binary_sensor.madrone_g6_entry_person_detected
+   23:55:45 front    binary_sensor.front_door_aerial_person_detected
+   23:55:46 front    sensor.front_door_aerial_person_count
+   23:55:46 front    binary_sensor.front_door_aerial_person_occupancy_2
+   23:55:46 front    sensor.front_door_aerial_person_active_count_2
+ LEDGER rows (dir, pid, interior ±20/±60, tracker edges ±120/300/900):
+   23:02:03 front    madrone_g6_entry   exit      pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=3 trk900=[] -> b:no-edge
+   23:02:10 front    front_door_aerial  entry     pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=3 trk900=[] -> b:no-edge
+   23:02:25 front    madrone_g6_entry   entry     pid=-       int20=['family_room', 'master_hallway'] int60n=3 trk900=[] -> b:no-edge
+   23:02:25 front    madrone_g6_entry   entry     pid=-       int20=['family_room', 'master_hallway'] int60n=3 trk900=[] -> b:no-edge
+   23:25:03 garage_a garage_a           entry     pid=-       int20=['family_room'] int60n=5 trk900=[('jaya', 'arr'), ('oji', 'arr'), ('oji', 'dep')] -> a:edge@300
+   23:25:03 garage_a garage_a           entry     pid=-       int20=['family_room'] int60n=5 trk900=[('jaya', 'arr'), ('oji', 'arr'), ('oji', 'dep')] -> a:edge@300
+   23:25:56 garage_a doorbell_lite      entry     pid=-       int20=['family_room', 'foyer_fisheye', 'garagehallway_protect', 'master_hallway', 'staircase'] int60n=5 trk900=[('jaya', 'arr'), ('oji', 'arr'), ('oji', 'dep')] -> a:edge@300
+   23:25:56 garage_a doorbell_lite      entry     pid=-       int20=['family_room', 'foyer_fisheye', 'garagehallway_protect', 'master_hallway', 'staircase'] int60n=5 trk900=[('jaya', 'arr'), ('oji', 'arr'), ('oji', 'dep')] -> a:edge@300
+   23:26:10 garage_a garage_a           entry     pid=-       int20=['family_room', 'foyer_fisheye'] int60n=5 trk900=[('jaya', 'arr'), ('oji', 'arr'), ('oji', 'dep')] -> a:edge@300
+   23:26:10 garage_a garage_a           entry     pid=-       int20=['family_room', 'foyer_fisheye'] int60n=5 trk900=[('jaya', 'arr'), ('oji', 'arr'), ('oji', 'dep')] -> a:edge@300
+   23:30:44 garage_a garage_a           exit      pid=-       int20=['family_room', 'garagehallway_protect', 'master_hallway', 'staircase'] int60n=5 trk900=[('jaya', 'arr'), ('oji', 'arr'), ('oji', 'dep')] -> a:edge@120
+   23:30:44 garage_a garage_a           exit      pid=-       int20=['family_room', 'garagehallway_protect', 'master_hallway', 'staircase'] int60n=5 trk900=[('jaya', 'arr'), ('oji', 'arr'), ('oji', 'dep')] -> a:edge@120
+   23:30:57 garage_a doorbell_lite      entry     pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=5 trk900=[('jaya', 'arr'), ('oji', 'arr'), ('oji', 'dep')] -> a:edge@120
+   23:30:57 garage_a garage_a           entry     pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=5 trk900=[('jaya', 'arr'), ('oji', 'arr'), ('oji', 'dep')] -> a:edge@120
+   23:30:57 garage_a garage_a           entry     pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=5 trk900=[('jaya', 'arr'), ('oji', 'arr'), ('oji', 'dep')] -> a:edge@120
+   23:30:57 garage_a doorbell_lite      entry     pid=-       int20=['family_room', 'foyer_fisheye', 'master_hallway'] int60n=5 trk900=[('jaya', 'arr'), ('oji', 'arr'), ('oji', 'dep')] -> a:edge@120
+   23:56:32 front    madrone_g6_entry   entry     pid=jaya    int20=[] int60n=4 trk900=[] -> attributed(pid)
+   23:56:32 front    front_door_aerial  entry     pid=jaya    int20=[] int60n=4 trk900=[] -> attributed(pid)
+   23:56:32 front    front_door_aerial  entry     pid=-       int20=[] int60n=4 trk900=[] -> b:no-edge
+
+14:22 person_count timeline (front cams + doorbell_lite):
+  sensor.front_door_aerial_person_count: [('14:24:36', '1'), ('14:24:44', '3'), ('14:25:04', '4'), ('14:25:31', '0')]
+  sensor.front_door_aerial_person_active_count_2: [('14:24:36', '1'), ('14:24:44', '3'), ('14:25:04', '4'), ('14:25:31', '0')]
+  sensor.madrone_g6_entry_person_count: [('14:24:24', '1'), ('14:24:24', '2'), ('14:25:15', '1'), ('14:25:15', '0')]
+  sensor.madrone_g6_entry_person_active_count_2: [('14:24:24', '1'), ('14:24:24', '2'), ('14:25:15', '1'), ('14:25:15', '0')]
+  sensor.doorbell_lite_person_count: []
+  sensor.doorbell_lite_person_active_count_2: []

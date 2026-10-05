@@ -323,7 +323,9 @@ def test_every_production_funnel_call_supplies_required_kwargs():
     funnels = {
         name: _required_kw_only(name)
         for name in ("emit_set_hvac_mode", "emit_set_preset_mode",
-                     "emit_set_temperature")
+                     "emit_set_temperature",
+                     # HVAC Batch C (CPR U1): the fourth funnel.
+                     "emit_set_activity_setpoint")
     }
     violations: list[str] = []
     n_calls = 0
@@ -384,3 +386,60 @@ def test_grep_belt_smoke():
         "grep belt found raw climate services calls outside funnel:\n"
         + "\n".join(hits)
     )
+
+
+# --------------------------------------------------------------------------
+# HVAC Batch C (CPR) REV 3.1 F3 + REV 3.2 clarification: the brand service
+# literal lives ONLY in the thermostat adapter. Forbidden: a services call
+# whose domain is the LITERAL "ha_carrier" outside hvac_strategy.py, and the
+# literal "ha_carrier" anywhere in hvac_setpoint.py (the funnel takes the
+# domain from its caller). A NON-literal domain (Name / attribute) is
+# allowed — that is how the funnel itself calls `async_call(service_domain,
+# ...)`.
+# --------------------------------------------------------------------------
+
+_BRAND_LITERAL = "ha_carrier"
+_ADAPTER_FILE = "hvac_strategy.py"
+
+
+def _brand_literal_violations(sources: dict[str, str]) -> list[str]:
+    """`sources` = {file name: source text}. Returns violations."""
+    out: list[str] = []
+    for name, text in sources.items():
+        tree = ast.parse(text, filename=name)
+        if name == FUNNEL_FILE:
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Constant) and node.value == _BRAND_LITERAL:
+                    out.append(f"{name}:{node.lineno}: brand literal in the funnel")
+            continue
+        if name == _ADAPTER_FILE:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and _is_services_call(
+                node.func, ("async_call", "call"),
+            ):
+                dom = _domain_arg(node)
+                if isinstance(dom, ast.Constant) and dom.value == _BRAND_LITERAL:
+                    out.append(f"{name}:{node.lineno}: brand service call outside the adapter")
+    return out
+
+
+def test_brand_service_literal_only_in_adapter():
+    sources = {p.name: p.read_text() for p in _iter_py_files()}
+    v = _brand_literal_violations(sources)
+    assert not v, "\n".join(v)
+
+
+def test_lint_accepts_variable_service_domain():
+    """Lint-of-the-lint (REV 3.2): a Name-typed domain passes."""
+    src = "async def f(hass, service_domain):\n    await hass.services.async_call(service_domain, 'x', {})\n"
+    assert _brand_literal_violations({"some_caller.py": src}) == []
+    assert _brand_literal_violations({FUNNEL_FILE: src}) == []
+
+
+def test_lint_rejects_literal_brand_call_and_funnel_literal():
+    """Lint-of-the-lint: the planted shapes ARE caught."""
+    call = "async def f(hass):\n    await hass.services.async_call('ha_carrier', 'x', {})\n"
+    assert _brand_literal_violations({"some_caller.py": call})
+    assert _brand_literal_violations({_ADAPTER_FILE: call}) == []
+    assert _brand_literal_violations({FUNNEL_FILE: "X = 'ha_carrier'\n"})

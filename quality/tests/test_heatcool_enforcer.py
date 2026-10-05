@@ -188,6 +188,8 @@ def _load_hvac_module():
         emit_set_preset_mode=lambda *a, **kw: None,
         emit_set_temperature=lambda *a, **kw: None,
         emit_set_hvac_mode=_stub_emit_set_hvac_mode,
+        # HVAC Batch C (DoD 9): hvac.py imports the CPR funnel at module level.
+        emit_set_activity_setpoint=lambda *a, **kw: None,
     )
 
     # signals: permissive — every SIGNAL_* import resolves to a sentinel str.

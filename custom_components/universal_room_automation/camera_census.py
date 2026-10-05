@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv5.103.38
+# Universal Room Automation vv5.103.39
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -859,21 +859,41 @@ class CameraIntegrationManager:
     def _extract_camera_stem(entity_id: str) -> str | None:
         """Extract the camera name stem from a person detection entity_id.
 
-        Examples:
-          binary_sensor.madrone_g6_entry_person_occupancy -> madrone_g6_entry
-          binary_sensor.madrone_g6_entry_person_detected  -> madrone_g6_entry
-          sensor.madrone_g6_entry_person_count            -> madrone_g6_entry
-        """
-        # Remove domain prefix
-        if "." not in entity_id:
-            return None
-        name = entity_id.split(".", 1)[1]
+        PLANNING_census_inputs_first R3.3 / R4.1 (2026-10-05):
+        Composes the two existing resolver normalisers so Frigate `_2`
+        and `_person_count_2` legs stem-dedup correctly. Previously the
+        inline suffix list stripped `_person_occupancy` but NOT
+        `_person_occupancy_2` (returning ``None`` → dedup skipped for
+        every Frigate-2 occupancy leg; see memo
+        `reference_frigate1_retired_2suffix_permanent`).
 
-        # Known suffixes to strip
-        for suffix in ("_person_occupancy", "_person_detected", "_person_count", "_person"):
-            if name.endswith(suffix):
-                return name[: -len(suffix)]
-        return None
+        Order:
+          1. ``_strip_disambiguation_suffix`` — strip HA's `_2`/`_N` tail.
+          2. ``_strip_suffix`` against ``_PERSON_SUFFIXES + (_PERSON_COUNT_SUFFIX,)``
+             — the two symbols already exist at
+             ``camera_resolver.py:214-219`` and ``:263``.
+
+        Examples:
+          binary_sensor.foo_person_occupancy    -> foo
+          binary_sensor.foo_person_occupancy_2  -> foo
+          sensor.foo_person_count               -> foo
+          sensor.foo_person_count_2             -> foo
+          binary_sensor.foo_person_detected     -> foo
+        """
+        if not isinstance(entity_id, str) or "." not in entity_id:
+            return None
+        from .camera_resolver import (
+            _entity_name,
+            _strip_disambiguation_suffix,
+            _strip_suffix,
+            _PERSON_SUFFIXES,
+            _PERSON_COUNT_SUFFIX,
+        )
+        name = _entity_name(entity_id)
+        # Strip HA _N disambiguation tail first (e.g. `_2`).
+        pre = _strip_disambiguation_suffix(name)
+        stem = _strip_suffix(pre, _PERSON_SUFFIXES + (_PERSON_COUNT_SUFFIX,))
+        return stem
 
     async def async_discover(
         self,
@@ -3212,16 +3232,24 @@ class PersonCensus:
             )
             return result
 
+        # HA's entity_registry has no `async_entries_for_platform` helper
+        # (verified against homeassistant/helpers/entity_registry.py in the
+        # installed HA; only `async_entries_for_{device,area,label,category,
+        # config_entry}` exist). Iterate `registry.entities.values()` and
+        # filter on `entry.platform == "frigate"` — that is the attribute
+        # the (domain, platform, unique_id) index is keyed on.
         try:
-            entries = er.async_entries_for_platform(registry, "frigate")
+            all_entries = list(registry.entities.values())
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
-                "D2: async_entries_for_platform(frigate) failed; map empty",
+                "D2: registry.entities.values() failed; map empty",
                 exc_info=True,
             )
             return result
 
-        for entry in entries:
+        for entry in all_entries:
+            if getattr(entry, "platform", None) != "frigate":
+                continue
             eid = getattr(entry, "entity_id", "") or ""
             if not eid.startswith("sensor.frigate_"):
                 continue

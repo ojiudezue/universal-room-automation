@@ -1099,3 +1099,143 @@ exceptions stay at exactly one (F4 S1 FAILED row, capability reasons only; Carri
 (export `{}` → key omitted).
 
 **Verdict: BUILD-READY (pending D0b).** All five findings fixed in this commit; no code edited.
+
+## Operator field evidence 2026-10-05 (Wigton, screenshots)
+- A SECOND ecobee exists: **"Ecobee Upstairs"** (ECB501, fw 4.10.330032, HomeKit Device, area Game room) — plan previously assumed one (`climate.master_closet_ecobee_downstairs`). Zone mapping must cover both.
+- HomeKit exposes: climate entity (showed "Idle (Cool) 76 °F", 57% RH), a **"Clear Hold" button**, and a **"Current Mode" select with options Home / Sleep / Away** (ecobee comfort settings) — reading **unknown** at capture time (likely while a manual hold is active; to verify in D0b).
+- Thermostat on-device system modes: Heat, Cool, Heat/Cool (Auto), Off.
+- Implication for the thin adapter: preset/comfort commands map to the Current Mode select (Home/Sleep/Away), hold release maps to the Clear Hold button; an `unknown` select must be treated as "no comfort setting readable", not as Away. D0b probe should capture select state before/after Clear Hold.
+- **Operator 2026-10-05:** Wigton has **3 AC systems, like the main house → likely 3 HVAC zones**, each with its own ecobee; the other 2 ecobees were added to HA (HomeKit) today. Plan must cover 3 thermostats/zones (was 1). D0b probe re-scope: all 3.
+
+## D0b results 2026-10-05 (read-only leg; `--discover`, 24 h recorder)
+
+Scope: the read-only part of D0b/D0a only. P1-P7 (writes) are NOT run; G1-G7 stay open. Raw JSON kept off-repo.
+
+| | Upstairs | Master suite | Downstairs |
+|---|---|---|---|
+| climate entity | `climate.game_room_ecobee_upstairs` | `climate.study_hallway_ecobee_master_suite` | `climate.master_closet_ecobee_downstairs` |
+| area | Game room | Study Hallway | Down Guest bedroom hallway |
+| device | ecobee Inc. ECB501, fw 4.10.330032 | ECB501, fw 4.10.330032 | ECB501, fw **4.10.70046** |
+| hvac_modes | off/heat/cool/heat_cool | same | same |
+| supported_features | 399 (TARGET_TEMP, RANGE, TARGET_HUMIDITY, FAN_MODE, TURN_OFF, TURN_ON; **no PRESET_MODE**) | 399 | 399 |
+| preset_modes | absent | absent | absent |
+| min/max temp | 45 / 92 °F | same | same |
+| live mode / setpoint | cool, temperature 76, low/high **null** | same | same |
+| fan_modes | on, auto (auto) | same | same |
+| humidity | current 55 %; target `humidity` attr, range 20-50 | 54 % | 55 % |
+| hvac_action seen 24 h | idle 208 / cooling 120 / fan 49 (n=377) | idle 142 / cooling 26 / fan 4 (n=172) | idle 364 / cooling 47 / fan 9 (n=420) |
+| setpoint history 24 h | constant 76, always single-target | same | same |
+| Current Mode select | options home/sleep/away; **unknown in 7/7 rows, 100 % of 24 h** | unknown 7/7 | unknown 5/5 |
+| Clear Hold button | present | present | present |
+| other siblings | identify button, motion + occupancy binary_sensors, temp + humidity sensors, display-units select | same | same |
+
+Answers to D0b questions answerable read-only:
+- **G1 (partial):** all three expose `heat_cool` and RANGE support, but none has been in heat_cool in 24 h, so legs
+  appearing in heat_cool is UNMEASURED (P1 needed). Auto-enabled on the unit: operator P0.
+- **Echo latency, rounding, min delta, separability, hold persistence (G2-G6):** unmeasured; need the supervised run
+  on each entity.
+- **Current Mode `unknown`:** constant across the whole window on all three, and its row timestamps coincide with the
+  HomeKit entry reloads/restarts (00:05, 02:11, 05:00, 05:04 UTC), not with any setpoint event. Cannot yet tell
+  "unknown under hold" from "HomeKit never reports it"; P-step to add: press Clear Hold (operator, supervised) and
+  read the select before/after.
+- Setpoint 76 °F constant with frequent cooling cycles = consistent with a held setpoint (hold action already
+  "until I change it" or similar); confirm at P0.
+
+Brand QUIRKS the thin adapter must absorb (never gate features by brand):
+1. **No `preset_mode`.** The comfort setting is a sibling `select.<x>_current_mode` (home/sleep/away), resolved via
+   the device registry, not the climate entity. `preset_of()` must read the select; adapter verb = `select_option`.
+2. **Current Mode reads `unknown`** (24 h, all units). Treat as "no comfort setting readable", never as Away; the
+   projection must fall back to the setpoint/range readback.
+3. **Hold release is a button** (`button.<x>_clear_hold`), not a service on the climate entity — the adapter's
+   "resume/release" verb maps to `button.press`.
+4. **Dual setpoints only in heat_cool.** In cool/heat, `target_temp_low/high` are present but `null` and
+   `temperature` is set; the adapter must not send a range outside heat_cool (D0b safety #2 stands).
+5. **Target humidity ceiling 50 %** (min 20) while room RH sits 54-55 %; any humidity verb must clamp.
+6. **Mixed firmware** (4.10.330032 ×2, 4.10.70046 ×1): measure P1/P2 on the Downstairs unit separately; don't
+   assume one unit's echo profile covers all.
+7. **Three thermostats → three zones**: detection/cache is per-entity (§4.1 already is); zone mapping must name all
+   three.
+8. Device-registry siblings also offer `occupancy`/`motion` binary_sensors (ecobee remote/occupancy): presence
+   inputs, not adapter concerns — note for the zone config, no brand gate.
+
+## D0b supervised results 2026-10-05 (P1-P3 write leg; operator-approved "Yes. Just restore.")
+
+Scope and method: run via REST against Wigton HA (`192.168.17.243:80`) using
+`scripts/probes/house2_ecobee_d0b_probe.py --entity <x>`, remote (no human physically at the thermostat/app this
+run). P0 physical-only reads (hold action text, Auto-enabled, Smart Home/Away, Eco+, Follow Me, program running)
+answered `?`/unknown — **not fabricated**; G1 stays UNKNOWN for that reason, not a failure. P4 (wall-unit change),
+P5 (mode change at the wall), P6 ("Resume schedule" in the app) all declined — they require physical presence not
+available this run; declining P4 triggers the script's own abort-and-restore path, so P1-P3 data is preserved and
+the restore still runs. Raw JSON per unit in scratchpad only (not committed): `house2_d0b_supervised_{upstairs,
+master_suite,downstairs}.json`, plus `house2_clearhold_results.json` for the separate Clear-Hold test below.
+
+**Pre-step, all three units:** before the P1-P3 run, pressed `button.<x>_clear_hold` on all three (to test the
+`unknown` Current-Mode question) with before/after reads of `select.<x>_current_mode` + the climate entity 30 s
+apart. This is an extra write beyond the runbook's scripted P-steps and shifted all three setpoints off 76 °F
+(see Clear-Hold finding below) — corrected back to `cool`/76 °F on all three via `climate.set_temperature` before
+the P1-P3 run started, verified by readback. The P1-P3 run's own "starting state" snapshot was therefore taken
+at the corrected 76 °F baseline, not the drifted one.
+
+| | Upstairs | Master suite | Downstairs (older fw 4.10.70046) |
+|---|---|---|---|
+| G1 heat_cool + legs | **UNKNOWN** (Auto-enabled not recorded; heat_cool confirmed exposed, legs appeared immediately: `legs_at_return=[76,76]` on mode switch) | UNKNOWN (legs `[74,74]` at return — picked up the then-current single setpoint as both legs) | UNKNOWN (legs `[73,73]` at return) |
+| G2 tolerance T | **GO** — T=0.50 °F (`.5` writes rounded to the nearest whole degree; `70.5/75.5`→`71/76`, `69.5/74.5`→`69/74` — rounds AWAY from the mean, not consistently up or down) | GO — T=0.50 °F, same rounding behavior | GO — T=0.50 °F, same rounding behavior |
+| G3 echo p95 | **GO** — p95 0.044 s (sub-second; HA's blocking REST call returns after the echo, confirming measurement note in the script's docstring) | GO — p95 0.035 s | GO — p95 0.039 s |
+| G4 device min delta | **≤ 2.0 °F** — both P3 writes (72/74, 70/72) landed exactly, device accepted the 2 °F gap with no leg correction | **5.0 °F** — P3's 70/72 write was NOT accepted as-is: device walked it through `70/74`→`69/74` over ~1 s (a real single-leg intermediate, not just a final correction) | **≤ 2.0 °F** — same as Upstairs, both gaps accepted |
+| G5 separability | UNKNOWN — P4 not run (no wall-unit access) | UNKNOWN — P4 not run | UNKNOWN — P4 not run |
+| G6 hold persistence | UNKNOWN — `hold_shown`/`hold_persists_operator` both `?` (no physical/app read) | UNKNOWN — same | UNKNOWN — same |
+| G7 restore | **GO** — readback confirms `cool`/76 °F/fan `auto` after restore | **GO** — same | **GO** — same |
+| OVERALL | NO-GO (G1/G5/G6 UNKNOWN — not a correctness failure, a coverage gap: physical P0/P4/P5/P6 need an operator at the unit) | **NO-GO (hard)** — `single_leg_intermediates` non-empty on the min-delta walk down to 70/72, which is an explicit hard NO-GO per the script's `evaluate_g()` | NO-GO (same UNKNOWN coverage gap as Upstairs) |
+
+**Clear-Hold / `unknown` Current-Mode finding — answered.** Pressing `button.<x>_clear_hold` and re-reading the
+`select.<x>_current_mode` 30 s later:
+- Downstairs: `unknown` → `home` within the 30 s window.
+- Master suite: still `unknown` at 30 s, but `home` by the time of the later post-snapshot read (a HomeKit
+  polling-lag effect, consistent with the D0b read-only leg's observation that Current-Mode rows coincide with
+  HomeKit reload timestamps, not setpoint events).
+- Upstairs: still `unknown` at both the 30 s read and the later post-snapshot read.
+- **Conclusion:** Clear Hold DOES surface a real Current-Mode value on at least 2/3 units — `unknown` is NOT purely
+  "HomeKit never reports it"; it is at least partly "unknown while a hold is active, resolves on release," with a
+  HomeKit polling lag of tens of seconds to longer. Upstairs not resolving within this run's observation window is
+  inconclusive (could need longer, or could be a per-unit HomeKit quirk) — leave as an open question, not a
+  contradiction.
+- **Side effect (expected given the above):** releasing the hold let each unit's schedule assert a different
+  setpoint immediately (76→77 Upstairs, 76→75 Master suite and Downstairs) — i.e., these units DO have a program/
+  schedule that engages the moment a hold clears, contradicting the runbook's P0 setup assumption ("No ecobee
+  program/schedule running"). This was corrected back to 76 °F before the P1-P3 run (see pre-step note above) and
+  is itself a finding: **a bare Clear-Hold press is not safe to leave unattended** — it must always be paired with
+  an immediate re-assertion of the desired setpoint, which the main script's P6 ("Resume schedule") step already
+  anticipates but the ad-hoc Clear-Hold side-test did not script until this run surfaced the need.
+
+**heat_cool / target_temp_low/high behaviour.** On all three, switching from `cool` (single `temperature`) to
+`heat_cool` immediately populated both legs equal to the prior single setpoint (`[76,76]`, `[74,74]`, `[73,73]`)
+with sub-second latency and no intermediate single-leg state — this part of G1 is solid evidence in favor of GO;
+only the "Auto heat/cool enabled" operator confirmation is the open UNKNOWN. `hvac_action` was observed transitioning
+`idle`↔`cooling` normally across writes, consistent with real cooling calls, not a stuck/no-op state.
+
+**Updated quirks list (adds to the 8 above):**
+9. **Half-degree (`.5`) range writes get rounded to the nearest whole degree by the device**, not truncated — and
+   the rounding direction is away from the mean (`70.5/75.5`→`71/76`, i.e. both legs round outward), not a fixed
+   round-up or round-down. The thin adapter must not assume `.5` survives a readback; any invariant comparing a
+   written value to a readback needs the ≥0.5 °F tolerance the plan's PR2-4 near-duplicate rule already carries.
+10. **Device minimum heat/cool delta is NOT uniform across the fleet.** Upstairs and Downstairs (despite different
+    firmware) both accepted a 2 °F gap cleanly; Master suite enforced a real minimum by walking the setpoint through
+    an intermediate single-leg state down to a final ~5 °F gap. **Per-unit min-delta must be measured/configured
+    individually, not assumed from firmware version or from one unit's result** — this directly falsifies the plan's
+    working assumption that one unit's profile could stand in for the fleet (quirk #6 was about echo latency; this
+    is the same caution extended to min-delta).
+11. **A single-leg intermediate during a narrowing range write is real and observable**, not just a theoretical
+    hazard — Master suite produced one converging on 70/72. Any code that reads `target_temp_low`/`target_temp_high`
+    mid-transition must tolerate a transient state where only one leg has moved; this is the exact hazard class
+    D0b's G2/hard-NO-GO check exists to catch, and it fired correctly.
+12. **Clear Hold engages the unit's schedule immediately**, even when the runbook's P0 setup asked for "no program
+    running" — at least on this house's three units, a schedule was live underneath the hold. Any future "resume
+    schedule" / "clear hold" adapter verb must immediately re-read and, if needed, re-assert the desired setpoint
+    in the same call sequence — never leave a bare Clear-Hold press unattended.
+
+**What remains before D0b can go OVERALL GO:** G1 (Auto heat/cool enabled, read at the unit), G5 (P4 wall-unit
+separability test), G6 (hold-persistence / hold-action text, read at the unit or app), and — separately — Master
+suite's hard NO-GO (single-leg intermediate) needs either an accepted per-unit min-delta design (adapter clamps
+writes to each unit's measured minimum before sending) or a re-run proving the intermediate was a one-off. All four
+require either an operator physically at a Wigton thermostat/app, or a design change that avoids needing G5/G6
+read from a human. Build of P2 (D1-D6) stays blocked per the runbook until this resolves.

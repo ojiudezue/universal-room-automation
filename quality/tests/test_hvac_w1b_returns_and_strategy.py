@@ -195,7 +195,9 @@ async def _bank(mods, *, snap):
     )
     assert tok is not None and tok.pre_preset == snap
     pr._banking_excursion_tokens = {ZONE: tok}
-    coord._last_emitted_range[ZONE] = (68.0, 76.0)
+    # CPR D3c: the release baseline is the house-state preset's configured
+    # range (the emitted-range map seed it used is retired).
+    coord._house_state = "home_day"
     return coord, hass, arr, z, pr, ex, tok
 
 
@@ -211,25 +213,14 @@ async def test_S11_banking_release_presets_only(mods, snap, expect_temp):
     else:
         assert H.preset_writes(hass, ENT, "home")
     assert ZONE not in ex._rows, "return_excursion cleared the row"
-    assert coord._last_emitted_range[ZONE] == (68.0, 76.0)
     ex._test_clear_leases()
 
 
-@pytest.mark.asyncio
-async def test_S11_release_seeds_last_emitted_when_entry_missing(mods):
-    """C-5: no `_last_emitted_range` entry -> the release resolves the
-    baseline from the preset manager and, on landing, WRITES the entry
-    (discriminating: absent before, present after)."""
-    coord, hass, arr, z, pr, ex, tok = await _bank(mods, snap="home")
-    coord._last_emitted_range.pop(ZONE, None)
-    coord._house_state = "home_day"
-    await pr._release_banked_zones({ZONE})
-    await H.drain(hass)
-    assert H.preset_writes(hass, ENT, "home")
-    assert ZONE in coord._last_emitted_range
-    low, high = coord._last_emitted_range[ZONE]
-    assert high - low == 7.0  # preset-manager fallback shape (cool-7, cool)
-    ex._test_clear_leases()
+# CPR Batch C D3c: `test_S11_release_seeds_last_emitted_when_entry_missing`
+# is retired with the map it pinned (it was already red on develop: the
+# fallback low is the configured heat since v5.103.22, not `cool - 7`).
+# Replacement: test_hvac_cpr_batch_c.py::
+# test_s11_baseline_uses_preset_resolved_after_map_retirement.
 
 
 @pytest.mark.asyncio
@@ -237,11 +228,9 @@ async def test_S11_comfort_gate_covers_the_preset_write(mods):
     """N5: `_s11_gate` (True=DEFER) gates the preset half too."""
     coord, hass, arr, z, pr, ex, tok = await _bank(mods, snap="home")
     arr.comfort_delay_active = lambda zid: True
-    coord._last_emitted_range[ZONE] = (60.0, 90.0)
     await pr._release_banked_zones({ZONE})
     await H.drain(hass)
     assert H.preset_writes(hass, ENT) == [] and H.temp_writes(hass, ENT) == []
-    assert coord._last_emitted_range[ZONE] == (60.0, 90.0), "no landing -> no throttle update"
     ex._test_clear_leases()
 
 
@@ -294,7 +283,6 @@ async def test_S13_preheat_return_presets_only(mods, snap, expect_temp):
     pr._preheat_excursion_tokens = {ZONE: tok}
     pr._preheat_return_timers = {ZONE: lambda: None}
     pr._pre_conditioning_zones.add(ZONE)
-    coord._last_emitted_range[ZONE] = (60.0, 90.0)
     await pr._return_preheat(ZONE)
     await H.drain(hass)
     assert bool(H.temp_writes(hass, ENT)) is expect_temp
@@ -302,7 +290,6 @@ async def test_S13_preheat_return_presets_only(mods, snap, expect_temp):
         assert _s1_rows_temp(hass, mods, "S13_preheat_return")[0]["reason"] == "human_manual_preheat_boundary"
     else:
         assert H.preset_writes(hass, ENT, "home")
-    assert coord._last_emitted_range[ZONE] == (68.0, 76.0)
     assert ZONE not in pr._pre_conditioning_zones and ZONE not in ex._rows
     ex._test_clear_leases()
 

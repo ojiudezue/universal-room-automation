@@ -1495,3 +1495,48 @@ DYNAMIC_DOMAIN_ALLOWLIST_REASONS: Final = {
         "(HVAC-SETHVACMODE-CHOKEPOINT-1 scope_added_2026_09_25_record_every_write)"
     ),
 }
+
+
+# ==========================================================================
+# HVAC Batch C — Custom Preset Ranges (CPR, S10). Plan:
+# docs/planning/PLANNING_hvac_enable_custom_preset_ranges.md REV 5 / §6.1.
+# S10 edits a zone's NAMED preset profile through the thermostat adapter
+# (`set_preset_range`); it never writes a hold. Switch 01 is the kill switch.
+# ==========================================================================
+
+# Rung 1 (Carrier cloud call-rate bound — change requires review): a retry of
+# the SAME value after a wire attempt waits at least this long, so >= 1
+# ha_carrier full read (FULL_RECONCILE_INTERVAL_MINUTES 120 + 5 guard + 5
+# slack) lands between a write and its retry.
+S10_PRESET_RANGE_MIN_INTERVAL_S: Final = 7800
+
+# Rung 1: writes (and, separately, wire failures) per (zone, preset, mode,
+# value) before S10 latches and notifies. Covers a lost write + a transient.
+S10_PRESET_RANGE_UNCONFIRMED_LIMIT: Final = 3
+
+# Rung 1 (REV 3.1 F4): minimum spacing between any two attempts on the same
+# (zone, preset, mode) regardless of value — bounds a flapping DPM range to
+# <= 1 call per 10 min per (zone, preset).
+S10_PRESET_RANGE_MIN_SPACING_S: Final = 600
+
+# Rung 1 (REV 3.2 R2, boot-lifecycle invariant): a Custom Preset Ranges
+# switch that has not resolved this long after coordinator setup resolves to
+# OFF, so the restore pass can never stall on a switch entity that was never
+# added.
+S10_SWITCH_RESOLUTION_TIMEOUT_S: Final = 300
+
+# Rung 1 (§3.2 step 6): the named presets S10 edits. `wake` is excluded (§12).
+S10_PRESET_RANGE_PRESETS: Final = frozenset({"home", "sleep", "away", "vacation"})
+
+# Rung 2 (REV 5 F6, options-flow field on the coordinator-manager entry):
+# zones whose presets Custom Preset Ranges may edit. Default EMPTY — a fresh
+# install edits nothing until the operator opts a zone in by id; there is no
+# "all" value. The RESTORE pass is NOT gated by this field.
+CONF_HVAC_S10_ROLLOUT_ZONE_IDS: Final = "hvac_s10_rollout_zone_ids"
+DEFAULT_HVAC_S10_ROLLOUT_ZONE_IDS: Final = ()
+
+# Persisted side-key in the HVAC `_zone_state_store` snapshot (§6.3).
+S10_STATE_SIDE_KEY: Final = "__s10_preset_ranges"
+
+# NM re-emit guard for the "default is off after restart" note (§3.5).
+S10_DEFAULT_OFF_NM_GUARD_S: Final = 86400

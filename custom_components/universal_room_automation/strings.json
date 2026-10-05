@@ -800,7 +800,10 @@
           "egress_identity_enabled": "Name people at doors",
           "known_face_guests": "Known guests",
           "egress_identity_failsafe_strict": "Only trust live faces",
-          "auto_enable_person_detection": "Turn on person detection"
+          "auto_enable_person_detection": "Turn on person detection",
+          "door_groups": "Group door cameras",
+          "door_interior_neighbours": "Rooms next to each door",
+          "main_entry_door": "Main entry door"
         },
         "data_description": {
           "census_cross_validation": "If you run more than one camera system (such as Frigate and UniFi Protect), compare their counts. Turn off if you use only one.",
@@ -817,7 +820,10 @@
           "egress_identity_enabled": "Name people who walk through door cameras, using face recognition, so the house count knows who is home. You can also turn this off from its switch on the House device.",
           "known_face_guests": "Names from your face library that belong to regular guests, not residents. Leave empty if none.",
           "egress_identity_failsafe_strict": "Only name people at doors when face recognition is working right now. Leave on.",
-          "auto_enable_person_detection": "Turn on person detection on room cameras that have it off. For now URA only lists them in the log."
+          "auto_enable_person_detection": "Turn on person detection on room cameras that have it off. For now URA only lists them in the log.",
+          "door_groups": "Map each door camera's name to a group (e.g. two cameras on one front door → both to 'front'). Leave blank if each camera is its own door.",
+          "door_interior_neighbours": "For each door group, list the indoor cameras right next to it. Used to decide entry vs exit when the door fires. Leave blank to use all indoor cameras.",
+          "main_entry_door": "Name of the main door group (from the list above). Used for arrival estimates. Leave blank if you don't have one."
         }
       },
       "perimeter_alerting": {
@@ -1113,6 +1119,8 @@
               "energy_cloud_charge_from_grid_oracle_entity": "Charge From Grid — Cloud Verification Entity",
               "energy_cloud_storage_mode_oracle_entity": "Battery Mode — Cloud Verification Entity",
               "energy_cloud_battery_soc_fallback_entity": "Battery Charge % — Cloud Fallback Sensor",
+              "energy_stream_battery_soc_entity": "Local battery stream",
+              "energy_stream_cowitness_entity": "Stream heartbeat sensor",
               "energy_soc_divergence_threshold_pp": "Battery level disagreement alert (pp)",
               "energy_soc_divergence_dwell_min": "Disagreement confirmation time (min)",
               "energy_cloud_lag_alert_s": "Cloud update delay alert (s)"
@@ -1122,6 +1130,8 @@
               "energy_cloud_charge_from_grid_oracle_entity": "Cloud switch entity used to verify that URA's charge-from-grid commands actually propagated. If URA commanded OFF and this reports ON with no intervening command, an anomaly is raised.",
               "energy_cloud_storage_mode_oracle_entity": "Cloud select entity that reports the battery's active mode (Self-Consumption, Backup, Savings, Full Backup). Used to verify storage-mode writes. Unmapped values are treated as inconclusive — never as a mismatch.",
               "energy_cloud_battery_soc_fallback_entity": "Cloud SOC sensor used ONLY when the local Envoy SOC sensor is unavailable and the 5-minute last-known-good cache is stale. Also cross-checked against the primary at every read for divergence.",
+              "energy_stream_battery_soc_entity": "Optional. A fast local battery-level sensor used when the Envoy integration drops out.",
+              "energy_stream_cowitness_entity": "Optional. A fast-changing sensor from the same local stream (for example its grid power). Shows the stream is still live.",
               "energy_soc_divergence_threshold_pp": "Warn when local and cloud battery readings disagree by more than this many percentage points. Set to 0 to turn detection off.",
               "energy_soc_divergence_dwell_min": "How long the disagreement must persist before alerting — filters one-off blips.",
               "energy_cloud_lag_alert_s": "Warn when Enphase cloud settings lag this far behind what we wrote. Set to 0 to disable the alert (delay still shown on the sensor)."
@@ -1262,7 +1272,7 @@
           "dynamic_preset_hysteresis_f": "Weather adjust margin (°F)"
         },
         "data_description": {
-          "dynamic_preset_enabled": "Master toggle for the Dynamic Preset feature. When off, all zones fall back to the seasonal baseline setpoints.",
+          "dynamic_preset_enabled": "Adjusts the Home and Sleep cooling limit with the weather. Only reaches the thermostats when Custom Preset Ranges is on. Off in winter.",
           "dpm_cool_day_relax_f": "How many °F to raise the Home/Sleep cool ceiling on days the forecast feels cooler than the last 2 weeks. 0 = off. Default 1°F (e.g., 70-75 becomes 70-76).",
           "dpm_hot_day_tighten_f": "How many °F to lower the Home/Sleep cool ceiling on days the forecast feels hotter than the last 2 weeks. 0 = off. Default 1°F (e.g., 70-75 becomes 70-74).",
           "dpm_relax_ceiling_mode": "When the forecast is above this temperature, the system won't widen cool ranges even if today is cooler than recent days. Auto picks a sensible value for your climate.",
@@ -1275,7 +1285,7 @@
       },
       "hvac_baseline_presets": {
         "title": "📅 Baseline Presets (Seasonal)",
-        "description": "Edit the house-wide preset temperature ranges per season. These are the baseline setpoints that every zone uses unless Dynamic Preset is configured per-zone. Cooling setpoint must be at least 3°F above heating setpoint. To restore factory defaults, check 'Reset all to defaults' and save.",
+        "description": "Temperature ranges for each preset, by season. When Custom Preset Ranges is on, URA writes these into each thermostat's Home, Sleep, Away and Vacation presets. When you turn it off, each thermostat gets its original ranges back. Cooling must be at least 3°F above heating. To restore factory defaults, check 'Reset all to defaults' and save.",
         "data": {
           "hvac_baseline_summer_home_cool": "Summer · Home — Cool High (°F)",
           "hvac_baseline_summer_home_heat": "Summer · Home — Heat Low (°F)",
@@ -1301,6 +1311,7 @@
           "hvac_baseline_winter_away_heat": "Winter · Away — Heat Low (°F)",
           "hvac_baseline_winter_vacation_cool": "Winter · Vacation — Cool High (°F)",
           "hvac_baseline_winter_vacation_heat": "Winter · Vacation — Heat Low (°F)",
+          "hvac_s10_rollout_zone_ids": "Zones that use custom ranges",
           "_reset_all": "Reset all to defaults"
         },
         "data_description": {
@@ -1328,6 +1339,7 @@
           "hvac_baseline_winter_away_heat": "Winter Away preset heating floor. Default: 60°F.",
           "hvac_baseline_winter_vacation_cool": "Winter Vacation preset cooling target. Default: 80°F.",
           "hvac_baseline_winter_vacation_heat": "Winter Vacation preset heating floor. Default: 58°F.",
+          "hvac_s10_rollout_zone_ids": "When Custom Preset Ranges is on, only these zones get the ranges written into their thermostat presets. Empty means none. Removing a zone puts its original ranges back.",
           "_reset_all": "Check and save to restore all 24 baseline setpoints to factory defaults. This action requires confirmation on the next screen."
         },
         "sections": {

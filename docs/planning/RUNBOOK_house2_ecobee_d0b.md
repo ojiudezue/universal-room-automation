@@ -26,6 +26,16 @@ Set these before the run. Each one moves setpoints by itself and would read as a
 - [ ] No automation or script writes the thermostat. The probe lists the UI-managed ones that reference the entity.
       YAML-only automations without an `id` cannot be searched — check those by hand. Disable anything listed.
 
+## 2b. Read-only discovery of ALL thermostats (no writes, no operator needed)
+Wigton has 3 ecobees (HomeKit). Before the supervised run, capture every climate entity, its device-registry
+siblings (Current Mode select, Clear Hold button, sensors) and 24 h of recorder history:
+```bash
+python3 scripts/probes/house2_ecobee_d0b_probe.py --discover --hours 24 --out-prefix <scratch>/house2_d0b
+```
+Writes `<prefix>_discovery.json`, `<prefix>_history.json`, `<prefix>_history_summary.json`. Uses only
+GET /api/states, GET /api/history/period and POST /api/template (render only). Keep outputs out of git.
+The supervised P1-P7 run below is per thermostat: pass `--entity` for each of the three.
+
 ## 3. Dry run first (reads only, sends nothing)
 ```bash
 export HA_URL=http://<house2-ha>:8123

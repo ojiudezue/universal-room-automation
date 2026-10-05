@@ -1,0 +1,20 @@
+{
+  "title": "Census: hybrid estimator approved, then held \u2014 fix inputs first (door ledger), measured not assumed",
+  "type": "pivot",
+  "weight": "critical",
+  "summary": "Operator approved a simpler camera-floor census, footage ground truth (Frigate 2 recordings, 10-03) showed it only 20% within \u00b12 \u2014 door flow is needed to hold a party. Hybrid (residents + max of camera surplus / guest room / door tally; AWAY-independent empty anchor; graceful degradation, no new switches; main-entry-door question) passed 3 plan-review rounds but its D0-REPLAY was NO-GO: the door ledger is the bottleneck. Probes found: door handler fires once per 0->N edge and discards headcount (8-person arrival = 4 rows), _extract_camera_stem misses _person_occupancy_2 so Frigate-2 sensors bypass dedup (garage_a 119->61 crossings when fixed), exit bias from family_room firing 811x/day, BLE departures lag 4-8 min, arrivals never BLE-attributed. Plan PLANNING_census_inputs_first.md rev2 committed; needs plan re-review then Tier 2-DB build (stem fix, per-door dedup/neighbours, peak_person_count column, asymmetric BLE window). Face lookup fix (nonexistent er.async_entries_for_platform) merged to develop.",
+  "why": "Operator: cameras count people better than names; most households are 1-2 people; many houses have no interior cams so degrade by what's configured. Measuring before building twice reversed my recommendation (simple->hybrid->inputs-first); building the estimator on a ledger that logs a group of 8 as one cancelled round-trip would ship noise.",
+  "alternatives_considered": [
+    "simple camera floor (20% accuracy)",
+    "runtime vision counting (same blind spots as cams; kept as parked D7 for door group count)",
+    "build hybrid now (replay NO-GO)"
+  ],
+  "implications": "Truth for 10-03 now operator-confirmed: Ezinne out 12:13-12:57; operator+Jaya left ~13:55 (operator back 15:42, Jaya back with operator 23:24 via garage_a); 8 guests front door ~14:22; long-stay guest out AM back evening; visitor left 23:00; guest left 23:55; no pets; doorbell_lite=garage_a; no 'drop-off guy' (dictation error). Fixture quality/tests/fixtures/census_ground_truth_2026_10_03.csv needs correction card. person.oji_udezue trackers pruned to phone-only (cflare app GPS + 2 BLE).",
+  "revisit_trigger": "Re-run D0-REPLAY after input fixes; build hybrid only if gates 2/3/5 pass; if door group counts still fail, unpark D7 vision.",
+  "confidence": "medium",
+  "format_version": "2.1",
+  "entry_id": "184",
+  "author": "ojiudezue",
+  "session_id": "claude_20261004_ec_census",
+  "timestamp": "2026-10-04T23:09:01Z"
+}

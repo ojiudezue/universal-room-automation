@@ -633,6 +633,10 @@ from .const import (
     CONF_CAMERA_PERSON_ENTITIES,
     CONF_EGRESS_CAMERAS,
     CONF_PERIMETER_CAMERAS,
+    # PLANNING_census_inputs_first D1 (2026-10-05): door-event quality
+    CONF_DOOR_GROUPS,
+    CONF_DOOR_INTERIOR_NEIGHBOURS,
+    CONF_MAIN_ENTRY_DOOR,
     CONF_CENSUS_CROSS_VALIDATION,
     CONF_CENSUS_DIVERGENCE_DOWNGRADE,
     DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
@@ -4814,6 +4818,48 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             },
         )
 
+    @staticmethod
+    def _validate_door_interior_neighbours(
+        raw: object, interior_entities: set[str] | None = None,
+    ) -> tuple[dict[str, list[str]], str | None]:
+        """Review MED: validate CONF_DOOR_INTERIOR_NEIGHBOURS shape.
+
+        Returns ``(cleaned, error_message_or_None)``. Expected shape:
+        ``{group_name: [entity_id, ...]}``. Each entity_id, if a
+        ``camera.*`` id, is accepted; if an interior-entities whitelist
+        is passed, non-camera ids must be present in it.
+        """
+        if raw in (None, {}, ""):
+            return {}, None
+        if not isinstance(raw, dict):
+            return {}, (
+                "Door neighbours must be a mapping of group name to a list "
+                "of camera entity ids."
+            )
+        cleaned: dict[str, list[str]] = {}
+        for group, cams in raw.items():
+            if not isinstance(group, str) or not group:
+                return {}, "Each neighbour group must have a non-empty name."
+            if not isinstance(cams, (list, tuple)):
+                return {}, (
+                    f"Neighbours for '{group}' must be a list of entity ids."
+                )
+            ents: list[str] = []
+            for c in cams:
+                if not isinstance(c, str) or "." not in c:
+                    return {}, (
+                        f"Entity '{c!r}' under '{group}' is not a valid entity id."
+                    )
+                if interior_entities is not None and not c.startswith("camera."):
+                    if c not in interior_entities:
+                        return {}, (
+                            f"Entity '{c}' under '{group}' is not a known "
+                            f"interior detection sensor."
+                        )
+                ents.append(c)
+            cleaned[group] = ents
+        return cleaned, None
+
     async def async_step_camera_census(self, user_input=None):
         """Configure camera census (integration level) - v3.5.0.
 
@@ -4829,9 +4875,33 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         into the integration-level default so existing configs are preserved.
         """
         if user_input is not None:
+            # Review B1: drop empty values for the D1 new keys so they do
+            # NOT appear in `entry.options` when the operator hasn't
+            # engaged with them. Prevents `None != {}` false-positives
+            # in the integration-options reload diff.
+            cleaned = dict(user_input)
+            for _k in (CONF_DOOR_GROUPS, CONF_DOOR_INTERIOR_NEIGHBOURS):
+                if cleaned.get(_k) in ({}, None):
+                    cleaned.pop(_k, None)
+            if cleaned.get(CONF_MAIN_ENTRY_DOOR) in ("", None):
+                cleaned.pop(CONF_MAIN_ENTRY_DOOR, None)
+            # Review MED: validate neighbours shape before persisting.
+            if CONF_DOOR_INTERIOR_NEIGHBOURS in cleaned:
+                validated, err = self._validate_door_interior_neighbours(
+                    cleaned[CONF_DOOR_INTERIOR_NEIGHBOURS],
+                )
+                if err is not None:
+                    _LOGGER.warning(
+                        "Camera Census save: %s (dropping key)", err,
+                    )
+                    cleaned.pop(CONF_DOOR_INTERIOR_NEIGHBOURS, None)
+                elif validated:
+                    cleaned[CONF_DOOR_INTERIOR_NEIGHBOURS] = validated
+                else:
+                    cleaned.pop(CONF_DOOR_INTERIOR_NEIGHBOURS, None)
             return self.async_create_entry(
                 title="",
-                data={**self._config_entry.options, **user_input}
+                data={**self._config_entry.options, **cleaned}
             )
 
         # Build default for indoor cameras: start from integration-level value,
@@ -5033,6 +5103,36 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),
+            # PLANNING_census_inputs_first D1 (R3.8 / R4.6 / R4.8) —
+            # Advanced-only, APPENDED after the existing order so the
+            # Simple view keeps exactly its 7 fields and the hidden-value
+            # I3 guard (save handler merge into stored options) preserves
+            # these on a Simple save. Factory defaults = empty → `_adv`
+            # keeps them Advanced-marked until the operator sets them.
+            # Shape: {camera_stem: group_name}.
+            vol.Optional(
+                CONF_DOOR_GROUPS,
+                default=self._get_current(CONF_DOOR_GROUPS, {}),
+                description=_adv(CONF_DOOR_GROUPS, _merged, {}),
+            ): selector.ObjectSelector(),
+            # Shape: {group_name: [interior_cam, ...]}. UNSET or group
+            # not in map → full interior list fallback (R3.1 CRITICAL-1).
+            vol.Optional(
+                CONF_DOOR_INTERIOR_NEIGHBOURS,
+                default=self._get_current(
+                    CONF_DOOR_INTERIOR_NEIGHBOURS, {},
+                ),
+                description=_adv(
+                    CONF_DOOR_INTERIOR_NEIGHBOURS, _merged, {},
+                ),
+            ): selector.ObjectSelector(),
+            # Main entry door (door-group name). Deferred consumer per
+            # R3.7 — set here now so the estimator cycle can read it.
+            vol.Optional(
+                CONF_MAIN_ENTRY_DOOR,
+                default=self._get_current(CONF_MAIN_ENTRY_DOOR, ""),
+                description=_adv(CONF_MAIN_ENTRY_DOOR, _merged, ""),
+            ): selector.TextSelector(),
         })
 
         return self.async_show_form(
@@ -5792,6 +5892,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
             CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
             CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+            # EC-DEGRADED-DATA-POLICY-1 D1 — optional stream tier wiring.
+            CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
+            CONF_ENERGY_STREAM_COWITNESS_ENTITY,
             DEFAULT_CLOUD_RESERVE_ORACLE_ENTITY,
             DEFAULT_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
             DEFAULT_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
@@ -5875,6 +5978,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     CONF_ENERGY_CLOUD_CHARGE_FROM_GRID_ORACLE_ENTITY,
                     CONF_ENERGY_CLOUD_STORAGE_MODE_ORACLE_ENTITY,
                     CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                    # EC-DEGRADED-DATA-POLICY-1 D1 stream tier fields.
+                    CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
+                    CONF_ENERGY_STREAM_COWITNESS_ENTITY,
                     # v5.21.0 fix-up (SECOND OPERATOR ADDITION 2026-07-17) —
                     # D2 detection knobs live in the same section.
                     CONF_ENERGY_SOC_DIVERGENCE_THRESHOLD_PP,
@@ -6913,6 +7019,29 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         "suggested_value": self._get_current(
                             CONF_ENERGY_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
                             DEFAULT_CLOUD_BATTERY_SOC_FALLBACK_ENTITY,
+                        ),
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                # EC-DEGRADED-DATA-POLICY-1 D1 — optional, NO default (a
+                # second install without a stream degrades to today's
+                # resolver). Tier is also gated by SOC_STREAM_TIER_ENABLED.
+                vol.Optional(
+                    CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_STREAM_BATTERY_SOC_ENTITY, None,
+                        ),
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(
+                    CONF_ENERGY_STREAM_COWITNESS_ENTITY,
+                    description={
+                        "suggested_value": self._get_current(
+                            CONF_ENERGY_STREAM_COWITNESS_ENTITY, None,
                         ),
                     },
                 ): selector.EntitySelector(
@@ -8075,6 +8204,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         from homeassistant.data_entry_flow import section
         from .domain_coordinators.hvac_const import (
             BASELINE_MIN_DEADBAND,
+            CONF_HVAC_S10_ROLLOUT_ZONE_IDS,
+            DEFAULT_HVAC_S10_ROLLOUT_ZONE_IDS,
             CONF_HVAC_BASELINE_SUMMER_HOME_COOL,
             CONF_HVAC_BASELINE_SUMMER_HOME_HEAT,
             CONF_HVAC_BASELINE_SUMMER_SLEEP_COOL,
@@ -8188,6 +8319,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 # Save: merge flat values (section-extracted) into entry.options
                 save_vals = {k: v for k, v in _flat.items()
                              if not k.startswith("_") and k not in ("summer_section", "shoulder_section", "winter_section")}
+                # HVAC Batch C REV 5 F6: Custom Preset Ranges zones — a
+                # sorted list of zone ids (empty = none; no "all" value).
+                if CONF_HVAC_S10_ROLLOUT_ZONE_IDS in save_vals:
+                    _raw_z = save_vals[CONF_HVAC_S10_ROLLOUT_ZONE_IDS] or []
+                    if isinstance(_raw_z, str):
+                        _raw_z = [_raw_z]
+                    save_vals[CONF_HVAC_S10_ROLLOUT_ZONE_IDS] = sorted(
+                        {str(z).strip() for z in _raw_z if str(z).strip()}
+                    )
                 _LOGGER.info(
                     "HVAC baseline presets saved (section layout) to CM entry.options",
                 )
@@ -8227,7 +8367,41 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 )
             return vol.Schema(row_dict)
 
+        # HVAC Batch C REV 5 F6 (rung 2): zones Custom Preset Ranges may
+        # edit. Options = the HVAC coordinator's discovered zones (plus any
+        # stored id not currently discovered, so a save never drops it);
+        # free text allowed so an id can be entered before discovery.
+        _rollout_current = self._config_entry.options.get(
+            CONF_HVAC_S10_ROLLOUT_ZONE_IDS, list(DEFAULT_HVAC_S10_ROLLOUT_ZONE_IDS),
+        ) or []
+        if isinstance(_rollout_current, str):
+            _rollout_current = [_rollout_current]
+        _zone_opts: dict[str, str] = {}
+        try:
+            _mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            _hvac = _mgr.coordinators.get("hvac") if _mgr is not None else None
+            _zones = getattr(getattr(_hvac, "zone_manager", None), "zones", {}) or {}
+            for _zid, _z in _zones.items():
+                _zone_opts[str(_zid)] = f"{getattr(_z, 'zone_name', _zid)} ({_zid})"
+        except Exception:  # noqa: BLE001
+            _zone_opts = {}
+        for _zid in _rollout_current:
+            _zone_opts.setdefault(str(_zid), str(_zid))
+
         data_schema = vol.Schema({
+            vol.Optional(
+                CONF_HVAC_S10_ROLLOUT_ZONE_IDS,
+                default=list(_rollout_current),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"value": k, "label": v} for k, v in sorted(_zone_opts.items())
+                    ],
+                    multiple=True,
+                    custom_value=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             # v4.7.4 D4: 3 season sections (collapsed: False — open by default so user sees all)
             vol.Optional("summer_section"): section(
                 _row_schema(_SUMMER_ROWS), {"collapsed": False}

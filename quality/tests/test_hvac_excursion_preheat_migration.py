@@ -77,7 +77,6 @@ def _make():
 
     p = HVACPredictor.__new__(HVACPredictor)
     p._hvac_coord = MagicMock()
-    p._hvac_coord._last_emitted_range = {}
     p._egress_manager = None
     p._override_arrester = MagicMock()
     p._override_arrester.suppress = MagicMock()
@@ -117,7 +116,7 @@ def test_execute_pre_heat_creates_lease_row_12_start():
     assert ZONE_ID in p._pre_conditioning_zones
 
 
-def test_return_preheat_releases_lease_and_updates_throttle_row_12():
+def test_return_preheat_releases_lease_row_12():
     p, zone = _make()
     _run(p._execute_pre_heat())
     assert _ex_mod._test_has_row(ZONE_ID) is True
@@ -129,12 +128,8 @@ def test_return_preheat_releases_lease_and_updates_throttle_row_12():
     assert ZONE_ID not in p._pre_conditioning_zones, (
         "Row 12 RETURN: zone must be dropped from _pre_conditioning_zones."
     )
-    # Plan §3 row 12: _last_emitted_range MUST be updated to the
-    # restored baseline pair or the DPM throttle re-strands us.
-    assert ZONE_ID in p._hvac_coord._last_emitted_range, (
-        "Row 12 RETURN: _last_emitted_range must be updated to the "
-        "restored baseline pair to prevent DPM throttle re-strand."
-    )
+    # CPR Batch C D3c: the DPM throttle map (and its row-12 update) is
+    # RETIRED — S10 no longer has a throttle to re-strand against.
 
 
 def test_A_CRIT_2_preheat_snapshot_taken_BEFORE_emit():

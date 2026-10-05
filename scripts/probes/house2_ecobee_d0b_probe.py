@@ -41,8 +41,9 @@ import signal
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -772,6 +773,114 @@ def print_go_no_go(results: dict[str, Any]) -> None:
         print(f"  {key:8s} {g[key]['status']:8s} {g[key]['evidence']}")
 
 
+# ---------------------------------------------------------------------------
+# --discover: read-only multi-thermostat discovery (D0b read-only leg, 2026-10-05)
+# Sends NO service calls. Uses GET /api/states, GET /api/history/period and
+# POST /api/template (render only) to resolve the device registry.
+# ---------------------------------------------------------------------------
+CLIMATE_KEYS = ("hvac_modes", "preset_modes", "preset_mode", "fan_modes", "fan_mode", "supported_features",
+                "min_temp", "max_temp", "target_temp_step", "temperature", "target_temp_low", "target_temp_high",
+                "current_temperature", "current_humidity", "target_humidity", "min_humidity", "max_humidity",
+                "hvac_action", "friendly_name")
+HIST_KEYS = ("hvac_action", "temperature", "target_temp_low", "target_temp_high", "current_temperature",
+             "preset_mode", "fan_mode")
+
+
+def _template(ha: "HA", tpl: str) -> Any:
+    raw = ha._req("POST", "/api/template", {"template": tpl})
+    if isinstance(raw, (dict, list)):
+        return raw
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return raw
+
+
+def _is_ecobee_like(dev: dict[str, Any]) -> bool:
+    blob = " ".join(str(dev.get(k) or "") for k in ("manufacturer", "model", "name")).lower()
+    return "ecobee" in blob or (dev.get("model") or "").upper().startswith("ECB")
+
+
+def _history(ha: "HA", entity_ids: list[str], hours: float) -> dict[str, list[dict[str, Any]]]:
+    start = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    path = ("/api/history/period/" + urllib.parse.quote(start) + "?filter_entity_id="
+            + ",".join(entity_ids) + "&significant_changes_only=0")
+    out: dict[str, list[dict[str, Any]]] = {}
+    for series in ha.get(path) or []:
+        if not series:
+            continue
+        eid = series[0]["entity_id"]
+        out[eid] = [{"t": s.get("last_changed"), "state": s.get("state"),
+                     **{k: (s.get("attributes") or {}).get(k) for k in HIST_KEYS
+                        if k in (s.get("attributes") or {})}} for s in series]
+    return out
+
+
+def _summ(series: list[dict[str, Any]], hours: float) -> dict[str, Any]:
+    from collections import Counter
+    if not series:
+        return {"n": 0}
+    end = datetime.now(timezone.utc)
+    dur: Counter = Counter()
+    for i, s in enumerate(series):
+        t0 = datetime.fromisoformat(s["t"])
+        t1 = datetime.fromisoformat(series[i + 1]["t"]) if i + 1 < len(series) else end
+        dur[str(s["state"])] += max(0.0, (t1 - t0).total_seconds())
+    return {"n": len(series), "first": series[0]["t"],
+            "state_seconds": dict(dur), "state_counts": dict(Counter(str(s["state"]) for s in series))}
+
+
+def discover(ha: "HA", out_prefix: str, hours: float) -> int:
+    states = {s["entity_id"]: s for s in ha.get("/api/states")}
+    climates = [e for e in states if e.startswith("climate.")]
+    tpl = ("{% set ns = namespace(o=[]) %}{% for e in " + json.dumps(climates) + " %}"
+           "{% set d = device_id(e) %}{% set ns.o = ns.o + [{'climate': e, 'device_id': d, "
+           "'name': device_attr(d,'name_by_user') or device_attr(d,'name'), "
+           "'manufacturer': device_attr(d,'manufacturer'), 'model': device_attr(d,'model'), "
+           "'sw_version': device_attr(d,'sw_version'), 'area': area_name(e), "
+           "'entities': device_entities(d) if d else []}] %}{% endfor %}{{ ns.o | tojson }}")
+    devices = _template(ha, tpl)
+    stats: list[dict[str, Any]] = []
+    hist_ids: list[str] = []
+    for dev in devices:
+        dev["ecobee_like"] = _is_ecobee_like(dev)
+        st = states.get(dev["climate"], {})
+        attrs = st.get("attributes", {})
+        dev["climate_state"] = st.get("state")
+        dev["climate_attrs"] = {k: attrs.get(k) for k in CLIMATE_KEYS if k in attrs}
+        dev["climate_attr_keys"] = sorted(attrs)
+        sib = []
+        for eid in dev.get("entities") or []:
+            if eid == dev["climate"]:
+                continue
+            s = states.get(eid, {})
+            a = s.get("attributes", {})
+            sib.append({"entity_id": eid, "state": s.get("state"), "friendly_name": a.get("friendly_name"),
+                        "options": a.get("options"), "device_class": a.get("device_class"),
+                        "unit": a.get("unit_of_measurement"), "last_changed": s.get("last_changed")})
+        dev["siblings"] = sib
+        if dev["ecobee_like"]:
+            hist_ids.append(dev["climate"])
+            hist_ids += [x["entity_id"] for x in sib if x["entity_id"].startswith("select.")]
+        stats.append(dev)
+    hist = _history(ha, hist_ids, hours) if hist_ids else {}
+    summary = {eid: _summ(ser, hours) for eid, ser in hist.items()}
+    paths = {}
+    for name, payload in (("discovery", {"captured": now_iso(), "hours": hours, "devices": stats}),
+                          ("history", hist), ("history_summary", summary)):
+        p = f"{out_prefix}_{name}.json"
+        with open(p, "w") as fh:
+            json.dump(payload, fh, indent=1, default=str)
+        paths[name] = p
+    for dev in stats:
+        print(f"{dev['climate']}: {dev.get('name')} [{dev.get('manufacturer')} {dev.get('model')}] "
+              f"ecobee={dev['ecobee_like']} state={dev['climate_state']} siblings={len(dev['siblings'])}")
+    for eid, s in summary.items():
+        print(f"  hist {eid}: n={s['n']} counts={s.get('state_counts')}")
+    print("wrote:", ", ".join(paths.values()))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--dry-run", action="store_true", help="read only; print the planned writes")
@@ -780,12 +889,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--poll-s", type=float, default=DEFAULT_POLL_S)
     ap.add_argument("--echo-timeout-s", type=float, default=DEFAULT_ECHO_TIMEOUT_S)
     ap.add_argument("--write-gap-s", type=float, default=DEFAULT_WRITE_GAP_S)
+    ap.add_argument("--discover", action="store_true",
+                    help="read-only: discover ALL thermostats + siblings + history, write JSON, exit (no writes)")
+    ap.add_argument("--hours", type=float, default=24.0, help="--discover history window")
+    ap.add_argument("--out-prefix", default="house2_d0b", help="--discover output path prefix")
     args = ap.parse_args(argv)
 
     url, token = os.environ.get("HA_URL"), os.environ.get("HA_TOKEN")
     if not url or not token:
         print("Set HA_URL and HA_TOKEN in the environment.", file=sys.stderr)
         return 2
+    if args.discover:
+        return discover(HA(url, token, dry_run=True), args.out_prefix, args.hours)
     if args.write_gap_s < DEFAULT_WRITE_GAP_S:
         print(f"note: --write-gap-s below {DEFAULT_WRITE_GAP_S}s deviates from the plan (P2 >= 2 min apart)")
 

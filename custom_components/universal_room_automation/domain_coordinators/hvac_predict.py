@@ -179,10 +179,11 @@ class HVACPredictor:
         self._last_pre_conditioning_gate_enabled: bool = True
         self._last_pre_conditioning_zones: set[str] = set()
         # Tier 1 review CRITICAL-1: HVAC coordinator backref so the
-        # release path can source the TRUE baseline (`_last_emitted_range`)
-        # rather than the LIVE thermostat setpoints (which already
-        # reflect the banked values — a same-cycle re-write would be a
-        # no-op). Wired post-construction via `set_hvac_coord`.
+        # release path can source the TRUE baseline (the house-state
+        # preset's configured range, CPR D3c) rather than the LIVE
+        # thermostat setpoints (which already reflect the banked values — a
+        # same-cycle re-write would be a no-op). Wired post-construction via
+        # `set_hvac_coord`.
         self._hvac_coord = None
 
     def set_outdoor_temp_entity(self, entity_id: str) -> None:
@@ -192,10 +193,10 @@ class HVACPredictor:
     def set_hvac_coord(self, hvac_coord) -> None:
         """Wire HVAC coordinator backref.
 
-        Tier 1 review CRITICAL-1: the banking release path reads
-        `hvac_coord._last_emitted_range` to recover the TRUE baseline
-        for each zone (last URA-emitted preset range). Falls back to
-        preset-resolved baseline when the map has no entry.
+        Tier 1 review CRITICAL-1: the banking release path reads the
+        coordinator's house state to resolve the TRUE baseline (the
+        configured range of the house-state target preset). CPR D3c retired
+        the per-zone emitted-range map it used to prefer.
         """
         self._hvac_coord = hvac_coord
 
@@ -486,7 +487,7 @@ class HVACPredictor:
                 | set(self._last_precool_zones)
             )
             # HVAC W1/W2 finish fix-up 1 (D-L7): a PRE-ARRIVAL borrow ends
-            # with an INV-B.2 trigger and never writes the DPM throttle map.
+            # with an INV-B.2 trigger.
             _toks_m = getattr(self, "_banking_excursion_tokens", {}) or {}
             _pa_rel = {
                 z for z in release_set
@@ -494,7 +495,7 @@ class HVACPredictor:
             }
             if _pa_rel:
                 await self._release_banked_zones(
-                    _pa_rel, trigger="pre_arrival_inactive", update_throttle=False,
+                    _pa_rel, trigger="pre_arrival_inactive",
                 )
                 # Fix-up 2 (N3): the arrival episode is spent — master
                 # OFF->ON inside the window must not re-begin a pre-cool.
@@ -916,56 +917,26 @@ class HVACPredictor:
     def _resolve_baseline_range(self, zone_id: str) -> tuple[float, float] | None:
         """Return the TRUE (baseline_low, baseline_high) for a zone.
 
-        Tier 1 review CRITICAL-1 fix: prefer `HVACCoordinator._last_emitted_range`
-        (the last URA-emitted preset range, throttle map at hvac.py:213/1347) —
-        this is what the thermostat "should" be at when not banked. `zone.
-        target_temp_high/low` are NOT a valid baseline: they refresh every
-        cycle from LIVE climate state (hvac_zones.py:448-449 via hvac.py:816),
-        so once banking has dispatched, those fields equal the BANKED values
-        → writing them back is a no-op.
+        `zone.target_temp_high/low` are NOT a valid baseline: they refresh
+        every cycle from LIVE climate state, so once banking has dispatched,
+        those fields equal the BANKED values → writing them back is a no-op.
 
-        Fallback when `_last_emitted_range` has no entry (e.g. zone never
-        had a preset cycle since boot): reconstruct from preset manager
-        using cool_high = baseline_cool and low = the CONFIGURED HEAT
-        setpoint from `get_seasonal_setpoints` (hvac_preset.py:126-180 —
-        reads per-preset heat from CM entry.options with SEASONAL_DEFAULTS
-        fallback, so a Heat Low always exists). Card
-        HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1: the prior `baseline_cool - 7.0`
-        derivation was a Bug Class #63 coincidental-equality that ignored
-        the configured Heat Low and would restore an empty winter-away
-        zone to heat 73 F on an 80/65 profile.
+        CPR D3c (REV 3.2 R1 / REV 3.3 U3): the baseline is ALWAYS the
+        configured (heat, cool) of the house-state target preset from
+        `get_seasonal_setpoints` (CM entry.options with SEASONAL_DEFAULTS
+        fallback, so a Heat Low always exists). The per-zone emitted-range
+        map this used to prefer is retired — it could hold days-old pairs
+        (S10's `cool - 7`, S13's pre-heat snapshot). Card
+        HVAC-PRECOOL-RESTORE-HEAT-MINUS7-1: the low side is the configured
+        Heat Low, never `cool - 7` (Bug Class #63).
 
-        NB (pre-existing, out of scope): the same live-state read causes
-        banking itself to ratchet toward the SOLAR_BANK_FLOOR across
-        cycles because `_execute_zone_pre_cool` reads
-        zone.target_temp_high (already banked) and subtracts another -3°F
-        offset each cycle. Flag for backlog — fixing the release path
-        does not fix the ratchet, but using `_last_emitted_range` for
-        release at least cleanly returns to a stable baseline.
+        NB (pre-existing, out of scope): the fallback keys on the HOUSE
+        target preset, not the zone's current preset; banking itself still
+        ratchets toward SOLAR_BANK_FLOOR across cycles (reads the live
+        target_temp_high).
         """
         coord = self._hvac_coord
-        last_emitted = getattr(coord, "_last_emitted_range", None) if coord else None
-        # A-MED-1 (benign edge): if a DPM preset emit fires for this zone
-        # between the pre-cool write and the flip-OFF release,
-        # `_last_emitted_range[zone]` advances to the new preset range, so
-        # release writes the CURRENT preset target rather than the
-        # pre-cool-time baseline. The value is still a valid current-preset
-        # range (NOT a banked echo), so the behavior is correct — just
-        # different from the "restore the pre-cool baseline" intuition.
-        # Consistent with the preset-resolved fallback below, which is also
-        # current-house-state based.
-        if last_emitted is not None:
-            entry = last_emitted.get(zone_id)
-            if entry is not None:
-                try:
-                    low, high = entry
-                    return float(low), float(high)
-                except (TypeError, ValueError):
-                    pass
-
-        # Preset-resolved fallback: configured (heat, cool) for the preset.
-        # NB: DPM apply (hvac.py ~3541) still derives low as cool - 7; the
-        # CPR plan deletes that site (PLANNING_hvac_enable_custom_preset_ranges.md).
+        # Preset-resolved: configured (heat, cool) for the preset.
         try:
             house_state = getattr(coord, "_house_state", None) if coord else None
             target_preset = self._preset_manager.get_preset_for_house_state(house_state)
@@ -986,36 +957,24 @@ class HVACPredictor:
 
     async def _release_banked_zones(
         self, zone_ids: set[str], *, trigger: str = "banking_release",
-        update_throttle: bool = True,
     ) -> None:
         """Release previously-banked zones by writing baseline setpoints back.
 
         HVAC W1/W2 finish: ``trigger`` names the borrow's end on its event
         row (the pre-arrival reconciliation passes ``pre_arrival_<reason>``);
-        the preset emit keeps ``reason="banking_release"``. With
-        ``update_throttle=False`` the release does not touch
-        ``_last_emitted_range`` (a pre-arrival end restores the snapshot
-        preset, not a DPM range — Bug Class #7).
+        the preset emit keeps ``reason="banking_release"``.
 
         Called once on the cycle where the master banking gate flips OFF
         while zones are still mid-bank. Issues `climate.set_temperature`
-        with the TRUE preset baseline (sourced from
-        `HVACCoordinator._last_emitted_range`, with preset-resolved
-        fallback), undoing the -3°F banking offset.
+        with the TRUE preset baseline (`_resolve_baseline_range`, the
+        house-state preset's configured range), undoing the -3°F banking
+        offset.
 
         Mirrors the suppress/unsuppress pattern in _execute_zone_pre_cool so
         the release write is not flagged as a manual override by the
         OverrideArrester. Failures are logged but do not raise — releasing
         N-1 zones is better than failing all N.
-
-        After release we also write the baseline pair back into
-        `_last_emitted_range` so the next DPM apply cycle stays consistent
-        (its throttle compares against this map — without the update,
-        a benign re-emit would still happen on the next cycle, but no
-        double-write risk because the values would match).
         """
-        coord = self._hvac_coord
-        last_emitted = getattr(coord, "_last_emitted_range", None) if coord else None
         for zone_id in zone_ids:
             # HVAC W1/W2 finish D2b: a person ended this borrow
             # (human_interrupt) — pop the token, write NOTHING.
@@ -1049,8 +1008,7 @@ class HVACPredictor:
             if baseline is None:
                 _LOGGER.warning(
                     "HVAC: cannot release banked zone %s — no baseline "
-                    "(no _last_emitted_range entry and preset fallback "
-                    "unavailable)", zone_id,
+                    "(preset baseline unavailable)", zone_id,
                 )
                 # Same D-L4 class: close the row (restore not attempted).
                 await self._close_banking_token_no_write(
@@ -1058,14 +1016,9 @@ class HVACPredictor:
                 )
                 continue
             base_low, base_high = baseline
-            # B-L1: store the POST-guard pair the chokepoint will actually
-            # write (consistent with the DPM apply at hvac.py:1522-1529), so a
-            # banking-release during a freeze doesn't leave a pre-guard value
-            # in the throttle map that the next DPM cycle re-emits redundantly.
+            # (CPR D3c: the post-guard pair was only stored for the retired
+            # throttle map; the funnel applies the guards on the wire.)
             freeze_active = self._freeze_active()
-            emit_low, emit_high = apply_setpoint_guards(
-                base_low, base_high, freeze_active=freeze_active,
-            )
             # ARREST-COMFORT-1 D-HIGH-1 fix-up: S11_release_banked — gate on
             # comfort_delay_active (True = DEFER; the funnel treats a True
             # gate as "defer this write"). N5: the SAME gate now covers the
@@ -1164,11 +1117,6 @@ class HVACPredictor:
                     if not _s11_preset_written and self._override_arrester:
                         self._override_arrester.unsuppress(zone.climate_entity)
                 if _release_ok:
-                    # N5: the throttle-map update moves AFTER the release
-                    # outcome is known (either half landing means the zone
-                    # is back at baseline).
-                    if last_emitted is not None and update_throttle:
-                        last_emitted[zone_id] = (emit_low, emit_high)
                     _LOGGER.info(
                         "HVAC: Solar banking master OFF — released %s to baseline "
                         "(low=%.1f high=%.1f, via=%s)",
@@ -1242,7 +1190,7 @@ class HVACPredictor:
             trigger ``pre_arrival_<reason or 'inactive'>``;
           * borrow age >= ``window_s``                  -> the same release,
             trigger ``pre_arrival_max_age``.
-        Releases never touch ``_last_emitted_range``. Returns the zones ended
+        Returns the zones ended
         by max age (the caller drops them from its pre-arrival set).
         """
         tokens = getattr(self, "_banking_excursion_tokens", None)
@@ -1274,7 +1222,7 @@ class HVACPredictor:
             if trig is None:
                 continue
             await self._release_banked_zones(
-                {zone_id}, trigger=trig, update_throttle=False,
+                {zone_id}, trigger=trig,
             )
         return max_aged
 
@@ -1873,9 +1821,8 @@ class HVACPredictor:
             # the NAMED snapshot preset is the SOLE restore (it carries its
             # own setpoints); the raw setpoint write runs ONLY for a
             # HUMAN_MANUAL snapshot (`manual` / None / ""), with the
-            # `human_manual_` reason prefix. `_last_emitted_range` is
-            # updated after EITHER half lands so the DPM throttle at
-            # hvac.py does not re-strand the +2 F floor.
+            # `human_manual_` reason prefix. CPR D3c: no throttle map is
+            # written (the map is retired).
             from .hvac_strategy import strategy_for as _strategy_for  # noqa: PLC0415
             _s13_human_manual = _strategy_for(
                 self.hass, zone.climate_entity,
@@ -1915,13 +1862,6 @@ class HVACPredictor:
                         excursion_id=(tok.excursion_id if tok else None),
                         emit=emit_set_preset_mode,
                     ))
-                if _s13_landed and tok.pre_target_low is not None \
-                        and tok.pre_target_high is not None:
-                    coord = self._hvac_coord
-                    if coord is not None and hasattr(coord, "_last_emitted_range"):
-                        coord._last_emitted_range[zone_id] = (
-                            tok.pre_target_low, tok.pre_target_high,
-                        )
             except Exception as _rex:  # noqa: BLE001
                 _LOGGER.warning(
                     "preheat return: emit failed for %s: %s",

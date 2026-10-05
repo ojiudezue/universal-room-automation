@@ -107,6 +107,19 @@ def _state_age_s(state, *, stamp: str = "last_reported"):
         return None
 
 
+# EC-DEGRADED-DATA-POLICY-1 Phase 1 — the SOC resolver tiers that count as
+# TRUSTED data. Everything else (`cloud_fallback`, `none`, and every
+# `fallback_*_reject` tag) is untrusted: protective holds are not loosened
+# (D2a), grid charge is withheld on `cloud_fallback` (D3), and the operator
+# is paged before a higher-rate boundary (D4).
+SOC_TRUSTED_TIERS: frozenset[str] = frozenset({"envoy", "lkg", "stream"})
+
+
+def soc_tier_trusted(tier: Any) -> bool:
+    """True iff the resolver tier tag ``tier`` is a trusted SOC source."""
+    return isinstance(tier, str) and tier in SOC_TRUSTED_TIERS
+
+
 
 # ============================================================================
 # SOC LKG envelope — REUSABLE PRIMITIVE (see PLANNING_ec_blind_window_evse_guard.md D5)
@@ -457,6 +470,34 @@ class BatteryStrategy:
         self._soc_lkg_at: Any = None
         self._last_soc_divergence_at: Any = None
         self._soc_source_last: str = "envoy"
+        # EC-DEGRADED-DATA-POLICY-1 Phase 1.
+        # `_tick_soc_source` — the resolver tier captured ONCE per
+        # `determine_mode` call, right after its SOC read. Every in-tick
+        # consumer (D3 withhold in `_result`, D4 page, D5 attrs, the D2a
+        # coordinator capture) reads THIS, never `_soc_source_last`, which
+        # any later `battery_soc` read (HVAC, DP, `_result`'s own `soc` key)
+        # can re-stamp mid-tick (Bug Class #57 torn read). None until the
+        # first `determine_mode`.
+        self._tick_soc_source: str | None = None
+        # D3 — per-tick flag; entry-reset at the top of determine_mode.
+        self._grid_charge_withheld_untrusted: bool = False
+        # B2 (resilience A2): the D3 withhold's CFG turn_off RAISED this
+        # tick (set by the coordinator's write tap; entry-reset per tick).
+        self._grid_charge_withhold_dispatch_failed: bool = False
+        # D1 — stream tier trust state machine (persisted, event-saved).
+        self._soc_stream_trust: str = "trusted"
+        self._soc_stream_trust_since: Any = None
+        self._stream_div_count: int = 0
+        self._stream_agree_count: int = 0
+        self._stream_last_compared_at: Any = None
+        self._stream_last_delta: float | None = None
+        self._d1_stream_div_nm_date: str | None = None
+        # D4 — untrusted-before-boundary page. Wall-clock dwell anchor +
+        # per-boundary latches (persisted under `ec_untrusted_page_latch`).
+        self._untrusted_since: Any = None
+        self._untrusted_page_boundary_iso: str | None = None
+        # R2-8 — CFG "unknown forced ON" page latch (same blob).
+        self._cfg_unknown_page_boundary_iso: str | None = None
         # LKG wave 1 D2 — solar production upper-envelope LKG. Stamped by
         # `solar_production_w` on every healthy live read; consumed by
         # `solar_production_w_envelope()`. Mirrors the SOC LKG shape.
@@ -901,6 +942,16 @@ class BatteryStrategy:
             except Exception:
                 _LOGGER.debug("divergence check raised (swallowed)", exc_info=True)
             return primary
+        # EC-DEGRADED-DATA-POLICY-1 D1 — local stream tier (kill-switched,
+        # fail-closed: any failed guard returns None and the resolver
+        # falls through to LKG → cloud exactly as before). A trusted
+        # stream read re-anchors the LKG so `soc_envelope()` stays tight.
+        stream = self._read_stream_soc(check_trust=True)
+        if stream is not None:
+            self._soc_lkg = stream
+            self._soc_lkg_at = dt_util.utcnow()
+            self._soc_source_last = "stream"
+            return stream
         if self._soc_lkg is not None and self._soc_lkg_at is not None:
             age = (dt_util.utcnow() - self._soc_lkg_at).total_seconds()
             if age <= DEFAULT_SOC_LKG_MAX_AGE_S:
@@ -1288,6 +1339,8 @@ class BatteryStrategy:
         tier_map = {
             "envoy": "primary_envoy",
             "lkg": "lkg",
+            # EC-DEGRADED-DATA-POLICY-1 D1.
+            "stream": "local_stream",
             "cloud_fallback": "cloud_fallback",
             "none": None,
             "fallback_unit_reject": None,
@@ -1312,8 +1365,14 @@ class BatteryStrategy:
         cloud_val, cloud_age = self._read_cloud_soc_snapshot(now=now)
         self._d2_cloud_soc = cloud_val
         self._d2_cloud_soc_age_s = cloud_age
-        # Pairwise max pp gap over non-None tier values.
-        vals = [v for v in (primary_soc, lkg_val, cloud_val) if v is not None]
+        # Pairwise max pp gap over non-None tier values. D1: the stream
+        # value (guards + freshness, trust state ignored) joins the set
+        # when the tier is enabled and configured; None otherwise.
+        stream_val = self._read_stream_soc(check_trust=False)
+        vals = [
+            v for v in (primary_soc, lkg_val, cloud_val, stream_val)
+            if v is not None
+        ]
         if len(vals) >= 2:
             self._d2_tier_disagreement_pp = round(max(vals) - min(vals), 3)
         else:
@@ -1552,6 +1611,354 @@ class BatteryStrategy:
                     "D2 cloud settings-lag CLEARED after %s (max_age=%.0fs)",
                     elapsed, max_age,
                 )
+
+    # ------------------------------------------------------------------
+    # EC-DEGRADED-DATA-POLICY-1 Phase 1 — D1 stream tier helpers.
+    # ------------------------------------------------------------------
+    def _stream_tier_configured(self) -> bool:
+        """Kill switch on AND a stream SOC entity configured."""
+        from . import energy_const as _ec
+        if not _ec.SOC_STREAM_TIER_ENABLED:
+            return False
+        return bool(self._entities.get("battery_soc_stream"))
+
+    def _read_stream_soc(self, *, check_trust: bool = True) -> float | None:
+        """Read the stream SOC; None unless EVERY I-4 guard holds.
+
+        Guards (fail-closed, any one failing → None): kill switch on;
+        entity configured; state numeric, unit exactly ``%``, 0-100;
+        fresh per the configured freshness mode; co-witness live (when
+        configured, and MANDATORY in mode "b"); and — when
+        ``check_trust`` — trust state not ``quarantined``. Never raises.
+        """
+        from . import energy_const as _ec
+        if not self._stream_tier_configured():
+            return None
+        eid = self._entities.get("battery_soc_stream")
+        try:
+            st = self.hass.states.get(eid)
+        except Exception:  # noqa: BLE001
+            return None
+        if st is None or st.state in ("unknown", "unavailable"):
+            return None
+        try:
+            value = float(st.state)
+        except (TypeError, ValueError):
+            return None
+        try:
+            unit = st.attributes.get("unit_of_measurement")
+        except Exception:  # noqa: BLE001
+            unit = None
+        if unit is None or str(unit).strip() != "%":
+            return None
+        if not (0.0 <= value <= 100.0):
+            return None
+        max_age = _ec.DEFAULT_SOC_STREAM_MAX_AGE_S
+        cow_eid = self._entities.get("stream_cowitness")
+        if max_age and max_age > 0:
+            # Mode "a": HA refreshes `last_reported` per message. A missing
+            # / naive stamp is NOT a pass-through here (fail-closed).
+            age = _state_age_s(st, stamp="last_reported")
+            if age is None or age > max_age:
+                return None
+            if cow_eid and not self._stream_cowitness_live(cow_eid):
+                return None
+        else:
+            # Mode "b": freshness = not `unavailable` (expire_after) AND a
+            # live co-witness. No co-witness configured → refuse.
+            if not cow_eid or not self._stream_cowitness_live(cow_eid):
+                return None
+        if check_trust and self._soc_stream_trust == "quarantined":
+            return None
+        return value
+
+    def _stream_cowitness_live(self, eid: str) -> bool:
+        """Co-witness changed (``last_updated``) within the max age."""
+        from . import energy_const as _ec
+        try:
+            st = self.hass.states.get(eid)
+        except Exception:  # noqa: BLE001
+            return False
+        if st is None or st.state in ("unknown", "unavailable"):
+            return False
+        age = _state_age_s(st, stamp="last_updated")
+        if age is None:
+            return False
+        return age <= _ec.DEFAULT_SOC_STREAM_COWITNESS_MAX_AGE_S
+
+    def stream_trust_state(self) -> str:
+        """D5 attr: ``trusted`` / ``quarantined`` / ``disabled``."""
+        if not self._stream_tier_configured():
+            return "disabled"
+        return self._soc_stream_trust
+
+    def _set_stream_trust(self, state: str, now: Any) -> None:
+        """Transition the trust state; event-save on every transition."""
+        if state == self._soc_stream_trust:
+            return
+        self._soc_stream_trust = state
+        self._soc_stream_trust_since = now
+        _LOGGER.warning(
+            "SOC stream tier trust -> %s (last |native-stream|=%s pp)",
+            state, self._stream_last_delta,
+        )
+        self._request_state_save()
+
+    def _request_state_save(self) -> None:
+        """Event-save the EC energy state (R2-3). Never raises."""
+        coord = getattr(self, "_coord", None)
+        save = getattr(coord, "_save_evse_state", None) if coord else None
+        if save is None:
+            return
+        try:
+            self.hass.async_create_task(save())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("EC state event-save failed (swallowed)", exc_info=True)
+
+    def _evaluate_stream_divergence(self, now: Any = None) -> None:
+        """D1 — native-vs-stream divergence → quarantine / recovery.
+
+        Compares only when native AND stream are both fresh this call;
+        otherwise abstains and keeps its state. A compared sample counts
+        only if >= DEFAULT_SOC_STREAM_COMPARE_MIN_SPACING_S after the
+        previous one (R2-5). Never raises.
+        """
+        from homeassistant.util import dt as dt_util
+        from . import energy_const as _ec
+        if now is None:
+            now = dt_util.utcnow()
+        if not self._stream_tier_configured():
+            return
+        native = self._read_fresh_float(
+            self._get_entity("battery_soc"),
+            _ec.DEFAULT_BATTERY_SOC_PRIMARY_MAX_AGE_S,
+            stamp="last_reported",
+        )
+        stream = self._read_stream_soc(check_trust=False)
+        if native is None or stream is None:
+            return
+        last = self._stream_last_compared_at
+        if last is not None:
+            try:
+                if (now - last).total_seconds() < (
+                    _ec.DEFAULT_SOC_STREAM_COMPARE_MIN_SPACING_S
+                ):
+                    return
+            except Exception:  # noqa: BLE001
+                pass
+        self._stream_last_compared_at = now
+        delta = abs(native - stream)
+        self._stream_last_delta = round(delta, 3)
+        ticks = int(_ec.DEFAULT_SOC_STREAM_QUARANTINE_TICKS)
+        if delta > _ec.DEFAULT_SOC_DIVERGENCE_THRESHOLD_PCT:
+            self._stream_div_count += 1
+            self._stream_agree_count = 0
+            if (
+                self._stream_div_count >= ticks
+                and self._soc_stream_trust != "quarantined"
+            ):
+                self._set_stream_trust("quarantined", now)
+                self._fire_d2_nm(
+                    latch_attr="_d1_stream_div_nm_date",
+                    title="Battery stream reading quarantined",
+                    message=(
+                        f"Local stream battery level {stream:.0f}% disagrees "
+                        f"with the Envoy {native:.0f}% (by {delta:.1f} pp). "
+                        f"URA stopped using the stream until they agree."
+                    ),
+                    hazard_type="soc_stream_divergence",
+                )
+        else:
+            self._stream_agree_count += 1
+            self._stream_div_count = 0
+            if (
+                self._stream_agree_count >= ticks
+                and self._soc_stream_trust == "quarantined"
+            ):
+                self._set_stream_trust("trusted", now)
+
+    def get_stream_trust_snapshot(self) -> dict[str, Any]:
+        """Persisted blob for `battery_soc_stream_trust`."""
+        since = self._soc_stream_trust_since
+        return {
+            "state": self._soc_stream_trust,
+            "since_iso": since.isoformat() if since is not None else None,
+        }
+
+    def restore_stream_trust_snapshot(self, snap: Any) -> None:
+        """Restore; anything unreadable → `trusted` (documented default)."""
+        try:
+            state = snap.get("state") if isinstance(snap, dict) else None
+        except Exception:  # noqa: BLE001
+            state = None
+        if state not in ("trusted", "quarantined"):
+            return
+        self._soc_stream_trust = state
+        try:
+            from homeassistant.util import dt as dt_util
+            iso = snap.get("since_iso")
+            self._soc_stream_trust_since = (
+                dt_util.parse_datetime(iso) if iso else None
+            )
+        except Exception:  # noqa: BLE001
+            self._soc_stream_trust_since = None
+
+    # ------------------------------------------------------------------
+    # EC-DEGRADED-DATA-POLICY-1 Phase 1 — D4 page before a boundary.
+    # ------------------------------------------------------------------
+    def get_page_latch_snapshot(self) -> dict[str, Any]:
+        """Persisted blob for `ec_untrusted_page_latch`."""
+        return {
+            "soc": self._untrusted_page_boundary_iso,
+            "cfg_unknown": self._cfg_unknown_page_boundary_iso,
+        }
+
+    def restore_page_latch_snapshot(self, snap: Any) -> None:
+        if not isinstance(snap, dict):
+            return
+        soc = snap.get("soc")
+        cfg = snap.get("cfg_unknown")
+        if isinstance(soc, str) and soc:
+            self._untrusted_page_boundary_iso = soc
+        if isinstance(cfg, str) and cfg:
+            self._cfg_unknown_page_boundary_iso = cfg
+
+    def _send_boundary_page(
+        self,
+        latch_attr: str,
+        latch_value: str,
+        title: str,
+        message: str,
+        hazard_type: str,
+    ) -> bool:
+        """Send one NM page per latch value (severity high).
+
+        Latch-before-dispatch (a failed send cannot storm) and event-save
+        so a restart does not re-page the same boundary. Returns True when
+        a page was attempted on this call. Never raises.
+        """
+        if getattr(self, latch_attr, None) == latch_value:
+            return False
+        setattr(self, latch_attr, latch_value)
+        self._request_state_save()
+        _LOGGER.warning("EC page: %s — %s", title, message)
+        coord = getattr(self, "_coord", None)
+        send = getattr(coord, "_send_nm_alert", None) if coord else None
+        if send is None:
+            return True
+        try:
+            self.hass.async_create_task(
+                send(
+                    title=title,
+                    message=message,
+                    severity="high",
+                    hazard_type=hazard_type,
+                    location="battery",
+                )
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("EC boundary page failed (swallowed)", exc_info=True)
+        return True
+
+    def _evaluate_untrusted_boundary_page(
+        self, now: datetime, tou_period: str,
+    ) -> None:
+        """D4 — page the operator before a higher-rate boundary when SOC
+        has been untrusted for >= the dwell. A side effect only: it never
+        changes the decision dict (R2-12). Fires in observation mode too
+        (advice to a human, not actuation — C1-7). Never raises.
+        """
+        from . import energy_const as _ec
+        try:
+            if soc_tier_trusted(self._tick_soc_source):
+                self._untrusted_since = None
+                return
+            if self._untrusted_since is None:
+                self._untrusted_since = now
+            lead = int(_ec.DEFAULT_SOC_UNTRUSTED_PAGE_LEAD_MIN)
+            if lead <= 0 or tou_period == "peak":
+                return
+            boundary, period_name, mins = self._attain_target_boundary(
+                now, tou_period,
+            )
+            if boundary is None or mins is None:
+                return
+            dwell_s = (now - self._untrusted_since).total_seconds()
+            if dwell_s < int(_ec.DEFAULT_SOC_UNTRUSTED_PAGE_DWELL_MIN) * 60:
+                return
+            if mins > lead:
+                return
+            cloud_note = (
+                ", cloud reading only"
+                if self._tick_soc_source == "cloud_fallback" else ""
+            )
+            if self._soc_lkg is not None and self._soc_lkg_at is not None:
+                try:
+                    from homeassistant.util import dt as dt_util
+                    _at = dt_util.as_local(self._soc_lkg_at).strftime("%H:%M")
+                except Exception:  # noqa: BLE001
+                    _at = "unknown time"
+                last = f"Last trusted reading {self._soc_lkg:.0f}% at {_at}."
+            else:
+                last = "No trusted reading is on record."
+            message = (
+                f"Battery level is unknown (Envoy offline{cloud_note}) "
+                f"{mins} min before the {boundary.strftime('%H:%M')} "
+                f"higher-rate period. {last} URA is holding and will not "
+                f"grid-charge. Charge by hand if needed."
+            )
+            self._send_boundary_page(
+                "_untrusted_page_boundary_iso",
+                boundary.isoformat(),
+                "Battery level unknown before rate change",
+                message,
+                "battery_soc_unknown_before_boundary",
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("D4 page evaluate failed (swallowed)", exc_info=True)
+
+    def page_cfg_unknown_forced(
+        self, now: datetime, tou_period: str | None, held_evse: list[str],
+    ) -> bool:
+        """R2-8 discharge page: the grid-charge switch has read unknown
+        while URA's ledger says ON, so EVs are held as `breaker`. One page
+        per upcoming boundary (date when no boundary). Called by the
+        coordinator chokepoint once the dwell has elapsed. Never raises.
+        """
+        try:
+            boundary = None
+            if tou_period is not None:
+                boundary, _p, _m = self._attain_target_boundary(now, tou_period)
+            key = boundary.isoformat() if boundary is not None else (
+                now.date().isoformat()
+            )
+            message = (
+                "The battery grid-charge switch is not reporting, and URA's "
+                "last command turned it on. Car charging "
+                f"({', '.join(sorted(held_evse))}) is held to protect the "
+                "main breaker. Check the battery app; turn grid charge off "
+                "there if it should be off."
+            )
+            return self._send_boundary_page(
+                "_cfg_unknown_page_boundary_iso",
+                key,
+                "Grid-charge switch not reporting",
+                message,
+                "battery_cfg_unknown_ev_held",
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("R2-8 page failed (swallowed)", exc_info=True)
+            return False
+
+    def _arb_release_refused_ids(self) -> list[str]:
+        """D5: EVSE ids whose arbitrage release is currently refused on an
+        untrusted tier (the pool's D2a refusal clock). Never raises."""
+        try:
+            ev = getattr(getattr(self, "_coord", None), "_ev", None)
+            since = getattr(ev, "_arb_release_refused_since", None)
+            return sorted(since) if isinstance(since, dict) else []
+        except Exception:  # noqa: BLE001
+            return []
 
     def _soc_resolution_attrs(self) -> dict[str, Any]:
         """Return the `soc_resolution` attribute block for `get_status`.
@@ -5082,6 +5489,11 @@ class BatteryStrategy:
         # paths (full_hold / peak / storm ...) never reach _gate_is_open, so
         # without this a prior tick's "redirect" would keep the EVs paused.
         self._arbitrage_intent = None
+        # EC-DEGRADED-DATA-POLICY-1 R2-7 ENTRY-RESET: the D3 withhold flag
+        # is per-tick. The fully-blind branch returns without `_result`, so
+        # without this a prior tick's True would stick on the sensor.
+        self._grid_charge_withheld_untrusted = False
+        self._grid_charge_withhold_dispatch_failed = False
         from homeassistant.util import dt as dt_util
         if now is None:
             now = dt_util.now()
@@ -5101,12 +5513,19 @@ class BatteryStrategy:
             self.reset_arbitrage_chunk(reason="TOU transition INTO off_peak")
 
         soc = self.battery_soc
+        # EC-DEGRADED-DATA-POLICY-1 — capture the resolver tier IMMEDIATELY
+        # after the SOC read (before `current_storage_mode` / anything else
+        # can touch the resolver). Generalises the v5.17.5 local
+        # `soc_source_at_read`: every in-tick consumer (D3 withhold in
+        # `_result`, D4 page, D5 attrs, the coordinator's D2a capture)
+        # reads `self._tick_soc_source`, never re-derives the tier.
+        self._tick_soc_source = self._soc_source_last
+        soc_source_at_read = self._tick_soc_source
         current_mode = self.current_storage_mode
-        # v5.17.5 — capture the resolver source AT the read above so any
-        # downstream logging / degraded-mode suffix uses the SAME tier the
-        # `soc` value came from (envoy | lkg | cloud_fallback | none).
-        soc_source_at_read = self._soc_source_last
         envoy_avail = self.envoy_available
+        # D4 — side effect only (page); runs once per determine_mode call on
+        # BOTH the fully-blind return path and the proceeding path.
+        self._evaluate_untrusted_boundary_page(now, tou_period)
 
         # ── v5.17.5 blind-hold gate relax (I-BH1) ─────────────────────────
         # Falsifiable invariant: "While telemetry-blind, URA must never
@@ -5418,6 +5837,11 @@ class BatteryStrategy:
                             charge_from_grid=True,
                             reserve_level=decision.reserve_floor,
                             season=season,
+                            # D3 / Q2 (operator 2026-10-04: keep): storm
+                            # precharge is exempt from the cloud withhold.
+                            # Belt-and-braces: unreachable on the cloud tier
+                            # (Review C L1).
+                            cloud_withhold_exempt=True,
                         )
                     finally:
                         self._degraded_telemetry_source = _dts_saved
@@ -5429,6 +5853,8 @@ class BatteryStrategy:
                     charge_from_grid=True,
                     reserve_level=decision.reserve_floor,
                     season=season,
+                    # D3 / Q2: storm precharge exempt (see above).
+                    cloud_withhold_exempt=True,
                 )
             # Already charged enough (or precharge off) — hold via backup.
             return self._result(
@@ -5858,12 +6284,16 @@ class BatteryStrategy:
         arbitrage_active: bool = False,
         arbitrage_phase: str | None = None,
         target_day_class: str | None = None,
+        cloud_withhold_exempt: bool = False,
     ) -> dict[str, Any]:
         """Build battery decision result with actions.
 
         Uses reserve level as the primary control lever per Enphase codicil.
         Mode changes happen first, then reserve adjustment, then charge_from_grid.
         60-90s buffer built into decision cycle (5min interval) accommodates Enphase latency.
+
+        EC-DEGRADED-DATA-POLICY-1 D3: ``cloud_withhold_exempt`` — passed
+        True ONLY by the storm-precharge call sites (operator Q2).
         """
         # v5.17.5 I-BH1 — when the caller is proceeding on non-envoy SOC
         # (degraded telemetry), annotate the reason so the state is
@@ -5873,6 +6303,22 @@ class BatteryStrategy:
         _dts = getattr(self, "_degraded_telemetry_source", None)
         if _dts:
             reason = f"{reason} (degraded telemetry: {_dts})"
+        # EC-DEGRADED-DATA-POLICY-1 D3 — CHOKEPOINT (I-3): cloud SOC is never
+        # the sole basis for a grid charge. Every `charge_from_grid=True`
+        # emitter reaches the decision dict through here. Reads the tier
+        # captured at the top of THIS determine_mode call (never re-derived:
+        # the `soc` key below re-reads `battery_soc`). Forcing False makes
+        # the else-branch below emit `switch.turn_off` when the CFG reads on
+        # (stand-down of a latched charge) AND changes the RETURNED key the
+        # breaker chokepoint reads (R2-11). reserve_level is untouched.
+        if (
+            charge_from_grid
+            and getattr(self, "_tick_soc_source", None) == "cloud_fallback"
+            and not cloud_withhold_exempt
+        ):
+            charge_from_grid = False
+            reason = f"{reason} (grid charge withheld: cloud-only battery reading)"
+            self._grid_charge_withheld_untrusted = True
         actions: list[dict[str, Any]] = []
 
         # H1 (2026-07-13): all three surfaces use role="write" so the
@@ -6371,11 +6817,24 @@ class BatteryStrategy:
                 "force_redispatch(%s): re-dispatched value=%d to %s",
                 surface, live_desire, target,
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             _LOGGER.warning(
                 "force_redispatch(%s): service call failed", surface,
                 exc_info=True,
             )
+            # D-MED-3: a raised re-dispatch is recorded like any other
+            # battery write failure (`dispatch_failed` + anomaly + NM).
+            if wv is not None:
+                try:
+                    await wv.record_dispatch_failed(
+                        surface, live_desire, "number.set_value",
+                        type(exc).__name__,
+                        getattr(exc, "translation_key", None),
+                    )
+                except Exception:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "force_redispatch: failure record raised", exc_info=True,
+                    )
             return
         # (5) stamp commanded ledger with the re-dispatched value so the
         # sweep sees a fresh commanded_at anchor. Mirrors the stamping
@@ -6434,6 +6893,12 @@ class BatteryStrategy:
             self._evaluate_cloud_settings_lag(now=now_tick)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("D2 evaluate failed (swallowed)", exc_info=True)
+        # EC-DEGRADED-DATA-POLICY-1 D1 — stream-vs-native trust (same
+        # caller as `_evaluate_soc_resolution`; wall-clock spaced, R2-5).
+        try:
+            self._evaluate_stream_divergence(now=dt_util.utcnow())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("D1 stream divergence failed (swallowed)", exc_info=True)
         tomorrow_class = self.classify_tomorrow_solar()
         now = dt_util.now()
         # ARBITRAGE-GATE-D2-OFFBYONE-1: capture offset so the displayed
@@ -6629,6 +7094,18 @@ class BatteryStrategy:
             "next_action_estimate": self._next_action_estimate(soc, now),
             # v5.15.x diagnostics
             "soc_source": self._soc_source_last,
+            # EC-DEGRADED-DATA-POLICY-1 D5 (attributes only). Tier trust is
+            # derived from the per-tick capture, NOT `_soc_source_last`
+            # (R2-7: HVAC/DP reads of battery_soc re-stamp it).
+            "soc_tier_trusted": soc_tier_trusted(self._tick_soc_source),
+            "stream_trust": self.stream_trust_state(),
+            "grid_charge_withheld_untrusted": bool(
+                self._grid_charge_withheld_untrusted
+            ),
+            "grid_charge_withhold_dispatch_failed": bool(
+                getattr(self, "_grid_charge_withhold_dispatch_failed", False)
+            ),
+            "arb_release_refused": self._arb_release_refused_ids(),
             # v5.20.0 D2 — SOC read-side observability. Distinct
             # namespace from write-verify's command_trail.
             "soc_resolution": self._soc_resolution_attrs(),

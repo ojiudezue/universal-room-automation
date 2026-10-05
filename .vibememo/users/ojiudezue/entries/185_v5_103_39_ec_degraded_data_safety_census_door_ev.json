@@ -1,0 +1,31 @@
+{
+  "format_version": "2.1",
+  "entry_id": "185",
+  "author": "ojiudezue",
+  "session_id": "claude_20261005_185158_ship_v5_103_39",
+  "timestamp": "2026-10-05T18:51:58Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.39 shipped: EC degraded-data safety, census door-event quality, HVAC Custom Preset Ranges (Batch C)",
+  "summary": "EC degraded-data safety, census door-event quality, HVAC Custom Preset Ranges (Batch C)",
+  "why": "The Envoy and cloud battery readings proved unreliable (cloud frozen at 10%, 96 vs 90), and review D showed the drain-precedence release could turn an EV on in the same tick as a 20 kW grid charge; EC now holds every EV and plug start behind the grid-charge gate and trusted SOC (except off-peak and should-start-by). The 10-03 party showed the door ledger double-logging every crossing because Frigate-2 stems bypassed dedup, so the census must fix inputs before any estimator. The Custom Preset Ranges switch re-enabled itself on every restart; Batch C makes it resolve OFF and ship dormant with an empty rollout.",
+  "implications": "Shipped EC-DEGRADED-DATA-POLICY-1, EC-LKG-NEVER-PERSISTED-1, ENERGY-HISTORY-KW-SUMMED-AS-KWH-1, ENVOY-STREAM-AB-48H-1, CENSUS-INPUTS-FIRST-1, HVAC-CUSTOM-PRESET-RANGES-1, HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1, HVAC-S10-DPM-VS-S1-1, HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1 at v5.103.39; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.39.md (Live criteria).",
+  "revisit_trigger": "EV start while charge_from_grid ON, NULL peak_person_count on count-sensor doors, or the CPR switch reading on after restart",
+  "refs": {
+    "cards": [
+      "EC-DEGRADED-DATA-POLICY-1",
+      "EC-LKG-NEVER-PERSISTED-1",
+      "ENERGY-HISTORY-KW-SUMMED-AS-KWH-1",
+      "ENVOY-STREAM-AB-48H-1",
+      "CENSUS-INPUTS-FIRST-1",
+      "HVAC-CUSTOM-PRESET-RANGES-1",
+      "HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1",
+      "HVAC-S10-DPM-VS-S1-1",
+      "HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.39.md"
+    ],
+    "release_notes": "EC: no EV/plug start during grid charge; untrusted-SOC refusal (option 1); persisted LKG/ledgers; stream tier dormant. Census: door dedup/direction fixes + peak_person_count. HVAC: Custom Preset Ranges ships OFF with empty rollout; switch restart fix; compose-away removed."
+  }
+}

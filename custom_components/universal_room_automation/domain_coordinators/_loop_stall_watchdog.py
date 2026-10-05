@@ -259,6 +259,12 @@ def install(hass: HomeAssistant) -> _LoopStallWatchdog:
     # Auto-teardown at HA stop so the daemon thread doesn't linger past
     # process end (test suites also check for lingering threads).
     def _on_stop(_event: Any) -> None:
+        # LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1: HA already removed this
+        # one-time listener before running it (and runs it in the executor),
+        # so calling its unsub here logs "Unable to remove unknown job
+        # listener" from a worker thread. Drop it; the unsub stays live only
+        # for the early-teardown path (last entry unloaded before HA stop).
+        wd._ha_stop_unsub = None
         uninstall(hass)
 
     try:
@@ -277,8 +283,9 @@ def uninstall(hass: HomeAssistant) -> None:
     if wd is None:
         return
     # Detach the HA-stop listener FIRST so it can't fire against a
-    # torn-down watchdog handle. Idempotent — HA's async_listen_once
-    # unsub is safe to call twice.
+    # torn-down watchdog handle. HA's async_listen_once unsub is NOT safe
+    # to call twice (or after the listener fired) — it logs "Unable to
+    # remove unknown job listener" — so it is cleared after one use.
     unsub = getattr(wd, "_ha_stop_unsub", None)
     if unsub is not None:
         try:

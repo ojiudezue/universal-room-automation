@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.103.38
+# Universal Room Automation vv5.103.39
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -30,6 +30,47 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# ENERGY-HISTORY-KW-SUMMED-AS-KWH-1: energy_history power columns
+# (grid_import, solar_export, solar_production, ...) hold INSTANTANEOUS kW
+# snapshots written every ~15 min (energy.py _log_energy_history_snapshot).
+# Aggregations must integrate kW x interval_h, never SUM raw kW. Module
+# constants (reviewed-code rung): the nominal write interval is fixed by the
+# EC cycle cadence; a gap to the next row longer than the max (HA restart /
+# outage) is NOT trusted -- the sample is credited only its nominal slot, so a
+# single reading is never smeared over hours.
+ENERGY_HISTORY_NOMINAL_INTERVAL_H = 0.25
+ENERGY_HISTORY_MAX_INTERVAL_H = 0.5
+
+# Shared CTE: every energy_history row plus dt_h = hours until the next row
+# (gap > ENERGY_HISTORY_MAX_INTERVAL_H, or newest row -> nominal interval).
+# Computed over the whole table BEFORE any WHERE filter so the interval
+# reflects the real next sample. Params: _energy_history_kwh_params().
+_ENERGY_HISTORY_KWH_CTE = """
+    WITH eh_raw AS (
+        SELECT
+            timestamp, grid_import, solar_export, solar_production,
+            outside_temp, rooms_occupied, day_of_week,
+            (julianday(LEAD(timestamp) OVER (ORDER BY timestamp))
+             - julianday(timestamp)) * 24.0 AS gap_h
+        FROM energy_history
+    ),
+    eh AS (
+        SELECT
+            timestamp, grid_import, solar_export, solar_production,
+            outside_temp, rooms_occupied, day_of_week,
+            CASE
+                WHEN gap_h IS NULL OR gap_h > ? THEN ?
+                ELSE gap_h
+            END AS dt_h
+        FROM eh_raw
+    )
+"""
+
+
+def _energy_history_kwh_params() -> tuple[float, float]:
+    """Bind params for _ENERGY_HISTORY_KWH_CTE: (max_h, nominal_h)."""
+    return (ENERGY_HISTORY_MAX_INTERVAL_H, ENERGY_HISTORY_NOMINAL_INTERVAL_H)
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +172,12 @@ class UniversalRoomDatabase:
         os.makedirs(db_dir, exist_ok=True)
         self.db_file = os.path.join(db_dir, DATABASE_NAME)
         self._last_table_error: Exception | None = None
+        # Review B2: when the ALTER-TABLE migration for the
+        # peak_person_count column cannot land (table pre-exists without
+        # it AND the ALTER failed/was skipped), fall back to the 6-column
+        # INSERT so every subsequent row isn't rejected. Default False
+        # (assume column present); flipped True by _create_tables.
+        self._peak_person_count_absent: bool = False
         # v3.22.8: Write queue serializes all DB writes through a single
         # asyncio task, eliminating contention entirely. Writes are queued
         # as coroutines and executed one at a time. Reads use independent
@@ -883,6 +930,11 @@ class UniversalRoomDatabase:
                     failed_tables.append("census_snapshots")
 
                 # -- Person entry/exit events --------------------------------
+                # PLANNING_census_inputs_first R3.6 / R4.5 (2026-10-05):
+                # `peak_person_count` carried in fresh CREATE (new installs
+                # like Wigton) AND via ALTER TABLE below for existing DBs.
+                # NULLABLE so legacy rows (pre-cycle) stay distinguishable
+                # from "post-cycle, sampler returned 0".
                 if not await self._create_table_safe(db, "person_entry_exit_events", [
                     """CREATE TABLE IF NOT EXISTS person_entry_exit_events (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -891,7 +943,8 @@ class UniversalRoomDatabase:
                         event_type TEXT NOT NULL,
                         direction TEXT NOT NULL,
                         egress_camera TEXT NOT NULL,
-                        confidence REAL NOT NULL
+                        confidence REAL NOT NULL,
+                        peak_person_count INTEGER
                     )""",
                     """CREATE INDEX IF NOT EXISTS idx_entry_exit_timestamp
                     ON person_entry_exit_events(timestamp)""",
@@ -899,6 +952,45 @@ class UniversalRoomDatabase:
                     ON person_entry_exit_events(person_id, timestamp)""",
                 ]):
                     failed_tables.append("person_entry_exit_events")
+                else:
+                    # Idempotent ALTER TABLE migration for pre-cycle DBs.
+                    # Precedent: database.py :972/:1819/:1957/:2012/:2057.
+                    try:
+                        cursor = await db.execute(
+                            "PRAGMA table_info(person_entry_exit_events)"
+                        )
+                        pe_cols = {row[1] for row in await cursor.fetchall()}
+                        if "peak_person_count" not in pe_cols:
+                            try:
+                                await db.execute(
+                                    "ALTER TABLE person_entry_exit_events "
+                                    "ADD COLUMN peak_person_count INTEGER"
+                                )
+                                await db.commit()
+                                _LOGGER.info(
+                                    "Added peak_person_count column to "
+                                    "person_entry_exit_events"
+                                )
+                            except Exception as alter_e:
+                                # Review B2: ALTER failed → flag so
+                                # log_entry_exit_event uses the 6-column
+                                # INSERT and rows still land.
+                                self._peak_person_count_absent = True
+                                _LOGGER.warning(
+                                    "person_entry_exit_events ALTER "
+                                    "peak_person_count failed; falling "
+                                    "back to 6-column INSERT: %s",
+                                    alter_e,
+                                )
+                    except Exception as e:
+                        # Could not even read PRAGMA — assume absent and
+                        # take the fallback path to keep writes landing.
+                        self._peak_person_count_absent = True
+                        _LOGGER.warning(
+                            "person_entry_exit_events peak_person_count "
+                            "migration failed: %s",
+                            e,
+                        )
 
                 # -- Decision log --------------------------------------------
                 if not await self._create_table_safe(db, "decision_log", [
@@ -2855,20 +2947,22 @@ class UniversalRoomDatabase:
         """Get energy data for similar days (same weekday, similar temperature)."""
         try:
             async with self._db_read() as db:
-                cursor = await db.execute("""
+                # kWh = SUM(kW x dt_h) via the shared interval CTE.
+                cursor = await db.execute(_ENERGY_HISTORY_KWH_CTE + """
                     SELECT
                         DATE(timestamp) as date,
-                        SUM(CASE WHEN grid_import IS NOT NULL THEN grid_import ELSE 0 END) as total_grid_import,
-                        SUM(CASE WHEN solar_export IS NOT NULL THEN solar_export ELSE 0 END) as total_solar_export,
+                        SUM(COALESCE(grid_import, 0) * dt_h) as total_grid_import,
+                        SUM(COALESCE(solar_export, 0) * dt_h) as total_solar_export,
                         AVG(outside_temp) as avg_temp,
                         AVG(rooms_occupied) as avg_occupancy
-                    FROM energy_history
+                    FROM eh
                     WHERE day_of_week = ?
                     AND outside_temp BETWEEN ? AND ?
                     GROUP BY DATE(timestamp)
                     ORDER BY timestamp DESC
                     LIMIT ?
-                """, (day_of_week, temp_low, temp_high, limit))
+                """, (*_energy_history_kwh_params(),
+                      day_of_week, temp_low, temp_high, limit))
                 
                 rows = await cursor.fetchall()
                 return [
@@ -2894,17 +2988,19 @@ class UniversalRoomDatabase:
         """Get total energy values for a date range."""
         try:
             async with self._db_read() as db:
-                cursor = await db.execute("""
+                # kWh = SUM(kW x dt_h) via the shared interval CTE.
+                cursor = await db.execute(_ENERGY_HISTORY_KWH_CTE + """
                     SELECT
-                        SUM(CASE WHEN grid_import IS NOT NULL THEN grid_import ELSE 0 END) as total_grid_import,
-                        SUM(CASE WHEN solar_export IS NOT NULL THEN solar_export ELSE 0 END) as total_solar_export,
-                        SUM(CASE WHEN solar_production IS NOT NULL THEN solar_production ELSE 0 END) as total_solar_production,
+                        SUM(COALESCE(grid_import, 0) * dt_h) as total_grid_import,
+                        SUM(COALESCE(solar_export, 0) * dt_h) as total_solar_export,
+                        SUM(COALESCE(solar_production, 0) * dt_h) as total_solar_production,
                         AVG(outside_temp) as avg_temp,
                         AVG(rooms_occupied) as avg_occupancy,
                         COUNT(*) as record_count
-                    FROM energy_history
+                    FROM eh
                     WHERE timestamp BETWEEN ? AND ?
-                """, (start_date.isoformat(), end_date.isoformat()))
+                """, (*_energy_history_kwh_params(),
+                      start_date.isoformat(), end_date.isoformat()))
                 
                 row = await cursor.fetchone()
                 if row:
@@ -4000,22 +4096,49 @@ class UniversalRoomDatabase:
         direction: str,
         egress_camera: str,
         confidence: float,
+        peak_person_count: Optional[int] = None,
     ) -> None:
-        """Log a confirmed entry or exit event."""
+        """Log a confirmed entry or exit event.
+
+        PLANNING_census_inputs_first R3.6 / R4.5 (2026-10-05):
+        ``peak_person_count`` is the honest multiplicity input (max count
+        observed across the door_group's cameras during the episode).
+        None → NULL (sampler had no sample in-window; legacy rows stay
+        distinguishable).
+        """
         try:
             async with self._db() as db:
-                await db.execute("""
-                    INSERT INTO person_entry_exit_events
-                        (timestamp, person_id, event_type, direction, egress_camera, confidence)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    datetime.utcnow().isoformat(),
-                    person_id,
-                    event_type,
-                    direction,
-                    egress_camera,
-                    confidence,
-                ))
+                if self._peak_person_count_absent:
+                    # Review B2: 6-column fallback when the column is
+                    # absent (ALTER failed on an older DB).
+                    await db.execute("""
+                        INSERT INTO person_entry_exit_events
+                            (timestamp, person_id, event_type, direction,
+                             egress_camera, confidence)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        datetime.utcnow().isoformat(),
+                        person_id,
+                        event_type,
+                        direction,
+                        egress_camera,
+                        confidence,
+                    ))
+                else:
+                    await db.execute("""
+                        INSERT INTO person_entry_exit_events
+                            (timestamp, person_id, event_type, direction,
+                             egress_camera, confidence, peak_person_count)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        datetime.utcnow().isoformat(),
+                        person_id,
+                        event_type,
+                        direction,
+                        egress_camera,
+                        confidence,
+                        peak_person_count,
+                    ))
                 await db.commit()
         except Exception as e:
             _LOGGER.error("Error logging entry/exit event: %s", e)

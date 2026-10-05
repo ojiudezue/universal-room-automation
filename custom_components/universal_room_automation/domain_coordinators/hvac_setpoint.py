@@ -874,3 +874,109 @@ async def emit_set_hvac_mode(
         issued_wallclock=_issued_wall,
     )
     return True
+
+
+# ==========================================================================
+# HVAC Batch C (CPR) D1: emit_set_activity_setpoint (fourth funnel).
+# Plan: docs/planning/PLANNING_hvac_enable_custom_preset_ranges.md D1 + REV 3.1
+# F3. Edits a NAMED preset profile's range in place (no hold). The service
+# domain / name come from the CALLER (the thermostat adapter in
+# hvac_strategy.py, the only file that names the brand service) — this
+# funnel has no brand logic. It does NOT record into the URA set_temperature
+# ring (`record_ura_setpoint`): a profile edit is not a raw setpoint write,
+# so the within-manual detector must never treat it as one (plan T11).
+# The existing funnels above are untouched (W1-B constraint).
+# ==========================================================================
+
+
+async def emit_set_activity_setpoint(
+    hass: HomeAssistant,
+    entity_id: str,
+    *,
+    service_domain: str,
+    service_name: str,
+    target_temp_low: float | None,
+    target_temp_high: float | None,
+    freeze_active: bool,
+    blocking: bool,
+    gate: Callable[[], bool] | None,
+    site: str,
+    zone_id: str,
+    reason: str,
+) -> bool:
+    """Write a preset profile's (low, high) through the caller's service.
+
+    Returns True when the service call was issued, False when ``gate``
+    deferred it. Exactly ONE `climate_write` row (verb = ``service_name``)
+    per attempted wire call, on the success AND the raise path; a wire
+    exception is re-raised unchanged.
+    """
+    if gate is not None:
+        try:
+            defer = bool(gate())
+        except Exception:  # noqa: BLE001 — a bad gate must not deny the world
+            defer = False
+        if defer:
+            _log_deferred_write(
+                hass, site=site or "unknown_activity_setpoint",
+                zone_id=zone_id, entity_id=entity_id, reason=reason,
+                would_have_emitted={
+                    "target_temp_low": target_temp_low,
+                    "target_temp_high": target_temp_high,
+                },
+            )
+            return False
+
+    low, high = apply_setpoint_guards(
+        target_temp_low, target_temp_high, freeze_active=freeze_active,
+    )
+    service_data: dict[str, float | str] = {"entity_id": entity_id}
+    if low is not None:
+        service_data["target_temp_low"] = low
+    if high is not None:
+        service_data["target_temp_high"] = high
+
+    _values_before = _snapshot_climate_state(hass, entity_id)
+    _ts_issued = time.monotonic()
+    _issued_wall = dt_util.utcnow().isoformat()
+    try:
+        await hass.services.async_call(
+            service_domain, service_name, service_data, blocking=blocking,
+        )
+    except BaseException as _wire_exc:  # noqa: BLE001 — re-raised below
+        _schedule_climate_write_row(
+            hass,
+            verb=service_name,
+            entity_id=entity_id,
+            site=site,
+            zone_id=zone_id,
+            reason=reason,
+            blocking=blocking,
+            excursion_id=None,
+            values_before=_values_before,
+            values_after=dict(service_data),
+            ts_issued=_ts_issued,
+            ts_returned=time.monotonic(),
+            wire_ok=False,
+            exc=type(_wire_exc).__name__,
+            issued_wallclock=_issued_wall,
+        )
+        raise
+    _schedule_climate_write_row(
+        hass,
+        verb=service_name,
+        entity_id=entity_id,
+        site=site,
+        zone_id=zone_id,
+        reason=reason,
+        blocking=blocking,
+        excursion_id=None,
+        values_before=_values_before,
+        values_after=dict(service_data),
+        ts_issued=_ts_issued,
+        ts_returned=time.monotonic(),
+        wire_ok=True,
+        exc=None,
+        issued_wallclock=_issued_wall,
+    )
+    return True

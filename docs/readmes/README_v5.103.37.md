@@ -136,4 +136,17 @@ of coordinators that are not added) is NOT in this build.
 - Removed the unreachable legacy `coordinator_toggles` options step (no menu routed to it).
 
 ## Live validation
-_Pending — results table written back after the restart._
+### Validated 2026-10-03 (checked ~20:20 CDT on v5.103.38)
+
+| Check | Result | Evidence |
+|---|---|---|
+| 8 coordinators registered, Enabled switches truthful | PASS | all on, `added: true` |
+| `coordinators_added` = all 8; migration flag set | PASS | CM options in core.config_entries |
+| No CM reload storm at boot | PASS | system log clean |
+| FAN-ORACLE-BOOT-FALLBACK-NOISE-1 | PASS | 0 `FanPolicyOracle` warnings |
+| peak_buffer_target 90 / lead 150 (operator knob turns) | PASS | battery strategy attrs |
+| drain_targets_effective, current_offpeak_drain_target = 30 (target day poor) | PASS | attrs |
+| No rung_1 after sunset (19:10-20:17) | PASS | `arbitrage_rung` null; still in discharge phase |
+| No EV paused by arbitrage after sunset | PASS | `evse_paused_by_arbitrage: []` throughout |
+| WAIT holds forecast floor overnight | PENDING overnight | query: battery_strategy rows with arbitrage_phase='wait' — commanded reserve must equal 30 while SOC>30, else max(10,int(soc)), never grid charge |
+| No EV toggles >2/h overnight | PENDING overnight | count garage EV switch changes 00:10-12:00 2026-10-04 |

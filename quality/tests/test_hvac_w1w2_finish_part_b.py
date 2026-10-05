@@ -181,10 +181,11 @@ async def test_pre_arrival_single_write_across_three_triggers(mods, monkeypatch,
 
 @pytest.mark.asyncio
 async def test_pre_arrival_value_from_baseline_not_live(mods, monkeypatch):
-    """Baseline (last emitted range 69/77) - 2 = 75; the live-based value
-    would be 80 - 2 = 78."""
-    coord, hass, db, _ = _setup(mods, monkeypatch)
-    coord._last_emitted_range[Z2] = (69.0, 77.0)
+    """Baseline (the arrival preset's configured 69/77 — CPR D3c: the
+    retired emitted-range map no longer feeds it) - 2 = 75; the live-based
+    value would be 80 - 2 = 78."""
+    seasonal = {**SEASONAL, "home": (77.0, 69.0), "sleep": (77.0, 69.0)}
+    coord, hass, db, _ = _setup(mods, monkeypatch, seasonal=seasonal)
     await _pre_arrival(coord, hass)
     assert [r["values_after"]["target_temp_high"] for r in _s12(hass, mods)] == [75.0]
 
@@ -192,8 +193,8 @@ async def test_pre_arrival_value_from_baseline_not_live(mods, monkeypatch):
 @pytest.mark.asyncio
 async def test_pre_arrival_floor_kept(mods, monkeypatch):
     """Baseline 73 - 2 = 71 is below the 72 F floor -> 72."""
-    coord, hass, db, _ = _setup(mods, monkeypatch)
-    coord._last_emitted_range[Z2] = (68.0, 73.0)
+    seasonal = {**SEASONAL, "home": (73.0, 68.0), "sleep": (73.0, 68.0)}
+    coord, hass, db, _ = _setup(mods, monkeypatch, seasonal=seasonal)
     await _pre_arrival(coord, hass)
     assert [r["values_after"]["target_temp_high"] for r in _s12(hass, mods)] == [72.0]
 
@@ -548,15 +549,17 @@ async def test_fast_run_ends_only_its_zone(mods, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_pre_arrival_release_does_not_touch_last_emitted_range(mods, monkeypatch):
+async def test_pre_arrival_release_is_presets_only(mods, monkeypatch):
+    """(CPR D3c: the emitted-range map this used to guard is retired.) The
+    pre-arrival end restores the snapshot preset and writes no setpoints."""
     coord, hass, db, _ = _setup(mods, monkeypatch)
     await _pre_arrival(coord, hass)
-    coord._last_emitted_range.pop(Z2, None)
+    n_s12 = len(_s12(hass, mods))
     coord._pre_arrival_zones.discard(Z2)
     await coord._async_end_pre_arrival_borrows({Z2: "arrived"})
     await H.drain(hass)
     assert H.preset_writes(hass, E2, "away")
-    assert Z2 not in coord._last_emitted_range
+    assert len(_s12(hass, mods)) == n_s12
 
 
 # ==========================================================================
@@ -875,18 +878,16 @@ async def test_zi_off_on_within_window_does_not_rebegin(mods, monkeypatch):
 @pytest.mark.asyncio
 async def test_master_off_ends_pre_arrival_with_inactive_trigger(mods, monkeypatch):
     """D-L7: pre-conditioning master OFF ends a pre-arrival borrow with an
-    INV-B.2 trigger and never writes the DPM throttle map."""
+    INV-B.2 trigger (CPR D3c: no throttle map exists any more)."""
     coord, hass, db, _ = _setup(mods, monkeypatch)
     await _pre_arrival(coord, hass)
     tok = _tok(coord)
-    coord._last_emitted_range.pop(Z2, None)
     _install_cm(hass, mods, pre_cond=False)
     await coord._predictor._check_pre_conditioning(
         None, "home_night", datetime(2026, 9, 28, 22, 10),
         pre_arrival_zones={Z2}, zone_intelligence_enabled=True)
     await H.drain(hass)
     assert tok.returned and tok._return_outcome.trigger == "pre_arrival_inactive"
-    assert Z2 not in coord._last_emitted_range
 
 
 @pytest.mark.asyncio

@@ -213,7 +213,6 @@ def _make_mock_hvac(
     hvac = MagicMock()
     hvac._guest_mode_actuation_enabled = guest_mode_actuation_enabled
     hvac._house_state = house_state
-    hvac._last_emitted_range = {}
     hvac._override_arrester = MagicMock()
     hvac._override_arrester.suppress = MagicMock()
     hvac._override_arrester.unsuppress = MagicMock()
@@ -314,60 +313,13 @@ class TestHvacApplyEmitsSetTemperatureWhenOverrideActive:
             "Baseline restored when guest override inactive under home_day"
         )
 
-    @pytest.mark.asyncio
-    async def test_hvac_apply_arrester_suppressed(self):
-        """OverrideArrester.suppress must be called before set_temperature service call.
+    # CPR Batch C: `test_hvac_apply_arrester_suppressed` retired — S10 no
+    # longer stamps suppress() (plan M4/T6). Behavioural replacement:
+    # test_hvac_cpr_batch_c.py::test_s10_edit_books_no_override_detected.
 
-        Validates that URA's set_temperature isn't flagged as a manual override.
-        This test verifies the call sequence in the production code contract.
-        """
-        hass = _make_hass()
-        suppress_called = []
-        unsuppress_called = []
-
-        arrester = MagicMock()
-        arrester.suppress.side_effect = lambda entity: suppress_called.append(entity)
-        arrester.unsuppress.side_effect = lambda entity: unsuppress_called.append(entity)
-
-        climate_entity = "climate.master_suite"
-
-        # Simulate the D2 suppress→set_temperature→(no unsuppress) pattern
-        arrester.suppress(climate_entity)
-        await hass.services.async_call(
-            "climate", "set_temperature",
-            {"entity_id": climate_entity, "target_temp_low": 70.0, "target_temp_high": 74.0},
-            blocking=False,
-        )
-
-        assert climate_entity in suppress_called, (
-            "suppress() must be called with climate_entity before set_temperature"
-        )
-        # Note: D2 does NOT unsuppress after set_temperature —
-        # the arrester sees the temperature change and clears itself.
-        assert climate_entity not in unsuppress_called, (
-            "unsuppress() should NOT be called after a successful set_temperature"
-        )
-
-    @pytest.mark.asyncio
-    async def test_hvac_apply_throttles_unchanged_range(self):
-        """set_temperature is skipped when resolved range == last_emitted_range."""
-        last_emitted_range = {}
-        engine = OverrideEngine()
-
-        overrides = [_make_override(zone_id="zone_1", cool_low=70.0, cool_high=74.0)]
-        active = engine.get_active_overrides("zone_1", "home", "home_day", True, overrides)
-        resolved = engine.resolve_range(70.0, 77.0, active)
-        resolved_pair = (resolved.cool_low, resolved.cool_high)
-
-        # First emission: not in last_emitted → should emit
-        assert last_emitted_range.get("zone_1") != resolved_pair, "First call should emit"
-        last_emitted_range["zone_1"] = resolved_pair
-
-        # Second emission: same resolved → should skip
-        assert last_emitted_range.get("zone_1") == resolved_pair, (
-            "Throttle: skip when resolved matches last-emitted"
-        )
-
+    # CPR Batch C: `test_hvac_apply_throttles_unchanged_range` retired — the
+    # emitted-range throttle map is retired (D3c); the rate model replaces it:
+    # test_hvac_cpr_batch_c.py::test_s10_retry_interval_130min.
 
 # ---------------------------------------------------------------------------
 # D3: Guest Mode Actuation master toggle
@@ -406,13 +358,10 @@ class TestGuestModeActuationSwitch:
         hvac._guest_mode_actuation_enabled = True
         assert hvac._guest_mode_actuation_enabled
 
-    def test_master_toggle_default_is_true(self):
-        """master_enabled defaults to True in HVACCoordinator constructor."""
-        hvac = _make_mock_hvac()
-        assert hvac._guest_mode_actuation_enabled is True, (
-            "CONF_GUEST_MODE_ACTUATION_ENABLED defaults to True"
-        )
-
+    # CPR Batch C D8: `test_master_toggle_default_is_true` retired — the
+    # coordinator default is now None (unresolved) and resolves OFF without a
+    # saved state: test_hvac_cpr_batch_c.py::
+    # test_custom_preset_ranges_default_is_none_until_resolved.
 
 # ---------------------------------------------------------------------------
 # D4: Active preset overrides diagnostic sensor

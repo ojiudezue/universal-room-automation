@@ -12,9 +12,10 @@ tracks egress camera direction (entry vs exit) via interior correlation.
 from __future__ import annotations
 
 import logging
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 
 from homeassistant.core import HomeAssistant, Event, callback
 from homeassistant.helpers import area_registry as ar_helper, entity_registry as er_helper
@@ -33,6 +34,9 @@ from .const import (
     EGRESS_ENTRY_WINDOW_SECONDS,
     EGRESS_EXIT_WINDOW_SECONDS,
     EGRESS_AMBIGUOUS_COOLDOWN_SECONDS,
+    DOOR_STEM_DEDUP_S,
+    CONF_DOOR_GROUPS,
+    CONF_DOOR_INTERIOR_NEIGHBOURS,
     CONF_TRANSIT_CHECKPOINT_AREAS,
     DEFAULT_TRANSIT_CHECKPOINT_AREAS,
     CONF_TRANSIT_PROTECT_SOURCED_ENABLED,
@@ -941,6 +945,22 @@ class EgressDirectionTracker:
         self._interior_entities: list[str] = []
         # Deduplication: stem -> last resolved timestamp
         self._last_resolved: dict[str, datetime] = {}
+        # PLANNING_census_inputs_first D1 (R2.2 item 5 / R4.6):
+        # per-stem door-group map and per-group interior-neighbours map,
+        # populated from CONF_DOOR_GROUPS / CONF_DOOR_INTERIOR_NEIGHBOURS
+        # at async_init (unset → today's per-stem / all-interior behaviour).
+        self._door_group_by_stem: dict[str, str] = {}
+        self._interior_neighbours_by_group: dict[str, list[str]] = {}
+        # PLANNING_census_inputs_first R3.6 / R4.5 — peak_person_count
+        # value buffer keyed by camera stem. Each entry is a bounded
+        # deque of (timestamp, int) samples populated by a lightweight
+        # state_changed listener on each CameraInfo.person_count_sensor.
+        self._peak_count_buffer: dict[str, deque[tuple[datetime, int]]] = {}
+        self._peak_count_unsubs: list[Callable[[], None]] = []
+        # Stem -> entity_id of its person_count sensor (reverse lookup
+        # for the buffer listener; keys never string-built — resolved
+        # from `info.person_count_sensor` only).
+        self._count_sensor_to_stem: dict[str, str] = {}
 
     async def async_init(self) -> None:
         """Subscribe to egress and near-door interior cameras.
@@ -1035,12 +1055,182 @@ class EgressDirectionTracker:
                 )
                 self._unsub.append(unsub)
 
+        # PLANNING_census_inputs_first D1 (R2.2 / R4.5 / R4.6):
+        # Read door-group + neighbours maps from the integration config
+        # entry (unset → maps stay empty → today's behaviour). Build
+        # `_count_sensor_to_stem` reverse-lookup from census CameraInfo
+        # (NEVER string-built — reuse `info.person_count_sensor`), then
+        # register the peak-count buffer listeners.
+        self._load_door_config()
+        if census:
+            try:
+                for info in census.get_transit_egress_entities():
+                    pcs = getattr(info, "person_count_sensor", None)
+                    pbs = getattr(info, "person_binary_sensor", None)
+                    stem = None
+                    if pcs:
+                        from .camera_census import CameraIntegrationManager
+                        stem = CameraIntegrationManager._extract_camera_stem(pcs)
+                    if not stem and pbs:
+                        from .camera_census import CameraIntegrationManager
+                        stem = CameraIntegrationManager._extract_camera_stem(pbs)
+                    if pcs and stem:
+                        self._count_sensor_to_stem[pcs] = stem
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.debug(
+                    "EgressDirectionTracker: peak-count map build failed: %s",
+                    e,
+                )
+        if self._count_sensor_to_stem:
+            try:
+                from homeassistant.helpers.event import (
+                    async_track_state_change_event,
+                )
+                for entity_id in set(self._count_sensor_to_stem.keys()):
+                    unsub = async_track_state_change_event(
+                        self.hass,
+                        [entity_id],
+                        self._on_peak_count_change,
+                    )
+                    self._peak_count_unsubs.append(unsub)
+                    self._unsub.append(unsub)
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.debug(
+                    "EgressDirectionTracker: peak-count subscribe failed: %s",
+                    e,
+                )
+
         _LOGGER.info(
-            "EgressDirectionTracker initialized: %d egress sensors, %d egress count sensors, %d interior sensors",
+            "EgressDirectionTracker initialized: %d egress sensors, %d egress count sensors, %d interior sensors, %d door-groups, %d neighbour-groups",
             len(self._egress_entities),
             len(self._egress_count_sensors),
             len(self._interior_entities),
+            len(self._door_group_by_stem),
+            len(self._interior_neighbours_by_group),
         )
+
+    def _load_door_config(self) -> None:
+        """Load CONF_DOOR_GROUPS / CONF_DOOR_INTERIOR_NEIGHBOURS from the
+        integration-level config entry. Unset → maps stay empty →
+        downstream behaviour is byte-identical to today."""
+        self._door_group_by_stem = {}
+        self._interior_neighbours_by_group = {}
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_INTEGRATION:
+                    continue
+                merged = {**entry.data, **entry.options}
+                groups_raw = merged.get(CONF_DOOR_GROUPS) or {}
+                nbrs_raw = merged.get(CONF_DOOR_INTERIOR_NEIGHBOURS) or {}
+                if isinstance(groups_raw, dict):
+                    for k, v in groups_raw.items():
+                        if isinstance(k, str) and isinstance(v, str) and v:
+                            self._door_group_by_stem[k] = v
+                if isinstance(nbrs_raw, dict):
+                    for group, cams in nbrs_raw.items():
+                        if not isinstance(group, str):
+                            continue
+                        if isinstance(cams, (list, tuple)):
+                            self._interior_neighbours_by_group[group] = [
+                                str(c) for c in cams if isinstance(c, str)
+                            ]
+                break
+        except Exception as e:  # noqa: BLE001
+            _LOGGER.debug(
+                "EgressDirectionTracker: door-config read failed: %s", e,
+            )
+
+    @callback
+    def _on_peak_count_change(self, event: Event) -> None:
+        """Append person_count samples to the per-stem value buffer.
+
+        R4.5: the 0→N edge path can't be `max()`ed at resolve time because
+        the handler only re-fires on 0→N edges; buffering every int-valued
+        state_changed on the count sensor gives the sampler a real
+        time-series within the dedup+resolve-delay horizon.
+        """
+        new_state = event.data.get("new_state")
+        if not new_state:
+            return
+        entity_id = new_state.entity_id
+        stem = self._count_sensor_to_stem.get(entity_id)
+        if not stem:
+            return
+        try:
+            val = int(new_state.state)
+        except (ValueError, TypeError, AttributeError):
+            return
+        if val < 0:
+            return
+        now = dt_util.now()
+        buf = self._peak_count_buffer.get(stem)
+        if buf is None:
+            buf = deque(maxlen=64)
+            self._peak_count_buffer[stem] = buf
+        buf.append((now, val))
+        # Prune anything older than the dedup+resolve-delay horizon
+        # (same bound as the `_last_resolved` prune in `_prune_event_list`).
+        horizon = max(60, DOOR_STEM_DEDUP_S + self.ENTRY_WINDOW_SECONDS)
+        cutoff = now - timedelta(seconds=horizon)
+        while buf and buf[0][0] < cutoff:
+            buf.popleft()
+
+    def _door_group_for_stem(self, stem: str | None) -> str | None:
+        """Return the configured door-group for `stem`, or None (unset →
+        per-stem dedup → today's behaviour)."""
+        if not stem:
+            return None
+        return self._door_group_by_stem.get(stem)
+
+    def _sample_peak_person_count(
+        self,
+        stem: str | None,
+        egress_timestamp: datetime,
+    ) -> int | None:
+        """R3.6 / R4.5 sampler. Window:
+        [egress_timestamp - DOOR_STEM_DEDUP_S, egress_timestamp + ENTRY_WINDOW_SECONDS].
+        For a configured door_group, MAX across the group's cameras
+        (not sum — two cameras seeing one 4-person arrival report 4,
+        not 8). Returns None when no sample lies in the window."""
+        if not stem:
+            return None
+        lo = egress_timestamp - timedelta(seconds=DOOR_STEM_DEDUP_S)
+        hi = egress_timestamp + timedelta(seconds=self.ENTRY_WINDOW_SECONDS)
+        group = self._door_group_for_stem(stem)
+        if group:
+            stems = [
+                s for s, g in self._door_group_by_stem.items() if g == group
+            ]
+            if stem not in stems:
+                stems.append(stem)
+        else:
+            stems = [stem]
+        best: int | None = None
+        for s in stems:
+            buf = self._peak_count_buffer.get(s, ())
+            # Review LOW: seed with the last sample STRICTLY BEFORE
+            # window start, provided it isn't stale — the count sensor
+            # is step-and-hold, so a value that was already true at the
+            # egress moment but didn't re-fire inside the window still
+            # represents the real multiplicity. Bound the seed horizon
+            # to DOOR_STEM_DEDUP_S before `lo` so ancient samples (an
+            # earlier household member's long-gone appearance) don't
+            # leak forward.
+            seed_cutoff = lo - timedelta(seconds=DOOR_STEM_DEDUP_S)
+            seed: int | None = None
+            for ts, v in buf:  # type: ignore[arg-type]
+                if ts < lo:
+                    if ts >= seed_cutoff:
+                        seed = v
+                else:
+                    break
+            if seed is not None and (best is None or seed > best):
+                best = seed
+            for ts, v in buf:  # type: ignore[arg-type]
+                if lo <= ts <= hi:
+                    if best is None or v > best:
+                        best = v
+        return best
 
     @callback
     def _on_egress_state_change(self, event: Event) -> None:
@@ -1726,38 +1916,67 @@ class EgressDirectionTracker:
     ) -> None:
         """Determine entry, exit, or ambiguous and fire event on bus.
 
-        Includes deduplication: when both Frigate and UniFi sensors fire for
-        the same physical camera within 5 seconds, only resolve once.
+        PLANNING_census_inputs_first D1 (R2.2 / R3.3 / R3.9 / R4.1):
+        * Dedup window is the knob ``DOOR_STEM_DEDUP_S`` (default 30 s),
+          replacing the historical 5 s inline literal.
+        * When ``CONF_DOOR_GROUPS`` is SET and this stem has a group,
+          dedup is scoped to the DOOR_GROUP (not just same-stem).
+          UNSET → per-stem dedup (today's behaviour byte-identical).
+        * Direction-keyed dedup (Review B3): dedup key is suffixed with
+          the RESOLVED direction so an opposite-direction crossing in
+          the window (exit t0 then entry t0+20) is NOT swallowed.
+        * Interior-neighbour direction loop (Review A-HIGH): walk each
+          neighbour forward (develop semantics — oldest first per
+          camera, so a single-camera t-12/t+8 stays EXIT), then across
+          cameras pick the match whose |delta| is smallest (so a
+          cross-camera t+3 foyer beats a noisy t-25 family_room).
+          Byte-identical to develop when exactly one neighbour matches.
         """
-        # Deduplication by camera stem
+        # Compute dedup base key (direction suffix appended after resolve).
         stem = self._extract_camera_stem(egress_camera_id)
+        dedup_base: str | None = None
         if stem:
-            last = self._last_resolved.get(stem)
-            if last and (egress_timestamp - last).total_seconds() < 5.0:
-                _LOGGER.debug(
-                    "Egress dedup: skipping %s (stem=%s resolved %.1fs ago)",
-                    egress_camera_id, stem, (egress_timestamp - last).total_seconds(),
-                )
-                return
-            self._last_resolved[stem] = egress_timestamp
+            group = self._door_group_for_stem(stem)
+            dedup_base = f"group:{group}" if group else stem
 
         direction = "ambiguous"
         near_door_cameras = self._get_interior_cameras_near(egress_camera_id)
 
+        # Review A-HIGH: per-camera first-match (forward, develop
+        # semantics); across cameras choose the match closest in time
+        # to the egress event.
+        best_abs_delta: float | None = None
         for interior_cam in near_door_cameras:
             interior_times = self._recent_interior_events.get(interior_cam, [])
+            cam_match: tuple[float, str] | None = None
             for interior_time in interior_times:
                 delta = (interior_time - egress_timestamp).total_seconds()
-
                 if 0 <= delta <= self.ENTRY_WINDOW_SECONDS:
-                    direction = "entry"
+                    cam_match = (abs(delta), "entry")
                     break
                 if -self.EXIT_WINDOW_SECONDS <= delta < 0:
-                    direction = "exit"
+                    cam_match = (abs(delta), "exit")
                     break
+            if cam_match is None:
+                continue
+            if best_abs_delta is None or cam_match[0] < best_abs_delta:
+                best_abs_delta = cam_match[0]
+                direction = cam_match[1]
 
-            if direction != "ambiguous":
-                break
+        # Review B3: direction-keyed dedup. Same stem/group + same
+        # direction inside the window collapses; opposite direction
+        # NEVER collapses (exit→entry inside 30 s is a real round-trip).
+        if dedup_base is not None:
+            dedup_key = f"{dedup_base}|{direction}"
+            last = self._last_resolved.get(dedup_key)
+            if last and (egress_timestamp - last).total_seconds() < DOOR_STEM_DEDUP_S:
+                _LOGGER.debug(
+                    "Egress dedup: skipping %s (key=%s resolved %.1fs ago)",
+                    egress_camera_id, dedup_key,
+                    (egress_timestamp - last).total_seconds(),
+                )
+                return
+            self._last_resolved[dedup_key] = egress_timestamp
 
         # Multi-platform confidence boost: count how many platform sensors
         # fired for the same stem within 10 seconds
@@ -1875,6 +2094,18 @@ class EgressDirectionTracker:
         if direction != "ambiguous":
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database:
+                # Review LOW: sample BEFORE the DB-write try so a sampler
+                # exception can't lose the row. Sampler is best-effort and
+                # falls back to None (NULL in DB) on error.
+                try:
+                    peak = self._sample_peak_person_count(
+                        stem, egress_timestamp,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "peak_person_count sampler failed (non-fatal): %s", e,
+                    )
+                    peak = None
                 try:
                     await database.log_entry_exit_event(
                         person_id=person_id,
@@ -1882,6 +2113,7 @@ class EgressDirectionTracker:
                         direction=direction,
                         egress_camera=egress_camera_id,
                         confidence=confidence,
+                        peak_person_count=peak,
                     )
                 except Exception as e:
                     _LOGGER.error("Failed to log entry/exit event: %s", e)
@@ -1953,13 +2185,26 @@ class EgressDirectionTracker:
         self.hass.async_create_task(_safe_notify())
 
     def _get_interior_cameras_near(self, egress_camera_id: str) -> list[str]:
-        """Return interior camera entity IDs physically adjacent to this egress camera.
+        """Return interior camera entity IDs near this egress camera.
 
-        Without explicit adjacency mapping from the user, we return ALL interior
-        cameras. This is conservative (may produce false matches) but ensures
-        we don't miss direction determinations. In a well-configured home, only
-        foyer/hallway cameras near doors will be in the interior camera list.
+        PLANNING_census_inputs_first R3.1 (CRITICAL-1):
+          - If ``CONF_DOOR_INTERIOR_NEIGHBOURS`` is UNSET for the resolved
+            door_group (or the stem has no group): fall back BYTE-IDENTICAL
+            to today — return the full interior list. This keeps unset
+            installs (Wigton 2nd home) working with zero regression; the
+            upstream DB-write / register / notify gates are then
+            byte-identical.
+          - If the operator explicitly maps the door_group to an EMPTY
+            list, honour that as a deliberate "no neighbours" opt-out
+            (direction will tend AMBIGUOUS; downstream skips the row).
+          - If the door_group is in the map with a non-empty list,
+            narrow to that list.
         """
+        stem = self._extract_camera_stem(egress_camera_id)
+        group = self._door_group_for_stem(stem)
+        if group is not None and group in self._interior_neighbours_by_group:
+            configured = self._interior_neighbours_by_group[group]
+            return list(configured)
         return list(self._interior_entities)
 
     def _count_platforms_fired(self, stem: str, timestamp: datetime) -> int:
@@ -1998,8 +2243,13 @@ class EgressDirectionTracker:
                 if isinstance(ts, datetime) and ts >= cutoff
             ]
 
-        # Also prune _last_resolved entries older than 60 seconds
-        dedup_cutoff = dt_util.now() - timedelta(seconds=60)
+        # R4.2 (N-HIGH-2): prune horizon >= DOOR_STEM_DEDUP_S +
+        # ENTRY_WINDOW_SECONDS; dedup head writes `_last_resolved` only
+        # after the 45 s delayed-resolve, so a smaller horizon can race
+        # the writer and drop the first-leg key before the second leg's
+        # dedup head consults it.
+        prune_horizon = max(60, DOOR_STEM_DEDUP_S + self.ENTRY_WINDOW_SECONDS)
+        dedup_cutoff = dt_util.now() - timedelta(seconds=prune_horizon)
         stale_stems = [
             stem for stem, ts in self._last_resolved.items()
             if ts < dedup_cutoff
@@ -2015,6 +2265,9 @@ class EgressDirectionTracker:
             except Exception:
                 pass
         self._unsub.clear()
+        self._peak_count_unsubs.clear()
+        self._peak_count_buffer.clear()
+        self._count_sensor_to_stem.clear()
         _LOGGER.debug("EgressDirectionTracker torn down")
 
 
