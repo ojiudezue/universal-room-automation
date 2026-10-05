@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-05T02:35:12-05:00_ - _Data commit: `e805d44e036b`_ - _last_reconciled: 2026-10-03_
+_Generated: 2026-10-05T09:56:01-05:00_ - _Data commit: `a93a2c4974d7`_ - _last_reconciled: 2026-10-03_
 
 
 ## Columns
@@ -130,10 +130,11 @@ thread: **energy** - status: **pre_planning**
 _created 2026-10-04 01:00 · updated 2026-10-05 02:22_
 - **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...
 - **Next:** PLAN (phase 2 of EC-DEGRADED-DATA-POLICY-1, after phase 1 ships + stream A/B 2026-10-05): (1) retire/rework dormant local write-failover (PLANNING_envoy_write_verification_and_redundancy D3) — local battery writes gone since fw 8.2.4225;...
-- **Forensic keys (3):**
+- **Forensic keys (4):**
   - `groomed_2026_10_05_overnight`: Inbox -> pre_planning (problem known, solution being shaped; gated). PARTIALLY-DONE already, on the unshipped EC p1 branch: 7f60f137e EC resilience bundle B1-B5 covers part of item (2) (write-failure capture + battery write-churn trip-wi...
   - `INSTANCE_2026_10_04_overnight`: Two reserve-write STAND-DOWNS in the last 12 h, each paged CRITICAL on companion + iMessage + Pushover + WhatsApp (URA notification_log): 10-03 15:04 CDT 'URA commanded reserve_soc=80 but hardware reports 10.0 after 3602s' -> 3/3 attempt...
   - `operator_guidance_2026_10_04`: Respect prior art that makes sense — we invested heavily in commanding (cloud write route, write-verify vs cloud oracle, pending-write-stuck retry + NM, hardware-noncompliance detector, 3-tier SOC resolver, LKG/envelope, failover-map des...
+  - `operator_fact_2026_10_05`: Two Envoy failure modes seen by operator: (1) MOST OFTEN the core enphase_envoy entry fails with a load error (setup stall); (2) SOMETIMES the entry looks healthy (loaded, no init errors) but ALL sensors on all Envoy devices go unavailab...
 
 ### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#6 · WSJF 1.8 · v8 tc4 u2 /e8_
 thread: **optimization** - status: **pre_planning** - approval: **explicit**
