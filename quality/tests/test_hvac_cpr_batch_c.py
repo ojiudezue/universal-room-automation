@@ -1585,6 +1585,14 @@ async def _drive_setup(mods, monkeypatch):
     coord = mods["hvac"].HVACCoordinator(hass)
     coord._zone_state_store = H.FakeStore()
     hass.data.setdefault(mods["const"].DOMAIN, {})
+    # Isolation: these tests anchor what `async_setup` does BEFORE its first
+    # decision cycle (backstop arm, S10 rehydrate). The cycle itself is
+    # collateral and, in the full suite, trips over a dt_util that other
+    # collected modules leave naive. Scoped no-op (monkeypatch-restored).
+
+    async def _no_cycle(*_a, **_k):
+        return None
+    monkeypatch.setattr(coord, "_async_decision_cycle", _no_cycle)
     return coord, hass
 
 

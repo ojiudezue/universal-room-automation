@@ -224,6 +224,14 @@ class _Ctx:
 
 def _install(mods, monkeypatch, *, variant, registry, db_kwargs=None):
     coord, hass = H.make_coord(mods)
+    # Isolation: pin the zone-state store. `HVACCoordinator.__init__` binds
+    # whatever `homeassistant.helpers.storage.Store` is in sys.modules at
+    # import time, and several collected test modules install a Mock there
+    # (e.g. test_carrier_freshness / test_hvac_vacancy_sweep_manual_on_guard
+    # `{"Store": _mock_cls}`). S10 (CPR) saves its original write-ahead and
+    # stands down on a failed save, so a Mock store silently emptied the
+    # A13_S10 capture in the full suite.
+    coord._zone_state_store = H.FakeStore()
     ctx = _Ctx(mods, hass, coord, variant, registry)
     DOMAIN = mods["const"].DOMAIN
     db = RecDB(**(db_kwargs or {}))
