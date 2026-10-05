@@ -1334,13 +1334,14 @@ class WriteVerifier:
             if len(arr) <= max_n:
                 return
             # Per-local-day latch (operator-facing day boundary).
-            today = dt_util.now().date().isoformat()
+            # Derive LOCAL day from the injected `now_utc` so a late-evening
+            # local trip and an early-morning local flip-flop next day are
+            # judged on the SAME clock the NM latch uses (A-MED-1 / B-LOW-1).
+            today = dt_util.as_local(now_utc).date().isoformat()
             if self._ev_toggle_alarm_date.get(charger_id) == today:
                 return
             self._ev_toggle_alarm_date[charger_id] = today
-            on_n = sum(
-                1 for _ in arr
-            )  # kept simple; aggregate not split by direction
+            toggles = len(arr)
             owners = pause_owners or []
             owners_str = ",".join(owners) if owners else "none"
             await self._emit_anomaly(
@@ -1349,7 +1350,7 @@ class WriteVerifier:
                 {
                     "charger_id": charger_id,
                     "last_action": action,
-                    "toggles_in_window": on_n,
+                    "toggles_in_window": toggles,
                     "window_s": window_s,
                     "max_per_window": max_n,
                     "pause_owners": owners_str,
@@ -1360,14 +1361,17 @@ class WriteVerifier:
                 charger_id,
                 title=f"EV charger flip-flop: {charger_id}",
                 message=(
-                    f"URA's strategy switched {charger_id} on/off "
-                    f"{on_n} times in the last {window_s // 60} min "
-                    f"(limit {max_n}). Pause owners seen: {owners_str}. "
-                    "This looks like a strategy flip-flop — URA will "
-                    "keep acting, but check battery/EV policy."
+                    f"URA's battery/EV strategy switched {charger_id} "
+                    f"on and off {toggles} times in the last "
+                    f"{window_s // 60} min (limit {max_n}). It keeps "
+                    "running, but this looks like a flip-flop — check "
+                    f"the battery/EV settings. Paused by: {owners_str}."
                 ),
                 alert_type="ev_toggle_tripwire",
                 severity="high",
+                hazard_type="ev_toggle_tripwire",
+                location=str(charger_id),
+                date_key=today,
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("note_ev_toggle raised (swallowed)", exc_info=True)
@@ -1376,6 +1380,9 @@ class WriteVerifier:
         self, surface: str, title: str, message: str,
         alert_type: str = "mismatch",
         severity: str = "critical",
+        hazard_type: str = "envoy_write_verification",
+        location: str = "battery",
+        date_key: str | None = None,
     ) -> None:
         """Fire NM alert once per (surface, alert_type) per calendar day.
 
@@ -1392,7 +1399,12 @@ class WriteVerifier:
         (which is severity-derived in NM — line 1338 gate on
         Severity.CRITICAL).
         """
-        today = dt_util.utcnow().date().isoformat()
+        # A-MED-1: callers may pass a `date_key` tied to a specific clock
+        # (e.g. LOCAL day for operator-facing surfaces). Default preserves
+        # the historical UTC behaviour for all existing callers.
+        today = date_key if date_key is not None else (
+            dt_util.utcnow().date().isoformat()
+        )
         key = f"{surface}:{alert_type}"
         if self._nm_trip_date_by_surface.get(key) == today:
             _LOGGER.debug(
@@ -1408,8 +1420,8 @@ class WriteVerifier:
                     title=title,
                     message=message,
                     severity=severity,
-                    hazard_type="envoy_write_verification",
-                    location="battery",
+                    hazard_type=hazard_type,
+                    location=location,
                 )
             self._nm_trip_date_by_surface[key] = today
         except Exception:  # noqa: BLE001
