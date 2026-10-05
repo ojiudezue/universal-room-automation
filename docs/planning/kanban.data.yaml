@@ -9,6 +9,101 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1@2026-10-05T02:31:18"
+    at: "2026-10-05T02:31:18"
+    outcome: "escalated"
+    headline: "ANSWER: what did the EC p1 review finding D-MED-2 say? It's only in your session notes, not in any review record, so I can't verify the grid-charge-before-EV-pause claim."
+    acknowledged: false
+  - fid: "CENSUS-GROUND-TRUTH-CSV-FIX-1@2026-10-05T02:31:17"
+    at: "2026-10-05T02:31:17"
+    outcome: "escalated"
+    headline: "ANSWER needed before I fix the census answer key: on 10-03, who left by car ~12:13 and who ~13:55, and when did the long-stay guest come back?"
+    acknowledged: false
+  - fid: "CENSUS-PATIO-THROUGH-GLASS-1@2026-10-05T02:31:16"
+    at: "2026-10-05T02:31:16"
+    outcome: "escalated"
+    headline: "DO (config): both NVRs count patio guests through the family-room glass. Mask the window area in Frigate2 AND draw a Protect detection zone; no URA code needed."
+    acknowledged: false
+  - fid: "CENSUS-SHUTDOWN-AWAY-FENCE-1@2026-10-05T02:31:15"
+    at: "2026-10-05T02:31:15"
+    outcome: "measured"
+    headline: "The 10-03 party AWAY wasn't set at shutdown. HA came back from the 15:54 restart already AWAY and stayed AWAY 62 min with the house full, until the next restart. The AWAY was never written to the activity log. HVAC and security took no action that hour."
+    acknowledged: false
+  - fid: "EGRESS-BLE-ENTRY-ATTACH-1@2026-10-05T02:31:14"
+    at: "2026-10-05T02:31:14"
+    outcome: "done"
+    headline: "Refuted the same night: arrivals do have phone matching. They go unnamed because Frigate2's '_2' camera names never reach the identity step (0 of 45 named arrivals came from _2 cameras, against 75 of 153 unnamed). The fix is in the census plan's first deliverable."
+    acknowledged: false
+  - fid: "CENSUS-INPUTS-FIRST-1@2026-10-05T02:31:13"
+    at: "2026-10-05T02:31:13"
+    outcome: "measured"
+    headline: "Census inputs-first work had no card (capture miss), so I carded it and its follow-ups. Plan review result: FIX-REQUIRED. Critical: an unmapped door field would silently stop all door logging, e.g. on Wigton. The planner is fixing the plan now (doc only)."
+    acknowledged: false
+  - fid: "EC-DEGRADED-DATA-POLICY-1@2026-10-05T02:31:12"
+    at: "2026-10-05T02:31:12"
+    outcome: "measured"
+    headline: "Board fixed: EC p1 is built and approved, so the card moved to review. Gap before Monday's ship: no code-review record exists for EC p1's Tier-3 reviews. Write one, or the deferred findings are lost."
+    acknowledged: false
+  - fid: "FAN-ORACLE-BOOT-FALLBACK-NOISE-1@2026-10-05T02:31:11"
+    at: "2026-10-05T02:31:11"
+    outcome: "measured"
+    headline: "Could NOT verify (log gap, not an all-clear): the fix is live, but the boot logs are gone (the Proxmox flood rotates the log in ~4 h). I'll re-check right after Monday's restart."
+    acknowledged: false
+  - fid: "SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1@2026-10-05T02:31:10"
+    at: "2026-10-05T02:31:10"
+    outcome: "done"
+    headline: "Closed: the one real solar-follow session (09-29) read the Emporia primary throughout and never fell back wrongly. The fallback path is proven in tests only."
+    acknowledged: false
+  - fid: "ARRESTER-BOOT-BLIND-1@2026-10-05T02:30:09"
+    at: "2026-10-05T02:30:09"
+    outcome: "done"
+    headline: "Closed (proven in tests): in 6 days no person has ended a borrow, so the live check never had a chance to fire. Reopens automatically if one is ever followed by a write."
+    acknowledged: false
+  - fid: "EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1@2026-10-05T02:30:08"
+    at: "2026-10-05T02:30:08"
+    outcome: "escalated"
+    headline: "The night EV on/off loop has been fixed since v5.103.37, but not tested live (every charge since drew 0 W). PICK: park this Tier-3 plan until the new flip-flop alarm fires (my pick), or plan it now."
+    acknowledged: false
+  - fid: "EC-RUNG1-WAIT-EV-PINGPONG-1@2026-10-05T02:30:07"
+    at: "2026-10-05T02:30:07"
+    outcome: "done"
+    headline: "Merged a duplicate EV flip-flop card into the existing one; no work lost."
+    acknowledged: false
+  - fid: "EC-LKG-NEVER-PERSISTED-1@2026-10-05T02:30:06"
+    at: "2026-10-05T02:30:06"
+    outcome: "measured"
+    headline: "Bigger than carded: since 07-23, URA has silently failed to save FOUR battery records, not just the last-known-good. That includes the arbitrage latch that guards against the July restart incident. Already fixed on the EC p1 branch; ships with Monday's deploy. After that, check that all five rows update."
+    acknowledged: false
+  - fid: "HA-2027-DEPRECATIONS-URA-1@2026-10-05T02:30:05"
+    at: "2026-10-05T02:30:05"
+    outcome: "escalated"
+    headline: "Needs your PICK: HA removes the 'Advanced mode' URA uses to hide settings in 2027.6, and the onboarding phase-2 plan hides more fields behind it. Options: collapsible Advanced sections (my pick), a URA show-advanced switch, or show everything. The device-registry half is parked because our test HA is too old to test the new API."
+    acknowledged: false
+  - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-10-05T02:30:04"
+    at: "2026-10-05T02:30:04"
+    outcome: "measured"
+    headline: "Found the top log flood: the Proxmox integration (two hosts, unverified HTTPS) writes ~4,800 warnings an hour. That pushes HA's log out after ~4 hours. PICK: silence it with a logger filter, or give the hosts real certificates. Recorder DB is down to 19.6 GB (was 31)."
+    acknowledged: false
+  - fid: "FRONT-SIDE-PTZ-CHATTER-1@2026-10-05T02:30:03"
+    at: "2026-10-05T02:30:03"
+    outcome: "measured"
+    headline: "Correction: the front-side PTZ's drop to 1 detection a day matched Frigate2 being hung, not a crop. With Frigate back, it shows 51 detections Sunday, 42 of them between 3 and 7 am. The night chatter is back."
+    acknowledged: false
+  - fid: "PERIMETER-PHANTOM-XCORR-1@2026-10-05T02:30:02"
+    at: "2026-10-05T02:30:02"
+    outcome: "measured"
+    headline: "Pool-equipment camera still reports 'people' all night (~300 Saturday night, ~110 by 02:00 Sunday night) and almost none by day. The cloth-pile / mask fix doesn't look done yet."
+    acknowledged: false
+  - fid: "PERIMETER-DETECTION-WENT-DARK-1@2026-10-05T02:30:01"
+    at: "2026-10-05T02:30:01"
+    outcome: "measured"
+    headline: "Frigate2 outdoor detection has stayed up for 43 h (no new hang; 1,062 detections Sunday). It restarted once Sunday at 11:48 with no gap before it. Still yours to PICK: treat the Coral as faulty, or restart Frigate on a schedule."
+    acknowledged: false
+  - fid: "PERSON-STATIONARY-TRACKER-BLIP-1@2026-10-05T02:30:00"
+    at: "2026-10-05T02:30:00"
+    outcome: "done"
+    headline: "Closed: your phone-only tracker change worked. On Sunday's away day your phone tracker dropped out twice and you never blipped home, so no phantom pre-arrivals."
+    acknowledged: false
   - fid: "MUSIC-FOLLOWING-NO-TRANSFERS-SINCE-MAY-1@2026-10-04T04:50:00"
     at: "2026-10-04T04:50:00"
     outcome: "done"
@@ -30679,12 +30774,13 @@ cards:
   next: 'Me: read the 2026.10 release notes + http integration docs on release day; then on the first upgrade confirm the UI shows both proxies and remote access works, and remove the YAML block only if HA says it is imported. Same check on Wigton.'
   sweep_2026_10_05: 'NEW: no prior card on http/trusted_proxies.'
 - id: BLE-PROXY-PLACEMENT-1
+  reverified_2026_10_05_overnight: "New fact for the BP1_B ANSWER: the Screek BP1_B scanner itself is OFFLINE - all its entities (button.screek_bp1_b_safe_mode_boot / _factory_reset, update.screek_bp1_b_firmware) unavailable since 2026-10-04 00:13Z, and Bermuda's distance-to-screek_bp1_b sensors unavailable since 00:26Z (REST /api/states). So it currently contributes nothing wherever it is; when you answer which room it is in, also DO power-cycle / re-join it. Proxy placement DO unchanged."
   title: "Where to put new ESPHome Bluetooth proxies (main house) + two free config fixes"
   thread: presence
   rank: {value: 7, time_criticality: 3, effort: 2}
   status: waiting_operator
   created: '2026-10-05'
-  updated: '2026-10-05'
+  updated: "2026-10-05 02:25"
   tags: [tier-1, config-first]
   why: 'Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Garage Hallway (only the GDO blaQ; BLE departure lags garage_a exit 4-8 min) 3) Master Hallway between bed/bath (largest bed<->bath ping-pong; Master Bathroom scanner_areas empty) 4) Jaya bedroom/bathroom wall (reads bathroom more than bedroom; area hops) 5) Study/AV-closet cluster (phones pulled to closet relays). Feeds census inputs-first (egress attribution) and Zone 1 night presence.'
   next: 'DO: place proxies in that order (Foyer first); assign areas in HA. ANSWER: which room is the unassigned "Screek BP1_B" scanner in -> I set its area. (Jaya scanner_areas fix RETRACTED 2026-10-05: person_coordinator.py:983-1003 maps the room''s own area directly regardless of scanner_areas; the override only ADDS the bathroom scanners (Tier 2, weight 0.6, needs motion corroboration). Borrowing is intended and correct; adding jaya_bedroom would change nothing.)'
@@ -30747,11 +30843,12 @@ cards:
   refs: [docs/planning/PLANNING_census_inputs_first.md]
   sweep_2026_10_05: 'Board grep EGRESS-*: EGRESS-EXIT-IDENTITY-BACKFILL-1 is ADJACENT (exit side only). NEW.'
 - id: CENSUS-ATHOME-RESIDENT-CORROBORATOR-1
+  groomed_2026_10_05_overnight: "Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRESS-BLE-ENTRY-ATTACH-1 refutation), so the true at-home-resident residual can only be sized after D1 ships."
   title: A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor
   thread: census
-  status: inbox
+  status: "pre_planning"
   created: '2026-10-05 02:22'
-  updated: '2026-10-05 02:22'
+  updated: "2026-10-05 02:26"
   refinement_status: initial
   tags: [tier-2, measure-before-build, institutional-context]
   rank: {value: 4, time_criticality: 2, effort: 5}
