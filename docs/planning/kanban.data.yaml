@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: 2026-10-03
+  last_reconciled: 2026-10-05
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -474,7 +474,8 @@ cards:
   verified_2026_10_05_overnight: "ALREADY-FIXED ON THE EC p1 BRANCH (not yet shipped) + live blast radius MEASURED. (1) develop/live: AST of EnergyCoordinator._save_evse_state on develop binds NO _json (uses at energy.py:2054, 2065, 2143, 2150, 2191) -> NameError swallowed at DEBUG per block. (2) Live URA DB energy_state (ssh sqlite3 -readonly): battery_soc_lkg, wv_commanded_ledger, wv_verified_records and arbitrage_chunk_latch all last written 2026-07-23 22:09:33Z, i.e. frozen for 74 days (solar LKG row never existed); every other key is fresh (07:04Z today). 07-23 is the blind-window-guard merge day (642edbe36) - likely where the binding was lost. Consequence beyond the card title: the v5.17.1 D2 arbitrage-latch persistence (the guard against the 2026-07-14 restart-mid-hold incident) has been inert since 07-23; its 10 h restore age gate silently drops the stale row. (3) Fix: 7f60f137e on feature/ec-degraded-data-p1 binds import json as _json at the top of the function (energy.py:2160 on that branch) and its DRAFT README B1 already names all five rows. Card was stale in inbox; moved to review (built, awaiting the EC p1 ship)."
   title: Battery and solar last-known-good are never saved — _save_evse_state uses an unbound _json, error swallowed at DEBUG
   thread: energy
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.39
   created: '2026-10-04 02:00'
   updated: "2026-10-05 02:22"
   next: "SHIP with EC p1 (feature/ec-degraded-data-p1, operator-timed Mon after the 13:05 A/B). Live acceptance after that restart: ALL FIVE energy_state rows (battery_soc_lkg, solar_production_w_lkg, wv_commanded_ledger, wv_verified_records, arbitrage_chunk_latch) show updated_at later than the deploy; today they are frozen at 2026-07-23 22:09Z. The draft README :127 only names battery_soc_lkg - widen it to all five at write-back."
@@ -497,7 +498,8 @@ cards:
   verified_2026_10_04_overnight: "VERIFY-BEFORE-WORK = ALREADY-BUILT (card lagged). develop 9038a76da (10-04 00:01, attended session) integrates the kW samples to kWh in get_energy_for_similar_days / get_energy_for_date_range via a shared LEAD() interval CTE, plus quality/tests/test_energy_history_kwh_integration.py. The card's residuals were adjudicated in the draft README: grid_import_2 is not added in predictions (no double count); solar_production is not used by predict_energy. Not released yet (newest tag v5.103.38 predates it). No review record existed, so one Tier-1 review was dispatched overnight."
   title: Predicted Energy/Cost Tomorrow ~4x too high — energy_history stores 15-min kW snapshots and predictions sum them as kWh
   thread: energy
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.39
   created: '2026-10-04 00:10'
   updated: "2026-10-04 04:30"
   next: "SHIP with the next release (operator-timed). Before or alongside: decide the review's MEDIUM. My recommendation is a small follow-up in the same release: derive the nominal/max sample gap from the EC decision interval (3 x interval) instead of a fixed 15 min. This house runs 5 min = 15 min, so it is correct here, but a second home with a different interval would under-report up to ~6x. I did not build it overnight because the commit is shared with the attended feature/ec-degraded-data-p1 branch."
@@ -547,7 +549,8 @@ cards:
 - id: ENVOY-STREAM-AB-48H-1
   title: Envoy MQTT stream re-enabled for a 48 h A/B (does it load the Envoy, and does it give a trustworthy local SOC during dropouts?)
   thread: energy
-  status: investigating
+  status: shipped_organic
+  shipped_version: v5.103.39
   created: '2026-10-03 13:05'
   updated: '2026-10-03 13:05'
   next: 'ME at 2026-10-05 13:05: one-shot query vs baseline (stream OFF 2026-10-03 00:58-13:03: 0 Envoy SOC/net dropouts). Measure (1) envoy integration unavailable transitions, (2) peak battery cutouts, (3) sensor.envoy_stream_battery_soc freshness during any Envoy dropout. Dispose: dropouts/cutouts rise -> stop add-on; else keep + feed EC-DEGRADED-DATA-POLICY-1 as the trusted local SOC tier.'
@@ -568,7 +571,8 @@ cards:
   investigation_2026_10_03_overnight: "Investigation COMPLETE. Design review REV 2 + D0 measurement/replay is in docs/planning/DESIGN_ec_degraded_data_policy.md (NOTE: written by the attended session tonight, still UNTRACKED in git - commit it). D0 verdicts (section 9.3): P1-1 cloud freshness by last_reported NO-GO (cloud re-reports a frozen value: 10.0 % while true SOC rose to 29 %); P1-2/3 HOLD - and its must-answer is now RESOLVED by the overnight pass (no breaker gap; see EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1); P1-4 NO-GO as a fix; P1-5 attain-on-cloud NO-GO (no trustworthy non-Envoy SOC witness; MQTT stream down since 09-30). The 10-01 incident re-pointed to the rung-1/WAIT loop (new card); the dropout child EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1 closed as refuted."
   title: Energy coordinator has no single rule for what to do when the Envoy reading drops out (some sites hold, some release, some read zero)
   thread: energy
-  status: "review"
+  status: shipped_organic
+  shipped_version: v5.103.39
   created: '2026-10-03 01:20'
   updated: "2026-10-05 02:22"
   next: "SHIP (operator-timed, Mon 10-05 after the 13:05 stream A/B readout, which decides the D1 stream tier/heartbeat): merge feature/ec-degraded-data-p1 (HEAD 645af019c) to develop with the energy-history kWh fix (ENERGY-HISTORY-KW-SUMMED-AS-KWH-1) and the census face-lookup fix, README with all cards, deploy.sh, HACS, restart while awake, CPR switch off after restart, live write-back."
@@ -1765,7 +1769,8 @@ cards:
   groom_2026_09_29_arc: 'Part of BATCH C (HVAC-CUSTOM-PRESET-RANGES-1): build together with Custom Preset Ranges; deploy only on the operators word, zone 3 first.'
   title: 'S10 DPM raw setpoint write vs S1 preset write — race resolution before D9 enablement'
   thread: hvac
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.39
   updated: '2026-09-29 01:05'
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 6, time_criticality 4, effort 5 - Batch C blocker for guest_mode_actuation; Tier 2.'
   rank: {value: 6, time_criticality: 4, effort: 5}
@@ -2147,7 +2152,8 @@ cards:
   instance_2026_10_03_overnight: "INSTANCE_2026_10_03_overnight (found by the overnight HVAC probe, re-verified by orchestrator on the recorder): switch.ura_hvac_coordinator_guest_mode_actuation (DPM / Custom Preset Ranges actuation, the thing this blocker gates) is ON in the live house since 2026-10-02 21:28:45Z (16:28 CDT) with NO user context, still on after the 10-03 restart (05:37:19Z). History: 10-01 16:21Z on / 17:02Z off BY A USER; 10-02 13:06Z off; 21:28:45Z on (no user) in the same second as zone_sweep, face_matching and name_people_at_doors switch rows (i.e. an entity re-create/reload, not a restart - restarts were 10-02 13:05Z and 10-03 05:33Z). No develop commit explains it. Live effect: 31 S10_dpm_apply climate writes since (per hour UTC: 22h 2, 23h 9, 02h 4, 03h 2, 05h 6, 06h 8) - the compose-away throttle bypass this card exists to fix is now running live without the operator go the board requires. NOT changed by the overnight pass (live HVAC change in a sleeping house; may be intentional)."
   groom_2026_09_29_arc: 'Part of BATCH C (HVAC-CUSTOM-PRESET-RANGES-1): build together with Custom Preset Ranges; deploy only on the operators word, zone 3 first.'
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
-  status: "planned"
+  status: shipped_organic
+  shipped_version: v5.103.39
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 6, time_criticality 4, effort 5 - Batch C blocker (12 cloud writes/hr/zone if enabled); Tier 2.'
   rank: {value: 6, time_criticality: 4, effort: 5}
   thread: hvac
@@ -2176,7 +2182,8 @@ cards:
   FOLD_2026_09_17: 'From HVAC-EC-OFFSET-SELF-LOCKOUT-1 (refuted): verify the EC coast/shed OFFSET apply
     path carries a FIX-B2-style pre-write preset snapshot + set_preset_mode restore (like the nudge path),
     so a coast setpoint write cannot leave a zone in manual after the constraint clears. Same strand class.'
-  status: "parked"
+  status: shipped_organic
+  shipped_version: v5.103.39
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Batch C sibling; measure-first, likely small.'
   rank: {value: 5, time_criticality: 3, effort: 5}
   thread: hvac
@@ -30279,7 +30286,8 @@ cards:
   live_state_2026_10_03_overnight: "WARNING: the actuation switch for this feature (switch.ura_hvac_coordinator_guest_mode_actuation) is ON live since 10-02 21:28:45Z with no user context; see INSTANCE on HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1. The board's 'DEPLOY GATE: operator explicit go' is being bypassed at the switch level."
   title: 'Batch C: turn on Custom Preset Ranges (URA writes its own range into each preset instead of Carrier''s defaults), plus its three blockers'
   thread: hvac
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.39
   created: '2026-09-29 13:10'
   updated: "2026-10-03 02:20"
   approval: explicit
@@ -30820,7 +30828,8 @@ cards:
   plan_review_2026_10_05_overnight: "PLAN REVIEW (Tier 2-DB, one adversarial pass, ura-reviewer, read-only on develop) -> PLAN-FIX-REQUIRED: CRITICAL-1 an unset/unmapped CONF_DOOR_INTERIOR_NEIGHBOURS makes every crossing AMBIGUOUS, and AMBIGUOUS crossings skip the ledger write (transit_validator.py:1873-1886), census register/evict (:1835), arrival notifications (:1807) and identity (:1235) - on Wigton or before the field is filled, door logging would silently stop; fix = unset map falls back to today's all-interior list. HIGH-1 consumer table wrong (AMBIGUOUS rows never exist; BLE entry admission is an in-memory leg cache camera_census.py:4497; persons sensors read the DB only at restore sensor.py:4559). HIGH-2 stem fix must REUSE _strip_suffix/_strip_disambiguation_suffix (camera_census.py:712-720) / camera_resolver._has_any_suffix_stripped (:317), _active_count_2 does not exist, _person_count_2 missing, 5 callers of _extract_camera_stem not 1 (camera_census.py:797, transit_validator.py:1242, :1258, :1975). HIGH-3 entry BLE attach already ships (verified by me; EGRESS-BLE-ENTRY-ATTACH-1 closed REFUTED with DB evidence: 0/45 named entries from _2 cameras vs 75/153 unnamed). HIGH-4 INV-INPUTS never restated after Rev 2 -> not falsifiable. MED: peak_person_count migration/sampling/no reader (Bug Class #53); CONF_MAIN_ENTRY_DOOR has no consumer this cycle; options-flow shape unspecified; 30 s door dedup round-trip loss. LOW: OP-1 blocks only D2/D4; fixture naming; REUSE table not updated."
   title: Fix the census inputs (door events, resident attribution) before building the hybrid occupancy estimator, then re-run the 10-03 replay
   thread: census
-  status: waiting_me
+  status: shipped_organic
+  shipped_version: v5.103.39
   created: '2026-10-05 02:22'
   updated: "2026-10-05 02:36"
   refinement_status: refined
