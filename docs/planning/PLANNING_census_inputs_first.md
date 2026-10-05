@@ -757,3 +757,151 @@ proposed deletion of live code inside this cycle. Specifically:
   path (Path A) carded for separate deletion.
 - "Simplify where possible but show the work and the gains" — design doc
   §3 GAINS table is the ledger.
+
+
+# PLANNING_census_inputs_first — Revision 4 appendix (post re-review FIX-PLAN)
+
+**Status:** APPENDIX 2026-10-05 PM to `PLANNING_census_inputs_first.md` (Rev 3).
+This file exists as a sibling because the parent plan is 760 lines and the
+agent writing this revision had no in-place Edit tool — same precedent as
+the Rev-3 R3.16 simplification-alignment appendix at the tail of the parent
+plan (lines 714+). Reviewers should treat this as **§R4 of the parent plan**;
+the parent's final changelog line is extended by R4.10 below.
+
+**Supersedes:** parent Rev-3 R3.3 / R3.6 / R3.8 / R3.9 / R2.3-MED-4 where in
+conflict (full supersession table in R4.9).
+
+**Companion changes to DESIGN doc:** see `DESIGN_census_simplification.md` §6
+"Revision 4 corrections" (same date) — C13 verdict flip, C3 verdict landed,
+C2 wording, §3 GAINS recomputed, §5 overclaim fix.
+
+---
+
+## Revision 4 (post re-review FIX-PLAN, 2026-10-05 PM) — SUPERSEDES R3.3 / R3.6 / R3.8 / R3.9 / R2.3-MED-4 where in conflict
+
+Re-review returned N-HIGH-1..3, N-MED-1..3, MED-4 and two LOWs against Rev 3.
+Each finding is applied below with file:line re-verified on develop. Earlier
+Rev-3 text is retained in the parent plan; Rev 4 wins where it conflicts.
+
+### R4.1 N-HIGH-1 — R3.3 stem rewrite composition + `_person_count` regression + `_smart_motion_human` note
+
+**Finding:** R3.3's pseudocode said "apply `_strip_suffix(name, _PERSON_SUFFIXES)` to strip `_person_occupancy` / `_person_count` / `_person_detected` / etc." but `_PERSON_SUFFIXES` at `camera_resolver.py:214-219` is `("_person_detected", "_person_occupancy", "_person_motion")` — it does NOT include `_person_count` (the count suffix lives separately as `_PERSON_COUNT_SUFFIX = "_person_count"` at `:263`). As written, R3.3 would NOT strip `_person_count` or `_person_count_2`, re-introducing the exact leak Rev 3 was trying to close for count-leg dedup.
+
+**Fix (replaces R3.3 pseudocode's suffix-set reference):**
+- Compose with the tuple **`_PERSON_SUFFIXES + (_PERSON_COUNT_SUFFIX,)`** — the two symbols already exist at `camera_resolver.py:214-219` and `:263`; do not inline-add strings.
+- Order of operations unchanged: `_strip_disambiguation_suffix` first (strip `_2`/`_3` tail), then `_strip_suffix(name, _PERSON_SUFFIXES + (_PERSON_COUNT_SUFFIX,))`.
+- **Regression test (new, mandatory):** `test_extract_camera_stem_strips_plain_person_count` — assert `_extract_camera_stem("binary_sensor.foo_person_count")` and `_extract_camera_stem("sensor.foo_person_count_2")` both return `"foo"` (not `None`).
+
+**Side-effect note (added to R3.3 side-effects block for reviewers):**
+- Dahua / Amcrest `_smart_motion_human` stems: these legs are NOT in `_PERSON_SUFFIXES` and are NOT touched by this fix — but they ARE their own "person" leg family on this install and feed `_count_platforms_fired` as a distinct stem. Dedup across the door_group now reliably covers the Frigate `_2` siblings (per R3.3) but a `_smart_motion_human` leg and a `_person_occupancy_2` leg from the same physical crossing remain distinguishable stems and therefore survive dedup as separate rows unless they share a door_group AND fall within `DOOR_STEM_DEDUP_S`. This is **correct behaviour** (different platforms = different corroborators) but reviewers should expect `platforms_fired` to count them as two platforms, which is the intent.
+
+### R4.2 N-HIGH-2 — `_last_resolved` prune horizon must include ENTRY_WINDOW_SECONDS (resolve delay)
+
+**Finding:** R3.9 tied the `_last_resolved` prune at `transit_validator.py:2001-2008` to `max(60, DOOR_STEM_DEDUP_S)`. Re-trace of the write/prune lifecycle:
+- `_last_resolved[stem] = resolved_at` is written at **leg fire + `ENTRY_WINDOW_SECONDS`** (45 s delayed-resolve), per `transit_validator.py:1084-1086` and `:1135`.
+- The prune at `:1159` and `:2001-2008` runs on **every interior event**.
+- Reviewer's concrete failure: leg A fires at t=0 and resolves at t+45 (writes `_last_resolved[stem]`); leg B fires at t+25 (within `DOOR_STEM_DEDUP_S = 30`) and resolves at t+70; an interior event at t+65 runs the prune. If the horizon is only `max(60, DOOR_STEM_DEDUP_S)` and `DOOR_STEM_DEDUP_S` is later raised, A can be pruned before B's dedup head at t+55 consults it. The invariant must dominate **dedup window + resolve delay**, not just the dedup window.
+
+**Fix (replaces R3.9's `max(60, DOOR_STEM_DEDUP_S)` and comment):**
+- `transit_validator.py:2001-2008` prune horizon = **`max(60, DOOR_STEM_DEDUP_S + ENTRY_WINDOW_SECONDS)`** (default = `max(60, 30 + 45) = 75` s).
+- Comment at `:2001` names the invariant: *"prune horizon >= DOOR_STEM_DEDUP_S + ENTRY_WINDOW_SECONDS; dedup head writes `_last_resolved` only after the 45 s delayed-resolve, so a smaller horizon can race the writer and drop the first-leg key before the second leg's dedup head consults it."*
+
+**Test (replaces R3.9's `test_last_resolved_prune_is_at_least_dedup_window`):**
+- `test_last_resolved_prune_covers_dedup_plus_resolve_delay` — model the real timing: leg A fires at `t=0` and resolves at `t+ENTRY_WINDOW_SECONDS`; leg B fires at `t+25` and resolves at `t+25+ENTRY_WINDOW_SECONDS`; an interior fire at `t+65` runs the prune; assert leg A's `_last_resolved` entry is still present so leg B's dedup head at `t+70` sees it. Use `ENTRY_WINDOW_SECONDS = 45` and `DOOR_STEM_DEDUP_S = 30`; horizon = 75 s.
+- Second variant: raise `DOOR_STEM_DEDUP_S = 90` (test monkey of module const), horizon = `max(60, 135) = 135` s; same assertion holds.
+
+### R4.3 N-HIGH-3 — Path A `_guest_gate_armed` is NOT dead (verdict change: DELETE → MERGE)
+
+**Finding (reviewer, verified in code on develop):** DESIGN §1.3 C13 claimed Path A `_guest_gate_armed` has "NONE at runtime" consumers and should be deleted after D5. **Wrong.** Re-grep:
+- `_guest_gate_armed` is **called** at `presence.py:5878`.
+- `unid_gate_armed` (its armed flag) is the discriminator at `:5914` that sets `_d5_guest_confidence = 0.95` vs `0.9` (unarmed), feeding the inference engine at `:6468`.
+- Side-effects (teardown, status attributes) live at `:5405-5455`.
+- Teardown path at `:4973-4976`.
+
+Path A is a **live confidence corroborator** feeding the D5 flag's confidence score — not dead code, not a footgun.
+
+**Fix (replaces DESIGN §1.3 C13 verdict; applied in DESIGN doc §6 Rev-4 appendix):**
+- C13 verdict **DELETE → MERGE-INTO-FLAG as confidence corroborator**: Path A `_guest_gate_armed` stays as a boolean input to the D5 flag's confidence (`0.95` armed vs `0.9` unarmed), not as a separate guest-arming producer. The `HouseState.GUEST` transition it formerly fed is removed by D5 (that part of the deletion claim stands); the arming predicate body is kept, re-wired to publish `source=unid_gate` (or kept as a confidence modifier on `source=estimate` — reviewer's call during D5 build).
+- Operator ruling 2026-10-05 "rely on prior art" — Path A IS prior art that works today; migrate it, don't delete it.
+
+**GAINS table deltas** (applied in DESIGN doc §6):
+- Row "Guest-arming predicates: 2 (Path A dead; Path B live) → 1" **retract**. Correct current state: 2 live predicates (Path A arms confidence; Path B arms the GUEST transition). After D5: still 2 producers, both feeding the single D5 flag (Path A → confidence modifier; Path B → `source=guest_room`). Delta = **"−1 house-state transition, 0 producers deleted"**, not "−1 dead code path".
+- Row "Dead-code lines (Path A `_guest_gate_armed`) ~70 LoC → 0" **retract**. Correct delta: `~0 LoC removed`; Path A code stays. The ~150 LoC-removed total drops accordingly to **~80 LoC removed** (pre_cancel ~25 + WIFI_GUEST_RECENCY_HOURS ~15 + HouseState.GUEST enum branch ~40).
+- "Bug classes closed" row — remove "#53 (computed-but-not-consumed — Path A)". Path A IS consumed. Keep #22, #7-via-N-MED-1-caveat (see R4.4), #23, and the fake-API-test-anchor class. Count drops **5 → 4** retired bug classes.
+
+### R4.4 N-MED-1 — Face resolver already fixed on develop; remove C3 from FIX list
+
+**Finding:** `camera_census.py:3215-3222` on develop already contains the merged face-lookup fix (pattern against `registry.entities.values()`); Rev 3's "still broken" claim is stale.
+
+**Fix (applied in DESIGN doc §6):**
+- DESIGN §1.1 C3 verdict changes from **FIX (R1 hotfix, dead face feed)** to **FIX LANDED on develop (verify-only; no action this cycle)**. No code change here, no card to re-mint.
+- GAINS table "Bug classes closed" row — "#7 (stale data source — face map `{}`)" is **retired pre-cycle on develop**; keep listed as retired but attribute to the pre-cycle develop commit, not to this cycle's build.
+- GAINS table "Test surface" row — the "−2 hollow anchors" was tied to C3's `async_entries_for_platform` monkeypatch; those tests were migrated when the fix landed. **Drop "−2 hollow anchors" from the row**; keep "+10 behavioural" (which belongs to D1/estimator).
+
+### R4.5 N-MED-2 — `peak_person_count` needs a value buffer; reuse `info.person_count_sensor`; column in BOTH fresh CREATE and ALTER
+
+**Finding:** R3.6's sampler assumed we can "take the max of `sensor.<cam>_person_count` observed on the camera stem(s) in the door_group." Re-reading `transit_validator.py:1101-1110` shows the count-handler only reacts on **0→N edges**: once a camera's count rises above 0, subsequent integer value changes within the same episode do NOT re-fire the handler. There is no live time-series the sampler can `max()` over at resolve time without buffering values ourselves.
+
+Additionally, R3.6 said "max of `sensor.<cam>_person_count`" by stem — building the entity_id by string. The authoritative mapping already exists: `PersonCensus.get_transit_egress_entities()` at `camera_census.py:960-969` yields `CameraInfo` entries whose `person_count_sensor` field is the canonical entity_id. **No string-built entity IDs.**
+
+**Fix (replaces R3.6 sampler definition):**
+- **Value buffer, in-process:** `TransitValidator` maintains `self._peak_count_buffer: dict[str, deque[tuple[float, int]]]` keyed by camera stem (from `info.person_count_sensor`), where each deque entry is `(timestamp, int(state))`. The buffer is written by a lightweight `state_changed` listener on each `CameraInfo.person_count_sensor` entity (registered once during the validator's setup, iterating `census.get_transit_egress_entities()`), appending `(now, int(new_state))` on every change where the new state parses as an int >= 0.
+- **Prune policy:** on every write, pop entries older than `DOOR_STEM_DEDUP_S + ENTRY_WINDOW_SECONDS` (same horizon as R4.2's `_last_resolved` prune; identical rationale). Cap deque at 64 entries per stem as a last-resort DoS guard.
+- **Sampler at resolve time:** for the resolving stem's door_group (if set) OR the resolving stem alone (unset), take the MAX across cameras of `max(v for ts, v in buffer[stem] if egress_ts - DOOR_STEM_DEDUP_S <= ts <= egress_ts + ENTRY_WINDOW_SECONDS)`. Default = 1 if no sample lies in the window (the 0→N edge fired, so at least one value was ≥ 1 at some point in the episode; buffer only misses on `unknown`/`unavailable`).
+- **Teardown:** per-entity listeners register handles in `self._peak_count_unsubs: list[Callable]`; `TransitValidator.async_will_remove()` (or equivalent coordinator-tear-down hook) iterates and calls each — mirrors existing listener-teardown idiom (verify at build time).
+- **Entity source — reuse not re-key:** iterate `census.get_transit_egress_entities()` and read `info.person_count_sensor` directly (`camera_census.py:960-969`). Do NOT construct `sensor.<stem>_person_count` by string concatenation.
+- **Schema (two sites, not one):**
+  1. **Fresh CREATE** at `database.py:928` — add `peak_person_count INTEGER` column to the inline `CREATE TABLE IF NOT EXISTS person_entry_exit_events (…)`. New installs do not take the ALTER path; omitting this would ship Wigton with the old shape.
+  2. **ALTER migration** — idempotent `ALTER TABLE … ADD COLUMN peak_person_count INTEGER` per the existing precedent at `database.py:972/1819/1957/2012/2057`. For existing installs.
+  Both must land in the same cycle. **Add an assertion test** that the schema introspected from an in-memory fresh DB and from a pre-migration DB post-migration are identical column-wise.
+
+**Acceptance tests (add to R3.6's list):**
+- `test_peak_count_buffer_prunes_outside_horizon` — write values at `t`, `t+10`, `t+120`; sample at `t+130` with horizon 75; only `t+120` visible.
+- `test_peak_count_buffer_teardown_releases_listeners` — tear down validator, assert all `_peak_count_unsubs` called and empty.
+- `test_fresh_create_table_includes_peak_person_count_column` — introspect `PRAGMA table_info` on a fresh DB.
+- `test_alter_migration_adds_peak_person_count_column_idempotently` — run migration twice; column present; no error.
+- `test_peak_count_sampler_reuses_info_person_count_sensor` — monkey `census.get_transit_egress_entities()` to return a `CameraInfo` whose `person_count_sensor` is a non-standard entity_id; assert the listener subscribes to that exact id (not a string-built one).
+
+### R4.6 N-MED-3 — `CONF_DOOR_GROUPS` keyed on census stems; unset-groups dedup key; DESIGN §5 overclaim fix
+
+**Finding:** R3.8 defined `CONF_DOOR_GROUPS` as "egress camera entity_id → door-group string" but did not say WHICH entity_id — the `binary_sensor` leg, the `_2` sibling, the Protect `sensor` id, or the camera-device slug? Per `camera_census.py:960-969` (Frigate/UniFi binary_sensor branch) + `:996-1006` (Protect id branch), the census surfaces per-camera **CameraInfo** objects that already resolve the appropriate per-platform entity_ids (`person_count_sensor`, `person_detected_sensor`, Protect's `binary_sensor.<slug>_person_occupancy`, etc). The authoritative key MUST be the **camera stem (CameraInfo-level identifier)**, resolved via the census mapping, not a raw entity_id the operator picks arbitrarily.
+
+**Fix (replaces R3.8's "egress camera entity_id" wording):**
+- `CONF_DOOR_GROUPS` maps **camera stem (as surfaced by `census.get_transit_egress_entities()`)** → door-group string. The options-flow selector enumerates stems from the census surface at render time (not raw entity picker). This matches the existing precedent for `CONF_CAMERA_PERSON_ENTITIES` whose selector enumerates census-surfaced cameras (`const.py:1973`).
+- Config-flow label stays "Group door cameras" (R3.8); helper text amended: *"If two cameras watch the same door, put the same group name beside both. URA shows you the cameras it already found; you don't type camera names."*
+- **Unset-groups dedup key = per-stem** (today's behaviour byte-identical). R2.2 item 4(b) "door-group scope, not per-stem" applies **only when `CONF_DOOR_GROUPS` is set and the stem has a group**.
+
+**Design doc §5 overclaim fix (applied in DESIGN doc §6):**
+- DESIGN §5 "Degrades gracefully — unset `CONF_DOOR_*` → today's behaviour byte-identical" is correct for `CONF_DOOR_INTERIOR_NEIGHBOURS` (R3.1) but **overclaims** on `CONF_DOOR_GROUPS` and `DOOR_STEM_DEDUP_S`: the 30 s dedup window AND the `_extract_camera_stem` `_2`-suffix fix (R3.3/R4.1) apply **to all installs regardless of config**. These are not "degrade gracefully if unset" — they are universal pipeline fixes. Correct §5 wording: *"Neighbours fallback only (R3.1) is unset-byte-identical; the 30 s dedup window and the stem fix apply to all installs."*
+
+### R4.7 MED-4 — Control counter is the attribute `ble_exit_backfilled_count`, not a separate sensor entity
+
+**Finding:** R2.3 item 2 cited `sensor.universal_room_automation_ble_exit_backfilled_count` as a control-counter entity. There is no such entity. The counter is an **attribute** named `ble_exit_backfilled_count` on `URAPersonsInHouseSensor` (defined at `sensor.py:3619`; attribute set at `sensor.py:3861`).
+
+**Fix (replaces R2.3 item 2 and R3.4 "URA DB measurement" wording):**
+- Authoritative live-check: read the `ble_exit_backfilled_count` attribute of `sensor.universal_room_automation_persons_in_house` (the entity id for `URAPersonsInHouseSensor`). The live value as of 2026-09-11 was `4`; R2.3's "producer not regressed if > 0 over 24 h" refers to this attribute, not a standalone sensor.
+- Replay / acceptance wording updated: "Verify (live): `state_attributes.ble_exit_backfilled_count` on `sensor.universal_room_automation_persons_in_house` increments over the trailing 24 h."
+
+### R4.8 LOW — C2 verdict wording + R3.8 operator-entered-names clarification
+
+- **C2 (`_get_unrecognized_camera_count`)** — DESIGN §1.1 verdict changes from **"MERGE-INTO-C9 (estimator)"** to **"MERGE-INTO estimator FLOOR"** (same substance; "C9" in Rev 3 was a drafting slip — the chokepoint is C5. Substance unchanged; verdict wording corrected only).
+- **R3.8 wording clarification:** door and camera names (`front`, `garage_a`, `front_door_aerial`, `doorbell_lite`) are **operator-entered values** on this install (and sample pre-fills in options-flow helper text), **never code defaults baked into the integration**. Rev 3 §R3.8's "pre-filled on the oracle household" example is illustrative-only; the shipped code ships with empty `CONF_DOOR_GROUPS` and empty `CONF_DOOR_INTERIOR_NEIGHBOURS`. Add explicit callout to R3.8: *"No household-specific strings are shipped in `const.py` or options-flow defaults; the operator types their own names at install time."*
+
+### R4.9 Supersession of Rev-3 items by Rev-4
+
+| Rev 3 item | Rev 4 status |
+|---|---|
+| R3.3 pseudocode "_strip_suffix(name, _PERSON_SUFFIXES)" | **CORRECTED** → `_PERSON_SUFFIXES + (_PERSON_COUNT_SUFFIX,)` (R4.1) |
+| R3.6 sampler "max of sensor.<cam>_person_count" | **REPLACED** by value-buffer + `info.person_count_sensor` reuse (R4.5) |
+| R3.6 "column migration" (ALTER only) | **EXPANDED** to fresh CREATE at `database.py:928` AND ALTER (R4.5) |
+| R3.8 "egress camera entity_id → door-group" | **CORRECTED** to census-stem keying + render-time selector (R4.6) |
+| R3.9 prune horizon `max(60, DOOR_STEM_DEDUP_S)` | **CORRECTED** to `max(60, DOOR_STEM_DEDUP_S + ENTRY_WINDOW_SECONDS)` (R4.2) |
+| R2.3 item 2 "sensor.universal_room_automation_ble_exit_backfilled_count" | **CORRECTED** to attribute on `URAPersonsInHouseSensor` (R4.7) |
+| DESIGN §1.3 C13 "DELETE after D5" | **CHANGED** to MERGE-as-confidence-corroborator (R4.3; applied in DESIGN §6) |
+| DESIGN §1.1 C3 "FIX (R1 hotfix)" | **CHANGED** to "FIX LANDED on develop; verify-only" (R4.4; applied in DESIGN §6) |
+| DESIGN §3 GAINS "−1 dead code path" + "~150 LoC removed" + "5 bug classes" | **ADJUSTED** per R4.3/R4.4 (DESIGN §6) |
+| DESIGN §5 "unset CONF_DOOR_* byte-identical" | **CLARIFIED** — neighbours fallback only; stem + 30 s apply universally (R4.6) |
+
+### R4.10 Rev-4 changelog — re-review 2026-10-05 PM
+
+- 2026-10-05 (Rev 4): applied re-review FIX-PLAN. N-HIGH-1 stem rewrite now composes `_PERSON_SUFFIXES + (_PERSON_COUNT_SUFFIX,)` with plain-`_person_count` regression test; `_smart_motion_human` cross-platform note added. N-HIGH-2 prune horizon widened to `DOOR_STEM_DEDUP_S + ENTRY_WINDOW_SECONDS` (default 75 s) with resolve-delay-modelled test. N-HIGH-3 Path A `_guest_gate_armed` verdict changed to MERGE (live confidence corroborator at `presence.py:5878/5914/6468`); DESIGN GAINS recomputed. N-MED-1 face resolver fix already landed on develop; C3 removed from FIX list; GAINS "#7 retired" and "−2 hollow anchors" dropped. N-MED-2 peak_count value buffer + `info.person_count_sensor` reuse + fresh-CREATE schema update. N-MED-3 `CONF_DOOR_GROUPS` keyed on census stems + §5 overclaim fix. MED-4 corrected counter site to attribute on `URAPersonsInHouseSensor`. LOW C2 wording tidied; R3.8 operator-entered-names clarified.
