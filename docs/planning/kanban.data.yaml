@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "EC-EV-TOGGLE-TRIPWIRE-1@2026-10-05T02:32:39"
+    at: "2026-10-05T02:32:39"
+    outcome: "built"
+    headline: "Built (not deployed) the EV charger flip-flop alarm: if URA's strategy switches a charger on and off more than twice in an hour, you get one alert per charger per day. Two reviews done; their shared bug (the alert could skip the next day's notification) is fixed and re-verified. It ships after EC p1."
+    acknowledged: false
   - fid: "TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1@2026-10-05T02:27:00"
     at: "2026-10-05T02:27:00"
     outcome: "done"
@@ -527,15 +532,16 @@ cards:
   correction_2026_10_03: 'Operator: Envoy, Emporia mains and SPAN+SPAN all see the whole house INCLUDING EVs. SPAN-minus-EV was a probe modelling choice (battery-served load in high-rate windows where EVs are TOU-paused), NOT true house load. Whole-house consumption includes EV; EC R1 estimator models EV as its own term. Mechanism (net-consumption CT + storage CT => Envoy total = net + production, excluding battery discharge) is a HYPOTHESIS: verify first vs Emporia mains (sensor.mains_vue_3*) and SPAN pair, and read EC manual + consumption producers.'
   why: 'D0 probe for window-sized attain (2026-10-03, PLANNING_ec_window_sized_attain_target.md §D0) found the Envoy consumption sensor under-reads on battery evenings; the real house load = SPAN panel pair minus EV draw. Any EC forecast built on the Envoy sensor under-predicts exactly when the battery is working.'
 - id: EC-EV-TOGGLE-TRIPWIRE-1
+  built_2026_10_05_overnight: "BUILT TO REVIEW (overnight, not deployed). Branch feature/ec-ev-toggle-tripwire: d0d12ad25 build (energy.py _log_charger_actuation tap after the per-target dedupe, kind==ev only, force-charge excluded; WriteVerifier.note_ev_toggle mirrors note_dispatch; energy_const DEFAULT_EV_TOGGLE_TRIPWIRE_MAX_PER_H=2 / _WINDOW_S=3600, rung 1, <=0 disables) -> reviews A (correctness) FIX-REQUIRED: MED-1 anomaly latched on local day but _maybe_fire_nm on UTC day (next-day page silently dropped), MED-2 hollow day-rollover test; B (async/lifecycle) SHIP with the same latch issue as LOW-1, event-loop / re-entrancy / boot-burst / write-volume all cleared -> fix-up 2300126d8 (optional date_key/hazard_type/location on _maybe_fire_nm, defaults byte-identical for the 10 battery callers; latch from as_local(now); rollover + exact-repro + dedupe tests; builder drills RED) -> orchestrator verify: diff read, 11/11 pass, own call-neuter drill on the wire-in -> 2 RED, restored, porcelain clean. Draft README 25a8c0dd5. Accepted LOW: restart storm can re-alert once per boot while a real flip-flop continues (bounded, documented)."
   gate_2026_10_05_overnight: "FOUR-STEP GATE. (1) VALIDITY: STILL-REAL - no toggle counter on develop or the EC p1 branch (grep toggle/tripwire in energy*.py); the night loop is fixed by v5.103.37 but not exercised (EVs drew 0 W on every turn-on since), so the daytime residual has no detector. (1b) CONFIG-FIRST: no existing knob/alert covers charger toggles. (2) PRIOR-ART: REUSE the battery write-churn trip-wire pattern on feature/ec-degraded-data-p1 (energy_write_verify.py: rolling per-surface stamps, once-per-day alarm latch, anomaly + NM) and the existing tap _log_charger_actuation (energy.py:6918 develop), which already classifies kind/charger/pause_owners. BUILD only the per-EVSE counter. (3) PARSIMONY: BUILD (alert-only, no actuation change). (4) COST/BENEFIT: cheap, alert-only, no shared-primitive writer; must not spam NM (once per EVSE per day). Stacked on the EC p1 branch because energy.py diverges by ~19k lines there."
   approved_by: "operator 2026-10-03 (Q8 alarm, per why)"
   approval: "explicit"
   title: Alert when a strategy flip-flop switches an EV charger more than twice an hour
   thread: energy
-  status: "in_progress"
+  status: "review"
   created: '2026-10-03 16:00'
-  updated: "2026-10-05 02:22"
-  next: "BUILDING (overnight, ura-builder in .claude/worktrees/overnight-1005-evtoggle on feature/ec-ev-toggle-tripwire, stacked on feature/ec-degraded-data-p1). Then 2 reviews -> review lane. No deploy: ships after EC p1."
+  updated: "2026-10-05 02:32"
+  next: "SHIP after EC p1 (operator-timed): merge feature/ec-ev-toggle-tripwire (25a8c0dd5, stacked on feature/ec-degraded-data-p1) once p1 is on develop, fold docs/planning/DRAFT_README_ec_ev_toggle_tripwire.md into the release README, name this card in deploy.sh --cards. No live action needed beyond the README's two Verify rows."
   why: 'SPEC INV-1 / plan review #2 F6: the daylight-horizon fix removes the night ping-pong but a post-sunrise residual remains possible (EV still charging after sunrise, rate from night readings). A code trip-wire, not soak-watching, is the safety net. Operator approved Q8 (alarm) 2026-10-03.'
 - id: ENVOY-STREAM-AB-48H-1
   title: Envoy MQTT stream re-enabled for a 48 h A/B (does it load the Envoy, and does it give a trustworthy local SOC during dropouts?)

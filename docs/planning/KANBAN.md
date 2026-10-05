@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-05T02:23:56-05:00_ - _Data commit: `41cb7212aa72`_ - _last_reconciled: 2026-10-03_
+_Generated: 2026-10-05T02:27:27-05:00_ - _Data commit: `6e735e5d90f0`_ - _last_reconciled: 2026-10-03_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-10-05T02:23:56-05:00_ - _Data commit: `41cb7212aa72`_ - _last_r
 | 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 10 |
 | 📝 Planned | 13 |
-| 🔨 In progress | 1 |
-| 🔍 Review | 5 |
+| 🔨 In progress | 0 |
+| 🔍 Review | 6 |
 | ⏸️ Waiting on operator | 33 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 13 |
@@ -423,18 +423,12 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `EC-EV-TOGGLE-TRIPWIRE-1` - Alert when a strategy flip-flop switches an EV charger more than twice an hour — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **in_progress** - approval: **explicit**
-_created 2026-10-03 16:00 · updated 2026-10-05 02:22_
-- **Why:** SPEC INV-1 / plan review #2 F6: the daylight-horizon fix removes the night ping-pong but a post-sunrise residual remains possible (EV still charging after sunrise, rate from night readings). A code trip-wire, not soak-watching, is the sa...
-- **Next:** BUILDING (overnight, ura-builder in .claude/worktrees/overnight-1005-evtoggle on feature/ec-ev-toggle-tripwire, stacked on feature/ec-degraded-data-p1). Then 2 reviews -> review lane. No deploy: ships after EC p1.
-- **Forensic keys (1):**
-  - `gate_2026_10_05_overnight`: FOUR-STEP GATE. (1) VALIDITY: STILL-REAL - no toggle counter on develop or the EC p1 branch (grep toggle/tripwire in energy*.py); the night loop is fixed by v5.103.37 but not exercised (EVs drew 0 W on every turn-on since), so the daytim...
+_(none)_
 
-## 🔍 Review (5)
+## 🔍 Review (6)
 _under review_
 
 ### `RESTORE-UNAVAILABLE-OFF-SWEEP-1` - After a restart that follows a URA outage, some on-by-default URA switches come back OFF (Vacancy Auto-Off is off right now) - finish the Bug Class #52 restore guard — _#1 · WSJF 7.0 · v6 tc6 u2 /e2_
@@ -497,6 +491,15 @@ _created 2026-10-04 02:00 · updated 2026-10-05 02:22_
 - **Next:** SHIP with EC p1 (feature/ec-degraded-data-p1, operator-timed Mon after the 13:05 A/B). Live acceptance after that restart: ALL FIVE energy_state rows (battery_soc_lkg, solar_production_w_lkg, wv_commanded_ledger, wv_verified_records, arb...
 - **Forensic keys (1):**
   - `verified_2026_10_05_overnight`: ALREADY-FIXED ON THE EC p1 BRANCH (not yet shipped) + live blast radius MEASURED. (1) develop/live: AST of EnergyCoordinator._save_evse_state on develop binds NO _json (uses at energy.py:2054, 2065, 2143, 2150, 2191) -> NameError swallow...
+
+### `EC-EV-TOGGLE-TRIPWIRE-1` - Alert when a strategy flip-flop switches an EV charger more than twice an hour — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **review** - approval: **explicit**
+_created 2026-10-03 16:00 · updated 2026-10-05 02:32_
+- **Why:** SPEC INV-1 / plan review #2 F6: the daylight-horizon fix removes the night ping-pong but a post-sunrise residual remains possible (EV still charging after sunrise, rate from night readings). A code trip-wire, not soak-watching, is the sa...
+- **Next:** SHIP after EC p1 (operator-timed): merge feature/ec-ev-toggle-tripwire (25a8c0dd5, stacked on feature/ec-degraded-data-p1) once p1 is on develop, fold docs/planning/DRAFT_README_ec_ev_toggle_tripwire.md into the release README, name this...
+- **Forensic keys (2):**
+  - `built_2026_10_05_overnight`: BUILT TO REVIEW (overnight, not deployed). Branch feature/ec-ev-toggle-tripwire: d0d12ad25 build (energy.py _log_charger_actuation tap after the per-target dedupe, kind==ev only, force-charge excluded; WriteVerifier.note_ev_toggle mirror...
+  - `gate_2026_10_05_overnight`: FOUR-STEP GATE. (1) VALIDITY: STILL-REAL - no toggle counter on develop or the EC p1 branch (grep toggle/tripwire in energy*.py); the night loop is fixed by v5.103.37 but not exercised (EVs drew 0 W on every turn-on since), so the daytim...
 
 ## ⏸️ Waiting on operator (33)
 _needs a human call — groomed first_
