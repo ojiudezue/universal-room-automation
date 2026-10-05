@@ -1106,3 +1106,54 @@ exceptions stay at exactly one (F4 S1 FAILED row, capability reasons only; Carri
 - Thermostat on-device system modes: Heat, Cool, Heat/Cool (Auto), Off.
 - Implication for the thin adapter: preset/comfort commands map to the Current Mode select (Home/Sleep/Away), hold release maps to the Clear Hold button; an `unknown` select must be treated as "no comfort setting readable", not as Away. D0b probe should capture select state before/after Clear Hold.
 - **Operator 2026-10-05:** Wigton has **3 AC systems, like the main house → likely 3 HVAC zones**, each with its own ecobee; the other 2 ecobees were added to HA (HomeKit) today. Plan must cover 3 thermostats/zones (was 1). D0b probe re-scope: all 3.
+
+## D0b results 2026-10-05 (read-only leg; `--discover`, 24 h recorder)
+
+Scope: the read-only part of D0b/D0a only. P1-P7 (writes) are NOT run; G1-G7 stay open. Raw JSON kept off-repo.
+
+| | Upstairs | Master suite | Downstairs |
+|---|---|---|---|
+| climate entity | `climate.game_room_ecobee_upstairs` | `climate.study_hallway_ecobee_master_suite` | `climate.master_closet_ecobee_downstairs` |
+| area | Game room | Study Hallway | Down Guest bedroom hallway |
+| device | ecobee Inc. ECB501, fw 4.10.330032 | ECB501, fw 4.10.330032 | ECB501, fw **4.10.70046** |
+| hvac_modes | off/heat/cool/heat_cool | same | same |
+| supported_features | 399 (TARGET_TEMP, RANGE, TARGET_HUMIDITY, FAN_MODE, TURN_OFF, TURN_ON; **no PRESET_MODE**) | 399 | 399 |
+| preset_modes | absent | absent | absent |
+| min/max temp | 45 / 92 °F | same | same |
+| live mode / setpoint | cool, temperature 76, low/high **null** | same | same |
+| fan_modes | on, auto (auto) | same | same |
+| humidity | current 55 %; target `humidity` attr, range 20-50 | 54 % | 55 % |
+| hvac_action seen 24 h | idle 208 / cooling 120 / fan 49 (n=377) | idle 142 / cooling 26 / fan 4 (n=172) | idle 364 / cooling 47 / fan 9 (n=420) |
+| setpoint history 24 h | constant 76, always single-target | same | same |
+| Current Mode select | options home/sleep/away; **unknown in 7/7 rows, 100 % of 24 h** | unknown 7/7 | unknown 5/5 |
+| Clear Hold button | present | present | present |
+| other siblings | identify button, motion + occupancy binary_sensors, temp + humidity sensors, display-units select | same | same |
+
+Answers to D0b questions answerable read-only:
+- **G1 (partial):** all three expose `heat_cool` and RANGE support, but none has been in heat_cool in 24 h, so legs
+  appearing in heat_cool is UNMEASURED (P1 needed). Auto-enabled on the unit: operator P0.
+- **Echo latency, rounding, min delta, separability, hold persistence (G2-G6):** unmeasured; need the supervised run
+  on each entity.
+- **Current Mode `unknown`:** constant across the whole window on all three, and its row timestamps coincide with the
+  HomeKit entry reloads/restarts (00:05, 02:11, 05:00, 05:04 UTC), not with any setpoint event. Cannot yet tell
+  "unknown under hold" from "HomeKit never reports it"; P-step to add: press Clear Hold (operator, supervised) and
+  read the select before/after.
+- Setpoint 76 °F constant with frequent cooling cycles = consistent with a held setpoint (hold action already
+  "until I change it" or similar); confirm at P0.
+
+Brand QUIRKS the thin adapter must absorb (never gate features by brand):
+1. **No `preset_mode`.** The comfort setting is a sibling `select.<x>_current_mode` (home/sleep/away), resolved via
+   the device registry, not the climate entity. `preset_of()` must read the select; adapter verb = `select_option`.
+2. **Current Mode reads `unknown`** (24 h, all units). Treat as "no comfort setting readable", never as Away; the
+   projection must fall back to the setpoint/range readback.
+3. **Hold release is a button** (`button.<x>_clear_hold`), not a service on the climate entity — the adapter's
+   "resume/release" verb maps to `button.press`.
+4. **Dual setpoints only in heat_cool.** In cool/heat, `target_temp_low/high` are present but `null` and
+   `temperature` is set; the adapter must not send a range outside heat_cool (D0b safety #2 stands).
+5. **Target humidity ceiling 50 %** (min 20) while room RH sits 54-55 %; any humidity verb must clamp.
+6. **Mixed firmware** (4.10.330032 ×2, 4.10.70046 ×1): measure P1/P2 on the Downstairs unit separately; don't
+   assume one unit's echo profile covers all.
+7. **Three thermostats → three zones**: detection/cache is per-entity (§4.1 already is); zone mapping must name all
+   three.
+8. Device-registry siblings also offer `occupancy`/`motion` binary_sensors (ecobee remote/occupancy): presence
+   inputs, not adapter concerns — note for the zone config, no brand gate.
