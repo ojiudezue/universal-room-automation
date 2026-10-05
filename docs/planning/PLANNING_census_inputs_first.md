@@ -709,3 +709,51 @@ The §1.1 table is kept as-is for history (Rev 2 already annotated it with inlin
 - **HIGH-1 mechanism caveat.** The reviewer's finding that `database.backfill_entry_exit_person_id` enforces direction via a `WHERE direction='exit'` clause on the UPDATE is slightly off: the UPDATE DAO at `database.py:4137-4177` has NO direction filter in its SQL (`WHERE id = ? AND person_id IS NULL`). Direction eligibility is enforced at the SELECTION layer (`find_unnamed_exit_crossings`, `:4099`, exit-only by name). The reviewer's **conclusion** (AMBIGUOUS rows never persist, so the "backfill-eligibility" framing is moot) still holds and is applied in R3.2; only the cited mechanism is adjusted. No disagreement with the fix direction.
 - **Transit-validator line offsets.** Reviewer cited `:1873-1886` (DB log), `:1835` (register/evict), `:1807` (notify), `:1235` (direction_ambiguous), `:1253` (second `_get_interior_cameras_near` caller), `:1963` (helper tail), and `~:868-876` for `_extract_camera_stem`. Live-on-develop offsets are `:1874-1887`, `:1840`, `:1812` (notify call; `:1804-1810` is the preceding comment), `:1236`, `:1253`, `:1955-1963`, and `:859` for the stem definition. Rev 3 cites the live-on-develop lines; no substantive disagreement, offsets drift by 1–10 only.
 - All other reviewer findings applied as written.
+
+
+# PLANNING_census_inputs_first — Simplification alignment appendix
+
+**Status:** APPENDIX 2026-10-05 to `PLANNING_census_inputs_first.md` (Rev 3).
+This file exists as a sibling because the main plan is 712 lines and the
+agent writing this appendix had no in-place Edit tool. Reviewers should
+treat this as §R3.16 of the plan.
+
+## Pointer
+
+See `docs/planning/DESIGN_census_simplification.md` for the full
+component ledger (KEEP / MERGE / DELETE / FIX), target Mermaid, GAINS
+table (−3 producer nodes, −1 dead gate path, −16 GUEST readers migrated,
+~150 LoC removed staged, 5 bug classes retired), and the three-cycle
+sequencing (inputs-first D1 / hybrid D3-D6 / separate post-ship cleanup).
+
+## Scope changes this plan implies for `PLANNING_census_inputs_first.md`
+
+None to the Rev-3 build set. The design doc confirms every D1 (R2.2/R3.*)
+item is a REUSE or targeted FIX against existing prior art, with no
+proposed deletion of live code inside this cycle. Specifically:
+
+- **No scope added** — Path A `_guest_gate_armed` deletion stays in the
+  separate post-D5 cleanup cycle (dead ≠ delete without the replacement
+  on-ramp live-validated).
+- **No scope removed** — all five changes in `_resolve_direction` (R3.1,
+  R3.3, R3.9, R2.2 item 4, R3.6 peak sampler) ride together on the same
+  site because they touch the same function; splitting them would
+  increase blast radius, not reduce it.
+- **One naming / documentation debt flagged for the manual, not this
+  cycle:** `IDENTITY_FUSION_CAMERAS_MANUAL.md` needs a one-paragraph
+  section clarifying four recurring "duplicate concept" smells that are
+  NOT duplicates in code (two different holds; direction resolver vs
+  identity-leg helper; property census ≠ house census; identified union
+  is one function). Carded, not in-cycle.
+
+## Alignment with operator ruling (2026-10-05)
+
+- "Rely on prior art where it is correct" — the design doc's §1 table
+  cites file:line for every KEEP; the Rev-3 R3.3 REUSE verdict for
+  `_strip_disambiguation_suffix` + `_PERSON_SUFFIXES` is the main
+  concrete example that landed in this cycle's build.
+- "Do not invent duplicate concepts" — four flagged "duplicate concept"
+  cases adjudicated in design doc §1.5 as NOT duplicate; one real dead
+  path (Path A) carded for separate deletion.
+- "Simplify where possible but show the work and the gains" — design doc
+  §3 GAINS table is the ledger.
