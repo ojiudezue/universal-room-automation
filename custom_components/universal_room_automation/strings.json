@@ -1329,7 +1329,7 @@
           "hvac_baseline_winter_away_heat": "Winter Away preset heating floor. Default: 60°F.",
           "hvac_baseline_winter_vacation_cool": "Winter Vacation preset cooling target. Default: 80°F.",
           "hvac_baseline_winter_vacation_heat": "Winter Vacation preset heating floor. Default: 58°F.",
-          "hvac_s10_rollout_zone_ids": "When Custom Preset Ranges is on, only these zones get the ranges written into their thermostat presets. Empty means none.",
+          "hvac_s10_rollout_zone_ids": "When Custom Preset Ranges is on, only these zones get the ranges written into their thermostat presets. Empty means none. Removing a zone puts its original ranges back.",
           "_reset_all": "Check and save to restore all 24 baseline setpoints to factory defaults. This action requires confirmation on the next screen."
         },
         "sections": {

@@ -4000,6 +4000,11 @@ class HVACCoordinator(BaseCoordinator):
                 await self._s10_pass(mode="restore")
                 return
             await self._s10_pass(mode="apply")
+            # Operator ruling A6 (2026-10-05): with the switch ON, a zone
+            # REMOVED from the rollout list gets its saved originals put
+            # back (same restore path / funnel / rate rules as switch OFF);
+            # zones still in the rollout are never restored while ON.
+            await self._s10_pass(mode="restore")
         except Exception:
             _LOGGER.warning("HVAC: _async_apply_preset_overrides failed", exc_info=True)
 
@@ -4246,10 +4251,12 @@ class HVACCoordinator(BaseCoordinator):
 
     async def _s10_pass(self, *, mode: str) -> None:
         """One S10 pass. ``mode`` = "apply" (switch resolved True) or
-        "restore" (resolved False). The restore pass is NOT rollout-gated
-        (REV 3.3 U5) and touches only (zone, preset) pairs with a snapshot."""
+        "restore". The restore pass touches only (zone, preset) pairs with a
+        snapshot. Switch OFF: NOT rollout-gated (REV 3.3 U5). Switch ON
+        (ruling A6): only zones OUTSIDE the rollout list are restored."""
         engine = None
         overrides: dict = {}
+        rollout = self._s10_rollout_zone_ids()
         if mode == "apply":
             from .preset_overrides import OverrideEngine  # noqa: PLC0415
             engine = OverrideEngine()
@@ -4259,7 +4266,6 @@ class HVACCoordinator(BaseCoordinator):
                 overrides = getattr(ec, "_dynamic_preset_overrides", {}) or {} if ec else {}
             except Exception:  # noqa: BLE001
                 overrides = {}
-            rollout = self._s10_rollout_zone_ids()
         # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
         for zone_id, zone in list(self._zone_manager.zones.items()):
             if mode == "apply":
@@ -4268,7 +4274,10 @@ class HVACCoordinator(BaseCoordinator):
                     continue
             elif not self._s10_snapshots.get(zone_id):
                 continue
-            skip = self._s10_zone_skip_reason(zone_id, zone)
+            elif self._guest_mode_actuation_enabled is not False and zone_id in rollout:
+                # A6: never restore a rollout zone while the switch is ON.
+                continue
+            skip =self._s10_zone_skip_reason(zone_id, zone)
             if skip is not None:
                 _LOGGER.debug("S10 %s: zone %s skipped (%s)", mode, zone_id, skip)
                 continue
@@ -4444,11 +4453,17 @@ class HVACCoordinator(BaseCoordinator):
         # awaits since `_s10_pass` chose this zone may have changed the
         # world. Each stands down WITHOUT a call and undoes the stamp.
         _stand_down: str | None = None
-        _want = mode == "apply"
-        if self._guest_mode_actuation_enabled is not _want:
+        _sw = self._guest_mode_actuation_enabled
+        if mode == "apply" and _sw is not True:
             # D-LOW-1: the switch moved during the save (apply only while
-            # resolved True; restore only while resolved False).
+            # resolved True).
             _stand_down = "switch_changed"
+        elif mode != "apply" and _sw is None:
+            _stand_down = "switch_changed"
+        elif mode != "apply" and _sw is True and zone_id in self._s10_rollout_zone_ids():
+            # A6: restore while ON only for a zone outside the rollout — the
+            # zone was re-added to the rollout during the save.
+            _stand_down = "rollout_readded"
         elif zone_id not in self._zone_manager.zones:
             # B3: the zone was removed from URA during the save.
             _stand_down = "zone_removed"
@@ -4556,12 +4571,15 @@ class HVACCoordinator(BaseCoordinator):
         now: datetime,
     ) -> None:
         """SKIPPED_ALREADY_CORRECT (any reason) or a matching view at the
-        limit. Apply: success, counters NOT reset. Restore: confirms the
+        limit. Apply: success; the write counter is RESET (operator ruling
+        A4, 2026-10-05) so a later drift gets a fresh budget — the latch
+        counts only consecutive non-sticking writes. Restore: confirms the
         restore — snapshot deleted, one ledger row. A full read interval
         since the last restore WRITE is guaranteed by the rate gate in
         `_s10_write_one` (after any wire attempt the adapter is not invoked
         again for S10_PRESET_RANGE_MIN_INTERVAL_S), so a confirming view is
         never the guard-masked optimistic copy of our own write."""
+        rec["writes"] = 0
         self._s10_set_record(zone_id, preset, mode, rec)
         self._s10_note_outcome(zone_id, preset, status="skipped_already_correct", mode=mode)
         if mode != "restore":

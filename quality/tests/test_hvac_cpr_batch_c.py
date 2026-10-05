@@ -2285,3 +2285,109 @@ async def test_active_preset_overrides_sensor_low_side_is_configured_heat(mods, 
     attrs = _sensor(mods, r.hass).extra_state_attributes
     assert attrs["resolved_ranges"][Z1]["cool_low"] == 70.0
     assert attrs["resolved_ranges"][Z1]["cool_high"] == 75.0
+
+
+# ==========================================================================
+# Operator rulings 2026-10-05 — A6 (rollout removal restores while ON) and
+# A4 (write counter resets on a confirmed success)
+# ==========================================================================
+
+
+@pytest.mark.asyncio
+async def test_s10_a6_rollout_removal_restores_original_while_on(mods, monkeypatch):
+    """A6: switch stays ON; Z1 is removed from the rollout list -> its saved
+    original goes back through the restore site; once the device reads the
+    original after a full read interval, the snapshot is dropped. Z2 (still
+    in the rollout) is never restored."""
+    r = _rig(mods, monkeypatch, rollout=(Z1, Z2))
+    await r.tick()                                   # both edited 68/76 -> 70/74
+    r.view(E1, low=70.0, high=74.0)
+    r.view(E2, low=70.0, high=74.0)
+    assert set(r.coord._s10_snapshots) == {Z1, Z2}
+    r.cm.options = {**r.cm.options, ROLLOUT_KEY: [Z2]}
+    r.clock.advance(600)
+    await r.tick()
+    assert r.coord._guest_mode_actuation_enabled is True
+    assert r.pr_calls(E1)[-1] == {"entity_id": E1, "target_temp_low": 68.0, "target_temp_high": 76.0}
+    rest = r.rows("S10_preset_range_restore")
+    assert len(rest) == 1 and rest[0]["reason"] == "restore_carrier_original"
+    assert r.pr_calls(E2) == [{"entity_id": E2, "target_temp_low": 70.0, "target_temp_high": 74.0}]
+    r.view(E1)                                       # device back on 68/76
+    r.clock.advance(7800)
+    await r.tick()
+    assert Z1 not in r.coord._s10_snapshots
+    assert Z1 not in r.coord._s10_records
+    assert len(r.ledger("s10_original_restored")) == 1
+    assert r.coord._s10_snapshots[Z2]["home"] == {"low": 68.0, "high": 76.0,
+                                                 "captured_iso": T0.isoformat()}
+
+
+@pytest.mark.asyncio
+async def test_s10_a6_restore_pass_skips_rollout_zone_while_on(mods, monkeypatch):
+    """A6 invariant: switch ON + zone IN the rollout + a snapshot -> the
+    restore pass does nothing for it (no write-ahead save, no call)."""
+    r = _rig(mods, monkeypatch, rollout=(Z1,))
+    r.coord._s10_snapshots[Z1] = {"home": {"low": 66.0, "high": 77.0, "captured_iso": "x"}}
+    await r.coord._s10_pass(mode="restore")
+    await H.drain(r.hass)
+    assert r.pr_calls() == []
+    assert not any(e[0] == "save" for e in r.events)
+    assert r.coord._s10_records == {}
+
+
+@pytest.mark.asyncio
+async def test_s10_a6_zone_readded_during_save_stands_down(mods, monkeypatch):
+    """A6 pre-call re-check: the zone is re-added to the rollout during the
+    restore's write-ahead save -> no restore call (restores never land on a
+    rollout zone while ON)."""
+    r = _rig(mods, monkeypatch, rollout=())
+    r.coord._s10_snapshots[Z1] = {"home": {"low": 66.0, "high": 77.0, "captured_iso": "x"}}
+    real_save = r.store.async_save
+
+    async def _save_and_readd(data):
+        r.cm.options = {**r.cm.options, ROLLOUT_KEY: [Z1]}
+        await real_save(data)
+    r.store.async_save = _save_and_readd
+    await r.coord._s10_pass(mode="restore")
+    await H.drain(r.hass)
+    assert r.pr_calls() == []
+    assert r.rows("S10_preset_range_restore") == []
+
+
+@pytest.mark.asyncio
+async def test_s10_restore_stands_down_when_switch_unresolves_during_save(mods, monkeypatch):
+    """Restore pre-call re-check: the switch becomes unresolved (None)
+    during the write-ahead save -> no call."""
+    r = _rig(mods, monkeypatch, flag=False)
+    r.coord._s10_snapshots[Z1] = {"home": {"low": 66.0, "high": 77.0, "captured_iso": "x"}}
+    real_save = r.store.async_save
+
+    async def _save_and_unresolve(data):
+        r.coord._guest_mode_actuation_enabled = None
+        await real_save(data)
+    r.store.async_save = _save_and_unresolve
+    await r.coord._s10_pass(mode="restore")
+    await H.drain(r.hass)
+    assert r.pr_calls() == []
+
+
+@pytest.mark.asyncio
+async def test_s10_a4_confirmed_success_resets_write_counter(mods, monkeypatch):
+    """A4: a confirmed success (HA view matches) resets the write counter,
+    so a later drift gets a fresh budget of 3 writes before the latch."""
+    r = _rig(mods, monkeypatch)
+    await r.tick()                                   # write 1
+    assert r.coord._s10_records[Z1]["home|apply"]["writes"] == 1
+    r.view(low=70.0, high=74.0)                      # device took it
+    r.clock.advance(7800)
+    await r.tick()                                   # confirmed success
+    assert r.coord._s10_records[Z1]["home|apply"]["writes"] == 0
+    assert len(r.pr_calls()) == 1
+    r.view()                                         # drift back to 68/76
+    r.clock.advance(600)
+    for _ in range(4):
+        await r.tick()
+        r.clock.advance(7800)
+    assert len(r.pr_calls()) == 1 + 3                # a fresh budget of 3
+    assert r.coord._s10_records[Z1]["home|apply"]["latched"] is True
+    assert len(r.nms("s10_preset_range_not_sticking")) == 1
