@@ -1099,3 +1099,9 @@ exceptions stay at exactly one (F4 S1 FAILED row, capability reasons only; Carri
 (export `{}` → key omitted).
 
 **Verdict: BUILD-READY (pending D0b).** All five findings fixed in this commit; no code edited.
+
+## Operator field evidence 2026-10-05 (Wigton, screenshots)
+- A SECOND ecobee exists: **"Ecobee Upstairs"** (ECB501, fw 4.10.330032, HomeKit Device, area Game room) — plan previously assumed one (`climate.master_closet_ecobee_downstairs`). Zone mapping must cover both.
+- HomeKit exposes: climate entity (showed "Idle (Cool) 76 °F", 57% RH), a **"Clear Hold" button**, and a **"Current Mode" select with options Home / Sleep / Away** (ecobee comfort settings) — reading **unknown** at capture time (likely while a manual hold is active; to verify in D0b).
+- Thermostat on-device system modes: Heat, Cool, Heat/Cool (Auto), Off.
+- Implication for the thin adapter: preset/comfort commands map to the Current Mode select (Home/Sleep/Away), hold release maps to the Clear Hold button; an `unknown` select must be treated as "no comfort setting readable", not as Away. D0b probe should capture select state before/after Clear Hold.
