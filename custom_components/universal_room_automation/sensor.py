@@ -10300,8 +10300,10 @@ class HVACActivePresetOverridesSensor(AggregationEntity, SensorEntity):
                 # Get baseline from preset manager
                 baseline = hvac.preset_manager.get_seasonal_setpoints(target_preset)
                 if baseline is not None:
-                    baseline_cool, _ = baseline
-                    baseline_low = baseline_cool - 7.0
+                    # Fix-up D-LOW-3: the low side is the CONFIGURED heat
+                    # (what S10 writes), not the retired `cool - 7`.
+                    baseline_cool, baseline_heat = baseline
+                    baseline_low = baseline_heat
                     baseline_high = baseline_cool
                     resolved = engine.resolve_range(baseline_low, baseline_high, active)
                     resolved_ranges[zone_id] = {

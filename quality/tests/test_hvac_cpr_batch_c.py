@@ -1938,3 +1938,342 @@ def test_rollout_field_keeps_a_stored_undiscovered_zone_and_saves_sorted():
     flow.async_create_entry = _create
     asyncio.run(flow.async_step_hvac_baseline_presets({ROLLOUT_KEY: [" zone_3 ", Z1, "zone_3", ""]}))
     assert saved[ROLLOUT_KEY] == [Z1, Z3]
+
+
+# ==========================================================================
+# Fix-up pass (review round 1): D-HIGH-1 / M45 / M39 / B1 + recommended
+# ==========================================================================
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("orig_high,dpm_high,wire_high", [(76.0, 76.5, 77.0), (73.0, 73.5, 74.0)])
+async def test_s10_half_degree_desired_snapshots_before_write(
+    mods, monkeypatch, orig_high, dpm_high, wire_high,
+):
+    """D-HIGH-1 (step-9 gate): the device holds 70/<orig_high>; the DPM
+    asks for <orig_high>+0.5. Carrier rounds half up, so the wire gets
+    <wire_high> — a real edit. The original MUST be persisted before that
+    call (old gate compared the UNROUNDED 0.5 diff with `> 0.5` -> no
+    snapshot, an edit with no original)."""
+    r = _rig(mods, monkeypatch)
+    r.view(low=70.0, high=orig_high)
+    r.overrides[Z1] = [_dpm(Z1, "home", dpm_high)]
+    await r.tick()
+    assert r.pr_calls() == [{"entity_id": E1, "target_temp_low": 70.0,
+                             "target_temp_high": wire_high}]
+    first_call = [e[0] for e in r.events].index("call")
+    saves_before = [e[1] for e in r.events[:first_call] if e[0] == "save"]
+    assert any(
+        s.get("__s10_preset_ranges", {}).get("snapshots", {}).get(Z1, {}).get("home")
+        == {"low": 70.0, "high": orig_high, "captured_iso": T0.isoformat()}
+        for s in saves_before
+    ), saves_before
+
+
+@pytest.mark.asyncio
+async def test_s10_half_degree_recheck_after_await_never_edits_without_original(
+    mods, monkeypatch,
+):
+    """D-HIGH-1 (B2 re-check site): at step 9 the zone is not confirmed (no
+    original); during the write-ahead save it becomes confirmed at 70/76
+    while URA wants 76.5 (wire 77). The re-check must stand down."""
+    r = _rig(mods, monkeypatch)
+    r.view(hold="away", low=70.0, high=76.0)
+    r.overrides[Z1] = [_dpm(Z1, "home", 76.5)]
+    real_save = r.store.async_save
+
+    async def _save_and_settle(data):
+        r.view(low=70.0, high=76.0)
+        await real_save(data)
+    r.store.async_save = _save_and_settle
+    await r.tick()
+    assert r.pr_calls() == []
+    assert Z1 not in r.coord._s10_snapshots
+
+
+@pytest.mark.asyncio
+async def test_s10_half_degree_exact_match_no_snapshot_no_call(mods, monkeypatch):
+    """Control for the would-write compare: device 70/77, desired 76.5 ->
+    the wire value (77) equals the original -> no snapshot, no call."""
+    r = _rig(mods, monkeypatch)
+    r.view(low=70.0, high=77.0)
+    r.overrides[Z1] = [_dpm(Z1, "home", 76.5)]
+    await r.tick()
+    assert r.pr_calls() == [] and r.coord._s10_snapshots == {}
+
+
+@pytest.mark.asyncio
+async def test_preset_range_would_write_carrier_and_generic(mods, monkeypatch):
+    st = mods["hvac_strategy"]
+    assert st.CarrierStrategy().preset_range_would_write(70.0, 76.5) == (70, 77)
+    assert st.CarrierStrategy().preset_range_would_write(69.4, 73.5) == (69, 74)
+    assert st.GenericStrategy().preset_range_would_write(70.0, 76.5) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("obs_mode", [True, False])
+async def test_s10_observation_mode_gate_at_call_site(mods, monkeypatch, obs_mode):
+    """M45: through `_apply_house_state_presets` with switch 01 ON, zone_1
+    in the rollout and a differing range — observation mode ON makes ZERO
+    set_activity_setpoint calls and ZERO climate_write rows; OFF (control)
+    makes exactly one."""
+    r = _rig(mods, monkeypatch)
+    r.coord._observation_mode = obs_mode
+    await r.coord._apply_house_state_presets()
+    await H.drain(r.hass)
+    if obs_mode:
+        assert r.pr_calls() == []
+        assert r.rows("S10_preset_range") == []
+        assert r.coord._s10_snapshots == {}
+    else:
+        assert len(r.pr_calls()) == 1
+        assert len(r.rows("S10_preset_range")) == 1
+
+
+@pytest.mark.asyncio
+async def test_s10_restore_confirm_clears_apply_record(mods, monkeypatch):
+    """M39: a restore-entity OFF keeps the apply record; the restore
+    confirmation clears BOTH the restore and the apply record."""
+    r = _rig(mods, monkeypatch)
+    await r.tick()                                   # edit home 68/76 -> 70/74
+    r.view(low=70.0, high=74.0)
+    assert "home|apply" in r.coord._s10_records[Z1]
+    r.coord.set_custom_ranges_enabled(False, source="restore_entity")
+    assert "home|apply" in r.coord._s10_records[Z1]  # restore_entity clears nothing
+    r.clock.advance(600)
+    await r.tick()                                   # restore write
+    r.view()                                         # device back on 68/76
+    r.clock.advance(7800)
+    await r.tick()                                   # confirm
+    assert Z1 not in r.coord._s10_snapshots
+    assert r.coord._s10_records == {}
+
+
+# ---- pre-call re-checks after the write-ahead await (D-LOW-1 / B3 / B4) ----
+
+
+def _during_save(r, fn, *, nth=1):
+    real_save = r.store.async_save
+    seen = {"n": 0}
+
+    async def _save(data):
+        seen["n"] += 1
+        if seen["n"] == nth:
+            fn()
+        await real_save(data)
+    r.store.async_save = _save
+
+
+@pytest.mark.asyncio
+async def test_s10_switch_off_during_save_no_apply_call(mods, monkeypatch):
+    """D-LOW-1: the switch resolves OFF (restore_entity) while the apply
+    attempt is being saved -> no apply call; the stamp is undone."""
+    r = _rig(mods, monkeypatch)
+    r.view(low=70.0, high=76.0)
+    r.overrides[Z1] = [_dpm(Z1, "home", 75.0)]
+    r.coord._s10_snapshots[Z1] = {"home": {"low": 70.0, "high": 76.0, "captured_iso": "x"}}
+    _during_save(r, lambda: r.coord.set_custom_ranges_enabled(False, source="restore_entity"))
+    await r.tick()
+    assert r.pr_calls() == []
+    assert r.rows("S10_preset_range") == []
+    assert r.coord._s10_records == {}
+
+
+@pytest.mark.asyncio
+async def test_s10_zone_removed_during_save_no_call(mods, monkeypatch):
+    """B3: the zone leaves URA while the attempt is saved -> no call."""
+    r = _rig(mods, monkeypatch)
+    r.view(low=70.0, high=76.0)
+    r.overrides[Z1] = [_dpm(Z1, "home", 75.0)]
+    r.coord._s10_snapshots[Z1] = {"home": {"low": 70.0, "high": 76.0, "captured_iso": "x"}}
+    _during_save(r, lambda: r.coord.zone_manager._zones.pop(Z1))
+    await r.tick()
+    assert r.pr_calls() == []
+
+
+@pytest.mark.asyncio
+async def test_s10_person_protected_during_save_no_call(mods, monkeypatch):
+    """B4: the zone becomes person-protected while the attempt is saved ->
+    the skip matrix re-run right before the call stands down."""
+    r = _rig(mods, monkeypatch)
+    r.view(low=70.0, high=76.0)
+    r.overrides[Z1] = [_dpm(Z1, "home", 75.0)]
+    r.coord._s10_snapshots[Z1] = {"home": {"low": 70.0, "high": 76.0, "captured_iso": "x"}}
+    _during_save(r, lambda: monkeypatch.setattr(
+        r.arr, "_corrective_writes_suppressed", lambda zid: zid == Z1))
+    await r.tick()
+    assert r.pr_calls() == []
+
+
+# ---- D-LOW-2: a user toggle during an await never gets a record written back
+
+
+def _toggle_off_on(r):
+    r.coord.set_custom_ranges_enabled(False, source="user")
+    r.coord.set_custom_ranges_enabled(True, source="user")
+
+
+@pytest.mark.asyncio
+async def test_s10_user_toggle_during_snapshot_save_writes_no_record(mods, monkeypatch):
+    r = _rig(mods, monkeypatch)                      # 68/76 -> snapshot save first
+    _during_save(r, lambda: _toggle_off_on(r), nth=1)
+    await r.tick()
+    assert r.coord._s10_records == {}
+    assert r.pr_calls() == []
+    assert r.coord._s10_snapshots[Z1]["home"]["high"] == 76.0
+
+
+@pytest.mark.asyncio
+async def test_s10_user_toggle_during_attempt_save_writes_no_record(mods, monkeypatch):
+    r = _rig(mods, monkeypatch)
+    r.view(low=70.0, high=76.0)
+    r.overrides[Z1] = [_dpm(Z1, "home", 75.0)]
+    r.coord._s10_snapshots[Z1] = {"home": {"low": 70.0, "high": 76.0, "captured_iso": "x"}}
+    _during_save(r, lambda: _toggle_off_on(r), nth=1)
+    await r.tick()
+    assert r.coord._s10_records == {}
+    assert r.pr_calls() == []
+
+
+@pytest.mark.asyncio
+async def test_s10_user_toggle_during_wire_call_writes_no_record(mods, monkeypatch):
+    r = _rig(mods, monkeypatch)
+    r.view(low=70.0, high=76.0)
+    r.overrides[Z1] = [_dpm(Z1, "home", 75.0)]
+    r.coord._s10_snapshots[Z1] = {"home": {"low": 70.0, "high": 76.0, "captured_iso": "x"}}
+    inner = r.hass.services.async_call
+
+    async def _svc(domain, service, service_data=None, blocking=False, **kw):
+        if domain == "ha_carrier":
+            _toggle_off_on(r)
+        return await inner(domain, service, service_data, blocking=blocking, **kw)
+    r.hass.services.async_call = _svc
+    await r.tick()
+    assert len(r.pr_calls()) == 1
+    assert r.coord._s10_records == {}
+
+
+# ---- A2 / B2 / B5 ---------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_s10_rehydrate_one_malformed_original_keeps_the_others(mods, monkeypatch):
+    r = _rig(mods, monkeypatch)
+    r.coord._rehydrate_s10_state({"__s10_preset_ranges": {"snapshots": {
+        Z1: {"home": {"low": 68.0, "high": 76.0, "captured_iso": "x"},
+             "sleep": {"low": "not-a-number", "high": 75.0}},
+        Z2: {"away": {"low": 62.0, "high": 80.0, "captured_iso": "y"}},
+    }, "records": {}, "meta": {}}})
+    assert r.coord._s10_snapshots == {
+        Z1: {"home": {"low": 68.0, "high": 76.0, "captured_iso": "x"}},
+        Z2: {"away": {"low": 62.0, "high": 80.0, "captured_iso": "y"}},
+    }
+
+
+@pytest.mark.asyncio
+async def test_s10_default_off_nm_reevaluated_after_rehydrate(mods, monkeypatch):
+    """B2: the switch resolves default-OFF BEFORE the originals are
+    rehydrated (zero snapshots -> no NM); rehydrating one original then
+    sends the ONE default-off NM + ledger row."""
+    r = _rig(mods, monkeypatch, flag=None)
+    r.coord.set_custom_ranges_enabled(False, source="no_last_state_default")
+    await H.drain(r.hass)
+    assert r.nms("s10_restart_default_off_restore_pending") == []
+    r.coord._rehydrate_s10_state({"__s10_preset_ranges": {"snapshots": {
+        Z1: {"home": {"low": 68.0, "high": 76.0, "captured_iso": "x"}}},
+        "records": {}, "meta": {}}})
+    await H.drain(r.hass)
+    assert len(r.nms("s10_restart_default_off_restore_pending")) == 1
+    assert len(r.ledger("s10_default_off_after_restart")) == 1
+
+
+@pytest.mark.asyncio
+async def test_s10_rehydrate_after_restore_entity_off_sends_no_default_nm(mods, monkeypatch):
+    """B2 control: an explicit saved OFF is not the default -> no NM."""
+    r = _rig(mods, monkeypatch, flag=None)
+    r.coord.set_custom_ranges_enabled(False, source="restore_entity")
+    r.coord._rehydrate_s10_state({"__s10_preset_ranges": {"snapshots": {
+        Z1: {"home": {"low": 68.0, "high": 76.0, "captured_iso": "x"}}},
+        "records": {}, "meta": {}}})
+    await H.drain(r.hass)
+    assert r.nms("s10_restart_default_off_restore_pending") == []
+
+
+@pytest.mark.asyncio
+async def test_s10_switch_resolved_row_has_no_stale_cancelled_by(mods, monkeypatch):
+    """B5: a cancel left over from an earlier reload is not reported as
+    this resolution's `handle_cancelled_by`."""
+    r = _rig(mods, monkeypatch, flag=None)
+    r.coord._cpr_backstop_cancelled_by = "reload"     # stale, no live handle
+    r.coord.set_custom_ranges_enabled(True, source="restore_entity")
+    await H.drain(r.hass)
+    rows = r.ledger("s10_switch_resolved")
+    assert json.loads(rows[-1]["details_json"])["handle_cancelled_by"] is None
+
+
+# ---- B1: a rebuilt coordinator re-lands from the switch's own state ---------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path,expect", [
+    ("fast_on", True), ("fast_off", False), ("user_off", False), ("user_on", True),
+    ("deferred_on", True),
+])
+async def test_switch_relands_on_rebuilt_coordinator(mods, monkeypatch, path, expect):
+    """B1: an integration-entry reload rebuilds the HVAC coordinator without
+    re-adding the switch. On READY the new coordinator (unresolved) gets the
+    switch's last value with source `deferred_landing_restore_entity` — no
+    backstop OFF, no restore pass."""
+    coord, hass = H.make_coord(mods)
+    saved = {"fast_on": "on", "fast_off": "off", "user_off": "on",
+             "user_on": "off", "deferred_on": "on"}[path]
+    if path == "deferred_on":
+        _install_manager(hass, mods, None)
+    else:
+        _install_manager(hass, mods, coord)
+    sw = _switch(mods, monkeypatch, hass, coord, types.SimpleNamespace(state=saved))
+    await sw.async_added_to_hass()
+    if path == "deferred_on":
+        _install_manager(hass, mods, coord)
+        sw._handle_hvac_ready()
+    elif path == "user_off":
+        await sw.async_turn_off()
+    elif path == "user_on":
+        await sw.async_turn_on()
+    await H.drain(hass)
+    assert coord._guest_mode_actuation_enabled is expect
+    coord2 = mods["hvac"].HVACCoordinator(hass)
+    assert coord2._guest_mode_actuation_enabled is None
+    _install_manager(hass, mods, coord2)
+    sw._handle_hvac_ready()
+    await H.drain(hass)
+    assert coord2._guest_mode_actuation_enabled is expect
+    rows = [x for x in hass.data[mods["const"].DOMAIN]["database"].rows
+            if x.get("action") == "s10_switch_resolved"]
+    assert json.loads(rows[-1]["details_json"])["source"] == "deferred_landing_restore_entity"
+    # A READY on an already-resolved coordinator never overrides it.
+    coord2._guest_mode_actuation_enabled = not expect
+    sw._handle_hvac_ready()
+    assert coord2._guest_mode_actuation_enabled is (not expect)
+
+
+@pytest.mark.asyncio
+async def test_switch_ready_with_nothing_resolved_does_nothing(mods, monkeypatch):
+    coord, hass = H.make_coord(mods)
+    _install_manager(hass, mods, coord)
+    sw = _switch(mods, monkeypatch, hass, coord, None)
+    sw._handle_hvac_ready()
+    assert coord._guest_mode_actuation_enabled is None
+
+
+@pytest.mark.asyncio
+async def test_active_preset_overrides_sensor_low_side_is_configured_heat(mods, monkeypatch):
+    """D-LOW-3: the display's resolved low side is the configured heat for
+    the preset (shoulder Home heat 70, what S10 writes), never `cool - 7`
+    (74 - 7 = 67)."""
+    r = _rig(mods, monkeypatch)
+    r.hass.data[r.DOMAIN]["coordinator_manager"].coordinators["hvac"] = r.coord
+    r.overrides[Z1] = [_dpm(Z1, "home", 75.0)]
+    attrs = _sensor(mods, r.hass).extra_state_attributes
+    assert attrs["resolved_ranges"][Z1]["cool_low"] == 70.0
+    assert attrs["resolved_ranges"][Z1]["cool_high"] == 75.0

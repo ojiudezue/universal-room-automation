@@ -2065,6 +2065,10 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
         # ORIGINAL source captured at async_added_to_hass (REV 5 F3).
         self._deferred_value: bool | None = None
         self._deferred_source: str | None = None
+        # Fix-up (B1): the value this switch last landed on a coordinator
+        # (restore / deferred landing / user toggle) — re-landed on a
+        # rebuilt coordinator that has not resolved yet.
+        self._resolved_value: bool | None = None
 
     def _get_hvac(self):
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -2087,6 +2091,7 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
         hvac = self._get_hvac()
         if hvac is not None:
             hvac.set_custom_ranges_enabled(True, source="user")
+            self._resolved_value = True
             self._deferred_value = None
             self._deferred_source = None
             self.async_write_ha_state()
@@ -2096,6 +2101,7 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
         hvac = self._get_hvac()
         if hvac is not None:
             hvac.set_custom_ranges_enabled(False, source="user")
+            self._resolved_value = False
             self._deferred_value = None
             self._deferred_source = None
             self.async_write_ha_state()
@@ -2130,6 +2136,7 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
         if hvac is not None:
             # Fast path: HVAC coord already registered.
             hvac.set_custom_ranges_enabled(target, source=source)
+            self._resolved_value = bool(target)
             self._deferred_value = None
             self._deferred_source = None
             self.async_write_ha_state()
@@ -2150,6 +2157,26 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
         Bug Class #19: @callback fires synchronously on the event loop.
         """
         if self._deferred_value is None:
+            # Fix-up (B1): an integration-entry reload can rebuild the HVAC
+            # coordinator WITHOUT re-adding this switch. The new coordinator
+            # starts unresolved (None); re-land it from this switch's own
+            # last resolved state instead of waiting for the 300 s backstop
+            # (which would resolve OFF and start restoring originals).
+            if self._resolved_value is None:
+                return
+            hvac = self._get_hvac()
+            if hvac is None or getattr(
+                hvac, "_guest_mode_actuation_enabled", None
+            ) is not None:
+                return
+            hvac.set_custom_ranges_enabled(
+                self._resolved_value, source="deferred_landing_restore_entity",
+            )
+            _LOGGER.info(
+                "HVACGuestModeActuationSwitch: rebuilt HVAC coordinator re-landed "
+                "from the switch state (value=%s)", self._resolved_value,
+            )
+            self.async_write_ha_state()
             return
         hvac = self._get_hvac()
         if hvac is None:
@@ -2158,6 +2185,7 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
                 "but HVAC coord still not in hass.data — restore deferred"
             )
             return
+        self._resolved_value = bool(self._deferred_value)
         source = f"deferred_landing_{self._deferred_source or 'restore_entity'}"
         hvac.set_custom_ranges_enabled(self._deferred_value, source=source)
         _LOGGER.info(

@@ -489,6 +489,16 @@ class GenericStrategy:
         preset profile (Generic) or it cannot be read. Never raises."""
         return None
 
+    def preset_range_would_write(
+        self, low: float, high: float,
+    ) -> Optional[tuple[int, int]]:
+        """CPR fix-up (D-HIGH-1): the exact ``(low, high)`` this adapter's
+        ``set_preset_range`` would put on the wire for the requested range,
+        in the brand's rounding — S10 compares the device original against
+        THIS (not the unrounded request) before deciding whether an original
+        must be persisted. Generic writes nothing -> None. Never raises."""
+        return None
+
     # ---- preset hold (S1) ---------------------------------------------
     async def hold_preset(
         self,
@@ -578,6 +588,16 @@ class CarrierStrategy(GenericStrategy):
             if obs.target_low is None or obs.target_high is None:
                 return None
             return (_whole_degree(obs.target_low), _whole_degree(obs.target_high))
+        except Exception:  # noqa: BLE001
+            return None
+
+    def preset_range_would_write(
+        self, low: float, high: float,
+    ) -> Optional[tuple[int, int]]:
+        """Carrier P3: whole °F, round half up — the same rounding
+        ``set_preset_range`` applies before its P4 compare and the wire."""
+        try:
+            return (_whole_degree(low), _whole_degree(high))
         except Exception:  # noqa: BLE001
             return None
 

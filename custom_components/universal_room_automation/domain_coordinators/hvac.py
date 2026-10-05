@@ -708,6 +708,12 @@ class HVACCoordinator(BaseCoordinator):
         self._s10_quiet_skip_logged: set[str] = set()
         # Per-tick outcome per (zone, preset) for the diagnostics sensor.
         self._s10_last_outcome: dict[str, dict[str, dict[str, Any]]] = {}
+        # Fix-up (D-LOW-2): bumped whenever a user toggle clears every
+        # record, so an in-flight `_s10_write_one` never writes a record
+        # back over the cleared map after an await.
+        self._s10_records_gen: int = 0
+        # Fix-up (B2): the source the switch last resolved from.
+        self._s10_resolved_source: str | None = None
         # REV 3.2 R2 / REV 5 F8: the unresolved-switch backstop timer.
         self._cpr_resolution_backstop_handle: Any = None
         self._cpr_backstop_cancelled_by: str | None = None
@@ -4040,17 +4046,28 @@ class HVACCoordinator(BaseCoordinator):
             snaps = blob.get("snapshots") or {}
             recs = blob.get("records") or {}
             if isinstance(snaps, dict):
-                self._s10_snapshots = {
-                    str(z): {
-                        str(p): {
-                            "low": float(v["low"]), "high": float(v["high"]),
-                            "captured_iso": v.get("captured_iso"),
-                        }
-                        for p, v in (d or {}).items()
-                        if isinstance(v, dict) and "low" in v and "high" in v
-                    }
-                    for z, d in snaps.items() if isinstance(d, dict)
-                }
+                # Fix-up (A2): per-entry guard — one malformed original
+                # (e.g. a non-numeric low) drops only itself, never the
+                # zone's or the house's other originals.
+                restored: dict[str, dict[str, dict[str, Any]]] = {}
+                for z, d in snaps.items():
+                    if not isinstance(d, dict):
+                        continue
+                    for p, v in d.items():
+                        try:
+                            if not (isinstance(v, dict) and "low" in v and "high" in v):
+                                continue
+                            entry = {
+                                "low": float(v["low"]), "high": float(v["high"]),
+                                "captured_iso": v.get("captured_iso"),
+                            }
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.warning(
+                                "HVAC: S10 original %s/%s malformed — dropped", z, p,
+                            )
+                            continue
+                        restored.setdefault(str(z), {})[str(p)] = entry
+                self._s10_snapshots = restored
             if isinstance(recs, dict):
                 self._s10_records = {
                     str(z): {str(k): dict(v) for k, v in (d or {}).items() if isinstance(v, dict)}
@@ -4061,6 +4078,17 @@ class HVACCoordinator(BaseCoordinator):
                 self._s10_meta = dict(meta)
         except Exception:  # noqa: BLE001
             _LOGGER.warning("HVAC: S10 state rehydration failed", exc_info=True)
+        # Fix-up (B2): the switch may have resolved default-OFF before the
+        # originals were rehydrated (then it saw zero snapshots and sent no
+        # NM). Re-evaluate the default-off NM now.
+        try:
+            src = self._s10_resolved_source or ""
+            if self._guest_mode_actuation_enabled is False and src.endswith(
+                "no_last_state_default"
+            ):
+                self._s10_default_off_nm(src)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("S10 default-off NM re-check failed", exc_info=True)
 
     async def _s10_save_strict(self) -> None:
         """Write-ahead save that RAISES on failure (unlike
@@ -4304,15 +4332,14 @@ class HVACCoordinator(BaseCoordinator):
         strategy = _w1c_strategy(self.hass, zone.climate_entity)
         now = dt_util.utcnow()
         value = [float(desired[0]), float(desired[1])]
+        gen = self._s10_records_gen
 
         # 9 — snapshot capture (apply only; F2 gate: the adapter's original
-        # must exist AND differ from the desired range; never overwritten).
+        # must exist AND differ from what the adapter WOULD WRITE — fix-up
+        # D-HIGH-1: never the unrounded desired range; never overwritten).
         if mode == "apply" and preset not in (self._s10_snapshots.get(zone_id) or {}):
             original = strategy.preset_range_original(self.hass, zone.climate_entity, preset)
-            if original is not None and (
-                abs(float(original[0]) - value[0]) > 0.5
-                or abs(float(original[1]) - value[1]) > 0.5
-            ):
+            if self._s10_original_differs(strategy, original, value):
                 self._s10_snapshots.setdefault(zone_id, {})[preset] = {
                     "low": float(original[0]), "high": float(original[1]),
                     "captured_iso": now.isoformat(),
@@ -4332,6 +4359,10 @@ class HVACCoordinator(BaseCoordinator):
                     self._s10_note_outcome(
                         zone_id, preset, status="deferred", reason="snapshot_not_saved",
                     )
+                    return
+                if self._s10_records_gen != gen:
+                    # D-LOW-2: a user toggle cleared the records during the
+                    # save; the snapshot stays, this pass stands down.
                     return
 
         # 10 — rate / latch (§6.2 + REV 3.1 F4 + REV 5 F1).
@@ -4380,7 +4411,12 @@ class HVACCoordinator(BaseCoordinator):
                 "S10: attempt for %s %s not saved — write skipped", zone_id, preset,
                 exc_info=True,
             )
-            self._s10_set_record(zone_id, preset, mode, prev)
+            if self._s10_records_gen == gen:
+                self._s10_set_record(zone_id, preset, mode, prev)
+            return
+        if self._s10_records_gen != gen:
+            # D-LOW-2: the records were cleared during the save — do not
+            # write ours back (the stamp would survive the latch discharge).
             return
 
         def _s10_gate(z: str = zone_id) -> bool:
@@ -4401,12 +4437,32 @@ class HVACCoordinator(BaseCoordinator):
         # next tick captures it first.
         if mode == "apply" and preset not in (self._s10_snapshots.get(zone_id) or {}):
             _orig2 = strategy.preset_range_original(self.hass, zone.climate_entity, preset)
-            if _orig2 is not None and (
-                abs(float(_orig2[0]) - value[0]) > 0.5
-                or abs(float(_orig2[1]) - value[1]) > 0.5
-            ):
+            if self._s10_original_differs(strategy, _orig2, value):
                 self._s10_set_record(zone_id, preset, mode, prev)
                 return
+        # Fix-up pre-call re-checks (same no-await window as above): the
+        # awaits since `_s10_pass` chose this zone may have changed the
+        # world. Each stands down WITHOUT a call and undoes the stamp.
+        _stand_down: str | None = None
+        _want = mode == "apply"
+        if self._guest_mode_actuation_enabled is not _want:
+            # D-LOW-1: the switch moved during the save (apply only while
+            # resolved True; restore only while resolved False).
+            _stand_down = "switch_changed"
+        elif zone_id not in self._zone_manager.zones:
+            # B3: the zone was removed from URA during the save.
+            _stand_down = "zone_removed"
+        else:
+            # B4: the skip matrix (unreadable / egress / person / S1 /
+            # borrow / AC reset) re-run right before the wire call.
+            _stand_down = self._s10_zone_skip_reason(zone_id, zone)
+        if _stand_down is not None:
+            _LOGGER.debug(
+                "S10 %s: zone %s stood down before the call (%s)",
+                mode, zone_id, _stand_down,
+            )
+            self._s10_set_record(zone_id, preset, mode, prev)
+            return
 
         # No suppress() stamp: a profile edit is not a hold; the arrester
         # ignores it (M4).
@@ -4416,6 +4472,9 @@ class HVACCoordinator(BaseCoordinator):
             freeze_active=self._freeze_active, emit=emit_set_activity_setpoint,
         )
         status = result.status
+        if self._s10_records_gen != gen:
+            # D-LOW-2: a user toggle cleared the records during the call.
+            return
 
         # 12 — record update, branching ONLY on `.status` (REV 5 F1).
         if status == WriteStatus.APPLIED:
@@ -4468,6 +4527,29 @@ class HVACCoordinator(BaseCoordinator):
                     "HVAC S10: %s cannot carry a preset range (%s); URA keeps "
                     "the range itself", zone.climate_entity, result.reason,
                 )
+
+    @staticmethod
+    def _s10_original_differs(
+        strategy: Any, original: Any, value: list[float],
+    ) -> bool:
+        """Fix-up D-HIGH-1: True when the device original exists and is not
+        exactly what the adapter would put on the wire for ``value`` (Carrier
+        rounds half up, so 76 vs a desired 76.5 DIFFERS: the wire gets 77).
+        An adapter with no would-write (Generic) falls back to the requested
+        value. Any doubt -> True (capture the original: fail-safe)."""
+        if original is None:
+            return False
+        try:
+            _ww = getattr(strategy, "preset_range_would_write", None)
+            target = _ww(value[0], value[1]) if callable(_ww) else None
+            if target is None:
+                target = (value[0], value[1])
+            return (
+                float(original[0]) != float(target[0])
+                or float(original[1]) != float(target[1])
+            )
+        except Exception:  # noqa: BLE001
+            return True
 
     async def _s10_success(
         self, zone_id: str, preset: str, mode: str, rec: dict[str, Any],
@@ -4556,6 +4638,10 @@ class HVACCoordinator(BaseCoordinator):
         value = bool(value)
         prev = self._guest_mode_actuation_enabled
         self._guest_mode_actuation_enabled = value
+        self._s10_resolved_source = source
+        # Fix-up (B5): `handle_cancelled_by` describes THIS resolution only —
+        # never a stale value left by an earlier reload/teardown cancel.
+        self._cpr_backstop_cancelled_by = None
         if source != "unresolved_backstop":
             self._cancel_cpr_resolution_backstop("resolved")
         if prev is None:
@@ -4572,6 +4658,7 @@ class HVACCoordinator(BaseCoordinator):
             # A user toggle is the latch discharge: clear every record,
             # keep every snapshot (they are still the originals).
             self._s10_records = {}
+            self._s10_records_gen += 1
             self.schedule_zone_state_save("s10_user_toggle")
             if value is False and n > 0:
                 self._s10_notify(
@@ -4583,25 +4670,7 @@ class HVACCoordinator(BaseCoordinator):
                     hazard_type="s10_restore_pending", severity="LOW",
                 )
         elif source.endswith("no_last_state_default") and value is False and n > 0:
-            last_iso = self._s10_meta.get("default_off_nm_iso")
-            age = self._s10_age_s(last_iso, dt_util.utcnow())
-            if age is None or age >= S10_DEFAULT_OFF_NM_GUARD_S:
-                self._s10_meta["default_off_nm_iso"] = dt_util.utcnow().isoformat()
-                self._s10_notify(
-                    title="Custom Preset Ranges default is off after restart",
-                    message=(
-                        "URA is putting back the original ranges on "
-                        f"{n} presets as each zone next uses them."
-                    ),
-                    hazard_type="s10_restart_default_off_restore_pending",
-                    severity="LOW",
-                )
-                self._s10_ledger(
-                    "s10_default_off_after_restart", None, None,
-                    f"s10_default_off_after_restart snapshots={n} source={source}",
-                    {"snapshots": n, "source": source},
-                )
-                self.schedule_zone_state_save("s10_default_off_nm")
+            self._s10_default_off_nm(source)
         elif source == "unresolved_backstop" and not self._cpr_backstop_nm_sent:
             self._cpr_backstop_nm_sent = True
             minutes = int(S10_SWITCH_RESOLUTION_TIMEOUT_S // 60)
@@ -4613,6 +4682,34 @@ class HVACCoordinator(BaseCoordinator):
                 ),
                 hazard_type="s10_switch_unresolved_backstop", severity="LOW",
             )
+
+    def _s10_default_off_nm(self, source: str) -> None:
+        """The default-OFF-after-restart NM + ledger row, at most once per
+        S10_DEFAULT_OFF_NM_GUARD_S and only with pending originals. Called at
+        resolution and again after rehydration (fix-up B2)."""
+        n = self._s10_snapshot_count()
+        if n <= 0:
+            return
+        last_iso = self._s10_meta.get("default_off_nm_iso")
+        age = self._s10_age_s(last_iso, dt_util.utcnow())
+        if age is not None and age < S10_DEFAULT_OFF_NM_GUARD_S:
+            return
+        self._s10_meta["default_off_nm_iso"] = dt_util.utcnow().isoformat()
+        self._s10_notify(
+            title="Custom Preset Ranges default is off after restart",
+            message=(
+                "URA is putting back the original ranges on "
+                f"{n} presets as each zone next uses them."
+            ),
+            hazard_type="s10_restart_default_off_restore_pending",
+            severity="LOW",
+        )
+        self._s10_ledger(
+            "s10_default_off_after_restart", None, None,
+            f"s10_default_off_after_restart snapshots={n} source={source}",
+            {"snapshots": n, "source": source},
+        )
+        self.schedule_zone_state_save("s10_default_off_nm")
 
     def _arm_cpr_resolution_backstop(self) -> None:
         """REV 5 F8: cancel-before-re-arm (unconditional on (re)setup), then
