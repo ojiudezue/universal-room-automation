@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-05T02:20:37-05:00_ - _Data commit: `51d1fcbfc4d4`_ - _last_reconciled: 2026-10-03_
+_Generated: 2026-10-05T02:22:18-05:00_ - _Data commit: `059add618980`_ - _last_reconciled: 2026-10-03_
 
 
 ## Columns
@@ -26,7 +26,7 @@ _raw capture_
 
 ### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#1 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **census** - status: **inbox**
-_created 2026-10-05 04:40 · initial_
+_created 2026-10-05 02:22 · initial_
 - **Problem / Solution:**
   - Problem: when someone who lives here steps out and back (cleaning the porch, fetching something from the garage) their phone never leaves home, so nothing names the crossing and it can be counted as a visitor - about 3-4 such episodes a ...
 - **Origin:** 2026-10-04 - PLANNING_census_inputs_first.md R2.3 item 4 / Path alpha-beta; listed as to-mint in the 10-04 resume memo
@@ -42,7 +42,7 @@ _measuring; truth not yet known_
 
 ### `CENSUS-SHUTDOWN-AWAY-FENCE-1` - After an HA restart the house can come back up as AWAY with people home, and stay AWAY for an hour — _#1 · WSJF 4.3 · v6 tc5 u2 /e3_
 thread: **presence** - status: **investigating**
-_created 2026-10-05 04:40 · updated 2026-10-05 05:00 · initial_
+_created 2026-10-05 02:22 · initial_
 - **Problem / Solution:**
   - Problem: during the 10-03 party, around the 16:00 restart, the presence logic set the house to AWAY while it was full, apparently from the census reading empty while HA was stopping and starting. Solution: trace which branch set AWAY, th...
 - **Origin:** 2026-10-04 - AUDIT_census_subsystem_2026_10_04.md R5 ("Trace and fence the shutdown-window AWAY"); listed as "16:00 boot AWAY fence" in the 10-04 resume memo
@@ -138,7 +138,7 @@ _created 2026-08-21 17:40 · updated 2026-09-29 01:05 · initial_
 
 ### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **pre_planning**
-_created 2026-10-04 01:00 · updated 2026-10-05 03:40_
+_created 2026-10-04 01:00 · updated 2026-10-05 02:22_
 - **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...
 - **Next:** PLAN (phase 2 of EC-DEGRADED-DATA-POLICY-1, after phase 1 ships + stream A/B 2026-10-05): (1) retire/rework dormant local write-failover (PLANNING_envoy_write_verification_and_redundancy D3) — local battery writes gone since fw 8.2.4225;...
 - **Forensic keys (3):**
@@ -425,7 +425,7 @@ _being built_
 
 ### `EC-EV-TOGGLE-TRIPWIRE-1` - Alert when a strategy flip-flop switches an EV charger more than twice an hour — _#1 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **in_progress** - approval: **explicit**
-_created 2026-10-03 16:00 · updated 2026-10-05 03:45_
+_created 2026-10-03 16:00 · updated 2026-10-05 02:22_
 - **Why:** SPEC INV-1 / plan review #2 F6: the daylight-horizon fix removes the night ping-pong but a post-sunrise residual remains possible (EV still charging after sunrise, rate from night readings). A code trip-wire, not soak-watching, is the sa...
 - **Next:** BUILDING (overnight, ura-builder in .claude/worktrees/overnight-1005-evtoggle on feature/ec-ev-toggle-tripwire, stacked on feature/ec-degraded-data-p1). Then 2 reviews -> review lane. No deploy: ships after EC p1.
 - **Forensic keys (1):**
@@ -488,7 +488,7 @@ _created 2026-10-03 02:55 · updated 2026-10-04 04:15 · initial_
 
 ### `EC-DEGRADED-DATA-POLICY-1` - Energy coordinator has no single rule for what to do when the Envoy reading drops out (some sites hold, some release, some read zero) — _#4 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **energy** - status: **review**
-_created 2026-10-03 01:20 · updated 2026-10-05 06:05_
+_created 2026-10-03 01:20 · updated 2026-10-05 02:22_
 - **Why:** SOC resolver already falls back envoy -> lkg -> cloud, but the battery strategy holds with no commands, the arbitrage EV pause releases on missing SOC, and solar reads the dead derived sensor. The Envoy /production.json fault (since 2026...
 - **Next:** SHIP (operator-timed, Mon 10-05 after the 13:05 stream A/B readout, which decides the D1 stream tier/heartbeat): merge feature/ec-degraded-data-p1 (HEAD 645af019c) to develop with the energy-history kWh fix (ENERGY-HISTORY-KW-SUMMED-AS-K...
 - **Forensic keys (3):**
@@ -507,7 +507,7 @@ _created 2026-10-04 00:10 · updated 2026-10-04 04:30_
 
 ### `EC-LKG-NEVER-PERSISTED-1` - Battery and solar last-known-good are never saved — _save_evse_state uses an unbound _json, error swallowed at DEBUG — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **review**
-_created 2026-10-04 02:00 · updated 2026-10-05 03:20_
+_created 2026-10-04 02:00 · updated 2026-10-05 02:22_
 - **Why:** Found by the EC degraded-data phase 1 builder 2026-10-04. Restart outages today (00:37, 15:55, 17:05) started with an empty LKG, contradicting the plan's LKG-persistence reuse assumption.
 - **Next:** SHIP with EC p1 (feature/ec-degraded-data-p1, operator-timed Mon after the 13:05 A/B). Live acceptance after that restart: ALL FIVE energy_state rows (battery_soc_lkg, solar_production_w_lkg, wv_commanded_ledger, wv_verified_records, arb...
 - **Forensic keys (1):**
@@ -518,7 +518,7 @@ _needs a human call — groomed first_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
 thread: **perimeter** - status: **waiting_operator** - approval: **blocked**
-_created 2026-09-16 03:30 · updated 2026-10-05 02:30 · refined_
+_created 2026-09-16 03:30 · updated 2026-10-05 02:22 · refined_
 - **Problem / Solution:**
   - Problem: the system that spots people outside the house has gone quiet across EVERY outdoor camera at once. Two days ago the cameras between them reported a person about 470 times a day; yesterday that fell to about 40, and so far today ...
 - **Origin:** 2026-09-16 - fell out of re-measuring FRONT-SIDE-PTZ-CHATTER-1 overnight — the chatter had vanished, and checking WHY it vanished turned up a fleet-wide blackout instead of a fix
@@ -570,7 +570,7 @@ _created 2026-09-13 21:30 · initial_
 
 ### `CENSUS-GROUND-TRUTH-CSV-FIX-1` - The 10-03 census ground-truth fixture still carries truth the operator has since corrected — _#3 · WSJF 6.5 · v5 tc4 u4 /e2_
 thread: **census** - status: **waiting_operator**
-_created 2026-10-05 04:40 · updated 2026-10-05 06:00 · initial_
+_created 2026-10-05 02:22 · initial_
 - **Problem / Solution:**
   - Problem: the replay that decides whether the estimator is good is scored against a hand-made truth file, and that file still holds values the operator corrected (no drop-off visitor at midday; the long-stay guest was out in the morning; ...
 - **Origin:** 2026-10-04 - Listed as to-mint ("ground-truth CSV fix") in the 10-04 resume memo; AUDIT_census_estimator_replay_2026_10_03_hybrid.md :88/:114 flag the CSV
@@ -615,7 +615,7 @@ _created 2026-09-28 22:50 · updated 2026-10-04 03:05_
 
 ### `RECORDER-BLOAT-LOGFLOOD-1` - 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log floods — _#7 · WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **platform** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-20 14:15 · updated 2026-10-05 02:45 · initial_
+_created 2026-08-20 14:15 · updated 2026-10-05 02:22 · initial_
 - **Problem / Solution:**
   - Problem: the history database has grown to about 31 GB while only holding a week of data, and the drive it lives on reports half its write life used. Three separate things are spamming thousands of repeated error lines a day, and every o...
 - **Why:** Live 2026-08-20 system_health: estimated_db_size 31722.88 MiB, oldest_recorder_run 2026-08-13 (7 days), disk_life_time 51%. Top floods: mqtt.number 1030 errors (Sonoff garage-B porch delayed_power_on_time_l1 range mismatch, config-level ...
@@ -646,7 +646,7 @@ _created 2026-08-20 14:15 · updated 2026-10-05 02:45 · initial_
 
 ### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#8 · WSJF 5.0 · v4 tc4 u2 /e2_
 thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-09-29 04:20 · updated 2026-10-05 02:45 · initial_
+_created 2026-09-29 04:20 · updated 2026-10-05 02:22 · initial_
 - **Problem / Solution:**
   - Problem: the per-room Override Vacant switch forces URA to treat a room as empty. It has no expiry and nothing reminds anyone it is on, so it gets forgotten: the Kitchen one was on 09-21 23:20 -> 09-27 19:40 (6 days, 14 wrong HVAC retrea...
 - **Origin:** 2026-09-29 - overnight HVAC hold-sizing raw-sensor probe (docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md): 14 of 113 pre-ship away episodes were Kitchen under a forgotten override
@@ -688,7 +688,7 @@ _created 2026-09-21 · updated 2026-10-03 02:05 · refined ×1_
 
 ### `FRONT-SIDE-PTZ-CHATTER-1` - front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling — _#10 · WSJF 4.7 · v7 tc5 u2 /e3_
 thread: **perimeter** - status: **waiting_operator**
-_created 2026-09-14 00:20 · updated 2026-10-05 02:30 · refined_
+_created 2026-09-14 00:20 · updated 2026-10-05 02:22 · refined_
 - **Problem / Solution:**
   - Problem: one exterior camera reports "person detected" far more than any other — it is active 21% of the time, its busiest hours are 3-5am when nobody is about, and it once stayed "on" continuously for 29.5 hours. Because the system link...
 - **Origin:** 2026-09-14 - fell out of the CIRCLING-FOUNDING-CASE-ARTIFACT-1 measurement — the control-pair comparison isolated front_side_ptz as the anomaly
@@ -827,7 +827,7 @@ _created 2026-09-17 02:20 · updated 2026-10-01 04:00 · refined_
 
 ### `CENSUS-PATIO-THROUGH-GLASS-1` - The family-room camera counts people on the covered patio through the glass as being inside — _#19 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **census** - status: **waiting_operator**
-_created 2026-10-05 04:40 · updated 2026-10-05 05:55 · initial_
+_created 2026-10-05 02:22 · initial_
 - **Problem / Solution:**
   - Problem: the family_room camera sees the covered patio through the window, so outdoor guests on the patio are counted as indoor occupants (on 10-03 most visible guests were on the patio from 15:00 to 21:00). Solution: config first - a de...
 - **Origin:** 2026-10-04 - AUDIT_census_footage_ground_truth_2026_10_03.md :19; listed as "patio camera gap" in the 10-04 resume memo
@@ -841,7 +841,7 @@ _created 2026-10-05 04:40 · updated 2026-10-05 05:55 · initial_
 
 ### `HA-2027-DEPRECATIONS-URA-1` - URA deprecation warnings seen on the Wigton install (break in HA 2027.8-2027.9) — _#20 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **platform** - status: **waiting_operator**
-_created 2026-10-05 · updated 2026-10-05 03:00_
+_created 2026-10-05 · updated 2026-10-05 02:22_
 - **Why:** A Wigton-side session reported URA deprecation warnings in the Wigton HA log that become hard failures in HA 2027.8-2027.9; it deliberately left URA untouched. Main-house system_log (2026-10-05) shows no deprecation entries, but boot-tim...
 - **Next:** PICK how URA hides advanced settings once HA removes profile Advanced mode from flows (2027.6): (A) collapsible Advanced sections in each form (HA guidance; my recommendation), (B) one URA-owned Show-advanced-settings switch in the integ...
 - **Tags:** tier-1, multi-home
@@ -917,7 +917,7 @@ _created 2026-09-27 02:40 · updated 2026-10-01 06:30 · refined ×1_
 
 ### `HVAC-GARAGE-GUARD-STAGED-SUNSET-1` - One staged evening to prove room covers leave an open garage door alone at sunset — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **waiting_operator**
-_created 2026-10-02 22:00 · updated 2026-10-05 02:35_
+_created 2026-10-02 22:00 · updated 2026-10-05 02:22_
 - **Why:** v5.103.28 cover_ownership guard is proven in-suite with drills, but the 09-30 live check was inconclusive (both doors already closed). A garage door closing on its own is the one safety-relevant failure in the W4 set, so one staged proof...
 - **Next:** DO: leave a garage door open across sunset (~7:05 pm) with someone home -> I query ura_activity_log for the cover skip and confirm the door did not move, then close this card.
 - **Forensic keys (2):**
@@ -977,7 +977,7 @@ _updated 2026-09-29 01:05_
 
 ### `EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1` - On the EV manager path, grid charging may be switched on before the EV pause lands (review finding D-MED-2 from EC p1) — _#29 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **energy** - status: **waiting_operator**
-_created 2026-10-05 04:40 · updated 2026-10-05 06:05 · initial_
+_created 2026-10-05 02:22 · initial_
 - **Problem / Solution:**
   - Problem: the breaker-safety rule says EV chargers must be paused before the battery starts charging from the grid; an EC p1 review (D-MED-2) noted that on the manager path the time-of-use grid-charge switch can be sent before the EV paus...
 - **Origin:** 2026-10-04 - "Card still to mint: manager-path TOU CFG-ON-before-EV-pause (D-MED-2)" - 10-04 resume memo
@@ -1016,7 +1016,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
 
 ### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#32 · WSJF 1.0 · v7 tc4 u2 /e13_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-17 23:58 · updated 2026-10-05 02:30 · refined_
+_created 2026-08-17 23:58 · updated 2026-10-05 02:22 · refined_
 - **Problem / Solution:**
   - Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house is away) even when no other camera watching the area agreed — because the alert records which cameras fired but throws that agreement away...
   - Solution (Tier 3, NARROW remit per operator): make the already-recorded cross-camera/NVR agreement MATTER to the notification severity — a single-source detection DEMOTES (floor LOW, never silenced, so a lone-camera real threat still pag...
@@ -1052,7 +1052,7 @@ _created 2026-08-17 23:58 · updated 2026-10-05 02:30 · refined_
 
 ### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#33 · WSJF 0.6 · v4 tc2 u2 /e13_
 thread: **energy** - status: **waiting_operator** - approval: **blocked**
-_created 2026-10-03 02:40 · updated 2026-10-05 03:35 · initial_
+_created 2026-10-03 02:40 · updated 2026-10-05 02:22 · initial_
 - **Problem / Solution:**
   - Problem: on 10-01 between about 01:00 and 06:00 CDT the battery strategy switched back and forth every tick between two answers. When the garage car charger was drawing ~11.7 kW, it chose 'pause the EVs to save solar for the battery' (ru...
 - **Origin:** 2026-10-03 - D0 replay in DESIGN_ec_degraded_data_policy.md section 9.1 found the 10-01 flap is an Envoy-independent rung_1 <-> WAIT load-feedback loop; doc 9.3 says card needed (Tier 2+); carded by the overnight pass.
@@ -1072,7 +1072,7 @@ _I owe something_
 
 ### `HA-TRUSTED-PROXIES-UI-MIGRATION-1` - Verify HA's claimed YAML trusted_proxies -> UI settings migration before upgrading past 2026.9 — _#1 · WSJF 10.0 · v4 tc4 u2 /e1_
 thread: **platform** - status: **waiting_me**
-_created 2026-10-05 · updated 2026-10-05 03:00_
+_created 2026-10-05 · updated 2026-10-05 02:22_
 - **Why:** Claim (from the Wigton session): when HA upgrades past 2026.9 it copies YAML http trusted_proxies into the new UI settings on first start. UNVERIFIED: not in the 2026.9 release notes nor the developer blog (Aug-Sep 2026); likely a 2026.1...
 - **Next:** Me: read the 2026.10 release notes + http integration docs on release day; then on the first upgrade confirm the UI shows both proxies and remote access works, and remove the YAML block only if HA says it is imported. Same check on Wigton.
 - **Tags:** tier-1, multi-home
@@ -1082,7 +1082,7 @@ _created 2026-10-05 · updated 2026-10-05 03:00_
 
 ### `CENSUS-INPUTS-FIRST-1` - Fix the census inputs (door events, resident attribution) before building the hybrid occupancy estimator, then re-run the 10-03 replay — _#2 · WSJF 2.1 · v7 tc4 u6 /e8_
 thread: **census** - status: **waiting_me** - approval: **explicit**
-_created 2026-10-05 04:40 · updated 2026-10-05 05:40 · refined_
+_created 2026-10-05 02:22 · refined_
 - **Problem / Solution:**
   - Problem: the house head-count estimator we designed failed its replay test on 10-03, not because its formula is wrong but because the data fed into it is wrong - residents walking in and out (porch cleaning, two people leaving in one car...
 - **Origin:** 2026-10-03 - Operator ruling on the D0-REPLAY NO-GO; plan rev 2 written 2026-10-04 (resume memo project_session_pickup_2026_10_04)
@@ -1109,7 +1109,7 @@ _created 2026-09-29 23:20 · updated 2026-10-03 02:16_
 
 ### `HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1` - A new arrester episode cancels a pending AC hard-reset restore, so a zone can stay off for about 2-20 minutes after a reset — _#2 · WSJF 9.0 · v4 tc3 u2 /e1_
 thread: **hvac** - status: **shipped_organic** - approval: **implied**
-_created 2026-09-29 04:10 · updated 2026-10-05 04:05_
+_created 2026-09-29 04:10 · updated 2026-10-05 02:22_
 - **Origin:** 2026-09-29 - Batch B review B-L3 (docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md); flagged by the builder; exists on develop
 - **Why:** A governed override dispatch (hvac_override.py ~4055/4123) calls _cancel_zone_timers (~7624-7633), which also cancels a pending AC-reset RESTORE timer. If a manual change is booked inside the Carrier lag window after the reset's `off` wr...
 - **Next:** VALIDATE (me, one-shot): next arrester episode that overlaps a pending AC-reset restore -> the restore still runs (ura_activity_log). Dispose by 2026-10-10; if no overlap occurs, close as in-suite-proven. Separately: the leftover A-L2 do...
@@ -1125,7 +1125,7 @@ _created 2026-09-29 04:10 · updated 2026-10-05 04:05_
 
 ### `HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1` - Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered — _#3 · WSJF 8.0 · v4 tc2 u2 /e1_
 thread: **hvac** - status: **shipped_organic** - approval: **implied**
-_created 2026-09-29 01:05 · updated 2026-10-05 04:05 · refined_
+_created 2026-09-29 01:05 · updated 2026-10-05 02:22 · refined_
 - **Problem / Solution:**
   - Problem: since v5.103.16 every URA thermostat write is logged, and writes made on behalf of a temporary "borrow" (a nudge, a pre-cool, a return from one) are supposed to carry that borrow's id so each write can be traced to the episode t...
 - **Origin:** 2026-09-29 - Soak-exit query for HVAC-SETHVACMODE-CHOKEPOINT-1 (v5.103.16) during the 2026-09-29 board groom
@@ -1229,7 +1229,7 @@ _created 2026-09-29 22:30 · updated 2026-10-03 02:10_
 
 ### `FAN-ORACLE-BOOT-FALLBACK-NOISE-1` - 86 "FanPolicyOracle fallback" warnings at every boot (rooms set up before the Coordinator Manager attaches the fan oracle) — _#12 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hygiene** - status: **shipped_organic**
-_created 2026-10-03 01:00 · updated 2026-10-05 04:15_
+_created 2026-10-03 01:00 · updated 2026-10-05 02:22_
 - **Why:** Observed after the 2026-10-03 00:37 restart: 43 rooms x write_on/write_off, all in the boot second. Harmless but buries real warnings during post-deploy log review.
 - **Next:** VALIDATE (me, at the next HA restart = the EC p1 deploy): read system_log (websocket system_log/list) within ~10 min of boot -> 0 WARNING entries containing FanPolicyOracle fallback. Present -> reopen; absent -> done.
 - **Forensic keys (3):**
@@ -2327,24 +2327,33 @@ _created 2026-09-05 17:35 · initial_
 ## ✅ Done (277)
 _closed, evidence in refs_
 
-### `EGRESS-BLE-ENTRY-ATTACH-1` - (REFUTED premise) Arrivals through a door are never matched to the resident whose phone just arrived — _WSJF 2.0 · v5 tc3 u2 /e5_
-thread: **census** - status: **done**
-_created 2026-10-05 04:40 · updated 2026-10-05 05:35 · refined_
-- **Problem / Solution:**
-  - Problem: when residents come home, the door crossing is logged with no name even though their phones report arriving within a few minutes - on 10-03 the 23:25-23:31 return produced 0 of 12 named rows despite two residents phone arrivals ...
-- **Origin:** 2026-10-04 - PLANNING_census_inputs_first.md R2.3 item 3 ("new card, not this cycle"); listed as to-mint in the 10-04 resume memo
-- **Why:** Unnamed arrivals look like guests to the door tally, which is one of the inputs the estimator replay failed on.
-- **Next:** None - closed; the real defect is the _2 camera-stem bug inside CENSUS-INPUTS-FIRST-1 D1. The 7-day measurement on this card is that D1's acceptance metric.
-- **Tags:** tier-2, measure-before-build
-- **Refs:** docs/planning/PLANNING_census_inputs_first.md
-- **Forensic keys (3):**
-  - `refuted_2026_10_05_overnight`: REFUTED-but-fertile (same night it was minted from the 10-04 memo). The premise 'the BLE backfill only handles exits / entries have no attach' is WRONG: entry-side BLE attach already ships - camera_census.py:4497 _resolve_ble_legs docstr...
-  - `measured_2026_10_05_overnight`: REAL (measured, URA DB + HA recorder, 7 days to 10-05 05:00Z). person_entry_exit_events (timestamps are UTC - database.py:4057 datetime.utcnow()): entries 198 = 45 named + 153 unnamed; exits 164 = 36 named + 128 unnamed. Unnamed entry ro...
-  - `sweep_2026_10_05`: Board grep EGRESS-*: EGRESS-EXIT-IDENTITY-BACKFILL-1 is ADJACENT (exit side only). NEW.
+### `EC-RUNG1-WAIT-EV-PINGPONG-1` - Battery strategy flips between "redirect solar" (pauses EVs) and "Arbitrage WAIT" (releases them) every tick, cycling an 11.6 kW charger on/off for hours — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **done**
+_created 2026-10-03 02:30 · updated 2026-10-05 02:22_
+- **Why:** D0 replay + breaker investigation 2026-10-03: on 10-01 06:09-08:20Z ~12 full on/off cycles of garage A (11.6 kW); 13/14 turn-ons on ticks with valid SOC, so NOT the Envoy dropout. Pause reason "EV pause redirects solar" at 06:40Z with no...
+- **Next:** None - merged into EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1.
+- **Forensic keys (1):**
+  - `DEDUPE_2026_10_05`: DUPLICATE of EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 (same 10-01 06:09-08:20Z garage-A flap, same rung_1 redirect <-> Arbitrage WAIT feedback loop, both carded 10-03 02:30/02:40 by different passes). Survivor carries the union: this cards ...
+
+### `ARRESTER-BOOT-BLIND-1` - Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable — _WSJF 1.9 · v7 tc6 u2 /e8_
+thread: **hvac** - status: **done** - approval: **unreviewed**
+_updated 2026-10-05 02:22_
+- **Origin:** 2026-08-11 - operator: "The battery is not 97%. The arrester should be seeing this as a bad action" — up-hallway manual 75->71 cool during a 26->11 SOC collapse, arrester idle w/ overrides_today=0.
+- **Why:** LIVE INCIDENT ~22:36-23:10: zone_2 flipped sleep->manual at 22:36:06 during the post-HA-upgrade boot window BEFORE the arrester listener attached (22:37:53); subsequent setpoint walks (75->71 at 22:56) were within-manual = no classifiabl...
+- **Next:** None - closed in-suite-proven. REVIVAL TRIGGER: an hvac_excursion_events row with trigger human_interrupt followed by a climate_write carrying the same excursion_id (a write after the person ended the borrow) -> reopen.
+- **Forensic keys (8):**
+  - `disposed_2026_10_05_overnight`: SOAK EXIT -> DONE (in-suite-proven, inside the card window of 2026-10-06). Live discriminator never fired: URA DB hvac_excursion_events has ZERO human_interrupt rows ever (triggers since ship: lease_expiry 75, timer 73, stale_boot_releas...
+  - `groom_2026_09_29_arc`: Shipped v5.103.23 (Batch B Part A). Gap (2) is fixed: within-manual human changes are detected and, during a non-nudge borrow, end the borrow (ruling "the person interrupts, we end and revert"). Gap (1) (manual holds that predate the lis...
+  - `groom_2026_09_29`: MOVED waiting_operator -> in_progress. The operator input this lane waited on already arrived (operator_ruling_2026_09_28: "The person interrupts. We end and revert."), and the build is running: Batch B "HVAC W1/W2 finish" (PLANNING_hvac...
+  - `revived_2026_09_28`: REVIVAL TRIGGER FIRED 2026-09-28 22:15 CDT (operator: "Why is the arrester not arresting zone 2?"). Gap (2) is CONFIRMED FROM SOURCE: hvac_override.py:3218 books an override ONLY when new_preset == "manual" and old_preset != "manual"; :3...
+  - `parked_2026_08_12`: OPERATOR: "Park #2 until another incident." Revisit trigger: next boot-coincident manual hold the arrester misses (same signature: zone flips to manual during boot window, setpoint walks within-manual, arrester overrides_today stays flat...
+  - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
+  - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
+  - `operator_ruling_2026_09_28`: OPERATOR (verbatim): "The person interrupts. We end and revert. Closest to my intent." i.e. option A: a human change during a URA non-nudge borrow ENDS the borrow, and the arrester then treats it as an ordinary human override (grace, com...
 
 ### `SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1` - Solar-following car charging steers off a grid reading that lags by a minute — point it at the new fast (~5-6s) local reading instead — _WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **energy** - status: **done** - approval: **explicit**
-_created 2026-09-25 18:00 · updated 2026-10-05 04:25 · refined_
+_created 2026-09-25 18:00 · updated 2026-10-05 02:22 · refined_
 - **Problem / Solution:**
   - Problem: when the car charges on surplus solar, the system decides how many amps to give it by watching how much power is flowing to or from the grid. The reading it watches is a roughly one-minute average, and we have already measured t...
 - **Origin:** 2026-09-25 - orchestrator noted the 1 Hz local grid reading would beat the ~120s-p90 source solar-follow currently uses; operator: "I liked your comment there"
@@ -2362,29 +2371,20 @@ _created 2026-09-25 18:00 · updated 2026-10-05 04:25 · refined_
   - `operator_decision_2026_09_25`: B2 (promote the stream to PRIMARY) and B3 (retighten SOLAR_FOLLOW_GRID_FRESH_S) are DROPPED, not deferred. Operator: "No need to revisit. I trust emporia more period. backup is fine." Emporia sensor.mains_vue_3_power_minute_average is th...
   - `b1_applied_2026_09_25`: Operator set it via UI (picker needed a search-select, paste did not bind). Verified in live .storage/core.config_entries: CM entry 01KJEC3FYPYAGBQKZWC94CR8GR options energy_solar_follow_grid_fallback_entity = sensor.envoy_stream_grid_po...
 
-### `ARRESTER-BOOT-BLIND-1` - Arrester boot-window manual blindness — manual holds predating the listener are unclassifiable — _WSJF 1.9 · v7 tc6 u2 /e8_
-thread: **hvac** - status: **done** - approval: **unreviewed**
-_updated 2026-10-05 04:05_
-- **Origin:** 2026-08-11 - operator: "The battery is not 97%. The arrester should be seeing this as a bad action" — up-hallway manual 75->71 cool during a 26->11 SOC collapse, arrester idle w/ overrides_today=0.
-- **Why:** LIVE INCIDENT ~22:36-23:10: zone_2 flipped sleep->manual at 22:36:06 during the post-HA-upgrade boot window BEFORE the arrester listener attached (22:37:53); subsequent setpoint walks (75->71 at 22:56) were within-manual = no classifiabl...
-- **Next:** None - closed in-suite-proven. REVIVAL TRIGGER: an hvac_excursion_events row with trigger human_interrupt followed by a climate_write carrying the same excursion_id (a write after the person ended the borrow) -> reopen.
-- **Forensic keys (8):**
-  - `disposed_2026_10_05_overnight`: SOAK EXIT -> DONE (in-suite-proven, inside the card window of 2026-10-06). Live discriminator never fired: URA DB hvac_excursion_events has ZERO human_interrupt rows ever (triggers since ship: lease_expiry 75, timer 73, stale_boot_releas...
-  - `groom_2026_09_29_arc`: Shipped v5.103.23 (Batch B Part A). Gap (2) is fixed: within-manual human changes are detected and, during a non-nudge borrow, end the borrow (ruling "the person interrupts, we end and revert"). Gap (1) (manual holds that predate the lis...
-  - `groom_2026_09_29`: MOVED waiting_operator -> in_progress. The operator input this lane waited on already arrived (operator_ruling_2026_09_28: "The person interrupts. We end and revert."), and the build is running: Batch B "HVAC W1/W2 finish" (PLANNING_hvac...
-  - `revived_2026_09_28`: REVIVAL TRIGGER FIRED 2026-09-28 22:15 CDT (operator: "Why is the arrester not arresting zone 2?"). Gap (2) is CONFIRMED FROM SOURCE: hvac_override.py:3218 books an override ONLY when new_preset == "manual" and old_preset != "manual"; :3...
-  - `parked_2026_08_12`: OPERATOR: "Park #2 until another incident." Revisit trigger: next boot-coincident manual hold the arrester misses (same signature: zone flips to manual during boot window, setpoint walks within-manual, arrester overrides_today stays flat...
-  - `sharp_problem`: Gaps: (1) boot reconciliation — on listener attach, classify any zone ALREADY in manual as inherited-manual and start standard arrest evaluation; (2) verify _handle_climate_change classifies within-manual setpoint deltas (manual->manual ...
-  - `related`: Envoy reserve wedge (device=10 vs cloud=26/27) is the energy half — the write-verify self-heal alert was RIGHT to fire. RESOLVED 2026-08-12: operator power-cycled Enpower; all 3 reserve legs coherent at 10 (local number + envoy sensor + ...
-  - `operator_ruling_2026_09_28`: OPERATOR (verbatim): "The person interrupts. We end and revert. Closest to my intent." i.e. option A: a human change during a URA non-nudge borrow ENDS the borrow, and the arrester then treats it as an ordinary human override (grace, com...
-
-### `EC-RUNG1-WAIT-EV-PINGPONG-1` - Battery strategy flips between "redirect solar" (pauses EVs) and "Arbitrage WAIT" (releases them) every tick, cycling an 11.6 kW charger on/off for hours — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **done**
-_created 2026-10-03 02:30 · updated 2026-10-05 03:35_
-- **Why:** D0 replay + breaker investigation 2026-10-03: on 10-01 06:09-08:20Z ~12 full on/off cycles of garage A (11.6 kW); 13/14 turn-ons on ticks with valid SOC, so NOT the Envoy dropout. Pause reason "EV pause redirects solar" at 06:40Z with no...
-- **Next:** None - merged into EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1.
-- **Forensic keys (1):**
-  - `DEDUPE_2026_10_05`: DUPLICATE of EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1 (same 10-01 06:09-08:20Z garage-A flap, same rung_1 redirect <-> Arbitrage WAIT feedback loop, both carded 10-03 02:30/02:40 by different passes). Survivor carries the union: this cards ...
+### `EGRESS-BLE-ENTRY-ATTACH-1` - (REFUTED premise) Arrivals through a door are never matched to the resident whose phone just arrived — _WSJF 2.0 · v5 tc3 u2 /e5_
+thread: **census** - status: **done**
+_created 2026-10-05 02:22 · refined_
+- **Problem / Solution:**
+  - Problem: when residents come home, the door crossing is logged with no name even though their phones report arriving within a few minutes - on 10-03 the 23:25-23:31 return produced 0 of 12 named rows despite two residents phone arrivals ...
+- **Origin:** 2026-10-04 - PLANNING_census_inputs_first.md R2.3 item 3 ("new card, not this cycle"); listed as to-mint in the 10-04 resume memo
+- **Why:** Unnamed arrivals look like guests to the door tally, which is one of the inputs the estimator replay failed on.
+- **Next:** None - closed; the real defect is the _2 camera-stem bug inside CENSUS-INPUTS-FIRST-1 D1. The 7-day measurement on this card is that D1's acceptance metric.
+- **Tags:** tier-2, measure-before-build
+- **Refs:** docs/planning/PLANNING_census_inputs_first.md
+- **Forensic keys (3):**
+  - `refuted_2026_10_05_overnight`: REFUTED-but-fertile (same night it was minted from the 10-04 memo). The premise 'the BLE backfill only handles exits / entries have no attach' is WRONG: entry-side BLE attach already ships - camera_census.py:4497 _resolve_ble_legs docstr...
+  - `measured_2026_10_05_overnight`: REAL (measured, URA DB + HA recorder, 7 days to 10-05 05:00Z). person_entry_exit_events (timestamps are UTC - database.py:4057 datetime.utcnow()): entries 198 = 45 named + 153 unnamed; exits 164 = 36 named + 128 unnamed. Unnamed entry ro...
+  - `sweep_2026_10_05`: Board grep EGRESS-*: EGRESS-EXIT-IDENTITY-BACKFILL-1 is ADJACENT (exit side only). NEW.
 
 ### `PERSON-STATIONARY-TRACKER-BLIP-1` - person.oji_udezue blips home for <1 s when the phone tracker drops, because home-stationary trackers are attached to the person - fires phantom pre-arrivals — _WSJF 5.5 · v4 tc5 u2 /e2_
 thread: **presence** - status: **done**
