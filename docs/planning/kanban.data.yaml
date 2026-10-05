@@ -30710,6 +30710,39 @@ cards:
     context: 'BOOT-EVENT-LOOP-FREEZE-1 shipped the watchdog (v5.103.26/.28); this is a teardown defect in it, found while disposing that card.'
   rank: {value: 3, time_criticality: 2, effort: 2}
   refs: [custom_components/universal_room_automation/domain_coordinators/_loop_stall_watchdog.py:249-292]
+- id: HA-2027-DEPRECATIONS-URA-1
+  title: "URA deprecation warnings seen on the Wigton install (break in HA 2027.8-2027.9)"
+  thread: platform
+  rank: {value: 6, time_criticality: 3, effort: 3}
+  status: investigating
+  created: '2026-10-05'
+  updated: '2026-10-05'
+  tags: [tier-1, multi-home]
+  why: 'A Wigton-side session reported URA deprecation warnings in the Wigton HA log that become hard failures in HA 2027.8-2027.9; it deliberately left URA untouched. Main-house system_log (2026-10-05) shows no deprecation entries, but boot-time warnings fall outside the 2000-line error_log window, so absence is not proven. Dev blog removals already announced for 2027.10: DeviceEntry.config_entries (enforced 2026-09-15), configurator, modbus get_hub.'
+  next: 'ANSWER: paste the Wigton warning lines (or re-share the Wigton token) -> I map each to file:line, check the main house at next restart (capture boot log), and fix as one Tier-1 cycle well before 2027.8.'
+  sweep_2026_10_05: 'ADJACENT to AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1 (done; frame-walker artifact) and the via_device 2026.9 card (done). NEW: no open deprecation card.'
+- id: HA-TRUSTED-PROXIES-UI-MIGRATION-1
+  title: "Verify HA's claimed YAML trusted_proxies -> UI settings migration before upgrading past 2026.9"
+  thread: platform
+  rank: {value: 4, time_criticality: 4, effort: 1}
+  status: investigating
+  created: '2026-10-05'
+  updated: '2026-10-05'
+  tags: [tier-1, multi-home]
+  why: 'Claim (from the Wigton session): when HA upgrades past 2026.9 it copies YAML http trusted_proxies into the new UI settings on first start. UNVERIFIED: not in the 2026.9 release notes nor the developer blog (Aug-Sep 2026); likely a 2026.10 change (release ~Oct 7). Main house configuration.yaml:87-91 has use_x_forwarded_for + trusted_proxies [172.30.33.0/24, 192.168.13.73] (add-on subnet + reverse proxy). If the migration misbehaves the reverse-proxied access (PWA/remote) breaks with 400s.'
+  next: 'Me: read the 2026.10 release notes + http integration docs on release day; then on the first upgrade confirm the UI shows both proxies and remote access works, and remove the YAML block only if HA says it is imported. Same check on Wigton.'
+  sweep_2026_10_05: 'NEW: no prior card on http/trusted_proxies.'
+- id: BLE-PROXY-PLACEMENT-1
+  title: "Where to put new ESPHome Bluetooth proxies (main house) + two free config fixes"
+  thread: presence
+  rank: {value: 7, time_criticality: 3, effort: 2}
+  status: waiting_operator
+  created: '2026-10-05'
+  updated: '2026-10-05'
+  tags: [tier-1, config-first]
+  why: 'Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Garage Hallway (only the GDO blaQ; BLE departure lags garage_a exit 4-8 min) 3) Master Hallway between bed/bath (largest bed<->bath ping-pong; Master Bathroom scanner_areas empty) 4) Jaya bedroom/bathroom wall (reads bathroom more than bedroom; area hops) 5) Study/AV-closet cluster (phones pulled to closet relays). Feeds census inputs-first (egress attribution) and Zone 1 night presence.'
+  next: 'DO: place proxies in that order (Foyer first); assign areas in HA. APPROVE: I (a) add jaya_bedroom to the Jaya Bedroom room scanner_areas (currently only jaya_bathroom) and (b) set an area on the unassigned "Screek BP1_B" scanner — tell me which room it is in.'
+  sweep_2026_10_05: 'ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> proxies are the right path.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
