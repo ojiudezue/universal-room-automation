@@ -3980,7 +3980,9 @@ class HVACZoneSweepSwitch(SwitchEntity, RestoreEntity):
         """Restore previous state on startup."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None:
+        # Bug Class #52 guard: never let unavailable/unknown coerce the
+        # default-ON sweep to OFF (incident 2026-10-03 v5.103.37).
+        if last_state is not None and last_state.state in ("on", "off"):
             self._is_on = last_state.state == "on"
         self._update_zones()
 
@@ -5015,7 +5017,9 @@ class SecurityDelegateLightsSwitch(SwitchEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Restore state and sync to coordinator."""
         last_state = await self.async_get_last_state()
-        if last_state is not None:
+        # Bug Class #52 guard: default ON must survive unavailable/unknown
+        # last_state after a crash-shutdown.
+        if last_state is not None and last_state.state in ("on", "off"):
             self._is_on = last_state.state == "on"
         self._sync_to_coordinator()
 
@@ -5054,7 +5058,10 @@ class AutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
         await super().async_added_to_hass()
-        if (last_state := await self.async_get_last_state()) is not None:
+        last_state = await self.async_get_last_state()
+        # Bug Class #52 guard: default-ON automation must not be flipped
+        # OFF by an unavailable/unknown last_state after a crash.
+        if last_state is not None and last_state.state in ("on", "off"):
             self._attr_is_on = last_state.state == "on"
 
     async def async_turn_on(self, **kwargs) -> None:
@@ -5084,7 +5091,9 @@ class OverrideOccupiedSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
         """Restore state on startup."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None:
+        # Bug Class #52 guard (behaviour-neutral here since default is OFF;
+        # applied for consistency with the OverrideVacant pair).
+        if last_state is not None and last_state.state in ("on", "off"):
             self._attr_is_on = last_state.state == "on"
 
     async def async_turn_on(self, **kwargs) -> None:
@@ -5121,7 +5130,9 @@ class OverrideVacantSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
         """Restore state on startup."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None:
+        # Bug Class #52 guard (behaviour-neutral here since default is OFF;
+        # applied for consistency with the OverrideOccupied pair).
+        if last_state is not None and last_state.state in ("on", "off"):
             self._attr_is_on = last_state.state == "on"
 
     async def async_turn_on(self, **kwargs) -> None:
@@ -5164,7 +5175,10 @@ class CoverAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
         await super().async_added_to_hass()
-        if (last_state := await self.async_get_last_state()) is not None:
+        last_state = await self.async_get_last_state()
+        # Bug Class #52 guard: default-ON cover automation must survive
+        # unavailable/unknown last_state after a crash-shutdown.
+        if last_state is not None and last_state.state in ("on", "off"):
             self._attr_is_on = last_state.state == "on"
 
     @property
@@ -5251,7 +5265,10 @@ class ManualModeSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
     async def async_added_to_hass(self) -> None:
         """Restore last state."""
         await super().async_added_to_hass()
-        if (last_state := await self.async_get_last_state()) is not None:
+        last_state = await self.async_get_last_state()
+        # Bug Class #52 guard (behaviour-neutral — default is OFF; applied
+        # for consistency with the sibling default-ON toggles).
+        if last_state is not None and last_state.state in ("on", "off"):
             self._attr_is_on = last_state.state == "on"
 
     @property
@@ -5431,7 +5448,9 @@ class AiAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
         """Restore last state."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None:
+        # Bug Class #52 guard: default-ON AI automation must survive
+        # unavailable/unknown last_state after a crash-shutdown.
+        if last_state is not None and last_state.state in ("on", "off"):
             self._attr_is_on = last_state.state == "on"
 
     async def async_turn_on(self, **kwargs) -> None:
@@ -5474,7 +5493,9 @@ class InfrastructureRoomSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity)
         """Restore last state."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None:
+        # Bug Class #52 guard: default is room-type-derived (may be ON for
+        # infrastructure rooms); unavailable/unknown must not force OFF.
+        if last_state is not None and last_state.state in ("on", "off"):
             self._attr_is_on = last_state.state == "on"
         # Sync to coordinator
         self.coordinator._infrastructure_room = self._attr_is_on
