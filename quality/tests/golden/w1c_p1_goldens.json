@@ -790,8 +790,8 @@
     "blocking": false,
     "data": {
      "entity_id": "climate.test_zone_1",
-     "target_temp_high": 76.0,
-     "target_temp_low": 68.0
+     "target_temp_high": 74.0,
+     "target_temp_low": 70.0
     },
     "domain": "climate",
     "service": "set_temperature"
@@ -807,8 +807,8 @@
     "site": "S11_release_banked",
     "values_after": {
      "entity_id": "climate.test_zone_1",
-     "target_temp_high": 76.0,
-     "target_temp_low": 68.0
+     "target_temp_high": 74.0,
+     "target_temp_low": 70.0
     },
     "values_before": {
      "hold_activity": "manual",
@@ -913,8 +913,8 @@
      "reason": "human_manual_banking_release",
      "site": "S11_release_banked",
      "would_have_emitted": {
-      "target_temp_high": 76.0,
-      "target_temp_low": 68.0
+      "target_temp_high": 74.0,
+      "target_temp_low": 70.0
      }
     },
     "entity_id": "climate.test_zone_1",
@@ -1013,8 +1013,8 @@
     "blocking": false,
     "data": {
      "entity_id": "climate.test_zone_1",
-     "target_temp_high": 76.0,
-     "target_temp_low": 68.0
+     "target_temp_high": 74.0,
+     "target_temp_low": 70.0
     },
     "domain": "climate",
     "service": "set_temperature"
@@ -1030,8 +1030,8 @@
     "site": "S11_release_banked",
     "values_after": {
      "entity_id": "climate.test_zone_1",
-     "target_temp_high": 76.0,
-     "target_temp_low": 68.0
+     "target_temp_high": 74.0,
+     "target_temp_low": 70.0
     },
     "values_before": {
      "hold_activity": "manual",
@@ -1134,8 +1134,8 @@
     "blocking": false,
     "data": {
      "entity_id": "climate.test_zone_1",
-     "target_temp_high": 76.0,
-     "target_temp_low": 68.0
+     "target_temp_high": 74.0,
+     "target_temp_low": 70.0
     },
     "domain": "climate",
     "service": "set_temperature"
@@ -1151,8 +1151,8 @@
     "site": "S11_release_banked",
     "values_after": {
      "entity_id": "climate.test_zone_1",
-     "target_temp_high": 76.0,
-     "target_temp_low": 68.0
+     "target_temp_high": 74.0,
+     "target_temp_low": 70.0
     },
     "values_before": {
      "hold_activity": "manual",
@@ -1260,8 +1260,8 @@
     "blocking": false,
     "data": {
      "entity_id": "climate.test_zone_1",
-     "target_temp_high": 76.0,
-     "target_temp_low": 68.0
+     "target_temp_high": 74.0,
+     "target_temp_low": 70.0
     },
     "domain": "climate",
     "service": "set_temperature"
@@ -1277,8 +1277,8 @@
     "site": "S11_release_banked",
     "values_after": {
      "entity_id": "climate.test_zone_1",
-     "target_temp_high": 76.0,
-     "target_temp_low": 68.0
+     "target_temp_high": 74.0,
+     "target_temp_low": 70.0
     },
     "values_before": {
      "hold_activity": "manual",
@@ -1385,8 +1385,8 @@
     "blocking": false,
     "data": {
      "entity_id": "climate.test_zone_1",
-     "target_temp_high": 76.0,
-     "target_temp_low": 68.0
+     "target_temp_high": 74.0,
+     "target_temp_low": 70.0
     },
     "domain": "climate",
     "service": "set_temperature"
@@ -1402,8 +1402,8 @@
     "site": "S11_release_banked",
     "values_after": {
      "entity_id": "climate.test_zone_1",
-     "target_temp_high": 76.0,
-     "target_temp_low": 68.0
+     "target_temp_high": 74.0,
+     "target_temp_low": 70.0
     },
     "values_before": {
      "hold_activity": null,
@@ -2185,8 +2185,8 @@
     "blocking": false,
     "data": {
      "entity_id": "climate.test_zone_1",
-     "target_temp_high": 76.0,
-     "target_temp_low": 68.0
+     "target_temp_high": 74.0,
+     "target_temp_low": 70.0
     },
     "domain": "climate",
     "service": "set_temperature"
@@ -2202,8 +2202,8 @@
     "site": "S11_release_banked",
     "values_after": {
      "entity_id": "climate.test_zone_1",
-     "target_temp_high": 76.0,
-     "target_temp_low": 68.0
+     "target_temp_high": 74.0,
+     "target_temp_low": 70.0
     },
     "values_before": {
      "hold_activity": null,
@@ -6679,48 +6679,28 @@
   "activity": [],
   "calls": [
    {
-    "blocking": false,
+    "blocking": true,
     "data": {
      "entity_id": "climate.test_zone_1",
      "target_temp_high": 74.0,
-     "target_temp_low": 67.0
+     "target_temp_low": 70.0
     },
-    "domain": "climate",
-    "service": "set_temperature"
-   },
-   {
-    "blocking": false,
-    "data": {
-     "entity_id": "climate.test_zone_2",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "domain": "climate",
-    "service": "set_temperature"
-   },
-   {
-    "blocking": false,
-    "data": {
-     "entity_id": "climate.test_zone_3",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "domain": "climate",
-    "service": "set_temperature"
+    "domain": "ha_carrier",
+    "service": "set_activity_setpoint"
    }
   ],
   "climate_write": [
    {
-    "blocking": false,
+    "blocking": true,
     "entity_id": "climate.test_zone_1",
     "exc": null,
     "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
+    "reason": "preset_range_baseline",
+    "site": "S10_preset_range",
     "values_after": {
      "entity_id": "climate.test_zone_1",
      "target_temp_high": 74.0,
-     "target_temp_low": 67.0
+     "target_temp_low": 70.0
     },
     "values_before": {
      "hold_activity": "home",
@@ -6729,55 +6709,9 @@
      "target_high": 76.0,
      "target_low": 68.0
     },
-    "verb": "set_temperature",
+    "verb": "set_activity_setpoint",
     "wire_ok": true,
     "zone": "zone_1"
-   },
-   {
-    "blocking": false,
-    "entity_id": "climate.test_zone_2",
-    "exc": null,
-    "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
-    "values_after": {
-     "entity_id": "climate.test_zone_2",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "values_before": {
-     "hold_activity": "home",
-     "hvac_mode": "heat_cool",
-     "preset_mode": "home",
-     "target_high": 76.0,
-     "target_low": 68.0
-    },
-    "verb": "set_temperature",
-    "wire_ok": true,
-    "zone": "zone_2"
-   },
-   {
-    "blocking": false,
-    "entity_id": "climate.test_zone_3",
-    "exc": null,
-    "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
-    "values_after": {
-     "entity_id": "climate.test_zone_3",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "values_before": {
-     "hold_activity": "home",
-     "hvac_mode": "heat_cool",
-     "preset_mode": "home",
-     "target_high": 76.0,
-     "target_low": 68.0
-    },
-    "verb": "set_temperature",
-    "wire_ok": true,
-    "zone": "zone_3"
    }
   ],
   "dao": [],
@@ -6786,7 +6720,7 @@
   "nm": [],
   "state": {
    "banking_tokens": [],
-   "carrier_last_sent": null,
+   "carrier_last_sent": {},
    "compromise_active": {},
    "compromise_timers": [],
    "compromise_tokens": [],
@@ -6806,20 +6740,7 @@
    "verify_tasks": [],
    "zone_last_s1_write": {}
   },
-  "suppression": {
-   "climate.test_zone_1": [
-    "temp",
-    15
-   ],
-   "climate.test_zone_2": [
-    "temp",
-    15
-   ],
-   "climate.test_zone_3": [
-    "temp",
-    15
-   ]
-  },
+  "suppression": {},
   "timers": []
  },
  "A13_S10|deferred": {
@@ -6828,46 +6749,16 @@
     "action": "comfort_delay_deferred_write",
     "coordinator": "hvac",
     "details": {
-     "reason": "dpm_preset_apply",
-     "site": "S10_dpm_apply",
+     "reason": "preset_range_baseline",
+     "site": "S10_preset_range",
      "would_have_emitted": {
       "target_temp_high": 74.0,
-      "target_temp_low": 67.0
+      "target_temp_low": 70.0
      }
     },
     "entity_id": "climate.test_zone_1",
     "importance": "notable",
     "zone": "zone_1"
-   },
-   {
-    "action": "comfort_delay_deferred_write",
-    "coordinator": "hvac",
-    "details": {
-     "reason": "dpm_preset_apply",
-     "site": "S10_dpm_apply",
-     "would_have_emitted": {
-      "target_temp_high": 74.0,
-      "target_temp_low": 67.0
-     }
-    },
-    "entity_id": "climate.test_zone_2",
-    "importance": "notable",
-    "zone": "zone_2"
-   },
-   {
-    "action": "comfort_delay_deferred_write",
-    "coordinator": "hvac",
-    "details": {
-     "reason": "dpm_preset_apply",
-     "site": "S10_dpm_apply",
-     "would_have_emitted": {
-      "target_temp_high": 74.0,
-      "target_temp_low": 67.0
-     }
-    },
-    "entity_id": "climate.test_zone_3",
-    "importance": "notable",
-    "zone": "zone_3"
    }
   ],
   "calls": [],
@@ -6878,7 +6769,7 @@
   "nm": [],
   "state": {
    "banking_tokens": [],
-   "carrier_last_sent": null,
+   "carrier_last_sent": {},
    "compromise_active": {},
    "compromise_timers": [],
    "compromise_tokens": [],
@@ -6905,48 +6796,28 @@
   "activity": [],
   "calls": [
    {
-    "blocking": false,
+    "blocking": true,
     "data": {
      "entity_id": "climate.test_zone_1",
      "target_temp_high": 74.0,
-     "target_temp_low": 67.0
+     "target_temp_low": 70.0
     },
-    "domain": "climate",
-    "service": "set_temperature"
-   },
-   {
-    "blocking": false,
-    "data": {
-     "entity_id": "climate.test_zone_2",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "domain": "climate",
-    "service": "set_temperature"
-   },
-   {
-    "blocking": false,
-    "data": {
-     "entity_id": "climate.test_zone_3",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "domain": "climate",
-    "service": "set_temperature"
+    "domain": "ha_carrier",
+    "service": "set_activity_setpoint"
    }
   ],
   "climate_write": [
    {
-    "blocking": false,
+    "blocking": true,
     "entity_id": "climate.test_zone_1",
     "exc": null,
     "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
+    "reason": "preset_range_baseline",
+    "site": "S10_preset_range",
     "values_after": {
      "entity_id": "climate.test_zone_1",
      "target_temp_high": 74.0,
-     "target_temp_low": 67.0
+     "target_temp_low": 70.0
     },
     "values_before": {
      "hold_activity": "home",
@@ -6955,55 +6826,9 @@
      "target_high": 76.0,
      "target_low": 68.0
     },
-    "verb": "set_temperature",
+    "verb": "set_activity_setpoint",
     "wire_ok": true,
     "zone": "zone_1"
-   },
-   {
-    "blocking": false,
-    "entity_id": "climate.test_zone_2",
-    "exc": null,
-    "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
-    "values_after": {
-     "entity_id": "climate.test_zone_2",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "values_before": {
-     "hold_activity": "home",
-     "hvac_mode": "heat_cool",
-     "preset_mode": "home",
-     "target_high": 76.0,
-     "target_low": 68.0
-    },
-    "verb": "set_temperature",
-    "wire_ok": true,
-    "zone": "zone_2"
-   },
-   {
-    "blocking": false,
-    "entity_id": "climate.test_zone_3",
-    "exc": null,
-    "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
-    "values_after": {
-     "entity_id": "climate.test_zone_3",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "values_before": {
-     "hold_activity": "home",
-     "hvac_mode": "heat_cool",
-     "preset_mode": "home",
-     "target_high": 76.0,
-     "target_low": 68.0
-    },
-    "verb": "set_temperature",
-    "wire_ok": true,
-    "zone": "zone_3"
    }
   ],
   "dao": [],
@@ -7012,7 +6837,7 @@
   "nm": [],
   "state": {
    "banking_tokens": [],
-   "carrier_last_sent": null,
+   "carrier_last_sent": {},
    "compromise_active": {},
    "compromise_timers": [],
    "compromise_tokens": [],
@@ -7032,68 +6857,35 @@
    "verify_tasks": [],
    "zone_last_s1_write": {}
   },
-  "suppression": {
-   "climate.test_zone_1": [
-    "temp",
-    15
-   ],
-   "climate.test_zone_2": [
-    "temp",
-    15
-   ],
-   "climate.test_zone_3": [
-    "temp",
-    15
-   ]
-  },
+  "suppression": {},
   "timers": []
  },
  "A13_S10|failed_raise": {
   "activity": [],
   "calls": [
    {
-    "blocking": false,
+    "blocking": true,
     "data": {
      "entity_id": "climate.test_zone_1",
      "target_temp_high": 74.0,
-     "target_temp_low": 67.0
+     "target_temp_low": 70.0
     },
-    "domain": "climate",
-    "service": "set_temperature"
-   },
-   {
-    "blocking": false,
-    "data": {
-     "entity_id": "climate.test_zone_2",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "domain": "climate",
-    "service": "set_temperature"
-   },
-   {
-    "blocking": false,
-    "data": {
-     "entity_id": "climate.test_zone_3",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "domain": "climate",
-    "service": "set_temperature"
+    "domain": "ha_carrier",
+    "service": "set_activity_setpoint"
    }
   ],
   "climate_write": [
    {
-    "blocking": false,
+    "blocking": true,
     "entity_id": "climate.test_zone_1",
     "exc": "RuntimeError",
     "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
+    "reason": "preset_range_baseline",
+    "site": "S10_preset_range",
     "values_after": {
      "entity_id": "climate.test_zone_1",
      "target_temp_high": 74.0,
-     "target_temp_low": 67.0
+     "target_temp_low": 70.0
     },
     "values_before": {
      "hold_activity": "home",
@@ -7102,55 +6894,9 @@
      "target_high": 76.0,
      "target_low": 68.0
     },
-    "verb": "set_temperature",
+    "verb": "set_activity_setpoint",
     "wire_ok": false,
     "zone": "zone_1"
-   },
-   {
-    "blocking": false,
-    "entity_id": "climate.test_zone_2",
-    "exc": "RuntimeError",
-    "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
-    "values_after": {
-     "entity_id": "climate.test_zone_2",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "values_before": {
-     "hold_activity": "home",
-     "hvac_mode": "heat_cool",
-     "preset_mode": "home",
-     "target_high": 76.0,
-     "target_low": 68.0
-    },
-    "verb": "set_temperature",
-    "wire_ok": false,
-    "zone": "zone_2"
-   },
-   {
-    "blocking": false,
-    "entity_id": "climate.test_zone_3",
-    "exc": "RuntimeError",
-    "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
-    "values_after": {
-     "entity_id": "climate.test_zone_3",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "values_before": {
-     "hold_activity": "home",
-     "hvac_mode": "heat_cool",
-     "preset_mode": "home",
-     "target_high": 76.0,
-     "target_low": 68.0
-    },
-    "verb": "set_temperature",
-    "wire_ok": false,
-    "zone": "zone_3"
    }
   ],
   "dao": [],
@@ -7159,7 +6905,7 @@
   "nm": [],
   "state": {
    "banking_tokens": [],
-   "carrier_last_sent": null,
+   "carrier_last_sent": {},
    "compromise_active": {},
    "compromise_timers": [],
    "compromise_tokens": [],
@@ -7186,48 +6932,28 @@
   "activity": [],
   "calls": [
    {
-    "blocking": false,
+    "blocking": true,
     "data": {
      "entity_id": "climate.test_zone_1",
      "target_temp_high": 74.0,
-     "target_temp_low": 67.0
+     "target_temp_low": 70.0
     },
-    "domain": "climate",
-    "service": "set_temperature"
-   },
-   {
-    "blocking": false,
-    "data": {
-     "entity_id": "climate.test_zone_2",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "domain": "climate",
-    "service": "set_temperature"
-   },
-   {
-    "blocking": false,
-    "data": {
-     "entity_id": "climate.test_zone_3",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "domain": "climate",
-    "service": "set_temperature"
+    "domain": "ha_carrier",
+    "service": "set_activity_setpoint"
    }
   ],
   "climate_write": [
    {
-    "blocking": false,
+    "blocking": true,
     "entity_id": "climate.test_zone_1",
     "exc": null,
     "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
+    "reason": "preset_range_baseline",
+    "site": "S10_preset_range",
     "values_after": {
      "entity_id": "climate.test_zone_1",
      "target_temp_high": 74.0,
-     "target_temp_low": 67.0
+     "target_temp_low": 70.0
     },
     "values_before": {
      "hold_activity": "home",
@@ -7236,55 +6962,9 @@
      "target_high": 76.0,
      "target_low": 68.0
     },
-    "verb": "set_temperature",
+    "verb": "set_activity_setpoint",
     "wire_ok": true,
     "zone": "zone_1"
-   },
-   {
-    "blocking": false,
-    "entity_id": "climate.test_zone_2",
-    "exc": null,
-    "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
-    "values_after": {
-     "entity_id": "climate.test_zone_2",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "values_before": {
-     "hold_activity": "home",
-     "hvac_mode": "heat_cool",
-     "preset_mode": "home",
-     "target_high": 76.0,
-     "target_low": 68.0
-    },
-    "verb": "set_temperature",
-    "wire_ok": true,
-    "zone": "zone_2"
-   },
-   {
-    "blocking": false,
-    "entity_id": "climate.test_zone_3",
-    "exc": null,
-    "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
-    "values_after": {
-     "entity_id": "climate.test_zone_3",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "values_before": {
-     "hold_activity": "home",
-     "hvac_mode": "heat_cool",
-     "preset_mode": "home",
-     "target_high": 76.0,
-     "target_low": 68.0
-    },
-    "verb": "set_temperature",
-    "wire_ok": true,
-    "zone": "zone_3"
    }
   ],
   "dao": [],
@@ -7317,127 +6997,29 @@
    "verify_tasks": [],
    "zone_last_s1_write": {}
   },
-  "suppression": {
-   "climate.test_zone_1": [
-    "temp",
-    15
-   ],
-   "climate.test_zone_2": [
-    "temp",
-    15
-   ],
-   "climate.test_zone_3": [
-    "temp",
-    15
-   ]
-  },
+  "suppression": {},
   "timers": []
  },
  "A13_S10|unavailable": {
-  "activity": [],
-  "calls": [
+  "activity": [
    {
-    "blocking": false,
-    "data": {
-     "entity_id": "climate.test_zone_1",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
+    "action": "climate_write_held_unreadable",
+    "coordinator": "hvac",
+    "details": {
+     "since": "<ts>",
+     "sites": [
+      "B1_heat_cool_enforcer",
+      "S1_reason_ladder"
+     ],
+     "state": "unavailable"
     },
-    "domain": "climate",
-    "service": "set_temperature"
-   },
-   {
-    "blocking": false,
-    "data": {
-     "entity_id": "climate.test_zone_2",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "domain": "climate",
-    "service": "set_temperature"
-   },
-   {
-    "blocking": false,
-    "data": {
-     "entity_id": "climate.test_zone_3",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "domain": "climate",
-    "service": "set_temperature"
-   }
-  ],
-  "climate_write": [
-   {
-    "blocking": false,
     "entity_id": "climate.test_zone_1",
-    "exc": null,
-    "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
-    "values_after": {
-     "entity_id": "climate.test_zone_1",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "values_before": {
-     "hold_activity": null,
-     "hvac_mode": "unavailable",
-     "preset_mode": null,
-     "target_high": null,
-     "target_low": null
-    },
-    "verb": "set_temperature",
-    "wire_ok": true,
+    "importance": "notable",
     "zone": "zone_1"
-   },
-   {
-    "blocking": false,
-    "entity_id": "climate.test_zone_2",
-    "exc": null,
-    "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
-    "values_after": {
-     "entity_id": "climate.test_zone_2",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "values_before": {
-     "hold_activity": "home",
-     "hvac_mode": "heat_cool",
-     "preset_mode": "home",
-     "target_high": 76.0,
-     "target_low": 68.0
-    },
-    "verb": "set_temperature",
-    "wire_ok": true,
-    "zone": "zone_2"
-   },
-   {
-    "blocking": false,
-    "entity_id": "climate.test_zone_3",
-    "exc": null,
-    "excursion_id": null,
-    "reason": "dpm_preset_apply",
-    "site": "S10_dpm_apply",
-    "values_after": {
-     "entity_id": "climate.test_zone_3",
-     "target_temp_high": 74.0,
-     "target_temp_low": 67.0
-    },
-    "values_before": {
-     "hold_activity": "home",
-     "hvac_mode": "heat_cool",
-     "preset_mode": "home",
-     "target_high": 76.0,
-     "target_low": 68.0
-    },
-    "verb": "set_temperature",
-    "wire_ok": true,
-    "zone": "zone_3"
    }
   ],
+  "calls": [],
+  "climate_write": [],
   "dao": [],
   "db_rows_other": [],
   "exc": null,
@@ -7464,20 +7046,7 @@
    "verify_tasks": [],
    "zone_last_s1_write": {}
   },
-  "suppression": {
-   "climate.test_zone_1": [
-    "temp",
-    15
-   ],
-   "climate.test_zone_2": [
-    "temp",
-    15
-   ],
-   "climate.test_zone_3": [
-    "temp",
-    15
-   ]
-  },
+  "suppression": {},
   "timers": []
  },
  "A1_S1|applied": {
