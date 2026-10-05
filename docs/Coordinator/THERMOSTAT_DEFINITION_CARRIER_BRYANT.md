@@ -142,6 +142,21 @@ adopts it, restore MUST be attempted at multiple safety points (per-cycle sweep 
 against a persisted snapshot of the pre-write profile setpoints — and the interruption hazard
 must be spelled out in the site's card.
 
+**ADOPTED for S10 standing ranges — HVAC Batch C, Custom Preset Ranges (built 2026-10-05,
+`feature/hvac-batch-c-cpr-build`, NOT deployed; plan `PLANNING_hvac_enable_custom_preset_ranges.md`
+REV 5).** Not for nudges (they stay on `set_temperature`). §3's restore rule is met although this
+is not a borrow:
+- Only `CarrierStrategy.set_preset_range` (`hvac_strategy.py`) names the service; the funnel
+  `emit_set_activity_setpoint` (`hvac_setpoint.py`) takes domain/service from the adapter.
+- Written only while BOTH feeds name the preset in `heat_cool` with a readable range (P1/P2), whole
+  °F (P3), skipped when the HA view already matches (P4), re-observed after the call (P6).
+- The device's original range for that preset (`preset_range_original`) is persisted in the HVAC
+  zone-state store BEFORE the first edit (side-key `__s10_preset_ranges`), never overwritten, and
+  put back while switch 01 is OFF (each preset as its zone next uses it); a restore is confirmed
+  only on a full-read-interval-later matching view.
+- Rate bound: one call per (zone, preset, mode) per 10 min across values, a same-value retry at
+  ≥130 min, 3 writes / 3 failures then latch + NM.
+
 ---
 
 ## 4. Read model — what HA (and URA) sees back
@@ -325,8 +340,10 @@ no code-side guard in W1-B (Q2 recommendation).
 4. **Onset lag** — how long between URA's return sequence completing and the appearance of the
    config-side manual hold. D0 probe measurement.
 5. **`hold_until` semantics with `infinite_holds=False`.** Not exercised live.
-6. **Interruption behaviour of `set_activity_setpoint` end-to-end.** Not empirically tested; the
-   spec §3 hazard is derived from source, not measured.
+6. ~~**Interruption behaviour of `set_activity_setpoint` end-to-end.**~~ **CLOSED 2026-09-28 by CPR
+   D0 item 5** (zone_3, ~10 h): an edit of the named `away` profile never produced `manual` on
+   either feed, survived full reads and away→sleep→away preset round-trips (came back 66/81), and
+   the app showed "Holding Away 66–81". Reverted 08:3x CDT. Log in the CPR plan "D0 item 5".
 7. **Vendor-schedule race timing near 06:00 on zone_1.** UNVERIFIED whether it has ever misfired
    live in the resume-then-pin path.
 
