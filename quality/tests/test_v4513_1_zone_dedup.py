@@ -124,6 +124,11 @@ def _load_helper():
     # this grace-window constant at module load. The stub must carry it
     # or `spec.loader.exec_module` raises ImportError.
     hvac_const.HVAC_LIVE_ROOM_TRANSIENT_GRACE_S = 300
+    # HVAC W1-C P2: hvac_zones reads the per-thermostat min heat/cool gap.
+    hvac_const.CONF_HVAC_THERMOSTAT_MIN_DELTA_F = "hvac_thermostat_min_delta_f"
+    hvac_const.DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F = 5.0
+    hvac_const.HVAC_THERMOSTAT_MIN_DELTA_MIN_F = 5.0
+    hvac_const.HVAC_THERMOSTAT_MIN_DELTA_MAX_F = 10.0
 
     sys.modules["ura_zd_pkg"] = pkg
     sys.modules["ura_zd_pkg.const"] = const

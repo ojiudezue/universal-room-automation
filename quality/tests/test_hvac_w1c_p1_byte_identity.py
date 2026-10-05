@@ -973,7 +973,36 @@ async def test_carrier_byte_identity(mods, monkeypatch, scenario, variant):
         GOLDEN_PATH.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
         return
     assert key in _GOLDENS, f"no golden for {key} (goldens are never regenerated on the P1 branch)"
-    assert _cmp_form(obs) == _cmp_form(_GOLDENS[key])
+    assert _cmp_form(obs) == _cmp_form(_w1c_p2_reviewed_delta(key, _GOLDENS[key], obs))
+
+
+# W1-C P2 INV-C — the ONE reviewed exception (plan §4.7 F4 / §6): S1's
+# capability FAILED ("no_presets_supported") no longer raises RuntimeError
+# every tick. It rolls back its suppress stamp and writes ONE
+# `preset_change_deferred` row. The golden FILE is not regenerated; this
+# transform applies exactly that delta to exactly that case, and pins the
+# row's content. Every other field of the observation must still match.
+_W1C_P2_F4_KEY = "A1_S1|failed_no_presets"
+
+
+def _w1c_p2_reviewed_delta(key: str, golden: dict, obs: dict) -> dict:
+    if key != _W1C_P2_F4_KEY:
+        return golden
+    exp = json.loads(json.dumps(golden))
+    assert exp["activity"] == [], "golden changed under the F4 delta"
+    rows = obs.get("activity") or []
+    assert len(rows) == 1, rows
+    row = rows[0]
+    assert row["action"] == "preset_change_deferred"
+    assert row["details"] == {
+        "wanted": "home",
+        "reason": "strategy_failed:no_presets_supported",
+        "gate_snapshot": {},
+    }
+    exp["activity"] = rows
+    # The pre-P2 RuntimeError path never rolled back S1's pre-emit stamp.
+    exp["suppression"] = {}
+    return exp
 
 
 def _cmp_form(obs: dict) -> dict:
@@ -1014,4 +1043,6 @@ async def test_registry_miss_generic_identical_to_carrier_golden(mods, monkeypat
     obs = await _capture(mods, monkeypatch, scenario, variant, "miss")
     golden = _RECORDED.get(key) if RECORD else _GOLDENS.get(key)
     assert golden is not None, f"no golden for {key}"
-    assert _without_carrier_record(obs) == _without_carrier_record(golden)
+    assert _without_carrier_record(obs) == _without_carrier_record(
+        _w1c_p2_reviewed_delta(key, golden, obs),
+    )

@@ -26,7 +26,14 @@ def _load():
         "custom_components", "universal_room_automation",
         "domain_coordinators", "hvac_excursion.py",
     )
-    name = "hvac_excursion_under_test"
+    # W1-C P2 (R15): `begin_excursion` reads the snapshot preset through the
+    # thermostat profile (`from .hvac_strategy import preset_of_for`), so the
+    # isolated copy needs the real package as its parent for the relative
+    # import. It stays a SEPARATE module object (own `_rows` registry).
+    name = (
+        "custom_components.universal_room_automation.domain_coordinators."
+        "hvac_excursion_under_test"
+    )
     spec = importlib.util.spec_from_file_location(name, root)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[name] = mod  # dataclass __module__ lookup needs this

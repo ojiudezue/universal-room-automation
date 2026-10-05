@@ -161,15 +161,12 @@ def test_write_status_members_exact():
 
 
 def test_profile_capabilities_field_set_frozen():
+    """W1-C P2 §4.8: trimmed to the 10 command / read / classify facts."""
     import dataclasses
     assert [f.name for f in dataclasses.fields(S.ProfileCapabilities)] == [
-        "platform", "manufacturer", "has_named_presets", "named_preset_vocabulary",
-        "has_heat_cool_mode", "setpoint_shape", "supports_resume",
-        "supports_activity_setpoint", "has_next_activity_time",
-        "has_write_confirmation_feed", "has_mode_select", "mode_select_options",
-        "hold_via", "hold_release_mechanism", "equipment_telemetry", "echo_ttl_s",
+        "platform", "manufacturer", "hold_via", "setpoint_shape", "echo_ttl_s",
         "preset_echo_ttl_s", "write_rate_min_interval_s", "retry_interval_s",
-        "person_change_match_window_s", "person_change_shape",
+        "person_change_shape", "person_change_match_window_s",
     ]
 
 
@@ -179,7 +176,9 @@ def test_strategy_capabilities_bound_per_profile():
     assert S.CARRIER_CAPABILITIES.hold_via == "preset"
     assert S.CARRIER_CAPABILITIES.person_change_match_window_s is None
     assert S.GENERIC_CAPABILITIES.hold_via == "unsupported"
-    assert S.GENERIC_CAPABILITIES.person_change_match_window_s == 600
+    # W1-C P2 F2: Generic is dual-leg, so its person-change shape is too.
+    assert S.GENERIC_CAPABILITIES.person_change_match_window_s is None
+    assert S.EcobeeHomeKitStrategy().capabilities.hold_via == "setpoint_range"
 
 
 def test_carrier_capabilities_mirror_constants():
@@ -195,19 +194,15 @@ def test_carrier_capabilities_mirror_constants():
     assert hvac_const.HVAC_FAST_PATH_MIN_INTERVAL_S == c.write_rate_min_interval_s
 
 
-@pytest.mark.parametrize("cls,feature,expected", [
-    (S.CarrierStrategy, "hold", True),
-    (S.CarrierStrategy, "nudge", True),
-    (S.CarrierStrategy, "borrow.banking", True),
-    (S.CarrierStrategy, "cpr", True),
-    (S.CarrierStrategy, "teleport", False),
-    (S.GenericStrategy, "hold", False),
-    (S.GenericStrategy, "nudge", False),
-    (S.GenericStrategy, "borrow.preheat", False),
-    (S.GenericStrategy, "cpr", False),
+@pytest.mark.parametrize("caps", [
+    S.CARRIER_CAPABILITIES, S.GENERIC_CAPABILITIES, S.ECOBEE_HOMEKIT_CAPABILITIES,
 ])
-def test_feature_available_table(cls, feature, expected):
-    assert cls().feature_available(feature) is expected
+def test_profile_capabilities_internally_consistent(caps):
+    """W1-C P2 §4.8 / F2: every profile is a dual-leg heat_cool shape."""
+    assert caps.hold_via in {"preset", "setpoint_range", "unsupported"}
+    assert caps.setpoint_shape == "dual_leg"
+    assert caps.person_change_shape == "heat_cool_both_legs"
+    assert caps.person_change_match_window_s is None
 
 
 # --------------------------------------------------------------------------

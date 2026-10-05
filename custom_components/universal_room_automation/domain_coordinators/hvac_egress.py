@@ -665,7 +665,8 @@ class EgressManager:
             st = self._hass.states.get(thermostat)
             if st is not None:
                 prior_mode = st.state or ""
-                _pm = st.attributes.get("preset_mode")
+                from .hvac_strategy import preset_of_for  # noqa: PLC0415
+                _pm = preset_of_for(self._hass, thermostat, st, None)
                 prior_preset = _pm if isinstance(_pm, str) and _pm else None
         except Exception:
             _LOGGER.debug(

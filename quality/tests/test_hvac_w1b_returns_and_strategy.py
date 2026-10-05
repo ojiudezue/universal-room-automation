@@ -382,7 +382,10 @@ def test_strategy_dispatch_by_registry_platform_and_cache(mods, monkeypatch):
     assert type(c) is S.GenericStrategy and c.platform == "nest"
     d1 = S.strategy_for(None, "climate.d")
     d2 = S.strategy_for(None, "climate.d")
-    assert type(d1) is S.GenericStrategy and d1 is not d2, "registry miss is NOT cached"
+    # W1-C P2 F1 (supersedes the P1 "registry miss is NOT cached" rule):
+    # a never-resolved entity gets ONE cached per-entity Generic, so the
+    # Generic D2.5 no-op can fire; it is not a platform-cache entry.
+    assert type(d1) is S.GenericStrategy and d1 is d2, "registry miss cached per ENTITY"
     assert set(S._STRATEGY_BY_PLATFORM) == {"ha_carrier", "nest"}
 
 
