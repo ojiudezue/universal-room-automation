@@ -633,6 +633,10 @@ from .const import (
     CONF_CAMERA_PERSON_ENTITIES,
     CONF_EGRESS_CAMERAS,
     CONF_PERIMETER_CAMERAS,
+    # PLANNING_census_inputs_first D1 (2026-10-05): door-event quality
+    CONF_DOOR_GROUPS,
+    CONF_DOOR_INTERIOR_NEIGHBOURS,
+    CONF_MAIN_ENTRY_DOOR,
     CONF_CENSUS_CROSS_VALIDATION,
     CONF_CENSUS_DIVERGENCE_DOWNGRADE,
     DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
@@ -4884,6 +4888,29 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     multiple=True,
                 )
             ),
+            # PLANNING_census_inputs_first D1 (R3.8 / R4.6 / R4.8):
+            # Group door cameras. Unset → each camera is its own group
+            # (today's behaviour byte-identical). Operator-entered names;
+            # no household strings baked here.
+            # Shape: {camera_stem: group_name}, e.g.
+            #   {"front_door_aerial": "front", "doorbell_lite": "garage_a"}
+            vol.Optional(
+                CONF_DOOR_GROUPS,
+                default=self._get_current(CONF_DOOR_GROUPS, {}),
+            ): selector.ObjectSelector(),
+            # Rooms next to each door. Shape: {group_name: [interior_cam, ...]}
+            # Unset OR group not in map → full interior list fallback
+            # (R3.1 CRITICAL-1).
+            vol.Optional(
+                CONF_DOOR_INTERIOR_NEIGHBOURS,
+                default=self._get_current(CONF_DOOR_INTERIOR_NEIGHBOURS, {}),
+            ): selector.ObjectSelector(),
+            # Main entry door (door-group name). Deferred consumer per
+            # R3.7 — set here now so the estimator cycle can read it.
+            vol.Optional(
+                CONF_MAIN_ENTRY_DOOR,
+                default=self._get_current(CONF_MAIN_ENTRY_DOOR, ""),
+            ): selector.TextSelector(),
             # v3.5.2: Face recognition toggle
             vol.Optional(
                 CONF_FACE_RECOGNITION_ENABLED,

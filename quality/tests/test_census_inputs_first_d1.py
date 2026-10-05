@@ -1,0 +1,402 @@
+"""PLANNING_census_inputs_first D1 (R2.2 / R3.* / R4.*) — build tests.
+
+Drives production modules (no local re-impl). Covers:
+  * `_extract_camera_stem` composition (`_PERSON_SUFFIXES + (_PERSON_COUNT_SUFFIX,)`)
+    — strips `_person_occupancy`, `_person_count`, `_2`, `_person_count_2`.
+  * `DOOR_STEM_DEDUP_S` knob replaces the historical 5 s inline literal.
+  * `_last_resolved` prune horizon >= DOOR_STEM_DEDUP_S + ENTRY_WINDOW_SECONDS.
+  * Door-group dedup (set) vs per-stem (unset — today's behaviour).
+  * `_get_interior_cameras_near` fallback = full interior list when
+    `CONF_DOOR_INTERIOR_NEIGHBOURS` unset (R3.1 CRITICAL-1).
+  * Newest-first exit-bias in direction loop (R2.2 item 4(d)).
+  * `peak_person_count` sampler window + door-group MAX (not sum).
+  * `log_entry_exit_event` accepts `peak_person_count` kwarg.
+  * Schema: fresh CREATE AND ALTER both land `peak_person_count`.
+"""
+from __future__ import annotations
+
+import asyncio
+import sqlite3
+from datetime import datetime, timedelta
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+import _provenance_harness  # noqa: F401
+from _provenance_harness import make_hass
+
+import sys as _sys
+import types as _types
+
+# transit_validator depends on these HA event helpers; stub if missing.
+if "homeassistant.helpers.area_registry" not in _sys.modules:
+    _mod = _types.ModuleType("homeassistant.helpers.area_registry")
+    _mod.async_get = MagicMock()
+    _sys.modules["homeassistant.helpers.area_registry"] = _mod
+if "homeassistant.helpers.event" not in _sys.modules:
+    _ev = _types.ModuleType("homeassistant.helpers.event")
+    _ev.async_track_state_change_event = lambda *a, **kw: (lambda: None)
+    _ev.async_call_later = lambda *a, **kw: (lambda: None)
+    _ev.async_track_time_interval = lambda *a, **kw: (lambda: None)
+    _sys.modules["homeassistant.helpers.event"] = _ev
+
+from custom_components.universal_room_automation.const import (
+    DOOR_STEM_DEDUP_S,
+    EGRESS_ENTRY_WINDOW_SECONDS,
+    EGRESS_EXIT_WINDOW_SECONDS,
+)
+from custom_components.universal_room_automation.camera_census import (
+    CameraIntegrationManager,
+)
+from custom_components.universal_room_automation.transit_validator import (
+    EgressDirectionTracker,
+)
+
+
+# ---------------------------------------------------------------------------
+# _extract_camera_stem — composition over _PERSON_SUFFIXES + _PERSON_COUNT_SUFFIX
+# ---------------------------------------------------------------------------
+
+def test_extract_camera_stem_strips_person_occupancy():
+    assert CameraIntegrationManager._extract_camera_stem(
+        "binary_sensor.foo_person_occupancy"
+    ) == "foo"
+
+
+def test_extract_camera_stem_strips_person_occupancy_2_suffix():
+    """R3.3 caller #1 — Frigate-2 `_2` legs no longer return None."""
+    assert CameraIntegrationManager._extract_camera_stem(
+        "binary_sensor.foo_person_occupancy_2"
+    ) == "foo"
+
+
+def test_extract_camera_stem_strips_plain_person_count():
+    """R4.1 (N-HIGH-1) regression — `_person_count` must be stripped."""
+    assert CameraIntegrationManager._extract_camera_stem(
+        "sensor.foo_person_count"
+    ) == "foo"
+
+
+def test_extract_camera_stem_strips_person_count_2():
+    assert CameraIntegrationManager._extract_camera_stem(
+        "sensor.foo_person_count_2"
+    ) == "foo"
+
+
+def test_extract_camera_stem_strips_person_detected():
+    assert CameraIntegrationManager._extract_camera_stem(
+        "binary_sensor.foo_person_detected"
+    ) == "foo"
+
+
+def test_extract_camera_stem_unmatched_returns_none():
+    assert CameraIntegrationManager._extract_camera_stem(
+        "sensor.foo_total_power"
+    ) is None
+
+
+# ---------------------------------------------------------------------------
+# EgressDirectionTracker fixtures
+# ---------------------------------------------------------------------------
+
+def _run_async(coro):
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+def _make_tracker(door_groups=None, neighbours=None, interior=None):
+    hass = make_hass()
+    tracker = EgressDirectionTracker(hass)
+    tracker._interior_entities = list(interior or [])
+    tracker._door_group_by_stem = dict(door_groups or {})
+    tracker._interior_neighbours_by_group = dict(neighbours or {})
+    return tracker, hass
+
+
+# ---------------------------------------------------------------------------
+# DOOR_STEM_DEDUP_S knob (R2.2 item 2 / R3.9)
+# ---------------------------------------------------------------------------
+
+def test_door_stem_dedup_s_default_is_30s():
+    """Replaces inline 5 s literal."""
+    assert DOOR_STEM_DEDUP_S == 30
+
+
+def test_dedup_covers_person_occupancy_2_sibling_within_window():
+    """R3.3 caller #1 — before the fix, `_2` legs returned stem=None → dedup
+    skipped. Post-fix: two legs on the same stem inside the window → the
+    second resolve is skipped by the dedup head."""
+    tracker, hass = _make_tracker()
+    hass.data["custom_components.universal_room_automation"] = {}
+
+    database = MagicMock()
+    database.log_entry_exit_event = AsyncMock()
+    hass.data = {}
+    from custom_components.universal_room_automation.const import DOMAIN
+    hass.data[DOMAIN] = {"database": database}
+
+    t0 = datetime(2026, 10, 5, 14, 24, 0)
+    _run_async(tracker._resolve_direction("binary_sensor.foo_person_occupancy", t0))
+    # Second leg on `_2` sibling within DOOR_STEM_DEDUP_S:
+    _run_async(tracker._resolve_direction(
+        "binary_sensor.foo_person_occupancy_2",
+        t0 + timedelta(seconds=10),
+    ))
+    # Only one resolve wrote to DB (direction=ambiguous → skipped) OR one
+    # fired on the bus — the dedup head skips the second regardless.
+    # Assert the dedup key was recorded exactly once at t0:
+    assert tracker._last_resolved.get("foo") == t0
+
+
+def test_dedup_window_knob_blocks_at_29s_passes_at_31s():
+    tracker, hass = _make_tracker()
+    from custom_components.universal_room_automation.const import DOMAIN
+    hass.data[DOMAIN] = {}
+
+    t0 = datetime(2026, 10, 5, 14, 24, 0)
+    _run_async(tracker._resolve_direction("binary_sensor.foo_person_occupancy", t0))
+    # 29 s later: SKIP (within DOOR_STEM_DEDUP_S=30)
+    _run_async(tracker._resolve_direction(
+        "binary_sensor.foo_person_occupancy", t0 + timedelta(seconds=29),
+    ))
+    # last_resolved stayed at t0 (second call skipped before overwrite)
+    assert tracker._last_resolved["foo"] == t0
+
+    # 31 s later: PROCESS (outside window) — key advances
+    _run_async(tracker._resolve_direction(
+        "binary_sensor.foo_person_occupancy", t0 + timedelta(seconds=31),
+    ))
+    assert tracker._last_resolved["foo"] == t0 + timedelta(seconds=31)
+
+
+# ---------------------------------------------------------------------------
+# Door-group dedup (R2.2 item 4(b))
+# ---------------------------------------------------------------------------
+
+def test_door_group_dedup_collapses_cross_camera_legs_within_window():
+    tracker, hass = _make_tracker(
+        door_groups={"cam_door_a": "door_a", "cam_door_b": "door_a"},
+    )
+    from custom_components.universal_room_automation.const import DOMAIN
+    hass.data[DOMAIN] = {}
+
+    t0 = datetime(2026, 10, 5, 14, 24, 0)
+    _run_async(tracker._resolve_direction(
+        "binary_sensor.cam_door_a_person_occupancy", t0,
+    ))
+    # cross-camera leg 10 s later within same group → DEDUPED (group key)
+    _run_async(tracker._resolve_direction(
+        "binary_sensor.cam_door_b_person_occupancy",
+        t0 + timedelta(seconds=10),
+    ))
+    assert "group:door_a" in tracker._last_resolved
+    assert tracker._last_resolved["group:door_a"] == t0
+
+
+def test_unset_door_groups_falls_back_to_per_stem_dedup():
+    """R4.6: unset → per-stem dedup → today's byte-identical behaviour.
+    Two different stems within the window must NOT dedup each other."""
+    tracker, hass = _make_tracker(door_groups={})
+    from custom_components.universal_room_automation.const import DOMAIN
+    hass.data[DOMAIN] = {}
+
+    t0 = datetime(2026, 10, 5, 14, 24, 0)
+    _run_async(tracker._resolve_direction(
+        "binary_sensor.cam_door_a_person_occupancy", t0,
+    ))
+    _run_async(tracker._resolve_direction(
+        "binary_sensor.cam_door_b_person_occupancy",
+        t0 + timedelta(seconds=5),
+    ))
+    assert "cam_door_a" in tracker._last_resolved
+    assert "cam_door_b" in tracker._last_resolved
+    assert "group:door_a" not in tracker._last_resolved
+
+
+# ---------------------------------------------------------------------------
+# _get_interior_cameras_near fallback (R3.1 CRITICAL-1)
+# ---------------------------------------------------------------------------
+
+def test_interior_cameras_near_unset_falls_back_to_all_interior():
+    tracker, _ = _make_tracker(
+        door_groups={},  # unset
+        neighbours={},
+        interior=["interior_cam_1", "interior_cam_2"],
+    )
+    out = tracker._get_interior_cameras_near(
+        "binary_sensor.cam_door_a_person_occupancy"
+    )
+    assert out == ["interior_cam_1", "interior_cam_2"]
+
+
+def test_interior_cameras_near_configured_narrows_set():
+    tracker, _ = _make_tracker(
+        door_groups={"cam_door_a": "door_a"},
+        neighbours={"door_a": ["interior_cam_1"]},
+        interior=["interior_cam_1", "interior_cam_2"],
+    )
+    out = tracker._get_interior_cameras_near(
+        "binary_sensor.cam_door_a_person_occupancy"
+    )
+    assert out == ["interior_cam_1"]
+
+
+def test_interior_cameras_near_empty_configured_honours_opt_out():
+    """Operator explicitly maps group → [] (deliberate opt-out)."""
+    tracker, _ = _make_tracker(
+        door_groups={"cam_door_a": "door_a"},
+        neighbours={"door_a": []},
+        interior=["interior_cam_1"],
+    )
+    assert tracker._get_interior_cameras_near(
+        "binary_sensor.cam_door_a_person_occupancy"
+    ) == []
+
+
+# ---------------------------------------------------------------------------
+# Direction loop — newest-first exit-bias (R2.2 item 4(d))
+# ---------------------------------------------------------------------------
+
+def test_resolve_direction_newest_interior_wins_entry_over_old():
+    """A noisy interior cam firing continuously (oldest=very old) must not
+    beat a NEWER fire within the entry window."""
+    tracker, hass = _make_tracker(
+        interior=["interior_cam_1"],
+    )
+    from custom_components.universal_room_automation.const import DOMAIN
+    hass.data[DOMAIN] = {}
+    hass.bus = MagicMock()
+
+    t0 = datetime(2026, 10, 5, 14, 24, 0)
+    # Older interior fire well outside both windows + a NEW fire INSIDE
+    # the entry window (just after t0).
+    tracker._recent_interior_events["interior_cam_1"] = [
+        t0 - timedelta(seconds=10_000),
+        t0 + timedelta(seconds=5),  # 5 s AFTER egress → ENTRY
+    ]
+    _run_async(tracker._resolve_direction(
+        "binary_sensor.cam_door_a_person_occupancy", t0,
+    ))
+    # ENTRY fired on the bus — newest-first found the +5 s fire first.
+    kwargs = hass.bus.async_fire.call_args.args
+    assert kwargs[0] == "ura_person_egress_event"
+    assert kwargs[1]["direction"] == "entry"
+
+
+# ---------------------------------------------------------------------------
+# _last_resolved prune horizon (R4.2 N-HIGH-2)
+# ---------------------------------------------------------------------------
+
+def test_last_resolved_prune_covers_dedup_plus_resolve_delay():
+    """Horizon = max(60, DOOR_STEM_DEDUP_S + ENTRY_WINDOW_SECONDS). With
+    defaults = max(60, 30+45) = 75. An entry 70 s old must survive the
+    prune (dedup head still consults it) — a 90 s old entry must not."""
+    tracker, _ = _make_tracker()
+    import custom_components.universal_room_automation.transit_validator as _tv
+    now = _tv.dt_util.now()
+    tracker._last_resolved["survives"] = now - timedelta(seconds=70)
+    tracker._last_resolved["drops"] = now - timedelta(seconds=200)
+    # entity_id just needs to exist in _recent_egress_events for prune to run
+    tracker._recent_egress_events["x"] = []
+    tracker._prune_event_list(tracker._recent_egress_events, "x")
+    assert "survives" in tracker._last_resolved
+    assert "drops" not in tracker._last_resolved
+
+
+# ---------------------------------------------------------------------------
+# peak_person_count sampler (R3.6 / R4.5)
+# ---------------------------------------------------------------------------
+
+def test_peak_count_sampler_window_bounds():
+    tracker, _ = _make_tracker()
+    t = datetime(2026, 10, 5, 14, 24, 0)
+    tracker._peak_count_buffer["foo"] = __import__("collections").deque([
+        (t - timedelta(seconds=200), 7),   # out: too old
+        (t - timedelta(seconds=10), 4),    # in
+        (t + timedelta(seconds=30), 3),    # in
+        (t + timedelta(seconds=200), 9),   # out: too new
+    ])
+    assert tracker._sample_peak_person_count("foo", t) == 4
+
+
+def test_peak_count_sampler_door_group_takes_max_not_sum():
+    """R4.5: two cameras in one group both see a 4-person arrival →
+    peak = 4, not 8."""
+    tracker, _ = _make_tracker(
+        door_groups={"cam_a": "door_a", "cam_b": "door_a"},
+    )
+    t = datetime(2026, 10, 5, 14, 24, 0)
+    from collections import deque
+    tracker._peak_count_buffer["cam_a"] = deque([(t, 4)])
+    tracker._peak_count_buffer["cam_b"] = deque([(t + timedelta(seconds=2), 4)])
+    assert tracker._sample_peak_person_count("cam_a", t) == 4  # MAX, not SUM
+
+
+def test_peak_count_sampler_returns_none_when_no_sample_in_window():
+    tracker, _ = _make_tracker()
+    t = datetime(2026, 10, 5, 14, 24, 0)
+    tracker._peak_count_buffer["foo"] = __import__("collections").deque([
+        (t - timedelta(seconds=600), 2),
+    ])
+    assert tracker._sample_peak_person_count("foo", t) is None
+
+
+# ---------------------------------------------------------------------------
+# Database — log_entry_exit_event + fresh CREATE + ALTER migration
+# ---------------------------------------------------------------------------
+
+def test_log_entry_exit_event_accepts_peak_person_count_kwarg():
+    """R3.6 writer signature carries the new kwarg (default None)."""
+    import inspect
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
+    )
+    sig = inspect.signature(UniversalRoomDatabase.log_entry_exit_event)
+    assert "peak_person_count" in sig.parameters
+    assert sig.parameters["peak_person_count"].default is None
+
+
+def test_fresh_create_table_includes_peak_person_count_column():
+    """R4.5: fresh CREATE at database.py:928 ships the column so new
+    installs (Wigton) match the migrated-install schema."""
+    repo_root = Path(__file__).resolve().parents[2]
+    db_src = (repo_root / "custom_components/universal_room_automation/database.py").read_text()
+    # The fresh CREATE must contain the column name as part of the
+    # person_entry_exit_events DDL block.
+    create_block = db_src.split("CREATE TABLE IF NOT EXISTS person_entry_exit_events", 1)[1]
+    create_block = create_block.split(")", 1)[0]
+    assert "peak_person_count" in create_block
+
+
+def test_alter_migration_added_for_person_entry_exit_events():
+    """R4.5: ALTER TABLE migration present (idempotent, mirrors
+    database.py precedent at :972/:1819/:1957/:2012/:2057)."""
+    repo_root = Path(__file__).resolve().parents[2]
+    db_src = (repo_root / "custom_components/universal_room_automation/database.py").read_text()
+    assert "ALTER TABLE person_entry_exit_events" in db_src
+    assert "ADD COLUMN peak_person_count INTEGER" in db_src
+
+
+# ---------------------------------------------------------------------------
+# R3.11 generic fixtures use — assert no household-specific names in tests
+# ---------------------------------------------------------------------------
+
+def test_tests_use_generic_fixtures_not_household_names():
+    """R3.11 / MED-3: cycle tests use `cam_door_a` / `interior_cam_1`,
+    not household entity IDs. We check the FUNCTION bodies (strip the
+    banned-list literal so it doesn't match itself)."""
+    me = Path(__file__).read_text()
+    # Strip ourselves: everything from this function's def onward is docs
+    # about the policy, not fixture code.
+    me = me.split("def test_tests_use_generic_fixtures_not_household_names", 1)[0]
+    banned = ["front" + "_door_aerial", "madrone" + "_g6_entry",
+              "doorbell" + "_lite", "foyer" + "_fisheye",
+              "family" + "_room"]
+    for b in banned:
+        assert b not in me, (
+            f"test fixture leaked household-specific entity: {b}"
+        )
