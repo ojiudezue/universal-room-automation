@@ -470,33 +470,35 @@ def _run_pytest_in_subprocess(test_id: str, expect_fail: bool) -> str:
 
 
 def test_mutation_neuter_suppression_causes_incident_test_to_fail(tmp_path):
-    original = _COORD_SRC.read_text(encoding="utf-8")
-    target = "any_sensor_active = False"
-    assert original.count(target) >= 1, (
-        "Suppression assignment absent from coordinator.py — "
-        "gate wiring missing (mutation anchor)"
-    )
-    # Neuter ONLY the gate's assignment: it appears inside the block
-    # between the two delimiters. Slice the source, mutate the first
-    # occurrence inside the block, splice back.
-    i = original.index(_BLOCK_START)
-    j = original.index(_BLOCK_END, i)
-    head = original[:i]
-    body = original[i:j]
-    tail = original[j:]
-    mutated_body = body.replace(target, "pass  # MUTATED", 1)
-    assert mutated_body != body, "Mutation did not apply inside gate block"
-    mutated = head + mutated_body + tail
-    try:
-        _COORD_SRC.write_text(mutated, encoding="utf-8")
-        _run_pytest_in_subprocess(
-            "quality/tests/test_fan_transition_gate.py::"
-            "test_incident_replay_mmwave_sole_within_window_suppressed",
-            expect_fail=True,
+    # SIGKILL-safe: mutate a COPY under tmp; real _COORD_SRC never
+    # opened for write. See _mutation_sandbox.py.
+    from _mutation_sandbox import apply_mutation_in_sandbox
+
+    def _mutate(original: str) -> str:
+        target = "any_sensor_active = False"
+        assert original.count(target) >= 1, (
+            "Suppression assignment absent from coordinator.py — "
+            "gate wiring missing (mutation anchor)"
         )
-    finally:
-        _COORD_SRC.write_text(original, encoding="utf-8")
-    # Sanity: restored source passes the same test.
+        i = original.index(_BLOCK_START)
+        j = original.index(_BLOCK_END, i)
+        head, body, tail = original[:i], original[i:j], original[j:]
+        mutated_body = body.replace(target, "pass  # MUTATED", 1)
+        assert mutated_body != body, "Mutation did not apply inside gate block"
+        return head + mutated_body + tail
+
+    apply_mutation_in_sandbox(
+        prod_path=_COORD_SRC,
+        anchor_test_file=Path(os.path.abspath(__file__)),
+        anchor_test_name=(
+            "test_incident_replay_mmwave_sole_within_window_suppressed"
+        ),
+        expect="KILLED",
+        mutator=_mutate,
+    )
+    # Sanity: unmutated tree still passes the same test (baseline is
+    # implicitly covered by the surrounding suite; keep an explicit
+    # subprocess check to match the pre-port contract).
     _run_pytest_in_subprocess(
         "quality/tests/test_fan_transition_gate.py::"
         "test_incident_replay_mmwave_sole_within_window_suppressed",

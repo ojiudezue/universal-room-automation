@@ -559,46 +559,17 @@ def _run_named_test_under_mutation(
     assert it fails, then restore. Uses a subprocess for isolation from
     the parent test's already-imported module.
     """
-    backup = _DP_SRC_PATH.read_text()
-    assert old in backup, (
-        f"mutation anchor {old!r} not found in energy_drain_precedence.py "
-        "— test needs updating for source drift"
+    # SIGKILL-safe: mutate a COPY under tmp; real _DP_SRC_PATH never
+    # opened for write. See _mutation_sandbox.py.
+    from _mutation_sandbox import apply_mutation_in_sandbox
+    apply_mutation_in_sandbox(
+        prod_path=_DP_SRC_PATH,
+        swap_from=old,
+        swap_to=new,
+        anchor_test_file=Path(os.path.abspath(__file__)),
+        anchor_test_name=target_test,
+        expect="KILLED",
     )
-    try:
-        mutated = backup.replace(old, new, 1)
-        assert mutated != backup, "mutation was a no-op"
-        _DP_SRC_PATH.write_text(mutated)
-        # Also nuke any __pycache__ for the module so subprocess reloads.
-        pyc_dir = _DP_SRC_PATH.parent / "__pycache__"
-        if pyc_dir.exists():
-            for p in pyc_dir.glob("energy_drain_precedence.*"):
-                p.unlink()
-        # Run the specific test in a subprocess so this process's stale
-        # module import can't shadow the mutation.
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(Path(_HERE).parent.parent / "quality") + os.pathsep + env.get("PYTHONPATH", "")
-        proc = subprocess.run(
-            [sys.executable, "-m", "pytest", "-x", "--no-header",
-             f"quality/tests/test_evse_drain_precedence_session_b2a.py::{target_test}",
-             "-q"],
-            cwd=str(Path(_HERE).parent.parent),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        # Under the mutation, the target test MUST fail (nonzero exit).
-        assert proc.returncode != 0, (
-            f"mutation on {old!r} did NOT cause "
-            f"{target_test} to fail; site not load-bearing.\n"
-            f"stdout={proc.stdout}\nstderr={proc.stderr}"
-        )
-    finally:
-        _DP_SRC_PATH.write_text(backup)
-        pyc_dir = _DP_SRC_PATH.parent / "__pycache__"
-        if pyc_dir.exists():
-            for p in pyc_dir.glob("energy_drain_precedence.*"):
-                p.unlink()
 
 
 def test_mutation_fits_inverted_breaks_p4_night():

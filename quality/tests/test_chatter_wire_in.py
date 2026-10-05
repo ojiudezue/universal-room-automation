@@ -78,39 +78,6 @@ _TOUCHED_FILES: list[pathlib.Path] = [
 ]
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _snapshot_and_restore_touched_sources():
-    """Snapshot every production file drills may edit; restore on exit.
-
-    Guarantees `git status --porcelain` reports no drift after this
-    module's tests complete, regardless of drill outcome.
-    """
-    snapshots: dict[pathlib.Path, str] = {
-        p: p.read_text() for p in _TOUCHED_FILES if p.exists()
-    }
-    try:
-        yield
-    finally:
-        for p, orig in snapshots.items():
-            if p.read_text() != orig:
-                p.write_text(orig)
-
-
-@pytest.fixture(autouse=True)
-def _per_test_restore_touched_sources():
-    """Per-test belt on top of the module-scoped braces: any drill that
-    somehow bypasses its own try/finally is caught here too."""
-    snaps: dict[pathlib.Path, str] = {
-        p: p.read_text() for p in _TOUCHED_FILES if p.exists()
-    }
-    try:
-        yield
-    finally:
-        for p, orig in snaps.items():
-            if p.exists() and p.read_text() != orig:
-                p.write_text(orig)
-
-
 def _run_target(target: str) -> int:
     """Run a single pytest node, return exit code.
 
@@ -130,44 +97,35 @@ def _run_target(target: str) -> int:
     return r.returncode
 
 
-class _SourceMutation:
-    """Context manager: mutate a file, restore on exit."""
-
-    def __init__(self, path: pathlib.Path, old: str, new: str):
-        self.path = path
-        self.old = old
-        self.new = new
-        self._orig = None
-
-    def __enter__(self):
-        self._orig = self.path.read_text()
-        assert self.old in self._orig, (
-            f"mutation anchor not found in {self.path}: {self.old[:80]!r}"
-        )
-        self.path.write_text(self._orig.replace(self.old, self.new, 1))
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # Restore + status-check (feedback_unrestored_mutation_drill).
-        self.path.write_text(self._orig)
-        assert self.path.read_text() == self._orig, (
-            f"RESTORE FAILED for {self.path}"
-        )
-
-
 def _mutate_and_expect_red(
     path: pathlib.Path, old: str, new: str, target: str, label: str,
 ):
-    """Run the drill: mutate, expect RED, restore, expect GREEN."""
-    with _SourceMutation(path, old, new):
-        red = _run_target(target)
-    assert red != 0, (
-        f"DRILL {label}: mutation did NOT red target {target}. "
-        "Hollow anchor — the test does not actually depend on the mutated site."
+    """SIGKILL-safe drill: mutate a COPY under tmp; run the anchor
+    test in a subprocess against the mutated tree; assert RED. Real
+    production source is NEVER opened for write.
+
+    ``target`` is ``"<abs_test_file>::<test_name>"`` — the anchor test
+    typically lives in a DIFFERENT test file (test_chatter_tick_helper,
+    test_chatter_detector, ...), which is why this drill is not
+    same-file. See _mutation_sandbox.py.
+    """
+    from _mutation_sandbox import apply_mutation_in_sandbox
+    anchor_file_str, _, anchor_name = target.partition("::")
+    assert anchor_name, f"target must be file::testname, got: {target!r}"
+    apply_mutation_in_sandbox(
+        prod_path=path,
+        swap_from=old,
+        swap_to=new,
+        anchor_test_file=pathlib.Path(anchor_file_str),
+        anchor_test_name=anchor_name,
+        expect="KILLED",
     )
+    # Post-restore green check (source is untouched, but keep the
+    # contract: the anchor runs green in a fresh subprocess).
     green = _run_target(target)
     assert green == 0, (
-        f"DRILL {label}: post-restore run failed. Restore corrupted the file."
+        f"DRILL {label}: post-restore run failed. Anchor did not run "
+        "green against the (unmutated) production tree."
     )
 
 

@@ -487,11 +487,23 @@ class _Coord:
 
 
 def test_d7_room_telemetry_surfaces_burst_count_and_would_quarantine(
-    chatter_mod, sensor_exclusion_mod,
+    chatter_mod, sensor_exclusion_mod, monkeypatch,
 ):
-    """Real telemetry: burst count, t_floor, k, would_quarantine per sensor."""
+    """Real telemetry: burst count, t_floor, k, would_quarantine per sensor.
+
+    Test-only: monkeypatch the module-level async_track_state_change_event
+    in chatter_mod and construct events as SimpleNamespace so this test
+    does not depend on the top-of-file HA stubs (which are skipped when
+    pytest-homeassistant-custom-component has already imported the real
+    homeassistant package).
+    """
     hass = _Hass()
     coord = _Coord(hass)
+    def _track(h, entities, cb):
+        h._tracked = list(entities)
+        h._cb = cb
+        return lambda: setattr(h, "_cb", None)
+    monkeypatch.setattr(chatter_mod, "async_track_state_change_event", _track)
     det = chatter_mod.ChatterDetector(coord)
     det.async_register_listeners()
     eid = "binary_sensor.foo_pir"
@@ -499,12 +511,13 @@ def test_d7_room_telemetry_surfaces_burst_count_and_would_quarantine(
 
     base = datetime(2026, 1, 1, tzinfo=timezone.utc)
     # 5 sub-1.0s edges = 4 sub-floor events (below K=10 default).
-    from homeassistant.core import Event  # type: ignore
+    def _ev(data, time_fired):
+        return types.SimpleNamespace(data=data, time_fired=time_fired)
     for i, dt in enumerate([base + timedelta(seconds=0.5 * i) for i in range(5)]):
         val = "on" if (i % 2 == 0) else "off"
         st = _State(val)
         hass.states._m[eid] = st
-        hass._cb(Event({"entity_id": eid, "new_state": st}, time_fired=dt))
+        hass._cb(_ev({"entity_id": eid, "new_state": st}, time_fired=dt))
 
     rows = det.telemetry()
     assert len(rows) == 1
@@ -526,7 +539,7 @@ def test_d7_room_telemetry_surfaces_burst_count_and_would_quarantine(
         val = "on" if (i % 2 == 0) else "off"
         st = _State(val)
         hass.states._m[eid] = st
-        hass._cb(Event({"entity_id": eid, "new_state": st}, time_fired=dt))
+        hass._cb(_ev({"entity_id": eid, "new_state": st}, time_fired=dt))
     row = det.telemetry()[0]
     assert row["would_quarantine"] is True, (
         f"expected would_quarantine after K crossed; sub_floor="
