@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-05T09:56:01-05:00_ - _Data commit: `a93a2c4974d7`_ - _last_reconciled: 2026-10-03_
+_Generated: 2026-10-05T13:32:06-05:00_ - _Data commit: `0d08670ef665`_ - _last_reconciled: 2026-10-03_
 
 
 ## Columns
@@ -48,6 +48,8 @@ thread: **energy** - status: **investigating**
 _created 2026-10-03 13:05_
 - **Why:** Operator 2026-10-03 "yes do it". Started add-on 13e68335_envoy_to_mqtt_json 13:03 CDT. Baseline week (stream off since 09-30): 165 SOC dropouts/22.7 per day; today since 00:58 reload: 0. Prior evidence (09-29, entry 167): stream on corre...
 - **Next:** ME at 2026-10-05 13:05: one-shot query vs baseline (stream OFF 2026-10-03 00:58-13:03: 0 Envoy SOC/net dropouts). Measure (1) envoy integration unavailable transitions, (2) peak battery cutouts, (3) sensor.envoy_stream_battery_soc freshn...
+- **Forensic keys (1):**
+  - `readout_2026_10_05`: NO-GO (48h on vs 48h off, recorder). Peak battery cutouts (SPAN >=1.5kW to <300W) 30 -> 138 per 48h (4.6x) with the stream add-on running; stream SOC covered only 4/7 native dropouts (57%, bar 95%); sensor.envoy_stream_data_timestamp fro...
 
 ## 🧭 Pre-planning (10)
 _idea being decomposed_
