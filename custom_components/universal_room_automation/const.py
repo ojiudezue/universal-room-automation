@@ -2722,6 +2722,26 @@ EGRESS_ENTRY_WINDOW_SECONDS: Final = 45
 EGRESS_EXIT_WINDOW_SECONDS: Final = 30
 EGRESS_AMBIGUOUS_COOLDOWN_SECONDS: Final = 60
 
+# PLANNING_census_inputs_first D1 (2026-10-05): door-event quality
+# ---------------------------------------------------------------------
+# DOOR_STEM_DEDUP_S — door-group dedup window at the head of
+# `_resolve_direction`. Replaces the historical inline literal 5.0.
+# Rung = module constant per `Numbers-Get-Knobs` (ledger-shape change
+# requires review). Default 30 s per P-D1 probe (−49% `garage_a` dupes).
+DOOR_STEM_DEDUP_S: Final = 30
+
+# CONF_DOOR_GROUPS maps egress-camera stem → door-group string.
+# Unset → each camera is its own group (today's behaviour byte-identical).
+CONF_DOOR_GROUPS: Final = "door_groups"
+# CONF_DOOR_INTERIOR_NEIGHBOURS maps door-group → list of interior-camera
+# entity_ids. Unset OR door_group not in map → fall back to today's full
+# interior-list behaviour (R3.1 CRITICAL-1 fix).
+CONF_DOOR_INTERIOR_NEIGHBOURS: Final = "door_interior_neighbours"
+# CONF_MAIN_ENTRY_DOOR — options derived from `CONF_DOOR_GROUPS` keys.
+# Shipped as a config field; consumed by the estimator cycle (deferred
+# per R3.7). Present here so the operator can set it once.
+CONF_MAIN_ENTRY_DOOR: Final = "main_entry_door"
+
 # EXTERIOR-GUEST-FACE-FASTFOLLOW-1 D1 (2026-08-18)
 # Correctness bounds; module rung per §7 (numbers get knobs).
 # FACE_MATCH_WINDOW_S: max age of a recognized face vs the egress crossing

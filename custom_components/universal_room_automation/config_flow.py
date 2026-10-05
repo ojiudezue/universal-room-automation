@@ -633,6 +633,10 @@ from .const import (
     CONF_CAMERA_PERSON_ENTITIES,
     CONF_EGRESS_CAMERAS,
     CONF_PERIMETER_CAMERAS,
+    # PLANNING_census_inputs_first D1 (2026-10-05): door-event quality
+    CONF_DOOR_GROUPS,
+    CONF_DOOR_INTERIOR_NEIGHBOURS,
+    CONF_MAIN_ENTRY_DOOR,
     CONF_CENSUS_CROSS_VALIDATION,
     CONF_CENSUS_DIVERGENCE_DOWNGRADE,
     DEFAULT_CENSUS_DIVERGENCE_DOWNGRADE,
@@ -4814,6 +4818,48 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             },
         )
 
+    @staticmethod
+    def _validate_door_interior_neighbours(
+        raw: object, interior_entities: set[str] | None = None,
+    ) -> tuple[dict[str, list[str]], str | None]:
+        """Review MED: validate CONF_DOOR_INTERIOR_NEIGHBOURS shape.
+
+        Returns ``(cleaned, error_message_or_None)``. Expected shape:
+        ``{group_name: [entity_id, ...]}``. Each entity_id, if a
+        ``camera.*`` id, is accepted; if an interior-entities whitelist
+        is passed, non-camera ids must be present in it.
+        """
+        if raw in (None, {}, ""):
+            return {}, None
+        if not isinstance(raw, dict):
+            return {}, (
+                "Door neighbours must be a mapping of group name to a list "
+                "of camera entity ids."
+            )
+        cleaned: dict[str, list[str]] = {}
+        for group, cams in raw.items():
+            if not isinstance(group, str) or not group:
+                return {}, "Each neighbour group must have a non-empty name."
+            if not isinstance(cams, (list, tuple)):
+                return {}, (
+                    f"Neighbours for '{group}' must be a list of entity ids."
+                )
+            ents: list[str] = []
+            for c in cams:
+                if not isinstance(c, str) or "." not in c:
+                    return {}, (
+                        f"Entity '{c!r}' under '{group}' is not a valid entity id."
+                    )
+                if interior_entities is not None and not c.startswith("camera."):
+                    if c not in interior_entities:
+                        return {}, (
+                            f"Entity '{c}' under '{group}' is not a known "
+                            f"interior detection sensor."
+                        )
+                ents.append(c)
+            cleaned[group] = ents
+        return cleaned, None
+
     async def async_step_camera_census(self, user_input=None):
         """Configure camera census (integration level) - v3.5.0.
 
@@ -4829,9 +4875,33 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         into the integration-level default so existing configs are preserved.
         """
         if user_input is not None:
+            # Review B1: drop empty values for the D1 new keys so they do
+            # NOT appear in `entry.options` when the operator hasn't
+            # engaged with them. Prevents `None != {}` false-positives
+            # in the integration-options reload diff.
+            cleaned = dict(user_input)
+            for _k in (CONF_DOOR_GROUPS, CONF_DOOR_INTERIOR_NEIGHBOURS):
+                if cleaned.get(_k) in ({}, None):
+                    cleaned.pop(_k, None)
+            if cleaned.get(CONF_MAIN_ENTRY_DOOR) in ("", None):
+                cleaned.pop(CONF_MAIN_ENTRY_DOOR, None)
+            # Review MED: validate neighbours shape before persisting.
+            if CONF_DOOR_INTERIOR_NEIGHBOURS in cleaned:
+                validated, err = self._validate_door_interior_neighbours(
+                    cleaned[CONF_DOOR_INTERIOR_NEIGHBOURS],
+                )
+                if err is not None:
+                    _LOGGER.warning(
+                        "Camera Census save: %s (dropping key)", err,
+                    )
+                    cleaned.pop(CONF_DOOR_INTERIOR_NEIGHBOURS, None)
+                elif validated:
+                    cleaned[CONF_DOOR_INTERIOR_NEIGHBOURS] = validated
+                else:
+                    cleaned.pop(CONF_DOOR_INTERIOR_NEIGHBOURS, None)
             return self.async_create_entry(
                 title="",
-                data={**self._config_entry.options, **user_input}
+                data={**self._config_entry.options, **cleaned}
             )
 
         # Build default for indoor cameras: start from integration-level value,
@@ -5033,6 +5103,36 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),
+            # PLANNING_census_inputs_first D1 (R3.8 / R4.6 / R4.8) —
+            # Advanced-only, APPENDED after the existing order so the
+            # Simple view keeps exactly its 7 fields and the hidden-value
+            # I3 guard (save handler merge into stored options) preserves
+            # these on a Simple save. Factory defaults = empty → `_adv`
+            # keeps them Advanced-marked until the operator sets them.
+            # Shape: {camera_stem: group_name}.
+            vol.Optional(
+                CONF_DOOR_GROUPS,
+                default=self._get_current(CONF_DOOR_GROUPS, {}),
+                description=_adv(CONF_DOOR_GROUPS, _merged, {}),
+            ): selector.ObjectSelector(),
+            # Shape: {group_name: [interior_cam, ...]}. UNSET or group
+            # not in map → full interior list fallback (R3.1 CRITICAL-1).
+            vol.Optional(
+                CONF_DOOR_INTERIOR_NEIGHBOURS,
+                default=self._get_current(
+                    CONF_DOOR_INTERIOR_NEIGHBOURS, {},
+                ),
+                description=_adv(
+                    CONF_DOOR_INTERIOR_NEIGHBOURS, _merged, {},
+                ),
+            ): selector.ObjectSelector(),
+            # Main entry door (door-group name). Deferred consumer per
+            # R3.7 — set here now so the estimator cycle can read it.
+            vol.Optional(
+                CONF_MAIN_ENTRY_DOOR,
+                default=self._get_current(CONF_MAIN_ENTRY_DOOR, ""),
+                description=_adv(CONF_MAIN_ENTRY_DOOR, _merged, ""),
+            ): selector.TextSelector(),
         })
 
         return self.async_show_form(

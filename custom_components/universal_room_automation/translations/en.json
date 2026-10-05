@@ -800,7 +800,10 @@
           "egress_identity_enabled": "Name people at doors",
           "known_face_guests": "Known guests",
           "egress_identity_failsafe_strict": "Only trust live faces",
-          "auto_enable_person_detection": "Turn on person detection"
+          "auto_enable_person_detection": "Turn on person detection",
+          "door_groups": "Group door cameras",
+          "door_interior_neighbours": "Rooms next to each door",
+          "main_entry_door": "Main entry door"
         },
         "data_description": {
           "census_cross_validation": "If you run more than one camera system (such as Frigate and UniFi Protect), compare their counts. Turn off if you use only one.",
@@ -817,7 +820,10 @@
           "egress_identity_enabled": "Name people who walk through door cameras, using face recognition, so the house count knows who is home. You can also turn this off from its switch on the House device.",
           "known_face_guests": "Names from your face library that belong to regular guests, not residents. Leave empty if none.",
           "egress_identity_failsafe_strict": "Only name people at doors when face recognition is working right now. Leave on.",
-          "auto_enable_person_detection": "Turn on person detection on room cameras that have it off. For now URA only lists them in the log."
+          "auto_enable_person_detection": "Turn on person detection on room cameras that have it off. For now URA only lists them in the log.",
+          "door_groups": "Map each door camera's name to a group (e.g. two cameras on one front door → both to 'front'). Leave blank if each camera is its own door.",
+          "door_interior_neighbours": "For each door group, list the indoor cameras right next to it. Used to decide entry vs exit when the door fires. Leave blank to use all indoor cameras.",
+          "main_entry_door": "Name of the main door group (from the list above). Used for arrival estimates. Leave blank if you don't have one."
         }
       },
       "perimeter_alerting": {

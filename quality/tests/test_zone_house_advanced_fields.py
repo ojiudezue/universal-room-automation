@@ -33,6 +33,8 @@ from custom_components.universal_room_automation.const import (
     CONF_CENSUS_DIVERGENCE_DOWNGRADE,
     CONF_CENSUS_HOLD_EXTERIOR,
     CONF_CENSUS_HOLD_INTERIOR,
+    CONF_DOOR_GROUPS,
+    CONF_DOOR_INTERIOR_NEIGHBOURS,
     CONF_EGRESS_CAMERAS,
     CONF_EGRESS_IDENTITY_ENABLED,
     CONF_EGRESS_IDENTITY_FAILSAFE_STRICT,
@@ -44,6 +46,7 @@ from custom_components.universal_room_automation.const import (
     CONF_GUEST_VLAN_SSID,
     CONF_HOUSE_DEVICE_POWER_SENSORS,
     CONF_KNOWN_FACE_GUESTS,
+    CONF_MAIN_ENTRY_DOOR,
     CONF_OUTDOOR_DARK_LUX,
     CONF_PERIMETER_ALERT_HOURS_END,
     CONF_PERIMETER_ALERT_HOURS_START,
@@ -126,6 +129,12 @@ HOUSE_ADVANCED = [
     ("camera_census", CONF_AUTO_ENABLE_PERSON_DETECTION, False),
     ("camera_census", CONF_CENSUS_HOLD_INTERIOR, 17),
     ("camera_census", CONF_CENSUS_HOLD_EXTERIOR, 11),
+    # PLANNING_census_inputs_first D1 — Advanced-only door fields,
+    # appended after the existing order; the three keys default to
+    # empty values so `_adv` keeps them Advanced-marked.
+    ("camera_census", CONF_DOOR_GROUPS, {"cam_a": "door_a"}),
+    ("camera_census", CONF_DOOR_INTERIOR_NEIGHBOURS, {"door_a": ["camera.foo"]}),
+    ("camera_census", CONF_MAIN_ENTRY_DOOR, "door_a"),
     ("perimeter_alerting", CONF_PERIMETER_ENRICHMENT_PROVIDER, "other"),
     ("perimeter_alerting", CONF_PERIMETER_ENRICHMENT_MODEL, "other-model"),
     ("perimeter_alerting", CONF_PERIMETER_ENRICHMENT_MAX_TOKENS, 900),
@@ -156,6 +165,9 @@ HOUSE_DEFAULTS = {
     CONF_AUTO_ENABLE_PERSON_DETECTION: cf.DEFAULT_AUTO_ENABLE_PERSON_DETECTION,
     CONF_CENSUS_HOLD_INTERIOR: cf.DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES,
     CONF_CENSUS_HOLD_EXTERIOR: cf.DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES,
+    CONF_DOOR_GROUPS: {},
+    CONF_DOOR_INTERIOR_NEIGHBOURS: {},
+    CONF_MAIN_ENTRY_DOOR: "",
     CONF_PERIMETER_VEHICLE_HOURS_START: cf.DEFAULT_PERIMETER_VEHICLE_HOURS_START,
     CONF_PERIMETER_VEHICLE_HOURS_END: cf.DEFAULT_PERIMETER_VEHICLE_HOURS_END,
     CONF_PERIMETER_ENRICHMENT_ENABLED: cf.DEFAULT_PERIMETER_ENRICHMENT_ENABLED,
@@ -389,7 +401,10 @@ def test_camera_census_simple_has_at_most_seven_fields():
         CONF_KNOWN_FACE_GUESTS, CONF_GUEST_VLAN_SSID,
     }
     flow, _ = _house_flow({}, adv=True)
-    assert len(schema_keys(render(flow, "camera_census"))) == 15
+    # 15 pre-cycle + 3 new Advanced door fields (D1 census_inputs_first):
+    # door_groups, door_interior_neighbours, main_entry_door — all
+    # Advanced-only, appended after the existing order.
+    assert len(schema_keys(render(flow, "camera_census"))) == 18
 
 
 def test_camera_census_field_order():

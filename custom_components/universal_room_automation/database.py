@@ -172,6 +172,12 @@ class UniversalRoomDatabase:
         os.makedirs(db_dir, exist_ok=True)
         self.db_file = os.path.join(db_dir, DATABASE_NAME)
         self._last_table_error: Exception | None = None
+        # Review B2: when the ALTER-TABLE migration for the
+        # peak_person_count column cannot land (table pre-exists without
+        # it AND the ALTER failed/was skipped), fall back to the 6-column
+        # INSERT so every subsequent row isn't rejected. Default False
+        # (assume column present); flipped True by _create_tables.
+        self._peak_person_count_absent: bool = False
         # v3.22.8: Write queue serializes all DB writes through a single
         # asyncio task, eliminating contention entirely. Writes are queued
         # as coroutines and executed one at a time. Reads use independent
@@ -924,6 +930,11 @@ class UniversalRoomDatabase:
                     failed_tables.append("census_snapshots")
 
                 # -- Person entry/exit events --------------------------------
+                # PLANNING_census_inputs_first R3.6 / R4.5 (2026-10-05):
+                # `peak_person_count` carried in fresh CREATE (new installs
+                # like Wigton) AND via ALTER TABLE below for existing DBs.
+                # NULLABLE so legacy rows (pre-cycle) stay distinguishable
+                # from "post-cycle, sampler returned 0".
                 if not await self._create_table_safe(db, "person_entry_exit_events", [
                     """CREATE TABLE IF NOT EXISTS person_entry_exit_events (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -932,7 +943,8 @@ class UniversalRoomDatabase:
                         event_type TEXT NOT NULL,
                         direction TEXT NOT NULL,
                         egress_camera TEXT NOT NULL,
-                        confidence REAL NOT NULL
+                        confidence REAL NOT NULL,
+                        peak_person_count INTEGER
                     )""",
                     """CREATE INDEX IF NOT EXISTS idx_entry_exit_timestamp
                     ON person_entry_exit_events(timestamp)""",
@@ -940,6 +952,45 @@ class UniversalRoomDatabase:
                     ON person_entry_exit_events(person_id, timestamp)""",
                 ]):
                     failed_tables.append("person_entry_exit_events")
+                else:
+                    # Idempotent ALTER TABLE migration for pre-cycle DBs.
+                    # Precedent: database.py :972/:1819/:1957/:2012/:2057.
+                    try:
+                        cursor = await db.execute(
+                            "PRAGMA table_info(person_entry_exit_events)"
+                        )
+                        pe_cols = {row[1] for row in await cursor.fetchall()}
+                        if "peak_person_count" not in pe_cols:
+                            try:
+                                await db.execute(
+                                    "ALTER TABLE person_entry_exit_events "
+                                    "ADD COLUMN peak_person_count INTEGER"
+                                )
+                                await db.commit()
+                                _LOGGER.info(
+                                    "Added peak_person_count column to "
+                                    "person_entry_exit_events"
+                                )
+                            except Exception as alter_e:
+                                # Review B2: ALTER failed → flag so
+                                # log_entry_exit_event uses the 6-column
+                                # INSERT and rows still land.
+                                self._peak_person_count_absent = True
+                                _LOGGER.warning(
+                                    "person_entry_exit_events ALTER "
+                                    "peak_person_count failed; falling "
+                                    "back to 6-column INSERT: %s",
+                                    alter_e,
+                                )
+                    except Exception as e:
+                        # Could not even read PRAGMA — assume absent and
+                        # take the fallback path to keep writes landing.
+                        self._peak_person_count_absent = True
+                        _LOGGER.warning(
+                            "person_entry_exit_events peak_person_count "
+                            "migration failed: %s",
+                            e,
+                        )
 
                 # -- Decision log --------------------------------------------
                 if not await self._create_table_safe(db, "decision_log", [
@@ -4045,22 +4096,49 @@ class UniversalRoomDatabase:
         direction: str,
         egress_camera: str,
         confidence: float,
+        peak_person_count: Optional[int] = None,
     ) -> None:
-        """Log a confirmed entry or exit event."""
+        """Log a confirmed entry or exit event.
+
+        PLANNING_census_inputs_first R3.6 / R4.5 (2026-10-05):
+        ``peak_person_count`` is the honest multiplicity input (max count
+        observed across the door_group's cameras during the episode).
+        None → NULL (sampler had no sample in-window; legacy rows stay
+        distinguishable).
+        """
         try:
             async with self._db() as db:
-                await db.execute("""
-                    INSERT INTO person_entry_exit_events
-                        (timestamp, person_id, event_type, direction, egress_camera, confidence)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    datetime.utcnow().isoformat(),
-                    person_id,
-                    event_type,
-                    direction,
-                    egress_camera,
-                    confidence,
-                ))
+                if self._peak_person_count_absent:
+                    # Review B2: 6-column fallback when the column is
+                    # absent (ALTER failed on an older DB).
+                    await db.execute("""
+                        INSERT INTO person_entry_exit_events
+                            (timestamp, person_id, event_type, direction,
+                             egress_camera, confidence)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        datetime.utcnow().isoformat(),
+                        person_id,
+                        event_type,
+                        direction,
+                        egress_camera,
+                        confidence,
+                    ))
+                else:
+                    await db.execute("""
+                        INSERT INTO person_entry_exit_events
+                            (timestamp, person_id, event_type, direction,
+                             egress_camera, confidence, peak_person_count)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        datetime.utcnow().isoformat(),
+                        person_id,
+                        event_type,
+                        direction,
+                        egress_camera,
+                        confidence,
+                        peak_person_count,
+                    ))
                 await db.commit()
         except Exception as e:
             _LOGGER.error("Error logging entry/exit event: %s", e)
