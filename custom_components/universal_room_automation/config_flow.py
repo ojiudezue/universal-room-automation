@@ -4954,45 +4954,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     multiple=True,
                 )
             ),
-            # PLANNING_census_inputs_first D1 (R3.8 / R4.6 / R4.8):
-            # Group door cameras. Unset → each camera is its own group
-            # (today's behaviour byte-identical). Operator-entered names;
-            # no household strings baked here.
-            # Shape: {camera_stem: group_name}, e.g.
-            #   {"front_door_aerial": "front", "doorbell_lite": "garage_a"}
-            # Review B1: `suggested_value` (NOT `default`) — voluptuous
-            # won't bake a `{}` into user_input when the operator never
-            # engaged with the field; combined with the empty-value drop
-            # in the save handler, these keys stay absent from
-            # `entry.options` until explicitly set. Prevents a parent
-            # reload on first Camera Census save.
-            vol.Optional(
-                CONF_DOOR_GROUPS,
-                description={
-                    "suggested_value": self._get_current(CONF_DOOR_GROUPS, {}),
-                },
-            ): selector.ObjectSelector(),
-            # Rooms next to each door. Shape: {group_name: [interior_cam, ...]}
-            # Unset OR group not in map → full interior list fallback
-            # (R3.1 CRITICAL-1).
-            vol.Optional(
-                CONF_DOOR_INTERIOR_NEIGHBOURS,
-                description={
-                    "suggested_value": self._get_current(
-                        CONF_DOOR_INTERIOR_NEIGHBOURS, {},
-                    ),
-                },
-            ): selector.ObjectSelector(),
-            # Main entry door (door-group name). Deferred consumer per
-            # R3.7 — set here now so the estimator cycle can read it.
-            vol.Optional(
-                CONF_MAIN_ENTRY_DOOR,
-                description={
-                    "suggested_value": self._get_current(
-                        CONF_MAIN_ENTRY_DOOR, "",
-                    ),
-                },
-            ): selector.TextSelector(),
             # v3.5.2: Face recognition toggle
             vol.Optional(
                 CONF_FACE_RECOGNITION_ENABLED,
@@ -5142,6 +5103,36 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),
+            # PLANNING_census_inputs_first D1 (R3.8 / R4.6 / R4.8) —
+            # Advanced-only, APPENDED after the existing order so the
+            # Simple view keeps exactly its 7 fields and the hidden-value
+            # I3 guard (save handler merge into stored options) preserves
+            # these on a Simple save. Factory defaults = empty → `_adv`
+            # keeps them Advanced-marked until the operator sets them.
+            # Shape: {camera_stem: group_name}.
+            vol.Optional(
+                CONF_DOOR_GROUPS,
+                default=self._get_current(CONF_DOOR_GROUPS, {}),
+                description=_adv(CONF_DOOR_GROUPS, _merged, {}),
+            ): selector.ObjectSelector(),
+            # Shape: {group_name: [interior_cam, ...]}. UNSET or group
+            # not in map → full interior list fallback (R3.1 CRITICAL-1).
+            vol.Optional(
+                CONF_DOOR_INTERIOR_NEIGHBOURS,
+                default=self._get_current(
+                    CONF_DOOR_INTERIOR_NEIGHBOURS, {},
+                ),
+                description=_adv(
+                    CONF_DOOR_INTERIOR_NEIGHBOURS, _merged, {},
+                ),
+            ): selector.ObjectSelector(),
+            # Main entry door (door-group name). Deferred consumer per
+            # R3.7 — set here now so the estimator cycle can read it.
+            vol.Optional(
+                CONF_MAIN_ENTRY_DOOR,
+                default=self._get_current(CONF_MAIN_ENTRY_DOOR, ""),
+                description=_adv(CONF_MAIN_ENTRY_DOOR, _merged, ""),
+            ): selector.TextSelector(),
         })
 
         return self.async_show_form(
