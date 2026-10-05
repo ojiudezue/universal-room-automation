@@ -34,6 +34,8 @@ from .hvac_const import (
     CONF_HVAC_THERMOSTAT_MIN_DELTA_F,
     DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
     DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F,
+    HVAC_THERMOSTAT_MIN_DELTA_MAX_F,
+    HVAC_THERMOSTAT_MIN_DELTA_MIN_F,
     DUTY_CYCLE_WINDOW_SECONDS,
     HVAC_LIVE_ROOM_TRANSIENT_GRACE_S,
 )
@@ -50,7 +52,21 @@ def _min_delta_from(cfg: Any) -> float:
         ))
     except (TypeError, ValueError):
         return float(DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F)
-    return val if val > 0 else float(DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F)
+    if not val > 0:  # 0 / negative / NaN -> the default (as before)
+        return float(DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F)
+    clamped = min(max(val, HVAC_THERMOSTAT_MIN_DELTA_MIN_F), HVAC_THERMOSTAT_MIN_DELTA_MAX_F)
+    if clamped != val and val not in _MIN_DELTA_CLAMP_LOGGED:
+        # Operator ruling 2026-10-05: one INFO per stored out-of-range value.
+        _MIN_DELTA_CLAMP_LOGGED.add(val)
+        _LOGGER.info(
+            "HVAC: stored thermostat min heat/cool gap %.1f F is outside "
+            "%.0f-%.0f F; using %.1f F", val, HVAC_THERMOSTAT_MIN_DELTA_MIN_F,
+            HVAC_THERMOSTAT_MIN_DELTA_MAX_F, clamped,
+        )
+    return float(clamped)
+
+
+_MIN_DELTA_CLAMP_LOGGED: set[float] = set()
 
 
 def _profile_attrs(hass: Any, entity_id: str | None) -> dict[str, Any]:

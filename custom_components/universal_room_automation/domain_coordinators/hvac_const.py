@@ -752,6 +752,11 @@ DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED: Final = True
 # holds named presets and never consumes it.
 CONF_HVAC_THERMOSTAT_MIN_DELTA_F: Final = "hvac_thermostat_min_delta_f"
 DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F: Final = 5.0
+# Operator ruling 2026-10-05: a STORED min gap is clamped to this range when
+# read (the field enforces it on save). RUNG 1 — the ecobee floor is 5 °F;
+# a narrower gap would be rewritten by the device and read as `manual`.
+HVAC_THERMOSTAT_MIN_DELTA_MIN_F: Final = 5.0
+HVAC_THERMOSTAT_MIN_DELTA_MAX_F: Final = 10.0
 
 # HVAC W1-C P2 §4.11 — FULL S1 decision ticks (zone-scoped fast runs do not
 # count — fix A-L1) an ecobee may sit in cool/heat after the

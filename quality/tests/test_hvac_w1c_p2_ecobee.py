@@ -779,7 +779,7 @@ def test_wire_range_rounds_half_up_then_widens_to_the_configured_min_delta(
 def test_min_delta_comes_from_the_zone_config_field(mods, monkeypatch):
     hz = mods["hvac_zones"]
     assert hz._min_delta_from({}) == 5.0
-    assert hz._min_delta_from({"hvac_thermostat_min_delta_f": 3}) == 3.0
+    assert hz._min_delta_from({"hvac_thermostat_min_delta_f": 7}) == 7.0
     assert hz._min_delta_from({"hvac_thermostat_min_delta_f": "junk"}) == 5.0
     assert hz._min_delta_from({"hvac_thermostat_min_delta_f": 0}) == 5.0
 
@@ -803,7 +803,7 @@ async def test_zone_discovery_reads_the_min_delta_and_shared_thermostats_take_th
     zmgr = mods["hvac_zones"].ZoneManager(hass)
     await zmgr.async_discover_zones()
     by_ent = {z.climate_entity: z.thermostat_min_delta_f for z in zmgr.zones.values()}
-    assert by_ent == {"climate.eco_up": 3.0, "climate.eco_ms": 6.0, "climate.eco_dn": 5.0}
+    assert by_ent == {"climate.eco_up": 5.0, "climate.eco_ms": 6.0, "climate.eco_dn": 5.0}
 
 
 # ---- §4.11 deferral reporting ---------------------------------------------
@@ -1774,3 +1774,39 @@ async def test_fix_a_m1_post_await_recheck_uses_the_thermostats_own_gap(mods, mo
     assert ZONE not in coord._s10_snapshots
     assert coord._s10_record(ZONE, "home", "apply") is None
     assert _eco(mods, hass)._ranges == {}
+
+
+@pytest.mark.parametrize("stored,expect", [
+    (2, 5.0), (4.9, 5.0), (5, 5.0), (10, 10.0), (10.1, 10.0), (15, 10.0), (0, 5.0), ("x", 5.0),
+])
+def test_fix_min_delta_stored_value_is_clamped_to_5_to_10(mods, stored, expect):
+    """Operator ruling 2026-10-05: a stored gap outside 5-10 °F is clamped
+    on read (boundaries as literals)."""
+    hz = mods["hvac_zones"]
+    assert hz._min_delta_from({"hvac_thermostat_min_delta_f": stored}) == expect
+
+
+def test_fix_min_delta_clamp_logs_one_info_per_value(mods, caplog):
+    hz = mods["hvac_zones"]
+    hz._MIN_DELTA_CLAMP_LOGGED.discard(3.0)
+    caplog.set_level(logging.INFO)
+    for _ in range(3):
+        hz._min_delta_from({"hvac_thermostat_min_delta_f": 3})
+    assert sum("outside 5-10 F" in m for m in caplog.messages) == 1
+
+
+@pytest.mark.asyncio
+async def test_fix_min_delta_clamp_reaches_the_zone_through_discovery(mods):
+    """Wire-in: a stored 3 °F gap reaches the ZoneState as 5 °F."""
+    from runtime_harness import StubHass, make_coordinator_manager_entry, make_zone_manager_entry
+    zm = make_zone_manager_entry(zones={
+        "Up": {"zone_thermostat": "climate.eco_up", "zone_rooms": [],
+               "hvac_thermostat_min_delta_f": 3.0},
+        "Big": {"zone_thermostat": "climate.eco_big", "zone_rooms": [],
+                "hvac_thermostat_min_delta_f": 12.0},
+    })
+    hass = StubHass(config_entries=[make_coordinator_manager_entry(), zm])
+    zmgr = mods["hvac_zones"].ZoneManager(hass)
+    await zmgr.async_discover_zones()
+    by_ent = {z.climate_entity: z.thermostat_min_delta_f for z in zmgr.zones.values()}
+    assert by_ent == {"climate.eco_up": 5.0, "climate.eco_big": 10.0}
