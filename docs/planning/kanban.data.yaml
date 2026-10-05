@@ -445,13 +445,14 @@ cards:
   next: "None - merged into EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1."
   why: 'D0 replay + breaker investigation 2026-10-03: on 10-01 06:09-08:20Z ~12 full on/off cycles of garage A (11.6 kW); 13/14 turn-ons on ticks with valid SOC, so NOT the Envoy dropout. Pause reason "EV pause redirects solar" at 06:40Z with no sun. Also 09-28. Breaker-safety alarm cleared: guard reads the cloud CFG switch (off); local Enpower switch is a standing "on"; battery drew ~0 kW, peak import ~90 A. Latent gap noted: guard trusts cloud CFG only (no local corroboration). Supersedes the original framing of EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1.'
 - id: EC-DEGRADED-DATA-POLICY-1
+  preship_gap_2026_10_05_overnight: "PRE-SHIP GAP (process, not code): no Post-Review Documentation record exists for EC p1. git diff develop...feature/ec-degraded-data-p1 touches no docs/reviews/code-review/ file, and its worktree (.claude/worktrees/agent-aebf583902376cc85) has none either; the Tier-3 A/B/C/D + D re-pass findings (incl. D-MED-2, now carded as EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1) appear to live only in the attended session transcript + memory. CLAUDE.md requires docs/reviews/code-review/v<version>_<name>.md (all findings, bug classes, fixed/deferred) - write it before or with the Monday deploy, or the deferred findings stay unrecoverable."
   reconciled_2026_10_05_overnight: "CARD-WAS-STALE: its next (PICK on doc section 7, likely no Phase-1 build) predates the operator decisions of 10-03/10-04. Ground truth: phase 1 WAS planned (docs/planning/PLANNING_ec_enphase_resilience_and_p1_adjust.md, still untracked in the main checkout) and BUILT on feature/ec-degraded-data-p1 (651c72cfc D1 dormant/D2a-c/D3/D4/D5 -> fix-ups -> 645af019c 10-04 14:19 CDT; untrusted-SOC refusal scope all with exempt offpeak_ensure_on + should_start_by = operator option 1); all 4 Tier-3 reviews + D re-pass done, suite 158 = base (memory project_session_pickup_2026_10_04). Operator GO to ship Mon after the A/B readout. Moved waiting_operator -> review. Phase 2 = EC-ENPHASE-CONNECTIVITY-RESILIENCE-1; deliberately-unfixed review finding carded as EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1."
   investigation_2026_10_03_overnight: "Investigation COMPLETE. Design review REV 2 + D0 measurement/replay is in docs/planning/DESIGN_ec_degraded_data_policy.md (NOTE: written by the attended session tonight, still UNTRACKED in git - commit it). D0 verdicts (section 9.3): P1-1 cloud freshness by last_reported NO-GO (cloud re-reports a frozen value: 10.0 % while true SOC rose to 29 %); P1-2/3 HOLD - and its must-answer is now RESOLVED by the overnight pass (no breaker gap; see EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1); P1-4 NO-GO as a fix; P1-5 attain-on-cloud NO-GO (no trustworthy non-Envoy SOC witness; MQTT stream down since 09-30). The 10-01 incident re-pointed to the rung-1/WAIT loop (new card); the dropout child EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1 closed as refuted."
   title: Energy coordinator has no single rule for what to do when the Envoy reading drops out (some sites hold, some release, some read zero)
   thread: energy
   status: "review"
   created: '2026-10-03 01:20'
-  updated: "2026-10-05 04:45"
+  updated: "2026-10-05 06:05"
   next: "SHIP (operator-timed, Mon 10-05 after the 13:05 stream A/B readout, which decides the D1 stream tier/heartbeat): merge feature/ec-degraded-data-p1 (HEAD 645af019c) to develop with the energy-history kWh fix (ENERGY-HISTORY-KW-SUMMED-AS-KWH-1) and the census face-lookup fix, README with all cards, deploy.sh, HACS, restart while awake, CPR switch off after restart, live write-back."
   why: 'SOC resolver already falls back envoy -> lkg -> cloud, but the battery strategy holds with no commands, the arbitrage EV pause releases on missing SOC, and solar reads the dead derived sensor. The Envoy /production.json fault (since 2026-10-01) turned rare outages into frequent ones. Children: EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1, EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1 (both approved, both ON HOLD pending this decision).'
 - id: EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1
@@ -30770,11 +30771,12 @@ cards:
     context: 'GAP-A-CENSUS-HOLE-1 (parked) is another resident-vs-census attribution hole; different mechanism (forgotten phone).'
   sweep_2026_10_05: 'Board census/egress cards swept; GAP-A-CENSUS-HOLE-1 ADJACENT. NEW.'
 - id: CENSUS-GROUND-TRUTH-CSV-FIX-1
+  verified_2026_10_05_overnight: "STILL-REAL but GATED on the operator. The fixture (quality/tests/fixtures/census_ground_truth_2026_10_03.csv, added in 9584b184d, 176 rows) carries est_house_total 4-5 at 12:00, 3-4 at 12:30, 4-5 at 13:00-14:00 - footage estimates that include the long-stay guest (now confirmed OUT in the morning) and predate the who-left-when correction. The corrected values depend on the departure timeline that the plan lists as PENDING OPERATOR CONFIRMATION (R2.6/OP-1: probe trackers say Ezinne ~12:13 and operator+Jaya ~13:55, vs the operator's earlier 'operator + Jaya ~12:00'). Writing numbers now would encode a guess into the answer key, so no edit was made."
   title: The 10-03 census ground-truth fixture still carries truth the operator has since corrected
   thread: census
-  status: inbox
+  status: "waiting_operator"
   created: '2026-10-05 04:40'
-  updated: '2026-10-05 04:40'
+  updated: "2026-10-05 06:00"
   refinement_status: initial
   tags: [tier-1, hand-build-fixture]
   rank: {value: 5, time_criticality: 4, effort: 2}
@@ -30785,7 +30787,7 @@ cards:
      wrong reasons. Solution: correct the fixture from the operator rulings before the replay is re-run.'
   origin: {date: '2026-10-04', gist: 'Listed as to-mint ("ground-truth CSV fix") in the 10-04 resume memo; AUDIT_census_estimator_replay_2026_10_03_hybrid.md :88/:114 flag the CSV'}
   why: 'The replay is the exit gate for CENSUS-INPUTS-FIRST-1; its answer key must be right first.'
-  next: 'Locate the CSV used by scripts/probes/census_d0/census_estimator_replay.py, apply the corrections from PLANNING_census_inputs_first.md header + audit :114, commit with a changelog line per corrected slot. R2.6/OP-1 slot ownership stays pending the operator.'
+  next: "ANSWER (plan OP-1, one reply): on 10-03, who left by car around 12:13 CDT and who left around 13:55 (trackers say Ezinne ~12:13, you + Jaya ~13:55; your earlier note said you + Jaya ~12:00), and roughly when did the long-stay guest come back? -> I rewrite est_house_total for the 12:00-14:00 slots of quality/tests/fixtures/census_ground_truth_2026_10_03.csv from your answer, with a changelog note per slot, before the replay is re-run."
   refs: [docs/planning/AUDIT_census_estimator_replay_2026_10_03_hybrid.md, docs/planning/PLANNING_census_inputs_first.md]
   links:
     parent: CENSUS-INPUTS-FIRST-1
@@ -30817,11 +30819,12 @@ cards:
     context: 'Memo sequences it after the inputs-first cycle; restart-adjacent house-state hazards are tracked on HA-CORE-RESTART-STORM-1.'
   sweep_2026_10_05: 'Board grep AWAY fence / boot away: none; restart storm card ADJACENT. NEW.'
 - id: CENSUS-PATIO-THROUGH-GLASS-1
+  config_first_2026_10_05_overnight: "CONFIG-ONLY verdict. URA consumers of this camera (live core.config_entries + entity registry): the integration entry camera_person_entities lists camera.family_room (platform frigate = Frigate2) AND camera.family_room_high_resolution_channel (unifiprotect); room Living Room room_cameras = camera.family_room; zone Entertainment zone_cameras = binary_sensor.family_room_person_occupancy (frigate). Both NVRs see through the glass, so a mask in only one leaves the other counting the patio. The fix is NVR-side configuration (operator-owned homelab config); no URA code is needed unless neither NVR can mask the window."
   title: The family-room camera counts people on the covered patio through the glass as being inside
   thread: census
-  status: inbox
+  status: "waiting_operator"
   created: '2026-10-05 04:40'
-  updated: '2026-10-05 04:40'
+  updated: "2026-10-05 05:55"
   refinement_status: initial
   tags: [tier-1, config-first]
   rank: {value: 4, time_criticality: 2, effort: 2}
@@ -30832,18 +30835,19 @@ cards:
      possible.'
   origin: {date: '2026-10-04', gist: 'AUDIT_census_footage_ground_truth_2026_10_03.md :19; listed as "patio camera gap" in the 10-04 resume memo'}
   why: 'Inflates the interior head-count exactly during gatherings, when the count matters most.'
-  next: 'ANSWER-or-DO candidate: check which NVR feeds the family_room person entity used by the census (IDENTITY_FUSION_CAMERAS_MANUAL.md) and whether a zone/mask can exclude the patio; then propose the config change.'
+  next: "DO (config, no URA code): exclude the covered patio seen through the family-room glass in BOTH NVRs that feed the census - (1) Frigate2: add a motion mask or a required zone on camera family_room (feeds camera.family_room / binary_sensor.family_room_person_occupancy / sensor.family_room_person_count), (2) UniFi Protect: draw a detection zone on the family-room camera that leaves out the window area (feeds camera.family_room_high_resolution_channel / binary_sensor.family_room_person_detected). -> I re-check the next gathering (or a staged walk on the patio) for indoor counts while only the patio is occupied."
   refs: [docs/planning/AUDIT_census_footage_ground_truth_2026_10_03.md]
   links:
     parent: CENSUS-INPUTS-FIRST-1
     context: 'Interior over-count input defect found in the same footage audit.'
   sweep_2026_10_05: 'Board grep patio: 11 hits, all exterior pool/patio cameras, none on this interior through-glass count. NEW.'
 - id: EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1
+  search_2026_10_05_overnight: "Searched develop, feature/ec-degraded-data-p1, every .claude/worktrees/*/docs/reviews and the memory dir for the EC p1 D-MED-2 text: not found (the D-MED-2 hits are other cycles: arrester comfort delay, DP drain target, ec blind-window guard v5.28.0). Only the 10-04 resume memo mentions it. Cannot verify the claim without the source -> operator ANSWER."
   title: On the EV manager path, grid charging may be switched on before the EV pause lands (review finding D-MED-2 from EC p1)
   thread: energy
-  status: inbox
+  status: "waiting_operator"
   created: '2026-10-05 04:40'
-  updated: '2026-10-05 04:40'
+  updated: "2026-10-05 06:05"
   refinement_status: initial
   tags: [tier-3, no-fabrication-verify]
   rank: {value: 6, time_criticality: 3, effort: 8}
@@ -30854,7 +30858,7 @@ cards:
      the main path.'
   origin: {date: '2026-10-04', gist: '"Card still to mint: manager-path TOU CFG-ON-before-EV-pause (D-MED-2)" - 10-04 resume memo'}
   why: 'Breaker-safety ordering (cf. arbitrage ladder review B-CRIT-1, grid-on before EV pause). CAPTURE NOTE: the 10-05 overnight pass could NOT find the D-MED-2 text in any review record on develop, feature/ec-degraded-data-p1 or its worktree - the exact site is unverified; this card holds the memo claim only.'
-  next: 'Me: find the EC p1 Review-D D-MED-2 text (ask the attended session / grep the reviewer outputs), confirm the manager-path dispatch order at file:line, then card a fix plan (Tier 3 = operator checkpoint).'
+  next: "ANSWER: what exactly did EC p1 Review-D D-MED-2 say (site / dispatch order on the manager path)? It is in no review record (see EC-DEGRADED-DATA-POLICY-1 preship_gap). -> I confirm it at file:line and card the fix plan (Tier 3, your checkpoint)."
   refs: [memory project_session_pickup_2026_10_04, docs/reviews/code-review/arbitrage_solar_attainability_ladder.md B-CRIT-1]
   links:
     related: [EC-DEGRADED-DATA-POLICY-1]
