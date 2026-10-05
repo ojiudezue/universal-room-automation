@@ -12,6 +12,143 @@
 
 ---
 
+## REV 5 FIX-PLAN (2026-10-05) — authoritative over REV 4 and REV 3.3 wherever they disagree
+
+**Scope:** closes plan-review findings F1–F9 against REV 4. No build; no commit. Where a REV 4 or REV 3.3 bullet contradicts a REV 5 point below, REV 5 wins. Where REV 5 is silent, REV 4 / 3.3 stand. Base: `develop` HEAD on `feature/census-inputs-first`; W1-C P2 (`PLANNING_hvac_w1c_p2_ecobee.md` REV 3) is the authority on the ecobee half of `set_preset_range` (§4.2 :270-278, §4.2a :315-345, §4.9 :491-521).
+
+### F1 (HIGH) — S10 call shape, result handling, Generic verb, and ownership of the ecobee half
+
+**Supersedes:** REV 4 V1 bullets 4 (the `feature_available` discussion and the `no_device_presets` verb); REV 4's "D3 adds" acceptance line for `no_device_presets`; REV 4's "Live" bullet wording that keyed on `no_device_presets`; REV 3.3 §5 D3 test name `test_generic_set_preset_range_zero_calls_feature_unavailable`; the Generic SKIPPED/DEFERRED enumeration in REV 4 V1.
+
+- **S10 calls** `_w1c_strategy(self.hass, zone.climate_entity).set_preset_range(self.hass, zone.climate_entity, P, low, high, gate=_s10_gate, zone_id=zone_id, site=..., reason=..., emit=emit_set_activity_setpoint)` and **branches only on `result.status`**. `_w1c_applied` is forbidden (REV 3.3 U1 :24 already bans it). Truthiness raises.
+- **Status table (binding):**
+  - `APPLIED` → **success**. Record one throttle entry for `(zone, P, mode)`; no retry; no latch.
+  - `SKIPPED_ALREADY_CORRECT` with ANY reason (incl. P2's `stored_for_next_hold`, `range_already_live`, or Carrier's `ha_view_matches`, or any other brand-specific reason) → **success**. Record the throttle entry; no retry; no latch; no NM.
+  - `DEFERRED` with ANY reason → **consumes the §6.2 rate clock**, exactly as REV 3.3 §6.2 specifies for Carrier `gate_deferred`. No failure count. No latch. The caller-side ledger (`_log_deferred_write`) is the record.
+  - `FAILED` → **counts a failure (§6.2 `call_failed`) only when `reason == "emit_raised"`.** All other FAILED reasons (including `preset_range_unsupported`) are a **quiet skip**: no latch, no failure count, no NM, one INFO log once per entity per process lifetime.
+- **Generic has ONE result and ZERO wire calls.** `GenericStrategy.set_preset_range` returns `WriteResult(WriteStatus.FAILED, "preset_range_unsupported")` with zero `climate.*` service calls (per CPR §3.3 :732, §14 :1236 and P2 §4.9 :498). Under the FAILED rule above, `preset_range_unsupported` is a quiet skip.
+- **Delete every occurrence of `no_device_presets`** in this plan (REV 4 V1 bullets 2 and 4, REV 4 V1 "writing nothing to `last_sent`" footnote, REV 4 "D3 adds" and REV 4 "Live" bullet). There is no `no_device_presets` verb, no `profile_has_no_activity_setpoint` verb, no SKIPPED/DEFERRED Generic result, and no second Generic result shape anywhere in CPR.
+- **Ecobee behaviour is owned by W1-C P2, not CPR.** CPR does NOT define `EcobeeHomeKitStrategy.set_preset_range`, does NOT enumerate its SKIPPED reasons, and does NOT change its DEFERRED semantics. P2 §4.2 / §4.2a / §4.9 is authoritative (store-first APPLIED, two SKIPPED reasons, DEFERRED on mode precondition or caller gate, CPR-OFF Seasonal Baseline restore). CPR consumes it unchanged via the ANY-reason rule above.
+- **Pointer required by P2 §4.9 :521.** Add a one-line pointer in §3.3 of this plan (Carrier rules section) reading: *"Ecobee's `set_preset_range` shape, store-first semantics and CPR-OFF restore are specified in `PLANNING_hvac_w1c_p2_ecobee.md` §4.9; CPR consumes it via the ANY-reason APPLIED/SKIPPED/DEFERRED/FAILED rule in REV 5 F1."*
+- **Test rename (replaces REV 4 F1 rename and REV 3.3 U1 contract-test name).** The former `test_generic_set_preset_range_zero_calls_feature_unavailable` is renamed **`test_generic_set_preset_range_zero_calls_unsupported`** and asserts: (a) `WriteStatus.FAILED` with `reason == "preset_range_unsupported"`; (b) zero `climate.*` service calls; (c) no `call_failed` latch increment and no `s10_preset_range_call_failed` NM.
+- **Live (zone-3-first) wording update:** the "ecobee rooms produce zero S10 rows regardless of switch state" criterion now reads *"any strategy returning `FAILED("preset_range_unsupported")` (Generic today; ecobee pre-P2) produces zero `climate_write` rows and zero latch increments"*. P2's ecobee once shipped will produce zero wire calls under the SKIPPED/DEFERRED paths; both land as quiet skips under F1.
+
+### F2 (HIGH) — New adapter verb `preset_range_original`; §3.4 Step 9 snapshot gated on it
+
+**Supersedes:** REV 3.3 §3.4 and §6.3 wherever they say the snapshot captures "the live HA view" as the universal device original.
+
+- Add one adapter verb on the strategy registry: `preset_range_original(hass, entity, P) -> tuple[int, int] | None`.
+  - **CarrierStrategy:** returns `(low, high)` for preset `P` from the device's P1/P2 comfort profile under the HA-view rounding rule (same whole-°F rounding the Carrier write applies). Never raises; unreadable entity → `None`.
+  - **EcobeeHomeKitStrategy** (defined in P2, consumed here, no CPR edit to P2): returns the P2 Seasonal Baseline pair for `P`.
+  - **GenericStrategy:** returns `None`. There is no device-side preset profile.
+- **§3.4 Step 9 snapshot** runs **only when `preset_range_original(hass, zone.climate_entity, P)` is non-`None` AND differs from the composed `desired` range**. If it is `None`, no snapshot is captured and no `S10_preset_range_restore` row is ever produced for that `(zone, P)`. The P1/P4 guard-masked-match caveat (REV 3.1 F7) is unchanged for Carrier (match → no snapshot, harmless).
+- **Snapshot shape** stays `(low, high)` + `captured_iso`; the only change is the SOURCE used to seed it (the verb, not the live `obs`).
+- **Test (new, replaces the ad-hoc Generic-snapshot assertion in REV 3.3 §3.4):** `test_s10_generic_zone_never_snapshots` — a Generic-resolving zone that enters CPR's apply pass produces zero snapshot entries in `__s10_preset_ranges.snapshots` and zero `S10_preset_range_restore` rows across the apply-then-OFF transition.
+- **No behaviour change for Carrier** on the all-Carrier install (byte-identical snapshots for House 1).
+
+### F3 (HIGH) — switch.py restore semantics (anchors re-verified against develop)
+
+**Supersedes:** REV 3.3 R4 switch-reader audit anchors for the map-clear and no-prior-state lines; REV 4 V3's switch-side anchor cells; REV 3.3 §3.5 wording for the `no_last_state_default` resolution path.
+
+- **Verified anchors on current `develop`:**
+  - `switch.py:2070` `return True  # default ON` (hvac-is-None branch of `is_on`).
+  - `switch.py:2071` `return getattr(hvac, "_guest_mode_actuation_enabled", True)`.
+  - `switch.py:2087-2088` `_last_emitted_range.clear()` (OFF path).
+  - `switch.py:2111-2113` early return on `last_state is None or last_state.state not in ("on", "off")` ("No prior state — default ON is truth").
+  - `switch.py:2131-2152` `_handle_hvac_ready` deferred-restore landing.
+- **Patch rules (both must land in D8; neither substitutes for the other):**
+  - **:2070** — change `return True  # default ON` to `return None` so an unavailable HVAC coord reports `None` (unknown/pending), not True. REV 3.3 R4 named only :2021-area getattr; it missed this hvac-is-None branch.
+  - **:2071** — change `getattr(..., True)` default to `None`. Together with the F1 tri-state readers already specified in REV 3.3 R4 for `hvac.py:3923`, `hvac.py:3940`, `sensor.py:10199/10231`, this makes `None` the only unresolved value anywhere on the read path.
+- **Unavailable/unknown saved last_state resolution (new, binding).** When `async_get_last_state()` returns a `State` whose `.state` is `"unavailable"` or `"unknown"` (not only when it is `None`), the resolution is **False** with `source="no_last_state_default"`. The :2111-2113 early-return branch is amended to call `set_custom_ranges_enabled(False, source="no_last_state_default")` instead of silently returning. REV 3.3 R4's "no-last-state → False" ruling now covers all three shapes (`last_state is None`, `last_state.state == "unavailable"`, `last_state.state == "unknown"`). This closes Bug Class #52 for the CPR switch specifically.
+- **Deferred-landing emits NM/ledger when it lands, not when the switch loaded (new, binding).** If the resolution would occur while `hvac is None` at `async_added_to_hass` time, it MUST be deferred with `source="deferred_landing_<original_source>"` where `<original_source>` ∈ {`restore_entity`, `no_last_state_default`} is captured at `async_added_to_hass`. `_handle_hvac_ready` (`switch.py:2131-2152`) completes the deferral by calling `set_custom_ranges_enabled(target_bool, source="deferred_landing_<original_source>")`. The NM + §4.3 ledger row (REV 3.1 F1's `s10_restart_default_off_restore_pending` + `s10_default_off_after_restart`, if applicable) emit at the LANDING instant on the HVAC coord, not when the switch entity loaded. If HVAC is still `None` when the ready signal fires, the existing warning at `:2141-2144` stands and the R2 backstop (F8) is the only remaining resolver.
+- **Anchor errata to fix in-place in REV 3.3 R4 and the REV 3.3 Anchor table (`:233`):**
+  - map clear: was `:2046-2047`, is **`:2087-2088`**.
+  - no-prior-state default: was unset in R4 ("None — default ON" prose), is **`:2111-2113`** (early return) + the new resolution call this F3 adds.
+- **Tests (both required; both must FAIL on pre-CPR source and PASS post-fix):**
+  - `test_switch_restore_unavailable_last_state_resolves_false` — RestoreEntity hands back a `State(..., state="unavailable")`; after `async_added_to_hass`, flag resolves to False with source `no_last_state_default`; S1 reads False on the next tick.
+  - `test_switch_no_last_state_deferred_lands_false_via_ready_signal` — RestoreEntity returns `None` while HVAC coord is not yet in `hass.data`; the switch takes the deferred path; dispatching `SIGNAL_HVAC_COORDINATOR_READY` lands the resolution as False with source `deferred_landing_no_last_state_default` and emits the NM + ledger row at the landing instant.
+
+### F4 (MED) — "Blocker 4" is withdrawn; sequencing is additive
+
+**Supersedes:** REV 4 "Known blockers" row 4 ("NEW dependency: W1-C P2 (ecobee adapter) OR a thin-adapter `set_preset_range` shim on the CPR branch"); REV 4 V1 sequencing bullet (a)/(b) that required CPR to merge after P2 or shim the thin-adapter verb on-branch.
+
+- **CPR builds the Carrier AND Generic halves now.** F1 above specifies both; CPR's diff contains ZERO references to `feature_available` / `feature_unavailable_reason`. Reviewer D's lint on CPR's diff (REV 4 Non-goals) is binding; CPR does not depend on P2's deletion of those symbols.
+- **W1-C P2 adds the ecobee half** (`EcobeeHomeKitStrategy.set_preset_range`, P2 §4.9) on its branch, independently.
+- **Rebase rule.** Whichever of CPR and P2 merges second rebases `hvac_strategy.py` as a mechanical union — Carrier override + Generic base from CPR, ecobee override from P2. No logic conflict is possible because the two overrides land on disjoint subclasses.
+- **Interim behaviour.** Until P2 ships, House 2's ecobee zones resolve `GenericStrategy` and therefore return `FAILED("preset_range_unsupported")` → F1 quiet-skip. This is the accepted interim — identical to a zone with no CPR support at all, zero wire calls, no NMs.
+- **Row 4 in "Known blockers" is deleted;** the three HVAC-* cards remain the complete blocker set.
+
+### F5 (HIGH) — INV rewrite; drop the composite "≤7 calls / 60 min" bullet; two separate falsifiers
+
+**Supersedes:** REV 4 "Falsifiable invariant (consolidated, REV 4)" bullets 1, 2 and 4 and the combined falsified-by clause.
+
+- **INV-CPR-REV5.** With switch 01 resolved **True** (not None, not False) and the Carrier adapter present:
+  - **At most ONE wire call per tick** for any given `(zone, P)` via `set_preset_range`.
+  - **Zero wire calls on any tick where the device's HA-view range already equals the composed `desired` range** (SKIPPED_ALREADY_CORRECT and DEFERRED paths produce zero wire calls by construction).
+  - **For any strategy whose `set_preset_range` returns FAILED with any reason other than `emit_raised`** (including Generic `preset_range_unsupported`, and any future brand that returns FAILED unsupported), zero wire calls, zero latch increments, zero `s10_preset_range_call_failed` NMs.
+  - **Snapshot/restore invariant.** For every `(zone, P)` ever written by APPLIED, an F2-sourced snapshot exists from before the first APPLIED until a confirmed restore; a restore write occurs ONLY while the flag has resolved to False. Zones whose `preset_range_original` is `None` never snapshot and never restore.
+- **Two separate falsifiers (replace the single combined falsifier of REV 4):**
+  - **F-APPLY.** Any `climate_write` row with `site LIKE 'S10_preset_range%'` AND `site NOT LIKE 'S10_preset_range_restore%'` while the resolved flag is anything other than **True** falsifies INV-CPR-REV5. (Covers both `None` and False.)
+  - **F-RESTORE.** Any `climate_write` row with `site LIKE 'S10_preset_range_restore%'` while the resolved flag is anything other than **False** falsifies INV-CPR-REV5. (Covers both `None` and True.)
+- **The REV 4 "≤7 wire calls per 60 min / (zone, preset, mode)" bullet is deleted.** It was a rate artifact of the retired compose-away storm regime, not a CPR correctness invariant. **INV-NO-STORM (REV 3.3 U6) is unchanged** — it continues to carry the 7-call/h rate bound on its own axis.
+
+### F6 (MED) — `S10_ROLLOUT_ZONE_IDS` moves to rung 2 (options-flow field, default empty)
+
+**Supersedes:** REV 3.3 U5 placement of `S10_ROLLOUT_ZONE_IDS` as a rung-1 module constant with default `frozenset({"zone_3"})`.
+
+- Per the "Numbers Get Knobs" ladder and the operator's multi-home revision of `project_single_user_no_backcompat` (2nd install going live weekend 2026-10-03/04), **`S10_ROLLOUT_ZONE_IDS` is rung 2 — an options-flow field on the HVAC coordinator entry.**
+  - Field key: `hvac_s10_rollout_zone_ids` (frozenset of zone slugs; serialised as a sorted list).
+  - **Default: empty set** — no zones. CPR's apply pass is a no-op on every zone of a fresh install until the operator explicitly opts a zone in. The restore pass is NOT gated by this field (REV 3.3 U5 restore-ungated rule unchanged).
+  - To widen to every zone, the operator adds each zone slug by name; there is no "all" sentinel. This is deliberate — a second install (ecobee-only) cannot inadvertently enable CPR by inheriting a House-1 default.
+- **Pre-second-install contract (binding).** CPR must not ship with any non-empty default anywhere. The House 1 operator opts zone_3 in via the options flow at deploy time, replacing REV 3.3 U5's "widening patch" step. House 2's ecobee zones produce zero S10 rows by configuration AND by the F1 FAILED quiet-skip (double no-op; both intentional).
+- **Test additions:**
+  - `test_s10_rollout_default_empty_set_no_apply_rows_on_fresh_install`.
+  - `test_s10_rollout_scope_apply_zone_3_only_restore_all` is kept but seeds the field via the options flow, not via a module constant.
+
+### F7 (MED) — Mutation drill ownership moves to Reviewer C
+
+**Supersedes:** REV 4 Tier paragraph wherever it assigns the "force CarrierStrategy.set_preset_range to return DEFERRED('no_device_presets')" drill to Reviewer D.
+
+- **Reviewer C** (test-authority / per-site mutation) owns the following drill, run under the pyc-staleness protocol (`PYTHONDONTWRITEBYTECODE=1` + clear `__pycache__`):
+  - **Mutation.** In the F1 result-handling block, neuter the quiet-skip branch for `FAILED` with `reason != "emit_raised"` so it falls through into the `call_failed` latch path.
+  - **Expected failure.** `test_s10_registry_miss_generic_skips_quietly` fails with a latch-increment assertion at exactly one site; no other test fails.
+  - **Restore.** The mutation is reverted and the suite returns to green.
+- **Reviewer D** retains the INV-CPR-REV5 enumeration (F-APPLY / F-RESTORE), the compose-away reachable configs (REV 3.3 U6), and the F3 restore corners. D does NOT run the F7 mutation.
+- REV 4's "force `CarrierStrategy.set_preset_range` to return `DEFERRED('no_device_presets')`" drill is DELETED (no_device_presets does not exist per F1).
+
+### F8 (MED) — R2 backstop handle lifecycle
+
+**Supersedes:** REV 3.2 R2 wherever it leaves the `async_call_later` handle unmanaged across a reload.
+
+- The R2 backstop handle (the `async_call_later(S10_SWITCH_RESOLUTION_TIMEOUT_S, ...)` scheduled at coordinator boot that resolves `None → False`) is stored on the HVAC coordinator as `self._cpr_resolution_backstop_handle: CALLBACK_TYPE | None`.
+- **Cancel-before-re-arm.** `manager.py:1231` (the re-call of `async_setup` on reload) MUST cancel the existing handle BEFORE scheduling a new one. The cancel is unconditional on reload entry; the new schedule is only armed if the flag is still `None` at the moment the new `async_setup` runs its boot block.
+- **Teardown.** `async_will_remove_from_hass` / coordinator teardown cancels the handle and clears the attribute. A cancel on a `None` attribute is a no-op.
+- **Ledger.** When the backstop fires and resolves False, the §4.3 ledger row's `source` field is `unresolved_backstop` (REV 3.2 R2 unchanged). Add `handle_cancelled_by: "reload" | "teardown" | None` to the row for Reviewer D's enumeration.
+- **Test (new).** `test_cpr_r2_backstop_handle_cancelled_on_reload_and_teardown` — arm the backstop; trigger a reload at `manager.py:1231`; assert the first handle's `cancel()` was called before the second was scheduled; trigger teardown; assert the final handle is cancelled and the attribute is `None`.
+
+### F9 (LOW) — V2 app-name templating reads P2's strategy label field
+
+**Supersedes:** REV 4 V2 bullet 3 wherever it says "ecobee's label comes from its strategy, not CPR" without naming the field.
+
+- The U9 "NM strings must be profile-templated" rule reads **`strategy.app_name`** — the P2-defined strategy label field (P2 §4.5 preserves `app_name` in the trimmed `ProfileCapabilities`).
+- Any CPR NM string that would read "Bryant app" (REV 3.3 U9: L3, L9 wording) is swapped at build time for `strategy.app_name`. Carrier returns `"Bryant"`; ecobee returns `"ecobee"`; Generic returns `strategy.app_name = None`, in which case the templated phrase falls back to the brand-neutral noun **"the thermostat app"** and the NM runs through unchanged.
+- **Test.** `test_s10_nm_templates_use_strategy_app_name` — swap the resolved strategy between Carrier / ecobee / Generic fixtures and assert the three expected renderings; FAIL on any hard-coded "Bryant".
+- No change to Carrier NM wording (byte-identical to REV 3.3). Additive templating only.
+
+### REV 5 changelog
+- **F1:** single Generic result (`FAILED("preset_range_unsupported")`); S10 branches on `.status`; APPLIED and SKIPPED_ALREADY_CORRECT (any reason) = success; DEFERRED consumes rate clock; FAILED counts only on `emit_raised`; `no_device_presets` deleted everywhere; test renamed to `..._unsupported`; pointer to P2 §4.9 added in §3.3; P2 owns ecobee half.
+- **F2:** new `preset_range_original` adapter verb; §3.4 Step 9 snapshot gated on non-None + differs-from-desired; new `test_s10_generic_zone_never_snapshots`.
+- **F3:** `switch.py:2070` → `return None`; `:2071` getattr default → `None`; `unavailable`/`unknown` last_state resolves False via `no_last_state_default`; deferred landing emits NM/ledger via `_handle_hvac_ready` at the landing instant; anchors corrected (`:2087-2088`, `:2111-2113`); two new tests.
+- **F4:** Blocker 4 withdrawn; CPR builds both halves; rebase rule stated; House 2 ecobee = Generic quiet-skip interim (accepted).
+- **F5:** INV rewritten — "≤1 wire call per tick, 0 once HA view matches"; two separate falsifiers (F-APPLY, F-RESTORE); REV 4 bullet 4 and the ≤7/60 min cap deleted.
+- **F6:** `S10_ROLLOUT_ZONE_IDS` → rung-2 options field; default empty set; test added.
+- **F7:** FAILED-non-emit_raised mutation drill owned by Reviewer C; D keeps INV enumeration.
+- **F8:** R2 backstop handle stored, cancelled before re-arm on reload (`manager.py:1231`), cancelled in teardown; new test; row `handle_cancelled_by` field added.
+- **F9:** V2 app-name templating reads `strategy.app_name` (P2 §4.5 preserved field); Generic falls back to brand-neutral noun; new test.
+
+---
+
+
 ## REV 4 re-check (2026-10-05) — authoritative over REV 3.3 wherever they disagree
 
 **Reviewer:** ura-planner, operator-requested re-check in parallel with ecobee W1-C P2 work. **No build yet; no commit.** Base of this re-check: `develop` HEAD on `feature/census-inputs-first` (not a CPR branch; ecobee probe in flight). The REV 3.3 anchor base was `8a4619b32` (post v5.103.36). Deltas since: v5.103.37 (CM outage incident surfaced on 10-03) and v5.103.38 (README records the live CPR-switch re-enable bug and names it as "fix tracked in Batch C"). W1-C P2 (ecobee) is in flight on a separate branch; CPR must slot after or alongside it without creating ordering surprises.
