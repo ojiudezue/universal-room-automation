@@ -673,6 +673,220 @@ def test_validate_door_interior_neighbours_rejects_bad_shapes():
     assert err is None and cleaned == {"door_a": ["binary_sensor.known_sensor"]}
 
 
+# ---------------------------------------------------------------------------
+# Orchestrator-flagged behavioral coverage gaps (post 4f6329fcc)
+# ---------------------------------------------------------------------------
+
+def test_resolve_direction_passes_peak_person_count_to_db_writer():
+    """Orchestrator finding (transit_validator.py:2116): the call site
+    `peak_person_count=peak` was previously only grep-anchored. Drive
+    `_resolve_direction` end-to-end: seed the peak buffer, force a
+    non-ambiguous direction via an interior event, mock the DB writer,
+    and assert the EXACT `peak_person_count` keyword passed through."""
+    tracker, hass = _make_tracker(interior=["interior_cam_1"])
+    from custom_components.universal_room_automation.const import DOMAIN
+    database = MagicMock()
+    database.log_entry_exit_event = AsyncMock()
+    hass.data = {DOMAIN: {"database": database}}
+    hass.bus = MagicMock()
+
+    from collections import deque
+    t0 = datetime(2026, 10, 5, 14, 24, 0)
+    # Interior fire inside ENTRY window → direction=entry → DB write path.
+    tracker._recent_interior_events["interior_cam_1"] = [
+        t0 + timedelta(seconds=4),
+    ]
+    # Seed the peak buffer with a KNOWN in-window max.
+    tracker._peak_count_buffer["cam_door_a"] = deque([
+        (t0 - timedelta(seconds=5), 2),
+        (t0 + timedelta(seconds=10), 5),  # the MAX we expect to flow
+    ])
+    _run_async(tracker._resolve_direction(
+        "binary_sensor.cam_door_a_person_occupancy", t0,
+    ))
+    assert database.log_entry_exit_event.await_count == 1
+    kwargs = database.log_entry_exit_event.await_args.kwargs
+    assert kwargs["direction"] == "entry"
+    assert kwargs["peak_person_count"] == 5, (
+        f"resolver must pass the sampler value (5), not sentinel/None "
+        f"(got {kwargs['peak_person_count']!r})"
+    )
+
+
+def test_initialize_adds_peak_person_count_to_legacy_table_and_log_writes_row():
+    """Orchestrator finding (database.py:967): the ALTER site was only
+    source-grepped. Behavioral drill:
+
+    1. Pre-cycle sqlite file with a `person_entry_exit_events` table that
+       LACKS `peak_person_count`.
+    2. Run the real `initialize()` → ALTER migration lands the column.
+    3. Re-run `initialize()` → idempotent (no error).
+    4. Call `log_entry_exit_event(peak_person_count=3)` and read the row
+       back → the value persists.
+    """
+    import asyncio as _aio
+    import os as _os
+    import tempfile
+
+    import aiosqlite
+
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
+    )
+
+    tmpdir = tempfile.mkdtemp(prefix="ura_d1_test_")
+    try:
+        db_path = _os.path.join(tmpdir, "pre_cycle.db")
+
+        async def _seed_legacy() -> None:
+            async with aiosqlite.connect(db_path) as conn:
+                await conn.execute("""
+                    CREATE TABLE person_entry_exit_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp DATETIME NOT NULL,
+                        person_id TEXT,
+                        event_type TEXT NOT NULL,
+                        direction TEXT NOT NULL,
+                        egress_camera TEXT NOT NULL,
+                        confidence REAL NOT NULL
+                    )
+                """)
+                await conn.commit()
+
+        _aio.new_event_loop().run_until_complete(_seed_legacy())
+
+        # Construct a DB instance without going through __init__.
+        db = UniversalRoomDatabase.__new__(UniversalRoomDatabase)
+        db.db_file = db_path
+        db._last_table_error = None
+        db._peak_person_count_absent = False
+        db._REPAIRABLE_TABLES = {"energy_snapshots"}
+
+        async def _init_once() -> bool:
+            return await db.initialize()
+
+        # Step 2: real initialize() lands the ALTER migration.
+        ok = _aio.new_event_loop().run_until_complete(_init_once())
+        assert ok is True
+
+        async def _col_present() -> bool:
+            async with aiosqlite.connect(db_path) as conn:
+                cur = await conn.execute(
+                    "PRAGMA table_info(person_entry_exit_events)"
+                )
+                cols = {r[1] for r in await cur.fetchall()}
+                return "peak_person_count" in cols
+
+        assert _aio.new_event_loop().run_until_complete(_col_present()), (
+            "ALTER TABLE did not land peak_person_count column"
+        )
+        # Step 3: idempotent (second initialize() does not error).
+        ok2 = _aio.new_event_loop().run_until_complete(_init_once())
+        assert ok2 is True
+
+        # Step 4: wire _db() to a direct connection so log_entry_exit_event
+        # can run without the write-queue worker; verify the row persists
+        # with peak_person_count=3.
+        class _CtxMgr:
+            async def __aenter__(self):
+                self._c = await aiosqlite.connect(db_path)
+                return self._c
+            async def __aexit__(self, *a):
+                await self._c.close()
+                return False
+        db._db = lambda: _CtxMgr()  # type: ignore[assignment]
+
+        _aio.new_event_loop().run_until_complete(
+            db.log_entry_exit_event(
+                person_id="p",
+                event_type="egress",
+                direction="entry",
+                egress_camera="cam_door_a",
+                confidence=0.9,
+                peak_person_count=3,
+            )
+        )
+
+        async def _read_back() -> int | None:
+            async with aiosqlite.connect(db_path) as conn:
+                cur = await conn.execute(
+                    "SELECT peak_person_count FROM person_entry_exit_events "
+                    "ORDER BY id DESC LIMIT 1"
+                )
+                row = await cur.fetchone()
+                return row[0] if row else None
+
+        got = _aio.new_event_loop().run_until_complete(_read_back())
+        assert got == 3, f"persisted peak_person_count mismatch (got {got!r})"
+    finally:
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_async_init_registers_one_unsub_per_count_sensor_and_teardown_cancels_all():
+    """Orchestrator finding: assert the lifecycle wiring —
+      * one unsub per CameraInfo.person_count_sensor lands in
+        BOTH `_peak_count_unsubs` AND `_unsub`;
+      * `async_teardown()` calls every registered unsub.
+    """
+    tracker, hass = _make_tracker()
+    # Mock census with two egress CameraInfos, each with a distinct
+    # person_count_sensor and binary_sensor so the stem map resolves.
+    info_a = MagicMock()
+    info_a.person_count_sensor = "sensor.cam_a_person_count"
+    info_a.person_binary_sensor = "binary_sensor.cam_a_person_occupancy"
+    info_b = MagicMock()
+    info_b.person_count_sensor = "sensor.cam_b_person_count"
+    info_b.person_binary_sensor = "binary_sensor.cam_b_person_occupancy"
+    census = MagicMock()
+    census.get_transit_egress_entities = MagicMock(return_value=[info_a, info_b])
+    census.get_transit_interior_entities = MagicMock(return_value=[])
+    from custom_components.universal_room_automation.const import DOMAIN
+    hass.data = {DOMAIN: {"census": census}}
+
+    # Stub async_track_state_change_event to return a UNIQUE callable
+    # each invocation so we can count / cancel.
+    call_log: list[str] = []
+    unsub_registry: list = []
+    def _fake_track(_hass, entity_ids, _handler):
+        tag = f"unsub:{entity_ids[0]}:{_handler.__name__}"
+        def _unsub():
+            call_log.append(tag)
+        unsub_registry.append((tag, _unsub))
+        return _unsub
+
+    import homeassistant.helpers.event as _ev
+    original = _ev.async_track_state_change_event
+    _ev.async_track_state_change_event = _fake_track
+    try:
+        _run_async(tracker.async_init())
+    finally:
+        _ev.async_track_state_change_event = original
+
+    # One unsub per count sensor landed in BOTH collections.
+    assert len(tracker._peak_count_unsubs) == 2, (
+        f"expected 2 peak-count unsubs (one per count sensor); "
+        f"got {len(tracker._peak_count_unsubs)}"
+    )
+    # The two count-sensor unsubs are also in `_unsub` (teardown drains it).
+    peak_unsub_ids = {id(u) for u in tracker._peak_count_unsubs}
+    unsub_ids = {id(u) for u in tracker._unsub}
+    assert peak_unsub_ids.issubset(unsub_ids), (
+        "every _peak_count_unsubs entry must also be in _unsub for teardown"
+    )
+
+    # Teardown cancels every registered unsub.
+    unsub_count_before = len(tracker._unsub)
+    assert unsub_count_before >= 2
+    _run_async(tracker.async_teardown())
+    # Every unsub registered via async_init was invoked.
+    for tag, _ in unsub_registry:
+        assert tag in call_log, f"teardown did not cancel {tag}"
+    # Collections cleared.
+    assert tracker._unsub == []
+    assert tracker._peak_count_unsubs == []
+
+
 def test_tests_use_generic_fixtures_not_household_names():
     """R3.11 / MED-3: cycle tests use `cam_door_a` / `interior_cam_1`,
     not household entity IDs. We check the FUNCTION bodies (strip the
