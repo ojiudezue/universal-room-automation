@@ -129,7 +129,7 @@ def test_door_stem_dedup_s_default_is_30s():
 def test_dedup_covers_person_occupancy_2_sibling_within_window():
     """R3.3 caller #1 — before the fix, `_2` legs returned stem=None → dedup
     skipped. Post-fix: two legs on the same stem inside the window → the
-    second resolve is skipped by the dedup head."""
+    second resolve is skipped by the direction-keyed dedup head."""
     tracker, hass = _make_tracker()
     hass.data["custom_components.universal_room_automation"] = {}
 
@@ -146,10 +146,10 @@ def test_dedup_covers_person_occupancy_2_sibling_within_window():
         "binary_sensor.foo_person_occupancy_2",
         t0 + timedelta(seconds=10),
     ))
-    # Only one resolve wrote to DB (direction=ambiguous → skipped) OR one
-    # fired on the bus — the dedup head skips the second regardless.
-    # Assert the dedup key was recorded exactly once at t0:
-    assert tracker._last_resolved.get("foo") == t0
+    # Direction-keyed dedup (Review B3): no interior events → direction
+    # is "ambiguous" both times → key "foo|ambiguous" recorded at t0 and
+    # the second leg (10 s later) is dedupped (not overwritten).
+    assert tracker._last_resolved.get("foo|ambiguous") == t0
 
 
 def test_dedup_window_knob_blocks_at_29s_passes_at_31s():
@@ -164,13 +164,70 @@ def test_dedup_window_knob_blocks_at_29s_passes_at_31s():
         "binary_sensor.foo_person_occupancy", t0 + timedelta(seconds=29),
     ))
     # last_resolved stayed at t0 (second call skipped before overwrite)
-    assert tracker._last_resolved["foo"] == t0
+    assert tracker._last_resolved["foo|ambiguous"] == t0
 
     # 31 s later: PROCESS (outside window) — key advances
     _run_async(tracker._resolve_direction(
         "binary_sensor.foo_person_occupancy", t0 + timedelta(seconds=31),
     ))
-    assert tracker._last_resolved["foo"] == t0 + timedelta(seconds=31)
+    assert tracker._last_resolved["foo|ambiguous"] == t0 + timedelta(seconds=31)
+
+
+# ---------------------------------------------------------------------------
+# Direction-keyed dedup (Review B3): opposite directions NEVER collapse
+# ---------------------------------------------------------------------------
+
+def test_direction_keyed_dedup_does_not_swallow_opposite_direction():
+    """Review B3: exit at t0 then entry at t0+20 (within 30 s dedup) MUST
+    NOT be swallowed — the direction suffix on the key separates them."""
+    tracker, hass = _make_tracker(interior=["interior_cam_1"])
+    from custom_components.universal_room_automation.const import DOMAIN
+    hass.data[DOMAIN] = {}
+    hass.bus = MagicMock()
+
+    t0 = datetime(2026, 10, 5, 14, 24, 0)
+    # Leg 1: interior fire BEFORE egress → EXIT
+    tracker._recent_interior_events["interior_cam_1"] = [t0 - timedelta(seconds=5)]
+    _run_async(tracker._resolve_direction(
+        "binary_sensor.cam_door_a_person_occupancy", t0,
+    ))
+    # Leg 2 (20 s later, within DOOR_STEM_DEDUP_S=30): interior fire AFTER
+    # egress → ENTRY. Direction-keyed dedup must let it through.
+    t1 = t0 + timedelta(seconds=20)
+    tracker._recent_interior_events["interior_cam_1"] = [t1 + timedelta(seconds=3)]
+    _run_async(tracker._resolve_direction(
+        "binary_sensor.cam_door_a_person_occupancy", t1,
+    ))
+    # Both direction keys should be present.
+    assert "cam_door_a|exit" in tracker._last_resolved
+    assert "cam_door_a|entry" in tracker._last_resolved
+    # Both bus fires happened (opposite directions never dedupped).
+    assert hass.bus.async_fire.call_count == 2
+
+
+def test_direction_keyed_dedup_same_direction_still_collapses():
+    """Review B3: same stem + SAME direction inside the window still
+    collapses (prevents double-counting a chattering sensor)."""
+    tracker, hass = _make_tracker(interior=["interior_cam_1"])
+    from custom_components.universal_room_automation.const import DOMAIN
+    hass.data[DOMAIN] = {}
+    hass.bus = MagicMock()
+
+    t0 = datetime(2026, 10, 5, 14, 24, 0)
+    tracker._recent_interior_events["interior_cam_1"] = [t0 + timedelta(seconds=3)]
+    _run_async(tracker._resolve_direction(
+        "binary_sensor.cam_door_a_person_occupancy", t0,
+    ))
+    tracker._recent_interior_events["interior_cam_1"] = [
+        t0 + timedelta(seconds=13),
+    ]
+    _run_async(tracker._resolve_direction(
+        "binary_sensor.cam_door_a_person_occupancy",
+        t0 + timedelta(seconds=10),
+    ))
+    assert tracker._last_resolved["cam_door_a|entry"] == t0
+    # Only one bus fire — the second ENTRY was dedupped.
+    assert hass.bus.async_fire.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -193,8 +250,10 @@ def test_door_group_dedup_collapses_cross_camera_legs_within_window():
         "binary_sensor.cam_door_b_person_occupancy",
         t0 + timedelta(seconds=10),
     ))
-    assert "group:door_a" in tracker._last_resolved
-    assert tracker._last_resolved["group:door_a"] == t0
+    # Direction-keyed (Review B3): both legs produced direction=ambiguous
+    # (no interior cams) → one group-scoped key recorded at t0.
+    assert "group:door_a|ambiguous" in tracker._last_resolved
+    assert tracker._last_resolved["group:door_a|ambiguous"] == t0
 
 
 def test_unset_door_groups_falls_back_to_per_stem_dedup():
@@ -212,9 +271,9 @@ def test_unset_door_groups_falls_back_to_per_stem_dedup():
         "binary_sensor.cam_door_b_person_occupancy",
         t0 + timedelta(seconds=5),
     ))
-    assert "cam_door_a" in tracker._last_resolved
-    assert "cam_door_b" in tracker._last_resolved
-    assert "group:door_a" not in tracker._last_resolved
+    assert "cam_door_a|ambiguous" in tracker._last_resolved
+    assert "cam_door_b|ambiguous" in tracker._last_resolved
+    assert "group:door_a|ambiguous" not in tracker._last_resolved
 
 
 # ---------------------------------------------------------------------------
@@ -258,34 +317,63 @@ def test_interior_cameras_near_empty_configured_honours_opt_out():
 
 
 # ---------------------------------------------------------------------------
-# Direction loop — newest-first exit-bias (R2.2 item 4(d))
+# Direction loop (Review A-HIGH): per-camera first-match + across-cameras
+# closest-in-time wins. Single-camera t-12/t+8 must stay EXIT (develop
+# forward-iteration preserved). Cross-camera noisy-vs-close must pick the
+# closer camera.
 # ---------------------------------------------------------------------------
 
-def test_resolve_direction_newest_interior_wins_entry_over_old():
-    """A noisy interior cam firing continuously (oldest=very old) must not
-    beat a NEWER fire within the entry window."""
+def test_resolve_direction_single_camera_prefers_older_exit_match():
+    """Review A-HIGH repro: ONE neighbour cam, interior fires at t-12
+    (EXIT window) and t+8 (ENTRY window). Develop's forward iteration
+    hit t-12 first → EXIT; the reversed() variant wrongly flipped it to
+    ENTRY. Fix: per-camera forward iteration → stays EXIT."""
+    tracker, hass = _make_tracker(interior=["interior_cam_1"])
+    from custom_components.universal_room_automation.const import DOMAIN
+    hass.data[DOMAIN] = {}
+    hass.bus = MagicMock()
+
+    t0 = datetime(2026, 10, 5, 14, 24, 0)
+    tracker._recent_interior_events["interior_cam_1"] = [
+        t0 - timedelta(seconds=12),  # EXIT candidate
+        t0 + timedelta(seconds=8),   # ENTRY candidate
+    ]
+    _run_async(tracker._resolve_direction(
+        "binary_sensor.cam_door_a_person_occupancy", t0,
+    ))
+    args = hass.bus.async_fire.call_args.args
+    assert args[0] == "ura_person_egress_event"
+    assert args[1]["direction"] == "exit", (
+        f"single-camera t-12/t+8 must stay EXIT (got {args[1]['direction']})"
+    )
+
+
+def test_resolve_direction_cross_camera_closest_in_time_wins():
+    """Review A-HIGH repro: noisy camera 'cam_interior_noisy' fires at
+    t-25 (EXIT window edge); 'cam_interior_close' fires at t+3 (closest).
+    The old outer-first-camera bias would pick the noisy one → EXIT; the
+    fix picks whichever camera's match has the smallest |delta|."""
     tracker, hass = _make_tracker(
-        interior=["interior_cam_1"],
+        interior=["cam_interior_noisy", "cam_interior_close"],
     )
     from custom_components.universal_room_automation.const import DOMAIN
     hass.data[DOMAIN] = {}
     hass.bus = MagicMock()
 
     t0 = datetime(2026, 10, 5, 14, 24, 0)
-    # Older interior fire inside the EXIT window (-10 s), newer fire
-    # inside the ENTRY window (+5 s). Oldest-first would hit the EXIT
-    # match first; newest-first MUST see the ENTRY match first.
-    tracker._recent_interior_events["interior_cam_1"] = [
-        t0 - timedelta(seconds=10),  # oldest: EXIT match (if walked first)
-        t0 + timedelta(seconds=5),   # newest: ENTRY match
+    tracker._recent_interior_events["cam_interior_noisy"] = [
+        t0 - timedelta(seconds=25),
+    ]
+    tracker._recent_interior_events["cam_interior_close"] = [
+        t0 + timedelta(seconds=3),
     ]
     _run_async(tracker._resolve_direction(
         "binary_sensor.cam_door_a_person_occupancy", t0,
     ))
-    kwargs = hass.bus.async_fire.call_args.args
-    assert kwargs[0] == "ura_person_egress_event"
-    assert kwargs[1]["direction"] == "entry", (
-        f"newest-first must win over the older EXIT-match (got {kwargs[1]['direction']})"
+    args = hass.bus.async_fire.call_args.args
+    assert args[1]["direction"] == "entry", (
+        f"closest-in-time (t+3) must beat the noisier t-25 cam "
+        f"(got {args[1]['direction']})"
     )
 
 
@@ -386,6 +474,204 @@ def test_alter_migration_added_for_person_entry_exit_events():
 # ---------------------------------------------------------------------------
 # R3.11 generic fixtures use — assert no household-specific names in tests
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Review C new behavioral tests
+# ---------------------------------------------------------------------------
+
+def test_peak_count_sampler_seeds_with_last_pre_window_sample():
+    """Review LOW: a step-and-hold count sensor that stepped BEFORE the
+    window and did NOT re-fire during the window still represents the
+    multiplicity. The sampler must seed with the last pre-window sample."""
+    tracker, _ = _make_tracker()
+    t = datetime(2026, 10, 5, 14, 24, 0)
+    from collections import deque
+    tracker._peak_count_buffer["foo"] = deque([
+        (t - timedelta(seconds=45), 3),   # pre-window SEED (within horizon)
+        # no in-window samples (step-held)
+    ])
+    assert tracker._sample_peak_person_count("foo", t) == 3
+
+
+def test_peak_count_sampler_group_max_different_values_takes_six():
+    """Review C: group-max with different per-camera values (cam_a=6,
+    cam_b=4) → MAX = 6, not sum (10) and not min (4)."""
+    tracker, _ = _make_tracker(
+        door_groups={"cam_a": "door_a", "cam_b": "door_a"},
+    )
+    t = datetime(2026, 10, 5, 14, 24, 0)
+    from collections import deque
+    tracker._peak_count_buffer["cam_a"] = deque([(t, 6)])
+    tracker._peak_count_buffer["cam_b"] = deque([(t + timedelta(seconds=2), 4)])
+    assert tracker._sample_peak_person_count("cam_a", t) == 6
+
+
+def test_on_peak_count_change_appends_prunes_and_ignores_bad_values():
+    """Review C: _on_peak_count_change appends int samples, prunes >horizon,
+    and ignores non-int / negative / missing-state."""
+    tracker, _ = _make_tracker()
+    tracker._count_sensor_to_stem["sensor.cam_a_person_count"] = "cam_a"
+
+    def _ev(state_value, entity_id="sensor.cam_a_person_count"):
+        new = MagicMock()
+        new.entity_id = entity_id
+        new.state = state_value
+        ev = MagicMock()
+        ev.data = {"new_state": new}
+        return ev
+
+    # Valid int → appended
+    tracker._on_peak_count_change(_ev("3"))
+    assert len(tracker._peak_count_buffer["cam_a"]) == 1
+    # Non-int → ignored
+    tracker._on_peak_count_change(_ev("unknown"))
+    assert len(tracker._peak_count_buffer["cam_a"]) == 1
+    # Negative → ignored
+    tracker._on_peak_count_change(_ev("-1"))
+    assert len(tracker._peak_count_buffer["cam_a"]) == 1
+    # Unknown stem → ignored
+    tracker._on_peak_count_change(_ev("2", entity_id="sensor.other_person_count"))
+    assert "other" not in tracker._peak_count_buffer
+
+
+def test_load_door_config_reads_integration_config_entry():
+    """Review C: `_load_door_config` reads CONF_DOOR_GROUPS and
+    CONF_DOOR_INTERIOR_NEIGHBOURS from the integration-type entry's
+    merged data+options (not a hand-string lookup)."""
+    from custom_components.universal_room_automation.const import (
+        CONF_DOOR_GROUPS,
+        CONF_DOOR_INTERIOR_NEIGHBOURS,
+        CONF_ENTRY_TYPE,
+        ENTRY_TYPE_INTEGRATION,
+    )
+
+    tracker, hass = _make_tracker()
+    entry = MagicMock()
+    entry.data = {CONF_ENTRY_TYPE: ENTRY_TYPE_INTEGRATION}
+    entry.options = {
+        CONF_DOOR_GROUPS: {"cam_a": "door_a", "cam_b": "door_a"},
+        CONF_DOOR_INTERIOR_NEIGHBOURS: {"door_a": ["interior_1"]},
+    }
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_entries = MagicMock(return_value=[entry])
+
+    tracker._load_door_config()
+    assert tracker._door_group_by_stem == {"cam_a": "door_a", "cam_b": "door_a"}
+    assert tracker._interior_neighbours_by_group == {"door_a": ["interior_1"]}
+
+
+def test_db_log_entry_exit_event_falls_back_to_six_columns_when_absent():
+    """Review B2: when the ALTER-TABLE migration couldn't land the column,
+    log_entry_exit_event must INSERT the 6-column shape (no
+    peak_person_count) so rows still land."""
+    import asyncio as _aio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
+    )
+
+    db = UniversalRoomDatabase.__new__(UniversalRoomDatabase)
+    db._peak_person_count_absent = True
+
+    executed_sql: list[str] = []
+
+    class _FakeDb:
+        async def execute(self, sql, params=None):
+            executed_sql.append(sql)
+        async def commit(self):
+            pass
+
+    class _CtxMgr:
+        async def __aenter__(self):
+            return _FakeDb()
+        async def __aexit__(self, *a):
+            return False
+
+    db._db = lambda: _CtxMgr()  # type: ignore[assignment]
+
+    _aio.new_event_loop().run_until_complete(
+        db.log_entry_exit_event(
+            person_id="p",
+            event_type="egress",
+            direction="entry",
+            egress_camera="cam",
+            confidence=0.9,
+            peak_person_count=3,
+        )
+    )
+    assert any(
+        "egress_camera, confidence)" in sql.replace("\n", " ").replace("  ", " ")
+        for sql in executed_sql
+    ), f"Expected 6-column INSERT in: {executed_sql!r}"
+    assert all(
+        "peak_person_count" not in sql for sql in executed_sql
+    )
+
+
+def test_strings_json_carries_door_groups_labels_and_helper_text():
+    """Review C: labels + helper text present (both strings.json and the
+    translation copy); label-style-guide (plain language, no nerd words)."""
+    repo_root = Path(__file__).resolve().parents[2]
+    for rel in (
+        "custom_components/universal_room_automation/strings.json",
+        "custom_components/universal_room_automation/translations/en.json",
+    ):
+        txt = (repo_root / rel).read_text()
+        assert '"door_groups": "Group door cameras"' in txt
+        assert '"door_interior_neighbours": "Rooms next to each door"' in txt
+        assert '"main_entry_door": "Main entry door"' in txt
+        # Helper text (data_description) presence check
+        assert "Map each door camera's name to a group" in txt
+        assert "For each door group, list the indoor cameras" in txt
+        assert "Name of the main door group" in txt
+        # Label-style-guide: no "hysteresis", "debounce", etc. in the
+        # three helper lines we added.
+        for banned in ("hysteresis", "debounce", "provenance", "substrate"):
+            assert banned.lower() not in txt.lower().split("door_groups", 1)[-1][:4000]
+
+
+def test_options_flow_strips_empty_new_keys_before_save():
+    """Review B1: on save, empty values for the three new keys are dropped
+    so they don't trigger the None!={} fall-through reload."""
+    repo_root = Path(__file__).resolve().parents[2]
+    src = (repo_root / "custom_components/universal_room_automation/config_flow.py").read_text()
+    # The save handler must contain the drop-empties logic.
+    assert "cleaned.pop(_k, None)" in src
+    assert "CONF_DOOR_GROUPS, CONF_DOOR_INTERIOR_NEIGHBOURS" in src
+    assert 'cleaned.get(CONF_MAIN_ENTRY_DOOR) in ("", None)' in src
+    # And must use `suggested_value` (not `default`) for the three keys
+    # so unselected fields don't bake defaults into user_input.
+    assert "suggested_value" in src
+    # Validator helper exists.
+    assert "_validate_door_interior_neighbours" in src
+
+
+def test_validate_door_interior_neighbours_rejects_bad_shapes():
+    """Review MED: validator rejects non-dict, missing-dot entities, and
+    returns a plain-language error."""
+    from custom_components.universal_room_automation.config_flow import (
+        UniversalRoomAutomationOptionsFlow,
+    )
+    v = UniversalRoomAutomationOptionsFlow._validate_door_interior_neighbours
+    assert v({}) == ({}, None)
+    cleaned, err = v({"door_a": ["camera.foo"]})
+    assert err is None and cleaned == {"door_a": ["camera.foo"]}
+    _, err = v("not a dict")
+    assert err and "mapping" in err.lower()
+    _, err = v({"door_a": "notalist"})
+    assert err and "list" in err.lower()
+    _, err = v({"door_a": ["noDotHere"]})
+    assert err and "entity id" in err.lower()
+    # Interior-whitelist constraint for non-camera.* entries
+    _, err = v({"door_a": ["binary_sensor.unknown"]}, interior_entities=set())
+    assert err and "known interior" in err.lower()
+    cleaned, err = v(
+        {"door_a": ["binary_sensor.known_sensor"]},
+        interior_entities={"binary_sensor.known_sensor"},
+    )
+    assert err is None and cleaned == {"door_a": ["binary_sensor.known_sensor"]}
+
 
 def test_tests_use_generic_fixtures_not_household_names():
     """R3.11 / MED-3: cycle tests use `cam_door_a` / `interior_cam_1`,

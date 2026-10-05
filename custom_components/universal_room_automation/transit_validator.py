@@ -1207,7 +1207,26 @@ class EgressDirectionTracker:
             stems = [stem]
         best: int | None = None
         for s in stems:
-            for ts, v in self._peak_count_buffer.get(s, ()):  # type: ignore[arg-type]
+            buf = self._peak_count_buffer.get(s, ())
+            # Review LOW: seed with the last sample STRICTLY BEFORE
+            # window start, provided it isn't stale — the count sensor
+            # is step-and-hold, so a value that was already true at the
+            # egress moment but didn't re-fire inside the window still
+            # represents the real multiplicity. Bound the seed horizon
+            # to DOOR_STEM_DEDUP_S before `lo` so ancient samples (an
+            # earlier household member's long-gone appearance) don't
+            # leak forward.
+            seed_cutoff = lo - timedelta(seconds=DOOR_STEM_DEDUP_S)
+            seed: int | None = None
+            for ts, v in buf:  # type: ignore[arg-type]
+                if ts < lo:
+                    if ts >= seed_cutoff:
+                        seed = v
+                else:
+                    break
+            if seed is not None and (best is None or seed > best):
+                best = seed
+            for ts, v in buf:  # type: ignore[arg-type]
                 if lo <= ts <= hi:
                     if best is None or v > best:
                         best = v
@@ -1899,24 +1918,56 @@ class EgressDirectionTracker:
 
         PLANNING_census_inputs_first D1 (R2.2 / R3.3 / R3.9 / R4.1):
         * Dedup window is the knob ``DOOR_STEM_DEDUP_S`` (default 30 s),
-          replacing the historical 5 s inline literal. Rung = module const
-          (ledger-shape change — review-gated).
+          replacing the historical 5 s inline literal.
         * When ``CONF_DOOR_GROUPS`` is SET and this stem has a group,
-          dedup is scoped to the DOOR_GROUP (not just same-stem), so
-          cross-camera legs on the same physical door collapse.
+          dedup is scoped to the DOOR_GROUP (not just same-stem).
           UNSET → per-stem dedup (today's behaviour byte-identical).
-        * Interior-neighbour direction loop walks neighbours NEWEST-FIRST
-          within the per-door neighbour window — not oldest — so a
-          high-traffic interior cam (e.g. family_room firing 800+×/day)
-          cannot win over a later, closer leg. R3.9 accepted-loss:
-          keep-first inside the dedup window.
+        * Direction-keyed dedup (Review B3): dedup key is suffixed with
+          the RESOLVED direction so an opposite-direction crossing in
+          the window (exit t0 then entry t0+20) is NOT swallowed.
+        * Interior-neighbour direction loop (Review A-HIGH): walk each
+          neighbour forward (develop semantics — oldest first per
+          camera, so a single-camera t-12/t+8 stays EXIT), then across
+          cameras pick the match whose |delta| is smallest (so a
+          cross-camera t+3 foyer beats a noisy t-25 family_room).
+          Byte-identical to develop when exactly one neighbour matches.
         """
-        # Deduplication by camera stem (knob'd + door-group-aware).
+        # Compute dedup base key (direction suffix appended after resolve).
         stem = self._extract_camera_stem(egress_camera_id)
-        dedup_key: str | None = None
+        dedup_base: str | None = None
         if stem:
             group = self._door_group_for_stem(stem)
-            dedup_key = f"group:{group}" if group else stem
+            dedup_base = f"group:{group}" if group else stem
+
+        direction = "ambiguous"
+        near_door_cameras = self._get_interior_cameras_near(egress_camera_id)
+
+        # Review A-HIGH: per-camera first-match (forward, develop
+        # semantics); across cameras choose the match closest in time
+        # to the egress event.
+        best_abs_delta: float | None = None
+        for interior_cam in near_door_cameras:
+            interior_times = self._recent_interior_events.get(interior_cam, [])
+            cam_match: tuple[float, str] | None = None
+            for interior_time in interior_times:
+                delta = (interior_time - egress_timestamp).total_seconds()
+                if 0 <= delta <= self.ENTRY_WINDOW_SECONDS:
+                    cam_match = (abs(delta), "entry")
+                    break
+                if -self.EXIT_WINDOW_SECONDS <= delta < 0:
+                    cam_match = (abs(delta), "exit")
+                    break
+            if cam_match is None:
+                continue
+            if best_abs_delta is None or cam_match[0] < best_abs_delta:
+                best_abs_delta = cam_match[0]
+                direction = cam_match[1]
+
+        # Review B3: direction-keyed dedup. Same stem/group + same
+        # direction inside the window collapses; opposite direction
+        # NEVER collapses (exit→entry inside 30 s is a real round-trip).
+        if dedup_base is not None:
+            dedup_key = f"{dedup_base}|{direction}"
             last = self._last_resolved.get(dedup_key)
             if last and (egress_timestamp - last).total_seconds() < DOOR_STEM_DEDUP_S:
                 _LOGGER.debug(
@@ -1926,26 +1977,6 @@ class EgressDirectionTracker:
                 )
                 return
             self._last_resolved[dedup_key] = egress_timestamp
-
-        direction = "ambiguous"
-        near_door_cameras = self._get_interior_cameras_near(egress_camera_id)
-
-        # R2.2 item 4(d): walk neighbours newest-first so a late, close
-        # fire wins over an earlier, degenerate "any interior cam fired".
-        for interior_cam in near_door_cameras:
-            interior_times = self._recent_interior_events.get(interior_cam, [])
-            for interior_time in reversed(interior_times):
-                delta = (interior_time - egress_timestamp).total_seconds()
-
-                if 0 <= delta <= self.ENTRY_WINDOW_SECONDS:
-                    direction = "entry"
-                    break
-                if -self.EXIT_WINDOW_SECONDS <= delta < 0:
-                    direction = "exit"
-                    break
-
-            if direction != "ambiguous":
-                break
 
         # Multi-platform confidence boost: count how many platform sensors
         # fired for the same stem within 10 seconds
@@ -2063,11 +2094,19 @@ class EgressDirectionTracker:
         if direction != "ambiguous":
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database:
+                # Review LOW: sample BEFORE the DB-write try so a sampler
+                # exception can't lose the row. Sampler is best-effort and
+                # falls back to None (NULL in DB) on error.
                 try:
-                    # R3.6 / R4.5: honest multiplicity for the row.
                     peak = self._sample_peak_person_count(
                         stem, egress_timestamp,
                     )
+                except Exception as e:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "peak_person_count sampler failed (non-fatal): %s", e,
+                    )
+                    peak = None
+                try:
                     await database.log_entry_exit_event(
                         person_id=person_id,
                         event_type="egress",
