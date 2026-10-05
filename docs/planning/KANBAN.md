@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-05T02:23:43-05:00_ - _Data commit: `b39f5f9defbb`_ - _last_reconciled: 2026-10-03_
+_Generated: 2026-10-05T02:23:56-05:00_ - _Data commit: `41cb7212aa72`_ - _last_reconciled: 2026-10-03_
 
 
 ## Columns
@@ -14,12 +14,12 @@ _Generated: 2026-10-05T02:23:43-05:00_ - _Data commit: `b39f5f9defbb`_ - _last_r
 | 🧭 Pre-planning | 10 |
 | 📝 Planned | 13 |
 | 🔨 In progress | 1 |
-| 🔍 Review | 6 |
+| 🔍 Review | 5 |
 | ⏸️ Waiting on operator | 33 |
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 13 |
 | 🅿️ Parked | 77 |
-| ✅ Done | 277 |
+| ✅ Done | 278 |
 
 ## 📥 Inbox (0)
 _raw capture_
@@ -434,12 +434,12 @@ _created 2026-10-03 16:00 · updated 2026-10-05 02:22_
 - **Forensic keys (1):**
   - `gate_2026_10_05_overnight`: FOUR-STEP GATE. (1) VALIDITY: STILL-REAL - no toggle counter on develop or the EC p1 branch (grep toggle/tripwire in energy*.py); the night loop is fixed by v5.103.37 but not exercised (EVs drew 0 W on every turn-on since), so the daytim...
 
-## 🔍 Review (6)
+## 🔍 Review (5)
 _under review_
 
 ### `RESTORE-UNAVAILABLE-OFF-SWEEP-1` - After a restart that follows a URA outage, some on-by-default URA switches come back OFF (Vacancy Auto-Off is off right now) - finish the Bug Class #52 restore guard — _#1 · WSJF 7.0 · v6 tc6 u2 /e2_
 thread: **platform** - status: **review** - approval: **implied**
-_created 2026-10-04 02:40 · updated 2026-10-04 04:15 · initial_
+_created 2026-10-04 02:40 · updated 2026-10-05 02:27 · initial_
 - **Problem / Solution:**
   - Problem: when URA is down at the moment Home Assistant saves entity states (as during the 61-minute v5.103.37 crash on 10-03), a handful of URA switches save 'unavailable'. On the next start they read 'unavailable' as OFF, so a feature t...
 - **Origin:** 2026-10-04 - Overnight pass, verifying HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 on the recorder: a restart-flip measurement over all 59 URA switches found zone_sweep on->off at the 10-03 21:59Z restart.
@@ -448,33 +448,14 @@ _created 2026-10-04 02:40 · updated 2026-10-04 04:15 · initial_
 - **Tags:** tier-1, measure-before-build, institutional-context, mutation-drill, found-during-probe
 - **Parsimony:** [BUILD] After a URA-down shutdown, unguarded default-ON switches restore OFF silently (zone_sweep, measured live).
 - **Refs:** custom_components/universal_room_automation/switch.py:3982; docs/QUALITY_CONTEXT.md:2101; docs/BACKLOG.md:1596
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `merged_2026_10_05_overnight`: MERGED to develop (7f67336f2 / 6c6c403a0) after the overnight serial full-suite name-diff: no new failures attributable to this branch (the single new failure was the mutation-sandbox branch's, since fixed). NOT deployed - it now rides t...
   - `built_2026_10_04_overnight`: BUILT (ura-builder, worktree overnight-1004-restore52): #52 guard on 9 restores in switch.py - behavioural: HVACZoneSweepSwitch, SecurityDelegateLightsSwitch, AutomationSwitch (per-room automation - also unguarded, found by the builder),...
   - `gate_2026_10_04`: 1 validity STILL-REAL (live: zone_sweep off since 21:59:30Z, code unguarded at switch.py:3982-3983). 1b config-first: the LIVE symptom is a setting (turn the switch back on - operator, see next); the recurrence is code. 2 prior-art: REUS...
 
-### `TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1` - About ten test files still edit real production code in place while the suite runs, so a killed run or a concurrent git operation can leave the repo silently broken — _#2 · WSJF 3.7 · v5 tc4 u2 /e3_
-thread: **platform** - status: **review** - approval: **implied**
-_created 2026-09-26 02:14 · updated 2026-10-01 03:15 · initial_
-- **Problem / Solution:**
-  - Problem: some of our "prove the test would catch a bug" checks work by temporarily editing the real production file on disk, running a test, then putting the file back. If the run is killed mid-way (our suite guard kills runs), or if any...
-- **Origin:** 2026-09-26 - overnight pass observed `return 0.0
-- **Why:** Residual of a card closed as done (TEST-SOURCE-MUTATION-KILL-UNSAFE-1, v5.100.9), whose own next said "rewrite test_owner_registry_mutation_matrix.py, then audit the 20+ source-writing tests". Only the first half shipped, and the audit h...
-- **Next:** MERGE (me): after the serial full-suite name-diff shows no new failures, merge feature/test-mutation-sandbox-0928 into develop (test-only, no release).
-- **Tags:** tier-1, unrestored-drill, test-strategy, found-during-validation
-- **Parsimony:** [BUILD] About ten tests write production source in place, and a SIGKILL or concurrent tree operation mid-run leaves it mutated. Observed live 2026-09-26.
-- **Refs:** quality/tests/test_evse_drain_precedence_session_b2c1_fixup.py:788-809; quality/tests/test_owner_registry_mutation_matrix.py; feedback_unrestored_mutation_drill_poisons_evidence
-- **Forensic keys (7):**
-  - `fixup_verified_2026_10_01_overnight`: FIX-UP VERIFIED + REBASED (overnight 10-01). Branch feature/test-mutation-sandbox-0928 rebased onto develop -> bf5cafc03 (0 behind). All 5 review-C findings ADDRESSED, checked at file:line: M1 baseline-green pre-check (_mutation_sandbox....
-  - `review_2026_09_28`: REVIEW C (test authority): FIX-REQUIRED, test-code only; the port weakened nothing vs develop. Verified: 4 drills made harmless all failed loudly; a marker write proved the sandbox runs the MUTATED copy; md5 is asserted on the real path;...
-  - `build_2026_09_28`: BUILT (ura-builder, worktree overnight-0928-mutsandbox, branch feature/test-mutation-sandbox-0928 @ 050e655fc, pushed). New shared helper quality/tests/_mutation_sandbox.py mirrors the v5.100.9 reference: it copies custom_components/ + q...
-  - `groom_2026_09_29`: Stays in_progress: Review C returned FIX-REQUIRED (M1 vacuous rc=4 drills counted as KILLED; M2 cross-file node ids). The fix-up round is owed on feature/test-mutation-sandbox-0928 (050e655fc, 1 ahead / 55 behind develop).
-  - `gate_2026_09_27`: FOUR-STEP GATE (overnight 2026-09-27). (1) VALIDITY: still real. Re-grep of quality/tests files that write_text AND reference custom_components: in-place writers with 0-1 tmp refs are still test_ble_extend_not_create, test_chatter_wire_i...
-  - `observed_2026_09_26`: LIVE INSTANCE, not theoretical. At about 02:04 CDT, during the overnight full-suite run in the shared main checkout, `git status` showed custom_components/universal_room_automation/domain_coordinators/energy.py modified with `return 0.0 ...
-  - `scope_measured_2026_09_26`: grep for write_text plus custom_components across quality/tests: 14 files. Counting those with zero or one tmp-path reference as in-place writers gives about 9-10: test_ble_extend_not_create, test_dp_yields_to_excess_solar, test_energy_w...
-
-### `LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1` - The loop-stall watchdog logs an ERROR at every HA shutdown because it unsubscribes its stop listener after that listener already fired — _#3 · WSJF 3.5 · v3 tc2 u2 /e2_
+### `LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1` - The loop-stall watchdog logs an ERROR at every HA shutdown because it unsubscribes its stop listener after that listener already fired — _#2 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **hygiene** - status: **review** - approval: **implied**
-_created 2026-10-03 02:55 · updated 2026-10-04 04:15 · initial_
+_created 2026-10-03 02:55 · updated 2026-10-05 02:27 · initial_
 - **Problem / Solution:**
   - Problem: when Home Assistant shuts down, URA's freeze watchdog runs its stop handler, which tries to cancel the very one-time listener that is calling it. Home Assistant has already removed that listener, so it logs an ERROR 'Unable to r...
 - **Origin:** 2026-10-03 - Overnight pass, reading the full core log (hassio proxy) to dispose BOOT-EVENT-LOOP-FREEZE-1: line 2026-10-03 00:33:14.402 ERROR (SyncWorker_55) homeassistant.core Unable to remove unknown job listener ... _loop_stall_watchd...
@@ -483,13 +464,14 @@ _created 2026-10-03 02:55 · updated 2026-10-04 04:15 · initial_
 - **Tags:** tier-1, no-fabrication-verify, found-during-probe
 - **Parsimony:** [BUILD] Every HA shutdown logs a URA-caused ERROR from the watchdog stop handler.
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/_loop_stall_watchdog.py:249-292
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `merged_2026_10_05_overnight`: MERGED to develop (7f67336f2 / 6c6c403a0) after the overnight serial full-suite name-diff: no new failures attributable to this branch (the single new failure was the mutation-sandbox branch's, since fixed). NOT deployed - it now rides t...
   - `review_record`: docs/reviews/code-review/overnight_2026-10-04_watchdog_unsub_and_restore52.md
   - `verified_2026_10_04_overnight`: BUILT-TO-REVIEW (overnight 10-04). Rebased onto develop (0 behind). Targeted file 9/9 pass. ORCHESTRATOR single-site mutation: neutering the new `wd._ha_stop_unsub = None` in _on_stop (line 267 only) -> test_ha_stop_fire_does_not_call_co...
   - `build_2026_10_03_overnight`: Built on fix/loop-stall-watchdog-stop-unsub (bbeed5805) in .claude/worktrees/overnight-1003-wdunsub: _on_stop clears wd._ha_stop_unsub before uninstall; new test test_ha_stop_fire_does_not_call_consumed_unsub. Tests pending (serialised b...
   - `gate_2026_10_03`: 1 validity: STILL-REAL (log line tonight, code unchanged at :261-288). 1b config-first: no setting affects it. 2 prior-art: REUSE - same file, no new mechanism; HA once-listener semantics. 3 parsimony BUILD (~3 LoC + a test). 4 cost/bene...
 
-### `EC-DEGRADED-DATA-POLICY-1` - Energy coordinator has no single rule for what to do when the Envoy reading drops out (some sites hold, some release, some read zero) — _#4 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+### `EC-DEGRADED-DATA-POLICY-1` - Energy coordinator has no single rule for what to do when the Envoy reading drops out (some sites hold, some release, some read zero) — _#3 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **energy** - status: **review**
 _created 2026-10-03 01:20 · updated 2026-10-05 02:22_
 - **Why:** SOC resolver already falls back envoy -> lkg -> cloud, but the battery strategy holds with no commands, the arbitrage EV pause releases on missing SOC, and solar reads the dead derived sensor. The Envoy /production.json fault (since 2026...
@@ -499,7 +481,7 @@ _created 2026-10-03 01:20 · updated 2026-10-05 02:22_
   - `reconciled_2026_10_05_overnight`: CARD-WAS-STALE: its next (PICK on doc section 7, likely no Phase-1 build) predates the operator decisions of 10-03/10-04. Ground truth: phase 1 WAS planned (docs/planning/PLANNING_ec_enphase_resilience_and_p1_adjust.md, still untracked i...
   - `investigation_2026_10_03_overnight`: Investigation COMPLETE. Design review REV 2 + D0 measurement/replay is in docs/planning/DESIGN_ec_degraded_data_policy.md (NOTE: written by the attended session tonight, still UNTRACKED in git - commit it). D0 verdicts (section 9.3): P1-...
 
-### `ENERGY-HISTORY-KW-SUMMED-AS-KWH-1` - Predicted Energy/Cost Tomorrow ~4x too high — energy_history stores 15-min kW snapshots and predictions sum them as kWh — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ENERGY-HISTORY-KW-SUMMED-AS-KWH-1` - Predicted Energy/Cost Tomorrow ~4x too high — energy_history stores 15-min kW snapshots and predictions sum them as kWh — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **review**
 _created 2026-10-04 00:10 · updated 2026-10-04 04:30_
 - **Why:** Operator saw dashboard "Tomorrow ~230 kWh from grid · $31.23" (sensor.universal_room_automation_predicted_energy_tomorrow 229.7). energy_history rows every ~15 min hold grid_import as kW; 10-03 sum = 403.5 "kWh" vs ~101 kWh real. Display...
@@ -508,7 +490,7 @@ _created 2026-10-04 00:10 · updated 2026-10-04 04:30_
   - `review_2026_10_04_overnight`: REVIEW A (Tier 1, read-only on develop): SHIP. SQL holds: LEAD over the whole table before filtering, correct midnight attribution, outages credited only 0.25 h, NULL-safe; consumers = predicted energy/cost sensors only (aggregation.py:2...
   - `verified_2026_10_04_overnight`: VERIFY-BEFORE-WORK = ALREADY-BUILT (card lagged). develop 9038a76da (10-04 00:01, attended session) integrates the kW samples to kWh in get_energy_for_similar_days / get_energy_for_date_range via a shared LEAD() interval CTE, plus qualit...
 
-### `EC-LKG-NEVER-PERSISTED-1` - Battery and solar last-known-good are never saved — _save_evse_state uses an unbound _json, error swallowed at DEBUG — _#6 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-LKG-NEVER-PERSISTED-1` - Battery and solar last-known-good are never saved — _save_evse_state uses an unbound _json, error swallowed at DEBUG — _#5 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **review**
 _created 2026-10-04 02:00 · updated 2026-10-05 02:22_
 - **Why:** Found by the EC degraded-data phase 1 builder 2026-10-04. Restart outages today (00:37, 15:55, 17:05) started with an empty LKG, contradicting the plan's LKG-persistence reuse assumption.
@@ -2328,8 +2310,29 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (277)
+## ✅ Done (278)
 _closed, evidence in refs_
+
+### `TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1` - About ten test files still edit real production code in place while the suite runs, so a killed run or a concurrent git operation can leave the repo silently broken — _WSJF 3.7 · v5 tc4 u2 /e3_
+thread: **platform** - status: **done** - approval: **implied**
+_created 2026-09-26 02:14 · updated 2026-10-05 02:27 · initial_
+- **Problem / Solution:**
+  - Problem: some of our "prove the test would catch a bug" checks work by temporarily editing the real production file on disk, running a test, then putting the file back. If the run is killed mid-way (our suite guard kills runs), or if any...
+- **Origin:** 2026-09-26 - overnight pass observed `return 0.0
+- **Why:** Residual of a card closed as done (TEST-SOURCE-MUTATION-KILL-UNSAFE-1, v5.100.9), whose own next said "rewrite test_owner_registry_mutation_matrix.py, then audit the 20+ source-writing tests". Only the first half shipped, and the audit h...
+- **Next:** None - merged to develop (test-only, no release needed).
+- **Tags:** tier-1, unrestored-drill, test-strategy, found-during-validation
+- **Parsimony:** [BUILD] About ten tests write production source in place, and a SIGKILL or concurrent tree operation mid-run leaves it mutated. Observed live 2026-09-26.
+- **Refs:** quality/tests/test_evse_drain_precedence_session_b2c1_fixup.py:788-809; quality/tests/test_owner_registry_mutation_matrix.py; feedback_unrestored_mutation_drill_poisons_evidence
+- **Forensic keys (8):**
+  - `merged_2026_10_05_overnight`: MERGED to develop 57b425d6c (test-only). Serial full-suite name-diff (ura-validator, base develop 1c63294bf vs develop + this + the two fix branches): 151 -> 150 failed, +20 passing; ONE new failure, test_baec_shadow_eval.py::test_MUTATI...
+  - `fixup_verified_2026_10_01_overnight`: FIX-UP VERIFIED + REBASED (overnight 10-01). Branch feature/test-mutation-sandbox-0928 rebased onto develop -> bf5cafc03 (0 behind). All 5 review-C findings ADDRESSED, checked at file:line: M1 baseline-green pre-check (_mutation_sandbox....
+  - `review_2026_09_28`: REVIEW C (test authority): FIX-REQUIRED, test-code only; the port weakened nothing vs develop. Verified: 4 drills made harmless all failed loudly; a marker write proved the sandbox runs the MUTATED copy; md5 is asserted on the real path;...
+  - `build_2026_09_28`: BUILT (ura-builder, worktree overnight-0928-mutsandbox, branch feature/test-mutation-sandbox-0928 @ 050e655fc, pushed). New shared helper quality/tests/_mutation_sandbox.py mirrors the v5.100.9 reference: it copies custom_components/ + q...
+  - `groom_2026_09_29`: Stays in_progress: Review C returned FIX-REQUIRED (M1 vacuous rc=4 drills counted as KILLED; M2 cross-file node ids). The fix-up round is owed on feature/test-mutation-sandbox-0928 (050e655fc, 1 ahead / 55 behind develop).
+  - `gate_2026_09_27`: FOUR-STEP GATE (overnight 2026-09-27). (1) VALIDITY: still real. Re-grep of quality/tests files that write_text AND reference custom_components: in-place writers with 0-1 tmp refs are still test_ble_extend_not_create, test_chatter_wire_i...
+  - `observed_2026_09_26`: LIVE INSTANCE, not theoretical. At about 02:04 CDT, during the overnight full-suite run in the shared main checkout, `git status` showed custom_components/universal_room_automation/domain_coordinators/energy.py modified with `return 0.0 ...
+  - `scope_measured_2026_09_26`: grep for write_text plus custom_components across quality/tests: 14 files. Counting those with zero or one tmp-path reference as in-place writers gives about 9-10: test_ble_extend_not_create, test_dp_yields_to_excess_solar, test_energy_w...
 
 ### `EC-RUNG1-WAIT-EV-PINGPONG-1` - Battery strategy flips between "redirect solar" (pauses EVs) and "Arbitrage WAIT" (releases them) every tick, cycling an 11.6 kW charger on/off for hours — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **done**

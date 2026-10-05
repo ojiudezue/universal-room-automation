@@ -9,6 +9,21 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1@2026-10-05T02:27:00"
+    at: "2026-10-05T02:27:00"
+    outcome: "done"
+    headline: "Merged the test-safety change into develop. Tests no longer edit real code in place, so a killed test run can't leave the code broken. The full-suite check found one regression; the fix was already sitting unpushed from an earlier session, and is now applied and re-verified. Test-only, no release needed."
+    acknowledged: false
+  - fid: "RESTORE-UNAVAILABLE-OFF-SWEEP-1@2026-10-05T02:27:01"
+    at: "2026-10-05T02:27:01"
+    outcome: "built"
+    headline: "Merged to develop after a clean full-suite check, not deployed. It rides Monday's deploy: switches will stop coming back OFF after a restart that follows a URA outage."
+    acknowledged: false
+  - fid: "LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1@2026-10-05T02:27:02"
+    at: "2026-10-05T02:27:02"
+    outcome: "built"
+    headline: "Merged to develop after a clean full-suite check, not deployed. It rides Monday's deploy: no more shutdown ERROR from the loop-stall watchdog."
+    acknowledged: false
   - fid: "EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1@2026-10-05T02:21:18"
     at: "2026-10-05T02:21:18"
     outcome: "escalated"
@@ -29960,15 +29975,16 @@ cards:
   - quality/tests/test_v4521_hc_device_ordering.py:388
   - feedback_hollow_test_anchors
 - id: TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1
+  merged_2026_10_05_overnight: "MERGED to develop 57b425d6c (test-only). Serial full-suite name-diff (ura-validator, base develop 1c63294bf vs develop + this + the two fix branches): 151 -> 150 failed, +20 passing; ONE new failure, test_baec_shadow_eval.py::test_MUTATION_shadow_gate_removed_makes_shadow_acceptance_test_red, root-caused to _mutate_and_expect_red hard-coding anchor_test_file to its own file so the cross-file borrower anchor built a doubled node id (rc=4). The fix already existed as an UNPUSHED local commit bf8846c35 in .claude/worktrees/overnight-0928-mutsandbox (also noting the pre-sandbox drill had been passing VACUOUSLY on rc=4); cherry-picked as f95cc2fc3, pushed to the branch, re-verified on top of develop: test_baec_shadow_eval + b2c1_fixup 26 passed, b2c3_fixup 6 passed, porcelain clean. Both worktrees porcelain-clean after the full runs (no leaked in-place mutation). Note: the old worktree overnight-0928-mutsandbox still holds a diverged local branch (bf8846c35 on a stale base) - safe to delete."
   fixup_verified_2026_10_01_overnight: 'FIX-UP VERIFIED + REBASED (overnight 10-01). Branch feature/test-mutation-sandbox-0928 rebased onto develop -> bf5cafc03 (0 behind). All 5 review-C findings ADDRESSED, checked at file:line: M1 baseline-green pre-check (_mutation_sandbox.py:155-164) + KILLED requires rc==1 AND '' failed'' (:189-197) - orchestrator read the code; M2 b2c3_fixup anchors call the sandbox with explicit anchor files; M3 chatter d7 anchor no longer builds a real Event; L4 180 s subprocess timeout; L5 vestigial autouse writers removed. 10 ported files + owner-registry matrix: 207 passed; production md5 identical before/after; no NEW in-place writers added on develop since the base. Pending: the serial full-suite name-diff (queued behind the HVAC branch). Test-only; merge needs no release.'
   review_2026_09_28: 'REVIEW C (test authority): FIX-REQUIRED, test-code only; the port weakened nothing vs develop. Verified: 4 drills made harmless all failed loudly; a marker write proved the sandbox runs the MUTATED copy; md5 is asserted on the real path; no assertions dropped (per-file test counts unchanged); no interaction with the pytest guard. MUST-FIX: M1: the helper counts ANY non-zero rc as KILLED, and 2 of 53 drills were vacuous (rc=4, no tests ran); a nonexistent anchor was accepted. This was inherited from the v5.100.9 reference. M2: b2c3_fixup :64 / :94 pass cross-file node ids through b2c1s helper, producing malformed nodes (vacuous on develop too). M3: test_chatter_wire_in::test_drill_22s anchor is red unmutated (the Event time_fired TypeError), so the drill proves nothing (pre-existing). LOWs: no subprocess timeout (the old code had 90/120 s); vestigial autouse fixtures in test_chatter_wire_in still write production. Fix-up builder dispatched for all 5.'
   build_2026_09_28: 'BUILT (ura-builder, worktree overnight-0928-mutsandbox, branch feature/test-mutation-sandbox-0928 @ 050e655fc, pushed). New shared helper quality/tests/_mutation_sandbox.py mirrors the v5.100.9 reference: it copies custom_components/ + quality/ to a tmp dir, mutates the copy, runs the anchor in a subprocess (PYTHONPATH = tmp first, -B, no cacheprovider), and asserts production md5 is unchanged. PORTED (10): evse b2a / b2b_i / b2b_ii / b2c1_fixup / b2c3_fixup, dp_drain_target_value_stamp, dp_yields_to_excess_solar (both drills), ble_extend_not_create, fan_transition_gate, chatter_wire_in. Per-file targeted runs are green, except one PRE-EXISTING failure (chatter_wire_in::test_drill_22_d7_room_telemetry_wire: its anchor in test_chatter_d7_shadow_act.py errors with "_Hass has no attribute data" on develop too). NOT PORTED: test_energy_write_verification.py, whose drill needs an in-process importlib.reload at the real import path. That incompatibility is structural, so its try/finally was kept (residual). Orchestrator read the helper: the failure mode is loud (an import that resolved to the real, unmutated tree would make an expect=KILLED drill fail), and md5 is asserted on the real path. Review (framing C) dispatched.'
   title: About ten test files still edit real production code in place while the suite runs, so a killed run or a concurrent git operation can leave the repo silently broken
   thread: platform
-  status: 'review'
+  status: "done"
   groom_2026_09_29: 'Stays in_progress: Review C returned FIX-REQUIRED (M1 vacuous rc=4 drills counted as KILLED; M2 cross-file node ids). The fix-up round is owed on feature/test-mutation-sandbox-0928 (050e655fc, 1 ahead / 55 behind develop).'
   created: '2026-09-26 02:14'
-  updated: '2026-10-01 03:15'
+  updated: "2026-10-05 02:27"
   gate_2026_09_27: 'FOUR-STEP GATE (overnight 2026-09-27). (1) VALIDITY: still real. Re-grep of quality/tests files that write_text AND reference custom_components: in-place writers with 0-1 tmp refs are still test_ble_extend_not_create, test_chatter_wire_in, test_dp_yields_to_excess_solar, test_energy_write_verification, test_evse_drain_precedence_session_b2a / b2b_i / b2b_ii / b2c1_fixup / b2c3_fixup, test_fan_transition_gate (10). test_dp_drain_target_value_stamp, test_energy_projector_grep_singleton and test_resolver_accuracy carry tmp refs and must be verified individually. (1b) CONFIG-FIRST: not applicable (test infrastructure). (2) PRIOR ART: REUSE the SIGKILL-safe pattern in quality/tests/test_owner_registry_mutation_matrix.py:32-101 (copytree custom_components into a tempdir, symlink the rest, subprocess with a PYTHONPATH prefix, assert the real file md5 is unchanged). (3) PARSIMONY: BUILD, extracting that pattern into one shared helper instead of copying it 10 times. (4) COST/BENEFIT: test-only, zero house risk, observed live 09-26. Tier 1. Building to review overnight on feature/test-mutation-sandbox; no merge.'
   refinement_status: initial
   approval: implied
@@ -30013,7 +30029,7 @@ cards:
   parsimony:
     problem: About ten tests write production source in place, and a SIGKILL or concurrent tree operation mid-run leaves it mutated. Observed live 2026-09-26.
     verdict: BUILD
-  next: 'MERGE (me): after the serial full-suite name-diff shows no new failures, merge feature/test-mutation-sandbox-0928 into develop (test-only, no release).'
+  next: "None - merged to develop (test-only, no release needed)."
   links:
     related: [TEST-SOURCE-MUTATION-KILL-UNSAFE-1, TEST-STRATEGY-REARCH-1]
     parent: TEST-STRATEGY-REARCH-1
@@ -30681,12 +30697,13 @@ cards:
   rank: {value: 4, time_criticality: 2, effort: 13}
   refs: [docs/planning/DESIGN_ec_degraded_data_policy.md section 9.1 / 9.3]
 - id: RESTORE-UNAVAILABLE-OFF-SWEEP-1
+  merged_2026_10_05_overnight: "MERGED to develop (7f67336f2 / 6c6c403a0) after the overnight serial full-suite name-diff: no new failures attributable to this branch (the single new failure was the mutation-sandbox branch's, since fixed). NOT deployed - it now rides the next deploy from develop automatically (Mon EC p1 ship); name it in deploy.sh --cards."
   built_2026_10_04_overnight: "BUILT (ura-builder, worktree overnight-1004-restore52): #52 guard on 9 restores in switch.py - behavioural: HVACZoneSweepSwitch, SecurityDelegateLightsSwitch, AutomationSwitch (per-room automation - also unguarded, found by the builder), CoverAutomationSwitch (also found by the builder), AiAutomationSwitch, InfrastructureRoomSwitch; behaviour-neutral (default OFF): OverrideOccupied, OverrideVacant, ManualMode. Coordinator syncs untouched (still unconditional after the guard). quality/tests/test_restore_guard_52_sweep.py 18 pass; builder drilled each of the 6 behavioural sites red; ORCHESTRATOR re-drilled HVACZoneSweep -> its behavioural test red, restored clean. Review A (completeness, all 51 async_get_last_state sites enumerated independently): SHIP, invariant holds everywhere. Review B (lifecycle + test authority; HA restore_state.py:166-182 confirms 'unavailable' is persisted): SHIP. LOWs deferred (no skip log line; source-grep test is a tripwire not coverage; get_event_loop in harness). Record: docs/reviews/code-review/overnight_2026-10-04_watchdog_unsub_and_restore52.md. Not deployed (overnight contract)."
   title: "After a restart that follows a URA outage, some on-by-default URA switches come back OFF (Vacancy Auto-Off is off right now) - finish the Bug Class #52 restore guard"
   thread: platform
   status: "review"
   created: '2026-10-04 02:40'
-  updated: "2026-10-04 04:15"
+  updated: "2026-10-05 02:27"
   refinement_status: initial
   approval: implied
   tags: [tier-1, measure-before-build, institutional-context, mutation-drill, found-during-probe]
@@ -30720,6 +30737,7 @@ cards:
   - docs/QUALITY_CONTEXT.md:2101
   - docs/BACKLOG.md:1596
 - id: LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1
+  merged_2026_10_05_overnight: "MERGED to develop (7f67336f2 / 6c6c403a0) after the overnight serial full-suite name-diff: no new failures attributable to this branch (the single new failure was the mutation-sandbox branch's, since fixed). NOT deployed - it now rides the next deploy from develop automatically (Mon EC p1 ship); name it in deploy.sh --cards."
   review_record: "docs/reviews/code-review/overnight_2026-10-04_watchdog_unsub_and_restore52.md"
   verified_2026_10_04_overnight: "BUILT-TO-REVIEW (overnight 10-04). Rebased onto develop (0 behind). Targeted file 9/9 pass. ORCHESTRATOR single-site mutation: neutering the new `wd._ha_stop_unsub = None` in _on_stop (line 267 only) -> test_ha_stop_fire_does_not_call_consumed_unsub FAILS (1 failed / 8 passed); restored, tree clean. Review A (local correctness, read HA core.py 1393-1401/1642-1705 in .venv-ha): SHIP - once-listener removes itself before the job runs, a second unsub hits ValueError -> _LOGGER.exception; early-teardown path __init__.py:5708-5719 still detaches. One LOW fixed in-cycle (59caf1743): the old comment claimed the unsub is 'safe to call twice' - false. Review B (lifecycle/race/test authority): SHIP - install() idempotent, closure captures its own wd, unload-vs-stop race pre-existing+harmless (LOW, no fix); test uses a fake bus (_UnsubTrackingBus) so it guards this regression but cannot prove HA's real log line -> the live shutdown-log check is the acceptance. Note: both reviewers ran this file concurrently and one saw a drill mutation in place mid-run - test_loop_stall_watchdog.py has in-place source-mutation drills (another instance of TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1). Not deployed (overnight contract)."
   build_2026_10_03_overnight: "Built on fix/loop-stall-watchdog-stop-unsub (bbeed5805) in .claude/worktrees/overnight-1003-wdunsub: _on_stop clears wd._ha_stop_unsub before uninstall; new test test_ha_stop_fire_does_not_call_consumed_unsub. Tests pending (serialised behind the running full-suite name-diff)."
@@ -30727,7 +30745,7 @@ cards:
   thread: hygiene
   status: "review"
   created: '2026-10-03 02:55'
-  updated: "2026-10-04 04:15"
+  updated: "2026-10-05 02:27"
   refinement_status: initial
   approval: implied
   tags: [tier-1, no-fabrication-verify, found-during-probe]
