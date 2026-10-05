@@ -129,7 +129,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -275,7 +274,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -390,7 +388,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -541,7 +538,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -691,7 +687,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -773,7 +768,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -890,12 +884,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -1003,12 +991,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -1125,12 +1107,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -1257,12 +1233,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -1388,12 +1358,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -1515,12 +1479,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -1671,12 +1629,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -1783,12 +1735,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -1903,12 +1849,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -2064,12 +2004,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -2224,12 +2158,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -2351,12 +2279,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -2452,12 +2374,6 @@
     "zone_1": "banking"
    },
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -2565,12 +2481,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -2661,12 +2571,6 @@
     "zone_1": "banking"
    },
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -2793,12 +2697,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -2898,12 +2796,6 @@
     "zone_1": "banking"
    },
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -2999,12 +2891,6 @@
     "zone_1": "banking"
    },
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -3126,12 +3012,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -3253,12 +3133,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -3380,12 +3254,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -3507,12 +3375,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     60.0,
-     90.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -3638,12 +3500,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -3730,12 +3586,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     60.0,
-     90.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -3881,12 +3731,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -4037,12 +3881,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -4162,12 +4000,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -4318,12 +4150,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     60.0,
-     90.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -4478,12 +4304,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     68.0,
-     76.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -4570,12 +4390,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     60.0,
-     90.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -4664,7 +4478,6 @@
     "zone_1": "preheat"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -4781,7 +4594,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -4870,7 +4682,6 @@
     "zone_1": "preheat"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -5006,7 +4817,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -5104,7 +4914,6 @@
     "zone_1": "preheat"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -5207,7 +5016,6 @@
     "zone_1": "preheat"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -5317,7 +5125,6 @@
     "zone_1": "egress_pause"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -5413,7 +5220,6 @@
     "zone_1": "egress_pause"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -5509,7 +5315,6 @@
     "zone_1": "egress_pause"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -5629,7 +5434,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -5729,7 +5533,6 @@
     "zone_1": "egress_pause"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -5825,7 +5628,6 @@
     "zone_1": "egress_pause"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -6007,7 +5809,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -6189,7 +5990,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -6340,7 +6140,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -6526,7 +6325,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -6712,7 +6510,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -6863,7 +6660,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -6998,20 +6794,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     67.0,
-     74.0
-    ],
-    "zone_2": [
-     67.0,
-     74.0
-    ],
-    "zone_3": [
-     67.0,
-     74.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -7104,16 +6886,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_2": [
-     0.0,
-     0.0
-    ],
-    "zone_3": [
-     0.0,
-     0.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -7248,20 +7020,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     67.0,
-     74.0
-    ],
-    "zone_2": [
-     67.0,
-     74.0
-    ],
-    "zone_3": [
-     67.0,
-     74.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -7409,16 +7167,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_2": [
-     0.0,
-     0.0
-    ],
-    "zone_3": [
-     0.0,
-     0.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -7557,20 +7305,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     67.0,
-     74.0
-    ],
-    "zone_2": [
-     67.0,
-     74.0
-    ],
-    "zone_3": [
-     67.0,
-     74.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -7718,20 +7452,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {
-    "zone_1": [
-     67.0,
-     74.0
-    ],
-    "zone_2": [
-     67.0,
-     74.0
-    ],
-    "zone_3": [
-     67.0,
-     74.0
-    ]
-   },
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -7882,7 +7602,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -7947,7 +7666,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -7981,7 +7699,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -8084,7 +7801,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -8127,7 +7843,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -8177,7 +7892,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -8244,7 +7958,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -8316,7 +8029,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -8388,7 +8100,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -8460,7 +8171,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -8531,7 +8241,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -8586,7 +8295,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -8681,7 +8389,6 @@
     "zone_1": "compromise"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -8798,7 +8505,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -8898,7 +8604,6 @@
     "zone_1": "compromise"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -9034,7 +8739,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -9138,7 +8842,6 @@
     "zone_1": "compromise"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -9243,7 +8946,6 @@
     "zone_1": "compromise"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -9384,7 +9086,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -9427,7 +9128,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -9529,7 +9229,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -9605,7 +9304,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -9742,7 +9440,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -9818,7 +9515,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -9973,7 +9669,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -10064,7 +9759,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -10183,7 +9877,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -10343,7 +10036,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -10497,7 +10189,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -10621,7 +10312,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -10700,7 +10390,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -10779,7 +10468,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -10858,7 +10546,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -10932,7 +10619,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -11008,7 +10694,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -11087,7 +10772,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -11247,7 +10931,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -11405,7 +11088,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -11532,7 +11214,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -11604,7 +11285,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -11761,7 +11441,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -11888,7 +11567,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -12050,7 +11728,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -12207,7 +11884,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -12364,7 +12040,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -12431,7 +12106,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -12592,7 +12266,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -12749,7 +12422,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -12874,7 +12546,6 @@
     "zone_1": "nudge"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [
     "zone_1"
    ],
@@ -13007,7 +12678,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [
     "zone_1"
    ],
@@ -13143,7 +12813,6 @@
     "zone_1": "nudge"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [
     "zone_1"
    ],
@@ -13274,7 +12943,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -13403,7 +13071,6 @@
     "zone_1": "nudge"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [
     "zone_1"
    ],
@@ -13546,7 +13213,6 @@
     "zone_1": "nudge"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [
     "zone_1"
    ],
@@ -13737,7 +13403,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -13926,7 +13591,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -14084,7 +13748,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -14273,7 +13936,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -14466,7 +14128,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -14593,7 +14254,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -14697,7 +14357,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -14801,7 +14460,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -14905,7 +14563,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -15009,7 +14666,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -15117,7 +14773,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -15221,7 +14876,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -15377,7 +15031,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -15533,7 +15186,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -15658,7 +15310,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -15814,7 +15465,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -15974,7 +15624,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -16101,7 +15750,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -16299,7 +15947,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -16488,7 +16135,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -16646,7 +16292,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -16835,7 +16480,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -17028,7 +16672,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -17186,7 +16829,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -17342,7 +16984,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -17498,7 +17139,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -17623,7 +17263,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -17779,7 +17418,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -17939,7 +17577,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -18066,7 +17703,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -18219,7 +17855,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -18372,7 +18007,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -18494,7 +18128,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -18647,7 +18280,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -18804,7 +18436,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -18926,7 +18557,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -19046,7 +18676,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -19166,7 +18795,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -19255,7 +18883,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -19375,7 +19002,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -19499,7 +19125,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -19588,7 +19213,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -19741,7 +19365,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -19889,7 +19512,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -20006,7 +19628,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -20159,7 +19780,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -20311,7 +19931,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -20395,7 +20014,6 @@
    "egress_tokens": [],
    "excursion_rows": {},
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -20600,7 +20218,6 @@
     "zone_3": "preheat"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -20805,7 +20422,6 @@
     "zone_3": "preheat"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -20979,7 +20595,6 @@
     "zone_3": "preheat"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -21189,7 +20804,6 @@
     "zone_3": "preheat"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -21398,7 +21012,6 @@
     "zone_3": "preheat"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],
@@ -21572,7 +21185,6 @@
     "zone_3": "preheat"
    },
    "grace_timers": [],
-   "last_emitted_range": {},
    "nudge_in_flight": [],
    "nudge_pre_preset": {},
    "nudge_restore_timers": [],

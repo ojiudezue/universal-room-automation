@@ -357,11 +357,9 @@ def _observe(ctx) -> dict:
     pred = ctx.pred
     ex = ctx.ex
     carrier = ctx.S._STRATEGY_BY_PLATFORM.get("ha_carrier")
+    # CPR Batch C U2 / G1: the `last_emitted_range` key is dropped (the map
+    # is retired by D3c). Scripted key-drop of the JSON, not a re-record.
     state = {
-        "last_emitted_range": {
-            k: list(v) if v is not None else None
-            for k, v in sorted(ctx.coord._last_emitted_range.items())
-        },
         "zone_last_s1_write": {
             k: [v[0], v[1]] for k, v in sorted(ctx.coord._zone_last_s1_write.items())
         },
