@@ -963,16 +963,46 @@ class TestAcResetPresetRestore:
     refuses to act on 'manual' — locking the zone out of preset governance.
     """
 
-    def test_perform_ac_reset_captures_original_preset(self, hvac_override_src):
-        body = _method_slice(hvac_override_src, "async def _perform_ac_reset(")
-        assert "original_preset" in body, (
-            "_perform_ac_reset must snapshot the pre-reset preset so "
-            "_verify_restore can put it back"
-        )
-        assert 'attributes.get("preset_mode"' in body, (
-            "preset snapshot must read climate entity preset_mode attribute"
-        )
-        assert "_restore_after_reset(zone, original_mode, original_preset)" in body
+    @pytest.mark.asyncio
+    async def test_perform_ac_reset_captures_original_preset(self, monkeypatch):
+        """BEHAVIOURAL (W1-C P2 converted the old source grep, DoD #7): the
+        REAL `_perform_ac_reset` snapshots the thermostat's preset before the
+        reset and hands it to `_restore_after_reset` when the reset timer
+        fires (the W1-C P2 R8 read goes through the thermostat profile;
+        Carrier reads the raw attribute)."""
+        import types as _t
+
+        import _w1b_harness as H
+        from homeassistant.helpers import entity_registry as er
+
+        baseline = H.snapshot_shims()
+        try:
+            mods = H.load_real()
+            coord, hass = H.make_coord(mods)
+            reg = _t.SimpleNamespace(async_get=lambda e: _t.SimpleNamespace(
+                platform="ha_carrier", entity_id=e, device_id=None))
+            monkeypatch.setattr(er, "async_get", lambda _h: reg)
+            mods["hvac_strategy"]._test_reset_cache()
+            H.set_climate(hass, "climate.test_zone_1", preset_mode="sleep",
+                          hold_activity="sleep")
+            arr = coord._override_arrester
+            fired = []
+            monkeypatch.setattr(mods["hvac_override"], "async_call_later",
+                                lambda h, d, cb: fired.append(cb) or (lambda: None))
+            got = []
+
+            async def _restore(zone, mode, preset):
+                got.append((zone.zone_id, mode, preset))
+            monkeypatch.setattr(arr, "_restore_after_reset", _restore)
+            z = coord.zone_manager.zones["zone_1"]
+            await arr._perform_ac_reset(z)
+            await H.drain(hass)
+            for cb in fired:
+                cb(None)
+            await H.drain(hass)
+            assert got == [("zone_1", "heat_cool", "sleep")]
+        finally:
+            H.restore_shims(baseline)
 
     def test_restore_after_reset_signature_carries_preset(self, hvac_override_src):
         assert (

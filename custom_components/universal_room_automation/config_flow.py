@@ -1065,6 +1065,7 @@ MIRROR_KEYS_ZONE_HVAC: frozenset[str] = frozenset({
     "hvac_ac_load_sensor",
     "hvac_ac_ramp_zone_enabled",
     "zone_vacancy_sweep_enabled",  # tied to thermostat-level cooling decisions
+    "hvac_thermostat_min_delta_f",  # W1-C P2: a property of the thermostat
 })
 
 # zone_energy: physical AC sub-circuit power/energy sensors are tied to the
@@ -10797,7 +10798,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         from .domain_coordinators.hvac_const import (
             CONF_HVAC_AC_LOAD_SENSOR,
             CONF_HVAC_AC_RAMP_ZONE_ENABLED,
+            CONF_HVAC_THERMOSTAT_MIN_DELTA_F,
             DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
+            DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F,
         )
 
         if zm_result:
@@ -10887,6 +10890,27 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
                 ),
             ): selector.BooleanSelector(),
+            # HVAC W1-C P2 (operator on-site check 2026-10-05): the
+            # thermostat's own "Heat/Cool Min Delta" installer setting. A
+            # range URA would send narrower than this is widened first
+            # (heat kept, cool raised). Advanced; default 5 °F.
+            vol.Optional(
+                CONF_HVAC_THERMOSTAT_MIN_DELTA_F,
+                default=float(_zmerged.get(
+                    CONF_HVAC_THERMOSTAT_MIN_DELTA_F,
+                    DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F,
+                )),
+                description=_adv(
+                    CONF_HVAC_THERMOSTAT_MIN_DELTA_F, _zmerged,
+                    DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=2, max=10, step=1,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
         }
 
         data_schema = vol.Schema(schema_fields)

@@ -742,6 +742,24 @@ CONF_HVAC_AC_LOAD_SENSOR: Final = "hvac_ac_load_sensor"
 CONF_HVAC_AC_RAMP_ZONE_ENABLED: Final = "hvac_ac_ramp_zone_enabled"
 DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED: Final = True
 
+# HVAC W1-C P2 (operator on-site check 2026-10-05) — the thermostat's own
+# minimum gap between its heat and cool setpoints ("Heat/Cool Min Delta",
+# an installer setting; 5 °F on the Wigton ecobees). RUNG 2: per-thermostat
+# Zone → Thermostat field (Advanced), mirrored to zones sharing the
+# thermostat. A range URA would send narrower than this is widened by the
+# thermostat adapter BEFORE it is sent (heat kept, cool raised) — never
+# learned per unit. Only range-holding adapters (ecobee) read it; Carrier
+# holds named presets and never consumes it.
+CONF_HVAC_THERMOSTAT_MIN_DELTA_F: Final = "hvac_thermostat_min_delta_f"
+DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F: Final = 5.0
+
+# HVAC W1-C P2 §4.11 — S1 ticks an ecobee may sit in cool/heat after the
+# heat_cool enforcer (B1) tried, before S1 escalates the deferral to
+# FAILED("heat_cool_not_reached") + a Repair. RUNG 1 (protocol window:
+# 3 × the 5-min tick gives B1 two chances). 0 is NOT a kill switch (the
+# "no heat_cool mode" Repair is unconditional).
+ECOBEE_HEAT_COOL_STUCK_TICKS: Final = 3
+
 # Internal constants (not user-facing)
 AC_NUDGE_OVERSHOOT_GAP: Final = 0.0            # °F — current <= target - this. v4.7.16.2 hotfix: variable-speed Bryant modulates AT setpoint and rarely undershoots 0.5°F; previous 0.5°F gap suppressed auto-nudge for the exact waste pattern it was designed to catch. Downstream gates 7 (kwh_rate > threshold), 7b (sustained samples), and 8 (time-sustained) already provide three independent false-positive guards.
 AC_NUDGE_EVALUATION_DELAY_S: Final = 600       # seconds after restore = evaluate (LEGACY — runtime value lives on OverrideArrester._nudge_eval_delay_s, seeded from CONF_HVAC_AC_NUDGE_EVAL_DELAY. This const remains as the runtime-default + back-compat import target.)
@@ -1537,6 +1555,11 @@ DEFAULT_HVAC_S10_ROLLOUT_ZONE_IDS: Final = ()
 
 # Persisted side-key in the HVAC `_zone_state_store` snapshot (§6.3).
 S10_STATE_SIDE_KEY: Final = "__s10_preset_ranges"
+
+# HVAC W1-C P2 §4.2a: thermostat-adapter state (ecobee `held` range +
+# S10-stored ranges) in the same `_zone_state_store` snapshot. Written only
+# when non-empty (a Carrier-only snapshot has no such key).
+W1C_ADAPTER_SIDE_KEY: Final = "__w1c_adapter"
 
 # NM re-emit guard for the "default is off after restart" note (§3.5).
 S10_DEFAULT_OFF_NM_GUARD_S: Final = 86400

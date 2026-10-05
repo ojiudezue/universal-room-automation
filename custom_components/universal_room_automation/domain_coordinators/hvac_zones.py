@@ -31,12 +31,36 @@ from ..const import (
 from .hvac_const import (
     CONF_HVAC_AC_LOAD_SENSOR,
     CONF_HVAC_AC_RAMP_ZONE_ENABLED,
+    CONF_HVAC_THERMOSTAT_MIN_DELTA_F,
     DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
+    DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F,
     DUTY_CYCLE_WINDOW_SECONDS,
     HVAC_LIVE_ROOM_TRANSIENT_GRACE_S,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _min_delta_from(cfg: Any) -> float:
+    """W1-C P2: the configured thermostat min heat/cool gap (°F), default
+    5; a malformed value falls back to the default."""
+    try:
+        val = float((cfg or {}).get(
+            CONF_HVAC_THERMOSTAT_MIN_DELTA_F, DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F,
+        ))
+    except (TypeError, ValueError):
+        return float(DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F)
+    return val if val > 0 else float(DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F)
+
+
+def _profile_attrs(hass: Any, entity_id: str | None) -> dict[str, Any]:
+    """W1-C P2 D1 display attrs (never raises)."""
+    try:
+        from .hvac_strategy import profile_info  # noqa: PLC0415
+        prof, src = profile_info(hass, entity_id)
+    except Exception:  # noqa: BLE001
+        prof, src = None, None
+    return {"thermostat_profile": prof, "profile_source": src}
 
 
 def _coerce_hold_override(raw: Any) -> int | None:
@@ -158,6 +182,9 @@ class ZoneState:
     # nudge_kwh_rate_before: captured at nudge fire for D8 kWh-avoided math.
     # last_kwh_stale_warned_ts: rate-limit stale-sensor warnings.
     ac_load_sensor: str = ""
+    # HVAC W1-C P2: the thermostat's own min heat/cool gap (Zone ->
+    # Thermostat, rung 2). Read only by range-holding adapters (ecobee).
+    thermostat_min_delta_f: float = DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F
     kwh_rate_threshold: float = 0.8
     ramp_zone_enabled: bool = True
     kwh_samples_above_threshold: int = 0
@@ -459,6 +486,7 @@ class ZoneManager:
                     CONF_HVAC_AC_RAMP_ZONE_ENABLED,
                     DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
                 )
+                min_delta_f = _min_delta_from(zone_cfg)
 
                 # If thermostat already assigned, merge rooms into existing zone
                 existing_zone_id = thermostat_to_zone_id.get(thermostat)
@@ -487,6 +515,11 @@ class ZoneManager:
                     existing.ramp_zone_enabled = (
                         existing.ramp_zone_enabled or bool(ac_ramp_zone_enabled)
                     )
+                    # W1-C P2: one physical thermostat — the wider gap wins
+                    # (the field is mirrored, so they normally agree).
+                    existing.thermostat_min_delta_f = max(
+                        existing.thermostat_min_delta_f, min_delta_f,
+                    )
                     _LOGGER.info(
                         "HVAC: Merged %s into %s (%s) — now %d rooms",
                         zm_zone_name, existing_zone_id,
@@ -511,6 +544,7 @@ class ZoneManager:
                     zone_cameras=zone_cameras,
                     ac_load_sensor=ac_load_sensor,
                     ramp_zone_enabled=bool(ac_ramp_zone_enabled),
+                    thermostat_min_delta_f=min_delta_f,
                 )
                 # Initialize never-occupied zones as eligible for vacancy
                 zone_state.last_occupied_time = (
@@ -581,6 +615,7 @@ class ZoneManager:
                 rooms=room_names,
                 ac_load_sensor=legacy_ac_load_sensor,
                 ramp_zone_enabled=bool(legacy_ramp_zone_enabled),
+                thermostat_min_delta_f=_min_delta_from(merged),
             )
             zone_state.last_occupied_time = (
                 dt_util.utcnow()
@@ -609,7 +644,10 @@ class ZoneManager:
 
         zone.hvac_mode = state.state
         zone.hvac_action = state.attributes.get("hvac_action", "")
-        zone.preset_mode = state.attributes.get("preset_mode", "")
+        # W1-C P2 R1 (the hub): the thermostat profile's projection
+        # (Carrier / Generic: the raw attribute verbatim).
+        from .hvac_strategy import preset_of_for  # noqa: PLC0415
+        zone.preset_mode = preset_of_for(self.hass, zone.climate_entity, state, "")
         zone.current_temperature = state.attributes.get("current_temperature")
         zone.current_humidity = state.attributes.get("current_humidity")
         zone.target_temp_high = state.attributes.get("target_temp_high")
@@ -1043,6 +1081,8 @@ class ZoneManager:
             "friendly_name": zone.zone_name,
             "zone_id": zone.zone_id,
             "climate_entity": zone.climate_entity,
+            # W1-C P2 D1: which thermostat adapter commands this zone.
+            **_profile_attrs(self.hass, zone.climate_entity),
             "preset_mode": zone.preset_mode,
             "hvac_action": zone.hvac_action,
             "current_temperature": zone.current_temperature,

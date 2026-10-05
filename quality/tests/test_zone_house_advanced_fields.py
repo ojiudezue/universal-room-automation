@@ -95,6 +95,7 @@ ZONE_ADVANCED = [
     ("zone_media", CONF_ZONE_PLAYER_MODE, ZONE_PLAYER_MODE_INDEPENDENT),
     ("zone_hvac", CONF_HVAC_AC_LOAD_SENSOR, "sensor.ac_power"),
     ("zone_hvac", CONF_HVAC_AC_RAMP_ZONE_ENABLED, not DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED),
+    ("zone_hvac", "hvac_thermostat_min_delta_f", 3.0),   # W1-C P2
     ("zone_energy", CONF_ZONE_POWER_SENSORS, ["sensor.zone_power"]),
     ("zone_dynamic_preset", CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST, False),
     ("zone_dynamic_preset", CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED, True),
@@ -108,6 +109,7 @@ ZONE_DEFAULTS = {
     CONF_ZONE_THERMOSTAT: THERMO,
     CONF_HVAC_AC_LOAD_SENSOR: "",
     CONF_HVAC_AC_RAMP_ZONE_ENABLED: DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
+    "hvac_thermostat_min_delta_f": 5.0,
     CONF_ZONE_POWER_SENSORS: [],
     CONF_ZONE_ENERGY_SENSORS: ["sensor.zone_energy"],
     CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST: True,
@@ -263,7 +265,9 @@ def test_zone_hvac_simple_shows_hint_and_thermostat_only():
     assert res["description_placeholders"]["advanced_hint"] == cf.ADVANCED_HINT_HIDDEN
     flow, _ = _zm_flow({ZONE: ZONE_DEFAULTS}, adv=True)
     res = render(flow, "zone_hvac")
-    assert len(schema_keys(res)) == 3
+    # W1-C P2 adds the Advanced "Min heat/cool gap" (thermostat min delta).
+    assert len(schema_keys(res)) == 4
+    assert "hvac_thermostat_min_delta_f" in schema_keys(res)
     assert res["description_placeholders"]["advanced_hint"] == cf.ADVANCED_HINT_SHOWN
 
 
@@ -351,6 +355,7 @@ def test_zone_mirror_sets_unchanged():
     assert cf.MIRROR_KEYS_ZONE_HVAC == frozenset({
         "zone_thermostat", "hvac_ac_load_sensor", "hvac_ac_ramp_zone_enabled",
         "zone_vacancy_sweep_enabled",
+        "hvac_thermostat_min_delta_f",  # W1-C P2: a property of the thermostat
     })
     assert cf.MIRROR_KEYS_ZONE_ENERGY == frozenset({
         "zone_power_sensors", "zone_energy_sensors",

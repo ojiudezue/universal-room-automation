@@ -883,7 +883,9 @@ async def begin_excursion(
     try:
         st = hass.states.get(entity_id) if hass is not None else None
         if st is not None:
-            pre_preset = st.attributes.get("preset_mode")
+            # W1-C P2 R15: the profile's projection (Carrier: raw, verbatim).
+            from .hvac_strategy import preset_of_for  # noqa: PLC0415
+            pre_preset = preset_of_for(hass, entity_id, st, None)
             _low = st.attributes.get("target_temp_low")
             _high = st.attributes.get("target_temp_high")
             if _low is not None:

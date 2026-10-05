@@ -932,3 +932,24 @@ def test_v475_d4_render_banner_empty_for_none_zone_name(shared_thermostat_zm):
         "v4.7.5 D4 (A-M2): legacy zone-entry path (zone_name=None) must "
         f"return empty banner; got {banner!r}"
     )
+
+
+# =============================================================================
+# HVAC W1-C P2 — the thermostat's min heat/cool gap is a property of the
+# THERMOSTAT, so a save on one house zone mirrors it to every sibling zone
+# sharing that thermostat (and to no other zone).
+# =============================================================================
+
+
+def test_w1c_p2_min_delta_mirrors_to_thermostat_siblings(shared_thermostat_zm):
+    flow = _make_flow_with_zm(shared_thermostat_zm, selected_zone="Entertainment")
+    mirrored = flow._auto_mirror_to_siblings(
+        shared_thermostat_zm,
+        "Entertainment",
+        {CONF_ZONE_THERMOSTAT: "climate.studyb_zone_1", "hvac_thermostat_min_delta_f": 3.0},
+        _CF_MOD.MIRROR_KEYS_ZONE_HVAC,
+    )
+    assert mirrored == ["Master Suite"]
+    zones = shared_thermostat_zm.options["zones"]
+    assert zones["Master Suite"]["hvac_thermostat_min_delta_f"] == 3.0
+    assert "hvac_thermostat_min_delta_f" not in zones["Office"]

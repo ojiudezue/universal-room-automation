@@ -660,12 +660,14 @@
         "data": {
           "zone_thermostat": "Thermostat",
           "hvac_ac_load_sensor": "AC power sensor",
-          "hvac_ac_ramp_zone_enabled": "AC overrun fix"
+          "hvac_ac_ramp_zone_enabled": "AC overrun fix",
+          "hvac_thermostat_min_delta_f": "Min heat/cool gap"
         },
         "data_description": {
           "zone_thermostat": "Thermostat that controls this zone.",
           "hvac_ac_load_sensor": "Sensor that measures this AC unit's power, such as a panel circuit. Leave empty to turn off the AC overrun fix for this zone.",
-          "hvac_ac_ramp_zone_enabled": "Briefly eases or restarts the AC when it keeps running after reaching the set temperature. Needs the AC load sensor."
+          "hvac_ac_ramp_zone_enabled": "Briefly eases or restarts the AC when it keeps running after reaching the set temperature. Needs the AC load sensor.",
+          "hvac_thermostat_min_delta_f": "The smallest gap this thermostat allows between its heat and cool settings (ecobee: Heat/Cool Min Delta). URA widens a narrower range before sending it."
         }
       },
       "zone_energy": {
@@ -2288,6 +2290,14 @@
     "coordinator_not_entitled": {
       "title": "Coordinator not available: {coordinator}",
       "description": "{coordinator} is turned on but not available on this install ({reason}), so it is not running."
+    },
+    "thermostat_no_heat_cool": {
+      "title": "Thermostat cannot run heat/cool",
+      "description": "{thermostat} cannot run heat/cool, so URA cannot hold its comfort ranges. Enable Auto heat/cool on the thermostat."
+    },
+    "thermostat_heat_cool_not_reached": {
+      "title": "Thermostat did not switch to heat/cool",
+      "description": "{thermostat} did not switch to heat/cool after URA asked, so URA cannot hold its comfort range. Check the thermostat's mode and that Auto heat/cool is enabled."
     }
   },
   "entity": {

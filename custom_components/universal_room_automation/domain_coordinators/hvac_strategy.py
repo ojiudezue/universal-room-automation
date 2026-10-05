@@ -37,6 +37,15 @@ HVAC W1-C P1 (``docs/planning/PLANNING_hvac_w1c_thermostat_profiles.md``
 REV 3 + 3.1 errata) adds the frozen PROFILE CONTRACT on top:
 
 * ``ProfileCapabilities`` + ``PersonChangeVerdict`` (public types, §3a).
+  W1-C P2 (``PLANNING_hvac_w1c_p2_ecobee.md`` REV 3 §4.8): the
+  capabilities record only how a brand is commanded, read and classified —
+  NEVER whether a URA feature runs (operator ruling 2026-10-03: the brand
+  layer is a thin command adapter). P1's ``feature_available`` predicate is
+  deleted; a thermostat that cannot do a verb says so in the verb's own
+  ``WriteResult``.
+* W1-C P2: ``EcobeeHomeKitStrategy`` (``homekit_controller`` + ecobee) —
+  holds a preset by writing URA's effective heat_cool RANGE for it,
+  reports the thermostat in Carrier's vocabulary through ``preset_of``.
 * Every thermostat write site (A1–A14) calls a strategy method:
   ``hold_preset`` (S1 only — D2.5 no-op + ``last_sent``), ``pin_preset``
   (every other preset write), ``set_setpoints``, ``set_hvac_mode``. The
@@ -130,38 +139,26 @@ class PersonChange:
 
 @dataclass(frozen=True)
 class ProfileCapabilities:
-    """W1-C §3a — what a thermostat profile can do. RUNG 1 (module constant
-    on each concrete strategy): physics / protocol facts change only by
-    reviewed code. NO P1 CONSUMER reads these fields — P2 pipes
-    ``feature_available`` to the degraded-feature surface and resolves echo
-    TTLs from here at suppress time (F7). ``echo_ttl_s is None`` = timings
-    TBD → the profile is UNDISPATCHABLE (F4)."""
+    """How this brand is commanded, read and classified — never whether a
+    URA feature runs (W1-C P2 §4.8, INV-F). RUNG 1 (module constant on each
+    concrete strategy): physics / protocol facts change only by reviewed
+    code. Consumed only inside this module (the AST lint forbids a
+    ``.capabilities`` read anywhere else)."""
 
     platform: str
     manufacturer: Optional[str]
-    has_named_presets: bool
-    named_preset_vocabulary: frozenset
-    has_heat_cool_mode: bool
-    setpoint_shape: str  # "dual_leg" | "single_setpoint"
-    supports_resume: bool
-    supports_activity_setpoint: bool
-    has_next_activity_time: bool
-    has_write_confirmation_feed: bool
-    has_mode_select: bool
-    mode_select_options: frozenset
-    hold_via: str  # "preset" | "mode_select" | "setpoint_only" | "unsupported"
-    hold_release_mechanism: str
-    equipment_telemetry: frozenset
+    hold_via: str  # "preset" | "setpoint_range" | "unsupported"
+    setpoint_shape: str  # "dual_leg"
     echo_ttl_s: Optional[int]
     preset_echo_ttl_s: Optional[int]
     write_rate_min_interval_s: int
     retry_interval_s: int
+    person_change_shape: str  # "heat_cool_both_legs"
     person_change_match_window_s: Optional[int]
-    person_change_shape: str  # "heat_cool_both_legs" | "single_setpoint" | "select_or_setpoint"
 
 
-# Carrier timings MIRROR the live module constants they will replace in P2
-# (unread in P1; pinned equal by test_w1c_p1_carrier_capabilities_mirror_constants):
+# Carrier timings MIRROR the live module constants
+# (pinned equal by test_carrier_capabilities_mirror_constants):
 #   echo_ttl_s 15        = hvac_override.SUPPRESS_TTL_SECONDS
 #   preset_echo_ttl_s 120 = hvac_override.SUPPRESS_TTL_SECONDS_PRESET
 #   write_rate 60         = hvac_const.HVAC_FAST_PATH_MIN_INTERVAL_S
@@ -169,56 +166,70 @@ class ProfileCapabilities:
 CARRIER_CAPABILITIES = ProfileCapabilities(
     platform=CARRIER_PLATFORM,
     manufacturer="Carrier",
-    has_named_presets=True,
-    named_preset_vocabulary=frozenset({"home", "away", "sleep", "wake", "vacation"}),
-    has_heat_cool_mode=True,
-    setpoint_shape="dual_leg",
-    supports_resume=True,
-    supports_activity_setpoint=True,
-    has_next_activity_time=True,
-    # HVAC-WRITE-CONFIRMATION-ORACLE-1 (parked): neither feed confirms a
-    # write reliably (state-of-play §10 C22/C23).
-    has_write_confirmation_feed=False,
-    has_mode_select=False,
-    mode_select_options=frozenset(),
     hold_via="preset",
-    hold_release_mechanism="resume_service",
-    # P4 owns the equipment-telemetry inventory (§E); empty until then.
-    equipment_telemetry=frozenset(),
+    setpoint_shape="dual_leg",
     echo_ttl_s=15,
     preset_echo_ttl_s=120,
     write_rate_min_interval_s=60,
     retry_interval_s=0,
-    person_change_match_window_s=None,
     person_change_shape="heat_cool_both_legs",
+    person_change_match_window_s=None,
 )
 
-# Generic (§3d, this cycle): holds UNSUPPORTED — no invented setpoints, no
-# borrows, no nudges. In P1 these declarations have NO consumer: a Generic
-# zone still routes every write through the same funnels as Carrier (N2);
-# the degraded surface bites from P2.
+# Generic: no way to hold a named preset (``hold_preset`` reports
+# ``FAILED("no_presets_supported")`` on an entity with no presets). Every
+# other verb routes through the same funnels as Carrier. W1-C P2 F2: the
+# person-change shape is the same dual-leg heat_cool shape as every other
+# profile (P1 declared single_setpoint / 600 s, inconsistent with dual_leg).
 GENERIC_CAPABILITIES = ProfileCapabilities(
     platform=GENERIC_PLATFORM,
     manufacturer=None,
-    has_named_presets=False,
-    named_preset_vocabulary=frozenset(),
-    has_heat_cool_mode=False,
-    setpoint_shape="dual_leg",
-    supports_resume=False,
-    supports_activity_setpoint=False,
-    has_next_activity_time=False,
-    has_write_confirmation_feed=False,
-    has_mode_select=False,
-    mode_select_options=frozenset(),
     hold_via="unsupported",
-    hold_release_mechanism="unsupported",
-    equipment_telemetry=frozenset(),
+    setpoint_shape="dual_leg",
     echo_ttl_s=15,
     preset_echo_ttl_s=120,
     write_rate_min_interval_s=60,
     retry_interval_s=0,
-    person_change_match_window_s=600,
-    person_change_shape="single_setpoint",
+    person_change_shape="heat_cool_both_legs",
+    person_change_match_window_s=None,
+)
+
+# HVAC W1-C P2 — ecobee over HomeKit (``homekit_controller``).
+HOMEKIT_PLATFORM = "homekit_controller"
+ECOBEE_PROFILE = "ecobee_homekit"
+# Device-registry manufacturer must CONTAIN this (case-insensitive). D0b
+# discovery 2026-10-05: all three Wigton units read "ecobee Inc.".
+ECOBEE_MANUFACTURER_MATCH = "ecobee"
+# RUNG 1. D0b supervised probe 2026-10-05 (G2, all three units): a range
+# write lands as legs equal to the written whole degrees; `.5` writes are
+# rounded by the device (away from the mean), T = 0.50 °F. The adapter
+# rounds to whole degrees before sending, so readback is exact; 0.5 °F is
+# the inclusive matching tolerance for the projection, the within-manual
+# classifier and the pair ring (``echo_tolerance_f``).
+ECOBEE_RANGE_TOLERANCE_F: float = 0.5
+# The comfort names HomeKit's ecobee "Current Mode" select can report
+# (HA `homekit_controller/select.py` `EcobeeModeSelect._attr_options`,
+# translation_key "ecobee_mode"). Anything else (incl. "unknown", which the
+# select reads while a hold is active) is "no comfort setting readable" —
+# never Away.
+ECOBEE_COMFORT_OPTIONS: frozenset = frozenset({"home", "sleep", "away"})
+ECOBEE_MODE_SELECT_TRANSLATION_KEY = "ecobee_mode"
+# Presets the adapter can carry a range for (Seasonal Baseline Presets).
+ECOBEE_RANGE_PRESETS: tuple = ("home", "sleep", "away", "vacation")
+
+# D0b G3 (p95 echo 0.035–0.044 s on all three units) is far inside Carrier's
+# 15 / 120 s windows, so the C1 per-profile TTL is not needed: same values.
+ECOBEE_HOMEKIT_CAPABILITIES = ProfileCapabilities(
+    platform=HOMEKIT_PLATFORM,
+    manufacturer="ecobee",
+    hold_via="setpoint_range",
+    setpoint_shape="dual_leg",
+    echo_ttl_s=15,
+    preset_echo_ttl_s=120,
+    write_rate_min_interval_s=60,
+    retry_interval_s=0,
+    person_change_shape="heat_cool_both_legs",
+    person_change_match_window_s=None,
 )
 
 
@@ -279,6 +290,7 @@ class GenericStrategy:
     """
 
     platform: str = GENERIC_PLATFORM
+    profile_name: str = "generic"
     capabilities: ProfileCapabilities = GENERIC_CAPABILITIES
     # HVAC Batch C (REV 5 F9): the brand's own app name for user-facing NM
     # text ("check that preset in the <app>"). None = no brand app; callers
@@ -352,20 +364,77 @@ class GenericStrategy:
             pm = obs_or_preset
         return pm == MANUAL_HOLD_PRESET
 
-    # ---- W1-C P1: degraded-feature surface (no P1 consumer) ----------
-    def feature_available(self, feature: str) -> bool:
-        return self.feature_unavailable_reason(feature) is None
+    # ---- W1-C P2: the state read (§4.3) --------------------------------
+    def preset_of(
+        self, state: Any, default: Any = None, *, hass: Any = None,
+        entity_id: Optional[str] = None,
+    ) -> Any:
+        """The thermostat's preset in Carrier's vocabulary. Carrier /
+        Generic: the raw ``preset_mode`` attribute, VERBATIM, with the call
+        site's own default (byte-identical to the pre-P2 reads; each site
+        keeps its own ``or ""`` coercion outside this call)."""
+        return (getattr(state, "attributes", None) or {}).get("preset_mode", default)
 
-    def feature_unavailable_reason(self, feature: str) -> Optional[str]:
-        caps = self.capabilities
-        if feature == "hold":
-            return None if caps.hold_via != "unsupported" else "profile_has_no_hold"
-        if feature == "cpr":
-            return None if caps.supports_activity_setpoint else "profile_has_no_activity_setpoint"
-        if feature == "nudge" or feature.startswith("borrow."):
-            # Borrows and nudges return through a NAMED preset pin.
-            return None if caps.hold_via == "preset" else "profile_has_no_named_presets"
-        return "unknown_feature"
+    def echo_tolerance_f(self) -> float:
+        """§4.4: the tolerance the within-manual classifier (T1) and the
+        pair ring (T2) use to recognise URA's own echo. Carrier / Generic:
+        ``LAST_SENT_TOLERANCE_F`` (byte-identical)."""
+        return LAST_SENT_TOLERANCE_F
+
+    def hold_needs_reassert(self, hass: Any, entity_id: str, preset: str) -> bool:
+        """S1 asks this when the zone already reads its target preset.
+        True = the device does not carry URA's range for that preset any
+        more, so S1 must hold it again. Carrier / Generic: the device preset
+        IS the range — never (byte-identical: S1 skips as before)."""
+        return False
+
+    # ---- W1-C P2: adapter state persistence (§4.2a) --------------------
+    def export_state(self) -> dict[str, Any]:
+        """Per-entity adapter state for the ``__w1c_adapter`` side-key.
+        Carrier / Generic hold none."""
+        return {}
+
+    def rehydrate_state(self, blob: Any) -> bool:
+        """Accept a persisted per-entity slice. False = this profile keeps
+        no adapter state (the caller keeps the slice pending, verbatim)."""
+        return False
+
+    def flush_entity(self, entity_id: str) -> None:
+        """Profile switch (§4.1): forget everything held for the entity."""
+        self._clear_sent(entity_id)
+
+    # ---- W1-C P2: integration freshness (§4.10) -------------------------
+    def freshness_row(
+        self, hass: Any, zone: Any, *, max_age_s: float,
+        require_corroboration: bool, span_kw_fn: Callable[[Any], Any],
+        now_utc: Any, state_age_fn: Any = None,
+    ) -> tuple[dict[str, Any], bool]:
+        """(row, qualifies). Non-Carrier profiles have no integration-
+        staleness remedy: the row says ``not_applicable`` and never counts
+        toward staleness, the reload or the stale NM."""
+        climate = getattr(zone, "climate_entity", "") or ""
+        try:
+            st = hass.states.get(climate)
+        except Exception:  # noqa: BLE001
+            st = None
+        row: dict[str, Any] = {
+            "climate_entity": climate,
+            "state": (st.state if st is not None else "missing"),
+            "age_s": None,
+            "stale": False,
+            "corroborated": False,
+            "span_kw": None,
+            "ac_load_sensor": getattr(zone, "ac_load_sensor", "") or "",
+            "span_unreadable": False,
+            "freshness": "not_applicable",
+        }
+        return row, False
+
+    async def remediate_stale(
+        self, hass: Any, qualifier_zones: list[str], *, reload_fn: Callable[..., Any],
+    ) -> None:
+        """No integration repair for non-Carrier profiles (no NM)."""
+        return None
 
     # ---- W1-C P1: pure funnel delegates (A2–A14) ---------------------
     @staticmethod
@@ -559,6 +628,7 @@ class CarrierStrategy(GenericStrategy):
     """
 
     platform: str = CARRIER_PLATFORM
+    profile_name: str = "carrier"
     capabilities: ProfileCapabilities = CARRIER_CAPABILITIES
     app_name: Optional[str] = "Bryant"
 
@@ -701,9 +771,783 @@ class CarrierStrategy(GenericStrategy):
         # Carrier always advertises presets; only the snapshot value decides.
         return pre_preset in (None, "", MANUAL_HOLD_PRESET)
 
+    # ---- W1-C P2 §4.10: ha_carrier staleness test + reload --------------
+    def freshness_row(
+        self, hass: Any, zone: Any, *, max_age_s: float,
+        require_corroboration: bool, span_kw_fn: Callable[[Any], Any],
+        now_utc: Any, state_age_fn: Any = None,
+    ) -> tuple[dict[str, Any], bool]:
+        """The per-zone body of ``HVACCoordinator._check_carrier_freshness``
+        moved VERBATIM (same row keys, staleness, corroboration and
+        qualifier logic). Returns ``(row, qualifies)``."""
+        from .hvac_const import CARRIER_BLIND_CORROBORATION_KW_THRESHOLD  # noqa: PLC0415
+
+        climate = getattr(zone, "climate_entity", "") or ""
+        zone_id = getattr(zone, "zone_id", None)
+        row: dict[str, Any] = {
+            "climate_entity": climate,
+            "state": None,
+            "age_s": None,
+            "stale": False,
+            "corroborated": False,
+            "span_kw": None,
+            "ac_load_sensor": getattr(zone, "ac_load_sensor", "") or "",
+            "span_unreadable": False,  # A5 fix-up diagnostic
+        }
+        try:
+            st = hass.states.get(climate)
+        except Exception:  # noqa: BLE001
+            st = None
+        # A4 fix-up (2026-09-09): surface unavailable zones in the
+        # diagnostic snapshot rather than dropping them silently.
+        if st is None:
+            row["state"] = "missing"
+            return row, False
+        row["state"] = st.state
+        if st.state in ("unavailable", "unknown"):
+            return row, False
+        age = None
+        if state_age_fn is not None:
+            try:
+                age = state_age_fn(st, stamp="last_reported")
+            except Exception:  # noqa: BLE001
+                age = None
+        if age is None:
+            try:
+                last_reported = getattr(st, "last_reported", None)
+                if last_reported is None or getattr(
+                    last_reported, "tzinfo", None,
+                ) is None:
+                    return row, False
+                age = (now_utc - last_reported).total_seconds()
+            except Exception:  # noqa: BLE001
+                return row, False
+        row["age_s"] = age
+        if age <= max_age_s:
+            return row, False
+        row["stale"] = True
+
+        # Corroboration path
+        span_kw = span_kw_fn(zone)
+        row["span_kw"] = span_kw
+        # A5 fix-up (2026-09-09): distinguishable diagnostic when a
+        # configured SPAN sensor is unreadable (unknown unit / dead /
+        # non-numeric). Previously degraded silently to age-only.
+        if row["ac_load_sensor"] and span_kw is None:
+            row["span_unreadable"] = True
+        hvac_action = (st.attributes.get("hvac_action") or "").lower()
+        blind_evidence = (
+            hvac_action == "idle"
+            and span_kw is not None
+            and span_kw > CARRIER_BLIND_CORROBORATION_KW_THRESHOLD
+        )
+        row["corroborated"] = blind_evidence
+
+        qualifies = False
+        if require_corroboration:
+            # Skip corroboration ONLY when zone has no SPAN sensor
+            # (graceful degrade — age-only for that zone).
+            if row["ac_load_sensor"] == "":
+                _LOGGER.debug(
+                    "Carrier stale zone %s has no SPAN load sensor; "
+                    "falling back to age-only qualifier",
+                    zone_id,
+                )
+                qualifies = True
+            elif blind_evidence:
+                qualifies = True
+            # else: quiet-idle — do NOT reload
+        else:
+            qualifies = True
+        return row, qualifies
+
+    async def remediate_stale(
+        self, hass: Any, qualifier_zones: list[str], *, reload_fn: Callable[..., Any],
+    ) -> None:
+        """Carrier: today's bounded ``ha_carrier`` reload (the coordinator's
+        ``_reload_ha_carrier_entry`` — its lock, counters, cooldown, NMs and
+        the never-reload-the-parent invariant stay coordinator state)."""
+        await reload_fn(qualifier_zones)
+
+
+# ---------------------------------------------------------------------------
+# HVAC W1-C P2 — adapter context. The ecobee adapter needs URA-side facts
+# that live on the HVAC coordinator (the Seasonal Baseline resolver, the
+# season, the freeze floor, the per-thermostat min delta, a save request).
+# The coordinator registers them once at setup (``set_adapter_context``);
+# an unset context degrades safely (no baseline → FAILED no_range).
+# ---------------------------------------------------------------------------
+@dataclass
+class AdapterContext:
+    hass: Any = None
+    # preset -> (cool, heat) | None  (HVACPresetManager.get_seasonal_setpoints)
+    baseline: Optional[Callable[[str], Any]] = None
+    season: Optional[Callable[[], Optional[str]]] = None
+    freeze_active: Optional[Callable[[], bool]] = None
+    # entity_id -> configured heat/cool min delta (°F) | None
+    min_delta_f: Optional[Callable[[str], Optional[float]]] = None
+    # reason -> None (non-blocking zone-state save request)
+    on_change: Optional[Callable[[str], None]] = None
+
+
+_CTX = AdapterContext()
+
+
+def set_adapter_context(**kwargs: Any) -> None:
+    """HVAC coordinator setup hook (W1-C P2 §4.2a)."""
+    for k, v in kwargs.items():
+        if not hasattr(_CTX, k):
+            raise TypeError(f"unknown adapter context field {k!r}")
+        setattr(_CTX, k, v)
+
+
+def _ctx_freeze() -> bool:
+    try:
+        return bool(_CTX.freeze_active()) if _CTX.freeze_active else False
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _ctx_season() -> Optional[str]:
+    try:
+        return _CTX.season() if _CTX.season else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _ctx_min_delta(entity_id: Optional[str]) -> float:
+    from .hvac_const import DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F  # noqa: PLC0415
+    val = None
+    try:
+        if _CTX.min_delta_f is not None and entity_id:
+            val = _CTX.min_delta_f(entity_id)
+    except Exception:  # noqa: BLE001
+        val = None
+    try:
+        return float(val) if val is not None else float(DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F)
+    except (TypeError, ValueError):
+        return float(DEFAULT_HVAC_THERMOSTAT_MIN_DELTA_F)
+
+
+def _ctx_changed(reason: str) -> None:
+    try:
+        if _CTX.on_change is not None:
+            _CTX.on_change(reason)
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("adapter save request failed", exc_info=True)
+
+
+def _state_of(hass: Any, entity_id: str) -> Any:
+    try:
+        return hass.states.get(entity_id) if hass is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _within(a: Optional[float], b: Optional[float], tol: float) -> bool:
+    return a is not None and b is not None and abs(float(a) - float(b)) <= tol
+
+
+class EcobeeHomeKitStrategy(GenericStrategy):
+    """ecobee over HomeKit (``homekit_controller``) — W1-C P2 REV 3.
+
+    The thermostat has no presets over HomeKit. URA holds preset P by
+    writing P's EFFECTIVE heat_cool range (§4.2a): the range S10 / Custom
+    Preset Ranges stored for P this season, else the house's Seasonal
+    Baseline for P — after the freeze/deadband guards, whole-degree
+    rounding (half up) and the thermostat's configured min delta (heat
+    kept, cool raised). ``preset_of`` reports the thermostat in Carrier's
+    vocabulary: the range URA last held reads as that preset, anything
+    else in heat_cool reads ``manual``. Every HC feature runs unchanged.
+
+    Brand quirks absorbed here (never a feature gate):
+    * no ``preset_mode``; comfort lives on a sibling "Current Mode" select —
+      READ only, and only off heat_cool while URA holds nothing for the
+      entity (the unit is on its own schedule); "unknown" there is
+      unreadable, never Away. URA never selects an option (it would hold
+      the device's own comfort setpoints, not URA's ranges);
+    * a range write outside heat_cool would send ``temperature=None`` over
+      HomeKit (HA `homekit_controller/climate.py` `async_set_temperature`):
+      every range verb DEFERs (zero calls) unless the LIVE mode is
+      heat_cool and both legs are numeric (§4.2 mechanism (i));
+    * the device rounds `.5` writes: the adapter sends whole degrees;
+    * the device enforces a min heat/cool gap: the adapter widens first.
+    """
+
+    platform: str = HOMEKIT_PLATFORM
+    profile_name: str = ECOBEE_PROFILE
+    capabilities: ProfileCapabilities = ECOBEE_HOMEKIT_CAPABILITIES
+    app_name: Optional[str] = "ecobee"
+
+    def __init__(self) -> None:
+        super().__init__()
+        # entity -> (preset, low, high)  — the range URA last held (post-guard)
+        self._held: dict[str, tuple[str, float, float]] = {}
+        # (entity, preset, season) -> (low, high)  — S10/CPR stored ranges
+        self._ranges: dict[tuple[str, str, str], tuple[float, float]] = {}
+        # entity -> consecutive S1 ticks deferred in cool/heat (§4.11)
+        self._mode_stuck: dict[str, int] = {}
+        self._repairs: set[str] = set()
+        self._season_seen: Optional[str] = None
+
+    # ---- range arithmetic ---------------------------------------------
+    @staticmethod
+    def wire_range(
+        low: Any, high: Any, *, entity_id: Optional[str] = None,
+        freeze_active: Optional[bool] = None,
+    ) -> Optional[tuple[int, int]]:
+        """What actually goes on the wire for a requested range: the
+        freeze/deadband guards, whole degrees (half up), then the configured
+        min delta (heat kept, cool raised). None when a leg is missing."""
+        lo = _as_float(low)
+        hi = _as_float(high)
+        if lo is None or hi is None:
+            return None
+        from .hvac_setpoint import apply_setpoint_guards  # noqa: PLC0415
+        fz = _ctx_freeze() if freeze_active is None else bool(freeze_active)
+        g_lo, g_hi = apply_setpoint_guards(lo, hi, freeze_active=fz)
+        w_lo, w_hi = _whole_degree(g_lo), _whole_degree(g_hi)
+        gap = _ctx_min_delta(entity_id)
+        if w_hi - w_lo < gap:
+            import math  # noqa: PLC0415
+            w_hi = w_lo + int(math.ceil(gap))
+        return (w_lo, w_hi)
+
+    def _prune_seasons(self) -> None:
+        season = _ctx_season()
+        if season is None or season == self._season_seen:
+            return
+        self._season_seen = season
+        stale = [k for k in self._ranges if k[2] != season]
+        for k in stale:
+            self._ranges.pop(k, None)
+        if stale:
+            _ctx_changed("w1c_adapter_season_rollover")
+
+    def _baseline_wire(self, entity_id: str, preset: str) -> Optional[tuple[int, int]]:
+        try:
+            pair = _CTX.baseline(preset) if _CTX.baseline is not None else None
+        except Exception:  # noqa: BLE001
+            pair = None
+        if not pair:
+            return None
+        cool, heat = pair  # Bug Class #49: (cool_setpoint, heat_setpoint)
+        return self.wire_range(heat, cool, entity_id=entity_id)
+
+    def effective_range(self, entity_id: str, preset: str) -> Optional[tuple[int, int]]:
+        """§4.2a: the stored S10/CPR range for (entity, preset, this season),
+        else the Seasonal Baseline — always post-guard, whole degrees, min
+        delta applied. None when the preset has no baseline."""
+        self._prune_seasons()
+        season = _ctx_season()
+        stored = self._ranges.get((entity_id, preset, season)) if season else None
+        if stored is not None:
+            return self.wire_range(stored[0], stored[1], entity_id=entity_id)
+        return self._baseline_wire(entity_id, preset)
+
+    @staticmethod
+    def _legs(state: Any) -> tuple[Optional[float], Optional[float]]:
+        attrs = getattr(state, "attributes", None) or {}
+        return _as_float(attrs.get("target_temp_low")), _as_float(attrs.get("target_temp_high"))
+
+    @staticmethod
+    def _legs_match(state: Any, rng: Optional[tuple[float, float]]) -> bool:
+        if rng is None:
+            return False
+        lo, hi = EcobeeHomeKitStrategy._legs(state)
+        return _within(lo, rng[0], ECOBEE_RANGE_TOLERANCE_F) and _within(
+            hi, rng[1], ECOBEE_RANGE_TOLERANCE_F,
+        )
+
+    # ---- the Current Mode select (read-only) ----------------------------
+    @staticmethod
+    def _comfort_select_value(hass: Any, entity_id: Optional[str]) -> Optional[str]:
+        """The sibling ``select`` (translation_key ``ecobee_mode``) value if
+        it names a comfort setting; None for unknown / unavailable / absent."""
+        if hass is None or not entity_id:
+            return None
+        try:
+            from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+            reg = er.async_get(hass)
+            entry = reg.async_get(entity_id) if reg is not None else None
+            dev = getattr(entry, "device_id", None)
+            if not dev:
+                return None
+            for e in er.async_entries_for_device(reg, dev):
+                if getattr(e, "domain", None) != "select":
+                    continue
+                if getattr(e, "translation_key", None) != ECOBEE_MODE_SELECT_TRANSLATION_KEY:
+                    continue
+                st = hass.states.get(e.entity_id)
+                val = getattr(st, "state", None) if st is not None else None
+                return val if val in ECOBEE_COMFORT_OPTIONS else None
+        except Exception:  # noqa: BLE001
+            return None
+        return None
+
+    # ---- the projection (§4.3) ------------------------------------------
+    def preset_of(
+        self, state: Any, default: Any = None, *, hass: Any = None,
+        entity_id: Optional[str] = None,
+    ) -> Any:
+        if state is None:
+            return default
+        mode = getattr(state, "state", None)
+        if mode in (None, "unavailable", "unknown"):
+            return default
+        entity_id = entity_id or getattr(state, "entity_id", None)
+        held = self._held.get(entity_id) if entity_id else None
+        lo, hi = self._legs(state)
+        if mode == "heat_cool" and lo is not None and hi is not None:
+            if held is not None:
+                if self._legs_match(state, (held[1], held[2])):
+                    return held[0]
+                return MANUAL_HOLD_PRESET
+            # Restart / never-held fallback: exactly ONE current-season
+            # effective range matches (two near candidates -> no match).
+            hits = [
+                p for p in ECOBEE_RANGE_PRESETS
+                if self._legs_match(state, self.effective_range(entity_id, p))
+            ]
+            if len(hits) == 1:
+                return hits[0]
+            # The Current Mode select is NOT consulted here: HomeKit can
+            # report a stale comfort name (parent plan REV 3.2; HA core
+            # #84399 / #85715), which would hide a person's range from the
+            # arrester. An unexplained heat_cool range reads `manual`.
+            return MANUAL_HOLD_PRESET
+        # Mode drift (cool / heat / off): keep the held name (B1 owns the
+        # drift, as on Carrier); nothing held -> the comfort select or "".
+        if held is not None:
+            return held[0]
+        sel = self._comfort_select_value(hass or _CTX.hass, entity_id)
+        return sel if sel is not None else ""
+
+    def observe(self, hass: Any, entity_id: str) -> Optional[HoldObservation]:
+        obs = super().observe(hass, entity_id)
+        if obs is not None:
+            obs.preset_mode = self.preset_of(
+                _state_of(hass, entity_id), None, hass=hass, entity_id=entity_id,
+            )
+        return obs
+
+    def is_human_manual_snapshot(
+        self, pre_preset: Optional[str], *, preset_modes: tuple[str, ...] | None = None,
+    ) -> bool:
+        # PR2-6: Carrier's rule. HomeKit advertises no presets, so the
+        # inherited Generic "no presets -> human" branch would turn every
+        # ecobee borrow return into a raw setpoint restore.
+        return pre_preset in (None, "", MANUAL_HOLD_PRESET)
+
+    def echo_tolerance_f(self) -> float:
+        return ECOBEE_RANGE_TOLERANCE_F
+
+    def classify_person_change(
+        self, old_state: Any, new_state: Any, *, recent: Any = (), tol: float = ECOBEE_RANGE_TOLERANCE_F,
+    ) -> PersonChange:
+        """The Carrier classifier fed PROJECTED presets (no live caller —
+        the arrester calls the classifier directly with ``preset_of``)."""
+        try:
+            from .hvac_override import (  # noqa: PLC0415
+                MANUAL_CHANGE_HUMAN,
+                MANUAL_CHANGE_URA_ECHO,
+                classify_manual_setpoint_change,
+                manual_changed_legs,
+            )
+            cls = classify_manual_setpoint_change(
+                old_state, new_state, recent, tol, preset_of=self.preset_of,
+            )
+            if cls == MANUAL_CHANGE_HUMAN:
+                verdict: Optional[PersonChangeVerdict] = PersonChangeVerdict.HUMAN
+            elif cls == MANUAL_CHANGE_URA_ECHO:
+                verdict = PersonChangeVerdict.URA_ECHO
+            else:
+                return PersonChange(None)
+            return PersonChange(verdict, tuple(manual_changed_legs(old_state, new_state)))
+        except Exception:  # noqa: BLE001
+            return PersonChange(None)
+
+    def hold_needs_reassert(self, hass: Any, entity_id: str, preset: str) -> bool:
+        """The zone reads ``preset`` but the device does not carry URA's
+        effective range for it (season rollover, baseline edit, a stored
+        composition, or the mode drifted off heat_cool): S1 holds again.
+        Never raises (False on any doubt = today's skip)."""
+        try:
+            st = _state_of(hass, entity_id)
+            if st is None or getattr(st, "state", None) in (None, "unavailable", "unknown"):
+                return False
+            if getattr(st, "state", None) != "heat_cool":
+                return True
+            eff = self.effective_range(entity_id, preset)
+            if eff is None:
+                return False
+            return not self._legs_match(st, eff)
+        except Exception:  # noqa: BLE001
+            return False
+
+    # ---- preconditions (§4.2, §4.11) ------------------------------------
+    @staticmethod
+    def _issue_id(entity_id: str) -> str:
+        return f"thermostat_heat_cool_{entity_id}"
+
+    def _raise_repair(self, hass: Any, entity_id: str, key: str) -> None:
+        if entity_id in self._repairs:
+            return
+        try:
+            from homeassistant.helpers import issue_registry as ir  # noqa: PLC0415
+            from ..const import DOMAIN  # noqa: PLC0415
+            ir.async_create_issue(
+                hass, DOMAIN, self._issue_id(entity_id),
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key=key,
+                translation_placeholders={"thermostat": entity_id},
+            )
+            self._repairs.add(entity_id)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("heat_cool repair create failed", exc_info=True)
+
+    def _clear_repair(self, hass: Any, entity_id: str) -> None:
+        if entity_id not in self._repairs:
+            return
+        try:
+            from homeassistant.helpers import issue_registry as ir  # noqa: PLC0415
+            from ..const import DOMAIN  # noqa: PLC0415
+            ir.async_delete_issue(hass, DOMAIN, self._issue_id(entity_id))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("heat_cool repair delete failed", exc_info=True)
+        self._repairs.discard(entity_id)
+
+    def _range_precondition(
+        self, hass: Any, entity_id: str, st: Any, *, s1_tick: bool = False,
+    ) -> Optional[WriteResult]:
+        """None = the device can take a range NOW. Otherwise the result to
+        return with ZERO calls (FAILED for a missing heat_cool capability,
+        DEFERRED for a live mode / readability problem)."""
+        if st is None or getattr(st, "state", None) in (None, "unavailable", "unknown"):
+            return WriteResult(WriteStatus.DEFERRED, "climate_unreadable")
+        attrs = getattr(st, "attributes", None) or {}
+        modes = attrs.get("hvac_modes") or ()
+        try:
+            has_hc = "heat_cool" in modes
+        except TypeError:
+            has_hc = False
+        if not has_hc:
+            # Auto heat/cool disabled on the thermostat (§4.11).
+            self._raise_repair(hass, entity_id, "thermostat_no_heat_cool")
+            return WriteResult(WriteStatus.FAILED, "no_heat_cool_mode")
+        mode = getattr(st, "state", None)
+        if mode == "heat_cool":
+            if s1_tick:
+                self._mode_stuck.pop(entity_id, None)
+            self._clear_repair(hass, entity_id)
+            return None
+        if mode == "off":
+            # Deliberate (egress pause, AC reset, a person) — no escalation.
+            if s1_tick:
+                self._mode_stuck.pop(entity_id, None)
+            return WriteResult(WriteStatus.DEFERRED, "mode_not_heat_cool")
+        if s1_tick:
+            from .hvac_const import ECOBEE_HEAT_COOL_STUCK_TICKS  # noqa: PLC0415
+            n = self._mode_stuck.get(entity_id, 0) + 1
+            self._mode_stuck[entity_id] = n
+            if n >= ECOBEE_HEAT_COOL_STUCK_TICKS:
+                self._raise_repair(hass, entity_id, "thermostat_heat_cool_not_reached")
+                return WriteResult(WriteStatus.FAILED, "heat_cool_not_reached")
+        return WriteResult(WriteStatus.DEFERRED, "mode_not_heat_cool")
+
+    # ---- the range write (binding ordering, §4.2 PR2-1) -----------------
+    async def _hold_range(
+        self, hass: Any, entity_id: str, preset: str, rng: tuple[int, int], *,
+        gate: Callable[[], bool] | None, blocking: bool, site: str,
+        zone_id: str, reason: str, excursion_id: str | None,
+    ) -> bool:
+        """Steps 4-6 + 8: stamp ``held`` with the post-guard range, emit,
+        restore the previous ``held`` on a deferral or an exception (the
+        exception propagates), persist when it changed. Returns the funnel
+        bool."""
+        from .hvac_setpoint import emit_set_temperature  # noqa: PLC0415
+        prev = self._held.get(entity_id)
+        new = (preset, float(rng[0]), float(rng[1]))
+        self._held[entity_id] = new  # step 4: clamp before stamp, BEFORE the wire
+        try:
+            wrote = await emit_set_temperature(
+                hass, entity_id,
+                target_temp_low=float(rng[0]),
+                target_temp_high=float(rng[1]),
+                freeze_active=_ctx_freeze(),
+                blocking=blocking,
+                gate=gate,
+                site=site,
+                zone_id=zone_id,
+                reason=reason,
+                excursion_id=excursion_id,
+            )
+        except BaseException:
+            self._restore_held(entity_id, prev)
+            raise
+        if not wrote:
+            self._restore_held(entity_id, prev)
+            return False
+        if prev != new:
+            _ctx_changed("w1c_adapter_held")
+        return True
+
+    def _restore_held(self, entity_id: str, prev: Optional[tuple[str, float, float]]) -> None:
+        if prev is None:
+            self._held.pop(entity_id, None)
+        else:
+            self._held[entity_id] = prev
+
+    async def hold_preset(
+        self,
+        hass: Any,
+        entity_id: str,
+        preset: str,
+        *,
+        gate: Callable[[], bool] | None = None,
+        blocking: bool = False,
+        zone_id: str,
+        reason: str,
+        site: str,
+        excursion_id: str | None = None,
+    ) -> WriteResult:
+        st = _state_of(hass, entity_id)
+        rng = self.effective_range(entity_id, preset)
+        if rng is None:
+            return WriteResult(WriteStatus.FAILED, "no_range_for_preset")
+        # D2.5 no-op, three clauses (PR2-2 + REV 3).
+        sent = self.last_sent(entity_id, "set_preset_mode")
+        if (
+            sent == preset
+            and st is not None
+            and getattr(st, "state", None) == "heat_cool"
+            and self.preset_of(st, None, hass=hass, entity_id=entity_id) == preset
+            and self._legs_match(st, rng)
+        ):
+            self._mode_stuck.pop(entity_id, None)
+            self._clear_repair(hass, entity_id)
+            return WriteResult(WriteStatus.SKIPPED_ALREADY_CORRECT, "no_op_last_sent_matches")
+        blocked = self._range_precondition(hass, entity_id, st, s1_tick=True)
+        if blocked is not None:
+            return blocked
+        try:
+            wrote = await self._hold_range(
+                hass, entity_id, preset, rng, gate=gate, blocking=blocking,
+                site=site, zone_id=zone_id, reason=reason, excursion_id=excursion_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._clear_sent(entity_id)
+            return WriteResult(WriteStatus.FAILED, "emit_raised", type(exc).__name__)
+        if not wrote:
+            return WriteResult(WriteStatus.DEFERRED, "gate_deferred")
+        self._record_sent(entity_id, "set_preset_mode", preset)
+        return WriteResult(WriteStatus.APPLIED, "emitted")
+
+    async def pin_preset(
+        self,
+        hass: Any,
+        entity_id: str,
+        preset: str,
+        *,
+        emit: Callable[..., Any] | None = None,
+        **kwargs: Any,
+    ) -> WriteResult:
+        """Every non-S1 preset write: the same range translation as
+        ``hold_preset`` without the no-op and without ``last_sent``. The
+        caller's ``emit`` (the preset funnel) is ignored — the range goes
+        through ``emit_set_temperature``. A wire exception propagates."""
+        st = _state_of(hass, entity_id)
+        rng = self.effective_range(entity_id, preset)
+        if rng is None:
+            return WriteResult(WriteStatus.FAILED, "no_range_for_preset")
+        blocked = self._range_precondition(hass, entity_id, st)
+        if blocked is not None:
+            return blocked
+        wrote = await self._hold_range(
+            hass, entity_id, preset, rng,
+            gate=kwargs.get("gate"), blocking=bool(kwargs.get("blocking", False)),
+            site=kwargs["site"], zone_id=kwargs["zone_id"], reason=kwargs["reason"],
+            excursion_id=kwargs.get("excursion_id"),
+        )
+        return self._map_funnel_result(wrote)
+
+    async def set_setpoints(
+        self,
+        hass: Any,
+        entity_id: str,
+        *,
+        emit: Callable[..., Any] | None = None,
+        **kwargs: Any,
+    ) -> WriteResult:
+        """Raw range write (borrows, nudges, compromise). Delegates to the
+        caller's funnel behind the live-mode AND both-legs preconditions
+        (PR2-3), with the legs rounded and widened to the min delta. Never
+        touches ``held`` — the range reads ``manual``, exactly what a raw
+        setpoint write reads on Carrier."""
+        st = _state_of(hass, entity_id)
+        blocked = self._range_precondition(hass, entity_id, st)
+        if blocked is not None:
+            return blocked
+        rng = self.wire_range(
+            kwargs.get("target_temp_low"), kwargs.get("target_temp_high"),
+            entity_id=entity_id,
+            freeze_active=bool(kwargs.get("freeze_active", False)),
+        )
+        if rng is None:
+            return WriteResult(WriteStatus.DEFERRED, "setpoint_leg_missing")
+        if emit is None:
+            from .hvac_setpoint import emit_set_temperature as _funnel  # noqa: PLC0415
+            emit = _funnel
+        call_kw = dict(kwargs)
+        call_kw["target_temp_low"] = float(rng[0])
+        call_kw["target_temp_high"] = float(rng[1])
+        return self._map_funnel_result(await emit(hass, entity_id, **call_kw))
+
+    async def release_hold(
+        self, hass: Any, entity_id: str, *, site: str, zone_id: str, reason: str,
+    ) -> WriteResult:
+        """REV 3: no caller; the ecobee's Clear Hold is a button that hands
+        the unit to its own schedule (D0b quirk 12) — never pressed by URA."""
+        return WriteResult(WriteStatus.FAILED, "no_device_hold_release")
+
+    # ---- Custom Preset Ranges (Batch C interface, §4.9) -----------------
+    def preset_range_original(
+        self, hass: Any, entity_id: str, preset: str,
+    ) -> Optional[tuple[int, int]]:
+        """§4.9: the ecobee "original" of every preset is its Seasonal
+        Baseline (as the adapter would write it). Never raises."""
+        try:
+            return self._baseline_wire(entity_id, preset)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def preset_range_would_write(
+        self, low: float, high: float, entity_id: Optional[str] = None,
+    ) -> Optional[tuple[int, int]]:
+        try:
+            return self.wire_range(low, high, entity_id=entity_id)
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def set_preset_range(
+        self,
+        hass: Any,
+        entity_id: str,
+        preset: str,
+        low: float,
+        high: float,
+        *,
+        gate: Callable[[], bool] | None = None,
+        zone_id: str,
+        site: str,
+        reason: str,
+        freeze_active: bool = False,
+        emit: Callable[..., Any] | None = None,
+    ) -> WriteResult:
+        """(1) store the range URA-side — always, before any precondition
+        (a range equal to the baseline DELETES the entry); (2) the zone
+        does not hold ``preset`` -> SKIPPED ``stored_for_next_hold``; (3) the
+        live legs already carry it -> SKIPPED ``range_already_live``; (4)
+        otherwise write it now through the range ordering. ``emit`` (the
+        Carrier activity funnel) is ignored."""
+        self._prune_seasons()
+        season = _ctx_season()
+        want = self.wire_range(low, high, entity_id=entity_id, freeze_active=freeze_active)
+        if season is not None and want is not None:
+            key = (entity_id, preset, season)
+            before = self._ranges.get(key)
+            if want == self._baseline_wire(entity_id, preset):
+                self._ranges.pop(key, None)
+            else:
+                self._ranges[key] = (float(low), float(high))
+            if self._ranges.get(key) != before:
+                _ctx_changed("w1c_adapter_ranges")
+        held = self._held.get(entity_id)
+        if held is None or held[0] != preset:
+            return WriteResult(WriteStatus.SKIPPED_ALREADY_CORRECT, "stored_for_next_hold")
+        st = _state_of(hass, entity_id)
+        rng = self.effective_range(entity_id, preset)
+        if rng is None:
+            return WriteResult(WriteStatus.FAILED, "no_range_for_preset")
+        if (
+            st is not None and getattr(st, "state", None) == "heat_cool"
+            and self._legs_match(st, rng)
+        ):
+            return WriteResult(WriteStatus.SKIPPED_ALREADY_CORRECT, "range_already_live")
+        blocked = self._range_precondition(hass, entity_id, st)
+        if blocked is not None:
+            return blocked
+        try:
+            wrote = await self._hold_range(
+                hass, entity_id, preset, rng, gate=gate, blocking=True,
+                site=site, zone_id=zone_id, reason=reason, excursion_id=None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return WriteResult(WriteStatus.FAILED, "emit_raised", type(exc).__name__)
+        if not wrote:
+            return WriteResult(WriteStatus.DEFERRED, "gate_deferred")
+        return WriteResult(WriteStatus.APPLIED, "emitted")
+
+    # ---- persistence (§4.2a) --------------------------------------------
+    def export_state(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for ent, (p, lo, hi) in self._held.items():
+            out.setdefault(ent, {"held": None, "ranges": []})["held"] = [p, lo, hi]
+        for (ent, p, season), (lo, hi) in sorted(self._ranges.items()):
+            out.setdefault(ent, {"held": None, "ranges": []})["ranges"].append(
+                [p, season, lo, hi],
+            )
+        return out
+
+    def rehydrate_state(self, blob: Any) -> bool:
+        if not isinstance(blob, dict):
+            return True
+        season = _ctx_season()
+        for ent, sl in blob.items():
+            if not isinstance(sl, dict):
+                continue
+            try:
+                h = sl.get("held")
+                if isinstance(h, (list, tuple)) and len(h) == 3:
+                    self._held[str(ent)] = (str(h[0]), float(h[1]), float(h[2]))
+            except (TypeError, ValueError):
+                _LOGGER.warning("W1-C adapter: malformed held for %s dropped", ent)
+            for r in sl.get("ranges") or ():
+                try:
+                    p, s, lo, hi = r
+                    if season is not None and s != season:
+                        continue  # RR3-4: a year-old composition never lands
+                    self._ranges[(str(ent), str(p), str(s))] = (float(lo), float(hi))
+                except (TypeError, ValueError):
+                    _LOGGER.warning("W1-C adapter: malformed range for %s dropped", ent)
+        return True
+
+    def flush_entity(self, entity_id: str) -> None:
+        super().flush_entity(entity_id)
+        self._held.pop(entity_id, None)
+        for k in [k for k in self._ranges if k[0] == entity_id]:
+            self._ranges.pop(k, None)
+        self._mode_stuck.pop(entity_id, None)
+
 
 _STRATEGY_BY_PLATFORM: dict[str, GenericStrategy] = {}
 _KNOWN: dict[str, type[GenericStrategy]] = {CARRIER_PLATFORM: CarrierStrategy}
+# W1-C P2 §4.1: HomeKit thermostats are NOT cached by platform (an ecobee and
+# a non-ecobee HomeKit thermostat share it) — by profile key instead.
+_STRATEGY_BY_PROFILE: dict[str, GenericStrategy] = {}
+# entity -> the instance it last resolved to (F1: a registry miss on an
+# entity resolved earlier returns that instance; a never-resolved entity
+# gets ONE cached Generic).
+_RESOLVED_BY_ENTITY: dict[str, GenericStrategy] = {}
+_MISS_ENTITIES: set[str] = set()
+# §4.2a / RR3-2: persisted adapter slices whose entity does not (yet)
+# resolve to a profile that keeps state — kept verbatim, re-exported by the
+# snapshot, handed over on the first later resolution that accepts it.
+_PENDING_ADAPTER_STATE: dict[str, Any] = {}
+# §4.1 F3: entity ids whose RESOLVED profile changed brand mid-run; the HVAC
+# coordinator drains it (suppression flush + live borrows closed).
+_PROFILE_SWITCHES: list[tuple[str, str, str]] = []
 
 
 def _entity_platform(hass: Any, entity_id: str) -> Optional[str]:
@@ -718,25 +1562,97 @@ def _entity_platform(hass: Any, entity_id: str) -> Optional[str]:
         return None
 
 
+def _device_manufacturer(hass: Any, entity_id: str) -> Optional[str]:
+    """The DEVICE registry's ``manufacturer`` for the entity's device."""
+    try:
+        from homeassistant.helpers import device_registry as dr  # noqa: PLC0415
+        from homeassistant.helpers import entity_registry as er  # noqa: PLC0415
+        entry = er.async_get(hass).async_get(entity_id)
+        dev_id = getattr(entry, "device_id", None) if entry is not None else None
+        if not dev_id:
+            return None
+        dev = dr.async_get(hass).async_get(dev_id)
+        manu = getattr(dev, "manufacturer", None) if dev is not None else None
+        return str(manu) if manu else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _profile_key(hass: Any, entity_id: str, plat: str) -> str:
+    if plat == HOMEKIT_PLATFORM:
+        manu = (_device_manufacturer(hass, entity_id) or "").lower()
+        if ECOBEE_MANUFACTURER_MATCH in manu:
+            return ECOBEE_PROFILE
+        return f"{HOMEKIT_PLATFORM}:other"
+    return plat
+
+
+def _note_resolution(entity_id: str, inst: GenericStrategy, *, miss: bool) -> None:
+    prev = _RESOLVED_BY_ENTITY.get(entity_id)
+    _RESOLVED_BY_ENTITY[entity_id] = inst
+    if miss:
+        _MISS_ENTITIES.add(entity_id)
+    if prev is not None and prev is not inst:
+        prev_was_miss = entity_id in _MISS_ENTITIES and not miss
+        if prev_was_miss:
+            # Miss -> hit: the placeholder Generic's live state is dropped;
+            # a pending persisted slice is NOT (RR3-2).
+            prev.flush_entity(entity_id)
+        elif type(prev) is not type(inst) or prev.platform != inst.platform:
+            # A resolved brand changed: flush both sides + tell the HC.
+            prev.flush_entity(entity_id)
+            inst.flush_entity(entity_id)
+            _PROFILE_SWITCHES.append((entity_id, prev.platform, inst.platform))
+            _ctx_changed("w1c_profile_switch")
+    if not miss:
+        _MISS_ENTITIES.discard(entity_id)
+    if entity_id in _PENDING_ADAPTER_STATE:
+        if inst.rehydrate_state({entity_id: _PENDING_ADAPTER_STATE[entity_id]}):
+            _PENDING_ADAPTER_STATE.pop(entity_id, None)
+
+
 def strategy_for(hass: Any, entity_id: str) -> GenericStrategy:
-    """Dispatch by registry platform; cache per BRAND; miss → generic, uncached."""
+    """Dispatch by registry platform (+ device manufacturer for HomeKit).
+
+    * Carrier / other platforms: cached per platform (unchanged).
+    * ``homekit_controller``: cached per profile key (ecobee vs other).
+    * Registry miss: the instance this entity resolved to earlier, else ONE
+      cached Generic for the entity (P1 F1: the Generic no-op now fires).
+    """
     plat = _entity_platform(hass, entity_id)
     if plat is None:
-        return GenericStrategy()
-    cached = _STRATEGY_BY_PLATFORM.get(plat)
-    if cached is not None:
-        return cached
-    cls = _KNOWN.get(plat, GenericStrategy)
-    inst = cls()
-    inst.platform = plat
-    _STRATEGY_BY_PLATFORM[plat] = inst
+        prev = _RESOLVED_BY_ENTITY.get(entity_id) if entity_id else None
+        if prev is not None:
+            return prev
+        inst = GenericStrategy()
+        if entity_id:
+            _note_resolution(entity_id, inst, miss=True)
+        return inst
+    if plat == HOMEKIT_PLATFORM:
+        key = _profile_key(hass, entity_id, plat)
+        inst = _STRATEGY_BY_PROFILE.get(key)
+        if inst is None:
+            inst = EcobeeHomeKitStrategy() if key == ECOBEE_PROFILE else GenericStrategy()
+            inst.platform = plat
+            _STRATEGY_BY_PROFILE[key] = inst
+    else:
+        inst = _STRATEGY_BY_PLATFORM.get(plat)
+        if inst is None:
+            cls = _KNOWN.get(plat, GenericStrategy)
+            inst = cls()
+            inst.platform = plat
+            _STRATEGY_BY_PLATFORM[plat] = inst
+    if _RESOLVED_BY_ENTITY.get(entity_id) is not inst or entity_id in _PENDING_ADAPTER_STATE:
+        _note_resolution(entity_id, inst, miss=False)
     return inst
 
 
 def strategy_for_platform(platform: Optional[str]) -> GenericStrategy:
-    """Dispatch by a platform name already in hand (return sites that know
-    their thermostat's brand from the token/zone). None → generic."""
-    if not platform:
+    """Dispatch by a platform name already in hand. Zero production
+    callers. It cannot see a device manufacturer, so it REFUSES
+    ``homekit_controller`` (returns Generic): any site that needs the
+    ecobee adapter resolves it by ENTITY (W1-C P2 §4.1)."""
+    if not platform or platform == HOMEKIT_PLATFORM:
         return GenericStrategy()
     cached = _STRATEGY_BY_PLATFORM.get(platform)
     if cached is not None:
@@ -756,5 +1672,87 @@ def is_manual_hold_for(hass: Any, entity_id: Optional[str], preset: Any) -> bool
     return strat.is_manual_hold(preset)
 
 
+def preset_of_for(hass: Any, entity_id: Optional[str], state: Any, default: Any = None) -> Any:
+    """W1-C P2 §5 — the ONE routed thermostat ``preset_mode`` read. The
+    entity's profile projects the state (Carrier / Generic: the raw
+    attribute verbatim). Never raises (falls back to the raw read)."""
+    ent = entity_id or getattr(state, "entity_id", None)
+    try:
+        strat = strategy_for(hass, ent) if ent else GenericStrategy()
+        return strat.preset_of(state, default, hass=hass, entity_id=ent)
+    except Exception:  # noqa: BLE001
+        return (getattr(state, "attributes", None) or {}).get("preset_mode", default)
+
+
+def export_adapter_state() -> dict[str, Any]:
+    """§4.2a: the ``__w1c_adapter`` blob — every resolved instance's state
+    plus the pending slices, verbatim. Empty on a Carrier-only install."""
+    out: dict[str, Any] = dict(_PENDING_ADAPTER_STATE)
+    seen: set[int] = set()
+    for inst in list(_RESOLVED_BY_ENTITY.values()) + list(_STRATEGY_BY_PROFILE.values()):
+        if id(inst) in seen:
+            continue
+        seen.add(id(inst))
+        try:
+            out.update(inst.export_state())
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("adapter export failed", exc_info=True)
+    return out
+
+
+def rehydrate_adapter_state(hass: Any, blob: Any) -> None:
+    """Boot restore, per ENTITY (RR3-2): each entity's slice goes to the
+    instance it resolves to now; a profile that keeps no state leaves the
+    slice pending (re-exported unchanged, handed over later)."""
+    if not isinstance(blob, dict):
+        return
+    for ent, sl in blob.items():
+        try:
+            _PENDING_ADAPTER_STATE[str(ent)] = sl
+            strategy_for(hass, str(ent))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("adapter rehydrate failed for %s", ent, exc_info=True)
+
+
+def prune_adapter_state(valid_entities: set[str]) -> bool:
+    """§4.2a prune at the latch seam: drop every entity no longer mapped to
+    a zone. Returns True when anything was dropped. Empty set = zone map
+    unknown — prune nothing."""
+    if not valid_entities:
+        return False
+    dropped = False
+    for ent in [e for e in _PENDING_ADAPTER_STATE if e not in valid_entities]:
+        _PENDING_ADAPTER_STATE.pop(ent, None)
+        dropped = True
+    for inst in set(_STRATEGY_BY_PROFILE.values()) | set(_RESOLVED_BY_ENTITY.values()):
+        for ent in list(inst.export_state()):
+            if ent not in valid_entities:
+                inst.flush_entity(ent)
+                dropped = True
+    return dropped
+
+
+def profile_info(hass: Any, entity_id: Optional[str]) -> tuple[str, str]:
+    """D1 display: (profile name, source). Source ``detected`` = resolved
+    from the entity / device registry; ``default`` = registry miss
+    (Generic placeholder) or no entity."""
+    if not entity_id:
+        return "generic", "default"
+    inst = strategy_for(hass, entity_id)
+    src = "default" if entity_id in _MISS_ENTITIES else "detected"
+    return inst.profile_name, src
+
+
+def drain_profile_switches() -> list[tuple[str, str, str]]:
+    out = list(_PROFILE_SWITCHES)
+    _PROFILE_SWITCHES.clear()
+    return out
+
+
 def _test_reset_cache() -> None:
     _STRATEGY_BY_PLATFORM.clear()
+    _STRATEGY_BY_PROFILE.clear()
+    _RESOLVED_BY_ENTITY.clear()
+    _MISS_ENTITIES.clear()
+    _PENDING_ADAPTER_STATE.clear()
+    _PROFILE_SWITCHES.clear()

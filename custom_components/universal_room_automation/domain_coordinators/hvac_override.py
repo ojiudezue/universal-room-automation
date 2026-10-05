@@ -10,6 +10,7 @@ v3.8.3-H2: Initial implementation.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import math
 from datetime import datetime, timedelta
@@ -146,6 +147,13 @@ def _w1c_is_manual(hass, entity_id, preset) -> bool:
     return is_manual_hold_for(hass, entity_id, preset)
 
 
+def _w1c_preset_of(hass, entity_id, state, default):
+    """W1-C P2 §5: the routed thermostat ``preset_mode`` read (Carrier /
+    Generic: the raw attribute verbatim; ecobee: the projection)."""
+    from .hvac_strategy import preset_of_for  # noqa: PLC0415
+    return preset_of_for(hass, entity_id, state, default)
+
+
 # ==========================================================================
 # HVAC W1/W2 finish D1 — within-manual human change classifier.
 #
@@ -186,6 +194,7 @@ def manual_changed_legs(old_state: Any, new_state: Any) -> list[str]:
 
 def classify_manual_setpoint_change(
     old_state: Any, new_state: Any, recent: Any, tol: float,
+    *, preset_of: Any = None,
 ) -> str:
     """Pure: classify a state change as ``none`` / ``ura_echo`` / ``human``.
 
@@ -209,7 +218,13 @@ def classify_manual_setpoint_change(
         # (`CarrierStrategy.classify_person_change` delegates here); the
         # marker comes from the strategy module, its one home.
         from .hvac_strategy import MANUAL_HOLD_PRESET as _manual  # noqa: PLC0415
-        if oa.get("preset_mode") != _manual or na.get("preset_mode") != _manual:
+        # W1-C P2 R2: the caller threads the thermostat profile's projection
+        # (``preset_of``); None = the raw attribute (Carrier, byte-identical).
+        if preset_of is None:
+            o_pm, n_pm = oa.get("preset_mode"), na.get("preset_mode")
+        else:
+            o_pm, n_pm = preset_of(old_state), preset_of(new_state)
+        if o_pm != _manual or n_pm != _manual:
             return MANUAL_CHANGE_NONE
         legs = {
             "old_low": _leg_float(oa.get("target_temp_low")),
@@ -1337,7 +1352,7 @@ class OverrideArrester:
             return False
         if getattr(st, "state", None) in ("unavailable", "unknown", None):
             return False
-        pm = (getattr(st, "attributes", None) or {}).get("preset_mode")
+        pm = _w1c_preset_of(self.hass, getattr(st, "entity_id", None), st, None)
         return bool(pm) and not _w1c_is_manual(
             self.hass, getattr(st, "entity_id", None), pm,
         )
@@ -2592,7 +2607,7 @@ class OverrideArrester:
             if state is None:
                 continue
 
-            preset = state.attributes.get("preset_mode", "")
+            preset = _w1c_preset_of(self.hass, zone.climate_entity, state, "")
             if not _w1c_is_manual(self.hass, zone.climate_entity, preset):
                 continue
 
@@ -3011,8 +3026,8 @@ class OverrideArrester:
 
         # In-window: only a fresh preset transition INTO "manual" is a
         # genuine mid-window candidate (URA never writes manual).
-        new_preset_mid = new_state.attributes.get("preset_mode", "") if hasattr(new_state, "attributes") else ""
-        old_preset_mid = old_state.attributes.get("preset_mode", "") if hasattr(old_state, "attributes") else ""
+        new_preset_mid = _w1c_preset_of(self.hass, entity_id, new_state, "") if hasattr(new_state, "attributes") else ""
+        old_preset_mid = _w1c_preset_of(self.hass, entity_id, old_state, "") if hasattr(old_state, "attributes") else ""
         if not (
             _w1c_is_manual(self.hass, entity_id, new_preset_mid)
             and not _w1c_is_manual(self.hass, entity_id, old_preset_mid)
@@ -3495,8 +3510,8 @@ class OverrideArrester:
         # every filter below because the episode boundary is a fact about
         # the entity, not about whether this event is genuine.
         try:
-            _ep_new = (getattr(new_state, "attributes", None) or {}).get("preset_mode", "")
-            _ep_old = (getattr(old_state, "attributes", None) or {}).get("preset_mode", "")
+            _ep_new = _w1c_preset_of(self.hass, entity_id, new_state, "")
+            _ep_old = _w1c_preset_of(self.hass, entity_id, old_state, "")
             if _w1c_is_manual(self.hass, entity_id, _ep_old) and not _w1c_is_manual(
                 self.hass, entity_id, _ep_new,
             ):
@@ -3596,8 +3611,8 @@ class OverrideArrester:
             return
 
         # Check for preset change to "manual" — that's the override signal
-        new_preset = new_state.attributes.get("preset_mode", "")
-        old_preset = old_state.attributes.get("preset_mode", "")
+        new_preset = _w1c_preset_of(self.hass, entity_id, new_state, "")
+        old_preset = _w1c_preset_of(self.hass, entity_id, old_state, "")
 
         # Also check for direct temperature changes while on a preset
         new_high = new_state.attributes.get("target_temp_high")
@@ -3615,7 +3630,8 @@ class OverrideArrester:
         changed_legs: list[str] = []
         try:
             from .hvac_setpoint import recent_ura_setpoints as _recent_fn  # noqa: PLC0415
-            from .hvac_strategy import LAST_SENT_TOLERANCE_F as _tol  # noqa: PLC0415
+            # W1-C P2 T1/T2: the profile's echo tolerance (Carrier 0.5).
+            _tol = _w1c_strategy(self.hass, entity_id).echo_tolerance_f()
             _recent_vals = _recent_fn(entity_id)
         except Exception:  # noqa: BLE001 — unwired record: today's behaviour
             _recent_fn = None
@@ -3635,6 +3651,7 @@ class OverrideArrester:
                 return
             _cls = classify_manual_setpoint_change(
                 old_state, new_state, _recent_vals, _tol,
+                preset_of=functools.partial(_w1c_preset_of, self.hass, entity_id, default=None),
             )
             if _cls == MANUAL_CHANGE_URA_ECHO:
                 # Not booked: is_override stays False (return below).
@@ -5145,7 +5162,7 @@ class OverrideArrester:
         try:
             _pre_state = self.hass.states.get(zone.climate_entity)
             original_preset = (
-                _pre_state.attributes.get("preset_mode", "") or ""
+                _w1c_preset_of(self.hass, zone.climate_entity, _pre_state, "") or ""
                 if _pre_state is not None
                 else ""
             )
@@ -5507,8 +5524,8 @@ class OverrideArrester:
             try:
                 _cs_post = self.hass.states.get(climate_entity)
                 if _cs_post is not None:
-                    _post_preset = _cs_post.attributes.get(
-                        "preset_mode", "",
+                    _post_preset = _w1c_preset_of(
+                        self.hass, climate_entity, _cs_post, "",
                     ) or ""
                     _post_mode = _cs_post.state
             except Exception:  # noqa: BLE001
@@ -5710,7 +5727,7 @@ class OverrideArrester:
         try:
             _cs = self.hass.states.get(zone.climate_entity)
             _pre_preset = (
-                _cs.attributes.get("preset_mode", "") if _cs is not None else ""
+                _w1c_preset_of(self.hass, zone.climate_entity, _cs, "") if _cs is not None else ""
             )
             # HVAC-GOVERNED-EXCURSION-1 D1: observability-only snapshot of
             # the raw pre-write preset+mode. Reads HA's cached state dict
@@ -6176,7 +6193,7 @@ class OverrideArrester:
             except Exception:  # noqa: BLE001 — defensive
                 _cs_final = None
             if _cs_final is not None:
-                _tele_preset_after = _cs_final.attributes.get("preset_mode", "") or ""
+                _tele_preset_after = _w1c_preset_of(self.hass, zone.climate_entity, _cs_final, "") or ""
                 _tele_mode_after = _cs_final.state
             # Verdict semantics (identical for immediate + settled):
             #   pre_preset (intent) empty  -> no intent (self-disarm or
@@ -6263,7 +6280,7 @@ class OverrideArrester:
                     _reason = AC_NUDGE_SETTLED_REASON_ENTITY_MISSING
                 else:
                     _preset_settled = (
-                        _cs_settled.attributes.get("preset_mode", "") or ""
+                        _w1c_preset_of(self.hass, _entity, _cs_settled, "") or ""
                     )
                     _mode_settled = _cs_settled.state
                 # Same verdict rules as the immediate sample.
@@ -7153,7 +7170,7 @@ class OverrideArrester:
         try:
             _cs = self.hass.states.get(zone.climate_entity)
             if _cs is not None:
-                _hr_preset_before = _cs.attributes.get("preset_mode", "") or ""
+                _hr_preset_before = _w1c_preset_of(self.hass, zone.climate_entity, _cs, "") or ""
                 _hr_mode_before = _cs.state
         except Exception:  # noqa: BLE001 — defensive
             pass
@@ -7394,7 +7411,7 @@ class OverrideArrester:
                 _cs_cancel = None
             if _cs_cancel is not None:
                 _cancel_preset_after = (
-                    _cs_cancel.attributes.get("preset_mode", "") or ""
+                    _w1c_preset_of(self.hass, zone.climate_entity, _cs_cancel, "") or ""
                 )
                 _cancel_mode_after = _cs_cancel.state
             if _cancel_snapshot_preset:

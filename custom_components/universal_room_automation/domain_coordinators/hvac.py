@@ -94,6 +94,7 @@ from .hvac_const import (
     S10_PRESET_RANGE_UNCONFIRMED_LIMIT,
     S10_STATE_SIDE_KEY,
     S10_SWITCH_RESOLUTION_TIMEOUT_S,
+    W1C_ADAPTER_SIDE_KEY,
 )
 from .hvac_covers import CoverController
 from .hvac_egress import EgressManager
@@ -140,6 +141,31 @@ def _w1c_applied(result) -> bool:
 def _w1c_is_manual(hass, entity_id, preset) -> bool:
     from .hvac_strategy import is_manual_hold_for  # noqa: PLC0415
     return is_manual_hold_for(hass, entity_id, preset)
+
+
+def _w1c_needs_reassert(hass, entity_id, preset) -> bool:
+    """W1-C P2 (INV-R): the zone already reads ``preset`` — does the device
+    still carry URA's range for it? Carrier / Generic: always False (the
+    device preset IS the range), so S1 skips exactly as before. Never
+    raises."""
+    try:
+        return bool(_w1c_strategy(hass, entity_id).hold_needs_reassert(
+            hass, entity_id, preset,
+        ))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+# W1-C P2 §4.7 F4 / §4.11: S1 strategy results that are a CAPABILITY
+# outcome, not a wire failure — INFO + one `preset_change_deferred` row per
+# episode + continue (never the RuntimeError path, which stays for
+# `emit_raised`).
+_W1C_S1_CAPABILITY_FAILURES = frozenset({
+    "no_presets_supported",
+    "no_range_for_preset",
+    "no_heat_cool_mode",
+    "heat_cool_not_reached",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -373,6 +399,20 @@ class HVACCoordinator(BaseCoordinator):
             cool, heat = sp
             return (target, cool, heat)
         self._override_arrester.set_baseline_resolver(_arrester_reference)
+
+        # HVAC W1-C P2 §4.2a: the range-holding thermostat adapters (ecobee)
+        # read the Seasonal Baseline, season, freeze floor and per-thermostat
+        # min delta from here, and ask for a zone-state save when their
+        # persisted state changes. Bound methods only (Bug #42).
+        from .hvac_strategy import set_adapter_context  # noqa: PLC0415
+        set_adapter_context(
+            hass=hass,
+            baseline=self._preset_manager.get_seasonal_setpoints,
+            season=self._w1c_season,
+            freeze_active=self._w1c_freeze_active,
+            min_delta_f=self._w1c_min_delta_f,
+            on_change=self.schedule_zone_state_save,
+        )
 
         # OVERRIDE-NOTIFY-1 (2026-08-08, operator-approved): pre-warn +
         # defer NM notes so the operator can re-engage before the auto-
@@ -830,6 +870,13 @@ class HVACCoordinator(BaseCoordinator):
         # window / arrester disabled / live borrow) — not a lockout. Per-gate
         # breakdown in `_preset_deferrals_by_gate`.
         self._preset_lockout_since: dict[str, Any] = {}
+        # HVAC W1-C P2 §4.7 F4 / §4.11: S1 strategy-deferral episodes
+        # (zone_id -> "<status>:<reason>"); opened by the first non-gate
+        # DEFERRED / capability FAILED, closed by an APPLIED or SKIPPED S1
+        # result for the zone (RAM: a restart closes it). One INFO per
+        # (zone, reason) per boot.
+        self._s1_strategy_episode: dict[str, str] = {}
+        self._s1_strategy_info_logged: set[tuple[str, str]] = set()
         self._preset_deferrals_today = _DailyCounter(
             name="hvac.preset_deferrals_today",
             persist=False,
@@ -1308,6 +1355,10 @@ class HVACCoordinator(BaseCoordinator):
         # records HERE — in the `async_setup` load path, BEFORE the first
         # decision cycle below — so gate (a/b) is armed on S1's first tick.
         await self._rehydrate_arrester_state(stored)
+        # HVAC W1-C P2 §4.2a: the thermostat adapters' `held` / stored
+        # ranges, per ENTITY, BEFORE the arrester listener, the first
+        # decision cycle and the startup audit read R4.
+        self._rehydrate_w1c_adapter(stored)
         # HVAC Batch C (CPR §6.3): snapshots + rate/latch records, BEFORE the
         # first decision cycle below.
         self._rehydrate_s10_state(stored)
@@ -1877,6 +1928,46 @@ class HVACCoordinator(BaseCoordinator):
                 return
             await self._run_decision_cycle(trigger=trigger)
 
+    def _note_s1_strategy_deferral(
+        self, zone: Any, zone_id: str, wanted: str, result: Any, activity_logger: Any,
+    ) -> None:
+        """W1-C P2 §4.7 F4 / §4.11: one INFO per (zone, reason) per boot and
+        one `preset_change_deferred` row per EPISODE (a new reason opens a
+        new episode). Never raises."""
+        try:
+            key = f"{result.status.value}:{result.reason}"
+            if (zone_id, key) not in self._s1_strategy_info_logged:
+                self._s1_strategy_info_logged.add((zone_id, key))
+                _LOGGER.info(
+                    "HVAC: %s cannot take preset %s right now (%s)",
+                    zone.zone_name, wanted, key,
+                )
+            if self._s1_strategy_episode.get(zone_id) == key:
+                return
+            self._s1_strategy_episode[zone_id] = key
+            if activity_logger is None:
+                return
+            self.hass.async_create_task(
+                activity_logger.log(
+                    coordinator="hvac",
+                    action="preset_change_deferred",
+                    description=(
+                        f"{zone.zone_name} wanted preset {wanted}; the "
+                        f"thermostat could not take it ({key})"
+                    ),
+                    importance="info",
+                    zone=zone_id,
+                    entity_id=zone.climate_entity,
+                    details={
+                        "wanted": wanted,
+                        "reason": f"strategy_{key}",
+                        "gate_snapshot": {},
+                    },
+                )
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("S1 strategy deferral ledger failed", exc_info=True)
+
     @staticmethod
     def _classify_manual_episode(last_det: dict | None) -> str:
         """HVAC W1-B P2 (N4, A-M1, D-LOW) — `manual_class` for an S1 manual
@@ -2287,6 +2378,12 @@ class HVACCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             _LOGGER.debug("HVAC: latch level check failed", exc_info=True)
 
+        # HVAC W1-C P2 §4.1 F3: a thermostat whose resolved profile changed
+        # brand mid-run — its suppression stamps are flushed and every live
+        # borrow on its zone is closed with NO write (the return would be
+        # translated by the wrong adapter).
+        await self._w1c_drain_profile_switches()
+
         # HVAC W1/W2 finish D3 (INV-B.3): end pre-arrival pre-cool borrows
         # (arrival / timeout / interrupt / inactive / max age) BEFORE S1 in
         # this same pass, whatever the ZI toggle or observation mode.
@@ -2413,6 +2510,15 @@ class HVACCoordinator(BaseCoordinator):
         snapshot["__interrupt_latch"] = arr.export_interrupt_latch() if arr else []
         # HVAC Batch C (CPR §6.3): S10 snapshots + records.
         snapshot[S10_STATE_SIDE_KEY] = self._export_s10_state()
+        # HVAC W1-C P2 §4.2a: thermostat-adapter state — written ONLY when
+        # non-empty, so a Carrier-only snapshot is byte-identical.
+        try:
+            from .hvac_strategy import export_adapter_state  # noqa: PLC0415
+            _w1c = export_adapter_state()
+        except Exception:  # noqa: BLE001
+            _w1c = {}
+        if _w1c:
+            snapshot[W1C_ADAPTER_SIDE_KEY] = _w1c
         return snapshot
 
     async def async_save_zone_state(self) -> None:
@@ -3451,7 +3557,9 @@ class HVACCoordinator(BaseCoordinator):
             _deferred_reason: str | None = None
             _deferred_snapshot: dict = {}
             if zi and (zone_vacant_past_grace or zone.runtime_exceeded) and effective_preset == "away":
-                if zone.preset_mode == "away":
+                if zone.preset_mode == "away" and not _w1c_needs_reassert(
+                    self.hass, zone.climate_entity, "away",
+                ):
                     continue  # Already away
                 # M3 / N9b: the vacancy/runtime bypass skips the manual rule
                 # for `away` — but it must still respect a person-protected
@@ -3475,8 +3583,14 @@ class HVACCoordinator(BaseCoordinator):
                     _v = self._preset_manager.last_manual_verdict(zone_id) or {}
                     _deferred_reason = _v.get("reason") or "unknown"
                     _deferred_snapshot = _v.get("gate_snapshot", {}) or {}
-                else:
+                elif not _w1c_needs_reassert(
+                    self.hass, zone.climate_entity, effective_preset,
+                ):
                     continue  # already at target: benign no-op, never recorded
+                # W1-C P2 (INV-R): the zone reads its target preset but the
+                # device no longer carries URA's range for it (season
+                # rollover, baseline edit, a stored composition, a mode
+                # drift) — hold it again. Never on Carrier / Generic.
             if _deferred_reason is not None:
                 # EDGE-TRIGGERED, not per-tick: one row when a deferral
                 # EPISODE begins (per zone), carrying what URA wanted and
@@ -3717,8 +3831,22 @@ class HVACCoordinator(BaseCoordinator):
                     )
                     if self._override_arrester:
                         self._override_arrester.unsuppress(zone.climate_entity)
+                    # W1-C P2 §4.11 discharge: a SKIPPED tick closes the
+                    # zone's strategy-deferral episode.
+                    self._s1_strategy_episode.pop(zone_id, None)
                     continue
                 if _s1_result.status is WriteStatus.FAILED:
+                    if _s1_result.reason in _W1C_S1_CAPABILITY_FAILURES:
+                        # W1-C P2 §4.7 F4: a capability outcome — roll back
+                        # the pre-emit suppress stamp, one INFO + one row
+                        # per episode, and move on (no ERROR every tick).
+                        if self._override_arrester:
+                            self._override_arrester.unsuppress(zone.climate_entity)
+                        self._note_s1_strategy_deferral(
+                            zone, zone_id, effective_preset, _s1_result,
+                            activity_logger,
+                        )
+                        continue
                     raise RuntimeError(
                         f"S1 strategy write failed: {_s1_result.reason} "
                         f"{_s1_result.exc or ''}".strip()
@@ -3731,7 +3859,17 @@ class HVACCoordinator(BaseCoordinator):
                     # out, so roll back the pre-emit suppress stamp.
                     if self._override_arrester:
                         self._override_arrester.unsuppress(zone.climate_entity)
+                    # W1-C P2 §4.11 (RR3-5): every DEFERRED reason except
+                    # `gate_deferred` (ledgered by the chokepoint) is
+                    # reported once per episode.
+                    if _s1_result.reason != "gate_deferred":
+                        self._note_s1_strategy_deferral(
+                            zone, zone_id, effective_preset, _s1_result,
+                            activity_logger,
+                        )
                     continue
+                # W1-C P2 §4.11 discharge: an APPLIED tick closes the episode.
+                self._s1_strategy_episode.pop(zone_id, None)
                 # HVAC W1-B D2.1: this zone was written this tick — the
                 # arrester's soft-nudge dispatch skips it until next tick.
                 self._zones_written_this_cycle.add(zone_id)
@@ -6755,11 +6893,87 @@ class HVACCoordinator(BaseCoordinator):
 
     def _prune_interrupt_latch(self) -> None:
         """Fix-up 2 (N5): hand the arrester the current zone map so latches
-        for unmapped thermostats are dropped. Never raises."""
+        for unmapped thermostats are dropped. Never raises.
+
+        W1-C P2 §4.2a (RR3-1): the thermostat-adapter state is pruned at the
+        SAME seam (a thermostat swap on a kept zone drops the old entity's
+        held range / stored ranges); skipped while the zone map is empty."""
         try:
             self._override_arrester.prune_interrupt_latch()
         except Exception:  # noqa: BLE001
             _LOGGER.debug("HVAC: interrupt-latch prune failed", exc_info=True)
+        try:
+            from .hvac_strategy import prune_adapter_state  # noqa: PLC0415
+            valid = {
+                z.climate_entity for z in self._zone_manager.zones.values()
+                if getattr(z, "climate_entity", None)
+            }
+            if prune_adapter_state(valid):
+                self.schedule_zone_state_save("w1c_adapter_pruned")
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("HVAC: adapter-state prune failed", exc_info=True)
+
+    # ---- HVAC W1-C P2 adapter context + persistence ----------------------
+    async def _w1c_drain_profile_switches(self) -> None:
+        """§4.1 F3. Never raises."""
+        try:
+            from .hvac_strategy import drain_profile_switches  # noqa: PLC0415
+            switches = drain_profile_switches()
+        except Exception:  # noqa: BLE001
+            return
+        for entity_id, old_p, new_p in switches:
+            _LOGGER.info(
+                "HVAC: thermostat %s profile changed %s -> %s; flushing its "
+                "write record and closing its live borrows", entity_id, old_p, new_p,
+            )
+            try:
+                if self._override_arrester is not None:
+                    self._override_arrester.unsuppress(entity_id)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("profile-switch unsuppress failed", exc_info=True)
+            try:
+                from . import hvac_excursion as _ex_ps  # noqa: PLC0415
+                for zid, z in list(self._zone_manager.zones.items()):
+                    if getattr(z, "climate_entity", None) != entity_id:
+                        continue
+                    tok = _ex_ps.live_token_for(zid)
+                    if tok is not None:
+                        await _ex_ps.return_excursion(
+                            tok, trigger="profile_switched", restore_ok=None,
+                        )
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "HVAC: closing borrows after a profile switch failed",
+                    exc_info=True,
+                )
+
+    def _w1c_season(self) -> str | None:
+        pm = self._preset_manager
+        return pm.current_season or pm.determine_season()
+
+    def _w1c_freeze_active(self) -> bool:
+        return bool(getattr(self, "_freeze_active", False))
+
+    def _w1c_min_delta_f(self, entity_id: str) -> float | None:
+        """The Zone -> Thermostat "min heat/cool gap" of the zone that owns
+        this thermostat (None = the default)."""
+        try:
+            for z in self._zone_manager.zones.values():
+                if getattr(z, "climate_entity", None) == entity_id:
+                    return getattr(z, "thermostat_min_delta_f", None)
+        except Exception:  # noqa: BLE001
+            return None
+        return None
+
+    def _rehydrate_w1c_adapter(self, stored: Any) -> None:
+        """§4.2a boot restore — never raises."""
+        try:
+            blob = stored.get(W1C_ADAPTER_SIDE_KEY) if isinstance(stored, dict) else None
+            if blob:
+                from .hvac_strategy import rehydrate_adapter_state  # noqa: PLC0415
+                rehydrate_adapter_state(self.hass, blob)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("HVAC: thermostat-adapter rehydration failed", exc_info=True)
 
     def _pre_arrival_window_s(self) -> float:
         """Knob 35 in seconds. Every writer (constructor, in-place options
@@ -8032,97 +8246,48 @@ class HVACCoordinator(BaseCoordinator):
         except Exception:  # noqa: BLE001
             _state_age_s = None
 
+        # W1-C P2 §4.10: the per-zone staleness test is an adapter verb —
+        # Carrier runs today's test verbatim; every other profile returns a
+        # `not_applicable` row that never qualifies, never counts toward
+        # staleness, the reload or the stale NM. No brand branch here.
+        qualifier_strategies: list[tuple[Any, list[str]]] = []
         for zone_id, zone in zones:
             climate = getattr(zone, "climate_entity", "") or ""
-            row: dict[str, Any] = {
-                "climate_entity": climate,
-                "state": None,
-                "age_s": None,
-                "stale": False,
-                "corroborated": False,
-                "span_kw": None,
-                "ac_load_sensor": getattr(zone, "ac_load_sensor", "") or "",
-                "span_unreadable": False,  # A5 fix-up diagnostic
-            }
             if not climate:
-                snapshot[zone_id] = row
+                snapshot[zone_id] = {
+                    "climate_entity": climate,
+                    "state": None,
+                    "age_s": None,
+                    "stale": False,
+                    "corroborated": False,
+                    "span_kw": None,
+                    "ac_load_sensor": getattr(zone, "ac_load_sensor", "") or "",
+                    "span_unreadable": False,  # A5 fix-up diagnostic
+                }
                 continue
-            try:
-                st = self.hass.states.get(climate)
-            except Exception:  # noqa: BLE001
-                st = None
-            # A4 fix-up (2026-09-09): surface unavailable zones in the
-            # diagnostic snapshot rather than dropping them silently.
-            if st is None:
-                row["state"] = "missing"
-                snapshot[zone_id] = row
-                continue
-            row["state"] = st.state
-            if st.state in ("unavailable", "unknown"):
-                snapshot[zone_id] = row
-                continue
-            age = None
-            if _state_age_s is not None:
-                try:
-                    age = _state_age_s(st, stamp="last_reported")
-                except Exception:  # noqa: BLE001
-                    age = None
-            if age is None:
-                try:
-                    last_reported = getattr(st, "last_reported", None)
-                    if last_reported is None or getattr(
-                        last_reported, "tzinfo", None,
-                    ) is None:
-                        snapshot[zone_id] = row
-                        continue
-                    age = (now_utc - last_reported).total_seconds()
-                except Exception:  # noqa: BLE001
-                    snapshot[zone_id] = row
-                    continue
-            row["age_s"] = age
-            if worst_age is None or age > worst_age:
-                worst_age = age
-            if age <= max_age_s:
-                snapshot[zone_id] = row
-                continue
-            row["stale"] = True
-            stale_count += 1
-
-            # Corroboration path
-            span_kw = self._carrier_zone_span_kw(zone)
-            row["span_kw"] = span_kw
-            # A5 fix-up (2026-09-09): distinguishable diagnostic when a
-            # configured SPAN sensor is unreadable (unknown unit / dead /
-            # non-numeric). Previously degraded silently to age-only.
-            if row["ac_load_sensor"] and span_kw is None:
-                row["span_unreadable"] = True
-            hvac_action = (st.attributes.get("hvac_action") or "").lower()
-            blind_evidence = (
-                hvac_action == "idle"
-                and span_kw is not None
-                and span_kw > CARRIER_BLIND_CORROBORATION_KW_THRESHOLD
+            strat = _w1c_strategy(self.hass, climate)
+            row, qualifies = strat.freshness_row(
+                self.hass, zone,
+                max_age_s=max_age_s,
+                require_corroboration=require_corroboration,
+                span_kw_fn=self._carrier_zone_span_kw,
+                now_utc=now_utc,
+                state_age_fn=_state_age_s,
             )
-            row["corroborated"] = blind_evidence
-
-            if require_corroboration:
-                # Skip corroboration ONLY when zone has no SPAN sensor
-                # (graceful degrade — age-only for that zone).
-                if row["ac_load_sensor"] == "":
-                    _LOGGER.debug(
-                        "Carrier stale zone %s has no SPAN load sensor; "
-                        "falling back to age-only qualifier",
-                        zone_id,
-                    )
-                    any_reload_qualifier = True
-                    qualifiers_by_zone.append(zone_id)
-                elif blind_evidence:
-                    any_reload_qualifier = True
-                    qualifiers_by_zone.append(zone_id)
-                # else: quiet-idle — do NOT reload
-            else:
+            age = row.get("age_s")
+            if age is not None and (worst_age is None or age > worst_age):
+                worst_age = age
+            if row.get("stale"):
+                stale_count += 1
+            if qualifies:
                 any_reload_qualifier = True
                 qualifiers_by_zone.append(zone_id)
-
+                for _s, _zs in qualifier_strategies:
+                    if _s is strat:
+                        _zs.append(zone_id)
+                        break
+                else:
+                    qualifier_strategies.append((strat, [zone_id]))
             snapshot[zone_id] = row
 
         self._carrier_freshness_snapshot = snapshot
@@ -8173,7 +8338,13 @@ class HVACCoordinator(BaseCoordinator):
                     0, self._carrier_stale_ticks_since_reload - 1,
                 )
         elif any_reload_qualifier:
-            await self._reload_ha_carrier_entry(qualifiers_by_zone)
+            # W1-C P2 §4.10: the repair is the adapter's (Carrier: the
+            # bounded `ha_carrier` reload; others: no-op), once per profile
+            # instance with qualifiers.
+            for _strat, _zones in qualifier_strategies:
+                await _strat.remediate_stale(
+                    self.hass, _zones, reload_fn=self._reload_ha_carrier_entry,
+                )
 
         # D3 trip-wire (redesigned): TIME-based settle threshold.
         if (

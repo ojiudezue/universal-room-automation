@@ -249,6 +249,23 @@ from custom_components.universal_room_automation.domain_coordinators.coordinator
 from types import SimpleNamespace  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _zones_resolve_to_carrier(monkeypatch):
+    """W1-C P2 §4.10: the staleness test + reload are now Carrier ADAPTER
+    verbs, chosen by the entity registry. These fakes have no registry, so
+    every fake climate entity is declared an ``ha_carrier`` entity (the
+    assertions below are unchanged). Scoped: monkeypatch restores it."""
+    import importlib
+
+    S = importlib.import_module(
+        "custom_components.universal_room_automation.domain_coordinators.hvac_strategy"
+    )
+    S._test_reset_cache()
+    monkeypatch.setattr(S, "_entity_platform", lambda _h, _e: "ha_carrier")
+    yield
+    S._test_reset_cache()
+
+
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------

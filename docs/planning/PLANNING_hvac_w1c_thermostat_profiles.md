@@ -1,3 +1,5 @@
+> **W1-C P2 (ecobee) is specified in `docs/planning/PLANNING_hvac_w1c_p2_ecobee.md` REV 3 (+ D0b, on-site check, Builder notes) and wins over this plan for P2 scope.** Built 2026-10-05 on `feature/hvac-w1c-p2-ecobee`.
+
 > **REV 3.2 OPERATOR RULINGS + RESEARCH (2026-09-30) — authoritative over earlier text:**
 > - **ecobee heat_cool:** ecobee "Auto" = HA `heat_cool` with target_temp_low/high (requires "Auto Heat/Cool" enabled in the ecobee installation settings; House 2's climate lists heat_cool). The ecobee profile runs zones in heat_cool with URA-written low/high ranges; B1 enforcer applies (confirm in D0b).
 > - **ecobee holds use SETPOINTS, not the Current Mode select.** HA's homekit_controller ecobee `current_mode` select is unreliable (stuck reporting "home"; HA core #84399, #85715; workaround = press Clear Hold before a mode change, discussion #1705). Hold = heat_cool range write; release = `button.<x>_clear_hold`. The select is read-only/informational (supersedes REV 3's select-hold direction).
