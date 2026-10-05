@@ -272,19 +272,21 @@ def test_resolve_direction_newest_interior_wins_entry_over_old():
     hass.bus = MagicMock()
 
     t0 = datetime(2026, 10, 5, 14, 24, 0)
-    # Older interior fire well outside both windows + a NEW fire INSIDE
-    # the entry window (just after t0).
+    # Older interior fire inside the EXIT window (-10 s), newer fire
+    # inside the ENTRY window (+5 s). Oldest-first would hit the EXIT
+    # match first; newest-first MUST see the ENTRY match first.
     tracker._recent_interior_events["interior_cam_1"] = [
-        t0 - timedelta(seconds=10_000),
-        t0 + timedelta(seconds=5),  # 5 s AFTER egress → ENTRY
+        t0 - timedelta(seconds=10),  # oldest: EXIT match (if walked first)
+        t0 + timedelta(seconds=5),   # newest: ENTRY match
     ]
     _run_async(tracker._resolve_direction(
         "binary_sensor.cam_door_a_person_occupancy", t0,
     ))
-    # ENTRY fired on the bus — newest-first found the +5 s fire first.
     kwargs = hass.bus.async_fire.call_args.args
     assert kwargs[0] == "ura_person_egress_event"
-    assert kwargs[1]["direction"] == "entry"
+    assert kwargs[1]["direction"] == "entry", (
+        f"newest-first must win over the older EXIT-match (got {kwargs[1]['direction']})"
+    )
 
 
 # ---------------------------------------------------------------------------
