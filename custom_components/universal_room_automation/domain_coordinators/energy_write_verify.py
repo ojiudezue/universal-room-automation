@@ -188,6 +188,12 @@ class WriteVerifier:
         # trip-wire + per-surface ISO-date latch (one alarm per day).
         self._dispatch_stamps: dict[str, list[datetime]] = {}
         self._churn_alarm_date: dict[str, str] = {}
+        # EC-EV-TOGGLE-TRIPWIRE-1 — rolling per-EVSE strategy-toggle
+        # stamps (switch.turn_on + switch.turn_off, excluding
+        # force-charge/operator paths) + per-local-day latch (one alert
+        # per EVSE per calendar day). In-memory only; restart resets.
+        self._ev_toggle_stamps: dict[str, list[datetime]] = {}
+        self._ev_toggle_alarm_date: dict[str, str] = {}
 
         # ─── v5.19.0 behavioral write-verify state ────────────────────
         # D1 CONDUCT — reserve-surface only. Consecutive-tick counter,
@@ -1296,6 +1302,75 @@ class WriteVerifier:
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("note_dispatch raised (swallowed)", exc_info=True)
+
+    async def note_ev_toggle(
+        self,
+        charger_id: str,
+        action: str,
+        pause_owners: Optional[list[str]] = None,
+        now: Optional[datetime] = None,
+    ) -> None:
+        """EC-EV-TOGGLE-TRIPWIRE-1 — count ONE strategy-driven switch
+        toggle on EVSE ``charger_id``. ``action`` is ``"charger_on"`` or
+        ``"charger_off"``. Above
+        ``DEFAULT_EV_TOGGLE_TRIPWIRE_MAX_PER_H`` in the rolling window →
+        one anomaly + one NM per EVSE per LOCAL day. Alert only; never
+        touches actuation; mirrors ``note_dispatch`` (write-churn)."""
+        try:
+            from . import energy_const as _ec  # noqa: PLC0415
+            max_n = int(getattr(
+                _ec, "DEFAULT_EV_TOGGLE_TRIPWIRE_MAX_PER_H", 0,
+            ))
+            if max_n <= 0:
+                return  # kill-switch
+            window_s = int(getattr(
+                _ec, "DEFAULT_EV_TOGGLE_TRIPWIRE_WINDOW_S", 3600,
+            ))
+            now_utc = now or dt_util.utcnow()
+            arr = self._ev_toggle_stamps.setdefault(charger_id, [])
+            arr.append(now_utc)
+            cutoff = now_utc - timedelta(seconds=window_s)
+            arr[:] = [t for t in arr if t > cutoff]
+            if len(arr) <= max_n:
+                return
+            # Per-local-day latch (operator-facing day boundary).
+            today = dt_util.now().date().isoformat()
+            if self._ev_toggle_alarm_date.get(charger_id) == today:
+                return
+            self._ev_toggle_alarm_date[charger_id] = today
+            on_n = sum(
+                1 for _ in arr
+            )  # kept simple; aggregate not split by direction
+            owners = pause_owners or []
+            owners_str = ",".join(owners) if owners else "none"
+            await self._emit_anomaly(
+                charger_id,
+                "ev_toggle_tripwire",
+                {
+                    "charger_id": charger_id,
+                    "last_action": action,
+                    "toggles_in_window": on_n,
+                    "window_s": window_s,
+                    "max_per_window": max_n,
+                    "pause_owners": owners_str,
+                    "severity_class": "ALERT",
+                },
+            )
+            await self._maybe_fire_nm(
+                charger_id,
+                title=f"EV charger flip-flop: {charger_id}",
+                message=(
+                    f"URA's strategy switched {charger_id} on/off "
+                    f"{on_n} times in the last {window_s // 60} min "
+                    f"(limit {max_n}). Pause owners seen: {owners_str}. "
+                    "This looks like a strategy flip-flop — URA will "
+                    "keep acting, but check battery/EV policy."
+                ),
+                alert_type="ev_toggle_tripwire",
+                severity="high",
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("note_ev_toggle raised (swallowed)", exc_info=True)
 
     async def _maybe_fire_nm(
         self, surface: str, title: str, message: str,
