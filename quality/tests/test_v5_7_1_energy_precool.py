@@ -1709,9 +1709,8 @@ class TestResolveBaselineRangeHeatLow:
 
     def _pred_with_fallback_only(self, cool: float, heat: float):
         pred, _hass = _make_predictor()
-        # Force the fallback branch: `_last_emitted_range` must MISS.
+        # CPR D3c: the preset-resolved baseline is the ONLY source.
         coord = MagicMock()
-        coord._last_emitted_range = {}
         coord._house_state = "home_away"  # any value; the pm stub ignores it
         pred._hvac_coord = coord
         pm = pred._preset_manager
@@ -1738,9 +1737,12 @@ class TestResolveBaselineRangeHeatLow:
             f"Summer default 78/70 must restore (70, 78); got {got}."
         )
 
-    def test_last_emitted_range_still_wins_when_present(self):
-        """The `_last_emitted_range` branch is untouched by this fix."""
+    def test_stale_emitted_range_pair_is_ignored_after_map_retirement(self):
+        """CPR Batch C D3c (R1/U3, plan T15): a stale per-zone pair on the
+        coordinator (the retired emitted-range map's shape) is IGNORED — the
+        release baseline is the configured (heat, cool). Restoring the map
+        preference in `_resolve_baseline_range` turns this RED."""
         pred = self._pred_with_fallback_only(cool=80.0, heat=65.0)
         pred._hvac_coord._last_emitted_range = {"z1": (68.0, 76.0)}
         got = pred._resolve_baseline_range("z1")
-        assert got == (68.0, 76.0), got
+        assert got == (65.0, 80.0), got

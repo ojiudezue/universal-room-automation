@@ -351,12 +351,18 @@ def _install_hvac_in_hass(hass, *, pre_conditioning_enabled: bool,
     return hvac, energy
 
 
-def _install_fake_hvac_coord(pred, *, last_emitted=None,
+def _install_fake_hvac_coord(pred, *, baseline=None,
                              house_state: str = "home_day"):
+    """CPR D3c: the release baseline is the house-state preset's configured
+    (heat, cool) — `baseline` = (low, high) seeds that preset's range."""
     coord = MagicMock()
-    coord._last_emitted_range = last_emitted if last_emitted is not None else {}
     coord._house_state = house_state
     pred.set_hvac_coord(coord)
+    if baseline is not None:
+        low, high = baseline
+        pm = pred._preset_manager
+        pm.get_preset_for_house_state = lambda _s: "home"
+        pm.get_seasonal_setpoints = lambda _p: (high, low)
     return coord
 
 
@@ -525,7 +531,7 @@ class TestD1GatePreConditioning:
             hass, pre_conditioning_enabled=True, banking_enabled=True,
         )
         _install_fake_hvac_coord(
-            pred, last_emitted={"z1": (68.0, 75.0)},
+            pred, baseline=(68.0, 75.0),
         )
 
         async def _spy_precool(zone, offset, reason):
@@ -590,7 +596,7 @@ class TestD1GatePreConditioning:
             hass, pre_conditioning_enabled=True, banking_enabled=True,
         )
         _install_fake_hvac_coord(
-            pred, last_emitted={"z1": (68.0, 75.0)},
+            pred, baseline=(68.0, 75.0),
         )
         # Force PV surplus so the unified trigger can fire on cycle 3.
         pred._get_net_power = MagicMock(return_value=-800.0)

@@ -224,6 +224,14 @@ class _Ctx:
 
 def _install(mods, monkeypatch, *, variant, registry, db_kwargs=None):
     coord, hass = H.make_coord(mods)
+    # Isolation: pin the zone-state store. `HVACCoordinator.__init__` binds
+    # whatever `homeassistant.helpers.storage.Store` is in sys.modules at
+    # import time, and several collected test modules install a Mock there
+    # (e.g. test_carrier_freshness / test_hvac_vacancy_sweep_manual_on_guard
+    # `{"Store": _mock_cls}`). S10 (CPR) saves its original write-ahead and
+    # stands down on a failed save, so a Mock store silently emptied the
+    # A13_S10 capture in the full suite.
+    coord._zone_state_store = H.FakeStore()
     ctx = _Ctx(mods, hass, coord, variant, registry)
     DOMAIN = mods["const"].DOMAIN
     db = RecDB(**(db_kwargs or {}))
@@ -260,7 +268,9 @@ def _install(mods, monkeypatch, *, variant, registry, db_kwargs=None):
             "domain": domain, "service": service, "data": data,
             "blocking": bool(blocking),
         })
-        if variant == "failed_raise" and domain == "climate":
+        # CPR Batch C U2: the CPR service domain (`ha_carrier`) raises too,
+        # so `A13_S10|failed_raise` still exercises the raise path.
+        if variant == "failed_raise" and domain in ("climate", "ha_carrier"):
             raise RuntimeError("w1c_golden_wire_failure")
         if ctx.apply_modes and domain == "climate" and service == "set_hvac_mode":
             st = hass.states.get(data.get("entity_id"))
@@ -357,11 +367,9 @@ def _observe(ctx) -> dict:
     pred = ctx.pred
     ex = ctx.ex
     carrier = ctx.S._STRATEGY_BY_PLATFORM.get("ha_carrier")
+    # CPR Batch C U2 / G1: the `last_emitted_range` key is dropped (the map
+    # is retired by D3c). Scripted key-drop of the JSON, not a re-record.
     state = {
-        "last_emitted_range": {
-            k: list(v) if v is not None else None
-            for k, v in sorted(ctx.coord._last_emitted_range.items())
-        },
         "zone_last_s1_write": {
             k: [v[0], v[1]] for k, v in sorted(ctx.coord._zone_last_s1_write.items())
         },
@@ -454,7 +462,10 @@ async def sc_B1(ctx):
 
 
 async def sc_S10(ctx):
-    """A13 — S10 DPM apply `hvac.py` `_async_apply_preset_overrides`."""
+    """A13 — S10 Custom Preset Ranges apply `hvac.py`
+    `_async_apply_preset_overrides` (CPR Batch C: the zone's NAMED preset
+    profile is edited through the adapter; zone_1 opted in via the rung-2
+    rollout field). Re-recorded in G2 by intent."""
     c = ctx.coord
     c._guest_mode_actuation_enabled = True
     c._house_state = "home_day"
@@ -463,8 +474,12 @@ async def sc_S10(ctx):
     ctx.hass.data[DOMAIN]["coordinator_manager"] = types.SimpleNamespace(
         coordinators={"energy": ec},
     )
-    for zid in ("zone_2", "zone_3"):
-        c._last_emitted_range[zid] = (0.0, 0.0)
+    for _ce in ctx.hass.config_entries.async_entries():
+        if "zones" not in (_ce.options or {}):
+            _ce.options = {**(_ce.options or {}), "hvac_s10_rollout_zone_ids": [ZONE]}
+    ctx.zone.preset_mode = "home"
+    # Fixed season so the recorded desired range does not drift by month.
+    c._preset_manager._current_season = "shoulder"
     ctx.set_entity(preset_mode="home", hold_activity="home")
     ctx.seed_last_sent("home")
     ctx.defer_gate()
@@ -737,7 +752,10 @@ async def _bank(ctx, snap):
         duration_s=None, site="S12_pre_cool",
     )
     ctx.pred._banking_excursion_tokens = {ZONE: tok}
-    ctx.coord._last_emitted_range[ZONE] = (68.0, 76.0)
+    # CPR D3c: the release baseline is the house-state preset's configured
+    # range (the retired map seed used to stand in for it).
+    ctx.coord._house_state = "home_day"
+    ctx.coord._preset_manager._current_season = "shoulder"
     return tok
 
 
@@ -762,7 +780,6 @@ async def sc_S11_manual(ctx):
 async def sc_S12(ctx):
     """A11 — S12 pre-cool `_execute_zone_pre_cool`."""
     ctx.set_entity(preset_mode="home", hold_activity="home")
-    ctx.coord._last_emitted_range[ZONE] = (68.0, 76.0)
     ctx.seed_last_sent("home")
     ctx.defer_gate()
     await _run(ctx, lambda: ctx.pred._execute_zone_pre_cool(ctx.zone, -3.0, "solar_banking"))
@@ -792,7 +809,6 @@ async def _preheat_tok(ctx, snap):
     ctx.pred._preheat_excursion_tokens = {ZONE: tok}
     ctx.pred._preheat_return_timers = {ZONE: (lambda: None)}
     ctx.pred._pre_conditioning_zones.add(ZONE)
-    ctx.coord._last_emitted_range[ZONE] = (60.0, 90.0)
     return tok
 
 
@@ -989,6 +1005,11 @@ async def test_registry_miss_generic_identical_to_carrier_golden(mods, monkeypat
     if variant == "skipped":
         pytest.skip("the skipped variant seeds the CARRIER instance's last_sent; "
                     "a registry miss has no cached instance to seed")
+    if scenario == "A13_S10":
+        pytest.skip("CPR Batch C U1/U2: A13_S10 is an INTENDED Generic divergence — "
+                    "Generic `set_preset_range` makes zero calls "
+                    "(FAILED preset_range_unsupported), Carrier edits the profile; "
+                    "covered by test_s10_registry_miss_generic_skips_quietly")
     key = f"{scenario}|{variant}"
     obs = await _capture(mods, monkeypatch, scenario, variant, "miss")
     golden = _RECORDED.get(key) if RECORD else _GOLDENS.get(key)

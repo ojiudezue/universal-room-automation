@@ -83,6 +83,18 @@ LAST_SENT_TOLERANCE_F: float = 0.5
 # and a reasoned allowlist).
 MANUAL_HOLD_PRESET: str = "manual"
 
+# HVAC Batch C (CPR) — Carrier's "edit the current activity's comfort range
+# in place, no hold" entity service (upstream ha_carrier #427, v2.28.4,
+# `climate.py` `async_set_activity_setpoint`). This module is the ONLY place
+# that names it (plan REV 3.1 F3); the funnel receives it as a kwarg.
+CARRIER_ACTIVITY_SETPOINT_SERVICE: str = "set_activity_setpoint"
+
+
+def _whole_degree(v: float) -> int:
+    """Carrier displays whole °F (PRECISION_WHOLE); round half up."""
+    import math  # noqa: PLC0415
+    return int(math.floor(float(v) + 0.5))
+
 
 class PersonChangeVerdict(str, Enum):
     """W1-C §3a / §3d — verdict of a person-change classification.
@@ -268,6 +280,10 @@ class GenericStrategy:
 
     platform: str = GENERIC_PLATFORM
     capabilities: ProfileCapabilities = GENERIC_CAPABILITIES
+    # HVAC Batch C (REV 5 F9): the brand's own app name for user-facing NM
+    # text ("check that preset in the <app>"). None = no brand app; callers
+    # fall back to the neutral "the thermostat app".
+    app_name: Optional[str] = None
 
     def __init__(self) -> None:
         # entity_id -> {verb: (values_tuple, ts)}
@@ -440,6 +456,49 @@ class GenericStrategy:
         """Non-Carrier stub (N2): INCONCLUSIVE, never raises."""
         return PersonChange(PersonChangeVerdict.INCONCLUSIVE)
 
+    # ---- HVAC Batch C (CPR): named-preset range verbs -----------------
+    async def set_preset_range(
+        self,
+        hass: Any,
+        entity_id: str,
+        preset: str,
+        low: float,
+        high: float,
+        *,
+        gate: Callable[[], bool] | None = None,
+        zone_id: str,
+        site: str,
+        reason: str,
+        freeze_active: bool = False,
+        emit: Callable[..., Any] | None = None,
+    ) -> WriteResult:
+        """Put ``(low, high)`` into the thermostat's own ``preset`` profile.
+
+        Generic (REV 5 F1): a thermostat with no device-side preset profile
+        has nothing to edit — ONE result, ``FAILED("preset_range_unsupported")``,
+        ZERO service calls, nothing recorded. S10 treats it as a quiet skip.
+        Brand adapters override this (Carrier below; ecobee in W1-C P2).
+        """
+        return WriteResult(WriteStatus.FAILED, "preset_range_unsupported")
+
+    def preset_range_original(
+        self, hass: Any, entity_id: str, preset: str,
+    ) -> Optional[tuple[int, int]]:
+        """REV 5 F2: the device's own range for ``preset`` right now, in the
+        brand's display rounding, or None when there is no device-side
+        preset profile (Generic) or it cannot be read. Never raises."""
+        return None
+
+    def preset_range_would_write(
+        self, low: float, high: float,
+    ) -> Optional[tuple[int, int]]:
+        """CPR fix-up (D-HIGH-1): the exact ``(low, high)`` this adapter's
+        ``set_preset_range`` would put on the wire for the requested range,
+        in the brand's rounding — S10 compares the device original against
+        THIS (not the unrounded request) before deciding whether an original
+        must be persisted. Generic writes nothing -> None. Never raises."""
+        return None
+
     # ---- preset hold (S1) ---------------------------------------------
     async def hold_preset(
         self,
@@ -501,6 +560,117 @@ class CarrierStrategy(GenericStrategy):
 
     platform: str = CARRIER_PLATFORM
     capabilities: ProfileCapabilities = CARRIER_CAPABILITIES
+    app_name: Optional[str] = "Bryant"
+
+    # ---- HVAC Batch C (CPR) — plan §3.3 P1–P6 -------------------------
+    def _confirmed_on(self, obs: Optional[HoldObservation], preset: str) -> Optional[str]:
+        """P1 + P2 as one predicate: None when the zone is confirmed on
+        ``preset`` in heat_cool, else the DEFERRED reason."""
+        if obs is None or obs.preset_mode != preset or obs.hold_activity != preset:
+            # P1: both feeds must name the preset (no write into an
+            # unstable hold during ha_carrier's 5-min post-write guard).
+            return "activity_not_confirmed"
+        if obs.hvac_mode != "heat_cool":
+            # P2: the service takes low/high as given only in AUTO.
+            return "not_heat_cool"
+        return None
+
+    def preset_range_original(
+        self, hass: Any, entity_id: str, preset: str,
+    ) -> Optional[tuple[int, int]]:
+        """Carrier: the HA view of ``preset``'s profile (whole °F), readable
+        only while the zone is confirmed on it (P1/P2) — the service edits
+        the status-named activity, so no other profile is visible."""
+        try:
+            obs = self.observe(hass, entity_id)
+            if self._confirmed_on(obs, preset) is not None:
+                return None
+            if obs.target_low is None or obs.target_high is None:
+                return None
+            return (_whole_degree(obs.target_low), _whole_degree(obs.target_high))
+        except Exception:  # noqa: BLE001
+            return None
+
+    def preset_range_would_write(
+        self, low: float, high: float,
+    ) -> Optional[tuple[int, int]]:
+        """Carrier P3: whole °F, round half up — the same rounding
+        ``set_preset_range`` applies before its P4 compare and the wire."""
+        try:
+            return (_whole_degree(low), _whole_degree(high))
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def set_preset_range(
+        self,
+        hass: Any,
+        entity_id: str,
+        preset: str,
+        low: float,
+        high: float,
+        *,
+        gate: Callable[[], bool] | None = None,
+        zone_id: str,
+        site: str,
+        reason: str,
+        freeze_active: bool = False,
+        emit: Callable[..., Any] | None = None,
+    ) -> WriteResult:
+        """Edit ``preset``'s comfort range in place via
+        ``ha_carrier.set_activity_setpoint`` (no hold, never ``manual``).
+
+        Observes and decides; records NOTHING in ``last_sent`` (it would wipe
+        S1's D2.5 record). No ``await`` sits between the observation and the
+        wire call: ``observe`` and the funnel's pre-call work are synchronous.
+        """
+        obs = self.observe(hass, entity_id)
+        not_confirmed = self._confirmed_on(obs, preset)
+        if not_confirmed is not None:
+            return WriteResult(WriteStatus.DEFERRED, not_confirmed)
+        if obs.target_low is None or obs.target_high is None:
+            # No readable range = no original to restore later; never edit
+            # a profile whose original S10 cannot capture (CPR §3.4).
+            return WriteResult(WriteStatus.DEFERRED, "range_unreadable")
+        # P3: whole °F.
+        w_low, w_high = _whole_degree(low), _whole_degree(high)
+        # P4: the HA view already shows it (HA's copy, not cloud truth).
+        if (
+            abs(obs.target_low - w_low) <= LAST_SENT_TOLERANCE_F
+            and abs(obs.target_high - w_high) <= LAST_SENT_TOLERANCE_F
+        ):
+            return WriteResult(WriteStatus.SKIPPED_ALREADY_CORRECT, "ha_view_matches")
+        if emit is None:
+            from .hvac_setpoint import emit_set_activity_setpoint as _funnel  # noqa: PLC0415
+            emit = _funnel
+        # P5: the brand service is named HERE and passed to the funnel.
+        try:
+            wrote = await emit(
+                hass,
+                entity_id,
+                service_domain=CARRIER_PLATFORM,
+                service_name=CARRIER_ACTIVITY_SETPOINT_SERVICE,
+                target_temp_low=float(w_low),
+                target_temp_high=float(w_high),
+                freeze_active=freeze_active,
+                blocking=True,
+                gate=gate,
+                site=site,
+                zone_id=zone_id,
+                reason=reason,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return WriteResult(WriteStatus.FAILED, "emit_raised", type(exc).__name__)
+        if not wrote:
+            return WriteResult(WriteStatus.DEFERRED, "gate_deferred")
+        # P6: after-call check — did the status activity move under us?
+        after = self.observe(hass, entity_id)
+        if (
+            after is None
+            or after.preset_mode != preset
+            or after.hold_activity != obs.hold_activity
+        ):
+            return WriteResult(WriteStatus.APPLIED, "possible_wrong_profile")
+        return WriteResult(WriteStatus.APPLIED, "emitted")
 
     def classify_person_change(
         self, old_state: Any, new_state: Any, *, recent: Any = (), tol: float = LAST_SENT_TOLERANCE_F,

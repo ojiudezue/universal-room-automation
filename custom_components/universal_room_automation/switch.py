@@ -2022,18 +2022,27 @@ class HVACDynamicPresetSwitch(SwitchEntity, RestoreEntity):
 
 
 class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
-    """D3: Master kill switch for Guest Mode HVAC actuation.
+    """Switch 01 "Custom Preset Ranges".
 
-    When ON (default): OverrideEngine temperature ranges are applied to
-    thermostats when house_state is guest (or dynamic preset is active).
-    When OFF: _apply_house_state_presets skips the OverrideEngine path
-    entirely and reverts to plain set_preset_mode behavior.
+    ON: URA writes its preset ranges into each thermostat's own Home,
+    Sleep, Away and Vacation presets (the preset's range is edited in place —
+    no hold is placed), in the zones the operator listed on the Baseline
+    Presets page. OFF: each edited preset gets its original range back the
+    next time its zone uses that preset. Default OFF on a fresh install or a
+    lost saved state (HVAC Batch C D8).
 
-    Entity: switch.ura_hvac_coordinator_guest_mode_actuation_enabled
+    Entity: switch.ura_hvac_coordinator_guest_mode_actuation
     Device: URA: HVAC Coordinator
 
-    v4.7.1 fix-up D3 (PLANNING_v4.7.x_guest_mode_actuation_phase1.md §5.D3 reduced).
-    v4.7.3.1: deferred-restore via SIGNAL_HVAC_COORDINATOR_READY (Bug Class #5/#38).
+    The coordinator flag is TRI-STATE (None until resolved). Every path
+    resolves it through ``HVACCoordinator.set_custom_ranges_enabled``:
+    user toggle (``user``), RestoreEntity on/off (``restore_entity``),
+    no / unavailable / unknown saved state -> OFF (``no_last_state_default``,
+    REV 5 F3; Bug Class #52), and — when the HVAC coordinator was not yet
+    registered at load — the deferred landing on
+    SIGNAL_HVAC_COORDINATOR_READY (``deferred_landing_<source>``), so any
+    NM / ledger row is emitted when the value lands, not when the switch
+    loaded. Bug Class #5/#38: signal unsub tracked via async_on_remove.
     """
 
     _attr_has_entity_name = True
@@ -2052,8 +2061,14 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
             model="HVAC Coordinator",
             sw_version=VERSION,
         )
-        # v4.7.3.1: deferred-restore state (Bug Class #5).
+        # v4.7.3.1 deferred-restore state (Bug Class #5): the value and the
+        # ORIGINAL source captured at async_added_to_hass (REV 5 F3).
         self._deferred_value: bool | None = None
+        self._deferred_source: str | None = None
+        # Fix-up (B1): the value this switch last landed on a coordinator
+        # (restore / deferred landing / user toggle) — re-landed on a
+        # rebuilt coordinator that has not resolved yet.
+        self._resolved_value: bool | None = None
 
     def _get_hvac(self):
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -2064,37 +2079,38 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
         return self._get_hvac() is not None
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
+        # REV 5 F3 / REV 3.2 R4: unresolved renders as None (unknown),
+        # never True.
         hvac = self._get_hvac()
         if hvac is None:
-            return True  # default ON
-        return getattr(hvac, "_guest_mode_actuation_enabled", True)
+            return None
+        return getattr(hvac, "_guest_mode_actuation_enabled", None)
 
     async def async_turn_on(self, **kwargs) -> None:
         hvac = self._get_hvac()
         if hvac is not None:
-            hvac._guest_mode_actuation_enabled = True
+            hvac.set_custom_ranges_enabled(True, source="user")
+            self._resolved_value = True
             self._deferred_value = None
+            self._deferred_source = None
             self.async_write_ha_state()
-            _LOGGER.info("HVAC: Guest Mode Actuation enabled")
+            _LOGGER.info("HVAC: Custom Preset Ranges enabled")
 
     async def async_turn_off(self, **kwargs) -> None:
         hvac = self._get_hvac()
         if hvac is not None:
-            hvac._guest_mode_actuation_enabled = False
+            hvac.set_custom_ranges_enabled(False, source="user")
+            self._resolved_value = False
             self._deferred_value = None
-            # Clear last-emitted range so next enable re-applies baseline
-            if hasattr(hvac, "_last_emitted_range"):
-                hvac._last_emitted_range.clear()
+            self._deferred_source = None
             self.async_write_ha_state()
-            _LOGGER.info("HVAC: Guest Mode Actuation disabled")
+            _LOGGER.info("HVAC: Custom Preset Ranges disabled")
 
     async def async_added_to_hass(self) -> None:
-        """Restore state — deferred via SIGNAL_HVAC_COORDINATOR_READY if needed.
-
-        v4.7.3.1: Bug Class #5 fix. Subscribes to SIGNAL_HVAC_COORDINATOR_READY
-        (Bug Class #38: unsub tracked via async_on_remove).
-        """
+        """Resolve the coordinator flag — deferred via
+        SIGNAL_HVAC_COORDINATOR_READY when the coordinator is not yet
+        registered."""
         await super().async_added_to_hass()
 
         from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -2109,32 +2125,58 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
 
         last_state = await self.async_get_last_state()
         if last_state is None or last_state.state not in ("on", "off"):
-            # No prior state — default ON is truth; nothing to restore.
-            return
-        target = last_state.state == "on"
+            # REV 5 F3: no saved state, or a saved `unavailable` / `unknown`
+            # -> OFF (never default ON).
+            target = False
+            source = "no_last_state_default"
+        else:
+            target = last_state.state == "on"
+            source = "restore_entity"
         hvac = self._get_hvac()
         if hvac is not None:
             # Fast path: HVAC coord already registered.
-            hvac._guest_mode_actuation_enabled = target
+            hvac.set_custom_ranges_enabled(target, source=source)
+            self._resolved_value = bool(target)
             self._deferred_value = None
+            self._deferred_source = None
             self.async_write_ha_state()
             return
         # Deferred path: HVAC coord not yet registered.
         self._deferred_value = target
+        self._deferred_source = source
         _LOGGER.debug(
-            "HVACGuestModeActuationSwitch: HVAC coord not ready — deferring restore "
-            "(value=%s)",
-            target,
+            "HVACGuestModeActuationSwitch: HVAC coord not ready — deferring "
+            "resolution (value=%s source=%s)", target, source,
         )
 
     @callback
     def _handle_hvac_ready(self) -> None:
-        """Handle SIGNAL_HVAC_COORDINATOR_READY — complete deferred restore.
+        """SIGNAL_HVAC_COORDINATOR_READY — land the deferred resolution.
 
         Bug Class #42: bound method, not lambda.
         Bug Class #19: @callback fires synchronously on the event loop.
         """
         if self._deferred_value is None:
+            # Fix-up (B1): an integration-entry reload can rebuild the HVAC
+            # coordinator WITHOUT re-adding this switch. The new coordinator
+            # starts unresolved (None); re-land it from this switch's own
+            # last resolved state instead of waiting for the 300 s backstop
+            # (which would resolve OFF and start restoring originals).
+            if self._resolved_value is None:
+                return
+            hvac = self._get_hvac()
+            if hvac is None or getattr(
+                hvac, "_guest_mode_actuation_enabled", None
+            ) is not None:
+                return
+            hvac.set_custom_ranges_enabled(
+                self._resolved_value, source="deferred_landing_restore_entity",
+            )
+            _LOGGER.info(
+                "HVACGuestModeActuationSwitch: rebuilt HVAC coordinator re-landed "
+                "from the switch state (value=%s)", self._resolved_value,
+            )
+            self.async_write_ha_state()
             return
         hvac = self._get_hvac()
         if hvac is None:
@@ -2143,13 +2185,16 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
                 "but HVAC coord still not in hass.data — restore deferred"
             )
             return
-        hvac._guest_mode_actuation_enabled = self._deferred_value
+        self._resolved_value = bool(self._deferred_value)
+        source = f"deferred_landing_{self._deferred_source or 'restore_entity'}"
+        hvac.set_custom_ranges_enabled(self._deferred_value, source=source)
         _LOGGER.info(
-            "HVACGuestModeActuationSwitch: deferred restore landed via "
-            "SIGNAL_HVAC_COORDINATOR_READY (value=%s)",
-            self._deferred_value,
+            "HVACGuestModeActuationSwitch: deferred resolution landed via "
+            "SIGNAL_HVAC_COORDINATOR_READY (value=%s source=%s)",
+            self._deferred_value, source,
         )
         self._deferred_value = None
+        self._deferred_source = None
         self.async_write_ha_state()
 
 

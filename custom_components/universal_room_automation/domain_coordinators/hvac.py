@@ -84,6 +84,16 @@ from .hvac_const import (
     HVAC_UNWIRED_METRICS,
     PRE_ARRIVAL_TIMEOUT_MINUTES,
     SIGNAL_HVAC_ENTITIES_UPDATE,
+    # HVAC Batch C (CPR)
+    CONF_HVAC_S10_ROLLOUT_ZONE_IDS,
+    DEFAULT_HVAC_S10_ROLLOUT_ZONE_IDS,
+    S10_DEFAULT_OFF_NM_GUARD_S,
+    S10_PRESET_RANGE_MIN_INTERVAL_S,
+    S10_PRESET_RANGE_MIN_SPACING_S,
+    S10_PRESET_RANGE_PRESETS,
+    S10_PRESET_RANGE_UNCONFIRMED_LIMIT,
+    S10_STATE_SIDE_KEY,
+    S10_SWITCH_RESOLUTION_TIMEOUT_S,
 )
 from .hvac_covers import CoverController
 from .hvac_egress import EgressManager
@@ -93,6 +103,7 @@ from .hvac_predict import HVACPredictor
 from .hvac_preset import PresetManager
 from .hvac_setpoint import (
     apply_setpoint_guards,
+    emit_set_activity_setpoint,
     emit_set_hvac_mode,
     emit_set_preset_mode,
     emit_set_temperature,
@@ -449,8 +460,8 @@ class HVACCoordinator(BaseCoordinator):
         # window — one row per house_state occupancy of the condition.
         # B11 (fix-up): explicit init of the discharge sentinel — no
         # empty-string ambiguity.
-        # B1 (fix-up): per-zone emit throttle mirroring S10's
-        # `_last_emitted_range` (hvac.py:2219). Suppresses re-emitting the
+        # B1 (fix-up): per-zone emit throttle (originally mirrored S10's
+        # retired emitted-range throttle map). Suppresses re-emitting the
         # SAME (low, high) tuple across consecutive ticks — the operator's
         # thermostat sees ONE write per (low, high) change, not one per
         # tick. Cleared per-zone when runtime_exceeded drops false OR
@@ -501,8 +512,9 @@ class HVACCoordinator(BaseCoordinator):
             precool_forecast_high=precool_forecast_high,
             preheat_forecast_low=preheat_forecast_low,
         )
-        # Tier 1 review CRITICAL-1: wire backref so banking release path
-        # sources the TRUE baseline from `_last_emitted_range`.
+        # Tier 1 review CRITICAL-1: wire backref (house state for the
+        # preset-resolved banking-release baseline; CPR D3c retired the
+        # emitted-range throttle map it used to read).
         self._predictor.set_hvac_coord(self)
         # feature/freeze-floor: arrester reads freeze_active off HC for the
         # setpoint chokepoint (mirror of the predictor backref above).
@@ -678,13 +690,34 @@ class HVACCoordinator(BaseCoordinator):
             ),
         )
 
-        # v4.7.1 fix-up D2/D3: Guest Mode Actuation Phase 1
-        # Master kill switch — seeded True; runtime-toggled via
-        # HVACGuestModeActuationSwitch (D3 switch on HVAC Coordinator device).
-        self._guest_mode_actuation_enabled: bool = True
-        # Per-zone last-emitted (cool_low, cool_high) to avoid redundant
-        # set_temperature service calls when resolved range is unchanged.
-        self._last_emitted_range: dict[str, tuple[float, float]] = {}
+        # HVAC Batch C (CPR) REV 3.1 F1 / REV 5 F3: switch 01 "Custom Preset
+        # Ranges" is TRI-STATE. None = not yet resolved (S10 does neither
+        # apply nor restore); True / False = resolved. ONLY
+        # `set_custom_ranges_enabled` moves it off None (switch user toggle,
+        # RestoreEntity, no-last-state default OFF, their deferred landings,
+        # and the R2 backstop). The v4.7.1 emitted-range throttle map
+        # is RETIRED (D3c).
+        self._guest_mode_actuation_enabled: bool | None = None
+        # CPR §6.3 state (persisted under S10_STATE_SIDE_KEY):
+        #   snapshots[zone_id][preset] = {"low", "high", "captured_iso"}
+        #   records[zone_id]["<preset>|<mode>"] = rate/latch record (§6.2)
+        self._s10_snapshots: dict[str, dict[str, dict[str, Any]]] = {}
+        self._s10_records: dict[str, dict[str, dict[str, Any]]] = {}
+        self._s10_meta: dict[str, Any] = {}
+        # Per-process "once per entity" INFO latch for quiet skips (F1).
+        self._s10_quiet_skip_logged: set[str] = set()
+        # Per-tick outcome per (zone, preset) for the diagnostics sensor.
+        self._s10_last_outcome: dict[str, dict[str, dict[str, Any]]] = {}
+        # Fix-up (D-LOW-2): bumped whenever a user toggle clears every
+        # record, so an in-flight `_s10_write_one` never writes a record
+        # back over the cleared map after an await.
+        self._s10_records_gen: int = 0
+        # Fix-up (B2): the source the switch last resolved from.
+        self._s10_resolved_source: str | None = None
+        # REV 3.2 R2 / REV 5 F8: the unresolved-switch backstop timer.
+        self._cpr_resolution_backstop_handle: Any = None
+        self._cpr_backstop_cancelled_by: str | None = None
+        self._cpr_backstop_nm_sent: bool = False
 
         # feature/freeze-floor: freeze-protection heat_low FLOOR latch.
         # Freeze arms when the best-available outdoor temp ≤ FREEZE_TRIGGER_TEMP
@@ -1275,6 +1308,13 @@ class HVACCoordinator(BaseCoordinator):
         # records HERE — in the `async_setup` load path, BEFORE the first
         # decision cycle below — so gate (a/b) is armed on S1's first tick.
         await self._rehydrate_arrester_state(stored)
+        # HVAC Batch C (CPR §6.3): snapshots + rate/latch records, BEFORE the
+        # first decision cycle below.
+        self._rehydrate_s10_state(stored)
+        # REV 3.2 R2 / REV 5 F8: unresolved-switch backstop. Cancel any
+        # handle a previous setup armed (manager re-enable re-runs
+        # async_setup) BEFORE arming a new one.
+        self._arm_cpr_resolution_backstop()
         self._install_short_cycle_listeners()
 
         # v3.18.5: Build person-zone map from zone configs
@@ -2351,7 +2391,8 @@ class HVACCoordinator(BaseCoordinator):
 
         Side-keys: `__person_zone_map` (v3.18.5), `__short_cycles_today`
         (HVAC-ANOMALY-BLIND-1 D2), `__immune_holds` (W1-B D-P1, ruling 17),
-        `__tao_state` (W1-B D-P1a, decision 46).
+        `__tao_state` (W1-B D-P1a, decision 46), `__interrupt_latch` (W1/W2
+        finish fix-up 1), `__s10_preset_ranges` (CPR §6.3).
         """
         snapshot = self._zone_manager.get_state_snapshot()
         snapshot["__person_zone_map"] = self._person_zone_map
@@ -2370,6 +2411,8 @@ class HVACCoordinator(BaseCoordinator):
         )
         # HVAC W1/W2 finish fix-up 1 (D-M2): the person-interrupt latch.
         snapshot["__interrupt_latch"] = arr.export_interrupt_latch() if arr else []
+        # HVAC Batch C (CPR §6.3): S10 snapshots + records.
+        snapshot[S10_STATE_SIDE_KEY] = self._export_s10_state()
         return snapshot
 
     async def async_save_zone_state(self) -> None:
@@ -3925,273 +3968,828 @@ class HVACCoordinator(BaseCoordinator):
             )
         return self._freeze_active
 
+    # ------------------------------------------------------------------
+    # HVAC Batch C — Custom Preset Ranges (S10). Plan:
+    # docs/planning/PLANNING_hvac_enable_custom_preset_ranges.md REV 5 >
+    # REV 4 > REV 3.3 > REV 3.2 > REV 3.1 > REV 3.
+    #
+    # S10 writes URA's range into the zone's NAMED preset profile through the
+    # thermostat adapter (`set_preset_range`), only while the zone is on that
+    # preset. It never writes a hold, so S1 has nothing to reclaim and the
+    # arrester ignores the profile edit (no suppress stamp). The D9
+    # compose-away block, the F2 throttle bypass, the S10 transient hold,
+    # composed-away counter, the `cool - 7` low side, the three
+    # suppress/unsuppress stamps and the emitted-range throttle map are
+    # DELETED (D3 / D3c).
+    # ------------------------------------------------------------------
+
     async def _async_apply_preset_overrides(self) -> None:
-        """D2: Apply OverrideEngine temperature ranges to thermostats.
+        """S10 entry (full ticks only; the call site skips fast runs and
+        observation mode). Tri-state switch (REV 3.1 F1 / REV 3.2 R4): the
+        ``is None`` return MUST precede the OFF branch — unresolved means
+        neither apply nor restore.
 
-        v4.7.1 Phase 1 D2 (PLANNING_v4.7.x_guest_mode_actuation_phase1.md §5.D2).
-
-        Reads override records from the EC's _dynamic_preset_overrides dict,
-        resolves them via OverrideEngine against the seasonal baseline, and
-        issues set_temperature when the resolved range differs from the
-        last-emitted range (throttle guard).
-
-        Always wrapped in OverrideArrester.suppress so URA's own
-        set_temperature call is not read as a manual override.
-
-        Bug #23: gate is on this method (actuation side), not the source.
-        Bug #19: no async_create_task — awaited inline.
+        Bug #19: no async_create_task for the write path — awaited inline.
         Bug #42: no lambda in any callback.
         """
-        if not self._guest_mode_actuation_enabled:
-            _LOGGER.debug("HVAC: guest_mode_actuation disabled — skipping override apply")
+        if self._guest_mode_actuation_enabled is None:
+            _LOGGER.debug("S10: switch unresolved; deferring")
             return
-
         try:
-            from ..const import DOMAIN as _DOMAIN_KEY
-            from .preset_overrides import OverrideEngine
-
-            # Get EC's accumulated overrides from the last evaluate tick
-            ec = None
-            manager = self.hass.data.get(_DOMAIN_KEY, {}).get("coordinator_manager")
-            if manager is not None:
-                ec = manager.coordinators.get("energy")
-            if ec is None:
+            if self._guest_mode_actuation_enabled is False:
+                await self._s10_pass(mode="restore")
                 return
-
-            all_overrides = getattr(ec, "_dynamic_preset_overrides", {})
-            master_enabled = self._guest_mode_actuation_enabled
-            engine = OverrideEngine()
-
-            # feature/freeze-floor (D-HIGH-1): `_freeze_active` is refreshed
-            # unconditionally at the top of `_run_decision_cycle`, BEFORE this
-            # gated apply path runs, so it is already current here. The clamp
-            # below (via the setpoint chokepoint) raises a dangerously-low
-            # resolved heat_low up to FREEZE_FLOOR.
-
-            target_preset = self._preset_manager.get_preset_for_house_state(
-                self._house_state
-            )
-            if target_preset is None:
-                return
-
-            # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
-            for zone_id, zone in list(self._zone_manager.zones.items()):
-                # v4.7.8 fix-up C-H1 (plan §D8 spec gap): DPM apply must
-                # skip egress-paused zones. Ecobee thermostats re-engage
-                # mode on set_temperature after an explicit off, silently
-                # defeating the pause. Mirrors the predictor pre-cool /
-                # pre-heat guards.
-                if (
-                    self._egress_manager is not None
-                    and self._egress_manager.is_paused(zone_id)
-                ):
-                    continue
-                # MED-A1 (promoted): DPM preset-override apply is a
-                # corrective set_temperature over a zone the operator
-                # may currently be holding manually (immunity) or the
-                # house-wide Temp Arrester Override may be engaged. In
-                # either case the DPM write would overwrite an intent
-                # the operator explicitly asked us to leave alone. Third
-                # shaver: gate here through the same helper as every
-                # other shave path so the "operator holds are
-                # untouchable" claim is complete.
-                _arr = self._override_arrester
-                _gate = getattr(
-                    _arr, "_corrective_writes_suppressed", None,
-                )
-                if _arr is not None and callable(_gate) and _gate(zone_id):
-                    _log = getattr(_arr, "_log_shave_skipped", None)
-                    if callable(_log):
-                        _log(zone.zone_name, zone_id, "dpm_preset_override")
-                    continue
-                # HVAC-ZONE-CONDITIONING-DEMAND-1 D9 (2026-09-17 fix-up
-                # round 2 — COMPOSE-AWAY, operator-endorsed). CALLER-SIDE
-                # POINT-GATE on the FUSED HVAC-occupancy denomination. When
-                # the zone is empty in `zone.any_room_hvac_occupied` (D1
-                # fused signal), the DPM DOES NOT SKIP — it composes the
-                # `away` preset baseline (instead of the house-state
-                # target_preset baseline) for THIS zone and emits it
-                # through the existing chokepoint.
-                #
-                # Why compose-away (not skip): the DPM is the *corrector*
-                # for third-writer restores (nudge-restore, pre-heat
-                # return, ramp-audit) that would otherwise strand an
-                # empty zone at comfort setpoints all night (D-HIGH-2 —
-                # sibling writer strands the zone). Emitting the `away`
-                # baseline lets the throttle guard on `_last_emitted_range`
-                # dedupe repeat writes cheaply, and any concurrent
-                # third-writer restore is overwritten on the next tick.
-                #
-                # Fail-OPEN polarity (D-MED-2, unified with D7/row-1):
-                # when the fused signal is UN-ESTABLISHED for this zone
-                # (D1 producer has not observed >=1 arm/release cycle
-                # for any of the zone's rooms since ZoneManager
-                # construction — see `_is_zone_hvac_established`) OR the
-                # zone has no room_conditions yet (early boot / test
-                # fake), keep pre-cycle behaviour: use the caller-narrowed
-                # `target_preset`, no retreat. Only ESTABLISHED empty
-                # zones compose-away.
-                #
-                # Fix-up round 4 (2026-09-17, F3 unification): compose-away
-                # only when the SHARED retreat-authorization helper says
-                # retreat is OK. That helper wraps: ESTABLISHED AND
-                # fused-empty (reset-only backstop — see F3 in
-                # ZoneManager.conditioning_retreat_ok). Callers of D9,
-                # row-1, D7, and F4 row-10 all now consult the same
-                # oracle so the preset-layer preserve is never defeated
-                # at the setpoint layer.
-                _rc_ready = bool(getattr(zone, "room_conditions", None))
-                # HVAC-DEGRADED-ROOM-TRIPWIRE-1 FIX-UP item 2 (2026-09-26,
-                # comment corrected round 3 item 5): if the zone is
-                # transient-blocked (a sibling room is loading/reloading)
-                # AND fused-empty, HOLD the setpoint write for this tick
-                # — a raw baseline/freeze-floor DPM write while a sibling
-                # room is reloading would strand the zone at the
-                # `target_preset` baseline the whole cycle. This is a
-                # setpoint-layer hold; the `else` branch below (~compose-
-                # away when established+empty) never runs on this tick.
-                try:
-                    _fused_empty_dpm = not bool(
-                        getattr(zone, "any_room_hvac_occupied", False)
-                    )
-                except Exception:  # noqa: BLE001
-                    _fused_empty_dpm = False
-                _is_tb = getattr(
-                    self._zone_manager, "is_zone_transient_blocked", None,
-                )
-                try:
-                    _transient_blocked_dpm = bool(_is_tb(zone_id)) if callable(_is_tb) else False
-                except Exception:  # noqa: BLE001
-                    _transient_blocked_dpm = False
-                if _transient_blocked_dpm and _fused_empty_dpm:
-                    _LOGGER.debug(
-                        "HVAC D9 hold: zone %s transient-blocked + fused-empty — "
-                        "skipping compose-away tick",
-                        zone_id,
-                    )
-                    continue
-                _compose_away = _rc_ready and self._zone_conditioning_retreat_ok(zone)
-                if _compose_away:
-                    zone_target_preset = "away"
-                    try:
-                        self._dpm_composed_away_zones = (
-                            getattr(self, "_dpm_composed_away_zones", 0) + 1
-                        )
-                    except Exception:  # noqa: BLE001
-                        pass
-                else:
-                    zone_target_preset = target_preset
-
-                zone_overrides = all_overrides.get(zone_id, [])
-
-                # Get baseline from preset manager (compose-away swaps to
-                # the `away` baseline for empty established zones).
-                baseline = self._preset_manager.get_seasonal_setpoints(zone_target_preset)
-                if baseline is None:
-                    continue
-                baseline_cool, _baseline_heat = baseline
-
-                # Determine effective baseline (cool_low=baseline_cool - MIN_DEADBAND, cool_high=baseline_cool)
-                # seasonal setpoints return (cool_setpoint, heat_setpoint) — cool is the high
-                baseline_low = baseline_cool - 7.0  # standard 7°F spread from SEASONAL_DEFAULTS
-                baseline_high = baseline_cool
-
-                # Resolve override for this zone + preset. Under the D9
-                # compose-away branch, resolve against the zone-scoped
-                # target ("away") so operator overrides on `away` apply
-                # if present.
-                active = engine.get_active_overrides(
-                    zone_id, zone_target_preset, self._house_state, master_enabled, zone_overrides
-                )
-                resolved = engine.resolve_range(baseline_low, baseline_high, active)
-
-                # feature/freeze-floor: the setpoint chokepoint applies the
-                # freeze floor + deadband invariant. We compute the
-                # post-chokepoint pair here for the idempotent throttle so the
-                # guard compares the actually-emitted values; the chokepoint
-                # re-applies the same transform on the wire.
-                emit_low, emit_high = apply_setpoint_guards(
-                    resolved.cool_low, resolved.cool_high,
-                    freeze_active=self._freeze_active,
-                )
-
-                # Throttle: skip if resolved range matches last emitted.
-                # F2 fix-up round 4 (2026-09-17): BYPASS the throttle on
-                # compose-away. Third-writer restores (S8 cancel-nudge,
-                # S9 startup ramp-audit restore in hvac_override.py) emit
-                # comfort setpoints without updating `_last_emitted_range`.
-                # Without this bypass, the throttle sees a stale "away"
-                # entry, skips the corrective emit, and the zone strands
-                # at comfort setpoints for the rest of the night. Emitting
-                # unconditionally on the compose-away branch is by-design:
-                # the DPM is the CORRECTOR — its whole job on an
-                # established empty zone is to overwrite any third-writer
-                # restore back to `away` on the next tick.
-                last = self._last_emitted_range.get(zone_id)
-                resolved_pair = (emit_low, emit_high)
-                if last == resolved_pair and not _compose_away:
-                    continue
-
-                # Suppress arrester so set_temperature isn't flagged as manual override
-                if self._override_arrester:
-                    self._override_arrester.suppress(zone.climate_entity, kind="temp")  # v5.36.2 H6: B1 completeness
-
-                try:
-                    # ARREST-COMFORT-1 D-CRIT-1 fix-up: gate this DPM apply
-                    # emit on `comfort_delay_active` — S10_dpm_apply. The
-                    # DPM apply loop was previously the UNGATED sibling of
-                    # S3/S4/S5 and could stomp a comfort-qualified manual.
-                    def _s10_gate(z=zone_id) -> bool:
-                        if self._override_arrester is None:
-                            return False
-                        try:
-                            return bool(
-                                self._override_arrester.comfort_delay_active(z)
-                            )
-                        except Exception:  # noqa: BLE001
-                            return False
-                    _s10_written = _w1c_applied(await _w1c_strategy(self.hass, zone.climate_entity).set_setpoints(
-                        self.hass,
-                        zone.climate_entity,
-                        target_temp_low=resolved.cool_low,
-                        target_temp_high=resolved.cool_high,
-                        freeze_active=self._freeze_active,
-                        blocking=False,
-                        gate=_s10_gate,
-                        site="S10_dpm_apply",
-                        zone_id=zone_id,
-                        reason="dpm_preset_apply",
-                        emit=emit_set_temperature,
-                    ))
-                    if not _s10_written:
-                        # Deferred by comfort-grace — do NOT record the
-                        # resolved pair in the throttle map (next tick
-                        # re-emits naturally when grace expires). Roll
-                        # back the pre-emit suppress() stamp so a real
-                        # manual within SUPPRESS_TTL_SECONDS isn't
-                        # swallowed (mirrors A-MED-2 discipline).
-                        if self._override_arrester:
-                            self._override_arrester.unsuppress(zone.climate_entity)
-                        continue
-                    self._last_emitted_range[zone_id] = resolved_pair
-                    _LOGGER.info(
-                        "HVAC: set_temperature %s low=%.1f high=%.1f "
-                        "(override_sources=%s, house=%s)",
-                        zone.zone_name,
-                        emit_low, emit_high,
-                        list(resolved.sources.values()),
-                        self._house_state,
-                    )
-                except Exception as exc:
-                    _LOGGER.error(
-                        "HVAC: failed set_temperature on %s: %s",
-                        zone.climate_entity, exc,
-                    )
-                    if self._override_arrester:
-                        self._override_arrester.unsuppress(zone.climate_entity)
-
+            await self._s10_pass(mode="apply")
+            # Operator ruling A6 (2026-10-05): with the switch ON, a zone
+            # REMOVED from the rollout list gets its saved originals put
+            # back (same restore path / funnel / rate rules as switch OFF);
+            # zones still in the rollout are never restored while ON.
+            await self._s10_pass(mode="restore")
         except Exception:
             _LOGGER.warning("HVAC: _async_apply_preset_overrides failed", exc_info=True)
+
+    # ---- state helpers ------------------------------------------------
+
+    def _s10_rollout_zone_ids(self) -> frozenset[str]:
+        """REV 5 F6: the options-flow zone list (rung 2), read live from the
+        coordinator-manager entry. Default EMPTY. Never raises."""
+        try:
+            from ..const import CONF_ENTRY_TYPE, ENTRY_TYPE_COORDINATOR_MANAGER  # noqa: PLC0415
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+                if ce.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_COORDINATOR_MANAGER:
+                    continue
+                raw = (ce.options or {}).get(
+                    CONF_HVAC_S10_ROLLOUT_ZONE_IDS, DEFAULT_HVAC_S10_ROLLOUT_ZONE_IDS,
+                )
+                if isinstance(raw, str):
+                    raw = [raw]
+                return frozenset(str(z) for z in (raw or ()) if z)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("S10: rollout zone read failed", exc_info=True)
+        return frozenset(DEFAULT_HVAC_S10_ROLLOUT_ZONE_IDS)
+
+    def _export_s10_state(self) -> dict[str, Any]:
+        return {
+            "snapshots": {
+                z: {p: dict(v) for p, v in d.items()}
+                for z, d in self._s10_snapshots.items() if d
+            },
+            "records": {
+                z: {k: dict(v) for k, v in d.items()}
+                for z, d in self._s10_records.items() if d
+            },
+            "meta": dict(self._s10_meta),
+        }
+
+    def _rehydrate_s10_state(self, stored: Any) -> None:
+        """Boot restore of the S10 side-key (§6.3). Never raises; a malformed
+        blob restores nothing (snapshots are never invented)."""
+        try:
+            blob = (stored or {}).get(S10_STATE_SIDE_KEY) if isinstance(stored, dict) else None
+            if not isinstance(blob, dict):
+                return
+            snaps = blob.get("snapshots") or {}
+            recs = blob.get("records") or {}
+            if isinstance(snaps, dict):
+                # Fix-up (A2): per-entry guard — one malformed original
+                # (e.g. a non-numeric low) drops only itself, never the
+                # zone's or the house's other originals.
+                restored: dict[str, dict[str, dict[str, Any]]] = {}
+                for z, d in snaps.items():
+                    if not isinstance(d, dict):
+                        continue
+                    for p, v in d.items():
+                        try:
+                            if not (isinstance(v, dict) and "low" in v and "high" in v):
+                                continue
+                            entry = {
+                                "low": float(v["low"]), "high": float(v["high"]),
+                                "captured_iso": v.get("captured_iso"),
+                            }
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.warning(
+                                "HVAC: S10 original %s/%s malformed — dropped", z, p,
+                            )
+                            continue
+                        restored.setdefault(str(z), {})[str(p)] = entry
+                self._s10_snapshots = restored
+            if isinstance(recs, dict):
+                self._s10_records = {
+                    str(z): {str(k): dict(v) for k, v in (d or {}).items() if isinstance(v, dict)}
+                    for z, d in recs.items() if isinstance(d, dict)
+                }
+            meta = blob.get("meta")
+            if isinstance(meta, dict):
+                self._s10_meta = dict(meta)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("HVAC: S10 state rehydration failed", exc_info=True)
+        # Fix-up (B2): the switch may have resolved default-OFF before the
+        # originals were rehydrated (then it saw zero snapshots and sent no
+        # NM). Re-evaluate the default-off NM now.
+        try:
+            src = self._s10_resolved_source or ""
+            if self._guest_mode_actuation_enabled is False and src.endswith(
+                "no_last_state_default"
+            ):
+                self._s10_default_off_nm(src)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("S10 default-off NM re-check failed", exc_info=True)
+
+    async def _s10_save_strict(self) -> None:
+        """Write-ahead save that RAISES on failure (unlike
+        `async_save_zone_state`, which logs and swallows) — S10 must know
+        the snapshot / attempt is persisted before it writes."""
+        await self._zone_state_store.async_save(self._build_zone_state_snapshot())
+
+    def _s10_snapshot_count(self) -> int:
+        return sum(len(d) for d in self._s10_snapshots.values())
+
+    def _s10_drop_zone(self, zone_id: str) -> None:
+        """U7: a zone removed from URA drops its S10 state (memory). One
+        ledger row lists the dropped originals so the operator can restore
+        them in the thermostat app."""
+        snaps = self._s10_snapshots.pop(zone_id, None)
+        self._s10_records.pop(zone_id, None)
+        self._s10_last_outcome.pop(zone_id, None)
+        if snaps:
+            self._s10_ledger(
+                "s10_original_dropped_zone_removed", zone_id, None,
+                f"s10_original_dropped_zone_removed zone={zone_id}",
+                {"originals": snaps},
+            )
+
+    def _s10_ledger(
+        self, action: str, zone_id: str | None, entity_id: str | None,
+        description: str, details: dict[str, Any],
+    ) -> None:
+        """One `ura_activity_log` row (fire-and-forget; never raises)."""
+        try:
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is None:
+                return
+            import inspect as _inspect  # noqa: PLC0415
+            import json as _json  # noqa: PLC0415
+            _coro = db.log_activity(
+                timestamp=dt_util.utcnow().isoformat(),
+                coordinator="hvac",
+                action=action,
+                room=None,
+                zone=zone_id,
+                importance="notable",
+                description=description,
+                details_json=_json.dumps(details, default=str),
+                entity_id=entity_id,
+            )
+            if _inspect.iscoroutine(_coro):
+                self._track_task(self.hass.async_create_task(_coro))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("S10 ledger row %s failed", action, exc_info=True)
+
+    def _s10_notify(self, *, title: str, message: str, hazard_type: str, severity: str) -> None:
+        """One NM (fire-and-forget; never raises)."""
+        try:
+            nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+            if nm is None:
+                return
+            from .base import Severity  # noqa: PLC0415
+            self._track_task(self.hass.async_create_task(nm.async_notify(
+                coordinator_id="hvac",
+                severity=getattr(Severity, severity),
+                title=title,
+                message=message,
+                hazard_type=hazard_type,
+            )))
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("S10 NM %s failed", hazard_type, exc_info=True)
+
+    @staticmethod
+    def _s10_app_phrase(strategy: Any) -> str:
+        """REV 5 F9: the brand's app name from the adapter, else neutral."""
+        name = getattr(strategy, "app_name", None)
+        return f"the {name} app" if name else "the thermostat app"
+
+    @staticmethod
+    def _s10_times_word(n: int) -> str:
+        return {1: "once", 2: "twice", 3: "three times"}.get(int(n), f"{int(n)} times")
+
+    # ---- the per-zone pass --------------------------------------------
+
+    def _s10_zone_skip_reason(self, zone_id: str, zone: Any) -> str | None:
+        """§3.2 skip matrix steps 0.5 and 1-5 (first skip wins). Shared by
+        the apply and restore passes. Never raises (an accessor error skips:
+        fail-closed — no write)."""
+        # 0.5 — thermostat unavailable/unknown (Batch D helper owns the one
+        # INFO + ledger row per outage episode; S10 opens no second one).
+        try:
+            if self._climate_unreadable(zone_id, zone):
+                return "climate_unreadable"
+        except Exception:  # noqa: BLE001
+            return "climate_unreadable_error"
+        # 1 — egress pause.
+        try:
+            if self._egress_manager is not None and self._egress_manager.is_paused(zone_id):
+                return "egress_paused"
+        except Exception:  # noqa: BLE001
+            return "egress_error"
+        arr = self._override_arrester
+        # 2 — person-protected hold (gate a/b).
+        try:
+            _gate = getattr(arr, "_corrective_writes_suppressed", None)
+            if arr is not None and callable(_gate) and _gate(zone_id):
+                _log = getattr(arr, "_log_shave_skipped", None)
+                if callable(_log):
+                    _log(zone.zone_name, zone_id, "dpm_preset_override")
+                return "person_protected"
+        except Exception:  # noqa: BLE001
+            return "person_protected_error"
+        # 3 — S1 wrote this zone on this tick.
+        if zone_id in self._zones_written_this_cycle:
+            return "s1_same_tick"
+        # 4 — live borrow (gate e).
+        try:
+            if self._preset_manager.borrow_live(zone_id) is not None:
+                return "borrow_live"
+        except Exception:  # noqa: BLE001
+            return "borrow_error"
+        # 5 — AC hard reset in flight.
+        try:
+            if arr is not None and arr.has_active_ac_reset(zone_id):
+                return "ac_reset"
+        except Exception:  # noqa: BLE001
+            return "ac_reset_error"
+        return None
+
+    def _s10_desired(
+        self, zone_id: str, preset: str, engine: Any, overrides: dict,
+    ) -> tuple[tuple[float, float], str] | None:
+        """§3.2 steps 7-8: (desired_low, desired_high) + reason, or None.
+
+        The low side is ALWAYS the configured heat for the preset (on
+        heat_cool `target_temp_low` IS the heat setpoint); only `cool_high`
+        comes from the override engine. Guards (freeze floor + deadband)
+        are applied here so the compared/recorded value is the written one.
+        """
+        baseline = self._preset_manager.get_seasonal_setpoints(preset)
+        if baseline is None:
+            return None
+        # Bug Class #49: the pair is (cool_setpoint, heat_setpoint) — cool is
+        # the high side, heat is the low side.
+        base_cool, base_heat = baseline
+        active = engine.get_active_overrides(
+            zone_id, preset, self._house_state, True, overrides.get(zone_id, []),
+        )
+        resolved = engine.resolve_range(base_heat, base_cool, active)
+        low, high = apply_setpoint_guards(
+            float(base_heat), float(resolved.cool_high),
+            freeze_active=self._freeze_active,
+        )
+        reason = (
+            "preset_range_dpm" if "cool_high" in (resolved.sources or {})
+            else "preset_range_baseline"
+        )
+        return (round(float(low), 1), round(float(high), 1)), reason
+
+    async def _s10_pass(self, *, mode: str) -> None:
+        """One S10 pass. ``mode`` = "apply" (switch resolved True) or
+        "restore". The restore pass touches only (zone, preset) pairs with a
+        snapshot. Switch OFF: NOT rollout-gated (REV 3.3 U5). Switch ON
+        (ruling A6): only zones OUTSIDE the rollout list are restored."""
+        engine = None
+        overrides: dict = {}
+        rollout = self._s10_rollout_zone_ids()
+        if mode == "apply":
+            from .preset_overrides import OverrideEngine  # noqa: PLC0415
+            engine = OverrideEngine()
+            try:
+                manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+                ec = manager.coordinators.get("energy") if manager is not None else None
+                overrides = getattr(ec, "_dynamic_preset_overrides", {}) or {} if ec else {}
+            except Exception:  # noqa: BLE001
+                overrides = {}
+        # snapshot: zones dict may be pruned by _handle_zm_zones_updated mid-await
+        for zone_id, zone in list(self._zone_manager.zones.items()):
+            if mode == "apply":
+                # 0.2 — staged rollout (options field, default empty).
+                if zone_id not in rollout:
+                    continue
+            elif not self._s10_snapshots.get(zone_id):
+                continue
+            elif self._guest_mode_actuation_enabled is not False and zone_id in rollout:
+                # A6: never restore a rollout zone while the switch is ON.
+                continue
+            skip =self._s10_zone_skip_reason(zone_id, zone)
+            if skip is not None:
+                _LOGGER.debug("S10 %s: zone %s skipped (%s)", mode, zone_id, skip)
+                continue
+            # 6 — the zone's OWN preset (never the house-state preset).
+            preset = getattr(zone, "preset_mode", None)
+            if preset not in S10_PRESET_RANGE_PRESETS:
+                continue
+            if mode == "apply":
+                got = self._s10_desired(zone_id, preset, engine, overrides)
+                if got is None:
+                    continue
+                desired, reason = got
+                site = "S10_preset_range"
+            else:
+                snap = (self._s10_snapshots.get(zone_id) or {}).get(preset)
+                if snap is None:
+                    # A preset URA never edited is never touched.
+                    continue
+                desired = (float(snap["low"]), float(snap["high"]))
+                reason = "restore_carrier_original"
+                site = "S10_preset_range_restore"
+            await self._s10_write_one(zone_id, zone, preset, desired, reason, site, mode)
+
+    def _s10_record(self, zone_id: str, preset: str, mode: str) -> dict[str, Any] | None:
+        return (self._s10_records.get(zone_id) or {}).get(f"{preset}|{mode}")
+
+    def _s10_set_record(self, zone_id: str, preset: str, mode: str, rec: dict | None) -> None:
+        zrec = self._s10_records.setdefault(zone_id, {})
+        key = f"{preset}|{mode}"
+        if rec is None:
+            zrec.pop(key, None)
+            if not zrec:
+                self._s10_records.pop(zone_id, None)
+        else:
+            zrec[key] = rec
+
+    @staticmethod
+    def _s10_age_s(iso: str | None, now: datetime) -> float | None:
+        if not iso:
+            return None
+        try:
+            ts = dt_util.parse_datetime(str(iso))
+            if ts is None:
+                return None
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=dt_util.UTC)
+            return (now - ts).total_seconds()
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _s10_note_outcome(self, zone_id: str, preset: str, **kw: Any) -> None:
+        self._s10_last_outcome.setdefault(zone_id, {})[preset] = dict(kw)
+
+    async def _s10_write_one(
+        self, zone_id: str, zone: Any, preset: str,
+        desired: tuple[float, float], reason: str, site: str, mode: str,
+    ) -> None:
+        """Steps 9-12 for ONE (zone, preset, mode): snapshot capture, the
+        §6.2 rate/latch model, the adapter call, and the record update."""
+        from .hvac_strategy import WriteStatus  # noqa: PLC0415
+        strategy = _w1c_strategy(self.hass, zone.climate_entity)
+        now = dt_util.utcnow()
+        value = [float(desired[0]), float(desired[1])]
+        gen = self._s10_records_gen
+
+        # 9 — snapshot capture (apply only; F2 gate: the adapter's original
+        # must exist AND differ from what the adapter WOULD WRITE — fix-up
+        # D-HIGH-1: never the unrounded desired range; never overwritten).
+        if mode == "apply" and preset not in (self._s10_snapshots.get(zone_id) or {}):
+            original = strategy.preset_range_original(self.hass, zone.climate_entity, preset)
+            if self._s10_original_differs(strategy, original, value):
+                self._s10_snapshots.setdefault(zone_id, {})[preset] = {
+                    "low": float(original[0]), "high": float(original[1]),
+                    "captured_iso": now.isoformat(),
+                }
+                try:
+                    await self._s10_save_strict()
+                except Exception:  # noqa: BLE001
+                    # No URA edit may exist without a persisted original.
+                    zsnap = self._s10_snapshots.get(zone_id) or {}
+                    zsnap.pop(preset, None)
+                    if not zsnap:
+                        self._s10_snapshots.pop(zone_id, None)
+                    _LOGGER.warning(
+                        "S10: original range for %s %s not saved — write skipped",
+                        zone_id, preset, exc_info=True,
+                    )
+                    self._s10_note_outcome(
+                        zone_id, preset, status="deferred", reason="snapshot_not_saved",
+                    )
+                    return
+                if self._s10_records_gen != gen:
+                    # D-LOW-2: a user toggle cleared the records during the
+                    # save; the snapshot stays, this pass stands down.
+                    return
+
+        # 10 — rate / latch (§6.2 + REV 3.1 F4 + REV 5 F1).
+        prev = self._s10_record(zone_id, preset, mode)
+        rec = dict(prev) if prev is not None else {
+            "value": value, "writes": 0, "failures": 0, "latched": False,
+            "latch_reason": None, "last_attempt_iso": None, "last_write_iso": None,
+        }
+        if rec.get("value") != value:
+            # Value change: reset counters, KEEP last_attempt_iso (spacing).
+            rec = {
+                "value": value, "writes": 0, "failures": 0, "latched": False,
+                "latch_reason": None, "last_attempt_iso": rec.get("last_attempt_iso"),
+                "last_write_iso": None,
+            }
+            self._s10_set_record(zone_id, preset, mode, rec)
+        if rec.get("latched"):
+            return
+        age = self._s10_age_s(rec.get("last_attempt_iso"), now)
+        wire_attempted = int(rec.get("writes") or 0) > 0 or int(rec.get("failures") or 0) > 0
+        if age is not None:
+            # A retry after a wire attempt waits a full read interval; any
+            # other attempt (first value, deferral, skip) waits the spacing.
+            need = S10_PRESET_RANGE_MIN_INTERVAL_S if wire_attempted else S10_PRESET_RANGE_MIN_SPACING_S
+            if age < need:
+                return
+        if int(rec.get("writes") or 0) >= S10_PRESET_RANGE_UNCONFIRMED_LIMIT:
+            # Due retry at the limit: latch WITHOUT calling when the view
+            # still differs; a matching view is a success (restore confirm).
+            view = strategy.preset_range_original(self.hass, zone.climate_entity, preset)
+            if view is None:
+                return
+            if abs(view[0] - value[0]) <= 0.5 and abs(view[1] - value[1]) <= 0.5:
+                await self._s10_success(zone_id, preset, mode, rec, now)
+                return
+            self._s10_latch(zone_id, zone, preset, mode, rec, "not_sticking", value, strategy)
+            return
+
+        # 11 — write ahead: stamp + persist the attempt, then call.
+        rec["last_attempt_iso"] = now.isoformat()
+        self._s10_set_record(zone_id, preset, mode, rec)
+        try:
+            await self._s10_save_strict()
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "S10: attempt for %s %s not saved — write skipped", zone_id, preset,
+                exc_info=True,
+            )
+            if self._s10_records_gen == gen:
+                self._s10_set_record(zone_id, preset, mode, prev)
+            return
+        if self._s10_records_gen != gen:
+            # D-LOW-2: the records were cleared during the save — do not
+            # write ours back (the stamp would survive the latch discharge).
+            return
+
+        def _s10_gate(z: str = zone_id) -> bool:
+            # ARREST-COMFORT-1: the S10 write defers while the arrester's
+            # comfort window holds this zone.
+            if self._override_arrester is None:
+                return False
+            try:
+                return bool(self._override_arrester.comfort_delay_active(z))
+            except Exception:  # noqa: BLE001
+                return False
+
+        # INV-CPR-REV5 snapshot clause: the write-ahead save above is an
+        # `await`, so the view may have moved since step 9. Re-check — with
+        # NO await between this read and the adapter's own observation —
+        # that an edit can never land on a (zone, preset) whose differing
+        # original is not persisted. If it now needs one, stand down; the
+        # next tick captures it first.
+        if mode == "apply" and preset not in (self._s10_snapshots.get(zone_id) or {}):
+            _orig2 = strategy.preset_range_original(self.hass, zone.climate_entity, preset)
+            if self._s10_original_differs(strategy, _orig2, value):
+                self._s10_set_record(zone_id, preset, mode, prev)
+                return
+        # Fix-up pre-call re-checks (same no-await window as above): the
+        # awaits since `_s10_pass` chose this zone may have changed the
+        # world. Each stands down WITHOUT a call and undoes the stamp.
+        _stand_down: str | None = None
+        _sw = self._guest_mode_actuation_enabled
+        if mode == "apply" and _sw is not True:
+            # D-LOW-1: the switch moved during the save (apply only while
+            # resolved True).
+            _stand_down = "switch_changed"
+        elif mode != "apply" and _sw is None:
+            _stand_down = "switch_changed"
+        elif mode != "apply" and _sw is True and zone_id in self._s10_rollout_zone_ids():
+            # A6: restore while ON only for a zone outside the rollout — the
+            # zone was re-added to the rollout during the save.
+            _stand_down = "rollout_readded"
+        elif zone_id not in self._zone_manager.zones:
+            # B3: the zone was removed from URA during the save.
+            _stand_down = "zone_removed"
+        else:
+            # B4: the skip matrix (unreadable / egress / person / S1 /
+            # borrow / AC reset) re-run right before the wire call.
+            _stand_down = self._s10_zone_skip_reason(zone_id, zone)
+        if _stand_down is not None:
+            _LOGGER.debug(
+                "S10 %s: zone %s stood down before the call (%s)",
+                mode, zone_id, _stand_down,
+            )
+            self._s10_set_record(zone_id, preset, mode, prev)
+            return
+
+        # No suppress() stamp: a profile edit is not a hold; the arrester
+        # ignores it (M4).
+        result = await strategy.set_preset_range(
+            self.hass, zone.climate_entity, preset, value[0], value[1],
+            gate=_s10_gate, zone_id=zone_id, site=site, reason=reason,
+            freeze_active=self._freeze_active, emit=emit_set_activity_setpoint,
+        )
+        status = result.status
+        if self._s10_records_gen != gen:
+            # D-LOW-2: a user toggle cleared the records during the call.
+            return
+
+        # 12 — record update, branching ONLY on `.status` (REV 5 F1).
+        if status == WriteStatus.APPLIED:
+            rec["writes"] = int(rec.get("writes") or 0) + 1
+            rec["last_write_iso"] = now.isoformat()
+            self._s10_set_record(zone_id, preset, mode, rec)
+            self._s10_note_outcome(
+                zone_id, preset, status="applied", reason=result.reason,
+                desired=value, mode=mode,
+            )
+            if result.reason == "possible_wrong_profile":
+                self._s10_ledger(
+                    "s10_possible_wrong_profile", zone_id, zone.climate_entity,
+                    f"s10_possible_wrong_profile zone={zone_id} preset={preset}",
+                    {"preset": preset, "value": value, "site": site},
+                )
+            _LOGGER.info(
+                "HVAC S10 %s: %s %s range %s-%s (%s)", mode, zone.zone_name,
+                preset, value[0], value[1], reason,
+            )
+            self.schedule_zone_state_save("s10_applied")
+        elif status == WriteStatus.SKIPPED_ALREADY_CORRECT:
+            # Success with ANY reason — no retry, no latch, no NM.
+            await self._s10_success(zone_id, preset, mode, rec, now)
+        elif status == WriteStatus.DEFERRED:
+            # Consumes the rate clock (stamp kept); no failure, no latch.
+            self._s10_note_outcome(
+                zone_id, preset, status="deferred", reason=result.reason, mode=mode,
+            )
+        elif status == WriteStatus.FAILED and result.reason == "emit_raised":
+            rec["failures"] = int(rec.get("failures") or 0) + 1
+            self._s10_set_record(zone_id, preset, mode, rec)
+            self._s10_note_outcome(
+                zone_id, preset, status="failed", reason=result.reason, mode=mode,
+            )
+            if rec["failures"] >= S10_PRESET_RANGE_UNCONFIRMED_LIMIT:
+                self._s10_latch(zone_id, zone, preset, mode, rec, "call_failed", value, strategy)
+            else:
+                self.schedule_zone_state_save("s10_failed")
+        else:
+            # FAILED for any other reason (e.g. Generic
+            # `preset_range_unsupported`): QUIET skip — undo the attempt
+            # stamp, no record, no failure count, no latch, no NM; one INFO
+            # per entity per process.
+            self._s10_set_record(zone_id, preset, mode, prev)
+            self.schedule_zone_state_save("s10_quiet_skip")
+            if zone.climate_entity not in self._s10_quiet_skip_logged:
+                self._s10_quiet_skip_logged.add(zone.climate_entity)
+                _LOGGER.info(
+                    "HVAC S10: %s cannot carry a preset range (%s); URA keeps "
+                    "the range itself", zone.climate_entity, result.reason,
+                )
+
+    @staticmethod
+    def _s10_original_differs(
+        strategy: Any, original: Any, value: list[float],
+    ) -> bool:
+        """Fix-up D-HIGH-1: True when the device original exists and is not
+        exactly what the adapter would put on the wire for ``value`` (Carrier
+        rounds half up, so 76 vs a desired 76.5 DIFFERS: the wire gets 77).
+        An adapter with no would-write (Generic) falls back to the requested
+        value. Any doubt -> True (capture the original: fail-safe)."""
+        if original is None:
+            return False
+        try:
+            _ww = getattr(strategy, "preset_range_would_write", None)
+            target = _ww(value[0], value[1]) if callable(_ww) else None
+            if target is None:
+                target = (value[0], value[1])
+            return (
+                float(original[0]) != float(target[0])
+                or float(original[1]) != float(target[1])
+            )
+        except Exception:  # noqa: BLE001
+            return True
+
+    async def _s10_success(
+        self, zone_id: str, preset: str, mode: str, rec: dict[str, Any],
+        now: datetime,
+    ) -> None:
+        """SKIPPED_ALREADY_CORRECT (any reason) or a matching view at the
+        limit. Apply: success; the write counter is RESET (operator ruling
+        A4, 2026-10-05) so a later drift gets a fresh budget — the latch
+        counts only consecutive non-sticking writes. Restore: confirms the
+        restore — snapshot deleted, one ledger row. A full read interval
+        since the last restore WRITE is guaranteed by the rate gate in
+        `_s10_write_one` (after any wire attempt the adapter is not invoked
+        again for S10_PRESET_RANGE_MIN_INTERVAL_S), so a confirming view is
+        never the guard-masked optimistic copy of our own write."""
+        rec["writes"] = 0
+        self._s10_set_record(zone_id, preset, mode, rec)
+        self._s10_note_outcome(zone_id, preset, status="skipped_already_correct", mode=mode)
+        if mode != "restore":
+            return
+        snap = (self._s10_snapshots.get(zone_id) or {}).pop(preset, None)
+        if not self._s10_snapshots.get(zone_id):
+            self._s10_snapshots.pop(zone_id, None)
+        self._s10_set_record(zone_id, preset, mode, None)
+        self._s10_set_record(zone_id, preset, "apply", None)
+        self._s10_ledger(
+            "s10_original_restored", zone_id, None,
+            f"s10_original_restored zone={zone_id} preset={preset}",
+            {"preset": preset, "original": snap},
+        )
+        self.schedule_zone_state_save("s10_original_restored")
+
+    def _s10_latch(
+        self, zone_id: str, zone: Any, preset: str, mode: str, rec: dict[str, Any],
+        latch_reason: str, value: list[float], strategy: Any,
+    ) -> None:
+        """Latch the (zone, preset, mode) record and send its ONE NM."""
+        rec["latched"] = True
+        rec["latch_reason"] = latch_reason
+        self._s10_set_record(zone_id, preset, mode, rec)
+        self._s10_note_outcome(zone_id, preset, status="latched", reason=latch_reason, mode=mode)
+        name = getattr(zone, "zone_name", zone_id)
+        lo, hi = int(round(value[0])), int(round(value[1]))
+        times = self._s10_times_word(S10_PRESET_RANGE_UNCONFIRMED_LIMIT)
+        app = self._s10_app_phrase(strategy)
+        if mode == "restore":
+            self._s10_notify(
+                title=f"Original range not restored: {name}",
+                message=(
+                    f"URA tried {times} to put {name} {preset} back to "
+                    f"{lo}–{hi}°F. Please set it in {app}."
+                ),
+                hazard_type="s10_restore_not_taking", severity="MEDIUM",
+            )
+        elif latch_reason == "call_failed":
+            self._s10_notify(
+                title=f"Thermostat not responding: {name}",
+                message=(
+                    f"URA could not reach the {name} thermostat to set its "
+                    f"{preset} range after {times.replace(' times', ' tries')}. "
+                    f"It has stopped trying until the range changes or Custom "
+                    f"Preset Ranges is turned off and on."
+                ),
+                hazard_type="s10_preset_range_call_failed", severity="MEDIUM",
+            )
+        else:
+            self._s10_notify(
+                title=f"Preset range not taking: {name}",
+                message=(
+                    f"URA set {name} {preset} to {lo}–{hi}°F {times}, but the "
+                    f"thermostat kept a different range. URA has stopped trying "
+                    f"until the range changes or Custom Preset Ranges is turned "
+                    f"off and on. Check that preset in {app}."
+                ),
+                hazard_type="s10_preset_range_not_sticking", severity="MEDIUM",
+            )
+        self.schedule_zone_state_save("s10_latched")
+
+    # ---- switch 01 resolution (§3.5, REV 3.1 F1, REV 3.2 R2, REV 5 F3/F8) --
+
+    def set_custom_ranges_enabled(self, value: bool, *, source: str) -> None:
+        """The ONLY writer of `_guest_mode_actuation_enabled`.
+
+        Sources: ``user`` (switch toggle), ``restore_entity`` (RestoreEntity
+        on/off), ``no_last_state_default`` (no / unavailable / unknown saved
+        state -> OFF), ``deferred_landing_<original>`` (the switch loaded
+        before the HVAC coordinator; landed on SIGNAL_HVAC_COORDINATOR_READY)
+        and ``unresolved_backstop`` (R2 timer).
+        """
+        value = bool(value)
+        prev = self._guest_mode_actuation_enabled
+        self._guest_mode_actuation_enabled = value
+        self._s10_resolved_source = source
+        # Fix-up (B5): `handle_cancelled_by` describes THIS resolution only —
+        # never a stale value left by an earlier reload/teardown cancel.
+        self._cpr_backstop_cancelled_by = None
+        if source != "unresolved_backstop":
+            self._cancel_cpr_resolution_backstop("resolved")
+        if prev is None:
+            self._s10_ledger(
+                "s10_switch_resolved", None, None,
+                f"s10_switch_resolved value={value} source={source}",
+                {
+                    "value": value, "source": source,
+                    "handle_cancelled_by": self._cpr_backstop_cancelled_by,
+                },
+            )
+        n = self._s10_snapshot_count()
+        if source == "user" and prev is not value:
+            # A user toggle is the latch discharge: clear every record,
+            # keep every snapshot (they are still the originals).
+            self._s10_records = {}
+            self._s10_records_gen += 1
+            self.schedule_zone_state_save("s10_user_toggle")
+            if value is False and n > 0:
+                self._s10_notify(
+                    title="Putting original ranges back",
+                    message=(
+                        "Custom Preset Ranges is off. Putting back the original "
+                        f"ranges on {n} presets as each zone next uses them."
+                    ),
+                    hazard_type="s10_restore_pending", severity="LOW",
+                )
+        elif source.endswith("no_last_state_default") and value is False and n > 0:
+            self._s10_default_off_nm(source)
+        elif source == "unresolved_backstop" and not self._cpr_backstop_nm_sent:
+            self._cpr_backstop_nm_sent = True
+            minutes = int(S10_SWITCH_RESOLUTION_TIMEOUT_S // 60)
+            self._s10_notify(
+                title="Custom Preset Ranges switch did not resolve",
+                message=(
+                    f"URA is treating it as off after {minutes} minutes. "
+                    "If you had it on, re-enable it now."
+                ),
+                hazard_type="s10_switch_unresolved_backstop", severity="LOW",
+            )
+
+    def _s10_default_off_nm(self, source: str) -> None:
+        """The default-OFF-after-restart NM + ledger row, at most once per
+        S10_DEFAULT_OFF_NM_GUARD_S and only with pending originals. Called at
+        resolution and again after rehydration (fix-up B2)."""
+        n = self._s10_snapshot_count()
+        if n <= 0:
+            return
+        last_iso = self._s10_meta.get("default_off_nm_iso")
+        age = self._s10_age_s(last_iso, dt_util.utcnow())
+        if age is not None and age < S10_DEFAULT_OFF_NM_GUARD_S:
+            return
+        self._s10_meta["default_off_nm_iso"] = dt_util.utcnow().isoformat()
+        self._s10_notify(
+            title="Custom Preset Ranges default is off after restart",
+            message=(
+                "URA is putting back the original ranges on "
+                f"{n} presets as each zone next uses them."
+            ),
+            hazard_type="s10_restart_default_off_restore_pending",
+            severity="LOW",
+        )
+        self._s10_ledger(
+            "s10_default_off_after_restart", None, None,
+            f"s10_default_off_after_restart snapshots={n} source={source}",
+            {"snapshots": n, "source": source},
+        )
+        self.schedule_zone_state_save("s10_default_off_nm")
+
+    def _arm_cpr_resolution_backstop(self) -> None:
+        """REV 5 F8: cancel-before-re-arm (unconditional on (re)setup), then
+        arm only while the switch is still unresolved."""
+        self._cancel_cpr_resolution_backstop("reload")
+        if self._guest_mode_actuation_enabled is not None:
+            return
+        self._cpr_resolution_backstop_handle = async_call_later(
+            self.hass, S10_SWITCH_RESOLUTION_TIMEOUT_S, self._cpr_backstop_fired,
+        )
+
+    def _cancel_cpr_resolution_backstop(self, by: str) -> None:
+        handle = self._cpr_resolution_backstop_handle
+        self._cpr_resolution_backstop_handle = None
+        if handle is None:
+            return
+        try:
+            handle()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("S10 backstop cancel raised", exc_info=True)
+        self._cpr_backstop_cancelled_by = by
+
+    @callback
+    def _cpr_backstop_fired(self, _now: Any = None) -> None:
+        """R2: the switch never resolved -> OFF (so restores can run)."""
+        self._cpr_resolution_backstop_handle = None
+        if self._guest_mode_actuation_enabled is None:
+            _LOGGER.warning(
+                "HVAC: Custom Preset Ranges switch did not resolve in %ss — "
+                "treating it as off", S10_SWITCH_RESOLUTION_TIMEOUT_S,
+            )
+            self.set_custom_ranges_enabled(False, source="unresolved_backstop")
+
+    def get_s10_diagnostics(self) -> dict[str, Any]:
+        """D6: per-zone S10 record + last outcome, and pending originals."""
+        by_zone: dict[str, Any] = {}
+        zones = set(self._s10_records) | set(self._s10_last_outcome)
+        for zid in sorted(zones):
+            out: dict[str, Any] = {}
+            for key, rec in (self._s10_records.get(zid) or {}).items():
+                preset, _, mode = key.partition("|")
+                last = (self._s10_last_outcome.get(zid) or {}).get(preset) or {}
+                out[preset if mode == "apply" else f"{preset}|{mode}"] = {
+                    "desired_low": (rec.get("value") or [None, None])[0],
+                    "desired_high": (rec.get("value") or [None, None])[1],
+                    "status": last.get("status"),
+                    "reason": last.get("reason"),
+                    "writes": rec.get("writes"),
+                    "failures": rec.get("failures"),
+                    "latched": rec.get("latched"),
+                    "last_write_iso": rec.get("last_write_iso"),
+                }
+            for preset, last in (self._s10_last_outcome.get(zid) or {}).items():
+                if preset not in out and f"{preset}|restore" not in out:
+                    out[preset] = {"status": last.get("status"), "reason": last.get("reason")}
+            if out:
+                by_zone[zid] = out
+        pending = {
+            zid: {p: dict(v) for p, v in d.items()}
+            for zid, d in self._s10_snapshots.items() if d
+        }
+        return {"preset_range_by_zone": by_zone, "originals_pending_restore": pending}
 
     @callback
     def _handle_house_state_changed(self, payload: Any) -> None:
@@ -5457,6 +6055,10 @@ class HVACCoordinator(BaseCoordinator):
                     self._cancel_exit_timer(_pz)
                     self._fast_path_queued.discard(_pz)
                     self._fp_exit_fired.pop(_pz, None)
+                    # HVAC Batch C (CPR U7): drop the zone's S10 state in
+                    # memory (the store rewrite below prunes the persisted
+                    # copy; pruning only one would resurrect it).
+                    self._s10_drop_zone(_pz)
                     # D5: arm re-checks of the pruned zone's rooms.
                     for _pr in (getattr(_pruned_zone_rooms, "get", lambda *_: [])(_pz) or []):
                         _eid = self._entry_id_for_room(_pr)
@@ -5512,6 +6114,17 @@ class HVACCoordinator(BaseCoordinator):
                     if deleted_id and zid == deleted_id and zid not in guard_spared_ids:
                         stored.pop(zid, None)
                         changed = True
+                # HVAC Batch C (CPR U7): the S10 side-key's per-zone entries.
+                _s10_blob = stored.get(S10_STATE_SIDE_KEY)
+                if (
+                    deleted_id and deleted_id not in guard_spared_ids
+                    and isinstance(_s10_blob, dict)
+                ):
+                    for _sub in ("snapshots", "records"):
+                        _d = _s10_blob.get(_sub)
+                        if isinstance(_d, dict) and deleted_id in _d:
+                            _d.pop(deleted_id, None)
+                            changed = True
                 if changed:
                     await self._zone_state_store.async_save(stored)
                     _LOGGER.info(
@@ -7218,6 +7831,8 @@ class HVACCoordinator(BaseCoordinator):
         # (the zone-state save), so no callback can fire mid-teardown.
         self._tearing_down = True
         self._teardown_fast_path()
+        # HVAC Batch C (REV 5 F8): the unresolved-switch backstop timer.
+        self._cancel_cpr_resolution_backstop("teardown")
 
         # Cancel periodic timer
         if self._decision_timer_unsub:

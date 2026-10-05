@@ -8204,6 +8204,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         from homeassistant.data_entry_flow import section
         from .domain_coordinators.hvac_const import (
             BASELINE_MIN_DEADBAND,
+            CONF_HVAC_S10_ROLLOUT_ZONE_IDS,
+            DEFAULT_HVAC_S10_ROLLOUT_ZONE_IDS,
             CONF_HVAC_BASELINE_SUMMER_HOME_COOL,
             CONF_HVAC_BASELINE_SUMMER_HOME_HEAT,
             CONF_HVAC_BASELINE_SUMMER_SLEEP_COOL,
@@ -8317,6 +8319,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 # Save: merge flat values (section-extracted) into entry.options
                 save_vals = {k: v for k, v in _flat.items()
                              if not k.startswith("_") and k not in ("summer_section", "shoulder_section", "winter_section")}
+                # HVAC Batch C REV 5 F6: Custom Preset Ranges zones — a
+                # sorted list of zone ids (empty = none; no "all" value).
+                if CONF_HVAC_S10_ROLLOUT_ZONE_IDS in save_vals:
+                    _raw_z = save_vals[CONF_HVAC_S10_ROLLOUT_ZONE_IDS] or []
+                    if isinstance(_raw_z, str):
+                        _raw_z = [_raw_z]
+                    save_vals[CONF_HVAC_S10_ROLLOUT_ZONE_IDS] = sorted(
+                        {str(z).strip() for z in _raw_z if str(z).strip()}
+                    )
                 _LOGGER.info(
                     "HVAC baseline presets saved (section layout) to CM entry.options",
                 )
@@ -8356,7 +8367,41 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 )
             return vol.Schema(row_dict)
 
+        # HVAC Batch C REV 5 F6 (rung 2): zones Custom Preset Ranges may
+        # edit. Options = the HVAC coordinator's discovered zones (plus any
+        # stored id not currently discovered, so a save never drops it);
+        # free text allowed so an id can be entered before discovery.
+        _rollout_current = self._config_entry.options.get(
+            CONF_HVAC_S10_ROLLOUT_ZONE_IDS, list(DEFAULT_HVAC_S10_ROLLOUT_ZONE_IDS),
+        ) or []
+        if isinstance(_rollout_current, str):
+            _rollout_current = [_rollout_current]
+        _zone_opts: dict[str, str] = {}
+        try:
+            _mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            _hvac = _mgr.coordinators.get("hvac") if _mgr is not None else None
+            _zones = getattr(getattr(_hvac, "zone_manager", None), "zones", {}) or {}
+            for _zid, _z in _zones.items():
+                _zone_opts[str(_zid)] = f"{getattr(_z, 'zone_name', _zid)} ({_zid})"
+        except Exception:  # noqa: BLE001
+            _zone_opts = {}
+        for _zid in _rollout_current:
+            _zone_opts.setdefault(str(_zid), str(_zid))
+
         data_schema = vol.Schema({
+            vol.Optional(
+                CONF_HVAC_S10_ROLLOUT_ZONE_IDS,
+                default=list(_rollout_current),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"value": k, "label": v} for k, v in sorted(_zone_opts.items())
+                    ],
+                    multiple=True,
+                    custom_value=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             # v4.7.4 D4: 3 season sections (collapsed: False — open by default so user sees all)
             vol.Optional("summer_section"): section(
                 _row_schema(_SUMMER_ROWS), {"collapsed": False}

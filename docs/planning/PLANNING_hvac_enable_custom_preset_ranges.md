@@ -149,6 +149,41 @@
 ---
 
 
+## Builder notes (2026-10-05, branch `feature/hvac-batch-c-cpr-build`) — what the build did where the plan was silent
+
+Read-first attestation: `HVAC_ARCHITECTURE_STATE_OF_PLAY.md` read completely; nothing in its §10 is re-asserted.
+Branch note: `feature/hvac-batch-c-cpr` already existed (a stale plan-only branch at `19aaa76d2`, checked out in another
+worktree), so the build is on `feature/hvac-batch-c-cpr-build` off develop `0ef1f1675`.
+
+- **B1 (F9 — `app_name`).** P2 §4.5's trimmed `ProfileCapabilities` field list does NOT contain `app_name`, and no
+  `app_name` exists in source. Built as a plain strategy CLASS attribute (`GenericStrategy.app_name = None`,
+  `CarrierStrategy.app_name = "Bryant"`), not a capabilities field, so the frozen field-set test is untouched and P2 adds
+  `"ecobee"` on its subclass. **Question for the operator/P2:** confirm the attribute (not a capabilities field) is the
+  intended home.
+- **B2 (await gap, INV-CPR-REV5 snapshot clause).** The write-ahead save is an `await` between step 9 (snapshot check)
+  and the adapter call, so the view can change in between. S10 re-checks `preset_range_original` synchronously right
+  before the call and stands down if an un-captured differing original now exists. `CarrierStrategy.set_preset_range`
+  also DEFERs (`range_unreadable`) when the view has no low/high, so the adapter never edits a profile whose original
+  cannot be captured. Test `test_s10_snapshot_await_gap_never_edits_without_original`.
+- **B3 (rate-clock semantics for no-wire outcomes).** REV 5 F1 says DEFERRED "consumes the rate clock" while §6.2 said
+  roll it back; built: every attempt stamps `last_attempt_iso` (kept on DEFERRED / SKIPPED); a same-value re-attempt
+  waits `S10_PRESET_RANGE_MIN_INTERVAL_S` only after a WIRE attempt (writes or failures > 0), otherwise the 600 s
+  spacing. A Generic `preset_range_unsupported` quiet skip rolls the stamp back (no record left).
+- **B4 (latch read).** "Due retry at the limit and the HA view still differs" reads the view through the adapter's
+  `preset_range_original` (Carrier = HA view of P while confirmed on P); `None` = cannot tell = no call, no latch.
+- **B5 (restore confirm).** The separate "≥ MIN_INTERVAL since the last restore write" check is enforced by the rate
+  gate itself (an equivalent mutant as a second check, removed).
+- **B6 (rollout field home).** Rung-2 field `hvac_s10_rollout_zone_ids` lives on the Baseline Presets options step
+  (multi-select of discovered HVAC zones, free text allowed, saved as a sorted list; default empty). Read live each
+  tick from the coordinator-manager entry.
+- **B7 (user OFF NM).** The "Putting original ranges back" NM is sent only when at least one original is pending.
+- **B8 (F8 anchor).** `manager.py` is unchanged: the cancel-before-re-arm runs at the top of
+  `_arm_cpr_resolution_backstop`, which `async_setup` calls on every (re)setup — the manager's re-enable path re-runs
+  `async_setup`. The boot-settle condition of R2 is not separately checked (the backstop only resolves an unresolved
+  flag to OFF; the restore pass itself runs on full cycles, which wait for boot-settle anyway).
+- **Not done here:** D0 items 1–3 (probe `scripts/probes/hvac_preset_profile_probe.py`) — a dispatch precondition, not
+  a build deliverable; README `README_v5.103.x.md` (version not yet assigned; deploy HELD).
+
 ## REV 4 re-check (2026-10-05) — authoritative over REV 3.3 wherever they disagree
 
 **Reviewer:** ura-planner, operator-requested re-check in parallel with ecobee W1-C P2 work. **No build yet; no commit.** Base of this re-check: `develop` HEAD on `feature/census-inputs-first` (not a CPR branch; ecobee probe in flight). The REV 3.3 anchor base was `8a4619b32` (post v5.103.36). Deltas since: v5.103.37 (CM outage incident surfaced on 10-03) and v5.103.38 (README records the live CPR-switch re-enable bug and names it as "fix tracked in Batch C"). W1-C P2 (ecobee) is in flight on a separate branch; CPR must slot after or alongside it without creating ordering surprises.
@@ -853,6 +888,8 @@ The observation-mode gate at the call site (`hvac.py:3849`) is unchanged. An abs
 **REV 3.1 F2 NOTE (defence in depth):** a zone that is both interrupt-latched and on a named preset is not reachable — `latch_level_check()` runs at `hvac.py:2226` before this pass and level-discharges on any readable named-non-manual state (`hvac_override.py:1308-1318`). If future refactoring produces that shape, add a skip using `OverrideArrester.interrupt_latched(entity_id)` — grep first, do not invent a coordinator predicate. Sole current reader: `hvac_predict.py:1281-1291`.
 
 ### 3.3 `CarrierStrategy.set_preset_range` (brand rules)
+
+*Ecobee's `set_preset_range` shape, store-first semantics and CPR-OFF restore are specified in `PLANNING_hvac_w1c_p2_ecobee.md` §4.9; CPR consumes it via the ANY-reason APPLIED/SKIPPED/DEFERRED/FAILED rule in REV 5 F1.*
 
 **P1. Both feeds name `preset`.** `obs.preset_mode == preset and obs.hold_activity == preset`; else `DEFERRED("activity_not_confirmed")`. Reasoning as REV 3 (edited profile equals `P` regardless; the check exists to avoid writing into an unstable hold state during the 5-min post-write guard).
 
