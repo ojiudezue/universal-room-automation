@@ -2,15 +2,15 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-05T02:10:43-05:00_ - _Data commit: `839ada105803`_ - _last_reconciled: 2026-10-03_
+_Generated: 2026-10-05T02:16:56-05:00_ - _Data commit: `c1987e6a7906`_ - _last_reconciled: 2026-10-03_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 6 |
-| 🔬 Investigating | 1 |
+| 📥 Inbox | 4 |
+| 🔬 Investigating | 2 |
 | 🧭 Pre-planning | 9 |
 | 📝 Planned | 13 |
 | 🔨 In progress | 1 |
@@ -19,9 +19,9 @@ _Generated: 2026-10-05T02:10:43-05:00_ - _Data commit: `839ada105803`_ - _last_r
 | ⏳ Waiting on me (Claude) | 2 |
 | 🚀 Shipped (organic open) | 13 |
 | 🅿️ Parked | 77 |
-| ✅ Done | 276 |
+| ✅ Done | 277 |
 
-## 📥 Inbox (6)
+## 📥 Inbox (4)
 _raw capture_
 
 ### `CENSUS-GROUND-TRUTH-CSV-FIX-1` - The 10-03 census ground-truth fixture still carries truth the operator has since corrected — _#1 · WSJF 6.5 · v5 tc4 u4 /e2_
@@ -37,20 +37,7 @@ _created 2026-10-05 04:40 · initial_
 - **Forensic keys (1):**
   - `sweep_2026_10_05`: No fixture/CSV card on the board. NEW.
 
-### `CENSUS-SHUTDOWN-AWAY-FENCE-1` - The house can flip to AWAY during an HA shutdown or boot with people at home — _#2 · WSJF 4.0 · v6 tc4 u2 /e3_
-thread: **presence** - status: **inbox**
-_created 2026-10-05 04:40 · initial_
-- **Problem / Solution:**
-  - Problem: during the 10-03 party, around the 16:00 restart, the presence logic set the house to AWAY while it was full, apparently from the census reading empty while HA was stopping and starting. Solution: trace which branch set AWAY, th...
-- **Origin:** 2026-10-04 - AUDIT_census_subsystem_2026_10_04.md R5 ("Trace and fence the shutdown-window AWAY"); listed as "16:00 boot AWAY fence" in the 10-04 resume memo
-- **Why:** A false AWAY in an occupied house can drive HVAC and security actions; memory feedback_no_restart_during_sleep records the same restart-driven house-state hazard.
-- **Next:** Measure: read the house_state transitions + presence infer() reasons around 10-03 16:00-17:30 CDT from the URA DB to pin the branch, then plan the fence (audit R5 bullets).
-- **Tags:** tier-1, measure-before-build
-- **Refs:** docs/planning/AUDIT_census_subsystem_2026_10_04.md
-- **Forensic keys (1):**
-  - `sweep_2026_10_05`: Board grep AWAY fence / boot away: none; restart storm card ADJACENT. NEW.
-
-### `CENSUS-PATIO-THROUGH-GLASS-1` - The family-room camera counts people on the covered patio through the glass as being inside — _#3 · WSJF 4.0 · v4 tc2 u2 /e2_
+### `CENSUS-PATIO-THROUGH-GLASS-1` - The family-room camera counts people on the covered patio through the glass as being inside — _#2 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **census** - status: **inbox**
 _created 2026-10-05 04:40 · initial_
 - **Problem / Solution:**
@@ -63,20 +50,7 @@ _created 2026-10-05 04:40 · initial_
 - **Forensic keys (1):**
   - `sweep_2026_10_05`: Board grep patio: 11 hits, all exterior pool/patio cameras, none on this interior through-glass count. NEW.
 
-### `EGRESS-BLE-ENTRY-ATTACH-1` - Arrivals through a door are never matched to the resident whose phone just arrived (the BLE backfill only handles exits) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5_
-thread: **census** - status: **inbox**
-_created 2026-10-05 04:40 · initial_
-- **Problem / Solution:**
-  - Problem: when residents come home, the door crossing is logged with no name even though their phones report arriving within a few minutes - on 10-03 the 23:25-23:31 return produced 0 of 12 named rows despite two residents phone arrivals ...
-- **Origin:** 2026-10-04 - PLANNING_census_inputs_first.md R2.3 item 3 ("new card, not this cycle"); listed as to-mint in the 10-04 resume memo
-- **Why:** Unnamed arrivals look like guests to the door tally, which is one of the inputs the estimator replay failed on.
-- **Next:** Measure first: count unnamed entry crossings with a resident BLE home-edge within +/-300 s over the last 7 days (person_entry_exit_events vs recorder), then plan against find_unnamed_exit_crossings (camera_census.py ~4395-4430 / entry ad...
-- **Tags:** tier-2, measure-before-build
-- **Refs:** docs/planning/PLANNING_census_inputs_first.md
-- **Forensic keys (1):**
-  - `sweep_2026_10_05`: Board grep EGRESS-*: EGRESS-EXIT-IDENTITY-BACKFILL-1 is ADJACENT (exit side only). NEW.
-
-### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#5 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#3 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **census** - status: **inbox**
 _created 2026-10-05 04:40 · initial_
 - **Problem / Solution:**
@@ -89,7 +63,7 @@ _created 2026-10-05 04:40 · initial_
 - **Forensic keys (1):**
   - `sweep_2026_10_05`: Board census/egress cards swept; GAP-A-CENSUS-HOLE-1 ADJACENT. NEW.
 
-### `EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1` - On the EV manager path, grid charging may be switched on before the EV pause lands (review finding D-MED-2 from EC p1) — _#6 · WSJF 1.4 · v6 tc3 u2 /e8_
+### `EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1` - On the EV manager path, grid charging may be switched on before the EV pause lands (review finding D-MED-2 from EC p1) — _#4 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **energy** - status: **inbox**
 _created 2026-10-05 04:40 · initial_
 - **Problem / Solution:**
@@ -102,10 +76,24 @@ _created 2026-10-05 04:40 · initial_
 - **Forensic keys (1):**
   - `sweep_2026_10_05`: Board grep D-MED-2 hits are other cycles (arrester comfort delay, DP drain target). NEW.
 
-## 🔬 Investigating (1)
+## 🔬 Investigating (2)
 _measuring; truth not yet known_
 
-### `ENVOY-STREAM-AB-48H-1` - Envoy MQTT stream re-enabled for a 48 h A/B (does it load the Envoy, and does it give a trustworthy local SOC during dropouts?) — _#1 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+### `CENSUS-SHUTDOWN-AWAY-FENCE-1` - After an HA restart the house can come back up as AWAY with people home, and stay AWAY for an hour — _#1 · WSJF 4.3 · v6 tc5 u2 /e3_
+thread: **presence** - status: **investigating**
+_created 2026-10-05 04:40 · updated 2026-10-05 05:00 · initial_
+- **Problem / Solution:**
+  - Problem: during the 10-03 party, around the 16:00 restart, the presence logic set the house to AWAY while it was full, apparently from the census reading empty while HA was stopping and starting. Solution: trace which branch set AWAY, th...
+- **Origin:** 2026-10-04 - AUDIT_census_subsystem_2026_10_04.md R5 ("Trace and fence the shutdown-window AWAY"); listed as "16:00 boot AWAY fence" in the 10-04 resume memo
+- **Why:** A false AWAY in an occupied house can drive HVAC and security actions; memory feedback_no_restart_during_sleep records the same restart-driven house-state hazard.
+- **Next:** Measure (me): find which inference branch produced AWAY at boot - add a one-shot DB/recorder read of the presence census + person states at 20:57-21:00Z 10-03 (core logs for that boot are rotated away), and check every boot in the last 3...
+- **Tags:** tier-1, measure-before-build
+- **Refs:** docs/planning/AUDIT_census_subsystem_2026_10_04.md
+- **Forensic keys (2):**
+  - `measured_2026_10_05_overnight`: MECHANISM NARROWED - it is BOOT, not shutdown. HA recorder: sensor.ura_presence_coordinator_presence_house_state (and the CM mirror) went home_day -> away at 20:57:56Z (15:57:56 CDT), the FIRST recorder write after a 4-min HA gap (sensor...
+  - `sweep_2026_10_05`: Board grep AWAY fence / boot away: none; restart storm card ADJACENT. NEW.
+
+### `ENVOY-STREAM-AB-48H-1` - Envoy MQTT stream re-enabled for a 48 h A/B (does it load the Envoy, and does it give a trustworthy local SOC during dropouts?) — _#2 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **energy** - status: **investigating**
 _created 2026-10-03 13:05_
 - **Why:** Operator 2026-10-03 "yes do it". Started add-on 13e68335_envoy_to_mqtt_json 13:03 CDT. Baseline week (stream off since 09-30): 165 SOC dropouts/22.7 per day; today since 00:58 reload: 0. Prior evidence (09-29, entry 167): stream on corre...
@@ -1090,15 +1078,16 @@ _created 2026-10-05 · updated 2026-10-05 03:00_
 
 ### `CENSUS-INPUTS-FIRST-1` - Fix the census inputs (door events, resident attribution) before building the hybrid occupancy estimator, then re-run the 10-03 replay — _#2 · WSJF 2.1 · v7 tc4 u6 /e8_
 thread: **census** - status: **waiting_me** - approval: **explicit**
-_created 2026-10-05 04:40 · refined_
+_created 2026-10-05 04:40 · updated 2026-10-05 05:40 · refined_
 - **Problem / Solution:**
   - Problem: the house head-count estimator we designed failed its replay test on 10-03, not because its formula is wrong but because the data fed into it is wrong - residents walking in and out (porch cleaning, two people leaving in one car...
 - **Origin:** 2026-10-03 - Operator ruling on the D0-REPLAY NO-GO; plan rev 2 written 2026-10-04 (resume memo project_session_pickup_2026_10_04)
 - **Why:** CAPTURE MISS fixed by the 10-05 overnight pass: the whole inputs-first arc lived only in the 10-04 resume memo and two planning docs; no board card existed (grep of kanban.data.yaml for inputs_first / census_occupancy_estimator / ESTIMAT...
-- **Next:** Me: run the Tier 2-DB plan re-review of PLANNING_census_inputs_first.md rev 2 (prior-art greps re-run; door-ledger fixes: stem _2 bug camera_census.py:873, per-door dedup/neighbours, peak_person_count column, asymmetric BLE window), fix ...
+- **Next:** Me: ura-planner applies the 10-05 plan-review fixes in PLANNING_census_inputs_first.md (rev 3: CRITICAL-1 unset-neighbour fallback byte-identical, HIGH-1 consumer table, HIGH-2 REUSE the existing suffix normalisers + all 5 _extract_camer...
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Refs:** docs/planning/PLANNING_census_inputs_first.md; docs/planning/PLANNING_census_occupancy_estimator.md; docs/planning/AUDIT_census_estimator_replay_2026_10_03_hybrid.md; docs/planning/AUDIT_census_subsystem_2026_10_04.md; docs/planning/AUDIT_census_footage_ground_truth_2026_10_03.md; memory project_session_pickup_2026_10_04
-- **Forensic keys (1):**
+- **Forensic keys (2):**
+  - `plan_review_2026_10_05_overnight`: PLAN REVIEW (Tier 2-DB, one adversarial pass, ura-reviewer, read-only on develop) -> PLAN-FIX-REQUIRED: CRITICAL-1 an unset/unmapped CONF_DOOR_INTERIOR_NEIGHBOURS makes every crossing AMBIGUOUS, and AMBIGUOUS crossings skip the ledger wr...
   - `sweep_2026_10_05`: Board + BACKLOG + planning/AUDIT surfaces swept for census estimator / inputs-first: no card; CENSUS-ACCURACY-1 (pre_planning) is ADJACENT (interior decay/hysteresis), not a duplicate. NEW.
 
 ## 🚀 Shipped (organic open) (13)
@@ -2331,8 +2320,23 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (276)
+## ✅ Done (277)
 _closed, evidence in refs_
+
+### `EGRESS-BLE-ENTRY-ATTACH-1` - (REFUTED premise) Arrivals through a door are never matched to the resident whose phone just arrived — _WSJF 2.0 · v5 tc3 u2 /e5_
+thread: **census** - status: **done**
+_created 2026-10-05 04:40 · updated 2026-10-05 05:35 · refined_
+- **Problem / Solution:**
+  - Problem: when residents come home, the door crossing is logged with no name even though their phones report arriving within a few minutes - on 10-03 the 23:25-23:31 return produced 0 of 12 named rows despite two residents phone arrivals ...
+- **Origin:** 2026-10-04 - PLANNING_census_inputs_first.md R2.3 item 3 ("new card, not this cycle"); listed as to-mint in the 10-04 resume memo
+- **Why:** Unnamed arrivals look like guests to the door tally, which is one of the inputs the estimator replay failed on.
+- **Next:** None - closed; the real defect is the _2 camera-stem bug inside CENSUS-INPUTS-FIRST-1 D1. The 7-day measurement on this card is that D1's acceptance metric.
+- **Tags:** tier-2, measure-before-build
+- **Refs:** docs/planning/PLANNING_census_inputs_first.md
+- **Forensic keys (3):**
+  - `refuted_2026_10_05_overnight`: REFUTED-but-fertile (same night it was minted from the 10-04 memo). The premise 'the BLE backfill only handles exits / entries have no attach' is WRONG: entry-side BLE attach already ships - camera_census.py:4497 _resolve_ble_legs docstr...
+  - `measured_2026_10_05_overnight`: REAL (measured, URA DB + HA recorder, 7 days to 10-05 05:00Z). person_entry_exit_events (timestamps are UTC - database.py:4057 datetime.utcnow()): entries 198 = 45 named + 153 unnamed; exits 164 = 36 named + 128 unnamed. Unnamed entry ro...
+  - `sweep_2026_10_05`: Board grep EGRESS-*: EGRESS-EXIT-IDENTITY-BACKFILL-1 is ADJACENT (exit side only). NEW.
 
 ### `SOLAR-FOLLOW-LOCAL-GRID-SOURCE-1` - Solar-following car charging steers off a grid reading that lags by a minute — point it at the new fast (~5-6s) local reading instead — _WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **energy** - status: **done** - approval: **explicit**

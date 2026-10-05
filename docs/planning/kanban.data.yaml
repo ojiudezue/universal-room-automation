@@ -30689,11 +30689,12 @@ cards:
   next: 'DO: place proxies in that order (Foyer first); assign areas in HA. ANSWER: which room is the unassigned "Screek BP1_B" scanner in -> I set its area. (Jaya scanner_areas fix RETRACTED 2026-10-05: person_coordinator.py:983-1003 maps the room''s own area directly regardless of scanner_areas; the override only ADDS the bathroom scanners (Tier 2, weight 0.6, needs motion corroboration). Borrowing is intended and correct; adding jaya_bedroom would change nothing.)'
   sweep_2026_10_05: 'ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> proxies are the right path.'
 - id: CENSUS-INPUTS-FIRST-1
+  plan_review_2026_10_05_overnight: "PLAN REVIEW (Tier 2-DB, one adversarial pass, ura-reviewer, read-only on develop) -> PLAN-FIX-REQUIRED: CRITICAL-1 an unset/unmapped CONF_DOOR_INTERIOR_NEIGHBOURS makes every crossing AMBIGUOUS, and AMBIGUOUS crossings skip the ledger write (transit_validator.py:1873-1886), census register/evict (:1835), arrival notifications (:1807) and identity (:1235) - on Wigton or before the field is filled, door logging would silently stop; fix = unset map falls back to today's all-interior list. HIGH-1 consumer table wrong (AMBIGUOUS rows never exist; BLE entry admission is an in-memory leg cache camera_census.py:4497; persons sensors read the DB only at restore sensor.py:4559). HIGH-2 stem fix must REUSE _strip_suffix/_strip_disambiguation_suffix (camera_census.py:712-720) / camera_resolver._has_any_suffix_stripped (:317), _active_count_2 does not exist, _person_count_2 missing, 5 callers of _extract_camera_stem not 1 (camera_census.py:797, transit_validator.py:1242, :1258, :1975). HIGH-3 entry BLE attach already ships (verified by me; EGRESS-BLE-ENTRY-ATTACH-1 closed REFUTED with DB evidence: 0/45 named entries from _2 cameras vs 75/153 unnamed). HIGH-4 INV-INPUTS never restated after Rev 2 -> not falsifiable. MED: peak_person_count migration/sampling/no reader (Bug Class #53); CONF_MAIN_ENTRY_DOOR has no consumer this cycle; options-flow shape unspecified; 30 s door dedup round-trip loss. LOW: OP-1 blocks only D2/D4; fixture naming; REUSE table not updated."
   title: Fix the census inputs (door events, resident attribution) before building the hybrid occupancy estimator, then re-run the 10-03 replay
   thread: census
   status: waiting_me
   created: '2026-10-05 04:40'
-  updated: '2026-10-05 04:40'
+  updated: "2026-10-05 05:40"
   refinement_status: refined
   approval: explicit
   approved_by: 'operator 2026-10-03 ("Fix census INPUTS before building the hybrid estimator, then re-run D0-REPLAY")'
@@ -30712,7 +30713,7 @@ cards:
   - 'Read docs/Coordinator/IDENTITY_FUSION_CAMERAS_MANUAL.md before any change (canonical for this domain).'
   - 'Rev 2: D3 (interior over-count) DROPPED - probe showed live census read 3; INV-INPUTS (c) replaced by a peak_person_count column.'
   - 'R2.6/OP-1 timeline confirmation is PENDING with the operator (probe trackers suggest ~12:13 = Ezinne, operator+Jaya ~13:55).'
-  next: 'Me: run the Tier 2-DB plan re-review of PLANNING_census_inputs_first.md rev 2 (prior-art greps re-run; door-ledger fixes: stem _2 bug camera_census.py:873, per-door dedup/neighbours, peak_person_count column, asymmetric BLE window), fix findings in the plan, then build. OP-1 timeline confirmation can ride in parallel.'
+  next: "Me: ura-planner applies the 10-05 plan-review fixes in PLANNING_census_inputs_first.md (rev 3: CRITICAL-1 unset-neighbour fallback byte-identical, HIGH-1 consumer table, HIGH-2 REUSE the existing suffix normalisers + all 5 _extract_camera_stem callers, HIGH-3 entry attach is shipped -> D1 acceptance, HIGH-4 consolidated INV-INPUTS-R2, MEDs/LOWs), then a short re-verify of the fixed sections, then the Tier 2-DB build (D1 is NOT blocked by OP-1; OP-1 gates only D2/D4 scoring)."
   refs: [docs/planning/PLANNING_census_inputs_first.md, docs/planning/PLANNING_census_occupancy_estimator.md, docs/planning/AUDIT_census_estimator_replay_2026_10_03_hybrid.md, docs/planning/AUDIT_census_subsystem_2026_10_04.md, docs/planning/AUDIT_census_footage_ground_truth_2026_10_03.md, memory project_session_pickup_2026_10_04]
   links:
     related: [CENSUS-ACCURACY-1, EGRESS-BLE-ENTRY-ATTACH-1, CENSUS-ATHOME-RESIDENT-CORROBORATOR-1, CENSUS-GROUND-TRUTH-CSV-FIX-1, CENSUS-PATIO-THROUGH-GLASS-1]
@@ -30720,12 +30721,18 @@ cards:
     context: 'Parent of the inputs-first follow-ups minted 10-05 from the 10-04 memo; CENSUS-ACCURACY-1 is the older interior-accuracy card (adjacent, not merged: different surface - decay vs guest hysteresis). The AWAY fence is sequenced after this cycle per the memo.'
   sweep_2026_10_05: 'Board + BACKLOG + planning/AUDIT surfaces swept for census estimator / inputs-first: no card; CENSUS-ACCURACY-1 (pre_planning) is ADJACENT (interior decay/hysteresis), not a duplicate. NEW.'
 - id: EGRESS-BLE-ENTRY-ATTACH-1
-  title: Arrivals through a door are never matched to the resident whose phone just arrived (the BLE backfill only handles exits)
+  refuted_2026_10_05_overnight: "REFUTED-but-fertile (same night it was minted from the 10-04 memo). The premise 'the BLE backfill only handles exits / entries have no attach' is WRONG: entry-side BLE attach already ships - camera_census.py:4497 _resolve_ble_legs docstring 'v1 = ENTRY-ONLY' (arriving leg admitted when it leads the crossing by 0..BLE_EGRESS_ENTRY_LEAD_S=180 s), called from transit_validator.py:1363. Why arrivals still go unnamed: transit_validator.py:1242-1245 returns no_leg when _extract_camera_stem(egress_camera) is None, BEFORE the BLE legs are read, and camera_census.py:873 strips only _person_occupancy/_person_detected/_person_count/_person, so every Frigate2 _2 entity has no stem. Measured (URA DB, 7 d): 0 of 45 NAMED entry rows came from a _2 camera, while 75 of 153 UNNAMED entry rows did. Found by the CENSUS-INPUTS-FIRST-1 plan review (HIGH-3), confirmed in source + DB. The fix is D1's stem normalisation (REUSE _strip_suffix/_strip_disambiguation_suffix), already in the parent plan; acceptance = re-run the 13-of-59 matched-cluster count after D1 ships."
+  links:
+    superseded_by: CENSUS-INPUTS-FIRST-1
+    related: [EGRESS-EXIT-IDENTITY-BACKFILL-1]
+    context: 'Premise refuted 10-05; the work lives in the parent D1 camera-stem fix. EGRESS-EXIT-IDENTITY-BACKFILL-1 is the exit-side sibling.'
+  measured_2026_10_05_overnight: "REAL (measured, URA DB + HA recorder, 7 days to 10-05 05:00Z). person_entry_exit_events (timestamps are UTC - database.py:4057 datetime.utcnow()): entries 198 = 45 named + 153 unnamed; exits 164 = 36 named + 128 unnamed. Unnamed entry rows collapse to 59 crossings (120 s clustering; several cameras per door). 13 of those 59 (22%) have a resident person.* not_home->home edge within +/-300 s - i.e. ~2 nameable arrivals/day the entry-side backfill could attribute. Seen from the residents side: 17 of 35 arrival edges (49%) have an unnamed entry crossing within 300 s. Caveat: person edges include tracker blips (one 1 s bermuda dip seen 10-04), so the plan must reuse the exit sides admissible-tracker guard. Benefit is moderate (~2 crossings/day), not the 0/12 headline alone."
+  title: "(REFUTED premise) Arrivals through a door are never matched to the resident whose phone just arrived"
   thread: census
-  status: inbox
+  status: "done"
   created: '2026-10-05 04:40'
-  updated: '2026-10-05 04:40'
-  refinement_status: initial
+  updated: "2026-10-05 05:35"
+  refinement_status: "refined"
   tags: [tier-2, measure-before-build]
   rank: {value: 5, time_criticality: 3, effort: 5}
   problem_solution:
@@ -30735,12 +30742,8 @@ cards:
      looks at departures. Solution: add the arrival side to the same backfill, with its own time window.'
   origin: {date: '2026-10-04', gist: 'PLANNING_census_inputs_first.md R2.3 item 3 ("new card, not this cycle"); listed as to-mint in the 10-04 resume memo'}
   why: 'Unnamed arrivals look like guests to the door tally, which is one of the inputs the estimator replay failed on.'
-  next: 'Measure first: count unnamed entry crossings with a resident BLE home-edge within +/-300 s over the last 7 days (person_entry_exit_events vs recorder), then plan against find_unnamed_exit_crossings (camera_census.py ~4395-4430 / entry admission ~4498-4555).'
+  next: "None - closed; the real defect is the _2 camera-stem bug inside CENSUS-INPUTS-FIRST-1 D1. The 7-day measurement on this card is that D1's acceptance metric."
   refs: [docs/planning/PLANNING_census_inputs_first.md]
-  links:
-    parent: CENSUS-INPUTS-FIRST-1
-    related: [EGRESS-EXIT-IDENTITY-BACKFILL-1]
-    context: 'EGRESS-EXIT-IDENTITY-BACKFILL-1 is the exit-side producer this would mirror (REUSE its shape).'
   sweep_2026_10_05: 'Board grep EGRESS-*: EGRESS-EXIT-IDENTITY-BACKFILL-1 is ADJACENT (exit side only). NEW.'
 - id: CENSUS-ATHOME-RESIDENT-CORROBORATOR-1
   title: A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor
@@ -30790,14 +30793,15 @@ cards:
     context: 'The parent re-runs the replay against this fixture.'
   sweep_2026_10_05: 'No fixture/CSV card on the board. NEW.'
 - id: CENSUS-SHUTDOWN-AWAY-FENCE-1
-  title: The house can flip to AWAY during an HA shutdown or boot with people at home
+  rank: {"value": 6, "time_criticality": 5, "effort": 3}
+  measured_2026_10_05_overnight: "MECHANISM NARROWED - it is BOOT, not shutdown. HA recorder: sensor.ura_presence_coordinator_presence_house_state (and the CM mirror) went home_day -> away at 20:57:56Z (15:57:56 CDT), the FIRST recorder write after a 4-min HA gap (sensor.frigate_uptime_2 rows stop 20:53:44, resume 20:57:56; Frigate kept counting, so HA restarted, not the cameras). AWAY then held for 62 min with the party in the house, and cleared only after the NEXT restart (gap 21:55:02-21:59:09Z): away -> arriving 21:59:55 and arriving -> home_day 22:00:56, both trigger=deferred_retry (ura_activity_log). No presence house_state_change row was written for the boot-time home_day -> away at all (ura_activity_log 18:00-22:05Z has only the two recovery rows) - the boot path sets state without the transition log. Harm in that hour was limited: no hvac preset_change / climate_write and no security rows 20:57-21:56Z; rooms kept running lights normally (occupancy entry/exit 40 rows). Open: why boot inferred away, why no exit for 62 min while rooms reported occupancy, and whether this repeats at other boots. Core logs for that boot are gone (journald holds ~4 h, see RECORDER-BLOAT-LOGFLOOD-1)."
+  title: "After an HA restart the house can come back up as AWAY with people home, and stay AWAY for an hour"
   thread: presence
-  status: inbox
+  status: "investigating"
   created: '2026-10-05 04:40'
-  updated: '2026-10-05 04:40'
+  updated: "2026-10-05 05:00"
   refinement_status: initial
   tags: [tier-1, measure-before-build]
-  rank: {value: 6, time_criticality: 4, effort: 3}
   problem_solution:
   - 'Problem: during the 10-03 party, around the 16:00 restart, the presence logic set the house to AWAY while it
      was full, apparently from the census reading empty while HA was stopping and starting. Solution: trace which
@@ -30805,7 +30809,7 @@ cards:
      when fresh indoor occupancy contradicts it.'
   origin: {date: '2026-10-04', gist: 'AUDIT_census_subsystem_2026_10_04.md R5 ("Trace and fence the shutdown-window AWAY"); listed as "16:00 boot AWAY fence" in the 10-04 resume memo'}
   why: 'A false AWAY in an occupied house can drive HVAC and security actions; memory feedback_no_restart_during_sleep records the same restart-driven house-state hazard.'
-  next: 'Measure: read the house_state transitions + presence infer() reasons around 10-03 16:00-17:30 CDT from the URA DB to pin the branch, then plan the fence (audit R5 bullets).'
+  next: "Measure (me): find which inference branch produced AWAY at boot - add a one-shot DB/recorder read of the presence census + person states at 20:57-21:00Z 10-03 (core logs for that boot are rotated away), and check every boot in the last 30 days for a boot-time away with persons home (house_state sensor history vs person.* home). Then plan the fence (audit R5)."
   refs: [docs/planning/AUDIT_census_subsystem_2026_10_04.md]
   links:
     blocked_by: [CENSUS-INPUTS-FIRST-1]
