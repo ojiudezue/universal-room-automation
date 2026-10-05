@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "186",
+  "author": "ojiudezue",
+  "session_id": "claude_20261005_235931_ship_v5_103_40",
+  "timestamp": "2026-10-05T23:59:31Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.40 shipped: HVAC W1-C P2: ecobee (HomeKit) thin adapter",
+  "summary": "HVAC W1-C P2: ecobee (HomeKit) thin adapter",
+  "why": "The second home runs three ecobee thermostats over HomeKit, and URA's thermostat layer only knew Carrier/Bryant, gating everything else off by brand against the operator's thin-adapter rule. This adds an ecobee adapter so every HVAC feature works the same on both brands: URA holds each preset's range (min gap from the installer setting, measured 5 F on site), reads presets through the adapter so wall changes read as manual, and keeps Carrier writes byte-identical. Four reviews plus a fix pass found and closed an x.5/min-gap original-capture leak, corrupt-store handling and arrester reference drift.",
+  "implications": "Shipped HVAC-W1C-GENERIC-THERMOSTAT-1 at v5.103.40; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.40.md (Live criteria).",
+  "revisit_trigger": "Any ecobee range write narrower than the configured gap, any Carrier climate_write change after deploy, or option C (comfort-setting select) landing",
+  "refs": {
+    "cards": [
+      "HVAC-W1C-GENERIC-THERMOSTAT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.40.md"
+    ],
+    "release_notes": "Ecobee HomeKit thermostats get a thin command adapter (range holds with configurable 5-10 F min gap, whole-degree rounding, heat_cool precondition, preset reads via adapter, CPR on ecobee). feature_available removed. Carrier byte-identical. Option C follow-up planned."
+  }
+}

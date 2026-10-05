@@ -1831,7 +1831,8 @@ cards:
   links: {related: [HVAC-ZONE-CONDITIONING-DEMAND-1, HVAC-ENTRY-DWELL-ROOM-CLOCK-1]}
 - id: HVAC-W1C-GENERIC-THERMOSTAT-1
   title: 'W1-C — make URA work with a non-Carrier thermostat: brand-owned override detection, timings and a setpoint-based hold for thermostats without home/away/sleep presets'
-  status: pre_planning
+  status: shipped_organic
+  shipped_version: v5.103.40
   trigger_fired_2026_09_29: 'Operator: "How about the Thermostat manufacturer/model abstraction? Not everyone has a Bryant variable speed. As I roll this out to more homes." The revival trigger (operator wants URA ready for other homes) has fired - READY, not new. Plan first (likely Tier 3: touches every thermostat write site and override detection).'
   thread: hvac
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
