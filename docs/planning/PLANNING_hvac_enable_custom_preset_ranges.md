@@ -12,6 +12,81 @@
 
 ---
 
+## REV 4 re-check (2026-10-05) — authoritative over REV 3.3 wherever they disagree
+
+**Reviewer:** ura-planner, operator-requested re-check in parallel with ecobee W1-C P2 work. **No build yet; no commit.** Base of this re-check: `develop` HEAD on `feature/census-inputs-first` (not a CPR branch; ecobee probe in flight). The REV 3.3 anchor base was `8a4619b32` (post v5.103.36). Deltas since: v5.103.37 (CM outage incident surfaced on 10-03) and v5.103.38 (README records the live CPR-switch re-enable bug and names it as "fix tracked in Batch C"). W1-C P2 (ecobee) is in flight on a separate branch; CPR must slot after or alongside it without creating ordering surprises.
+
+### What is still right
+
+- **The three blockers are still the correct set and still fold cleanly:**
+  - `HVAC-S10-DPM-VS-S1-1` → closed by §3.1 named-profile write (D3).
+  - `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1` → closed by D3 deletion of F2 + the compose-away block.
+  - `HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1` → `measured_2026_10_03_overnight` REFUTED it as a live defect (0 strands / 6.4 days); the by-construction closure via D3c (R1 retires `_last_emitted_range` end-to-end) still holds, and the card's own `revisit_if` is covered by the throttle-removal path CPR takes.
+- **The known live bug `switch.ura_hvac_coordinator_guest_mode_actuation` re-enabling on reload/restart is addressed by the plan as written**, in two layers:
+  - F1 tri-state (`None` init at `hvac.py:684` — verified still `bool = True` on current develop, line unchanged from REV 3.3) + D8 explicit `None → False` resolution on the no-last-state path.
+  - U4 pre-deploy mandatory switch-OFF step on the OLD code before the deploy restart (because today's code default is True and a 10-02 entity re-create / a 10-03 unavailable-restore flip both proved the operator-gate can be bypassed at the switch layer).
+  - The 10-04 groom on `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1` records the SAME two mechanisms (entity re-create showing code default True; guarded restore of saved-state `unavailable` falling back to default True) and confirms README_v5.103.38 captures it as "fix tracked in Batch C". The companion general card `RESTORE-UNAVAILABLE-OFF-SWEEP-1` (Bug Class #52) stays separate; CPR fixes only its own switch.
+- **Falsifiable invariants** (INV-S10 / INV-RATE / INV-RESTORE / INV-NO-STORM) stated in §7.1 and §4 of the compose-away fold still hold; each has a discriminating test and a reviewer-D break repro.
+- **Brand-neutral above the strategy line:** §14 and the W1-C hand-off checklist are brand-agnostic; `__s10_preset_ranges`, the skip matrix, the snapshot/restore state machine, the latch/rate model and the tri-state resolution read no Carrier state.
+
+### What has changed since REV 3.3 — must be folded before plan review
+
+**V1 (HIGH) — Thin-adapter ruling supersedes U1's `feature_available("cpr")` skip (operator 2026-10-03, already recorded at the bottom of this plan, lines 1215–1216).** REV 3.3 U1 still describes a `strategy.feature_available("cpr") == False → skip` step 0.3 and a `GenericStrategy.set_preset_range` body that reads `feature_available` / `feature_unavailable_reason`. The operator ruling retires that pattern for the HVAC side: "The thermostat brand layer is a thin command adapter; HVAC features are never gated by brand." For CPR this means:
+
+- S10 does NOT call `feature_available("cpr")` and never branches on brand. Delete U1 step 0.3 and the `feature_available` test cases from U1's contract-test additions.
+- `GenericStrategy.set_preset_range` returns `WriteResult(WriteStatus.SKIPPED_ALREADY_CORRECT, "no_device_presets")` (preferred verb) OR `DEFERRED("no_device_presets")` — picked by the adapter author, not CPR — making ZERO calls, writing nothing to `last_sent`. S10 treats this as a quiet skip (same bookkeeping as unreadable: no latch, no failure count, no NM, one INFO log once per entity).
+- `CarrierStrategy.set_preset_range` keeps P1–P6 as REV 3.3 wrote them.
+- Sequencing: either (a) CPR merges AFTER W1-C P2 REV 2 removes `feature_available` / `feature_unavailable_reason` from `hvac_strategy.py` (ecobee P2 is in flight), OR (b) CPR implements the verb shape directly on its branch without referencing `feature_available` at all. Builder's choice; the operator's constraint is the thin-adapter invariant.
+- U1's `test_generic_set_preset_range_zero_calls_feature_unavailable` is renamed `test_generic_set_preset_range_zero_calls_no_device_presets` and asserts the SKIPPED/DEFERRED verb + reason without reading `feature_available`.
+
+**V2 (MED) — Ecobee P2 brand-neutral slotting.** The three ecobee thermostats discovered on 10-04 (plan commit `dd18c1849`) will land as a second brand under the strategy registry. CPR must not assume Carrier is the only strategy with a non-FAILED `set_preset_range`:
+- The U5 rollout gate (`S10_ROLLOUT_ZONE_IDS = {"zone_3"}`) is already brand-agnostic; it stays as the single staged-rollout mechanism and only widens by operator go.
+- The U6 "INV-NO-STORM" test is parameterised by strategy, not Carrier-only; add a Generic/ecobee case that asserts zero wire calls on a profile-less brand regardless of switch state.
+- The U9 "NM strings must be profile-templated" rule tightens: any string that today reads "Bryant app" (L3, L9 wording) is swapped at build time for the strategy's `app_name` label; ecobee's label comes from its strategy, not CPR.
+
+**V3 (MED) — Anchor re-verification against develop HEAD, not `8a4619b32`.** REV 3.3's anchor table was captured against v5.103.36. v5.103.37/.38 shipped since. Re-greped on current develop:
+- `hvac.py:684` `_guest_mode_actuation_enabled: bool = True` — **unchanged** (good; U4 pre-deploy step still correct).
+- `hvac.py:3928` `_async_apply_preset_overrides` method entry; `:3945` `if not self._guest_mode_actuation_enabled:` gate; `:3962` `master_enabled = …` — **match REV 3.3's U1 anchor cells** (`:3945` / `:3962`). No drift from v5.103.36 → .37 → .38.
+- `switch.py:2067` `is_on` reads `getattr(hvac, "_guest_mode_actuation_enabled", True)` and `:2076` / `:2084` turn_on/turn_off — same shape REV 3.3 R4 patches.
+- Builder MUST re-grep the full anchor table at build dispatch regardless; this re-check does not relieve that duty.
+
+**V4 (LOW) — Live switch state at write time.** On 10-04 02:40Z the operator turned the switch OFF (per the groom log on `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1`). The §3.3 LIVE-STATE NOTE in the state-of-play (dated 10-03) is thus stale; the switch is OFF now. U4 remains correct wording ("turn it OFF on the OLD code before deploy restart") but the pre-deploy checklist should verify the current state at deploy time rather than assume ON.
+
+### Known blockers — unchanged in count, one dependency added
+
+| # | Blocker | Status in REV 4 |
+|---|---|---|
+| 1 | `HVAC-S10-DPM-VS-S1-1` | Still a Batch C child; closed by D3. |
+| 2 | `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1` | Still a Batch C child; closed by D3 deletion. |
+| 3 | `HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1` | Still a Batch C child; closed by construction via D3c (R1 full-map retirement). |
+| 4 | **NEW dependency: W1-C P2 (ecobee adapter) OR a thin-adapter `set_preset_range` shim on the CPR branch** | V1 above. Operator's thin-adapter invariant requires one of the two before CPR builder dispatch. |
+
+### Tier (unchanged)
+
+**Tier 2-DB + mandatory Reviewer D** (four framing-disjoint reviews + live validation + README write-back), per REV 3.1 §11 and REV 3.3 U9. V1 widens Reviewer D's enumeration surface: a brand that implements `set_preset_range` as a quiet SKIPPED/DEFERRED (ecobee today, Generic always) must not latch, not count a failure, not emit an NM, and not consume rate-clock. Mutation drill: force `CarrierStrategy.set_preset_range` to return `DEFERRED("no_device_presets")` on one call → S10 writes no `climate_write` row and no latch/NM; restore the method.
+
+### Falsifiable invariant (consolidated, REV 4)
+
+> **INV-CPR-REV4.** With switch 01 resolved ON, DPM overrides active, and the Carrier adapter present:
+> - On the FIRST tick a named zone (home / sleep / away / vacation in heat_cool) has a differing cell, S10 issues exactly ONE `set_activity_setpoint` wire call for that (zone, preset); on every subsequent tick while the pair matches HA view, S10 issues zero wire calls.
+> - Across any 60 min, wire calls for one (zone, preset, mode) ≤ ⌈3600 / `S10_PRESET_RANGE_MIN_SPACING_S`⌉ + 1 = **7**, independent of DPM flap, S1 reclaim, borrow return, restart, or brand mix.
+> - For every (zone, preset) edited, a persisted snapshot exists from before the first edit to a confirmed restore; a restore write occurs ONLY while the flag has resolved to False.
+> - For any strategy whose `set_preset_range` is not implemented, S10 writes zero `climate_write` rows for that zone and increments no latch counter — a brand without the capability costs nothing.
+>
+> Falsified by: ≥ 2 S10 wire calls per 10 min on one (zone, preset, mode); any `climate_write site LIKE 'S10%'` row while the flag reads `None` or `True` is False; any `S10_preset_range_restore` row for a zone with no snapshot; any NM `s10_preset_range_call_failed` from a brand that returned SKIPPED/DEFERRED with reason `no_device_presets`.
+
+### Acceptance criteria delta (adds to REV 3.3 §5 D3 / D3b / D4)
+
+- **D3 adds:** `test_s10_generic_strategy_quiet_skip_zero_rows_zero_latch` — Generic (or ecobee) strategy's `set_preset_range` returns SKIPPED/DEFERRED `no_device_presets`; S10 writes zero `climate_write` rows AND zero latch/failure counter increments across 12 ticks.
+- **D3 renames:** `test_generic_set_preset_range_zero_calls_feature_unavailable` → `test_generic_set_preset_range_zero_calls_no_device_presets` (asserts verb + reason, not `feature_available`).
+- **Live (zone-3-first):** add a verifier that `climate_write` rows filtered by `site LIKE 'S10%'` carry only Carrier zone entity_ids while rollout = `{"zone_3"}`; ecobee rooms (once their config lands) produce zero S10 rows regardless of switch state.
+- **Deploy gate (unchanged):** operator explicit go, zone 3 first, U4 OFF pre-step verified live at deploy time.
+
+### Non-goals (REV 4 additions)
+
+- No change to ecobee W1-C P2 scope. CPR consumes P2's output; it does not drive it.
+- No build-time dependency on `feature_available` / `feature_unavailable_reason` anywhere in CPR files. Reviewer D fails the build if a `feature_available` reference appears in CPR's diff.
+
 ## REV 3.3 ERRATA (2026-10-03, post W1-C P1 v5.103.36) — authoritative over REV 3.2 / 3.1 / 3 wherever they disagree
 
 Re-check against `develop` @`8a4619b32`. W1-C P1 shipped in v5.103.36 (`df03c904f`): every thermostat write goes through `hvac_strategy.py`, and the byte-identity goldens (`quality/tests/golden/w1c_p1_goldens.json`, 168 records) pin S10 and `_last_emitted_range`. The compose-away blocker plan (`PLANNING_hvac_compose_away_throttle.md` REV 1) is folded here. Behaviour of the plan is unchanged except U5 (rollout scope). Every anchor below was re-grepped on this commit.
