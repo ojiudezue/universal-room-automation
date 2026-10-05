@@ -1296,3 +1296,405 @@ Base: develop `19fc48b8a` (Batch C already merged, so P2 adds the ecobee half of
   the "undispatchable while D0b constants are None → Generic + Repair" path (constants are measured, so it is
   unreachable); README `README_v5.103.x.md` (version not assigned; deploy is the orchestrator's); full INV-P harness
   (paired Carrier/ecobee scenarios built for the wall change and echo cases, not a field-by-field trace engine).
+
+
+
+---
+
+## REV 4 — option C (comfort-select by default; range-hold only when URA has composed numbers) — 2026-10-05
+
+**Status:** PLAN, not built. Appended on top of REV 3. REV 3's design (option B: every S1 hold is a heat_cool range write of URA's effective range) is **live on `feature/hvac-w1c-p2-ecobee`, reviewed, shipping now**. REV 4 is the next step the operator wants after option B is in the house.
+
+**Scope:** TIGHT. Only the ecobee command path changes. Carrier is untouched (INV-C holds, 168 goldens unchanged). Everything in REV 3 §4.1 (detection/cache), §4.3 (`preset_of`), §4.4 (classifier/tolerance), §4.7 (F1–F4), §4.8 (scaffold removal), §4.10 (freshness verbs), §4.11 (deferral reporting), §5 (R1–R16, T1–T2), §6 (invariants other than INV-E2/INV-R below), §7 D0/D1/D3/D4/D5/D6 is kept verbatim. REV 4 edits §4.2 / §4.2a / §4.9 / INV-E2 / INV-R and adds one new deliverable (D7).
+
+### REV 4-A. Operator ruling (verbatim 2026-10-05)
+
+> "Normally URA SELECTS the ecobee comfort setting (Current Mode home/sleep/away) and the ecobee runs its own
+> comfort numbers — same logic as Bryant: pick preset; numbers live on the device. Only when DPM or Custom Preset
+> Ranges changes preset P's numbers does URA hold P's range directly; when that ends, URA re-selects the comfort
+> setting. If a unit exposes homekit_controller `number` entities for ecobee comfort targets, write those then
+> select (no hold); Wigton ECB501s expose none, so that branch is in-suite only."
+
+Carrier parity: on Carrier, `set_preset_mode home` is a device-side hold at **Carrier's** comfort profile numbers;
+URA does not supply the numbers. Option C makes ecobee do the same: `select_option home` on the Current Mode select
+is a device-side hold at **ecobee's** comfort profile numbers. The thermostat does what it was designed to do; URA
+futzes with absolute temps only when it must (CPR / DPM).
+
+### REV 4-B. New live evidence (2026-10-05 ~18:45 Wigton master suite, read + restore, operator-approved)
+
+| Observation | Reading |
+|---|---|
+| Pre-write | climate `cool`, setpoint 76 °F, `select.*_current_mode` = `unknown` |
+| `select.select_option "home"` return | HA service call OK |
+| 5 s / 15 s / 30 s post | select = `unknown` (unreadable), climate stayed `cool`, setpoint 76 → **75** (the device's Home comfort cool value) |
+| Restore | `climate.set_temperature cool 76` → verified |
+
+Conclusions:
+1. **A `select.select_option` DID land as a device hold** — the setpoint moved to the device's Home comfort cool
+   number (75) without URA writing it.
+2. **The select is unreadable while held** — `unknown` is "no comfort setting readable", NOT "no comfort was
+   selected". (D0b Clear-Hold result had already indicated this on 2/3 units; the write side now confirms.)
+3. **A select_option works whether or not the live mode is `heat_cool`** — this write ran in `cool`. The REV 3
+   mode-precondition is a **range-write** concern (`temperature=None` hazard), not a select concern.
+
+### REV 4-C. Design — the thin adapter under option C
+
+#### C.1 `EcobeeHomeKitStrategy.hold_preset(P)` — new default
+
+Ordering, overriding REV 3 §4.2 for ecobee's `hold_preset` only. `pin_preset` follows the same rules (minus the no-op).
+
+1. **Branch D (number-entity write-then-select).** If this entity exposes
+   `number.<slug>_vendor_ecobee_<home|sleep|away>_target_<heat|cool>` (`homekit_controller/const.py:71-76`,
+   `VENDOR_ECOBEE_{HOME,SLEEP,AWAY}_TARGET_{HEAT,COOL}` on the HA `number` platform — verified in HA 2026.9.4
+   source), resolve `(low, high) = effective_range(entity, P)` (REV 3 §4.2a; stored composition if any, else
+   Seasonal Baseline, after guards + per-unit min delta REV 3 B4), write the two matching numbers through
+   `emit_number_set` (new 6th funnel OR, if operator rejects a 6th, a per-call `number.set_value` behind the
+   `emit_select_comfort` sibling verb, Q7 below), then `select_option P_mapped`. Zero range writes. Branch D is
+   **PARKED for Wigton** (ECB501s expose none, operator-verified in D0b) — build in-suite only.
+2. **Branch R (range-hold, composition present).** Else, if `ranges[(entity, P, season_now)]` has a stored S10/CPR
+   composition for P this season (option B behaviour, from REV 3 §4.2a): run REV 3 §4.2 range path verbatim —
+   mode precondition, guards, `held = (P, "range", low, high)`, `emit_set_temperature`. INV-E2 range clause applies.
+3. **Branch S (select-only, default).** Else: emit `select.select_option` on the Current Mode select, with the
+   mapping below. The command verb is the new fifth funnel `emit_select_comfort` (C.3). On success:
+   `held[entity] = (P, "select", t_issued, settled_legs=None)`, zero range writes, zero `set_preset_mode` calls.
+   `last_sent = ("select_option", P_mapped)`.
+
+Mapping to the select's three options (Q6):
+- `home`, `wake` → `home` (ecobee has no `wake` comfort; `wake` is a URA house-state alias of day comfort).
+- `sleep` → `sleep`.
+- `away` → `away`.
+- `vacation` → `away`, **plus** branch R if the composed vacation range differs from the composed/baseline away range
+  (so vacation's distinct comfort is preserved; otherwise `away` is enough). Rationale: Current Mode has only three
+  options; vacation is where ecobee comfort and URA's vacation semantics most legitimately diverge.
+- anything else (unmapped) → branch R using the effective range (never silently reads as away).
+
+No-op (REV 4 version of the §4.2 third clause):
+- Branch S: SKIPPED when `held[entity].label == P` AND `last_sent == ("select_option", P_mapped)` AND
+  `preset_of(state) == P`. The select being `unknown` does NOT alone force a rewrite — `held` + `last_sent` + the
+  settled legs are the oracle (C.4 Q1).
+- Branch R: unchanged from REV 3 (`held` label == P AND live legs == `effective_range` within tolerance).
+- Branch D: SKIPPED when both numbers already equal the stored comfort AND the select write would be a Branch-S
+  no-op.
+
+#### C.2 `set_preset_range(P, low, high)` — the one lever that forces range-hold
+
+Unchanged from REV 3 §4.2 / §4.2a / §4.9 **except** for the "write-now" branch:
+- Store `ranges[(entity, P, season_now)]`.
+- `held[entity].label != P` → `SKIPPED_ALREADY_CORRECT("stored_for_next_hold")`, zero calls (unchanged).
+- `held[entity].label == P`:
+  - If `held.mode == "range"` AND live legs already equal `effective_range` → `SKIPPED("range_already_live")`
+    (unchanged).
+  - Else write NOW through the range path; `held` becomes `(P, "range", low, high)`. This includes the case
+    `held.mode == "select"`: a composition appearing for the currently-held preset **upgrades** the hold from
+    Branch S to Branch R in one write. This is the exact semantics Carrier gives: editing an active comfort profile
+    moves the live setpoints immediately.
+- Baseline-equal pass (Batch C restore, REV 3 §4.9): deletes the entry. If `held` is P with mode `range`, the next
+  S1 tick on P downgrades the hold back to Branch S (one `select_option P_mapped`). INV-R clause 4 (new, C.5).
+
+#### C.3 Q2 — the fifth governed funnel `emit_select_comfort` (recommended; operator approval needed, flagged)
+
+Add `emit_select_comfort(hass, entity, option, *, site, zone_id, reason, blocking)` to `hvac_setpoint.py`:
+- Freeze gate: PASS-THROUGH (freeze is a setpoint concern; a select_option changes nothing in the moment, it hands
+  control to the device's comfort — which, if the operator has configured a freeze-safe comfort, is safe; builder
+  tests at both freeze states).
+- Comfort-delay gate: APPLIES (same gate the range funnel uses — a select_option is a comfort change). DEFERRED on
+  gate.
+- Writes ONE `climate_write` row with `verb = "select.select_option"`, `site`, `zone_id`, `reason`, `blocking`,
+  `wire_ok`, `exc`, `values_before = {select: <old>, climate: {hvac_mode, setpoints}}`,
+  `values_after = {service_data}`.
+- `ts_issued`/`ts_returned` captured sync (per F6).
+
+**Why a fifth funnel vs an inline `hass.services.async_call`:** three bedrock gains — one ledger row per attempt (no
+"disappeared write" like the pre-W1-A `set_hvac_mode` gap in state-of-play §10 C-ledger), uniform gate semantics so
+option C and option B interleave cleanly, and test authority via the funnel's `blocking` / `site` plumbing. Inline
+calls would re-introduce the exact gap W1-A closed.
+
+**INV-E2 change (REV 4; operator approval needed — flagged).** Add one permitted non-`climate` service:
+`select.select_option` on an ecobee's Current Mode select, routed through `emit_select_comfort`. Every other
+non-`climate` service (including `button.press` on Clear Hold, any `number.set_value` outside Branch D, and any
+`ha_carrier` / `homekit_controller` reload) stays forbidden. INV-E2 lint is extended: AST scan forbids `select.*` in
+`domain_coordinators/*.py` except through `emit_select_comfort`.
+
+#### C.4 Q1 — confirmation of selection without a readable select
+
+**Decision.** APPLIED = the service call returned without exception. URA's belief is `held[entity] = (P, "select",
+t_issued, settled_legs=None)`, stamped **before** the service await returns (per REV 3 §4.2 PR2-1 ordering, step 4
+moved before step 5). `preset_of(state)` for an ecobee reads in this precedence (REV 4-C update to §4.3):
+
+1. `held[entity]` exists → return `held.label` (regardless of `select.*_current_mode` state).
+2. No `held` and the select reads one of {home, sleep, away} → return that name mapped back (reverse of C.1 Q6:
+   home→home; `wake` not emitted here because the device doesn't own it).
+3. Else fall through to REV 3 §4.3 (legs vs effective-range match in heat_cool; else `manual`; else `""`).
+
+The select's `unknown` is **never** an override signal. Falsifiable: a mutation that makes `preset_of` return the raw
+select value fails the "unknown stays home" INV-P test.
+
+**Restart rule.** `held` is persisted in `__w1c_adapter` (REV 3 §4.2a); unchanged. On rehydrate, a `held[entity]`
+whose `mode == "select"` and whose `settled_legs == None` triggers one re-arm of the echo window (C.5) on first
+readable setpoint change post-boot. If no change arrives within `ECOBEE_SELECT_ECHO_TTL_S`, `settled_legs = (live
+heat_leg_or_target, live cool_leg_or_target)` — snapshotted from the live reading. A `held` whose mode == "select"
+and whose `settled_legs` already set survives restart unchanged.
+
+**Discharge.** The S1 next-tick after `held` is set is bounded by one tick; a service exception is `FAILED("emit_raised")` and `held` is NOT updated (step 6 rollback, REV 3 §4.2 ordering). No silent limbo.
+
+#### C.5 Q4 — arrester reference under option C (default, Branch S)
+
+**Decision.** The arrester's reference setpoints for an ecobee zone in Branch S are the **settled legs** — a snapshot
+of the device's setpoint readback once the select echo settles.
+
+Mechanics:
+- Immediately after `select_option` APPLIED, open an echo window of `ECOBEE_SELECT_ECHO_TTL_S` (knob rung 1, default
+  **180 s**; longer than range writes because the device fires its program AND the comfort hold). Any `state_changed`
+  on the climate entity inside the window updates `held[entity].settled_legs = (temp or low, temp or high)`.
+- At window close, `settled_legs` is frozen; any subsequent setpoint deviation outside tolerance is a person's
+  change and goes through the arrester as on Carrier (classifier uses `strategy.echo_tolerance_f()`, REV 3 §4.4,
+  passed `tol=`).
+- A new URA select on the same zone resets `settled_legs = None` and opens a new window.
+- Restart within the window: C.4 restart rule re-arms it.
+- Under Branch R (composition present), the reference is the composed `(low, high)` — unchanged from REV 3.
+
+Falsifiable: an arrester revert on a person's 72/68 under Branch-S home writes the settled legs back (not the
+Seasonal Baseline — those are URA's view of comfort, not what the device holds). Mutation drill: make the arrester
+reference the Seasonal Baseline → the "revert matches device comfort" test fails.
+
+#### C.6 Q3 — echo detection
+
+**Decision.** Covered by C.5's window and the existing suppression TTL (`SUPPRESS_TTL_SECONDS_PRESET` 120 s for
+preset writes, state-of-play §2) applied to `emit_select_comfort` via the C1 conditional path (REV 3 §5 C1). The 180
+s echo window supersedes the 120 s preset suppression when a select is in flight.
+
+**No comfort-number read on the current build** (operator ruling: Wigton exposes no comfort numbers; adding a
+best-effort number read would be scope creep). Branch D is the long-term path to "read the comfort numbers"; it
+subsumes the question when it ships.
+
+#### C.7 Q5 — S10 original capture / restore on ecobee under option C
+
+**Decision.** Under option C there is **no device "original" for URA to capture** — the device's comfort profile is
+the device's own state, which URA doesn't read. S10's "original" on ecobee therefore remains, as REV 3 §4.9
+specified, the **Seasonal Baseline**:
+- CPR OFF or zone removed from rollout → S10 calls `set_preset_range(P, baseline_low, baseline_high)` → the baseline-
+  equal pass **deletes** `ranges[(entity, P, season_now)]`.
+- Next S1 tick for P under Branch R: no stored composition → falls through to Branch S → one `select_option` →
+  device re-asserts its OWN comfort numbers. The device's "original" takes effect by handing control back.
+- `__s10_preset_ranges` on ecobee: the Carrier side-key is unused on ecobee (no `set_activity_setpoint`); S10's
+  pre-apply capture (Batch C `preset_range_would_write` + capture-when-differs) is still called but the "device
+  current range" is just the baseline, so capture is a no-op in the common case. If the entity happens to be in
+  heat_cool with a prior Branch-R hold, the captured "original" is that hold's range, which is wrong — therefore
+  REV 4 adds: **S10's capture branch is skipped for ecobee entities** (adapter method `s10_capture_original`
+  returns None for Branch-S / inapplicable; the Batch C `preset_range_would_write` positional-arg path REV 3 B4
+  continues to work for Carrier).
+
+Falsifiable: CPR ON stores 69/78 for home → OFF → one S1 tick on home → `set_preset_range(home, baseline)` deletes
+the entry; next S1 tick → Branch S → device reads back its own Home comfort (75 at Wigton); no leftover 69/78.
+
+#### C.8 Q6 — mapping (summary; details in C.1)
+
+- URA preset → ecobee select option: `home`/`wake` → `home`; `sleep` → `sleep`; `away` → `away`;
+  `vacation` → `away` + held range only when vacation's composed/baseline range differs from away's.
+- Any unmapped URA preset → Branch R using the effective range. Never silently coerced to `away`.
+- Reverse projection (C.4 step 2): select `home`/`sleep`/`away` → URA label of the same name (used only when `held`
+  is absent — i.e. first boot before any URA select).
+
+#### C.9 Q7 — number-entity branch (Branch D): BUILD-NOW vs PARK
+
+**Recommendation: PARK Branch D for Wigton, build it in-suite only.**
+
+Why park:
+- Wigton exposes none of the six `VENDOR_ECOBEE_*` number entities (D0b verified); building the live path has zero
+  consumers at the only install option C ships to.
+- The ruling says "keep scope tight".
+- The Branch D in-suite tests (one write-then-select scenario with fixture `number` entities + two round-trip tests)
+  are ~50 LoC. They lock the shape so a future install with the numbers exposed activates Branch D with no code
+  change.
+
+Revival trigger: an install's device registry exposes any of the six `VENDOR_ECOBEE_*` number entities on an
+`EcobeeHomeKitStrategy`-resolved entity, discovered at D1 detection or by a Repair when `number_hint` resolves. Build
+flips Branch D on and the live path is exercised there.
+
+**Operator question flagged:** this is the ONE place REV 4 defers live coverage; recommend park, operator confirms.
+
+### REV 4-D. Updated falsifiable invariants
+
+- **INV-E2' (REV 4).** On a HomeKit ecobee, URA calls only: `climate.set_hvac_mode`, `climate.set_temperature` (with
+  both legs, mode heat_cool), and **`select.select_option`** on the Current Mode select routed through
+  `emit_select_comfort`. Under Branch D (parked), additionally `number.set_value` on the six `VENDOR_ECOBEE_*`
+  numbers for the resolved entity, routed through the funnel chosen in C.3. **No** `climate.set_preset_mode`, no
+  `set_temperature {temperature: X}`, no `button.press` on Clear Hold, no `ha_carrier`/`homekit_controller` reload.
+- **INV-R' (REV 4, replaces INV-R).** On an ecobee zone:
+  1. S1 for preset P in Branch R (composition exists) SKIPPED ⇒ live legs equal `effective_range(entity, P)`
+     within `ECOBEE_RANGE_TOLERANCE_F`.
+  2. S1 for P in Branch S SKIPPED ⇒ `held[entity].label == P` AND `last_sent == ("select_option", P_mapped)`.
+  3. A `set_preset_range` call storing a NEW composition for the currently-held preset P ⇒ next S1 tick writes the
+     range (hold upgrades Branch S → Branch R).
+  4. A baseline-equal `set_preset_range` for the currently-held preset P ⇒ next S1 tick issues one `select_option`
+     (hold downgrades Branch R → Branch S).
+  5. Season rollover with the house in P ⇒ next S1 tick in heat_cool rewrites or re-selects per Branch R/S rule
+     applicable to the NEW season.
+- **INV-C unchanged.** No Carrier call path changes under REV 4; one new ledger row shape (`verb="select.select_option"`)
+  is ecobee-only.
+- **INV-P (parity, REV 4 bullets add).**
+  - Branch S: URA pins `home` → one `select_option home` → device holds at its Home comfort → `preset_of` returns
+    `home` → no `override_detected`.
+  - Composition appears on the held preset → one range write → `preset_of` still `home` → no `override_detected`.
+  - CPR OFF while in home with composition live → one range write of baseline (deletes entry) → next tick one
+    `select_option home` → device re-asserts its own comfort.
+  - Restart during the echo window → `settled_legs = None` → window re-arms → first readable setpoint settles it.
+  - A wall-unit scroll-wheel setpoint change under Branch S after window close → arrester delta vs `settled_legs`
+    → classified HUMAN → §9e acts as on Carrier.
+
+### REV 4-E. HC call sites that change (REV 4 additions only — all REV 3 §5 sites hold)
+
+- **W1** (new): `hvac_setpoint.py` — new funnel `emit_select_comfort` + AST completeness lint extended.
+- **W2** (new): `hvac_strategy.py` `EcobeeHomeKitStrategy.hold_preset` / `pin_preset` — Branch S path, mapping,
+  echo window arm, `held.settled_legs`. `preset_of` precedence (C.4). `s10_capture_original` returns None.
+- **W3** (new): `hvac.py` S1 — no change to call sites (writes already route through the strategy); the new no-op
+  rule (`held.mode == "select"` AND `last_sent == ("select_option", P_mapped)`) is inside the adapter, not HC.
+- **No new raw reads.** `preset_of` continues to own every projection.
+
+### REV 4-F. New deliverable — D7 (supplants REV 3 D2 only for the ecobee-write-path tests)
+
+#### D7 — Option C command path (Branch S default, Branch R upgrade/downgrade, Branch D parked)
+
+- **Code:** W1 (funnel), W2 (adapter branches, mapping, echo window, `preset_of` precedence,
+  `s10_capture_original`), lint extensions.
+- **Test (unit):**
+  - S1 `home` on an ecobee fixture, no composition → one `select_option home` via `emit_select_comfort`; one
+    `climate_write` row with `verb="select.select_option"`; `held = (home, "select", t, None)`; `last_sent =
+    ("select_option", "home")`.
+  - Next tick with the select still `unknown` → SKIPPED (INV-R' clause 2).
+  - `set_preset_range(home, 69, 78)` with `held = (home, "select", ...)` → APPLIED, one range write; `held`
+    becomes `(home, "range", 69, 78)` (INV-R' clause 3).
+  - Baseline-equal `set_preset_range(home, baseline)` with `held = (home, "range", ...)` → entry deleted; next S1
+    tick → one `select_option home` (INV-R' clause 4).
+  - Mapping: pins `wake` → `select_option home`; pins `vacation` with vacation-range == away-range →
+    `select_option away`, zero range writes; pins `vacation` with distinct composed vacation range → `select_option
+    away` + range write; unmapped `preheat_boost` → range write using effective range, zero select writes.
+  - Echo window: after APPLIED, `state_changed` within window updates `settled_legs`; at window close `settled_legs`
+    freezes; a later deviation ≥ `echo_tolerance_f()` goes through the arrester with `settled_legs` as reference.
+  - Restart with `held.mode == "select"` AND `settled_legs == None` → window re-arms on first state change post-boot.
+  - Freeze gate active → `emit_select_comfort` DEFERRED, zero service calls (test both the freeze gate behaviour
+    chosen in C.3).
+  - Comfort-delay gate active → DEFERRED.
+  - Branch D fixture (number entities present) → one `number.set_value` per leg per hold + one `select_option`,
+    zero range writes. (In-suite only; not run live.)
+- **Test (ledger):** `climate_write` rows carry the correct `values_before`/`values_after` for both branches; no
+  `set_preset_mode` row on any ecobee entity ever (INV-E2' lint).
+- **Mutation drills:**
+  - remove the Branch S path (fall through to range always) → mapping and "no range writes under Branch S" tests
+    fail;
+  - make `preset_of` read the raw select value → "unknown stays home" INV-P test fails;
+  - skip the echo window arm → arrester reference test fails (reverts to the wrong value);
+  - make `set_preset_range` never upgrade a Branch S hold → INV-R' clause 3 test fails;
+  - make the baseline-equal pass skip the downgrade → INV-R' clause 4 test fails.
+- **Live (supervised, one Wigton unit — operator picks; recommend Master suite because its 5 °F min delta exposes
+  the Branch R path exercised by any CPR composition):**
+  - Operator at the unit; House 2 HVAC coordinator ON for that one zone only; the other two zones' coordinators OFF
+    for this validation (reduce blast radius).
+  - Walk: house state Home → one `select_option home` → setpoint moves to device Home-cool comfort (observed on the
+    unit); `zone_1_status.preset_mode = home`; zero range writes; zero `set_preset_mode` rows.
+  - Toggle CPR ON with a composed home range distinct from the device's comfort → one range write to the composed
+    range (observable on the unit screen as the "Holding ⊗" range changing).
+  - Toggle CPR OFF → one range write of the baseline → within one S1 tick, one `select_option home` → setpoint
+    returns to device comfort (unit screen shows the "Holding ⊗" disappearing or the schedule number resuming).
+  - Operator scroll-wheel setpoint change at the unit after the echo window closes → `override_detected` row,
+    arrester reverts to `settled_legs` (not the baseline).
+  - Discriminator (what distinguishes PASS from a plausible failure):
+    - a BROKEN mapping shows `select_option` with the wrong option label in the ledger;
+    - a BROKEN echo window shows `settled_legs` = `(None, None)` or the hold absent;
+    - a BROKEN upgrade/downgrade shows setpoints and the composed range desynchronised across CPR toggles.
+- **Hold duration recommendation (operator-asked):** **"until next activity"** — i.e. no TTL, no auto-expiry on the
+  URA side. The device-side hold is already "until I change it" (D5 setup notes). URA's `held` is released only by:
+  (a) the next URA `select_option` or range write for the same zone, (b) a person's change (ends via the arrester
+  as on Carrier), (c) an explicit profile switch (REV 3 §4.1 flush), or (d) zone removal (REV 3 §4.2a prune).
+
+### REV 4-G. Knobs added (REV 4 only)
+
+| Name | Rung | Default | Why |
+|---|---|---|---|
+| `ECOBEE_SELECT_ECHO_TTL_S` | 1 (`hvac_const.py`) | 180 (= 3 min; = `SUPPRESS_TTL_SECONDS_PRESET` × 1.5) | protocol window for Branch S echo settle; a change needs review. Not a kill switch |
+| `emit_select_comfort` comfort-delay gate reuse | REUSED | existing comfort-delay knob | option C routes through the same gate as range writes |
+
+No new user-facing Number / Switch entities. The Branch D funnel choice (C.3) adds either `emit_number_set` (new
+6th funnel, operator decision) or inline `number.set_value` behind `emit_select_comfort`'s sibling verb — neither
+is in scope until Branch D is unparked.
+
+### REV 4-H. Tier + review
+
+- **Tier 3 (kept).** Why: this is a change to the **core command path** of every ecobee zone (every S1 hold now
+  routes Branch S by default); it changes **INV-E2** (adds a permitted non-climate service); it changes the
+  **arrester reference** on an entire brand (settled legs vs composed range); and option C is comfort-impacting at
+  the live second home.
+- **Framings for the four reviews** (reviewers A/B/C/D as REV 3 §10):
+  - **A — adapter local correctness:** Branch-S path, mapping completeness, no-op rule, echo-window arm/settle,
+    `preset_of` precedence, `s10_capture_original` skip, baseline-equal downgrade.
+  - **B — HC integration parity + INV-C:** Carrier byte-identity (no path changes), INV-R' clauses 1–5, INV-P new
+    bullets, restart (window re-arm), ledger-row shape for `verb="select.select_option"`, 168 goldens unchanged.
+  - **C — per-site source mutation:** mutate each Branch-S step (write, stamp, arm, settle, discharge), the
+    mapping table, the no-op rule, the upgrade/downgrade transitions. Each mutation must turn exactly one named
+    test red. Branch D mutations in-suite only.
+  - **D — adversarial completeness:** state INV-E2' in falsifiable form and go find the leak. Explicit targets:
+    the resume-then-pin path (`hvac_setpoint.py:171-222`) must not run on ecobee (ecobee has no `resume`
+    capability); the arrester's grace timer must not re-select mid-grace; a Branch R hold whose composition is
+    deleted mid-grace must not downgrade until the grace clears. Re-enumerate every write path and verify none
+    takes a shortcut past `emit_select_comfort`.
+- **Plan review (REV 4):** TWO framing-disjoint plan reviews before build (standing Tier 3 rule): (i) completeness —
+  independent re-enumeration of every path that currently routes through `hold_preset`/`pin_preset`/
+  `set_preset_range` on an ecobee, and whether the Branch S/R choice is correct for each; (ii) build-prediction —
+  "what will the builder get wrong under Branch S?" with a specific focus on the C.4 "unknown stays home" invariant
+  (the easy mistake: reading the raw select value) and the C.5 arrester-reference choice.
+
+### REV 4-I. Acceptance criteria (REV 4 cycle close)
+
+- **Verify:** every REV 3 acceptance criterion still passes (INV-C, INV-F, 168 goldens unchanged).
+- **Verify:** INV-E2' lint — `grep -rn "hass.services.async_call.*select"` in `domain_coordinators/` returns only
+  the `emit_select_comfort` definition.
+- **Verify:** INV-R' five clauses — each has a named test.
+- **Verify:** D7 live walk on the chosen Wigton unit produces the ledger shape above; zero `set_preset_mode` rows;
+  zero range writes under default (no-CPR) operation.
+- **Verify:** Branch D in-suite tests pass (shape locked).
+- **Live:** zero `set_preset_mode` on any ecobee entity for 24 h; zero Carrier NMs (REV 3 D6 continues to hold).
+
+### REV 4-J. Non-goals (REV 4-specific)
+
+- No Branch D live build (parked; shape only).
+- No `button.press` on Clear Hold ever (would hand the unit to its schedule — D0b quirk 12).
+- No comfort-number read when numbers are absent (would require ecobee cloud / `.app` scraping — out of scope).
+- No change to Carrier's command path.
+- No change to Branch R behaviour vs REV 3 §4.2 (option B lives on inside Branch R).
+- No new user-facing switch to enable/disable option C — it IS the default; CPR composition is the lever.
+
+### REV 4-K. Operator questions still open
+
+1. **INV-E2 widening (C.3):** approve adding `select.select_option` (on the ecobee Current Mode select, through
+   `emit_select_comfort`) to the permitted non-`climate` service list? Recommended: yes — it's the one call that
+   lets ecobee's own comfort engine run, which is the whole point of option C.
+2. **Fifth funnel vs sixth funnel (C.3):** `emit_select_comfort` as a new fifth funnel in `hvac_setpoint.py`
+   (recommended, uniform governance, one ledger row per attempt) OR fold the select behind an existing funnel's
+   service-domain parameter (less code, more coupling). Recommended: fifth funnel.
+3. **Branch D build (C.9 / Q7):** park for Wigton (in-suite shape only) OR build live now? Recommended: park, with
+   the discovery trigger wired at D1 so a future install flips it on at no code cost.
+4. **Live-validation unit (D7):** operator picks one of the three Wigton ecobees for the supervised walk.
+   Recommended: Master suite (its 5 °F installer-set min delta exercises the Branch R guard; if Branch R works
+   there, it works on the other two).
+5. **Vacation handling (C.1 / Q6):** confirm "vacation → `select_option away` + range only when vacation range
+   differs from away range". The alternative is always Branch R for vacation (never a bare select). Recommended:
+   conditional (keeps scope tight; vacation is rare).
+6. **Echo window default (REV 4-G):** 180 s is a protocol choice. If D0b's P6 (app Resume schedule) when revived
+   shows the device's post-select settle takes longer, this will need to grow. Recommended: 180 s as a starting
+   value; make it rung 1 (code constant, reviewed change).
+
+### REV 4-L. Concise summary for the operator
+
+- **Option C ships behind option B as a next step**, not instead of it. Option B is reviewed and shipping now; it
+  owns Branch R under REV 4 (CPR / DPM composition writes a range directly).
+- **The new default (Branch S) is a `select.select_option` on the ecobee Current Mode select.** The device holds
+  at its own comfort numbers — same shape as Carrier under `set_preset_mode`. No URA range writes under default
+  operation.
+- **One new funnel `emit_select_comfort`**, one widened invariant **INV-E2'** permitting that one non-`climate`
+  service, one new invariant **INV-R'** with five clauses tying Branch S/R together, one new deliverable **D7**
+  with a tight supervised live walk on one Wigton unit.
+- **Hold duration: until next activity.** No TTL. The device-side hold is already open-ended.
+- **Branch D (write-the-numbers-then-select) is parked** for Wigton because the ECB501s don't expose the number
+  entities; its in-suite shape is locked so a future install activates it with no code change.
+- **Six operator questions above (K.1–K.6)**; three are flagged for an explicit approval (K.1 INV widening,
+  K.2 fifth funnel, K.3 Branch D park), three are configuration choices (K.4 unit, K.5 vacation, K.6 window).
