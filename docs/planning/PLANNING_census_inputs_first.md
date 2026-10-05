@@ -28,6 +28,8 @@ D0-REPLAY failed because:
 
 **(Rev 2 note on INV-INPUTS (c): DROPPED — multiplicity-via-row-count is unrecoverable; replaced by `peak_person_count` column, see R2.2 item 8.)**
 
+**(Rev 3 note: INV-INPUTS replaced in full by the consolidated INV-INPUTS-R2 in R3.5. G5 removed from the gate per probe (R2.4).)**
+
 Discrimination: a passing run under the OLD inputs is impossible; a failing run under the NEW inputs tells us which of D1/D2/D3 missed. (d) specifically discriminates attribution failure (D2) from pipeline failure (D1): if `T` is still > 0 at 12:00–13:30 but every midday crossing now carries a resident `person_id` or edge, D1 is wrong (pipeline not counting attributed-residents as attributed); if crossings still have no `person_id`/edge match, D2 is wrong.
 
 ---
@@ -37,6 +39,7 @@ Discrimination: a passing run under the OLD inputs is impossible; a failing run 
 ### 1.1 Prior-art scan — REUSE / FIX / NEW (file:line)
 
 **(Rev 2: multiple REUSE verdicts below were WRONG — see R2.1 for corrections. The table is kept for history.)**
+**(Rev 3: Rev-2/Rev-3 verdicts live in R2.1 (prior-art corrections), R3.3 (`_extract_camera_stem` REUSE), R3.7 (`CONF_MAIN_ENTRY_DOOR` deferred). This table is history; see R3.12.)**
 
 | Piece | Verdict | Evidence |
 |---|---|---|
@@ -44,7 +47,7 @@ Discrimination: a passing run under the OLD inputs is impossible; a failing run 
 | `_get_interior_cameras_near` returning ALL interior cams | **FIX** | `transit_validator.py:1955-1963`. Degenerate: any interior fire anywhere → direction=entry. |
 | Stem dedup inline literal `5.0` | **FIX** (knob + widen) | `transit_validator.py:1736`. Replace with `DOOR_STEM_DEDUP_S` (default 30 s per `AUDIT_census_subsystem_2026_10_04.md` §1.3: 58/143 dupes <5 s but a 5–30 s band exists). |
 | Per-door camera grouping | **FIX** (consume per-install config) | `CONF_DOOR_GROUPS` already exists per `PLANNING_census_occupancy_estimator.md` §4.3; `_resolve_direction` does not yet key off it. **(Rev 2: WRONG — CONF_DOOR_GROUPS does NOT exist. NEW. See R2.1.)** |
-| `CONF_MAIN_ENTRY_DOOR` (per-install) | **REUSE from estimator plan §4.6** | Options derived from `CONF_DOOR_GROUPS`; oracle household = `garage_a`. **(Rev 2: NEW — derived from a NEW field.)** |
+| `CONF_MAIN_ENTRY_DOOR` (per-install) | **REUSE from estimator plan §4.6** | Options derived from `CONF_DOOR_GROUPS`; oracle household = `garage_a`. **(Rev 2: NEW — derived from a NEW field.)** **(Rev 3: DEFERRED to estimator cycle; no consumer here — R3.7.)** |
 | `CONF_DOOR_INTERIOR_NEIGHBOURS` | **NEW** (per-install, options-flow rung-2) | Per-door nearby-interior-cam map; grep repo-wide — no existing symbol. |
 | BLE/GPS departure provenance | **ALREADY SHIPPED** (verify-only here) | Card `EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1` status=done, shipped v5.96.0. Live counter `ble_exit_backfilled_count=4` on 2026-09-11. **D2 CONFIRMS it is attaching resident legs on the 10-03 replay.** If the midday operator-cleaning + operator+Jaya `garage_a` crossings have NO phone edges within any window on 10-03, the producer did not fire — regression on a shipped feature. |
 | `camera_census.py:_calculate_house_census` per-area max | **REUSE** | `camera_census.py:1690`. The interior over-count fix (D3) extends `CONF_INTERIOR_CAMERA_OVERLAP_GROUPS` (per-install) rather than touching this. |
@@ -60,6 +63,8 @@ Discrimination: a passing run under the OLD inputs is impossible; a failing run 
 
 ### 1.4 Code surveyed (end-to-end for scoping)
 `custom_components/universal_room_automation/transit_validator.py` 795-834, 1167, 1700-1980; `camera_census.py` 1521-1700, 1690, 1955, 3192-3263, 3676-3740, 4531, 5026, 5198-5381; `const.py` 1973, 2307, 2373, 3528, 3544, 3638; `database.py` 793-808. Kanban: `EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1` (done v5.96.0 — but see D2 verify-first), `CENSUS-ACCURACY-1`, `CENSUS-FACE-RESOLVER-MIGRATE-1`, `CENSUS-GHOST-DEDUP-1` (done), `TRANSIT-1` (checkpoints shipped v5.60.0 — not in scope).
+
+**(Rev 3 refresh, see R3.0):** re-verified on develop end-to-end — `transit_validator.py` 1162-1165, 1235-1245, 1253, 1258, 1363, 1724-1803, 1812, 1840-1866, 1874-1887, 1906-1907, 1955-1963, 1975, 2001-2008; `camera_census.py` 712-720, 797, 859, 4360, 4411, 4497-4555; `camera_resolver.py` 214-270, 291-312, 317; `const.py` 1973, 2795; `database.py` 4041-4066, 4068, 4099, 4137-4177, 972/1819/1957/2012/2057 (ALTER TABLE precedent); `sensor.py` 4518, 4559, 4580, 4661, 4693, 4711, 4765, 4803, 4821, 4851, 4869.
 
 ### 1.5 Config-first check (ura-kanban gate step 1b)
 - `CONF_CAMERA_PERSON_ENTITIES` is already a live config — D3's `foyer_fisheye` / `upstairs_hall` removal may be a pure config action. **Test as a config-only variant before writing D3 code.** **(Rev 2: refuted; D3 dropped.)**
@@ -81,6 +86,8 @@ One-shot `ssh ha "python3 -" < probe.py` scripts against the HA recorder (`?mode
 - 14:22 window: how many **distinct** `person_count` peaks ≥ 1 arrive on `front_door_aerial`+`madrone_g6_entry`+`doorbell_lite` within a 180 s window after cross-camera physical dedup? If ≥ 6, a distinct-person group window of 120 s can recover the group; if ≤ 3, only D7 vision can.
 - **12:00–13:30 crossings (operator porch-cleaning + operator+Jaya `garage_a` departure):** list every one with (door_group, direction, resident tracker edge in ±120 / 300 / 900 s? which tracker? any `person_id`?). Per the corrected truth EVERY ONE is a resident crossing. Any crossing that fails to attribute to a resident is a data defect we must explain — bucket as: (a) resident tracker edge exists at some wider window (D2 window-widening), (b) no edge at any window (D2 producer-regression or wrong allowlist), (c) `person_id` on the row but pipeline still counted it as unattributed (D1 pipeline bug).
 - `doorbell_lite` 23:25 and 23:30 fires: list all other egress-cam fires within ±60 s to confirm door_group assignment (operator ruling: `garage_a` on this install).
+
+**(Rev 3 extension — BUILD GATE per R3.2):** P-D1 MUST also publish the **before/after AMBIGUOUS fraction** on 10-03 under the new `_resolve_direction` + neighbours wiring, in two variants: (a) `CONF_DOOR_INTERIOR_NEIGHBOURS` unset (R3.1 fallback — expected delta = 0), and (b) oracle household map filled. If (b) raises AMBIGUOUS by more than X pp (reviewers set X from measured baseline), the oracle neighbour lists must be widened before build dispatch.
 
 ### P-D2 — Resident attribution gap (BLE/GPS) with corrected truth
 **Goal:** of every midday crossing (now 100% resident per corrected truth), count how many had Ezinne's / operator's / Jaya's trackers (BLE Bermuda AND GPS) transition at ANY point in ±900 s. Which tracker entity, which edge, which lag?
@@ -110,6 +117,7 @@ Re-run `scripts/probes/census_d0/census_estimator_replay.py`. Compare G1–G9 to
 ## 3. Deliverables (ordered)
 
 **(Rev 2: §3.D1 items 1–6 REPLACED by R2.2; §3.D2 Branches A–D REPLACED by R2.3; §3.D3 DROPPED per R2.4. Original text kept below for history.)**
+**(Rev 3: see R3.1 (CRITICAL-1 fallback), R3.3 (HIGH-2 REUSE/callers), R3.4 (HIGH-3 producer-already-ships), R3.6 (`peak_person_count`), R3.7 (`CONF_MAIN_ENTRY_DOOR` deferred), R3.9 (dedup-keep-first), R3.11 (fixture renames).)**
 
 ### D1 — Door-event quality (per-door camera grouping + per-door interior-neighbours + knob'd dedup)
 
@@ -252,6 +260,7 @@ Per `CLAUDE.md` Plan Review (Tier 2+ gets ONE adversarial plan review before bui
 - 2026-10-04 (same day, mid-plan): operator truth correction integrated — NO drop-off visitor on 10-03; midday is pure resident activity (porch cleaning + car departure); guest band 12:00–13:30 = 0; INV-INPUTS clause (d) added; D1 acceptance for midday ledger rewritten; D2 split into Branches A–D with the hard "at-home operator wandering" Path-β class made explicit.
 - 2026-10-04: Probe results (P-D1/P-D2/P-D3) appended below.
 - 2026-10-04 (Rev 2): post-probe + post-plan-review revision appended. See "Revision 2" section below (supersedes conflicting §1.1/§3/§5/§6 claims).
+- 2026-10-05 (Rev 3): post plan-review PLAN-FIX-REQUIRED revision appended. See "Revision 3" section (supersedes R2.2/R2.3/R2.5/R2.6 where in conflict).
 
 ---
 
@@ -309,7 +318,7 @@ Door-group dedup at 30 s cuts `garage_a` 119→61 (−49%) vs today's 5 s stem �
 **D2 branch:** **A + D** (with a narrow B note).
 - **A (replay-side):** replay must consume ledger `person_id` after crossing-level dedup and use a **departure window asymmetric to BLE lag** (e.g. edge ∈ [−180 s, +600 s] after the crossing for exits; ±180 s for arrivals). No producer regression found.
 - **D (Path-β, documented gap):** budget for 10-03 = front porch bursts (2 episodes) + 12:38–12:42 `garage_a` (1–2 episodes) ⇒ **≈3–4 unattributable at-home episodes/day** after dedup. Card follow-up; no new producer this cycle.
-- **B-note (producer):** the 23:25–23:31 return with operator+Jaya edges inside ±120–300 s got **0** backfilled rows — the shipped backfill is *exit*-only (`find_unnamed_exit_crossings`), and these rows are entries. Entry-side BLE attach is a separate, small gap (card it; not a regression).
+- **B-note (producer):** the 23:25–23:31 return with operator+Jaya edges inside ±120–300 s got **0** backfilled rows — the shipped backfill is *exit*-only (`find_unnamed_exit_crossings`), and these rows are entries. Entry-side BLE attach is a separate, small gap (card it; not a regression). **(Rev 3 note: this is actually the `_2` stem bug per R3.4, not a producer gap — card REFUTED; entry-side BLE attach via `_resolve_ble_legs` already ships.)**
 - C is moot: the named allowlist symbol does not exist.
 
 ### P-D3 — Interior over-count 10:00–11:15
@@ -374,7 +383,7 @@ The following were asserted REUSE in §1.1; greps now show they do not exist. Al
 8. **Group-size (replaces INV-INPUTS (c) / "≥ 2 surviving entries" test):** door handler currently fires on 0→N edge and discards headcount. Add DB column `peak_person_count INTEGER` (default 1) on `person_entry_exit_events`; populate from the max `sensor.<cam>_person_count` observed on the camera during the occupancy episode (bounded sample at episode start → stem-dedup window close). This is the honest group-size input and is the only non-D7 path to multiplicity. **Drop** the plan's earlier "≥ 2 surviving entries post-pipeline" acceptance — producer peaked at 4/8 bodies in one episode; multiplicity-via-row-count is unrecoverable.
 9. **`doorbell_lite` disposition:** operator ruling + probe-confirmed → `garage_a` on this install, consumed via `CONF_DOOR_GROUPS` (no household string in code).
 
-**HIGH-1 — ambiguous rows and backfill eligibility:** `database.backfill_entry_exit_person_id` today claims only `direction='exit'` rows (`database.py:~4120`). The new AMBIGUOUS direction MUST be defined as backfill-eligible for both directions, or we silently create rows the BLE producer cannot ever attach to. Decision for this cycle: **AMBIGUOUS rows ARE backfill-eligible on either direction when a resident edge lands within the asymmetric window.** P-D1 must publish the direction distribution under the new neighbours map before build dispatch (how many rows go AMBIGUOUS vs entry/exit) so reviewers can judge blast radius on readers.
+**HIGH-1 — ambiguous rows and backfill eligibility:** `database.backfill_entry_exit_person_id` today claims only `direction='exit'` rows (`database.py:~4120`). The new AMBIGUOUS direction MUST be defined as backfill-eligible for both directions, or we silently create rows the BLE producer cannot ever attach to. Decision for this cycle: **AMBIGUOUS rows ARE backfill-eligible on either direction when a resident edge lands within the asymmetric window.** P-D1 must publish the direction distribution under the new neighbours map before build dispatch (how many rows go AMBIGUOUS vs entry/exit) so reviewers can judge blast radius on readers. **(Rev 3: WITHDRAWN — false premise; AMBIGUOUS rows never persist. Replaced by R3.2 BUILD GATE on AMBIGUOUS fraction.)**
 
 **Knobs (ladder):**
 - `DOOR_STEM_DEDUP_S` — module constant (ledger-shape consequence; review-gated).
@@ -395,6 +404,8 @@ The following were asserted REUSE in §1.1; greps now show they do not exist. Al
 | BLE entry admission | `camera_census.py:4521` | ledger direction=entry | HIGH-1 — same |
 | `_resolve_egress_face_identity` | `transit_validator.py:1253` | `_get_interior_cameras_near` | Narrower neighbour set; test resolver still finds the face |
 | Event `ura_person_egress_event` | fired `transit_validator.py:1786` | downstream listeners | Carries direction; AMBIGUOUS downstream behaviour must be documented |
+
+**(Rev 3 note:** the "BLE entry admission at `camera_census.py:4521` — ledger direction=entry" row is WRONG — `_resolve_ble_legs` is an in-memory resolver-time cache, not a ledger reader. See R3.0 and R3.2 for the corrected consumer map.)
 
 **Acceptance (replaces §3.D1):**
 - **Verify:** `_extract_camera_stem('<cam>_person_occupancy_2')` returns the camera stem (not `None`); unit test anchored to the probe-named sensors.
@@ -425,7 +436,7 @@ The following were asserted REUSE in §1.1; greps now show they do not exist. Al
 **Changes:**
 1. **Replay (`scripts/probes/census_d0/census_estimator_replay.py`):** consume `person_entry_exit_events.person_id` (after crossing-level dedup) AND an **asymmetric** tracker-edge window: `[-180 s, +600 s]` relative to the crossing for exits (BLE departure lag measured +4–8 min), `±180 s` for arrivals. No production code change.
 2. **MED-4 — P-D2 control:** cite live `sensor.universal_room_automation_ble_exit_backfilled_count` (`sensor.py:3861`) as the authoritative counter when scoring D2. Replay never asserts the shipped producer is broken unless this counter is 0 over a 24 h window.
-3. **Entry-side BLE attach gap (new card, not this cycle):** the 23:25–23:31 return produced 0/12 attributed rows despite operator+Jaya BLE arrival edges inside ±120–300 s. The shipped backfill (`find_unnamed_exit_crossings`) is exit-only. Card: `EGRESS-BLE-ENTRY-ATTACH-1` (producer-side, estimated Tier 2).
+3. **Entry-side BLE attach gap (new card, not this cycle):** the 23:25–23:31 return produced 0/12 attributed rows despite operator+Jaya BLE arrival edges inside ±120–300 s. The shipped backfill (`find_unnamed_exit_crossings`) is exit-only. Card: `EGRESS-BLE-ENTRY-ATTACH-1` (producer-side, estimated Tier 2). **(Rev 3: REMOVED — card closed REFUTED; actual root cause is the `_2` stem bug collapsing identity before BLE legs are consulted. See R3.4.)**
 4. **Path-β (at-home operator wandering) known-gap:** budget ≈ 3–4 unattributable episodes/day on this install (front porch bursts + the 12:38–12:42 `garage_a` cluster). Card follow-up (`CENSUS-ATHOME-RESIDENT-CORROBORATOR-1`). No new producer this cycle.
 
 **Config-first finding (operator action, not code):** `person.oji_udezue` currently resolves via `okosisipadmini6_2`, a stationary iPad reading `not_home` while operator is home — making GPS legs structurally useless for operator attribution. **Operator to re-point `person.oji_udezue` to a reliable tracker** (BLE Bermuda / private_ble). Recorded here as a Config-First disposition; no URA code change.
@@ -453,10 +464,10 @@ Re-run with: new ledger (R2.2), replay with person_id + asymmetric window (R2.3)
 
 ### R2.6 Operator confirmations required BEFORE build dispatch
 
-- **OP-1 (truth timeline):** probe trackers say **Ezinne** departed by car ~12:13 (BLE 12:18–12:19), returned 12:57; **operator + Jaya** departed together ~13:55 (BLE 14:01–14:03). The plan's original "12:00 operator+Jaya leave" is likely wrong (Jaya tracker read `home` all morning until 14:03 across all three legs). **Marked PENDING OPERATOR CONFIRMATION.** D2 acceptance scoring blocks on this.
+- **OP-1 (truth timeline):** probe trackers say **Ezinne** departed by car ~12:13 (BLE 12:18–12:19), returned 12:57; **operator + Jaya** departed together ~13:55 (BLE 14:01–14:03). The plan's original "12:00 operator+Jaya leave" is likely wrong (Jaya tracker read `home` all morning until 14:03 across all three legs). **Marked PENDING OPERATOR CONFIRMATION.** D2 acceptance scoring blocks on this. **(Rev 3 clarification per R3.10: OP-1 gates D2 acceptance scoring and D4 GO/NO-GO; does NOT block D1 build dispatch.)**
 - **OP-2 (`doorbell_lite` → `garage_a`):** probe-confirmed via co-fires. Closed.
-- **OP-3 (`DOOR_STEM_DEDUP_S = 30 s` default):** probe-supported (−49% garage_a). Confirm.
-- **OP-4 (Path-β budget):** accept ≈3–4 unattributable at-home episodes/day on this install as the known gap for this cycle?
+- **OP-3 (`DOOR_STEM_DEDUP_S = 30 s` default):** probe-supported (−49% garage_a). Confirm. **(Rev 3: gates ship-approval, not build; see R3.10.)**
+- **OP-4 (Path-β budget):** accept ≈3–4 unattributable at-home episodes/day on this install as the known gap for this cycle? **(Rev 3: gates D4 GO/NO-GO; see R3.10.)**
 - **OP-5 (operator-side):** re-point `person.oji_udezue` away from `okosisipadmini6_2`.
 
 ### R2.7 Supersession of §1.1 / §3 items
@@ -474,3 +485,227 @@ Re-run with: new ledger (R2.2), replay with person_id + asymmetric window (R2.3)
 
 ### R2.8 Changelog addendum
 - 2026-10-04 (Rev 2): integrated probe results + plan-review FIX-PLAN. §1.1 REUSE claims for `CONF_DOOR_GROUPS` / `CONF_INTERIOR_CAMERA_OVERLAP_GROUPS` / `EGRESS_CROSSING_ADMISSIBLE_TRACKERS` / `RESIDENT_CROSSING_MATCH_S` corrected to NEW. D1 re-scoped around the real root cause (`_extract_camera_stem` miss on `_2` suffix) + per-door neighbours with newest-first ordering + `peak_person_count` DB column (Tier 2-DB). Full consumer table added (HIGH-2). AMBIGUOUS backfill-eligibility decision (HIGH-1). D2 narrowed to Branch A + D (Tier 1); real producer surface + knobs cited; entry-side BLE attach carded. D3 DROPPED (probe refuted; moves to estimator plan). Operator truth timeline marked PENDING confirmation (OP-1). Config-first operator action recorded (person.oji_udezue tracker).
+
+---
+
+## Revision 3 (post plan-review PLAN-FIX-REQUIRED, 2026-10-05) — SUPERSEDES R2.2 / R2.3 / R2.5 / R2.6 where in conflict
+
+Plan reviewer (2026-10-05) returned a FIX-PLAN with CRITICAL/HIGH/MEDIUM/LOW findings against Rev 2. Each is applied below, with every file:line re-verified on `overnight/1005-review-merge` (branched off `develop`) before writing. Earlier text is retained; Revision 3 wins where it conflicts.
+
+### R3.0 Institutional-context refresh (verified on develop, 2026-10-05)
+
+**Code locations re-verified end-to-end for this revision:**
+- `transit_validator.py` — `_extract_camera_stem` wrapper at `:1162-1165` (delegates to census); `_resolve_egress_face_identity` body (relevant branches): `direction=='ambiguous'` short-circuit at `:1235-1237`; egress-stem bail at `:1242-1245`; interior-leg assembly `_get_interior_cameras_near` call at `:1253`; per-leg stem normalisation at `:1258`; BLE leg call at `:1363` (`census._resolve_ble_legs(timestamp, direction) or []`). `_resolve_direction` body: stem-dedup literal `5.0` at `:1736`; `_last_resolved[stem]` write at `:1742`; `_get_interior_cameras_near` call at `:1745`; arrival/departure notify call at `:1812` (comment block starts `:1804-1810`); census register/evict at `:1840-1866`; "Log to database if not ambiguous" gate at `:1874-1887`; `log_entry_exit_event` call at `:1879`. `_get_interior_cameras_near` definition at `:1955-1963` (returns `list(self._interior_entities)` — ALL interior cams). `_count_platforms_fired` with `_extract_camera_stem` call at `:1975`. `_last_resolved` 60 s prune literal at `:2001-2002`.
+- `camera_census.py` — `_extract_camera_stem` **definition** at `:859`; `_strip_suffix` / `_strip_disambiguation_suffix` normalisers used in sibling-search at `:712-720`; sibling-search `_extract_camera_stem` call at `:797`; `_resolve_ble_legs` (entry-only lead-window helper) at `:4497-4555`, lead bound at `:4527` (`BLE_EGRESS_ENTRY_LEAD_S = 180`, `const.py:2795`); exit-backfill DAO call sites at `:4360` (`find_unnamed_exit_crossings`) + `:4411` (`backfill_entry_exit_person_id`).
+- `camera_resolver.py` — `_has_any_suffix_stripped` at `:317`; `_strip_disambiguation_suffix` at `:291`; `_strip_suffix` at `:305`; `_PERSON_SUFFIXES` et al. `:214-270`.
+- `sensor.py` — restore reads at `:4559` (entries), `:4693` (exits), `:4765` (exit variant); live bus listeners at `:4580` / `:4711` / `:4821` / `:4869`.
+- `database.py` — `log_entry_exit_event` INSERT at `:4041-4066`; `get_entry_exit_events_since` at `:4068`; `find_unnamed_exit_crossings` at `:4099`; `backfill_entry_exit_person_id` at `:4137-4177` (NO direction filter in the UPDATE SQL — direction eligibility enforced upstream by SELECT). Existing `ALTER TABLE … ADD COLUMN` precedent at `:972`, `:1819`, `:1957`, `:2012`, `:2057` etc.
+
+**Verifications done (REUSE-vs-NEW re-stated for this revision):**
+- `_extract_camera_stem` has **exactly five** callers (`grep -n _extract_camera_stem custom_components/universal_room_automation`): `camera_census.py:797` (legacy sibling-search), `transit_validator.py:1242` (face identity egress stem), `:1258` (face identity interior-leg normalisation), `:1733` (dedup head of `_resolve_direction`), `:1975` (`_count_platforms_fired`). Verified ✔.
+- `_active_count_2` suffix does **NOT exist** in `custom_components/universal_room_automation` (`grep -rn _active_count_2 custom_components/` → 0 hits). The failing Frigate-2 person legs are `_person_occupancy_2` and `_person_count_2`. The Rev 2 claim of a `_active_count_2` suffix is retracted.
+- Existing normalisers `_strip_suffix` + `_strip_disambiguation_suffix` (`camera_resolver.py:291/305`) are already composed in sibling-search at `camera_census.py:716-720`; `_has_any_suffix_stripped` at `camera_resolver.py:317` is the suffix-tolerant helper per the IDENTITY/FUSION manual §1.1 "never assume `_2`" rule. **REUSE** these in the `_extract_camera_stem` fix (R3.3); do NOT hand-add `_2` strings.
+- `database.backfill_entry_exit_person_id` (`:4137`) today has NO direction filter in the UPDATE itself — the direction filter is in the CALLER's selection via `find_unnamed_exit_crossings` which is exit-only by name. **Correction to Rev 2 HIGH-1 text:** direction-eligibility is enforced by the SELECTION path, not the UPDATE DAO.
+- `get_entry_exit_events_since` at `database.py:4068` is restore-only (sensor startup); live sensors read via `ura_person_egress_event` bus listeners (`sensor.py:4580/4711/4821/4869`). The Rev 2 HIGH-1 text treated "ledger readers" as if they drove live attribution — they do not.
+
+### R3.1 CRITICAL-1 — unset `CONF_DOOR_INTERIOR_NEIGHBOURS` MUST NOT silently stop logging
+
+**Finding:** Rev 2 §R2.2 item 3 specified "unmapped → `[]` → direction = AMBIGUOUS". Tracing the consumers of AMBIGUOUS in `transit_validator.py`:
+- DB write is gated at `:1874-1887` ("if direction != 'ambiguous': …"). AMBIGUOUS rows **never reach the ledger**.
+- Census register/evict is gated at `:1840` (`if person_id and direction in ("entry", "exit")`). AMBIGUOUS → neither register nor evict.
+- Arrival/departure notify is gated inside `_arrival_departure_notify` at `:1906-1907` (`if direction not in ("entry", "exit"): return`). AMBIGUOUS → no notify.
+- `_resolve_egress_face_identity` short-circuits at `:1235-1237` returning `(None, None, DISAGREE)`, so the BLE entry leg path at `:1363` is **never reached** for AMBIGUOUS crossings.
+
+**Consequence of Rev 2 as written:** on an unconfigured install (the 2nd home at Wigton, going live weekend 2026-10-03/04 per memory `project_single_user_no_backcompat`) OR on this install BEFORE the operator fills `CONF_DOOR_INTERIOR_NEIGHBOURS`, every egress crossing would resolve AMBIGUOUS, and door logging + census register/evict + notify would **silently stop**. This is a hard regression and violates the single-user-no-backcompat "degrade gracefully if unset" rule.
+
+**Fix (replaces R2.2 item 3; subsumes HIGH-2 contract-change for the second caller):**
+- `transit_validator.py:1955-1963` — `_get_interior_cameras_near` behaviour when `CONF_DOOR_INTERIOR_NEIGHBOURS` is unset OR the resolved `door_group` is not a key of the map: **fall back to today's `list(self._interior_entities)` byte-identical** (preserve current behaviour). ONLY when the map is set AND the door_group IS a key do we narrow to the mapped list.
+- An **empty mapped list for a configured door_group** (operator explicitly sets `{door_group: []}`) MAY resolve AMBIGUOUS — treat as a deliberate opt-out signal.
+- The second caller at `transit_validator.py:1253` (`_resolve_egress_face_identity`) sees the same contract: unmapped → full interior set (today's behaviour); configured → narrowed set. HIGH-2's "narrower neighbour set at the resolver" is therefore scoped to CONFIGURED door_groups only. Zero behavioural change on unset.
+
+**Test (new, mandatory):** `test_unset_neighbours_preserves_todays_direction_and_ledger_write` — assert that with `CONF_DOOR_INTERIOR_NEIGHBOURS` unset AND `CONF_DOOR_GROUPS` unset, a real resident entry at `garage_a` still writes a ledger row with direction=`entry` (not `ambiguous`) AND census register fires AND arrival notify fires. This is the regression trip-wire for Wigton's zero-config install.
+
+### R3.2 HIGH-1 — AMBIGUOUS backfill-eligibility rewritten (false-premise correction) + BUILD GATE
+
+**Finding:** Rev 2's HIGH-1 text ("AMBIGUOUS rows ARE backfill-eligible") rests on the false premise that AMBIGUOUS rows reach the DB. They do not (per R3.1 trace of `:1874-1887`). Simultaneously, Rev 2's consumer table misreads sensor behaviour: `get_entry_exit_events_since` (`database.py:4068`) is restore-only (`sensor.py:4559/4693/4765`); live counts flow via bus listeners at `sensor.py:4580/4711/4821/4869`; the BLE entry admission at `camera_census.py:4497` is an in-memory resolver-time leg cache, NOT a ledger read.
+
+**Fix (replaces R2.2 HIGH-1 decision):**
+- There is NO AMBIGUOUS-backfill question — AMBIGUOUS rows do not persist. The correct framing is: **how many crossings newly go AMBIGUOUS under the new `_resolve_direction` / neighbours wiring, and therefore drop out of the ledger / census / notify path entirely?**
+- **BUILD GATE (P-D1 extension, blocking):** before build dispatch, P-D1 must publish the **before/after AMBIGUOUS fraction** on 10-03 under the new wiring with (a) `CONF_DOOR_INTERIOR_NEIGHBOURS` unset (R3.1 fall-back path — expected 0 delta) and (b) the oracle household's filled map. The after-fraction (b) MUST NOT exceed the before-fraction (today's AMBIGUOUS rate on 10-03) by more than X percentage points; reviewers set X at plan-review time based on the measured before-rate. If the oracle map materially raises AMBIGUOUS, the neighbour lists are too narrow and must be widened before build.
+- **No DB schema change for AMBIGUOUS** this cycle (R2.2 implied one via the backfill-eligibility rewrite — withdrawn).
+
+### R3.3 HIGH-2 — stem fix REUSES existing normalisers; corrected suffix list; five-caller contract
+
+**Finding:** Rev 2 item 1 said "fix `_extract_camera_stem` to strip `_person_occupancy_2` AND `_active_count_2`". `_active_count_2` does not exist (verified: `grep -rn _active_count_2 custom_components/` → 0 hits). The actual failing legs are `_person_occupancy_2` and `_person_count_2` (the latter was missing from Rev 2). The IDENTITY/FUSION manual §1.1 forbids hand-adding `_2` strings — resolve via `_strip_disambiguation_suffix` + `_strip_suffix` (both already composed in sibling-search at `camera_census.py:712-720`) or `_has_any_suffix_stripped` (`camera_resolver.py:317`).
+
+**Fix (replaces R2.2 item 1):**
+- `camera_census.py:859` — `_extract_camera_stem` is rewritten to compose the existing normalisers. Pseudocode (not source): take `_entity_name(entity_id)`, apply `_strip_disambiguation_suffix` to strip any `_2`/`_3`/… tail, then `_strip_suffix(name, _PERSON_SUFFIXES)` to strip `_person_occupancy` / `_person_count` / `_person_detected` / etc. Return the resulting stem or `None` only when nothing matched. **No new suffix strings are hand-added.** `_PERSON_SUFFIXES` lives in `camera_resolver.py:214-270` per the manual.
+- Verdict in §1.1 table: **REUSE** (`_strip_disambiguation_suffix`, `_strip_suffix`, `_PERSON_SUFFIXES`). Rev 2 marked this NEW; corrected here.
+
+**Enumerate the five callers + expected behaviour + one behavioural test each (replaces R2.2 HIGH-2 consumer-table rows for `_extract_camera_stem`):**
+
+| # | Caller file:line | Role today | Behaviour under R3.3 | Behavioural test (one per caller) |
+|---|---|---|---|---|
+| 1 | `transit_validator.py:1733` (`_resolve_direction` dedup head) | Stem key for `_last_resolved` — Frigate-2 `_2` legs returned `None` → dedup skipped | Returns real stem for `_2` legs → dedup now covers them | `test_dedup_covers_person_occupancy_2_sibling_within_window` |
+| 2 | `camera_census.py:797` (legacy sibling-search) | Stem for sibling-pairing | `_2` siblings now pair instead of being dropped | `test_sibling_search_pairs_person_count_2_with_person_occupancy_2` |
+| 3 | `transit_validator.py:1242` (identity egress stem) | Short-circuits to `no_leg` when stem is `None` — today **every `_2` egress crossing exits at `:1243-1245` BEFORE BLE legs at `:1363`** | `_2` egress crossings now continue into BLE/face leg assembly; identity can attach | `test_person_occupancy_2_egress_reaches_ble_leg_resolver` (mutation-anchor: neuter the stem fix at `_extract_camera_stem` and confirm the test fails because the `no_leg` short-circuit re-fires) |
+| 4 | `transit_validator.py:1258` (identity interior-leg normalisation) | Interior leg stems | Interior `_2` cameras contribute to the leg-set instead of being filtered out | `test_interior_leg_set_includes_person_occupancy_2_camera_stem` |
+| 5 | `transit_validator.py:1975` (`_count_platforms_fired`) | Counts distinct platforms for the stem within 10 s | `_2` legs now count toward `platforms_fired` → more crossings reach `platforms_fired >= 2` | `test_platforms_fired_counts_person_occupancy_2_leg_as_frigate` |
+
+**Side effects (surfaced explicitly for reviewers):**
+- **Identity attach rate:** `_2`-stem egress crossings today exit at `transit_validator.py:1243-1245` with `_record("no_leg", SINGLE)` — they never see the BLE legs at `:1363` or the face legs at `:1267-1278`. Post-fix they will, which should **raise** the identity attach rate (today ~6.25% live per R2.3 citation).
+- **DB `confidence` column shift:** `_count_platforms_fired` at `:1975` feeds `platforms_fired` which controls the `confidence` written at `:1766-1768` and `:1791`: with `_2` legs counted, the per-direction confidence moves `0.8 → 0.9` (unambiguous) and `0.3 → 0.4` (AMBIGUOUS, where it is written to the bus but NOT the DB). Consumers reading `confidence` as a trust input must tolerate the shift (none today — it is an observability field).
+- **AMBIGUOUS fraction:** `platforms_fired >= 2` is more easily reached, which may also change how often direction resolves (no direct code path from `platforms_fired` to direction, but the dedup covering `_2` legs removes some duplicate rows that today bypass `_last_resolved`). The R3.2 BUILD GATE catches any adverse shift.
+
+**§1.1 table entry (REUSE verdict for Rev 3):**
+
+| Piece | Rev 2 verdict | Rev 3 verdict | Evidence |
+|---|---|---|---|
+| `_extract_camera_stem` fix | NEW/code change | **REUSE normalisers** (`_strip_disambiguation_suffix` + `_strip_suffix` + `_PERSON_SUFFIXES`) | `camera_resolver.py:214-270` + `:291/305`; composed already at `camera_census.py:712-720` |
+| Suffix list (`_active_count_2`) | asserted | **RETRACTED** — does not exist | grep 0 hits |
+| Suffix list (`_person_count_2`) | missing | **ADDED** — this is a real failing leg | grep match in `camera_census.py` / `const.py` / `binary_sensor.py` |
+
+### R3.4 HIGH-3 — Entry-side BLE attach ALREADY SHIPS; remove the new-card item; measurement replaces hypothesis
+
+**Finding:** The entry-side BLE attach is NOT missing. It ships at `camera_census.py:4497-4555` (`_resolve_ble_legs`, documented "v1 = ENTRY-ONLY" with lead window `0 <= (timestamp - leg.transition_ts) <= BLE_EGRESS_ENTRY_LEAD_S` = 180 s, `const.py:2795`). It is called from `transit_validator.py:1363` on the identity path. R2.3's "Entry-side BLE attach gap (new card)" is based on the 23:25 return showing `0/12` attributed rows — but per R3.3 above, those `_2` egress legs **short-circuit at `transit_validator.py:1243-1245` BEFORE reaching `:1363`**. The 0/12 is the `_2` stem bug, not a producer gap. The sibling card `EGRESS-BLE-ENTRY-ATTACH-1` is **closed REFUTED** on the kanban; do not re-mint it.
+
+**Orchestrator measurement (URA DB, 7 days to 2026-10-05), relied on in acceptance below:**
+- `person_entry_exit_events` entries over 7 days: **45 named** / **153 unnamed**.
+- 0 of the 45 named entries came from a `_2` camera; 75 of 153 unnamed came from a `_2` camera (concentrated at `front_door_aerial_person_occupancy_2`, `madrone_g6_entry_person_occupancy_2`).
+- Clustering unnamed entries within 120 s = **59 crossings**; **13 of 59 clusters** have a resident `person.*` arrival edge within ±300 s — i.e. a producer that admitted the BLE leg would have attributed them.
+
+**Fix (replaces R2.3 item 3):**
+- Remove the "new card `EGRESS-BLE-ENTRY-ATTACH-1`" item from R2.3.
+- Add to R2.2 D1 acceptance (as a POST-DEPLOY measurement; blocks D4 GO/NO-GO):
+  - **Verify (live, post-deploy):** over the first 7 days post-ship, the `_2`-camera share of **named** entries rises above 0, AND of the ~59 (projected over 7 d) unnamed entry-clusters with a resident arrival edge within ±300 s, ≥ 13 attach a `person_id` (match or exceed the pre-ship 13/59 ceiling the stem fix unblocks). A result of 0 attachments means the stem fix did not reach the BLE leg path — hard fail, roll back.
+
+### R3.5 HIGH-4 — Consolidated INV-INPUTS-R2 (single statement, discriminating observations)
+
+**Replaces** the scattered INV-INPUTS clauses in §0 / Rev 2.
+
+> **INV-INPUTS-R2 (falsifiable, single statement):** On a replay of the window **2026-10-03 00:00–23:59 CDT** against `person_entry_exit_events` as written by D1-shipped code, with D2 Branch-A asymmetric window applied in the replay, all of the following hold:
+>
+> **(a) Dedup covers Frigate-2.** For every egress-camera physical event on 10-03 where a `_person_occupancy` AND `_person_occupancy_2` leg fired within `DOOR_STEM_DEDUP_S` of each other, exactly one surviving ledger row is written (not two).
+>   - *Fix-shape vs failure:* under the fix, `garage_a` ledger rows ≤ 61 (probe ceiling). Under a bug where the stem fix regressed sibling-pairing (R3.3 caller #2), total `garage_a` rows **rise** above the baseline 119.
+>
+> **(b) Attribution ceiling, named-episode anchored.** Each of these NAMED episodes (from P-D1, verified in ledger + tracker edges) attaches to a resident `person_id` on the DEDUPED crossing: front porch burst **12:05–12:10** (operator Bermuda area=Receiving Room/Breakfast throughout — Path-β; expect NO attach), front porch burst **13:01–13:03** (same — Path-β; expect NO attach), `garage_a` cluster **12:38–12:42** (Path-β; expect NO attach), `garage_a` departure **~12:13** (Ezinne, BLE dep 12:18–12:19; expect attach to `ezinne` within [-180,+600] s), `garage_a` departure **13:55** (operator + Jaya, BLE dep 14:01:45 / 14:03:44; expect BOTH attach), `garage_a` entry **~15:44** (operator, BLE arr 15:42:29; attach), `garage_a` entry **23:25–23:31** (operator + Jaya, BLE arr 23:28:39/48; both attach ONLY after R3.3 unblocks the `_2` legs). The **Path-β ceiling** for the day is 3–4 unattributable at-home episodes (per probe).
+>   - *Fix-shape vs failure:* under the fix, midday 12:00–13:30 `T` ≤ 4 (Path-β bound). If `T` is 0 across the whole window, over-attribution — the Path-β class attributes falsely (stationary-tablet forgery, re-check R2.3 config action).
+>
+> **(c) AMBIGUOUS does not rise.** AMBIGUOUS fraction on the oracle household's filled neighbours map does not exceed baseline + X pp (set by reviewers from the R3.2 BUILD GATE measurement). On the UNSET-neighbours fallback (R3.1), AMBIGUOUS fraction is byte-identical to today.
+>   - *Fix-shape vs failure:* under the fix, same AMBIGUOUS rate on unset install (Wigton zero-config). If AMBIGUOUS rate on unset install rises above zero delta, R3.1 fallback is broken.
+>
+> **(d) Multiplicity is honest, not row-counted.** The 14:24 front-door episode writes a single ledger row (producer peaked at 4/8 bodies on `front_door_aerial`; row-count multiplicity unrecoverable per probe) WITH `peak_person_count ≥ 4`. The old INV-INPUTS clause (c) "≥ 2 surviving entries" is **removed** (per Rev 2 note, re-affirmed).
+>   - *Fix-shape vs failure:* under the fix, `peak_person_count` on that row ≥ 4. If it is `1` (or NULL on new row), the sampler at R3.6 is broken.
+>
+> **G5 is NOT a clause of this invariant.** G5 (interior over-count morning window) was a replay-side 1200 s-max-hold artefact (R2.4 / probe); the production census read 3. G5 moves to the estimator plan's `M_cam` definition and is not scored by this cycle. R2.5's "D4 re-run with the known replay artefact caveat" stands: D4 scores G1/G2/G3/G7/G8/G9 and reports G5 for information only.
+
+### R3.6 MEDIUM-1 — `peak_person_count` migration, writer, sampler bounds, reader
+
+**Replaces** R2.2 item 8's one-liner.
+
+- **Migration:** add `peak_person_count INTEGER` to `person_entry_exit_events`. Use the existing `ALTER TABLE … ADD COLUMN` idempotent-migration template already applied at `database.py:972` (`decision_log.scope`), `:1819` (`ac_ramp_events.effective`), `:1957/1961` (`room_transitions`), `:2012` (`prediction_results.person_id`), `:2057` (`notification_log.dry_run`). **Column is NULLABLE** so legacy rows (every row written before this cycle, ~7,010+ all-time per IDENTITY manual §5.1) are distinguishable from "post-cycle, sampler returned 0". No default; readers that need a scalar MUST coalesce to NULL-aware behaviour.
+- **Writer:** extend `database.log_entry_exit_event` (`:4041-4066`) with a new `peak_person_count: int | None = None` keyword parameter and INSERT it into the new column. Caller is `transit_validator.py:1879` (`_resolve_direction`), which samples per the next bullet before invoking the DAO.
+- **Sampler definition (bounded, deterministic):**
+  - **Window:** the sampling window is `[egress_timestamp - DOOR_STEM_DEDUP_S, egress_timestamp + EGRESS_ENTRY_WINDOW_SECONDS]` — i.e. from the dedup lookback bound to the delayed-resolve deadline. The DB row is written at the delayed-resolve point already (see `_resolve_direction` call-chain); sampling to the resolve-time horizon is **free** w.r.t. timing because the write already waits that long.
+  - **Sampling target:** the max of `sensor.<cam>_person_count` (and `_person_count_2` where present) observed on the camera stem(s) in the door_group that fired the episode.
+  - **Door-group dedup rule for the sampler:** when the door_group is set and multiple cameras in it fired within the window, take **MAX across the group's cameras** (not sum). Rationale: two cameras seeing the same 4-person arrival should report `peak = 4`, not `8`; summing double-counts physical bodies the dedup is explicitly collapsing.
+  - **Bounding-window knob:** reuse `DOOR_STEM_DEDUP_S` (lookback) + `EGRESS_ENTRY_WINDOW_SECONDS` (lookahead); no new knob. Rung: ledger-shape-adjacent — if a dedicated knob is later needed, it belongs on the **module-constant rung** (ledger-shape consequence, review-gated), consistent with `DOOR_STEM_DEDUP_S`.
+- **Reader (Bug Class #53 computed-but-not-consumed — defuse):** `scripts/probes/census_d0/census_estimator_replay.py` SELECT at approximately `:124` must `SELECT peak_person_count` from the ledger and use it as the multiplicity input for the 14:24 recovery check in INV-INPUTS-R2 (d). If this reader is not landed in the same cycle, the column is dead code — in that case **defer the column** to the estimator cycle (operator-coined "finish the job" / Bug Class #53 avoidance). Default disposition: **ship the reader this cycle** (small, one SELECT + one assertion in the probe).
+- **Acceptance test:** `test_peak_person_count_sampler_uses_door_group_max_not_sum` (two cameras in one group both read 4 → row shows 4, not 8); `test_peak_person_count_null_on_legacy_rows` (restore-time read of a pre-migration row does not crash).
+
+### R3.7 MEDIUM-2 — `CONF_MAIN_ENTRY_DOOR` deferred
+
+`CONF_MAIN_ENTRY_DOOR` (R2.2 item 7) has NO consumer in this cycle (D1 writes don't key off it; D4 replay doesn't need it; no sensor/notify path reads it). Per Bug Class #53, **defer to the estimator cycle** where the "main-entry prior" actually consumes it. Remove from this cycle's D1 build. §1.1 table entry drops to "parked until estimator cycle consumes it".
+
+### R3.8 MEDIUM-3 — Options-flow shape for `CONF_DOOR_GROUPS` + `CONF_DOOR_INTERIOR_NEIGHBOURS`
+
+Owning config entry = the top-level URA integration entry (ENTRY_TYPE_COORDINATOR_MANAGER), consistent with other census-adjacent options (`CONF_CAMERA_PERSON_ENTITIES` lives there, `const.py:1973`). Added to the existing options-flow step that already carries camera selectors (no new step).
+
+- **`CONF_DOOR_GROUPS`** — maps egress camera entity_id → door-group string.
+  - UI: a repeating pair of (camera selector, text input) rows. Default empty.
+  - Label: **"Group door cameras"** (plain phrase; no jargon per label-style-guide).
+  - Helper text (one sentence, no jargon): "If two cameras watch the same door, put the same group name beside both so URA counts them as one door."
+  - Example row the UI shows pre-filled on the oracle household: `camera: front_door_aerial → group: front`, `camera: doorbell_lite → group: garage_a`.
+- **`CONF_DOOR_INTERIOR_NEIGHBOURS`** — maps door-group string → list of interior-camera entity_ids.
+  - UI: a repeating pair of (door-group text — populated from `CONF_DOOR_GROUPS` values once set, multi-select of interior cameras).
+  - Label: **"Rooms next to each door"**.
+  - Helper text: "Pick the indoor cameras that see someone just inside each door. URA uses these to tell entries from exits. Leave empty to keep today's behaviour."
+  - Default: empty / unset → R3.1 fall-back (today's "all interior" behaviour) kicks in.
+- **No "advanced" / technical labels** (hysteresis, debounce, provenance, substrate — all forbidden per label-style-guide memo).
+- **Named-bucket style for any numeric exposure** (per `feedback_configurability_clarity`): `DOOR_STEM_DEDUP_S` is NOT exposed as an operator-facing Number entity this cycle (it stays a module constant per R2.2 item 2 and `Numbers-Get-Knobs` rung-1); no raw multiplier is exposed in options flow.
+
+### R3.9 MEDIUM-4 — 30 s door-group dedup keeps the FIRST leg (acknowledged loss + knob tie)
+
+**Finding:** `transit_validator.py:1732-1742` (the dedup head of `_resolve_direction`) keeps the FIRST leg to arrive — a later, higher-confidence leg within the window is **dropped**, and an exit-then-re-entry within `DOOR_STEM_DEDUP_S` collapses to one logical crossing (direction=whichever fired first). The 60 s `_last_resolved` prune at `:2001-2002` is a hard literal 60 — tied below.
+
+**Accepted loss (documented):**
+- A door-group round-trip (exit → re-entry) completed **within 30 s** collapses to a single row with the FIRST direction. We accept this on the operator household on the basis of the probe (no observed sub-30 s round trips on 10-03) and the Rev 2 marginal-benefit decomposition — "pick the newer leg" needs a buffering/replay machinery whose risk doesn't pay for a ~0 event/day gain.
+- A multi-platform crossing where the Frigate-2 leg arrives 1–2 s AFTER the Protect leg (common per the IDENTITY manual §1.1) loses the Frigate-2 face/count enrichment on the written row. The identity resolver still runs over the leg-set via `_resolve_egress_face_identity`, so the IDENTITY_CONFIDENCE path is unaffected; only the DB `confidence` column reflects the first platform's `_count_platforms_fired` snapshot. Live attach rate (R2.3) remains the authoritative control.
+
+**Fix (replaces R2.2 item 2 end):**
+- `DOOR_STEM_DEDUP_S` default **30 s** (OP-3), module constant, `const.py`.
+- `transit_validator.py:2001-2002` — replace the hard literal `60` prune with `max(60, DOOR_STEM_DEDUP_S)` so a future knob increase doesn't accidentally prune `_last_resolved` entries that the dedup head still needs. Add a comment at `:2001` naming the invariant: *"prune horizon ≥ DOOR_STEM_DEDUP_S, else dedup head stops seeing the first leg."*
+
+**Tests (new):**
+- `test_round_trip_under_dedup_window` — two legs on the same door_group 15 s apart, directions {exit, entry} → one row survives, direction = the FIRST (`exit`), count sensor's `exit_today - entry_today` reflects the collapse (document the observable).
+- `test_round_trip_over_dedup_window` — same pair at 45 s apart → two rows survive, directions preserved.
+- `test_last_resolved_prune_is_at_least_dedup_window` — set `DOOR_STEM_DEDUP_S = 90` (test-only monkey of the module const), fire a leg, assert `_last_resolved[stem]` survives at 70 s.
+
+### R3.10 LOW-1 — D1 build is NOT blocked by OP-1; gate-mapping clarified
+
+- **D1 (R2.2) build dispatch is NOT blocked by OP-1 operator confirmation of the 10-03 truth timeline.** The D1 changes (`_extract_camera_stem` fix, dedup knob, neighbours fallback, `peak_person_count` migration, options-flow fields) are independent of which resident the probe attributes the 12:13 / 13:55 crossings to.
+- **OP-1 (truth timeline)** gates: (a) **D2 (R2.3) replay scoring** — the asymmetric-window acceptance assertion names which resident attaches to which crossing; and (b) **D4 (R2.5) GO/NO-GO** on INV-INPUTS-R2 (b).
+- **OP-3 (`DOOR_STEM_DEDUP_S = 30 s`)** gates **D1 constant default** — but D1 build may land with the probe-recommended 30 s under the standing autonomous build mandate (`feedback_build_implies_ship` / `feedback_autonomous_tier1_with_tier2_protocol`); operator confirms at ship-approval time, not before build.
+- **OP-4 (Path-β budget ≈3–4/day)** gates **D4 GO/NO-GO** on INV-INPUTS-R2 (b). Independent of D1.
+- OP-2 (`doorbell_lite → garage_a`) and OP-5 (re-point `person.oji_udezue`) are already resolved / operator-side; no build gate.
+
+### R3.11 LOW-2 — Rename fixture-specific test names to generic names
+
+Replace in R2.2 Acceptance test list:
+- `test_doorbell_lite_maps_to_garage_a_per_conf_door_groups` → `test_camera_maps_to_configured_door_group` (fixture uses `cam_door_c → door_a`, no household-specific entity_id).
+- `test_main_entry_door_select_derived_from_door_groups_keys` → deleted along with `CONF_MAIN_ENTRY_DOOR` deferral (R3.7).
+- `test_resolve_direction_uses_configured_neighbours_not_all_interior` kept, fixture renamed to `cam_door_a`, `interior_cam_1`, `interior_cam_2`.
+- All new tests in R3.1 / R3.3 / R3.6 / R3.9 use generic names (`cam_door_a`, `cam_door_b`, `interior_cam_1`).
+
+### R3.12 LOW-3 — §1.1 REUSE table: Rev-2 / Rev-3 verdict column
+
+The §1.1 table is kept as-is for history (Rev 2 already annotated it with inline "WRONG — NEW" notes, and Rev 3 added `CONF_MAIN_ENTRY_DOOR` DEFERRED). The authoritative current-verdict surface is now the per-finding tables in R2.1 (prior-art corrections), R3.3 (REUSE for `_extract_camera_stem`), and R3.7 (`CONF_MAIN_ENTRY_DOOR` deferred). Reviewers should treat the latter three as the live verdict ledger; §1.1 is retained only to show the before→after audit trail. Future revisions SHOULD migrate the §1.1 rows into a single table with (Piece | Rev 1 | Rev 2 | Rev 3 | Evidence) columns.
+
+### R3.13 Supersession of Rev 2 items by Rev 3
+
+| Rev 2 item | Rev 3 status |
+|---|---|
+| R2.2 item 1 (`_active_count_2` suffix) | **RETRACTED** (R3.3) — does not exist |
+| R2.2 item 1 (`_extract_camera_stem` fix verdict) | **CHANGED** NEW → **REUSE normalisers** (R3.3) |
+| R2.2 item 3 (unmapped → AMBIGUOUS) | **REPLACED** (R3.1) — unmapped → today's behaviour (fallback) |
+| R2.2 item 7 (`CONF_MAIN_ENTRY_DOOR`) | **DEFERRED** to estimator cycle (R3.7) |
+| R2.2 item 8 (`peak_person_count` one-liner) | **EXPANDED** into R3.6 (migration + writer + sampler + reader) |
+| R2.2 HIGH-1 (AMBIGUOUS backfill-eligible) | **WITHDRAWN** — false premise (R3.2); replaced by BUILD GATE on AMBIGUOUS fraction |
+| R2.2 HIGH-2 (narrower neighbour set at `:1253`) | **SCOPED** to configured door_groups only (R3.1) + five-caller enumeration (R3.3) |
+| R2.3 item 3 (new card `EGRESS-BLE-ENTRY-ATTACH-1`) | **REMOVED** (R3.4) — card closed REFUTED; D1 acceptance covers it |
+| R2.3 fixture `test_doorbell_lite_maps_to_garage_a_per_conf_door_groups` | **RENAMED** (R3.11) |
+| R2.6 OP-1 as D1 build blocker | **CLARIFIED** (R3.10) — gates D2/D4, not D1 |
+| §0 scattered INV-INPUTS clauses | **CONSOLIDATED** into INV-INPUTS-R2 (R3.5); G5 removed from gate |
+
+### R3.14 Rev 3 changelog — plan review 2026-10-05
+
+| Reviewer finding | Where fixed in Rev 3 | Verified against code |
+|---|---|---|
+| CRITICAL-1 (unmapped neighbours silently stop logging) | R3.1 | `transit_validator.py:1874-1887` (DB gate), `:1840` (register/evict), `:1906-1907` (notify), `:1235-1237` (identity short-circuit), `:1363` (BLE legs) |
+| HIGH-1 (AMBIGUOUS backfill false premise + consumer-table errors) | R3.2 + R3.0 (consumer map rewrite) | `database.py:4068` (restore-only), `sensor.py:4559/4580/4693/4711/4765/4821/4869`, `camera_census.py:4497` (in-memory, not ledger) |
+| HIGH-2 (REUSE normalisers; `_active_count_2` retraction; `_person_count_2` added; five callers + behavioural tests + side effects) | R3.3 | `camera_census.py:859` (stem defn), `:712-720` (composed normalisers), `:797`; `camera_resolver.py:214-270`, `:291/305`, `:317`; `transit_validator.py:1242`, `:1258`, `:1733`, `:1975`; grep `_active_count_2` = 0 hits |
+| HIGH-3 (entry-side BLE attach already ships; measurement replaces card) | R3.4 | `camera_census.py:4497-4555`, `const.py:2795`; URA DB measurement cited |
+| HIGH-4 (consolidated INV-INPUTS-R2; discriminating observations; G5 removed from gate) | R3.5 | `AUDIT_census_estimator_replay_2026_10_03_hybrid.md`; P-D1/P-D2 probe tables |
+| MEDIUM-1 (`peak_person_count` migration + writer + sampler + reader) | R3.6 | `database.py:4041-4066` (writer target), `:972/1819/1957/2012/2057` (migration precedent); `scripts/probes/census_d0/census_estimator_replay.py:~124` (reader site) |
+| MEDIUM-2 (`CONF_MAIN_ENTRY_DOOR` deferred) | R3.7 | no consumer in cycle; Bug Class #53 |
+| MEDIUM-3 (options-flow shape + labels) | R3.8 | label-style-guide memo; `const.py:1973` (owning entry precedent) |
+| MEDIUM-4 (dedup keeps-first + prune tie + round-trip loss) | R3.9 | `transit_validator.py:1732-1742`, `:2001-2002` |
+| LOW-1 (D1 not blocked by OP-1) | R3.10 | gate mapping |
+| LOW-2 (generic fixture names) | R3.11 | — |
+| LOW-3 (verdict column) | R3.12 | §1.1 retention policy |
+
+### R3.15 Findings not applied / disagreements
+
+- **HIGH-1 mechanism caveat.** The reviewer's finding that `database.backfill_entry_exit_person_id` enforces direction via a `WHERE direction='exit'` clause on the UPDATE is slightly off: the UPDATE DAO at `database.py:4137-4177` has NO direction filter in its SQL (`WHERE id = ? AND person_id IS NULL`). Direction eligibility is enforced at the SELECTION layer (`find_unnamed_exit_crossings`, `:4099`, exit-only by name). The reviewer's **conclusion** (AMBIGUOUS rows never persist, so the "backfill-eligibility" framing is moot) still holds and is applied in R3.2; only the cited mechanism is adjusted. No disagreement with the fix direction.
+- **Transit-validator line offsets.** Reviewer cited `:1873-1886` (DB log), `:1835` (register/evict), `:1807` (notify), `:1235` (direction_ambiguous), `:1253` (second `_get_interior_cameras_near` caller), `:1963` (helper tail), and `~:868-876` for `_extract_camera_stem`. Live-on-develop offsets are `:1874-1887`, `:1840`, `:1812` (notify call; `:1804-1810` is the preceding comment), `:1236`, `:1253`, `:1955-1963`, and `:859` for the stem definition. Rev 3 cites the live-on-develop lines; no substantive disagreement, offsets drift by 1–10 only.
+- All other reviewer findings applied as written.
