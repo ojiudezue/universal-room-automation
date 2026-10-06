@@ -1,0 +1,23 @@
+{
+  "format_version": "2.1",
+  "entry_id": "187",
+  "author": "ojiudezue",
+  "session_id": "claude_20261006_193605_ship_v5_103_41",
+  "timestamp": "2026-10-06T19:36:05Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.41 shipped: HVAC W1-C P2 option C: ecobee comfort select by default",
+  "summary": "HVAC W1-C P2 option C: ecobee comfort select by default",
+  "why": "Option B always held URA's own range on ecobee, so the thermostat's own comfort numbers were never used, unlike Bryant where URA selects the activity and the device numbers apply. The operator ruled the ecobee should match: select the comfort setting and only change numbers for DPM or Custom Preset Ranges. Live probes showed the select is readable in heat_cool and settles in about 5 s. Four reviews found and closed settle-order, off-heat_cool and per-preset reference bugs plus a person-protection gap on re-assert.",
+  "implications": "Shipped HVAC-W1C-GENERIC-THERMOSTAT-1 at v5.103.41; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.41.md (Live criteria).",
+  "revisit_trigger": "Any ecobee write outside the funnel, a person change absorbed outside the 180 s window, or phantom override storms from ecobee schedule steps",
+  "refs": {
+    "cards": [
+      "HVAC-W1C-GENERIC-THERMOSTAT-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.41.md"
+    ],
+    "release_notes": "Ecobee: URA selects the thermostat comfort setting by default and holds its own range only for CPR/DPM/freeze/vacation; person changes after a 180 s settle read manual; re-asserts respect person-protection gates. Carrier byte-identical."
+  }
+}
