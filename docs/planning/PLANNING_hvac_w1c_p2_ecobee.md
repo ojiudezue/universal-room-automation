@@ -1698,3 +1698,680 @@ is in scope until Branch D is unparked.
   entities; its in-suite shape is locked so a future install activates it with no code change.
 - **Six operator questions above (K.1–K.6)**; three are flagged for an explicit approval (K.1 INV widening,
   K.2 fifth funnel, K.3 Branch D park), three are configuration choices (K.4 unit, K.5 vacation, K.6 window).
+
+
+# HVAC W1-C P2 ecobee — REV 4.1 (plan-review fix pass over REV 4) — 2026-10-05
+
+**Status:** PLAN APPENDIX to `PLANNING_hvac_w1c_p2_ecobee.md` REV 4. NOT built, NOT committed, do NOT commit.
+Reader: treat this file as if it were appended to the main plan after line 1700. Where this appendix contradicts
+REV 4 it WINS; where silent, REV 4 holds. Where REV 4 contradicts REV 3 it still wins; REV 3 untouched sections
+(§4.1 cache, §4.3 raw-read exclusion except as readback corroboration, §4.4 classifier, §4.7 F1–F4, §4.8 scaffold
+removal, §4.10 freshness, §4.11 deferral reporting, §5 R1–R16/T1–T2, §6 non-E2/R invariants, §7 D0/D1/D3/D4/D5/D6)
+remain the authority.
+
+**Shipping context (DO NOT re-litigate):** Option B is LIVE in v5.103.40 on `develop` (HVAC-W1C-GENERIC-THERMOSTAT-1
+reconcile 2026-10-05). REV 4.1 lands on top of that live base. Carrier byte-identity invariant (INV-C) and the 168
+Carrier goldens remain untouched.
+
+---
+
+## REV 4.1-A. Changelog (short)
+
+1. **D0c live evidence (Wigton master suite, 2026-10-05 ~19:00; restored to `cool` 76 °F afterwards)** replaces
+   REV 4-B's single-reading row with two protocol passes P1/P2 + the 18:45 cool-mode delta. Select is **readable in
+   `heat_cool` within 5 s**; **unreadable in `cool`** for ≥ 30 s. Settle ≤ 5 s. (REV 4.1-B.)
+2. **`ECOBEE_SELECT_ECHO_TTL_S` default revised 180 s → 60 s** (justified from measurement, not a protocol guess).
+   Still rung 1 (`hvac_const.py`). (REV 4.1-G.)
+3. **Branch S runs in `heat_cool`** — B1 forces `heat_cool` before S1 holds, so the production select write is in
+   `heat_cool` where D0c proved the select readback works. The REV 3 docstring claim "select unreadable while held"
+   is corrected to "unreadable in cool, readable in heat_cool" (one-line correction; new C-ledger entry — see
+   REV 4.1-N.). (Review #2 F1, Review #1 F12.)
+4. **`held` is now a dataclass `Held(label, mode, lo, hi, t_issued_wall, settled)`** with persisted dict form, a
+   one-release legacy-3-list migration (`mode="range"`), and an enumerated reader list. Replaces REV 4's tuple
+   shapes `(P, "range", lo, hi)` / `(P, "select", t_issued, settled_legs)`. (Review #2 F2.)
+5. **`preset_of` projection rules rewritten** (REV 4.1-C.3) — range path, select-within-window, select-after-window,
+   `settled is None` after TTL = snapshot-then-apply, plus select readback `home/sleep/away` as **corroboration-only
+   when `held` exists** (never as the primary oracle). The raw select-read exclusion from REV 3 §4.3 stays except for
+   this corroboration. (Review #2 F3 + F8; Review #1 F1.)
+6. **`hold_needs_reassert` truth table added** (REV 4.1-C.4) with four falsifying conditions. A baseline-equal
+   `set_preset_range` on a `held.mode == "range"` entry no longer deferred to "next S1 tick downgrades" — it issues
+   the Branch-S select **directly, in that same call, one write**. (Review #2 F4 + Review #1 F3.)
+7. **Arrester reference comes from a strategy verb `reference_setpoints`** (REV 4.1-C.5) — Branch S settled →
+   settled legs; Branch S unsettled → Seasonal Baseline (NOT the live legs mid-settle); Branch R → `effective_range`.
+   Falsifier against S3 midpoint / `delta_f` fixed to use a legal-config repro, not the Branch-S happy path.
+   Arrester **revert** calls `pin_preset` which routes to `emit_select_comfort` under Branch S (one select; no raw
+   setpoint). (Review #2 F5, Review #1 F7.)
+8. **Lazy settle — no timer, no state listener** (REV 4.1-C.6). `held.settled` fills on the first eligible event /
+   next-tick read inside the TTL; outside the TTL the next read snapshots and freezes. REV 4's "state_changed inside
+   the window updates settled_legs" machinery is DELETED (would have required a listener; §9e no-new-listeners rule).
+   (Review #2 F6, Review #1 F6.)
+9. **Window absorption documented + edge tests** (REV 4.1-C.6b): a URA select whose first readable event falls at
+   or past `t_issued + TTL` snapshots the live legs as `settled`; a URA select that is superseded by a new URA select
+   inside the window drops the first `settled` candidate; a device schedule step inside the window is treated as the
+   settle event (CORROBORATED by a non-manual select readback OR by legs equal to one current-season effective
+   range within tolerance) — ONLY under Branch S with the hold-action setup prerequisite (REV 4.1-C.7). (Review #2 F7.)
+10. **Vacation handling fixed to "always Branch R with vacation defaults"** (REV 4.1-C.8). The REV 4 conditional
+    (bare `away` select unless composed-range differs) was buggy: an operator-set vacation range equal to away by
+    coincidence (two independent operator knobs) would silently select `away`, losing the semantic. Review #1 F11,
+    Review #2 F9. Also: the fake `preheat_boost` D7 test is dropped — unmapped presets go Branch R using
+    `effective_range`, which is exactly the vacation path.
+11. **Freeze gate active → force Branch R** (REV 4.1-C.9). REV 4-C.3's "freeze PASS-THROUGH on select" is REFUTED
+    (Review #1 F8, Review #2 F10): a `select_option` hands the device to its own comfort numbers, which the operator
+    cannot guarantee are above freeze floor. Under freeze: emit Branch R with the freeze-clamped range (`emit_set_
+    temperature` applies the same floor it always has). The freeze gate decision happens inside the adapter, BEFORE
+    the Branch S/R split — not inside `emit_select_comfort` (freeze is a setpoint concern; the select funnel stays
+    pass-through for freeze and only the ADAPTER branches).
+12. **`last_sent` is RAM-only, one key per (zone, entity), one `select_option` per zone per boot** (REV 4.1-C.10).
+    Review #2 F11: a persisted `last_sent` would race with `held` on rehydrate and inflate the ledger. The adapter
+    emits exactly one select per boot per zone when Branch S starts; subsequent S1 ticks SKIPPED unless
+    `hold_needs_reassert` flips.
+13. **AST lint narrowed to `hvac*.py` only** (REV 4.1-C.11). Review #2 F12: the energy coordinator legitimately
+    calls `select.select_option` and `number.set_value`; a cross-module lint would false-positive. Lint scope:
+    `custom_components/universal_room_automation/domain_coordinators/hvac*.py` only. Allowlist: `emit_select_comfort`
+    (the one call site). Explicit bans in HVAC scope: `button.press` on any Clear-Hold entity; `number.set_value` on
+    any `vendor_ecobee_*_target_*` entity (Branch D unparked only when the funnel for it is approved — see Q7
+    pending).
+14. **No `s10_capture_original` verb** (REV 4.1-C.12). Review #1 F4: REV 4 §C.7 proposed a new "capture skip" verb;
+    this is reinvention — Batch C already captures `preset_range_would_write` and compares to the DEVICE's current
+    range. On ecobee that compare returns the baseline on a device with no device-side ranges, so capture is a
+    structural no-op; the restore pass deletes the entry and the next tick downgrades via `hold_needs_reassert`
+    (REV 4.1-C.4) — no new verb needed. REV 4-C.7's `s10_capture_original` paragraph is **withdrawn**.
+15. **Persistence versioning** (REV 4.1-C.13). Review #1 F5: `__w1c_adapter` gains a `_schema_version` key (`v=2`
+    for the dataclass form; `v=1` for the REV 3/REV 4 tuple form; absent = treat as `v=1`). Migration on rehydrate
+    is one-shot, logged ONCE at INFO per entity, and does not re-trigger on subsequent boots.
+16. **Ledger `entity_id` discipline** (REV 4.1-C.14). Review #1 F10: `climate_write` rows with
+    `verb="select.select_option"` carry `entity_id = <climate entity>` (the zone's identity, same as every other
+    row) AND a new field `select_entity_id = <ecobee Current Mode select entity>` so the trace is reversible. This
+    is the ONE ledger-row shape change; it is additive and ecobee-only.
+17. **TTL justified from D0c measurement** (REV 4.1-G.). 60 s = ~12× the observed 5 s settle, bounded well below
+    the 120 s preset-kind suppression. (Review #2 F14.)
+18. **Verify existing original-is-baseline path** (REV 4.1-C.15). Review #2 F13: no new capture verb; the existing
+    Batch C `preset_range_would_write` compare with Seasonal Baseline on an ecobee is the oracle. Pin by test
+    (REV 4.1-F / D7 test extension).
+19. **Hold action setup prerequisite is now a hard precondition** (REV 4.1-C.7). Review #1 F2: operator is setting
+    "Hold Action: until I change it" on all Wigton units as a prerequisite. Under Branch S after the echo window,
+    IF the live legs read as `manual` (device schedule step) AND no person-change signal fired AND the hold-action
+    is NOT "until next activity", URA re-selects the comfort setting (one `select_option`, counts against the
+    per-boot cap, logs `branch_s_schedule_recapture`). This covers an install that forgot the prerequisite without
+    letting a mis-set unit fight the operator (D0c did not probe this; it is a defensive path).
+
+**Operator-answer-pending recommended defaults (so a build is not blocked while answers arrive):**
+- Q1 (INV-E2 widen for `select.select_option`): **recommend yes** — the single call that makes option C mean
+  anything.
+- Q2 (fifth funnel vs sixth): **recommend fifth funnel `emit_select_comfort`**; one `climate_write` row per attempt;
+  uniform governance. (Operator approval still required; a sixth funnel for Branch D is NOT recommended now —
+  park with Branch D.)
+- Q3 (Branch D park): **recommend PARK for Wigton**, shape-locked in-suite only.
+- Q4 (live-walk unit): **recommend Master Suite** — its 5 °F installer-set min delta exercises both Branch R and
+  the per-unit min-delta guard REV 3 B4.
+- Q5 (vacation): **always Branch R with vacation defaults** (REV 4.1-C.8); supersedes REV 4 conditional.
+- Q6 (TTL): **60 s** (REV 4.1-G.).
+
+---
+
+## REV 4.1-B. New live evidence — D0c (Wigton master suite, 2026-10-05 ~19:00; restored to `cool` 76 °F)
+
+| Pass | Setup | Write | 5 s | 10 s | 45 s | legs (lo/hi) | select | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| **D0c-P1** | climate `heat_cool`, legs 70/77 (device Home comfort in heat_cool) | `set_hvac_mode heat_cool` then `select_option home` | select = **home** | select = **home** | select = **home** | 70 / 77 (no drift over 45 s) | **READABLE** throughout | PASS — select readable in heat_cool |
+| **D0c-P2** | climate `cool`, setpoint 78 (ambient hot), human sat at the device | `select_option home` → T = 78, select "home"; then `set_hvac_mode heat_cool` | — | — | — | 70 / 77 | select stays **home** within 5 s | PASS — select readable within 5 s after mode flip |
+| **D0c-earlier (18:45)** | climate `cool`, setpoint 76 | `select_option home` | select = `unknown`, setpoint 76 → 75 | select = `unknown` | select = `unknown` | n/a (single setpoint `cool`) | **UNREADABLE** for 30 s | Confirms REV 4-B: select is unreadable in `cool`; a select_option DID land as a device hold at the device's Home-cool comfort |
+
+**Consequences for the design:**
+- **Select readability is available-but-not-guaranteed.** It is readable in `heat_cool` (the production mode under
+  B1), unreadable in `cool`/`heat`/`off`. The adapter MUST NOT rely on reading the select to determine URA's own
+  belief — `held` is the oracle. The select is CORROBORATION only (REV 4.1-C.3).
+- **Settle is fast (≤ 5 s observed).** REV 4-G's 180 s TTL is more than an order of magnitude too long; dropped to
+  **60 s** (REV 4.1-G.).
+- **Branch S production runs in `heat_cool`.** Because B1 forces `heat_cool` before S1 holds, production reads of
+  the select will be readable. The REV 3 docstring claim "select unreadable while held" is corrected to
+  "select unreadable in cool/heat/off; readable in heat_cool after ≤ 5 s" (one-line fix; new C-ledger entry
+  REV 4.1-N.).
+
+---
+
+## REV 4.1-C. Design corrections (ordered to replace or amend specific REV 4-C subsections)
+
+### C.1 `Held` dataclass (replaces REV 4-C.1 tuple shapes everywhere; Review #2 F2)
+
+```
+@dataclass
+class Held:
+    label: str                         # "home" | "sleep" | "away" | "vacation" | <unmapped>
+    mode: str                          # "range" | "select"
+    lo: float | None                   # post-guard low leg (Branch R only; None under Branch S)
+    hi: float | None                   # post-guard high leg (Branch R only; None under Branch S)
+    t_issued_wall: float               # monotonic-safe wall epoch (seconds since 1970), stamped BEFORE wire await
+    settled: tuple[float, float] | None  # (heat_leg_or_target, cool_leg_or_target) once settled; None under Branch S
+                                         # until lazy settle (REV 4.1-C.6)
+```
+
+- **Persistence form** (`__w1c_adapter` entry): dict `{"label": str, "mode": str, "lo": float|None, "hi": float|None,
+  "t_issued_wall": float, "settled": [float, float]|None}` under `held`; `ranges` unchanged from REV 3 §4.2a.
+- **Migration (one-shot, logged once per entity at INFO):**
+  - Legacy 3-list `[P, lo, hi]` from REV 3 → `Held(label=P, mode="range", lo=lo, hi=hi, t_issued_wall=now,
+    settled=None)`. Reader note: this is the ONLY legacy form shipping (option B live in v5.103.40).
+  - REV 4 tuple `(P, "range", lo, hi)` is same as the dataclass with wall-stamp = now, settled None.
+  - REV 4 tuple `(P, "select", t_issued, settled_legs)` → `Held(label=P, mode="select", lo=None, hi=None,
+    t_issued_wall=t_issued, settled=settled_legs)`.
+  - `_schema_version` key (REV 4.1-C.13) governs the branch.
+- **Reader enumeration (every site that reads `held` — pinned by test
+  `test_rev4_1_held_readers_enumerated` under `quality/tests/test_hvac_w1c_p2_ecobee_rev4.py`):**
+  1. `EcobeeHomeKitStrategy.preset_of` (REV 4.1-C.3).
+  2. `hold_preset` no-op clause (REV 4-C.1 Branch S / R).
+  3. `pin_preset` (same no-op logic; `last_sent` not touched there).
+  4. `set_preset_range` upgrade/downgrade decision (REV 4.1-C.4).
+  5. `reference_setpoints` for the arrester (REV 4.1-C.5).
+  6. `hold_needs_reassert` (REV 4.1-C.4).
+  7. Boot restore path (`_rehydrate_arrester_state` side-key read; REV 3 §4.2a).
+  8. Shutdown snapshot build (`_build_snapshot` export; REV 3 §4.2a).
+  9. Profile-switch flush (REV 3 §4.1).
+  10. Interrupt-latch prune seam (REV 3 §4.2a prune step).
+  11. S1 downgrade re-select on manual readback (REV 4.1-C.7 schedule-recapture, Branch S only).
+
+  Any new `held` reader added by the builder must be added to this list and the test, or the test fails.
+
+### C.3 `preset_of(state)` precedence under option C — REWRITTEN (replaces REV 4-C.4; Review #2 F3 + F8, Review #1 F1)
+
+Reads in this precedence; return on first match:
+
+1. State None / `unavailable` / `unknown` → the call site's existing default (unchanged from REV 3).
+2. **`held[entity]` exists** (Branch R or Branch S):
+   - `held.mode == "range"`: live mode `heat_cool`, both legs numeric, `(low, high)` within
+     `ECOBEE_RANGE_TOLERANCE_F` (D0b) of `(held.lo, held.hi)` → return `held.label`. Mismatch → `"manual"`
+     (REV 3 §4.3 PR2-4 — guards against coincidental one-leg equality).
+   - `held.mode == "select"`:
+     - **inside the echo window** (`now - held.t_issued_wall < ECOBEE_SELECT_ECHO_TTL_S`): return `held.label`.
+       (The select being `unknown` or temporarily absent does NOT demote; mode drift does NOT demote; this is the
+       window where the device is executing the select.)
+     - **outside the window AND `held.settled` is None**: lazy-snapshot — take the live legs (or single
+       `temperature` under cool/heat) as `settled` NOW, then evaluate the "after-window" clause below. (REV 4.1-C.6.)
+     - **outside the window AND `held.settled` is set**:
+       - live legs within `strategy.echo_tolerance_f()` of `settled` → return `held.label`.
+       - else → `"manual"` (person-change path; the arrester classifier runs with `settled` as reference —
+         REV 4.1-C.5).
+   - **Corroboration (REV 4.1 addition over REV 3 §4.3 and REV 4-C.4):** when `held.mode == "select"` AND the raw
+     select reads one of `{home, sleep, away}` AND that reading maps to `held.label`, the "return `held.label`"
+     paths above may still be taken even if a transient leg glitch would otherwise flip to `"manual"`. The raw
+     select read is **never alone** sufficient to override `held`'s decision — it only reinforces.
+3. **No `held`:**
+   - Mode `heat_cool`, both legs numeric: exactly ONE current-season effective range (REV 3 §4.2a) matches within
+     tolerance → that preset name; two candidate ranges within 2× tolerance of each other → no match (REV 3 §4.3
+     tiebreak preserved); zero match → `"manual"`.
+   - Mode not `heat_cool`, select reads `{home, sleep, away}` → reverse-map (`home→home`; `sleep→sleep`;
+     `away→away`); `wake` not emitted by the device.
+   - Else → `""` (REV 3 §4.3 default).
+
+**Falsifiable:** a mutation that returns the raw select value when `held` exists but legs disagree ≥ 2 °F → the
+"settled drift reads manual, not held label" test fails (REV 4.1-F test M3).
+
+### C.4 `hold_needs_reassert` truth table (new verb; REV 4.1 adds; Review #2 F4, Review #1 F3)
+
+`strategy.hold_needs_reassert(hass, entity, zone_state, desired_preset) -> bool`. Carrier / Generic: **always False**
+(byte-identical, 168 goldens unchanged). EcobeeHomeKit: True iff ANY of the following holds:
+
+| Row | Condition | Rationale |
+|---|---|---|
+| **R1 — Branch mismatch** | `held` exists AND `held.label == desired_preset` AND the branch URA WOULD take for `desired_preset` right now (per REV 4-C.1 ladder: Branch R if a stored composition exists, else Branch S) does not match `held.mode` | Composition appeared on the held preset (Branch S → Branch R upgrade) or was deleted (Branch R → Branch S downgrade). Review #2 F4 collapses REV 4's "next-tick downgrade" into one write by having `hold_needs_reassert` fire this tick |
+| **R2 — Label mismatch** | `held.label != desired_preset` | S1 is pinning a different preset than the one URA last held |
+| **R3 — Legs drift (Branch R)** | `held.mode == "range"` AND live legs ≠ `effective_range(entity, desired_preset)` within `ECOBEE_RANGE_TOLERANCE_F` | Season rollover (REV 3 §4.2a season-keyed `ranges`), baseline edit, operator Min-Delta change, external range poke |
+| **R4 — Settled deviation (Branch S)** | `held.mode == "select"` AND `held.settled` set AND live legs ≠ `held.settled` within `strategy.echo_tolerance_f()` AND the classifier does NOT attribute the change to a human (gate: within 15 s of a URA write OR all four match a recent URA value) | Device scheduled a step while hold-action is NOT "until next activity"; defensively re-select (REV 4.1-C.7) |
+
+If True, S1 re-dispatches through `hold_preset(desired_preset)` which:
+- Under R1 upgrade (S → R): emits one range write; `held` becomes range form; one `climate_write` row.
+- Under R1 downgrade (R → S): emits one `select_option`; `held` becomes select form; one `climate_write`
+  (`verb="select.select_option"`) row.
+- Under R2/R3/R4: emits whatever `hold_preset` would emit for `desired_preset` NOW (same ladder); one write.
+
+**One-write guarantee (Review #2 F4 critical).** A baseline-equal `set_preset_range(P, baseline)` on a currently
+`held.mode == "range"` entry for P now triggers an IMMEDIATE Branch-S select via `hold_preset(P)` IN THE SAME CALL
+(not next tick). Delete the entry, then call `hold_preset(P)` directly inside `set_preset_range`'s "baseline-equal
+pass". One write visible to the operator at CPR OFF; the next S1 tick is SKIPPED.
+
+### C.5 Arrester reference via `reference_setpoints` verb (replaces REV 4-C.5; Review #2 F5, Review #1 F7)
+
+`strategy.reference_setpoints(hass, entity, zone_state) -> (cool, heat)`.
+- **Carrier / Generic:** the Seasonal Baseline for the zone's current S1 target preset — BYTE-IDENTICAL to v5.103.36
+  behaviour (the arrester already measures against the baseline on Carrier).
+- **EcobeeHomeKit:**
+  - `held.mode == "range"` → `(held.hi, held.lo)` (the arrester's pair order; the range URA holds).
+  - `held.mode == "select"` AND `held.settled` set → `(cool_leg_or_target, heat_leg_or_target)` from `held.settled`.
+  - `held.mode == "select"` AND `held.settled` is None (unsettled, inside or just-past the window) → the Seasonal
+    Baseline for `held.label` (NOT the live legs mid-settle — a device still executing its hold could trip the
+    arrester on URA's own echo). Lazy-snapshot (REV 4.1-C.6) runs only on `preset_of` entry, not here.
+  - `held` absent → fall through to current-S1-target baseline, same as Carrier.
+
+**S3 compromise write under Branch S.** When the arrester issues an S3 compromise on an ecobee zone whose
+`held.mode == "select"`, the compromise is a `set_setpoints` (range write) — Branch S → Branch R transition for the
+duration of the episode; `held` becomes `(label, "range", midpoint-based legs, settled=None)`. After S4 revert, the
+revert goes through `pin_preset`, which on an ecobee re-enters the hold-ladder (REV 4-C.1): if `ranges` still has a
+stored composition for `label` → Branch R; else → Branch S (one `select_option`). No raw setpoint on revert.
+
+**Falsifier (fixed, Review #1 F7).** Legal-config repro: operator Min-Delta = 5, Seasonal Baseline home = 70/76,
+D0b `delta_f` midpoint rule: compromise mid = 73. Person-change observed = 72 (settled 70/76 → person pushes cool
+to 72). Mutation: make `reference_setpoints` return the LIVE legs instead of `settled`. The arrester's delta vs
+reference becomes 0 (live == live) → declines. Test `test_rev4_1_arrester_reference_uses_settled_not_live` fails.
+Mutation drill ensures the test actually falsifies.
+
+### C.6 Lazy settle — NO timer, NO state listener (replaces REV 4-C.5 mechanics; Review #2 F6, Review #1 F6)
+
+- `held.settled` is filled ONLY by `preset_of` evaluation when `held.mode == "select"` AND
+  `now >= held.t_issued_wall + ECOBEE_SELECT_ECHO_TTL_S` AND `held.settled is None` AND the live state has heat_cool
+  legs OR a single `temperature`.
+- Snapshot: `settled = (cool_leg_or_target, heat_leg_or_target)`. Dual-leg under `heat_cool`; dual-copy of
+  `temperature` under `cool`/`heat` (D0c-P2 showed `temperature` returns to a readable single value in cool after a
+  select).
+- Persistence (REV 3 §4.2a snapshot path) writes `settled` on the next snapshot save; no extra save path.
+- **No `async_track_time_interval`, no `async_track_state_change_event`.** The 5-min S1 tick is the clock; the
+  fast-run exit timer (v5.103.20) does NOT trigger a settle (passes `full_tick=False`; the zone-scoped runs read
+  `held.settled` without filling).
+- Edge: a URA select whose first `preset_of` read falls AT the TTL boundary (within 1 s) still fills; a URA select
+  that is superseded by another URA select before the TTL elapses drops the first `settled` candidate (resets to
+  None at the new `t_issued_wall`).
+
+### C.6b Window absorption + edge tests (new; Review #2 F7)
+
+| Scenario | Expected `preset_of` after window |
+|---|---|
+| URA selects home at t=0; first readable state_change at t=65 (window = 60) | lazy-snapshot at t=65 fills `settled`; returns `home` if legs match `settled` on subsequent reads |
+| URA selects home at t=0; URA selects sleep at t=10; first readable state_change at t=75 | `held` carries sleep; `settled` snapshot taken at t=75 for sleep (not home) |
+| URA selects home at t=0; device executes schedule step at t=90 (hold-action was NOT "until I change it") → legs read 68/74 (manual-shaped) | if a current-season effective range matches 68/74 within tolerance → that preset; else `held.label == home` AND R4 fires → re-select at next S1 tick (one write, bounded by the per-boot cap, logged `branch_s_schedule_recapture`) |
+| URA selects home at t=0; operator at the wall scrolls cool leg from 76 to 74 at t=120 | `settled` taken at any `preset_of` read in [60, 120); at t=120 live legs ≠ `settled` by 2 °F → arrester classifies HUMAN against `settled` (REV 4.1-C.5); `preset_of` returns `"manual"` |
+
+### C.7 Hold-action setup prerequisite (replaces REV 4-C.9 operator-note-only; Review #1 F2)
+
+Operator is setting Hold Action = "until I change it" on all Wigton units. The adapter's defensive path (REV 4.1-C.4
+R4) handles a unit that forgot it: one re-select per S1 tick, bounded by the per-boot `last_sent` cap (REV 4.1-C.10)
+and logged. The adapter does NOT read the hold-action setting (not exposed via `homekit_controller`); it DETECTS
+mis-setup from behavioural evidence (legs drift to a known comfort pattern inside the TTL window with no person
+signal). A built-in Repair "Set Hold Action: until I change it (Wigton setup)" is raised when the schedule-recapture
+path fires ≥ 2 times in 24 h on the same entity.
+
+### C.8 Vacation handling — always Branch R (replaces REV 4-C.1 mapping / REV 4-C.8; Review #1 F11, Review #2 F9)
+
+- URA preset `vacation` → **always Branch R** with vacation's effective range (`ranges[(entity, vacation,
+  season_now)]` if composed, else `get_seasonal_setpoints(vacation)`), guarded + min-delta clamped per REV 3 B4.
+- The three-option select has no `vacation` option; dropping to `away` by coincidence of range equality (two
+  independent operator knobs) is unsafe — the semantic is lost. Range write preserves semantic.
+- Mapping table for `hold_preset` under option C:
+  - `home` / `wake` → Branch S select `home` (default), Branch R if composed.
+  - `sleep` → Branch S select `sleep`, Branch R if composed.
+  - `away` → Branch S select `away`, Branch R if composed.
+  - `vacation` → **always Branch R** (never a select).
+  - unmapped (e.g. a future custom preset) → Branch R with `effective_range`. Same path as vacation.
+- The REV 4 fake `preheat_boost` test in D7 is DROPPED (preheat_boost is not a URA preset in
+  `const.SEASONAL_DEFAULTS`; it would never reach `hold_preset`). Unmapped-preset coverage is folded into the
+  vacation Branch R test.
+
+### C.9 Freeze gate forces Branch R (replaces REV 4-C.3 "freeze PASS-THROUGH"; Review #1 F8, Review #2 F10)
+
+- When `freeze_active` is True at `hold_preset` entry (read live, same as `apply_setpoint_guards`), the adapter
+  **forces Branch R** for the current call regardless of the Branch-S default. Reason: a `select_option` hands the
+  device's own comfort numbers, which the operator cannot guarantee float above the freeze floor.
+- Branch R applies `apply_setpoint_guards(low, high, freeze_active=True)` — the funnel's existing freeze clamp
+  lifts the low leg if it is below the floor.
+- `emit_select_comfort` itself stays pass-through for freeze (the freeze decision is in the adapter, not in the
+  funnel): a direct `emit_select_comfort` call from a future caller would still land through the gate without
+  surprise. Only the adapter's `hold_preset`/`pin_preset` branches on freeze.
+- Mutation drill: make the adapter emit Branch S under freeze → the "freeze forces range" test fails.
+
+### C.10 `last_sent` is RAM-only, one key per (zone, entity), one select per zone per boot (Review #2 F11)
+
+- `_last_sent_select: dict[(zone_id, entity_id), tuple[str, str]]` on the adapter instance (not persisted).
+- A `hold_preset(P)` under Branch S emits exactly ONE `select_option P_mapped` per (zone, entity) per boot UNLESS
+  `hold_needs_reassert` (REV 4.1-C.4) returns True for that call. Subsequent S1 ticks SKIPPED
+  (`held` + `last_sent` match).
+- A restart RE-emits the first select (per-boot cap resets). This is intentional: `held` rehydrates with
+  `settled is None` (REV 3 §4.2a), the first post-boot S1 tick either confirms (no re-select) or triggers R1/R2
+  (re-select).
+- `_last_sent_range` already exists via `_record_sent("set_preset_mode", P)` on APPLIED (REV 4-C.1); unchanged.
+
+### C.11 AST lint — scope `hvac*.py` only (Review #2 F12)
+
+- Lint runs under `quality/tests/test_hvac_w1c_p2_rev4_lint.py` across
+  `custom_components/universal_room_automation/domain_coordinators/hvac*.py` ONLY.
+- Forbids any `hass.services.async_call("select", ...)`, `hass.services.async_call("button", ...)`,
+  `hass.services.async_call("number", ...)`, `homeassistant.util.async_call_later` to those domains, direct
+  `set_value` / `press` / `select_option` service calls — EXCEPT the one allowlisted call site inside
+  `emit_select_comfort` in `hvac_setpoint.py`.
+- Energy coordinator legitimate uses (`select.select_option` for TOU mode, `number.set_value` for EVSE targets) are
+  NOT in scope (not under `hvac*.py`); the lint does not false-positive.
+- Branch D (parked) stays uncovered; when unparked, extend the allowlist with the chosen funnel name.
+
+### C.12 `s10_capture_original` verb — WITHDRAWN (Review #1 F4)
+
+REV 4-C.7 proposed a new `s10_capture_original` adapter verb returning None for Branch S. **Withdrawn:** Batch C's
+`preset_range_would_write` compare already covers this — on ecobee, the "device current range" the compare reads is
+the Seasonal Baseline (REV 3 §4.9), so capture is a structural no-op without a new verb. The restore pass deletes
+the ecobee `ranges` entry (baseline-equal pass, REV 4.1-C.4 R1 downgrade), which triggers the immediate re-select
+(REV 4.1-C.4 one-write guarantee). No new verb; no new test.
+
+### C.13 Persistence versioning (Review #1 F5)
+
+`__w1c_adapter` payload gains `_schema_version` key:
+- `v=1`: legacy — tuple or 3-list `held` forms (REV 3 / REV 4). Migrated on first rehydrate; one INFO log per
+  entity; `_schema_version` rewritten to `v=2` on next snapshot save.
+- `v=2`: `Held` dataclass dict form (REV 4.1-C.1).
+- Absent: treat as `v=1`.
+- No downgrade path (operator policy: single install, no back-compat; `project_single_user_no_backcompat`).
+
+### C.14 Ledger `entity_id` discipline + `select_entity_id` (Review #1 F10)
+
+`climate_write` rows with `verb="select.select_option"`:
+- `entity_id = <climate entity>` (the zone's climate entity, same as every other HVAC `climate_write` row).
+- `select_entity_id = <ecobee Current Mode select entity id>` (new column; nullable; non-null on every
+  `verb="select.select_option"` row and NULL on every other row).
+- `values_before`: `{"select": <old select state>, "climate": {"hvac_mode": <mode>, "setpoints": <legs or temp>}}`.
+- `values_after`: `{"service_data": {"option": <mapped>, "entity_id": <select_entity_id>}}`.
+- One additive column on `ura_activity_log`; no schema migration required (JSON column already carries free-form
+  keys). The AST completeness lint (W1-A `test_hvac_climate_write_funnel_completeness.py`) is extended to assert
+  this row shape for `emit_select_comfort`.
+
+### C.15 Original-is-baseline — pin by test, no new verb (Review #2 F13)
+
+Test in `quality/tests/test_hvac_w1c_p2_ecobee_rev4.py` (new file):
+
+```
+def test_rev4_1_ecobee_capture_is_structural_noop(adapter, climate_entity):
+    # D7 reads device "current range" via Batch C's preset_range_would_write
+    # on an ecobee with no device-side ranges -> returns Seasonal Baseline.
+    # Capture compares to Seasonal Baseline -> no-op (nothing new stored).
+    ranges_before = adapter.ranges.copy()
+    s10_apply_pass(home_preset=76/70, device_current_range=baseline(home))
+    assert adapter.ranges == ranges_before
+```
+
+If a future ecobee install exposes `vendor_ecobee_*_target_*` numbers, the capture semantics will change — tracked
+by Branch D revival trigger (REV 3 §3; REV 4 Q7 PARK).
+
+---
+
+## REV 4.1-D. Updated falsifiable invariants (replaces REV 4-D)
+
+- **INV-E2' (REV 4.1).** On a HomeKit ecobee, URA calls only: `climate.set_hvac_mode`, `climate.set_temperature`
+  (both legs, mode `heat_cool`), and `select.select_option` on the Current Mode select routed through
+  `emit_select_comfort`. **No** `climate.set_preset_mode`, no `set_temperature {temperature: X}`, no `button.press`
+  on Clear Hold, no `number.set_value` on `vendor_ecobee_*_target_*` entities, no `ha_carrier` /
+  `homekit_controller` reload. Branch D parked.
+- **INV-R' (REV 4.1, replaces REV 4-D's INV-R' five clauses):**
+  1. S1 for preset P with Branch R applicable (composition exists) SKIPPED ⇒ `held.mode == "range"` AND
+     `(held.lo, held.hi) == effective_range(entity, P)` within `ECOBEE_RANGE_TOLERANCE_F` AND live legs equal
+     `(held.lo, held.hi)` within tolerance.
+  2. S1 for P with Branch S applicable (no composition) SKIPPED ⇒ `held.mode == "select"` AND
+     `held.label == P` AND `_last_sent_select[(zone, entity)] == ("select_option", P_mapped)` AND
+     `hold_needs_reassert` is False.
+  3. `set_preset_range(P, low, high)` storing a NEW composition for `held.label == P` ⇒ the SAME call writes the
+     range (upgrade in one write; REV 4.1-C.4 one-write guarantee).
+  4. `set_preset_range(P, baseline)` on `held.mode == "range"` with `held.label == P` ⇒ the SAME call deletes the
+     entry AND emits ONE `select_option P_mapped` (downgrade in one write).
+  5. Season rollover with the house in P ⇒ `hold_needs_reassert` R3 fires on next S1 tick; one write (range if a
+     stored composition exists in the new season, else a select).
+  6. Freeze active at `hold_preset(P)` entry ⇒ Branch R emitted regardless of Branch-S default (REV 4.1-C.9).
+  7. Vacation preset ⇒ Branch R emitted regardless of composition presence (REV 4.1-C.8).
+- **INV-P (REV 4.1 bullets):**
+  - URA pins `home` → one `select_option home` → device holds at Home comfort → `preset_of` returns `home`
+    (readable in heat_cool via D0c-P1).
+  - Composition appears on `held` preset → one range write (upgrade) → `preset_of` returns `home`.
+  - CPR OFF while in home with composition live → one range write of baseline AND one `select_option home` in the
+    SAME call → next S1 tick SKIPPED.
+  - Restart during the echo window → `held.settled` None; first post-boot `preset_of` with legs available fills
+    `settled` lazily. If the first eligible read is after a device schedule step, the arrester fires only if the
+    classifier attributes to a human — matches Carrier semantics.
+  - Operator at the wall after window close → `settled` reference → arrester classifies HUMAN at ≥ delta → §9e
+    acts as on Carrier.
+  - Freeze floor engaged during Branch S → next hold forces Branch R; legs land at or above freeze floor.
+- **INV-C unchanged.** No Carrier path change; the new `select_entity_id` column is NULL on every Carrier row.
+
+---
+
+## REV 4.1-E. HC call-site diff (REV 4.1 additions over REV 4-E)
+
+- **W1** (REV 4): add `emit_select_comfort` + extend AST completeness lint (REV 4.1-C.11, REV 4.1-C.14).
+- **W2** (REV 4): `EcobeeHomeKitStrategy.hold_preset` / `pin_preset` / `preset_of` / `set_preset_range` take the
+  REV 4.1 shapes. **ADD** `reference_setpoints` (REV 4.1-C.5) and `hold_needs_reassert` (REV 4.1-C.4) as adapter
+  verbs; Carrier/Generic implementations are byte-identical no-ops (reference = Seasonal Baseline;
+  hold_needs_reassert returns False).
+- **W3** (REV 4): S1 — now wires `strategy.hold_needs_reassert(hass, entity, zone_state, desired_preset)` into the
+  "already correct" short-circuit (`should_change_preset` already returns False when current == target; if that
+  guard would short-circuit, S1 calls `hold_needs_reassert` and skips the short-circuit on True). Carrier/Generic
+  byte-identical because they always return False (168 goldens unchanged, re-run; new row C35 in
+  HVAC_ARCHITECTURE_STATE_OF_PLAY.md §10 was for the parent plan — REV 4.1 does not re-litigate it, it USES it).
+- **W4** (new, REV 4.1): the arrester (`hvac_override.py` `_handle_climate_change`, `_handle_normal_override`,
+  `_handle_severe_override`, grace/compromise timer resolve, S4 revert) reads reference via
+  `strategy.reference_setpoints(hass, entity, zone_state)` at the ~3 reference sites. Carrier/Generic byte-identical
+  (one new function call that returns the same `(cool, heat)` tuple the arrester would have computed inline).
+- **No new raw reads.** `preset_of` continues to own every projection (REV 3 §4.3, REV 4-C.4, REV 4.1-C.3).
+
+---
+
+## REV 4.1-F. D7 test suite extensions (replaces REV 4-F D7 verbatim)
+
+Test file: `quality/tests/test_hvac_w1c_p2_ecobee_rev4.py` (new; builder scaffolds it; co-located with the existing
+P2 test suite).
+
+**Unit (adapter):**
+- M1: `hold_preset(home)` on ecobee, no composition, Branch S default → one `select_option home` via
+  `emit_select_comfort`; `held = Held("home", "select", None, None, t_wall, None)`;
+  `_last_sent_select == ("select_option", "home")`.
+- M2: next S1 tick, select still `unknown` → SKIPPED (INV-R' clause 2); zero writes.
+- M3: Legs drift 2 °F from `settled` after window close with no URA write → `preset_of` returns `"manual"` AND
+  the arrester delta vs `settled` (not vs live legs) exceeds `OVERRIDE_NORMAL_DELTA` → HUMAN classified.
+  **Mutation drill:** make `preset_of` return `held.label` when legs drift ≥ 2 °F → M3 fails.
+- M4: `set_preset_range(home, 69, 78)` with `held.mode == "select"` → APPLIED, one range write; `held` becomes
+  `Held("home", "range", 69, 78, t_wall_new, None)` IN THE SAME CALL (INV-R' clause 3; one-write guarantee).
+- M5: `set_preset_range(home, baseline)` with `held.mode == "range"` → entry deleted AND one `select_option home`
+  emitted IN THE SAME CALL (INV-R' clause 4).
+- M6: Mapping — `hold_preset(wake)` → `select_option home`; `hold_preset(vacation)` → range write
+  (ALWAYS, REV 4.1-C.8); `hold_preset(sleep)` → `select_option sleep`.
+- M7: Lazy settle — `preset_of` call at `t = t_wall + ECOBEE_SELECT_ECHO_TTL_S + 1 s` with `held.settled is None`
+  fills `settled` from live legs; subsequent `preset_of` reads re-use it. **Mutation drill:** make `preset_of` not
+  fill `settled` after TTL → M3 fails (no reference to compare against; `preset_of` always returns `held.label`).
+- M8: `hold_needs_reassert` truth table — one test per row R1–R4, each with a legal-config fixture. Carrier/Generic
+  always False (byte-identical).
+- M9: Freeze active → `hold_preset(home)` forces Branch R; one range write, zero select writes
+  (REV 4.1-C.9). **Mutation drill:** remove the freeze→R clause → M9 fails.
+- M10: `_last_sent_select` is RAM-only — simulate restart (new strategy instance), rehydrate `held`, first
+  post-boot `hold_preset(home)` emits one `select_option home` AND R2 drives the first-tick confirm (zero extra
+  writes). (REV 4.1-C.10)
+- M11: AST lint — any `hass.services.async_call("select", "select_option", …)` under `hvac*.py` outside
+  `emit_select_comfort` fails the lint (REV 4.1-C.11). Energy coordinator uses NOT in scope; test asserts energy
+  files are not scanned.
+- M12: Legacy `held` migration (3-list `["home", 69, 78]` from v5.103.40 option-B persist) → migrates to
+  `Held("home", "range", 69, 78, t_now, None)` on rehydrate; one INFO log; `_schema_version` written as `v=2` on
+  next save.
+- M13: `select_entity_id` column — `verb="select.select_option"` row has it populated; every other row has it NULL.
+- M14: `reference_setpoints` — Branch R → `(held.hi, held.lo)`; Branch S settled → `held.settled`; Branch S
+  unsettled → Seasonal Baseline (NOT live legs). **Mutation drill:** Branch S unsettled returns live legs → M14
+  fails (S3 falsifier wires it).
+- M15: Vacation always Branch R (REV 4.1-C.8); zero `select_option vacation` or `select_option away` writes under
+  vacation.
+- M16: Window absorption (REV 4.1-C.6b) — one test per scenario row.
+- M17: Schedule-recapture (REV 4.1-C.7) — Branch S, hold-action not set, legs drift to a known comfort pattern
+  under device schedule step, no person signal → one re-select, Repair raised after 2nd event in 24 h.
+
+**Ledger:** M18 — row shape for `verb="select.select_option"` (entity_id, select_entity_id, values_before,
+values_after, ts_issued, ts_returned).
+
+**Mutation drill summary** (reviewers run under C framing; builder lists every mutation in the plan body — one line
+each, test that falsifies):
+1. Remove Branch S path → M1/M2/M6 fail.
+2. Make `preset_of` read raw select when `held` exists → M3 fails.
+3. Skip the one-write guarantee in `set_preset_range` baseline-equal pass → M5 fails.
+4. Remove the lazy-settle fill after TTL → M3/M7 fail.
+5. Make `reference_setpoints` return live legs mid-settle → M14 fails.
+6. Remove freeze→R override → M9 fails.
+7. Persist `last_sent` across restart → M10 fails (double select on boot).
+8. Expand AST lint to all `*.py` → M11 fails (energy coordinator trips it).
+9. Collapse vacation into bare `select away` → M15 fails.
+10. Skip `hold_needs_reassert` consult at S1 short-circuit → M8 R1–R4 fail (season rollover never writes).
+
+**Live (supervised, Master Suite, Wigton; operator-recommended Q4):**
+- Walk 1 — Home → one `select_option home` → unit screen shows "Holding ⊗" at 70/77 (D0c-P1); `zone_1_status.
+  preset_mode = home`; zero range writes.
+- Walk 2 — toggle CPR with composed home range 69/78 → one range write; unit screen "Holding ⊗ 69-78".
+- Walk 3 — toggle CPR OFF → one range write of baseline AND one `select_option home` in the SAME ledger second;
+  unit screen returns to device Home comfort 70/77.
+- Walk 4 — operator scrolls cool leg at the wall from 77 to 74 at t = 90 s after a URA select → `override_detected`
+  row with `delta_f ≥ 1`; arrester reverts to `held.settled` (not Seasonal Baseline). Unit screen returns to the
+  settled legs.
+- Walk 5 — freeze engaged (test fixture or cold snap) → next `hold_preset(home)` writes a range (not a select);
+  unit screen "Holding ⊗ <floor>-77".
+
+Discriminator (PASS vs plausible failure):
+- Broken mapping → `select_option` with wrong option label in the ledger (readable from `values_after.service_data.
+  option`).
+- Broken echo window → `held.settled` stays `None` for ≥ 2 × TTL in a row.
+- Broken upgrade/downgrade → `set_preset_range` ledger row exists but no `select_option` row follows (downgrade)
+  OR no range write follows (upgrade); CPR toggles leave `held.mode` out of sync with `ranges` presence.
+- Broken `reference_setpoints` → arrester revert writes Seasonal Baseline legs after a settled Branch S hold on a
+  non-baseline comfort (observable in `hvac_excursion_events.pre_setpoints` vs `post_setpoints`).
+
+**Hold duration recommendation (operator-asked):** "until I change it" at the device (operator setup prerequisite,
+REV 4.1-C.7); URA's `held` released only by (a) next URA write for the zone, (b) a person's change (via arrester),
+(c) profile switch (REV 3 §4.1), (d) zone removal (REV 3 §4.2a prune).
+
+---
+
+## REV 4.1-G. Knobs (replaces REV 4-G)
+
+| Name | Rung | Default | Justification |
+|---|---|---|---|
+| `ECOBEE_SELECT_ECHO_TTL_S` | 1 (`hvac_const.py`) | **60 s** | D0c observed settle ≤ 5 s; 60 s = 12× the measured settle; still well under 120 s preset suppression. Review #2 F14; Review #1 F12. A change needs review. Not a kill switch |
+| `ECOBEE_RANGE_TOLERANCE_F` | 1 | 0.5 °F | REV 3 §4.4; unchanged |
+| `ECOBEE_SCHEDULE_RECAPTURE_REPAIR_THRESHOLD` | 1 | 2 events / 24 h | REV 4.1-C.7 Repair raise threshold. First version; raise if operator finds it noisy |
+| `emit_select_comfort` comfort-delay gate | REUSED | existing | option C routes through the same gate as range writes (REV 4-C.3) |
+
+No new user-facing Number / Switch entities (REV 4-G stance unchanged). Branch D funnel choice deferred until
+Branch D is unparked.
+
+---
+
+## REV 4.1-H. Tier + review (unchanged from REV 4-H + the two plan reviews just completed)
+
+Tier **3** kept (operator-flagged delicate; cross-coordinator ripple into arrester + S1 + S10). Four build reviews
+(A/B/C/D) + two plan reviews (completeness #1, build-prediction #2). This REV 4.1 appendix is the plan-review fix
+pass; D (adversarial completeness) still runs post-build.
+
+Framing recap (reviews already done; findings folded above):
+- Review #1 (completeness, framing-disjoint): emission-site re-enumeration (`hold_preset`, `pin_preset`,
+  `set_preset_range` on ecobee), the schedule-step gap (F2), reassert truth table (F3), capture-skip delete (F4),
+  persistence versioning (F5), lazy settle (F6), reference verb (F7), freeze (F8), lint scope (F9),
+  `select_entity_id` (F10), vacation (F11), D0c closure of F12.
+- Review #2 (build-prediction): "what will the builder get wrong?" — F1 docstring, F2 dataclass, F3 projection,
+  F4 one-write guarantee, F5 arrester revert via select, F6 lazy settle (no listener), F7 absorption + edges, F8
+  raw-select corroboration only, F9 vacation Branch R, F10 freeze → R, F11 last_sent RAM, F12 lint scope,
+  F13 original-is-baseline pin, F14 TTL from measurement.
+
+---
+
+## REV 4.1-I. Acceptance criteria (adds to REV 4-I)
+
+- **Verify:** every REV 3 and REV 4 acceptance criterion still passes (168 Carrier goldens unchanged;
+  INV-C/INV-F lint pins).
+- **Verify:** INV-E2' lint — `grep -rn "hass.services.async_call.*select" domain_coordinators/hvac*.py` returns
+  only `emit_select_comfort`'s definition; cross-coordinator uses (energy, lighting) are untouched.
+- **Verify:** INV-R' seven clauses — each has a named test in REV 4.1-F.
+- **Verify:** `hold_needs_reassert` returns False for every Carrier fixture (168 goldens re-run); True for the
+  four truth-table rows on ecobee fixtures.
+- **Verify:** D7 live walk 1–5 on Master Suite (operator Q4 default); ledger carries `select_entity_id` on every
+  `verb="select.select_option"` row and NULL elsewhere.
+- **Verify:** Legacy option-B 3-list `held` form migrates once per entity at boot; one INFO per entity;
+  `_schema_version = v=2` thereafter.
+- **Live:** zero `set_preset_mode` writes on any ecobee entity for 24 h; zero Carrier NMs; one `select_option` per
+  ecobee zone per boot (unless `hold_needs_reassert` or CPR toggles fire).
+
+---
+
+## REV 4.1-J. Non-goals (adds to REV 4-J)
+
+- No listener-based settle (REV 4.1-C.6).
+- No persisted `last_sent` (REV 4.1-C.10).
+- No cross-coordinator AST lint (REV 4.1-C.11).
+- No `s10_capture_original` verb (REV 4.1-C.12).
+- No vacation Branch S path (REV 4.1-C.8).
+- No freeze PASS-THROUGH on `hold_preset` (REV 4.1-C.9).
+- No new user-facing switch for option C.
+
+---
+
+## REV 4.1-K. Operator questions — status (adds to REV 4-K)
+
+| Q | REV 4 status | REV 4.1 status |
+|---|---|---|
+| K.1 — INV-E2 widening for `select.select_option` | Pending | Still pending — recommend YES |
+| K.2 — fifth funnel `emit_select_comfort` | Pending | Still pending — recommend YES (new fifth funnel) |
+| K.3 — Branch D park | Pending | Still pending — recommend PARK for Wigton; in-suite shape only |
+| K.4 — Live-walk unit | Pending | Still pending — recommend Master Suite (5 °F installer min delta exercises Branch R) |
+| K.5 — Vacation handling | REV 4 proposed conditional | **REV 4.1 resolves to always Branch R** (Review #1 F11, Review #2 F9); operator confirmation requested |
+| K.6 — Echo window default | REV 4 proposed 180 s | **REV 4.1 resolves to 60 s** from D0c measurement; operator confirmation requested |
+
+Pending answers that recommend defaults in this plan (so build is not blocked):
+- new select write path approval → recommend fifth funnel through `emit_select_comfort`;
+- dedicated funnel vs piggyback → fifth funnel (Q2);
+- park number-entity Branch D → park (Q3);
+- live-walk unit → Master Suite (Q4);
+- vacation handling → always Branch R (Q5);
+- TTL default → 60 s (Q6).
+
+---
+
+## REV 4.1-L. Concise summary for the operator
+
+- **D0c confirms the select is READABLE in heat_cool within 5 s** — the production mode. Branch S is viable; TTL
+  drops 180 s → 60 s (12× measured settle).
+- **One-write guarantee on CPR toggles:** composition appearing or disappearing on the held preset writes once,
+  in the same call (upgrade = one range; downgrade = baseline-delete + one select).
+- **Freeze forces Branch R.** A select cannot guarantee freeze floor; a range write (with the funnel's existing
+  freeze clamp) can.
+- **Vacation always Branch R.** The three-option select has no vacation; dropping to `away` loses semantic.
+- **`held` is a dataclass** with persisted dict form + one-release legacy-list migration; eleven readers
+  enumerated and test-pinned.
+- **No new timers or listeners.** Lazy settle on the 5-min S1 tick (or any `preset_of` evaluation after TTL).
+- **`last_sent` is RAM-only.** One select per zone per boot unless `hold_needs_reassert` or CPR fires.
+- **AST lint scoped to `hvac*.py`.** Energy and lighting coordinators untouched.
+- **Arrester reference comes from a strategy verb** `reference_setpoints` — Branch S settled = `settled`,
+  Branch S unsettled = Seasonal Baseline, Branch R = held range. S4 revert goes through `pin_preset` → one select
+  under Branch S (no raw setpoint).
+- **No `s10_capture_original` verb.** Batch C's existing compare does the work; restore pass deletes the entry
+  and the one-write guarantee re-selects.
+- **Persistence `_schema_version = v=2`.** One-shot legacy migration from option-B 3-list form.
+- **Ledger carries `select_entity_id` on every `select_option` row.**
+- **Six operator questions open** (K.1 INV widen, K.2 fifth funnel, K.3 Branch D park, K.4 live unit, K.5 vacation
+  always-R confirm, K.6 TTL 60 s confirm). All have recommended defaults; the build dispatch is not blocked.
+
+---
+
+## REV 4.1-M. Mutation-drill master list (for Reviewer C under Tier 3)
+
+| # | Mutation | Test(s) that must fail | Rationale |
+|---|---|---|---|
+| 1 | Delete Branch S path in `hold_preset` (fall through to Branch R always) | M1, M2, M6, M10 | Branch S is the DEFAULT; a bypass loses option C's entire semantic |
+| 2 | `preset_of` returns `held.label` when legs drift ≥ 2 °F from `settled` | M3 | Would silently absorb human changes under Branch S |
+| 3 | `set_preset_range` baseline-equal pass defers downgrade to next tick | M5 | Would strand two visible writes to the operator at CPR OFF |
+| 4 | Lazy settle never fills (`held.settled` stays None after TTL) | M3, M7, M14 | Arrester has no reference; false-NEG on human change |
+| 5 | `reference_setpoints` returns live legs mid-settle | M14, Walk-4 live | S3 falsifier |
+| 6 | Freeze gate is PASS-THROUGH on `hold_preset` (REV 4 original) | M9 | Floor violation possible |
+| 7 | `_last_sent_select` is persisted across restart | M10 | First post-boot tick re-emits a redundant select |
+| 8 | AST lint scope expanded to all `*.py` | M11 | Energy coordinator trips lint (false positive) |
+| 9 | Vacation falls back to `select_option away` on range equality | M15 | Semantic loss on coincidental equality |
+| 10 | `hold_needs_reassert` returns False on ecobee always | M4, M8 R1–R4, Walk-2, Walk-3 | Season rollover / baseline edit never writes |
+| 11 | `held` dataclass fields re-ordered or renamed | M12, M13, migration test | Breaks persistence shape |
+| 12 | `select_entity_id` populated on NON-select rows | M13, INV-C golden | Would mis-attribute Carrier rows |
+| 13 | Schedule-recapture (REV 4.1-C.7) fires without the per-boot cap | M17 (noise bound) | Loops the device on bad hold-action |
+| 14 | Lazy settle fills from mid-settle snapshot (snapshot taken BEFORE TTL) | M7 edge | Snapshots an echoing value as reference |
+
+---
+
+## REV 4.1-N. HVAC_ARCHITECTURE_STATE_OF_PLAY.md updates (same commit as this plan's build)
+
+- §5b ecobee facts table: amend "Current Mode select reads `unknown` while a hold is active" to:
+  "Current Mode select reads `unknown` in `cool`/`heat`/`off`; reads the comfort name in `heat_cool` within 5 s of
+  `select_option` (D0c 2026-10-05 Master Suite)". Cite D0c.
+- §9 (or §10) new C-ledger row **C36 (2026-10-05, REV 4.1-A.3)**:
+  "WRONG: 'select unreadable while held, period' (REV 3 §4.3 docstring, REV 4-B single reading). D0c-P1/P2 showed
+  the select is READABLE in `heat_cool` within 5 s; the 18:45 cool-mode read was mode-specific. Under B1
+  (`heat_cool` enforcer) production reads are readable. The adapter still treats `held` as the oracle and uses the
+  readback only as corroboration (REV 4.1-C.3)."
+
+Update discipline: these go in the same commit as the REV 4.1 build (per state-of-play §0 rule 4). REV 4.1 as a
+PLAN does not touch state-of-play yet.
