@@ -2375,3 +2375,11 @@ Pending answers that recommend defaults in this plan (so build is not blocked):
 
 Update discipline: these go in the same commit as the REV 4.1 build (per state-of-play §0 rule 4). REV 4.1 as a
 PLAN does not touch state-of-play yet.
+
+## Operator rulings 2026-10-05 (REV 4.1 open questions)
+1. Allow `select.select_option` via a governed write path — YES.
+2. Dedicated fifth funnel `emit_select_comfort` — YES.
+3. Branch D (comfort-number writes) — PARK until a unit exposes the number entities.
+4. Supervised live walk unit — **Downstairs (Guest down)**: `climate.master_closet_ecobee_downstairs` (older firmware 4.10.70046).
+5. Vacation — select Away; hold a range only when Vacation numbers differ from Away (with defaults they differ → Branch R; equal → Branch S away).
+6. `ECOBEE_SELECT_ECHO_TTL_S` = **180 s** (operator choice; rung-1 knob, adjust later; measured settle ≤5 s).
