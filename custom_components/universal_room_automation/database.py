@@ -466,6 +466,26 @@ class UniversalRoomDatabase:
         is an unbounded asyncio.Queue, so this is lossless; producer-side
         throttles bound the volume. A DEBUG note is logged.
         """
+        # SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1: at HA shutdown, HA cancels
+        # background tasks after the 20s stopping stage (core.py:1102) and
+        # never restarts them. Any write submitted after that would park on
+        # _write_queue for DB_WRITE_READY_HARD_CAP_S (300s), blocking HA's
+        # 100s stop + 60s final-write stages. Rows would be lost anyway.
+        # Fast-fail so the producer task completes promptly.
+        #
+        # Preserve v5.16.2 buffering for deliberate stop windows (VACUUM,
+        # SPAN re-migration): is_stopping is False there, so we fall through
+        # to the buffer path, byte-identical to prior behavior. `is True`
+        # guards against test doubles whose `is_stopping` is a MagicMock
+        # (truthy) rather than a real bool.
+        if (
+            (self._write_task is None or self._write_task.done())
+            and getattr(self.hass, "is_stopping", False) is True
+        ):
+            raise RuntimeError(
+                "DB write skipped: Home Assistant is stopping and the "
+                "write worker is closed"
+            )
         if self._write_task is None or self._write_task.done():
             _LOGGER.debug(
                 "DB write submitted before worker start — buffering on queue"
@@ -3961,6 +3981,12 @@ class UniversalRoomDatabase:
             zone: "house" or "property"
             result: CensusZoneResult dataclass instance
         """
+        # SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1: skip at HA shutdown. The row
+        # would be rejected by _db() anyway (worker closed, is_stopping=True)
+        # and would log ERROR from the except arm below. Census snapshots
+        # taken during shutdown are not persistable.
+        if getattr(self.hass, "is_stopping", False) is True:
+            return
         try:
             import json
             identified_persons_json = (
