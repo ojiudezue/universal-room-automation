@@ -1,5 +1,5 @@
 meta:
-  last_reconciled: 2026-10-05
+  last_reconciled: 2026-10-06
   history_file: docs/planning/kanban.history.yaml
   # BOARD-AUTONOMY-PROGRESS-1: append one entry each time a card is concluded
   # autonomously (built / parked / waiting_operator / shipped / done). The
@@ -1800,7 +1800,7 @@ cards:
 - id: HVAC-W1C-GENERIC-THERMOSTAT-1
   title: 'W1-C — make URA work with a non-Carrier thermostat: brand-owned override detection, timings and a setpoint-based hold for thermostats without home/away/sleep presets'
   status: shipped_organic
-  shipped_version: v5.103.40
+  shipped_version: v5.103.41
   trigger_fired_2026_09_29: 'Operator: "How about the Thermostat manufacturer/model abstraction? Not everyone has a Bryant variable speed. As I roll this out to more homes." The revival trigger (operator wants URA ready for other homes) has fired - READY, not new. Plan first (likely Tier 3: touches every thermostat write site and override detection).'
   thread: hvac
   workstream: HVAC-W1-THERMOSTAT-DEFINITION
