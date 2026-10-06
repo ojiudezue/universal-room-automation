@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-06T02:08:23-05:00_ - _Data commit: `29257a71232e`_ - _last_reconciled: 2026-10-05_
+_Generated: 2026-10-06T02:15:07-05:00_ - _Data commit: `b980adcf9ab8`_ - _last_reconciled: 2026-10-05_
 
 
 ## Columns
@@ -13,8 +13,8 @@ _Generated: 2026-10-06T02:08:23-05:00_ - _Data commit: `29257a71232e`_ - _last_r
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 10 |
 | 📝 Planned | 10 |
-| 🔨 In progress | 1 |
-| 🔍 Review | 2 |
+| 🔨 In progress | 0 |
+| 🔍 Review | 3 |
 | ⏸️ Waiting on operator | 33 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 24 |
@@ -279,9 +279,10 @@ _created 2026-09-12 17:10 · updated 2026-10-06 02:08 · refined_
 
 ### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Setup/unload symmetry + tracked background tasks (tech-debt hardening) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5_
 thread: **platform** - status: **planned**
-_created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
+_created 2026-08-18 02:30 · updated 2026-10-06 02:55 · refined_
 - **Next:** Tier 2 production hardening: audit async_on_unload coverage + track background tasks (reload-safety + task-leak). Independent of the test cluster.
-- **Forensic keys (10):**
+- **Forensic keys (11):**
+  - `INSTANCE_2026_10_06_shutdown_residuals`: From the SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 reviews (docs/reviews/code-review/overnight_2026-10-06_shutdown_db_fastfail.md), same teardown surface: (1) ~40 DAO except-arms log ERROR and ~55 WARNING for each write rejected during shutdown ...
   - `disposition_2026_09_26_groom`: RE-LANED (tech-debt hardening, never built). Tier 2: audit async_on_unload coverage + track background tasks.
   - `SHIPPED_5103_5_2026_09_16`: Shipped v5.103.5, live-validated: clean load, zero ERROR, name-diff byte-identical (305==305). Behavior-neutral. shipped_organic; discriminator = at next reload no async_call_later exceptions + bounded ComplianceTracker retention (one-sh...
   - `FIXUP_DONE_2026_09_16`: Consolidated fix-up complete (commit 9aba9ce21). All 4: (1) self-removal- on-fire at the 3 per-event sites, append-drain kept at the 2 once-per-instance; (2) __init__ entry-state LOADED gate + _retry re-check + dead except removed; (3) c...
@@ -370,20 +371,12 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (1)
+## 🔨 In progress (0)
 _being built_
 
-### `SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1` - HA shutdown waits ~8 min on URA census DB writes — _#1 · WSJF 2.0 · v5 tc3 u2 /e5_
-thread: **platform** - status: **in_progress**
-_created 2026-10-05 · updated 2026-10-06 02:00 · refined_
-- **Why:** Restart 2026-10-05 19:00 took ~12 min to come back: HA "stop integrations" and "final write" stages both timed out waiting on pending UniversalRoomDatabase.log_census() tasks (5) plus one OverrideArrester._evaluate_nudge_outcome; coordin...
-- **Next:** Me: build on fix/shutdown-db-write-fastfail (worktree) -> Tier 2-DB reviews (database.py write primitive) -> validator -> review lane. Not deployed overnight.
-- **Tags:** tier-2db, mechanism-in-source
-- **Forensic keys (2):**
-  - `tags_note_2026_10_06`: Re-tiered tier-1 -> tier-2db: the fix touches the shared DB write primitive database.py _db() (standing policy: regression-prone shared primitive = 3 framing-disjoint reviews).
-  - `gate_2026_10_06_overnight`: FOUR-STEP GATE. (1) VALIDITY: STILL-REAL. The 10-05 19:00 shutdown log is past the readable window (LOG-READ GAP; ha_get_logs error_log history starts ~23:00 CDT 10-05), so the symptom was not re-read live; the MECHANISM is confirmed in ...
+_(none)_
 
-## 🔍 Review (2)
+## 🔍 Review (3)
 _under review_
 
 ### `RESTORE-UNAVAILABLE-OFF-SWEEP-1` - After a restart that follows a URA outage, some on-by-default URA switches come back OFF (Vacancy Auto-Off is off right now) - finish the Bug Class #52 restore guard — _#1 · WSJF 7.0 · v6 tc6 u2 /e2_
@@ -411,6 +404,17 @@ _created 2026-10-03 16:00 · updated 2026-10-06 02:25_
   - `rebased_2026_10_06_overnight`: Operator ACKed the built entry (board 10-05 14:07). Its blocker cleared: EC p1 is on develop and shipped in v5.103.39 (merge b6ec1fdf4). Cherry-picked the 3 tripwire commits (d0d12ad25, 2300126d8, 25a8c0dd5) onto develop 7df38c09b in .cl...
   - `built_2026_10_05_overnight`: BUILT TO REVIEW (overnight, not deployed). Branch feature/ec-ev-toggle-tripwire: d0d12ad25 build (energy.py _log_charger_actuation tap after the per-target dedupe, kind==ev only, force-charge excluded; WriteVerifier.note_ev_toggle mirror...
   - `gate_2026_10_05_overnight`: FOUR-STEP GATE. (1) VALIDITY: STILL-REAL - no toggle counter on develop or the EC p1 branch (grep toggle/tripwire in energy*.py); the night loop is fixed by v5.103.37 but not exercised (EVs drew 0 W on every turn-on since), so the daytim...
+
+### `SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1` - HA shutdown waits ~8 min on URA census DB writes — _#3 · WSJF 2.0 · v5 tc3 u2 /e5_
+thread: **platform** - status: **review**
+_created 2026-10-05 · updated 2026-10-06 02:55 · refined_
+- **Why:** Restart 2026-10-05 19:00 took ~12 min to come back: HA "stop integrations" and "final write" stages both timed out waiting on pending UniversalRoomDatabase.log_census() tasks (5) plus one OverrideArrester._evaluate_nudge_outcome; coordin...
+- **Next:** SHIP (operator-timed, daytime deploy): merge fix/shutdown-db-write-fastfail (95fc75e8b) to develop after the overnight full-suite name-diff (result on this card), fold docs/planning/DRAFT_README_shutdown_db_fastfail.md into the release R...
+- **Tags:** tier-2db, mechanism-in-source
+- **Forensic keys (3):**
+  - `built_2026_10_06_overnight`: BUILT TO REVIEW (not deployed). Branch fix/shutdown-db-write-fastfail: e2d9fd61d build (ura-builder) -> fccd0fad1 orchestrator removed an in-suite source-mutation test the builder added (tests must not rewrite production source) -> 82224...
+  - `tags_note_2026_10_06`: Re-tiered tier-1 -> tier-2db: the fix touches the shared DB write primitive database.py _db() (standing policy: regression-prone shared primitive = 3 framing-disjoint reviews).
+  - `gate_2026_10_06_overnight`: FOUR-STEP GATE. (1) VALIDITY: STILL-REAL. The 10-05 19:00 shutdown log is past the readable window (LOG-READ GAP; ha_get_logs error_log history starts ~23:00 CDT 10-05), so the symptom was not re-read live; the MECHANISM is confirmed in ...
 
 ## ⏸️ Waiting on operator (33)
 _needs a human call — groomed first_
@@ -592,7 +596,7 @@ _created 2026-09-21 · updated 2026-10-03 02:05 · refined ×1_
 
 ### `FRONT-SIDE-PTZ-CHATTER-1` - front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling — _#10 · WSJF 4.7 · v7 tc5 u2 /e3_
 thread: **perimeter** - status: **waiting_operator**
-_created 2026-09-14 00:20 · updated 2026-10-05 02:22 · refined_
+_created 2026-09-14 00:20 · updated 2026-10-06 02:30 · refined_
 - **Problem / Solution:**
   - Problem: one exterior camera reports "person detected" far more than any other — it is active 21% of the time, its busiest hours are 3-5am when nobody is about, and it once stayed "on" continuously for 29.5 hours. Because the system link...
 - **Origin:** 2026-09-14 - fell out of the CIRCLING-FOUNDING-CASE-ARTIFACT-1 measurement — the control-pair comparison isolated front_side_ptz as the anomaly
@@ -600,7 +604,8 @@ _created 2026-09-14 00:20 · updated 2026-10-05 02:22 · refined_
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] One camera's detection rate is an order of magnitude out of family and is manufacturing false circling tracks daily.
 - **Refs:** docs/planning/VALIDATE_exterior_camera_seams.md
-- **Forensic keys (15):**
+- **Forensic keys (16):**
+  - `remeasured_2026_10_06_overnight`: binary_sensor.front_side_ptz_person_occupancy_2 ON-transitions (recorder): 10-03 16, 10-04 51 (42 of them 03:00-06:59), 10-05 6 (0 in 03:00-06:59), 10-06 0 so far (to 02:30). The night chatter did not repeat on 10-05, so it is intermitte...
   - `remeasured_2026_10_05_overnight`: CARD-WAS-WRONG on the 204->1/day signal: it coincided with Frigate2 being hung, not (only) a crop. With Frigate2 detecting again, front_side_ptz_person_occupancy_2 ONs: 10-03 16, 10-04 51 - and 42 of the 10-04 ones fell 03:00-06:59 CDT (...
   - `measured_2026_10_04_overnight`: front_side_ptz_person_occupancy_2 ON transitions: 09-29 1, 10-01 4, 10-03 16, 10-04 3 (by 02:11 CDT) - recovering with Frigate2 but still far below the 204/day before 09-14. It produced 4 CRITICAL perimeter pages tonight (22:32-00:46 CDT...
   - `verify_2026_10_01_overnight`: RE-MEASURED (HA REST history 09-28 00:00Z -> 10-01 08:00Z, ~3.3 days): binary_sensor.front_side_ptz_person_occupancy_2 turned on ONCE, while the same camera's binary_sensor.front_side_ptz_motion_3 turned on 486 times (~150/day). Siblings...

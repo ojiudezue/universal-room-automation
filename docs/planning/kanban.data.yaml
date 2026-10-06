@@ -2992,6 +2992,7 @@ cards:
   refs:
   - docs/readmes/README_v5.99.1.md (validation error-scan)
 - id: FRONT-SIDE-PTZ-CHATTER-1
+  remeasured_2026_10_06_overnight: "binary_sensor.front_side_ptz_person_occupancy_2 ON-transitions (recorder): 10-03 16, 10-04 51 (42 of them 03:00-06:59), 10-05 6 (0 in 03:00-06:59), 10-06 0 so far (to 02:30). The night chatter did not repeat on 10-05, so it is intermittent, not steady. ANSWER still open (crop/mask ~09-14?); I will re-read after tonight 03-07h to see whether 10-04 was a one-off."
   remeasured_2026_10_05_overnight: "CARD-WAS-WRONG on the 204->1/day signal: it coincided with Frigate2 being hung, not (only) a crop. With Frigate2 detecting again, front_side_ptz_person_occupancy_2 ONs: 10-03 16, 10-04 51 - and 42 of the 10-04 ones fell 03:00-06:59 CDT (the original 3-5 am chatter shape is back). ANSWER still useful (did you crop/mask it ~09-14?), but the measurement now says: if a crop was applied, it did not stop the night chatter. Source: ssh-proxied HA /api/history 10-01..10-05."
   measured_2026_10_04_overnight: "front_side_ptz_person_occupancy_2 ON transitions: 09-29 1, 10-01 4, 10-03 16, 10-04 3 (by 02:11 CDT) - recovering with Frigate2 but still far below the 204/day before 09-14. It produced 4 CRITICAL perimeter pages tonight (22:32-00:46 CDT). Question unchanged."
   verify_2026_10_01_overnight: 'RE-MEASURED (HA REST history 09-28 00:00Z -> 10-01 08:00Z, ~3.3 days): binary_sensor.front_side_ptz_person_occupancy_2 turned on ONCE, while the same camera''s binary_sensor.front_side_ptz_motion_3 turned on 486 times (~150/day). Siblings: back_yard person 34, pool_equipment person 36. So the camera is alive and seeing movement; only person detection on it has gone quiet. That fits a detection zone/mask or a per-camera threshold change made around 09-14/15 rather than a dead camera or a fleet problem. Your answer still decides it.'
@@ -3023,7 +3024,7 @@ cards:
   thread: perimeter
   status: waiting_operator
   created: '2026-09-14 00:20'
-  updated: "2026-10-05 02:22"
+  updated: "2026-10-06 02:30"
   CONTAMINATION_DEEPENED_2026_09_25: 'OVERNIGHT PASS — the contamination warning above is RE-CONFIRMED
     and now stronger, and the practical consequence is that this card CANNOT be advanced by measurement
     at all; your ANSWER is the only route left. Measured tonight from the live recorder (last-state-per-entity
@@ -19368,6 +19369,7 @@ cards:
   - 'GROOM 2026-09-11: VERDICT REAL feature, framing STALE (unaware of its own v3 plan + BACKLOG B5).
     Promoted inbox -> pre_planning; linked plan; next rewritten.'
 - id: UNLOAD-SYMMETRY-TASK-HYGIENE-1
+  INSTANCE_2026_10_06_shutdown_residuals: "From the SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 reviews (docs/reviews/code-review/overnight_2026-10-06_shutdown_db_fastfail.md), same teardown surface: (1) ~40 DAO except-arms log ERROR and ~55 WARNING for each write rejected during shutdown - a dedicated DBShuttingDown(RuntimeError) logged at DEBUG would give a clean shutdown log; (2) CoordinatorManager STOP-time baseline save (manager.py:556) races the worker cancel by design - hass.async_add_shutdown_job would run it while the worker is alive; (3) coordinator_diagnostics reads go through the write path _db() instead of _db_read() (coordinator_diagnostics.py:274/320/361/752); (4) close stage (CoreState.not_running) re-opens buffering for very late timer writes, bounded by HAs 30 s close stage (accepted)."
   disposition_2026_09_26_groom: 'RE-LANED (tech-debt hardening, never built). Tier 2: audit async_on_unload coverage + track background tasks.'
   SHIPPED_5103_5_2026_09_16: 'Shipped v5.103.5, live-validated: clean load, zero ERROR, name-diff
     byte-identical (305==305). Behavior-neutral. shipped_organic; discriminator = at next reload no
@@ -19437,7 +19439,7 @@ cards:
     the retained ones are actually invoked on unload needs a different check.'
   thread: platform
   created: 2026-08-18 02:30
-  updated: '2026-09-29 01:05'
+  updated: "2026-10-06 02:55"
   refinement_status: refined
   problem: 'untracked background tasks — matches a known URA bug class (task leak). One hardening cycle.
     (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified
@@ -31017,18 +31019,19 @@ cards:
     context: 'Found during the EC p1 Tier-3 reviews; deliberately not fixed in p1.'
   sweep_2026_10_05: 'Board grep D-MED-2 hits are other cycles (arrester comfort delay, DP drain target). NEW.'
 - id: SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1
+  built_2026_10_06_overnight: "BUILT TO REVIEW (not deployed). Branch fix/shutdown-db-write-fastfail: e2d9fd61d build (ura-builder) -> fccd0fad1 orchestrator removed an in-suite source-mutation test the builder added (tests must not rewrite production source) -> 822242171 fix-up -> 95fc75e8b review record docs/reviews/code-review/overnight_2026-10-06_shutdown_db_fastfail.md + DRAFT README. Change: _db() raises at once when HA is stopping and the worker is gone (VACUUM/SPAN windows still buffer); log_census skips only once the worker is gone; worker now fails an in-flight caller future on cancel (pre-existing hang found by review B). Reviews (Tier 2-DB, 3 disjoint): A local-correctness SHIP (3 LOW); B async/lifecycle SHIP + pre-existing MED (fixed in-cycle); C test-authority FIX-REQUIRED (worker-not-running half untested) -> fixed. Orchestrator mutation drills: all 4 load-bearing sites go red when neutered (one as a hang killed by SIGALRM), restored byte-identical. 6/6 new tests, 44/44 across the DB test files. Residuals folded into UNLOAD-SYMMETRY-TASK-HYGIENE-1."
   refinement_status: "refined"
   tags_note_2026_10_06: "Re-tiered tier-1 -> tier-2db: the fix touches the shared DB write primitive database.py _db() (standing policy: regression-prone shared primitive = 3 framing-disjoint reviews)."
   gate_2026_10_06_overnight: "FOUR-STEP GATE. (1) VALIDITY: STILL-REAL. The 10-05 19:00 shutdown log is past the readable window (LOG-READ GAP; ha_get_logs error_log history starts ~23:00 CDT 10-05), so the symptom was not re-read live; the MECHANISM is confirmed in source instead: HA 2026.2.3 core.py:1102-1106 cancels all background tasks (URA's write worker is a background task, database.py:283) right after the 20 s stopping stage; the worker's cancel path flushes for 5 s then drains leftovers with 'shutdown timeout' (database.py:380-413 - the exact error coordinator_diagnostics hit). Any write submitted AFTER that (camera_census.py:1692-1697 log_census via hass.async_create_task = a TRACKED task; hvac_override.py:6356 _evaluate_nudge_outcome likewise) is buffered on the queue by the v5.16.2 no-fail-fast rule (database.py:469-473) and waits up to DB_WRITE_READY_HARD_CAP_S = 300 s (database.py:107) with no worker left to serve it, so HA's 100 s stop stage and 60 s final-write stage (core.py:113-114) both time out = ~2.7 min of every restart. (1b) CONFIG-FIRST: none - the cap is a module constant and lowering it would drop rows during boot-window loop stalls (the reason it is 300 s). (2) PRIOR-ART: REUSE HA hass.is_stopping (core.py:448-450) + the existing drain/raise path in _db; no new mechanism. (3) PARSIMONY: SIMPLIFY/BUILD - in _db(), when HA is stopping and the worker is gone, raise immediately instead of buffering (rows would be lost at shutdown anyway); keep the VACUUM stop-window buffering unchanged (hass not stopping there). (4) COST/BENEFIT: ~10 LoC + tests vs ~2.7 min shorter outage on every deploy/restart; no new writer, no data-loss increase."
   title: "HA shutdown waits ~8 min on URA census DB writes"
   thread: platform
   rank: {value: 5, time_criticality: 3, effort: 5}
-  status: "in_progress"
+  status: "review"
   created: '2026-10-05'
-  updated: "2026-10-06 02:00"
+  updated: "2026-10-06 02:55"
   tags: [tier-2db, mechanism-in-source]
   why: 'Restart 2026-10-05 19:00 took ~12 min to come back: HA "stop integrations" and "final write" stages both timed out waiting on pending UniversalRoomDatabase.log_census() tasks (5) plus one OverrideArrester._evaluate_nudge_outcome; coordinator_diagnostics then failed saving baselines with "DB write failed: shutdown timeout". Every restart pays this.'
-  next: "Me: build on fix/shutdown-db-write-fastfail (worktree) -> Tier 2-DB reviews (database.py write primitive) -> validator -> review lane. Not deployed overnight."
+  next: "SHIP (operator-timed, daytime deploy): merge fix/shutdown-db-write-fastfail (95fc75e8b) to develop after the overnight full-suite name-diff (result on this card), fold docs/planning/DRAFT_README_shutdown_db_fastfail.md into the release README, name this card in deploy.sh --cards. Live check at that restart: no shutdown-stage timeouts on log_census / nudge-eval, no DB write failed: shutdown timeout."
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
