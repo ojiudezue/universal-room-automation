@@ -278,6 +278,20 @@ read. Three consecutive missed verifies for the same surface
 `STATUS_STALE` was retired in v5.17.2 — a stale record now freezes its
 `verified_at` timestamp so you can see how old the last good verify was.
 
+### 2.6a Which "charge from grid" switch is real (operator-confirmed 2026-10-06)
+
+There are three entities with "charge from grid" in the name. Only one tells you what URA commanded.
+
+| Entity | Source | What it means | Does URA use it? |
+|---|---|---|---|
+| `switch.iq_battery_hacs_charge_battery_from_grid` | Enphase **cloud** (`enphase_ev`) | **The real setting.** ON only while URA is grid-charging (arbitrage/attain). | **Yes — the write leg and the truth.** Every EV/plug start gate and the breaker read this one. |
+| `switch.enpower_482348004678_charge_from_grid` | **Local** Envoy (core `enphase_envoy`) | A **standing ON flag** ("grid charging is permitted"). Reads ON all the time (7+ days of history never showed OFF); flips to ON again each time the Envoy reconnects. Local writes are ignored on this firmware — `turn_off` does nothing (verified 2026-10-06). | **No.** Never treat ON here as "the battery is charging from the grid". |
+| `switch.charge_from_grid_schedule` | Enphase cloud | Whether the Enphase grid-charge schedule feature is enabled. | No. |
+
+**If you see "charge from grid = ON" on a dashboard:** check the cloud switch above and `sensor.ura_energy_coordinator_battery_strategy` (`mode`, `arbitrage_active`, `last_verified_write_charge_from_grid`). If the cloud switch is OFF and the battery is discharging, nothing is grid-charging.
+
+Known tidy-up: `DEFAULT_CHARGE_FROM_GRID_ENTITY` in `energy_const.py` still names the local Enpower switch; the role-aware lookup routes writes and gates to the cloud entity. Rename tracked on the board.
+
 ---
 
 ## 3. Knobs and where they live
