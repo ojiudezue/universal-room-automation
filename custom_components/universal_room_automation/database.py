@@ -342,6 +342,20 @@ class UniversalRoomDatabase:
                         except Exception as exc:
                             if not future.done():
                                 future.set_exception(exc)
+                        except asyncio.CancelledError:
+                            # SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 (review B MED):
+                            # HA cancels this worker at shutdown. If the cancel
+                            # lands while a caller holds the connection, fail
+                            # that caller's future so its `await future` in
+                            # _db()'s finally returns instead of hanging until
+                            # HA kills the task. Then let the cancel propagate
+                            # to the flush handler below.
+                            if not future.done():
+                                future.set_exception(RuntimeError(
+                                    "DB write worker cancelled mid-write "
+                                    "(Home Assistant is stopping)"
+                                ))
+                            raise
                         finally:
                             self._write_queue.task_done()
                             self._db_stats["writes"] += 1
@@ -3983,9 +3997,11 @@ class UniversalRoomDatabase:
         """
         # SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1: skip at HA shutdown. The row
         # would be rejected by _db() anyway (worker closed, is_stopping=True)
-        # and would log ERROR from the except arm below. Census snapshots
-        # taken during shutdown are not persistable.
-        if getattr(self.hass, "is_stopping", False) is True:
+        # and would log ERROR from the except arm below. While the worker is
+        # still alive (HA's first ~20s of stopping) the row is still written.
+        if getattr(self.hass, "is_stopping", False) is True and (
+            self._write_task is None or self._write_task.done()
+        ):
             return
         try:
             import json

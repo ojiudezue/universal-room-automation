@@ -51,6 +51,17 @@ def _make_db(tmp_path: str, is_stopping: bool = False) -> UniversalRoomDatabase:
     return UniversalRoomDatabase(hass)
 
 
+async def _count_rows(db, zone: str) -> int:
+    import sqlite3
+    conn = sqlite3.connect(db.db_file)
+    try:
+        return conn.execute(
+            "SELECT COUNT(*) FROM census_snapshots WHERE zone = ?", (zone,)
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # (a) Fast-fail at shutdown
 # ---------------------------------------------------------------------------
@@ -102,6 +113,7 @@ def test_db_still_buffers_when_not_stopping_and_worker_stopped(tmp_path):
         await asyncio.wait_for(submit_task, timeout=10.0)
         await db._write_queue.join()
         await db.stop_write_worker()
+        assert await _count_rows(db, "vacuum_window") == 1
 
     asyncio.get_event_loop().run_until_complete(_scenario())
 
@@ -141,5 +153,80 @@ def test_log_census_returns_promptly_at_shutdown_without_error_log(tmp_path, cap
         assert errors == [], f"unexpected ERROR records: {errors}"
         # And nothing was enqueued.
         assert db._write_queue.qsize() == 0
+
+    asyncio.get_event_loop().run_until_complete(_scenario())
+
+
+# ---------------------------------------------------------------------------
+# (d) A LIVE worker still serves writes while HA is stopping (the first ~20 s
+#     of shutdown, before HA cancels background tasks). Anchors the
+#     worker-not-running half of the _db() guard (review C).
+# ---------------------------------------------------------------------------
+
+def test_live_worker_still_writes_while_hass_is_stopping(tmp_path):
+    db = _make_db(str(tmp_path), is_stopping=True)
+
+    async def _scenario():
+        await db.initialize()
+        await db.start_write_worker()
+        async with db._db() as conn:
+            await conn.execute(
+                "INSERT INTO census_snapshots (timestamp, zone, identified_count, "
+                "identified_persons, unidentified_count, total_persons) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                ("2026-10-06T00:00:01", "stopping_live", 0, "", 0, 0),
+            )
+            await conn.commit()
+        await db.stop_write_worker()
+        assert await _count_rows(db, "stopping_live") == 1
+
+    asyncio.get_event_loop().run_until_complete(_scenario())
+
+
+def test_log_census_still_writes_while_worker_alive_and_stopping(tmp_path):
+    """log_census skips only once the worker is gone (review A LOW)."""
+    import datetime as _dt
+
+    db = _make_db(str(tmp_path), is_stopping=True)
+    result = types.SimpleNamespace(
+        identified_persons=[], identified_count=0, unidentified_count=0,
+        total_persons=0, confidence=0.0, source_agreement=0.0,
+        frigate_count=0, unifi_count=0, timestamp=_dt.datetime(2026, 10, 6, 0, 0, 2),
+    )
+
+    async def _scenario():
+        await db.initialize()
+        await db.start_write_worker()
+        await db.log_census("house_alive", result)
+        await db.stop_write_worker()
+        assert await _count_rows(db, "house_alive") == 1
+
+    asyncio.get_event_loop().run_until_complete(_scenario())
+
+
+# ---------------------------------------------------------------------------
+# (e) Worker cancelled while a caller holds the connection: the caller must
+#     return promptly, not hang on its unresolved future (review B MED).
+# ---------------------------------------------------------------------------
+
+def test_caller_mid_write_returns_when_worker_cancelled(tmp_path):
+    db = _make_db(str(tmp_path), is_stopping=False)
+
+    async def _holder():
+        async with db._db() as _conn:
+            await asyncio.sleep(0.5)
+
+    async def _scenario():
+        await db.initialize()
+        await db.start_write_worker()
+        holder = asyncio.create_task(_holder())
+        await asyncio.sleep(0.1)
+        db._write_task.cancel()
+        t0 = time.monotonic()
+        done, _ = await asyncio.wait({holder}, timeout=5.0)
+        assert holder in done, "caller hung after worker cancel"
+        assert time.monotonic() - t0 < 2.0
+        holder.exception()  # retrieve; an error from the closed connection is fine
+        await db.stop_write_worker()
 
     asyncio.get_event_loop().run_until_complete(_scenario())
