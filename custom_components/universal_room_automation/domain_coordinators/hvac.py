@@ -143,14 +143,15 @@ def _w1c_is_manual(hass, entity_id, preset) -> bool:
     return is_manual_hold_for(hass, entity_id, preset)
 
 
-def _w1c_needs_reassert(hass, entity_id, preset) -> bool:
-    """W1-C P2 (INV-R): the zone already reads ``preset`` — does the device
-    still carry URA's range for it? Carrier / Generic: always False (the
-    device preset IS the range), so S1 skips exactly as before. Never
+def _w1c_needs_reassert(hass, entity_id, preset, zone_id=None) -> bool:
+    """W1-C P2 (INV-R / option C INV-R'): the zone already reads ``preset``
+    — does the device still carry what URA holds for it (for THIS zone's
+    select record, REV 4.1-C.10)? Carrier / Generic: always False (the
+    device preset IS the hold), so S1 skips exactly as before. Never
     raises."""
     try:
         return bool(_w1c_strategy(hass, entity_id).hold_needs_reassert(
-            hass, entity_id, preset,
+            hass, entity_id, preset, zone_id=zone_id,
         ))
     except Exception:  # noqa: BLE001
         return False
@@ -3568,7 +3569,7 @@ class HVACCoordinator(BaseCoordinator):
             _deferred_snapshot: dict = {}
             if zi and (zone_vacant_past_grace or zone.runtime_exceeded) and effective_preset == "away":
                 if zone.preset_mode == "away" and not _w1c_needs_reassert(
-                    self.hass, zone.climate_entity, "away",
+                    self.hass, zone.climate_entity, "away", zone_id,
                 ):
                     continue  # Already away
                 # M3 / N9b: the vacancy/runtime bypass skips the manual rule
@@ -3594,7 +3595,7 @@ class HVACCoordinator(BaseCoordinator):
                     _deferred_reason = _v.get("reason") or "unknown"
                     _deferred_snapshot = _v.get("gate_snapshot", {}) or {}
                 elif not _w1c_needs_reassert(
-                    self.hass, zone.climate_entity, effective_preset,
+                    self.hass, zone.climate_entity, effective_preset, zone_id,
                 ):
                     continue  # already at target: benign no-op, never recorded
                 # W1-C P2 (INV-R): the zone reads its target preset but the

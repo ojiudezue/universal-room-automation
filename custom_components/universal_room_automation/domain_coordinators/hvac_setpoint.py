@@ -227,8 +227,13 @@ def _schedule_climate_write_row(
     wire_ok: bool,
     exc: str | None,
     issued_wallclock: str | None = None,
+    select_entity_id: str | None = None,
 ) -> None:
     """Fire-and-forget schedule of ONE `climate_write` ledger row.
+
+    ``select_entity_id`` (W1-C P2 option C, plan REV 4.1-C.14): set ONLY by
+    ``emit_select_comfort``; the key is added to the payload only then, so
+    every other row's JSON is byte-identical (``json_extract`` reads NULL).
 
     Bypasses `ActivityLogger.log` (F4): direct-calls `database.log_activity`
     so there is NO dedup, NO `SIGNAL_ACTIVITY_LOGGED` dispatch, and NO
@@ -268,6 +273,8 @@ def _schedule_climate_write_row(
             "ts_issued": float(ts_issued),
             "ts_returned": float(ts_returned),
         }
+        if select_entity_id is not None:
+            payload["select_entity_id"] = select_entity_id
         details_json = json.dumps(payload, default=str)
         # B-MEDIUM: use the wall-clock ISSUE time as the row timestamp so
         # a blocking wire call that only returns after ha_carrier already
@@ -978,5 +985,134 @@ async def emit_set_activity_setpoint(
         wire_ok=True,
         exc=None,
         issued_wallclock=_issued_wall,
+    )
+    return True
+
+
+# ==========================================================================
+# HVAC W1-C P2 option C: emit_select_comfort (fifth funnel).
+# Plan: docs/planning/PLANNING_hvac_w1c_p2_ecobee.md REV 4-C.3 + REV 4.1-C.9 /
+# C.11 / C.14; operator rulings 1 + 2 (2026-10-05). The ONE permitted
+# non-`climate` thermostat write (INV-E2'): `select.select_option` on an
+# ecobee's Current Mode select. The select entity comes from the CALLER (the
+# adapter resolves it); this funnel has no brand logic. Comfort-delay gate
+# APPLIES; the freeze floor does NOT (freeze is decided by the adapter, which
+# never selects while freeze is active — C.9). Exactly ONE `climate_write`
+# row per attempted wire call, `entity_id` = the climate entity and
+# `select_entity_id` = the select. It records nothing in the URA setpoint
+# ring (a comfort select is not a raw setpoint write). Existing funnels are
+# untouched.
+# ==========================================================================
+
+
+def _snapshot_select_comfort(
+    hass: HomeAssistant, entity_id: str, select_entity_id: str,
+) -> dict[str, Any]:
+    """`values_before` for a comfort select (C.14), read synchronously
+    before the wire await. Never raises."""
+    out: dict[str, Any] = {
+        "select": None,
+        "climate": {"hvac_mode": None, "setpoints": {
+            "target_low": None, "target_high": None, "temperature": None,
+        }},
+    }
+    try:
+        sel = hass.states.get(select_entity_id)
+        out["select"] = sel.state if sel is not None else None
+        st = hass.states.get(entity_id)
+        if st is not None:
+            attrs = st.attributes or {}
+            out["climate"]["hvac_mode"] = st.state
+            for key, attr in (
+                ("target_low", "target_temp_low"),
+                ("target_high", "target_temp_high"),
+                ("temperature", "temperature"),
+            ):
+                v = attrs.get(attr)
+                out["climate"]["setpoints"][key] = float(v) if v is not None else None
+    except Exception:  # noqa: BLE001 — defensive; snapshot never raises
+        _LOGGER.debug(
+            "select_comfort snapshot failed for %s", entity_id, exc_info=True,
+        )
+    return out
+
+
+async def emit_select_comfort(
+    hass: HomeAssistant,
+    entity_id: str,
+    option: str,
+    *,
+    select_entity_id: str,
+    site: str,
+    zone_id: str,
+    reason: str,
+    blocking: bool,
+    gate: Callable[[], bool] | None = None,
+) -> bool:
+    """Select comfort ``option`` on the thermostat's Current Mode select.
+
+    Returns True when the service call was issued, False when ``gate``
+    deferred it. A wire exception is re-raised unchanged after its row.
+    """
+    if gate is not None:
+        try:
+            defer = bool(gate())
+        except Exception:  # noqa: BLE001 — a bad gate must not deny the world
+            defer = False
+        if defer:
+            _log_deferred_write(
+                hass, site=site or "unknown_select_comfort",
+                zone_id=zone_id, entity_id=entity_id, reason=reason,
+                would_have_emitted={
+                    "option": option, "select_entity_id": select_entity_id,
+                },
+            )
+            return False
+
+    service_data = {"entity_id": select_entity_id, "option": option}
+    _values_before = _snapshot_select_comfort(hass, entity_id, select_entity_id)
+    _ts_issued = time.monotonic()
+    _issued_wall = dt_util.utcnow().isoformat()
+    try:
+        await hass.services.async_call(
+            "select", "select_option", service_data, blocking=blocking,
+        )
+    except BaseException as _wire_exc:  # noqa: BLE001 — re-raised below
+        _schedule_climate_write_row(
+            hass,
+            verb="select.select_option",
+            entity_id=entity_id,
+            site=site,
+            zone_id=zone_id,
+            reason=reason,
+            blocking=blocking,
+            excursion_id=None,
+            values_before=_values_before,
+            values_after={"service_data": dict(service_data)},
+            ts_issued=_ts_issued,
+            ts_returned=time.monotonic(),
+            wire_ok=False,
+            exc=type(_wire_exc).__name__,
+            issued_wallclock=_issued_wall,
+            select_entity_id=select_entity_id,
+        )
+        raise
+    _schedule_climate_write_row(
+        hass,
+        verb="select.select_option",
+        entity_id=entity_id,
+        site=site,
+        zone_id=zone_id,
+        reason=reason,
+        blocking=blocking,
+        excursion_id=None,
+        values_before=_values_before,
+        values_after={"service_data": dict(service_data)},
+        ts_issued=_ts_issued,
+        ts_returned=time.monotonic(),
+        wire_ok=True,
+        exc=None,
+        issued_wallclock=_issued_wall,
+        select_entity_id=select_entity_id,
     )
     return True

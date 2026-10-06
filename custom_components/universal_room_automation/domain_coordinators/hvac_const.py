@@ -766,6 +766,24 @@ HVAC_THERMOSTAT_MIN_DELTA_MAX_F: Final = 10.0
 # "no heat_cool mode" Repair is unconditional).
 ECOBEE_HEAT_COOL_STUCK_TICKS: Final = 3
 
+# HVAC W1-C P2 option C (plan REV 4.1-G + operator ruling 6, 2026-10-05):
+# after URA selects an ecobee comfort setting (Current Mode select), the
+# thermostat's projected preset is the selected label for this long; the
+# first read at/after it snapshots the live legs as the comfort URA holds
+# (lazy settle, no timer, no listener). RUNG 1 (protocol window; a change
+# needs review). Operator chose 180 s (measured settle <= 5 s, D0c). Not a
+# kill switch.
+ECOBEE_SELECT_ECHO_TTL_S: Final = 180
+# REV 4.1-C.7: schedule re-captures (an R4 re-select of the same comfort) on
+# one thermostat within ECOBEE_SCHEDULE_RECAPTURE_WINDOW_S that raise the
+# "set Hold Action: until I change it" Repair. Once raised, R4 stops
+# re-selecting on that thermostat until restart (noise bound). RUNG 1.
+ECOBEE_SCHEDULE_RECAPTURE_REPAIR_THRESHOLD: Final = 2
+ECOBEE_SCHEDULE_RECAPTURE_WINDOW_S: Final = 86400
+# REV 4.1-C.13: version of the per-entity `__w1c_adapter` slice. 1 (or
+# absent) = option B 3-list `held`; 2 = the `Held` dict form.
+W1C_ADAPTER_SCHEMA_VERSION: Final = 2
+
 # Internal constants (not user-facing)
 AC_NUDGE_OVERSHOOT_GAP: Final = 0.0            # °F — current <= target - this. v4.7.16.2 hotfix: variable-speed Bryant modulates AT setpoint and rarely undershoots 0.5°F; previous 0.5°F gap suppressed auto-nudge for the exact waste pattern it was designed to catch. Downstream gates 7 (kwh_rate > threshold), 7b (sustained samples), and 8 (time-sustained) already provide three independent false-positive guards.
 AC_NUDGE_EVALUATION_DELAY_S: Final = 600       # seconds after restore = evaluate (LEGACY — runtime value lives on OverrideArrester._nudge_eval_delay_s, seeded from CONF_HVAC_AC_NUDGE_EVAL_DELAY. This const remains as the runtime-default + back-compat import target.)

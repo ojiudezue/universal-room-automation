@@ -106,19 +106,25 @@ def _entry(eid, platform, device_id=None, translation_key=None):
     )
 
 
-def _install_registry(monkeypatch, mods, entries=None, devices=None):
+def _install_registry(monkeypatch, mods, entries=None, devices=None, *, with_select=False):
+    """Option C (REV 4 / 4.1): an ecobee WITH a Current Mode select holds by
+    selecting its comfort (Branch S, `test_hvac_w1c_p2_ecobee_rev4.py`).
+    This REV 3 suite registers NO select by default, so every hold here is
+    the range hold (Branch R = option B verbatim) it was written against;
+    the select-read tests pass ``with_select=True``."""
     from homeassistant.helpers import device_registry as dr
     from homeassistant.helpers import entity_registry as er
     if entries is None:
         entries = {
             ENT: _entry(ENT, "homekit_controller", DEV),
-            SEL: _entry(SEL, "homekit_controller", DEV, "ecobee_mode"),
             CAR: _entry(CAR, "ha_carrier"),
             "climate.test_zone_3": _entry("climate.test_zone_3", "ha_carrier"),
             HK_OTHER: _entry(HK_OTHER, "homekit_controller", "dev_other"),
             NATIVE_ECOBEE: _entry(NATIVE_ECOBEE, "ecobee", "dev_native"),
             MADE_UP: _entry(MADE_UP, "acme_thermo"),
         }
+        if with_select:
+            entries[SEL] = _entry(SEL, "homekit_controller", DEV, "ecobee_mode")
     if devices is None:
         devices = {
             DEV: types.SimpleNamespace(manufacturer="ecobee Inc."),
@@ -156,9 +162,9 @@ def _set_eco(hass, *, mode="heat_cool", low=None, high=None, temperature=None,
 
 
 def _rig(mods, monkeypatch, *, season="summer", house="home_day", low=72.0, high=68.0,
-         mode="heat_cool"):
+         mode="heat_cool", with_select=False):
     coord, hass = H.make_coord(mods)
-    _install_registry(monkeypatch, mods)
+    _install_registry(monkeypatch, mods, with_select=with_select)
     mods["hvac_setpoint"]._test_clear_ura_setpoints()
     coord._house_state = house
     coord._zone_intelligence_enabled = False
@@ -173,6 +179,20 @@ def _rig(mods, monkeypatch, *, season="summer", house="home_day", low=72.0, high
 
 def _S(mods):
     return mods["hvac_strategy"]
+
+
+def _hold(eco, label, lo, hi, ent=ENT):
+    """Plant a Branch-R (range) `held` (REV 4.1-C.1 `Held`)."""
+    S = sys.modules[type(eco).__module__]
+    eco._held[ent] = S.Held(label, S.HELD_RANGE, float(lo), float(hi), S._wall_now(), None)
+
+
+def _h3v(h):
+    return None if h is None else (h.label, h.lo, h.hi)
+
+
+def _h3(eco, ent=ENT):
+    return _h3v(eco._held.get(ent))
 
 
 def _eco(mods, hass):
@@ -284,7 +304,7 @@ async def test_profile_switch_flushes_state_and_closes_live_borrows(mods, monkey
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
     S = _S(mods)
     eco = _eco(mods, hass)
-    eco._held[ENT] = ("home", 70.0, 77.0)
+    _hold(eco, "home", 70.0, 77.0, ent=ENT)
     eco._ranges[(ENT, "home", "summer")] = (69.0, 78.0)
     eco._record_sent(ENT, "set_preset_mode", "home")
     from homeassistant.helpers import entity_registry as er
@@ -349,14 +369,14 @@ async def test_s1_home_writes_one_effective_range_and_stamps_held_before_the_wir
     real = sp.emit_set_temperature
 
     async def _spy(h, e, **kw):
-        seen_held.append(eco._held.get(e))
+        seen_held.append(_h3v(eco._held.get(e)))
         return await real(h, e, **kw)
     monkeypatch.setattr(sp, "emit_set_temperature", _spy)
     await _tick(coord, hass)
     assert _temp(hass) == [{"entity_id": ENT, "target_temp_low": 70.0, "target_temp_high": 77.0}]
     assert _presets(hass) == []
     assert seen_held == [("home", 70.0, 77.0)]
-    assert eco._held[ENT] == ("home", 70.0, 77.0)
+    assert _h3(eco) == ("home", 70.0, 77.0)
     assert (70.0, 77.0) in [tuple(v) for v in sp.recent_ura_setpoints(ENT)]
     rows = H.climate_write_rows(hass, mods)
     assert [r["site"] for r in rows] == ["S1_reason_ladder"]
@@ -418,7 +438,7 @@ async def test_inv_r_vacancy_away_site_rewrites_a_stale_away_range(mods, monkeyp
     monkeypatch.setattr(coord, "_zone_conditioning_retreat_ok", lambda z: True)
     z = coord.zone_manager.zones[ZONE]
     z.last_occupied_time = H.utc_now() - timedelta(hours=3)
-    _eco(mods, hass)._held[ENT] = ("away", 60.0, 82.0)
+    _hold(_eco(mods, hass), "away", 60.0, 82.0, ent=ENT)
     coord.zone_manager.update_zone_climate_state(ZONE)
     assert z.preset_mode == "away"
     coord._preset_manager._current_season = "shoulder"
@@ -441,7 +461,7 @@ async def test_set_preset_range_while_holding_p_writes_now_then_s1_noops(mods, m
                                      site="S10_preset_range", reason="r")
     assert (res.status, res.reason) == (S.WriteStatus.APPLIED, "emitted")
     assert _temp(hass)[-1] == {"entity_id": ENT, "target_temp_low": 69.0, "target_temp_high": 78.0}
-    assert eco._held[ENT] == ("home", 69.0, 78.0)
+    assert _h3(eco) == ("home", 69.0, 78.0)
     _set_eco(hass, low=69.0, high=78.0)
     n = len(_temp(hass))
     await _tick(coord, hass)
@@ -542,12 +562,17 @@ async def test_persistence_round_trip_and_carrier_snapshot_has_no_key(mods, monk
     eco = _eco(mods, hass)
     eco._ranges[(ENT, "sleep", "summer")] = (69.0, 75.0)
     blob = coord._build_zone_state_snapshot()["__w1c_adapter"]
-    assert blob == {ENT: {"held": ["home", 70.0, 77.0], "ranges": [["sleep", "summer", 69.0, 75.0]]}}
+    # REV 4.1-C.1 / C.13: the v2 dict form (Branch R hold).
+    t = blob[ENT]["held"]["t_issued_wall"]
+    assert blob == {ENT: {"_schema_version": 2, "held": {
+        "label": "home", "mode": "range", "lo": 70.0, "hi": 77.0,
+        "t_issued_wall": t, "settled": None,
+    }, "ranges": [["sleep", "summer", 69.0, 75.0]]}}
     S._test_reset_cache()
     coord._rehydrate_w1c_adapter({"__w1c_adapter": json.loads(json.dumps(blob))})
     eco2 = _eco(mods, hass)
     assert eco2 is not eco
-    assert eco2._held[ENT] == ("home", 70.0, 77.0)
+    assert _h3(eco2) == ("home", 70.0, 77.0)
     assert eco2._ranges == {(ENT, "sleep", "summer"): (69.0, 75.0)}
 
 
@@ -579,7 +604,7 @@ def test_rehydrate_keeps_a_slice_pending_until_the_entity_resolves_to_ecobee(mod
     _install_registry(monkeypatch, mods)
     S._PENDING_ADAPTER_STATE[ENT] = sl          # reset_cache cleared it; re-seed
     eco = S.strategy_for(None, ENT)
-    assert eco._held[ENT] == ("sleep", 70.0, 76.0)
+    assert _h3(eco) == ("sleep", 70.0, 76.0)
     assert ENT not in S._PENDING_ADAPTER_STATE
 
 
@@ -595,8 +620,8 @@ def test_rehydrate_drops_another_seasons_ranges(mods, monkeypatch):
 def test_prune_at_the_latch_seam_drops_unmapped_entities(mods, monkeypatch):
     coord, hass = _rig(mods, monkeypatch)
     eco = _eco(mods, hass)
-    eco._held[ENT] = ("home", 70.0, 77.0)
-    eco._held["climate.swapped_out"] = ("home", 70.0, 77.0)
+    _hold(eco, "home", 70.0, 77.0, ent=ENT)
+    _hold(eco, "home", 70.0, 77.0, ent="climate.swapped_out")
     coord._zone_state_store = H.FakeStore()
     coord._prune_interrupt_latch()
     assert "climate.swapped_out" not in eco._held and ENT in eco._held
@@ -624,7 +649,7 @@ async def test_async_setup_rehydrates_the_adapter_before_the_first_cycle(mods, m
     seen = []
 
     async def _first_cycle(*_a, **_k):
-        seen.append(_S(mods).strategy_for(hass, ENT)._held.get(ENT))
+        seen.append(_h3v(_S(mods).strategy_for(hass, ENT)._held.get(ENT)))
     monkeypatch.setattr(coord, "_async_decision_cycle", _first_cycle)
     await coord.async_setup()
     await coord.async_teardown()
@@ -636,12 +661,12 @@ async def test_set_setpoints_rounds_widens_and_leaves_held(mods, monkeypatch):
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
     S = _S(mods)
     eco = _eco(mods, hass)
-    eco._held[ENT] = ("home", 70.0, 77.0)
+    _hold(eco, "home", 70.0, 77.0, ent=ENT)
     res = await eco.set_setpoints(hass, ENT, target_temp_low=70.0, target_temp_high=78.5,
                                   site="S5", zone_id=ZONE, reason="nudge")
     assert res.status is S.WriteStatus.APPLIED
     assert _temp(hass) == [{"entity_id": ENT, "target_temp_low": 70.0, "target_temp_high": 79.0}]
-    assert eco._held[ENT] == ("home", 70.0, 77.0)
+    assert _h3(eco) == ("home", 70.0, 77.0)
     res = await eco.set_setpoints(hass, ENT, target_temp_low=72.0, target_temp_high=74.0,
                                   site="S3", zone_id=ZONE, reason="compromise")
     assert _temp(hass)[-1] == {"entity_id": ENT, "target_temp_low": 72.0, "target_temp_high": 77.0}
@@ -690,7 +715,7 @@ async def test_s4_pin_deferred_in_cool_is_repaired_by_the_next_s1_tick(mods, mon
     eco = _eco(mods, hass)
     res = await eco.pin_preset(hass, ENT, "home", site="S4", zone_id=ZONE, reason="revert")
     assert res.status is _S(mods).WriteStatus.DEFERRED
-    eco._held[ENT] = ("home", 70.0, 77.0)          # what URA last held
+    _hold(eco, "home", 70.0, 77.0, ent=ENT)          # what URA last held
     _set_eco(hass, low=76.0, high=76.0)
     coord.zone_manager.zones[ZONE].hvac_mode = "heat_cool"
     await _tick(coord, hass)
@@ -707,7 +732,7 @@ async def test_pin_preset_writes_the_effective_range_never_a_preset(mods, monkey
                                    site="S7", zone_id=ZONE, reason="restore")
         assert res.status is S.WriteStatus.APPLIED
         assert _temp(hass)[-1] == {"entity_id": ENT, "target_temp_low": rng[0], "target_temp_high": rng[1]}
-        assert eco._held[ENT] == (preset,) + rng
+        assert _h3(eco) == (preset,) + rng
     assert eco.last_sent(ENT, "set_preset_mode") is None
     _assert_inv_e2(hass)
 
@@ -716,14 +741,14 @@ async def test_pin_preset_writes_the_effective_range_never_a_preset(mods, monkey
 async def test_pin_preset_wire_exception_propagates_and_restores_held(mods, monkeypatch):
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
     eco = _eco(mods, hass)
-    eco._held[ENT] = ("sleep", 70.0, 76.0)
+    _hold(eco, "sleep", 70.0, 76.0, ent=ENT)
 
     async def _boom(*a, **k):
         raise RuntimeError("wire")
     monkeypatch.setattr(hass.services, "async_call", _boom)
     with pytest.raises(RuntimeError, match="wire"):
         await eco.pin_preset(hass, ENT, "home", site="S7", zone_id=ZONE, reason="r")
-    assert eco._held[ENT] == ("sleep", 70.0, 76.0)
+    assert _h3(eco) == ("sleep", 70.0, 76.0)
 
 
 @pytest.mark.asyncio
@@ -731,11 +756,11 @@ async def test_gate_deferred_hold_restores_held(mods, monkeypatch):
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
     S = _S(mods)
     eco = _eco(mods, hass)
-    eco._held[ENT] = ("sleep", 70.0, 76.0)
+    _hold(eco, "sleep", 70.0, 76.0, ent=ENT)
     res = await eco.hold_preset(hass, ENT, "home", gate=lambda: True,
                                 site="S1", zone_id=ZONE, reason="r")
     assert (res.status, res.reason) == (S.WriteStatus.DEFERRED, "gate_deferred")
-    assert eco._held[ENT] == ("sleep", 70.0, 76.0)
+    assert _h3(eco) == ("sleep", 70.0, 76.0)
     assert _temp(hass) == []
 
 
@@ -902,7 +927,7 @@ def test_preset_of_table(mods, monkeypatch, held, mode, low, high, expect):
     coord, hass = _rig(mods, monkeypatch)
     eco = _eco(mods, hass)
     if held:
-        eco._held[ENT] = held
+        _hold(eco, *held)
     got = eco.preset_of(_st(mode, low, high), "<default>", hass=hass)
     assert got == expect
 
@@ -923,7 +948,7 @@ def test_preset_of_restart_fallback_rejects_two_near_candidates(mods, monkeypatc
 def test_current_mode_select_is_a_read_fallback_and_unknown_is_never_away(
     mods, monkeypatch, sel_state, expect,
 ):
-    coord, hass = _rig(mods, monkeypatch)
+    coord, hass = _rig(mods, monkeypatch, with_select=True)
     hass.states.async_set(SEL, sel_state, {"options": ["home", "sleep", "away"]})
     # Nothing held, mode drifted -> the comfort select (if readable).
     assert _eco(mods, hass).preset_of(_st("cool", None, None), "", hass=hass) == expect
@@ -935,7 +960,7 @@ def test_current_mode_select_is_a_read_fallback_and_unknown_is_never_away(
 def test_r1_hub_reads_the_projection(mods, monkeypatch):
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=76.0)
     eco = _eco(mods, hass)
-    eco._held[ENT] = ("sleep", 70.0, 76.0)
+    _hold(eco, "sleep", 70.0, 76.0, ent=ENT)
     coord.zone_manager.update_zone_climate_state(ZONE)
     assert coord.zone_manager.zones[ZONE].preset_mode == "sleep"
     _set_eco(hass, low=69.0, high=76.0)
@@ -962,7 +987,7 @@ async def test_r7_wall_change_under_home_is_booked_like_carrier(mods, monkeypatc
     Carrier zone books for the same change."""
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
     arr = coord._override_arrester
-    _eco(mods, hass)._held[ENT] = ("home", 70.0, 77.0)
+    _hold(_eco(mods, hass), "home", 70.0, 77.0, ent=ENT)
     arr._handle_climate_change(_eco_ev(("heat_cool", 70.0, 77.0), ("heat_cool", 68.0, 72.0)))
     await H.drain(hass, rounds=6)
     eco_rows = [r for r in _ledger(hass, mods, "override_detected") if r.get("entity_id") == ENT]
@@ -987,7 +1012,7 @@ async def test_r7_echo_of_an_s1_hold_landing_during_the_call_is_not_booked(mods,
     update, D0b G3) reads the new preset, not `manual`."""
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=76.0)
     eco = _eco(mods, hass)
-    eco._held[ENT] = ("sleep", 70.0, 76.0)          # URA held sleep before
+    _hold(eco, "sleep", 70.0, 76.0, ent=ENT)          # URA held sleep before
     arr = coord._override_arrester
     real_call = hass.services.async_call
 
@@ -1054,7 +1079,7 @@ async def test_t2_wired_into_the_arrester(mods, monkeypatch):
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
     S = _S(mods)
     monkeypatch.setattr(S, "ECOBEE_RANGE_TOLERANCE_F", 0.9)
-    _eco(mods, hass)._held[ENT] = ("home", 70.0, 77.0)
+    _hold(_eco(mods, hass), "home", 70.0, 77.0, ent=ENT)
     arr = coord._override_arrester
     seen = []
     real = arr._transition_is_human
@@ -1067,7 +1092,7 @@ async def test_t2_wired_into_the_arrester(mods, monkeypatch):
 
 def test_r3_latch_discharges_on_a_held_named_range(mods, monkeypatch):
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
-    _eco(mods, hass)._held[ENT] = ("home", 70.0, 77.0)
+    _hold(_eco(mods, hass), "home", 70.0, 77.0, ent=ENT)
     arr = coord._override_arrester
     assert arr._latch_state_discharges(hass.states.get(ENT)) is True
     _set_eco(hass, low=68.0, high=72.0)
@@ -1086,7 +1111,7 @@ async def test_r4_startup_audit_reads_the_projection(mods, monkeypatch, low, hig
     never audits an ecobee at all."""
     coord, hass = _rig(mods, monkeypatch, low=low, high=high)
     arr = coord._override_arrester
-    _eco(mods, hass)._held[ENT] = ("home", 70.0, 77.0)
+    _hold(_eco(mods, hass), "home", 70.0, 77.0, ent=ENT)
     await arr.async_startup_audit(coord._preset_manager, "home_day")
     await H.drain(hass)
     assert bool(arr._override_active.get(ZONE)) is reverts
@@ -1099,7 +1124,7 @@ def test_r5_mid_window_person_transition_passes_through(mods, monkeypatch):
     projection (raw reads are None -> None)."""
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
     arr = coord._override_arrester
-    _eco(mods, hass)._held[ENT] = ("home", 70.0, 77.0)
+    _hold(_eco(mods, hass), "home", 70.0, 77.0, ent=ENT)
     arr.suppress(ENT, kind="preset")
     ev = _eco_ev(("heat_cool", 70.0, 77.0), ("heat_cool", 68.0, 72.0))
     assert arr._is_genuine_manual(ev, ENT) is True
@@ -1114,7 +1139,7 @@ async def test_r6_episode_boundary_clears_the_last_detection(mods, monkeypatch):
     manual episode — the last-detection record is dropped."""
     coord, hass = _rig(mods, monkeypatch, low=68.0, high=72.0)
     arr = coord._override_arrester
-    _eco(mods, hass)._held[ENT] = ("home", 70.0, 77.0)
+    _hold(_eco(mods, hass), "home", 70.0, 77.0, ent=ENT)
     arr._last_detection[ENT] = {"booked": True}
     arr.suppress(ENT)     # URA's own write: the rest of the handler stands down
     arr._handle_climate_change(_eco_ev(("heat_cool", 68.0, 72.0), ("heat_cool", 70.0, 77.0)))
@@ -1128,7 +1153,7 @@ async def test_r8_ac_reset_restore_target_is_the_projected_preset(mods, monkeypa
     restore pins back is the projection (`sleep`), not the raw ''."""
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=76.0)
     arr = coord._override_arrester
-    _eco(mods, hass)._held[ENT] = ("sleep", 70.0, 76.0)
+    _hold(_eco(mods, hass), "sleep", 70.0, 76.0, ent=ENT)
     fired = []
     monkeypatch.setattr(mods["hvac_override"], "async_call_later",
                         lambda h, d, cb: fired.append(cb) or (lambda: None))
@@ -1152,7 +1177,7 @@ async def test_r10_nudge_start_snapshot_is_the_projected_preset(mods, monkeypatc
     restore pins back is `sleep` (raw read: '' -> no preset restore)."""
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=76.0)
     arr = coord._override_arrester
-    _eco(mods, hass)._held[ENT] = ("sleep", 70.0, 76.0)
+    _hold(_eco(mods, hass), "sleep", 70.0, 76.0, ent=ENT)
     monkeypatch.setattr(mods["hvac_override"], "async_call_later",
                         lambda h, d, cb: (lambda: None))
     z = coord.zone_manager.zones[ZONE]
@@ -1169,7 +1194,7 @@ async def test_r15_begin_excursion_snapshots_the_projected_preset(mods, monkeypa
     """R15 drives C26 / `is_human_manual_snapshot`: a held home range
     snapshots `home` (a named return), not None (a raw restore)."""
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
-    _eco(mods, hass)._held[ENT] = ("home", 70.0, 77.0)
+    _hold(_eco(mods, hass), "home", 70.0, 77.0, ent=ENT)
     ex = mods["hvac_excursion"]
     tok = await ex.begin_excursion(hass, zone_id=ZONE, entity_id=ENT,
                                    kind=ex.EXCURSION_KIND.NUDGE, excursion_high=78.5,
@@ -1187,7 +1212,7 @@ def test_pr2_6_ecobee_snapshot_rule_is_carriers(mods):
 
 def test_r16_compliance_actual_is_the_projection(mods, monkeypatch):
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
-    _eco(mods, hass)._held[ENT] = ("home", 70.0, 77.0)
+    _hold(_eco(mods, hass), "home", 70.0, 77.0, ent=ENT)
     from custom_components.universal_room_automation.domain_coordinators.coordinator_diagnostics import (
         ComplianceTracker,
     )
@@ -1204,7 +1229,7 @@ async def test_r14_egress_pause_saves_the_projected_preset(mods, monkeypatch):
     (what the resume pins back) is the projection, not the raw None."""
     from datetime import datetime, timezone
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
-    _eco(mods, hass)._held[ENT] = ("home", 70.0, 77.0)
+    _hold(_eco(mods, hass), "home", 70.0, 77.0, ent=ENT)
     eg = coord._egress_manager
     # The egress module memoises the excursion module on first use; scope it
     # to THIS harness's module and restore the memo afterwards (a memo left
@@ -1507,7 +1532,7 @@ def test_fix_a_m2_corrupt_ranges_are_dropped_and_the_slice_is_consumed(mods, mon
     S = _S(mods)
     S.rehydrate_adapter_state(None, {ENT: {"held": ["home", 70.0, 77.0], "ranges": 5}})
     eco = S.strategy_for(None, ENT)
-    assert eco._held[ENT] == ("home", 70.0, 77.0)
+    assert _h3(eco) == ("home", 70.0, 77.0)
     assert eco._ranges == {}
     assert ENT not in S._PENDING_ADAPTER_STATE
     assert S.strategy_for(None, ENT) is eco
@@ -1612,8 +1637,9 @@ async def test_fix_b_l4_failed_write_never_undoes_a_newer_stamp(mods, monkeypatc
     the failed / deferred write must not roll that newer stamp back."""
     coord, hass = _rig(mods, monkeypatch, low=70.0, high=77.0)
     eco = _eco(mods, hass)
-    eco._held[ENT] = ("sleep", 70.0, 76.0)
-    newer = ("away", 60.0, 82.0)
+    _hold(eco, "sleep", 70.0, 76.0, ent=ENT)
+    S = _S(mods)
+    newer = S.Held("away", S.HELD_RANGE, 60.0, 82.0, S._wall_now(), None)
 
     async def _emit(*a, **k):
         eco._held[ENT] = newer
@@ -1660,15 +1686,19 @@ async def test_fix_b_l1_profile_switch_stands_down_the_zones_arrester_timers(mod
 
 
 def test_fix_d_med1_arrester_reference_is_the_held_effective_range(mods, monkeypatch):
-    """D MED-1 (`_arrester_reference`): the ecobee zone is measured against
-    the range URA holds (shoulder Home 74/70 widened to the 5 °F gap ->
-    70/75; a stored S10 range wins); the Carrier zone keeps the Seasonal
-    Baseline exactly."""
+    """D MED-1 (`_arrester_reference`) under REV 4.1-C.5: the ecobee zone is
+    measured against the range URA HOLDS (a range hold: its legs, shoulder
+    Home 74/70 widened to the 5 °F gap -> 70/75, or a stored S10 range
+    68/76); with nothing held it falls through to the Seasonal Baseline,
+    exactly as the Carrier zone (74/70) always does."""
     coord, hass = _rig(mods, monkeypatch, season="shoulder")
     res = coord._override_arrester._baseline_resolver
-    assert res(ZONE, "home") == ("home", 75.0, 70.0)
+    eco = _eco(mods, hass)
+    assert res(ZONE, "home") == ("home", 74.0, 70.0)          # nothing held
     assert res(CAR_ZONE, "home") == ("home", 74.0, 70.0)
-    _eco(mods, hass)._ranges[(ENT, "home", "shoulder")] = (68.0, 76.0)
+    _hold(eco, "home", 70.0, 75.0)
+    assert res(ZONE, "home") == ("home", 75.0, 70.0)
+    _hold(eco, "home", 68.0, 76.0)
     assert res(ZONE, "home") == ("home", 76.0, 68.0)
     assert res(CAR_ZONE, "home") == ("home", 74.0, 70.0)
 
@@ -1682,7 +1712,7 @@ async def test_fix_d_med1_startup_audit_measures_against_the_held_range(mods, mo
     arr = coord._override_arrester
     eco = _eco(mods, hass)
     eco._ranges[(ENT, "home", "summer")] = (66.0, 80.0)
-    eco._held[ENT] = ("home", 66.0, 80.0)
+    _hold(eco, "home", 66.0, 80.0, ent=ENT)
     await arr.async_startup_audit(coord._preset_manager, "home_day")
     await H.drain(hass)
     assert arr._override_active.get(ZONE) is True
@@ -1697,10 +1727,10 @@ def test_fix_d_low1_unreadable_manufacturer_keeps_a_resolved_ecobee(mods, monkey
     _reg, dreg = _install_registry(monkeypatch, mods)
     S = _S(mods)
     eco = S.strategy_for(None, ENT)
-    eco._held[ENT] = ("home", 70.0, 77.0)
+    _hold(eco, "home", 70.0, 77.0, ent=ENT)
     dreg.devices.pop(DEV)
     assert S.strategy_for(None, ENT) is eco
-    assert eco._held[ENT] == ("home", 70.0, 77.0)
+    assert _h3(eco) == ("home", 70.0, 77.0)
     assert S.drain_profile_switches() == []
     dreg.devices[DEV] = types.SimpleNamespace(manufacturer="Honeywell")
     assert type(S.strategy_for(None, ENT)) is S.GenericStrategy

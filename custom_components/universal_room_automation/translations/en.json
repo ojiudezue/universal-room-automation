@@ -2298,6 +2298,10 @@
     "thermostat_heat_cool_not_reached": {
       "title": "Thermostat did not switch to heat/cool",
       "description": "{thermostat} did not switch to heat/cool after URA asked, so URA cannot hold its comfort range. Check the thermostat's mode and that Auto heat/cool is enabled."
+    },
+    "thermostat_hold_action_not_set": {
+      "title": "Thermostat leaves the comfort URA picked",
+      "description": "{thermostat} keeps leaving the comfort setting URA selected, so it may be following its own schedule. On the thermostat, set Hold Action to \"until I change it\"."
     }
   },
   "entity": {
