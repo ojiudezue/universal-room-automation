@@ -212,18 +212,46 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <header class="top">
 <h1>URA://KANBAN<span class="gen">GENERATED - do not hand-edit; source is kanban.data.yaml</span></h1>
 <div class="statusline">
-<span>generated <b>2026-10-06T02:15:07-05:00</b></span>
-<span>data <b>b980adcf9ab8</b></span>
+<span>generated <b>2026-10-06T02:19:35-05:00</b></span>
+<span>data <b>46a35c92d482</b></span>
 <span>reconciled <b>2026-10-05</b></span>
 </div></header>
 <section class="autonomy">
 <div class="hd">
 <span class="lbl">Board progress · last 24h</span>
-<span class="metric">23<span class="den"> / 157</span></span>
+<span class="metric">6<span class="den"> / 157</span></span>
 <span class="sub">cards concluded autonomously in the last 24h · denominator = open cards (all minus done), shrinks as work completes</span>
 </div>
-<details open><summary>recent autonomous work — 81 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
+<details open><summary>recent autonomous work — 85 unacknowledged (acknowledge to retire; auto-archived after 7 days)</summary>
 <ul class="feed">
+<li class="" data-fid="RECORDER-BLOAT-LOGFLOOD-1@2026-10-06T02:10:00" data-card="RECORDER-BLOAT-LOGFLOOD-1">
+<span class="oc measured">measured</span>
+<span class="fhd">New biggest source of log spam: the Bond fan and fireplace hubs keep timing out, about 40,000 log lines an hour. That spam means HA&#x27;s log only covers the last ~3 hours, which blocked two of tonight&#x27;s log checks. Worth checking the Bond bridge&#x27;s network and power.<br><span class="ft">2026-10-06T02:10:00</span>
+</span>
+<button type="button" class="ack" data-fid="RECORDER-BLOAT-LOGFLOOD-1@2026-10-06T02:10:00">✓ ack</button>
+</li>
+<li class="decision-row" data-card="RECORDER-BLOAT-LOGFLOOD-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for RECORDER-BLOAT-LOGFLOOD-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
+<li class="" data-fid="HVAC-GARAGE-GUARD-STAGED-SUNSET-1@2026-10-06T02:08:00" data-card="HVAC-GARAGE-GUARD-STAGED-SUNSET-1">
+<span class="oc measured">measured</span>
+<span class="fhd">Re-checked 6 waiting-on-you cards against live data. Nothing has cleared on its own: the garage door was still closed at sunset on 10-05, Frigate2 has not hung again since 10-03, and the front-side PTZ night chatter did not come back on 10-05. Each of those cards still needs your answer.<br><span class="ft">2026-10-06T02:08:00</span>
+</span>
+<button type="button" class="ack" data-fid="HVAC-GARAGE-GUARD-STAGED-SUNSET-1@2026-10-06T02:08:00">✓ ack</button>
+</li>
+<li class="decision-row" data-card="HVAC-GARAGE-GUARD-STAGED-SUNSET-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for HVAC-GARAGE-GUARD-STAGED-SUNSET-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
+<li class="" data-fid="CENSUS-SHUTDOWN-AWAY-FENCE-1@2026-10-06T01:55:00" data-card="CENSUS-SHUTDOWN-AWAY-FENCE-1">
+<span class="oc measured">measured</span>
+<span class="fhd">The house briefly flips to AWAY after almost every HA restart, with you home: 18 of the last 21 restarts, usually for under 8 minutes (once for an hour, on 10-03). It also happens from Sleep. Moved to planning; the fix waits until the census inputs work ships.<br><span class="ft">2026-10-06T01:55:00</span>
+</span>
+<button type="button" class="ack" data-fid="CENSUS-SHUTDOWN-AWAY-FENCE-1@2026-10-06T01:55:00">✓ ack</button>
+</li>
+<li class="decision-row" data-card="CENSUS-SHUTDOWN-AWAY-FENCE-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for CENSUS-SHUTDOWN-AWAY-FENCE-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
+<li class="" data-fid="LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1@2026-10-06T01:45:00" data-card="LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1">
+<span class="oc done">done</span>
+<span class="fhd">Your ack applied. The freeze-watchdog shutdown fix already shipped in v5.103.39, but the board still had it in review, so I moved it to shipped. I could not confirm the shutdown log is clean: that restart is older than the log history I can read.<br><span class="ft">2026-10-06T01:45:00</span>
+</span>
+<button type="button" class="ack" data-fid="LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1@2026-10-06T01:45:00">✓ ack</button>
+</li>
+<li class="decision-row" data-card="LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1"><span class="oc"></span><div class="instruct feed-instruct"><input type="text" placeholder="comment for LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1…" aria-label="operator decision"><button type="button" data-action="instruct">send</button></div></li>
 <li class="" data-fid="RESTORE-UNAVAILABLE-OFF-SWEEP-1@2026-10-05T02:27:01" data-card="RESTORE-UNAVAILABLE-OFF-SWEEP-1">
 <span class="oc built">built</span>
 <span class="fhd">Merged to develop after a clean full-suite check, not deployed. It rides Monday&#x27;s deploy: switches will stop coming back OFF after a restart that follows a URA outage.<br><span class="ft">2026-10-05T02:27:01</span>
@@ -1313,7 +1341,7 @@ footer { padding:26px 22px 40px; color:var(--muted); font-size:10.5px;
 <li>Memory week-one gate + first coordinator-consumer proposal</li>
 </ul>
 </section>
-<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>b980adcf9ab8</code>. Regenerate on every commit that touches the data.</footer>
+<footer>Generated by <code>scripts/kanban_render.py</code> from <code>docs/planning/kanban.data.yaml</code> @ <code>46a35c92d482</code>. Regenerate on every commit that touches the data.</footer>
 <div id="toast"></div>
 <script>
 (function () {

@@ -9,11 +9,26 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
-  - fid: "EC-EV-TOGGLE-TRIPWIRE-1@2026-10-05T02:32:39"
-    at: "2026-10-05T02:32:39"
-    outcome: "built"
-    headline: "Built (not deployed) the EV charger flip-flop alarm: if URA's strategy switches a charger on and off more than twice in an hour, you get one alert per charger per day. Two reviews done; their shared bug (the alert could skip the next day's notification) is fixed and re-verified. It ships after EC p1."
-    acknowledged: true
+  - fid: "CENSUS-SHUTDOWN-AWAY-FENCE-1@2026-10-06T01:55:00"
+    at: "2026-10-06T01:55:00"
+    outcome: "measured"
+    headline: "The house briefly flips to AWAY after almost every HA restart, with you home: 18 of the last 21 restarts, usually for under 8 minutes (once for an hour, on 10-03). It also happens from Sleep. Moved to planning; the fix waits until the census inputs work ships."
+    acknowledged: false
+  - fid: "LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1@2026-10-06T01:45:00"
+    at: "2026-10-06T01:45:00"
+    outcome: "done"
+    headline: "Your ack applied. The freeze-watchdog shutdown fix already shipped in v5.103.39, but the board still had it in review, so I moved it to shipped. I could not confirm the shutdown log is clean: that restart is older than the log history I can read."
+    acknowledged: false
+  - fid: "HVAC-GARAGE-GUARD-STAGED-SUNSET-1@2026-10-06T02:08:00"
+    at: "2026-10-06T02:08:00"
+    outcome: "measured"
+    headline: "Re-checked 6 waiting-on-you cards against live data. Nothing has cleared on its own: the garage door was still closed at sunset on 10-05, Frigate2 has not hung again since 10-03, and the front-side PTZ night chatter did not come back on 10-05. Each of those cards still needs your answer."
+    acknowledged: false
+  - fid: "RECORDER-BLOAT-LOGFLOOD-1@2026-10-06T02:10:00"
+    at: "2026-10-06T02:10:00"
+    outcome: "measured"
+    headline: "New biggest source of log spam: the Bond fan and fireplace hubs keep timing out, about 40,000 log lines an hour. That spam means HA's log only covers the last ~3 hours, which blocked two of tonight's log checks. Worth checking the Bond bridge's network and power."
+    acknowledged: false
   - fid: "TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1@2026-10-05T02:27:00"
     at: "2026-10-05T02:27:00"
     outcome: "done"
@@ -24,11 +39,6 @@ meta:
     outcome: "built"
     headline: "Merged to develop after a clean full-suite check, not deployed. It rides Monday's deploy: switches will stop coming back OFF after a restart that follows a URA outage."
     acknowledged: false
-  - fid: "LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1@2026-10-05T02:27:02"
-    at: "2026-10-05T02:27:02"
-    outcome: "built"
-    headline: "Merged to develop after a clean full-suite check, not deployed. It rides Monday's deploy: no more shutdown ERROR from the loop-stall watchdog."
-    acknowledged: true
   - fid: "EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1@2026-10-05T02:21:18"
     at: "2026-10-05T02:21:18"
     outcome: "escalated"
@@ -423,51 +433,6 @@ meta:
     at: "2026-09-29T02:40:00"
     outcome: "done"
     headline: "The nudge overshoot timer surviving a Gate-7 fail is harmless. Only 6 of 108 real nudges carried an old timer; 5 of those 6 worked (vs 95% for the rest, not a real difference), and comfort was no worse. The earlier count of 13 came from a replay bug. Closed with no code change."
-    acknowledged: false
-  - fid: "ARRIVAL-DEPARTURE-NOTIFY-1@2026-09-29T01:10:00"
-    at: "2026-09-29T01:10:00"
-    outcome: "done"
-    headline: "Arrival/departure notifications were already live: shipped in v5.98.0 on 09-06 and sending 2-15 a day (\"Someone arrived\", named when a face is recognised). That is the shape you approved on 09-12. The card wrongly said the branch was unmerged. Closed."
-    acknowledged: false
-  - fid: "HVAC-NIGHT-TAIL-STARTS-TOO-EARLY-1@2026-09-29T01:11:00"
-    at: "2026-09-29T01:11:00"
-    outcome: "done"
-    headline: "Night HVAC holds now start at house Sleep, not 21:00. Checked last night: from 21:00 to 22:00 every room used its short day hold (60 s), and the long night holds started at 22:00. Closed."
-    acknowledged: false
-  - fid: "HVAC-DEGRADED-ROOM-TRIPWIRE-1@2026-09-29T01:12:00"
-    at: "2026-09-29T01:12:00"
-    outcome: "done"
-    headline: "Only live rooms count toward HVAC zone readiness: still correct live (no rooms excluded, no restart retreats). Preset changes rose on 09-26..09-28, but that traces to other changes; the numbers went to tonight's HVAC readout. Closed."
-    acknowledged: false
-  - fid: "HVAC-SETHVACMODE-CHOKEPOINT-1@2026-09-29T01:13:00"
-    at: "2026-09-29T01:13:00"
-    outcome: "done"
-    headline: "The thermostat-write ledger works: 613 logged writes, all confirmed. One gap: some borrow writes are missing their borrow id (every automatic borrow return, half the pre-cools). Carded as HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1. Closed."
-    acknowledged: false
-  - fid: "DASHBOARD-V8-FIX-BATCH-1@2026-09-29T01:14:00"
-    at: "2026-09-29T01:14:00"
-    outcome: "moved"
-    headline: "The v8 dashboard fixes were applied last night (checked against the backup). What is left is the Climate countdown cards, which I owe now that the timer attributes are live."
-    acknowledged: false
-  - fid: "CONFIG-FLOW-SLOW-ONBOARDING-1@2026-09-29T01:15:00"
-    at: "2026-09-29T01:15:00"
-    outcome: "parked"
-    headline: "Slow room setup: the timing instrumentation is already live, and the 25-min setup was a device outage. Parked until the next slow setup, when I read the timings."
-    acknowledged: false
-  - fid: "PERIMETER-PHANTOM-XCORR-1@2026-09-28T03:25:02"
-    at: "2026-09-28T03:25:02"
-    outcome: "escalated"
-    headline: "The outdoor person alerts overnight (36) were phantoms: all 7 snapshots I looked at were empty. Most came from two cameras: back_yard (88 false detections in 10 h) and pool_equipment (3 night-time CRITICAL pages). The pool cameras likely trigger is a cloth pile against the enclosure wall. The \"late snapshot\" theory is ruled out. DO: move the cloth or mask it in Frigate, and tune back_yard; I will re-measure the next night."
-    acknowledged: false
-  - fid: "ROOM-NAME-UNIQUE-1@2026-09-28T03:25:01"
-    at: "2026-09-28T03:25:01"
-    outcome: "done"
-    headline: "Duplicate room-name guard (v5.103.17) loaded cleanly live and is proven in tests. Nothing left to check without an actual rename. Closed."
-    acknowledged: false
-  - fid: "HVAC-ARRESTER-NUDGE-ECHO-FALSE-OVERRIDE-1@2026-09-28T03:25:00"
-    at: "2026-09-28T03:25:00"
-    outcome: "done"
-    headline: "Thermostat echo fix (v5.103.17) checked against a day of data: across 24 nudges, zero of URAs own thermostat echoes were mistaken for a person (previously about half of all \"overrides\"). One lockout remains, but it comes from a different, already-known issue, now noted on the zone 1 card. Closed."
     acknowledged: false
 cards:
 - id: EC-LKG-NEVER-PERSISTED-1
