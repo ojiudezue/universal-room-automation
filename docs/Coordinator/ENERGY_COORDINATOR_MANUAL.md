@@ -290,6 +290,8 @@ There are three entities with "charge from grid" in the name. Only one tells you
 
 **If you see "charge from grid = ON" on a dashboard:** check the cloud switch above and `sensor.ura_energy_coordinator_battery_strategy` (`mode`, `arbitrage_active`, `last_verified_write_charge_from_grid`). If the cloud switch is OFF and the battery is discharging, nothing is grid-charging.
 
+**Don't toggle "Charge battery from grid" in the Enphase app.** That app setting is the cloud switch URA owns: URA turns it on only for planned arbitrage/attain charges and off afterwards. Turning it OFF in the app is harmless (URA re-commands when it needs it); turning it ON can grid-charge outside URA's plan until URA notices and turns it off.
+
 Known tidy-up: `DEFAULT_CHARGE_FROM_GRID_ENTITY` in `energy_const.py` still names the local Enpower switch; the role-aware lookup routes writes and gates to the cloud entity. Rename tracked on the board.
 
 ---

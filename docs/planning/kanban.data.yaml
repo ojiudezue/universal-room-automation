@@ -21687,6 +21687,7 @@ cards:
   - const.py:2162 FACE_MATCH_WINDOW_S
   - switch.ura_name_people_at_doors
 - id: CHATTER-RATE-VS-BURST-GAP-1
+  parsimony_2026_10_06_overnight: "VERDICT: PARK (clean, no page). (1) Problem is sharp (the impossibility/burst detector cannot see sustained-rate chatter - measured 08-21) but the HARM is unmeasured: no false presence, wrong light, or HVAC action has been traced to the kitchen presence leg flipping 731x/48h, and room occupancy hold timers absorb plausible-interval flips. (2) PRIOR-ART: no transitions-per-hour / flip-rate surface exists (grep transitions_per_hour|flip_rate|transition_rate across custom_components: 0 hits) - it would be NEW. (3) The cheapest version (diagnostic-only rate sensor, no action) mostly duplicates what a one-shot recorder probe already gives on demand (the 08-21 measurement was exactly that), so its marginal value is low; the fancier version (rate detector with a response) adds a new action path on the busiest room with a corroborator design still open. Marginal benefit does not pay for either today. The unwired-diagnostic-leg finding (kitchen _moving_target watched by nothing) is parked with it: it only matters if (1) fires."
   CONTAMINATION_WARNING_2026_09_23: 'DO NOT READ ANY CHATTER MEASUREMENT TAKEN AFTER 2026-09-20
     19:00 AS EVIDENCE. Measured tonight on PERIMETER-DETECTION-WENT-DARK-1: exterior detection has
     been fully dark since about 19:00 on 2026-09-20 and is STILL dark ~60h later — 18 of 24 Frigate
@@ -21702,15 +21703,15 @@ cards:
     the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events)
   thread: presence
   rank: {value: 5, time_criticality: 3, effort: 5}
-  status: pre_planning
+  status: "parked"
   groom_2026_09_29: 'MOVED waiting_operator -> pre_planning. Approval is already explicit and the next step is my parsimony / marginal-benefit decomposition (is a rate-based sensor-health signal worth building at all). That is not an operator decision, so it should not sit in the operator queue. The contamination warning (exterior Frigate data after 2026-09-20) does not apply to the interior mmWave rates this card is about.'
-  updated: '2026-09-29 01:05'
+  updated: "2026-10-06 02:50"
   verify_2026_09_12: 'APPROVED -> verify-before-work gate says DON''T-BUILD-BLIND (approve authorises work, not exemption from the gate). The discriminating measurement already ran: shadow mode (v5.85.0, T_floor 5.0) detected NOTHING because this house chatter is sustained-moderate-RATE, not sub-T_floor bursts -> the impossibility/burst detector cannot fire. A RATE-based detector would be a NEW detector for a signal whose VALUE is unproven (no defined consumer action; no measured harm). PARSIMONY/COST-BENEFIT: marginal benefit does not pay for a new detector. PICK (operator): PARK with revival trigger (if sensor chatter is shown to cause real false presence/actuation, build a rate detector) — recommended; OR build a DIAGNOSTIC-ONLY rate-observation sensor (cheap, no action) if you want visibility now.'
   disposition_2026_09_12b: 'APPROVED to work (operator board). Per verify-before-work: confirm the premise is STILL real (ground truth) BEFORE acting; if stale/already-done/moot, record + re-surface rather than build. Lane moves with the verification outcome.'
   approved_by: 'operator 2026-09-12 (board approve button)'
   disposition_2026_09_12_sweep2: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: chatter_detector.py + const.py:3978 detector is burst/impossibility-based only; no rate (transitions/hour) detector exists. Build-or-not marginal-benefit decision; nothing built.'
   created: 2026-08-21 17:40
-  refinement_status: initial
+  refinement_status: "refined"
   approval: explicit
   tags:
   - measured-not-inferred
@@ -21757,7 +21758,7 @@ cards:
     verdict: INVESTIGATE
     note: do NOT bolt a rate threshold onto the impossibility detector — the response class (quarantine
       vs demote) is coupled to the signal class. Design them together.
-  next: 'PARSIMONY (me): decompose the benefit of a RATE-based sensor-health signal against the cheapest version (a diagnostic-only transitions-per-hour surface with no automatic action). If built, the response must be demote-with-corroboration, never quarantine-always. Separately check whether other rooms wire only the quiet leg of a multi-leg mmWave. Record BUILD/SIMPLIFY/PARK/DROP; page the operator only if the verdict is ambiguous.'
+  next: "REVIVE when either trigger fires: (1) a measured false-occupancy or wrong actuation is traced to a sensor flipping at a sustained plausible rate (not a burst), or (2) an operator-visible diagnosis needed a transitions-per-hour view that a one-shot recorder probe could not give. Then build the diagnostic-only rate surface first; any automatic response must be demote-with-corroboration, never quarantine."
   refs:
   - chatter_detector.py:8-15
   - binary_sensor.mmwave_lux_wifi_esphome_kitchen_presence
