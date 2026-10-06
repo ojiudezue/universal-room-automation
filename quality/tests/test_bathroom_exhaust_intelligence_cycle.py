@@ -247,7 +247,6 @@ def _make_automation(
 
     coordinator = MagicMock()
     coordinator.entry = MagicMock()
-    coordinator.entry.options = {}
     coordinator._became_occupied_time = None
 
     config = {
@@ -263,6 +262,11 @@ def _make_automation(
     if extra_config:
         config.update(extra_config)
 
+    # _refresh_config() at the top of handle_humidity_based_fan_control rebuilds
+    # self.config from `self._config_entry.data | .options`. Mirror the config
+    # into the mock entry so the refresh preserves (not clobbers) it.
+    coordinator.entry.data = dict(config)
+    coordinator.entry.options = {}
     automation = RoomAutomation(hass=hass, config=config, coordinator=coordinator)
     automation.is_sleep_mode_active = lambda: sleep_active
     automation._is_hvac_managing_fans = lambda: False
@@ -1546,6 +1550,28 @@ def _load_sensor_module():
         sys.modules[_agg_full] = _mock_module(
             _agg_full,
             AggregationEntity=type("AggregationEntity", (), {}),
+            _get_room_coordinators=lambda *a, **kw: [],
+        )
+    else:
+        _agg_mod = sys.modules[_agg_full]
+        if not hasattr(_agg_mod, "_get_room_coordinators"):
+            _agg_mod._get_room_coordinators = lambda *a, **kw: []
+        if not hasattr(_agg_mod, "AggregationEntity"):
+            _agg_mod.AggregationEntity = type("AggregationEntity", (), {})
+    # Shell `.room_classification` — sensor.py imports get_room_classification.
+    _rc_full = "custom_components.universal_room_automation.room_classification"
+    if _rc_full not in sys.modules:
+        sys.modules[_rc_full] = _mock_module(
+            _rc_full, get_room_classification=lambda *a, **kw: None,
+        )
+    # Shell `.domain_coordinators.signals` — sensor.py imports SIGNAL_HOUSE_POLICY_UPDATE.
+    _sig_full = (
+        "custom_components.universal_room_automation."
+        "domain_coordinators.signals"
+    )
+    if _sig_full not in sys.modules:
+        sys.modules[_sig_full] = _mock_module(
+            _sig_full, SIGNAL_HOUSE_POLICY_UPDATE="ura_house_policy_update",
         )
     # Shell `.domain_coordinators` package + the energy_billing helper.
     _dc_full = "custom_components.universal_room_automation.domain_coordinators"
@@ -1562,6 +1588,10 @@ def _load_sensor_module():
     try:
         return _load_module(_sensor_full, os.path.join(_ura_root, "sensor.py"))
     except Exception as exc:  # noqa: BLE001
+        # _load_module installs the (partial) module into sys.modules before
+        # exec_module runs; drop it so a later call can retry cleanly rather
+        # than returning an incomplete module missing the real classes.
+        sys.modules.pop(_sensor_full, None)
         pytest.skip(f"sensor.py not loadable under test harness: {exc}")
 
 
