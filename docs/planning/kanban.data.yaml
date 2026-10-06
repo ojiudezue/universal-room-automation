@@ -31006,6 +31006,16 @@ cards:
     related: [EC-DEGRADED-DATA-POLICY-1]
     context: 'Found during the EC p1 Tier-3 reviews; deliberately not fixed in p1.'
   sweep_2026_10_05: 'Board grep D-MED-2 hits are other cycles (arrester comfort delay, DP drain target). NEW.'
+- id: SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1
+  title: "HA shutdown waits ~8 min on URA census DB writes"
+  thread: platform
+  rank: {value: 4, time_criticality: 3, effort: 2}
+  status: inbox
+  created: '2026-10-05'
+  updated: '2026-10-05'
+  tags: [tier-1]
+  why: 'Restart 2026-10-05 19:00 took ~12 min to come back: HA "stop integrations" and "final write" stages both timed out waiting on pending UniversalRoomDatabase.log_census() tasks (5) plus one OverrideArrester._evaluate_nudge_outcome; coordinator_diagnostics then failed saving baselines with "DB write failed: shutdown timeout". Every restart pays this.'
+  next: 'Me: on HA stop, cancel or bounded-flush in-flight census writes and nudge-eval tasks (tracked tasks cancelled in teardown); verify one restart completes shutdown in < 30 s.'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers

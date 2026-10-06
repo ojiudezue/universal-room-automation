@@ -9,7 +9,7 @@ _Generated: 2026-10-05T18:59:31-05:00_ - _Data commit: `0504a8f8e947`_ - _last_r
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 1 |
 | 🧭 Pre-planning | 9 |
 | 📝 Planned | 10 |
@@ -21,10 +21,15 @@ _Generated: 2026-10-05T18:59:31-05:00_ - _Data commit: `0504a8f8e947`_ - _last_r
 | 🅿️ Parked | 76 |
 | ✅ Done | 278 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (1)
 _raw capture_
 
-_(none)_
+### `SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1` - HA shutdown waits ~8 min on URA census DB writes — _#1 · WSJF 4.5 · v4 tc3 u2 /e2_
+thread: **platform** - status: **inbox**
+_created 2026-10-05_
+- **Why:** Restart 2026-10-05 19:00 took ~12 min to come back: HA "stop integrations" and "final write" stages both timed out waiting on pending UniversalRoomDatabase.log_census() tasks (5) plus one OverrideArrester._evaluate_nudge_outcome; coordin...
+- **Next:** Me: on HA stop, cancel or bounded-flush in-flight census writes and nudge-eval tasks (tracked tasks cancelled in teardown); verify one restart completes shutdown in < 30 s.
+- **Tags:** tier-1
 
 ## 🔬 Investigating (1)
 _measuring; truth not yet known_
