@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-05T21:03:45-05:00_ - _Data commit: `80195d82dd8d`_ - _last_reconciled: 2026-10-05_
+_Generated: 2026-10-06T02:05:01-05:00_ - _Data commit: `7df38c09b392`_ - _last_reconciled: 2026-10-05_
 
 
 ## Columns
@@ -36,7 +36,7 @@ _idea being decomposed_
 
 ### `CENSUS-SHUTDOWN-AWAY-FENCE-1` - After an HA restart the house can come back up as AWAY with people home, and stay AWAY for an hour — _#1 · WSJF 4.3 · v6 tc5 u2 /e3_
 thread: **presence** - status: **pre_planning**
-_created 2026-10-05 02:22 · updated 2026-10-06 03:00 · refined_
+_created 2026-10-05 02:22 · updated 2026-10-06 01:55 · refined_
 - **Problem / Solution:**
   - Problem: during the 10-03 party, around the 16:00 restart, the presence logic set the house to AWAY while it was full, apparently from the census reading empty while HA was stopping and starting. Solution: trace which branch set AWAY, th...
 - **Origin:** 2026-10-04 - AUDIT_census_subsystem_2026_10_04.md R5 ("Trace and fence the shutdown-window AWAY"); listed as "16:00 boot AWAY fence" in the 10-04 resume memo
@@ -262,14 +262,15 @@ _created 2026-08-31 19:05 · updated 2026-09-29 01:05 · initial_
 
 ### `TEST-SUITE-ORDER-INDEP-PRODSTUBS-1` - Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle) — _#5 · WSJF 2.2 · v8 tc4 u6 /e8_
 thread: **quality** - status: **planned** - approval: **unreviewed**
-_created 2026-09-12 17:10 · updated 2026-09-22 02:50 · refined_
+_created 2026-09-12 17:10 · updated 2026-10-06 02:08 · refined_
 - **Problem / Solution:**
   - Problem: BLE-HOLD-CAP fixed the const-shadow class and restored DEFAULT-order collection, but Review B shuffles (seeds 1-5 + reverse) show the suite is NOT order-independent — 4-29 collection errors per shuffle from a LARGER class this c...
 - **Why:** Review B (2026-09-12) proved default-order collection clean but order-DEPENDENT; the baseline-diff review discipline is only as trustworthy as collection stability. Same bug class as BLE-HOLD-CAP, broader surface (production modules, not...
 - **Next:** PLAN: extend _ura_const_support complete-module helper to signals + production modules; migrate remaining poisoners; add a shuffle-seed collection matrix as the acceptance gate. Tier-2 test-only. Queue behind BLE-HOLD-CAP merge.
 - **Sibling of:** BLE-HOLD-CAP-SUITE-POLLUTION-1
 - **Parsimony:** [BUILD] suite not order-independent; production-module partial stubs shadow on shuffle
-- **Forensic keys (5):**
+- **Forensic keys (6):**
+  - `INSTANCE_2026_10_06_write_verify`: quality/tests/test_energy_write_verification.py::test_v5172_revival_new_schedule_replaces_stale FAILS when the file is run alone (develop 7df38c09b, and at v5.100.8 / v5.103.20 / v5.103.29 / pre-EC-p1 b6ec1fdf4^1 too), yet is in no recor...
   - `verified_survivor_2026_09_13`: KEEP — verified REAL + the survivor for the whole remaining order-pollution surface. Reverse-order reproduces its exact class: production-module partial stubs (occupancy_substrate) + remaining .signals poisoners (SIGNAL_EGRESS_EXIT_BACKF...
   - `measured_2026_09_22`: OVERNIGHT PASS — premise RE-CONFIRMED by fresh measurement, and the card now has the acceptance gate it asked for. (1) THE TRAP, restated with numbers: default-order `--collect-only` is CLEAN today (10787 tests via the tests dir, 0 error...
   - `MEASURED_2026_09_16`: STILL-REAL, re-measured by RUNNING it (not trusting the recorded numbers), and the fix surface is now NAMED — but the gate stopped short of building it, for a reason worth reading before anyone picks this up. THE MEASUREMENT. Default (al...
@@ -373,7 +374,7 @@ _being built_
 
 ### `SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1` - HA shutdown waits ~8 min on URA census DB writes — _#1 · WSJF 2.0 · v5 tc3 u2 /e5_
 thread: **platform** - status: **in_progress**
-_created 2026-10-05 · updated 2026-10-06 03:20 · refined_
+_created 2026-10-05 · updated 2026-10-06 02:00 · refined_
 - **Why:** Restart 2026-10-05 19:00 took ~12 min to come back: HA "stop integrations" and "final write" stages both timed out waiting on pending UniversalRoomDatabase.log_census() tasks (5) plus one OverrideArrester._evaluate_nudge_outcome; coordin...
 - **Next:** Me: build on fix/shutdown-db-write-fastfail (worktree) -> Tier 2-DB reviews (database.py write primitive) -> validator -> review lane. Not deployed overnight.
 - **Tags:** tier-2db, mechanism-in-source
@@ -414,7 +415,7 @@ _needs a human call — groomed first_
 
 ### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
 thread: **perimeter** - status: **waiting_operator** - approval: **blocked**
-_created 2026-09-16 03:30 · updated 2026-10-05 02:22 · refined_
+_created 2026-09-16 03:30 · updated 2026-10-06 02:08 · refined_
 - **Problem / Solution:**
   - Problem: the system that spots people outside the house has gone quiet across EVERY outdoor camera at once. Two days ago the cameras between them reported a person about 470 times a day; yesterday that fell to about 40, and so far today ...
 - **Origin:** 2026-09-16 - fell out of re-measuring FRONT-SIDE-PTZ-CHATTER-1 overnight — the chatter had vanished, and checking WHY it vanished turned up a fleet-wide blackout instead of a fix
@@ -423,7 +424,8 @@ _created 2026-09-16 03:30 · updated 2026-10-05 02:22 · refined_
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] every exterior person-detector went silent within ~24h while motion continued, and the operator-facing alerts went silent with them
 - **Refs:** binary_sensor.front_side_ptz_person_occupancy_2; binary_sensor.front_side_ptz_motion_3; notification_log hazard_type=exterior_person
-- **Forensic keys (21):**
+- **Forensic keys (22):**
+  - `reverified_2026_10_06_overnight`: No new hang since the 10-03 07:00 recovery: sensor.frigate_detection_fps_2 over the last 72 h (11,431 samples) is non-zero except brief blips at 10-04 11:48 (unavailable) and 10-05 16:43 (unavailable/0, recovered same minute); sensor.fri...
   - `verified_2026_10_05_overnight`: STILL-REAL ask, no new hang. HA recorder (ssh-proxied /api/history, 17 Frigate2 *_person_occupancy_2 sensors, 10-01 00:00 -> 10-05 02:00 CDT): only dark gaps >=3 h are the known 10-01 17:00 CDT +38 h hang; detections continuous since 10-...
   - `verified_2026_10_04_overnight`: RECOVERED (DO no longer outstanding). HA recorder: binary_sensor.*person_occupancy* ON transitions resumed ~07:00 CDT 10-03 after the 10-01 ~16:00 CDT hang (dark ~39 h), then ran 60-172/hour through the day; still alive now (latest ON: b...
   - `reverified_2026_10_03_overnight`: STILL-REAL, and it never recovered from the 10-01 hang. HA recorder (home-assistant_v2.db, newest row 02:03:34 = fresh): binary_sensor.*_person_occupancy_2 ON-transitions per hour -> last non-zero hour is 10-01 16:00 (3); ZERO since, ~34...
@@ -511,16 +513,37 @@ _created 2026-09-28 22:50 · updated 2026-10-04 03:05_
   - `plan_2026_09_29_overnight`: PLANNED and plan-reviewed overnight. Plan: docs/planning/PLANNING_energy_lifetime_counter_poisoning.md. Rev 1 FAILED plan review (2 CRITICAL + 6 HIGH, docs/reviews/code-review/plan_review_energy_lifetime_counter_poisoning.md). The ceilin...
   - `verify_2026_10_02_overnight`: STILL-REAL, unchanged picks (URA DB energy_daily + HA REST, read-only). 10-01 also has an all-NULL row (consumption_kwh, solar_production_kwh and predicted_consumption_kwh are empty for 09-28, 09-29, 09-30 and 10-01), so the count is now...
 
-### `RECORDER-BLOAT-LOGFLOOD-1` - 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log floods — _#7 · WSJF 5.0 · v5 tc3 u2 /e2_
+### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#7 · WSJF 5.0 · v4 tc4 u2 /e2_
+thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-09-29 04:20 · updated 2026-10-05 02:22 · initial_
+- **Problem / Solution:**
+  - Problem: the per-room Override Vacant switch forces URA to treat a room as empty. It has no expiry and nothing reminds anyone it is on, so it gets forgotten: the Kitchen one was on 09-21 23:20 -> 09-27 19:40 (6 days, 14 wrong HVAC retrea...
+- **Origin:** 2026-09-29 - overnight HVAC hold-sizing raw-sensor probe (docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md): 14 of 113 pre-ship away episodes were Kitchen under a forgotten override
+- **Why:** An override that silently outlives its purpose is a phantom config fault: the room looks broken (no lights, no HVAC) and every occupancy investigation reads it as a sensor or code problem first. Both kitchen and exercise overrides were s...
+- **Next:** ANSWER: is the Exercise Room automation switch (switch.exercise_room_automation, off since at least 09-25) off on purpose? NO -> turn it on (a setting, no code) and I re-check occupancy vs lights after the next real workout, then close. ...
+- **Tags:** tier-1, found-during-probe, config-first
+- **Parsimony:** [CONFIG-FIRST now; reminder build only if you want it] A vacant override stays on for days unnoticed and hides a room from automation.
+- **Forensic keys (8):**
+  - `reverified_2026_10_05_overnight`: STILL WAITING: switch.exercise_room_automation = off (last_changed 10-03 21:59Z = restart restore; REST /api/states via ssh 02:05 CDT). ANSWER outstanding.
+  - `verified_2026_10_04_overnight`: STILL-REAL, ask unchanged: switch.exercise_room_automation is off (recorder shows off continuously 10-02..10-04, rows only at restarts; no user change).
+  - `reverified_2026_10_03_overnight`: STILL WAITING: switch.exercise_room_automation = off (REST /api/states 02:08; last_changed = the 00:37 restart, i.e. restored off). Operator ANSWER still outstanding.
+  - `checked_2026_10_01_overnight`: ONE-SHOT CHECK DONE (HA REST history 2026-09-29 19:00Z -> 2026-10-01 07:10Z, ~36 h since the override went off). CLEAN but NOT DISCRIMINATING: binary_sensor.exercise_room_occupied never turned on; the motion sensor (rgbw_motion_lux_3rd_z...
+  - `operator_2026_09_29`: Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let's see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant ...
+  - `adjacency_2026_09_29`: NEW. Swept: board (override_vacant appears only as evidence on KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 and the resolved kitchen-occupancy card), BACKLOG.md (no override-expiry item; 474 is TOU overrides), PLANNING_*/AUDIT_* (override switche...
+  - `measured_2026_09_29`: Recorder: switch.exercise_room_override_vacant = on (restored on at every restart 09-28 18:51, 19:20, 23:39); switch.kitchen_override_vacant = off since 09-27 19:40.
+  - `verify_2026_10_02_overnight`: STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_senso...
+
+### `RECORDER-BLOAT-LOGFLOOD-1` - 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log floods — _#8 · WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **platform** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-20 14:15 · updated 2026-10-05 02:22 · initial_
+_created 2026-08-20 14:15 · updated 2026-10-06 02:10 · initial_
 - **Problem / Solution:**
   - Problem: the history database has grown to about 31 GB while only holding a week of data, and the drive it lives on reports half its write life used. Three separate things are spamming thousands of repeated error lines a day, and every o...
 - **Why:** Live 2026-08-20 system_health: estimated_db_size 31722.88 MiB, oldest_recorder_run 2026-08-13 (7 days), disk_life_time 51%. Top floods: mqtt.number 1030 errors (Sonoff garage-B porch delayed_power_on_time_l1 range mismatch, config-level ...
 - **Next:** PICK for the top flood (owner now FOUND): the ~4,800 lines/hour urllib3 InsecureRequestWarning comes from the Proxmox VE integration (both entries: 192.168.13.12:8006 and 192.168.13.14:8006, verify_ssl off). (A) add a logger filter in co...
 - **Tags:** measure-before-build
 - **Refs:** ha_get_system_health 2026-08-20; FRIGATE-LEG-NAMING-1
-- **Forensic keys (21):**
+- **Forensic keys (22):**
+  - `INSTANCE_2026_10_06_bond_traceback_flood`: NEW TOP FLOOD, larger than Proxmox: ha_get_logs error_log 02:04:39-02:07:40 CDT = 2,000 raw lines in 3 min (~40k lines/h); 1,844 of them are unparseable traceback lines, and the parsed entries are led by homeassistant.components.bond (48...
   - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
   - `cost_note_2026_10_05_overnight`: Extra cost of the proxmox flood found tonight: it rotates HA journald so fast that the core log reaches back only ~4 h (10-04 22:29 -> 10-05 02:04), which makes boot-time log checks impossible after the fact (FAN-ORACLE-BOOT-FALLBACK-NOI...
   - `measured_2026_10_05_overnight`: Core log via hassio proxy (/api/hassio/core/logs, Range entries=:-300000:, window 10-04 22:07 -> 10-05 02:04 local, 4 h): 19,193 py.warnings urllib3 InsecureRequestWarning (~4,800/h) = 14,687 host 192.168.13.12 + 4,506 host 192.168.13.14...
@@ -542,26 +565,6 @@ _created 2026-08-20 14:15 · updated 2026-10-05 02:22 · initial_
   - `verify_2026_09_30_overnight`: STILL-NEEDS-OPERATOR, PARTLY UNVERIFIED. REST read 02:45 CDT: automation.pantry_plug_in_adaptive_lighting is still ON and last ran 2026-09-30 01:35Z, so it was not disabled; number.switch_sonoffduo_zigbee_garagebporchinside_delayed_power...
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the config-level fixes + re-measure are unstart...
   - `verify_2026_10_02_overnight`: LOG-READ GAP CLOSED. The home-assistant MCP could not connect this run either, so I read HA's own system_log (system_log/list over the HA websocket, run on the HA host via ssh; deduplicated WARNING+ with counts since first occurrence). (...
-
-### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#8 · WSJF 5.0 · v4 tc4 u2 /e2_
-thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-09-29 04:20 · updated 2026-10-05 02:22 · initial_
-- **Problem / Solution:**
-  - Problem: the per-room Override Vacant switch forces URA to treat a room as empty. It has no expiry and nothing reminds anyone it is on, so it gets forgotten: the Kitchen one was on 09-21 23:20 -> 09-27 19:40 (6 days, 14 wrong HVAC retrea...
-- **Origin:** 2026-09-29 - overnight HVAC hold-sizing raw-sensor probe (docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md): 14 of 113 pre-ship away episodes were Kitchen under a forgotten override
-- **Why:** An override that silently outlives its purpose is a phantom config fault: the room looks broken (no lights, no HVAC) and every occupancy investigation reads it as a sensor or code problem first. Both kitchen and exercise overrides were s...
-- **Next:** ANSWER: is the Exercise Room automation switch (switch.exercise_room_automation, off since at least 09-25) off on purpose? NO -> turn it on (a setting, no code) and I re-check occupancy vs lights after the next real workout, then close. ...
-- **Tags:** tier-1, found-during-probe, config-first
-- **Parsimony:** [CONFIG-FIRST now; reminder build only if you want it] A vacant override stays on for days unnoticed and hides a room from automation.
-- **Forensic keys (8):**
-  - `reverified_2026_10_05_overnight`: STILL WAITING: switch.exercise_room_automation = off (last_changed 10-03 21:59Z = restart restore; REST /api/states via ssh 02:05 CDT). ANSWER outstanding.
-  - `verified_2026_10_04_overnight`: STILL-REAL, ask unchanged: switch.exercise_room_automation is off (recorder shows off continuously 10-02..10-04, rows only at restarts; no user change).
-  - `reverified_2026_10_03_overnight`: STILL WAITING: switch.exercise_room_automation = off (REST /api/states 02:08; last_changed = the 00:37 restart, i.e. restored off). Operator ANSWER still outstanding.
-  - `checked_2026_10_01_overnight`: ONE-SHOT CHECK DONE (HA REST history 2026-09-29 19:00Z -> 2026-10-01 07:10Z, ~36 h since the override went off). CLEAN but NOT DISCRIMINATING: binary_sensor.exercise_room_occupied never turned on; the motion sensor (rgbw_motion_lux_3rd_z...
-  - `operator_2026_09_29`: Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let's see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant ...
-  - `adjacency_2026_09_29`: NEW. Swept: board (override_vacant appears only as evidence on KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 and the resolved kitchen-occupancy card), BACKLOG.md (no override-expiry item; 474 is TOU overrides), PLANNING_*/AUDIT_* (override switche...
-  - `measured_2026_09_29`: Recorder: switch.exercise_room_override_vacant = on (restored on at every restart 09-28 18:51, 19:20, 23:39); switch.kitchen_override_vacant = off since 09-27 19:40.
-  - `verify_2026_10_02_overnight`: STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_senso...
 
 ### `ENVOY-FLAKINESS-181243-1` - Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today — _#9 · WSJF 4.7 · v6 tc6 u2 /e3_
 thread: **energy** - status: **waiting_operator**
@@ -818,10 +821,11 @@ _created 2026-09-27 02:40 · updated 2026-10-01 06:30 · refined ×1_
 
 ### `HVAC-GARAGE-GUARD-STAGED-SUNSET-1` - One staged evening to prove room covers leave an open garage door alone at sunset — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **waiting_operator**
-_created 2026-10-02 22:00 · updated 2026-10-05 02:22_
+_created 2026-10-02 22:00 · updated 2026-10-06 02:08_
 - **Why:** v5.103.28 cover_ownership guard is proven in-suite with drills, but the 09-30 live check was inconclusive (both doors already closed). A garage door closing on its own is the one safety-relevant failure in the W4 set, so one staged proof...
 - **Next:** DO: leave a garage door open across sunset (~7:05 pm) with someone home -> I query ura_activity_log for the cover skip and confirm the door did not move, then close this card.
-- **Forensic keys (2):**
+- **Forensic keys (3):**
+  - `reverified_2026_10_06_overnight`: Still not exercised on 10-05: recorder shows cover.konnected_f0f5bd523b00_garage_door closed across sunset (sun below_horizon 19:14:15 CDT; door cycles 17:10-17:13 and 19:56-20:05 only, all short). DO still outstanding.
   - `reverified_2026_10_05_overnight`: Still not exercised: cover.konnected_f0f5bd523b00_garage_door (the only garage cover entity in HA) was CLOSED across sunset (~00:05Z) on both 10-03 and 10-04 (recorder via ssh-proxied /api/history); every opening was a short daytime/even...
   - `reverified_2026_10_03_overnight`: Not yet exercised: on 10-02 the only garage door opening was cover.konnected_..._garage_door 23:16-23:18 (well after sunset), no URA cover action logged. Operator DO (door open across sunset) still outstanding.
 
@@ -1088,7 +1092,7 @@ _created 2026-09-29 22:55 · updated 2026-10-03 02:10_
 
 ### `LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1` - The loop-stall watchdog logs an ERROR at every HA shutdown because it unsubscribes its stop listener after that listener already fired — _#8 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **hygiene** - status: **shipped_organic** - approval: **implied**
-_created 2026-10-03 02:55 · updated 2026-10-06 02:40 · initial_
+_created 2026-10-03 02:55 · updated 2026-10-06 01:45 · initial_
 - **Problem / Solution:**
   - Problem: when Home Assistant shuts down, URA's freeze watchdog runs its stop handler, which tries to cancel the very one-time listener that is calling it. Home Assistant has already removed that listener, so it logs an ERROR 'Unable to r...
 - **Origin:** 2026-10-03 - Overnight pass, reading the full core log (hassio proxy) to dispose BOOT-EVENT-LOOP-FREEZE-1: line 2026-10-03 00:33:14.402 ERROR (SyncWorker_55) homeassistant.core Unable to remove unknown job listener ... _loop_stall_watchd...
@@ -1258,10 +1262,11 @@ _created 2026-10-04 02:00 · updated 2026-10-05 02:22_
 
 ### `FAN-ORACLE-BOOT-FALLBACK-NOISE-1` - 86 "FanPolicyOracle fallback" warnings at every boot (rooms set up before the Coordinator Manager attaches the fan oracle) — _#23 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hygiene** - status: **shipped_organic**
-_created 2026-10-03 01:00 · updated 2026-10-05 02:22_
+_created 2026-10-03 01:00 · updated 2026-10-06 02:08_
 - **Why:** Observed after the 2026-10-03 00:37 restart: 43 rooms x write_on/write_off, all in the boot second. Harmless but buries real warnings during post-deploy log review.
 - **Next:** VALIDATE (me, at the next HA restart = the EC p1 deploy): read system_log (websocket system_log/list) within ~10 min of boot -> 0 WARNING entries containing FanPolicyOracle fallback. Present -> reopen; absent -> done.
-- **Forensic keys (3):**
+- **Forensic keys (4):**
+  - `log_gap_2026_10_06_overnight`: NOT VERIFIED - LOG-READ GAP again, not an all-clear. Two boots since the last check (10-05 14:01 and 19:19 CDT homeassistant_start). system_log (ha_get_logs source=system) is at its 50-entry cap with the oldest entry 10-05 22:20 CDT, so ...
   - `log_gap_2026_10_05_overnight`: NOT VERIFIED - LOG-READ GAP, not an all-clear. The fix (a841fbc8c, WARN->DEBUG) IS live: it is in tags v5.103.37 and v5.103.38. But the only boot since then (10-03 ~21:58Z) is out of reach: HA system_log (read via websocket system_log/li...
   - `soak_check_2026_10_04_overnight`: NOT EVALUATED - LOG-READ GAP, not an all-clear. The fix (a841fbc8c) is live since v5.103.37/38 (restarts 10-03 15:55 and 16:58 CDT). The core log reachable tonight (hassio proxy) starts at 22:52 CDT, after both boots, and the HA system_l...
   - `reverified_2026_10_03_overnight`: CARD-WAS-WRONG on lane: the fix is already BUILT and merged on develop (a841fbc8c, 'DEBUG (not WARN) for pre-attach fan oracle fallback', automation.py + manager.py + test_fan_oracle_boot_fallback_noise.py; merged 9844afa0c). Not in any ...

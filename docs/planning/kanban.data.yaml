@@ -588,6 +588,7 @@ cards:
   next: 'PLAN (Tier 3, battery strategy): let the charge window act on a fresh cloud SOC (soc_source=cloud_fallback) instead of holding with no commands; define freshness bound + which commands are safe on cloud SOC.'
   why: '2026-10-02 14:00-15:48 the Envoy integration was stuck after a power-cycle; strategy reason "Envoy unavailable - holding (no commands issued)" while cloud SOC was ~10% and fresh, so the operator had to grid-charge manually before the 17:00 mid-peak. Root of the Envoy outages: /production.json hangs >60s since 2026-10-01 23:05 (meters + inverters endpoints fine), so every Envoy reload/restart stalls setup.'
 - id: FAN-ORACLE-BOOT-FALLBACK-NOISE-1
+  log_gap_2026_10_06_overnight: "NOT VERIFIED - LOG-READ GAP again, not an all-clear. Two boots since the last check (10-05 14:01 and 19:19 CDT homeassistant_start). system_log (ha_get_logs source=system) is at its 50-entry cap with the oldest entry 10-05 22:20 CDT, so boot-time WARNINGs were evicted; ha_get_logs error_log history reaches back only to ~23:00 CDT 10-05 (a Bond traceback flood fills ~35k lines/h). 0 FanPolicyOracle hits in those windows proves nothing. The check needs a read within ~1 h of a boot (attended deploy) or durable boot-log capture."
   log_gap_2026_10_05_overnight: "NOT VERIFIED - LOG-READ GAP, not an all-clear. The fix (a841fbc8c, WARN->DEBUG) IS live: it is in tags v5.103.37 and v5.103.38. But the only boot since then (10-03 ~21:58Z) is out of reach: HA system_log (read via websocket system_log/list over ssh) holds only the latest 50 entries, all from 10-05 00:33 onward; journald via /api/hassio/core/logs reaches back only to 10-04 22:29 local (the proxmoxve InsecureRequestWarning flood, ~4,800 lines/h, rotates it out - see RECORDER-BLOAT-LOGFLOOD-1). The home-assistant MCP could not connect from this Mac this run. Absence of FanPolicyOracle lines in the current window proves nothing about boot. Re-check at the next restart."
   soak_check_2026_10_04_overnight: "NOT EVALUATED - LOG-READ GAP, not an all-clear. The fix (a841fbc8c) is live since v5.103.37/38 (restarts 10-03 15:55 and 16:58 CDT). The core log reachable tonight (hassio proxy) starts at 22:52 CDT, after both boots, and the HA system_log websocket could not be opened from this run (no websocket client on the HA host; local Python blocked from the LAN). Next run: read system_log/list for a WARN fan-oracle fallback entry with first_occurred at the next boot."
   next: "VALIDATE (me, at the next HA restart = the EC p1 deploy): read system_log (websocket system_log/list) within ~10 min of boot -> 0 WARNING entries containing FanPolicyOracle fallback. Present -> reopen; absent -> done."
@@ -597,7 +598,7 @@ cards:
   status: shipped_organic
   shipped_version: v5.103.37
   created: '2026-10-03 01:00'
-  updated: "2026-10-05 02:22"
+  updated: "2026-10-06 02:08"
   why: 'Observed after the 2026-10-03 00:37 restart: 43 rooms x write_on/write_off, all in the boot second. Harmless but buries real warnings during post-deploy log review.'
 - id: CM-COORDINATORS-ADD-ONE-BY-ONE-1
   title: Coordinators should be added one by one from the Coordinator Manager menu (or at least start disabled until configured), not all created on install
@@ -609,13 +610,14 @@ cards:
   next: 'Investigate (me): verify what install actually creates/enables per coordinator (audit says Domain Coordinators switch default off, HVAC/Energy default off — operator observes all created+enabled; reconcile against a fresh install / second home). Then plan: CM menu "Add coordinator" step per module, created disabled until its config step completes.'
   why: 'Operator 2026-10-02: "Coordinators are all created and enabled when you install URA. They should be added from the CM menu one by one. At minimum they should be added disabled until configured. Needing to be added 1 by 1 is also a natural gate to monetize each feature 1 by 1. HVAC, Energy and Security are pretty big modules." Adjacent: ONBOARDING-SIMPLIFY phase 2 S4 (Add Coordinator dead end points to the switch).'
 - id: HVAC-GARAGE-GUARD-STAGED-SUNSET-1
+  reverified_2026_10_06_overnight: "Still not exercised on 10-05: recorder shows cover.konnected_f0f5bd523b00_garage_door closed across sunset (sun below_horizon 19:14:15 CDT; door cycles 17:10-17:13 and 19:56-20:05 only, all short). DO still outstanding."
   reverified_2026_10_05_overnight: "Still not exercised: cover.konnected_f0f5bd523b00_garage_door (the only garage cover entity in HA) was CLOSED across sunset (~00:05Z) on both 10-03 and 10-04 (recorder via ssh-proxied /api/history); every opening was a short daytime/evening cycle. DO still outstanding."
   reverified_2026_10_03_overnight: "Not yet exercised: on 10-02 the only garage door opening was cover.konnected_..._garage_door 23:16-23:18 (well after sunset), no URA cover action logged. Operator DO (door open across sunset) still outstanding."
   title: One staged evening to prove room covers leave an open garage door alone at sunset
   thread: hvac
   status: waiting_operator
   created: '2026-10-02 22:00'
-  updated: "2026-10-05 02:22"
+  updated: "2026-10-06 02:08"
   next: 'DO: leave a garage door open across sunset (~7:05 pm) with someone home -> I query ura_activity_log for the cover skip and confirm the door did not move, then close this card.'
   why: 'v5.103.28 cover_ownership guard is proven in-suite with drills, but the 09-30 live check was inconclusive (both doors already closed). A garage door closing on its own is the one safety-relevant failure in the W4 set, so one staged proof is worth it.'
 - id: EV-ARBITRAGE-BREAKER-FLAP-ON-SOC-DROPOUT-1
@@ -24370,6 +24372,7 @@ cards:
     on it yet. This does not need an operator decision to establish — it is a measurement — but which
     of the three you want touched, and by whom, still does.'
 - id: RECORDER-BLOAT-LOGFLOOD-1
+  INSTANCE_2026_10_06_bond_traceback_flood: "NEW TOP FLOOD, larger than Proxmox: ha_get_logs error_log 02:04:39-02:07:40 CDT = 2,000 raw lines in 3 min (~40k lines/h); 1,844 of them are unparseable traceback lines, and the parsed entries are led by homeassistant.components.bond (48 of 96: entities flipping unavailable, e.g. fan.game_room_ceiling_fan, light.fireplace, cover.patio_3, light.patio_ceikkng_fan_1) with full aiohttp TimeoutError tracebacks from bond_async/bond.py:171 get(). The Bond entities are flapping unavailable <-> available minute to minute (states read back fine at 02:07). Consequence: the core log only reaches back ~3 h (offset 300,000 clamps at 10-05 ~23:00), which blocked two log-based checks tonight (LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1, FAN-ORACLE-BOOT-FALLBACK-NOISE-1). Not URA. Related: WIFI-ACTUATOR-FLEET-FLAP-1 (Bond was in the 09-27 failure storm). Operator-side: check the Bond bridge(s) network/power; a logger filter for bond_async tracebacks would also restore log reach."
   paged_2026_10_05_overnight: "Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone)."
   cost_note_2026_10_05_overnight: "Extra cost of the proxmox flood found tonight: it rotates HA journald so fast that the core log reaches back only ~4 h (10-04 22:29 -> 10-05 02:04), which makes boot-time log checks impossible after the fact (FAN-ORACLE-BOOT-FALLBACK-NOISE-1 could not be validated for this reason). Another reason to pick (A) soon."
   measured_2026_10_05_overnight: "Core log via hassio proxy (/api/hassio/core/logs, Range entries=:-300000:, window 10-04 22:07 -> 10-05 02:04 local, 4 h): 19,193 py.warnings urllib3 InsecureRequestWarning (~4,800/h) = 14,687 host 192.168.13.12 + 4,506 host 192.168.13.14 -> owner = proxmoxve config entries 01KP1NH9BXNWHB4VQPN9DN7X56 (.12:8006) and 01KVZXDFTC2XRQKRCKCQNWNZR9 (.14:8006) (core.config_entries). Next floods: wattbox ~437/h x4 lines, kasa ~1,100/4h, elgato, tuya_local. delayed_power_on_time = 0 (garage-porch Sonoff still unavailable, all its entities unavailable since 10-03 21:58Z per /api/states). Recorder DB is now 19.6 GB + 0.48 GB WAL (was 31 GB at card creation) - it has shrunk, so a purge/repack ran; flash-life risk lower but the floods remain."
@@ -24461,7 +24464,7 @@ cards:
     range, fix/disable pantry adaptive-lighting automation, resolve camera_census ids (via FRIGATE-LEG-NAMING).'
   shipped_version: v5.101.1
   created: 2026-08-20 14:15
-  updated: "2026-10-05 02:22"
+  updated: "2026-10-06 02:10"
   refinement_status: initial
   approval: unreviewed
   tags:
@@ -26352,12 +26355,13 @@ cards:
     "every agent follows our lead". Residual: references/schema example not yet annotated with rank:/links:
     (carded).'
 - id: TEST-SUITE-ORDER-INDEP-PRODSTUBS-1
+  INSTANCE_2026_10_06_write_verify: "quality/tests/test_energy_write_verification.py::test_v5172_revival_new_schedule_replaces_stale FAILS when the file is run alone (develop 7df38c09b, and at v5.100.8 / v5.103.20 / v5.103.29 / pre-EC-p1 b6ec1fdf4^1 too), yet is in no recorded suite baseline -> order-dependent. Cause read from the debug log: schedule() calls async_call_later(self.hass, ...), which reads hass.loop; the hass object used in-file has no .loop, the AttributeError is swallowed (energy_write_verify.py:~581-595 schedule failed (swallowed)), so _pending_by_surface stays empty. Test-harness defect, not a production regression. (test_c_med_1_h3_options_round_trip_source_anchor in the same file is the already-known pre-existing failure listed in README_v5.103.29.)"
   title: Full test-suite order-independence — production-module partial stubs shadow across collection (4-29 errors/shuffle)
   thread: quality
   status: planned
   verified_survivor_2026_09_13: 'KEEP — verified REAL + the survivor for the whole remaining order-pollution surface. Reverse-order reproduces its exact class: production-module partial stubs (occupancy_substrate) + remaining .signals poisoners (SIGNAL_EGRESS_EXIT_BACKFILLED) + homeassistant.helpers.storage never-popped = 10 collection errors reverse / 0 default. ABSORBED SUITE-ORDER-POLLUTION-1 (storage-never-pops instance + forensics). Fix: extend _ura_const_support into a complete-module helper for signals + prod modules; acceptance = shuffle-seed collection matrix. inbox->planned.'
   created: 2026-09-12 17:10
-  updated: '2026-09-22 02:50'
+  updated: "2026-10-06 02:08"
   refinement_status: refined
   rank: {value: 8, time_criticality: 4, effort: 8, foundational: 6}
   measured_2026_09_22: 'OVERNIGHT PASS — premise RE-CONFIRMED by fresh measurement, and the card now
@@ -27707,6 +27711,7 @@ cards:
     context: 'Spawned from WATCHDOG-INERT-1 (D1 caught it). Same class as STUCK-SENSOR-1 (stuck-signal).'
   refs: [anomaly_log metric_name=camera_stuck]
 - id: PERIMETER-DETECTION-WENT-DARK-1
+  reverified_2026_10_06_overnight: "No new hang since the 10-03 07:00 recovery: sensor.frigate_detection_fps_2 over the last 72 h (11,431 samples) is non-zero except brief blips at 10-04 11:48 (unavailable) and 10-05 16:43 (unavailable/0, recovered same minute); sensor.frigate_coral_inference_speed_2 went unavailable only at HA restarts (10-03 16:01/17:02, 10-05 14:01/19:19). PICK still open; the hang rate is now 3 in ~5 days then 0 in ~3 days."
   verified_2026_10_05_overnight: "STILL-REAL ask, no new hang. HA recorder (ssh-proxied /api/history, 17 Frigate2 *_person_occupancy_2 sensors, 10-01 00:00 -> 10-05 02:00 CDT): only dark gaps >=3 h are the known 10-01 17:00 CDT +38 h hang; detections continuous since 10-03 ~07:00 CDT (896 ON on 10-03, 1062 on 10-04). sensor.frigate_uptime_2 reset 3x: 10-01 11:24, 10-03 07:37, 10-04 11:48 CDT - the 10-04 restart had NO preceding gap, so it was a restart, not a hang recovery (I cannot tell who restarted it). PICK (A coral / B scheduled restart) still yours; hang count stays 3 in ~5 days, 0 in the last 43 h."
   verified_2026_10_04_overnight: "RECOVERED (DO no longer outstanding). HA recorder: binary_sensor.*person_occupancy* ON transitions resumed ~07:00 CDT 10-03 after the 10-01 ~16:00 CDT hang (dark ~39 h), then ran 60-172/hour through the day; still alive now (latest ON: binary_sensor.pool_equipment_person_occupancy_2 at 02:11 CDT 10-04; sensor.frigate_detection_fps_2 = 103, updating; sensor.frigate_status_2 running). Caveat: all four frigate *_inference_speed sensors (ov, ov_1, ov_2, coral_2) read unavailable since 17:02 CDT 10-03, while detections continue, so they are not a usable health signal. I could not tell from HA whether you restarted Frigate2 or it recovered on its own. Note: 10-03 per-camera counts are much higher than 09-28..10-01 (pool_equipment 160, back_yard 294, hot_tub 171 vs 0-55 before), which may matter for PERIMETER-PHANTOM-XCORR-1 / PERIMETER-ALERT-VOLUME-FATIGUE-1."
   reverified_2026_10_03_overnight: "STILL-REAL, and it never recovered from the 10-01 hang. HA recorder (home-assistant_v2.db, newest row 02:03:34 = fresh): binary_sensor.*_person_occupancy_2 ON-transitions per hour -> last non-zero hour is 10-01 16:00 (3); ZERO since, ~34 hours. All 17 sensors present and reading 'off' (not unavailable). Other legs ALIVE: Frigate motion 652 (10-01) / 207 (10-02); UniFi Protect person_detected 1233 / 1072 / 21-so-far. So: Frigate2 object detector hung, motion leg running - same signature as 09-15. Protect still covers person detection, so the house is not fully blind, but every Frigate-only consumer (cross-correlation, Frigate face, census tracks) is dark. Operator DO (restart Frigate2/Coral) + PICK (A faulty Coral / B scheduled restart) still outstanding. Not re-paged: acked by operator 02:04 tonight with the same ask."
@@ -27718,7 +27723,7 @@ cards:
   thread: perimeter
   status: 'waiting_operator'
   created: '2026-09-16 03:30'
-  updated: "2026-10-05 02:22"
+  updated: "2026-10-06 02:08"
   correction_2026_09_27_rainbird: 'CARD-WAS-WRONG, CORRECTED 2026-09-27 02:20. I used RainBird (192.168.8.121) as a second device that fell off in the 09-25 network restart, and inferred a network-side common cause. That was wrong. The recorder shows RainBird has been flapping between unavailable and available all along, including BEFORE the restart: 5 unavailable transitions in the 02:00 hour on 09-25, and 56 unavailable / 55 available rows over the last 40 h. Tonight it answers ping 5/5 (253 ms, a weak-Wi-Fi signature). The two earlier fails were catching it in a down phase. So RainBird is a separate, chronic Wi-Fi flapper, not evidence for a shared fault, and the network-side hypothesis loses its only corroboration. Frigate2 is the only device that went dark and stayed dark, which points at the Frigate2 box or its own port. LOG-READ GAP (not an all-clear): the home-assistant MCP failed to connect again this run, so ha_get_logs was unavailable and no log read is claimed. This rests on ping/ARP/port and recorder evidence only. The UniFi MCPs also failed (uvx not on PATH), so switch-port/PoE state is still unread.'
   scope_addendum_2026_09_26: 'ADDENDUM 2026-09-26 02:25, SCOPE OF THE 19:18 DROP. Method: the HA recorder gives every entity
     whose LATEST state is ''unavailable'' and was written 00:10-00:45 UTC on 09-26, mapped to its
@@ -30767,7 +30772,7 @@ cards:
   thread: hygiene
   status: "shipped_organic"
   created: '2026-10-03 02:55'
-  updated: "2026-10-06 02:40"
+  updated: "2026-10-06 01:45"
   refinement_status: initial
   approval: implied
   tags: [tier-1, no-fabrication-verify, found-during-probe]
@@ -30944,7 +30949,7 @@ cards:
   thread: presence
   status: "pre_planning"
   created: '2026-10-05 02:22'
-  updated: "2026-10-06 03:00"
+  updated: "2026-10-06 01:55"
   refinement_status: "refined"
   tags: [tier-1, measure-before-build]
   problem_solution:
@@ -31018,7 +31023,7 @@ cards:
   rank: {value: 5, time_criticality: 3, effort: 5}
   status: "in_progress"
   created: '2026-10-05'
-  updated: "2026-10-06 03:20"
+  updated: "2026-10-06 02:00"
   tags: [tier-2db, mechanism-in-source]
   why: 'Restart 2026-10-05 19:00 took ~12 min to come back: HA "stop integrations" and "final write" stages both timed out waiting on pending UniversalRoomDatabase.log_census() tasks (5) plus one OverrideArrester._evaluate_nudge_outcome; coordinator_diagnostics then failed saving baselines with "DB write failed: shutdown timeout". Every restart pays this.'
   next: "Me: build on fix/shutdown-db-write-fastfail (worktree) -> Tier 2-DB reviews (database.py write primitive) -> validator -> review lane. Not deployed overnight."
