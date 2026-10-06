@@ -166,6 +166,10 @@ _ura_pkg_name = "custom_components.universal_room_automation"
 if _ura_pkg_name not in sys.modules:
     _ura_pkg = _mock_module(_ura_pkg_name)
     _ura_pkg.__file__ = os.path.join(_ura_root, "__init__.py")
+    # Real directory as __path__ so automation.py's relative imports of
+    # sibling modules (cover_ownership, fan_veto, ...) resolve without a
+    # hand-maintained preload list that rots whenever automation.py grows one.
+    _ura_pkg.__path__ = [_ura_root]
     sys.modules[_ura_pkg_name] = _ura_pkg
 
 _const_full = "custom_components.universal_room_automation.const"
