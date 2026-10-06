@@ -3520,8 +3520,13 @@ class OverrideArrester:
         # every filter below because the episode boundary is a fact about
         # the entity, not about whether this event is genuine.
         try:
-            _ep_new = _w1c_preset_of(self.hass, entity_id, new_state, "")
+            # W1-C P2 option C B-M1: OLD before NEW — an ecobee select hold
+            # settles lazily on its first read after the window; reading
+            # the old state first settles from the state as of the window
+            # end, so a person's change in `new_state` is measured, never
+            # absorbed as URA's comfort (Carrier / Generic: pure reads).
             _ep_old = _w1c_preset_of(self.hass, entity_id, old_state, "")
+            _ep_new = _w1c_preset_of(self.hass, entity_id, new_state, "")
             if _w1c_is_manual(self.hass, entity_id, _ep_old) and not _w1c_is_manual(
                 self.hass, entity_id, _ep_new,
             ):
@@ -3621,8 +3626,9 @@ class OverrideArrester:
             return
 
         # Check for preset change to "manual" — that's the override signal
-        new_preset = _w1c_preset_of(self.hass, entity_id, new_state, "")
+        # B-M1: old before new (see the episode-boundary read above).
         old_preset = _w1c_preset_of(self.hass, entity_id, old_state, "")
+        new_preset = _w1c_preset_of(self.hass, entity_id, new_state, "")
 
         # Also check for direct temperature changes while on a preset
         new_high = new_state.attributes.get("target_temp_high")

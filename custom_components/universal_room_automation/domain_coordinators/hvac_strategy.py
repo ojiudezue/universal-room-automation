@@ -44,7 +44,9 @@ REV 3 + 3.1 errata) adds the frozen PROFILE CONTRACT on top:
   deleted; a thermostat that cannot do a verb says so in the verb's own
   ``WriteResult``.
 * W1-C P2: ``EcobeeHomeKitStrategy`` (``homekit_controller`` + ecobee) —
-  holds a preset by writing URA's effective heat_cool RANGE for it,
+  option C: holds a preset by SELECTING the unit's comfort setting
+  (``emit_select_comfort``), and by writing URA's effective heat_cool RANGE
+  only when URA composed numbers for it (or freeze / vacation / unmapped);
   reports the thermostat in Carrier's vocabulary through ``preset_of``.
 * Every thermostat write site (A1–A14) calls a strategy method:
   ``hold_preset`` (S1 only — D2.5 no-op + ``last_sent``), ``pin_preset``
@@ -381,11 +383,13 @@ class GenericStrategy:
         ``LAST_SENT_TOLERANCE_F`` (byte-identical)."""
         return LAST_SENT_TOLERANCE_F
 
-    def hold_needs_reassert(self, hass: Any, entity_id: str, preset: str) -> bool:
+    def hold_needs_reassert(
+        self, hass: Any, entity_id: str, preset: str, *, zone_id: Optional[str] = None,
+    ) -> bool:
         """S1 asks this when the zone already reads its target preset.
-        True = the device does not carry URA's range for that preset any
+        True = the device does not carry what URA holds for that preset any
         more, so S1 must hold it again. Carrier / Generic: the device preset
-        IS the range — never (byte-identical: S1 skips as before)."""
+        IS the hold — never (byte-identical: S1 skips as before)."""
         return False
 
     def reference_setpoints(
@@ -962,30 +966,109 @@ def _within(a: Optional[float], b: Optional[float], tol: float) -> bool:
     return a is not None and b is not None and abs(float(a) - float(b)) <= tol
 
 
+HELD_RANGE = "range"
+HELD_SELECT = "select"
+
+# Option C (plan REV 4-C.1 / REV 4.1-C.8, operator ruling 5): URA preset ->
+# the Current Mode select option. `wake` is a URA alias of day comfort.
+# `vacation` selects `away` ONLY when its numbers equal away's (else range);
+# anything unmapped is held as a range (never silently coerced to away).
+ECOBEE_SELECT_OPTION_FOR: dict = {
+    "home": "home", "wake": "home", "sleep": "sleep", "away": "away",
+}
+ECOBEE_VACATION_PRESET = "vacation"
+ECOBEE_HOLD_ACTION_REPAIR = "thermostat_hold_action_not_set"
+
+
+def _wall_now() -> float:
+    """Wall epoch seconds (``Held.t_issued_wall``). One seam for tests."""
+    return time.time()
+
+
+def _state_wall(state: Any) -> Optional[float]:
+    """The state's ``last_updated`` as wall epoch seconds; None when the
+    state carries no readable timestamp."""
+    lu = getattr(state, "last_updated", None)
+    if lu is None:
+        return None
+    try:
+        if hasattr(lu, "timestamp"):
+            return float(lu.timestamp())
+        return float(lu)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+@dataclass
+class Held:
+    """What URA holds on one ecobee (plan REV 4.1-C.1).
+
+    ``mode`` ``"range"`` (Branch R: URA wrote ``lo``/``hi``) or ``"select"``
+    (Branch S: URA selected the comfort setting ``label``; the device holds
+    its own comfort numbers). ``settled`` = ``(heat_leg_or_target,
+    cool_leg_or_target)`` snapshotted lazily by ``preset_of`` once
+    ``ECOBEE_SELECT_ECHO_TTL_S`` has passed (REV 4.1-C.6); None until then
+    and always None for a range hold. Mutable: the lazy settle fills it in
+    place (``_restore_held`` compares by identity)."""
+
+    label: str
+    mode: str
+    lo: Optional[float]
+    hi: Optional[float]
+    t_issued_wall: float
+    settled: Optional[tuple[float, float]] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "label": self.label,
+            "mode": self.mode,
+            "lo": self.lo,
+            "hi": self.hi,
+            "t_issued_wall": self.t_issued_wall,
+            "settled": list(self.settled) if self.settled is not None else None,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Any) -> "Held":
+        mode = str(d["mode"])
+        if mode not in (HELD_RANGE, HELD_SELECT):
+            raise ValueError(f"unknown held mode {mode!r}")
+        lo = _as_float(d.get("lo"))
+        hi = _as_float(d.get("hi"))
+        if mode == HELD_RANGE and (lo is None or hi is None):
+            raise ValueError("range hold without legs")
+        st = d.get("settled")
+        settled = (float(st[0]), float(st[1])) if st is not None else None
+        return cls(
+            label=str(d["label"]), mode=mode, lo=lo, hi=hi,
+            t_issued_wall=float(d["t_issued_wall"]), settled=settled,
+        )
+
+
 class EcobeeHomeKitStrategy(GenericStrategy):
-    """ecobee over HomeKit (``homekit_controller``) — W1-C P2 REV 3.
+    """ecobee over HomeKit (``homekit_controller``) — W1-C P2 option C.
 
-    The thermostat has no presets over HomeKit. URA holds preset P by
-    writing P's EFFECTIVE heat_cool range (§4.2a): the range S10 / Custom
-    Preset Ranges stored for P this season, else the house's Seasonal
-    Baseline for P — after the freeze/deadband guards, whole-degree
-    rounding (half up) and the thermostat's configured min delta (heat
-    kept, cool raised). ``preset_of`` reports the thermostat in Carrier's
-    vocabulary: the range URA last held reads as that preset, anything
-    else in heat_cool reads ``manual``. Every HC feature runs unchanged.
+    Plan REV 3 + REV 4 + REV 4.1 + operator rulings 2026-10-05. Same logic
+    as Carrier: URA picks the comfort setting and the numbers live on the
+    device.
 
-    Brand quirks absorbed here (never a feature gate):
-    * no ``preset_mode``; comfort lives on a sibling "Current Mode" select —
-      READ only, and only off heat_cool while URA holds nothing for the
-      entity (the unit is on its own schedule); "unknown" there is
-      unreadable, never Away. URA never selects an option (it would hold
-      the device's own comfort setpoints, not URA's ranges);
-    * a range write outside heat_cool would send ``temperature=None`` over
-      HomeKit (HA `homekit_controller/climate.py` `async_set_temperature`):
-      every range verb DEFERs (zero calls) unless the LIVE mode is
-      heat_cool and both legs are numeric (§4.2 mechanism (i));
-    * the device rounds `.5` writes: the adapter sends whole degrees;
-    * the device enforces a min heat/cool gap: the adapter widens first.
+    * **Branch S (default)** — ``hold_preset`` / ``pin_preset`` SELECT the
+      comfort setting on the unit's Current Mode select (translation_key
+      ``ecobee_mode``) through the fifth funnel ``emit_select_comfort``.
+    * **Branch R (range hold)** — only when URA has composed numbers for
+      the preset this season (S10 / Custom Preset Ranges), when freeze
+      protection is active (C.9), for ``vacation`` whose numbers differ
+      from away's (ruling 5), for an unmapped preset, or when the unit has
+      no Current Mode select: URA writes the EFFECTIVE heat_cool range
+      (option B verbatim — guards, whole degrees, configured min delta).
+    * ``preset_of`` reports the thermostat in Carrier's vocabulary with
+      ``held`` as the oracle (C.3). The select is unreadable in cool/heat/
+      off and readable in heat_cool within 5 s (D0c); it is consulted only
+      when URA holds nothing and the unit is off heat_cool.
+    * a range write outside heat_cool would send ``temperature=None``
+      (HA ``homekit_controller/climate.py``): every RANGE verb DEFERs with
+      zero calls unless the live mode is heat_cool and both legs numeric.
+      A select works in any mode.
     """
 
     platform: str = HOMEKIT_PLATFORM
@@ -995,14 +1078,24 @@ class EcobeeHomeKitStrategy(GenericStrategy):
 
     def __init__(self) -> None:
         super().__init__()
-        # entity -> (preset, low, high)  — the range URA last held (post-guard)
-        self._held: dict[str, tuple[str, float, float]] = {}
+        # entity -> Held (REV 4.1-C.1)
+        self._held: dict[str, Held] = {}
         # (entity, preset, season) -> (low, high)  — S10/CPR stored ranges
         self._ranges: dict[tuple[str, str, str], tuple[float, float]] = {}
         # entity -> consecutive S1 ticks deferred in cool/heat (§4.11)
         self._mode_stuck: dict[str, int] = {}
         self._repairs: set[tuple[str, str]] = set()  # (entity, Repair key)
         self._season_seen: Optional[str] = None
+        # REV 4.1-C.10: RAM-only, (zone, entity) -> ("select_option", option).
+        self._last_sent_select: dict[tuple[str, str], tuple[str, str]] = {}
+        # REV 4.1-C.7: R4 asked for a re-select of the same comfort.
+        self._recapture_pending: set[tuple[str, str]] = set()
+        self._recapture_times: dict[str, list[float]] = {}
+        # B-M1 / D-M1 (RAM only): entity -> (held.t_issued_wall, heat_cool
+        # legs, the state's last_updated wall s) — the latest state seen for
+        # an unsettled select hold, so the lazy settle uses the state as of
+        # the window END, never a later (possibly a person's) state.
+        self._settle_obs: dict[str, tuple[float, tuple[float, float], Optional[float]]] = {}
 
     # ---- range arithmetic ---------------------------------------------
     @staticmethod
@@ -1048,13 +1141,17 @@ class EcobeeHomeKitStrategy(GenericStrategy):
         cool, heat = pair  # Bug Class #49: (cool_setpoint, heat_setpoint)
         return self.wire_range(heat, cool, entity_id=entity_id)
 
+    def _stored(self, entity_id: str, preset: str) -> Optional[tuple[float, float]]:
+        """The S10/CPR composition stored for (entity, preset, this season)."""
+        self._prune_seasons()
+        season = _ctx_season()
+        return self._ranges.get((entity_id, preset, season)) if season else None
+
     def effective_range(self, entity_id: str, preset: str) -> Optional[tuple[int, int]]:
         """§4.2a: the stored S10/CPR range for (entity, preset, this season),
         else the Seasonal Baseline — always post-guard, whole degrees, min
         delta applied. None when the preset has no baseline."""
-        self._prune_seasons()
-        season = _ctx_season()
-        stored = self._ranges.get((entity_id, preset, season)) if season else None
+        stored = self._stored(entity_id, preset)
         if stored is not None:
             return self.wire_range(stored[0], stored[1], entity_id=entity_id)
         return self._baseline_wire(entity_id, preset)
@@ -1073,11 +1170,23 @@ class EcobeeHomeKitStrategy(GenericStrategy):
             hi, rng[1], ECOBEE_RANGE_TOLERANCE_F,
         )
 
-    # ---- the Current Mode select (read-only) ----------------------------
     @staticmethod
-    def _comfort_select_value(hass: Any, entity_id: Optional[str]) -> Optional[str]:
-        """The sibling ``select`` (translation_key ``ecobee_mode``) value if
-        it names a comfort setting; None for unknown / unavailable / absent."""
+    def _live_pair(state: Any) -> Optional[tuple[float, float]]:
+        """(heat_leg, cool_leg) — ONLY in heat_cool with both legs numeric;
+        None otherwise (A-M1: off heat_cool B1 owns the mode drift, so a
+        select hold is never settled or compared on a single target)."""
+        if state is None:
+            return None
+        lo, hi = EcobeeHomeKitStrategy._legs(state)
+        if getattr(state, "state", None) == "heat_cool" and lo is not None and hi is not None:
+            return (lo, hi)
+        return None
+
+    # ---- the Current Mode select ----------------------------------------
+    @staticmethod
+    def _select_entity(hass: Any, entity_id: Optional[str]) -> Optional[str]:
+        """The sibling ``select`` (translation_key ``ecobee_mode``) on the
+        thermostat's device, or None."""
         if hass is None or not entity_id:
             return None
         try:
@@ -1092,14 +1201,58 @@ class EcobeeHomeKitStrategy(GenericStrategy):
                     continue
                 if getattr(e, "translation_key", None) != ECOBEE_MODE_SELECT_TRANSLATION_KEY:
                     continue
-                st = hass.states.get(e.entity_id)
-                val = getattr(st, "state", None) if st is not None else None
-                return val if val in ECOBEE_COMFORT_OPTIONS else None
+                return str(e.entity_id)
         except Exception:  # noqa: BLE001
             return None
         return None
 
-    # ---- the projection (§4.3) ------------------------------------------
+    @staticmethod
+    def _comfort_select_value(hass: Any, entity_id: Optional[str]) -> Optional[str]:
+        """The select value if it names a comfort setting; None for
+        unknown / unavailable / absent (never Away)."""
+        sel = EcobeeHomeKitStrategy._select_entity(hass, entity_id)
+        if sel is None:
+            return None
+        try:
+            st = hass.states.get(sel)
+        except Exception:  # noqa: BLE001
+            return None
+        val = getattr(st, "state", None) if st is not None else None
+        return val if val in ECOBEE_COMFORT_OPTIONS else None
+
+    # ---- option C: which branch holds `preset` ---------------------------
+    def _branch_for(
+        self, hass: Any, entity_id: str, preset: str,
+    ) -> tuple[str, Optional[str], Optional[str]]:
+        """(branch, select option, select entity). REV 4-C.1 ladder with the
+        REV 4.1 corrections and operator ruling 5:
+        freeze -> R (C.9); a stored composition -> R; vacation -> select
+        `away` only when its effective numbers equal away's AND away itself
+        is not composed, else R; unmapped -> R; no Current Mode select -> R
+        (option B); otherwise S."""
+        if _ctx_freeze():
+            return HELD_RANGE, None, None
+        if self._stored(entity_id, preset) is not None:
+            return HELD_RANGE, None, None
+        if preset == ECOBEE_VACATION_PRESET:
+            eff_v = self.effective_range(entity_id, ECOBEE_VACATION_PRESET)
+            if (
+                eff_v is None
+                or self._stored(entity_id, "away") is not None
+                or eff_v != self.effective_range(entity_id, "away")
+            ):
+                return HELD_RANGE, None, None
+            option: Optional[str] = ECOBEE_SELECT_OPTION_FOR["away"]
+        else:
+            option = ECOBEE_SELECT_OPTION_FOR.get(preset)
+            if option is None:
+                return HELD_RANGE, None, None
+        sel = self._select_entity(hass or _CTX.hass, entity_id)
+        if sel is None:
+            return HELD_RANGE, None, None
+        return HELD_SELECT, option, sel
+
+    # ---- the projection (§4.3, REV 4.1-C.3 / C.6) ------------------------
     def preset_of(
         self, state: Any, default: Any = None, *, hass: Any = None,
         entity_id: Optional[str] = None,
@@ -1111,11 +1264,43 @@ class EcobeeHomeKitStrategy(GenericStrategy):
             return default
         entity_id = entity_id or getattr(state, "entity_id", None)
         held = self._held.get(entity_id) if entity_id else None
+        if held is not None and held.mode == HELD_SELECT:
+            from .hvac_const import ECOBEE_SELECT_ECHO_TTL_S  # noqa: PLC0415
+            live = self._live_pair(state)
+            if _wall_now() - held.t_issued_wall < ECOBEE_SELECT_ECHO_TTL_S:
+                # Inside the echo window the device is executing the
+                # select: the held label, whatever the legs / select read.
+                if held.settled is None and live is not None and entity_id:
+                    self._note_settle_obs(entity_id, held, live, _state_wall(state))
+                return held.label
+            if live is None:
+                # A-M1: off heat_cool (B1 owns the mode drift, as the range
+                # branch) or unreadable legs -> the held label; never
+                # settled from, never compared.
+                return held.label
+            if held.settled is None:
+                # C.6 lazy settle, from the state as of the window END
+                # (B-M1 / D-M1) — never from a later state, which may be a
+                # person's change.
+                cand = self._settle_candidate(entity_id, held, live, state)
+                if cand is None:
+                    return held.label
+                held.settled = (float(cand[0]), float(cand[1]))
+                self._settle_obs.pop(entity_id, None)
+                _ctx_changed("w1c_adapter_settled")  # A-L2
+            tol = self.echo_tolerance_f()
+            if _within(live[0], held.settled[0], tol) and _within(
+                live[1], held.settled[1], tol,
+            ):
+                return held.label
+            # Deviation from the settled comfort: a person / device change
+            # (the arrester measures it against `settled`, C.5).
+            return MANUAL_HOLD_PRESET
         lo, hi = self._legs(state)
         if mode == "heat_cool" and lo is not None and hi is not None:
             if held is not None:
-                if self._legs_match(state, (held[1], held[2])):
-                    return held[0]
+                if self._legs_match(state, (held.lo, held.hi)):
+                    return held.label
                 return MANUAL_HOLD_PRESET
             # Restart / never-held fallback: exactly ONE current-season
             # effective range matches (two near candidates -> no match).
@@ -1125,17 +1310,62 @@ class EcobeeHomeKitStrategy(GenericStrategy):
             ]
             if len(hits) == 1:
                 return hits[0]
-            # The Current Mode select is NOT consulted here: HomeKit can
-            # report a stale comfort name (parent plan REV 3.2; HA core
-            # #84399 / #85715), which would hide a person's range from the
-            # arrester. An unexplained heat_cool range reads `manual`.
+            # The select is NOT consulted in heat_cool with nothing held: a
+            # stale comfort name would hide a person's range from the
+            # arrester (parent plan REV 3.2; HA core #84399 / #85715).
             return MANUAL_HOLD_PRESET
-        # Mode drift (cool / heat / off): keep the held name (B1 owns the
-        # drift, as on Carrier); nothing held -> the comfort select or "".
+        # Mode drift (cool / heat / off) under a range hold: keep the held
+        # name (B1 owns the drift, as on Carrier); nothing held -> the
+        # comfort select or "".
         if held is not None:
-            return held[0]
+            return held.label
         sel = self._comfort_select_value(hass or _CTX.hass, entity_id)
         return sel if sel is not None else ""
+
+    def _note_settle_obs(
+        self, entity_id: str, held: Held, live: tuple[float, float], lu: Optional[float],
+    ) -> None:
+        """Remember the newest heat_cool state seen for this unsettled
+        select hold (B-M1 / D-M1)."""
+        prev = self._settle_obs.get(entity_id)
+        if (
+            prev is not None and prev[0] == held.t_issued_wall
+            and prev[2] is not None and lu is not None and lu < prev[2]
+        ):
+            return  # an older state than the one already seen
+        self._settle_obs[entity_id] = (held.t_issued_wall, (float(live[0]), float(live[1])), lu)
+
+    def _settle_candidate(
+        self, entity_id: Optional[str], held: Held, live: tuple[float, float], state: Any,
+    ) -> Optional[tuple[float, float]]:
+        """B-M1 / D-M1: what to settle from — the state as of the window
+        end, whatever order the readers see the states in.
+
+        * the state existed at window end (``last_updated`` at/before
+          ``t_issued_wall + TTL``, or no timestamp) -> its legs;
+        * a later state, and a state at/before the window end was seen ->
+          THAT state's legs (this one is then measured against it);
+        * a later state equal to a different, earlier state seen after the
+          window -> its legs (the legs did not change between them);
+        * otherwise -> None: refuse (the caller returns the held label)
+          and remember this state."""
+        from .hvac_const import ECOBEE_SELECT_ECHO_TTL_S  # noqa: PLC0415
+        end = held.t_issued_wall + ECOBEE_SELECT_ECHO_TTL_S
+        lu = _state_wall(state)
+        if lu is None or lu <= end or not entity_id:
+            return live
+        prev = self._settle_obs.get(entity_id)
+        if prev is not None and prev[0] == held.t_issued_wall:
+            if prev[2] is not None and prev[2] <= end:
+                return prev[1]
+            tol = self.echo_tolerance_f()
+            if (
+                prev[2] != lu and _within(prev[1][0], live[0], tol)
+                and _within(prev[1][1], live[1], tol)
+            ):
+                return live
+        self._note_settle_obs(entity_id, held, live, lu)
+        return None
 
     def observe(self, hass: Any, entity_id: str) -> Optional[HoldObservation]:
         obs = super().observe(hass, entity_id)
@@ -1181,15 +1411,67 @@ class EcobeeHomeKitStrategy(GenericStrategy):
         except Exception:  # noqa: BLE001
             return PersonChange(None)
 
-    def hold_needs_reassert(self, hass: Any, entity_id: str, preset: str) -> bool:
-        """The zone reads ``preset`` but the device does not carry URA's
-        effective range for it (season rollover, baseline edit, a stored
-        composition, or the mode drifted off heat_cool): S1 holds again.
+    # ---- S1 re-assert (REV 4.1-C.4 truth table) --------------------------
+    def _r4_settled_deviation(self, entity_id: str, held: Held, st: Any) -> bool:
+        """R4: a settled Branch-S hold whose live heat_cool legs left
+        ``settled`` while the legs equal a recent URA setpoint write (the
+        change looks like URA's own). Never once the hold-action Repair is
+        raised (noise bound). A-L1: no "within 15 s of URA's select" arm —
+        ``settled`` exists only after the 180 s window, so it was dead."""
+        if held.settled is None:
+            return False
+        if (entity_id, ECOBEE_HOLD_ACTION_REPAIR) in self._repairs:
+            return False
+        live = self._live_pair(st)
+        if live is None:
+            return False
+        tol = self.echo_tolerance_f()
+        if _within(live[0], held.settled[0], tol) and _within(live[1], held.settled[1], tol):
+            return False
+        from .hvac_setpoint import recent_ura_setpoints  # noqa: PLC0415
+        for lo, hi in recent_ura_setpoints(entity_id):
+            if _within(live[0], lo, tol) and _within(live[1], hi, tol):
+                return True
+        return False
+
+    def hold_needs_reassert(
+        self, hass: Any, entity_id: str, preset: str, *, zone_id: Optional[str] = None,
+    ) -> bool:
+        """S1 asks this when the zone already reads ``preset``. True when
+        any REV 4.1-C.4 row holds:
+        R1 the branch URA would take now differs from ``held.mode``;
+        R2 ``held`` is absent / names another preset, or (Branch S) this
+        zone has not selected the option this boot (C.10, INV-R' 2);
+        R3 (Branch R) the live legs left the effective range — or the mode
+        left heat_cool (option B; B1 owns the mode);
+        R4 (Branch S) a settled deviation that looks like URA's own.
         Never raises (False on any doubt = today's skip)."""
+        # B-L2 / D-L2: a recapture request lives for ONE skip check — a
+        # stale one (R4 fired, then S1 deferred or the zone changed) must
+        # never turn a later plain reclaim into a counted recapture.
+        self._recapture_pending.discard((zone_id or "", entity_id))
         try:
             st = _state_of(hass, entity_id)
             if st is None or getattr(st, "state", None) in (None, "unavailable", "unknown"):
                 return False
+            held = self._held.get(entity_id)
+            branch, option, _sel = self._branch_for(hass, entity_id, preset)
+            if branch == HELD_SELECT:
+                if held is None or held.label != preset:
+                    return True  # R2
+                if held.mode != HELD_SELECT:
+                    return True  # R1: composition gone -> select again
+                if self._last_sent_select.get((zone_id or "", entity_id)) != (
+                    "select_option", option,
+                ):
+                    return True  # R2: not selected by this zone this boot
+                if self._r4_settled_deviation(entity_id, held, st):
+                    self._recapture_pending.add((zone_id or "", entity_id))
+                    return True  # R4
+                return False
+            # Branch R (option B semantics + R1 / R2).
+            if held is not None and (held.mode != HELD_RANGE or held.label != preset):
+                return True  # R1 upgrade / R2
             if getattr(st, "state", None) != "heat_cool":
                 return True
             eff = self.effective_range(entity_id, preset)
@@ -1202,24 +1484,44 @@ class EcobeeHomeKitStrategy(GenericStrategy):
                 self._mode_stuck.pop(entity_id, None)
                 self._clear_repair(hass, entity_id)
                 return False
-            return True
+            return True  # R3
         except Exception:  # noqa: BLE001
             return False
 
     def reference_setpoints(
         self, hass: Any, entity_id: Optional[str], preset: str, baseline: Any,
     ) -> Any:
-        """D MED-1: the range URA holds for ``preset`` is the EFFECTIVE
-        range (stored S10 range, else the baseline, after the guards,
-        rounding and min gap) — returned as ``(cool, heat)``. Falls back to
-        ``baseline`` when there is none. Never raises."""
-        try:
-            eff = self.effective_range(entity_id, preset) if entity_id else None
-        except Exception:  # noqa: BLE001
-            eff = None
-        if eff is None:
+        """REV 4.1-C.5: the ``(cool, heat)`` pair URA holds — a range hold:
+        its legs; a settled select: ``settled``; an unsettled select: the
+        Seasonal Baseline of the selected preset (never the live legs
+        mid-settle); nothing held: ``baseline`` (as Carrier). A-M2: the
+        held numbers are used ONLY when ``held.label`` is the requested
+        ``preset``; a hold of another preset (a pre-arrival Q7 reference, a
+        startup audit in a new house state) measures against
+        ``effective_range(entity, preset)`` as (cool, heat) — option B.
+        Never raises."""
+        held = self._held.get(entity_id) if entity_id else None
+        if held is None:
             return baseline
-        return (float(eff[1]), float(eff[0]))
+        if held.label != preset:
+            try:
+                eff = self.effective_range(entity_id, preset)
+            except Exception:  # noqa: BLE001
+                eff = None
+            if eff is None:
+                return baseline
+            return (float(eff[1]), float(eff[0]))
+        if held.mode == HELD_RANGE:
+            return (float(held.hi), float(held.lo))
+        if held.settled is not None:
+            return (float(held.settled[1]), float(held.settled[0]))
+        try:
+            pair = _CTX.baseline(held.label) if _CTX.baseline is not None else None
+        except Exception:  # noqa: BLE001
+            pair = None
+        if not pair:
+            return baseline
+        return (float(pair[0]), float(pair[1]))
 
     # ---- preconditions (§4.2, §4.11) ------------------------------------
     @staticmethod
@@ -1243,11 +1545,15 @@ class EcobeeHomeKitStrategy(GenericStrategy):
             )
             self._repairs.add((entity_id, key))
         except Exception:  # noqa: BLE001
-            _LOGGER.debug("heat_cool repair create failed", exc_info=True)
+            _LOGGER.debug("ecobee repair create failed", exc_info=True)
 
     def _clear_repair(self, hass: Any, entity_id: str, key: Optional[str] = None) -> None:
-        """Delete the entity's Repair ``key`` (None = every key raised)."""
-        keys = [k for (e, k) in self._repairs if e == entity_id and (key is None or k == key)]
+        """Delete the entity's heat_cool Repair ``key`` (None = both). The
+        hold-action Repair is raised by behaviour, never cleared here."""
+        keys = [
+            k for (e, k) in self._repairs
+            if e == entity_id and (key is None or k == key) and k != ECOBEE_HOLD_ACTION_REPAIR
+        ]
         for k in keys:
             try:
                 from homeassistant.helpers import issue_registry as ir  # noqa: PLC0415
@@ -1297,7 +1603,11 @@ class EcobeeHomeKitStrategy(GenericStrategy):
                 return WriteResult(WriteStatus.FAILED, "heat_cool_not_reached")
         return WriteResult(WriteStatus.DEFERRED, "mode_not_heat_cool")
 
-    # ---- the range write (binding ordering, §4.2 PR2-1) -----------------
+    def _forget_selects(self, entity_id: str) -> None:
+        for k in [k for k in self._last_sent_select if k[1] == entity_id]:
+            self._last_sent_select.pop(k, None)
+
+    # ---- Branch R: the range write (binding ordering, §4.2 PR2-1) --------
     async def _hold_range(
         self, hass: Any, entity_id: str, preset: str, rng: tuple[int, int], *,
         gate: Callable[[], bool] | None, blocking: bool, site: str,
@@ -1306,10 +1616,10 @@ class EcobeeHomeKitStrategy(GenericStrategy):
         """Steps 4-6 + 8: stamp ``held`` with the post-guard range, emit,
         restore the previous ``held`` on a deferral or an exception (the
         exception propagates), persist when it changed. Returns the funnel
-        bool."""
+        bool. A landed range write forgets every select record (D2a)."""
         from .hvac_setpoint import emit_set_temperature  # noqa: PLC0415
         prev = self._held.get(entity_id)
-        new = (preset, float(rng[0]), float(rng[1]))
+        new = Held(preset, HELD_RANGE, float(rng[0]), float(rng[1]), _wall_now(), None)
         self._held[entity_id] = new  # step 4: clamp before stamp, BEFORE the wire
         try:
             wrote = await emit_set_temperature(
@@ -1330,14 +1640,46 @@ class EcobeeHomeKitStrategy(GenericStrategy):
         if not wrote:
             self._restore_held(entity_id, prev, new)
             return False
-        if prev != new:
+        self._forget_selects(entity_id)
+        if (
+            prev is None or prev.mode != HELD_RANGE or prev.label != new.label
+            or prev.lo != new.lo or prev.hi != new.hi
+        ):
             _ctx_changed("w1c_adapter_held")
         return True
 
-    def _restore_held(
-        self, entity_id: str, prev: Optional[tuple[str, float, float]],
-        stamp: tuple[str, float, float],
-    ) -> None:
+    # ---- Branch S: the comfort select (REV 4-C.1 step 3) -----------------
+    async def _hold_select(
+        self, hass: Any, entity_id: str, preset: str, option: str, select_entity: str, *,
+        gate: Callable[[], bool] | None, blocking: bool, site: str,
+        zone_id: str, reason: str,
+    ) -> bool:
+        """Stamp ``held = Held(preset, "select", t)`` BEFORE the wire (a
+        new select drops any earlier ``settled``), emit through
+        ``emit_select_comfort``, restore the previous ``held`` on a
+        deferral or an exception (the exception propagates). Returns the
+        funnel bool."""
+        from .hvac_setpoint import emit_select_comfort  # noqa: PLC0415
+        prev = self._held.get(entity_id)
+        new = Held(preset, HELD_SELECT, None, None, _wall_now(), None)
+        self._held[entity_id] = new
+        try:
+            wrote = await emit_select_comfort(
+                hass, entity_id, option,
+                select_entity_id=select_entity,
+                site=site, zone_id=zone_id, reason=reason,
+                blocking=blocking, gate=gate,
+            )
+        except BaseException:
+            self._restore_held(entity_id, prev, new)
+            raise
+        if not wrote:
+            self._restore_held(entity_id, prev, new)
+            return False
+        _ctx_changed("w1c_adapter_held")
+        return True
+
+    def _restore_held(self, entity_id: str, prev: Optional[Held], stamp: Held) -> None:
         # B-L4: undo only OUR stamp. Another write that stamped `held`
         # during this call's await owns it now — leave it.
         if self._held.get(entity_id) is not stamp:
@@ -1346,6 +1688,36 @@ class EcobeeHomeKitStrategy(GenericStrategy):
             self._held.pop(entity_id, None)
         else:
             self._held[entity_id] = prev
+
+    def _note_selected(self, zone_id: str, entity_id: str, option: str) -> None:
+        """C.10: a landed select is THIS zone's record; any other write
+        record for the entity is forgotten (D2a)."""
+        self._clear_sent(entity_id)
+        self._forget_selects(entity_id)
+        self._last_sent_select[(zone_id or "", entity_id)] = ("select_option", option)
+
+    def _note_recapture(self, hass: Any, zone_id: str, entity_id: str) -> None:
+        """REV 4.1-C.7: an R4-driven re-select landed. INFO + count; the
+        THRESHOLD-th within the window raises the hold-action Repair (and
+        R4 stands down on this thermostat until restart)."""
+        from .hvac_const import (  # noqa: PLC0415
+            ECOBEE_SCHEDULE_RECAPTURE_REPAIR_THRESHOLD,
+            ECOBEE_SCHEDULE_RECAPTURE_WINDOW_S,
+        )
+        now = _wall_now()
+        times = [
+            t for t in self._recapture_times.get(entity_id, [])
+            if now - t < ECOBEE_SCHEDULE_RECAPTURE_WINDOW_S
+        ]
+        times.append(now)
+        self._recapture_times[entity_id] = times
+        _LOGGER.info(
+            "HVAC: branch_s_schedule_recapture on %s (zone %s): the thermostat "
+            "left the comfort URA selected without a person's change; "
+            "re-selected (%d in the window)", entity_id, zone_id, len(times),
+        )
+        if len(times) >= ECOBEE_SCHEDULE_RECAPTURE_REPAIR_THRESHOLD:
+            self._raise_repair(hass, entity_id, ECOBEE_HOLD_ACTION_REPAIR)
 
     async def hold_preset(
         self,
@@ -1362,13 +1734,44 @@ class EcobeeHomeKitStrategy(GenericStrategy):
         full_tick: bool = True,
     ) -> WriteResult:
         st = _state_of(hass, entity_id)
+        recapture = (zone_id or "", entity_id) in self._recapture_pending
+        self._recapture_pending.discard((zone_id or "", entity_id))
+        branch, option, sel = self._branch_for(hass, entity_id, preset)
+        if branch == HELD_SELECT:
+            held = self._held.get(entity_id)
+            # REV 4-C.1 Branch-S no-op (INV-R' 2).
+            if (
+                held is not None and held.mode == HELD_SELECT and held.label == preset
+                and self._last_sent_select.get((zone_id or "", entity_id))
+                == ("select_option", option)
+                and self.preset_of(st, None, hass=hass, entity_id=entity_id) == preset
+                and not recapture
+            ):
+                return WriteResult(WriteStatus.SKIPPED_ALREADY_CORRECT, "no_op_last_sent_matches")
+            try:
+                wrote = await self._hold_select(
+                    hass, entity_id, preset, option, sel, gate=gate, blocking=blocking,
+                    site=site, zone_id=zone_id, reason=reason,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._clear_sent(entity_id)
+                self._forget_selects(entity_id)
+                return WriteResult(WriteStatus.FAILED, "emit_raised", type(exc).__name__)
+            if not wrote:
+                return WriteResult(WriteStatus.DEFERRED, "gate_deferred")
+            self._note_selected(zone_id, entity_id, option)
+            if recapture:
+                self._note_recapture(hass, zone_id, entity_id)
+            return WriteResult(WriteStatus.APPLIED, "emitted")
         rng = self.effective_range(entity_id, preset)
         if rng is None:
             return WriteResult(WriteStatus.FAILED, "no_range_for_preset")
-        # D2.5 no-op, three clauses (PR2-2 + REV 3).
+        # D2.5 no-op, three clauses (PR2-2 + REV 3) — Branch R.
+        held = self._held.get(entity_id)
         sent = self.last_sent(entity_id, "set_preset_mode")
         if (
             sent == preset
+            and held is not None and held.mode == HELD_RANGE
             and st is not None
             and getattr(st, "state", None) == "heat_cool"
             and self.preset_of(st, None, hass=hass, entity_id=entity_id) == preset
@@ -1404,11 +1807,25 @@ class EcobeeHomeKitStrategy(GenericStrategy):
         emit: Callable[..., Any] | None = None,
         **kwargs: Any,
     ) -> WriteResult:
-        """Every non-S1 preset write: the same range translation as
-        ``hold_preset`` without the no-op and without ``last_sent``. The
-        caller's ``emit`` (the preset funnel) is ignored — the range goes
-        through ``emit_set_temperature``. A wire exception propagates."""
+        """Every non-S1 preset write (returns, reverts, restores, egress
+        resume, boot audit): the same branch ladder as ``hold_preset``
+        WITHOUT a no-op and without the S1 record (option B semantics
+        kept: a pin always writes). Branch S selects the comfort setting;
+        Branch R writes the effective range. The caller's ``emit`` (the
+        preset funnel) is ignored. A wire exception propagates."""
         st = _state_of(hass, entity_id)
+        branch, option, sel = self._branch_for(hass, entity_id, preset)
+        if branch == HELD_SELECT:
+            wrote = await self._hold_select(
+                hass, entity_id, preset, option, sel,
+                gate=kwargs.get("gate"), blocking=bool(kwargs.get("blocking", False)),
+                site=kwargs["site"], zone_id=kwargs["zone_id"], reason=kwargs["reason"],
+            )
+            if wrote:
+                # B-L1 / D-L1: a landed pin is this zone's select record too,
+                # so the next S1 tick does not select the same comfort again.
+                self._note_selected(kwargs["zone_id"], entity_id, option)
+            return self._map_funnel_result(wrote)
         rng = self.effective_range(entity_id, preset)
         if rng is None:
             return WriteResult(WriteStatus.FAILED, "no_range_for_preset")
@@ -1434,8 +1851,8 @@ class EcobeeHomeKitStrategy(GenericStrategy):
         """Raw range write (borrows, nudges, compromise). Delegates to the
         caller's funnel behind the live-mode AND both-legs preconditions
         (PR2-3), with the legs rounded and widened to the min delta. Never
-        touches ``held`` — the range reads ``manual``, exactly what a raw
-        setpoint write reads on Carrier."""
+        touches ``held`` — the range reads ``manual`` (outside a select's
+        echo window), exactly what a raw setpoint write reads on Carrier."""
         st = _state_of(hass, entity_id)
         blocked = self._range_precondition(hass, entity_id, st)
         if blocked is not None:
@@ -1497,11 +1914,13 @@ class EcobeeHomeKitStrategy(GenericStrategy):
         emit: Callable[..., Any] | None = None,
     ) -> WriteResult:
         """(1) store the range URA-side — always, before any precondition
-        (a range equal to the baseline DELETES the entry); (2) the zone
-        does not hold ``preset`` -> SKIPPED ``stored_for_next_hold``; (3) the
-        live legs already carry it -> SKIPPED ``range_already_live``; (4)
-        otherwise write it now through the range ordering. ``emit`` (the
-        Carrier activity funnel) is ignored."""
+        (a range equal to the baseline DELETES the entry); (2) the zone does
+        not hold ``preset`` -> SKIPPED ``stored_for_next_hold``; (3) the
+        branch for ``preset`` is now S: a range hold DOWNGRADES in this same
+        call (one select, INV-R' 4), a select hold is left alone; (4) the
+        branch is R: a range hold whose legs already carry it -> SKIPPED
+        ``range_already_live``, otherwise write it now (a select hold
+        UPGRADES in this same call, INV-R' 3). ``emit`` is ignored."""
         self._prune_seasons()
         season = _ctx_season()
         want = self.wire_range(low, high, entity_id=entity_id, freeze_active=freeze_active)
@@ -1515,14 +1934,30 @@ class EcobeeHomeKitStrategy(GenericStrategy):
             if self._ranges.get(key) != before:
                 _ctx_changed("w1c_adapter_ranges")
         held = self._held.get(entity_id)
-        if held is None or held[0] != preset:
+        if held is None or held.label != preset:
             return WriteResult(WriteStatus.SKIPPED_ALREADY_CORRECT, "stored_for_next_hold")
+        branch, option, sel = self._branch_for(hass, entity_id, preset)
+        if branch == HELD_SELECT:
+            if held.mode == HELD_SELECT:
+                return WriteResult(WriteStatus.SKIPPED_ALREADY_CORRECT, "comfort_already_selected")
+            try:
+                wrote = await self._hold_select(
+                    hass, entity_id, preset, option, sel, gate=gate, blocking=True,
+                    site=site, zone_id=zone_id, reason=reason,
+                )
+            except Exception as exc:  # noqa: BLE001
+                return WriteResult(WriteStatus.FAILED, "emit_raised", type(exc).__name__)
+            if not wrote:
+                return WriteResult(WriteStatus.DEFERRED, "gate_deferred")
+            self._note_selected(zone_id, entity_id, option)
+            return WriteResult(WriteStatus.APPLIED, "emitted")
         st = _state_of(hass, entity_id)
         rng = self.effective_range(entity_id, preset)
         if rng is None:
             return WriteResult(WriteStatus.FAILED, "no_range_for_preset")
         if (
-            st is not None and getattr(st, "state", None) == "heat_cool"
+            held.mode == HELD_RANGE
+            and st is not None and getattr(st, "state", None) == "heat_cool"
             and self._legs_match(st, rng)
         ):
             return WriteResult(WriteStatus.SKIPPED_ALREADY_CORRECT, "range_already_live")
@@ -1540,29 +1975,68 @@ class EcobeeHomeKitStrategy(GenericStrategy):
             return WriteResult(WriteStatus.DEFERRED, "gate_deferred")
         return WriteResult(WriteStatus.APPLIED, "emitted")
 
-    # ---- persistence (§4.2a) --------------------------------------------
+    # ---- persistence (§4.2a, REV 4.1-C.1 / C.13) -------------------------
     def export_state(self) -> dict[str, Any]:
+        from .hvac_const import W1C_ADAPTER_SCHEMA_VERSION  # noqa: PLC0415
+
+        def _slice(ent: str) -> dict[str, Any]:
+            return out.setdefault(ent, {
+                "_schema_version": W1C_ADAPTER_SCHEMA_VERSION, "held": None, "ranges": [],
+            })
+
         out: dict[str, Any] = {}
-        for ent, (p, lo, hi) in self._held.items():
-            out.setdefault(ent, {"held": None, "ranges": []})["held"] = [p, lo, hi]
+        for ent, h in self._held.items():
+            _slice(ent)["held"] = h.to_dict()
         for (ent, p, season), (lo, hi) in sorted(self._ranges.items()):
-            out.setdefault(ent, {"held": None, "ranges": []})["ranges"].append(
-                [p, season, lo, hi],
-            )
+            _slice(ent)["ranges"].append([p, season, lo, hi])
         return out
+
+    @staticmethod
+    def _held_from_persisted(ent: str, h: Any, version: Any) -> Optional[Held]:
+        """v2 dict form, else the one-release legacy forms (C.1 / C.13):
+        option B 3-list ``[P, lo, hi]`` (the only shipped form) and the
+        never-shipped REV 4 4-lists. Raises on a malformed value."""
+        if h is None:
+            return None
+        if isinstance(h, dict):
+            return Held.from_dict(h)
+        if not isinstance(h, (list, tuple)):
+            raise ValueError("held is neither a dict nor a list")
+        now = _wall_now()
+        if len(h) == 3:
+            held = Held(str(h[0]), HELD_RANGE, float(h[1]), float(h[2]), now, None)
+        elif len(h) == 4 and h[1] == HELD_RANGE:
+            held = Held(str(h[0]), HELD_RANGE, float(h[2]), float(h[3]), now, None)
+        elif len(h) == 4 and h[1] == HELD_SELECT:
+            st = h[3]
+            settled = (float(st[0]), float(st[1])) if st is not None else None
+            held = Held(str(h[0]), HELD_SELECT, None, None, float(h[2]), settled)
+        else:
+            raise ValueError(f"unknown legacy held shape (len {len(h)})")
+        _LOGGER.info(
+            "W1-C adapter: migrated %s held from schema v%s to v2 (%s)",
+            ent, version or 1, held.mode,
+        )
+        return held
 
     def rehydrate_state(self, blob: Any) -> bool:
         if not isinstance(blob, dict):
             return True
         season = _ctx_season()
+        migrated = False
         for ent, sl in blob.items():
             if not isinstance(sl, dict):
                 continue
             try:
-                h = sl.get("held")
-                if isinstance(h, (list, tuple)) and len(h) == 3:
-                    self._held[str(ent)] = (str(h[0]), float(h[1]), float(h[2]))
-            except (TypeError, ValueError):
+                h_raw = sl.get("held")
+                h = self._held_from_persisted(
+                    str(ent), h_raw, sl.get("_schema_version"),
+                )
+                if h is not None:
+                    self._held[str(ent)] = h
+                    if not isinstance(h_raw, dict):
+                        migrated = True
+            except (TypeError, ValueError, KeyError, IndexError):
                 _LOGGER.warning("W1-C adapter: malformed held for %s dropped", ent)
             # A-M2: a corrupt "ranges" (not a list) is dropped with one
             # warning — never a TypeError on every later `strategy_for`.
@@ -1578,6 +2052,10 @@ class EcobeeHomeKitStrategy(GenericStrategy):
                     self._ranges[(str(ent), str(p), str(s))] = (float(lo), float(hi))
                 except (TypeError, ValueError):
                     _LOGGER.warning("W1-C adapter: malformed range for %s dropped", ent)
+        if migrated:
+            # B-L3: persist the v2 form now, so the migration (and its INFO
+            # line) runs once, not on every boot until some other save.
+            _ctx_changed("w1c_adapter_migrated")
         return True
 
     def flush_entity(self, entity_id: str) -> None:
@@ -1586,6 +2064,11 @@ class EcobeeHomeKitStrategy(GenericStrategy):
         for k in [k for k in self._ranges if k[0] == entity_id]:
             self._ranges.pop(k, None)
         self._mode_stuck.pop(entity_id, None)
+        self._forget_selects(entity_id)
+        for k in [k for k in self._recapture_pending if k[1] == entity_id]:
+            self._recapture_pending.discard(k)
+        self._recapture_times.pop(entity_id, None)
+        self._settle_obs.pop(entity_id, None)
 
 
 _STRATEGY_BY_PLATFORM: dict[str, GenericStrategy] = {}

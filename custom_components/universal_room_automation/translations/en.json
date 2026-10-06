@@ -2298,6 +2298,10 @@
     "thermostat_heat_cool_not_reached": {
       "title": "Thermostat did not switch to heat/cool",
       "description": "{thermostat} did not switch to heat/cool after URA asked, so URA cannot hold its comfort range. Check the thermostat's mode and that Auto heat/cool is enabled."
+    },
+    "thermostat_hold_action_not_set": {
+      "title": "Thermostat follows its own schedule",
+      "description": "{thermostat} keeps leaving the comfort setting URA picked, so it is still running its own schedule. URA runs the schedule for you from the house state. On the thermostat: set Hold Action to \"Until I change it\", and turn off the thermostat's own schedule. Why: with \"Until next activity\", every schedule step looks like a person changing the thermostat. URA then books a change nobody made, picks the comfort setting again, and ends any pre-cool, pre-heat or banking it was running. With \"Until I change it\", if Home Assistant is down the thermostat simply keeps the last comfort setting URA picked."
     }
   },
   "entity": {
