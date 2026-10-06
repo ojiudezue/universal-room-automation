@@ -776,8 +776,14 @@ ECOBEE_HEAT_COOL_STUCK_TICKS: Final = 3
 ECOBEE_SELECT_ECHO_TTL_S: Final = 180
 # REV 4.1-C.7: schedule re-captures (an R4 re-select of the same comfort) on
 # one thermostat within ECOBEE_SCHEDULE_RECAPTURE_WINDOW_S that raise the
-# "set Hold Action: until I change it" Repair. Once raised, R4 stops
-# re-selecting on that thermostat until restart (noise bound). RUNG 1.
+# `thermostat_hold_action_not_set` Repair. Its fix (operator ruling
+# 2026-10-06 a): Hold Action "Until I change it" AND the thermostat's own
+# schedule turned off — URA runs the schedule from the house states. With
+# "Until next activity" each schedule step reads as a person's change
+# (phantom override, a re-select, and it ends pre-cool / pre-heat / banking
+# borrows); with "Until I change it" a unit whose HA is down keeps the last
+# comfort. Once raised, R4 stops re-selecting on that thermostat until
+# restart (noise bound). RUNG 1.
 ECOBEE_SCHEDULE_RECAPTURE_REPAIR_THRESHOLD: Final = 2
 ECOBEE_SCHEDULE_RECAPTURE_WINDOW_S: Final = 86400
 # REV 4.1-C.13: version of the per-entity `__w1c_adapter` slice. 1 (or

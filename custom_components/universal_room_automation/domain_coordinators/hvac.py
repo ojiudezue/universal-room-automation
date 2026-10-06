@@ -2559,6 +2559,30 @@ class HVACCoordinator(BaseCoordinator):
         """
         return []
 
+    def _reassert_refused(self, zone_id: str, gates: tuple[str, ...]) -> bool:
+        """W1-C P2 option C D-M2 (operator ruling 2026-10-06 b): True when
+        one of the named §9e gates (``a_b`` person-protected hold, ``c``
+        arrester window, ``e`` live borrow) is armed for ``zone_id`` — the
+        S1 re-assert (a zone that already reads its target) then writes
+        nothing. Same pure read S1 uses for a manual zone
+        (`manual_guard_verdict`); an unwired arrester or an accessor error
+        refuses (fail-closed, as that read). Called only after the adapter
+        asked for a re-assert, so Carrier / Generic never reach it."""
+        try:
+            verdict = self._preset_manager.manual_guard_verdict(zone_id)
+        except Exception:  # noqa: BLE001
+            return True
+        snap = verdict.get("gate_snapshot", {}) or {}
+        if not snap.get("arrester_wired", False):
+            return True
+        armed = [g for g in gates if snap.get(g)]
+        if armed:
+            _LOGGER.debug(
+                "HVAC: S1 re-assert held on zone %s by gate(s) %s", zone_id, armed,
+            )
+            return True
+        return False
+
     def _climate_unreadable(self, zone_id: str, zone: Any) -> bool:
         """HVAC Batch D (HVAC-WRITES-WHILE-THERMOSTAT-UNAVAILABLE-1).
 
@@ -3568,8 +3592,14 @@ class HVACCoordinator(BaseCoordinator):
             _deferred_reason: str | None = None
             _deferred_snapshot: dict = {}
             if zi and (zone_vacant_past_grace or zone.runtime_exceeded) and effective_preset == "away":
-                if zone.preset_mode == "away" and not _w1c_needs_reassert(
-                    self.hass, zone.climate_entity, "away", zone_id,
+                if zone.preset_mode == "away" and (
+                    not _w1c_needs_reassert(
+                        self.hass, zone.climate_entity, "away", zone_id,
+                    )
+                    # D-M2 (operator ruling 2026-10-06 b): a re-assert is
+                    # a write over a zone that READS away — it respects the
+                    # same gates as this bypass over manual: (a/b), (e).
+                    or self._reassert_refused(zone_id, ("a_b", "e"))
                 ):
                     continue  # Already away
                 # M3 / N9b: the vacancy/runtime bypass skips the manual rule
@@ -3598,6 +3628,13 @@ class HVACCoordinator(BaseCoordinator):
                     self.hass, zone.climate_entity, effective_preset, zone_id,
                 ):
                     continue  # already at target: benign no-op, never recorded
+                elif self._reassert_refused(zone_id, ("a_b", "c", "e")):
+                    # D-M2 (operator ruling 2026-10-06 b): the §9e
+                    # person-protection gates (a/b), (c), (e) hold a
+                    # re-assert exactly as they hold a reclaim of manual —
+                    # a reading of the target may carry a person's change
+                    # absorbed into the select's settle window.
+                    continue
                 # W1-C P2 (INV-R): the zone reads its target preset but the
                 # device no longer carries URA's range for it (season
                 # rollover, baseline edit, a stored composition, a mode

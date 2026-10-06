@@ -57,8 +57,11 @@ def _violations(files: dict[str, str]) -> tuple[list[str], int]:
             if not isinstance(node, ast.Call) or not _is_services_call(node):
                 continue
             args = node.args
-            dom = args[0].value if args and isinstance(args[0], ast.Constant) else None
-            svc = args[1].value if len(args) > 1 and isinstance(args[1], ast.Constant) else None
+            kw = {k.arg: k.value for k in node.keywords if k.arg}
+            dom_n = args[0] if args else kw.get("domain")
+            svc_n = args[1] if len(args) > 1 else kw.get("service")
+            dom = dom_n.value if isinstance(dom_n, ast.Constant) else None
+            svc = svc_n.value if isinstance(svc_n, ast.Constant) else None
             if dom not in BANNED_DOMAINS and svc not in BANNED_SERVICES:
                 continue
             if (name, _enclosing_fn(node)) in ALLOWED and (dom, svc) == ("select", "select_option"):
@@ -103,6 +106,23 @@ def test_m11_lint_catches_planted_calls():
     viol, hits = _violations(planted)
     assert len(viol) == 5
     assert hits == 1
+
+
+def test_m11_lint_catches_keyword_argument_calls():
+    """C-LOW: `async_call(domain=..., service=...)` (and a mixed form) is
+    read like the positional form."""
+    planted = {
+        "hvac_y.py": (
+            "async def f(hass):\n"
+            "    await hass.services.async_call(domain='select', service='select_option')\n"
+            "    await hass.services.async_call('number', service='set_value')\n"
+            "    await hass.services.async_call(service='press', domain=d)\n"
+            "    await hass.services.async_call(domain='climate', service='set_temperature')\n"
+        ),
+    }
+    viol, hits = _violations(planted)
+    assert [v.split(":")[1] for v in viol] == ["2", "3", "4"]
+    assert hits == 0
 
 
 # --------------------------------------------------------------------------

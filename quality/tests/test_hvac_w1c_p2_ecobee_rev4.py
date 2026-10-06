@@ -523,8 +523,12 @@ def test_m7_settled_is_reused_by_later_reads(mods, monkeypatch):
     assert eco._held[ENT].settled == (71.0, 75.0)
 
 
-def test_m7_cool_mode_settles_the_single_target_twice(mods, monkeypatch):
-    """C.6: off heat_cool the single `temperature` is the settled pair."""
+def test_a_m1_unsettled_select_off_heat_cool_never_settles_on_the_single_target(mods, monkeypatch):
+    """A-M1 repro 1 (replaces the C.6 "single target twice" settle): the
+    first read after the window is in `cool` 75 -> the label, NOTHING
+    settled; the unit back in heat_cool at its comfort 71/75 then settles
+    there and reads home. (Settling (75, 75) would read the comfort as a
+    phantom `manual`.)"""
     clk = _clock(monkeypatch, mods)
     coord, hass = _rig(mods, monkeypatch)
     eco = _eco(mods, hass)
@@ -532,7 +536,39 @@ def test_m7_cool_mode_settles_the_single_target_twice(mods, monkeypatch):
     clk.t = T0 + 181
     st = _set_eco(hass, mode="cool", temperature=75.0)
     assert eco.preset_of(st, None, hass=hass, entity_id=ENT) == "home"
-    assert eco._held[ENT].settled == (75.0, 75.0)
+    assert eco._held[ENT].settled is None
+    clk.t = T0 + 200
+    assert eco.preset_of(_set_eco(hass, low=71.0, high=75.0), None, hass=hass, entity_id=ENT) == "home"
+    assert eco._held[ENT].settled == (71.0, 75.0)
+
+
+def test_a_m1_settled_select_off_heat_cool_reads_the_label(mods, monkeypatch):
+    """A-M1 repro 2: a SETTLED select (71/75) while B1 has not yet put the
+    unit back in heat_cool (`cool` 73) reads the held label — mode drift is
+    B1's, exactly like the range branch — never `manual`."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch)
+    eco = _eco(mods, hass)
+    eco._held[ENT] = _hsel(mods, "home", T0, (71.0, 75.0))
+    clk.t = T0 + 600
+    for mode in ("cool", "heat", "off"):
+        st = _set_eco(hass, mode=mode, temperature=73.0)
+        assert eco.preset_of(st, None, hass=hass, entity_id=ENT) == "home", mode
+    assert eco._held[ENT].settled == (71.0, 75.0)
+
+
+def test_c_low_unreadable_legs_under_a_settled_select_read_the_label(mods, monkeypatch):
+    """C-LOW: heat_cool with a missing leg under a settled select -> the
+    held label (no comparison possible), and `settled` is untouched."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch)
+    eco = _eco(mods, hass)
+    eco._held[ENT] = _hsel(mods, "home", T0, (71.0, 75.0))
+    clk.t = T0 + 600
+    for low, high in ((None, 75.0), (71.0, None), (None, None)):
+        st = _set_eco(hass, low=low, high=high)
+        assert eco.preset_of(st, None, hass=hass, entity_id=ENT) == "home", (low, high)
+    assert eco._held[ENT].settled == (71.0, 75.0)
 
 
 def test_inside_the_window_unknown_select_and_any_legs_read_the_label(mods, monkeypatch):
@@ -670,7 +706,23 @@ async def test_arrester_revert_pin_selects_the_comfort_not_a_raw_range(mods, mon
     assert res.status is S.WriteStatus.APPLIED
     assert _selects(hass) == [{"entity_id": SEL, "option": "home"}]
     assert _temps(hass) == []
-    assert _eco(mods, hass)._last_sent_select == {}       # pin records nothing
+    # B-L1 / D-L1: a landed pin is this zone's select record.
+    assert _eco(mods, hass)._last_sent_select == {(ZONE, ENT): ("select_option", "home")}
+
+
+@pytest.mark.asyncio
+async def test_b_l1_s1_tick_after_a_pin_does_not_select_again(mods, monkeypatch):
+    """B-L1 wire-in: after an S4-style `pin_preset(home)` the next S1 tick
+    (zone reads home) writes nothing — without the pin's record R2 would
+    select the same comfort a second time."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch)
+    await _eco(mods, hass).pin_preset(
+        hass, ENT, "home", emit=object(), blocking=True, site="S4", zone_id=ZONE, reason="revert")
+    clk.t = T0 + 30
+    await _tick(coord, hass)
+    assert coord.zone_manager.zones[ZONE].preset_mode == "home"
+    assert _selects(hass) == [{"entity_id": SEL, "option": "home"}]
 
 
 @pytest.mark.asyncio
@@ -854,8 +906,11 @@ def test_m8_r4_settled_deviation_matching_a_recent_ura_value(mods, monkeypatch):
     assert eco.hold_needs_reassert(hass, ENT, "home", zone_id=ZONE) is True
 
 
-@pytest.mark.parametrize("dt,expect", [(15, True), (16, False)])
-def test_m8_r4_inside_the_15_s_temperature_echo_window(mods, monkeypatch, dt, expect):
+@pytest.mark.parametrize("dt", [0, 15, 16])
+def test_a_l1_r4_has_no_select_time_arm(mods, monkeypatch, dt):
+    """A-L1: the old "within 15 s of URA's select" R4 arm is gone (a
+    `settled` hold is always past the 180 s window, so it was dead). A
+    deviation that matches no recent URA setpoint never re-asserts."""
     clk = _clock(monkeypatch, mods)
     coord, hass = _rig(mods, monkeypatch)
     eco = _eco(mods, hass)
@@ -863,7 +918,7 @@ def test_m8_r4_inside_the_15_s_temperature_echo_window(mods, monkeypatch, dt, ex
     eco._last_sent_select[(ZONE, ENT)] = ("select_option", "home")
     _set_eco(hass, low=68.0, high=74.0)
     clk.t = T0 + dt
-    assert eco.hold_needs_reassert(hass, ENT, "home", zone_id=ZONE) is expect
+    assert eco.hold_needs_reassert(hass, ENT, "home", zone_id=ZONE) is False
 
 
 def test_m8_carrier_and_generic_never_reassert(mods, monkeypatch):
@@ -1199,3 +1254,369 @@ async def test_vacancy_skip_keeps_the_selects_suppression_window(mods, monkeypat
     await _tick(coord, hass)
     assert ENT in arr._suppressed_until
     assert len(_selects(hass)) == 1
+
+
+# ==========================================================================
+# Review fix pass 2026-10-06 (B-M1/D-M1, A-M2, D-M2, C-HIGH, B-L2, B-L3, A-L2)
+# ==========================================================================
+
+
+def _ts(wall):
+    """A state `last_updated` at the given wall epoch second (tz-aware)."""
+    return datetime.fromtimestamp(wall, tz=timezone.utc)
+
+
+def _st(mode, low, high, lu):
+    """A climate state object; `lu` None = no timestamp attribute at all."""
+    s = types.SimpleNamespace(entity_id=ENT, state=mode, attributes={
+        "target_temp_low": low, "target_temp_high": high,
+        "hvac_modes": ["off", "heat", "cool", "heat_cool"]})
+    if lu is not None:
+        s.last_updated = _ts(lu)
+    return s
+
+
+def _ev(old, new):
+    return types.SimpleNamespace(
+        data={"entity_id": ENT, "new_state": new, "old_state": old},
+        context=types.SimpleNamespace(user_id=None, parent_id=None, id="ctx"))
+
+
+def _overrides(hass, mods):
+    return [r for r in hass.data[mods["const"].DOMAIN]["activity_logger"].actions("override_detected")
+            if r.get("entity_id") == ENT]
+
+
+@pytest.mark.asyncio
+async def test_b_m1_person_change_as_first_event_after_the_window_is_booked(mods, monkeypatch):
+    """B-M1 = D-M1 (handler read order): select home at T0, the device
+    holds its comfort 71/75, NOTHING reads it until a person moves cool to
+    73 at T0+181. That event is the first read after the window. The
+    arrester reads the OLD state first, settles 71/75 and books ONE
+    override (delta -2). States here carry no timestamp, so only the read
+    order protects them (reading NEW first settles 71/73 = absorbed)."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch)
+    await _tick(coord, hass)                                    # select home at T0
+    clk.t = T0 + 181
+    coord._override_arrester._handle_climate_change(_ev(
+        _st("heat_cool", 71.0, 75.0, None), _st("heat_cool", 71.0, 73.0, None)))
+    await H.drain(hass, rounds=6)
+    rows = _overrides(hass, mods)
+    assert len(rows) == 1
+    assert rows[0]["details"]["delta_f"] == -2.0
+    assert _eco(mods, hass)._held[ENT].settled == (71.0, 75.0)
+
+
+@pytest.mark.asyncio
+async def test_d_m1_a_reader_of_the_new_state_first_never_absorbs_the_change(mods, monkeypatch):
+    """D-M1 (refusal): another reader sees the person's NEW state (stamped
+    after the window end) BEFORE the arrester. It must not settle from it:
+    it reads the label, settles nothing, and the arrester then books the
+    change against the comfort as of the window end (71/75)."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch)
+    await _tick(coord, hass)
+    eco = _eco(mods, hass)
+    clk.t = T0 + 300
+    old = _st("heat_cool", 71.0, 75.0, T0 + 5)
+    new = _st("heat_cool", 71.0, 73.0, T0 + 290)
+    assert eco.preset_of(new, None, hass=hass, entity_id=ENT) == "home"
+    assert eco._held[ENT].settled is None
+    coord._override_arrester._handle_climate_change(_ev(old, new))
+    await H.drain(hass, rounds=6)
+    assert len(_overrides(hass, mods)) == 1
+    assert eco._held[ENT].settled == (71.0, 75.0)
+
+
+def test_d_m1_a_later_state_settles_from_the_state_seen_before_the_window_end(mods, monkeypatch):
+    """D-M1 (state as of the window end): the comfort 71/75 was seen inside
+    the window; the first read after it is a LATER state 71/73 -> settled
+    from the 71/75 seen before the end, so 71/73 reads `manual`."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch)
+    eco = _eco(mods, hass)
+    eco._held[ENT] = _hsel(mods, "home", T0)
+    clk.t = T0 + 30
+    assert eco.preset_of(_st("heat_cool", 71.0, 75.0, T0 + 5), None, hass=hass, entity_id=ENT) == "home"
+    clk.t = T0 + 300
+    assert eco.preset_of(_st("heat_cool", 71.0, 73.0, T0 + 290), None, hass=hass, entity_id=ENT) == "manual"
+    assert eco._held[ENT].settled == (71.0, 75.0)
+
+
+def test_d_m1_a_later_state_equal_to_an_earlier_later_state_settles(mods, monkeypatch):
+    """D-M1 "unless it equals the prior state": with nothing seen before the
+    window end (e.g. after a restart), a later state is refused; a second,
+    DIFFERENT state with the same legs settles (the legs did not change
+    between them). The same state read twice never does."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch)
+    eco = _eco(mods, hass)
+    eco._held[ENT] = _hsel(mods, "home", T0)
+    clk.t = T0 + 400
+    s1 = _st("heat_cool", 71.0, 75.0, T0 + 300)
+    assert eco.preset_of(s1, None, hass=hass, entity_id=ENT) == "home"
+    assert eco.preset_of(s1, None, hass=hass, entity_id=ENT) == "home"
+    assert eco._held[ENT].settled is None
+    assert eco.preset_of(_st("heat_cool", 71.0, 75.0, T0 + 350), None, hass=hass, entity_id=ENT) == "home"
+    assert eco._held[ENT].settled == (71.0, 75.0)
+
+
+@pytest.mark.parametrize("boundary,settles", [(179, True), (180, True), (181, False)])
+def test_d_m1_settle_boundary_is_the_window_end(mods, monkeypatch, boundary, settles):
+    """A state stamped at/before T0+180 existed at the window end and
+    settles at once; one stamped T0+181 is refused (nothing seen before)."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch)
+    eco = _eco(mods, hass)
+    eco._held[ENT] = _hsel(mods, "home", T0)
+    clk.t = T0 + 400
+    eco.preset_of(_st("heat_cool", 71.0, 75.0, T0 + boundary), None, hass=hass, entity_id=ENT)
+    assert (eco._held[ENT].settled is not None) is settles
+
+
+def test_a_l2_settle_requests_one_save(mods, monkeypatch):
+    """A-L2: the lazy settle asks for a zone-state save once (reason
+    `w1c_adapter_settled`); later equal reads ask for nothing."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch)
+    S = _S(mods)
+    saves = []
+    monkeypatch.setattr(S._CTX, "on_change", saves.append)
+    eco = _eco(mods, hass)
+    eco._held[ENT] = _hsel(mods, "home", T0)
+    clk.t = T0 + 181
+    for _ in range(3):
+        eco.preset_of(_set_eco(hass, low=71.0, high=75.0), None, hass=hass, entity_id=ENT)
+    assert saves == ["w1c_adapter_settled"]
+
+
+def test_b_l3_migration_requests_a_save_and_v2_does_not(mods, monkeypatch):
+    """B-L3: a legacy option-B `held` migrates and asks for ONE save; a v2
+    slice rehydrates with no save request."""
+    _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch)
+    S = _S(mods)
+    saves = []
+    monkeypatch.setattr(S._CTX, "on_change", saves.append)
+    S._test_reset_cache()
+    coord._rehydrate_w1c_adapter({"__w1c_adapter": {ENT: {"held": ["home", 70.0, 77.0], "ranges": []}}})
+    assert saves == ["w1c_adapter_migrated"]
+    blob = json.loads(json.dumps(S.export_adapter_state()))
+    saves.clear()
+    S._test_reset_cache()
+    coord._rehydrate_w1c_adapter({"__w1c_adapter": blob})
+    assert saves == []
+
+
+# ---- A-M2: the reference for a preset URA does not hold -----------------
+
+
+@pytest.mark.asyncio
+async def test_a_m2_q7_pre_arrival_reference_is_the_arrival_preset_not_the_held_away(mods, monkeypatch):
+    """A-M2 / Q7: the zone holds away (settled 60/82); the arrival reference
+    (home_day -> home) measures against HOME's effective range 70/77, not
+    the held away numbers."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch)
+    eco = _eco(mods, hass)
+    clk.t = T0 + 600
+    res = coord._override_arrester._baseline_resolver
+    eco._held[ENT] = _hsel(mods, "away", T0, (60.0, 82.0))
+    assert res(ZONE, None, True) == ("home", 77.0, 70.0)
+    eco._held[ENT] = _hrng(mods, "away", 60, 82)
+    assert res(ZONE, None, True) == ("home", 77.0, 70.0)
+    assert res(ZONE, "away") == ("away", 82.0, 60.0)           # label match: held numbers
+
+
+@pytest.mark.asyncio
+async def test_a_m2_q7_reference_uses_a_stored_composition_of_the_requested_preset(mods, monkeypatch):
+    """A-M2: the reference for a preset URA does not hold is its EFFECTIVE
+    range — a stored composition wins over the baseline (option B)."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch)
+    eco = _eco(mods, hass)
+    clk.t = T0 + 600
+    eco._ranges[(ENT, "home", "summer")] = (69.0, 78.0)
+    eco._held[ENT] = _hsel(mods, "away", T0, (60.0, 82.0))
+    assert coord._override_arrester._baseline_resolver(ZONE, None, True) == ("home", 78.0, 69.0)
+
+
+@pytest.mark.parametrize("house,reverts,expect", [
+    ("sleep", False, None),           # target sleep: eff 70/76 == live -> no revert
+    ("home_day", True, (72.0, 68.0)),  # target home == held label: settled 68/72
+])
+@pytest.mark.asyncio
+async def test_a_m2_startup_audit_measures_the_target_preset(mods, monkeypatch, house, reverts, expect):
+    """A-M2 (startup audit): held = home select settled 68/72; the device
+    reads 70/76 (manual). In Sleep the audit targets `sleep`, whose
+    effective range IS 70/76 -> nothing to revert (the held home numbers
+    would read a 4 °F departure). In Home the held numbers apply."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch, low=70.0, high=76.0)
+    arr = coord._override_arrester
+    _eco(mods, hass)._held[ENT] = _hsel(mods, "home", T0, (68.0, 72.0))
+    clk.t = T0 + 600
+    await arr.async_startup_audit(coord._preset_manager, house)
+    await H.drain(hass)
+    assert bool(arr._override_active.get(ZONE)) is reverts
+    if expect is not None:
+        ep = arr._arrest_episode[ZONE]
+        assert (ep["expected_cool"], ep["expected_heat"]) == expect
+
+
+# ---- D-M2: person-protection gates hold the S1 re-assert -----------------
+
+
+def _absorbed_after_restart(mods, monkeypatch):
+    """A person's 69/74 absorbed as `settled` of a home select; restart =
+    no RAM select record, so the zone (reading home) needs a re-assert."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch, low=69.0, high=74.0)
+    _eco(mods, hass)._held[ENT] = _hsel(mods, "home", T0, (69.0, 74.0))
+    clk.t = T0 + 600
+    return coord, hass
+
+
+@pytest.mark.parametrize("gate", ["tao", "immune", "grace", "borrow_row", "nudge_in_flight"])
+@pytest.mark.asyncio
+async def test_d_m2_reassert_is_held_by_the_person_protection_gates(mods, monkeypatch, gate):
+    """D-M2 (ruling b): TAO / an immune hold (a/b), an arrester grace (c) or
+    a live borrow (e) hold the S1 re-assert — the person's absorbed change
+    is not overwritten. Positive control: the gate gone -> ONE select."""
+    coord, hass = _absorbed_after_restart(mods, monkeypatch)
+    arr = coord._override_arrester
+    if gate == "tao":
+        arr._temp_arrester_override_active = True
+    elif gate == "immune":
+        monkeypatch.setattr(arr, "_is_hold_immune", lambda z: z == ZONE)
+    elif gate == "grace":
+        arr._grace_timers[ZONE] = lambda: None
+    elif gate == "borrow_row":
+        ex = sys.modules[type(arr).__module__.replace("hvac_override", "hvac_excursion")]
+        monkeypatch.setattr(ex, "is_borrow_active", lambda z: z == ZONE)
+    else:
+        arr._nudge_in_flight.add(ZONE)
+    await _tick(coord, hass)
+    assert coord.zone_manager.zones[ZONE].preset_mode == "home"
+    assert _selects(hass) == []
+    arr._temp_arrester_override_active = False
+    monkeypatch.setattr(arr, "_is_hold_immune", lambda z: False)
+    arr._grace_timers.pop(ZONE, None)
+    arr._nudge_in_flight.discard(ZONE)
+    ex = sys.modules[type(arr).__module__.replace("hvac_override", "hvac_excursion")]
+    monkeypatch.setattr(ex, "is_borrow_active", lambda z: False)
+    await _tick(coord, hass)
+    assert _selects(hass) == [{"entity_id": SEL, "option": "home"}]
+
+
+@pytest.mark.asyncio
+async def test_d_m2_passive_arrester_does_not_hold_the_reassert(mods, monkeypatch):
+    """Ruling b names (a/b), (c), (e) — gate (d) (arrester disabled) does
+    NOT hold a re-assert."""
+    coord, hass = _absorbed_after_restart(mods, monkeypatch)
+    coord._override_arrester.enabled = False
+    await _tick(coord, hass)
+    assert _selects(hass) == [{"entity_id": SEL, "option": "home"}]
+
+
+@pytest.mark.asyncio
+async def test_d_m2_unwired_arrester_holds_the_reassert(mods, monkeypatch):
+    """Fail-closed like the manual rule: no arrester wired -> no re-assert."""
+    coord, hass = _absorbed_after_restart(mods, monkeypatch)
+    coord._preset_manager._arrester = None
+    await _tick(coord, hass)
+    assert _selects(hass) == []
+
+
+@pytest.mark.parametrize("gate", ["tao", "nudge_in_flight"])
+@pytest.mark.asyncio
+async def test_d_m2_vacancy_away_reassert_is_held_by_a_b_and_e(mods, monkeypatch, gate):
+    """D-M2 at the vacancy `Already away` re-assert: (a/b) and (e) — the
+    gates this bypass respects over manual — hold it; positive control
+    without the gate re-selects away."""
+    _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch, low=60.0, high=82.0)
+    coord._zone_intelligence_enabled = True
+    monkeypatch.setattr(coord, "_zone_conditioning_retreat_ok", lambda z: True)
+    z = coord.zone_manager.zones[ZONE]
+    z.last_occupied_time = H.utc_now() - timedelta(hours=3)
+    _eco(mods, hass)._held[ENT] = _hrng(mods, "away", 60, 82)
+    arr = coord._override_arrester
+    if gate == "tao":
+        arr._temp_arrester_override_active = True
+    else:
+        arr._nudge_in_flight.add(ZONE)
+    coord.zone_manager.update_zone_climate_state(ZONE)
+    assert z.preset_mode == "away"
+    await coord._apply_house_state_presets()
+    await H.drain(hass)
+    assert _selects(hass) == []
+    arr._temp_arrester_override_active = False
+    arr._nudge_in_flight.discard(ZONE)
+    await coord._apply_house_state_presets()
+    await H.drain(hass)
+    assert _selects(hass) == [{"entity_id": SEL, "option": "away"}]
+
+
+@pytest.mark.asyncio
+async def test_d_m2_carrier_reassert_path_never_reads_the_gates(mods, monkeypatch):
+    """Carrier byte-identity: a Carrier zone at its target never reaches the
+    re-assert gate read (the adapter says no re-assert first)."""
+    coord, hass = _rig(mods, monkeypatch)
+    calls = []
+    real = coord._reassert_refused
+    monkeypatch.setattr(coord, "_reassert_refused", lambda z, g: calls.append(z) or real(z, g))
+    H.set_climate(hass, CAR, preset_mode="home", hold_activity="home")
+    coord.zone_manager.update_zone_climate_state(CAR_ZONE)
+    await coord._apply_house_state_presets()
+    await H.drain(hass)
+    assert CAR_ZONE not in calls
+
+
+# ---- C-HIGH: the Branch-S no-op's `preset_of(...) == preset` clause -------
+
+
+@pytest.mark.asyncio
+async def test_c_high_s1_reclaims_a_settled_person_change_with_exactly_one_select(mods, monkeypatch):
+    """C-HIGH (S1-tick version): select home, settle 68/72, a person moves
+    the legs to 64/78 -> the zone reads manual; three S1 ticks make EXACTLY
+    one new select (the Branch-S no-op must not swallow the reclaim, and
+    the re-select's window keeps the next ticks quiet)."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch)
+    await _tick(coord, hass)
+    clk.t = T0 + 181
+    coord.zone_manager.update_zone_climate_state(ZONE)
+    eco = _eco(mods, hass)
+    assert eco._held[ENT].settled == (68.0, 72.0)
+    _set_eco(hass, low=64.0, high=78.0)
+    for _ in range(3):
+        await _tick(coord, hass)
+    assert _selects(hass) == [{"entity_id": SEL, "option": "home"}] * 2
+
+
+# ---- B-L2: a stale recapture request never outlives one skip check -------
+
+
+@pytest.mark.asyncio
+async def test_b_l2_stale_recapture_request_is_cleared_by_the_next_skip_check(mods, monkeypatch, caplog):
+    """R4 asks for a recapture, but S1 does not act on it (e.g. a gate). The
+    next skip check without R4 clears it, so a later select is NOT counted
+    as a schedule recapture."""
+    clk = _clock(monkeypatch, mods)
+    coord, hass = _rig(mods, monkeypatch)
+    eco = _eco(mods, hass)
+    mods["hvac_setpoint"].record_ura_setpoint(ENT, 68.0, 74.0)
+    eco._held[ENT] = _hsel(mods, "home", T0, (71.0, 75.0))
+    eco._last_sent_select[(ZONE, ENT)] = ("select_option", "home")
+    clk.t = T0 + 600
+    _set_eco(hass, low=68.0, high=74.0)
+    assert eco.hold_needs_reassert(hass, ENT, "home", zone_id=ZONE) is True     # R4
+    _set_eco(hass, low=71.0, high=75.0)
+    assert eco.hold_needs_reassert(hass, ENT, "home", zone_id=ZONE) is False
+    eco._last_sent_select.clear()
+    with caplog.at_level(logging.INFO):
+        await eco.hold_preset(hass, ENT, "home", site="S1", zone_id=ZONE, reason="r")
+    assert _selects(hass) == [{"entity_id": SEL, "option": "home"}]
+    assert not [r for r in caplog.records if "branch_s_schedule_recapture" in r.getMessage()]
