@@ -30813,13 +30813,14 @@ cards:
   refs: [docs/planning/PLANNING_census_inputs_first.md]
   sweep_2026_10_05: 'Board grep EGRESS-*: EGRESS-EXIT-IDENTITY-BACKFILL-1 is ADJACENT (exit side only). NEW.'
 - id: CENSUS-ATHOME-RESIDENT-CORROBORATOR-1
+  prior_art_2026_10_07_overnight: "PRIOR-ART SCAN DONE (read-only agent, develop 750cc06ab; orchestrator spot-read of the cited symbols pending at plan time). REUSE: per-person BLE room with freshness = person_coordinator.data[person] (location / tracking_status / last_bermuda_update; STALE handling person_coordinator.py:608-616, STALE_THRESHOLD_SECONDS const.py:240); census already turns it into a freshness-gated per-area resident count, camera_census.py:2809 _ble_home_by_area (+ room->area map :2480). MISSING: a door -> adjacent interior room/area map - CONF_DOOR_GROUPS (const.py:2735) and CONF_DOOR_INTERIOR_NEIGHBOURS (const.py:2739, used transit_validator.py:1113-1128 / _get_interior_cameras_near :2187) map door to interior CAMERAS; a route exists door_group -> interior camera -> CameraInfo.area_id (camera_census.py:158) -> _ble_home_by_area. NOT COVERED TODAY: egress identity JOIN is face-only (transit_validator.py:1357 _resolve_egress_face_identity; its only phone check is the not_home veto :1835-1850), and BLE crossing attribution (camera_census.py:4113, registered :4582) needs a home<->not_home edge, which a phone that stays home never makes. Manual (IDENTITY_FUSION_CAMERAS_MANUAL.md §6 gap table) does not list this gap - add it at plan time. Verdict: buildable as a small extension at the transit_validator crossing-resolve step, IF the side door's adjacent room is BLE-resolvable (undetermined - that is the measurement)."
   groomed_2026_10_05_overnight: "Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRESS-BLE-ENTRY-ATTACH-1 refutation), so the true at-home-resident residual can only be sized after D1 ships."
   title: A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor
   thread: census
   status: "pre_planning"
   created: '2026-10-05 02:22'
-  updated: "2026-10-05 02:26"
-  refinement_status: initial
+  updated: "2026-10-07 03:05"
+  refinement_status: "refined"
   tags: [tier-2, measure-before-build, institutional-context]
   rank: {value: 4, time_criticality: 2, effort: 5}
   problem_solution:
@@ -30830,7 +30831,7 @@ cards:
      estimator clears at the next empty-house window.'
   origin: {date: '2026-10-04', gist: 'PLANNING_census_inputs_first.md R2.3 item 4 / Path alpha-beta; listed as to-mint in the 10-04 resume memo'}
   why: 'Budget of ~3-4 unattributable episodes/day (front porch bursts + the 12:38-12:42 garage_a cluster on 10-03).'
-  next: 'Prior-art scan of existing BLE area/room presence signals near doors (plan Path alpha, :91) before proposing any producer.'
+  next: "PLAN (me, Tier 2, after CENSUS-INPUTS-FIRST-1 D2+ settles): measure first - per side door (front porch, garage_a), is the adjacent interior room BLE-direct (is_room_direct_ble) and how often is a resident ACTIVE there in the 60 s before an unnamed crossing (replay over last week's census door events). If the hit rate is useful, plan the small extension below; if the adjacent room is not BLE-resolvable, close as the accepted Path-beta gap."
   refs: [docs/planning/PLANNING_census_inputs_first.md]
   links:
     parent: CENSUS-INPUTS-FIRST-1
@@ -30951,11 +30952,12 @@ cards:
   why: 'Restart 2026-10-05 19:00 took ~12 min to come back: HA "stop integrations" and "final write" stages both timed out waiting on pending UniversalRoomDatabase.log_census() tasks (5) plus one OverrideArrester._evaluate_nudge_outcome; coordinator_diagnostics then failed saving baselines with "DB write failed: shutdown timeout". Every restart pays this.'
   next: "SHIP (operator-timed, daytime deploy): merge fix/shutdown-db-write-fastfail (95fc75e8b) to develop after the overnight full-suite name-diff (result on this card), fold docs/planning/DRAFT_README_shutdown_db_fastfail.md into the release README, name this card in deploy.sh --cards. Live check at that restart: no shutdown-stage timeouts on log_census / nudge-eval, no DB write failed: shutdown timeout."
 - id: STUCK-SENSOR-WARNING-PER-TICK-1
+  build_2026_10_07_overnight: "Built on fix/stuck-sensor-warn-once (16648bd99): helper _emit_p22_stuck_sensor_for_tick logs WARNING only when the per-day latch key is first added (with the NM), DEBUG otherwise; 37 stuck tests green; builder helper-level drill red->green. ORCHESTRATOR CALL-NEUTER DRILL FAILED: replacing the call in _async_update_data with pass left all 37 green (hollow wire-in anchor) - sent back for an enclosing-method anchor test. Live corroboration: HA system_log shows the Exercise Room stuck warning counted 483 times since 10-06 23:21 CDT."
   title: The "sensor stuck on" warning is written to HA's log every few seconds for as long as a sensor stays stuck, instead of once
   status: in_progress
   thread: presence
   created: '2026-10-07 02:15'
-  updated: '2026-10-07 02:15'
+  updated: "2026-10-07 03:05"
   refinement_status: initial
   problem_solution:
   - 'Problem: when a room''s motion/radar sensor stays on for hours, URA ignores it (correct) but writes the same "stuck on for N hours" warning into HA''s log on every check, about 3 times a minute per sensor. Tonight two sensors (Master Bedroom and Exercise Room radars) wrote 216 such lines in 43 minutes, adding to the log floods that already push HA''s log history down to under an hour. Solution: write the warning once when the sensor first gets ignored (the same moment the phone notification already fires), and only a quiet debug line after that.'
@@ -30980,6 +30982,32 @@ cards:
   next: 'BUILD (me, overnight): worktree build + test + review -> review lane; ship with the next daytime deploy.'
   refs:
   - custom_components/universal_room_automation/coordinator.py:3111
+- id: FRONT-DOOR-LOCK-OFFLINE-1
+  title: The front-door Z-Wave lock has been offline for over a week, so nothing in HA can lock it or see if it is jammed or low on battery
+  status: waiting_operator
+  thread: security
+  created: '2026-10-07 03:05'
+  updated: '2026-10-07 03:05'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: the front-entry Kwikset lock (lock.doorlock_kwikset_zwave_frontentry) and all its sensors (battery, jammed, tamper, door status) have been unavailable for at least 8 days, so URA security cannot lock it or warn about it, and its battery warnings cannot reach you. URA only writes a log warning ("Periodic lock check: 1 device(s) unavailable"). Solution: this is a device problem, not URA code - check the lock''s batteries first (the most common cause), then wake or re-interview it in Z-Wave JS.'
+  approval: blocked
+  tags: [config-only]
+  origin:
+    date: '2026-10-07'
+    gist: overnight pass, HA system_log entry from URA's periodic lock check (5 hits since the 10-06 14:37 CDT boot)
+  why: 'Evidence: live REST states 2026-10-07 02:05 CDT - lock + 20 sibling entities unavailable (since the 10-06 19:41Z boot, and before it); recorder (home-assistant_v2.db, retention starts 2026-09-29 04:12 CDT) has NO non-unavailable state for the lock or its battery sensor, so it has been offline the whole recorder window. Z-Wave JS config entry is loaded; two nodes report dead (sensor.node_3_node_status, sensor.node_6_node_status) - which node is the lock was not determined. Device-offline, per the CLAUDE.md troubleshooting rule (device offline != integration failed).'
+  constraints:
+  - Do not re-include or exclude the node remotely; physical battery check first.
+  parked_alts: []
+  refinement: []
+  knobs: []
+  parsimony: {problem: 'front-entry lock entities unavailable >= 8 days (whole recorder window)', verdict: BUILD}
+  sweep_2026_10_07: 'Swept board, history, BACKLOG for kwikset / zwave / front lock / periodic lock check: no card. Possibly ADJACENT to the gap that sensor.<room>_unavailable_entities does not track actuators (CLAUDE.md troubleshooting step 2) - a dead lock is invisible except for one log line. NEW.'
+  rank: {value: 6, time_criticality: 5, effort: 1}
+  next: 'DO: replace / check the front-door lock batteries, then (if still dead) open Z-Wave JS and Ping or Re-interview the lock node. -> I confirm lock.doorlock_kwikset_zwave_frontentry reads locked/unlocked and its battery sensor reports, then close this card.'
+  refs:
+  - 'HA system_log 2026-10-07: custom_components.universal_room_automation.domain_coordinators WARNING Periodic lock check: 1 device(s) unavailable: lock.doorlock_kwikset_zwave_frontentry'
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
