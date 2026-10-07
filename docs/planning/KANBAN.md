@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-07T02:08:24-05:00_ - _Data commit: `e61369c33e33`_ - _last_reconciled: 2026-10-06_
+_Generated: 2026-10-07T02:10:31-05:00_ - _Data commit: `e9da9575daf6`_ - _last_reconciled: 2026-10-06_
 
 
 ## Columns
@@ -533,14 +533,15 @@ _created 2026-09-29 04:20 · updated 2026-10-05 02:22 · initial_
 
 ### `RECORDER-BLOAT-LOGFLOOD-1` - 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log floods — _#9 · WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **platform** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-20 14:15 · updated 2026-10-06 02:10 · initial_
+_created 2026-08-20 14:15 · updated 2026-10-07 03:40 · initial_
 - **Problem / Solution:**
   - Problem: the history database has grown to about 31 GB while only holding a week of data, and the drive it lives on reports half its write life used. Three separate things are spamming thousands of repeated error lines a day, and every o...
 - **Why:** Live 2026-08-20 system_health: estimated_db_size 31722.88 MiB, oldest_recorder_run 2026-08-13 (7 days), disk_life_time 51%. Top floods: mqtt.number 1030 errors (Sonoff garage-B porch delayed_power_on_time_l1 range mismatch, config-level ...
 - **Next:** PICK for the top flood (owner now FOUND): the ~4,800 lines/hour urllib3 InsecureRequestWarning comes from the Proxmox VE integration (both entries: 192.168.13.12:8006 and 192.168.13.14:8006, verify_ssl off). (A) add a logger filter in co...
 - **Tags:** measure-before-build
 - **Refs:** ha_get_system_health 2026-08-20; FRIGATE-LEG-NAMING-1
-- **Forensic keys (22):**
+- **Forensic keys (23):**
+  - `remeasured_2026_10_07_overnight`: Bond flood unchanged: HA core log (hassio proxy, last 20,000 lines) spans only 01:17-02:01 CDT (44 min); 18,010 of those lines are homeassistant.components.bond.entity tracebacks (~24k lines/h). system_log since the 10-06 14:37 boot: 'li...
   - `INSTANCE_2026_10_06_bond_traceback_flood`: NEW TOP FLOOD, larger than Proxmox: ha_get_logs error_log 02:04:39-02:07:40 CDT = 2,000 raw lines in 3 min (~40k lines/h); 1,844 of them are unparseable traceback lines, and the parsed entries are led by homeassistant.components.bond (48...
   - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
   - `cost_note_2026_10_05_overnight`: Extra cost of the proxmox flood found tonight: it rotates HA journald so fast that the core log reaches back only ~4 h (10-04 22:29 -> 10-05 02:04), which makes boot-time log checks impossible after the fact (FAN-ORACLE-BOOT-FALLBACK-NOI...
