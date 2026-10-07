@@ -381,13 +381,14 @@ meta:
     acknowledged: false
 cards:
 - id: EC-LKG-NEVER-PERSISTED-1
+  organic_evidence_2026_10_07: "SOAK EXIT -> DONE. Live acceptance met: URA DB energy_state rows battery_soc_lkg / solar_production_w_lkg / wv_commanded_ledger / wv_verified_records / arbitrage_chunk_latch ALL updated_at 2026-10-07T06:55:40Z (were frozen at 2026-07-23 22:09Z). Query: ssh ha sqlite3 -readonly ... select key, updated_at from energy_state."
   verified_2026_10_05_overnight: "ALREADY-FIXED ON THE EC p1 BRANCH (not yet shipped) + live blast radius MEASURED. (1) develop/live: AST of EnergyCoordinator._save_evse_state on develop binds NO _json (uses at energy.py:2054, 2065, 2143, 2150, 2191) -> NameError swallowed at DEBUG per block. (2) Live URA DB energy_state (ssh sqlite3 -readonly): battery_soc_lkg, wv_commanded_ledger, wv_verified_records and arbitrage_chunk_latch all last written 2026-07-23 22:09:33Z, i.e. frozen for 74 days (solar LKG row never existed); every other key is fresh (07:04Z today). 07-23 is the blind-window-guard merge day (642edbe36) - likely where the binding was lost. Consequence beyond the card title: the v5.17.1 D2 arbitrage-latch persistence (the guard against the 2026-07-14 restart-mid-hold incident) has been inert since 07-23; its 10 h restore age gate silently drops the stale row. (3) Fix: 7f60f137e on feature/ec-degraded-data-p1 binds import json as _json at the top of the function (energy.py:2160 on that branch) and its DRAFT README B1 already names all five rows. Card was stale in inbox; moved to review (built, awaiting the EC p1 ship)."
   title: Battery and solar last-known-good are never saved — _save_evse_state uses an unbound _json, error swallowed at DEBUG
   thread: energy
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.39
   created: '2026-10-04 02:00'
-  updated: "2026-10-05 02:22"
+  updated: "2026-10-07 03:30"
   next: "SHIP with EC p1 (feature/ec-degraded-data-p1, operator-timed Mon after the 13:05 A/B). Live acceptance after that restart: ALL FIVE energy_state rows (battery_soc_lkg, solar_production_w_lkg, wv_commanded_ledger, wv_verified_records, arbitrage_chunk_latch) show updated_at later than the deploy; today they are frozen at 2026-07-23 22:09Z. The draft README :127 only names battery_soc_lkg - widen it to all five at write-back."
   why: 'Found by the EC degraded-data phase 1 builder 2026-10-04. Restart outages today (00:37, 15:55, 17:05) started with an empty LKG, contradicting the plan''s LKG-persistence reuse assumption.'
 - id: EC-ENPHASE-CONNECTIVITY-RESILIENCE-1
@@ -459,13 +460,14 @@ cards:
   next: "SHIP (operator-timed, daytime): merge feature/ec-ev-toggle-tripwire-rebased (2f84c1cd3, 3 commits on develop 7df38c09b) to develop, fold docs/planning/DRAFT_README_ec_ev_toggle_tripwire.md into the release README, name this card in deploy.sh --cards. Full-suite name-diff result is recorded on the card (rebased_2026_10_06_overnight)."
   why: 'SPEC INV-1 / plan review #2 F6: the daylight-horizon fix removes the night ping-pong but a post-sunrise residual remains possible (EV still charging after sunrise, rate from night readings). A code trip-wire, not soak-watching, is the safety net. Operator approved Q8 (alarm) 2026-10-03.'
 - id: ENVOY-STREAM-AB-48H-1
+  disposition_2026_10_07_overnight: "CARD-WAS-WRONG (stale next): the 48h A/B readout already happened and is recorded in README_v5.103.39 section 1: NO-GO (peak battery cutouts 30 -> 138 with the MQTT stream add-on running; stream covered 4/7 native dropouts; its timestamp heartbeat frozen since 09-29). Add-on 13e68335_envoy_to_mqtt_json stopped and set to manual boot; the stream tier (D1) stays dormant. Closed. (I could not re-read the add-on state tonight: the supervisor add-on info call returned no JSON.)"
   title: Envoy MQTT stream re-enabled for a 48 h A/B (does it load the Envoy, and does it give a trustworthy local SOC during dropouts?)
   thread: energy
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.39
   created: '2026-10-03 13:05'
-  updated: '2026-10-03 13:05'
-  next: 'ME at 2026-10-05 13:05: one-shot query vs baseline (stream OFF 2026-10-03 00:58-13:03: 0 Envoy SOC/net dropouts). Measure (1) envoy integration unavailable transitions, (2) peak battery cutouts, (3) sensor.envoy_stream_battery_soc freshness during any Envoy dropout. Dispose: dropouts/cutouts rise -> stop add-on; else keep + feed EC-DEGRADED-DATA-POLICY-1 as the trusted local SOC tier.'
+  updated: "2026-10-07 03:30"
+  next: "Closed 2026-10-07 (readout done, NO-GO)."
   why: 'Operator 2026-10-03 "yes do it". Started add-on 13e68335_envoy_to_mqtt_json 13:03 CDT. Baseline week (stream off since 09-30): 165 SOC dropouts/22.7 per day; today since 00:58 reload: 0. Prior evidence (09-29, entry 167): stream on correlated with 37-94 peak cutouts/day vs 9 off. Cloud SOC proven untrustworthy (frozen 10.0%, up to 75 pp divergence), so a working local stream is the best fallback candidate.'
   readout_2026_10_05: 'NO-GO (48h on vs 48h off, recorder). Peak battery cutouts (SPAN >=1.5kW to <300W) 30 -> 138 per 48h (4.6x) with the stream add-on running; stream SOC covered only 4/7 native dropouts (57%, bar 95%); sensor.envoy_stream_data_timestamp frozen since 2026-09-29 (dead heartbeat). SOC agreement fine (p95 1pp). Per the card dispose rule the add-on 13e68335_envoy_to_mqtt_json was STOPPED and set to boot=manual 2026-10-05 ~13:40. EC phase 1 ships with D1 stream tier dormant (SOC_STREAM_TIER_ENABLED False). Reproduces ENPHASE-BATTERY-CUTOUTS-1 mechanism.'
 - id: EC-RUNG1-WAIT-EV-PINGPONG-1
@@ -653,14 +655,15 @@ cards:
     related: [SAFETY-HUMIDITY-JUNK-READING-1, ENVOY-STREAM-SOC-TIER-1]
     context: 'Siblings of the same reconnect-zero defect; the humidity safety site is fixed on the parent card.'
 - id: SAFETY-HUMIDITY-JUNK-READING-1
+  organic_evidence_2026_10_07: "SOAK EXIT -> DONE (in-suite proven; the live trigger did not recur). Since the 5.103.34 ship (restart 10-03 00:37 CDT): ura_activity_log has 0 low-humidity rows; the recorder shows no sub-5% reading on any sensor.*humidity* entity (the only <5 hits were power/illuminance/delta sensors whose ids contain 'humidity'). So no junk blip happened to exercise the floor live; the floor is covered by its tests and the 09-27 false alert has not repeated. Caveat: humidity sensors whose entity_id lacks 'humidity' were not scanned. Reopen if a low_humidity safety hazard appears with a value under 5%."
   disposition_2026_10_03: "RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Open: no sub-5% humidity blip since restart (0 safety humidity rows in ura_activity_log since 05:37Z). Dispose by 2026-10-10: no low_humidity alert after the next blip -> done."
   shipped_version: "5.103.34"
   title: A single junk "0% humidity" reading from a reconnecting sensor raises a safety alert; ignore physically impossible humidity values
   thread: safety
-  status: "shipped_organic"
+  status: "done"
   groom_2026_09_29: 'MOVED in_progress -> review. Built and reviewed: reviews_2026_09_27 A SHIP + B SHIP. Fix-up dc513cac4 (house safety-alert floor, boundary tests), review record c8776ff26. The branch feature/safety-humidity-junk-floor is 4 ahead / 55 behind develop and NOT merged, so it needs a rebase + re-run before it rides the next release. No build work remains.'
   created: '2026-09-27 02:40'
-  updated: "2026-10-03 02:02"
+  updated: "2026-10-07 03:30"
   live_2026_09_27_0230: 'LIVE at ~02:30 CDT, and this is the discriminating observation: binary_sensor.ura_safety_coordinator_safety_alert = ON and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24. The only active hazard is low_humidity Study A value 0.0 from the junk reading, while the sensor has read 46-49% since. The house is showing a safety warning right now purely because of this defect. It will clear at the next restart (the deploy), and the reason it never self-clears is carded separately as SAFETY-HAZARD-NEVER-CLEARS-1.'
   reviews_2026_09_27: 'Review A (local correctness/edges/consumers): SHIP. M1 MEDIUM, a missed site: the whole-house SafetyAlertBinarySensor in aggregation.py:1359-1365 has its own humidity < 25 check; orchestrator-verified. Plus L1 (chip blips off for 1 s on a real trip; acceptable, snapshot semantics) and L2 (no 5.0 boundary tests at the chip / process_sensor sites). Review B (state/lifecycle/ripple): SHIP. The rate-skip is strictly better, there are no stuck or wrongly cleared hazards, and no actuation ripple (ConstraintActions are never executed). Four out-of-scope findings were carded: SAFETY-HAZARD-NEVER-CLEARS-1, SAFETY-RATE-DETECTOR-DEAD-WINDOW-1 (orchestrator-verified in the live DB: 27 rate samples ever), SAFETY-RECONNECT-ZERO-SIBLINGS-1 (freeze: 0 occurrences ever; fan: to measure), and the observability LOW, folded into the fix-up. Fix-up dispatched for M1 + L2 + the debug log.'
   refinement_status: initial
@@ -687,7 +690,7 @@ cards:
   parsimony:
     problem: Humidity readings below 5% (physically impossible indoors) raise low-humidity safety alerts and chip trips.
     verdict: SIMPLIFY (plausibility floor only)
-  next: "SHIP (on your next deploy): merge feature/safety-humidity-junk-floor (b33174d65) with its README section (79a10d403). Merges cleanly onto develop; batch name-diff clean 10-02."
+  next: "Closed 2026-10-07 (soak exit, in-suite proven)."
   links:
     related: [NATURAL-EXPERIMENT-EMPTY-HOUSE-2026-09-26, ENVOY-STREAM-SOC-TIER-1]
     context: 'Found by the empty-house experiment probe. Same failure SHAPE as ENVOY-STREAM-SOC-TIER-1 constraint 3.8, where a device emits a junk 0 on reconnect. That is a recurring pattern (reconnect-zero) worth a QUALITY_CONTEXT bug-class note.'
@@ -29985,14 +29988,15 @@ cards:
   - quality/tests/test_owner_registry_mutation_matrix.py
   - feedback_unrestored_mutation_drill_poisons_evidence
 - id: URA-ATTRIBUTE-CHURN-1
+  organic_evidence_2026_10_07: "SOAK EXIT -> DONE. README_v5.103.34 criterion: binary_sensor.living_room_occupied < 119 recorder rows per 5 min while occupied. Recorder since 2026-10-03 06:00: max 32 rows in any 5-min bucket, across 2,416 'on' rows (room was occupied often). PASS. The stale 'SHIP on your next deploy' next and the leftover drill DO were superseded: the branch shipped in 5.103.34."
   disposition_2026_10_03: "RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Operator acked. safety_active_cooldowns PASS. Open: <119 recorder rows / 5 min for binary_sensor.living_room_occupied during an occupied window (room unoccupied since restart). Dispose by 2026-10-10 via one recorder query. Also still owed: discard stray const.py edit in worktree agent-a340d6e8716b76184."
   shipped_version: "5.103.34"
   reviewed_2026_10_01_overnight: 'FIX-UP 2 RE-REVIEWED + REBASED (overnight 10-01). Rebased onto develop with no conflicts -> 651216a8e (0 behind). 4 mutation drills re-run, each RED on the expected test, restored. Two framing-disjoint reviews, both SHIP: A (correctness + consumers) - attributes stable in every phase (sensor-active / countdown / held / vacant; producer coordinator.py ~3697-3757), HVAC release_at stable, cooldowns fixed per alert; no reader of the dropped/renamed keys in custom_components, the PWA repo (Safety.tsx reads the cooldowns state only), docs, live automations or lovelace. B (lifecycle/recorder) - restore path never read the dropped keys; no internal logic reads them from hass.states; HA core suppresses identical writes (core.py:2313-2314, :2333-2350 fire only state_reported), so stable dicts really stop state_changed rows. LOWs (not fixed): test helper sets the phase by hand, so a future countdown re-stamp would not be caught; no release_at test; doc mentions of last_evidence_at in README_v5.103.20 / PLANNING_hvac_fast_occupancy_response.md need a write-back at ship. Worktree hygiene: the branch worktree carries a stray uncommitted const.py edit (DEFAULT_CHATTER_BURST_K 10->20, an unrestored drill from an earlier run, NOT in any commit); my restore was permission-denied, so validation uses a fresh detached worktree at 651216a8e. Pending: serial full-suite name-diff (queued).'
   title: Two URA entities re-publish every couple of seconds only because a timestamp or countdown attribute ticked, adding HA CPU load and a history row each time
   thread: platform
-  status: "shipped_organic"
+  status: "done"
   created: '2026-09-28 19:10'
-  updated: "2026-10-03 02:02"
+  updated: "2026-10-07 03:30"
   approval: implied
   tags: [tier-1, ha-cpu, recorder]
   origin:
@@ -30004,7 +30008,7 @@ cards:
   - 'last_motion: grep consumers (dashboards/PWA/automations/URA readers) before dropping; if something reads it, keep it on a slower-changing surface (e.g. the room occupancy sensor only) and mark it unrecorded.'
   - 'cooldowns: publish last_alert + cooldown_until (static per alert); drop age_seconds / max_remaining_seconds.'
   - Sweep every URA entity for the same shape (live-ticking attributes with a steady state), not just these two; measure each against the recorder.
-  next: "SHIP (on your next deploy): merge feature/ura-attribute-churn (651216a8e) with its README section; write back README_v5.103.20 / PLANNING_hvac_fast_occupancy_response.md at ship. Also DO (any time): discard the stray uncommitted const.py edit in .claude/worktrees/agent-a340d6e8716b76184 (DEFAULT_CHATTER_BURST_K 10->20, an unrestored drill; not in any commit)."
+  next: "Closed 2026-10-07 (soak exit)."
   links:
     related: [RECORDER-BLOAT-LOGFLOOD-1, HA-CPU-LOAD-REVIEW-1]
   rank:
@@ -30364,16 +30368,17 @@ cards:
     effort: 2
   verify_2026_09_29_overnight: 'STILL-NEEDS-OPERATOR. Recorder over the last 1h: 69.2 total rows/s, down from 83.9 after the 23:37 restart applied the recorder exclusions. SPAN 1,747 rows/min, unchanged, so (a) is not done. binary_sensor low_flow_leak 41,413 rows/24h (~29/min), still flapping, so (c) is not done. CORRECTION to option (b): the Frigate bridge automation writes ~7 state rows/min (9,864/24h), not the ~115/min the card cites. The 115 is probably runs or events, not state rows. Re-measure trigger count (automation_triggered events) before you pick (b).'
 - id: HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1
+  organic_evidence_2026_10_07: "SOAK EXIT -> DONE. The first auto_return climate_write after the fix: ura_activity_log 2026-10-05T20:19:47Z site auto_return:nudge carries excursion_id nudge:zone_3:1791231341842 (non-null). All S3/S5/S7/S11/S12 rows since 10-05 carry ids. Out of scope, noted only: B5_ac_reset_off / B6_ac_reset_restore (4/4 null) and S1_reason_ladder (171/171 null) are not borrow writes; S4_revert 2/6 null = plain override reverts (as recorded 10-05)."
   soak_check_2026_10_05_overnight: "Still unexercised: zero climate_write rows with site auto_return:* since the 10-03 05:33Z restart (ura_activity_log). Every other borrow site since then carries an id (S5/S7/S11/S12/S3 all non-null; S4_revert 5 null = plain override reverts with no compromise lease, per the 09-30 CARD-WAS-WRONG note). Dispose-by 10-11 stands."
   soak_check_2026_10_04_overnight: "STILL PENDING, card's 'SHIP on your next deploy' was stale: the fix (e2dc7c2d2) shipped in v5.103.36 (tag pre-5103-36), live since the 10-03 05:33Z restart. ura_activity_log since 10-02: 5 auto_return climate_write rows (egress_pause x3, nudge+resume, nudge+pin), ALL excursion_id null - but ALL five are BEFORE the 05:33Z restart (latest 03:42:51Z), so they do not test the fix. Zero auto_return rows since the deploy."
   validated_2026_10_01_overnight: 'READY TO SHIP (overnight 10-01, NOT deployed). Rebased onto develop with no conflicts -> e2dc7c2d2 (0 behind). Targeted -k excursion: 97 pass / 6 fail, the same 6 (test_hvac_excursion_d1_observability.py, AttributeError UniversalRoomDatabase.init_db - test infra drift) fail identically on plain develop. Call-neuter drill at hvac_excursion.py:717 RED then restored. Serial full-suite name-diff vs develop 2b6f94bdc: identical failing-name sets (152 failed + 3 errors, all pre-existing), +1 passing - CLEAN. README draft: docs/planning/DRAFT_README_hvac_auto_return_excursion_id.md. Residual (schema needed): boot ramp-audit nudge restore at hvac_override.py ~7739/7762 still writes NULL.'
   groom_2026_09_29_arc: 'Partial re-measure after Batch B (since 2026-09-29 03:02): 16 borrow writes (S5 nudge start 5, S7 restore 10, S3 compromise 1), 0 without an excursion id (nudge starts were 5/35 null before). The S12 pre-cool and auto_return paths have not fired since, so their gaps are not yet re-measured.'
   title: Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered
   thread: hvac
-  status: shipped_organic
+  status: "done"
   shipped_version: v5.103.34
   created: '2026-09-29 01:05'
-  updated: "2026-10-05 02:22"
+  updated: "2026-10-07 03:30"
   refinement_status: refined
   approval: implied
   rank: {value: 4, time_criticality: 2, effort: 1}
@@ -30817,7 +30822,7 @@ cards:
   groomed_2026_10_05_overnight: "Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRESS-BLE-ENTRY-ATTACH-1 refutation), so the true at-home-resident residual can only be sized after D1 ships."
   title: A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor
   thread: census
-  status: "pre_planning"
+  status: "investigating"
   created: '2026-10-05 02:22'
   updated: "2026-10-07 03:05"
   refinement_status: "refined"
