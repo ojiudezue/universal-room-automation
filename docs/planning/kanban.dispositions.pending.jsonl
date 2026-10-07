@@ -1,0 +1,5 @@
+{"action": "instruct", "at": "2026-10-07T13:11:43.840Z", "card_id": "WAITING-OP-LANE-SWEEP", "text": "Crop out the ac unit in the pool equipment view. I think this is the problem"}
+{"action": "ack", "at": "2026-10-07T13:11:47.404Z", "card_id": "WAITING-OP-LANE-SWEEP@overnight@2026-10-07T03:40:00"}
+{"action": "ack", "at": "2026-10-07T13:11:57.382Z", "card_id": "ENVOY-STREAM-AB-48H-1@2026-10-07T03:30:04"}
+{"action": "ack", "at": "2026-10-07T13:12:00.162Z", "card_id": "SAFETY-HUMIDITY-JUNK-READING-1@2026-10-07T03:30:03"}
+{"action": "ack", "at": "2026-10-07T13:12:04.480Z", "card_id": "URA-ATTRIBUTE-CHURN-1@2026-10-07T03:30:02"}
