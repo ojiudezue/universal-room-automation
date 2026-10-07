@@ -379,61 +379,6 @@ meta:
     outcome: "parked"
     headline: "Confirmed that presence, security and safety anomaly learning is thrown away at every restart (last saved 09-04 to 09-14). Not built tonight because the anomaly cycle already in progress edits the same save code. It goes right after that merges."
     acknowledged: false
-  - fid: "HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1@2026-09-29T05:15:00"
-    at: "2026-09-29T05:15:00"
-    outcome: "built"
-    headline: "Fixed: when a person changed the thermostat just after an AC hard reset, the reset's 'turn back on' step got cancelled and the zone could sit off for up to ~5 minutes. The reset now always finishes and leaves the temperature to the override handling. Two reviews, a mutation check and a full-suite comparison all pass. It's in review, ready to ship after Batch B; not deployed overnight."
-    acknowledged: false
-  - fid: "ENERGY-CONSUMPTION-FORECAST-POISONED-1@2026-09-29T04:50:00"
-    at: "2026-09-29T04:50:00"
-    outcome: "escalated"
-    headline: "The energy forecast is poisoned by an Envoy counter that sometimes reads 45 kWh instead of its ~18,000 kWh lifetime total. Four stored days read 6,800 to 15,900 kWh, and tonight's will too. No EV or battery decision has changed yet. Plan written and reviewed. Your calls: flip the house-load source to live SPAN now; pick the full or simple fix; approve a supervised cleanup of the bad rows."
-    acknowledged: false
-  - fid: "HVAC-NIGHT-LENIENCY-DEGRADATION-DEFENSE-1@2026-09-29T04:27:00"
-    at: "2026-09-29T04:27:00"
-    outcome: "measured"
-    headline: "Jaya's bedroom radar was sensing the fan, not Jaya: it switches on with the fan every time. The 4-hour stuck-sensor rule then dropped it, the room went 'empty' and URA turned the fan off. The night hold covers it, but the real fix is the sensor. Corrected in the HVAC state-of-play doc (C27)."
-    acknowledged: false
-  - fid: "ROOM-OVERRIDE-SWITCH-FORGOTTEN-1@2026-09-29T04:26:00"
-    at: "2026-09-29T04:26:00"
-    outcome: "escalated"
-    headline: "The Exercise Room 'Override Vacant' switch has been on since 09-21, so URA treats the room as empty. The Kitchen one was on for 6 days and caused 14 wrong HVAC retreats. DO: turn it off if not deliberate. Then PICK: close, or approve a small reminder for long-running overrides."
-    acknowledged: false
-  - fid: "HVAC-HOLD-SIZING-ALL-ROOMS-1@2026-09-29T04:25:00"
-    at: "2026-09-29T04:25:00"
-    outcome: "measured"
-    headline: "Re-measured HVAC hold lengths from raw room sensors: no broad problem. Only 3 of 113 away episodes in the week before the fast-path ship were a hold that was too short. Most bad retreats came from a forgotten override and a radar that sees Jaya's fan. I re-run on 10-01 once 3 post-ship days exist."
-    acknowledged: false
-  - fid: "WAITING-OP-LANE-SWEEP@overnight@2026-09-29T02:59:00"
-    at: "2026-09-29T02:59:00"
-    outcome: "measured"
-    headline: "Checked all 24 cards waiting on you against live data. 2 were stale and are closed (above). 22 still need you. Fresh numbers are on HA CPU (the Frigate bridge is 7 rows/min, not 115; recheck before picking b), alert volume (130/day, about 0 acked) and battery cutouts (tonight's 16-21h window not yet read). HA logs were unreadable (MCP down), so no log-based check is reported as clear."
-    acknowledged: false
-  - fid: "PERIMETER-PHANTOM-XCORR-1@2026-09-29T02:58:00"
-    at: "2026-09-29T02:58:00"
-    outcome: "measured"
-    headline: "Phantom back-yard detections fell from 88 to 7 a day on 09-28. Did you clear the cloth pile? If yes I will confirm over 3 days and close; if no, the original ask stands."
-    acknowledged: false
-  - fid: "FRONT-SIDE-PTZ-CHATTER-1@2026-09-29T02:57:00"
-    at: "2026-09-29T02:57:00"
-    outcome: "measured"
-    headline: "front_side_ptz has seen zero people in 5 days while its neighbour cameras are detecting. It went from chattering to blind. Your answer on whether a detection-zone crop or mask was applied is now more urgent."
-    acknowledged: false
-  - fid: "ROOM-NAME-DESYNC-1@2026-09-29T02:56:00"
-    at: "2026-09-29T02:56:00"
-    outcome: "done"
-    headline: "Room renames are in sync: all 43 rooms have the same name in data and options (checked live). The fix shipped in v5.75.0, so your now-or-later pick is moot. Closed."
-    acknowledged: false
-  - fid: "CHATTER-OBSERVE-CONTROL-D7-1@2026-09-29T02:55:00"
-    at: "2026-09-29T02:55:00"
-    outcome: "done"
-    headline: "The chatter detector card asked you to approve building it, but it shipped in v5.85.0 and is live in act mode. Closed. The open question (whether to build a rate-based detector for this house's steady chatter) stays on CHATTER-RATE-VS-BURST-GAP-1."
-    acknowledged: false
-  - fid: "HVAC-GATE8-OVERSHOOT-STAMP-NOT-CLEARED-1@2026-09-29T02:40:00"
-    at: "2026-09-29T02:40:00"
-    outcome: "done"
-    headline: "The nudge overshoot timer surviving a Gate-7 fail is harmless. Only 6 of 108 real nudges carried an old timer; 5 of those 6 worked (vs 95% for the rest, not a real difference), and comfort was no worse. The earlier count of 13 came from a replay bug. Closed with no code change."
-    acknowledged: false
 cards:
 - id: EC-LKG-NEVER-PERSISTED-1
   verified_2026_10_05_overnight: "ALREADY-FIXED ON THE EC p1 BRANCH (not yet shipped) + live blast radius MEASURED. (1) develop/live: AST of EnergyCoordinator._save_evse_state on develop binds NO _json (uses at energy.py:2054, 2065, 2143, 2150, 2191) -> NameError swallowed at DEBUG per block. (2) Live URA DB energy_state (ssh sqlite3 -readonly): battery_soc_lkg, wv_commanded_ledger, wv_verified_records and arbitrage_chunk_latch all last written 2026-07-23 22:09:33Z, i.e. frozen for 74 days (solar LKG row never existed); every other key is fresh (07:04Z today). 07-23 is the blind-window-guard merge day (642edbe36) - likely where the binding was lost. Consequence beyond the card title: the v5.17.1 D2 arbitrage-latch persistence (the guard against the 2026-07-14 restart-mid-hold incident) has been inert since 07-23; its 10 h restore age gate silently drops the stale row. (3) Fix: 7f60f137e on feature/ec-degraded-data-p1 binds import json as _json at the top of the function (energy.py:2160 on that branch) and its DRAFT README B1 already names all five rows. Card was stale in inbox; moved to review (built, awaiting the EC p1 ship)."
@@ -30696,9 +30641,11 @@ cards:
   built_2026_10_04_overnight: "BUILT (ura-builder, worktree overnight-1004-restore52): #52 guard on 9 restores in switch.py - behavioural: HVACZoneSweepSwitch, SecurityDelegateLightsSwitch, AutomationSwitch (per-room automation - also unguarded, found by the builder), CoverAutomationSwitch (also found by the builder), AiAutomationSwitch, InfrastructureRoomSwitch; behaviour-neutral (default OFF): OverrideOccupied, OverrideVacant, ManualMode. Coordinator syncs untouched (still unconditional after the guard). quality/tests/test_restore_guard_52_sweep.py 18 pass; builder drilled each of the 6 behavioural sites red; ORCHESTRATOR re-drilled HVACZoneSweep -> its behavioural test red, restored clean. Review A (completeness, all 51 async_get_last_state sites enumerated independently): SHIP, invariant holds everywhere. Review B (lifecycle + test authority; HA restore_state.py:166-182 confirms 'unavailable' is persisted): SHIP. LOWs deferred (no skip log line; source-grep test is a tripwire not coverage; get_event_loop in harness). Record: docs/reviews/code-review/overnight_2026-10-04_watchdog_unsub_and_restore52.md. Not deployed (overnight contract)."
   title: "After a restart that follows a URA outage, some on-by-default URA switches come back OFF (Vacancy Auto-Off is off right now) - finish the Bug Class #52 restore guard"
   thread: platform
-  status: "review"
+  status: "shipped_organic"
+  shipped_version: "5.103.39"
+  reconcile_2026_10_07_overnight: "CARD-WAS-WRONG (lane): commit 63523e0ed is an ancestor of tags v5.103.39/40/41 (git merge-base --is-ancestor), so this fix SHIPPED in v5.103.39 (2026-10-05 13:52 CDT) without being named in deploy.sh --cards; the board still said review. Moved to shipped_organic. Live 2026-10-07 02:05 CDT: switch.ura_hvac_coordinator_zone_sweep (HVAC 46 Vacancy Auto-Off) is still OFF (unchanged since before 10-04 per recorder) - the fix stops NEW wrong OFF restores, it does not turn an already-off switch back on, so the operator DO below is still open. Discriminator (dispose by 2026-10-12): at the next restart that follows a URA setup failure, no default-ON URA switch comes back OFF (recorder: no on->off at the restart timestamp for switch.ura_*)."
   created: '2026-10-04 02:40'
-  updated: "2026-10-05 02:27"
+  updated: "2026-10-07 02:10"
   refinement_status: initial
   approval: implied
   tags: [tier-1, measure-before-build, institutional-context, mutation-drill, found-during-probe]
@@ -30726,7 +30673,7 @@ cards:
     value: 6
     time_criticality: 6
     effort: 2
-  next: "MERGE+SHIP (operator-timed): fix/restore-guard-52-sweep (63523e0ed, pushed) is reviewed SHIP x2 + orchestrator-verified; serial full-suite name-diff queued behind the running one. Ship with the next daytime deploy. Live acceptance: none needed beyond no regression (the fix only acts at a restart after a URA outage). OPERATOR (separate, a setting): DO turn switch.ura_hvac_coordinator_zone_sweep (HVAC '46 \u00b7 Vacancy Auto-Off') back ON if you did not turn it off."
+  next: "DO (setting, operator): turn switch.ura_hvac_coordinator_zone_sweep (HVAC 46 Vacancy Auto-Off) back ON unless you turned it off on purpose -> I then dispose this card done at the next restart-after-outage check (see reconcile_2026_10_07_overnight). Code is live since v5.103.39."
   refs:
   - custom_components/universal_room_automation/switch.py:3982
   - docs/QUALITY_CONTEXT.md:2101
@@ -30998,6 +30945,36 @@ cards:
   tags: [tier-2db, mechanism-in-source]
   why: 'Restart 2026-10-05 19:00 took ~12 min to come back: HA "stop integrations" and "final write" stages both timed out waiting on pending UniversalRoomDatabase.log_census() tasks (5) plus one OverrideArrester._evaluate_nudge_outcome; coordinator_diagnostics then failed saving baselines with "DB write failed: shutdown timeout". Every restart pays this.'
   next: "SHIP (operator-timed, daytime deploy): merge fix/shutdown-db-write-fastfail (95fc75e8b) to develop after the overnight full-suite name-diff (result on this card), fold docs/planning/DRAFT_README_shutdown_db_fastfail.md into the release README, name this card in deploy.sh --cards. Live check at that restart: no shutdown-stage timeouts on log_census / nudge-eval, no DB write failed: shutdown timeout."
+- id: STUCK-SENSOR-WARNING-PER-TICK-1
+  title: The "sensor stuck on" warning is written to HA's log every few seconds for as long as a sensor stays stuck, instead of once
+  status: in_progress
+  thread: presence
+  created: '2026-10-07 02:15'
+  updated: '2026-10-07 02:15'
+  refinement_status: initial
+  problem_solution:
+  - 'Problem: when a room's motion/radar sensor stays on for hours, URA ignores it (correct) but writes the same "stuck on for N hours" warning into HA's log on every check, about 3 times a minute per sensor. Tonight two sensors (Master Bedroom and Exercise Room radars) wrote 216 such lines in 43 minutes, adding to the log floods that already push HA's log history down to under an hour. Solution: write the warning once when the sensor first gets ignored (the same moment the phone notification already fires), and only a quiet debug line after that.'
+  approval: implied
+  tags: [tier-1, institutional-context, no-fabrication-verify]
+  origin:
+    date: '2026-10-07'
+    gist: overnight pass log read (HA core log via SSH + supervisor proxy, 20,000 lines = 01:17-02:01 CDT) - 131 Master Bedroom + 85 Exercise Room "stuck on" WARNINGs
+  why: 'Log-only change with zero behaviour effect; the per-day NM latch (_stuck_sensor_fired) already marks the first moment of an episode, so the fix reuses it rather than adding state. Adjacent to RECORDER-BLOAT-LOGFLOOD-1 (that card = third-party floods needing operator action; this is URA''s own share, fixable in code).'
+  constraints:
+  - Exclusion behaviour, NM firing and the per-day latch must be byte-identical; only the log level / frequency changes.
+  parked_alts:
+  - 'Raise the URA coordinator logger to ERROR via HA logger config - rejected: hides every other coordinator warning.'
+  refinement: []
+  knobs: []
+  parsimony: {problem: 'coordinator.py:3114 logs WARNING on every tick a sensor is in the P22 stuck set (measured 216 lines / 43 min for 2 sensors)', verdict: BUILD}
+  gate_2026_10_07: '1 validity: STILL-REAL (live log 2026-10-07 01:18-02:01 CDT; code at coordinator.py:3111-3117 has no once-per-episode guard). 1b config-first: no per-message knob; logger-level config would hide all coordinator warnings -> code. 2 prior-art: REUSE _stuck_sensor_fired (coordinator.py:393) - log WARNING in the same branch that first adds the key (:3120), DEBUG otherwise. 3 parsimony: BUILD (one-site change). 4 cost/benefit: log-only, no behaviour ingredient -> Tier 1, build to review (overnight: no deploy).'
+  rank: {value: 3, time_criticality: 3, effort: 1}
+  links:
+    related: [RECORDER-BLOAT-LOGFLOOD-1]
+    context: 'RECORDER-BLOAT-LOGFLOOD-1 tracks the log floods that shrink HA''s log window; this card removes URA''s own contribution.'
+  next: 'BUILD (me, overnight): worktree build + test + review -> review lane; ship with the next daytime deploy.'
+  refs:
+  - custom_components/universal_room_automation/coordinator.py:3111
 parked:
 - title: Pre-roll frame buffer
   revisit_if: rising-edge frames look late for fast walkers
