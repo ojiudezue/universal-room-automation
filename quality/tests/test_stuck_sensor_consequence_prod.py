@@ -501,3 +501,59 @@ def test_flap_3x_produces_one_stuck_nm_and_transition_notes():
     assert release_note_count == 3, (
         f"Expected 3 release notes, got {release_note_count}"
     )
+
+
+# ---------------------------------------------------------------------------
+# STUCK-SENSOR-WARNING-PER-TICK-1 (2026-10-07) — warn-once-per-episode drill.
+# ---------------------------------------------------------------------------
+
+
+def test_p22_stuck_warning_fires_once_then_debug_PROD(caplog):
+    """STUCK-SENSOR-WARNING-PER-TICK-1: two consecutive stuck ticks for the
+    same (room, sensor) must emit exactly ONE WARNING "stuck on" record,
+    and the second tick must emit DEBUG at the same message. Load-bearing
+    for the live log-spam observation (216 WARN/43min pre-fix).
+
+    Mutation drill: reverting the fix (unconditional WARNING in the loop)
+    MUST red this test — the second tick would produce a 2nd WARNING.
+    """
+    import logging
+
+    coord = _make_stub_coord()
+    coord.hass.async_create_task = MagicMock()
+    coord._stuck_sensor_fired = set()
+    coord._stuck_sensor_kinds = {}
+
+    emit = _bind("_emit_p22_stuck_sensor_for_tick", coord)
+
+    with caplog.at_level(
+        logging.DEBUG,
+        logger="custom_components.universal_room_automation.coordinator",
+    ):
+        emit("TestRoom", "binary_sensor.motion_test", 4.2)
+        emit("TestRoom", "binary_sensor.motion_test", 4.3)
+
+    stuck_records = [
+        r for r in caplog.records
+        if "stuck on" in r.getMessage()
+        and "binary_sensor.motion_test" in r.getMessage()
+    ]
+    warn_records = [r for r in stuck_records if r.levelno == logging.WARNING]
+    debug_records = [r for r in stuck_records if r.levelno == logging.DEBUG]
+
+    assert len(warn_records) == 1, (
+        f"Expected exactly 1 WARNING 'stuck on' record across 2 ticks, got "
+        f"{len(warn_records)} — pre-fix behaviour spammed WARNING per tick."
+    )
+    assert len(debug_records) == 1, (
+        f"Expected 1 DEBUG 'stuck on' record on the 2nd tick, got "
+        f"{len(debug_records)}."
+    )
+    # NM task scheduled exactly once (per-episode latch).
+    assert coord.hass.async_create_task.call_count == 1, (
+        f"Expected 1 NM task across 2 ticks, got "
+        f"{coord.hass.async_create_task.call_count}."
+    )
+    # Latch populated.
+    assert ("continuous", "TestRoom", "binary_sensor.motion_test") \
+        in coord._stuck_sensor_fired

@@ -2232,6 +2232,37 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             and s in self._post_restart_seen_on
         }
 
+    def _emit_p22_stuck_sensor_for_tick(
+        self, room_name: str, s: str, on_hours: float,
+    ) -> None:
+        """STUCK-SENSOR-WARNING-PER-TICK-1 (2026-10-07).
+
+        Emit the per-tick "stuck on" record for a P22-excluded sensor.
+        WARNING fires exactly once per episode (same moment the NM
+        per-day latch fires); subsequent ticks emit DEBUG with the
+        same message. Prior behaviour spammed WARNING on every
+        coordinator tick (216 lines / 43 min live). The NM-fire latch,
+        kinds map, and exclusion-set bookkeeping are unchanged.
+        """
+        _fired_key = ("continuous", room_name, s)
+        if _fired_key not in self._stuck_sensor_fired:
+            _LOGGER.warning(
+                "Room %s: Sensor %s stuck on for %.1f hours — ignoring",
+                room_name, s, on_hours,
+            )
+            self._stuck_sensor_fired.add(_fired_key)
+            self.hass.async_create_task(_fire_stuck_sensor_nm(  # noqa: untracked-ok
+                self.hass, room_name, s, "continuous", on_hours,
+            ))
+            # Fire-and-forget NM emit — per-day dedup latched inside
+            # `_stuck_signal_nm.fire_stuck_signal`; no awaitable state
+            # consumed by the coordinator.
+        else:
+            _LOGGER.debug(
+                "Room %s: Sensor %s stuck on for %.1f hours — ignoring",
+                room_name, s, on_hours,
+            )
+
     def _stuck_store_key(self) -> str:
         """STUCK-SENSOR-1 D3 — per-room HA Store key."""
         return f"stuck_state_{self.entry.entry_id}"
@@ -3121,21 +3152,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             for s in stuck_sensors:
                 on_hours = (now - self._sensor_on_since[s]).total_seconds() / 3600
                 self._stuck_sensor_kinds[s] = "continuous"
-                _LOGGER.warning(
-                    "Room %s: Sensor %s stuck on for %.1f hours — ignoring",
-                    room_name, s, on_hours,
-                )
-                # D4-P22: NM notify (per-day dedup latch). Log path stays
-                # as-is — this is a notification-only addition.
-                _fired_key = ("continuous", room_name, s)
-                if _fired_key not in self._stuck_sensor_fired:
-                    self._stuck_sensor_fired.add(_fired_key)
-                    self.hass.async_create_task(_fire_stuck_sensor_nm(  # noqa: untracked-ok
-                        self.hass, room_name, s, "continuous", on_hours,
-                    ))
-                    # Fire-and-forget NM emit — per-day dedup latched
-                    # inside `_stuck_signal_nm.fire_stuck_signal`; no
-                    # awaitable state consumed by the coordinator.
+                self._emit_p22_stuck_sensor_for_tick(room_name, s, on_hours)
 
         # STUCK-SENSOR-1 D1: reset per-tick exclusion set BEFORE the D2
         # loop populates it. `_dutycycle_excluded_last_tick` snapshots
