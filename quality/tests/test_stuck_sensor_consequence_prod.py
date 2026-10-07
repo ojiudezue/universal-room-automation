@@ -606,6 +606,12 @@ def test_async_update_data_calls_emit_p22_stuck_sensor_for_tick_PROD():
                     and isinstance(inner.func, ast.Attribute)
                     and inner.func.attr == "_emit_p22_stuck_sensor_for_tick"
                 ):
+                    # Pin the arguments too (review C LOW: a wrong value
+                    # would otherwise pass this anchor).
+                    args = [a.id for a in inner.args if isinstance(a, ast.Name)]
+                    assert args == ["room_name", "s", "on_hours"], (
+                        f"_emit_p22_stuck_sensor_for_tick called with {args}"
+                    )
                     found_call_in_stuck_loop = True
                     break
     assert found_call_in_stuck_loop, (

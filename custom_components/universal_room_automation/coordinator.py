@@ -389,7 +389,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # redundant NM tasks when a sensor stays stuck across many ticks.
         # NM helper itself dedups per-day; this dedup is only about not
         # spamming asyncio task creation between per-day boundaries.
-        # Recovered by _stuck_sensor_fired.discard when the sensor clears.
+        # Cleared only at day rollover (_schedule_stuck_state_save): a
+        # same-day re-stick of the same sensor stays latched (no second NM,
+        # DEBUG log only).
         self._stuck_sensor_fired: set[tuple[str, str, str]] = set()
 
         # STUCK-SENSOR-1 D1 — per-entity last transition timestamp for
