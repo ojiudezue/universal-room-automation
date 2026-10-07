@@ -7,3 +7,8 @@
 {"action": "ack", "at": "2026-10-07T13:18:30.830Z", "card_id": "EC-LKG-NEVER-PERSISTED-1@2026-10-07T03:30:00"}
 {"action": "instruct", "at": "2026-10-07T13:19:45.662Z", "card_id": "CENSUS-ATHOME-RESIDENT-CORROBORATOR-1", "text": "See if there is infrastructure in room memory that allows us to do this more efficiently. The idea is that memory allows room to room communication and optimization"}
 {"action": "ack", "at": "2026-10-07T13:19:48.211Z", "card_id": "CENSUS-ATHOME-RESIDENT-CORROBORATOR-1@2026-10-07T03:05:01"}
+{"action": "instruct", "at": "2026-10-07T13:21:23.997Z", "card_id": "FRONT-DOOR-LOCK-OFFLINE-1", "text": "Yes the locks are dead battery for front door. It ran down quick, not sure if that\u2019s repeated sweeps doing that. I\u2019ll change and you can measure. Also thinking of moving to the other z wave controller since that\u2019s Poe and can be moved (resilience)"}
+{"action": "ack", "at": "2026-10-07T13:21:25.827Z", "card_id": "FRONT-DOOR-LOCK-OFFLINE-1@2026-10-07T03:05:00"}
+{"action": "instruct", "at": "2026-10-07T13:22:14.286Z", "card_id": "EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1", "text": "Check on value. 5 mins not that deep."}
+{"action": "ack", "at": "2026-10-07T13:22:15.852Z", "card_id": "EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1@2026-10-07T02:40:01"}
+{"action": "ack", "at": "2026-10-07T13:22:39.622Z", "card_id": "PERIMETER-DETECTION-WENT-DARK-1@2026-10-07T02:40:00"}
