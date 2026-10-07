@@ -557,3 +557,59 @@ def test_p22_stuck_warning_fires_once_then_debug_PROD(caplog):
     # Latch populated.
     assert ("continuous", "TestRoom", "binary_sensor.motion_test") \
         in coord._stuck_sensor_fired
+
+
+# ---------------------------------------------------------------------------
+# STUCK-SENSOR-WARNING-PER-TICK-1 wire-in anchor — AST assertion that
+# `_async_update_data` calls `_emit_p22_stuck_sensor_for_tick` inside the
+# `for s in stuck_sensors:` loop. The helper-level test above proves the
+# helper's semantics; this test proves the enclosing method actually calls
+# it. Orchestrator call-neuter drill (`...` -> `pass`) MUST red this test.
+# ---------------------------------------------------------------------------
+
+
+def test_async_update_data_calls_emit_p22_stuck_sensor_for_tick_PROD():
+    """Wire-in anchor: `_async_update_data` must call
+    `_emit_p22_stuck_sensor_for_tick` from inside the P22 loop body.
+
+    Mutation drill: replacing the call site with `pass` (orchestrator
+    call-neuter) reds this test — the AST walk no longer finds the call
+    inside a `for` whose iter is a Name "stuck_sensors".
+    """
+    import ast
+    import pathlib
+
+    src = pathlib.Path(
+        __file__
+    ).resolve().parents[2].joinpath(
+        "custom_components/universal_room_automation/coordinator.py"
+    ).read_text()
+    tree = ast.parse(src)
+
+    target_fn = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "_async_update_data":
+            target_fn = node
+            break
+    assert target_fn is not None, "_async_update_data not found in coordinator.py"
+
+    found_call_in_stuck_loop = False
+    for sub in ast.walk(target_fn):
+        if (
+            isinstance(sub, ast.For)
+            and isinstance(sub.iter, ast.Name)
+            and sub.iter.id == "stuck_sensors"
+        ):
+            for inner in ast.walk(sub):
+                if (
+                    isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Attribute)
+                    and inner.func.attr == "_emit_p22_stuck_sensor_for_tick"
+                ):
+                    found_call_in_stuck_loop = True
+                    break
+    assert found_call_in_stuck_loop, (
+        "_async_update_data does not call self._emit_p22_stuck_sensor_for_tick "
+        "inside `for s in stuck_sensors:` — wire-in regression. The P22 WARNING "
+        "spam fix is not routed from the real update tick."
+    )
