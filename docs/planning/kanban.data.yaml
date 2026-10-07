@@ -30953,7 +30953,7 @@ cards:
   updated: '2026-10-07 02:15'
   refinement_status: initial
   problem_solution:
-  - 'Problem: when a room's motion/radar sensor stays on for hours, URA ignores it (correct) but writes the same "stuck on for N hours" warning into HA's log on every check, about 3 times a minute per sensor. Tonight two sensors (Master Bedroom and Exercise Room radars) wrote 216 such lines in 43 minutes, adding to the log floods that already push HA's log history down to under an hour. Solution: write the warning once when the sensor first gets ignored (the same moment the phone notification already fires), and only a quiet debug line after that.'
+  - 'Problem: when a room''s motion/radar sensor stays on for hours, URA ignores it (correct) but writes the same "stuck on for N hours" warning into HA''s log on every check, about 3 times a minute per sensor. Tonight two sensors (Master Bedroom and Exercise Room radars) wrote 216 such lines in 43 minutes, adding to the log floods that already push HA''s log history down to under an hour. Solution: write the warning once when the sensor first gets ignored (the same moment the phone notification already fires), and only a quiet debug line after that.'
   approval: implied
   tags: [tier-1, institutional-context, no-fabrication-verify]
   origin:
