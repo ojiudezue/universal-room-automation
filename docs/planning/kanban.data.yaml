@@ -15394,6 +15394,7 @@ cards:
   - 'Live: switch.sonoff_1002197ef7_1 ON 08-28 06:27->08-29 06:46, 08-29 08:12->08-30 13:32, 08-30 20:26->08-31
     16:19'
 - id: NIGHT-LIGHT-ACTION-SELECTOR-1
+  plan_dispatch_2026_10_08_overnight: "ura-planner dispatched 03:15 CDT: STEP 1 re-verify the premise against v5.103.29-31 (room lighting roles, slots, guest light choice moved the night-light surface), STEP 2 write PLANNING_night_light_action_selector.md only if still real."
   title: Night lights have no actuation policy of their own — they ride on the regular lights' entry
     action, so "none" silently means two different things
   thread: lights
@@ -15401,7 +15402,7 @@ cards:
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Tier 2 config surface; unblocks LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1.'
   rank: {value: 5, time_criticality: 3, effort: 5}
   created: '2026-09-15'
-  updated: '2026-09-29 01:05'
+  updated: "2026-10-08 03:15"
   refinement_status: initial
   approval: explicit
   approved_by: 'operator 2026-09-15 ("Honestly best thing is another selector to show how we should
@@ -19323,6 +19324,8 @@ cards:
   - 'GROOM 2026-09-11: VERDICT REAL feature, framing STALE (unaware of its own v3 plan + BACKLOG B5).
     Promoted inbox -> pre_planning; linked plan; next rewritten.'
 - id: UNLOAD-SYMMETRY-TASK-HYGIENE-1
+  problem_solution: "Problem: when HA shuts down, URA's database worker stops before some last writes arrive, so the log fills with about 95 ERROR/WARNING lines that mean nothing, the Coordinator Manager's stop-time save of learned baselines can lose the race and fail, and one diagnostics module reads the database through the write path. Solution: after the shutdown fast-fail fix ships, raise a dedicated shutting-down error that is logged quietly, schedule the stop-time save as an HA shutdown job (it then runs while the worker is still alive), and switch those reads to the read path."
+  verified_2026_10_08_overnight: "CARD-WAS-WRONG on next (it still described the original audit). The audit + 5-site fix SHIPPED in v5.103.5 (validated 09-16; see SHIPPED_5103_5). The only open work is the four shutdown-teardown residuals in INSTANCE_2026_10_06_shutdown_residuals, which sit on the same database.py _db() surface as SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 (in review, not shipped). Building them first would mean two branches editing _db() at once, so they are sequenced after that ship. Narrowed to the residual; effort lowered."
   INSTANCE_2026_10_06_shutdown_residuals: "From the SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 reviews (docs/reviews/code-review/overnight_2026-10-06_shutdown_db_fastfail.md), same teardown surface: (1) ~40 DAO except-arms log ERROR and ~55 WARNING for each write rejected during shutdown - a dedicated DBShuttingDown(RuntimeError) logged at DEBUG would give a clean shutdown log; (2) CoordinatorManager STOP-time baseline save (manager.py:556) races the worker cancel by design - hass.async_add_shutdown_job would run it while the worker is alive; (3) coordinator_diagnostics reads go through the write path _db() instead of _db_read() (coordinator_diagnostics.py:274/320/361/752); (4) close stage (CoreState.not_running) re-opens buffering for very late timer writes, bounded by HAs 30 s close stage (accepted)."
   disposition_2026_09_26_groom: 'RE-LANED (tech-debt hardening, never built). Tier 2: audit async_on_unload coverage + track background tasks.'
   SHIPPED_5103_5_2026_09_16: 'Shipped v5.103.5, live-validated: clean load, zero ERROR, name-diff
@@ -19357,8 +19360,8 @@ cards:
     site 5 (currently hollow substring anchor, Bug Class #62); drop dead except __init__.py:1626.
     CLEARED (PASS): __init__.py:1618 (once-per-setup), hvac.py:1210 (per-instance re-armed),
     owner routing disjoint, teardown idempotent. Awaiting Review B before a consolidated fix-up.'
-  title: Setup/unload symmetry + tracked background tasks (tech-debt hardening)
-  status: planned
+  title: "Clean shutdown follow-ups: quiet the DB-write errors at shutdown, run the stop-time baseline save before the DB worker stops, route diagnostics reads through the read path"
+  status: "pre_planning"
   groom_2026_09_29: 'Adjacency: linked to PROPERTY-GETTER-SIDE-EFFECT-TASKS-1 (same untracked-background-task family, different sites). Existing link context preserved. Rank scored.'
   rank: {value: 5, time_criticality: 3, effort: 5}
   shipped_version: v5.103.5
@@ -19393,8 +19396,8 @@ cards:
     the retained ones are actually invoked on unload needs a different check.'
   thread: platform
   created: 2026-08-18 02:30
-  updated: "2026-10-06 02:55"
-  refinement_status: refined
+  updated: "2026-10-08 03:10"
+  refinement_status: "refined"
   problem: 'untracked background tasks — matches a known URA bug class (task leak). One hardening cycle.
     (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified
     19 async_on_unload sites. The real, large half is task-hygiene: 178 raw hass.async_create_task call
@@ -19405,10 +19408,9 @@ cards:
     was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2).
     Task-hygiene half confirmed real and large: 178 `hass.async_create_task(` vs 31
     `async_create_background_task`. Corrected problem statement + re-scoped to the task-leak half.'
-  next: 'Tier 2 production hardening: audit async_on_unload coverage + track background tasks (reload-safety
-    + task-leak). Independent of the test cluster.'
+  next: "PLAN (me, Tier 2-DB: shared DB primitive), AFTER SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 ships: items (1) DBShuttingDown(RuntimeError) logged at DEBUG across the DAO except-arms, (2) manager.py:556 stop-time baseline save via hass.async_add_shutdown_job, (3) coordinator_diagnostics.py:274/320/361/752 reads via _db_read(). Item (4) close-stage buffering stays accepted. Live check at the restart after ship: no 'DB write failed: shutdown timeout', and metric_baselines rows updated at the stop time."
   refs: AUDIT_roadmap_undone_worthwhile.md
-  links: {related: [PROPERTY-GETTER-SIDE-EFFECT-TASKS-1], context: 'INDEPENDENT production lifecycle hardening (async_on_unload 2 sites + untracked tasks), NOT test infra. It was once mis-referenced as parent of SUITE-ORDER-POLLUTION-1 (fixed there). Cross-ref parent-reload-watchdog hazard. PROPERTY-GETTER-SIDE-EFFECT-TASKS-1 is the same background-task hygiene family (getters spawning tasks); build them one after the other.'}
+  links: {related: [PROPERTY-GETTER-SIDE-EFFECT-TASKS-1], blocked_by: [SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1], context: 'BLOCKED_BY (2026-10-08): SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 edits the same database.py _db() surface; build after it ships. INDEPENDENT production lifecycle hardening (async_on_unload 2 sites + untracked tasks), NOT test infra. It was once mis-referenced as parent of SUITE-ORDER-POLLUTION-1 (fixed there). Cross-ref parent-reload-watchdog hazard. PROPERTY-GETTER-SIDE-EFFECT-TASKS-1 is the same background-task hygiene family (getters spawning tasks); build them one after the other.'}
   disposition:
   - 'GROOM 2026-09-11: VERDICT REAL independent Tier 2 (production). Promoted inbox -> pre_planning; corrected
     mis-link.'
@@ -30999,6 +31001,7 @@ cards:
     context: 'Found during the EC p1 Tier-3 reviews; deliberately not fixed in p1.'
   sweep_2026_10_05: 'Board grep D-MED-2 hits are other cycles (arrester comfort delay, DP drain target). NEW.'
 - id: SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1
+  links: {blocks: [UNLOAD-SYMMETRY-TASK-HYGIENE-1], context: 'UNLOAD-SYMMETRY-TASK-HYGIENE-1 holds the four shutdown-teardown follow-ups from this cycle''s reviews; it edits the same _db() surface, so it builds after this ships.'}
   built_2026_10_06_overnight: "BUILT TO REVIEW (not deployed). Branch fix/shutdown-db-write-fastfail: e2d9fd61d build (ura-builder) -> fccd0fad1 orchestrator removed an in-suite source-mutation test the builder added (tests must not rewrite production source) -> 822242171 fix-up -> 95fc75e8b review record docs/reviews/code-review/overnight_2026-10-06_shutdown_db_fastfail.md + DRAFT README. Change: _db() raises at once when HA is stopping and the worker is gone (VACUUM/SPAN windows still buffer); log_census skips only once the worker is gone; worker now fails an in-flight caller future on cancel (pre-existing hang found by review B). Reviews (Tier 2-DB, 3 disjoint): A local-correctness SHIP (3 LOW); B async/lifecycle SHIP + pre-existing MED (fixed in-cycle); C test-authority FIX-REQUIRED (worker-not-running half untested) -> fixed. Orchestrator mutation drills: all 4 load-bearing sites go red when neutered (one as a hang killed by SIGALRM), restored byte-identical. 6/6 new tests, 44/44 across the DB test files. Residuals folded into UNLOAD-SYMMETRY-TASK-HYGIENE-1."
   refinement_status: "refined"
   tags_note_2026_10_06: "Re-tiered tier-1 -> tier-2db: the fix touches the shared DB write primitive database.py _db() (standing policy: regression-prone shared primitive = 3 framing-disjoint reviews)."
