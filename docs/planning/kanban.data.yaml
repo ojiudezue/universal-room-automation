@@ -9,6 +9,11 @@ meta:
   # entry, and anything older than 7 days is archived (hidden) automatically.
   # fid = "<card-id>@<at>" (the ack button posts it as card_id).
   autonomy_feed:
+  - fid: "NIGHT-LIGHT-ACTION-SELECTOR-1@2026-10-08T03:55:00"
+    at: "2026-10-08T03:55:00"
+    outcome: "escalated"
+    headline: "Planned the separate night-light setting and had it reviewed; the plan review caught three real holes, all fixed. One call is yours: 7 rooms (incl. Master Bedroom, Living Room, the kids' bathrooms) currently get their night light at Sleep only via a side path. Pick: keep that (recommended) or let it stop."
+    acknowledged: false
   - fid: "HVAC-W1C-GENERIC-THERMOSTAT-1@2026-10-08T03:00:02"
     at: "2026-10-08T03:00:02"
     outcome: "parked"
@@ -15395,21 +15400,22 @@ cards:
   - 'Live: switch.sonoff_1002197ef7_1 ON 08-28 06:27->08-29 06:46, 08-29 08:12->08-30 13:32, 08-30 20:26->08-31
     16:19'
 - id: NIGHT-LIGHT-ACTION-SELECTOR-1
+  plan_review_2026_10_08_overnight: "Plan review (ura-reviewer) = PLAN-FIX-REQUIRED, 3 HIGH / 3 MED / 3 LOW; all folded into plan REV 2 (section 'Plan review 2026-10-08'). H1: under sleep the sleep branch stays the only authority in both controllers (otherwise main lights leak on in sleep). H3: automation.py:1302 'no main lights -> skip' also skipped night-light-only rooms like Master Bedroom; scoped to the main-light path. M2: added the AI-rule conflict detector (coordinator.py:1318) as a consumer (new D5). H2 is YOUR call: the default is NOT behaviour-neutral. Today, in a room whose entry action is none, house Sleep + occupied -> the main controller does nothing but the reconciler turns the night light ON. Measured 7 such rooms live (.storage 2026-10-08): Breakfast Nook, Game Room, Jaya Bathroom, Living Room, Master Bedroom, Patio, Ziri Bathroom. Tier set to 2-DB (3 reviews, one of them a dedicated cross-controller parity check)."
   plan_2026_10_08_overnight: "STEP 1 premise STILL-REAL on develop: automation.py:1292-1295 returns early on entry action none BEFORE the sleep night-light branch at :1313, while actuator_reconciler.py:_resolve_light asserts the night light ON under sleep (:813-829) BEFORE its none check (:843), so the two controllers still disagree (LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1 live). The v5.103.29 lighting roles added no separate night-light timing policy. Plan written: docs/planning/PLANNING_night_light_action_selector.md (D1 new CONF_NIGHT_LIGHT_ENTRY_ACTION + one resolver, D2 canonical rewire, D3 reconciler rewire, D4 config-flow labels; planner recommends 3 framing-disjoint reviews). Plan review dispatched 03:25 CDT."
   plan_dispatch_2026_10_08_overnight: "ura-planner dispatched 03:15 CDT: STEP 1 re-verify the premise against v5.103.29-31 (room lighting roles, slots, guest light choice moved the night-light surface), STEP 2 write PLANNING_night_light_action_selector.md only if still real."
   title: Night lights have no actuation policy of their own — they ride on the regular lights' entry
     action, so "none" silently means two different things
   thread: lights
-  status: "planned"
+  status: "waiting_operator"
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Tier 2 config surface; unblocks LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1.'
   rank: {value: 5, time_criticality: 3, effort: 5}
   created: '2026-09-15'
-  updated: "2026-10-08 03:25"
+  updated: "2026-10-08 03:55"
   refinement_status: "refined"
   approval: explicit
   approved_by: 'operator 2026-09-15 ("Honestly best thing is another selector to show how we should
     actuate night light. We may be overloading it. Its more space but it removes all doubt.")'
-  tags: [institutional-context, numbers-get-knobs, concept-split]
+  tags: [tier-2db, institutional-context, numbers-get-knobs, concept-split]
   problem_solution:
   - 'Problem: a room has one setting that says what its lights should do when you walk in — on,
     on-if-dark, off, leave alone, or nothing. Night lights have no such setting of their own; they
@@ -15448,7 +15454,7 @@ cards:
     problem: One field encodes two independent intentions (regular-light entry behaviour and
       night-light behaviour), so "none" is ambiguous and the two controllers resolve it differently.
     verdict: BUILD
-  next: "PLAN REVIEW (me, in flight) -> fix findings in the plan -> build to review (3 framing-disjoint reviews). Any default that changes a room's current behaviour goes to you as a PICK before build."
+  next: "PICK (plan REV 2, section 'Default - OPERATOR PICK'): (A) new rooms and the 7 rooms follow the main-light setting, so in Breakfast Nook, Game Room, Jaya Bathroom, Living Room, Master Bedroom, Patio and Ziri Bathroom the night light STOPS coming on when someone is in the room during Sleep; (B) RECOMMENDED: a one-time migration sets those 7 rooms' night lights to 'Always on', which keeps what they do today; (C) you choose per room. -> I build it (3 framing-disjoint reviews) to the review lane."
   links:
     related: [LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1, NIGHT-LIGHT-NO-OFF-PATH-1, KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1]
     blocks: [LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1]
