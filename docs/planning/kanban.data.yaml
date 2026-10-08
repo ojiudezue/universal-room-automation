@@ -9314,11 +9314,12 @@ cards:
   disposition:
   - 'GROOM 2026-09-11: VERDICT DEAD (gate expired). RETIRED -> done, folded into CHATTER-OBSERVE-CONTROL-D7-1.'
 - id: ROADMAP-STALE-AGENTIC-LAYER-1
+  evidence_2026_10_08_overnight: "Possibly relevant to your answer (not taken as one): on 10-07 you told CENSUS-ATHOME-RESIDENT-CORROBORATOR-1 'the idea is that memory allows room to room communication and optimization'. Tonight that idea paid off concretely: the room_transitions history (362k per-person room moves, the same data the memory facade's room-neighbour view is meant to expose, memory_facade.py:_compose_locality, still unpopulated) can vouch for residents at the garage door (60% of unnamed garage crossings vs 10% by chance). If that counts as a near-term priority, populating the facade's neighbour view is a natural first slice of the room-to-room layer."
   thread: planning
   rank: {value: 4, time_criticality: 2, effort: 3}
   status: waiting_operator
   groom_2026_09_29: 'PARTIALLY-DONE. The "refresh ROADMAP_v11 -> v12" half is done: docs/ROADMAP_v12.md exists (DRAFT, 2026-08-28, supersedes v11, current production v5.91.x). Its section "The unshipped operator vision: room-to-room AGENTIC layer" (line ~133) already cites this card. Only the ANSWER on the agentic layer remains. next narrowed to that one question.'
-  updated: '2026-09-29 01:05'
+  updated: "2026-10-08 03:20"
   disposition_2026_09_12_sweep3: 'VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: roadmap-refresh half discharged (docs/ROADMAP_v12.md 2026-08-28). Narrowed: only the operator scope/priority call on the room-to-room AGENTIC layer remains (must not be spec''d unilaterally).'
   approval: unreviewed
   created: 2026-08-18 02:45
@@ -15394,16 +15395,17 @@ cards:
   - 'Live: switch.sonoff_1002197ef7_1 ON 08-28 06:27->08-29 06:46, 08-29 08:12->08-30 13:32, 08-30 20:26->08-31
     16:19'
 - id: NIGHT-LIGHT-ACTION-SELECTOR-1
+  plan_2026_10_08_overnight: "STEP 1 premise STILL-REAL on develop: automation.py:1292-1295 returns early on entry action none BEFORE the sleep night-light branch at :1313, while actuator_reconciler.py:_resolve_light asserts the night light ON under sleep (:813-829) BEFORE its none check (:843), so the two controllers still disagree (LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1 live). The v5.103.29 lighting roles added no separate night-light timing policy. Plan written: docs/planning/PLANNING_night_light_action_selector.md (D1 new CONF_NIGHT_LIGHT_ENTRY_ACTION + one resolver, D2 canonical rewire, D3 reconciler rewire, D4 config-flow labels; planner recommends 3 framing-disjoint reviews). Plan review dispatched 03:25 CDT."
   plan_dispatch_2026_10_08_overnight: "ura-planner dispatched 03:15 CDT: STEP 1 re-verify the premise against v5.103.29-31 (room lighting roles, slots, guest light choice moved the night-light surface), STEP 2 write PLANNING_night_light_action_selector.md only if still real."
   title: Night lights have no actuation policy of their own — they ride on the regular lights' entry
     action, so "none" silently means two different things
   thread: lights
-  status: pre_planning
+  status: "planned"
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Tier 2 config surface; unblocks LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1.'
   rank: {value: 5, time_criticality: 3, effort: 5}
   created: '2026-09-15'
-  updated: "2026-10-08 03:15"
-  refinement_status: initial
+  updated: "2026-10-08 03:25"
+  refinement_status: "refined"
   approval: explicit
   approved_by: 'operator 2026-09-15 ("Honestly best thing is another selector to show how we should
     actuate night light. We may be overloading it. Its more space but it removes all doubt.")'
@@ -15446,17 +15448,7 @@ cards:
     problem: One field encodes two independent intentions (regular-light entry behaviour and
       night-light behaviour), so "none" is ambiguous and the two controllers resolve it differently.
     verdict: BUILD
-  next: 'Scope the selector (Tier 2 — config surface + both light controllers + migration).
-    Decisions to settle IN THE PLAN, not the build: (1) the option vocabulary — REUSE the
-    LIGHT_ACTION_* values where they map, plus an explicit "follow the main light action" value so
-    existing rooms keep today''s behaviour; (2) the DEFAULT, which must preserve current observed
-    behaviour for all ~40 rooms so no bedroom changes overnight without the operator asking; (3)
-    whether it lives per-room in the config flow (likely) or as a Number/Select entity — per the
-    knob ladder this is per-deployment structure, so config flow; (4) make BOTH the canonical path
-    (automation.py:974) and the reconciler read the SAME resolved value, which is what closes
-    LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1. Acceptance must DISCRIMINATE: a room set to night-lights-on
-    behaves differently from one set to night-lights-off under identical sleep+entry conditions,
-    and both controllers agree in each case.'
+  next: "PLAN REVIEW (me, in flight) -> fix findings in the plan -> build to review (3 framing-disjoint reviews). Any default that changes a room's current behaviour goes to you as a PICK before build."
   links:
     related: [LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1, NIGHT-LIGHT-NO-OFF-PATH-1, KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1]
     blocks: [LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1]
@@ -30652,6 +30644,8 @@ cards:
   links: {related: [ROOM-TYPE-TRIMMED-MENU-1]}
   rank: {value: 4, time_criticality: 3, effort: 1}
 - id: LIGHTS-GUEST-MODE-BEHAVIOUR-1
+  updated: "2026-10-08 03:20"
+  verified_2026_10_08_overnight: "STILL-REAL: no CONF_LIGHTS_GUEST_MODE in custom_components (grep 03:20 CDT); README_v5.103.29 'Guest — deferred' confirms Guest = same as Home for lights today. Card had no updated field (hygiene fix)."
   title: Decide how room lights behave when the house is in Guest mode (normal / off / night lights only)
   thread: ux
   status: waiting_operator
