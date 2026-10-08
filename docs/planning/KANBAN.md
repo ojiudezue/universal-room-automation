@@ -2,7 +2,7 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-08T02:27:51-05:00_ - _Data commit: `172b43e5cdb0`_ - _last_reconciled: 2026-10-08_
+_Generated: 2026-10-08T02:36:19-05:00_ - _Data commit: `22c7a54f1808`_ - _last_reconciled: 2026-10-08_
 
 
 ## Columns
@@ -11,11 +11,11 @@ _Generated: 2026-10-08T02:27:51-05:00_ - _Data commit: `172b43e5cdb0`_ - _last_r
 |---|---:|
 | 📥 Inbox | 0 |
 | 🔬 Investigating | 0 |
-| 🧭 Pre-planning | 9 |
+| 🧭 Pre-planning | 8 |
 | 📝 Planned | 9 |
 | 🔨 In progress | 1 |
 | 🔍 Review | 2 |
-| ⏸️ Waiting on operator | 34 |
+| ⏸️ Waiting on operator | 35 |
 | ⏳ Waiting on me (Claude) | 1 |
 | 🚀 Shipped (organic open) | 12 |
 | 🅿️ Parked | 81 |
@@ -31,7 +31,7 @@ _measuring; truth not yet known_
 
 _(none)_
 
-## 🧭 Pre-planning (9)
+## 🧭 Pre-planning (8)
 _idea being decomposed_
 
 ### `CENSUS-SHUTDOWN-AWAY-FENCE-1` - After an HA restart the house can come back up as AWAY with people home, and stay AWAY for an hour — _#1 · WSJF 4.3 · v6 tc5 u2 /e3_
@@ -142,25 +142,7 @@ _created 2026-10-05 02:22 · updated 2026-10-08 02:20 · refined_
   - `groomed_2026_10_05_overnight`: Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRE...
   - `sweep_2026_10_05`: Board census/egress cards swept; GAP-A-CENSUS-HOLE-1 ADJACENT. NEW.
 
-### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep — _#7 · WSJF 1.4 · v6 tc3 u2 /e8_
-thread: **presence** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-08-31 18:20 · updated 2026-09-29 01:05 · refined ×4_
-- **Problem / Solution:**
-  - Problem: on nights when a phone sits in the master bedroom, the master bathroom reads OCCUPIED for the entire sleep window (measured: one continuous 441-minute / 7.3h hold, 22:53->06:14) because the sleeping resident's Bluetooth keeps re...
-- **Origin:** 2026-08-31 - operator asked why the Master Bath LED is on at night / is vacancy being extended while sleeping
-- **Why:** Investigation of the operator's LED report found URA drives NO light at night (the visible LED is a device standby indicator URA does not control), but surfaced a REAL adjacent finding: BLE bleed holds the bath occupied ~7h with blecorr=...
-- **Next:** Fresh plan-review (config surface changed, Tier 2-DB+) against the 120min durations -> build. Plan: PLANNING_ble_bleed_extend_corroboration.md (Rev 4).
-- **Tags:** no-fabrication-verify, measure-before-build
-- **Refs:** Investigation 2026-08-31 (read-only recorder probe): binary_sensor.master_bathroom_occupied 441-min hold 08-29->30, occupancy_source=ble, ble_persons=[Oji]/[Ezinne,Oji], no mmWave/motion; all URA lights OFF; URA night LED (NOT the cause): switch.sonoff_1002197ef7_1 MasterBathLED — OFF every night
-- **Forensic keys (6):**
-  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 6, time_criticality 3, effort 8 - Tier 2-DB plan exists (Rev 4); HVAC/occupancy correctness.
-  - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: core per-room BLE hold-cap shipped v5.93.0 (coordinator.py:699 _get_ble_hold_cap_seconds + :241 _fire_ble_hold_cap_nm). Verify live the cap evicts the 7.3h Mas...
-  - `relane_2026_09_10`: Not a soak -> PRE-PLANNING. Fresh Tier-2-DB+ plan-review of the 120min durations (PLANNING_ble_bleed_extend_corroboration.md Rev 4) -> build.
-  - `plan_ready_2026_09_01`: Rev 5 §BUILD-READY. Two plan-reviews (Rev3 blanket→FIX, Rev4 toggle→FIX on config application) + confirm-review (Rev5, 1 doc HIGH fixed). Design cleared: per-room CONF_BLE_HOLD_CAP_ENABLED (read-site default via ROOM_TYPE_BLE_HOLD_CAP_DE...
-  - `build_review_2026_09_01`: BUILT (feature/ble-hold-cap @ f086e75e4) + 3 build-reviews: A SHIP, B SHIP, C FIX-REQUIRED. Core cap logic solidly anchored (all decision gates RED-on-neuter). Gaps: C-HIGH-1 NM wire-in neuter-deletable (add call-site anchor); C-MED-2 P2...
-  - `refinement_2026_09_01`: Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body- corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on BLE-extend-since-last-body (independent of sleep) a...
-
-### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#8 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#7 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **energy** - status: **pre_planning**
 _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
 - **Next:** NOT greenfield — ready Tier 2-DB v3 spec exists (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md supersedes v1.1/v2; BACKLOG B5: P7 strictness, D2 options-flow, D8 Rainbird kill switch). Run marginal-benefit decomposition AGAINST that plan's...
@@ -171,7 +153,7 @@ _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#9 · WSJF 0.8 · v3 tc1 u2 /e8_
+### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#8 · WSJF 0.8 · v3 tc1 u2 /e8_
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-08 - operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION YET - thoughts requested.
@@ -386,7 +368,7 @@ _created 2026-10-03 16:00 · updated 2026-10-06 02:25_
   - `built_2026_10_05_overnight`: BUILT TO REVIEW (overnight, not deployed). Branch feature/ec-ev-toggle-tripwire: d0d12ad25 build (energy.py _log_charger_actuation tap after the per-target dedupe, kind==ev only, force-charge excluded; WriteVerifier.note_ev_toggle mirror...
   - `gate_2026_10_05_overnight`: FOUR-STEP GATE. (1) VALIDITY: STILL-REAL - no toggle counter on develop or the EC p1 branch (grep toggle/tripwire in energy*.py); the night loop is fixed by v5.103.37 but not exercised (EVs drew 0 W on every turn-on since), so the daytim...
 
-## ⏸️ Waiting on operator (34)
+## ⏸️ Waiting on operator (35)
 _needs a human call — groomed first_
 
 ### `FRONT-DOOR-LOCK-OFFLINE-1` - The front-door Z-Wave lock has been offline for over a week, so nothing in HA can lock it or see if it is jammed or low on battery — _#1 · WSJF 13.0 · v6 tc5 u2 /e1_
@@ -920,7 +902,26 @@ _updated 2026-09-29 01:05_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#32 · WSJF 1.2 · v3 tc1 u2 /e5_
+### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep — _#32 · WSJF 1.4 · v6 tc3 u2 /e8_
+thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-08-31 18:20 · updated 2026-10-08 04:05 · refined ×4_
+- **Problem / Solution:**
+  - Problem: on nights when a phone sits in the master bedroom, the master bathroom reads OCCUPIED for the entire sleep window (measured: one continuous 441-minute / 7.3h hold, 22:53->06:14) because the sleeping resident's Bluetooth keeps re...
+- **Origin:** 2026-08-31 - operator asked why the Master Bath LED is on at night / is vacancy being extended while sleeping
+- **Why:** Investigation of the operator's LED report found URA drives NO light at night (the visible LED is a device standby indicator URA does not control), but surfaced a REAL adjacent finding: BLE bleed holds the bath occupied ~7h with blecorr=...
+- **Next:** PICK: (A) PARK lever A, RECOMMENDED: the hold cap already removed the overnight phantom (longest Master Bath night run 52 min over 8 nights vs 441 before). Revival trigger: any room shows a BLE-held occupied run at or above its cap durin...
+- **Tags:** no-fabrication-verify, measure-before-build
+- **Refs:** Investigation 2026-08-31 (read-only recorder probe): binary_sensor.master_bathroom_occupied 441-min hold 08-29->30, occupancy_source=ble, ble_persons=[Oji]/[Ezinne,Oji], no mmWave/motion; all URA lights OFF; URA night LED (NOT the cause): switch.sonoff_1002197ef7_1 MasterBathLED — OFF every night
+- **Forensic keys (7):**
+  - `verified_2026_10_08_overnight`: PARTIALLY-DONE, measured. Lever B (general BLE hold cap, 120 min bath/closet) shipped in v5.93.0. Live check the card asked for (HA recorder binary_sensor.master_bathroom_occupied, 09-30 -> 10-08, 8 nights): 73 occupied runs, longest nig...
+  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 6, time_criticality 3, effort 8 - Tier 2-DB plan exists (Rev 4); HVAC/occupancy correctness.
+  - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: core per-room BLE hold-cap shipped v5.93.0 (coordinator.py:699 _get_ble_hold_cap_seconds + :241 _fire_ble_hold_cap_nm). Verify live the cap evicts the 7.3h Mas...
+  - `relane_2026_09_10`: Not a soak -> PRE-PLANNING. Fresh Tier-2-DB+ plan-review of the 120min durations (PLANNING_ble_bleed_extend_corroboration.md Rev 4) -> build.
+  - `plan_ready_2026_09_01`: Rev 5 §BUILD-READY. Two plan-reviews (Rev3 blanket→FIX, Rev4 toggle→FIX on config application) + confirm-review (Rev5, 1 doc HIGH fixed). Design cleared: per-room CONF_BLE_HOLD_CAP_ENABLED (read-site default via ROOM_TYPE_BLE_HOLD_CAP_DE...
+  - `build_review_2026_09_01`: BUILT (feature/ble-hold-cap @ f086e75e4) + 3 build-reviews: A SHIP, B SHIP, C FIX-REQUIRED. Core cap logic solidly anchored (all decision gates RED-on-neuter). Gaps: C-HIGH-1 NM wire-in neuter-deletable (add call-site anchor); C-MED-2 P2...
+  - `refinement_2026_09_01`: Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body- corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on BLE-extend-since-last-body (independent of sleep) a...
+
+### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#33 · WSJF 1.2 · v3 tc1 u2 /e5_
 thread: **platform** - status: **waiting_operator** - approval: **blocked**
 _created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
 - **Problem / Solution:**
@@ -930,7 +931,7 @@ _created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
   - `MEASURED_2026_09_30_overnight`: Read-only dbstat on the live DB (page_size 4096, 329,298 pages, freelist 48 -> the vacuum works; growth is live rows). Top: environmental_data 201 MB + idx_env_room_time 148 MB; energy_snapshots 162 MB + idx_energy_room_time 149 MB; occu...
   - `gate_2026_09_30`: Not built overnight: a new DELETE on tables with 10 months of history is irreversible and a change to the DB write path (Tier 2-DB). The retention window is a data-policy decision (these rows may be wanted for offline learning / the fore...
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#33 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#34 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -945,7 +946,7 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#34 · WSJF 0.6 · v4 tc2 u2 /e13_
+### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#35 · WSJF 0.6 · v4 tc2 u2 /e13_
 thread: **energy** - status: **waiting_operator** - approval: **blocked**
 _created 2026-10-03 02:40 · updated 2026-10-05 02:22 · initial_
 - **Problem / Solution:**
