@@ -926,6 +926,15 @@ CONF_NIGHT_LIGHT_SLEEP_COLOR: Final = "night_light_sleep_color"
 CONF_NIGHT_LIGHT_DAY_BRIGHTNESS: Final = "night_light_day_brightness"
 CONF_NIGHT_LIGHT_DAY_COLOR: Final = "night_light_day_color"
 
+# NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3): one boolean knob — when True, night
+# lights also come on at entry during the day (sleep=False, is_dark=False).
+# Default False preserves the shipped behaviour for rooms whose night lights
+# are purely dusk/sleep accents. Membership in CONF_NIGHT_LIGHTS wins over
+# any CONF_LIGHTS_ON_ENTRY picker: an explicit on-entry list cannot force a
+# night light on by day — this boolean does.
+CONF_NIGHT_LIGHTS_BY_DAY: Final = "night_lights_by_day"
+DEFAULT_NIGHT_LIGHTS_BY_DAY: Final = False
+
 # Night light defaults
 DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS: Final = 15  # 15% during sleep
 DEFAULT_NIGHT_LIGHT_SLEEP_COLOR: Final = 2000  # Warm red (Kelvin)

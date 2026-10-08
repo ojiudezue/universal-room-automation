@@ -1760,7 +1760,7 @@
       },
       "devices": {
         "title": "Devices",
-        "description": "Update devices to automate.",
+        "description": "Update devices to automate. {advanced_hint}",
         "data": {
           "lights": "Lights",
           "light_capabilities": "Light Features (auto-detected)",
@@ -2147,6 +2147,7 @@
           "lights_on_entry": "Turn on when someone enters",
           "lights_on_entry_dark_only": "Wait for dark (exceptions)",
           "night_lights": "Night lights (used during sleep hours)",
+          "night_lights_by_day": "Use night lights by day",
           "lights_leave_on_when_empty": "Leave on when the room empties",
           "away_turn_off_leave_on": "…but turn them off when the house is Away",
           "alert_lights": "Alert lights (flashes for notifications)",
@@ -2172,6 +2173,7 @@
           "lights_on_entry": "The lights that come on when someone enters. Leave empty to use every light in this room.",
           "lights_on_entry_dark_only": "Advanced. Only used when the room is set to Always: these lights still wait for dark.",
           "night_lights": "Lights used instead of the regular set during sleep hours. Dim + warm settings live in Devices.",
+          "night_lights_by_day": "Also turn on night lights when it's not dark. Off by default.",
           "lights_leave_on_when_empty": "These lights are not swept off when the room empties. Everything else is.",
           "away_turn_off_leave_on": "When the house is Away, sweep off even the leave-on lights. Only matters when the list above is non-empty.",
           "alert_lights": "Lights that briefly flash to signal notifications. Colour lives in Notifications.",
