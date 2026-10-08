@@ -191,7 +191,14 @@ def test_meta_every_step_with_advanced_fields_passes_hint():
             assert "advanced_hint" in (off.get("description_placeholders") or {}), step
             for blob in blobs:
                 assert "{advanced_hint}" in blob["options"]["step"][step]["description"], step
-    assert set(with_adv) == {"options_covers", "climate", "options_lighting_behaviour"}
+    assert set(with_adv) == {
+        "options_covers",
+        "climate",
+        "options_lighting_behaviour",
+        # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, D4): the 5 night-light
+        # colour/brightness fields moved to Advanced in the devices step.
+        "devices",
+    }
 
 
 def test_room_menu_hint_variants():

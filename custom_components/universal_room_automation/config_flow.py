@@ -432,6 +432,8 @@ from .const import (
     COVER_TYPE_TILT,
     # v3.2.2.5: Night lights
     CONF_NIGHT_LIGHTS,
+    CONF_NIGHT_LIGHTS_BY_DAY,
+    DEFAULT_NIGHT_LIGHTS_BY_DAY,
     CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     CONF_NIGHT_LIGHT_SLEEP_COLOR,
     CONF_NIGHT_LIGHT_SLEEP_HUE,
@@ -12627,15 +12629,30 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # per D8. Brightness/color fields stay here (they're
             # value-tunables, not role pickers). CONF_NIGHT_LIGHTS key is
             # unchanged; no stored-data migration.
+            # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, D4): the five night-
+            # light colour/brightness fields are rarely tuned once set
+            # (defaults are red / 4000K per v5.103.31). Retreat them to
+            # Advanced via `_adv()`. A room with a non-default stored
+            # value still sees its field in Simple mode (I2 reach-back).
             vol.Optional(
                 CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
-                default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS)
+                default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS),
+                description=_adv(
+                    CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
+                    self._merged_entry_config(),
+                    DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
+                ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=1, max=100, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="%")
             ),
             vol.Optional(
                 CONF_NIGHT_LIGHT_SLEEP_HUE,
                 default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_HUE, DEFAULT_NIGHT_LIGHT_SLEEP_HUE),
+                description=_adv(
+                    CONF_NIGHT_LIGHT_SLEEP_HUE,
+                    self._merged_entry_config(),
+                    DEFAULT_NIGHT_LIGHT_SLEEP_HUE,
+                ),
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=[NIGHT_LIGHT_SLEEP_HUE_RED, NIGHT_LIGHT_SLEEP_HUE_WARM_WHITE],
@@ -12645,19 +12662,34 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(
                 CONF_NIGHT_LIGHT_SLEEP_COLOR,
-                default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_COLOR, DEFAULT_NIGHT_LIGHT_SLEEP_COLOR)
+                default=self._get_current(CONF_NIGHT_LIGHT_SLEEP_COLOR, DEFAULT_NIGHT_LIGHT_SLEEP_COLOR),
+                description=_adv(
+                    CONF_NIGHT_LIGHT_SLEEP_COLOR,
+                    self._merged_entry_config(),
+                    DEFAULT_NIGHT_LIGHT_SLEEP_COLOR,
+                ),
             ): selector.ColorTempSelector(
                 selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
             ),
             vol.Optional(
                 CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
-                default=self._get_current(CONF_NIGHT_LIGHT_DAY_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS)
+                default=self._get_current(CONF_NIGHT_LIGHT_DAY_BRIGHTNESS, DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS),
+                description=_adv(
+                    CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
+                    self._merged_entry_config(),
+                    DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
+                ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=1, max=100, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="%")
             ),
             vol.Optional(
                 CONF_NIGHT_LIGHT_DAY_COLOR,
-                default=self._get_current(CONF_NIGHT_LIGHT_DAY_COLOR, DEFAULT_NIGHT_LIGHT_DAY_COLOR)
+                default=self._get_current(CONF_NIGHT_LIGHT_DAY_COLOR, DEFAULT_NIGHT_LIGHT_DAY_COLOR),
+                description=_adv(
+                    CONF_NIGHT_LIGHT_DAY_COLOR,
+                    self._merged_entry_config(),
+                    DEFAULT_NIGHT_LIGHT_DAY_COLOR,
+                ),
             ): selector.ColorTempSelector(
                 selector.ColorTempSelectorConfig(unit=selector.ColorTempSelectorUnit.KELVIN, min=2000, max=6500)
             ),
@@ -12737,10 +12769,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # unchanged; no stored-data migration.
         })
 
+        # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, D4): route through
+        # ``add_suggested_values_to_schema`` so fields marked
+        # ``description={"advanced": True}`` are filtered when the user
+        # profile is NOT in Advanced mode (verified: HA
+        # ``data_entry_flow.py:660-666``). The five night-light colour/
+        # brightness fields now carry the Advanced marker via ``_adv()``.
+        filtered_schema = self.add_suggested_values_to_schema(data_schema, {})
+        advanced_hint_text = advanced_hint_for(
+            data_schema,
+            bool(getattr(self, "show_advanced_options", False)),
+        )
         return self.async_show_form(
             step_id="devices",
-            data_schema=data_schema,
-            description_placeholders={"name": "Reconfigure devices"},
+            data_schema=filtered_schema,
+            description_placeholders={
+                "name": "Reconfigure devices",
+                "advanced_hint": advanced_hint_text,
+            },
         )
 
     # =========================================================================
@@ -13002,6 +13048,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     multiple=True,
                 )
             ),
+            # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, D1 / D4):
+            # one boolean knob — when True, night lights also come on at
+            # entry during the day. Default False preserves today's
+            # dusk/sleep-only behaviour.
+            vol.Optional(
+                CONF_NIGHT_LIGHTS_BY_DAY,
+                default=self._get_current(
+                    CONF_NIGHT_LIGHTS_BY_DAY, DEFAULT_NIGHT_LIGHTS_BY_DAY,
+                ),
+            ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY, default=stored_leave_on,
             ): selector.EntitySelector(

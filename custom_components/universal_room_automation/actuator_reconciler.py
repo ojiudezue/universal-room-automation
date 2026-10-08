@@ -46,6 +46,10 @@ from homeassistant.helpers.event import (
 # .const + .domain_coordinators.house_state, no back-reference here).
 from .fan_veto import should_veto_comfort_fan  # noqa: E402
 from .const import FAN_OWNER_HVAC, fan_owner  # noqa: E402
+from .lighting.resolver import (  # noqa: E402
+    night_light_turn_on_params as _nl_params,
+    resolve_slot as _resolve_slot,
+)
 from .const import (
     CONF_ENTRY_LIGHT_ACTION,
     CONF_EXIT_LIGHT_ACTION,
@@ -62,7 +66,10 @@ from .const import (
     CONF_LIGHTS,
     CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     CONF_NIGHT_LIGHTS,
+    CONF_NIGHT_LIGHTS_BY_DAY,
     CONF_ROOM_NAME,
+    DEFAULT_NIGHT_LIGHTS_BY_DAY,
+    LIGHT_SLOT_EVENING,
     DEFAULT_FAN_SLEEP_POLICY,
     DEFAULT_FAN_VACANCY_HOLD,
     DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
@@ -840,11 +847,38 @@ class ActuatorReconciler:
         exit_action = cfg.get(CONF_EXIT_LIGHT_ACTION, LIGHT_ACTION_TURN_OFF)
 
         if occupied:
-            if entry_action == LIGHT_ACTION_NONE:
-                return None
             is_dark = False
             if automation is not None:
                 is_dark = automation.is_dark(data.get(STATE_ILLUMINANCE))
+
+            # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3): night-light rule
+            # evaluated BEFORE the entry_action==NONE gate so that a
+            # main=NONE room with a night-light member still asserts ON
+            # at dusk or by-day opt-in. Membership in CONF_NIGHT_LIGHTS
+            # WINS (R3-M1). Params come from the SAME helper canonical
+            # uses so both controllers assert identical brightness /
+            # color_temp (R3-M2).
+            if night_lights and entity_id in night_lights:
+                nl_by_day = cfg.get(
+                    CONF_NIGHT_LIGHTS_BY_DAY, DEFAULT_NIGHT_LIGHTS_BY_DAY,
+                )
+                nl_should_on = is_dark is True or bool(nl_by_day)
+                if nl_should_on:
+                    _slot = _resolve_slot(
+                        is_sleep_hours=False, is_dark=is_dark,
+                    )
+                    _mode = "evening" if _slot == LIGHT_SLOT_EVENING else "day"
+                    params = _nl_params(cfg, _mode)
+                    return DesiredState(
+                        state="on", domain=domain, service="turn_on",
+                        params=params, reason="entry_night_light",
+                        has_params_to_apply=bool(params),
+                    )
+                # dark=False and nl_by_day=False → NO-OPINION
+                return None
+
+            if entry_action == LIGHT_ACTION_NONE:
+                return None
             should_on = entry_action == LIGHT_ACTION_TURN_ON or (
                 entry_action == LIGHT_ACTION_TURN_ON_IF_DARK and is_dark
             )
@@ -858,6 +892,9 @@ class ActuatorReconciler:
             from .lighting.resolver import effective_entry_set
             entry_set = effective_entry_set(
                 cfg, is_sleep_hours=sleep, is_dark=is_dark,
+                night_lights_by_day=bool(cfg.get(
+                    CONF_NIGHT_LIGHTS_BY_DAY, DEFAULT_NIGHT_LIGHTS_BY_DAY,
+                )),
             )
             if entity_id not in entry_set:
                 return None

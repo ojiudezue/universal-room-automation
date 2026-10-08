@@ -428,9 +428,17 @@ def test_D6_exit_target_entities_include_night_only():
         f"D6 dedup: light.a should appear exactly once, got {exit_targets}"
     )
 
-    # D6 non-change: enter trigger target set unchanged (CONF_LIGHTS only).
+    # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, D5) revision: night lights
+    # are now a potential entry target in all three regimes (sleep, dark,
+    # by-day). The AI-rule conflict detector must flag night-light entry
+    # proposals regardless of regime — so TRIGGER_ENTER now unions
+    # CONF_NIGHT_LIGHTS whenever non-empty, deduped against CONF_LIGHTS.
     enter_targets = fn(stub, TRIGGER_ENTER)
     assert "light.a" in enter_targets
-    assert "light.b" not in enter_targets, (
-        f"D6 non-change: enter trigger MUST NOT include night-only. got {enter_targets}"
+    assert "light.b" in enter_targets, (
+        f"D5 (NIGHT-LIGHT-ACTION-SELECTOR-1): night-only members must be in "
+        f"the enter target set. got {enter_targets}"
+    )
+    assert enter_targets.count("light.a") == 1, (
+        f"D5 dedup: light.a should appear exactly once, got {enter_targets}"
     )

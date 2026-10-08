@@ -163,6 +163,8 @@ from .const import (
     LIGHT_CAPABILITY_FULL,
     # v3.2.2.5: Night lights
     CONF_NIGHT_LIGHTS,
+    CONF_NIGHT_LIGHTS_BY_DAY,
+    DEFAULT_NIGHT_LIGHTS_BY_DAY,
     CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     CONF_NIGHT_LIGHT_SLEEP_COLOR,
     CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
@@ -1292,23 +1294,28 @@ class RoomAutomation:
         action = self.config.get(CONF_ENTRY_LIGHT_ACTION, LIGHT_ACTION_NONE)
         _LOGGER.debug("Entry light control [%s]: action=%s", room_name, action)
 
-        if action == LIGHT_ACTION_NONE:
-            _LOGGER.debug("Entry light control [%s]: action is NONE, skipping", room_name)
-            return
-
+        # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, H1/H3): read night lights
+        # BEFORE the main-action and lights-empty guards. A night-light-
+        # only room (CONF_LIGHTS=[], CONF_NIGHT_LIGHTS=[L]) and a
+        # main=NONE room must still reach the sleep + non-sleep night-
+        # light branches. Collapsed no-op return handled at the tail.
         lights = self.config.get(CONF_LIGHTS, [])
-        _LOGGER.debug("Entry light control [%s]: lights=%s (count=%d)", room_name, lights, len(lights))
-
-        if not lights:
-            _LOGGER.debug("Entry light control [%s]: no lights configured, skipping", room_name)
-            return
-
-        # === v3.2.2.5: Check if we're in sleep hours ===
         is_sleep_hours = self.is_sleep_lighting_active()
         night_lights = self.config.get(CONF_NIGHT_LIGHTS, [])
+        nl_by_day = self.config.get(
+            CONF_NIGHT_LIGHTS_BY_DAY, DEFAULT_NIGHT_LIGHTS_BY_DAY,
+        )
+        _LOGGER.debug(
+            "Entry light control [%s]: lights=%s (count=%d) night_lights=%s nl_by_day=%s",
+            room_name, lights, len(lights), night_lights, nl_by_day,
+        )
 
-        _LOGGER.debug("Entry light control [%s]: is_sleep_hours=%s, night_lights=%s",
-                       room_name, is_sleep_hours, night_lights)
+        if not lights and not night_lights:
+            _LOGGER.debug(
+                "Entry light control [%s]: no lights/night lights configured, skipping",
+                room_name,
+            )
+            return
 
         if is_sleep_hours and night_lights:
             # SLEEP MODE: Only night lights, no darkness check.
@@ -1328,32 +1335,81 @@ class RoomAutomation:
         illuminance = state_data.get(STATE_ILLUMINANCE)
         is_dark = self.is_dark(illuminance)
         _LOGGER.debug("Entry light control [%s]: illuminance=%s, is_dark=%s", room_name, illuminance, is_dark)
-        
-        should_turn_on = action == LIGHT_ACTION_TURN_ON or (
-            action == LIGHT_ACTION_TURN_ON_IF_DARK
-            and is_dark
-        )
-        _LOGGER.debug("Entry light control [%s]: should_turn_on=%s", room_name, should_turn_on)
 
-        if not should_turn_on:
-            _LOGGER.debug("Entry light control [%s]: conditions not met, skipping", room_name)
+        main_should_on = (
+            bool(lights)
+            and (
+                action == LIGHT_ACTION_TURN_ON
+                or (action == LIGHT_ACTION_TURN_ON_IF_DARK and is_dark)
+            )
+        )
+        nl_should_on = bool(night_lights) and (
+            is_dark is True or bool(nl_by_day)
+        )
+        _LOGGER.debug(
+            "Entry light control [%s]: main_should_on=%s nl_should_on=%s",
+            room_name, main_should_on, nl_should_on,
+        )
+
+        if not main_should_on and not nl_should_on:
+            _LOGGER.debug(
+                "Entry light control [%s]: no main / night-light turn-on applies, skipping",
+                room_name,
+            )
+            return
+
+        # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, M1): night-light only
+        # path — main lights don't qualify, but night lights do (dusk
+        # or by-day opt-in). Bypass slot scenes (M1: no slot scene when
+        # only night lights qualify) and route through the SAME helper
+        # canonical uses so the reconciler asserts identical params.
+        if not main_should_on and nl_should_on:
+            from .lighting.resolver import resolve_slot as _resolve_slot
+            _slot = _resolve_slot(is_sleep_hours=False, is_dark=is_dark)
+            _mode = "evening" if _slot == LIGHT_SLOT_EVENING else "day"
+            await self._turn_on_night_lights(mode=_mode)
+            self.coordinator.set_last_action(
+                "turn_on",
+                f"Turned on {len(night_lights)} night light(s) ({_mode})",
+                list(night_lights),
+            )
             return
 
         # Slice B' (v5.103.28): resolver decides the entry set. ABSENT
         # CONF_LIGHTS_ON_ENTRY ⇒ today's CONF_LIGHTS ∪ CONF_NIGHT_LIGHTS
         # (day mode). PRESENT ⇒ operator's picker wins; dark-only subset
         # is removed when not is_dark.
+        # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, R3-H1): the resolver
+        # drops night-light members from the main set when
+        # ``is_dark is not True and not nl_by_day`` so the main-path
+        # turn-on never lights a night light by day. Night lights are
+        # driven ONLY through the dedicated nl_should_on path above.
         from .lighting.resolver import effective_entry_set
         entry_set = effective_entry_set(
-            self.config, is_sleep_hours=False, is_dark=is_dark
+            self.config,
+            is_sleep_hours=False,
+            is_dark=is_dark,
+            night_lights_by_day=bool(nl_by_day),
         )
         _LOGGER.debug(
             "Entry light control [%s]: entry_set=%s (%d)", room_name, entry_set, len(entry_set),
         )
         # v3.2.5 FIX: Calculate actual_lights and switches_as_lights locally
         # (Previously these were undefined, causing NameError)
-        actual_lights = [e for e in entry_set if e.startswith("light.")]
-        switches_as_lights = [e for e in entry_set if e.startswith("switch.")]
+        # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, R3-M1): membership in
+        # CONF_NIGHT_LIGHTS wins — the night rule decides those entities,
+        # never the main-light brightness/colour. Strip night-light
+        # members from the main set; a separate ``_turn_on_night_lights``
+        # dispatch below handles them when ``nl_should_on``.
+        _night_set = set(night_lights or [])
+        actual_lights = [
+            e for e in entry_set
+            if e.startswith("light.") and e not in _night_set
+        ]
+        switches_as_lights = [
+            e for e in entry_set
+            if e.startswith("switch.") and e not in _night_set
+        ]
         lights = entry_set
 
         # Slice E D5: resolve the current time-of-day slot (day / evening
@@ -1402,15 +1458,23 @@ class RoomAutomation:
                     "switch", SERVICE_TURN_ON,
                     {"entity_id": switches_as_lights}, blocking=False,
                 )
+            # R3-M1: night-light members in the on_entry picker are
+            # driven by the night rule, not the picker. Fire them only
+            # when nl_should_on.
+            if nl_should_on:
+                await self._turn_on_night_lights(
+                    mode=("evening" if slot == LIGHT_SLOT_EVENING else "day"),
+                )
         else:
-            # Turn on all lights (regular + night lights).
-            # Slice E D5: slot picks brightness/colour. Day/Evening only
-            # here (sleep handled above). Absent evening keys ⇒ today's
-            # day settings.
+            # Turn on regular lights. Slot picks brightness/colour.
+            # Day/Evening only here (sleep handled above).
             await self._turn_on_regular_lights(slot=slot, is_dark=is_dark)
-            if night_lights:
-                # Night lights follow the same slot; evening resolves to
-                # day defaults when no evening overrides are set.
+            # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, R3-H1): night
+            # lights ride the main path ONLY when ``nl_should_on``
+            # (dusk / dark OR by-day opt-in). The former unconditional
+            # ``if night_lights:`` call turned night lights on by day
+            # when the main path fired — the leak this cycle closes.
+            if nl_should_on:
                 await self._turn_on_night_lights(
                     mode=("evening" if slot == LIGHT_SLOT_EVENING else "day"),
                 )
