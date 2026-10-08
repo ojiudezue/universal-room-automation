@@ -1,0 +1,15 @@
+{
+  "title": "Z-Wave control plane moved: official add-on -> Z-Wave JS UI, then primary radio Zooz USB -> SMLIGHT MRW10 (PoE)",
+  "type": "pivot",
+  "weight": "critical",
+  "date": "2026-10-08",
+  "summary": "Main Z-Wave network (home 0xedeb78e9: 3 Kwikset 916 nodes + ZAC38 extender) moved off the official Z-Wave JS add-on onto the Z-Wave JS UI add-on (same S0/S2 keys copied file-to-file, network cache copied, integration reconfigured use_addon=false url ws://a0d7b954-zwavejs2mqtt:3000), then the Zooz ZST39 NVM was restored onto the SMLIGHT SLZB-MRW10 (EFR32ZG23) over tcp://192.168.8.233:6638. Official add-on stopped + boot manual (rollback). Nightly NVM + store backups, NVM backup on inclusion events, auto-update off. Duplicate node 6 (garage-hallway lock's April re-pair leftover) removed; node 7 renamed. Kwikset 916 is S0-only (Z-Wave Alliance ZC10-17025420, ZM5101); node 7 was paired with NO security (why it never exposed a lock entity).",
+  "why": "Operator: the built-in controller could never pair the garage-hallway lock securely and JS UI is the future. MRW10 is network-attached and central (back hallway), removing the /dev/ttyACM0 enumeration fragility. Z-Wave has one primary controller - redundancy = cold spare via NVM restore, not Thread-style multi-gateway (sourced: zwave-js discussions #1901/#8101, backlog #102).",
+  "implications": "Zooz stick holds an identical NVM - keep unplugged as cold spare (two live controllers with the same home ID conflict). Locks need battery swap + S0 re-pair + route rebuild. HA integration no longer manages an add-on; it will not auto-start one.",
+  "alternatives_considered": [
+    "Stick as secondary controller/repeater (rejected: zwave-js has no secondary-controller support; bare-stick repeating unsourced)",
+    "Stay on official add-on (rejected: operator)"
+  ],
+  "confidence": "high",
+  "revisit_trigger": "MRW10 failure -> restore latest nightly NVM onto the Zooz stick and repoint the add-on port."
+}

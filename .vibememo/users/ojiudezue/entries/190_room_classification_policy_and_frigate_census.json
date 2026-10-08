@@ -1,0 +1,14 @@
+{
+  "title": "Room 'shared space' policy fixed (household-used) + quick actions sourced from URA config; census replay voided by a Frigate outage",
+  "type": "decision",
+  "weight": "significant",
+  "date": "2026-10-08",
+  "summary": "Two room axes exist on purpose: room_type = what the room is (fan/HVAC logic), shared_space = household-used (drives scheduled auto-off + tighter Sleep door/window alerts). shared_space had drifted to 30 rooms incl. private baths/closets. Policy: shared = used by the whole household (common areas, hallways, foyer, media, utility, garages); bedrooms, en-suites, private closets and infrastructure are not. Applied 11 changes (Foyer, Receiving on; Master Bath, Oji Vanity, Guest 2 Bath, Master Bath Toilet, 4 closets, AV Closet off). Quick Actions (DASH-QUICK-ACTIONS-1) targets come from URA config (CM security garage/lock lists, room covers/lights/fans), never entity-name guessing. Separately: post-v5.103.39 census replay looked like NO-GO, but all 24 Frigate person_count sensors were unavailable from 10-05 evening - the replay is void until Frigate is restored.",
+  "why": "Operator: 'try not to use sensor name guessing - all the information you need is likely in URA'. A strict room_type-only rule would have removed garages/laundry/media from Sleep alert tightening - cut too deep.",
+  "implications": "Census verdicts must check camera-source health first; URA ran 3 days blind with no Frigate-down alert (gap to card).",
+  "alternatives_considered": [
+    "shared = room_type common_area|hallway only (rejected: too strict)"
+  ],
+  "confidence": "high",
+  "revisit_trigger": "New room added - classify by the household-used rule."
+}

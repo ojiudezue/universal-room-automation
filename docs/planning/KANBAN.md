@@ -2,14 +2,14 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-08T02:36:19-05:00_ - _Data commit: `22c7a54f1808`_ - _last_reconciled: 2026-10-08_
+_Generated: 2026-10-08T02:37:20-05:00_ - _Data commit: `ac7a0ba11913`_ - _last_reconciled: 2026-10-08_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 0 |
 | 🧭 Pre-planning | 8 |
 | 📝 Planned | 9 |
@@ -21,10 +21,19 @@ _Generated: 2026-10-08T02:36:19-05:00_ - _Data commit: `22c7a54f1808`_ - _last_r
 | 🅿️ Parked | 81 |
 | ✅ Done | 288 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (1)
 _raw capture_
 
-_(none)_
+### `DASH-QUICK-ACTIONS-1` - Quick Actions tab first in URA v8 dashboard: close all blinds, garage doors each/all, patio covers each/all, common-area lights+fans off (rooms untouched) — _#1 · WSJF 3.0 · v5 tc2 u2 /e3_
+thread: **dashboarding** - status: **inbox**
+_updated 2026-10-08 08:10_
+- **Why:** One-tap house-wide actions; today these need several taps across rooms.
+- **Next:** PICK: common-area definition (room_type=common_area vs +hallways) and scene contents for Leaving/Good night -> build scripts + first tab driven by URA config.
+- **Forensic keys (4):**
+  - `adjacency`: ADJACENT to TABLET-FLEET-1 (room quick-actions on wall tablets) - same action set should back both; build here first, tablets consume. Swept board titles 2026-10-08.
+  - `findings_2026_10_08`: Each Bond patio cover is ALSO exposed via HomeKit (cover.patio_N and cover.patio_N_2) - pick one control path, hide the other. 97 shade covers, 2 garage covers (konnected esphome + one other).
+  - `operator_2026_10_08`: No entity-name guessing - source every target from URA config. Patio = Bond. Garage = ratgdo + GDO blaQ. Quick actions restricted to common areas, plus an "all" option. Add lock. Leaving/Good night are scenes - devil is in the details.
+  - `sources_2026_10_08`: Targets resolved from URA config: Patio room covers = cover.patio_1..5 (Bond); garages = CM security_garage_entities [cover.ratgdov25i_dbfe2a_door (Garage B), cover.konnected_f0f5bd523b00_garage_door (Garage A, GDO blaQ)]; locks = CM sec...
 
 ## 🔬 Investigating (0)
 _measuring; truth not yet known_
@@ -828,7 +837,11 @@ _created 2026-09-15 · updated 2026-10-08 03:55 · refined_
 - **Tags:** tier-2db, institutional-context, numbers-get-knobs, concept-split
 - **Parsimony:** [BUILD] One field encodes two independent intentions (regular-light entry behaviour and night-light behaviour), so "none" is ambiguous and the two controllers resolve it differently.
 - **Refs:** const.py:876-886 (night-light HOW constants, no WHEN), :894-906 (the overloaded action field); automation.py:974 (canonical early-return on NONE), :991 (sleep/night-light branch); docs/planning/PLANNING_night_light_off_path.md:110 (the deferred deliverable this resumes)
-- **Forensic keys (5):**
+- **Forensic keys (9):**
+  - `onboarding_2026_10_08`: New URA rooms created 2026-10-08 with URA automation switch OFF: Master Closet (01M4E5E14Z6YMW6KBD7QF74FDJ), Master Closet Storage (01M4E5H48Q118FW94HXNBGH9YW), Powder (01M4E5Z39WDX7GBTPZJX4352CQ, zone unset, no humidity sensor - H&T bei...
+  - `retirement_rule_2026_10_08`: Operator: automations are TURNED OFF, never deleted. Before turning any off, confirm the room/hallway is onboarded in URA with that light in its config. Coverage check 2026-10-08 (lights in automations vs URA room lights/night_lights): C...
+  - `operator_2026_10_08_pick`: PICK = A + C: outside Sleep, night lights on only when the room is dark (room lux / existing is_dark threshold), plus a per-room daytime opt-in. Sleep: always on when occupied regardless of main-light setting. Config must be economical +...
+  - `operator_2026_10_08_intent`: Operator 2026-10-08: night lights should generally come on during Sleep (whatever the main-light setting); otherwise only at night unless the room is in the daytime list; sleep-compatible colour at night if supported, a day colour by day...
   - `plan_review_2026_10_08_overnight`: Plan review (ura-reviewer) = PLAN-FIX-REQUIRED, 3 HIGH / 3 MED / 3 LOW; all folded into plan REV 2 (section 'Plan review 2026-10-08'). H1: under sleep the sleep branch stays the only authority in both controllers (otherwise main lights l...
   - `plan_2026_10_08_overnight`: STEP 1 premise STILL-REAL on develop: automation.py:1292-1295 returns early on entry action none BEFORE the sleep night-light branch at :1313, while actuator_reconciler.py:_resolve_light asserts the night light ON under sleep (:813-829) ...
   - `plan_dispatch_2026_10_08_overnight`: ura-planner dispatched 03:15 CDT: STEP 1 re-verify the premise against v5.103.29-31 (room lighting roles, slots, guest light choice moved the night-light surface), STEP 2 write PLANNING_night_light_action_selector.md only if still real.
@@ -1085,7 +1098,8 @@ _created 2026-10-05 02:22 · updated 2026-10-05 02:36 · refined_
 - **Next:** Me: ura-planner is writing Rev 4 (re-verify HIGH-A/B/C + MED-D/E/F). Then ONE final short re-verify; build only on PLAN-READY. Stop rule: if the final re-verify still returns a HIGH, take it to the operator rather than looping a 4th plan...
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Refs:** docs/planning/PLANNING_census_inputs_first.md; docs/planning/PLANNING_census_occupancy_estimator.md; docs/planning/AUDIT_census_estimator_replay_2026_10_03_hybrid.md; docs/planning/AUDIT_census_subsystem_2026_10_04.md; docs/planning/AUDIT_census_footage_ground_truth_2026_10_03.md; memory project_session_pickup_2026_10_04
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `live_replay_2026_10_08`: Post-v5.103.39 live replay (10-05 18:56Z -> 10-08, 29 door rows, 3,030 house snapshots): dedup clean (0 dup pairs within 30 s), direction resolved 29/29, person_id 48% (was 19%). REGRESSION: peak_person_count populated 17/17 rows until 1...
   - `plan_reverify_2026_10_05_overnight`: Rev 3 focused re-verify (ura-reviewer) -> PLAN-FIX-REQUIRED: HIGH-A stem composition from camera_resolver._PERSON_SUFFIXES (:214-219) lacks _person_count (orchestrator CONFIRMED in source) -> would regress count-sensor legs; HIGH-B legac...
   - `plan_rev3_2026_10_05_overnight`: Plan Rev 3 committed 71ebf52e5 (ura-planner applied every review finding: R3.1 unset-neighbour fallback byte-identical for both callers transit_validator.py:1253/:1745; R3.3 REUSE camera_resolver _strip_disambiguation_suffix :291 / _stri...
   - `plan_review_2026_10_05_overnight`: PLAN REVIEW (Tier 2-DB, one adversarial pass, ura-reviewer, read-only on develop) -> PLAN-FIX-REQUIRED: CRITICAL-1 an unset/unmapped CONF_DOOR_INTERIOR_NEIGHBOURS makes every crossing AMBIGUOUS, and AMBIGUOUS crossings skip the ledger wr...
