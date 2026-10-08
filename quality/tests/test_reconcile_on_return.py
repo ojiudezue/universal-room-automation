@@ -618,6 +618,15 @@ def _canonical_light_decision(occupied, sleep, is_dark, entry_action,
             return "off" if exit_action == LIGHT_ACTION_TURN_OFF else None
         return "off"
     if occupied:
+        # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, R3-M1): membership in
+        # CONF_NIGHT_LIGHTS wins over the main entry_action. A night-light
+        # entity is driven by the night-light rule (dark or nl_by_day),
+        # independent of entry_action. Test fixture uses the default
+        # CONF_NIGHT_LIGHTS_BY_DAY (False), so dusk/dark alone decides.
+        # Mirrors automation.py:1346-1348,1361-1376,1399-1412 and
+        # actuator_reconciler.py:854-885.
+        if is_night:
+            return "on" if is_dark else None
         if entry_action == LIGHT_ACTION_NONE:
             return None
         should_on = entry_action == LIGHT_ACTION_TURN_ON or (

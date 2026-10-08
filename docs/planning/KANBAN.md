@@ -2,36 +2,45 @@
 
 > **GENERATED - do not hand-edit.** Source of truth is `docs/planning/kanban.data.yaml`. Regenerate via `python3 scripts/kanban_render.py`.
 
-_Generated: 2026-10-06T11:43:25-05:00_ - _Data commit: `73c110f84b54`_ - _last_reconciled: 2026-10-05_
+_Generated: 2026-10-08T02:37:20-05:00_ - _Data commit: `ac7a0ba11913`_ - _last_reconciled: 2026-10-08_
 
 
 ## Columns
 
 | Column | Count |
 |---|---:|
-| 📥 Inbox | 0 |
+| 📥 Inbox | 1 |
 | 🔬 Investigating | 0 |
-| 🧭 Pre-planning | 9 |
-| 📝 Planned | 10 |
-| 🔨 In progress | 0 |
-| 🔍 Review | 3 |
-| ⏸️ Waiting on operator | 33 |
+| 🧭 Pre-planning | 8 |
+| 📝 Planned | 9 |
+| 🔨 In progress | 1 |
+| 🔍 Review | 2 |
+| ⏸️ Waiting on operator | 35 |
 | ⏳ Waiting on me (Claude) | 1 |
-| 🚀 Shipped (organic open) | 24 |
-| 🅿️ Parked | 77 |
-| ✅ Done | 278 |
+| 🚀 Shipped (organic open) | 12 |
+| 🅿️ Parked | 81 |
+| ✅ Done | 288 |
 
-## 📥 Inbox (0)
+## 📥 Inbox (1)
 _raw capture_
 
-_(none)_
+### `DASH-QUICK-ACTIONS-1` - Quick Actions tab first in URA v8 dashboard: close all blinds, garage doors each/all, patio covers each/all, common-area lights+fans off (rooms untouched) — _#1 · WSJF 3.0 · v5 tc2 u2 /e3_
+thread: **dashboarding** - status: **inbox**
+_updated 2026-10-08 08:10_
+- **Why:** One-tap house-wide actions; today these need several taps across rooms.
+- **Next:** PICK: common-area definition (room_type=common_area vs +hallways) and scene contents for Leaving/Good night -> build scripts + first tab driven by URA config.
+- **Forensic keys (4):**
+  - `adjacency`: ADJACENT to TABLET-FLEET-1 (room quick-actions on wall tablets) - same action set should back both; build here first, tablets consume. Swept board titles 2026-10-08.
+  - `findings_2026_10_08`: Each Bond patio cover is ALSO exposed via HomeKit (cover.patio_N and cover.patio_N_2) - pick one control path, hide the other. 97 shade covers, 2 garage covers (konnected esphome + one other).
+  - `operator_2026_10_08`: No entity-name guessing - source every target from URA config. Patio = Bond. Garage = ratgdo + GDO blaQ. Quick actions restricted to common areas, plus an "all" option. Add lock. Leaving/Good night are scenes - devil is in the details.
+  - `sources_2026_10_08`: Targets resolved from URA config: Patio room covers = cover.patio_1..5 (Bond); garages = CM security_garage_entities [cover.ratgdov25i_dbfe2a_door (Garage B), cover.konnected_f0f5bd523b00_garage_door (Garage A, GDO blaQ)]; locks = CM sec...
 
 ## 🔬 Investigating (0)
 _measuring; truth not yet known_
 
 _(none)_
 
-## 🧭 Pre-planning (9)
+## 🧭 Pre-planning (8)
 _idea being decomposed_
 
 ### `CENSUS-SHUTDOWN-AWAY-FENCE-1` - After an HA restart the house can come back up as AWAY with people home, and stay AWAY for an hour — _#1 · WSJF 4.3 · v6 tc5 u2 /e3_
@@ -49,22 +58,7 @@ _created 2026-10-05 02:22 · updated 2026-10-06 01:55 · refined_
   - `measured_2026_10_05_overnight`: MECHANISM NARROWED - it is BOOT, not shutdown. HA recorder: sensor.ura_presence_coordinator_presence_house_state (and the CM mirror) went home_day -> away at 20:57:56Z (15:57:56 CDT), the FIRST recorder write after a 4-min HA gap (sensor...
   - `sweep_2026_10_05`: Board grep AWAY fence / boot away: none; restart storm card ADJACENT. NEW.
 
-### `NIGHT-LIGHT-ACTION-SELECTOR-1` - Night lights have no actuation policy of their own — they ride on the regular lights' entry action, so "none" silently means two different things — _#2 · WSJF 2.4 · v5 tc3 u4 /e5_
-thread: **lights** - status: **pre_planning** - approval: **explicit**
-_created 2026-09-15 · updated 2026-09-29 01:05 · initial_
-- **Problem / Solution:**
-  - Problem: a room has one setting that says what its lights should do when you walk in — on, on-if-dark, off, leave alone, or nothing. Night lights have no such setting of their own; they quietly inherit that one. So picking "nothing" for ...
-- **Origin:** 2026-09-15 - Offered the operator a binary A/B on the entry=none + sleep divergence; they rejected both and named the real fix — the control is overloaded, split it.
-- **Why:** Removes the ambiguity at its source rather than arbitrating it. The A/B decision I offered would have picked a winner for an overloaded field and left the overloading in place — so the next person to set a room to "none" would face the s...
-- **Next:** Scope the selector (Tier 2 — config surface + both light controllers + migration). Decisions to settle IN THE PLAN, not the build: (1) the option vocabulary — REUSE the LIGHT_ACTION_* values where they map, plus an explicit "follow the m...
-- **Tags:** institutional-context, numbers-get-knobs, concept-split
-- **Parsimony:** [BUILD] One field encodes two independent intentions (regular-light entry behaviour and night-light behaviour), so "none" is ambiguous and the two controllers resolve it differently.
-- **Refs:** const.py:876-886 (night-light HOW constants, no WHEN), :894-906 (the overloaded action field); automation.py:974 (canonical early-return on NONE), :991 (sleep/night-light branch); docs/planning/PLANNING_night_light_off_path.md:110 (the deferred deliverable this resumes)
-- **Forensic keys (2):**
-  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Tier 2 config surface; unblocks LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1.
-  - `INSTITUTIONAL_CONTEXT_2026_09_15`: Prior-art scan run before proposing (CLAUDE.md Institutional-Context-First). NEW — nothing equivalent exists. - const.py:876-886 holds FIVE night-light constants (CONF_NIGHT_LIGHTS, CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS/_COLOR, CONF_NIGHT_LI...
-
-### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#3 · WSJF 2.2 · v6 tc3 u2 /e5_
+### `CENSUS-ACCURACY-1` - Interior census accuracy: separate census decay from guest hysteresis + fix the _2-suffix fresh-face resolution (exterior dashboard wiring is a minor bonus) — _#2 · WSJF 2.2 · v6 tc3 u2 /e5_
 thread: **presence** - status: **pre_planning** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -93,7 +87,7 @@ _updated 2026-09-29 01:05_
   - `scope_clarification_2026_08_17`: Operator scope check 2026-08-17: "Isn't cycle 2 about interior accuracy? The exterior was a bonus? Or does cycle 1 fix that?" — CONFIRMED. Cycle 1 (CENSUS-GHOST-DEDUP-1) fixes GUEST MODE, not the interior count (its D1 clamp is a no-op w...
   - `d3_dashboards_done_2026_08_18`: D3 (P12) exterior dashboards DONE (display-only, no producer change): composed card (deduped headline + G1 naive-floor fallback [never 0 when floor>0] + divergence badge) added to HA ura-v6 (Presence/Census Cross-Confirmation), ura-v8 (S...
 
-### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#4 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-ENPHASE-CONNECTIVITY-RESILIENCE-1` - Enphase connectivity + command resilience under the 8.x reality (cloud-only battery writes, unsupported/fragile local API, yearly token, cloud rate limits) — _#3 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **pre_planning**
 _created 2026-10-04 01:00 · updated 2026-10-05 02:22_
 - **Why:** Operator 2026-10-04: "Did you also use the Enphase latest moves on connectivity and commanding as part of the plan and resiliency?" Answer: only partly — phase 1 was planned before the 2026-10-03 research (local battery control removed 8...
@@ -103,6 +97,26 @@ _created 2026-10-04 01:00 · updated 2026-10-05 02:22_
   - `INSTANCE_2026_10_04_overnight`: Two reserve-write STAND-DOWNS in the last 12 h, each paged CRITICAL on companion + iMessage + Pushover + WhatsApp (URA notification_log): 10-03 15:04 CDT 'URA commanded reserve_soc=80 but hardware reports 10.0 after 3602s' -> 3/3 attempt...
   - `operator_guidance_2026_10_04`: Respect prior art that makes sense — we invested heavily in commanding (cloud write route, write-verify vs cloud oracle, pending-write-stuck retry + NM, hardware-noncompliance detector, 3-tier SOC resolver, LKG/envelope, failover-map des...
   - `operator_fact_2026_10_05`: Two Envoy failure modes seen by operator: (1) MOST OFTEN the core enphase_envoy entry fails with a load error (setup stall); (2) SOMETIMES the entry looks healthy (loaded, no init errors) but ALL sensors on all Envoy devices go unavailab...
+
+### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Clean shutdown follow-ups: quiet the DB-write errors at shutdown, run the stop-time baseline save before the DB worker stops, route diagnostics reads through the read path — _#4 · WSJF 2.0 · v5 tc3 u2 /e5_
+thread: **platform** - status: **pre_planning**
+_created 2026-08-18 02:30 · updated 2026-10-08 03:10 · refined_
+- **Problem / Solution:**
+  - Problem: when HA shuts down, URA's database worker stops before some last writes arrive, so the log fills with about 95 ERROR/WARNING lines that mean nothing, the Coordinator Manager's stop-time save of learned baselines can lose the rac...
+- **Next:** PLAN (me, Tier 2-DB: shared DB primitive), AFTER SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 ships: items (1) DBShuttingDown(RuntimeError) logged at DEBUG across the DAO except-arms, (2) manager.py:556 stop-time baseline save via hass.async_add_sh...
+- **Forensic keys (12):**
+  - `verified_2026_10_08_overnight`: CARD-WAS-WRONG on next (it still described the original audit). The audit + 5-site fix SHIPPED in v5.103.5 (validated 09-16; see SHIPPED_5103_5). The only open work is the four shutdown-teardown residuals in INSTANCE_2026_10_06_shutdown_...
+  - `INSTANCE_2026_10_06_shutdown_residuals`: From the SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 reviews (docs/reviews/code-review/overnight_2026-10-06_shutdown_db_fastfail.md), same teardown surface: (1) ~40 DAO except-arms log ERROR and ~55 WARNING for each write rejected during shutdown ...
+  - `disposition_2026_09_26_groom`: RE-LANED (tech-debt hardening, never built). Tier 2: audit async_on_unload coverage + track background tasks.
+  - `SHIPPED_5103_5_2026_09_16`: Shipped v5.103.5, live-validated: clean load, zero ERROR, name-diff byte-identical (305==305). Behavior-neutral. shipped_organic; discriminator = at next reload no async_call_later exceptions + bounded ComplianceTracker retention (one-sh...
+  - `FIXUP_DONE_2026_09_16`: Consolidated fix-up complete (commit 9aba9ce21). All 4: (1) self-removal- on-fire at the 3 per-event sites, append-drain kept at the 2 once-per-instance; (2) __init__ entry-state LOADED gate + _retry re-check + dead except removed; (3) c...
+  - `REVIEW_B_2026_09_16`: Framing B (lifecycle/teardown) = SHIP-WITH-FIXES, no CRIT/HIGH. CONVERGES with A on the retention leak (B-MED-2). Adds B-MED-1: the __init__.py:1618 fix does NOT close its window (drain runs before the parked NM background task resumes +...
+  - `REVIEW_A_2026_09_16`: Framing A (cancel-safety) = FIX-REQUIRED. Strong catch: the hygiene fix INTRODUCED a leak. MUST-FIX (1): per-EVENT sites (coordinator_diagnostics.py:381 schedule_check per-command; transit_validator.py:1075,1119 per-detection) append uns...
+  - `groom_2026_09_29`: Adjacency: linked to PROPERTY-GETTER-SIDE-EFFECT-TASKS-1 (same untracked-background-task family, different sites). Existing link context preserved. Rank scored.
+  - `AUDIT_2026_09_15`: AUDIT DONE — and it DE-SCOPES this card by ~96%. Built a reusable AST audit, quality/tools/audit_listener_cleanup.py (REUSE of the audit_shadow_imports.py walker skeleton shipped 2026-09-12; read-only, standalone, not gated on the broken...
+  - `problem`: untracked background tasks — matches a known URA bug class (task leak). One hardening cycle. (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified 19 async_on_unload sites. The real, large ...
+  - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
+  - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the Tier-2 production hardening (async_on_unloa...
 
 ### `OC-STUCK-SENSOR-GENERALIZE-1` - Optimization Coordinator should surface stuck sensors across ALL device kinds, not room scores — _#5 · WSJF 1.8 · v8 tc4 u2 /e8_
 thread: **optimization** - status: **pre_planning** - approval: **explicit**
@@ -121,37 +135,23 @@ _created 2026-09-14 02:20 · updated 2026-09-19 03:10 · initial_
 
 ### `CENSUS-ATHOME-RESIDENT-CORROBORATOR-1` - A resident at home wandering out a side door (porch, garage) cannot be told apart from a visitor — _#6 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **census** - status: **pre_planning**
-_created 2026-10-05 02:22 · updated 2026-10-05 02:26 · initial_
+_created 2026-10-05 02:22 · updated 2026-10-08 02:20 · refined_
 - **Problem / Solution:**
   - Problem: when someone who lives here steps out and back (cleaning the porch, fetching something from the garage) their phone never leaves home, so nothing names the crossing and it can be counted as a visitor - about 3-4 such episodes a ...
 - **Origin:** 2026-10-04 - PLANNING_census_inputs_first.md R2.3 item 4 / Path alpha-beta; listed as to-mint in the 10-04 resume memo
 - **Why:** Budget of ~3-4 unattributable episodes/day (front porch bursts + the 12:38-12:42 garage_a cluster on 10-03).
-- **Next:** Prior-art scan of existing BLE area/room presence signals near doors (plan Path alpha, :91) before proposing any producer.
+- **Next:** PLAN (me, Tier 2 elevated to 3 framing-disjoint reviews because census feeds guest mode): GARAGE ONLY. At an unnamed garage_a crossing, vouch it as resident when room_transitions (via TransitionDetector, REUSE) shows a resident moving in...
 - **Tags:** tier-2, measure-before-build, institutional-context
+- **Parsimony:** [SIMPLIFY] unnamed garage crossings by residents whose phone never leaves home are counted as possible visitors
 - **Refs:** docs/planning/PLANNING_census_inputs_first.md
-- **Forensic keys (2):**
+- **Forensic keys (5):**
+  - `measured_2026_10_08_overnight`: CONFIRMED (garage) / REFUTED-AS-USEFUL (front door). PRIOR ART per your pointer: URA's room-to-room layer already exists. TransitionDetector (transitions.py:38; listener API async_add_listener :150, DB read get_recent_transitions :675) w...
+  - `operator_decision_2026_10_07`: See if there is infrastructure in room memory that allows us to do this more efficiently. The idea is that memory allows room to room communication and optimization (board instruction 2026-10-07 13:19)
+  - `prior_art_2026_10_07_overnight`: PRIOR-ART SCAN DONE (read-only agent, develop 750cc06ab; orchestrator spot-read of the cited symbols pending at plan time). REUSE: per-person BLE room with freshness = person_coordinator.data[person] (location / tracking_status / last_be...
   - `groomed_2026_10_05_overnight`: Inbox -> pre_planning (REAL per the plan's measured Path-beta budget of ~3-4 episodes/day). Sequenced AFTER the parent's D1 stem fix: some of today's unattributable crossings are _2-camera crossings that never reach identity at all (EGRE...
   - `sweep_2026_10_05`: Board census/egress cards swept; GAP-A-CENSUS-HOLE-1 ADJACENT. NEW.
 
-### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep — _#7 · WSJF 1.4 · v6 tc3 u2 /e8_
-thread: **presence** - status: **pre_planning** - approval: **unreviewed**
-_created 2026-08-31 18:20 · updated 2026-09-29 01:05 · refined ×4_
-- **Problem / Solution:**
-  - Problem: on nights when a phone sits in the master bedroom, the master bathroom reads OCCUPIED for the entire sleep window (measured: one continuous 441-minute / 7.3h hold, 22:53->06:14) because the sleeping resident's Bluetooth keeps re...
-- **Origin:** 2026-08-31 - operator asked why the Master Bath LED is on at night / is vacancy being extended while sleeping
-- **Why:** Investigation of the operator's LED report found URA drives NO light at night (the visible LED is a device standby indicator URA does not control), but surfaced a REAL adjacent finding: BLE bleed holds the bath occupied ~7h with blecorr=...
-- **Next:** Fresh plan-review (config surface changed, Tier 2-DB+) against the 120min durations -> build. Plan: PLANNING_ble_bleed_extend_corroboration.md (Rev 4).
-- **Tags:** no-fabrication-verify, measure-before-build
-- **Refs:** Investigation 2026-08-31 (read-only recorder probe): binary_sensor.master_bathroom_occupied 441-min hold 08-29->30, occupancy_source=ble, ble_persons=[Oji]/[Ezinne,Oji], no mmWave/motion; all URA lights OFF; URA night LED (NOT the cause): switch.sonoff_1002197ef7_1 MasterBathLED — OFF every night
-- **Forensic keys (6):**
-  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 6, time_criticality 3, effort 8 - Tier 2-DB plan exists (Rev 4); HVAC/occupancy correctness.
-  - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: core per-room BLE hold-cap shipped v5.93.0 (coordinator.py:699 _get_ble_hold_cap_seconds + :241 _fire_ble_hold_cap_nm). Verify live the cap evicts the 7.3h Mas...
-  - `relane_2026_09_10`: Not a soak -> PRE-PLANNING. Fresh Tier-2-DB+ plan-review of the 120min durations (PLANNING_ble_bleed_extend_corroboration.md Rev 4) -> build.
-  - `plan_ready_2026_09_01`: Rev 5 §BUILD-READY. Two plan-reviews (Rev3 blanket→FIX, Rev4 toggle→FIX on config application) + confirm-review (Rev5, 1 doc HIGH fixed). Design cleared: per-room CONF_BLE_HOLD_CAP_ENABLED (read-site default via ROOM_TYPE_BLE_HOLD_CAP_DE...
-  - `build_review_2026_09_01`: BUILT (feature/ble-hold-cap @ f086e75e4) + 3 build-reviews: A SHIP, B SHIP, C FIX-REQUIRED. Core cap logic solidly anchored (all decision gates RED-on-neuter). Gaps: C-HIGH-1 NM wire-in neuter-deletable (add call-site anchor); C-MED-2 P2...
-  - `refinement_2026_09_01`: Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body- corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on BLE-extend-since-last-body (independent of sleep) a...
-
-### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#8 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `APPLIANCE-COST-DEFERRAL-1` - Appliance cost-deferral — LG ThinQ + Rainbird start-deferral/skip — _#7 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **energy** - status: **pre_planning**
 _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
 - **Next:** NOT greenfield — ready Tier 2-DB v3 spec exists (PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md supersedes v1.1/v2; BACKLOG B5: P7 strictness, D2 options-flow, D8 Rainbird kill switch). Run marginal-benefit decomposition AGAINST that plan's...
@@ -162,7 +162,7 @@ _created 2026-08-18 02:30 · updated 2026-09-29 01:05 · refined_
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL greenfield (~30-40h): no appliance/thinq/rainbird coordinator exists (0 files). Ready v3 spec at PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md. Run marginal-benefit d...
   - `problem`: No appliance_coordinator exists (thinq/rainbird->0 files). Deferring washer/dishwasher starts and skipping sprinkler runs to off-peak/solar windows is recurring-$ value but ~30-40h of work.
 
-### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#9 · WSJF 0.8 · v3 tc1 u2 /e8_
+### `TABLET-FLEET-1` - Wall tablet fleet: URA integration (sensors, wake-on-occupancy, room quick-actions) — _#8 · WSJF 0.8 · v3 tc1 u2 /e8_
 thread: **tablets** - status: **pre_planning** - approval: **unreviewed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-08 - operator: master tablet upgrades tested and working (sensors, lights, all over MQTT); thinking house-device tablet control, wake on URA room occupancy, conditional room quick-actions. NO ACTION YET - thoughts requested.
@@ -175,7 +175,7 @@ _updated 2026-09-29 01:05_
   - `verified_capabilities`: Per-room MQTT identity already fleet-safe: clientId wall-tablet-<room>, topics home/wallpanel/<room>/{led,sensors,status}; LWT availability; self-registers via MQTT Discovery (no YAML).
   - `orchestrator_assessment`: HIGHEST VALUE IS THE SENSORS, NOT THE CONTROL SURFACE. Per-room lux is a first-class input URA's lighting logic already consumes; a tablet in every room is a lux+temp+humidity fleet arriving for free. That likely beats the quick-action U...
 
-## 📝 Planned (10)
+## 📝 Planned (9)
 _has plan / acceptance_
 
 ### `DASHBOARD-V8-FIX-BATCH-1` - URA v8 dashboard fix batch: wrong Home/Now energy numbers, dead security ids, duplicate cards, a phone-first layout, and new Climate/Energy/People cards — _#1 · WSJF 4.0 · v6 tc4 u2 /e3_
@@ -258,24 +258,7 @@ _created 2026-09-12 17:10 · updated 2026-10-06 02:08 · refined_
   - `links_note_2026_09_16`: Effectively blocked on TEST-HARNESS-REAL-HA-DEFAULT-1 for the same reason its parent TEST-STRATEGY-REARCH-1 is: not because the fix is unclear, but because the regression check that makes it safe needs a working runtime harness.
   - `verify_2026_09_19`: VERIFY-BEFORE-WORK datapoint (read-only, no work started): default-order collection re-run tonight at 02:06 CDT on develop = 10,745 tests collected, ZERO errors. That is consistent with every prior read — the DEFAULT order has been clean...
 
-### `UNLOAD-SYMMETRY-TASK-HYGIENE-1` - Setup/unload symmetry + tracked background tasks (tech-debt hardening) — _#6 · WSJF 2.0 · v5 tc3 u2 /e5_
-thread: **platform** - status: **planned**
-_created 2026-08-18 02:30 · updated 2026-10-06 02:55 · refined_
-- **Next:** Tier 2 production hardening: audit async_on_unload coverage + track background tasks (reload-safety + task-leak). Independent of the test cluster.
-- **Forensic keys (11):**
-  - `INSTANCE_2026_10_06_shutdown_residuals`: From the SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1 reviews (docs/reviews/code-review/overnight_2026-10-06_shutdown_db_fastfail.md), same teardown surface: (1) ~40 DAO except-arms log ERROR and ~55 WARNING for each write rejected during shutdown ...
-  - `disposition_2026_09_26_groom`: RE-LANED (tech-debt hardening, never built). Tier 2: audit async_on_unload coverage + track background tasks.
-  - `SHIPPED_5103_5_2026_09_16`: Shipped v5.103.5, live-validated: clean load, zero ERROR, name-diff byte-identical (305==305). Behavior-neutral. shipped_organic; discriminator = at next reload no async_call_later exceptions + bounded ComplianceTracker retention (one-sh...
-  - `FIXUP_DONE_2026_09_16`: Consolidated fix-up complete (commit 9aba9ce21). All 4: (1) self-removal- on-fire at the 3 per-event sites, append-drain kept at the 2 once-per-instance; (2) __init__ entry-state LOADED gate + _retry re-check + dead except removed; (3) c...
-  - `REVIEW_B_2026_09_16`: Framing B (lifecycle/teardown) = SHIP-WITH-FIXES, no CRIT/HIGH. CONVERGES with A on the retention leak (B-MED-2). Adds B-MED-1: the __init__.py:1618 fix does NOT close its window (drain runs before the parked NM background task resumes +...
-  - `REVIEW_A_2026_09_16`: Framing A (cancel-safety) = FIX-REQUIRED. Strong catch: the hygiene fix INTRODUCED a leak. MUST-FIX (1): per-EVENT sites (coordinator_diagnostics.py:381 schedule_check per-command; transit_validator.py:1075,1119 per-detection) append uns...
-  - `groom_2026_09_29`: Adjacency: linked to PROPERTY-GETTER-SIDE-EFFECT-TASKS-1 (same untracked-background-task family, different sites). Existing link context preserved. Rank scored.
-  - `AUDIT_2026_09_15`: AUDIT DONE — and it DE-SCOPES this card by ~96%. Built a reusable AST audit, quality/tools/audit_listener_cleanup.py (REUSE of the audit_shadow_imports.py walker skeleton shipped 2026-09-12; read-only, standalone, not gated on the broken...
-  - `problem`: untracked background tasks — matches a known URA bug class (task leak). One hardening cycle. (Correction 2026-09-12: the original "async_on_unload used in only 2 sites" claim is WRONG — verified 19 async_on_unload sites. The real, large ...
-  - `disposition_2026_09_12`: VERIFIED 2026-09-12 (verify-before-work sweep, agent batch-1) — verdict STILL-REAL but card number was STALE. `grep -rn async_on_unload custom_components/universal_room_automation/` = 19 sites (not 2). Task-hygiene half confirmed real an...
-  - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the Tier-2 production hardening (async_on_unloa...
-
-### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#7 · WSJF 1.6 · v7 tc4 u2 /e8_
+### `RESTART-SAFETY-DOCTRINE-1` - URA is not universally restart-safe — islands of persistence built ad hoc after each burn, no shared standard, and at least three detectors that can never reach their own threshold — _#6 · WSJF 1.6 · v7 tc4 u2 /e8_
 thread: **platform** - status: **planned** - approval: **needs_operator**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-21 - Operator, on the governed-excursion primitive: "Especially the restartability. I almost want to generalize that. Ura is not universally restart safe." Correct, and this session produced four independent instances without loo...
@@ -294,7 +277,7 @@ _updated 2026-09-29 01:05_
   - `SCOPE_DECISION_NO_CARD_SPRAY_2026_08_21`: The audit recommends CHECKLIST + one narrow primitive, and I agree with that shape — the existing persistence mechanisms are diverse because each is fitted to its data shape, and a shared library would flatten correct choices. The real g...
   - `INSTANCE_2026_09_16_TEARDOWN_ONLY_BASELINES`: MEASURED INSTANCE of this card's general rule, found while confirming residual B on HVAC-ANOMALY-BLIND-1 (see its MEASURED_2026_09_16 for the evidence and the method, including the immutable=1 freshness validation). Filed here as an inst...
 
-### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#8 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EGRESS-INTERIOR-COUNT-REINFORCE-1` - Use exterior->interior egress transitions to STRENGTHEN interior count accuracy (scope 2 of egress) — _#7 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **presence** - status: **planned** - approval: **pre_approved_gated**
 _updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -311,7 +294,7 @@ _updated 2026-09-29 01:05_
   - `d0_impact_2026_08_17`: D0 probe impact: the gate ("D1 identity accurate") CANNOT be met via faces — face coverage at egress is ~7% even post-suffix-fix. So the identity-based interior-count reinforcement is not viable on current sensing. IF cycle 3 rescopes to...
   - `coverage_ceiling_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#9 · WSJF 1.5 · v9 tc8 u2 /e13_
+### `TEST-STRATEGY-REARCH-1` - Investigate + possibly re-architect the automated test strategy (never examined; slow + collides + hollow at boundaries) — _#8 · WSJF 1.5 · v9 tc8 u2 /e13_
 thread: **platform** - status: **planned** - approval: **explicit**
 _created 2026-08-19 07:45 · updated 2026-10-06 02:25 · refined_
 - **Next:** BUILD (me, Tier 1-2 test-only): fix test_v47x_weather_manager.py (47) and test_bathroom_exhaust_intelligence_cycle.py (23) failures, one builder at a time behind the HVAC arc builds; re-measure with scripts/suite_namediff.py; then size t...
@@ -337,7 +320,7 @@ _created 2026-08-19 07:45 · updated 2026-10-06 02:25 · refined_
   - `BLOCKED_LINK_2026_09_16`: Recorded the dependency as a real blocked_by link instead of leaving it as prose in measured_2026_09_15. This parent asks for a re-arch scoped to ~87 order-dependent RUNTIME failures, and those failures are currently unmeasurable because...
   - `UNBLOCKED_2026_09_21`: UNBLOCKED, and the number this card is built around finally has a fresh measurement. The blocker (TEST-HARNESS-REAL-HA-DEFAULT-1) rested on the claim that the harness errored out of 10,560 of 10,588 tests, which made the ~87 order-depend...
 
-### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#10 · WSJF 1.0 · v4 tc2 u2 /e8_
+### `ROUTINE-CARE-DASHBOARD-1` - "Unusual for this person" routine care surface — DASHBOARD color signature, sensor-only (no notifications) — _#9 · WSJF 1.0 · v4 tc2 u2 /e8_
 thread: **presence** - status: **planned** - approval: **unreviewed**
 _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -352,29 +335,37 @@ _created 2026-08-19 13:40 · updated 2026-09-29 01:05_
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL, correctly blocked by ROUTINE-DETECTOR-NO-DISCHARGE-1 (unfixed). No care-dashboard artifact exists.
   - `color_design_draft`: GREEN steady (stable vs own baseline) · AMBER drifting (mild/household-wide sustained change — informational) · RED unusual (individual anomaly vs a STABLE personal baseline — rare, the care signal) · GREY away (absent / vacation-suppres...
 
-## 🔨 In progress (0)
+## 🔨 In progress (1)
 _being built_
 
-_(none)_
+### `STUCK-SENSOR-WARNING-PER-TICK-1` - The "sensor stuck on" warning is written to HA's log every few seconds for as long as a sensor stays stuck, instead of once — _#1 · WSJF 8.0 · v3 tc3 u2 /e1_
+thread: **presence** - status: **in_progress** - approval: **implied**
+_created 2026-10-07 02:15 · updated 2026-10-07 03:05 · initial_
+- **Problem / Solution:**
+  - Problem: when a room's motion/radar sensor stays on for hours, URA ignores it (correct) but writes the same "stuck on for N hours" warning into HA's log on every check, about 3 times a minute per sensor. Tonight two sensors (Master Bedro...
+- **Origin:** 2026-10-07 - overnight pass log read (HA core log via SSH + supervisor proxy, 20,000 lines = 01:17-02:01 CDT) - 131 Master Bedroom + 85 Exercise Room "stuck on" WARNINGs
+- **Why:** Log-only change with zero behaviour effect; the per-day NM latch (_stuck_sensor_fired) already marks the first moment of an episode, so the fix reuses it rather than adding state. Adjacent to RECORDER-BLOAT-LOGFLOOD-1 (that card = third-...
+- **Next:** BUILD (me, overnight): worktree build + test + review -> review lane; ship with the next daytime deploy.
+- **Tags:** tier-1, institutional-context, no-fabrication-verify
+- **Parsimony:** [BUILD] coordinator.py:3114 logs WARNING on every tick a sensor is in the P22 stuck set (measured 216 lines / 43 min for 2 sensors)
+- **Refs:** custom_components/universal_room_automation/coordinator.py:3111
+- **Forensic keys (2):**
+  - `build_2026_10_07_overnight`: Built on fix/stuck-sensor-warn-once (16648bd99): helper _emit_p22_stuck_sensor_for_tick logs WARNING only when the per-day latch key is first added (with the NM), DEBUG otherwise; 37 stuck tests green; builder helper-level drill red->gre...
+  - `gate_2026_10_07`: 1 validity: STILL-REAL (live log 2026-10-07 01:18-02:01 CDT; code at coordinator.py:3111-3117 has no once-per-episode guard). 1b config-first: no per-message knob; logger-level config would hide all coordinator warnings -> code. 2 prior-...
 
-## 🔍 Review (3)
+## 🔍 Review (2)
 _under review_
 
-### `RESTORE-UNAVAILABLE-OFF-SWEEP-1` - After a restart that follows a URA outage, some on-by-default URA switches come back OFF (Vacancy Auto-Off is off right now) - finish the Bug Class #52 restore guard — _#1 · WSJF 7.0 · v6 tc6 u2 /e2_
-thread: **platform** - status: **review** - approval: **implied**
-_created 2026-10-04 02:40 · updated 2026-10-05 02:27 · initial_
-- **Problem / Solution:**
-  - Problem: when URA is down at the moment Home Assistant saves entity states (as during the 61-minute v5.103.37 crash on 10-03), a handful of URA switches save 'unavailable'. On the next start they read 'unavailable' as OFF, so a feature t...
-- **Origin:** 2026-10-04 - Overnight pass, verifying HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 on the recorder: a restart-flip measurement over all 59 URA switches found zone_sweep on->off at the 10-03 21:59Z restart.
-- **Why:** MEASURED (HA recorder, 10 days, 59 switch.ura_* / universal_room_automation* entities, ~22 restarts each): exactly 2 switches changed value across a restart, both at 10-03 21:59Z, the restart after the 61-min CM outage: guest_mode_actuat...
-- **Next:** MERGE+SHIP (operator-timed): fix/restore-guard-52-sweep (63523e0ed, pushed) is reviewed SHIP x2 + orchestrator-verified; serial full-suite name-diff queued behind the running one. Ship with the next daytime deploy. Live acceptance: none ...
-- **Tags:** tier-1, measure-before-build, institutional-context, mutation-drill, found-during-probe
-- **Parsimony:** [BUILD] After a URA-down shutdown, unguarded default-ON switches restore OFF silently (zone_sweep, measured live).
-- **Refs:** custom_components/universal_room_automation/switch.py:3982; docs/QUALITY_CONTEXT.md:2101; docs/BACKLOG.md:1596
+### `SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1` - HA shutdown waits ~8 min on URA census DB writes — _#1 · WSJF 2.4 · v5 tc3 u4 /e5_
+thread: **platform** - status: **review**
+_created 2026-10-05 · updated 2026-10-06 02:55 · refined_
+- **Why:** Restart 2026-10-05 19:00 took ~12 min to come back: HA "stop integrations" and "final write" stages both timed out waiting on pending UniversalRoomDatabase.log_census() tasks (5) plus one OverrideArrester._evaluate_nudge_outcome; coordin...
+- **Next:** SHIP (operator-timed, daytime deploy): merge fix/shutdown-db-write-fastfail (95fc75e8b) to develop after the overnight full-suite name-diff (result on this card), fold docs/planning/DRAFT_README_shutdown_db_fastfail.md into the release R...
+- **Tags:** tier-2db, mechanism-in-source
 - **Forensic keys (3):**
-  - `merged_2026_10_05_overnight`: MERGED to develop (7f67336f2 / 6c6c403a0) after the overnight serial full-suite name-diff: no new failures attributable to this branch (the single new failure was the mutation-sandbox branch's, since fixed). NOT deployed - it now rides t...
-  - `built_2026_10_04_overnight`: BUILT (ura-builder, worktree overnight-1004-restore52): #52 guard on 9 restores in switch.py - behavioural: HVACZoneSweepSwitch, SecurityDelegateLightsSwitch, AutomationSwitch (per-room automation - also unguarded, found by the builder),...
-  - `gate_2026_10_04`: 1 validity STILL-REAL (live: zone_sweep off since 21:59:30Z, code unguarded at switch.py:3982-3983). 1b config-first: the LIVE symptom is a setting (turn the switch back on - operator, see next); the recurrence is code. 2 prior-art: REUS...
+  - `built_2026_10_06_overnight`: BUILT TO REVIEW (not deployed). Branch fix/shutdown-db-write-fastfail: e2d9fd61d build (ura-builder) -> fccd0fad1 orchestrator removed an in-suite source-mutation test the builder added (tests must not rewrite production source) -> 82224...
+  - `tags_note_2026_10_06`: Re-tiered tier-1 -> tier-2db: the fix touches the shared DB write primitive database.py _db() (standing policy: regression-prone shared primitive = 3 framing-disjoint reviews).
+  - `gate_2026_10_06_overnight`: FOUR-STEP GATE. (1) VALIDITY: STILL-REAL. The 10-05 19:00 shutdown log is past the readable window (LOG-READ GAP; ha_get_logs error_log history starts ~23:00 CDT 10-05), so the symptom was not re-read live; the MECHANISM is confirmed in ...
 
 ### `EC-EV-TOGGLE-TRIPWIRE-1` - Alert when a strategy flip-flop switches an EV charger more than twice an hour — _#2 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **review** - approval: **explicit**
@@ -386,32 +377,38 @@ _created 2026-10-03 16:00 · updated 2026-10-06 02:25_
   - `built_2026_10_05_overnight`: BUILT TO REVIEW (overnight, not deployed). Branch feature/ec-ev-toggle-tripwire: d0d12ad25 build (energy.py _log_charger_actuation tap after the per-target dedupe, kind==ev only, force-charge excluded; WriteVerifier.note_ev_toggle mirror...
   - `gate_2026_10_05_overnight`: FOUR-STEP GATE. (1) VALIDITY: STILL-REAL - no toggle counter on develop or the EC p1 branch (grep toggle/tripwire in energy*.py); the night loop is fixed by v5.103.37 but not exercised (EVs drew 0 W on every turn-on since), so the daytim...
 
-### `SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1` - HA shutdown waits ~8 min on URA census DB writes — _#3 · WSJF 2.0 · v5 tc3 u2 /e5_
-thread: **platform** - status: **review**
-_created 2026-10-05 · updated 2026-10-06 02:55 · refined_
-- **Why:** Restart 2026-10-05 19:00 took ~12 min to come back: HA "stop integrations" and "final write" stages both timed out waiting on pending UniversalRoomDatabase.log_census() tasks (5) plus one OverrideArrester._evaluate_nudge_outcome; coordin...
-- **Next:** SHIP (operator-timed, daytime deploy): merge fix/shutdown-db-write-fastfail (95fc75e8b) to develop after the overnight full-suite name-diff (result on this card), fold docs/planning/DRAFT_README_shutdown_db_fastfail.md into the release R...
-- **Tags:** tier-2db, mechanism-in-source
-- **Forensic keys (3):**
-  - `built_2026_10_06_overnight`: BUILT TO REVIEW (not deployed). Branch fix/shutdown-db-write-fastfail: e2d9fd61d build (ura-builder) -> fccd0fad1 orchestrator removed an in-suite source-mutation test the builder added (tests must not rewrite production source) -> 82224...
-  - `tags_note_2026_10_06`: Re-tiered tier-1 -> tier-2db: the fix touches the shared DB write primitive database.py _db() (standing policy: regression-prone shared primitive = 3 framing-disjoint reviews).
-  - `gate_2026_10_06_overnight`: FOUR-STEP GATE. (1) VALIDITY: STILL-REAL. The 10-05 19:00 shutdown log is past the readable window (LOG-READ GAP; ha_get_logs error_log history starts ~23:00 CDT 10-05), so the symptom was not re-read live; the MECHANISM is confirmed in ...
-
-## ⏸️ Waiting on operator (33)
+## ⏸️ Waiting on operator (35)
 _needs a human call — groomed first_
 
-### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#1 · WSJF 10.0 · v9 tc9 u2 /e2_
+### `FRONT-DOOR-LOCK-OFFLINE-1` - The front-door Z-Wave lock has been offline for over a week, so nothing in HA can lock it or see if it is jammed or low on battery — _#1 · WSJF 13.0 · v6 tc5 u2 /e1_
+thread: **security** - status: **waiting_operator** - approval: **blocked**
+_created 2026-10-07 03:05 · updated 2026-10-08 02:20 · initial_
+- **Problem / Solution:**
+  - Problem: the front-entry Kwikset lock (lock.doorlock_kwikset_zwave_frontentry) and all its sensors (battery, jammed, tamper, door status) have been unavailable for at least 8 days, so URA security cannot lock it or warn about it, and its...
+- **Origin:** 2026-10-07 - overnight pass, HA system_log entry from URA's periodic lock check (5 hits since the 10-06 14:37 CDT boot)
+- **Why:** Evidence: live REST states 2026-10-07 02:05 CDT - lock + 20 sibling entities unavailable (since the 10-06 19:41Z boot, and before it); recorder (home-assistant_v2.db, retention starts 2026-09-29 04:12 CDT) has NO non-unavailable state fo...
+- **Next:** DO: swap the front-door lock batteries (Z-Wave controller move optional, your call). -> I then measure: battery % slope per week on the lock's battery sensor, plus how many lock.lock commands URA and other automations send it (recorder l...
+- **Tags:** config-only
+- **Parsimony:** [BUILD] front-entry lock entities unavailable >= 8 days (whole recorder window)
+- **Refs:** HA system_log 2026-10-07: custom_components.universal_room_automation.domain_coordinators WARNING Periodic lock check: 1 device(s) unavailable: lock.doorlock_kwikset_zwave_frontentry
+- **Forensic keys (3):**
+  - `checked_2026_10_08_overnight`: Lock still unavailable at 02:05 CDT 10-08 (REST: state unavailable, restored, last_changed 10-06 19:41Z), so the batteries have not been swapped yet. ON THE SWEEP QUESTION (read security.py:1668-1760, _evaluate_lock_check): URA's periodi...
+  - `operator_decision_2026_10_07`: Yes the locks are dead battery for front door. It ran down quick, not sure if that's repeated sweeps doing that. I'll change and you can measure. Also thinking of moving to the other z wave controller since that's Poe and can be moved (r...
+  - `sweep_2026_10_07`: Swept board, history, BACKLOG for kwikset / zwave / front lock / periodic lock check: no card. Possibly ADJACENT to the gap that sensor.<room>_unavailable_entities does not track actuators (CLAUDE.md troubleshooting step 2) - a dead lock...
+
+### `PERIMETER-DETECTION-WENT-DARK-1` - Exterior person detection went fully dark for ~26h on 2026-09-14/15 and then recovered on its own — nothing noticed either the outage or the recovery — _#2 · WSJF 10.0 · v9 tc9 u2 /e2_
 thread: **perimeter** - status: **waiting_operator** - approval: **blocked**
-_created 2026-09-16 03:30 · updated 2026-10-06 02:08 · refined_
+_created 2026-09-16 03:30 · updated 2026-10-07 02:40 · refined_
 - **Problem / Solution:**
   - Problem: the system that spots people outside the house has gone quiet across EVERY outdoor camera at once. Two days ago the cameras between them reported a person about 470 times a day; yesterday that fell to about 40, and so far today ...
 - **Origin:** 2026-09-16 - fell out of re-measuring FRONT-SIDE-PTZ-CHATTER-1 overnight — the chatter had vanished, and checking WHY it vanished turned up a fleet-wide blackout instead of a fix
 - **Why:** exterior person detection feeds perimeter alerts, the property census, the circling/track linker and egress identity. All of them degrade silently when the producer goes quiet, which is precisely the blind spot CAMERA-ZERO-FIRE-DETECTORS...
-- **Next:** PICK: Frigate2 detection is back (since ~07:00 CDT 10-03), but it has now hung 3 times in ~5 days. (A) treat the Coral as faulty (reseat / swap / move to the CPU/OpenVINO detector) or (B) restart Frigate on a schedule as a stopgap. -> I ...
+- **Next:** DO: Frigate2's host (192.168.13.18) is OFF THE NETWORK again since 10-06 ~02:08 CDT - power-cycle / check it (network cable, the host itself). -> I re-count per-camera Frigate2 person detections the next night and confirm recovery. The P...
 - **Tags:** measure-before-build, no-fabrication-verify
 - **Parsimony:** [BUILD] every exterior person-detector went silent within ~24h while motion continued, and the operator-facing alerts went silent with them
 - **Refs:** binary_sensor.front_side_ptz_person_occupancy_2; binary_sensor.front_side_ptz_motion_3; notification_log hazard_type=exterior_person
-- **Forensic keys (22):**
+- **Forensic keys (23):**
+  - `REOPENED_2026_10_07_overnight_host_off_network`: FIFTH OUTAGE, ONGOING (overnight 10-07, HA REST states + recorder history via ssh-proxied /api; ping from the HA host). sensor.frigate_status_2 running -> unavailable at 2026-10-06 07:08Z (02:08 CDT); every Frigate2 person/motion entity ...
   - `reverified_2026_10_06_overnight`: No new hang since the 10-03 07:00 recovery: sensor.frigate_detection_fps_2 over the last 72 h (11,431 samples) is non-zero except brief blips at 10-04 11:48 (unavailable) and 10-05 16:43 (unavailable/0, recovered same minute); sensor.fri...
   - `verified_2026_10_05_overnight`: STILL-REAL ask, no new hang. HA recorder (ssh-proxied /api/history, 17 Frigate2 *_person_occupancy_2 sensors, 10-01 00:00 -> 10-05 02:00 CDT): only dark gaps >=3 h are the known 10-01 17:00 CDT +38 h hang; detections continuous since 10-...
   - `verified_2026_10_04_overnight`: RECOVERED (DO no longer outstanding). HA recorder: binary_sensor.*person_occupancy* ON transitions resumed ~07:00 CDT 10-03 after the 10-01 ~16:00 CDT hang (dark ~39 h), then ran 60-172/hour through the day; still alive now (latest ON: b...
@@ -435,7 +432,38 @@ _created 2026-09-16 03:30 · updated 2026-10-06 02:08 · refined_
   - `reverified_2026_09_21`: STAND-DOWN RE-VERIFIED, INDEPENDENTLY — the card asserts detection recovered on 09-15 and has been normal since, and that assertion is STILL TRUE rather than merely still written down. Queried the HA recorder read-only for daily counts o...
   - `measured_2026_10_02_overnight`: FOURTH OUTAGE - DETECTOR HUNG AGAIN (overnight 10-02, read-only: HA recorder via ssh sqlite3 -readonly + HA REST states). RECOVERY CONFIRMED FIRST: sensor.frigate_status_2 last changed 10-01 16:26Z (Frigate restarted ~11:26 CDT), and per...
 
-### `CAMERA-SEAM-VALIDATION-1` - Exterior camera seams (handoff points) listed for operator validation — 12 cameras, 27 seams — _#2 · WSJF 6.5 · v6 tc3 u4 /e2_
+### `HA-TRUSTED-PROXIES-UI-MIGRATION-1` - Remove the now-ignored YAML http/trusted_proxies block (HA already imported it into the UI on 2026-08-12) — _#3 · WSJF 10.0 · v4 tc4 u2 /e1_
+thread: **platform** - status: **waiting_operator**
+_created 2026-10-05 · updated 2026-10-08 02:35 · refined_
+- **Problem / Solution:**
+  - Problem: HA already moved the reverse-proxy trust settings from configuration.yaml into its own UI settings on 2026-08-12, but the old YAML block is still in the file, so HA shows two repair warnings and a future reader may think the YAM...
+- **Why:** Claim (from the Wigton session): when HA upgrades past 2026.9 it copies YAML http trusted_proxies into the new UI settings on first start. UNVERIFIED: not in the 2026.9 release notes nor the developer blog (Aug-Sep 2026); likely a 2026.1...
+- **Next:** APPROVE: I back up configuration.yaml and delete its http: block (lines 87-93; the UI already holds all four proxies), then after your next normal restart I confirm the two http repairs are gone and the PWA / remote access still loads. (...
+- **Tags:** tier-1, multi-home
+- **Forensic keys (3):**
+  - `verified_2026_10_08_overnight`: CARD-WAS-WRONG (timing) + ALREADY-DONE (migration). HA 2026.10.0 is now offered (update.home_assistant_core_update latest 2026.10.0, installed 2026.9.4). The 2026.10 release notes say nothing about http. The http integration docs say the...
+  - `verified_2026_10_05_overnight`: Not yet actionable: live update.home_assistant_core_update installed 2026.9.4 = latest 2026.9.4 (2026.10 not released yet). Moved investigating -> waiting_me: no measurement possible until release day; trigger = core update entity offers...
+  - `sweep_2026_10_05`: NEW: no prior card on http/trusted_proxies.
+
+### `RESTORE-UNAVAILABLE-OFF-SWEEP-1` - After a restart that follows a URA outage, some on-by-default URA switches come back OFF (Vacancy Auto-Off is off right now) - finish the Bug Class #52 restore guard — _#4 · WSJF 7.0 · v6 tc6 u2 /e2_
+thread: **platform** - status: **waiting_operator** - approval: **implied**
+_created 2026-10-04 02:40 · updated 2026-10-08 02:50 · initial_
+- **Problem / Solution:**
+  - Problem: when URA is down at the moment Home Assistant saves entity states (as during the 61-minute v5.103.37 crash on 10-03), a handful of URA switches save 'unavailable'. On the next start they read 'unavailable' as OFF, so a feature t...
+- **Origin:** 2026-10-04 - Overnight pass, verifying HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 on the recorder: a restart-flip measurement over all 59 URA switches found zone_sweep on->off at the 10-03 21:59Z restart.
+- **Why:** MEASURED (HA recorder, 10 days, 59 switch.ura_* / universal_room_automation* entities, ~22 restarts each): exactly 2 switches changed value across a restart, both at 10-03 21:59Z, the restart after the 61-min CM outage: guest_mode_actuat...
+- **Next:** DO (setting, operator): turn switch.ura_hvac_coordinator_zone_sweep (HVAC 46 Vacancy Auto-Off) back ON unless you turned it off on purpose -> I then dispose this card done at the next restart-after-outage check (see reconcile_2026_10_07_...
+- **Tags:** tier-1, measure-before-build, institutional-context, mutation-drill, found-during-probe
+- **Parsimony:** [BUILD] After a URA-down shutdown, unguarded default-ON switches restore OFF silently (zone_sweep, measured live).
+- **Refs:** custom_components/universal_room_automation/switch.py:3982; docs/QUALITY_CONTEXT.md:2101; docs/BACKLOG.md:1596
+- **Forensic keys (5):**
+  - `reverified_2026_10_08_overnight`: switch.ura_hvac_coordinator_zone_sweep (Vacancy Auto-Off) still OFF at 02:40 CDT (last_changed 10-06 19:39Z = the v5.103.41 boot). It was off before that restart, so the restore guard correctly kept it off; it needs your setting. Re-lane...
+  - `merged_2026_10_05_overnight`: MERGED to develop (7f67336f2 / 6c6c403a0) after the overnight serial full-suite name-diff: no new failures attributable to this branch (the single new failure was the mutation-sandbox branch's, since fixed). NOT deployed - it now rides t...
+  - `built_2026_10_04_overnight`: BUILT (ura-builder, worktree overnight-1004-restore52): #52 guard on 9 restores in switch.py - behavioural: HVACZoneSweepSwitch, SecurityDelegateLightsSwitch, AutomationSwitch (per-room automation - also unguarded, found by the builder),...
+  - `reconcile_2026_10_07_overnight`: CARD-WAS-WRONG (lane): commit 63523e0ed is an ancestor of tags v5.103.39/40/41 (git merge-base --is-ancestor), so this fix SHIPPED in v5.103.39 (2026-10-05 13:52 CDT) without being named in deploy.sh --cards; the board still said review....
+  - `gate_2026_10_04`: 1 validity STILL-REAL (live: zone_sweep off since 21:59:30Z, code unguarded at switch.py:3982-3983). 1b config-first: the LIVE symptom is a setting (turn the switch back on - operator, see next); the recurrence is code. 2 prior-art: REUS...
+
+### `CAMERA-SEAM-VALIDATION-1` - Exterior camera seams (handoff points) listed for operator validation — 12 cameras, 27 seams — _#5 · WSJF 6.5 · v6 tc3 u4 /e2_
 thread: **perimeter** - status: **waiting_operator**
 _created 2026-09-13 21:30 · initial_
 - **Problem / Solution:**
@@ -453,7 +481,7 @@ _created 2026-09-13 21:30 · initial_
   - `applied_2026_09_13`: OPERATOR RETURNED THE VALIDATED SHEET + a singular ring. APPLIED @ feature/camera-seam-ratification-2026-09 (f75c18801) — in review, not deployed. 27 -> 20 seams: 10 struck, 3 added to close the ring. Derived constant EXTERIOR_TRACK_EGRE...
   - `delivered_2026_09_13`: docs/planning/VALIDATE_exterior_camera_seams.md — 27 undirected seams (symmetrized exactly as ExteriorTrackLinker.__init__ does), per-camera degree table, the consumer explanation (link window 180s / close 300s / circling needs 3 cameras...
 
-### `CENSUS-GROUND-TRUTH-CSV-FIX-1` - The 10-03 census ground-truth fixture still carries truth the operator has since corrected — _#3 · WSJF 6.5 · v5 tc4 u4 /e2_
+### `CENSUS-GROUND-TRUTH-CSV-FIX-1` - The 10-03 census ground-truth fixture still carries truth the operator has since corrected — _#6 · WSJF 6.5 · v5 tc4 u4 /e2_
 thread: **census** - status: **waiting_operator**
 _created 2026-10-05 02:22 · initial_
 - **Problem / Solution:**
@@ -468,7 +496,7 @@ _created 2026-10-05 02:22 · initial_
   - `verified_2026_10_05_overnight`: STILL-REAL but GATED on the operator. The fixture (quality/tests/fixtures/census_ground_truth_2026_10_03.csv, added in 9584b184d, 176 rows) carries est_house_total 4-5 at 12:00, 3-4 at 12:30, 4-5 at 13:00-14:00 - footage estimates that i...
   - `sweep_2026_10_05`: No fixture/CSV card on the board. NEW.
 
-### `BLE-PROXY-PLACEMENT-1` - Where to put new ESPHome Bluetooth proxies (main house) + two free config fixes — _#4 · WSJF 6.0 · v7 tc3 u2 /e2_
+### `BLE-PROXY-PLACEMENT-1` - Where to put new ESPHome Bluetooth proxies (main house) + two free config fixes — _#7 · WSJF 6.0 · v7 tc3 u2 /e2_
 thread: **presence** - status: **waiting_operator**
 _created 2026-10-05 · updated 2026-10-05 02:25_
 - **Why:** Operator is building BLE proxies. 7-day Bermuda analysis (~45 scanners in 34 areas): ranked spots 1) Foyer/front porch (no scanner; porch reads as Receiving Room/Breakfast; ~3-4 unattributable front-door crossings/day) 2) Garage A + Gara...
@@ -478,13 +506,7 @@ _created 2026-10-05 · updated 2026-10-05 02:25_
   - `reverified_2026_10_05_overnight`: New fact for the BP1_B ANSWER: the Screek BP1_B scanner itself is OFFLINE - all its entities (button.screek_bp1_b_safe_mode_boot / _factory_reset, update.screek_bp1_b_firmware) unavailable since 2026-10-04 00:13Z, and Bermuda's distance-...
   - `sweep_2026_10_05`: ADJACENT to census inputs-first plan (PLANNING_census_inputs_first.md probe results) and project_jaya_bedroom_occupancy_resolved memory; NEW as a placement card. Caveat: HAOS host BLE socket budget (memory feedback_ble_device_budget) -> ...
 
-### `LIGHTS-GUEST-MODE-BEHAVIOUR-1` - Decide how room lights behave when the house is in Guest mode (normal / off / night lights only) — _#5 · WSJF 5.0 · v2 tc1 u2 /e1_
-thread: **ux** - status: **waiting_operator**
-_created 2026-09-30 08:40_
-- **Why:** Guest mode changes who is in the house; lighting may want guest rooms to behave differently (e.g. night-lights only in hallways). No behaviour change until decided.
-- **Next:** PICK (operator): Guest lighting per room = today's behaviour (recommended default) / off / night lights only -> I add it as a per-room Lighting option (Advanced unless you want it simple).
-
-### `ENERGY-CONSUMPTION-FORECAST-POISONED-1` - The daily consumption forecast is poisoned by days where Envoy "production today" reported its lifetime total, so Net Energy reads -74 kWh and forecasts swing to 2,000 kWh — _#6 · WSJF 5.0 · v7 tc6 u2 /e3_
+### `ENERGY-CONSUMPTION-FORECAST-POISONED-1` - The daily consumption forecast is poisoned by days where Envoy "production today" reported its lifetime total, so Net Energy reads -74 kWh and forecasts swing to 2,000 kWh — _#8 · WSJF 5.0 · v7 tc6 u2 /e3_
 thread: **energy** - status: **waiting_operator** - approval: **blocked**
 _created 2026-09-28 22:50 · updated 2026-10-04 03:05_
 - **Origin:** 2026-09-28 - operator: "Home/Now tab - forecast, net energy seems off and wrong - correct it"; v8 dashboard audit (docs/planning/AUDIT_ura_v8_dashboard_2026_09_28.md)
@@ -500,36 +522,18 @@ _created 2026-09-28 22:50 · updated 2026-10-04 03:05_
   - `plan_2026_09_29_overnight`: PLANNED and plan-reviewed overnight. Plan: docs/planning/PLANNING_energy_lifetime_counter_poisoning.md. Rev 1 FAILED plan review (2 CRITICAL + 6 HIGH, docs/reviews/code-review/plan_review_energy_lifetime_counter_poisoning.md). The ceilin...
   - `verify_2026_10_02_overnight`: STILL-REAL, unchanged picks (URA DB energy_daily + HA REST, read-only). 10-01 also has an all-NULL row (consumption_kwh, solar_production_kwh and predicted_consumption_kwh are empty for 09-28, 09-29, 09-30 and 10-01), so the count is now...
 
-### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#7 · WSJF 5.0 · v4 tc4 u2 /e2_
-thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-09-29 04:20 · updated 2026-10-05 02:22 · initial_
-- **Problem / Solution:**
-  - Problem: the per-room Override Vacant switch forces URA to treat a room as empty. It has no expiry and nothing reminds anyone it is on, so it gets forgotten: the Kitchen one was on 09-21 23:20 -> 09-27 19:40 (6 days, 14 wrong HVAC retrea...
-- **Origin:** 2026-09-29 - overnight HVAC hold-sizing raw-sensor probe (docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md): 14 of 113 pre-ship away episodes were Kitchen under a forgotten override
-- **Why:** An override that silently outlives its purpose is a phantom config fault: the room looks broken (no lights, no HVAC) and every occupancy investigation reads it as a sensor or code problem first. Both kitchen and exercise overrides were s...
-- **Next:** ANSWER: is the Exercise Room automation switch (switch.exercise_room_automation, off since at least 09-25) off on purpose? NO -> turn it on (a setting, no code) and I re-check occupancy vs lights after the next real workout, then close. ...
-- **Tags:** tier-1, found-during-probe, config-first
-- **Parsimony:** [CONFIG-FIRST now; reminder build only if you want it] A vacant override stays on for days unnoticed and hides a room from automation.
-- **Forensic keys (8):**
-  - `reverified_2026_10_05_overnight`: STILL WAITING: switch.exercise_room_automation = off (last_changed 10-03 21:59Z = restart restore; REST /api/states via ssh 02:05 CDT). ANSWER outstanding.
-  - `verified_2026_10_04_overnight`: STILL-REAL, ask unchanged: switch.exercise_room_automation is off (recorder shows off continuously 10-02..10-04, rows only at restarts; no user change).
-  - `reverified_2026_10_03_overnight`: STILL WAITING: switch.exercise_room_automation = off (REST /api/states 02:08; last_changed = the 00:37 restart, i.e. restored off). Operator ANSWER still outstanding.
-  - `checked_2026_10_01_overnight`: ONE-SHOT CHECK DONE (HA REST history 2026-09-29 19:00Z -> 2026-10-01 07:10Z, ~36 h since the override went off). CLEAN but NOT DISCRIMINATING: binary_sensor.exercise_room_occupied never turned on; the motion sensor (rgbw_motion_lux_3rd_z...
-  - `operator_2026_09_29`: Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let's see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant ...
-  - `adjacency_2026_09_29`: NEW. Swept: board (override_vacant appears only as evidence on KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 and the resolved kitchen-occupancy card), BACKLOG.md (no override-expiry item; 474 is TOU overrides), PLANNING_*/AUDIT_* (override switche...
-  - `measured_2026_09_29`: Recorder: switch.exercise_room_override_vacant = on (restored on at every restart 09-28 18:51, 19:20, 23:39); switch.kitchen_override_vacant = off since 09-27 19:40.
-  - `verify_2026_10_02_overnight`: STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_senso...
-
-### `RECORDER-BLOAT-LOGFLOOD-1` - 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log floods — _#8 · WSJF 5.0 · v5 tc3 u2 /e2_
+### `RECORDER-BLOAT-LOGFLOOD-1` - 31 GB of recorder database for only 7 days of history, on flash at 51% life — fed by three log floods — _#9 · WSJF 5.0 · v5 tc3 u2 /e2_
 thread: **platform** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-20 14:15 · updated 2026-10-06 02:10 · initial_
+_created 2026-08-20 14:15 · updated 2026-10-08 02:35 · initial_
 - **Problem / Solution:**
   - Problem: the history database has grown to about 31 GB while only holding a week of data, and the drive it lives on reports half its write life used. Three separate things are spamming thousands of repeated error lines a day, and every o...
 - **Why:** Live 2026-08-20 system_health: estimated_db_size 31722.88 MiB, oldest_recorder_run 2026-08-13 (7 days), disk_life_time 51%. Top floods: mqtt.number 1030 errors (Sonoff garage-B porch delayed_power_on_time_l1 range mismatch, config-level ...
 - **Next:** PICK for the top flood (owner now FOUND): the ~4,800 lines/hour urllib3 InsecureRequestWarning comes from the Proxmox VE integration (both entries: 192.168.13.12:8006 and 192.168.13.14:8006, verify_ssl off). (A) add a logger filter in co...
 - **Tags:** measure-before-build
 - **Refs:** ha_get_system_health 2026-08-20; FRIGATE-LEG-NAMING-1
-- **Forensic keys (22):**
+- **Forensic keys (24):**
+  - `reverified_2026_10_08_overnight`: Not actioned yet: /config/configuration.yaml has no logger: block (grep 02:30 CDT), so no InsecureRequestWarning filter exists. PICK still needed. LOG-READ GAP: the home-assistant MCP could not connect tonight (CONNECTION_FAILED to 192.1...
+  - `remeasured_2026_10_07_overnight`: Bond flood unchanged: HA core log (hassio proxy, last 20,000 lines) spans only 01:17-02:01 CDT (44 min); 18,010 of those lines are homeassistant.components.bond.entity tracebacks (~24k lines/h). system_log since the 10-06 14:37 boot: 'li...
   - `INSTANCE_2026_10_06_bond_traceback_flood`: NEW TOP FLOOD, larger than Proxmox: ha_get_logs error_log 02:04:39-02:07:40 CDT = 2,000 raw lines in 3 min (~40k lines/h); 1,844 of them are unparseable traceback lines, and the parsed entries are led by homeassistant.components.bond (48...
   - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
   - `cost_note_2026_10_05_overnight`: Extra cost of the proxmox flood found tonight: it rotates HA journald so fast that the core log reaches back only ~4 h (10-04 22:29 -> 10-05 02:04), which makes boot-time log checks impossible after the fact (FAN-ORACLE-BOOT-FALLBACK-NOI...
@@ -553,7 +557,36 @@ _created 2026-08-20 14:15 · updated 2026-10-06 02:10 · initial_
   - `ack_reconciled_2026_09_19`: Operator ACKED this cards progress entry on the board (2026-09-18). Per the ack-reconcile rule an ack on a shipped_organic card closes it to done WHEN THE WORK IS COMPLETE — here it is NOT: the config-level fixes + re-measure are unstart...
   - `verify_2026_10_02_overnight`: LOG-READ GAP CLOSED. The home-assistant MCP could not connect this run either, so I read HA's own system_log (system_log/list over the HA websocket, run on the HA host via ssh; deduplicated WARNING+ with counts since first occurrence). (...
 
-### `ENVOY-FLAKINESS-181243-1` - Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today — _#9 · WSJF 4.7 · v6 tc6 u2 /e3_
+### `ROOM-OVERRIDE-SWITCH-FORGOTTEN-1` - A room's "Override Vacant" switch can be left on for days with no reminder, making the room invisible to lights and HVAC (Exercise Room on since 09-21) — _#10 · WSJF 5.0 · v4 tc4 u2 /e2_
+thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-09-29 04:20 · updated 2026-10-08 02:35 · initial_
+- **Problem / Solution:**
+  - Problem: the per-room Override Vacant switch forces URA to treat a room as empty. It has no expiry and nothing reminds anyone it is on, so it gets forgotten: the Kitchen one was on 09-21 23:20 -> 09-27 19:40 (6 days, 14 wrong HVAC retrea...
+- **Origin:** 2026-09-29 - overnight HVAC hold-sizing raw-sensor probe (docs/planning/AUDIT_hvac_hold_sizing_raw_2026_09_29.md): 14 of 113 pre-ship away episodes were Kitchen under a forgotten override
+- **Why:** An override that silently outlives its purpose is a phantom config fault: the room looks broken (no lights, no HVAC) and every occupancy investigation reads it as a sensor or code problem first. Both kitchen and exercise overrides were s...
+- **Next:** ANSWER: is the Exercise Room automation switch (switch.exercise_room_automation, off since at least 09-25) off on purpose? NO -> turn it on (a setting, no code) and I re-check occupancy vs lights after the next real workout, then close. ...
+- **Tags:** tier-1, found-during-probe, config-first
+- **Parsimony:** [CONFIG-FIRST now; reminder build only if you want it] A vacant override stays on for days unnoticed and hides a room from automation.
+- **Forensic keys (9):**
+  - `reverified_2026_10_08_overnight`: switch.exercise_room_automation still off (REST 02:05 CDT; last_changed 10-06 19:38Z = restored at boot). ANSWER still needed.
+  - `reverified_2026_10_05_overnight`: STILL WAITING: switch.exercise_room_automation = off (last_changed 10-03 21:59Z = restart restore; REST /api/states via ssh 02:05 CDT). ANSWER outstanding.
+  - `verified_2026_10_04_overnight`: STILL-REAL, ask unchanged: switch.exercise_room_automation is off (recorder shows off continuously 10-02..10-04, rows only at restarts; no user change).
+  - `reverified_2026_10_03_overnight`: STILL WAITING: switch.exercise_room_automation = off (REST /api/states 02:08; last_changed = the 00:37 restart, i.e. restored off). Operator ANSWER still outstanding.
+  - `checked_2026_10_01_overnight`: ONE-SHOT CHECK DONE (HA REST history 2026-09-29 19:00Z -> 2026-10-01 07:10Z, ~36 h since the override went off). CLEAN but NOT DISCRIMINATING: binary_sensor.exercise_room_occupied never turned on; the motion sensor (rgbw_motion_lux_3rd_z...
+  - `operator_2026_09_29`: Operator: "Sure flip it back. I was bypassing stuck sensors and fan interference. Let's see if it works. There are 2 motion sensors and 1 mmwave in there now. Probably too much. Watch it for issues." switch.exercise_room_override_vacant ...
+  - `adjacency_2026_09_29`: NEW. Swept: board (override_vacant appears only as evidence on KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1 and the resolved kitchen-occupancy card), BACKLOG.md (no override-expiry item; 474 is TOU overrides), PLANNING_*/AUDIT_* (override switche...
+  - `measured_2026_09_29`: Recorder: switch.exercise_room_override_vacant = on (restored on at every restart 09-28 18:51, 19:20, 23:39); switch.kitchen_override_vacant = off since 09-27 19:40.
+  - `verify_2026_10_02_overnight`: STILL WAITING (HA REST 10-02 02:05 CDT). switch.exercise_room_automation = off (last changed 10-01 14:35Z, the restart, so it was restored off). switch.exercise_room_override_vacant = off now (was on through 09-28 restarts). binary_senso...
+
+### `LIGHTS-GUEST-MODE-BEHAVIOUR-1` - Decide how room lights behave when the house is in Guest mode (normal / off / night lights only) — _#11 · WSJF 5.0 · v2 tc1 u2 /e1_
+thread: **ux** - status: **waiting_operator**
+_created 2026-09-30 08:40 · updated 2026-10-08 03:20_
+- **Why:** Guest mode changes who is in the house; lighting may want guest rooms to behave differently (e.g. night-lights only in hallways). No behaviour change until decided.
+- **Next:** PICK (operator): Guest lighting per room = today's behaviour (recommended default) / off / night lights only -> I add it as a per-room Lighting option (Advanced unless you want it simple).
+- **Forensic keys (1):**
+  - `verified_2026_10_08_overnight`: STILL-REAL: no CONF_LIGHTS_GUEST_MODE in custom_components (grep 03:20 CDT); README_v5.103.29 'Guest — deferred' confirms Guest = same as Home for lights today. Card had no updated field (hygiene fix).
+
+### `ENVOY-FLAKINESS-181243-1` - Envoy integration flakiness — upstream HA bug #181243 (Session-is-closed background task) + dual-homed device timeouts + corrupt consumption_today — _#12 · WSJF 4.7 · v6 tc6 u2 /e3_
 thread: **energy** - status: **waiting_operator**
 _created 2026-09-21 · updated 2026-10-03 02:05 · refined ×1_
 - **Problem / Solution:**
@@ -575,7 +608,7 @@ _created 2026-09-21 · updated 2026-10-03 02:05 · refined ×1_
   - `INSTANCE_2026_09_25_setup_hang`: NEW FAILURE SHAPE, distinct from the self-recovering flaps: after the HA core update 2026.9.3 + Envoy reboot + core-switch/UDM restart, the enphase_envoy entry (01KNYRAGVP5XESS6N8PD6BVQP2) sat in setup_in_progress from ~18:21 with ZERO l...
   - `measured_2026_09_30_overnight`: READOUT of the ha_2026_9_4_tracking discriminator (scripts/probes/envoy_flap_rate_probe.py, HA recorder, sensor.envoy_482543015950_battery unavailable-transitions per local day): 09-22 120, 09-23 109, 09-24 120, 09-25 52, 09-26 15, 09-27...
 
-### `FRONT-SIDE-PTZ-CHATTER-1` - front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling — _#10 · WSJF 4.7 · v7 tc5 u2 /e3_
+### `FRONT-SIDE-PTZ-CHATTER-1` - front_side_ptz fires near-continuously (21% duty, 29.5h stuck-ON, peaks 3-5am) — it is the noise source behind false circling — _#13 · WSJF 4.7 · v7 tc5 u2 /e3_
 thread: **perimeter** - status: **waiting_operator**
 _created 2026-09-14 00:20 · updated 2026-10-06 02:30 · refined_
 - **Problem / Solution:**
@@ -603,7 +636,7 @@ _created 2026-09-14 00:20 · updated 2026-10-06 02:30 · refined_
   - `verify_2026_09_29_overnight`: STILL-REAL and MORE URGENT. Recorder: binary_sensor.front_side_ptz_person_occupancy_2 had 0 ON rows in the last 5 days. The card's 1/day was already down from 204/day. Sibling cameras ARE detecting in the same 24h (pool_equipment 11, bac...
   - `verify_2026_10_02_overnight`: CARD-WAS-WRONG ON ONE POINT, STILL-REAL ON THE QUESTION (recorder, binary_sensor.front_side_ptz_person_occupancy_2 ON rows). The 09-29 note said 0 detections in 5 days and called the camera blind. Not quite: it fired on 09-29 02:51 and f...
 
-### `FRIGATE-THRESHOLD-CLAIM-DISPUTED-1` - The '98-99% of detections score below 0.70' claim is DISPUTED by the operator and unverified by me — _#11 · WSJF 4.5 · v5 tc2 u2 /e2_
+### `FRIGATE-THRESHOLD-CLAIM-DISPUTED-1` - The '98-99% of detections score below 0.70' claim is DISPUTED by the operator and unverified by me — _#14 · WSJF 4.5 · v5 tc2 u2 /e2_
 thread: **perimeter** - status: **waiting_operator**
 _created 2026-09-14 03:05 · updated 2026-09-29 01:05 · initial_
 - **Problem / Solution:**
@@ -618,7 +651,7 @@ _created 2026-09-14 03:05 · updated 2026-09-29 01:05 · initial_
   - `MY_RECOMMENDATION_IS_WITHDRAWN`: I recommended sweeping seven ring cameras from threshold 0.7 to 0.6 and called it "the high-value item". THAT RECOMMENDATION IS WITHDRAWN pending verification. It rested entirely on an agent-reported figure I did not reproduce, and the o...
   - `what_would_settle_it`: A read of the Frigate host's `events` table for a recent window: per camera, the count of person events and the distribution of `top_score` (median, p90, and the fraction >= 0.70). That single query decides whether 0.7 is a sensible cut ...
 
-### `HA-CPU-LOAD-REVIEW-1` - HA runs at about 2x the CPU it used 4 months ago; the biggest non-URA sources need owner decisions — _#12 · WSJF 4.5 · v4 tc3 u2 /e2_
+### `HA-CPU-LOAD-REVIEW-1` - HA runs at about 2x the CPU it used 4 months ago; the biggest non-URA sources need owner decisions — _#15 · WSJF 4.5 · v4 tc3 u2 /e2_
 thread: **platform** - status: **waiting_operator**
 _created 2026-09-28 19:10 · updated 2026-09-29 02:55_
 - **Origin:** 2026-09-28 - operator pasted an external review of HA CPU and asked me to check it and implement some changes
@@ -629,7 +662,7 @@ _created 2026-09-28 19:10 · updated 2026-09-29 02:55_
   - `done_2026_09_28`: DONE: (1) UniFi option allow_bandwidth_sensors -> false (live rx/tx sensors 1,742 -> 6; none had consumers). (2) configuration.yaml recorder exclude globs: sensor.*_unfiltered_distance_to_* (Bermuda, no readers), sensor.envoy_stream_data...
   - `verify_2026_09_29_overnight`: STILL-NEEDS-OPERATOR. Recorder over the last 1h: 69.2 total rows/s, down from 83.9 after the 23:37 restart applied the recorder exclusions. SPAN 1,747 rows/min, unchanged, so (a) is not done. binary_sensor low_flow_leak 41,413 rows/24h (...
 
-### `COVERAGE-EVENING-ATTRIBUTION-DRIFT-1` - Every evening the room-by-room energy totals creep past the whole-house meter and keep growing until midnight, and nobody has explained why — _#13 · WSJF 4.3 · v7 tc4 u2 /e3_
+### `COVERAGE-EVENING-ATTRIBUTION-DRIFT-1` - Every evening the room-by-room energy totals creep past the whole-house meter and keep growing until midnight, and nobody has explained why — _#16 · WSJF 4.3 · v7 tc4 u2 /e3_
 thread: **energy** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-23 03:10 · updated 2026-09-28 02:55 · refined_
 - **Problem / Solution:**
@@ -648,7 +681,7 @@ _created 2026-09-23 03:10 · updated 2026-09-28 02:55 · refined_
   - `input_health_2026_09_27`: INPUT CHECK for the planned fix (overnight 2026-09-27, recorder): the Envoy TOTAL consumption sensor this card wants to add, sensor.envoy_482543015950_lifetime_energy_consumption, was unavailable from 09-25 18:11 until the 09-26 12:50 HA...
   - `measured_2026_09_23`: FIRST MEASUREMENT, which is what created this card. Ten days of recorder history for sensor.universal_room_automation_energy_coverage_delta, grouped by local hour, all samples rated Anomalous. Three clean episodes: 2026-09-21 14:00-23:00...
 
-### `PERIMETER-ALERT-VOLUME-FATIGUE-1` - Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue — _#14 · WSJF 4.3 · v6 tc5 u2 /e3_
+### `PERIMETER-ALERT-VOLUME-FATIGUE-1` - Exterior-person alert volume is very high (~155/day, ~75 unacked CRITICAL re-pages) — alert fatigue — _#17 · WSJF 4.3 · v6 tc5 u2 /e3_
 thread: **security** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-12 20:45 · updated 2026-10-04 03:40 · refined_
 - **Problem / Solution:**
@@ -667,7 +700,7 @@ _created 2026-09-12 20:45 · updated 2026-10-04 03:40 · refined_
   - `repage_blind_spot_2026_09_14`: FOLLOW-UP THAT STRENGTHENS THIS CARD (found while verifying NM-REPAGE-IMG-1, same session). The 102/day figure above EXCLUDES re-pages entirely, because **re-pages are invisible to notification_log**. Verified in source: every `log_notif...
   - `lever_A_may_be_spent_2026_09_19`: LEVER (A) HAS LARGELY FIRED ALREADY, without anyone pulling it — re-measure before choosing. This card offers SOURCE-suppression of front_side_ptz as option (A) on the grounds that it is 42%% of all exterior alerts. But that camera now p...
 
-### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives — _#15 · WSJF 4.0 · v4 tc2 u2 /e2_
+### `MEMORY-ROADMAP-1` - Memory epic — forward roadmap + critique + what-survives — _#18 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **memory** - status: **waiting_operator**
 _created 2026-08-18 02:00 · updated 2026-09-19 03:50 · refined_
 - **Next:** REVIEW the delivered memory-epic roadmap doc. -> your read drives the roadmap rewrite / memory-epic close-out.
@@ -675,7 +708,7 @@ _created 2026-08-18 02:00 · updated 2026-09-19 03:50 · refined_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: deliverable authored (docs/planning/PLANNING_memory_roadmap_and_critique.md, 2026-08-18). Pure operator-read.
   - `problem`: Memory epic shipped its first tranche (episodic writers D4-D7 v5.78.0 + nightly compactor). Operator wants a possible FORWARD roadmap for memory, a CRITIQUE of it, and a clear layout of which memory layers/artifacts SURVIVE (durability/r...
 
-### `ROADMAP-UNDONE-REVIEW-1` - Review ROADMAP/VISION — surface undone-but-worthwhile — _#16 · WSJF 4.0 · v4 tc2 u2 /e2_
+### `ROADMAP-UNDONE-REVIEW-1` - Review ROADMAP/VISION — surface undone-but-worthwhile — _#19 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **planning** - status: **waiting_operator**
 _created 2026-08-18 02:00 · updated 2026-09-19 03:50 · refined_
 - **Next:** REVIEW the delivered ROADMAP/VISION undone-but-worthwhile doc. -> your read drives the roadmap rewrite / close-out.
@@ -683,7 +716,7 @@ _created 2026-08-18 02:00 · updated 2026-09-19 03:50 · refined_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: deliverable authored (docs/planning/AUDIT_roadmap_undone_worthwhile.md, 2026-08-18). Pure operator-read; ball legitimately with operator.
   - `problem`: Roadmap is stale (ROADMAP-STALE-AGENTIC-LAYER-1: doc at v3.22.0 says Next=Bayesian v4.0.0 while live is v5.80.0). Operator wants a review of the roadmap surfacing what has NOT been done that is still worthwhile — separating genuinely val...
 
-### `PWA-CENSUS-P12-RELEASE-1` - PWA main is ~12 commits behind — D3 exterior card (+ design/control work) unshipped — _#17 · WSJF 4.0 · v6 tc4 u2 /e3_
+### `PWA-CENSUS-P12-RELEASE-1` - PWA main is ~12 commits behind — D3 exterior card (+ design/control work) unshipped — _#20 · WSJF 4.0 · v6 tc4 u2 /e3_
 thread: **dashboarding** - status: **waiting_operator**
 _created 2026-08-18 10:20 · updated 2026-09-29 01:05 · initial_
 - **Next:** APPROVE: promote census-p12-exterior-dashboard to main and deploy ura.phalanxmadrone.com. -> I run the PWA release with its own review. (The HA dashboard D3 cards are already live; only the PWA leg is pending.)
@@ -692,30 +725,7 @@ _created 2026-08-18 10:20 · updated 2026-09-29 01:05 · initial_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: branch census-p12-exterior-dashboard is 12 commits ahead of main in ~/Code/ura-dashboard-pwa (a whole PWA release: D3 exterior KEEP-BOTH + PWA-CONTROL-LIST-1 + v6....
   - `problem`: The census D3 exterior KEEP-BOTH dashboard card lives on PWA branch census-p12-exterior-dashboard, which is ~12 commits AHEAD of main (main is stale). So the D3 card is NOT live on the PWA, and the branch also carries unrelated PWA work ...
 
-### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#18 · WSJF 4.0 · v9 tc9 u2 /e5_
-thread: **perimeter** - status: **waiting_operator** - approval: **implied**
-_created 2026-09-17 02:20 · updated 2026-10-01 04:00 · refined_
-- **Problem / Solution:**
-  - Problem: the part of the system that spots people outside the house can stop answering entirely — every outdoor camera at once — and absolutely nothing raises a hand. It has now done this three times in the last eight days, once for 30 h...
-- **Origin:** 2026-09-17 - overnight pass re-measured PERIMETER-DETECTION-WENT-DARK-1, found the outage had self-healed AND that it was the second such blackout in eight days — the recurrence is what justified the build
-- **Why:** the outage card asks what happened to the cameras; this card is the durable defect underneath it, and they are different problems. The measured recurrence is the argument: this is not a one-off worth a shrug, it is a producer that fails ...
-- **Next:** APPROVE the redesign (I stopped because both reviews came back DO-NOT-SHIP, which is a mandatory pause). The build is done but does not work: it counts silence in memory, and the nightly config-entry reload storm resets that memory every...
-- **Tags:** tier-2, measure-before-build, numbers-get-knobs, mutation-drill
-- **Parsimony:** [SIMPLIFY] exterior person detection has gone fleet-wide silent three times in eight days, twice for over a day, and no part of the system noticed the outage OR the recovery
-- **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; custom_components/universal_room_automation/const.py
-- **Forensic keys (10):**
-  - `INSTANCE_2026_10_01_detector_hung`: LIVE INSTANCE, the strongest argument yet for this card: Frigate2's detector froze at 09-29 16:28Z while the process, its status sensor and camera fps all stayed healthy, and 33 of 34 Frigate2 detection sensors went silent for ~39 h befo...
-  - `INSTANCE_2026_09_28`: SECOND UNNOTICED OUTAGE (measured 2026-09-28): the Frigate2 host was off the network from 09-25 19:18 CDT to 09-27 16:12 CDT, about 45 h (sensor.frigate_status_2 history: unavailable 09-26 00:18Z, running 09-27 21:12Z), and all its perso...
-  - `operator_attribution_2026_09_25`: ROOT CAUSE SUPPLIED BY THE OPERATOR, AND IT STRENGTHENS THIS CARD RATHER THAN KILLING IT. Operator 2026-09-25: "the camera fleet is fine now. Frigate is having periodic degrades on the hardware side that I am working on. The quick fix is...
-  - `instance_2026_09_25_fifth_blackout`: FIFTH BLACKOUT, LONGER STILL, AND ONE OF THE THREE DO-NOT-SHIP GROUNDS HAS MATERIALLY WEAKENED — measured tonight, read-only, no build action taken. THE EVIDENCE: exterior detection is dark again and worse than the 60h instance recorded ...
-  - `instance_2026_09_23_fourth_blackout`: FOURTH BLACKOUT, AND THE LONGEST YET — this is fresh evidence FOR this card, measured tonight on the sibling PERIMETER-DETECTION-WENT-DARK-1. Exterior object detection has been dark since 2026-09-20 ~19:00 and is STILL dark about 60 hour...
-  - `MEASURED_2026_09_17`: Read-only, HA recorder over the Samba mount (immutable=1), recorder verified live-fresh at read time. Gap analysis over every binary_sensor.*_person_occupancy_2 ON-transition across the full ~8 days of recorder retention, looking for str...
-  - `prior_art_2026_09_17`: REUSE, not build — this is a structural twin of the shipped stuck-ON check and should be written as its mirror, not as new machinery. REUSE _exterior_person_sensors() (optimization.py:1941) for the camera->entity map, so the check follow...
-  - `REVIEWED_2026_09_17`: BUILT, THEN BOTH REVIEWS SAID DO-NOT-SHIP — and they are right. Two framing-disjoint reviews (A local-correctness, B lifecycle/write-volume) ran in parallel and CONVERGED INDEPENDENTLY on the same HIGH, which is the strongest signal this...
-  - `DEDUPE_2026_09_17`: NEW. Swept all four surfaces before minting. Board: grepped every card whose id or title carries tripwire / silence / silent / stuck / zero-fire — found the stuck-ON sibling (shipped), the two closed per-camera silence cards, and OC-STUC...
-  - `INPUT_MEASURED_2026_09_19`: THE NUMBER YOUR REDESIGN DECISION NEEDS IS NOW MEASURED, and it is worse than the cards framing assumed — which strengthens the case for the redesign rather than weakening it. This card says the built tripwire does not work because it co...
-
-### `CENSUS-PATIO-THROUGH-GLASS-1` - The family-room camera counts people on the covered patio through the glass as being inside — _#19 · WSJF 4.0 · v4 tc2 u2 /e2_
+### `CENSUS-PATIO-THROUGH-GLASS-1` - The family-room camera counts people on the covered patio through the glass as being inside — _#21 · WSJF 4.0 · v4 tc2 u2 /e2_
 thread: **census** - status: **waiting_operator**
 _created 2026-10-05 02:22 · initial_
 - **Problem / Solution:**
@@ -730,7 +740,31 @@ _created 2026-10-05 02:22 · initial_
   - `config_first_2026_10_05_overnight`: CONFIG-ONLY verdict. URA consumers of this camera (live core.config_entries + entity registry): the integration entry camera_person_entities lists camera.family_room (platform frigate = Frigate2) AND camera.family_room_high_resolution_ch...
   - `sweep_2026_10_05`: Board grep patio: 11 hits, all exterior pool/patio cameras, none on this interior through-glass count. NEW.
 
-### `HA-2027-DEPRECATIONS-URA-1` - URA deprecation warnings seen on the Wigton install (break in HA 2027.8-2027.9) — _#20 · WSJF 3.7 · v6 tc3 u2 /e3_
+### `CAMERA-SILENT-PRODUCER-TRIPWIRE-1` - Exterior person detection can go fleet-wide silent for a day at a time and nothing notices — build the stuck-OFF mirror of the stuck-ON trip-wire we already shipped — _#22 · WSJF 4.0 · v9 tc9 u2 /e5_
+thread: **perimeter** - status: **waiting_operator** - approval: **implied**
+_created 2026-09-17 02:20 · updated 2026-10-07 02:45 · refined_
+- **Problem / Solution:**
+  - Problem: the part of the system that spots people outside the house can stop answering entirely — every outdoor camera at once — and absolutely nothing raises a hand. It has now done this three times in the last eight days, once for 30 h...
+- **Origin:** 2026-09-17 - overnight pass re-measured PERIMETER-DETECTION-WENT-DARK-1, found the outage had self-healed AND that it was the second such blackout in eight days — the recurrence is what justified the build
+- **Why:** the outage card asks what happened to the cameras; this card is the durable defect underneath it, and they are different problems. The measured recurrence is the argument: this is not a one-off worth a shrug, it is a producer that fails ...
+- **Next:** APPROVE the redesign (I stopped because both reviews came back DO-NOT-SHIP, which is a mandatory pause). The build is done but does not work: it counts silence in memory, and the nightly config-entry reload storm resets that memory every...
+- **Tags:** tier-2, measure-before-build, numbers-get-knobs, mutation-drill
+- **Parsimony:** [SIMPLIFY] exterior person detection has gone fleet-wide silent three times in eight days, twice for over a day, and no part of the system noticed the outage OR the recovery
+- **Refs:** custom_components/universal_room_automation/domain_coordinators/optimization.py; custom_components/universal_room_automation/const.py
+- **Forensic keys (11):**
+  - `INSTANCE_2026_10_07_frigate2_offline_24h`: Another unnoticed silence: Frigate2 went off the network 10-06 02:08 CDT and every Frigate2 person/motion entity has been unavailable for ~24 h with no alert (see PERIMETER-DETECTION-WENT-DARK-1 REOPENED_2026_10_07). Note the shape: this...
+  - `INSTANCE_2026_10_01_detector_hung`: LIVE INSTANCE, the strongest argument yet for this card: Frigate2's detector froze at 09-29 16:28Z while the process, its status sensor and camera fps all stayed healthy, and 33 of 34 Frigate2 detection sensors went silent for ~39 h befo...
+  - `INSTANCE_2026_09_28`: SECOND UNNOTICED OUTAGE (measured 2026-09-28): the Frigate2 host was off the network from 09-25 19:18 CDT to 09-27 16:12 CDT, about 45 h (sensor.frigate_status_2 history: unavailable 09-26 00:18Z, running 09-27 21:12Z), and all its perso...
+  - `operator_attribution_2026_09_25`: ROOT CAUSE SUPPLIED BY THE OPERATOR, AND IT STRENGTHENS THIS CARD RATHER THAN KILLING IT. Operator 2026-09-25: "the camera fleet is fine now. Frigate is having periodic degrades on the hardware side that I am working on. The quick fix is...
+  - `instance_2026_09_25_fifth_blackout`: FIFTH BLACKOUT, LONGER STILL, AND ONE OF THE THREE DO-NOT-SHIP GROUNDS HAS MATERIALLY WEAKENED — measured tonight, read-only, no build action taken. THE EVIDENCE: exterior detection is dark again and worse than the 60h instance recorded ...
+  - `instance_2026_09_23_fourth_blackout`: FOURTH BLACKOUT, AND THE LONGEST YET — this is fresh evidence FOR this card, measured tonight on the sibling PERIMETER-DETECTION-WENT-DARK-1. Exterior object detection has been dark since 2026-09-20 ~19:00 and is STILL dark about 60 hour...
+  - `MEASURED_2026_09_17`: Read-only, HA recorder over the Samba mount (immutable=1), recorder verified live-fresh at read time. Gap analysis over every binary_sensor.*_person_occupancy_2 ON-transition across the full ~8 days of recorder retention, looking for str...
+  - `prior_art_2026_09_17`: REUSE, not build — this is a structural twin of the shipped stuck-ON check and should be written as its mirror, not as new machinery. REUSE _exterior_person_sensors() (optimization.py:1941) for the camera->entity map, so the check follow...
+  - `REVIEWED_2026_09_17`: BUILT, THEN BOTH REVIEWS SAID DO-NOT-SHIP — and they are right. Two framing-disjoint reviews (A local-correctness, B lifecycle/write-volume) ran in parallel and CONVERGED INDEPENDENTLY on the same HIGH, which is the strongest signal this...
+  - `DEDUPE_2026_09_17`: NEW. Swept all four surfaces before minting. Board: grepped every card whose id or title carries tripwire / silence / silent / stuck / zero-fire — found the stuck-ON sibling (shipped), the two closed per-camera silence cards, and OC-STUC...
+  - `INPUT_MEASURED_2026_09_19`: THE NUMBER YOUR REDESIGN DECISION NEEDS IS NOW MEASURED, and it is worse than the cards framing assumed — which strengthens the case for the redesign rather than weakening it. This card says the built tripwire does not work because it co...
+
+### `HA-2027-DEPRECATIONS-URA-1` - URA deprecation warnings seen on the Wigton install (break in HA 2027.8-2027.9) — _#23 · WSJF 3.7 · v6 tc3 u2 /e3_
 thread: **platform** - status: **waiting_operator**
 _created 2026-10-05 · updated 2026-10-05 02:22_
 - **Why:** A Wigton-side session reported URA deprecation warnings in the Wigton HA log that become hard failures in HA 2027.8-2027.9; it deliberately left URA untouched. Main-house system_log (2026-10-05) shows no deprecation entries, but boot-tim...
@@ -743,7 +777,7 @@ _created 2026-10-05 · updated 2026-10-05 02:22_
   - `wigton_log_2026_10_05`: WIGTON system_log (read with operator-provided token) - 4 URA warnings: (1) device_registry.async_get_device deprecated (identifiers no longer unique across config entries) -> use async_get_device_by_identifier / async_get_devices; remov...
   - `sweep_2026_10_05`: ADJACENT to AGGREGATION-ENTITY-ADDED-THREAD-SAFETY-1 (done; frame-walker artifact) and the via_device 2026.9 card (done). NEW: no open deprecation card.
 
-### `WIFI-ACTUATOR-FLEET-FLAP-1` - About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss — _#21 · WSJF 3.5 · v3 tc2 u2 /e2_
+### `WIFI-ACTUATOR-FLEET-FLAP-1` - About 80 Wi-Fi lights, switches and plugs drop out of HA for a few seconds dozens of times a day (mostly while still on Wi-Fi), so a light command can occasionally miss — _#24 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **presence** - status: **waiting_operator** - approval: **implied**
 _created 2026-09-27 02:50 · updated 2026-09-27 02:40 · refined ×2_
 - **Problem / Solution:**
@@ -759,7 +793,7 @@ _created 2026-09-27 02:50 · updated 2026-09-27 02:40 · refined ×2_
   - `measured_2026_09_27`: One-shot, read-only (recorder states x core.entity_registry/device_registry), over 3 CLEAN days with no HA restart (09-22 00:00 to 09-25 00:00 CDT): 1,104 devices logged at least one unavailable; 263 logged 10 or more (median 92 per devi...
   - `adjacency_sweep_2026_09_27`: Swept: board titles and why fields (fleet, wifi, AP, network, unavailable): no duplicate. DIMMER-REBOOT-1 (done) was one Shelly rebooting; ROOM-AUTOMATION-MODE-SELECT-UNAVAILABLE-1 (done) was URA's own selects. BACKLOG: "Offline-actuator...
 
-### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate — _#22 · WSJF 3.5 · v3 tc2 u2 /e2_
+### `EV-SENSOR-CLEANUP-1` - EV sensor surface: charge_rate dupe orphans KILLED (done); residual = wire per-plug L1 real power (Emporia) so Moes sockets read measured not the 1440W estimate — _#25 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **energy** - status: **waiting_operator** - approval: **implied**
 _updated 2026-10-01 04:45 · refined ×3_
 - **Origin:** 2026-08-16 - Operator: "repair if not functional dupes; if so remove" + "dead emporia — which ones?" -> AUDIT_ev_sensor_surface.md (60105933a).
@@ -777,21 +811,44 @@ _updated 2026-10-01 04:45 · refined ×3_
   - `operator_correction_2026_09_01`: REVERSED the remove-the-dupes approach. Do NOT delete sensor.ura_energy_coordinator_ev_charge_rate_garage_{a,b}; instead REUSE them — populate them from the ev_charging_status per-bay power calc so the data is SURFACED on named sensors i...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#23 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `ROADMAP-STALE-AGENTIC-LAYER-1` - Roadmap is stale (says v4.0.0 next; we are at v5.80.0) + the room-to-room agentic layer is unplanned — _#26 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **planning** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-18 02:45 · updated 2026-09-29 01:05 · initial_
+_created 2026-08-18 02:45 · updated 2026-10-08 03:20 · initial_
 - **Problem / Solution:**
   - Problem: ROADMAP_v11.md (written at v3.22.0) says "Next: Bayesian Predictive Intelligence v4.0.0" but we are at v5.80.0 — ~2 major versions and dozens of cycles (energy arbitrage, guest/census, presence fusion) shipped WITHOUT updating t...
 - **Why:** A stale roadmap means new work is scoped without a current north star, and the operator vision (agentic rooms) has no plan to execute against — it will stay a passing mention until it is a document.
 - **Next:** ANSWER: is the room-to-room agentic layer a near-term priority? YES -> I scope a VISION/epic doc. NO -> I close this card, because the roadmap refresh half is already done.
 - **Refs:** docs/ROADMAP_v11.md; docs/VISION_v7.md; docs/planning/ARCHITECTURE_hierarchical_memory.md; MEMORY-PROGRAM-EPIC
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `evidence_2026_10_08_overnight`: Possibly relevant to your answer (not taken as one): on 10-07 you told CENSUS-ATHOME-RESIDENT-CORROBORATOR-1 'the idea is that memory allows room to room communication and optimization'. Tonight that idea paid off concretely: the room_tr...
   - `groom_2026_09_29`: PARTIALLY-DONE. The "refresh ROADMAP_v11 -> v12" half is done: docs/ROADMAP_v12.md exists (DRAFT, 2026-08-28, supersedes v11, current production v5.91.x). Its section "The unshipped operator vision: room-to-room AGENTIC layer" (line ~133...
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: roadmap-refresh half discharged (docs/ROADMAP_v12.md 2026-08-28). Narrowed: only the operator scope/priority call on the room-to-room AGENTIC layer remains (mu...
   - `lane_note_2026_08_28`: ROADMAP_v12.md now written (2026-08-28) — the roadmap-refresh half is discharged. What remains is operator green-light on scope/priority for the room-to-room AGENTIC layer, which v12 names as the next-MINOR-capability track. Hence waitin...
   - `audit_ledger_2026_08_18`: AUDIT_roadmap_undone_worthwhile.md now provides the "already shipped" ledger for the roadmap rewrite: mark ROADMAP v9/v10/v11 + VISION_v7 + ROADMAP_REMAINING as HISTORICAL; most v3.22 "future" shipped under other names (arbitrage hardeni...
 
-### `SAFETY-HAZARD-NEVER-CLEARS-1` - A humidity or temperature safety hazard stays "active" until HA restarts, even after the reading is back to normal — _#24 · WSJF 2.4 · v6 tc4 u2 /e5_
+### `NIGHT-LIGHT-ACTION-SELECTOR-1` - Night lights have no actuation policy of their own — they ride on the regular lights' entry action, so "none" silently means two different things — _#27 · WSJF 2.4 · v5 tc3 u4 /e5_
+thread: **lights** - status: **waiting_operator** - approval: **explicit**
+_created 2026-09-15 · updated 2026-10-08 03:55 · refined_
+- **Problem / Solution:**
+  - Problem: a room has one setting that says what its lights should do when you walk in — on, on-if-dark, off, leave alone, or nothing. Night lights have no such setting of their own; they quietly inherit that one. So picking "nothing" for ...
+- **Origin:** 2026-09-15 - Offered the operator a binary A/B on the entry=none + sleep divergence; they rejected both and named the real fix — the control is overloaded, split it.
+- **Why:** Removes the ambiguity at its source rather than arbitrating it. The A/B decision I offered would have picked a winner for an overloaded field and left the overloading in place — so the next person to set a room to "none" would face the s...
+- **Next:** PICK (plan REV 2, section 'Default - OPERATOR PICK'): (A) new rooms and the 7 rooms follow the main-light setting, so in Breakfast Nook, Game Room, Jaya Bathroom, Living Room, Master Bedroom, Patio and Ziri Bathroom the night light STOPS...
+- **Tags:** tier-2db, institutional-context, numbers-get-knobs, concept-split
+- **Parsimony:** [BUILD] One field encodes two independent intentions (regular-light entry behaviour and night-light behaviour), so "none" is ambiguous and the two controllers resolve it differently.
+- **Refs:** const.py:876-886 (night-light HOW constants, no WHEN), :894-906 (the overloaded action field); automation.py:974 (canonical early-return on NONE), :991 (sleep/night-light branch); docs/planning/PLANNING_night_light_off_path.md:110 (the deferred deliverable this resumes)
+- **Forensic keys (9):**
+  - `onboarding_2026_10_08`: New URA rooms created 2026-10-08 with URA automation switch OFF: Master Closet (01M4E5E14Z6YMW6KBD7QF74FDJ), Master Closet Storage (01M4E5H48Q118FW94HXNBGH9YW), Powder (01M4E5Z39WDX7GBTPZJX4352CQ, zone unset, no humidity sensor - H&T bei...
+  - `retirement_rule_2026_10_08`: Operator: automations are TURNED OFF, never deleted. Before turning any off, confirm the room/hallway is onboarded in URA with that light in its config. Coverage check 2026-10-08 (lights in automations vs URA room lights/night_lights): C...
+  - `operator_2026_10_08_pick`: PICK = A + C: outside Sleep, night lights on only when the room is dark (room lux / existing is_dark threshold), plus a per-room daytime opt-in. Sleep: always on when occupied regardless of main-light setting. Config must be economical +...
+  - `operator_2026_10_08_intent`: Operator 2026-10-08: night lights should generally come on during Sleep (whatever the main-light setting); otherwise only at night unless the room is in the daytime list; sleep-compatible colour at night if supported, a day colour by day...
+  - `plan_review_2026_10_08_overnight`: Plan review (ura-reviewer) = PLAN-FIX-REQUIRED, 3 HIGH / 3 MED / 3 LOW; all folded into plan REV 2 (section 'Plan review 2026-10-08'). H1: under sleep the sleep branch stays the only authority in both controllers (otherwise main lights l...
+  - `plan_2026_10_08_overnight`: STEP 1 premise STILL-REAL on develop: automation.py:1292-1295 returns early on entry action none BEFORE the sleep night-light branch at :1313, while actuator_reconciler.py:_resolve_light asserts the night light ON under sleep (:813-829) ...
+  - `plan_dispatch_2026_10_08_overnight`: ura-planner dispatched 03:15 CDT: STEP 1 re-verify the premise against v5.103.29-31 (room lighting roles, slots, guest light choice moved the night-light surface), STEP 2 write PLANNING_night_light_action_selector.md only if still real.
+  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Tier 2 config surface; unblocks LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1.
+  - `INSTITUTIONAL_CONTEXT_2026_09_15`: Prior-art scan run before proposing (CLAUDE.md Institutional-Context-First). NEW — nothing equivalent exists. - const.py:876-886 holds FIVE night-light constants (CONF_NIGHT_LIGHTS, CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS/_COLOR, CONF_NIGHT_LI...
+
+### `SAFETY-HAZARD-NEVER-CLEARS-1` - A humidity or temperature safety hazard stays "active" until HA restarts, even after the reading is back to normal — _#28 · WSJF 2.4 · v6 tc4 u2 /e5_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-27 02:40 · updated 2026-10-01 06:30 · refined ×1_
 - **Problem / Solution:**
@@ -807,17 +864,7 @@ _created 2026-09-27 02:40 · updated 2026-10-01 06:30 · refined ×1_
   - `live_evidence_2026_09_27`: LIVE at ~02:30 CDT: binary_sensor.ura_safety_coordinator_safety_alert = on and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24, with one active hazard, low_humidity Study A value 0.0 (the junk reconnect reading). The...
   - `code_2026_09_27`: Per the reviewers, with file:line to be re-verified at plan time: _handle_humidity (safety.py ~2076-2292) never removes from _active_hazards. Removals exist only in the binary handler (~1757), the CO2 log-only rung (~1888), _handle_numer...
 
-### `HVAC-GARAGE-GUARD-STAGED-SUNSET-1` - One staged evening to prove room covers leave an open garage door alone at sunset — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **waiting_operator**
-_created 2026-10-02 22:00 · updated 2026-10-06 02:08_
-- **Why:** v5.103.28 cover_ownership guard is proven in-suite with drills, but the 09-30 live check was inconclusive (both doors already closed). A garage door closing on its own is the one safety-relevant failure in the W4 set, so one staged proof...
-- **Next:** DO: leave a garage door open across sunset (~7:05 pm) with someone home -> I query ura_activity_log for the cover skip and confirm the door did not move, then close this card.
-- **Forensic keys (3):**
-  - `reverified_2026_10_06_overnight`: Still not exercised on 10-05: recorder shows cover.konnected_f0f5bd523b00_garage_door closed across sunset (sun below_horizon 19:14:15 CDT; door cycles 17:10-17:13 and 19:56-20:05 only, all short). DO still outstanding.
-  - `reverified_2026_10_05_overnight`: Still not exercised: cover.konnected_f0f5bd523b00_garage_door (the only garage cover entity in HA) was CLOSED across sunset (~00:05Z) on both 10-03 and 10-04 (recorder via ssh-proxied /api/history); every opening was a short daytime/even...
-  - `reverified_2026_10_03_overnight`: Not yet exercised: on 10-02 the only garage door opening was cover.konnected_..._garage_door 23:16-23:18 (well after sunset), no URA cover action logged. Operator DO (door open across sunset) still outstanding.
-
-### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#26 · WSJF 1.8 · v4 tc3 u2 /e5_
+### `SAFEWORD-WINDOW-1` - Safe-word ack window — one "duke" covers perimeter alerts for a bounded period (operator-proposed) — _#29 · WSJF 1.8 · v4 tc3 u2 /e5_
 thread: **notifications** - status: **waiting_operator** - approval: **operator_proposed**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-14 - operator: "safe word covers all alerts within 1-3 hours so no need for safe words for a while no matter the notification? The underlying goal is still to tune the classification of events and make sure they are good."
@@ -833,7 +880,7 @@ _updated 2026-09-29 01:05_
   - `safety_note`: Blanket-mute is a stopgap while classification precision improves (the operator-stated underlying goal); scope-limiting to perimeter class keeps the failure mode bounded.
   - `organic_evidence`: 2026-08-23 watch-pass: README_v5.75.2 L4=ORGANIC (open) — first real "duke Nh" reply not yet observed. Awaiting real perimeter CRITICAL + operator safeword reply. H1 PENDING.
 
-### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#27 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `SAFETY-RATE-DETECTOR-DEAD-WINDOW-1` - The safety "rapid change" detector almost never runs, because its 30-minute window check can only pass at an exact instant — _#30 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **safety** - status: **waiting_operator** - approval: **unreviewed**
 _created 2026-09-27 02:40 · refined_
 - **Problem / Solution:**
@@ -848,7 +895,7 @@ _created 2026-09-27 02:40 · refined_
   - `refinement_2026_09_27`: Assumed the fix was "repair the window" -> replay shows the repair would flood about 12 alerts/day once z-score mode engages, so the choice is retire vs redesign, not repair.
   - `verified_2026_09_27`: CODE: RateOfChangeDetector.get_rate (safety.py ~636-675) sets window_start = now - WINDOW_MINUTES(30), takes the oldest reading >= window_start, and returns None unless latest - oldest >= MIN_WINDOW_SECONDS (1800, safety.py:618). Because...
 
-### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#28 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `EVCARD-1` - EV charging detail card for the URA v8 Energy tab — _#31 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **dashboarding** - status: **waiting_operator** - approval: **explicit**
 _updated 2026-09-29 01:05_
 - **Origin:** 2026-08-09 - "add an EV charging detail card to the Ura v8 energy tab. Style well. Detail cards are a bit sensor words vomit. Best judgement because of space though."
@@ -868,22 +915,26 @@ _updated 2026-09-29 01:05_
   - `DEDUPE_2026_08_09`: Sweep: dashboarding thread has the PWA + KHOST-1 (kanban board, different surface); EV drain-precedence card is queued BACKLOG work about behaviour not display. No existing card covers a v8 energy-tab EV surface. NEW.
   - `status_correction_2026_08_16`: Was stale in INBOX — the card was BUILT and applied live to ura-v8 Energy tab 2026-08-09; correct state = waiting_operator (refinement review, operator: "I'll review and we can refine").
 
-### `EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1` - On the EV manager path, grid charging may be switched on before the EV pause lands (review finding D-MED-2 from EC p1) — _#29 · WSJF 1.4 · v6 tc3 u2 /e8_
-thread: **energy** - status: **waiting_operator**
-_created 2026-10-05 02:22 · initial_
+### `BLE-BLEED-EXTEND-SLEEP-1` - Master Bath held occupied all night (441 min) by BLE bleed from the adjacent bedroom, with zero body corroboration — a genuine vacancy EXTEND while residents sleep — _#32 · WSJF 1.4 · v6 tc3 u2 /e8_
+thread: **presence** - status: **waiting_operator** - approval: **unreviewed**
+_created 2026-08-31 18:20 · updated 2026-10-08 04:05 · refined ×4_
 - **Problem / Solution:**
-  - Problem: the breaker-safety rule says EV chargers must be paused before the battery starts charging from the grid; an EC p1 review (D-MED-2) noted that on the manager path the time-of-use grid-charge switch can be sent before the EV paus...
-- **Origin:** 2026-10-04 - "Card still to mint: manager-path TOU CFG-ON-before-EV-pause (D-MED-2)" - 10-04 resume memo
-- **Why:** Breaker-safety ordering (cf. arbitrage ladder review B-CRIT-1, grid-on before EV pause). CAPTURE NOTE: the 10-05 overnight pass could NOT find the D-MED-2 text in any review record on develop, feature/ec-degraded-data-p1 or its worktree ...
-- **Next:** ANSWER: what exactly did EC p1 Review-D D-MED-2 say (site / dispatch order on the manager path)? It is in no review record (see EC-DEGRADED-DATA-POLICY-1 preship_gap). -> I confirm it at file:line and card the fix plan (Tier 3, your chec...
-- **Tags:** tier-3, no-fabrication-verify
-- **Refs:** memory project_session_pickup_2026_10_04; docs/reviews/code-review/arbitrage_solar_attainability_ladder.md B-CRIT-1
-- **Forensic keys (3):**
-  - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
-  - `search_2026_10_05_overnight`: Searched develop, feature/ec-degraded-data-p1, every .claude/worktrees/*/docs/reviews and the memory dir for the EC p1 D-MED-2 text: not found (the D-MED-2 hits are other cycles: arrester comfort delay, DP drain target, ec blind-window g...
-  - `sweep_2026_10_05`: Board grep D-MED-2 hits are other cycles (arrester comfort delay, DP drain target). NEW.
+  - Problem: on nights when a phone sits in the master bedroom, the master bathroom reads OCCUPIED for the entire sleep window (measured: one continuous 441-minute / 7.3h hold, 22:53->06:14) because the sleeping resident's Bluetooth keeps re...
+- **Origin:** 2026-08-31 - operator asked why the Master Bath LED is on at night / is vacancy being extended while sleeping
+- **Why:** Investigation of the operator's LED report found URA drives NO light at night (the visible LED is a device standby indicator URA does not control), but surfaced a REAL adjacent finding: BLE bleed holds the bath occupied ~7h with blecorr=...
+- **Next:** PICK: (A) PARK lever A, RECOMMENDED: the hold cap already removed the overnight phantom (longest Master Bath night run 52 min over 8 nights vs 441 before). Revival trigger: any room shows a BLE-held occupied run at or above its cap durin...
+- **Tags:** no-fabrication-verify, measure-before-build
+- **Refs:** Investigation 2026-08-31 (read-only recorder probe): binary_sensor.master_bathroom_occupied 441-min hold 08-29->30, occupancy_source=ble, ble_persons=[Oji]/[Ezinne,Oji], no mmWave/motion; all URA lights OFF; URA night LED (NOT the cause): switch.sonoff_1002197ef7_1 MasterBathLED — OFF every night
+- **Forensic keys (7):**
+  - `verified_2026_10_08_overnight`: PARTIALLY-DONE, measured. Lever B (general BLE hold cap, 120 min bath/closet) shipped in v5.93.0. Live check the card asked for (HA recorder binary_sensor.master_bathroom_occupied, 09-30 -> 10-08, 8 nights): 73 occupied runs, longest nig...
+  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 6, time_criticality 3, effort 8 - Tier 2-DB plan exists (Rev 4); HVAC/occupancy correctness.
+  - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE: core per-room BLE hold-cap shipped v5.93.0 (coordinator.py:699 _get_ble_hold_cap_seconds + :241 _fire_ble_hold_cap_nm). Verify live the cap evicts the 7.3h Mas...
+  - `relane_2026_09_10`: Not a soak -> PRE-PLANNING. Fresh Tier-2-DB+ plan-review of the 120min durations (PLANNING_ble_bleed_extend_corroboration.md Rev 4) -> build.
+  - `plan_ready_2026_09_01`: Rev 5 §BUILD-READY. Two plan-reviews (Rev3 blanket→FIX, Rev4 toggle→FIX on config application) + confirm-review (Rev5, 1 doc HIGH fixed). Design cleared: per-room CONF_BLE_HOLD_CAP_ENABLED (read-site default via ROOM_TYPE_BLE_HOLD_CAP_DE...
+  - `build_review_2026_09_01`: BUILT (feature/ble-hold-cap @ f086e75e4) + 3 build-reviews: A SHIP, B SHIP, C FIX-REQUIRED. Core cap logic solidly anchored (all decision gates RED-on-neuter). Gaps: C-HIGH-1 NM wire-in neuter-deletable (add call-site anchor); C-MED-2 P2...
+  - `refinement_2026_09_01`: Operator: BELT-AND-SUSPENDERS — do BOTH levers, not A alone. (A) sleep-gated body- corroboration (require motion/mmwave for BLE to extend during sleep) AND (B) a GENERAL long timeout on BLE-extend-since-last-body (independent of sleep) a...
 
-### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#30 · WSJF 1.2 · v3 tc1 u2 /e5_
+### `DB-SIZE-GROWTH-1` - The URA database grew 52% since the June vacuum (884 MB to 1.35 GB) and nobody knows which tables — _#33 · WSJF 1.2 · v3 tc1 u2 /e5_
 thread: **platform** - status: **waiting_operator** - approval: **blocked**
 _created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
 - **Problem / Solution:**
@@ -893,7 +944,7 @@ _created 2026-09-29 20:05 · updated 2026-09-30 02:30 · refined_
   - `MEASURED_2026_09_30_overnight`: Read-only dbstat on the live DB (page_size 4096, 329,298 pages, freelist 48 -> the vacuum works; growth is live rows). Top: environmental_data 201 MB + idx_env_room_time 148 MB; energy_snapshots 162 MB + idx_energy_room_time 149 MB; occu...
   - `gate_2026_09_30`: Not built overnight: a new DELETE on tables with 10 months of history is irreversible and a change to the DB write path (Tier 2-DB). The retention window is a data-policy decision (these rows may be wanted for offline learning / the fore...
 
-### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#31 · WSJF 1.1 · v5 tc2 u2 /e8_
+### `JEV-DECISION-CLASSIFIER-SPIKE-1` - Measure-first spike: Jev-class decision layer for occupancy-trust — 3-arm (code / open bake-off / official-Jev control) on correctness + adaptiveness — _#34 · WSJF 1.1 · v5 tc2 u2 /e8_
 thread: **presence** - status: **waiting_operator**
 _created 2026-09-20 · updated 2026-09-29 01:05_
 - **Problem / Solution:**
@@ -908,17 +959,41 @@ _created 2026-09-20 · updated 2026-09-29 01:05_
   - `FINDINGS_2026_09_20`: Spike RAN (docs/planning/jev_spike/, 58-case eval, LOO). CODE baseline = works 100% / fails 0%% / overall 84.5%% / ECE 0.155 (structurally blind to the all-away-single-sensor phantom + badly calibrated). Logistic-floor arms scored 100%%/...
   - `next_prev1`: PICK/DO (operator): provide INDEPENDENT ground-truth labels for ~20-40 ambiguous occupancy cases (spot-confirm a batch of all-away-single-sensor / still-body episodes as empty-or-occupied), OR approve me sourcing a disjoint truth signal ...
 
-### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#32 · WSJF 1.0 · v7 tc4 u2 /e13_
-thread: **security** - status: **waiting_operator** - approval: **unreviewed**
-_created 2026-08-17 23:58 · updated 2026-10-05 02:22 · refined_
+### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#35 · WSJF 0.6 · v4 tc2 u2 /e13_
+thread: **energy** - status: **waiting_operator** - approval: **blocked**
+_created 2026-10-03 02:40 · updated 2026-10-05 02:22 · initial_
+- **Problem / Solution:**
+  - Problem: on 10-01 between about 01:00 and 06:00 CDT the battery strategy switched back and forth every tick between two answers. When the garage car charger was drawing ~11.7 kW, it chose 'pause the EVs to save solar for the battery' (ru...
+- **Origin:** 2026-10-03 - D0 replay in DESIGN_ec_degraded_data_policy.md section 9.1 found the 10-01 flap is an Envoy-independent rung_1 <-> WAIT load-feedback loop; doc 9.3 says card needed (Tier 2+); carded by the overnight pass.
+- **Why:** Measured, not assumed. Strategy sensor recorder (sensor.ura_energy_coordinator_battery_strategy) 10-01 06:30-07:20Z: 06:40:05 rung_1 redirect (soc_source=envoy, EVs paused) -> 06:44:45 WAIT (envoy) -> EVs released 06:45:02 -> 06:49:50 ru...
+- **Next:** PICK: (A) PARK this Tier-3 plan, revival trigger = the EV toggle alarm (EC-EV-TOGGLE-TRIPWIRE-1, being built) fires, or a garage EVSE shows >2 strategy toggles in an hour in ura_activity_log - my recommendation, since v5.103.37 already r...
+- **Tags:** tier-3, measure-before-build, no-fabrication-verify
+- **Parsimony:** [PENDING-PLAN] With an EV drawing >= 11.6 kW and SOC below the poor-day target, the arbitrage pause toggles every tick (31 EV switch events on 10-01).
+- **Refs:** docs/planning/DESIGN_ec_degraded_data_policy.md section 9.1 / 9.3
+- **Forensic keys (5):**
+  - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
+  - `verified_2026_10_05_overnight`: PARTIALLY-ADDRESSED, NOT YET EXERCISED. v5.103.37 (tag 2026-10-03 15:20 CDT, 550d4de95 daylight-gated rung horizon + d6f675c11/75b371795 rung latches released outside daylight) targets exactly the night form of this loop (10-01 06:40Z = ...
+  - `merged_from_EC_RUNG1_WAIT_EV_PINGPONG_1`: (verbatim from the merged duplicate) D0 replay + breaker investigation 2026-10-03: on 10-01 06:09-08:20Z ~12 full on/off cycles of garage A (11.6 kW); 13/14 turn-ons on ticks with valid SOC, so NOT the Envoy dropout. Pause reason EV paus...
+  - `adjacency_2026_10_03`: NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the pre...
+  - `breaker_must_answer_resolved_2026_10_03`: The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='writ...
+
+## ⏳ Waiting on me (Claude) (1)
+_I owe something_
+
+### `PERIMETER-PHANTOM-XCORR-1` - Perimeter person alerts fire with no person in the snapshot, sent twice, and not cross-checked across NVRs — _#1 · WSJF 1.0 · v7 tc4 u2 /e13_
+thread: **security** - status: **waiting_me** - approval: **unreviewed**
+_created 2026-08-17 23:58 · updated 2026-10-08 02:10 · refined_
 - **Problem / Solution:**
   - Problem: a single perimeter camera crying "person" pages at FULL severity (CRITICAL when the house is away) even when no other camera watching the area agreed — because the alert records which cameras fired but throws that agreement away...
   - Solution (Tier 3, NARROW remit per operator): make the already-recorded cross-camera/NVR agreement MATTER to the notification severity — a single-source detection DEMOTES (floor LOW, never silenced, so a lone-camera real threat still pag...
 - **Why:** Perimeter alerts are a security surface — false alarms train the operator to ignore them (alert fatigue), and a double-send doubles the noise. Cross-NVR correlation is the same principle the operator just mandated for cycle-3 face ID: ne...
-- **Next:** DO (config-first, no code): clear or move the cloth pile in the pool-equipment enclosure, or add a Frigate2 mask/zone on pool_equipment. The 'drop' I asked about was Frigate2 being dark, and the phantoms are back (below). -> I re-measure...
+- **Next:** ME (operator-approved 10-07): when Frigate2 is back on the network, back up its config.yaml, add a person object-filter mask on pool_equipment covering the AC condenser (0.03,0.74 -> 0.25,1.0) AND the cloth pile (0.26,0.48 -> 0.34,0.60),...
 - **Tags:** tier-3
 - **Refs:** custom_components/universal_room_automation/perimeter_alert.py; EXTERIOR-GUEST-EGRESS-1 (cross-NVR theme)
-- **Forensic keys (24):**
+- **Forensic keys (27):**
+  - `measured_2026_10_08_overnight`: Applying the decision (2026-10-08 02:05). (1) FRAME: URA snapshot pool_equipment_1791269893 (10-06 01:58 CDT, a phantom fire) shows the AC condenser bottom-left (about x 0.03-0.25, y 0.74-1.0 of the 1280x720 detect frame) and the cloth/t...
+  - `operator_decision_2026_10_07`: Crop out the ac unit in the pool equipment view. I think this is the problem (board instruction 2026-10-07 13:11, posted on the waiting-lane sweep feed entry that reported the pool-equipment phantom counts)
+  - `remeasured_2026_10_07_overnight`: Full re-measure (due 10-07): binary_sensor.pool_equipment_person_occupancy_2 ON events, night 19:00-07:00 CDT: 10-04/05 = 178, 10-05/06 = 127 (to 00:30Z, when Frigate2 still ran); daytime 10-05 = 2. So the DO (clear the cloth pile / mask...
   - `interim_2026_10_05_overnight`: INTERIM re-measure (full one due ~10-07): pool_equipment Frigate2 person ONs are still nightly and heavy - night 10-03/04 (19:00-07:00 CDT) ~297, night 10-04/05 ~113 by 02:00 CDT, near-zero in daytime. So the DO (clear the cloth pile / m...
   - `measured_2026_10_04_overnight`: ANSWERED BY DATA: the earlier drop was NOT a fix. It coincided with Frigate2 object detection being dark (10-01 ~16:00 -> 10-03 ~07:00 CDT, see PERIMETER-DETECTION-WENT-DARK-1). Since detection returned, binary_sensor.pool_equipment_pers...
   - `measured_2026_09_28_F2_back`: MEASURED (overnight 2026-09-28; read-only agent plus orchestrator spot-checks). Window: 09-27 21:12Z (Frigate2 back) to 03:00Z, with 36 logical exterior_person alerts (one [audit] row each), all analysed. RESULTS: (1) 31/36 (86%) single-...
@@ -944,38 +1019,7 @@ _created 2026-08-17 23:58 · updated 2026-10-05 02:22 · refined_
   - `ptz_rebooted_2026_08_18`: Operator REBOOTED the front PTZ 2026-08-18 (~02:40). Re-check the front_side_ptz Frigate-2/Protect ratio (was 11.4x, sole fleet outlier) after the reboot — if it drops toward the fleet norm (~0.5-1x), the over-trigger was a PTZ state/mot...
   - `verify_2026_09_29_overnight`: PREMISE PARTLY CHANGED. Recorder person_occupancy_2 ON rows/day: back_yard 88 (09-27) -> 7 (09-28); pool_equipment 13 -> 8 -> 3 (09-29 so far, to 02:00). The cause is unknown: your DO, or just a quiet day. Not closing on one day.
 
-### `EV-ARBITRAGE-RUNG1-WAIT-OSCILLATION-1` - The arbitrage EV pause flips on and off every 5 minutes when an EV is charging and the battery is low (rung-1 redirect vs WAIT feedback loop) — _#33 · WSJF 0.6 · v4 tc2 u2 /e13_
-thread: **energy** - status: **waiting_operator** - approval: **blocked**
-_created 2026-10-03 02:40 · updated 2026-10-05 02:22 · initial_
-- **Problem / Solution:**
-  - Problem: on 10-01 between about 01:00 and 06:00 CDT the battery strategy switched back and forth every tick between two answers. When the garage car charger was drawing ~11.7 kW, it chose 'pause the EVs to save solar for the battery' (ru...
-- **Origin:** 2026-10-03 - D0 replay in DESIGN_ec_degraded_data_policy.md section 9.1 found the 10-01 flap is an Envoy-independent rung_1 <-> WAIT load-feedback loop; doc 9.3 says card needed (Tier 2+); carded by the overnight pass.
-- **Why:** Measured, not assumed. Strategy sensor recorder (sensor.ura_energy_coordinator_battery_strategy) 10-01 06:30-07:20Z: 06:40:05 rung_1 redirect (soc_source=envoy, EVs paused) -> 06:44:45 WAIT (envoy) -> EVs released 06:45:02 -> 06:49:50 ru...
-- **Next:** PICK: (A) PARK this Tier-3 plan, revival trigger = the EV toggle alarm (EC-EV-TOGGLE-TRIPWIRE-1, being built) fires, or a garage EVSE shows >2 strategy toggles in an hour in ura_activity_log - my recommendation, since v5.103.37 already r...
-- **Tags:** tier-3, measure-before-build, no-fabrication-verify
-- **Parsimony:** [PENDING-PLAN] With an EV drawing >= 11.6 kW and SOC below the poor-day target, the arbitrage pause toggles every tick (31 EV switch events on 10-01).
-- **Refs:** docs/planning/DESIGN_ec_degraded_data_policy.md section 9.1 / 9.3
-- **Forensic keys (5):**
-  - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
-  - `verified_2026_10_05_overnight`: PARTIALLY-ADDRESSED, NOT YET EXERCISED. v5.103.37 (tag 2026-10-03 15:20 CDT, 550d4de95 daylight-gated rung horizon + d6f675c11/75b371795 rung latches released outside daylight) targets exactly the night form of this loop (10-01 06:40Z = ...
-  - `merged_from_EC_RUNG1_WAIT_EV_PINGPONG_1`: (verbatim from the merged duplicate) D0 replay + breaker investigation 2026-10-03: on 10-01 06:09-08:20Z ~12 full on/off cycles of garage A (11.6 kW); 13/14 turn-ons on ticks with valid SOC, so NOT the Envoy dropout. Pause reason EV paus...
-  - `adjacency_2026_10_03`: NEW. Swept: board (grep rung_1/oscillat: only HVAC zone-1 oscillation cards, unrelated), docs/BACKLOG.md (no rung-1 redirect item), docs/planning (only DESIGN_ec_degraded_data_policy.md mentions it, 9.3 'card needed'). Supersedes the pre...
-  - `breaker_must_answer_resolved_2026_10_03`: The design doc (9.3 P1-2/P1-3) asked why EVs were turned on at 06:45:02Z while switch.enpower_482348004678_charge_from_grid read 'on'. ANSWERED, no breaker gap: the release guard reads the WRITE leg (energy.py:6729 _get_entity role='writ...
-
-## ⏳ Waiting on me (Claude) (1)
-_I owe something_
-
-### `HA-TRUSTED-PROXIES-UI-MIGRATION-1` - Verify HA's claimed YAML trusted_proxies -> UI settings migration before upgrading past 2026.9 — _#1 · WSJF 10.0 · v4 tc4 u2 /e1_
-thread: **platform** - status: **waiting_me**
-_created 2026-10-05 · updated 2026-10-05 02:22_
-- **Why:** Claim (from the Wigton session): when HA upgrades past 2026.9 it copies YAML http trusted_proxies into the new UI settings on first start. UNVERIFIED: not in the 2026.9 release notes nor the developer blog (Aug-Sep 2026); likely a 2026.1...
-- **Next:** Me: read the 2026.10 release notes + http integration docs on release day; then on the first upgrade confirm the UI shows both proxies and remote access works, and remove the YAML block only if HA says it is imported. Same check on Wigton.
-- **Tags:** tier-1, multi-home
-- **Forensic keys (2):**
-  - `verified_2026_10_05_overnight`: Not yet actionable: live update.home_assistant_core_update installed 2026.9.4 = latest 2026.9.4 (2026.10 not released yet). Moved investigating -> waiting_me: no measurement possible until release day; trigger = core update entity offers...
-  - `sweep_2026_10_05`: NEW: no prior card on http/trusted_proxies.
-
-## 🚀 Shipped (organic open) (24)
+## 🚀 Shipped (organic open) (12)
 _live, awaiting proof_
 
 ### `ROOM-COVERS-NO-GARAGE-DOOR-GUARD-1` - Room cover automation (open at sunrise, timed close, close on exit) has no garage-door exclusion — _#1 · WSJF 9.0 · v4 tc3 u2 /e1_
@@ -988,81 +1032,7 @@ _created 2026-09-29 23:20 · updated 2026-10-03 02:16_
   - `reconcile_2026_09_30_overnight`: LANE FIX planned -> review. Ground truth: branch fix/room-covers-garage-guard already carries the build, 2 commits ahead of develop - a22e0bb5a (23:21 09-29, room automation refuses garage/gate covers) and 614c9f391 (23:23, blocks AI-rul...
   - `measured_2026_09_29`: Operator thought garage doors live only in Security. MEASURED: they are ALSO in room covers - Garage A covers = cover.konnected_f0f5bd523b00_garage_door, Garage B covers = cover.ratgdov25i_dbfe2a_door (both device_class garage, stored co...
 
-### `HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1` - A new arrester episode cancels a pending AC hard-reset restore, so a zone can stay off for about 2-20 minutes after a reset — _#2 · WSJF 9.0 · v4 tc3 u2 /e1_
-thread: **hvac** - status: **shipped_organic** - approval: **implied**
-_created 2026-09-29 04:10 · updated 2026-10-05 02:22_
-- **Origin:** 2026-09-29 - Batch B review B-L3 (docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md); flagged by the builder; exists on develop
-- **Why:** A governed override dispatch (hvac_override.py ~4055/4123) calls _cancel_zone_timers (~7624-7633), which also cancels a pending AC-reset RESTORE timer. If a manual change is booked inside the Carrier lag window after the reset's `off` wr...
-- **Next:** VALIDATE (me, one-shot): next arrester episode that overlaps a pending AC-reset restore -> the restore still runs (ura_activity_log). Dispose by 2026-10-10; if no overlap occurs, close as in-suite-proven. Separately: the leftover A-L2 do...
-- **Tags:** hvac, arrester, ac-reset, pre-existing, found-in-review
-- **Forensic keys (7):**
-  - `soak_check_2026_10_05_overnight`: Not yet exercised: ac_ramp_events since v5.103.25 (09-29 19:15 CDT): only 2 hard resets (zone_1, 09-29 19:36 and 09-30 12:08 CDT, both floor_survived) and none since 09-30; ura_activity_log shows no zone_1 arrester episode inside either ...
-  - `verify_2026_10_03_overnight`: CARD-WAS-WRONG on 'next': the fix SHIPPED in v5.103.25 (3e53b30ac + fix-up 5ee400249, git tag --contains). The stale next ('rebase fix/arrester-episode-keeps-ac-reset-restore 0297b1afc...') refers to the rebased duplicate branch whose on...
-  - `build_2026_09_29_overnight`: BUILT (ura-builder, worktree, branch fix/arrester-episode-keeps-ac-reset-restore @4e5d7d900, base = develop d8397a070). The helper was renamed _cancel_zone_timers -> _cancel_arrester_timers, and its scope was cut to grace + compromise, d...
-  - `subfinding_2026_09_29_restore_clobbers_human_mode`: ADJACENT sub-finding, parked here with no new card. _restore_after_reset (~4391) writes heat_cool without checking the zone's current mode. If a human changes hvac_mode ITSELF inside the ~79 s lag window after the reset's off write, the ...
-  - `reviews_2026_09_29_overnight`: Two static framing-disjoint reviews (A local correctness, B race/lifecycle). Both SHIP. Converged MEDIUM (A-M1 = B-LOW-1): now that the episode keeps the reset alive, the reset verify's preset restore (_verify_restore success, ~4533-4558...
-  - `correction_2026_09_29_harm`: CORRECTION (Review A, A-L2): the why overstates the harm. Once the reset timer was cancelled, has_active_ac_reset went False and the B1 heat_cool enforcer (hvac.py:2415-2419, every tick outside observation mode) re-asserted heat_cool wit...
-  - `validated_2026_09_29_overnight`: READY FOR SHIP. Both reviews SHIP. The converged MEDIUM was fixed in fix-up 1 (a513919fb). Orchestrator ran two mutation drills: re-adding _reset_timers to the helper turns 3 tests red, and neutralising the defer guard turns test_episode...
-
-### `HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1` - Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered — _#3 · WSJF 8.0 · v4 tc2 u2 /e1_
-thread: **hvac** - status: **shipped_organic** - approval: **implied**
-_created 2026-09-29 01:05 · updated 2026-10-05 02:22 · refined_
-- **Problem / Solution:**
-  - Problem: since v5.103.16 every URA thermostat write is logged, and writes made on behalf of a temporary "borrow" (a nudge, a pre-cool, a return from one) are supposed to carry that borrow's id so each write can be traced to the episode t...
-- **Origin:** 2026-09-29 - Soak-exit query for HVAC-SETHVACMODE-CHOKEPOINT-1 (v5.103.16) during the 2026-09-29 board groom
-- **Why:** W1-A plan invariant F6 (PLANNING_hvac_w1a_thermostat_write_governance.md:63, :196): borrow-owning sites S3-S8, S11-S13 and egress pass their token's excursion_id; a forgotten forward becomes a null. The nulls are that failure, measured.
-- **Next:** VALIDATE (me, one-shot): first auto_return climate_write row AFTER the 10-03 05:33Z restart must carry a non-null excursion_id. Dispose by 2026-10-11; if no auto_return occurs by then, close as in-suite-proven.
-- **Tags:** hvac, tier-1, no-fabrication-verify, found-during-soak-exit
-- **Parsimony:** [BUILD] borrow writes are logged without the borrow id on 4 site families, breaking write-to-episode attribution
-- **Refs:** docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md; docs/planning/PLANNING_hvac_w1_w2_finish.md; docs/readmes/README_v5.103.16.md
-- **Forensic keys (10):**
-  - `soak_check_2026_10_05_overnight`: Still unexercised: zero climate_write rows with site auto_return:* since the 10-03 05:33Z restart (ura_activity_log). Every other borrow site since then carries an id (S5/S7/S11/S12/S3 all non-null; S4_revert 5 null = plain override reve...
-  - `soak_check_2026_10_04_overnight`: STILL PENDING, card's 'SHIP on your next deploy' was stale: the fix (e2dc7c2d2) shipped in v5.103.36 (tag pre-5103-36), live since the 10-03 05:33Z restart. ura_activity_log since 10-02: 5 auto_return climate_write rows (egress_pause x3,...
-  - `validated_2026_10_01_overnight`: READY TO SHIP (overnight 10-01, NOT deployed). Rebased onto develop with no conflicts -> e2dc7c2d2 (0 behind). Targeted -k excursion: 97 pass / 6 fail, the same 6 (test_hvac_excursion_d1_observability.py, AttributeError UniversalRoomData...
-  - `groom_2026_09_29_arc`: Partial re-measure after Batch B (since 2026-09-29 03:02): 16 borrow writes (S5 nudge start 5, S7 restore 10, S3 compromise 1), 0 without an excursion id (nudge starts were 5/35 null before). The S12 pre-cool and auto_return paths have n...
-  - `MEASURED_2026_09_30_overnight`: RE-MEASURE after Batch B (v5.103.23 deployed 2026-09-29 03:01 CDT = 08:01Z; the 09-29 groom note said "since 03:02", which was local time). URA DB, read-only, climate_write rows >= 08:01Z 09-29: S5_nudge_start 0 null (all carry ids), S7 ...
-  - `gate_2026_09_30`: VALIDITY: PARTIALLY-DONE -> narrowed to auto_return. CONFIG-FIRST: n/a (code omission). PRIOR-ART: REUSE the existing excursion_id kwarg of emit_set_preset_mode. PARSIMONY: BUILD (one kwarg + a wire-in test). COST/BENEFIT: trivial, ledge...
-  - `evidence`: MEASURED 2026-09-29 (URA DB, read-only, ura_activity_log action=climate_write since 2026-09-26 20:20Z): S5_nudge_start 30/35 with id, S6_nudge_restore_setpoint 8/13, S7 60/70, S12_pre_cool 5/11, auto_return:banking(+resume/+pin) 0/9 (rea...
-  - `adjacency_sweep`: Swept 2026-09-29: board (grep excursion_id: one unrelated hit, ac_ramp_events design note); docs/BACKLOG.md (none); PLANNING_hvac_w1a_thermostat_write_governance.md (F6 invariant = the source rule); PLANNING_hvac_w1_w2_finish.md P2 (S12 ...
-  - `build_2026_09_30_overnight`: BUILT on fix/hvac-auto-return-excursion-id (f93880230, from develop 5800d41ae): +2 kwargs in hvac_excursion.py - _auto_return forwards token.excursion_id (:714) and the startup-audit NUDGE preset restore forwards row.get("excursion_id") ...
-  - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
-
-### `SAFETY-HUMIDITY-JUNK-READING-1` - A single junk "0% humidity" reading from a reconnecting sensor raises a safety alert; ignore physically impossible humidity values — _#4 · WSJF 4.5 · v4 tc3 u2 /e2_
-thread: **safety** - status: **shipped_organic** - approval: **implied**
-_created 2026-09-27 02:40 · updated 2026-10-03 02:02 · initial_
-- **Problem / Solution:**
-  - Problem: some humidity sensors send a bogus reading of 0% (or 3%) for about a second while they reconnect. The safety system treats any reading at or below 25% as low humidity and raises an alert IMMEDIATELY, with no check that the value...
-- **Origin:** 2026-09-27 - Found by the empty-house natural-experiment interim probe (overnight 2026-09-27): a MEDIUM safety alert "Low humidity: 0.0% in Study A" at 23:35 CDT with nobody home.
-- **Why:** An alert that fires on an impossible value trains people to ignore safety alerts. The configured Study A sensor (sensor.invisoutlet_b7d0_humidity) wrote 0 for 1 s at 23:35:24 and then unknown at 23:35:25, a reconnect artifact. The record...
-- **Next:** SHIP (on your next deploy): merge feature/safety-humidity-junk-floor (b33174d65) with its README section (79a10d403). Merges cleanly onto develop; batch name-diff clean 10-02.
-- **Tags:** tier-1, mutation-drill, no-fabrication-verify, numbers-get-knobs
-- **Parsimony:** [SIMPLIFY (plausibility floor only)] Humidity readings below 5% (physically impossible indoors) raise low-humidity safety alerts and chip trips.
-- **Forensic keys (8):**
-  - `disposition_2026_10_03`: RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Open: no sub-5% humidity blip since restart (0...
-  - `groom_2026_09_29`: MOVED in_progress -> review. Built and reviewed: reviews_2026_09_27 A SHIP + B SHIP. Fix-up dc513cac4 (house safety-alert floor, boundary tests), review record c8776ff26. The branch feature/safety-humidity-junk-floor is 4 ahead / 55 behi...
-  - `live_2026_09_27_0230`: LIVE at ~02:30 CDT, and this is the discriminating observation: binary_sensor.ura_safety_coordinator_safety_alert = ON and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24. The only active hazard is low_humidity Study...
-  - `reviews_2026_09_27`: Review A (local correctness/edges/consumers): SHIP. M1 MEDIUM, a missed site: the whole-house SafetyAlertBinarySensor in aggregation.py:1359-1365 has its own humidity < 25 check; orchestrator-verified. Plus L1 (chip blips off for 1 s on ...
-  - `evidence_2026_09_27`: notification_log, all "Low humidity" safety alerts since 09-12: 09-12 Dining Room 3.0% (MEDIUM), 09-16 Study A 0.0% (MEDIUM), 09-26 Garage A 30.0% (LOW, plausible), 09-27 Study A 0.0% (MEDIUM). All four went out with bucket_outcome no_ch...
-  - `gate_2026_09_27`: (1) VALIDITY: still real, 3 junk alerts in 16 days, code path confirmed. (1b) CONFIG-FIRST: no knob covers it. LOW_HUMIDITY_THRESHOLDS are rung-1 constants, and swapping each room to a different humidity sensor is whack-a-mole because an...
-  - `open_question_garage`: NOT BUILT, and flagged for the operator: the zone chip treats garages as humidity-EXEMPT ("garage RH tracks weather"), but the safety coordinator still fires low-humidity for garages (09-26 "30.0% in Garage A", LOW). The coordinator and ...
-  - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
-
-### `URA-ATTRIBUTE-CHURN-1` - Two URA entities re-publish every couple of seconds only because a timestamp or countdown attribute ticked, adding HA CPU load and a history row each time — _#5 · WSJF 4.5 · v4 tc3 u2 /e2_
-thread: **platform** - status: **shipped_organic** - approval: **implied**
-_created 2026-09-28 19:10 · updated 2026-10-03 02:02_
-- **Origin:** 2026-09-28 - operator HA CPU review ("HA CPU is double what it was 4 months ago"); recorder top-writers sweep over 5 min
-- **Why:** Measured 2026-09-28 19:07 over 5 min: binary_sensor.living_room_occupied and living_room_hvac_occupied each wrote 119 rows (~24/min) with state steady "on"; the ONLY changed attribute was last_motion. sensor.ura_safety_coordinator_safety...
-- **Next:** SHIP (on your next deploy): merge feature/ura-attribute-churn (651216a8e) with its README section; write back README_v5.103.20 / PLANNING_hvac_fast_occupancy_response.md at ship. Also DO (any time): discard the stray uncommitted const.py...
-- **Tags:** tier-1, ha-cpu, recorder
-- **Forensic keys (6):**
-  - `disposition_2026_10_03`: RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Operator acked. safety_active_cooldowns PASS. ...
-  - `reviewed_2026_10_01_overnight`: FIX-UP 2 RE-REVIEWED + REBASED (overnight 10-01). Rebased onto develop with no conflicts -> 651216a8e (0 behind). 4 mutation drills re-run, each RED on the expected test, restored. Two framing-disjoint reviews, both SHIP: A (correctness ...
-  - `adjacency_2026_09_28`: ADJACENT to RECORDER-BLOAT-LOGFLOOD-1 (same class: last_check dropped from Safety Status, sensor.py:6521-6529/6576-6583). That fix established the pattern: DROP the churning key (an unrecorded attribute still fires state_changed on the l...
-  - `verify_2026_09_29_overnight`: CARD-WAS-WRONG on scope. It said last_motion was the ONLY changing attribute. Recorder, last 26h: binary_sensor.living_room_occupied had 22,722 rows, 22,653 of them rewrites with the same state, driven by idle_duration 12,828, last_motio...
-  - `fixup2_2026_09_29_overnight`: Both reviews returned FIX-REQUIRED on fix-up 1 (converged HIGH): timeout_at and last_occupied_at were built from stamps the coordinator re-stamps on every refresh (coordinator.py:3604, 3638-3640), so the churn moved instead of stopping i...
-  - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
-
-### `ROOM-DIALOGS-USABILITY-SWEEP-1` - Room settings dialogs look unfinished - raw underscore labels, fields with no helper text, and helper texts that are far too long — _#6 · WSJF 3.5 · v3 tc2 u2 /e2_
+### `ROOM-DIALOGS-USABILITY-SWEEP-1` - Room settings dialogs look unfinished - raw underscore labels, fields with no helper text, and helper texts that are far too long — _#2 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 20:15_
 - **Why:** Climate & Fans showed comfort_fan_away_veto_enabled and ble_hold_cap_enabled as raw keys (fixed on develop 2026-09-29), many toggles with no helper text, and multi-sentence helper texts (Empty-room hold day/night run 6-8 lines). Same ris...
@@ -1070,7 +1040,7 @@ _created 2026-09-29 20:15_
 - **Forensic keys (1):**
   - `tier`: 1
 
-### `ROOM-TYPE-TRIMMED-MENU-1` - Show only the settings a room type needs (closet/hallway/utility get sensors + lights + exhaust; bedrooms get everything), with a Show-all escape — _#7 · WSJF 3.5 · v4 tc1 u2 /e2_
+### `ROOM-TYPE-TRIMMED-MENU-1` - Show only the settings a room type needs (closet/hallway/utility get sensors + lights + exhaust; bedrooms get everything), with a Show-all escape — _#3 · WSJF 3.5 · v4 tc1 u2 /e2_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 22:55 · updated 2026-10-03 02:10_
 - **Why:** Sweep: no prior card/plan found for "mini room" (grep kanban + planning + BACKLOG). Room type already exists (const.py:437-450) and drives defaults (hold times, BLE hold cap). Recommendation: attenuate the options menu by room type inste...
@@ -1078,9 +1048,9 @@ _created 2026-09-29 22:55 · updated 2026-10-03 02:10_
 - **Forensic keys (1):**
   - `disposition_2026_10_03`: CARD-WAS-WRONG on lane (overnight verify-before-work): the board said pre_planning, but it SHIPPED in v5.103.35 (README_v5.103.35.md 'ROOM-TYPE-TRIMMED-MENU-1 - room menu trimmed by room type, Simple/Advanced'). Live table: 'pending oper...
 
-### `LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1` - The loop-stall watchdog logs an ERROR at every HA shutdown because it unsubscribes its stop listener after that listener already fired — _#8 · WSJF 3.5 · v3 tc2 u2 /e2_
+### `LOOP-STALL-WATCHDOG-STOP-UNSUB-ERROR-1` - The loop-stall watchdog logs an ERROR at every HA shutdown because it unsubscribes its stop listener after that listener already fired — _#4 · WSJF 3.5 · v3 tc2 u2 /e2_
 thread: **hygiene** - status: **shipped_organic** - approval: **implied**
-_created 2026-10-03 02:55 · updated 2026-10-06 01:45 · initial_
+_created 2026-10-03 02:55 · updated 2026-10-08 02:50 · initial_
 - **Problem / Solution:**
   - Problem: when Home Assistant shuts down, URA's freeze watchdog runs its stop handler, which tries to cancel the very one-time listener that is calling it. Home Assistant has already removed that listener, so it logs an ERROR 'Unable to r...
 - **Origin:** 2026-10-03 - Overnight pass, reading the full core log (hassio proxy) to dispose BOOT-EVENT-LOOP-FREEZE-1: line 2026-10-03 00:33:14.402 ERROR (SyncWorker_55) homeassistant.core Unable to remove unknown job listener ... _loop_stall_watchd...
@@ -1089,7 +1059,8 @@ _created 2026-10-03 02:55 · updated 2026-10-06 01:45 · initial_
 - **Tags:** tier-1, no-fabrication-verify, found-during-probe
 - **Parsimony:** [BUILD] Every HA shutdown logs a URA-caused ERROR from the watchdog stop handler.
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/_loop_stall_watchdog.py:249-292
-- **Forensic keys (6):**
+- **Forensic keys (7):**
+  - `reverified_2026_10_08_overnight`: Not due yet. The fix (5.103.39, live in v5.103.41) was installed 10-06 14:36 CDT, and the 14:41 restart's SHUTDOWN still ran the old in-memory code. No shutdown has run the fix yet. Check at the next restart. Note for that check: the HA ...
   - `reconciled_2026_10_06_overnight`: Operator ACKed the feed entry (board, 10-05 14:07). Git: fix commit 59caf1743 is contained in tags v5.103.39 and v5.103.40 -> SHIPPED in v5.103.39 (card was not named in deploy.sh --cards, so the board still said review = drift). Moved r...
   - `merged_2026_10_05_overnight`: MERGED to develop (7f67336f2 / 6c6c403a0) after the overnight serial full-suite name-diff: no new failures attributable to this branch (the single new failure was the mutation-sandbox branch's, since fixed). NOT deployed - it now rides t...
   - `review_record`: docs/reviews/code-review/overnight_2026-10-04_watchdog_unsub_and_restore52.md
@@ -1097,17 +1068,7 @@ _created 2026-10-03 02:55 · updated 2026-10-06 01:45 · initial_
   - `build_2026_10_03_overnight`: Built on fix/loop-stall-watchdog-stop-unsub (bbeed5805) in .claude/worktrees/overnight-1003-wdunsub: _on_stop clears wd._ha_stop_unsub before uninstall; new test test_ha_stop_fire_does_not_call_consumed_unsub. Tests pending (serialised b...
   - `gate_2026_10_03`: 1 validity: STILL-REAL (log line tonight, code unchanged at :261-288). 1b config-first: no setting affects it. 2 prior-art: REUSE - same file, no new mechanism; HA once-listener semantics. 3 parsimony BUILD (~3 LoC + a test). 4 cost/bene...
 
-### `HVAC-CUSTOM-PRESET-RANGES-1` - Batch C: turn on Custom Preset Ranges (URA writes its own range into each preset instead of Carrier's defaults), plus its three blockers — _#9 · WSJF 2.8 · v6 tc3 u2 /e4_
-thread: **hvac** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-29 13:10 · updated 2026-10-03 02:20_
-- **Origin:** 2026-09-27 - operator CPR answers: "Won't the app just reflect the new preset? Yes URA wins"; restore Carrier originals on off; default OFF; heat bug separately; "Run it in zone 3. Btw don't deploy after building until I say so"
-- **Why:** CPR is the last W1 tail item (state-of-play §11 step 5). Plan PLANNING_hvac_enable_custom_preset_ranges.md REV 2 with operator answers (D0 item 5 PASS). It cannot be enabled until its three blockers are fixed in the same cycle: HVAC-S10-...
-- **Next:** BUILD (Tier 2-DB, after a plan re-check against v5.103.23 since Batch B touched the same write paths): CPR plus its 3 blockers in one cycle; default OFF; zone 3 first. DEPLOY GATE (real): the operator's explicit go.
-- **Tags:** hvac, batch-c, w1-tail
-- **Forensic keys (1):**
-  - `live_state_2026_10_03_overnight`: WARNING: the actuation switch for this feature (switch.ura_hvac_coordinator_guest_mode_actuation) is ON live since 10-02 21:28:45Z with no user context; see INSTANCE on HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1. The board's 'DEPLOY GATE...
-
-### `ROOM-LIGHTING-SETUP-REDESIGN-1` - Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time — _#10 · WSJF 2.7 · v4 tc2 u2 /e3_
+### `ROOM-LIGHTING-SETUP-REDESIGN-1` - Room lighting setup is awkward - redo it as one light list with roles (entry, dark-only, night light, off on exit) and one wait time — _#5 · WSJF 2.7 · v4 tc2 u2 /e3_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 22:10_
 - **Why:** Today lights are split across Devices (Lights, Light Features auto-detected, Night Lights subset - config only, not in options) and Automation Behavior / Lighting (Lights on Entry, Lights on Exit, Dark Threshold, Brightness, Fade in/out)...
@@ -1117,15 +1078,7 @@ _created 2026-09-29 22:10_
   - `scope_2026_09_29`: Operator: "We separated enumeration from automation - sensors and devices are enumeration. Are you suggesting we break that pattern? That should mean other reorg, not just lights." Ruling to propose: KEEP the pattern - Devices/Sensors on...
   - `ranking_2026_09_29`: Operator liked all missed items; ranked by livability vs effort/risk: 1 core role pickers (+ move roles out of Devices, migration; alert lights ride along); 2 respect manual light changes (reuse fan manual-hold oracle design, automation....
 
-### `ENVOY-STREAM-AB-48H-1` - Envoy MQTT stream re-enabled for a 48 h A/B (does it load the Envoy, and does it give a trustworthy local SOC during dropouts?) — _#11 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
-thread: **energy** - status: **shipped_organic**
-_created 2026-10-03 13:05_
-- **Why:** Operator 2026-10-03 "yes do it". Started add-on 13e68335_envoy_to_mqtt_json 13:03 CDT. Baseline week (stream off since 09-30): 165 SOC dropouts/22.7 per day; today since 00:58 reload: 0. Prior evidence (09-29, entry 167): stream on corre...
-- **Next:** ME at 2026-10-05 13:05: one-shot query vs baseline (stream OFF 2026-10-03 00:58-13:03: 0 Envoy SOC/net dropouts). Measure (1) envoy integration unavailable transitions, (2) peak battery cutouts, (3) sensor.envoy_stream_battery_soc freshn...
-- **Forensic keys (1):**
-  - `readout_2026_10_05`: NO-GO (48h on vs 48h off, recorder). Peak battery cutouts (SPAN >=1.5kW to <300W) 30 -> 138 per 48h (4.6x) with the stream add-on running; stream SOC covered only 4/7 native dropouts (57%, bar 95%); sensor.envoy_stream_data_timestamp fro...
-
-### `EC-DEGRADED-DATA-POLICY-1` - Energy coordinator has no single rule for what to do when the Envoy reading drops out (some sites hold, some release, some read zero) — _#12 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+### `EC-DEGRADED-DATA-POLICY-1` - Energy coordinator has no single rule for what to do when the Envoy reading drops out (some sites hold, some release, some read zero) — _#6 · WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
 thread: **energy** - status: **shipped_organic**
 _created 2026-10-03 01:20 · updated 2026-10-05 02:22_
 - **Why:** SOC resolver already falls back envoy -> lkg -> cloud, but the battery strategy holds with no commands, the arbitrage EV pause releases on missing SOC, and solar reads the dead derived sensor. The Envoy /production.json fault (since 2026...
@@ -1135,40 +1088,7 @@ _created 2026-10-03 01:20 · updated 2026-10-05 02:22_
   - `reconciled_2026_10_05_overnight`: CARD-WAS-STALE: its next (PICK on doc section 7, likely no Phase-1 build) predates the operator decisions of 10-03/10-04. Ground truth: phase 1 WAS planned (docs/planning/PLANNING_ec_enphase_resilience_and_p1_adjust.md, still untracked i...
   - `investigation_2026_10_03_overnight`: Investigation COMPLETE. Design review REV 2 + D0 measurement/replay is in docs/planning/DESIGN_ec_degraded_data_policy.md (NOTE: written by the attended session tonight, still UNTRACKED in git - commit it). D0 verdicts (section 9.3): P1-...
 
-### `HVAC-S10-DPM-VS-S1-1` - S10 DPM raw setpoint write vs S1 preset write — race resolution before D9 enablement — _#13 · WSJF 2.4 · v6 tc4 u2 /e5_
-thread: **hvac** - status: **shipped_organic**
-_updated 2026-09-29 01:05_
-- **Problem / Solution:**
-  - Problem: S10 DPM (hvac.py:3217) is a raw setpoint writer with no excursion row. Under Alt A (W1-B REV 7), S1 may write over manual whenever no Alt-A gate is armed. Once switch.ura_hvac_coordinator_guest_mode_actuation is enabled (D9), S1...
-- **Origin:** 2026-09-27 - W1-B REV-7 non-goal — explicit exclusion this cycle, deferred fix
-- **Why:** Blocks D9 enablement; without it Custom Preset Ranges storms Carrier every 5 min in empty night zones.
-- **Next:** Plan (Tier 2, one framing-disjoint review). Sibling of HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1; coordinate both fixes before flipping guest_mode_actuation on.
-- **Parsimony:** [BUILD] S10 and S1 fight every tick on empty night zones once D9 enabled
-- **Forensic keys (6):**
-  - `groom_2026_09_29_arc`: Part of BATCH C (HVAC-CUSTOM-PRESET-RANGES-1): build together with Custom Preset Ranges; deploy only on the operators word, zone 3 first.
-  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 6, time_criticality 4, effort 5 - Batch C blocker for guest_mode_actuation; Tier 2.
-  - `tier`: tier-2
-  - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
-  - `blocked_by`: HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1
-  - `added_2026_09_27`: Operator constraint: option (a) must not add a new EXCURSION_KIND or logic inside begin_excursion without a ruling ("not baked into borrow"); prefer (b)-style reads at S1.
-
-### `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1` - BLOCKER on enabling guest_mode_actuation — F2 compose-away throttle bypass is unconditional (12 set_temperature/hr/zone to Carrier cloud) — _#14 · WSJF 2.4 · v6 tc4 u2 /e5_
-thread: **hvac** - status: **shipped_organic**
-_created 2026-09-17 · updated 2026-10-04 02:40_
-- **Problem / Solution:**
-  - Problem: D9 compose-away bypasses the _last_emitted_range throttle UNCONDITIONALLY, so once guest_mode_actuation (Custom Preset Ranges) is enabled, an empty night zone emits ~12 set_temperature calls/hr/zone to the Carrier cloud indefini...
-- **Why:** D9 is inert live (guest_mode_actuation OFF), so not a pre-ship fix — but it is a hard BLOCKER that must land BEFORE that switch is ever turned on, or it storms the thermostat cloud.
-- **Next:** BUILD inside Batch C (HVAC-CUSTOM-PRESET-RANGES-1): this throttle fix is one of CPR's 3 blockers; no separate operator ask remains. Deploy gate stays the operator's explicit go on Batch C.
-- **Tags:** hvac, blocker, carrier-write-sensitivity, do-before-enable
-- **Parsimony:** [BUILD] unconditional throttle bypass = steady write-storm once the feature is on
-- **Forensic keys (5):**
-  - `groom_2026_10_04_overnight`: VERIFY ANSWERED by the recorder (operator did not have to reply): the CPR switch (switch.ura_hvac_coordinator_guest_mode_actuation) was turned OFF BY A USER (context user 66bda3b7...) via switch.turn_off at 2026-10-03 18:13:16Z, came bac...
-  - `instance_2026_10_03_overnight`: INSTANCE_2026_10_03_overnight (found by the overnight HVAC probe, re-verified by orchestrator on the recorder): switch.ura_hvac_coordinator_guest_mode_actuation (DPM / Custom Preset Ranges actuation, the thing this blocker gates) is ON i...
-  - `groom_2026_09_29_arc`: Part of BATCH C (HVAC-CUSTOM-PRESET-RANGES-1): build together with Custom Preset Ranges; deploy only on the operators word, zone 3 first.
-  - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
-  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 6, time_criticality 4, effort 5 - Batch C blocker (12 cloud writes/hr/zone if enabled); Tier 2.
-
-### `CENSUS-INPUTS-FIRST-1` - Fix the census inputs (door events, resident attribution) before building the hybrid occupancy estimator, then re-run the 10-03 replay — _#15 · WSJF 2.1 · v7 tc4 u6 /e8_
+### `CENSUS-INPUTS-FIRST-1` - Fix the census inputs (door events, resident attribution) before building the hybrid occupancy estimator, then re-run the 10-03 replay — _#7 · WSJF 2.1 · v7 tc4 u6 /e8_
 thread: **census** - status: **shipped_organic** - approval: **explicit**
 _created 2026-10-05 02:22 · updated 2026-10-05 02:36 · refined_
 - **Problem / Solution:**
@@ -1178,35 +1098,20 @@ _created 2026-10-05 02:22 · updated 2026-10-05 02:36 · refined_
 - **Next:** Me: ura-planner is writing Rev 4 (re-verify HIGH-A/B/C + MED-D/E/F). Then ONE final short re-verify; build only on PLAN-READY. Stop rule: if the final re-verify still returns a HIGH, take it to the operator rather than looping a 4th plan...
 - **Tags:** tier-2db, measure-before-build, institutional-context, no-fabrication-verify
 - **Refs:** docs/planning/PLANNING_census_inputs_first.md; docs/planning/PLANNING_census_occupancy_estimator.md; docs/planning/AUDIT_census_estimator_replay_2026_10_03_hybrid.md; docs/planning/AUDIT_census_subsystem_2026_10_04.md; docs/planning/AUDIT_census_footage_ground_truth_2026_10_03.md; memory project_session_pickup_2026_10_04
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `live_replay_2026_10_08`: Post-v5.103.39 live replay (10-05 18:56Z -> 10-08, 29 door rows, 3,030 house snapshots): dedup clean (0 dup pairs within 30 s), direction resolved 29/29, person_id 48% (was 19%). REGRESSION: peak_person_count populated 17/17 rows until 1...
   - `plan_reverify_2026_10_05_overnight`: Rev 3 focused re-verify (ura-reviewer) -> PLAN-FIX-REQUIRED: HIGH-A stem composition from camera_resolver._PERSON_SUFFIXES (:214-219) lacks _person_count (orchestrator CONFIRMED in source) -> would regress count-sensor legs; HIGH-B legac...
   - `plan_rev3_2026_10_05_overnight`: Plan Rev 3 committed 71ebf52e5 (ura-planner applied every review finding: R3.1 unset-neighbour fallback byte-identical for both callers transit_validator.py:1253/:1745; R3.3 REUSE camera_resolver _strip_disambiguation_suffix :291 / _stri...
   - `plan_review_2026_10_05_overnight`: PLAN REVIEW (Tier 2-DB, one adversarial pass, ura-reviewer, read-only on develop) -> PLAN-FIX-REQUIRED: CRITICAL-1 an unset/unmapped CONF_DOOR_INTERIOR_NEIGHBOURS makes every crossing AMBIGUOUS, and AMBIGUOUS crossings skip the ledger wr...
   - `sweep_2026_10_05`: Board + BACKLOG + planning/AUDIT surfaces swept for census estimator / inputs-first: no card; CENSUS-ACCURACY-1 (pre_planning) is ADJACENT (interior decay/hysteresis), not a duplicate. NEW.
 
-### `HOUSE-DIALOGS-CLEANUP-1` - House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs) — _#16 · WSJF 2.0 · v3 tc1 u2 /e3_
+### `HOUSE-DIALOGS-CLEANUP-1` - House / Coordinator Manager settings dialogs need the same cleanup pass as rooms (then the per-coordinator dialogs) — _#8 · WSJF 2.0 · v3 tc1 u2 /e3_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 22:30_
 - **Why:** Adjacency: CM-CONFIG-FLOW-UX-1 / -SELECTORS-1 (done) fixed the CM menu rows and two sub-editors only; this is the full wording + structure pass. Coordinators follow after house and zone.
 - **Next:** Me: after the room and zone passes, plan house then coordinators with the same rules and meta-test.
 
-### `HVAC-W1C-GENERIC-THERMOSTAT-1` - W1-C — make URA work with a non-Carrier thermostat: brand-owned override detection, timings and a setpoint-based hold for thermostats without home/away/sleep presets — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **hvac** - status: **shipped_organic**
-_created 2026-09-27 · updated 2026-09-27 22:40_
-- **Why:** Strategy dispatch exists (hvac_strategy.py: registry platform -> _KNOWN; ha_carrier -> CarrierStrategy, else GenericStrategy), but: (1) borrow starts/returns bypass the strategy (call emit_* directly; borrow/return_borrow not built); (2)...
-- **Next:** PLAN (me, ura-planner): inventory every Carrier-specific assumption (write sites, override detection, timings, preset model, equipment telemetry) and design the thermostat-profile abstraction; plan reviews; then build. Deploy held for op...
-- **Forensic keys (3):**
-  - `trigger_fired_2026_09_29`: Operator: "How about the Thermostat manufacturer/model abstraction? Not everyone has a Bryant variable speed. As I roll this out to more homes." The revival trigger (operator wants URA ready for other homes) has fired - READY, not new. P...
-  - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
-  - `revival_trigger`: A second thermostat brand is available to test against, or the operator wants URA ready for other homes.
-
-### `CM-COORDINATORS-ADD-ONE-BY-ONE-1` - Coordinators should be added one by one from the Coordinator Manager menu (or at least start disabled until configured), not all created on install — _#18 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **onboarding** - status: **shipped_organic**
-_created 2026-10-02 23:30_
-- **Why:** Operator 2026-10-02: "Coordinators are all created and enabled when you install URA. They should be added from the CM menu one by one. At minimum they should be added disabled until configured. Needing to be added 1 by 1 is also a natura...
-- **Next:** Investigate (me): verify what install actually creates/enables per coordinator (audit says Domain Coordinators switch default off, HVAC/Energy default off — operator observes all created+enabled; reconcile against a fresh install / secon...
-
-### `ZONE-DIALOGS-CLEANUP-1` - Zone settings dialogs are a power-user mess - apply the room cleanup rules (plain labels, short helpers, enumeration vs automation, roles in behaviour steps) — _#19 · WSJF 2.0 · v3 tc1 u2 /e3_
+### `ZONE-DIALOGS-CLEANUP-1` - Zone settings dialogs are a power-user mess - apply the room cleanup rules (plain labels, short helpers, enumeration vs automation, roles in behaviour steps) — _#9 · WSJF 2.0 · v3 tc1 u2 /e3_
 thread: **ux** - status: **shipped_organic**
 _created 2026-09-29 22:30 · updated 2026-10-03 02:10_
 - **Why:** Same problems as the room dialogs (ROOM-DIALOGS-USABILITY-SWEEP-1 shipped wording, ROOM-LIGHTING-SETUP-REDESIGN-1 structure). The room plan PLANNING_room_dialog_cleanup_and_lighting_roles.md lists zone problems in a short section; start ...
@@ -1214,24 +1119,7 @@ _created 2026-09-29 22:30 · updated 2026-10-03 02:10_
 - **Forensic keys (1):**
   - `disposition_2026_10_03`: CARD-WAS-WRONG on lane (overnight verify-before-work): this card was still in inbox, but the work SHIPPED. Slice A (raw-key labels, retired strings, restart notices; D1/D3/D5) shipped in v5.103.35 (README_v5.103.35.md 'ZONE/HOUSE dialog ...
 
-### `HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1` - S8/S9/S11/S13-return writers emit comfort setpoints to an empty night zone without updating _last_emitted_range — uncorrected live because D9 (intended corrector) is dormant — _#20 · WSJF 2.0 · v5 tc3 u2 /e5_
-thread: **hvac** - status: **shipped_organic**
-_created 2026-09-17 · updated 2026-10-03 02:20_
-- **Problem / Solution:**
-  - Problem: the restore-class writers (S8 cancel-nudge, S9 ramp-audit, S11 release-banked, S13 pre-heat return; hvac_override.py:5814/6220, hvac_predict.py:976/1507) emit comfort setpoints and do NOT update _last_emitted_range. The design i...
-- **Why:** Pre-existing (predates step-4-B); surfaced by the round-4 adversarial enumeration. Currently a live ≤overnight stranding surface on any zone that gets a nudge/ramp/banked restore while empty.
-- **Next:** Nothing standalone. Fold into HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1 as a co-requisite when that is built.
-- **Tags:** hvac, pre-existing, setpoint-vs-mode
-- **Parsimony:** [PARK] restore writers strand empty night zones at comfort setpoints
-- **Forensic keys (6):**
-  - `revisit_if`: a restore write lands on an empty night zone with a non-away preset still uncorrected after 10 min, OR the compose-away throttle bypass is removed (then clear _last_emitted_range[zone] at the restore sites as a co-requisite).
-  - `measured_2026_10_03_overnight`: REFUTED AS A LIVE DEFECT (read-only probe, develop @325eaab10, 1,246 climate_write rows 09-26 20:23 -> 10-03 06:52Z). The four restore sites moved (hvac_override.py:7319/7348 S8, :7793/7815 S9; hvac_predict.py:1129/1153 S11, :1896/1912 S...
-  - `groom_2026_09_29_arc`: Part of BATCH C (HVAC-CUSTOM-PRESET-RANGES-1): build together with Custom Preset Ranges; deploy only on the operators word, zone 3 first.
-  - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
-  - `FOLD_2026_09_17`: From HVAC-EC-OFFSET-SELF-LOCKOUT-1 (refuted): verify the EC coast/shed OFFSET apply path carries a FIX-B2-style pre-write preset snapshot + set_preset_mode restore (like the nudge path), so a coast setpoint write cannot leave a zone in m...
-  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Batch C sibling; measure-first, likely small.
-
-### `ENERGY-HISTORY-KW-SUMMED-AS-KWH-1` - Predicted Energy/Cost Tomorrow ~4x too high — energy_history stores 15-min kW snapshots and predictions sum them as kWh — _#21 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ENERGY-HISTORY-KW-SUMMED-AS-KWH-1` - Predicted Energy/Cost Tomorrow ~4x too high — energy_history stores 15-min kW snapshots and predictions sum them as kWh — _#10 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **shipped_organic**
 _created 2026-10-04 00:10 · updated 2026-10-04 04:30_
 - **Why:** Operator saw dashboard "Tomorrow ~230 kWh from grid · $31.23" (sensor.universal_room_automation_predicted_energy_tomorrow 229.7). energy_history rows every ~15 min hold grid_import as kW; 10-03 sum = 403.5 "kWh" vs ~101 kWh real. Display...
@@ -1240,35 +1128,29 @@ _created 2026-10-04 00:10 · updated 2026-10-04 04:30_
   - `review_2026_10_04_overnight`: REVIEW A (Tier 1, read-only on develop): SHIP. SQL holds: LEAD over the whole table before filtering, correct midnight attribution, outages credited only 0.25 h, NULL-safe; consumers = predicted energy/cost sensors only (aggregation.py:2...
   - `verified_2026_10_04_overnight`: VERIFY-BEFORE-WORK = ALREADY-BUILT (card lagged). develop 9038a76da (10-04 00:01, attended session) integrates the kW samples to kWh in get_energy_for_similar_days / get_energy_for_date_range via a shared LEAD() interval CTE, plus qualit...
 
-### `EC-LKG-NEVER-PERSISTED-1` - Battery and solar last-known-good are never saved — _save_evse_state uses an unbound _json, error swallowed at DEBUG — _#22 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
-thread: **energy** - status: **shipped_organic**
-_created 2026-10-04 02:00 · updated 2026-10-05 02:22_
-- **Why:** Found by the EC degraded-data phase 1 builder 2026-10-04. Restart outages today (00:37, 15:55, 17:05) started with an empty LKG, contradicting the plan's LKG-persistence reuse assumption.
-- **Next:** SHIP with EC p1 (feature/ec-degraded-data-p1, operator-timed Mon after the 13:05 A/B). Live acceptance after that restart: ALL FIVE energy_state rows (battery_soc_lkg, solar_production_w_lkg, wv_commanded_ledger, wv_verified_records, arb...
-- **Forensic keys (1):**
-  - `verified_2026_10_05_overnight`: ALREADY-FIXED ON THE EC p1 BRANCH (not yet shipped) + live blast radius MEASURED. (1) develop/live: AST of EnergyCoordinator._save_evse_state on develop binds NO _json (uses at energy.py:2054, 2065, 2143, 2150, 2191) -> NameError swallow...
-
-### `FAN-ORACLE-BOOT-FALLBACK-NOISE-1` - 86 "FanPolicyOracle fallback" warnings at every boot (rooms set up before the Coordinator Manager attaches the fan oracle) — _#23 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `FAN-ORACLE-BOOT-FALLBACK-NOISE-1` - 86 "FanPolicyOracle fallback" warnings at every boot (rooms set up before the Coordinator Manager attaches the fan oracle) — _#11 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hygiene** - status: **shipped_organic**
-_created 2026-10-03 01:00 · updated 2026-10-06 02:08_
+_created 2026-10-03 01:00 · updated 2026-10-08 02:50_
 - **Why:** Observed after the 2026-10-03 00:37 restart: 43 rooms x write_on/write_off, all in the boot second. Harmless but buries real warnings during post-deploy log review.
 - **Next:** VALIDATE (me, at the next HA restart = the EC p1 deploy): read system_log (websocket system_log/list) within ~10 min of boot -> 0 WARNING entries containing FanPolicyOracle fallback. Present -> reopen; absent -> done.
-- **Forensic keys (4):**
+- **Forensic keys (5):**
+  - `log_gap_2026_10_08_overnight`: LOG-READ GAP, NOT an all-clear. The check was due at the 10-06 19:41Z boot (v5.103.41 live, which carries the v5.103.37 fix). Tonight the home-assistant MCP could not reach HA (No route to host, the macOS local-network block on the MCP s...
   - `log_gap_2026_10_06_overnight`: NOT VERIFIED - LOG-READ GAP again, not an all-clear. Two boots since the last check (10-05 14:01 and 19:19 CDT homeassistant_start). system_log (ha_get_logs source=system) is at its 50-entry cap with the oldest entry 10-05 22:20 CDT, so ...
   - `log_gap_2026_10_05_overnight`: NOT VERIFIED - LOG-READ GAP, not an all-clear. The fix (a841fbc8c, WARN->DEBUG) IS live: it is in tags v5.103.37 and v5.103.38. But the only boot since then (10-03 ~21:58Z) is out of reach: HA system_log (read via websocket system_log/li...
   - `soak_check_2026_10_04_overnight`: NOT EVALUATED - LOG-READ GAP, not an all-clear. The fix (a841fbc8c) is live since v5.103.37/38 (restarts 10-03 15:55 and 16:58 CDT). The core log reachable tonight (hassio proxy) starts at 22:52 CDT, after both boots, and the HA system_l...
   - `reverified_2026_10_03_overnight`: CARD-WAS-WRONG on lane: the fix is already BUILT and merged on develop (a841fbc8c, 'DEBUG (not WARN) for pre-attach fan oracle fallback', automation.py + manager.py + test_fan_oracle_boot_fallback_noise.py; merged 9844afa0c). Not in any ...
 
-### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#24 · WSJF 1.4 · v6 tc3 u2 /e8_
+### `ONBOARDING-SIMPLIFY-1` - Radically simplify URA first-run/onboarding (integration first-run -> room -> coordinator) — >=50% less operator cognitive load — _#12 · WSJF 1.4 · v6 tc3 u2 /e8_
 thread: **config-flow** - status: **shipped_organic** - approval: **explicit**
-_created 2026-09-12 16:30 · updated 2026-10-03 02:11 · refined_
+_created 2026-09-12 16:30 · updated 2026-10-08 03:00 · refined_
 - **Problem / Solution:**
   - Problem: URA first-time setup is arcane — the first-run path (integration first-run -> add URA -> first room setup -> coordinator setup) asks too much of the operator, with long/complex forms. URA is moving to another house soon and the ...
 - **Why:** single-house integration moving to a second house; first-time setup has not been exercised in a long time and was too arcane. Onboarding is the gate to reuse.
-- **Next:** VERIFY: set up the second home (planned this weekend 10-03/04) with the Simple first-run path, and tell me where it was confusing or broke -> I close this card or card the residuals. Dispose by 2026-10-10.
+- **Next:** VERIFY: on the second home's Simple first-run path, tell me where it was confusing or broke, and whether the Coordinator Manager started empty with coordinators added one at a time -> I close this card or card the residuals. Dispose by 2...
 - **Tags:** tier-2db
 - **Refs:** custom_components/universal_room_automation/config_flow.py; custom_components/universal_room_automation/__init__.py; docs/planning/AUDIT_first_run_onboarding.md
-- **Forensic keys (22):**
+- **Forensic keys (23):**
+  - `folded_2026_10_08`: Folded in from CM-COORDINATORS-ADD-ONE-BY-ONE-1 (closed): the second-home setup is also the first live proof that a fresh install starts with no coordinators and adds them one at a time from the Coordinator Manager menu.
   - `disposition_2026_10_03`: CARD-WAS-WRONG on lane (overnight verify-before-work): board said pre_planning with next 'PLAN', but phase 1 shipped in v5.101.0 and phase 2 (rooms from areas in bulk, simpler House form; PLANNING_onboarding_simplify_phase2.md + AUDIT_on...
   - `disposition_2026_09_26_groom`: RE-LANED (never built; wrongly stamped shipped by v5.101.0). Still a planning task: trace + document the first-run path and every field, then propose >=50% reduction for operator review.
   - `groom_2026_09_29`: Adjacency: linked to CONFIG-FLOW-SLOW-ONBOARDING-1 (same onboarding flow; ADJACENT, not duplicate). Rank scored (was default): value 6, tc 3, effort 8 (Tier 2-DB tag).
@@ -1292,7 +1174,7 @@ _created 2026-09-12 16:30 · updated 2026-10-03 02:11 · refined_
   - `recommended_combo_2026_09_12`: Presented the most-assistive LINEAR combo for operator approval (the bold end of each proposal, resolving the conservative/aggressive variants): area-first + auto-detect-and-confirm (P2 bold) + continuous house->room ribbon (P5) + essent...
   - `planning_2026_09_12`: AUDIT written -> docs/planning/AUDIT_first_run_onboarding.md (readable step-by-step journey + field inventory + simplification). KEY: mandatory first run is the HOUSE entity only (2 forms/15 fields/1 required); ROOM add is OPTIONAL + sep...
 
-## 🅿️ Parked (77)
+## 🅿️ Parked (81)
 _revisit-trigger set_
 
 ### `HUMIDITY-LOW-RUNG-PAGING-KNOB-1` - Make the LOW-severity humidity-band NM page null/configurable (un-knobbed rung) — _#1 · WSJF 7.0 · v3 tc2 u2 /e1_
@@ -1461,7 +1343,18 @@ _created 2026-08-24 18:10 · updated 2026-08-26 01:45 · initial_
   - `PROBE_RESULT_2026_08_24_BITES`: Probe done (536 days of long-term solcast statistics 2025-03-07..2026-08-24; representative = forecast value nearest 06:00 when post-midnight off-peak decisions run). VERDICT: BITES OFTEN + MATERIALLY. class(D) != class(D+1) on 37.4% of ...
   - `VALIDATED_2026_08_26`: SHIPPED v5.91.1, live-validated post-restart at 01:39 CDT (a post-midnight, class-disagreement read). target_day_source=solcast_today + target_day_class=excellent while tomorrow_solar_class=good — anchors to TODAY, not calendar-tomorrow ...
 
-### `ENVOY-STREAM-SOC-TIER-1` - The battery brain goes blind and freezes whenever both its data sources age out — give it a third, local, fast (~5-6s) source so it can keep deciding — _#12 · WSJF 2.6 · v8 tc6 u7 /e8_
+### `HVAC-CUSTOM-PRESET-RANGES-1` - Batch C: turn on Custom Preset Ranges (URA writes its own range into each preset instead of Carrier's defaults), plus its three blockers — _#12 · WSJF 2.8 · v6 tc3 u2 /e4_
+thread: **hvac** - status: **parked** - approval: **explicit**
+_created 2026-09-29 13:10 · updated 2026-10-08 03:00_
+- **Origin:** 2026-09-27 - operator CPR answers: "Won't the app just reflect the new preset? Yes URA wins"; restore Carrier originals on off; default OFF; heat bug separately; "Run it in zone 3. Btw don't deploy after building until I say so"
+- **Why:** CPR is the last W1 tail item (state-of-play §11 step 5). Plan PLANNING_hvac_enable_custom_preset_ranges.md REV 2 with operator answers (D0 item 5 PASS). It cannot be enabled until its three blockers are fixed in the same cycle: HVAC-S10-...
+- **Next:** PARKED 2026-10-08. REVIVE when you turn on Custom Preset Ranges (switch.ura_hvac_coordinator_guest_mode_actuation) for zone 3. Then I read climate_write over the first night: S10_preset_range rows land, no more than one write per zone pe...
+- **Tags:** hvac, batch-c, w1-tail
+- **Forensic keys (2):**
+  - `disposition_2026_10_08_soak_exit`: SOAK EXIT -> PARKED. Shipped OFF in v5.103.39 and validated 10-06 (switch resolves OFF, no S10 writes, compose-away deleted). Its organic discriminator (zone 3 holds its custom ranges with no Carrier write storm) can only be evaluated on...
+  - `live_state_2026_10_03_overnight`: WARNING: the actuation switch for this feature (switch.ura_hvac_coordinator_guest_mode_actuation) is ON live since 10-02 21:28:45Z with no user context; see INSTANCE on HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1. The board's 'DEPLOY GATE...
+
+### `ENVOY-STREAM-SOC-TIER-1` - The battery brain goes blind and freezes whenever both its data sources age out — give it a third, local, fast (~5-6s) source so it can keep deciding — _#13 · WSJF 2.6 · v8 tc6 u7 /e8_
 thread: **energy** - status: **parked** - approval: **unreviewed**
 _created 2026-09-25 18:00 · updated 2026-09-30 02:40 · refined ×2_
 - **Problem / Solution:**
@@ -1478,7 +1371,7 @@ _created 2026-09-25 18:00 · updated 2026-09-30 02:40 · refined ×2_
   - `unblocked_2026_09_27`: OVERNIGHT 2026-09-27: blocker ENVOY-STREAM-TRUST-MEASURE-1 closed done with Run 2 (AUDIT_envoy_mqtt_trust_measurement.md). Every criterion this card needed now has a number: 3.1 PASS, 3.2 PASS on transport, 3.3b PASS (p95 1 pp vs native)...
   - `binding_constraint_3_8_2026_09_27`: BINDING CONSTRAINT from Run 2 criterion 3.8, observed live 09-26 23:14:11: when the Envoy re-enumerates (reboot), the stream publishes SOC=0 and backup_reserve 0 then 30 for ~36 s before true values (SOC 36, reserve 10). The plan MUST ga...
 
-### `REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1` - Room renames split one room's history across two labels and manufacture fake "routine drift" — _#13 · WSJF 2.4 · v7 tc3 u2 /e5_
+### `REGIME-BASELINE-ROOM-RENAME-CONTAMINATION-1` - Room renames split one room's history across two labels and manufacture fake "routine drift" — _#14 · WSJF 2.4 · v7 tc3 u2 /e5_
 thread: **analytics** - status: **parked**
 _created 2026-09-14 00:45 · updated 2026-09-14 03:55 · refined_
 - **Problem / Solution:**
@@ -1497,7 +1390,7 @@ _created 2026-09-14 00:45 · updated 2026-09-14 03:55 · refined_
   - `fix_option_assessment_2026_09_14`: MARGINAL-BENEFIT DECOMPOSITION of the two options this card proposed, plus a third the measurement suggests: (a) ROBUST — rename-aware room-identity key. Correct, but it is a real build against the baseline store to fix one rename affect...
   - `gate_2026_09_14`: AMBIGUOUS AT THE COST/BENEFIT STEP -> escalated rather than guessed, per the autonomy gate. The honest read is that (c) is cheap and precise but the artifact self-heals, so "build the narrow suppressor" and "park until the next rename" a...
 
-### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#14 · WSJF 2.4 · v6 tc4 u2 /e5_
+### `CONFIG-FLOW-SLOW-ONBOARDING-1` - Add Entry + room setup painfully slow (Foyer = 25min, submits 3-5min each) after v5.101.0 onboarding — _#15 · WSJF 2.4 · v6 tc4 u2 /e5_
 thread: **config-flow** - status: **parked** - approval: **explicit**
 _created 2026-09-13 01:00 · updated 2026-09-29 01:05 · initial_
 - **Problem / Solution:**
@@ -1524,7 +1417,7 @@ _created 2026-09-13 01:00 · updated 2026-09-29 01:05 · initial_
   - `symptom2_cannot_add_2026_09_13`: SECOND SYMPTOM (operator 2026-09-13): Add-Entry SOMETIMES shows HA dialog "This integration cannot be added from the UI / add to configuration.yaml". ROOT CAUSE CONFIRMED from HA source: that dialog = data_entry_flow.UnknownHandler (conf...
   - `instrumented_2026_09_13`: INSTRUMENTATION BUILT @ eb2f73094 (feature/config-flow-timing). Class decorator instrument_flow wraps all 44 ConfigFlow + 56 OptionsFlow async_step_* handlers (HA-dispatch-safe, verified vs data_entry_flow.py:483/568); logs WARNING ENTER...
 
-### `KP-ANNOTATION-1` - Known-person annotation + stranger-alert leg — exterior alerts annotate identity ("likely Oji"), unknown-face escalates (doorbell-automation successor) — _#15 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `KP-ANNOTATION-1` - Known-person annotation + stranger-alert leg — exterior alerts annotate identity ("likely Oji"), unknown-face escalates (doorbell-automation successor) — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **perimeter** - status: **parked** - approval: **explicit**
 _refined ×3_
 - **Origin:** 2026-08-14 - Successor card for the work absorbed from declined KP-ESCALATE-1 + the annotate-not-suppress direction. This card was MISSING for a day (capture miss, created 2026-08-15).
@@ -1538,7 +1431,7 @@ _refined ×3_
   - `webhook_probe_2026_08_15`: Operator approved the probe. HA listener LIVE: automation.ura_kp_face_webhook_probe (webhook id ura_kp_face_probe, local-only, payload -> event ura_kp_face_probe_received + system_log). Protect-side rule could NOT be created via API (v2 ...
   - `probe_result_2026_08_15`: PROBE FIRED (operator created "Madrone Face Alarm": Face ID known+unknown, Family Room + G6 Entry — the ONLY two Face-ID-capable Protect cams, fisheye silence explained definitively). Test payload captured: trigger key (face_known/face_u...
 
-### `EXTERIOR-DWELL-LOITER-1` - Circling classification has no dwell/loiter predicate — a 20-minute stationary watcher reads as pass_by — _#16 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EXTERIOR-DWELL-LOITER-1` - Circling classification has no dwell/loiter predicate — a 20-minute stationary watcher reads as pass_by — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **security** - status: **parked** - approval: **explicit**
 - **Problem / Solution:**
   - P1 `ExteriorTrackLinker.classify()` (exterior_track_linker.py:705-750) is PURELY TOPOLOGICAL. `circling` iff revisit_count >= 1 OR (camera_count >= EXTERIOR_TRACK_CLASSIFY_CIRCLING_CAMERAS AND non-monotonic path); `approach` iff egress-a...
@@ -1551,7 +1444,7 @@ thread: **security** - status: **parked** - approval: **explicit**
 - **Forensic keys (1):**
   - `probe_outcome_2026_08_17`: PROBE DONE (PROBE_exterior_dwell_loiter.md, 491195ed9). RECOMMENDATION: DON'T build a raw duration predicate now. 623 person tracks / 11 days. Hypothesis PARTLY confirmed: dwell DOES leak into pass_by (41 tracks >5min, 4 >20min, max 70mi...
 
-### `CENSUS-G6-RAW-PERSISTENCE` - G6 (PARKED, build only if needed): gate guest persistence on RAW unidentified, not the held/decayed value — _#17 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CENSUS-G6-RAW-PERSISTENCE` - G6 (PARKED, build only if needed): gate guest persistence on RAW unidentified, not the held/decayed value — _#18 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked** - approval: **implied**
 - **Origin:** 2026-08-16 - Operator: "Do both [G1+G4]. Card G6 and only use it if needed."
 - **Why:** Census hold(3min)+decay(-1/300s) makes a phantom structurally durable ~25 min, outlasting the 300s guest persistence gate — so "sustained" cannot distinguish sustained-because-real from sustained-because-held. ~15 LoC, D8 threading pattern.
@@ -1559,7 +1452,7 @@ thread: **presence** - status: **parked** - approval: **implied**
 - **Forensic keys (1):**
   - `revisit_trigger`: Build ONLY if, after G1+G4 ship, a phantom or a genuinely transient presence (delivery, brief visitor) still sustains guest mode. Under G4 this should be structurally blocked — no guest room sustaining 30min means no guest activation — s...
 
-### `CENSUS-GUEST-FLOOR-1` - Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded FLOOR, gated to contain the FP problem that unplugged it — _#18 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CENSUS-GUEST-FLOOR-1` - Census blind to guests (read 4 with 10 in house) — re-admit the WiFi guest-VLAN count as a bounded FLOOR, gated to contain the FP problem that unplugged it — _#19 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked** - approval: **unreviewed**
 - **Origin:** 2026-08-15 - operator: "census says 4 but there are 4 of us and 6 guests — how is it missing this many people"
 - **Why:** Census total = identified(BLE+face, structurally household-only) + camera_unrecognized(3-min hold). Guests only count while standing in view of transit-tier census cameras; the guest phones on the Revel VLAN ARE counted by _get_wifi_gues...
@@ -1570,7 +1463,7 @@ thread: **presence** - status: **parked** - approval: **unreviewed**
   - `proposed_shape`: total = max(total, identified + wifi_guest_floor), the floor admitted ONLY under guards: guest-mode active OR count stable >N min; existing family-exclusion layers retained; kill switch = existing exclusion default. Numbers get knobs.
   - `parked_2026_08_15`: SHRUNK by the regression root-cause (CENSUS-SUFFIX-FIX-1): the census was count-accurate until 08-13; the suffix fix restores that. Revisit trigger: AFTER the fix ships + one real gathering, if guest counts still under-read materially, r...
 
-### `HOUSE-STATE-UTILIZATION-EPIC` - ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin); rungs 2-4 unbuilt — _#19 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HOUSE-STATE-UTILIZATION-EPIC` - ROADMAP EPIC — give operational meaning to under-consumed house states (HOME_DAY dead, AWAY thin); rungs 2-4 unbuilt — _#20 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked** - approval: **explicit**
 - **Origin:** 2026-07-30 - Plan inventory audit 2026-08-14: PLANNING_house_state_utilization.md is an operator-ratified multi-cycle roadmap; rung 1 shipped in a parallel cycle, rungs 2-4 unbuilt.
 - **Why:** Roadmap marker, not one build — several house states carry little operational weight. Carded as an epic so the rungs are not lost; each rung becomes its own Tier-2 cycle when pulled.
@@ -1579,7 +1472,7 @@ thread: **presence** - status: **parked** - approval: **explicit**
 - **Forensic keys (1):**
   - `revisit_trigger`: Pull a rung when a concrete house-state-driven behavior is wanted; decompose per-rung then.
 
-### `PATH-ALPHA-DENOM-1` - Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it — _#20 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PATH-ALPHA-DENOM-1` - Path-alpha away inference structurally dead when all trackers LOST/STALE — trusted denominator empties; NO existing card fixes it — _#21 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked** - approval: **approved_after_investigation**
 - **Origin:** 2026-08-13 - Carded-coverage grading: the LOST-denominator gap (all 4 trackers LOST -> all_tracked_persons_away false-by-vacuity for hours) is owned by no card; v5.16.0 fixed the veto denominator, not this.
 - **Why:** Path-alpha ignores zones entirely — with ACTIVE trackers it would have fired regardless of the fan latch. Fixing the vacuous-denominator case (all-LOST + all-entity-away => away-eligible) is an independent mitigation with its own balance...
@@ -1591,7 +1484,7 @@ thread: **presence** - status: **parked** - approval: **approved_after_investiga
   - `reconcile_2026_08_16`: STALE STATUS FIXED (was inbox). Plan rev-3.5.1 committed fa31c6d45 after operator checkpoint + adversarial plan review; BUILDING NOW on feature/path-alpha (D1-D7 + Gap-B guard + EV riders).
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-### `SWEEP` - Morning sweep — _#21 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SWEEP` - Morning sweep — _#22 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **ops** - status: **parked** - approval: **implied**
 _updated 2026-08-17 23:12_
 - **Why:** reason-ledger first night, Frigate car/dog/cat first events, snapshot-fix organic proof, v5.57/58 organic criteria
@@ -1599,7 +1492,7 @@ _updated 2026-08-17 23:12_
 - **Forensic keys (1):**
   - `STATUS_CORRECTED_2026_08_22`: Was `waiting_me` and untouched since 2026-08-17. Its own next says "Recurring morning-sweep placeholder; re-fires each session start. No standing action." That is a PROCESS placeholder, not work, and holding it in an active lane makes th...
 
-### `MEMORY-ZONE-PHANTOM-WRITER-1` - Optional memory writer: zone_phantom (F2 zone-vs-house divergence has zero witnesses) — _#22 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `MEMORY-ZONE-PHANTOM-WRITER-1` - Optional memory writer: zone_phantom (F2 zone-vs-house divergence has zero witnesses) — _#23 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **memory** - status: **parked** - approval: **unreviewed**
 _created 2026-08-18 02:20 · initial_
 - **Problem / Solution:**
@@ -1608,7 +1501,7 @@ _created 2026-08-18 02:20 · initial_
 - **Next:** REVISIT TRIGGER: a real F2 zone-occupied-while-house-away divergence is observed. Then build the writer (plan is PLANNING_memory_writers.md).
 - **Refs:** docs/planning/PLANNING_memory_writers.md; custom_components/universal_room_automation/memory_writers.py:186
 
-### `IOS-APP-PLAN-CARD-1` - iOS app for HAOS+URA — gated design blueprint (tracked) — _#23 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `IOS-APP-PLAN-CARD-1` - iOS app for HAOS+URA — gated design blueprint (tracked) — _#24 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboarding** - status: **parked**
 _created 2026-08-18 02:00 · updated 2026-08-18 02:25 · refined_
 - **Next:** No action now (gated). When PWA M2 lands + install-gate met, promote M3 to planning.
@@ -1616,7 +1509,7 @@ _created 2026-08-18 02:00 · updated 2026-08-18 02:25 · refined_
   - `problem`: A real, detailed iOS app design EXISTS but was untracked. It is a BLUEPRINT, not a build: native iOS (SwiftUI + HAKit + TestFlight) is gated behind (a) PWA milestones M1/M2 and (b) the commercialization >=100-active-installs gate. Now ca...
   - `parked_reason`: GATED. Path: M1 PWA read-only -> M2 PWA writes+NM -> M3 SwiftUI native shell+HAKit+TestFlight -> M4 native writes+push. Native (M3/M4) blocked behind PWA M1/M2 + HACS distribution + >=100 installs. Revisit trigger: PWA M2 complete AND co...
 
-### `ENTITYDESC-RUNTIMEDATA-HYGIENE-1` - EntityDescription + runtime_data hygiene (opportunistic) — _#24 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ENTITYDESC-RUNTIMEDATA-HYGIENE-1` - EntityDescription + runtime_data hygiene (opportunistic) — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **parked**
 _created 2026-08-18 02:30 · initial_
 - **Next:** Fold into the next platform/coordinator cycle that already edits the target files.
@@ -1624,7 +1517,7 @@ _created 2026-08-18 02:30 · initial_
   - `problem`: EntityDescription + runtime_data patterns not adopted; low-value on its own.
   - `parked_reason`: Opportunistic — attach to the next coordinator touch rather than a dedicated cycle.
 
-### `CHATTER-CAMERA-CONFIDENCE-FLAP-1` - Camera/AI detection confidence-flap detector (STEP sibling) — _#25 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CHATTER-CAMERA-CONFIDENCE-FLAP-1` - Camera/AI detection confidence-flap detector (STEP sibling) — _#26 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **diagnostics** - status: **parked**
 _created 2026-08-18 16:45 · initial_
 - **Next:** After STEP D1/D2 ship: design a confidence-flap criterion for camera/AI detections; reuse the shared exclusion primitive.
@@ -1633,7 +1526,7 @@ _created 2026-08-18 16:45 · initial_
   - `problem`: Camera/AI person/motion detections are EXCLUDED from the physics chatter detector by the provenance gate (they flip at frame cadence on a confidence threshold — no hardware blind-time, so sub-T_floor is undefined; D0 shows binarygroup_ca...
   - `parked_reason`: Distinct fault class + criterion from physics chatter. Card after the STEP shared primitive + chatter client ship. Consumes the same SensorExclusionSet.
 
-### `SENSOR-MULTISTATE-FAULT-1` - Bed/multi-state sensor fault detector (STEP sibling) — _#26 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SENSOR-MULTISTATE-FAULT-1` - Bed/multi-state sensor fault detector (STEP sibling) — _#27 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **diagnostics** - status: **parked**
 _created 2026-08-18 16:45 · initial_
 - **Next:** After STEP D1/D2 ship: assess multi-state fault criteria; reuse the shared exclusion primitive.
@@ -1642,7 +1535,7 @@ _created 2026-08-18 16:45 · initial_
   - `problem`: Bed / multi-state sensors (empty->sitting->lying) are EXCLUDED from the physics chatter detector — their transitions are not gated by a single motion blind-time, so the sub-T_floor criterion is ill-defined. They can still fault; needs a ...
   - `parked_reason`: Distinct sensor model + criterion. Low priority (few such sensors). Card after STEP primitive ships; reuse SensorExclusionSet.
 
-### `FAN-RECHECK-SLEEP-VETO-SCOPE-1` - Scope fan-recheck SLEEP veto to bedroom/keep-fan-on rooms (unhold empty non-bedroom rooms) — _#27 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `FAN-RECHECK-SLEEP-VETO-SCOPE-1` - Scope fan-recheck SLEEP veto to bedroom/keep-fan-on rooms (unhold empty non-bedroom rooms) — _#28 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked**
 _created 2026-08-19 03:40 · updated 2026-08-19 05:15 · refined_
 - **Next:** Plan the veto-scoping (Tier 2-DB): narrow SLEEP veto at :373-375 + :854-855 to bedroom/keep-fan-on rooms via the reused predicate. Then plan review -> build. Live-validate: Study A + Living Room decay during sleep once fan paused + mmWav...
@@ -1655,7 +1548,7 @@ _created 2026-08-19 03:40 · updated 2026-08-19 05:15 · refined_
   - `window_decay_gap_2026_08_19`: OPEN QUESTION (not a proven requirement — operator: causality unclear): Living Room Screek cleared ~6min after fan-off. UNKNOWN why 6min — could be the Screek still-target hold, a real still person, HVAC airflow, or coincidence. Do NOT a...
   - `superseded_2026_08_19`: SECONDARY now — the PRIMARY bug is the D2 deadlock (FAN-RECHECK-D2-DEADLOCK-1, confirmed live): the recheck never arms at ALL because D2 starves it, independent of house state. The sleep-veto over-scope is real but moot until the deadloc...
 
-### `FAN-LAYER-2` - FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock — _#28 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `FAN-LAYER-2` - FanPolicyOracle completion — RoomFanState delegation + actuate-wrap remainder (W1-W3, W8-W10) + INV-FLA-T lock — _#29 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **fans** - status: **parked** - approval: **unreviewed**
 _updated 2026-08-23 11:35_
 - **Origin:** 2026-08-11 - Session 3 scoped-partial: builder deferred RoomFanState dataclass→property (34 sites), W1-W3/W8-W10 actuate wraps, adjacency reverse-scan. Honest deferral, own blast radius.
@@ -1666,7 +1559,7 @@ _updated 2026-08-23 11:35_
   - `INSTANCE_2026_08_23_tier_ownership_mismatch_and_oracle_fallback`: MEASURED FROM THE LIVE BOOT LOG after the v5.89.0 restart (2026-08-23). Two related observations on this card's own surface. (A) TIER-OWNERSHIP MISMATCH — URA emits this about ITSELF, so it is self-reported, not inferred: 11:11:59 WARNIN...
   - `relane_2026_09_10`: Not a soak -> PARKED. Deferred build (RoomFanState conversion as its own Tier-2-DB cycle). Revival trigger: FAN-LAYER-1 increment ships + validates.
 
-### `KHOST-2` - Operator disposition buttons + drag-between-states on the hosted board — _#29 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `KHOST-2` - Operator disposition buttons + drag-between-states on the hosted board — _#30 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **tooling** - status: **parked** - approval: **approved**
 _updated 2026-08-23 14:30_
 - **Origin:** 2026-08-11 - operator: "We have to add operator disposition buttons so the operator can communicate through the board. drag btw states | done | deferred | declined"
@@ -1677,7 +1570,7 @@ _updated 2026-08-23 14:30_
   - `sweep_2026_09_09`: RE-LANED out of shipped_organic (was never shipped — un-watchable). Parked: needs the webhost micro-API + board JS build; no URA HA oracle. Revive when board JS is deployed.
   - `organic_evidence`: 2026-08-23 watch-pass: disposition buttons + drag-between-states JS micro-API not yet shipped (next field says "Build: webhost micro-API"). shipped_version recovered as board-tooling-not-yet-shipped. No HA oracle. UN-WATCHABLE until buil...
 
-### `EGRESS-IDENTITY-CONTROL-OBS-1` - Egress person-detection — enable/disable + observability (parsimony) — _#30 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EGRESS-IDENTITY-CONTROL-OBS-1` - Egress person-detection — enable/disable + observability (parsimony) — _#31 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked**
 _created 2026-08-18 02:20 · updated 2026-08-23 14:30 · initial_
 - **Next:** Folded into the in-flight D1 fix-up (builder a4d0f6ccc0e0eeb9d): add enable gate + observability attrs + kill-switch-inert test. Lands in the same Tier-2-DB re-review as the review fix-ups.
@@ -1686,7 +1579,7 @@ _created 2026-08-18 02:20 · updated 2026-08-23 14:30 · initial_
   - `problem`: The new egress person-identity detection (D1) must be operator-enableable/disableable, and its behavior must be observable — but with PARSIMONY (one control, minimal observability, no knob sprawl). It just surfaced a phantom-guest CRIT i...
   - `l1_validated_2026_08_18`: SHIPPED v5.81.0 + LIVE. L1 PASS (boot clean, zero URA ERROR; switch OFF/dormant byte-identical — egress_identities_stamped=0, census as v5.80.0; observability attrs egress_face_ids_active + egress_identities_stamped live on persons_enter...
 
-### `FAN-RECHECK-D2-DEADLOCK-1` - Fan-recheck never arms — D2 mmwave-fan demotion starves it (occupied=False before it can arm) — _#31 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `FAN-RECHECK-D2-DEADLOCK-1` - Fan-recheck never arms — D2 mmwave-fan demotion starves it (occupied=False before it can arm) — _#32 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked**
 _created 2026-08-19 05:15 · updated 2026-08-23 14:30 · refined_
 - **Next:** PENDING 2026-08-23: awaiting organic fan-ghost episode to observe O1 (eval_count increments), O3 (ARMED state), O4 (real vacate). Recorder outside 7-day window for older evidence. Watch sensor.<room>_fan_recheck_state next encounter.
@@ -1699,7 +1592,7 @@ _created 2026-08-19 05:15 · updated 2026-08-23 14:30 · refined_
   - `shipped_2026_08_19`: SHIPPED v5.84.0 -> HOTFIX v5.84.1 (v5.84.0 shipped a presence-startup UnboundLocalError: D3 refactor moved a CONF_ENTRY_TYPE ref past a pre-existing shadowing function-local import; L1 caught it; root-caused + sibling-scanned + one-line ...
   - `organic_evidence`: 2026-08-23 watch-pass: fix shipped v5.84.0; acceptance criteria O1-O6 require a fan-ghost episode (sensor.ROOM_fan_recheck_state reaching ARMED+vacate). Pre-deploy last eval_count=1 and never vacated per README. Awaiting organic fan-ghos...
 
-### `TRANSIT-PERSON-CHECKPOINT-1` - Key TRANSIT-1 traversal checkpoints to person_id for per-person movement paths (agentic-layer feed) — _#32 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `TRANSIT-PERSON-CHECKPOINT-1` - Key TRANSIT-1 traversal checkpoints to person_id for per-person movement paths (agentic-layer feed) — _#33 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **census** - status: **parked**
 _created 2026-08-28 12:00 · initial_
 - **Problem / Solution:**
@@ -1713,7 +1606,7 @@ _created 2026-08-28 12:00 · initial_
   - `revisit_if`: the agentic room-to-room layer is scoped
   - `confidence_gate`: >=0.9 for any per-person path attribution (a mis-keyed checkpoint corrupts a movement path); advisory/annotate only until the agentic layer defines how paths are consumed.
 
-### `SECURITY-CENSUS-UNKNOWN-WIRE-1` - Security unknown-person auto-lock is designed but UNWIRED to the census — _#33 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SECURITY-CENSUS-UNKNOWN-WIRE-1` - Security unknown-person auto-lock is designed but UNWIRED to the census — _#34 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **security** - status: **parked**
 _created 2026-08-18 11:20 · updated 2026-08-29 13:20 · initial_
 - **Next:** Investigate-first: confirm the SanctionChecker intent contract + what a safe producer looks like (confidence-gated, kill-switched). Do NOT build a raw count->lock. Then Tier 2-DB plan.
@@ -1725,7 +1618,7 @@ _created 2026-08-18 11:20 · updated 2026-08-29 13:20 · initial_
   - `confidence_gate`: >=0.9 and SUPPRESS-ONLY for any identity role here. Escalation must come from the census unidentified_count (an UNKNOWN present), NOT from egress identity — identity only DE-ESCALATES ("that unknown is actually resident Oji, do not lock"...
   - `problem`: security.py SanctionChecker has an unknown-person path (has_unknown_persons / _handle_census_intent -> locks ALL doors) that is a DESIGNED-BUT-INERT consumer: unknown_present has ZERO producers repo-wide, no source="census_update" intent...
 
-### `LAST-RESIDENT-EGRESS-ARM-1` - Last named resident departing (census residents_home->0) is an earlier/stronger arm-away trigger than the occupancy timeout — investigate identity-accelerated arm — _#34 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `LAST-RESIDENT-EGRESS-ARM-1` - Last named resident departing (census residents_home->0) is an earlier/stronger arm-away trigger than the occupancy timeout — investigate identity-accelerated arm — _#35 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **security** - status: **parked**
 _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
 - **Why:** Arming sooner when the house genuinely empties is real security value, but this is the highest-blast-radius consumer in the audit — a wrong arm-away on a still-present occupant is a false alarm on people inside. Hence investigate-first a...
@@ -1740,7 +1633,7 @@ _created 2026-08-28 12:00 · updated 2026-08-29 13:20 · initial_
   - `sequence`: 3
   - `confidence_gate`: >=0.9 and CONFIRM-ONLY. Identity may only ACCELERATE/CONFIRM the arm-away transition; census residents_home==0 stays the sole authority. NEVER arm-away on identity alone — a wrongly-attributed departure while a resident is still inside w...
 
-### `ENVOY-DRAIN-ARM-STALE-CT-1` - Drain-pause does NOT ARM a new pause under a stale (not unavailable) battery CT — a genuinely discharging battery with low SOC can be drained by the EV during a blind-CT window — _#35 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ENVOY-DRAIN-ARM-STALE-CT-1` - Drain-pause does NOT ARM a new pause under a stale (not unavailable) battery CT — a genuinely discharging battery with low SOC can be drained by the EV during a blind-CT window — _#36 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **parked** - approval: **explicit**
 _created 2026-09-03 11:10 · initial_
 - **Problem / Solution:**
@@ -1751,7 +1644,7 @@ _created 2026-09-03 11:10 · initial_
 - **Tags:** energy, regression-prone, ha-stale-telemetry
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D + re-reviews 2026-09-03
 
-### `DEVICE-INFO-HELPER-CONSOLIDATION-1` - Consolidate the ~100 inline DeviceInfo() literals to one _*_device_info() helper per identity (the reorg collapsed only the 2 divergence-risky ones) — _#36 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `DEVICE-INFO-HELPER-CONSOLIDATION-1` - Consolidate the ~100 inline DeviceInfo() literals to one _*_device_info() helper per identity (the reorg collapsed only the 2 divergence-risky ones) — _#37 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **parked** - approval: **unreviewed**
 _created 2026-09-03 16:50 · initial_
 - **Problem / Solution:**
@@ -1766,7 +1659,7 @@ _created 2026-09-03 16:50 · initial_
   - `spawned_from`: DEVICE-ENTITY-REORG-1
   - `parked_reason`: Opportunistic — attach to the next coordinator/platform cycle that already edits these files.
 
-### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage — _#37 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `MENU-CONSISTENCY-1` - Config/options-flow menus are inconsistent (Zones use a dropdown to pick, CM uses a menu) — standardize on menus + consistent icon-in-label usage — _#38 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **parked** - approval: **explicit**
 _created 2026-09-03 17:10 · updated 2026-09-03 18:05 · refined ×2_
 - **Problem / Solution:**
@@ -1781,7 +1674,7 @@ _created 2026-09-03 17:10 · updated 2026-09-03 18:05 · refined ×2_
   - `relane_2026_09_10`: Not a soak -> PARKED. Icon fold-in committed on the reorg branch; revival trigger = DEVICE-ENTITY-REORG ships.
   - `spawned_from`: DEVICE-ENTITY-REORG-1
 
-### `IDENTITY-FLAPPING-FACE-VETO-1` - Fail-safe residual — a FLAPPING-frozen Frigate face sensor evades the staleness gate and can misattribute a crossing — _#38 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `IDENTITY-FLAPPING-FACE-VETO-1` - Fail-safe residual — a FLAPPING-frozen Frigate face sensor evades the staleness gate and can misattribute a crossing — _#39 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **identity** - status: **parked** - approval: **explicit**
 _created 2026-09-05 00:30 · updated 2026-09-05 09:40 · refined_
 - **Problem / Solution:**
@@ -1797,7 +1690,7 @@ _created 2026-09-05 00:30 · updated 2026-09-05 09:40 · refined_
   - `spawned_from`: FRIGATE-SUBLABEL-FACE-BRIDGE-1
   - `revival_trigger`: Observed flapping-frozen face misattribution in production data AFTER D1 makes face flow. Until then: phantom — do not build.
 
-### `DELETE-REACT-DASHBOARDS-CODE-2` - Delete the dead React dashboard CODE (dirs + deploy.sh ship) — warm/maintenance, after phase-1 unregister soaks — _#39 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `DELETE-REACT-DASHBOARDS-CODE-2` - Delete the dead React dashboard CODE (dirs + deploy.sh ship) — warm/maintenance, after phase-1 unregister soaks — _#40 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **maintenance** - status: **parked** - approval: **implied**
 _created 2026-09-09 09:35 · initial_
 - **Problem / Solution:**
@@ -1810,7 +1703,7 @@ _created 2026-09-09 09:35 · initial_
   - `revisit_trigger`: Phase-1 unregister (v5.100.5) has shipped and lived with zero need to restore the React sidebar panels -> delete dashboard/, dashboard-v3/, frontend/, frontend-v3/ + remove deploy.sh:198 frontend line.
   - `sweep_verdict`: NEW — phase 2 of DELETE-REACT-DASHBOARDS-1 (same sweep).
 
-### `LOVELACE-DECLUTTER-MIGRATION-1` - Migrate URA v6/v8 room cards to a decluttering-card template + per-room variable map (keeps aesthetics, makes room-add near-one-line) — _#40 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `LOVELACE-DECLUTTER-MIGRATION-1` - Migrate URA v6/v8 room cards to a decluttering-card template + per-room variable map (keeps aesthetics, makes room-add near-one-line) — _#41 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **dashboarding** - status: **parked** - approval: **implied**
 _created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
 - **Problem / Solution:**
@@ -1823,7 +1716,7 @@ _created 2026-09-09 19:05 · updated 2026-09-09 21:55 · initial_
   - `parked`: True
   - `revisit_trigger`: After the LOVELACE-AUTO-ROOM patch ships + the decluttering archetype set is designed (how many templates: full/lean/closet) and the per-room entity map is sourced (manual vs auto-derived from registry).
 
-### `FRIGATE-LEG-NAMING-1` - Frigate live/dead leg naming is INCONSISTENT across cameras — bare _person_occupancy is live F2 on interior, dead F1 on perimeter — _#41 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `FRIGATE-LEG-NAMING-1` - Frigate live/dead leg naming is INCONSISTENT across cameras — bare _person_occupancy is live F2 on interior, dead F1 on perimeter — _#42 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **security** - status: **parked** - approval: **unreviewed**
 _created 2026-08-18 02:05 · updated 2026-09-11 16:14 · initial_
 - **Problem / Solution:**
@@ -1835,7 +1728,7 @@ _created 2026-08-18 02:05 · updated 2026-09-11 16:14 · initial_
 - **Forensic keys (1):**
   - `audit_verdict_2026_08_18`: AUDIT (AUDIT_frigate_dead_leg_correctness.md): NO dead-leg reads. The dead F1 legs are FULLY REMOVED from the registry (404), not frozen-present — so the naming inconsistency causes NO live correctness bug. Every read site is registry/st...
 
-### `SECURITY-ENTRY-VERDICT-NAME-1` - Security entry-verdict messages name the DOOR but never the PERSON, even when the verdict already derived "known person" — _#42 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SECURITY-ENTRY-VERDICT-NAME-1` - Security entry-verdict messages name the DOOR but never the PERSON, even when the verdict already derived "known person" — _#43 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **security** - status: **parked**
 _created 2026-08-28 12:00 · updated 2026-09-11 16:14 · refined_
 - **Why:** The verdict already derives "known person" internally; the name is thrown away at the message-build step. A named entry-verdict is a large signal-to-noise gain for the operator with no new trust surface, provided the name only annotates ...
@@ -1853,7 +1746,7 @@ _created 2026-08-28 12:00 · updated 2026-09-11 16:14 · refined_
   - `MEASURED_2026_09_14`: VERDICT: PARK — the card is MISFRAMED and the rate is low. Two independent reasons, either sufficient. (1) STRUCTURAL (primary): person_id is NOT plumbed to the named call sites. Both builders live in _verdict_to_actions (security.py:146...
   - `REVIVAL_TRIGGER`: Revisit only if (a) the healthy-window entry naming rate climbs materially (>40%) AND (b) a door-event <-> egress-identity correlation primitive exists to reuse; then scope NOTIFY-ONLY annotation (never ALERT), >=0.9 to de-escalate. The ...
 
-### `CONFIG-SUBENTRIES-MIGRATION-1` - Config subentries migration (flat 34-entry -> subentries) — _#43 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CONFIG-SUBENTRIES-MIGRATION-1` - Config subentries migration (flat 34-entry -> subentries) — _#44 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **platform** - status: **parked**
 _created 2026-08-18 02:30 · updated 2026-09-11 16:30 · initial_
 - **Next:** Parked. Revive if the operator elevates per-zone/per-coordinator individual reload (see driver above) OR HA deprecates the flat pattern. Then: verify subentry-reload semantics vs per-entry split; probe first.
@@ -1864,7 +1757,7 @@ _created 2026-08-18 02:30 · updated 2026-09-11 16:30 · initial_
   - `parked_reason`: MEDIUM value, real migration risk. Revisit trigger: when a config-topology change is needed anyway, or HA deprecates the flat pattern.
   - `per_item_reload_driver_2026_09_03`: NEW DRIVER (operator, via DEVICE-ENTITY-REORG-1): the operator wants per-ZONE and per-COORDINATOR individual reload. That is impossible today because all zones share one Zone Manager entry and all coordinators share one CM entry — reload...
 
-### `GUEST-IDENTITY-PHONE-LEFT-BEHIND-1` - Guest-room identity exclusion is BLE-only, so a resident without their phone arms GUEST after 30 min — _#44 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `GUEST-IDENTITY-PHONE-LEFT-BEHIND-1` - Guest-room identity exclusion is BLE-only, so a resident without their phone arms GUEST after 30 min — _#45 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked** - approval: **unreviewed**
 _updated 2026-09-11 18:50 · refined_
 - **Problem / Solution:**
@@ -1874,7 +1767,7 @@ _updated 2026-09-11 18:50 · refined_
 - **Next:** MEASURE-FIRST: rate of (designated guest-room occupied) AND (that resident BLE placed elsewhere/away) events. GUEST_KNOWN_STICKY_S=120 absorbs BLE flap but not phone-elsewhere. Then design. Tier 2 (presence trust).
 - **Refs:** custom_components/universal_room_automation/domain_coordinators/presence.py; docs/readmes/README_v5.78.0.md
 
-### `WATERLEAK-TRIO-UNKNOWN-1` - Three water-leak sensors (laundry, upstairs-guest bath, Ziri bath) all went unknown together at 08-30 16:46 — one event, safety — _#45 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `WATERLEAK-TRIO-UNKNOWN-1` - Three water-leak sensors (laundry, upstairs-guest bath, Ziri bath) all went unknown together at 08-30 16:46 — one event, safety — _#46 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked** - approval: **unreviewed**
 _created 2026-08-31 19:15 · updated 2026-09-12 09:30 · initial_
 - **Problem / Solution:**
@@ -1885,7 +1778,7 @@ _created 2026-08-31 19:15 · updated 2026-09-12 09:30 · initial_
 - **Tags:** no-fabrication-verify
 - **Refs:** room device audit 2026-08-31 (LOW/safety section)
 
-### `PATHBETA-VESTIGIAL-1` - Path-beta infrastructure is now dead-code-like after D2b — scoped cleanup (reviewer B: do NOT bundle into PATH-ALPHA) — _#46 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `PATHBETA-VESTIGIAL-1` - Path-beta infrastructure is now dead-code-like after D2b — scoped cleanup (reviewer B: do NOT bundle into PATH-ALPHA) — _#47 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked** - approval: **unreviewed**
 _updated 2026-09-12 10:00_
 - **Origin:** 2026-08-16 - PATH-ALPHA review B finding F2 (62820d23c): after the relaxed-predicate retirement, path-beta infra at presence.py:1146-1215 + call site :5787-5799 is vestigial — lost_away_persons_present=False from the sole caller, immedia...
@@ -1896,7 +1789,7 @@ _updated 2026-09-12 10:00_
   - `gate_2026_09_12`: PARKED at the pre-build gate. VALIDITY: still vestigial (presence.py:1049 lost_away_persons_present param, sole caller never sets it), not shipped. PARSIMONY/COST-BENEFIT: HYGIENE not a defect (card own why: correctness preserved, beta c...
   - `disposition_2026_09_12_sweep`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: presence.py:1049 lost_away_persons_present param still F2-shape (sole caller :6165 never sets it). Hygiene cleanup unscoped.
 
-### `KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1` - Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context light.turn_off from an external caller (leading suspect HomeKit/app-side automation) — _#47 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `KITCHEN-OVERHEAD-EXTERNAL-TURNOFF-1` - Kitchen overhead light turns off by itself — traced NOT to URA (activity log clean); orphan-context light.turn_off from an external caller (leading suspect HomeKit/app-side automation) — _#48 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **diagnostics** - status: **parked** - approval: **unreviewed**
 _created 2026-09-06 18:35 · updated 2026-09-12 11:00 · initial_
 - **Problem / Solution:**
@@ -1913,7 +1806,7 @@ _created 2026-09-06 18:35 · updated 2026-09-12 11:00 · initial_
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: URA exonerated (activity_log 0 rows, switch.kitchen_automation off, orphan-context turn_off, commit 810be0418). Ball legitimately with operator: is there a HomeKit...
   - `forensic_evidence`: ura_activity_log: 0 rows for entity/room Kitchen light; reconciles_today=0.
 
-### `KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1` - Kitchen night light is configured as the RANGE light (switch_tapo_wifi_kitchenrange) — likely a config mistake — _#48 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `KITCHEN-NIGHTLIGHT-RANGE-MISCONFIG-1` - Kitchen night light is configured as the RANGE light (switch_tapo_wifi_kitchenrange) — likely a config mistake — _#49 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked** - approval: **unreviewed**
 _created 2026-08-31 19:05 · updated 2026-09-12 11:00 · initial_
 - **Problem / Solution:**
@@ -1929,7 +1822,7 @@ _created 2026-08-31 19:05 · updated 2026-09-12 11:00 · initial_
   - `updated_prev1`: 2026-09-13 21:40
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) CANNOT-VERIFY-STATICALLY: repoint of Kitchen night_lights -> light.kitchen_led lives in .storage; git a1097a9a5 shows operator was applying it. next -> orchestrator: one-shot ...
 
-### `CAMERA-STUCK-MASTER-HALLWAY-1` - master_hallway camera occupancy sticks person_count=1 for hours (up to 13.9h) — recurring, D1 is catching it — _#49 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `CAMERA-STUCK-MASTER-HALLWAY-1` - master_hallway camera occupancy sticks person_count=1 for hours (up to 13.9h) — recurring, D1 is catching it — _#50 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked** - approval: **unreviewed**
 _created 2026-09-12 18:55 · updated 2026-09-12 13:15 · initial_
 - **Problem / Solution:**
@@ -1941,7 +1834,7 @@ _created 2026-09-12 18:55 · updated 2026-09-12 13:15 · initial_
 - **Forensic keys (1):**
   - `verify_2026_09_12`: Operator REBOOTED yesterday -> verify-before-work: CLEARED + HOLDING ~21h, do NOT fix on stale data. MEASURED live (30h history): stuck ON 09-11 07:14->15:37 (~8.4h, part of the 13.9h episode), then reboot (unavailable 15:37->16:02 09-11...
 
-### `GUEST-GATE-DOOR-IDENTITY-1` - Guest gate should consume door-identity (not just BLE room-location) — _#50 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `GUEST-GATE-DOOR-IDENTITY-1` - Guest gate should consume door-identity (not just BLE room-location) — _#51 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked**
 _created 2026-08-18 09:45 · updated 2026-09-12 20:40 · refined_
 - **Next:** PARKED 2026-09-15 — the probe this card asked for HAS BEEN RUN (see measured_2026_09_15_egress_attach): producer is alive at ~17.8pct/7d but names residents only, so the consumer would misread unnamed residents as guests. No action until...
@@ -1964,7 +1857,7 @@ _created 2026-08-18 09:45 · updated 2026-09-12 20:40 · refined_
   - `problem`: _is_known_person_in_room relies solely on BLE room-location; a resident identified at the DOOR does not suppress a guest false-positive. Closest to the original census-double-count wound. Adjacent card EGRESS-INTERIOR-COUNT-REINFORCE-1 i...
   - `coverage_note_2026_08_18`: CORRECTION 2026-08-18 (operator): the ~7% figure is NOT a coverage ceiling and must not be cited as one. It came from PROBE_protect_face_egress.md which measured the WRONG camera (front door madrone_g6_entry). Most family entries are via...
 
-### `APPLIANCE-CENSUS-MULTI-ROOM-POWER-SENSOR-1` - Appliance census: multi-room-same-power-sensor attribution (v1b) — _#51 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `APPLIANCE-CENSUS-MULTI-ROOM-POWER-SENSOR-1` - Appliance census: multi-room-same-power-sensor attribution (v1b) — _#52 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **parked** - approval: **implied**
 _created 2026-09-14 · initial_
 - **Problem / Solution:**
@@ -1973,7 +1866,7 @@ _created 2026-09-14 · initial_
 - **Next:** Fold into v1b (categorization + onboarding flow): decide multi-room shared-sensor attribution when building the declared-record editor.
 - **Tags:** tier-2
 
-### `PERIMETER-TOLERANCE-AND-SECTIONS-1` - Measure link tolerance against real history, and decide whether some stretches of the perimeter deserve special treatment — _#52 · WSJF 2.0 · v6 tc2 u2 /e5_
+### `PERIMETER-TOLERANCE-AND-SECTIONS-1` - Measure link tolerance against real history, and decide whether some stretches of the perimeter deserve special treatment — _#53 · WSJF 2.0 · v6 tc2 u2 /e5_
 thread: **perimeter** - status: **parked**
 _created 2026-09-14 01:50 · initial_
 - **Problem / Solution:**
@@ -1990,7 +1883,7 @@ _created 2026-09-14 01:50 · initial_
   - `THE_REPLAY_EXPERIMENT`: The measurement that would settle tolerance. We already have BOTH labels from real data: a POSITIVE control — g5_bullet<->doorbell_lite, operator-confirmed adjacent, 65% temporal overlap (59x its null); and a NEGATIVE control — back_yard...
   - `THE_SECTIONS_QUESTION`: SECOND, SEPARABLE DELIVERABLE (operator raised it; do not bundle the build): should stretches of the perimeter carry a PRIORITY ANNOTATION, and what would change for a high-priority one? Candidate meanings to evaluate, each cheap to stat...
 
-### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent) — _#53 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `GUEST-FP-RESIDUALS-1` - Guest-FP audit residuals — path-alpha diagnostic classifier (A1, ~5 LoC) + camera-census outdoor filter (B1, latent) — _#54 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked** - approval: **unreviewed**
 _updated 2026-09-15 02:40_
 - **Origin:** 2026-08-13 - AUDIT_guest_fp_fixes_wiring.md: core fixes SHIPPED + Outside zone correctly flagged outdoor; two residuals worth small fixes.
@@ -2005,7 +1898,7 @@ _updated 2026-09-15 02:40_
   - `folded_2026_08_16`: A1 path-alpha diagnostic classifier folded into the PATH-ALPHA cycle as D3 (rider). Building now.
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-### `URA-CENTRAL-TICK-WHEEL-1` - One URA clock with per-consumer divisors (tick-wheel) — replace the pile of independent periodic loops with a single base tick + divisors + phase offsets — _#54 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `URA-CENTRAL-TICK-WHEEL-1` - One URA clock with per-consumer divisors (tick-wheel) — replace the pile of independent periodic loops with a single base tick + divisors + phase offsets — _#55 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **architecture** - status: **parked** - approval: **explicit**
 _created 2026-09-16_
 - **Problem / Solution:**
@@ -2017,7 +1910,7 @@ _created 2026-09-16_
 - **Forensic keys (1):**
   - `MEMO_2026_09_16`: Idea of record written to docs/planning/MEMO_ura_central_tick_wheel_2026_09_16.md — carries the idea, in-repo prior art (energy._solar_follow 60s sub-loop; energy_pool._tick reentrancy guard; coordinator.py:630 jitter->phase-offset; HVAC...
 
-### `EC-GRID-ANTICIPATORY-PRECOOL-GAP-1` - Path A pre-cools ONLY on live PV surplus — a hot-forecast day with LOW morning SOC gets no pre-cool (grid-anticipatory gap the deleted Path B reached for) — _#55 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-GRID-ANTICIPATORY-PRECOOL-GAP-1` - Path A pre-cools ONLY on live PV surplus — a hot-forecast day with LOW morning SOC gets no pre-cool (grid-anticipatory gap the deleted Path B reached for) — _#56 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **parked**
 _created 2026-09-18_
 - **Problem / Solution:**
@@ -2027,7 +1920,7 @@ _created 2026-09-18_
 - **Tags:** energy, precool, grid, gap, keep-document, measure-first
 - **Parsimony:** [PARK] surplus-only pre-cool leaves low-SOC hot mornings uncovered
 
-### `DISABLE-CAMERA-PRESENCE-SCOPE-GAP-1` - disable_camera_presence mutes only fan-veto, NOT the camera-occupancy override — _#56 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `DISABLE-CAMERA-PRESENCE-SCOPE-GAP-1` - disable_camera_presence mutes only fan-veto, NOT the camera-occupancy override — _#57 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked**
 _created 2026-09-19_
 - **Problem / Solution:**
@@ -2038,7 +1931,7 @@ _created 2026-09-19_
 - **Forensic keys (1):**
   - `revisit_trigger`: If an operator sets disable_camera_presence expecting a room to ignore ALL camera presence and sees camera-driven occupancy anyway.
 
-### `SUBSTRATE-PER-ROOM-REFRESH-1` - OccupancySubstrate refresh_subscriptions is house-wide; add per-room (entry_id) scope so a single-room change doesn't re-evaluate the whole claim map — _#57 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `SUBSTRATE-PER-ROOM-REFRESH-1` - OccupancySubstrate refresh_subscriptions is house-wide; add per-room (entry_id) scope so a single-room change doesn't re-evaluate the whole claim map — _#58 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked**
 _created 2026-09-19_
 - **Problem / Solution:**
@@ -2049,7 +1942,7 @@ _created 2026-09-19_
 - **Forensic keys (1):**
   - `revisit_trigger`: If, after D1 ships, a single-room config change still causes measurable house-wide substrate work on the SUPPRESSED path, or substrate rebuild cost becomes a profiled hotspot.
 
-### `HVAC-FAST-PATH-FAN-WARM-EDGES-1` - Per-room comfort/night fans still wait for the 5-min tick on a warm-zone occupancy edge (W2 fast path is zone-cold only by design) — _#58 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-FAST-PATH-FAN-WARM-EDGES-1` - Per-room comfort/night fans still wait for the 5-min tick on a warm-zone occupancy edge (W2 fast path is zone-cold only by design) — _#59 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **parked**
 _created 2026-09-26 · updated 2026-09-26 17:10_
 - **Why:** Scoped out per operator 2026-09-26 "shave the 5m tick only" (HVAC occupancy response = presets). Fan latency on warm-zone entry is unchanged from today, not worse.
@@ -2058,7 +1951,7 @@ _created 2026-09-26 · updated 2026-09-26 17:10_
   - `workstream`: HVAC-W2-OCCUPANCY-TRUTH
   - `revival_trigger`: Revive if an operator complaint or measurement shows a comfort/night fan starting noticeably late in an already-occupied zone, or if fan latency becomes an explicit goal. Cheapest version then: a fan-only fast path that runs the fan cont...
 
-### `HVAC-WRITE-CONFIRMATION-ORACLE-1` - Which Carrier feed confirms that a URA write took? (problem 6, decoupled from W1-B) — measurement-only investigation — _#59 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `HVAC-WRITE-CONFIRMATION-ORACLE-1` - Which Carrier feed confirms that a URA write took? (problem 6, decoupled from W1-B) — measurement-only investigation — _#60 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **parked**
 _created 2026-09-26 · updated 2026-09-27 02:40_
 - **Next:** MEASURE (me): (1) operator controlled test in the Carrier app (change zone 2 or 3 by hand at a noted time; also pick a named preset; also press resume) — requested; (2) re-run the episode probe stratified by hold_until "" vs None (cloud-...
@@ -2069,7 +1962,7 @@ _created 2026-09-26 · updated 2026-09-27 02:40_
   - `instance_2026_09_27_empty_house`: INSTANCE from the empty-house natural experiment (overnight 2026-09-27, interim window 09-26 14:35 -> 09-27 02:15 CDT, nobody home and no human override logged): zone_1 received 70 URA away writes (6.0/h; "preset home -> away (house=away...
   - `evidence`: State-of-play §9.7, C22, C23: zone_1 cloud status reads home while cloud hold_activity reads away on a named hold (reproduced after 2 Carrier reloads, hold_until None = cloud-sourced); physical evidence says the device is away. zone_2 20...
 
-### `GUEST-ROOM-FAN-HOLD-1` - A guest's bedroom fan turns off ~5 min after the room reads empty at night, while residents' bedroom fans stay on all night — _#60 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `GUEST-ROOM-FAN-HOLD-1` - A guest's bedroom fan turns off ~5 min after the room reads empty at night, while residents' bedroom fans stay on all night — _#61 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **hvac** - status: **parked**
 _created 2026-09-27 · updated 2026-09-27 22:15_
 - **Why:** Residents bedroom fans hold on all night while a zone person is home; a guest room fan follows room occupancy only. Full spec (guard, 30-min arm on per-room is_guest flag, post-sleep recheck, discharge contract, label strings, staged liv...
@@ -2079,7 +1972,7 @@ _created 2026-09-27 · updated 2026-09-27 22:15_
   - `sweep_2026_09_27`: Board grep guest fan/fan hold guest: none. NEW.
   - `revival_trigger`: Run the plans read-only D0 probe; build (Tier 2-DB + plan review) only if a guest night with the fan turning off under a sleeping guest is observed, or the operator asks.
 
-### `JAYA-FAN-STILL-PHANTOM-1` - Jaya Bedroom fan-induced mmWave still-phantom held Upstairs HVAC zone (empty room) — resolved by enabling fan control so the shipped pause-recheck covers it — _#61 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `JAYA-FAN-STILL-PHANTOM-1` - Jaya Bedroom fan-induced mmWave still-phantom held Upstairs HVAC zone (empty room) — resolved by enabling fan control so the shipped pause-recheck covers it — _#62 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **presence** - status: **parked**
 _created 2026-09-19 · updated 2026-09-29 04:30_
 - **Problem / Solution:**
@@ -2092,7 +1985,7 @@ _created 2026-09-19 · updated 2026-09-29 04:30_
   - `followups`: FAN-RECHECK-GATE-HARDENING: recheck gate keys only on room CONF_FAN_CONTROL_ENABLED, ignoring _is_hvac_managing_fans() — a room with hvac_coordination_enabled=True + fan_control_enabled=False would be wrongly vetoed fan_control_off. Swee...
   - `INSTANCE_2026_09_29_night_face`: Same radar, reverse face, measured 2026-09-29 (state-of-play C27). With Jaya asleep and the fan ON, binary_sensor.jaya_3_presence still tracks the fan (on-edges 15-20 s after the fan's), so the fan-phantom is indistinguishable from her. ...
 
-### `EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1` - Attain charges nothing when the local Envoy is unavailable, even though the cloud battery reading is fresh — _#62 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `EC-ATTAIN-HOLD-WHEN-ENVOY-BLIND-1` - Attain charges nothing when the local Envoy is unavailable, even though the cloud battery reading is fresh — _#63 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **parked**
 _created 2026-10-03 01:00_
 - **Why:** 2026-10-02 14:00-15:48 the Envoy integration was stuck after a power-cycle; strategy reason "Envoy unavailable - holding (no commands issued)" while cloud SOC was ~10% and fresh, so the operator had to grid-charge manually before the 17:...
@@ -2100,7 +1993,7 @@ _created 2026-10-03 01:00_
 - **Forensic keys (1):**
   - `parked_2026_10_03`: ON HOLD under EC-DEGRADED-DATA-POLICY-1 — operator wants the approach reconsidered before building one-off fixes.
 
-### `ENPHASE-REALTIME-TRIAL-1` - Trial ha-enphase-realtime (reads /stream/meter + /ivp/*, never blocks on production.json; cloud writes verified locally) alongside current stack — _#63 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+### `ENPHASE-REALTIME-TRIAL-1` - Trial ha-enphase-realtime (reads /stream/meter + /ivp/*, never blocks on production.json; cloud writes verified locally) alongside current stack — _#64 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
 thread: **energy** - status: **parked**
 _created 2026-10-04 00:10_
 - **Why:** Research 2026-10-03: production.json hangs are known 8.x behaviour (12-55 s measured elsewhere); core enphase_envoy blocks setup on it; local battery writes gone since 8.2.4225; ha-enphase-realtime v1.0.1 (2026-10-02) is new, single-site...
@@ -2109,7 +2002,7 @@ _created 2026-10-04 00:10_
   - `review_2026_10_04`: Code/security review: TRIAL WITH CONDITIONS, NO FORK. Clean (no deps, Enphase-only endpoints, TLS off only to self-signed Envoy, MIT, CI+tests). Risks: 9 days old, single-site/1-battery tested; heavy default Envoy load (1 s livedata, 5 s...
   - `approved_2026_10_05`: Operator: GO ("Yes. Or sooner"). Source audit (mpreissner/ha-enphase-realtime v1.0.3): own domain identifiers (no device merge), _2 entities by design, separate config entry, writes off by default (maintenance switch OFF, relay/dry-conta...
 
-### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events) — _#64 · WSJF 2.0 · v5 tc3 u2 /e5_
+### `CHATTER-RATE-VS-BURST-GAP-1` - The chatter detector cannot see the house's actual chatter — it detects BURSTS OF IMPOSSIBILITY, the real failure is SUSTAINED RATE (kitchen mmWave 731 flips/48h, only 25 impossibility events) — _#65 · WSJF 2.0 · v5 tc3 u2 /e5_
 thread: **presence** - status: **parked** - approval: **explicit**
 _created 2026-08-21 17:40 · updated 2026-10-06 02:50 · refined_
 - **Next:** REVIVE when either trigger fires: (1) a measured false-occupancy or wrong actuation is traced to a sensor flipping at a sustained plausible rate (not a burst), or (2) an operator-visible diagnosis needed a transitions-per-hour view that ...
@@ -2129,7 +2022,31 @@ _created 2026-08-21 17:40 · updated 2026-10-06 02:50 · refined_
   - `THE_DESIGN_TENSION_READ_THIS_BEFORE_FIXING`: DO NOT simply add a rate threshold to the existing detector. The impossibility framing was chosen ON PURPOSE so the detector could QUARANTINE-ALWAYS WITH NO CORROBORATOR GATE (chatter_detector.py:8 — "quarantine-ALWAYS on a physics viola...
   - `SECOND_FINDING_WRONG_LEG_WATCHED`: The detector registers over "the room blind-time-gated tier-1 entities" — i.e. the CONFIGURED ones. The kitchen config wires only `_presence` (the slow chatterer, 3.4% impossibility). Its sibling `_moving_target` is wildly impossible (2,...
 
-### `HVAC-OPTIMIZER-CLIMATE-FUNNEL-ROUTING-1` - The optimizer can dispatch climate.* actions around the W1-A funnels — route them through the funnels before any L2+ promotion — _#65 · WSJF 1.8 · v5 tc2 u2 /e5_
+### `HVAC-GARAGE-GUARD-STAGED-SUNSET-1` - One staged evening to prove room covers leave an open garage door alone at sunset — _#66 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **parked**
+_created 2026-10-02 22:00 · updated 2026-10-08 02:35_
+- **Why:** v5.103.28 cover_ownership guard is proven in-suite with drills, but the 09-30 live check was inconclusive (both doors already closed). A garage door closing on its own is the one safety-relevant failure in the W4 set, so one staged proof...
+- **Next:** PARKED 2026-10-08. REVIVE when any garage cover (cover.konnected_f0f5bd523b00_garage_door / cover.ratgdov25i_dbfe2a_door) is open at the moment sun.sun goes below_horizon, whether by chance or because you stage it. Then I check ura_activ...
+- **Forensic keys (6):**
+  - `disposition_2026_10_08_soak_exit`: PARKED under the Soak Exit rule (discriminator could not be evaluated inside its ~1-week window: 10-02 -> 10-08). The guard is proven in the test suite with mutation drills (v5.103.28); the live proof is a nice-to-have, and re-checking i...
+  - `reverified_2026_10_08_overnight`: Still not staged on 10-07 (sun below_horizon 00:11Z; cover.konnected_f0f5bd523b00_garage_door open only 23:43-23:46Z, closed at sunset; cover.ratgdov25i_dbfe2a_door closed all evening). Sixth night unexercised.
+  - `reverified_2026_10_07_overnight`: Still not staged: 10-06 sunset 19:13 CDT; cover.konnected_f0f5bd523b00_garage_door was closed at sunset (open briefly 17:47 and 18:52, closed by 18:53; open again 21:08-21:09) and cover.ratgdov25i_dbfe2a_door closed. DO still open.
+  - `reverified_2026_10_06_overnight`: Still not exercised on 10-05: recorder shows cover.konnected_f0f5bd523b00_garage_door closed across sunset (sun below_horizon 19:14:15 CDT; door cycles 17:10-17:13 and 19:56-20:05 only, all short). DO still outstanding.
+  - `reverified_2026_10_05_overnight`: Still not exercised: cover.konnected_f0f5bd523b00_garage_door (the only garage cover entity in HA) was CLOSED across sunset (~00:05Z) on both 10-03 and 10-04 (recorder via ssh-proxied /api/history); every opening was a short daytime/even...
+  - `reverified_2026_10_03_overnight`: Not yet exercised: on 10-02 the only garage door opening was cover.konnected_..._garage_door 23:16-23:18 (well after sunset), no URA cover action logged. Operator DO (door open across sunset) still outstanding.
+
+### `HVAC-W1C-GENERIC-THERMOSTAT-1` - W1-C — make URA work with a non-Carrier thermostat: brand-owned override detection, timings and a setpoint-based hold for thermostats without home/away/sleep presets — _#67 · WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **hvac** - status: **parked**
+_created 2026-09-27 · updated 2026-10-08 03:00_
+- **Why:** Strategy dispatch exists (hvac_strategy.py: registry platform -> _KNOWN; ha_carrier -> CarrierStrategy, else GenericStrategy), but: (1) borrow starts/returns bypass the strategy (call emit_* directly; borrow/return_borrow not built); (2)...
+- **Next:** PARKED 2026-10-08. REVIVE when the HVAC coordinator is enabled at Wigton (W1-C P3). Then I validate per README_v5.103.41: comfort select writes (one climate_write row each), the 180 s settle window, wall/app changes read as manual, and r...
+- **Forensic keys (4):**
+  - `disposition_2026_10_08_soak_exit`: CARD-WAS-WRONG on next (it still said PLAN). W1-C P2 shipped as v5.103.40 (ecobee HomeKit thin adapter) + v5.103.41 (option C, ecobee comfort select by default; Tier 3). Both READMEs carry PROSPECTIVE live validation only: Wigton has no ...
+  - `trigger_fired_2026_09_29`: Operator: "How about the Thermostat manufacturer/model abstraction? Not everyone has a Bryant variable speed. As I roll this out to more homes." The revival trigger (operator wants URA ready for other homes) has fired - READY, not new. P...
+  - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
+  - `revival_trigger`: A second thermostat brand is available to test against, or the operator wants URA ready for other homes.
+
+### `HVAC-OPTIMIZER-CLIMATE-FUNNEL-ROUTING-1` - The optimizer can dispatch climate.* actions around the W1-A funnels — route them through the funnels before any L2+ promotion — _#68 · WSJF 1.8 · v5 tc2 u2 /e5_
 thread: **hvac** - status: **parked**
 _created 2026-09-26 · updated 2026-09-29 01:05_
 - **Why:** optimization.py:3546 / :3688 dispatch generic service actions and explicitly support climate.* targets (broker suppress_climate, A-CRIT-2 egress guard :3436). They bypass emit_set_* and write no climate_write row. Today the optimizer run...
@@ -2139,7 +2056,7 @@ _created 2026-09-26 · updated 2026-09-29 01:05_
   - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 5, time_criticality 2, effort 5 - only bites before an optimizer L2+ promotion.
   - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
 
-### `HVAC-ROLLOVER-DURABLE-DATE-ORDERING-1` - The daily short-cycle sample is now saved durably but its date stamp is not — an unclean restart in the same tick can still double-count one day — _#66 · WSJF 1.6 · v4 tc2 u2 /e5_
+### `HVAC-ROLLOVER-DURABLE-DATE-ORDERING-1` - The daily short-cycle sample is now saved durably but its date stamp is not — an unclean restart in the same tick can still double-count one day — _#69 · WSJF 1.6 · v4 tc2 u2 /e5_
 thread: **hvac** - status: **parked** - approval: **unreviewed**
 _created 2026-09-16 04:00 · updated 2026-09-26 02:40 · initial_
 - **Problem / Solution:**
@@ -2154,7 +2071,7 @@ _created 2026-09-16 04:00 · updated 2026-09-26 02:40 · initial_
   - `workstream`: HVAC-W4-ARC-CLOSURE
   - `DEDUPE_2026_09_16`: NEW. Swept the board for zone_state_store / get_state_snapshot / snapshot-helper cards (one unrelated hit at RESTART-SAFETY-DOCTRINE-1 F15 about override-penalty fields not being in the snapshot), plus docs/BACKLOG.md. No card owns the r...
 
-### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#67 · WSJF 1.5 · v7 tc3 u2 /e8_
+### `EC-SOC-LADDER-FULL-WIRING-1` - Wire the 3 unconsumed SOC-ladder invariants (drain-targets, peak_buffer, inclement floor) onto the safe accessor across ~25 consumer sites — _#70 · WSJF 1.5 · v7 tc3 u2 /e8_
 thread: **energy** - status: **parked** - approval: **implied**
 _created 2026-09-16 · updated 2026-10-03 02:11_
 - **Problem / Solution:**
@@ -2168,7 +2085,26 @@ _created 2026-09-16 · updated 2026-10-03 02:11_
   - `disposition_2026_10_03`: PARTIALLY-DONE (overnight verify-before-work; board still said 'planned'). The operator-chosen SPLIT shipped in v5.103.35: D1 drain-target seam clamp, D3 inclement floor, D4 docs (README_v5.103.35.md; Validated 2026-10-03: drain_targets_...
   - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 7, time_criticality 3, effort 8 - cost-affecting invariant wiring, ~25 sites; Tier 2-DB.
 
-### `GAP-A-CENSUS-HOLE-1` - Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only evidence (face_recognized_count) — _#68 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `EC-TOU-CFG-BEFORE-EV-PAUSE-MANAGER-PATH-1` - On the EV manager path, grid charging may be switched on before the EV pause lands (review finding D-MED-2 from EC p1) — _#71 · WSJF 1.4 · v6 tc3 u2 /e8_
+thread: **energy** - status: **parked**
+_created 2026-10-05 02:22 · updated 2026-10-08 02:10 · initial_
+- **Problem / Solution:**
+  - Problem: the breaker-safety rule says EV chargers must be paused before the battery starts charging from the grid; an EC p1 review (D-MED-2) noted that on the manager path the time-of-use grid-charge switch can be sent before the EV paus...
+- **Origin:** 2026-10-04 - "Card still to mint: manager-path TOU CFG-ON-before-EV-pause (D-MED-2)" - 10-04 resume memo
+- **Why:** Breaker-safety ordering (cf. arbitrage ladder review B-CRIT-1, grid-on before EV pause). CAPTURE NOTE: the 10-05 overnight pass could NOT find the D-MED-2 text in any review record on develop, feature/ec-degraded-data-p1 or its worktree ...
+- **Next:** PARKED 2026-10-08 (low value per your call + measurement). REVIVE IF site load during an EV + grid-charge overlap exceeds about 30 kW (sensor.span_panel_current_power), the Envoy trip-avoidance sensor ever turns on, or a bigger EVSE/batt...
+- **Tags:** tier-3, no-fabrication-verify
+- **Parsimony:** [PARK] manager path can turn grid-charging on up to 5 min before the EV pause
+- **Refs:** memory project_session_pickup_2026_10_04; docs/reviews/code-review/arbitrage_solar_attainability_ladder.md B-CRIT-1
+- **Forensic keys (6):**
+  - `value_check_2026_10_08_overnight`: VALUE MEASURED (HA recorder via REST, 09-29 -> 10-08). EV + grid-charge-switch-ON overlaps are common and long, not 5-minute: 4h33m total over 8 days with an EV over 3 kW while switch.enpower_482348004678_charge_from_grid read on (10-05 ...
+  - `operator_decision_2026_10_07`: Check on value. 5 mins not that deep. (board instruction 2026-10-07 13:22)
+  - `traced_2026_10_07_overnight`: CONFIRMED in code (read-only trace, develop 750cc06ab; orchestrator did not re-run a mutation, this is a read). Manager path: CoordinatorManager -> energy.evaluate() (energy.py:1331) -> check_period_transition (1344) -> _evaluate_battery...
+  - `paged_2026_10_05_overnight`: Paged 2026-10-05 02:34 CDT in one consolidated quiet notification (notify.madronehapushover, priority -1; sent directly, not through URA NM routing, so it does not wake anyone).
+  - `search_2026_10_05_overnight`: Searched develop, feature/ec-degraded-data-p1, every .claude/worktrees/*/docs/reviews and the memory dir for the EC p1 D-MED-2 text: not found (the D-MED-2 hits are other cycles: arrester comfort delay, DP drain target, ec blind-window g...
+  - `sweep_2026_10_05`: Board grep D-MED-2 hits are other cycles (arrester comfort delay, DP drain target). NEW.
+
+### `GAP-A-CENSUS-HOLE-1` - Path-alpha veto blocked by forgotten-phone BLE via census_count clause — replace with camera-provable-only evidence (face_recognized_count) — _#72 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **presence** - status: **parked** - approval: **implied**
 - **Origin:** 2026-08-16 - AUDIT_away_transition_2026_08_13.md flagged the H1 census clause as latent; operator asked for the specific fix and required it ship in the same deploy as PATH-ALPHA.
 - **Why:** presence.py:1047-1057 gates path alpha on census_count == 0, whose intent-of-record (comment :1039-1042) is "Frigate face-IDs a resident -> phone trustworthiness irrelevant". But census_count = |ble_home union face_recognized| + held_uni...
@@ -2181,7 +2117,7 @@ thread: **presence** - status: **parked** - approval: **implied**
   - `plan_review_2026_08_16`: SHIP (efec78928) — trace + consumer enumeration independently confirmed; circularity CLEAN (URA writes no person.* entity, so the matrix cannot feed back into the face cross-check — FENCE: re-audit if that ever changes); 3 text-only edit...
   - `live_validation_2026_08_16`: v5.78.0 LIVE 2026-08-16. L1 PASS (0 errors), L4 PASS (face_recognized_count + path_alpha_gate_source live on house-state sensor). L2 PASS-on-state / attribution organic: house is away with all 4 persons not_home and census 0 — but the tr...
 
-### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier — _#69 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `STUCK-SENSOR-1` - Flapping mmWave evades stuck-exclusion; fix via corroboration-gated exclusion at the ROOM tier — _#73 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **presence** - status: **parked** - approval: **explicit**
 _updated 2026-08-18 16:10_
 - **Origin:** 2026-08-09 - operator diagnosed a stuck Zigbee mmWave holding master occupancy; asked why I did not see it
@@ -2216,7 +2152,7 @@ _updated 2026-08-18 16:10_
   - `program_unification_2026_08_18`: PROGRAM UNIFICATION (operator 2026-08-18): chatter, stuck-on, and flapping-mmWave are ASPECTS of ONE sensor-trust/exclusion program — a shared ROOM-TIER "untrust a sensor vote / exclude from occupancy fusion" primitive with multiple DETE...
   - `program`: sensor-trust-exclusion
 
-### `XCORR-1` - Burst-demotion for isolated single-camera night alerts (was: cross-engine corroboration gate) — _#70 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `XCORR-1` - Burst-demotion for isolated single-camera night alerts (was: cross-engine corroboration gate) — _#74 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **perimeter** - status: **parked** - approval: **explicit**
 _updated 2026-08-23 14:30_
 - **Origin:** 2026-08-08 - operator got 12 notifications 01:01-01:25 CDT from hot_tub; "this is what x-correlation looks like if we have multiple engines"
@@ -2232,7 +2168,7 @@ _updated 2026-08-23 14:30_
   - `design`: REVISED: first alert ALWAYS fires at full severity (preserves intrusion guarantee).
   - `probe_result`: PROBE RUN 2026-08-08 (8d, 30s window) -> AUDIT_xcorr_engine_corroboration_probe.md. The naive corroboration gate is REJECTED: solo firing is the NORM on the exterior cameras that drive alerts (front_side_ptz 92% solo, back_yard 91%, pool...
 
-### `ARREST-SUNSET-1` - Temp Arrester Override does not sunset on away/vacation (only sleep) — _#71 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `ARREST-SUNSET-1` - Temp Arrester Override does not sunset on away/vacation (only sleep) — _#75 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **parked** - approval: **implied**
 _updated 2026-08-23 14:30 · refined ×8_
 - **Origin:** 2026-08-07 - operator turned Temp Arrester Override ON (master cold at home) 15:04 CDT; asked to watch the next boundary -> found the gap while verifying
@@ -2252,7 +2188,7 @@ _updated 2026-08-23 14:30 · refined ×8_
   - `known_limitations`: restart mid-grace may lose the in-memory pending-sunset obligation unless persisted - builder instructed to persist or explicitly document + report
   - `organic_open`: engage the override, then confirm it releases on the next real context change (or 6h decay) and the switch flips OFF to match
 
-### `ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1` - When today's Solcast is transiently unknown at offset 0, the target-day resolver returns tomorrow's class so the multi-day broadening leg pairs tomorrow with tomorrow (n=1) — a silent duplicate that contributes nothing; affects BOTH the arbitrage gate AND the shipped drain path identically — _#72 · WSJF 1.2 · v5 tc3 u2 /e8_
+### `ARBITRAGE-DRAIN-TODAY-UNKNOWN-DEGENERATE-PAIR-1` - When today's Solcast is transiently unknown at offset 0, the target-day resolver returns tomorrow's class so the multi-day broadening leg pairs tomorrow with tomorrow (n=1) — a silent duplicate that contributes nothing; affects BOTH the arbitrage gate AND the shipped drain path identically — _#76 · WSJF 1.2 · v5 tc3 u2 /e8_
 thread: **energy** - status: **parked** - approval: **unreviewed**
 _created 2026-08-26 03:10 · updated 2026-10-03 02:17 · refined_
 - **Problem / Solution:**
@@ -2268,7 +2204,7 @@ _created 2026-08-26 03:10 · updated 2026-10-03 02:17 · refined_
   - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 8 - energy decision path, rare (~00:05 Solcast unknown); Tier 2-DB.
   - `disposition_2026_09_12_sweep4`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) STILL-REAL: energy_battery.py:2695-2703 offset<=0 + today-unknown + no cache returns (classify_tomorrow_solar(),0); callers do classify_solar_day_n(0+1)=tomorrow again -> self...
 
-### `HVAC-BASELINE-MAXSAMPLES-1` - HVAC anomaly baselines never forget — an accumulator matured on August cooling will misjudge October; scope a bounded/windowed sample count into the shared detector — _#73 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
+### `HVAC-BASELINE-MAXSAMPLES-1` - HVAC anomaly baselines never forget — an accumulator matured on August cooling will misjudge October; scope a bounded/windowed sample count into the shared detector — _#77 · WSJF 1.2 · v5 tc3 u2 /e8 ⚠_
 thread: **hvac** - status: **parked** - approval: **explicit**
 _created 2026-08-24 16:45 · updated 2026-10-04 04:50 · initial_
 - **Problem / Solution:**
@@ -2286,7 +2222,7 @@ _created 2026-08-24 16:45 · updated 2026-10-04 04:50 · initial_
   - `gate_2026_09_12`: PARKED at the pre-build gate (validity->prior-art->parsimony->cost/benefit). VALIDITY: still-needed=yes / not-shipped=yes (HVAC metrics do not set max_samples; two creation sites _get_baseline + load_baselines both build MetricBaseline w...
   - `disposition_2026_09_12_sweep3`: VERIFIED verify-before-work sweep 2026-09-12 (agent-verified) PARTIALLY-DONE — card premise partly WRONG: MetricStats ALREADY has max_samples recency cap (coordinator_diagnostics.py:148/169, v3.13.3, commit 283d9c171) wired for energy (e...
 
-### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest — _#74 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `EXTERIOR-GUEST-EGRESS-1` - Exterior->interior guest admission: plumb identity through the egress event so an UNKNOWN person crossing inside can corroborate guest — _#78 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **presence** - status: **parked** - approval: **explicit**
 _updated 2026-08-18 01:45 · refined_
 - **Problem / Solution:**
@@ -2307,7 +2243,7 @@ _updated 2026-08-18 01:45 · refined_
   - `cycle3_scope_final_2026_08_18`: CYCLE 3 SCOPE (operator): BUILD the face-INDEPENDENT arm NOW (approach-track->egress corroboration, 94% GO from PROBE_exterior_guest_egress.md) as a census_confidence contribution to the unidentified gate (INV-4 path b, never a third arm...
   - `direction_2026_08_18`: OPERATOR CHOSE IDENTITY PATH FIRST (over the planner's BUILD-the-nudge). The face-independent Tier-3 approach->census_confidence nudge (PLANNING_exterior_guest_egress.md rev-2, orchestrator dissented on marginal-benefit) is DEFERRED — re...
 
-### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end — _#75 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `EVSE-SOLAR-STOP-CONDITIONS-1` - Solar sessions cannot tell "the car is done" from "the sun is still out" — a finished or unplugged car holds its claim until the fleet conditions end — _#79 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **energy** - status: **parked** - approval: **implied**
 _created 2026-08-24 22:30 · updated 2026-08-26 02:15 · refined ×1_
 - **Problem / Solution:**
@@ -2323,7 +2259,7 @@ _created 2026-08-24 22:30 · updated 2026-08-26 02:15 · refined ×1_
   - `MARGINAL_BENEFIT_2026_08_26`: Operator asked to run the marginal-benefit test + isolate IF/WHY we need it, context-wide on solar-follow goals. RESULT: the value is REAL but NARROW, and the PLAN SCOPE is disproportionate. Grounding: solar-follow is REACTIVE (energy_po...
   - `PLAN_REVIEWED_2026_08_26`: The Tier-3 plan was ALREADY written (prior session, 665 lines, PLANNING_evse_solar_stop_conditions.md). Ran the 2 framing-disjoint plan reviews (completeness + build-prediction). BOTH = FIX-PLAN-FIRST. Record: PLAN_REVIEW_evse_solar_stop...
 
-### `BREAKER-GRIDCAP-STALE-TELEMETRY-1` - Breaker-guard + grid-cap behavior under STALE (not unavailable) Envoy telemetry — needs a proper design, split out of the Envoy shared-staleness cycle after it over-corrected — _#76 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `BREAKER-GRIDCAP-STALE-TELEMETRY-1` - Breaker-guard + grid-cap behavior under STALE (not unavailable) Envoy telemetry — needs a proper design, split out of the Envoy shared-staleness cycle after it over-corrected — _#80 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **energy** - status: **parked** - approval: **unreviewed**
 _created 2026-09-01 20:30 · initial_
 - **Problem / Solution:**
@@ -2334,7 +2270,7 @@ _created 2026-09-01 20:30 · initial_
 - **Tags:** tier-3, no-fabrication-verify, regression-prone
 - **Refs:** docs/planning/PLANNING_shared_power_read_staleness.md; Envoy Tier-3 reviews A/B/C/D 2026-09-01
 
-### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing) — _#77 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
+### `EGRESS-EXIT-IDENTITY-BACKFILL-1` - Name who EXITED by backfilling the crossing row when their BLE goes not_home (~5 min after the door crossing) — _#81 · WSJF 0.8 · v5 tc3 u2 /e13 ⚠_
 thread: **identity** - status: **parked** - approval: **explicit**
 _created 2026-09-05 17:35 · initial_
 - **Problem / Solution:**
@@ -2350,8 +2286,165 @@ _created 2026-09-05 17:35 · initial_
   - `relane_2026_09_10`: Not a soak -> PARKED (gated). Tier-3 build after entry-only v1 ships + validates. Revival: v1 validated.
   - `spawned_from`: EGRESS-BLE-PROVENANCE-GATE-DROPS-DEPARTURES-1
 
-## ✅ Done (278)
+## ✅ Done (288)
 _closed, evidence in refs_
+
+### `CM-COORDINATORS-ADD-ONE-BY-ONE-1` - Coordinators should be added one by one from the Coordinator Manager menu (or at least start disabled until configured), not all created on install — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **onboarding** - status: **done**
+_created 2026-10-02 23:30 · updated 2026-10-08 03:00_
+- **Why:** Operator 2026-10-02: "Coordinators are all created and enabled when you install URA. They should be added from the CM menu one by one. At minimum they should be added disabled until configured. Needing to be added 1 by 1 is also a natura...
+- **Next:** Closed 2026-10-08 (validated 10-03; fresh-install residual folded into ONBOARDING-SIMPLIFY-1).
+- **Forensic keys (1):**
+  - `disposition_2026_10_08_soak_exit`: SOAK EXIT -> DONE (met, with residual folded). The stale 'Investigate' next was superseded: the feature shipped in v5.103.37 + hotfix v5.103.38 and was validated live on 2026-10-03 (README_v5.103.37/38 tables: 8 coordinators registered, ...
+
+### `HVAC-S10-DPM-VS-S1-1` - S10 DPM raw setpoint write vs S1 preset write — race resolution before D9 enablement — _WSJF 2.4 · v6 tc4 u2 /e5_
+thread: **hvac** - status: **done**
+_updated 2026-10-08 03:00_
+- **Problem / Solution:**
+  - Problem: S10 DPM (hvac.py:3217) is a raw setpoint writer with no excursion row. Under Alt A (W1-B REV 7), S1 may write over manual whenever no Alt-A gate is armed. Once switch.ura_hvac_coordinator_guest_mode_actuation is enabled (D9), S1...
+- **Origin:** 2026-09-27 - W1-B REV-7 non-goal — explicit exclusion this cycle, deferred fix
+- **Why:** Blocks D9 enablement; without it Custom Preset Ranges storms Carrier every 5 min in empty night zones.
+- **Next:** Closed 2026-10-08 (shipped v5.103.39, validated 10-06; live path only reachable with CPR on, proof rides on HVAC-CUSTOM-PRESET-RANGES-1).
+- **Parsimony:** [BUILD] S10 and S1 fight every tick on empty night zones once D9 enabled
+- **Forensic keys (7):**
+  - `disposition_2026_10_08_soak_exit`: SOAK EXIT -> DONE. Shipped in v5.103.39 (Batch C). README_v5.103.39 Validated 2026-10-06: Custom Preset Ranges switch resolves OFF after restart, compose-away + its throttle bypass deleted, 0 S10_preset_range climate_write rows with an e...
+  - `groom_2026_09_29_arc`: Part of BATCH C (HVAC-CUSTOM-PRESET-RANGES-1): build together with Custom Preset Ranges; deploy only on the operators word, zone 3 first.
+  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 6, time_criticality 4, effort 5 - Batch C blocker for guest_mode_actuation; Tier 2.
+  - `tier`: tier-2
+  - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
+  - `blocked_by`: HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1
+  - `added_2026_09_27`: Operator constraint: option (a) must not add a new EXCURSION_KIND or logic inside begin_excursion without a ruling ("not baked into borrow"); prefer (b)-style reads at S1.
+
+### `HVAC-COMPOSE-AWAY-THROTTLE-STORM-BLOCKER-1` - BLOCKER on enabling guest_mode_actuation — F2 compose-away throttle bypass is unconditional (12 set_temperature/hr/zone to Carrier cloud) — _WSJF 2.4 · v6 tc4 u2 /e5_
+thread: **hvac** - status: **done**
+_created 2026-09-17 · updated 2026-10-08 03:00_
+- **Problem / Solution:**
+  - Problem: D9 compose-away bypasses the _last_emitted_range throttle UNCONDITIONALLY, so once guest_mode_actuation (Custom Preset Ranges) is enabled, an empty night zone emits ~12 set_temperature calls/hr/zone to the Carrier cloud indefini...
+- **Why:** D9 is inert live (guest_mode_actuation OFF), so not a pre-ship fix — but it is a hard BLOCKER that must land BEFORE that switch is ever turned on, or it storms the thermostat cloud.
+- **Next:** Closed 2026-10-08 (shipped v5.103.39, validated 10-06; live path only reachable with CPR on, proof rides on HVAC-CUSTOM-PRESET-RANGES-1).
+- **Tags:** hvac, blocker, carrier-write-sensitivity, do-before-enable
+- **Parsimony:** [BUILD] unconditional throttle bypass = steady write-storm once the feature is on
+- **Forensic keys (6):**
+  - `disposition_2026_10_08_soak_exit`: SOAK EXIT -> DONE. Shipped in v5.103.39 (Batch C). README_v5.103.39 Validated 2026-10-06: Custom Preset Ranges switch resolves OFF after restart, compose-away + its throttle bypass deleted, 0 S10_preset_range climate_write rows with an e...
+  - `groom_2026_10_04_overnight`: VERIFY ANSWERED by the recorder (operator did not have to reply): the CPR switch (switch.ura_hvac_coordinator_guest_mode_actuation) was turned OFF BY A USER (context user 66bda3b7...) via switch.turn_off at 2026-10-03 18:13:16Z, came bac...
+  - `instance_2026_10_03_overnight`: INSTANCE_2026_10_03_overnight (found by the overnight HVAC probe, re-verified by orchestrator on the recorder): switch.ura_hvac_coordinator_guest_mode_actuation (DPM / Custom Preset Ranges actuation, the thing this blocker gates) is ON i...
+  - `groom_2026_09_29_arc`: Part of BATCH C (HVAC-CUSTOM-PRESET-RANGES-1): build together with Custom Preset Ranges; deploy only on the operators word, zone 3 first.
+  - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
+  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 6, time_criticality 4, effort 5 - Batch C blocker (12 cloud writes/hr/zone if enabled); Tier 2.
+
+### `HVAC-RESTORE-WRITERS-STRAND-EMPTY-NIGHT-ZONE-1` - S8/S9/S11/S13-return writers emit comfort setpoints to an empty night zone without updating _last_emitted_range — uncorrected live because D9 (intended corrector) is dormant — _WSJF 2.0 · v5 tc3 u2 /e5_
+thread: **hvac** - status: **done**
+_created 2026-09-17 · updated 2026-10-08 03:00_
+- **Problem / Solution:**
+  - Problem: the restore-class writers (S8 cancel-nudge, S9 ramp-audit, S11 release-banked, S13 pre-heat return; hvac_override.py:5814/6220, hvac_predict.py:976/1507) emit comfort setpoints and do NOT update _last_emitted_range. The design i...
+- **Why:** Pre-existing (predates step-4-B); surfaced by the round-4 adversarial enumeration. Currently a live ≤overnight stranding surface on any zone that gets a nudge/ramp/banked restore while empty.
+- **Next:** Closed 2026-10-08 (shipped v5.103.39, validated 10-06; live path only reachable with CPR on, proof rides on HVAC-CUSTOM-PRESET-RANGES-1).
+- **Tags:** hvac, pre-existing, setpoint-vs-mode
+- **Parsimony:** [PARK] restore writers strand empty night zones at comfort setpoints
+- **Forensic keys (7):**
+  - `disposition_2026_10_08_soak_exit`: SOAK EXIT -> DONE. Shipped in v5.103.39 (Batch C). README_v5.103.39 Validated 2026-10-06: Custom Preset Ranges switch resolves OFF after restart, compose-away + its throttle bypass deleted, 0 S10_preset_range climate_write rows with an e...
+  - `revisit_if`: a restore write lands on an empty night zone with a non-away preset still uncorrected after 10 min, OR the compose-away throttle bypass is removed (then clear _last_emitted_range[zone] at the restore sites as a co-requisite).
+  - `measured_2026_10_03_overnight`: REFUTED AS A LIVE DEFECT (read-only probe, develop @325eaab10, 1,246 climate_write rows 09-26 20:23 -> 10-03 06:52Z). The four restore sites moved (hvac_override.py:7319/7348 S8, :7793/7815 S9; hvac_predict.py:1129/1153 S11, :1896/1912 S...
+  - `groom_2026_09_29_arc`: Part of BATCH C (HVAC-CUSTOM-PRESET-RANGES-1): build together with Custom Preset Ranges; deploy only on the operators word, zone 3 first.
+  - `workstream`: HVAC-W1-THERMOSTAT-DEFINITION
+  - `FOLD_2026_09_17`: From HVAC-EC-OFFSET-SELF-LOCKOUT-1 (refuted): verify the EC coast/shed OFFSET apply path carries a FIX-B2-style pre-write preset snapshot + set_preset_mode restore (like the nudge path), so a coast setpoint write cannot leave a zone in m...
+  - `groom_2026_09_29_rank`: Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Batch C sibling; measure-first, likely small.
+
+### `HVAC-ARRESTER-EPISODE-CANCELS-AC-RESET-RESTORE-1` - A new arrester episode cancels a pending AC hard-reset restore, so a zone can stay off for about 2-20 minutes after a reset — _WSJF 9.0 · v4 tc3 u2 /e1_
+thread: **hvac** - status: **done** - approval: **implied**
+_created 2026-09-29 04:10 · updated 2026-10-08 02:50_
+- **Origin:** 2026-09-29 - Batch B review B-L3 (docs/reviews/code-review/v5.103.23_hvac_w1_w2_finish.md); flagged by the builder; exists on develop
+- **Why:** A governed override dispatch (hvac_override.py ~4055/4123) calls _cancel_zone_timers (~7624-7633), which also cancels a pending AC-reset RESTORE timer. If a manual change is booked inside the Carrier lag window after the reset's `off` wr...
+- **Next:** Closed 2026-10-08 (soak exit: 15/15 restores ran; overlap case in-suite proven).
+- **Tags:** hvac, arrester, ac-reset, pre-existing, found-in-review
+- **Forensic keys (8):**
+  - `organic_evidence_2026_10_08`: SOAK EXIT -> DONE (in-suite proven + organic restores clean). URA DB ura_activity_log 09-29 -> 10-08: 15 AC hard-reset cycles (site=B5_ac_reset_off), and EVERY one was followed by its restore (site=B6_ac_reset_restore) 60-64 s later (zon...
+  - `soak_check_2026_10_05_overnight`: Not yet exercised: ac_ramp_events since v5.103.25 (09-29 19:15 CDT): only 2 hard resets (zone_1, 09-29 19:36 and 09-30 12:08 CDT, both floor_survived) and none since 09-30; ura_activity_log shows no zone_1 arrester episode inside either ...
+  - `verify_2026_10_03_overnight`: CARD-WAS-WRONG on 'next': the fix SHIPPED in v5.103.25 (3e53b30ac + fix-up 5ee400249, git tag --contains). The stale next ('rebase fix/arrester-episode-keeps-ac-reset-restore 0297b1afc...') refers to the rebased duplicate branch whose on...
+  - `build_2026_09_29_overnight`: BUILT (ura-builder, worktree, branch fix/arrester-episode-keeps-ac-reset-restore @4e5d7d900, base = develop d8397a070). The helper was renamed _cancel_zone_timers -> _cancel_arrester_timers, and its scope was cut to grace + compromise, d...
+  - `subfinding_2026_09_29_restore_clobbers_human_mode`: ADJACENT sub-finding, parked here with no new card. _restore_after_reset (~4391) writes heat_cool without checking the zone's current mode. If a human changes hvac_mode ITSELF inside the ~79 s lag window after the reset's off write, the ...
+  - `reviews_2026_09_29_overnight`: Two static framing-disjoint reviews (A local correctness, B race/lifecycle). Both SHIP. Converged MEDIUM (A-M1 = B-LOW-1): now that the episode keeps the reset alive, the reset verify's preset restore (_verify_restore success, ~4533-4558...
+  - `correction_2026_09_29_harm`: CORRECTION (Review A, A-L2): the why overstates the harm. Once the reset timer was cancelled, has_active_ac_reset went False and the B1 heat_cool enforcer (hvac.py:2415-2419, every tick outside observation mode) re-asserted heat_cool wit...
+  - `validated_2026_09_29_overnight`: READY FOR SHIP. Both reviews SHIP. The converged MEDIUM was fixed in fix-up 1 (a513919fb). Orchestrator ran two mutation drills: re-adding _reset_timers to the helper turns 3 tests red, and neutralising the defer guard turns test_episode...
+
+### `EC-LKG-NEVER-PERSISTED-1` - Battery and solar last-known-good are never saved — _save_evse_state uses an unbound _json, error swallowed at DEBUG — _WSJF 2.0 · v5 tc3 u2 /e5 ⚠_
+thread: **energy** - status: **done**
+_created 2026-10-04 02:00 · updated 2026-10-07 03:30_
+- **Why:** Found by the EC degraded-data phase 1 builder 2026-10-04. Restart outages today (00:37, 15:55, 17:05) started with an empty LKG, contradicting the plan's LKG-persistence reuse assumption.
+- **Next:** SHIP with EC p1 (feature/ec-degraded-data-p1, operator-timed Mon after the 13:05 A/B). Live acceptance after that restart: ALL FIVE energy_state rows (battery_soc_lkg, solar_production_w_lkg, wv_commanded_ledger, wv_verified_records, arb...
+- **Forensic keys (2):**
+  - `organic_evidence_2026_10_07`: SOAK EXIT -> DONE. Live acceptance met: URA DB energy_state rows battery_soc_lkg / solar_production_w_lkg / wv_commanded_ledger / wv_verified_records / arbitrage_chunk_latch ALL updated_at 2026-10-07T06:55:40Z (were frozen at 2026-07-23 ...
+  - `verified_2026_10_05_overnight`: ALREADY-FIXED ON THE EC p1 BRANCH (not yet shipped) + live blast radius MEASURED. (1) develop/live: AST of EnergyCoordinator._save_evse_state on develop binds NO _json (uses at energy.py:2054, 2065, 2143, 2150, 2191) -> NameError swallow...
+
+### `ENVOY-STREAM-AB-48H-1` - Envoy MQTT stream re-enabled for a 48 h A/B (does it load the Envoy, and does it give a trustworthy local SOC during dropouts?) — _WSJF 2.4 · v5 tc3 u4 /e5 ⚠_
+thread: **energy** - status: **done**
+_created 2026-10-03 13:05 · updated 2026-10-07 03:30_
+- **Why:** Operator 2026-10-03 "yes do it". Started add-on 13e68335_envoy_to_mqtt_json 13:03 CDT. Baseline week (stream off since 09-30): 165 SOC dropouts/22.7 per day; today since 00:58 reload: 0. Prior evidence (09-29, entry 167): stream on corre...
+- **Next:** Closed 2026-10-07 (readout done, NO-GO).
+- **Forensic keys (2):**
+  - `disposition_2026_10_07_overnight`: CARD-WAS-WRONG (stale next): the 48h A/B readout already happened and is recorded in README_v5.103.39 section 1: NO-GO (peak battery cutouts 30 -> 138 with the MQTT stream add-on running; stream covered 4/7 native dropouts; its timestamp...
+  - `readout_2026_10_05`: NO-GO (48h on vs 48h off, recorder). Peak battery cutouts (SPAN >=1.5kW to <300W) 30 -> 138 per 48h (4.6x) with the stream add-on running; stream SOC covered only 4/7 native dropouts (57%, bar 95%); sensor.envoy_stream_data_timestamp fro...
+
+### `SAFETY-HUMIDITY-JUNK-READING-1` - A single junk "0% humidity" reading from a reconnecting sensor raises a safety alert; ignore physically impossible humidity values — _WSJF 4.5 · v4 tc3 u2 /e2_
+thread: **safety** - status: **done** - approval: **implied**
+_created 2026-09-27 02:40 · updated 2026-10-07 03:30 · initial_
+- **Problem / Solution:**
+  - Problem: some humidity sensors send a bogus reading of 0% (or 3%) for about a second while they reconnect. The safety system treats any reading at or below 25% as low humidity and raises an alert IMMEDIATELY, with no check that the value...
+- **Origin:** 2026-09-27 - Found by the empty-house natural-experiment interim probe (overnight 2026-09-27): a MEDIUM safety alert "Low humidity: 0.0% in Study A" at 23:35 CDT with nobody home.
+- **Why:** An alert that fires on an impossible value trains people to ignore safety alerts. The configured Study A sensor (sensor.invisoutlet_b7d0_humidity) wrote 0 for 1 s at 23:35:24 and then unknown at 23:35:25, a reconnect artifact. The record...
+- **Next:** Closed 2026-10-07 (soak exit, in-suite proven).
+- **Tags:** tier-1, mutation-drill, no-fabrication-verify, numbers-get-knobs
+- **Parsimony:** [SIMPLIFY (plausibility floor only)] Humidity readings below 5% (physically impossible indoors) raise low-humidity safety alerts and chip trips.
+- **Forensic keys (9):**
+  - `organic_evidence_2026_10_07`: SOAK EXIT -> DONE (in-suite proven; the live trigger did not recur). Since the 5.103.34 ship (restart 10-03 00:37 CDT): ura_activity_log has 0 low-humidity rows; the recorder shows no sub-5% reading on any sensor.*humidity* entity (the o...
+  - `disposition_2026_10_03`: RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Open: no sub-5% humidity blip since restart (0...
+  - `groom_2026_09_29`: MOVED in_progress -> review. Built and reviewed: reviews_2026_09_27 A SHIP + B SHIP. Fix-up dc513cac4 (house safety-alert floor, boundary tests), review record c8776ff26. The branch feature/safety-humidity-junk-floor is 4 ahead / 55 behi...
+  - `live_2026_09_27_0230`: LIVE at ~02:30 CDT, and this is the discriminating observation: binary_sensor.ura_safety_coordinator_safety_alert = ON and sensor.ura_safety_coordinator_safety_status = warning since 23:35:24. The only active hazard is low_humidity Study...
+  - `reviews_2026_09_27`: Review A (local correctness/edges/consumers): SHIP. M1 MEDIUM, a missed site: the whole-house SafetyAlertBinarySensor in aggregation.py:1359-1365 has its own humidity < 25 check; orchestrator-verified. Plus L1 (chip blips off for 1 s on ...
+  - `evidence_2026_09_27`: notification_log, all "Low humidity" safety alerts since 09-12: 09-12 Dining Room 3.0% (MEDIUM), 09-16 Study A 0.0% (MEDIUM), 09-26 Garage A 30.0% (LOW, plausible), 09-27 Study A 0.0% (MEDIUM). All four went out with bucket_outcome no_ch...
+  - `gate_2026_09_27`: (1) VALIDITY: still real, 3 junk alerts in 16 days, code path confirmed. (1b) CONFIG-FIRST: no knob covers it. LOW_HUMIDITY_THRESHOLDS are rung-1 constants, and swapping each room to a different humidity sensor is whack-a-mole because an...
+  - `open_question_garage`: NOT BUILT, and flagged for the operator: the zone chip treats garages as humidity-EXEMPT ("garage RH tracks weather"), but the safety coordinator still fires low-humidity for garages (09-26 "30.0% in Garage A", LOW). The coordinator and ...
+  - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
+
+### `URA-ATTRIBUTE-CHURN-1` - Two URA entities re-publish every couple of seconds only because a timestamp or countdown attribute ticked, adding HA CPU load and a history row each time — _WSJF 4.5 · v4 tc3 u2 /e2_
+thread: **platform** - status: **done** - approval: **implied**
+_created 2026-09-28 19:10 · updated 2026-10-07 03:30_
+- **Origin:** 2026-09-28 - operator HA CPU review ("HA CPU is double what it was 4 months ago"); recorder top-writers sweep over 5 min
+- **Why:** Measured 2026-09-28 19:07 over 5 min: binary_sensor.living_room_occupied and living_room_hvac_occupied each wrote 119 rows (~24/min) with state steady "on"; the ONLY changed attribute was last_motion. sensor.ura_safety_coordinator_safety...
+- **Next:** Closed 2026-10-07 (soak exit).
+- **Tags:** tier-1, ha-cpu, recorder
+- **Forensic keys (7):**
+  - `organic_evidence_2026_10_07`: SOAK EXIT -> DONE. README_v5.103.34 criterion: binary_sensor.living_room_occupied < 119 recorder rows per 5 min while occupied. Recorder since 2026-10-03 06:00: max 32 rows in any 5-min bucket, across 2,416 'on' rows (room was occupied o...
+  - `disposition_2026_10_03`: RECONCILE 2026-10-03 overnight: CARD-WAS-WRONG - board said review but commit is an ancestor of develop and tagged v5.103.34 (git tag --contains). Shipped in v5.103.34 (README_v5.103.34.md). Operator acked. safety_active_cooldowns PASS. ...
+  - `reviewed_2026_10_01_overnight`: FIX-UP 2 RE-REVIEWED + REBASED (overnight 10-01). Rebased onto develop with no conflicts -> 651216a8e (0 behind). 4 mutation drills re-run, each RED on the expected test, restored. Two framing-disjoint reviews, both SHIP: A (correctness ...
+  - `adjacency_2026_09_28`: ADJACENT to RECORDER-BLOAT-LOGFLOOD-1 (same class: last_check dropped from Safety Status, sensor.py:6521-6529/6576-6583). That fix established the pattern: DROP the churning key (an unrecorded attribute still fires state_changed on the l...
+  - `verify_2026_09_29_overnight`: CARD-WAS-WRONG on scope. It said last_motion was the ONLY changing attribute. Recorder, last 26h: binary_sensor.living_room_occupied had 22,722 rows, 22,653 of them rewrites with the same state, driven by idle_duration 12,828, last_motio...
+  - `fixup2_2026_09_29_overnight`: Both reviews returned FIX-REQUIRED on fix-up 1 (converged HIGH): timeout_at and last_occupied_at were built from stamps the coordinator re-stamps on every refresh (coordinator.py:3604, 3638-3640), so the churn moved instead of stopping i...
+  - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
+
+### `HVAC-CLIMATE-WRITE-EXCURSION-ID-GAPS-1` - Some borrow writes reach the thermostat-write ledger without their borrow id, so "which borrow wrote this?" cannot always be answered — _WSJF 8.0 · v4 tc2 u2 /e1_
+thread: **hvac** - status: **done** - approval: **implied**
+_created 2026-09-29 01:05 · updated 2026-10-07 03:30 · refined_
+- **Problem / Solution:**
+  - Problem: since v5.103.16 every URA thermostat write is logged, and writes made on behalf of a temporary "borrow" (a nudge, a pre-cool, a return from one) are supposed to carry that borrow's id so each write can be traced to the episode t...
+- **Origin:** 2026-09-29 - Soak-exit query for HVAC-SETHVACMODE-CHOKEPOINT-1 (v5.103.16) during the 2026-09-29 board groom
+- **Why:** W1-A plan invariant F6 (PLANNING_hvac_w1a_thermostat_write_governance.md:63, :196): borrow-owning sites S3-S8, S11-S13 and egress pass their token's excursion_id; a forgotten forward becomes a null. The nulls are that failure, measured.
+- **Next:** VALIDATE (me, one-shot): first auto_return climate_write row AFTER the 10-03 05:33Z restart must carry a non-null excursion_id. Dispose by 2026-10-11; if no auto_return occurs by then, close as in-suite-proven.
+- **Tags:** hvac, tier-1, no-fabrication-verify, found-during-soak-exit
+- **Parsimony:** [BUILD] borrow writes are logged without the borrow id on 4 site families, breaking write-to-episode attribution
+- **Refs:** docs/planning/PLANNING_hvac_w1a_thermostat_write_governance.md; docs/planning/PLANNING_hvac_w1_w2_finish.md; docs/readmes/README_v5.103.16.md
+- **Forensic keys (11):**
+  - `organic_evidence_2026_10_07`: SOAK EXIT -> DONE. The first auto_return climate_write after the fix: ura_activity_log 2026-10-05T20:19:47Z site auto_return:nudge carries excursion_id nudge:zone_3:1791231341842 (non-null). All S3/S5/S7/S11/S12 rows since 10-05 carry id...
+  - `soak_check_2026_10_05_overnight`: Still unexercised: zero climate_write rows with site auto_return:* since the 10-03 05:33Z restart (ura_activity_log). Every other borrow site since then carries an id (S5/S7/S11/S12/S3 all non-null; S4_revert 5 null = plain override reve...
+  - `soak_check_2026_10_04_overnight`: STILL PENDING, card's 'SHIP on your next deploy' was stale: the fix (e2dc7c2d2) shipped in v5.103.36 (tag pre-5103-36), live since the 10-03 05:33Z restart. ura_activity_log since 10-02: 5 auto_return climate_write rows (egress_pause x3,...
+  - `validated_2026_10_01_overnight`: READY TO SHIP (overnight 10-01, NOT deployed). Rebased onto develop with no conflicts -> e2dc7c2d2 (0 behind). Targeted -k excursion: 97 pass / 6 fail, the same 6 (test_hvac_excursion_d1_observability.py, AttributeError UniversalRoomData...
+  - `groom_2026_09_29_arc`: Partial re-measure after Batch B (since 2026-09-29 03:02): 16 borrow writes (S5 nudge start 5, S7 restore 10, S3 compromise 1), 0 without an excursion id (nudge starts were 5/35 null before). The S12 pre-cool and auto_return paths have n...
+  - `MEASURED_2026_09_30_overnight`: RE-MEASURE after Batch B (v5.103.23 deployed 2026-09-29 03:01 CDT = 08:01Z; the 09-29 groom note said "since 03:02", which was local time). URA DB, read-only, climate_write rows >= 08:01Z 09-29: S5_nudge_start 0 null (all carry ids), S7 ...
+  - `gate_2026_09_30`: VALIDITY: PARTIALLY-DONE -> narrowed to auto_return. CONFIG-FIRST: n/a (code omission). PRIOR-ART: REUSE the existing excursion_id kwarg of emit_set_preset_mode. PARSIMONY: BUILD (one kwarg + a wire-in test). COST/BENEFIT: trivial, ledge...
+  - `evidence`: MEASURED 2026-09-29 (URA DB, read-only, ura_activity_log action=climate_write since 2026-09-26 20:20Z): S5_nudge_start 30/35 with id, S6_nudge_restore_setpoint 8/13, S7 60/70, S12_pre_cool 5/11, auto_return:banking(+resume/+pin) 0/9 (rea...
+  - `adjacency_sweep`: Swept 2026-09-29: board (grep excursion_id: one unrelated hit, ac_ramp_events design note); docs/BACKLOG.md (none); PLANNING_hvac_w1a_thermostat_write_governance.md (F6 invariant = the source rule); PLANNING_hvac_w1_w2_finish.md P2 (S12 ...
+  - `build_2026_09_30_overnight`: BUILT on fix/hvac-auto-return-excursion-id (f93880230, from develop 5800d41ae): +2 kwargs in hvac_excursion.py - _auto_return forwards token.excursion_id (:714) and the startup-audit NUDGE preset restore forwards row.get("excursion_id") ...
+  - `validated_2026_10_02_overnight`: BATCH NAME-DIFF CLEAN (overnight 10-02). All six pending branches merged into one throwaway batch branch off develop a33613e58 with ZERO conflicts (overnight/batch-1002 @0c264d2a6), then one serial full-suite name-diff via scripts/suite_...
 
 ### `TEST-SOURCE-MUTATION-INPLACE-RESIDUAL-1` - About ten test files still edit real production code in place while the suite runs, so a killed run or a concurrent git operation can leave the repo silently broken — _WSJF 3.7 · v5 tc4 u2 /e3_
 thread: **platform** - status: **done** - approval: **implied**

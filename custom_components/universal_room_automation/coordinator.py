@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.41
+# Universal Room Automation vv5.103.42
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -1315,7 +1315,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """
         entities: list[str] = []
         if trigger in (TRIGGER_ENTER, TRIGGER_LUX_DARK):
-            entities.extend(self._get_config(CONF_LIGHTS, []))
+            # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, D5): under the new
+            # rule, night lights are a potential entry target in all
+            # three regimes (sleep, dark, daytime opt-in). Include them
+            # whenever CONF_NIGHT_LIGHTS is non-empty — the AI-rule
+            # conflict detector flags an AI rule that proposes a
+            # night-light turn-on during entry regardless of which
+            # regime is live. Deduped against CONF_LIGHTS.
+            _regular = self._get_config(CONF_LIGHTS, []) or []
+            _night = self._get_config(CONF_NIGHT_LIGHTS, []) or []
+            entities.extend(_regular)
+            entities.extend(e for e in _night if e not in _regular)
             entities.extend(self._get_config(CONF_FANS, []))
             if climate := self._get_config(CONF_CLIMATE_ENTITY):
                 entities.append(climate)

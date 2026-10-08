@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.103.41
+# Universal Room Automation vv5.103.42
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.103.41"
+VERSION: Final = "v5.103.42"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -925,6 +925,15 @@ CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS: Final = "night_light_sleep_brightness"
 CONF_NIGHT_LIGHT_SLEEP_COLOR: Final = "night_light_sleep_color"
 CONF_NIGHT_LIGHT_DAY_BRIGHTNESS: Final = "night_light_day_brightness"
 CONF_NIGHT_LIGHT_DAY_COLOR: Final = "night_light_day_color"
+
+# NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3): one boolean knob — when True, night
+# lights also come on at entry during the day (sleep=False, is_dark=False).
+# Default False preserves the shipped behaviour for rooms whose night lights
+# are purely dusk/sleep accents. Membership in CONF_NIGHT_LIGHTS wins over
+# any CONF_LIGHTS_ON_ENTRY picker: an explicit on-entry list cannot force a
+# night light on by day — this boolean does.
+CONF_NIGHT_LIGHTS_BY_DAY: Final = "night_lights_by_day"
+DEFAULT_NIGHT_LIGHTS_BY_DAY: Final = False
 
 # Night light defaults
 DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS: Final = 15  # 15% during sleep

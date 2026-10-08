@@ -29,6 +29,7 @@ from __future__ import annotations
 from typing import Any, Iterable
 
 from ..const import (
+    CONF_LIGHT_CAPABILITIES,
     CONF_LIGHT_EVENING_BRIGHTNESS_PCT,
     CONF_LIGHT_EVENING_COLOR_KELVIN,
     CONF_LIGHT_SCENE_DAY,
@@ -38,9 +39,20 @@ from ..const import (
     CONF_LIGHTS_LEAVE_ON_WHEN_EMPTY,
     CONF_LIGHTS_ON_ENTRY,
     CONF_LIGHTS_ON_ENTRY_DARK_ONLY,
+    CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
+    CONF_NIGHT_LIGHT_DAY_COLOR,
     CONF_NIGHT_LIGHT_EVENING_BRIGHTNESS,
     CONF_NIGHT_LIGHT_EVENING_COLOR,
+    CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
+    CONF_NIGHT_LIGHT_SLEEP_COLOR,
     CONF_NIGHT_LIGHTS,
+    DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
+    DEFAULT_NIGHT_LIGHT_DAY_COLOR,
+    DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
+    DEFAULT_NIGHT_LIGHT_SLEEP_COLOR,
+    LIGHT_CAPABILITY_BASIC,
+    LIGHT_CAPABILITY_BRIGHTNESS,
+    LIGHT_CAPABILITY_FULL,
     LIGHT_SLOT_DAY,
     LIGHT_SLOT_EVENING,
     LIGHT_SLOT_SLEEP,
@@ -71,6 +83,7 @@ def effective_entry_set(
     cfg: dict,
     is_sleep_hours: bool,
     is_dark: bool | None = None,
+    night_lights_by_day: bool | None = None,
 ) -> list[str]:
     """Return the entities entry should turn ON for this room right now.
 
@@ -107,7 +120,95 @@ def effective_entry_set(
     if dark_only and is_dark is False:
         base = [e for e in base if e not in dark_only]
 
+    # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3, R3-H1): the by-day "stop"
+    # — when the room is explicitly BRIGHT (``is_dark is False``) AND
+    # the operator did not opt in to by-day night lights, drop night-
+    # light members from the main entry turn-on set. Night lights are
+    # then driven ONLY by the dedicated night-light sub-branch (which
+    # here returns no opinion). Membership in CONF_NIGHT_LIGHTS wins
+    # over an explicit CONF_LIGHTS_ON_ENTRY: the picker cannot force a
+    # night light on by day — the by-day boolean does.
+    #
+    # ``is_dark is None`` (caller did not evaluate darkness, e.g. the
+    # equivalence tests and the sleep-only path) preserves the pre-
+    # cycle union — callers that WANT the by-day strip must supply the
+    # bool. Runtime callers always supply bool (True / False) via
+    # ``automation.is_dark(illuminance)``.
+    if (
+        night
+        and is_dark is False
+        and not bool(night_lights_by_day)
+    ):
+        night_set = set(night)
+        base = [e for e in base if e not in night_set]
+
     return _dedup_preserving_order(base)
+
+
+def night_light_turn_on_params(
+    cfg: dict,
+    mode: str,
+    *,
+    include_transition: bool = False,
+) -> dict:
+    """Build the turn-on service params for a night light in ``mode``.
+
+    Shared by canonical ``_turn_on_night_lights`` and the reconciler
+    ``_resolve_light`` night-light sub-rule so both controllers assert
+    identical brightness / colour (R3-M2).
+
+    ``mode`` is one of ``"sleep"``, ``"day"``, ``"evening"``. Evening
+    overrides fall back to day defaults when the operator did not set
+    them. Only brightness is included when capability is
+    BRIGHTNESS-only; color_temp_kelvin is added for FULL.
+    """
+    if mode == "sleep":
+        brightness = cfg.get(
+            CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
+            DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
+        )
+        color_temp = cfg.get(
+            CONF_NIGHT_LIGHT_SLEEP_COLOR,
+            DEFAULT_NIGHT_LIGHT_SLEEP_COLOR,
+        )
+    elif mode == "evening":
+        ov = slot_night_light_overrides(cfg, LIGHT_SLOT_EVENING)
+        brightness = ov.get(
+            "brightness",
+            cfg.get(
+                CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
+                DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
+            ),
+        )
+        color_temp = ov.get(
+            "color",
+            cfg.get(
+                CONF_NIGHT_LIGHT_DAY_COLOR,
+                DEFAULT_NIGHT_LIGHT_DAY_COLOR,
+            ),
+        )
+    else:  # "day"
+        brightness = cfg.get(
+            CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
+            DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
+        )
+        color_temp = cfg.get(
+            CONF_NIGHT_LIGHT_DAY_COLOR,
+            DEFAULT_NIGHT_LIGHT_DAY_COLOR,
+        )
+
+    out: dict = {}
+    # Review fix (R3-M2): default to BASIC so canonical and reconciler
+    # agree when CONF_LIGHT_CAPABILITIES is unset. BASIC adds no params.
+    capability = cfg.get(CONF_LIGHT_CAPABILITIES, LIGHT_CAPABILITY_BASIC)
+    if capability in (LIGHT_CAPABILITY_BRIGHTNESS, LIGHT_CAPABILITY_FULL):
+        out["brightness_pct"] = brightness
+    if capability == LIGHT_CAPABILITY_FULL:
+        out["color_temp_kelvin"] = color_temp
+    if include_transition:
+        from ..const import CONF_LIGHT_TRANSITION_ON
+        out["transition"] = cfg.get(CONF_LIGHT_TRANSITION_ON, 1)
+    return out
 
 
 def effective_exit_set(cfg: dict) -> list[str]:

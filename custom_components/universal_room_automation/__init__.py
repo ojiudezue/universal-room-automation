@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.103.41
+# Universal Room Automation vv5.103.42
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -7997,6 +7997,14 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
         _CONF_FAN_SPEED_LOW_TEMP,
         _CONF_FAN_SPEED_MED_TEMP,
         _CONF_FAN_SPEED_HIGH_TEMP,
+        # NIGHT-LIGHT-ACTION-SELECTOR-1 (REV 3): CONF_NIGHT_LIGHTS_BY_DAY
+        # is read LIVE every entry tick via ``self.config.get(...)``
+        # (automation.py _control_lights_entry — REFRESHED at coordinator.py
+        # :4934 top-of-tick) and via ``cfg.get(...)`` in the reconciler's
+        # ``_resolve_light`` (LIVE every reconcile). A toggle takes effect
+        # on the next occupancy event without a room reload — safe to
+        # suppress.
+        "night_lights_by_day",
     })
     # EXCLUDED (kept out of the allowlist):
     #   CONF_CLIMATE_ENTITY — reads at automation.py:1936/1946

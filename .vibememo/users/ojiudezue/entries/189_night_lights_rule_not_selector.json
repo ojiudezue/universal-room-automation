@@ -1,0 +1,15 @@
+{
+  "title": "Night lights: a rule plus one checkbox replaces the planned 3-way selector; retire operator automations by turning off, never deleting",
+  "type": "pivot",
+  "weight": "significant",
+  "date": "2026-10-08",
+  "summary": "REV 2 planned CONF_NIGHT_LIGHT_ENTRY_ACTION (3-way). Operator stated the rule directly: Sleep + occupied -> night lights on regardless of main-light action; outside Sleep only when the room is dark (existing is_dark); daytime only if the new CONF_NIGHT_LIGHTS_BY_DAY checkbox is set; existing sleep/day colours, no new timers; colour fields move to Advanced. REV 3 plan review found a HIGH (main-light path still lit night lights by day via automation.py:1411 + resolver effective_entry_set) - folded. Build dispatched Tier 2-DB. Retirement of operator HA night-light automations: disable only, and only after the room and light are onboarded in URA - coverage check found many lights not in any URA room (Powder, Master Closet, Staircase, guest bath/toilet, Master Hallway, garage-hallway 3rdR) and the moved Jaya-bath light still configured in Jaya Bathroom though now in the Dining Room.",
+  "why": "Operator: light config must be economical and easy to understand; his Third Reality automations are the model but not slavishly (URA already has timers). A rule removes the overloaded entry-action ambiguity without adding a selector.",
+  "implications": "Net config: +1 field, -5 from simple view. Rooms whose night lights came on by day with main lights will stop unless the checkbox is set. Automation retirement is gated on room onboarding - expect config work (add rooms/lights) before most automations can be turned off.",
+  "alternatives_considered": [
+    "3-way night-light action selector (REV 2) - dropped",
+    "Migration-only option B for 7 rooms - superseded by the rule"
+  ],
+  "confidence": "medium",
+  "revisit_trigger": "Live validation shows night lights missing at dusk in rooms without lux sensors."
+}
