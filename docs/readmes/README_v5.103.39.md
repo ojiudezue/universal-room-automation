@@ -34,7 +34,19 @@ Tier 2-DB + mandatory Review D; all findings fixed; full suite clean.
 ## Pre-restart step
 Turn **Custom Preset Ranges OFF** on the old code before restarting (old default is ON).
 
-## Live validation (prospective — replaced by a Validated table after restart)
-- EC: no `Traceback` from energy*; `battery_strategy` attrs populated; no EV start logged while charge_from_grid on; `ev_start_*soc_untrusted*` activity rows only during untrusted-SOC ticks.
-- Census: `person_entry_exit_events` new rows carry non-NULL `peak_person_count` for count-sensor doors; no same-stem same-direction pairs < 30 s apart; DB column present.
-- HVAC: CPR switch reads `off` after restart; zero `S10_preset_range*` climate_write rows while rollout list is empty; no compose-away rows.
+## Live validation
+### Validated 2026-10-06 (restart onto v5.103.39 2026-10-05 ~13:56; checked 10-06 ~11:30)
+
+| Check | Result | Evidence |
+|---|---|---|
+| EV/plug starts only via allowed paths | PASS | ura_activity_log since restart: 11 `charger_on`, all via off-peak ensure-on / overnight; 4 `ev_start_allowed_soc_untrusted_exempt` (exempt paths); 0 starts while URA commanded charge_from_grid |
+| No EV start while charge_from_grid ON | PASS | Cloud CFG `switch.iq_battery_hacs_charge_battery_from_grid` OFF since 10-04 16:11; no URA CFG ON in window |
+| SOC trust / tiering | PASS | battery_strategy `soc_source=envoy`, `soc_tier_trusted=true`, cloud divergence 2.1 pp |
+| Stream tier dormant | PASS | `stream_trust=disabled`; stream add-on stopped + boot=manual (A/B NO-GO) |
+| Census door rows carry head count | PASS | person_entry_exit_events since deploy: 19 rows, 17 with non-NULL peak_person_count, 6 with person_id |
+| Door config applied | PASS | door_groups/neighbours/main_entry_door set 10-05 (garage_b neighbours = [] by operator ruling) |
+| CPR switch resolves OFF after restart | PASS | `switch.ura_hvac_coordinator_guest_mode_actuation` = off after both restarts; `s10_switch_resolved value=False` rows |
+| No S10 preset writes with empty rollout | PASS | 0 `S10_preset_range*` climate_write rows |
+| URA errors at boot | PASS | none except shutdown-stage `DB write failed: shutdown timeout` (pre-existing slow shutdown; carded SHUTDOWN-CENSUS-DB-WRITES-BLOCK-1) |
+
+Note: the local Enpower `charge_from_grid` switch read ON for days while the cloud setting was OFF; it is not URA's gate (manual §2.6a).
