@@ -1,0 +1,24 @@
+{
+  "format_version": "2.1",
+  "entry_id": "191",
+  "author": "ojiudezue",
+  "session_id": "claude_20261008_171949_ship_v5_103_42",
+  "timestamp": "2026-10-08T17:19:49Z",
+  "type": "reasoning",
+  "weight": "significant",
+  "title": "v5.103.42 shipped: Night lights follow one simple rule",
+  "summary": "Night lights follow one simple rule",
+  "why": "Operator replaced the planned 3-way night-light selector with a rule (Sleep=on; else dark-only; per-room by-day opt-in) and demanded economical config, so the build adds one boolean and hides 5 colour fields. Plan review caught the main-light path still lighting night lights by day (HIGH). Reviews A+B independently caught switch night lights receiving brightness params (would fail every reconcile); C proved the canonical colour path was untested and the 'shared helper' claim false - canonical now routes through the helper with goldens. Full suite caught one stale parity oracle encoding the old entry_action contract; updated to the intended rule, verified test-only.",
+  "implications": "Shipped NIGHT-LIGHT-ACTION-SELECTOR-1, LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1 at v5.103.42; card(s) sit shipped_organic pending validation. Acceptance in README_v5.103.42.md (Live criteria).",
+  "revisit_trigger": "ura_activity_log: after one dusk + one Sleep night, an entry=none room with night lights (Living Room) shows night-light turn_on at dusk and in Sleep, zero night-light turn_on rows in bright daylight for rooms without night_lights_by_day, and no repeated switch.turn_on errors in HA log",
+  "refs": {
+    "cards": [
+      "NIGHT-LIGHT-ACTION-SELECTOR-1",
+      "LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1"
+    ],
+    "docs": [
+      "docs/readmes/README_v5.103.42.md"
+    ],
+    "release_notes": "Night lights: always on in Sleep when occupied; otherwise only when dark (room sensor, then outdoor Illuminance, then sun) unless the new 'Use night lights by day' box is ticked. Both controllers share one colour/brightness helper; switch night lights get a plain on; manual dims stick. One new setting; colour fields moved to Advanced."
+  }
+}

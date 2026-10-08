@@ -15415,7 +15415,8 @@ cards:
   title: Night lights have no actuation policy of their own — they ride on the regular lights' entry
     action, so "none" silently means two different things
   thread: lights
-  status: "waiting_operator"
+  status: shipped_organic
+  shipped_version: v5.103.42
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 5, time_criticality 3, effort 5 - Tier 2 config surface; unblocks LIGHT-SLEEP-ENTRYNONE-DIVERGENCE-1.'
   rank: {value: 5, time_criticality: 3, effort: 5}
   created: '2026-09-15'
@@ -15480,7 +15481,8 @@ cards:
   title: Canonical vs reconciler disagree on night lights in entry=none rooms during sleep (pre-existing
     parity break)
   thread: presence
-  status: planned
+  status: shipped_organic
+  shipped_version: v5.103.42
   groom_2026_09_29_rank: 'Rank scored during groom (was default-scored): value 4, time_criticality 2, effort 3 - blocked on the selector; small parity fix after.'
   rank: {value: 4, time_criticality: 2, effort: 3}
   SUPERSEDED_QUESTION_2026_09_15: 'The A-or-B PICK on this card is WITHDRAWN. The operator rejected
