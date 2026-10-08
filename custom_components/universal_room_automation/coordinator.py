@@ -2305,11 +2305,19 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     if isinstance(entry, (list, tuple)) and len(entry) == 3:
                         self._stuck_excluded_fired.add(tuple(entry))
                 self._stuck_sensor_fired_date = fired_date
+            # STUCK-SENSOR-WARNING-PER-TICK-1 review LOW: a sensor already
+            # latched today logs only DEBUG after a restart, so name the
+            # still-latched "continuous" sensors once here.
+            _latched = sorted(
+                k[2] for k in self._stuck_sensor_fired if k[0] == "continuous"
+            )
             _LOGGER.info(
                 "Restored stuck-state for room %s: %d sensor_on_since "
-                "entries, %d fired-latches (date=%s)",
+                "entries, %d fired-latches (date=%s); stuck sensors "
+                "already reported today: %s",
                 self.entry.data.get("room_name", "unknown"),
                 len(since_map), len(self._stuck_sensor_fired), fired_date,
+                ", ".join(_latched) or "none",
             )
         except Exception:  # noqa: BLE001 — fail-open
             _LOGGER.debug(
