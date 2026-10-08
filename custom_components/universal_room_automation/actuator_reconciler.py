@@ -868,11 +868,18 @@ class ActuatorReconciler:
                         is_sleep_hours=False, is_dark=is_dark,
                     )
                     _mode = "evening" if _slot == LIGHT_SLOT_EVENING else "day"
-                    params = _nl_params(cfg, _mode)
+                    # Review fix (R3): mirror the sleep guard at :824 —
+                    # switch.* night lights have no brightness/colour, so
+                    # they must receive {} and plain turn_on. _nl_params
+                    # is only consulted for domain == "light".
+                    params = _nl_params(cfg, _mode) if domain == "light" else {}
+                    # Review fix (R3-M3): day/evening — manual dim override.
+                    # Dropping has_params_to_apply lets the already-on
+                    # no-op gate (:645) skip the clobber. The light is
+                    # (re-)parameterised only on the OFF→ON edge.
                     return DesiredState(
                         state="on", domain=domain, service="turn_on",
                         params=params, reason="entry_night_light",
-                        has_params_to_apply=bool(params),
                     )
                 # dark=False and nl_by_day=False → NO-OPINION
                 return None

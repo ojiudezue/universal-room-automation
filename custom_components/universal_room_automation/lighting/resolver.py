@@ -50,6 +50,7 @@ from ..const import (
     DEFAULT_NIGHT_LIGHT_DAY_COLOR,
     DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
     DEFAULT_NIGHT_LIGHT_SLEEP_COLOR,
+    LIGHT_CAPABILITY_BASIC,
     LIGHT_CAPABILITY_BRIGHTNESS,
     LIGHT_CAPABILITY_FULL,
     LIGHT_SLOT_DAY,
@@ -197,11 +198,16 @@ def night_light_turn_on_params(
         )
 
     out: dict = {}
-    capability = cfg.get(CONF_LIGHT_CAPABILITIES)
+    # Review fix (R3-M2): default to BASIC so canonical and reconciler
+    # agree when CONF_LIGHT_CAPABILITIES is unset. BASIC adds no params.
+    capability = cfg.get(CONF_LIGHT_CAPABILITIES, LIGHT_CAPABILITY_BASIC)
     if capability in (LIGHT_CAPABILITY_BRIGHTNESS, LIGHT_CAPABILITY_FULL):
         out["brightness_pct"] = brightness
     if capability == LIGHT_CAPABILITY_FULL:
         out["color_temp_kelvin"] = color_temp
+    if include_transition:
+        from ..const import CONF_LIGHT_TRANSITION_ON
+        out["transition"] = cfg.get(CONF_LIGHT_TRANSITION_ON, 1)
     return out
 
 

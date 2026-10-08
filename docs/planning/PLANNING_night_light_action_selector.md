@@ -677,6 +677,25 @@ Verdict: PLAN-FIX-REQUIRED (folded below; builder implements as written here).
 - New: `test_night_light_rule_const.py` (2), `test_night_light_rule_resolver.py` (11), `test_night_light_rule_parity.py` (15, real `_control_lights_entry` + `_resolve_light` via the sibling `_real_modules` fixture chained in), `test_builtin_target_entities_night_light_entry.py` (3), `test_night_light_rule_options_flow.py` (17). All green.
 - Touched for intentional behaviour change: `test_night_light_off_path.py::test_D6_exit_target_entities_include_night_only` (D5 now unions night lights into the ENTER target set) and `test_room_advanced_fields.py::test_meta_every_step_with_advanced_fields_passes_hint` (hard-coded set extended with `devices`).
 
+### Review fix-up pass (2026-10-08, post-3-review)
+Fixes 1-6 from the three reviews, baseline tag `pre-review-night-light-rule`:
+1. **A/B HIGH-1** — `actuator_reconciler._resolve_light` night-light sub-branch now guards `_nl_params` with `domain == "light"`; switch.* night lights receive `{}` and plain `switch.turn_on` (mirrors the sleep guard at :824).
+2. **C HIGH / A MED** — canonical `_turn_on_night_lights` now builds its `service_data` from `night_light_turn_on_params(cfg, mode, include_transition=True)`. The helper owns transition + capability-default BASIC so canonical and reconciler route through the same source. Red-hue override (sleep + FULL + colour-capable bulb) stays per-entity in canonical (needs live hass lookup). Golden parametrized tests pin canonical payload for sleep/day/evening × BASIC/BRIGHTNESS/FULL, and `test_canonical_and_reconciler_agree_day_full` asserts canonical payload (minus `transition`/`entity_id`) == reconciler `params`.
+3. **A/B MED** — reconciler day/evening night-light branch no longer sets `has_params_to_apply=bool(params)`. An already-on night light is now a reconcile NO-OP (`:645`) so a person's manual dim survives. Sleep branch unchanged. Covered by `test_reconciler_day_night_light_already_on_at_dim_no_turn_on` + `test_reconciler_day_night_light_off_still_turns_on`.
+4. **C MED** — new `test_options_flow_rendered_default_night_lights_by_day_is_false` reads the rendered schema's `vol.Optional` default (not just the constant).
+5. **C MED** — new `test_canonical_night_set_strip_dark_room_on_entry_picker` drives `_control_lights_entry` with `CONF_LIGHTS_ON_ENTRY=[main, night]`; asserts the night light appears only in a batch with night-light params, never alongside main lights.
+6. **C LOW** — new `test_night_lights_by_day_in_room_suppress_set` text-asserts `"night_lights_by_day"` is in the `_ROOM_SUPPRESS_KEYS` frozenset literal.
+
+Per-site mutation drills (PYTHONDONTWRITEBYTECODE=1, cache cleared, restored clean each time):
+| Site | Mutation | Test → result |
+|---|---|---|
+| reconciler switch guard | drop `if domain=="light"` branch | `test_reconciler_switch_night_light_has_no_light_params` FAIL |
+| canonical helper routing | drop `**base_params` from `service_data` | `test_canonical_payload_full_capability_matches_helper[*]` FAIL (3) |
+| helper transition fold | remove `include_transition` block | `test_canonical_payload_basic_capability_matches_helper[*]` FAIL (3) |
+| manual-dim fix | re-add `has_params_to_apply=bool(params)` | `test_reconciler_day_night_light_already_on_at_dim_no_turn_on` FAIL |
+
+Out of scope (operator-tagged, carded): reconciler SLEEP branch sends brightness only vs canonical colour — pre-existing, untouched by this pass.
+
 ### Mutation drill — restored + git-status clean after each
 
 | Site | Mutation | Failing test |

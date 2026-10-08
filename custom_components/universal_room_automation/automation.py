@@ -1706,65 +1706,25 @@ class RoomAutomation:
         if not night_lights:
             return
 
-        # Get settings based on mode
-        if mode == "sleep":
-            brightness = self.config.get(
-                CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS,
-                DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS
-            )
-            color_temp = self.config.get(
-                CONF_NIGHT_LIGHT_SLEEP_COLOR,
-                DEFAULT_NIGHT_LIGHT_SLEEP_COLOR
-            )
-        elif mode == "evening":
-            # Slice E D5: evening slot. REUSE day defaults for any key
-            # the operator did not override.
-            from .lighting.resolver import slot_night_light_overrides
-            ov = slot_night_light_overrides(self.config, LIGHT_SLOT_EVENING)
-            brightness = ov.get(
-                "brightness",
-                self.config.get(
-                    CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
-                    DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS,
-                ),
-            )
-            color_temp = ov.get(
-                "color",
-                self.config.get(
-                    CONF_NIGHT_LIGHT_DAY_COLOR,
-                    DEFAULT_NIGHT_LIGHT_DAY_COLOR,
-                ),
-            )
-        else:  # day mode
-            brightness = self.config.get(
-                CONF_NIGHT_LIGHT_DAY_BRIGHTNESS,
-                DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS
-            )
-            color_temp = self.config.get(
-                CONF_NIGHT_LIGHT_DAY_COLOR,
-                DEFAULT_NIGHT_LIGHT_DAY_COLOR
-            )
-        
+        # Review fix (R3-M2): the shared helper owns brightness / colour
+        # / transition / capability default so both this canonical path
+        # AND the reconciler assert identical params. Red-hue override
+        # (sleep + FULL + colour-capable bulb) still happens below per
+        # entity, since it needs a live hass lookup.
+        from .lighting.resolver import night_light_turn_on_params as _nl_params
+        base_params = _nl_params(self.config, mode, include_transition=True)
+        brightness = base_params.get("brightness_pct")
+        color_temp = base_params.get("color_temp_kelvin")
+
         # Separate light.* from switch.*
         actual_lights = [e for e in night_lights if e.startswith("light.")]
         switches_as_lights = [e for e in night_lights if e.startswith("switch.")]
-        
+
         # Turn on light.* entities with brightness/color based on capability
         if actual_lights:
-            service_data = {
-                "entity_id": actual_lights,
-                "transition": self.config.get(CONF_LIGHT_TRANSITION_ON, 1),
-            }
-            
+            service_data = {"entity_id": actual_lights, **base_params}
+
             capability = self.config.get(CONF_LIGHT_CAPABILITIES, LIGHT_CAPABILITY_BASIC)
-            
-            # Add brightness for BRIGHTNESS or FULL capability
-            if capability in [LIGHT_CAPABILITY_BRIGHTNESS, LIGHT_CAPABILITY_FULL]:
-                service_data["brightness_pct"] = brightness
-            
-            # Add color temp for FULL capability only
-            if capability == LIGHT_CAPABILITY_FULL:
-                service_data["color_temp_kelvin"] = color_temp
 
             # Operator 2026-10-02: at sleep, colour-capable night lights go
             # red (default) — kelvin cannot make red. White-only lights keep
